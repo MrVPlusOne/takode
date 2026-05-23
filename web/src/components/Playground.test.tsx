@@ -69,6 +69,7 @@ describe("Playground", () => {
 
     const realChat = screen.getByTestId("playground-real-chat-stack");
     expect(realChat).toBeTruthy();
+    expect(screen.getByTestId("playground-mobile-feed-width")).toBeTruthy();
 
     // Dynamic tool permission should be visible inside the integrated ChatView.
     expect(within(realChat).getByText("dynamic:code_interpreter")).toBeTruthy();

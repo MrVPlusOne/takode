@@ -392,11 +392,19 @@ export function PlaygroundOverviewSections() {
         title="Real Chat Stack"
         description="Integrated ChatView using real MessageFeed + PermissionBanner + Composer components"
       >
-        <div
-          data-testid="playground-real-chat-stack"
-          className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[620px]"
-        >
-          <ChatView sessionId={MOCK_SESSION_ID} />
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <div
+            data-testid="playground-real-chat-stack"
+            className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[620px]"
+          >
+            <ChatView sessionId={MOCK_SESSION_ID} />
+          </div>
+          <div
+            data-testid="playground-mobile-feed-width"
+            className="w-[320px] max-w-full border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[520px]"
+          >
+            <MessageFeed sessionId={MOCK_SESSION_ID} />
+          </div>
         </div>
       </Section>
 

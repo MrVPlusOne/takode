@@ -1112,7 +1112,10 @@ function UserMessage({
 
   return (
     <div className="flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out]">
-      <div className="max-w-[85%] sm:max-w-[80%] sm:min-w-[200px] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">
+      <div
+        data-testid="user-message-bubble"
+        className="min-w-0 max-w-[calc(100%_-_2rem)] sm:max-w-[80%] sm:min-w-[200px] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg"
+      >
         {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
         {message.agentSource && <AgentSourceBadge source={message.agentSource} />}
         {replyContext && <UserReplyChip previewText={replyContext.previewText} messageId={replyContext.messageId} />}
@@ -1398,7 +1401,7 @@ function AssistantMessage({
 
   if (blocks.length === 0 && message.content) {
     return (
-      <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-3"}`}>
+      <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-2 sm:gap-3"}`}>
         {!hidePaw && <PawTrailAvatar />}
         <div ref={contentRef} className="flex-1 min-w-0 pr-6">
           {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
@@ -1428,7 +1431,7 @@ function AssistantMessage({
   }
 
   return (
-    <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-3"}`}>
+    <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-2 sm:gap-3"}`}>
       {!hidePaw && <PawTrailAvatar />}
       <div ref={contentRef} className="flex-1 min-w-0 space-y-3 pr-6">
         {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
@@ -1515,7 +1518,7 @@ function MessageActionBar({
   sessionId?: string;
 }) {
   return (
-    <div className="absolute top-0 right-0 shrink-0 flex items-center opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100 transition-opacity">
+    <div className="absolute top-0 right-0 shrink-0 flex flex-col items-center opacity-100 transition-opacity sm:flex-row sm:opacity-0 sm:group-hover/msg:opacity-100">
       {sessionId && <ReplyButton message={message} sessionId={sessionId} />}
       <CopyMessageButton message={message} contentRef={contentRef} sessionId={sessionId} />
     </div>

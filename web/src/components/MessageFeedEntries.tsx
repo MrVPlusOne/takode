@@ -762,7 +762,7 @@ function ToolMessageGroup({
     const showLiveCodexTerminalStub = isCodexSession && item.name === "Bash" && activeCodexTerminalIds.has(item.id);
     return (
       <div className="animate-[fadeSlideIn_0.2s_ease-out]" data-feed-block-id={getToolGroupFeedBlockId(group)}>
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-2 sm:gap-3">
           <PawTrailAvatar />
           <div className="flex-1 min-w-0">
             {showLiveCodexTerminalStub ? (
@@ -789,7 +789,7 @@ function ToolMessageGroup({
 
   return (
     <div className="animate-[fadeSlideIn_0.2s_ease-out]" data-feed-block-id={getToolGroupFeedBlockId(group)}>
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-2 sm:gap-3">
         <PawTrailAvatar />
         <div className="flex-1 min-w-0">
           <div className="border border-cc-border rounded-[10px] overflow-hidden bg-cc-card">
@@ -1108,7 +1108,7 @@ function CollapsedTurnRows({
         }
 
         return (
-          <div key={row.key} className="px-3 py-2">
+          <div key={row.key} className="px-2.5 py-2 sm:px-3">
             <HidePawContext.Provider value={true}>
               <FeedEntries
                 entries={[row.entry]}
@@ -1831,7 +1831,7 @@ export const TurnEntries = memo(function TurnEntries({
                           />
                         )}
                         {((turn.collapsedEntries?.length ?? 0) > 0 || turn.subConclusions.length > 0) && (
-                          <div className="flex items-start gap-3">
+                          <div className="flex items-start gap-2 sm:gap-3">
                             <PawTrailAvatar />
                             <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
                               {turn.subConclusions.length > 0 && (

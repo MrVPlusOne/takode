@@ -1087,6 +1087,35 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.getByText("Continue")).toBeTruthy();
   });
 
+  it("uses compact mobile feed gutters for collapsed turns while restoring desktop spacing at sm", () => {
+    // Mobile width recovery is intentionally scoped to the feed and collapsed
+    // activity chrome; the sm classes keep the existing tablet/desktop rhythm.
+    const sid = "test-collapsed-turn-mobile-width";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "First question" }),
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "tool_use", id: "tu-1", name: "Read", input: { file_path: "/a.ts" } }],
+      }),
+      makeMessage({ id: "a2", role: "assistant", content: "Here is the answer" }),
+      makeMessage({ id: "u2", role: "user", content: "Second question" }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    const scrollContainerClassName = screen.getByTestId("message-feed-scroll-container").className;
+    expect(scrollContainerClassName).toContain("px-2");
+    expect(scrollContainerClassName).toContain("sm:px-4");
+    const collapsedCard = screen.getByText("Here is the answer").closest(".rounded-xl");
+    const collapsedShellClassName = collapsedCard?.parentElement?.className ?? "";
+    expect(collapsedShellClassName).toContain("gap-2");
+    expect(collapsedShellClassName).toContain("sm:gap-3");
+    const collapsedRowClassName = screen.getByText("Here is the answer").closest(".px-2\\.5")?.className ?? "";
+    expect(collapsedRowClassName).toContain("sm:px-3");
+  });
+
   it("shows model-responding stage while Codex is streaming an image-backed request", () => {
     const sid = "test-responding-image-stage";
     setStoreSessionState(sid, { backend_type: "codex", codex_image_send_stage: "responding" });
