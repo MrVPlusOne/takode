@@ -808,7 +808,10 @@ export function PlaygroundOverviewSections() {
             <MessageBubble message={MSG_ERROR_GENERIC} />
           </Card>
           <Card label="Grouped repeated error cards">
-            <div className="h-[260px] overflow-hidden rounded-lg border border-cc-border bg-cc-bg">
+            <div
+              className="h-[360px] overflow-hidden rounded-lg border border-cc-border bg-cc-bg"
+              data-testid="playground-grouped-repeated-error-feed"
+            >
               <MessageFeed sessionId={PLAYGROUND_REPEATED_ERROR_SESSION_ID} />
             </div>
           </Card>

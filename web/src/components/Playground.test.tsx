@@ -68,6 +68,12 @@ describe("Playground", () => {
     expect(screen.getByText("Timer Messages")).toBeTruthy();
     expect(screen.getByText("Grouped repeated error cards")).toBeTruthy();
     expect(screen.getByText("Same error happened 4 times")).toBeTruthy();
+    expect(screen.getByTestId("playground-grouped-repeated-error-feed")).toHaveClass("h-[360px]");
+
+    const repeatedErrorText =
+      "Error: stream disconnected before completion: error sending request for url (http://localhost:4000/responses)";
+    expect(screen.getAllByText(repeatedErrorText)).toHaveLength(2);
+    expect(screen.getByText("Session restored after operator intervention")).toBeTruthy();
 
     const realChat = screen.getByTestId("playground-real-chat-stack");
     expect(realChat).toBeTruthy();
