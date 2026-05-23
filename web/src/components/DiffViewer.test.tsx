@@ -431,10 +431,10 @@ diff --git a/b.ts b/b.ts
     spy.mockRestore();
   });
 
-  it("shows expand button between hunks in unified-diff-only mode (no source text)", () => {
+  it("does not offer hidden-context expansion for unified diffs without source text", () => {
     // Two hunks separated by a gap: hunk 1 at lines 1-5, hunk 2 at lines 20-25.
-    // Without oldText/newText, buildRenderBlocks should still generate gap blocks
-    // from the hunk metadata so the user can see there are hidden lines.
+    // Without source text, DiffViewer can infer the gap size but cannot render
+    // the omitted row text, so it must not offer an expander that creates blank rows.
     const unifiedDiff = `diff --git a/file.ts b/file.ts
 --- a/file.ts
 +++ b/file.ts
@@ -455,9 +455,44 @@ diff --git a/b.ts b/b.ts
 
     render(<DiffViewer unifiedDiff={unifiedDiff} mode="full" />);
 
-    // There should be a gap between the two hunks (lines 6-19 = 14 lines)
-    const expandButton = screen.getByRole("button", { name: /Show \d+ unchanged lines/ });
-    expect(expandButton).toBeTruthy();
-    expect(expandButton.textContent).toContain("14");
+    expect(screen.queryByRole("button", { name: /Show \d+ unchanged lines/ })).toBeNull();
+  });
+
+  it("expands hidden context in unified diffs when source text is supplied", () => {
+    const oldLines = Array.from({ length: 24 }, (_, i) => `const hidden line ${i + 1} = ${i + 1};`);
+    const newLines = [...oldLines];
+    oldLines[1] = "const b = 2;";
+    newLines[1] = "const b = 20;";
+    oldLines[20] = "const u = 21;";
+    newLines[20] = "const u = 210;";
+    const unifiedDiff = `diff --git a/file.ts b/file.ts
+--- a/file.ts
++++ b/file.ts
+@@ -1,5 +1,5 @@
+ const hidden line 1 = 1;
+-const b = 2;
++const b = 20;
+ const hidden line 3 = 3;
+ const hidden line 4 = 4;
+ const hidden line 5 = 5;
+@@ -20,5 +20,5 @@
+ const hidden line 20 = 20;
+-const u = 21;
++const u = 210;
+ const hidden line 22 = 22;
+ const hidden line 23 = 23;
+ const hidden line 24 = 24;`;
+
+    render(
+      <DiffViewer
+        unifiedDiff={unifiedDiff}
+        sourceFiles={[{ fileName: "file.ts", oldText: oldLines.join("\n"), newText: newLines.join("\n") }]}
+        mode="full"
+      />,
+    );
+
+    expect(screen.queryByText("const hidden line 10 = 10;")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Show 14 unchanged lines/ }));
+    expect(screen.getByText("const hidden line 10 = 10;")).toBeTruthy();
   });
 });

@@ -653,6 +653,17 @@ function UpdateDiffDetail({
 
   const commit = updateState.status === "ready" ? updateState.data.commit : fallbackCommit;
   const diff = updateState.status === "ready" ? updateState.data.diff : "";
+  const sourceFiles =
+    updateState.status === "ready"
+      ? (updateState.data.sourceFiles ?? []).map((sourceFile) => {
+          const mapped = {
+            fileName: sourceFile.path,
+            oldText: sourceFile.oldText,
+            newText: sourceFile.newText,
+          };
+          return sourceFile.previousPath ? { ...mapped, previousFileName: sourceFile.previousPath } : mapped;
+        })
+      : undefined;
   const repoRoot = updateState.status === "ready" ? updateState.data.repo.root : "";
   const provenance = [commit.quest, commit.session, ...commit.sources].filter((source): source is string =>
     Boolean(source),
@@ -716,6 +727,7 @@ function UpdateDiffDetail({
             >
               <DiffViewer
                 unifiedDiff={diff}
+                sourceFiles={sourceFiles}
                 mode="full"
                 showLineNumbers
                 stickyFileHeaders

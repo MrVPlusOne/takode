@@ -10,6 +10,8 @@ export interface DiffViewerProps {
   newText?: string;
   /** Pre-computed unified diff string (e.g. from git diff) */
   unifiedDiff?: string;
+  /** Full source snapshots for unified diffs, used to render expandable omitted context rows. */
+  sourceFiles?: DiffViewerSourceFile[];
   /** File name/path for the header */
   fileName?: string;
   /** Optional stats text shown in the file header (e.g. +10 -2) */
@@ -28,6 +30,13 @@ export interface DiffViewerProps {
   stickyFileHeaders?: boolean;
   /** Allow each rendered file section to be collapsed locally. */
   collapsibleFiles?: boolean;
+}
+
+export interface DiffViewerSourceFile {
+  fileName: string;
+  previousFileName?: string;
+  oldText: string;
+  newText: string;
 }
 
 interface DiffLine {
@@ -62,6 +71,25 @@ interface HighlightedLineMaps {
 
 const GAP_EXPAND_CHUNK = 50;
 const MAX_VISIBLE_DIR_SEGMENTS = 2;
+
+function normalizeDiffPath(path: string): string {
+  return path
+    .replace(/\\/g, "/")
+    .replace(/^(?:a|b)\//, "")
+    .replace(/^\/+/, "");
+}
+
+function buildSourceFileMap(sourceFiles: DiffViewerSourceFile[] | undefined): Map<string, DiffViewerSourceFile> {
+  const sources = new Map<string, DiffViewerSourceFile>();
+  for (const source of sourceFiles ?? []) {
+    const names = [source.fileName, source.previousFileName].filter((name): name is string => !!name);
+    for (const name of names) {
+      sources.set(name, source);
+      sources.set(normalizeDiffPath(name), source);
+    }
+  }
+  return sources;
+}
 
 export function formatFileHeaderPath(fileName: string): { dirLabel: string; baseLabel: string } {
   const normalized = fileName.replace(/\\/g, "/");
@@ -479,7 +507,7 @@ function buildRenderBlocks(
   oldSourceLines: string[] | null,
   newSourceLines: string[] | null,
 ): RenderBlock[] {
-  const hasSource = !!oldSourceLines?.length && !!newSourceLines?.length;
+  const hasSource = oldSourceLines !== null && newSourceLines !== null;
   const blocks: RenderBlock[] = [];
   let prevOld = 1;
   let prevNew = 1;
@@ -489,7 +517,7 @@ function buildRenderBlocks(
     const gapOld = hunk.oldStart - prevOld;
     const gapNew = hunk.newStart - prevNew;
 
-    if (gapOld > 0 && gapNew > 0 && gapOld === gapNew) {
+    if (hasSource && gapOld > 0 && gapNew > 0 && gapOld === gapNew) {
       const lines: DiffLine[] = [];
       for (let j = 0; j < gapOld; j++) {
         const oldLineNo = prevOld + j;
@@ -596,6 +624,7 @@ export const DiffViewer = memo(function DiffViewer({
   oldText,
   newText,
   unifiedDiff,
+  sourceFiles,
   fileName,
   fileStatsLabel,
   mode = "compact",
@@ -643,6 +672,7 @@ export const DiffViewer = memo(function DiffViewer({
       return { oldLines: null, newLines: null };
     }
   }, [hasSource, language, normalizedNewText, normalizedOldText]);
+  const sourceFileMap = useMemo(() => buildSourceFileMap(sourceFiles), [sourceFiles]);
 
   const data = useMemo<ParsedFileDiff[]>(() => {
     try {
@@ -699,8 +729,12 @@ export const DiffViewer = memo(function DiffViewer({
         </button>
       )}
       {data.map((file, fi) => {
-        const blocks = buildRenderBlocks(file.hunks, oldSourceLines, newSourceLines);
         const resolvedFileName = file.fileName || fileName || "";
+        const fileSource =
+          sourceFileMap.get(resolvedFileName) ?? sourceFileMap.get(normalizeDiffPath(resolvedFileName));
+        const fileOldSourceLines = fileSource ? splitSourceToLines(fileSource.oldText) : oldSourceLines;
+        const fileNewSourceLines = fileSource ? splitSourceToLines(fileSource.newText) : newSourceLines;
+        const blocks = buildRenderBlocks(file.hunks, fileOldSourceLines, fileNewSourceLines);
         const resolvedHeaderActions = renderHeaderActions ? renderHeaderActions(resolvedFileName) : headerActions;
         const fileCollapseKey = `${fi}:${resolvedFileName}`;
         const isFileCollapsed = !!collapsedFiles[fileCollapseKey];
@@ -822,6 +856,7 @@ export const DiffViewer = memo(function DiffViewer({
                   oldText={oldText}
                   newText={newText}
                   unifiedDiff={unifiedDiff}
+                  sourceFiles={sourceFiles}
                   fileName={fileName}
                   mode="full"
                   showLineNumbers

@@ -246,6 +246,14 @@ export interface MemoryRecentCommit {
   changedFiles: MemoryCommitFileChange[];
 }
 
+export interface MemoryUpdateDiffSourceFile {
+  status: string;
+  path: string;
+  previousPath?: string;
+  oldText: string;
+  newText: string;
+}
+
 export interface MemoryCatalogResponse {
   repo: MemoryRepoInfo;
   entries: MemoryCatalogEntry[];
@@ -289,6 +297,7 @@ export interface MemoryUpdateDiffResponse {
   repo: MemoryRepoInfo;
   commit: MemoryRecentCommit;
   diff: string;
+  sourceFiles: MemoryUpdateDiffSourceFile[];
 }
 
 export interface CreateSessionOpts {

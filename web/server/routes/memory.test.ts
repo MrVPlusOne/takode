@@ -354,6 +354,14 @@ source:
     expect(json.diff).toContain("diff --git a/knowledge/service-x.md b/knowledge/service-x.md");
     expect(json.diff).toContain("-Service X starts with the old command.");
     expect(json.diff).toContain("+Service X starts with the new command.");
+    expect(json.sourceFiles).toEqual([
+      expect.objectContaining({
+        status: "M",
+        path: "knowledge/service-x.md",
+        oldText: expect.stringContaining("Service X starts with the old command."),
+        newText: expect.stringContaining("Service X starts with the new command."),
+      }),
+    ]);
 
     const invalid = await app.request("/memory/updates/not-a-sha?serverSlug=prod");
     expect(invalid.status).toBe(400);

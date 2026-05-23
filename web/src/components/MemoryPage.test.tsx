@@ -246,9 +246,14 @@ function otherRecordResponse(): MemoryRecordResponse {
 }
 
 function updateDiffResponse(commit = recentCommit()): MemoryUpdateDiffResponse {
-  const longAddedLine =
-    "+Service X long diagnostic: " +
+  const longLineTail =
     "alpha-beta-gamma-delta-epsilon-zeta-eta-theta-iota-kappa-lambda-mu-nu-xi-omicron-pi-rho-sigma-tau";
+  const oldLines = Array.from({ length: 24 }, (_, index) => `Service X unchanged context ${index + 1}.`);
+  const newLines = [...oldLines];
+  oldLines[3] = "Service X is started through an old command.";
+  newLines[3] = `Service X is started through the updated command. ${longLineTail}`;
+  oldLines[20] = "Service X retry policy uses the old interval.";
+  newLines[20] = "Service X retry policy uses the updated interval.";
 
   return {
     repo: catalogResponse().repo,
@@ -258,15 +263,30 @@ function updateDiffResponse(commit = recentCommit()): MemoryUpdateDiffResponse {
       "index 1111111..2222222 100644",
       "--- a/knowledge/service-x.md",
       "+++ b/knowledge/service-x.md",
-      "@@ -1,3 +1,3 @@",
-      " ---",
-      " description: Explains Service X config and failure modes.",
-      " ---",
+      "@@ -2,5 +2,5 @@",
+      " Service X unchanged context 2.",
+      " Service X unchanged context 3.",
       "-Service X is started through an old command.",
-      "+Service X is started through the updated command.",
-      longAddedLine,
+      `+Service X is started through the updated command. ${longLineTail}`,
+      " Service X unchanged context 5.",
+      " Service X unchanged context 6.",
+      "@@ -19,5 +19,5 @@",
+      " Service X unchanged context 19.",
+      " Service X unchanged context 20.",
+      "-Service X retry policy uses the old interval.",
+      "+Service X retry policy uses the updated interval.",
+      " Service X unchanged context 22.",
+      " Service X unchanged context 23.",
       "",
     ].join("\n"),
+    sourceFiles: [
+      {
+        status: "M",
+        path: "knowledge/service-x.md",
+        oldText: oldLines.join("\n"),
+        newText: newLines.join("\n"),
+      },
+    ],
   };
 }
 
@@ -362,6 +382,9 @@ describe("MemoryPage", () => {
         element.textContent?.includes("alpha-beta-gamma-delta-epsilon"),
       ),
     ).toBe(true);
+    expect(screen.queryByText("Service X unchanged context 10.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Show \d+ unchanged lines/ }));
+    expect(screen.getByText("Service X unchanged context 10.")).toBeInTheDocument();
     await waitFor(() =>
       expect(mockGetMemoryUpdateDiff).toHaveBeenCalledWith({
         root: "/Users/test/.companion/memory/prod/Takode",

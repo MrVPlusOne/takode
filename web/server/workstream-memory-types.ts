@@ -106,10 +106,19 @@ export interface MemoryRecentCommit {
   changedFiles: MemoryCommitFileChange[];
 }
 
+export interface MemoryCommitSourceFile {
+  status: string;
+  path: string;
+  previousPath?: string;
+  oldText: string;
+  newText: string;
+}
+
 export interface MemoryCommitDiff {
   repo: MemoryRepoInfo;
   commit: MemoryRecentCommit;
   diff: string;
+  sourceFiles: MemoryCommitSourceFile[];
 }
 
 export type MemoryLintSeverity = "error" | "warning";

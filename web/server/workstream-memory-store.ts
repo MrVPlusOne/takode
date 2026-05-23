@@ -22,8 +22,10 @@ import {
   type MemoryCatalogDiff,
   type MemoryCommitInput,
   type MemoryCommitDiff,
+  type MemoryCommitFileChange,
   type MemoryCommitOperation,
   type MemoryCommitResult,
+  type MemoryCommitSourceFile,
   type MemoryFile,
   type MemoryFrontmatter,
   type MemoryKind,
@@ -435,10 +437,40 @@ export async function memoryCommitDiff(options: MemoryRepoOptions = {}, sha: str
       "--",
       ...MEMORY_KINDS,
     ]);
-    return { repo, commit, diff };
+    const sourceFiles = await readMemoryCommitSourceFiles(repo.root, normalizedSha, commit.changedFiles);
+    return { repo, commit, diff, sourceFiles };
   } catch (error) {
     console.warn("Unable to read memory commit diff:", error);
     return null;
+  }
+}
+
+async function readMemoryCommitSourceFiles(
+  root: string,
+  sha: string,
+  changes: MemoryCommitFileChange[],
+): Promise<MemoryCommitSourceFile[]> {
+  const sourceFiles: MemoryCommitSourceFile[] = [];
+  for (const change of changes) {
+    const statusKind = change.status[0];
+    const oldPath = change.previousPath ?? change.path;
+    const sourceFile = {
+      status: change.status,
+      path: change.path,
+      oldText: statusKind === "A" ? "" : await readCommitFile(root, `${sha}^`, oldPath),
+      newText: statusKind === "D" ? "" : await readCommitFile(root, sha, change.path),
+    };
+    sourceFiles.push(change.previousPath ? { ...sourceFile, previousPath: change.previousPath } : sourceFile);
+  }
+  return sourceFiles;
+}
+
+async function readCommitFile(root: string, rev: string, path: string): Promise<string> {
+  try {
+    return await runGit(root, ["show", `${rev}:${path}`]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to read memory file content for ${path} at ${rev}: ${message}`);
   }
 }
 
