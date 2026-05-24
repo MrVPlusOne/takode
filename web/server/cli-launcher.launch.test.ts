@@ -1129,6 +1129,71 @@ describe("launch", () => {
     }
   });
 
+  it("backfills a legacy Codex session home with model catalog config on relaunch", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const catalogPath = join(sessionHome, "takode-model-catalog.json");
+    const { readFileSync: realReadFileSync, rmSync: realRmSync, writeFileSync: realWriteFileSync } = require("node:fs");
+
+    try {
+      mockSpawn.mockReturnValueOnce(createMockCodexProc());
+      const info = await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        model: "gpt-5.5",
+        codexSandbox: "workspace-write",
+        codexHome: customHome,
+        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexNonLeaderAutoCompactThresholdPercent: 90,
+        env: {
+          TAKODE_ROLE: "worker",
+          TAKODE_QUEST_ID: "q-95",
+        },
+      });
+      await waitForSpawnCalls(1);
+
+      // Regression coverage for sessions created before q-95: relaunch is the
+      // recovery boundary that can repair a legacy session CODEX_HOME.
+      realWriteFileSync(
+        configPath,
+        ['model_provider = "mai-litellm"', 'model = "gpt-5.5"', "model_auto_compact_token_limit = 900000", ""].join(
+          "\n",
+        ),
+        "utf-8",
+      );
+      realRmSync(catalogPath, { force: true });
+      launcher.setSettingsGetter(() => ({
+        claudeBinary: "",
+        codexBinary: "/opt/fake/codex",
+        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexNonLeaderAutoCompactThresholdPercent: 90,
+      }));
+
+      mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
+      const relaunch = await launcher.relaunch(info.sessionId);
+      expect(relaunch.ok).toBe(true);
+      await waitForSpawnCalls(2);
+
+      const config = realReadFileSync(configPath, "utf-8");
+      expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+      expect(config).not.toContain("model_context_window");
+      expect(config).toContain("model_auto_compact_token_limit = 900000");
+
+      const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
+      expect(catalog.models[0]).toMatchObject({
+        slug: "gpt-5.5",
+        context_window: 1_052_632,
+        max_context_window: 1_052_632,
+        effective_context_window_percent: 95,
+        auto_compact_token_limit: 900_000,
+      });
+    } finally {
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
   it("generates a leader model catalog from session config when no source catalog exists", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
