@@ -1058,11 +1058,13 @@ describe("launch", () => {
     }
   });
 
-  it("applies the context-window override only to Codex leaders", async () => {
+  it("applies the configured context-window override to normal and leader Codex sessions", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
     const sessionHome = join(customHome, "test-session-id");
     const configPath = join(sessionHome, "config.toml");
+    const workerCatalogPath = join(sessionHome, "takode-model-catalog.json");
+    const leaderCatalogPath = join(sessionHome, "takode-leader-model-catalog.json");
     const { readFileSync: realReadFileSync } = require("node:fs");
 
     try {
@@ -1070,15 +1072,33 @@ describe("launch", () => {
       const workerInfo = await launcher.launch({
         backendType: "codex",
         cwd: "/tmp/project",
+        model: "gpt-5.5",
         codexSandbox: "workspace-write",
         codexHome: customHome,
         codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexNonLeaderAutoCompactThresholdPercent: 90,
+        env: {
+          TAKODE_ROLE: "worker",
+          TAKODE_QUEST_ID: "q-95",
+        },
       });
       await waitForSpawnCalls(1);
 
       let config = realReadFileSync(configPath, "utf-8");
       expect(config).not.toContain("model_context_window = 1000000");
-      expect(config).not.toContain("model_auto_compact_token_limit = 1000000");
+      expect(config).toContain("model_auto_compact_token_limit = 900000");
+      expect(config).toContain(`model_catalog_json = ${JSON.stringify(workerCatalogPath)}`);
+
+      let catalog = JSON.parse(realReadFileSync(workerCatalogPath, "utf-8"));
+      expect(catalog.models).toEqual([
+        {
+          slug: "gpt-5.5",
+          context_window: 1_052_632,
+          max_context_window: 1_052_632,
+          effective_context_window_percent: 95,
+          auto_compact_token_limit: 900_000,
+        },
+      ]);
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
       launcher.setSettingsGetter(() => ({
@@ -1092,8 +1112,122 @@ describe("launch", () => {
       await waitForSpawnCalls(2);
 
       config = realReadFileSync(configPath, "utf-8");
-      expect(config).toContain("model_context_window = 1000000");
-      expect(config).toContain("model_auto_compact_token_limit = 1000000");
+      expect(config).not.toContain("model_context_window = 1000000");
+      expect(config).toContain("model_auto_compact_token_limit = 900000");
+      expect(config).toContain(`model_catalog_json = ${JSON.stringify(leaderCatalogPath)}`);
+
+      catalog = JSON.parse(realReadFileSync(leaderCatalogPath, "utf-8"));
+      expect(catalog.models[0]).toMatchObject({
+        slug: "gpt-5.5",
+        context_window: 1_052_632,
+        max_context_window: 1_052_632,
+        effective_context_window_percent: 95,
+        auto_compact_token_limit: 900_000,
+      });
+    } finally {
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
+  it("generates a leader model catalog from session config when no source catalog exists", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const catalogPath = join(sessionHome, "takode-leader-model-catalog.json");
+    const {
+      mkdirSync: realMkdirSync,
+      writeFileSync: realWriteFileSync,
+      readFileSync: realReadFileSync,
+    } = require("node:fs");
+
+    realMkdirSync(sessionHome, { recursive: true });
+    realWriteFileSync(
+      configPath,
+      ['model = "gpt-5.5"', "model_context_window = 921793", "model_auto_compact_token_limit = 900000", ""].join("\n"),
+      "utf-8",
+    );
+
+    try {
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexHome: customHome,
+        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        env: {
+          TAKODE_ROLE: "orchestrator",
+        },
+      });
+      await waitForSpawnCalls(1);
+
+      const config = realReadFileSync(configPath, "utf-8");
+      expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+      expect(config).not.toContain("model_context_window");
+      expect(config).toContain("model_auto_compact_token_limit = 900000");
+
+      const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
+      expect(catalog.models).toEqual([
+        {
+          slug: "gpt-5.5",
+          context_window: 970_309,
+          max_context_window: 970_309,
+          effective_context_window_percent: 95,
+          auto_compact_token_limit: 900_000,
+        },
+      ]);
+    } finally {
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
+  it("generates a normal-session model catalog from session config when no source catalog exists", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const catalogPath = join(sessionHome, "takode-model-catalog.json");
+    const {
+      mkdirSync: realMkdirSync,
+      writeFileSync: realWriteFileSync,
+      readFileSync: realReadFileSync,
+    } = require("node:fs");
+
+    realMkdirSync(sessionHome, { recursive: true });
+    realWriteFileSync(
+      configPath,
+      ['model = "gpt-5.5"', "model_context_window = 921793", "model_auto_compact_token_limit = 900000", ""].join("\n"),
+      "utf-8",
+    );
+
+    try {
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexHome: customHome,
+      });
+      await waitForSpawnCalls(1);
+
+      const config = realReadFileSync(configPath, "utf-8");
+      expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+      expect(config).not.toContain("model_context_window");
+      expect(config).toContain("model_auto_compact_token_limit = 900000");
+
+      const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
+      expect(catalog.models).toEqual([
+        {
+          slug: "gpt-5.5",
+          context_window: 970_309,
+          max_context_window: 970_309,
+          effective_context_window_percent: 95,
+          auto_compact_token_limit: 900_000,
+        },
+      ]);
     } finally {
       rmSync(customHome, { recursive: true, force: true });
     }
@@ -1166,6 +1300,79 @@ describe("launch", () => {
     }
   });
 
+  it("does not treat a copied context-window setting as a leader override for non-leader Codex sessions", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const catalogSourcePath = join(sessionHome, "models_cache.json");
+    const leaderCatalogPath = join(sessionHome, "takode-leader-model-catalog.json");
+    const nonLeaderCatalogPath = join(sessionHome, "takode-model-catalog.json");
+    const {
+      mkdirSync: realMkdirSync,
+      writeFileSync: realWriteFileSync,
+      readFileSync: realReadFileSync,
+      existsSync: realExistsSync,
+    } = require("node:fs");
+
+    realMkdirSync(sessionHome, { recursive: true });
+    realWriteFileSync(
+      configPath,
+      ['model = "gpt-5.5"', "model_context_window = 921_793", "model_auto_compact_token_limit = 900000", ""].join("\n"),
+      "utf-8",
+    );
+    realWriteFileSync(
+      catalogSourcePath,
+      JSON.stringify(
+        {
+          models: [
+            {
+              slug: "gpt-5.5",
+              context_window: 272000,
+              max_context_window: 272000,
+              effective_context_window_percent: 95,
+              auto_compact_token_limit: null,
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    try {
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexHome: customHome,
+        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexNonLeaderAutoCompactThresholdPercent: 90,
+      });
+      await waitForSpawnCalls(1);
+
+      const config = realReadFileSync(configPath, "utf-8");
+      expect(config).toContain(`model_catalog_json = ${JSON.stringify(nonLeaderCatalogPath)}`);
+      expect(config).not.toContain("model_context_window");
+      expect(config).toContain("model_auto_compact_token_limit = 900000");
+      expect(realExistsSync(leaderCatalogPath)).toBe(false);
+
+      const catalog = JSON.parse(realReadFileSync(nonLeaderCatalogPath, "utf-8"));
+      expect(catalog.models[0]).toMatchObject({
+        slug: "gpt-5.5",
+        context_window: 970_309,
+        max_context_window: 970_309,
+        effective_context_window_percent: 95,
+        auto_compact_token_limit: 900_000,
+      });
+    } finally {
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
   it("relaunches MAI-wrapper-backed Codex leaders with the session-local CODEX_HOME", async () => {
     const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
     const sessionHome = join(customHome, "test-session-id");
@@ -1218,8 +1425,8 @@ describe("launch", () => {
       expect(wrapperEnv).toContain(`CODEX_HOME='${sessionHome}'`);
 
       const config = realReadFileSync(configPath, "utf-8");
-      expect(config).toContain("model_context_window = 1000000");
-      expect(config).toContain("model_auto_compact_token_limit = 1000000");
+      expect(config).not.toContain("model_context_window = 1000000");
+      expect(config).toContain("model_auto_compact_token_limit = 900000");
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1266,7 +1473,7 @@ describe("launch", () => {
       expect(wrapperEnv).toContain(`CODEX_HOME='${sessionHome}'`);
 
       const config = realReadFileSync(configPath, "utf-8");
-      expect(config).toContain("model_context_window = 1000000");
+      expect(config).not.toContain("model_context_window = 1000000");
       expect(config).toContain("model_auto_compact_token_limit = 1000000");
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1338,12 +1545,14 @@ describe("launch", () => {
 
       const config = realReadFileSync(configPath, "utf-8");
       expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+      expect(config).not.toContain("model_context_window");
+      expect(config).toContain("model_auto_compact_token_limit = 750000");
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
       const overridden = catalog.models.find((entry: any) => entry.slug === "gpt-5.5");
       expect(overridden.context_window).toBe(1_052_632);
       expect(overridden.max_context_window).toBe(1_052_632);
-      expect(overridden.auto_compact_token_limit).toBe(1_000_000);
+      expect(overridden.auto_compact_token_limit).toBe(750_000);
 
       const untouched = catalog.models.find((entry: any) => entry.slug === "gpt-5.4");
       expect(untouched.context_window).toBe(272000);
@@ -1415,6 +1624,8 @@ describe("launch", () => {
 
       const config = realReadFileSync(configPath, "utf-8");
       expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+      expect(config).not.toContain("model_context_window");
+      expect(config).toContain("model_auto_compact_token_limit = 1000000");
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
       expect(catalog.models).toEqual([
@@ -1523,12 +1734,12 @@ describe("launch", () => {
   });
 
   it("launches MAI-wrapper-backed Codex workers with the session-local CODEX_HOME overlay", async () => {
-    // Worker launches also need the hostname shim, otherwise codex.sh can
-    // source the normal host env and write session config into the host home.
     const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
     const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const catalogPath = join(sessionHome, "takode-model-catalog.json");
     const shimDir = join(sessionHome, ".mai-wrapper-bin");
-    const { readFileSync: realReadFileSync } = require("node:fs");
+    const { existsSync: realExistsSync, readFileSync: realReadFileSync } = require("node:fs");
     const { root, wrapperPath } = createMaiWrapperFixture();
 
     try {
@@ -1542,20 +1753,42 @@ describe("launch", () => {
       await launcher.launch({
         backendType: "codex",
         cwd: "/tmp/project",
+        model: "gpt-5.5",
         codexSandbox: "workspace-write",
         codexBinary: wrapperPath,
         codexHome: customHome,
+        codexLeaderContextWindowOverrideTokens: 921_793,
+        codexNonLeaderAutoCompactThresholdPercent: 90,
+        env: {
+          TAKODE_ROLE: "worker",
+          TAKODE_QUEST_ID: "q-95",
+        },
       });
       await waitForSpawnCalls(1);
 
       const [cmdAndArgs, options] = mockSpawn.mock.calls[0]!;
       expect(cmdAndArgs[0]).toBe(wrapperPath);
-      expect(options.env.CODEX_HOME).toBe(sessionHome);
       expect(options.env.PATH.split(":")[0]).toBe(shimDir);
+      expect(options.env.CODEX_HOME).toBe(sessionHome);
 
-      const wrapperEnv = realReadFileSync(getMaiWrapperSessionEnvPath(root), "utf-8");
-      expect(wrapperEnv).toContain('LITELLM_PROXY_URL="http://localhost:4000"');
-      expect(wrapperEnv).toContain(`CODEX_HOME='${sessionHome}'`);
+      const overlayEnvPath = getMaiWrapperSessionEnvPath(root);
+      expect(realExistsSync(overlayEnvPath)).toBe(true);
+      const overlayEnv = realReadFileSync(overlayEnvPath, "utf-8");
+      expect(overlayEnv).toContain(`CODEX_HOME='${sessionHome}'`);
+
+      const config = realReadFileSync(configPath, "utf-8");
+      expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+      expect(config).not.toContain("model_context_window");
+      expect(config).toContain("model_auto_compact_token_limit = 829613");
+
+      const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
+      expect(catalog.models[0]).toMatchObject({
+        slug: "gpt-5.5",
+        context_window: 970_309,
+        max_context_window: 970_309,
+        effective_context_window_percent: 95,
+        auto_compact_token_limit: 829_613,
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1570,6 +1803,7 @@ describe("launch", () => {
     const hostCodexHome = "/Users/test/.codex/hosts/test-host";
     const sessionHome = join(customHome, "test-session-id");
     const { root, wrapperPath } = createMaiWrapperFixture({ hostCodexHome });
+    const { existsSync: realExistsSync } = require("node:fs");
 
     try {
       mockResolveBinary.mockImplementation((name: string): string | null => {
@@ -1600,6 +1834,7 @@ describe("launch", () => {
       expect(mockCp).not.toHaveBeenCalledWith(join(homedir(), ".codex", "skills"), join(sessionHome, "skills"), {
         recursive: true,
       });
+      expect(realExistsSync(getMaiWrapperSessionEnvPath(root))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1759,7 +1994,7 @@ describe("launch", () => {
     }
   });
 
-  it("applies the context-window override to containerized Codex leaders only", async () => {
+  it("applies the context-window override to containerized Codex sessions", async () => {
     const customHome = mkdtempSync(join(tmpdir(), "codex-container-home-test-"));
 
     try {
@@ -1767,9 +2002,11 @@ describe("launch", () => {
       const workerInfo = await launcher.launch({
         backendType: "codex",
         cwd: "/tmp/project",
+        model: "gpt-5.5",
         codexSandbox: "workspace-write",
         codexHome: customHome,
         codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexNonLeaderAutoCompactThresholdPercent: 90,
         containerId: "abc123def456",
         containerName: "companion-session-1",
         containerImage: "ubuntu:22.04",
@@ -1784,7 +2021,11 @@ describe("launch", () => {
       expect(bashIndex).toBeGreaterThan(-1);
       let innerScript = cmdAndArgs[bashIndex + 1];
       expect(innerScript).not.toContain("model_context_window = 1000000");
-      expect(innerScript).not.toContain("model_auto_compact_token_limit = 1000000");
+      expect(innerScript).toContain("model_auto_compact_token_limit = 900000");
+      expect(innerScript).toContain(
+        "cat > \"/root/.codex/takode-model-catalog.json\" <<'__COMPANION_CODEX_MODEL_CATALOG__'",
+      );
+      expect(innerScript).toContain('model_catalog_json = "/root/.codex/takode-model-catalog.json"');
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
       launcher.setSettingsGetter(() => ({
@@ -1803,8 +2044,12 @@ describe("launch", () => {
       expect(bashIndex).toBeGreaterThan(-1);
       innerScript = cmdAndArgs[bashIndex + 1];
       expect(innerScript).toContain("cat > \"/root/.codex/config.toml\" <<'__COMPANION_CODEX_CONFIG__'");
-      expect(innerScript).toContain("model_context_window = 1000000");
-      expect(innerScript).toContain("model_auto_compact_token_limit = 1000000");
+      expect(innerScript).not.toContain("model_context_window = 1000000");
+      expect(innerScript).toContain("model_auto_compact_token_limit = 900000");
+      expect(innerScript).toContain(
+        "cat > \"/root/.codex/takode-leader-model-catalog.json\" <<'__COMPANION_CODEX_MODEL_CATALOG__'",
+      );
+      expect(innerScript).toContain('model_catalog_json = "/root/.codex/takode-leader-model-catalog.json"');
       expect(innerScript).toContain("exec 'codex' '-c' 'tools.webSearch=false' '-a'");
     } finally {
       rmSync(customHome, { recursive: true, force: true });

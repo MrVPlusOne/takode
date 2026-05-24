@@ -530,6 +530,27 @@ function upsertTopLevelNumberSetting(configToml: string, key: string, value: num
   return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
 }
 
+function removeTopLevelSetting(configToml: string, key: string): string {
+  const endsWithNewline = configToml.endsWith("\n");
+  const lines = configToml.split("\n");
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`);
+  let inTopLevel = true;
+  const out = lines.filter((line) => {
+    if (/^\s*\[[^\]]+\]\s*$/.test(line)) {
+      inTopLevel = false;
+      return true;
+    }
+    if (!inTopLevel) return true;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return true;
+    return !keyPattern.test(line);
+  });
+
+  return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
+}
+
 function readTopLevelStringSetting(configToml: string, key: string): string | undefined {
   const lines = configToml.split("\n");
   const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(.+?)\\s*$`);
@@ -552,6 +573,28 @@ function readTopLevelStringSetting(configToml: string, key: string): string | un
       return value.slice(1, -1).replace(/'\\\\''/g, "'");
     }
     return value;
+  }
+
+  return undefined;
+}
+
+function readTopLevelNumberSetting(configToml: string, key: string): number | undefined {
+  const lines = configToml.split("\n");
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(.+?)\\s*$`);
+
+  for (const line of lines) {
+    if (/^\s*\[[^\]]+\]\s*$/.test(line)) break;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const match = line.match(keyPattern);
+    if (!match?.[1]) continue;
+    const value = Number(
+      match[1]
+        .replace(/\s+#.*$/, "")
+        .replace(/_/g, "")
+        .trim(),
+    );
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined;
   }
 
   return undefined;
@@ -600,21 +643,30 @@ function coercePositiveNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
-async function ensureCodexLeaderModelCatalogOverride(
+async function ensureCodexContextWindowModelCatalogOverride(
   codexHome: string,
   configToml: string,
-  leaderContextWindowOverrideTokens: number,
-  options?: { model?: string; modelCatalogConfigPath?: string },
-): Promise<{ catalogJson?: string; configToml: string }> {
+  effectiveContextWindowTargetTokens: number,
+  autoCompactTokenLimit: number,
+  options: { model?: string; modelCatalogConfigPath?: string; catalogFilename: string },
+): Promise<{ catalogApplied: boolean; catalogJson?: string; configToml: string }> {
   return ensureCodexModelCatalogOverride(codexHome, configToml, {
     model: options?.model,
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
-    catalogFilename: "takode-leader-model-catalog.json",
+    catalogFilename: options.catalogFilename,
+    createModelEntry: (modelSlug) => ({
+      slug: modelSlug,
+      context_window: 0,
+      max_context_window: 0,
+      effective_context_window_percent: defaultCodexEffectiveContextWindowPercent,
+      auto_compact_token_limit: null,
+    }),
+    writeWhenUnchanged: true,
     mutateModelEntry: (modelEntry) => {
       const effectivePercent =
         coercePositiveNumber(modelEntry.effective_context_window_percent) || defaultCodexEffectiveContextWindowPercent;
-      const rawContextWindow = Math.ceil((leaderContextWindowOverrideTokens * 100) / effectivePercent);
-      const nextAutoCompactTokenLimit = leaderContextWindowOverrideTokens;
+      const rawContextWindow = Math.ceil((effectiveContextWindowTargetTokens * 100) / effectivePercent);
+      const nextAutoCompactTokenLimit = autoCompactTokenLimit;
       const changed =
         modelEntry.context_window !== rawContextWindow ||
         modelEntry.max_context_window !== rawContextWindow ||
@@ -632,7 +684,7 @@ async function ensureCodexNonLeaderModelCatalogOverride(
   configToml: string,
   autoCompactThresholdPercent: number,
   options?: { model?: string; modelCatalogConfigPath?: string },
-): Promise<{ catalogJson?: string; configToml: string }> {
+): Promise<{ catalogApplied: boolean; catalogJson?: string; configToml: string }> {
   return ensureCodexModelCatalogOverride(codexHome, configToml, {
     model: options?.model,
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
@@ -661,11 +713,13 @@ async function ensureCodexModelCatalogOverride(
     model?: string;
     modelCatalogConfigPath?: string;
     catalogFilename: string;
+    createModelEntry?: (modelSlug: string) => Record<string, any>;
     mutateModelEntry: (modelEntry: Record<string, any>) => boolean;
+    writeWhenUnchanged?: boolean;
   },
-): Promise<{ catalogJson?: string; configToml: string }> {
+): Promise<{ catalogApplied: boolean; catalogJson?: string; configToml: string }> {
   const modelSlug = options?.model || readTopLevelStringSetting(configToml, "model");
-  if (!modelSlug) return { configToml };
+  if (!modelSlug) return { catalogApplied: false, configToml };
 
   const existingCatalogPathValue = readTopLevelStringSetting(configToml, "model_catalog_json");
   const sourceCatalogCandidates = [
@@ -685,13 +739,22 @@ async function ensureCodexModelCatalogOverride(
       parsedCatalog = null;
     }
   }
-  if (!Array.isArray(parsedCatalog?.models)) return { configToml };
+  if (!Array.isArray(parsedCatalog?.models)) {
+    if (!options.createModelEntry) return { catalogApplied: false, configToml };
+    parsedCatalog = { models: [] };
+  }
 
   const modelEntries = parsedCatalog.models as any[];
-  const modelEntry = modelEntries.find((entry: any) => entry?.slug === modelSlug);
-  if (!modelEntry || typeof modelEntry !== "object") return { configToml };
-  const changed = options.mutateModelEntry(modelEntry);
-  if (!changed) return { configToml };
+  let modelEntry = modelEntries.find((entry: any) => entry?.slug === modelSlug);
+  let addedModelEntry = false;
+  if (!modelEntry || typeof modelEntry !== "object") {
+    if (!options.createModelEntry) return { catalogApplied: false, configToml };
+    modelEntry = options.createModelEntry(modelSlug);
+    modelEntries.push(modelEntry);
+    addedModelEntry = true;
+  }
+  const changed = options.mutateModelEntry(modelEntry) || addedModelEntry;
+  if (!changed && !options.writeWhenUnchanged) return { catalogApplied: true, configToml };
 
   const catalogJson = JSON.stringify(parsedCatalog, null, 2) + "\n";
   const catalogPath = join(codexHome, options.catalogFilename);
@@ -702,7 +765,7 @@ async function ensureCodexModelCatalogOverride(
     "model_catalog_json",
     options?.modelCatalogConfigPath || catalogPath,
   );
-  return { configToml: nextConfigToml, catalogJson };
+  return { catalogApplied: true, configToml: nextConfigToml, catalogJson };
 }
 
 async function readFilePrefix(path: string, maxBytes = 4096): Promise<string> {
@@ -1182,7 +1245,8 @@ async function ensureCodexSessionConfig(
   codexHome: string,
   envVars: string[],
   options?: {
-    leaderContextWindowOverrideTokens?: number;
+    contextWindowOverrideTokens?: number;
+    contextWindowCatalogFilename?: string;
     nonLeaderAutoCompactThresholdPercent?: number;
     model?: string;
     modelCatalogConfigPath?: string;
@@ -1204,19 +1268,38 @@ async function ensureCodexSessionConfig(
     next = upsertBooleanSettingInSection(next, codexFeaturesHeader, codexImageGenerationFeature, false);
   }
   next = upsertShellEnvironmentIncludeOnly(next, ["PATH", ...NON_INTERACTIVE_GIT_EDITOR_ENV_KEYS, ...envVars]);
-  const leaderContextWindowOverrideTokens = options?.leaderContextWindowOverrideTokens;
+  const contextWindowOverrideTokens = options?.contextWindowOverrideTokens;
   const nonLeaderAutoCompactThresholdPercent = options?.nonLeaderAutoCompactThresholdPercent;
   let modelCatalogJson: string | undefined;
-  if (leaderContextWindowOverrideTokens && leaderContextWindowOverrideTokens > 0) {
-    const override = await ensureCodexLeaderModelCatalogOverride(codexHome, next, leaderContextWindowOverrideTokens, {
-      model: options?.model,
-      modelCatalogConfigPath: options?.modelCatalogConfigPath,
-    });
+  const configuredContextWindow = readTopLevelNumberSetting(next, "model_context_window");
+  const effectiveContextWindowTarget =
+    configuredContextWindow ||
+    (contextWindowOverrideTokens && contextWindowOverrideTokens > 0 ? contextWindowOverrideTokens : undefined);
+  if (effectiveContextWindowTarget && effectiveContextWindowTarget > 0) {
+    const fallbackAutoCompactTokenLimit =
+      nonLeaderAutoCompactThresholdPercent && nonLeaderAutoCompactThresholdPercent > 0
+        ? Math.floor((effectiveContextWindowTarget * nonLeaderAutoCompactThresholdPercent) / 100)
+        : effectiveContextWindowTarget;
+    const autoCompactTokenLimit =
+      readTopLevelNumberSetting(next, "model_auto_compact_token_limit") || fallbackAutoCompactTokenLimit;
+    const override = await ensureCodexContextWindowModelCatalogOverride(
+      codexHome,
+      next,
+      effectiveContextWindowTarget,
+      autoCompactTokenLimit,
+      {
+        model: options?.model,
+        modelCatalogConfigPath: options?.modelCatalogConfigPath,
+        catalogFilename: options?.contextWindowCatalogFilename || "takode-model-catalog.json",
+      },
+    );
     next = override.configToml;
     modelCatalogJson = override.catalogJson;
-    next = upsertTopLevelNumberSetting(next, "model_context_window", leaderContextWindowOverrideTokens);
-    next = upsertTopLevelNumberSetting(next, "model_auto_compact_token_limit", leaderContextWindowOverrideTokens);
-    await options?.timing?.yieldIfDue("prepare Codex leader config override");
+    if (override.catalogApplied) {
+      next = removeTopLevelSetting(next, "model_context_window");
+    }
+    next = upsertTopLevelNumberSetting(next, "model_auto_compact_token_limit", autoCompactTokenLimit);
+    await options?.timing?.yieldIfDue("prepare Codex context-window config override");
   } else if (nonLeaderAutoCompactThresholdPercent && nonLeaderAutoCompactThresholdPercent > 0) {
     const override = await ensureCodexNonLeaderModelCatalogOverride(
       codexHome,
@@ -1229,6 +1312,9 @@ async function ensureCodexSessionConfig(
     );
     next = override.configToml;
     modelCatalogJson = override.catalogJson;
+    if (override.catalogApplied) {
+      next = removeTopLevelSetting(next, "model_context_window");
+    }
     await options?.timing?.yieldIfDue("prepare Codex auto-compact config override");
   }
   if (next !== current) {
@@ -1366,15 +1452,16 @@ export async function prepareCodexSpawn(
     const shellEnvVars = Object.keys(options.env || {}).filter(
       (name) => name.startsWith("COMPANION_") || name.startsWith("TAKODE_"),
     );
-    const leaderContextWindowOverrideTokens = leaderLaunch ? options.codexLeaderContextWindowOverrideTokens : undefined;
+    const contextWindowOverrideTokens = options.codexLeaderContextWindowOverrideTokens;
     const nonLeaderAutoCompactThresholdPercent = !leaderLaunch
       ? options.codexNonLeaderAutoCompactThresholdPercent || defaultCodexNonLeaderAutoCompactThresholdPercent
       : undefined;
-    let containerLeaderConfigToml: string | undefined;
+    let containerConfigToml: string | undefined;
     let containerModelCatalogJson: string | undefined;
     const containerModelCatalogPath = leaderLaunch
       ? "/root/.codex/takode-leader-model-catalog.json"
       : "/root/.codex/takode-model-catalog.json";
+    const sessionModelCatalogFilename = leaderLaunch ? "takode-leader-model-catalog.json" : "takode-model-catalog.json";
 
     if (!isContainerized) {
       await timing.step("prepare Codex home", () =>
@@ -1391,14 +1478,15 @@ export async function prepareCodexSpawn(
       );
       await timing.step("ensure Codex session config", () =>
         ensureCodexSessionConfig(codexHome, shellEnvVars, {
-          leaderContextWindowOverrideTokens,
+          contextWindowOverrideTokens,
+          contextWindowCatalogFilename: sessionModelCatalogFilename,
           nonLeaderAutoCompactThresholdPercent,
           model: options.model,
           timing,
         }),
       );
     } else if (
-      (leaderContextWindowOverrideTokens && leaderContextWindowOverrideTokens > 0) ||
+      (contextWindowOverrideTokens && contextWindowOverrideTokens > 0) ||
       (nonLeaderAutoCompactThresholdPercent && nonLeaderAutoCompactThresholdPercent > 0)
     ) {
       await timing.step("prepare container Codex home", () =>
@@ -1406,14 +1494,15 @@ export async function prepareCodexSpawn(
       );
       const containerConfig = await timing.step("ensure container Codex session config", () =>
         ensureCodexSessionConfig(codexHome, shellEnvVars, {
-          leaderContextWindowOverrideTokens,
+          contextWindowOverrideTokens,
+          contextWindowCatalogFilename: sessionModelCatalogFilename,
           nonLeaderAutoCompactThresholdPercent,
           model: options.model,
           modelCatalogConfigPath: containerModelCatalogPath,
           timing,
         }),
       );
-      containerLeaderConfigToml = containerConfig.configToml;
+      containerConfigToml = containerConfig.configToml;
       containerModelCatalogJson = containerConfig.modelCatalogJson;
     }
 
@@ -1459,8 +1548,8 @@ export async function prepareCodexSpawn(
           ),
         );
       }
-      if (containerLeaderConfigToml) {
-        shellCommands.push(renderContainerCodexConfigWrite(containerLeaderConfigToml));
+      if (containerConfigToml) {
+        shellCommands.push(renderContainerCodexConfigWrite(containerConfigToml));
       }
       shellCommands.push(`exec ${innerCmd}`);
       dockerArgs.push("bash", "-lc", shellCommands.join("\n"));

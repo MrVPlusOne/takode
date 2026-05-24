@@ -138,7 +138,7 @@ export interface LaunchOptions {
   codexReasoningEffort?: string;
   /** Optional override for CODEX_HOME used by Codex sessions. */
   codexHome?: string;
-  /** Codex leader-only effective context window override for session-local config. */
+  /** Codex effective context window target for session-local model catalog config. */
   codexLeaderContextWindowOverrideTokens?: number;
   /** Codex non-leader auto-compact threshold as a percent of effective model context. */
   codexNonLeaderAutoCompactThresholdPercent?: number;

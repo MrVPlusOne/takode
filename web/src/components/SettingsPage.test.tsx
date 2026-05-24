@@ -990,7 +990,7 @@ describe("SettingsPage", () => {
     const autoCompactInput = within(cliSection).getByLabelText(
       "Codex Non-Leader Auto-Compact Threshold",
     ) as HTMLInputElement;
-    const windowInput = within(cliSection).getByLabelText("Codex Leader Context Window") as HTMLInputElement;
+    const windowInput = within(cliSection).getByLabelText("Codex Session Context Window") as HTMLInputElement;
     const thresholdInput = within(cliSection).getByLabelText(
       "Codex Leader Default Recycle Threshold",
     ) as HTMLInputElement;

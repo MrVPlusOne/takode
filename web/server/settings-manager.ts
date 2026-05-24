@@ -64,7 +64,7 @@ export interface CompanionSettings {
   questmasterViewMode?: QuestmasterViewMode;
   /** Preferred Questmaster compact-table sort. Optional for backward-compatible tests/mocks. */
   questmasterCompactSort?: QuestmasterCompactSort;
-  /** Codex leader-only effective context window override for Takode-managed sessions. */
+  /** Codex effective context window target for Takode-managed sessions. */
   codexLeaderContextWindowOverrideTokens: number;
   /** Percent of each non-leader Codex model's effective window to use before auto-compact. */
   codexNonLeaderAutoCompactThresholdPercent?: number;

@@ -1079,7 +1079,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
 
               <div hidden={settingsSearch.rowHidden("cli", "codex-leader-context-window")}>
                 <label className="block text-sm font-medium mb-1.5" htmlFor="codex-leader-context-window">
-                  Codex Leader Context Window
+                  Codex Session Context Window
                 </label>
                 <input
                   id="codex-leader-context-window"
@@ -1100,8 +1100,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                   className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
                 />
                 <p className="mt-1.5 text-xs text-cc-muted">
-                  Applied only to new and relaunched Codex leader sessions. Takode writes this into the session-local
-                  Codex config so provider auto-compaction stays above the Takode recycle threshold.
+                  Applied to new and relaunched Codex sessions through the session-local model catalog. Existing session
+                  config values take precedence when present.
                 </p>
               </div>
 
