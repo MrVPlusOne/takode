@@ -643,6 +643,56 @@ function coercePositiveNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
+function displayNameFromModelSlug(modelSlug: string): string {
+  if (/^gpt-/i.test(modelSlug)) return `GPT-${modelSlug.slice(4)}`;
+  return modelSlug
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => (part.length <= 3 ? part.toUpperCase() : part[0].toUpperCase() + part.slice(1)))
+    .join(" ");
+}
+
+function ensureCodexModelEntrySchemaDefaults(modelEntry: Record<string, any>, modelSlug: string): boolean {
+  let changed = false;
+  const setDefault = (key: string, value: any, isValid: (current: unknown) => boolean) => {
+    if (isValid(modelEntry[key])) return;
+    modelEntry[key] = value;
+    changed = true;
+  };
+
+  setDefault("display_name", displayNameFromModelSlug(modelSlug), (value) => typeof value === "string");
+  setDefault(
+    "supported_reasoning_levels",
+    [
+      { effort: "low", description: "Fast responses with lighter reasoning" },
+      { effort: "medium", description: "Balances speed and reasoning depth for everyday tasks" },
+      { effort: "high", description: "Greater reasoning depth for complex problems" },
+      { effort: "xhigh", description: "Extra high reasoning depth for complex problems" },
+    ],
+    Array.isArray,
+  );
+  setDefault("shell_type", "shell_command", (value) => typeof value === "string");
+  setDefault("visibility", "list", (value) => typeof value === "string");
+  setDefault("supported_in_api", true, (value) => typeof value === "boolean");
+  setDefault("priority", 0, (value) => typeof value === "number" && Number.isFinite(value));
+  setDefault("base_instructions", "", (value) => typeof value === "string");
+  setDefault("supports_reasoning_summaries", true, (value) => typeof value === "boolean");
+  setDefault("support_verbosity", true, (value) => typeof value === "boolean");
+  setDefault(
+    "truncation_policy",
+    { mode: "tokens", limit: 10000 },
+    (value) =>
+      !!value &&
+      typeof value === "object" &&
+      typeof (value as any).mode === "string" &&
+      typeof (value as any).limit === "number",
+  );
+  setDefault("supports_parallel_tool_calls", true, (value) => typeof value === "boolean");
+  setDefault("experimental_supported_tools", [], Array.isArray);
+
+  return changed;
+}
+
 async function ensureCodexContextWindowModelCatalogOverride(
   codexHome: string,
   configToml: string,
@@ -654,13 +704,15 @@ async function ensureCodexContextWindowModelCatalogOverride(
     model: options?.model,
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
     catalogFilename: options.catalogFilename,
-    createModelEntry: (modelSlug) => ({
-      slug: modelSlug,
-      context_window: 0,
-      max_context_window: 0,
-      effective_context_window_percent: defaultCodexEffectiveContextWindowPercent,
-      auto_compact_token_limit: null,
-    }),
+    createModelEntry: (modelSlug) => {
+      return {
+        slug: modelSlug,
+        context_window: 0,
+        max_context_window: 0,
+        effective_context_window_percent: defaultCodexEffectiveContextWindowPercent,
+        auto_compact_token_limit: null,
+      };
+    },
     writeWhenUnchanged: true,
     mutateModelEntry: (modelEntry) => {
       const effectivePercent =
@@ -753,7 +805,8 @@ async function ensureCodexModelCatalogOverride(
     modelEntries.push(modelEntry);
     addedModelEntry = true;
   }
-  const changed = options.mutateModelEntry(modelEntry) || addedModelEntry;
+  const schemaDefaultsChanged = ensureCodexModelEntrySchemaDefaults(modelEntry, modelSlug);
+  const changed = options.mutateModelEntry(modelEntry) || addedModelEntry || schemaDefaultsChanged;
   if (!changed && !options.writeWhenUnchanged) return { catalogApplied: true, configToml };
 
   const catalogJson = JSON.stringify(parsedCatalog, null, 2) + "\n";

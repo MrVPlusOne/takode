@@ -395,6 +395,27 @@ function getMaiWrapperSessionEnvPath(wrapperRoot: string, sessionId = "test-sess
   return join(wrapperRoot, ".run", `.env-${overlayHost}`);
 }
 
+function expectCodexParseableModelEntryShape(modelEntry: Record<string, any>, slug = "gpt-5.5") {
+  expect(modelEntry).toMatchObject({
+    slug,
+    display_name: expect.any(String),
+    supported_reasoning_levels: expect.any(Array),
+    shell_type: "shell_command",
+    visibility: "list",
+    supported_in_api: true,
+    priority: expect.any(Number),
+    base_instructions: expect.any(String),
+    supports_reasoning_summaries: expect.any(Boolean),
+    support_verbosity: expect.any(Boolean),
+    truncation_policy: {
+      mode: expect.any(String),
+      limit: expect.any(Number),
+    },
+    supports_parallel_tool_calls: expect.any(Boolean),
+    experimental_supported_tools: expect.any(Array),
+  });
+}
+
 const mockSpawn = vi.fn();
 const bunGlobal = globalThis as typeof globalThis & { Bun?: any };
 const hadBunGlobal = typeof bunGlobal.Bun !== "undefined";
@@ -1090,15 +1111,15 @@ describe("launch", () => {
       expect(config).toContain(`model_catalog_json = ${JSON.stringify(workerCatalogPath)}`);
 
       let catalog = JSON.parse(realReadFileSync(workerCatalogPath, "utf-8"));
-      expect(catalog.models).toEqual([
-        {
-          slug: "gpt-5.5",
-          context_window: 1_052_632,
-          max_context_window: 1_052_632,
-          effective_context_window_percent: 95,
-          auto_compact_token_limit: 900_000,
-        },
-      ]);
+      expect(catalog.models).toHaveLength(1);
+      expectCodexParseableModelEntryShape(catalog.models[0]);
+      expect(catalog.models[0]).toMatchObject({
+        slug: "gpt-5.5",
+        context_window: 1_052_632,
+        max_context_window: 1_052_632,
+        effective_context_window_percent: 95,
+        auto_compact_token_limit: 900_000,
+      });
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
       launcher.setSettingsGetter(() => ({
@@ -1117,6 +1138,7 @@ describe("launch", () => {
       expect(config).toContain(`model_catalog_json = ${JSON.stringify(leaderCatalogPath)}`);
 
       catalog = JSON.parse(realReadFileSync(leaderCatalogPath, "utf-8"));
+      expectCodexParseableModelEntryShape(catalog.models[0]);
       expect(catalog.models[0]).toMatchObject({
         slug: "gpt-5.5",
         context_window: 1_052_632,
@@ -1182,8 +1204,86 @@ describe("launch", () => {
       expect(config).toContain("model_auto_compact_token_limit = 900000");
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
+      expectCodexParseableModelEntryShape(catalog.models[0]);
       expect(catalog.models[0]).toMatchObject({
         slug: "gpt-5.5",
+        context_window: 1_052_632,
+        max_context_window: 1_052_632,
+        effective_context_window_percent: 95,
+        auto_compact_token_limit: 900_000,
+      });
+    } finally {
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs a previously synthesized Codex catalog so Codex can parse it on relaunch", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const catalogPath = join(sessionHome, "takode-model-catalog.json");
+    const { readFileSync: realReadFileSync, writeFileSync: realWriteFileSync } = require("node:fs");
+
+    try {
+      mockSpawn.mockReturnValueOnce(createMockCodexProc());
+      const info = await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        model: "gpt-5.5",
+        codexSandbox: "workspace-write",
+        codexHome: customHome,
+        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexNonLeaderAutoCompactThresholdPercent: 90,
+        env: {
+          TAKODE_ROLE: "worker",
+          TAKODE_QUEST_ID: "q-95",
+        },
+      });
+      await waitForSpawnCalls(1);
+
+      realWriteFileSync(
+        configPath,
+        ['model = "gpt-5.5"', `model_catalog_json = ${JSON.stringify(catalogPath)}`, ""].join("\n"),
+        "utf-8",
+      );
+      realWriteFileSync(
+        catalogPath,
+        JSON.stringify(
+          {
+            models: [
+              {
+                slug: "gpt-5.5",
+                context_window: 1_052_632,
+                max_context_window: 1_052_632,
+                effective_context_window_percent: 95,
+                auto_compact_token_limit: 900_000,
+              },
+            ],
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      );
+      launcher.setSettingsGetter(() => ({
+        claudeBinary: "",
+        codexBinary: "/opt/fake/codex",
+        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexNonLeaderAutoCompactThresholdPercent: 90,
+      }));
+
+      mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
+      const relaunch = await launcher.relaunch(info.sessionId);
+      expect(relaunch.ok).toBe(true);
+      await waitForSpawnCalls(2);
+
+      const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
+      expect(catalog.models).toHaveLength(1);
+      expectCodexParseableModelEntryShape(catalog.models[0]);
+      expect(catalog.models[0]).toMatchObject({
+        slug: "gpt-5.5",
+        display_name: "GPT-5.5",
         context_window: 1_052_632,
         max_context_window: 1_052_632,
         effective_context_window_percent: 95,
@@ -1234,15 +1334,15 @@ describe("launch", () => {
       expect(config).toContain("model_auto_compact_token_limit = 900000");
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      expect(catalog.models).toEqual([
-        {
-          slug: "gpt-5.5",
-          context_window: 970_309,
-          max_context_window: 970_309,
-          effective_context_window_percent: 95,
-          auto_compact_token_limit: 900_000,
-        },
-      ]);
+      expect(catalog.models).toHaveLength(1);
+      expectCodexParseableModelEntryShape(catalog.models[0]);
+      expect(catalog.models[0]).toMatchObject({
+        slug: "gpt-5.5",
+        context_window: 970_309,
+        max_context_window: 970_309,
+        effective_context_window_percent: 95,
+        auto_compact_token_limit: 900_000,
+      });
     } finally {
       rmSync(customHome, { recursive: true, force: true });
     }
@@ -1284,15 +1384,15 @@ describe("launch", () => {
       expect(config).toContain("model_auto_compact_token_limit = 900000");
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      expect(catalog.models).toEqual([
-        {
-          slug: "gpt-5.5",
-          context_window: 970_309,
-          max_context_window: 970_309,
-          effective_context_window_percent: 95,
-          auto_compact_token_limit: 900_000,
-        },
-      ]);
+      expect(catalog.models).toHaveLength(1);
+      expectCodexParseableModelEntryShape(catalog.models[0]);
+      expect(catalog.models[0]).toMatchObject({
+        slug: "gpt-5.5",
+        context_window: 970_309,
+        max_context_window: 970_309,
+        effective_context_window_percent: 95,
+        auto_compact_token_limit: 900_000,
+      });
     } finally {
       rmSync(customHome, { recursive: true, force: true });
     }
@@ -1350,16 +1450,16 @@ describe("launch", () => {
       expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      expect(catalog.models).toEqual([
-        {
-          slug: "gpt-5.5",
-          display_name: "GPT-5.5",
-          context_window: 272000,
-          max_context_window: 272000,
-          effective_context_window_percent: 95,
-          auto_compact_token_limit: 232560,
-        },
-      ]);
+      expect(catalog.models).toHaveLength(1);
+      expectCodexParseableModelEntryShape(catalog.models[0]);
+      expect(catalog.models[0]).toMatchObject({
+        slug: "gpt-5.5",
+        display_name: "GPT-5.5",
+        context_window: 272000,
+        max_context_window: 272000,
+        effective_context_window_percent: 95,
+        auto_compact_token_limit: 232560,
+      });
     } finally {
       rmSync(customHome, { recursive: true, force: true });
     }
@@ -1426,6 +1526,7 @@ describe("launch", () => {
       expect(realExistsSync(leaderCatalogPath)).toBe(false);
 
       const catalog = JSON.parse(realReadFileSync(nonLeaderCatalogPath, "utf-8"));
+      expectCodexParseableModelEntryShape(catalog.models[0]);
       expect(catalog.models[0]).toMatchObject({
         slug: "gpt-5.5",
         context_window: 970_309,
@@ -1615,6 +1716,7 @@ describe("launch", () => {
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
       const overridden = catalog.models.find((entry: any) => entry.slug === "gpt-5.5");
+      expectCodexParseableModelEntryShape(overridden);
       expect(overridden.context_window).toBe(1_052_632);
       expect(overridden.max_context_window).toBe(1_052_632);
       expect(overridden.auto_compact_token_limit).toBe(750_000);
@@ -1693,18 +1795,18 @@ describe("launch", () => {
       expect(config).toContain("model_auto_compact_token_limit = 1000000");
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      expect(catalog.models).toEqual([
-        {
-          slug: "gpt-5.5",
-          display_name: "GPT-5.5",
-          description: "Newest model",
-          effective_context_window_percent: 95,
-          context_window: 1_052_632,
-          max_context_window: 1_052_632,
-          auto_compact_token_limit: 1_000_000,
-          visibility: "list",
-        },
-      ]);
+      expect(catalog.models).toHaveLength(1);
+      expectCodexParseableModelEntryShape(catalog.models[0]);
+      expect(catalog.models[0]).toMatchObject({
+        slug: "gpt-5.5",
+        display_name: "GPT-5.5",
+        description: "Newest model",
+        effective_context_window_percent: 95,
+        context_window: 1_052_632,
+        max_context_window: 1_052_632,
+        auto_compact_token_limit: 1_000_000,
+        visibility: "list",
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1847,6 +1949,7 @@ describe("launch", () => {
       expect(config).toContain("model_auto_compact_token_limit = 829613");
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
+      expectCodexParseableModelEntryShape(catalog.models[0]);
       expect(catalog.models[0]).toMatchObject({
         slug: "gpt-5.5",
         context_window: 970_309,
