@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { readFile, writeFile, stat, readdir } from "node:fs/promises";
-import { resolve, join, dirname, extname, relative, basename } from "node:path";
+import { resolve, join, dirname, extname, relative, basename, sep } from "node:path";
 import { homedir } from "node:os";
 import * as childProcess from "node:child_process";
 import { promisify } from "node:util";
@@ -12,6 +12,7 @@ import { normalizeForSearch } from "../../shared/search-utils.js";
 import type { RouteContext } from "./context.js";
 import { requireSharp, isSharpUnavailableError } from "../image-optimizer.js";
 import { LocalImageVariantStore, type LocalImageVariantKind } from "../local-image-variant-store.js";
+import { getLocalPathOpenCapability, openLocalPathContainingFolder } from "../local-path-actions.js";
 
 const execPromise = promisify(childProcess.exec);
 
@@ -41,32 +42,6 @@ const IMAGE_MIME_BY_EXT: Record<string, string> = {
   ".heif": "image/heif",
 };
 
-function shellQuoteArg(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-function getExecFilePromise() {
-  let execFile: typeof childProcess.execFile | undefined;
-  try {
-    execFile = childProcess.execFile;
-  } catch {
-    execFile = undefined;
-  }
-  const execFileCb =
-    execFile ??
-    (((file: string, args: readonly string[] | undefined, options: unknown, callback?: unknown) => {
-      const cb = typeof options === "function" ? options : callback;
-      const opts = typeof options === "function" ? undefined : options;
-      const command = [file, ...(args ?? [])].map(shellQuoteArg).join(" ");
-      return childProcess.exec(
-        command,
-        opts as Parameters<typeof childProcess.exec>[1],
-        cb as Parameters<typeof childProcess.exec>[2],
-      );
-    }) as typeof childProcess.execFile);
-  return promisify(execFileCb);
-}
-
 interface FileLinkResolveRequest {
   path: string;
   isRelative?: boolean;
@@ -89,6 +64,8 @@ interface ResolvedFileLinkPath {
   mimeType?: string;
   size?: number;
   canRevealInFinder: boolean;
+  canOpenContainingFolder: boolean;
+  openContainingFolderLabel: string;
   platform: NodeJS.Platform;
 }
 
@@ -197,7 +174,7 @@ async function resolveFileLinkPath(
     }
     absolutePath = resolve(root, normalizedRelative);
     const rootRelative = relative(resolve(root), absolutePath);
-    if (rootRelative === "" || rootRelative === ".." || rootRelative.startsWith(`..${"/"}`)) {
+    if (rootRelative === "" || rootRelative === ".." || rootRelative.startsWith(`..${sep}`)) {
       throw new Error("Relative file link escapes the session filesystem root");
     }
   } else {
@@ -215,6 +192,8 @@ async function resolveFileLinkPath(
   const mimeType = IMAGE_MIME_BY_EXT[extname(absolutePath).toLowerCase()];
   const isFile = Boolean(info?.isFile());
   const isDirectory = Boolean(info?.isDirectory());
+  const openCapability = getLocalPathOpenCapability();
+  const canOpenContainingFolder = Boolean(info && openCapability.canOpenContainingFolder);
   return {
     absolutePath,
     requestedPath,
@@ -225,6 +204,8 @@ async function resolveFileLinkPath(
     ...(mimeType ? { mimeType } : {}),
     ...(info ? { size: info.size } : {}),
     canRevealInFinder: process.platform === "darwin" && Boolean(info),
+    canOpenContainingFolder,
+    openContainingFolderLabel: openCapability.openContainingFolderLabel,
     platform: process.platform,
   };
 }
@@ -421,9 +402,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       const variantKind = parseImageVariantKind(c.req.query("variant"));
       if (variantKind) {
         const variant = await localImageVariantStore.getVariant(absPath, contentType, variantKind);
-        return new Response(Bun.file(variant.path), {
-          headers: localImageVariantHeaders(variant),
-        });
+        return c.body(await readFile(variant.path), 200, localImageVariantHeaders(variant));
       }
       const content = await readFile(absPath);
       return c.body(content, 200, {
@@ -447,9 +426,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
         return c.json({ error: "file is not a supported image type" }, 400);
       }
       const variant = await localImageVariantStore.getVariant(target.absolutePath, target.mimeType, variantKind);
-      return new Response(Bun.file(variant.path), {
-        headers: localImageVariantHeaders(variant),
-      });
+      return c.body(await readFile(variant.path), 200, localImageVariantHeaders(variant));
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : "Cannot read image file" }, 404);
     }
@@ -466,18 +443,20 @@ export function createFilesystemRoutes(ctx: RouteContext) {
   });
 
   api.post("/fs/file-link/reveal", async (c) => {
-    if (process.platform !== "darwin") {
-      return c.json({ error: "Open in Finder is only available on macOS servers" }, 501);
-    }
     const request = fileLinkRequestFromBody(await c.req.json().catch(() => null));
     if (!request) return c.json({ error: "Invalid file-link reveal payload" }, 400);
     try {
       const target = await resolveFileLinkPath(request, wsBridge);
       if (!target.exists) return c.json({ error: "File not found", absolutePath: target.absolutePath }, 404);
-      await getExecFilePromise()("open", ["-R", target.absolutePath]);
-      return c.json({ ok: true, absolutePath: target.absolutePath });
+      return c.json(
+        await openLocalPathContainingFolder({
+          absolutePath: target.absolutePath,
+          isDirectory: target.isDirectory,
+        }),
+      );
     } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : "Cannot reveal file link" }, 400);
+      const status = getLocalPathOpenCapability().canOpenContainingFolder ? 400 : 501;
+      return c.json({ error: error instanceof Error ? error.message : "Cannot reveal file link" }, status);
     }
   });
 

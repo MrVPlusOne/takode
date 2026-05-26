@@ -756,7 +756,9 @@ export interface CronJobExecution {
 export interface TranscriptionLogIndexEntry {
   id: number;
   timestamp: number;
+  status?: "success" | "error";
   sessionId: string | null;
+  requestId?: string | null;
   mode?: "dictation" | "edit" | "append";
   /** Browser upload + server request-body read/setup time before SSE begins. */
   uploadDurationMs: number;
@@ -769,6 +771,17 @@ export interface TranscriptionLogIndexEntry {
   serverTiming?: VoiceTranscriptionTiming["serverTiming"];
   frontendTiming?: VoiceTranscriptionFrontendTimingReport & { receivedAt: number };
   audioUrl?: string;
+  recordingDirectoryPath?: string;
+  recordingManifestPath?: string;
+  recordingStatus?: "success" | "error";
+  recordingPersistenceError?: string;
+  recordingDeletedAt?: number;
+  canOpenRecordingDirectory?: boolean;
+  openRecordingDirectoryLabel?: string;
+  error?: {
+    message: string;
+    phase?: string;
+  };
   enhancement: {
     model: string;
     enhancedText: string | null;
@@ -1489,6 +1502,11 @@ export const api = {
   // Transcription debug logs
   getTranscriptionLogs: () => get<TranscriptionLogIndexEntry[]>("/transcription-logs"),
   getTranscriptionLogEntry: (id: number) => get<TranscriptionLogEntry>(`/transcription-logs/${id}`),
+  openTranscriptionRecordingDirectory: (id: number) =>
+    post<{ ok: boolean; absolutePath: string; openedPath: string; platform: string }>(
+      `/transcription-logs/${id}/recording/open`,
+    ),
+  deleteTranscriptionRecording: (id: number) => del<TranscriptionLogEntry>(`/transcription-logs/${id}/recording`),
 
   // Enhancement tester (debug tool in Settings)
   testEnhancement: (text: string, mode: "default" | "bullet", sessionId?: string) =>

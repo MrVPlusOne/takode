@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 // Mock env-manager and git-utils modules before any imports
 vi.mock("./env-manager.js", () => ({
@@ -194,6 +194,7 @@ import * as questStore from "./quest-store.js";
 import * as sessionNames from "./session-names.js";
 import * as settingsManager from "./settings-manager.js";
 import * as transcriptionEnhancer from "./transcription-enhancer.js";
+import { _setTranscriptionRecordingRootForTest } from "./transcription-recordings.js";
 import { containerManager } from "./container-manager.js";
 
 // ─── Mock factories ──────────────────────────────────────────────────────────
@@ -516,14 +517,17 @@ let sessionStore: ReturnType<typeof createMockStore>;
 let tracker: ReturnType<typeof createMockTracker>;
 let recorder: ReturnType<typeof createMockRecorder>;
 let timerManager: ReturnType<typeof createMockTimerManager>;
+let transcriptionRecordingRoot: string;
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
   trafficStats.reset();
   _resetServerLoggerForTest();
   // Reset the LiteLLM model cache so each test starts clean.
   _resetModelCache();
   transcriptionEnhancer._resetTranscriptionLogForTest();
+  transcriptionRecordingRoot = await mkdtemp(join(tmpdir(), "routes-transcription-recordings-"));
+  _setTranscriptionRecordingRootForTest(transcriptionRecordingRoot);
   // Stub global fetch to prevent LiteLLM proxy calls in tests.
   // Model endpoint tests exercise the fallback path (models_cache.json).
   vi.stubGlobal(
@@ -556,6 +560,11 @@ beforeEach(() => {
   // Default no-op mocks for container workspace isolation (called during container session creation)
   vi.spyOn(containerManager, "copyWorkspaceToContainer").mockResolvedValue(undefined);
   vi.spyOn(containerManager, "reseedGitAuth").mockImplementation(() => {});
+});
+
+afterEach(async () => {
+  _setTranscriptionRecordingRootForTest(null);
+  await rm(transcriptionRecordingRoot, { recursive: true, force: true });
 });
 
 // ─── Sessions ────────────────────────────────────────────────────────────────
@@ -773,6 +782,8 @@ describe("POST /api/transcribe", () => {
           uploadFormatExtension: "wav",
         }),
         audioUrl: expect.stringMatching(/^\/api\/transcription-logs\/\d+\/audio$/),
+        recordingDirectoryPath: expect.stringContaining(transcriptionRecordingRoot),
+        recordingStatus: "success",
       }),
     );
 
@@ -789,6 +800,83 @@ describe("POST /api/transcribe", () => {
     expect(uploadedFile).toBeInstanceOf(File);
     expect((uploadedFile as File).type).toBe("audio/wav");
     expect((uploadedFile as File).name).toBe("recording.wav");
+    await expect(readFile(join(logEntry.recordingDirectoryPath!, "audio.wav"))).resolves.toEqual(
+      Buffer.from([0x52, 0x49, 0x46, 0x46]),
+    );
+    await expect(readFile(join(logEntry.recordingDirectoryPath!, "raw-transcript.txt"), "utf-8")).resolves.toBe(
+      "timed transcript",
+    );
+    const openRes = await app.request(`/api/transcription-logs/${logEntry.id}/recording/open`, { method: "POST" });
+    expect(openRes.status).toBe(200);
+    await expect(openRes.json()).resolves.toMatchObject({ ok: true, absolutePath: logEntry.recordingDirectoryPath });
+
+    const deleteRes = await app.request(`/api/transcription-logs/${logEntry.id}/recording`, { method: "DELETE" });
+    expect(deleteRes.status).toBe(200);
+    const deletedEntry = (await deleteRes.json()) as {
+      recordingDeletedAt?: number;
+      canOpenRecordingDirectory?: boolean;
+    };
+    expect(deletedEntry.recordingDeletedAt).toEqual(expect.any(Number));
+    expect(deletedEntry.canOpenRecordingDirectory).toBe(false);
+  });
+
+  it("persists post-upload transcription failures with source audio and error artifacts", async () => {
+    vi.mocked(settingsManager.getSettings).mockReturnValue({
+      serverName: "",
+      serverId: "",
+      serverSlug: "prod",
+      pushoverUserKey: "",
+      pushoverApiToken: "",
+      pushoverDelaySeconds: 30,
+      pushoverEnabled: true,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
+      autoApprovalMaxConcurrency: 4,
+      autoApprovalTimeoutSeconds: 45,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      transcriptionConfig: {
+        apiKey: "transcription-secret",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: false,
+        enhancementModel: "gpt-5-mini",
+      },
+      editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
+      sleepInhibitorEnabled: false,
+      sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      updatedAt: 123,
+    });
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("STT unavailable"));
+
+    const res = await app.request("/api/transcribe?backend=openai&mode=dictation&requestId=voice-failure-1", {
+      method: "POST",
+      headers: { "Content-Type": "audio/webm", "X-Companion-Audio-Filename": "recording.webm" },
+      body: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
+    });
+
+    expect(res.status).toBe(200);
+    const events = await parseSSE(res);
+    expect(events.some((event) => event.event === "error" && event.data.includes("STT unavailable"))).toBe(true);
+    const entry = transcriptionEnhancer.getTranscriptionLogIndex()[0];
+    expect(entry).toMatchObject({
+      recordingStatus: "error",
+      requestId: "voice-failure-1",
+      error: { message: "STT unavailable", phase: "transcribe" },
+    });
+    await expect(readFile(join(entry.recordingDirectoryPath!, "audio.webm"))).resolves.toEqual(
+      Buffer.from([0x1a, 0x45, 0xdf, 0xa3]),
+    );
+    await expect(readFile(join(entry.recordingDirectoryPath!, "error.json"), "utf-8")).resolves.toContain(
+      "STT unavailable",
+    );
   });
 
   it("emits an early phase ack before stt_complete so the pre-STT state can end before STT finishes", async () => {
@@ -1160,6 +1248,10 @@ describe("POST /api/transcribe", () => {
           receivedAt: expect.any(Number),
         }),
       }),
+    );
+    const entry = transcriptionEnhancer.getTranscriptionLogIndex()[0];
+    await expect(readFile(join(entry.recordingDirectoryPath!, "frontend-timing.json"), "utf-8")).resolves.toContain(
+      "voice-request-enhance-1",
     );
   });
 

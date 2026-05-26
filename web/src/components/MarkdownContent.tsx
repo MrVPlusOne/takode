@@ -1028,8 +1028,11 @@ function FileMarkdownLink({
       items.push({ label: "Checking file...", onClick: () => {}, disabled: true });
       return items;
     }
-    if (fileInfo?.canRevealInFinder) {
-      items.push({ label: "Open in Finder", onClick: () => void revealBackendResolvedPath() });
+    if (fileInfo?.canOpenContainingFolder || fileInfo?.canRevealInFinder) {
+      items.push({
+        label: fileInfo.openContainingFolderLabel || "Open in Finder",
+        onClick: () => void revealBackendResolvedPath(),
+      });
     }
     if (fileInfo?.isImage) {
       items.push({ label: "Preview in Takode", onClick: previewBackendResolvedImage });

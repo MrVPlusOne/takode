@@ -594,41 +594,74 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       audioMimeType: audioMimeType ?? null,
       audioFileName: audioFileName ?? null,
     };
-
-    if (!backend) {
-      return c.json(
-        {
-          error:
-            "No transcription backend available. Configure an OpenAI API key in Settings → Voice Transcription, or set OPENAI_API_KEY / GOOGLE_API_KEY in your environment.",
-        },
-        400,
-      );
-    }
-
-    if (mode === "edit" && composerText === undefined) {
-      return c.json({ error: "composerText is required for voice edit mode." }, 400);
-    }
-
-    if (mode === "append" && composerText === undefined) {
-      return c.json({ error: "composerText is required for voice append mode." }, 400);
-    }
-
-    if ((mode === "edit" || mode === "append") && !resolveOpenAIKey()) {
-      return c.json(
-        {
-          error:
-            "Voice edit requires an OpenAI-compatible enhancement model API key in Settings → Voice Transcription, or OPENAI_API_KEY in your environment.",
-        },
-        400,
-      );
-    }
-
     const uploadFormat = resolveAudioUploadFormat(buf, audioMimeType, audioFileName);
     const serverTiming: TranscriptionServerTiming = {
       bodyReadDurationMs,
       uploadFormatMimeType: uploadFormat.mimeType,
       uploadFormatExtension: uploadFormat.extension,
     };
+    const recordFailedUpload = async (
+      message: string,
+      phase: string,
+      details?: { sttModel?: string; sttPrompt?: string; rawTranscript?: string },
+    ) => {
+      await addTranscriptionLogEntry({
+        status: "error",
+        sessionId: sessionId ?? null,
+        requestId: transcriptionRequestId ?? null,
+        mode,
+        backend: backend ?? "unavailable",
+        uploadDurationMs,
+        sttModel: details?.sttModel ?? backend ?? "unavailable",
+        sttDurationMs: 0,
+        sttPrompt: details?.sttPrompt ?? "",
+        rawTranscript: details?.rawTranscript ?? "",
+        audioSizeBytes: buf.length,
+        audioMimeType: audioMimeType ?? uploadFormat.mimeType,
+        audioFileName: audioFileName ?? null,
+        audioExtension: uploadFormat.extension,
+        serverTiming,
+        audioBytes: Buffer.from(buf),
+        enhancement: null,
+        inputContext: { threadKey, threadTitle, focusedContext, composerText },
+        error: { message, phase },
+      });
+    };
+
+    if (!backend) {
+      const message =
+        "No transcription backend available. Configure an OpenAI API key in Settings → Voice Transcription, or set OPENAI_API_KEY / GOOGLE_API_KEY in your environment.";
+      await recordFailedUpload(message, "validation");
+      return c.json(
+        {
+          error: message,
+        },
+        400,
+      );
+    }
+
+    if (mode === "edit" && composerText === undefined) {
+      await recordFailedUpload("composerText is required for voice edit mode.", "validation");
+      return c.json({ error: "composerText is required for voice edit mode." }, 400);
+    }
+
+    if (mode === "append" && composerText === undefined) {
+      await recordFailedUpload("composerText is required for voice append mode.", "validation");
+      return c.json({ error: "composerText is required for voice append mode." }, 400);
+    }
+
+    if ((mode === "edit" || mode === "append") && !resolveOpenAIKey()) {
+      const message =
+        "Voice edit requires an OpenAI-compatible enhancement model API key in Settings → Voice Transcription, or OPENAI_API_KEY in your environment.";
+      await recordFailedUpload(message, "validation");
+      return c.json(
+        {
+          error: message,
+        },
+        400,
+      );
+    }
+
     emitTranscriptionProgress({
       sessionId,
       requestId: transcriptionRequestId,
@@ -640,6 +673,9 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     // The browser must finish sending the request body before we can open the SSE
     // response. The raw-audio dictation path skips multipart parsing overhead,
     // but the client still treats this pre-response window as distinct from STT.
+    let debugSttPrompt = "";
+    let debugSttModel = backend;
+    let debugRawTranscript = "";
     return streamSSE(c, async (stream: SSEStreamingApi) => {
       try {
         // Send an immediate body chunk so the client can leave its pre-STT
@@ -651,9 +687,9 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         });
         serverTiming.ssePhaseWriteDurationMs = Date.now() - ssePhaseWriteStart;
 
-        let rawText: string;
+        let rawText = "";
         const usedBackend = backend;
-        let sttModel = "unknown";
+        let sttModel = debugSttModel;
         const writeResultSSE = async (payload: Record<string, unknown>) => {
           serverTiming.resultReadyDurationMs = Date.now() - requestStart;
           const resultWriteStart = Date.now();
@@ -680,6 +716,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             customVocabulary: getSettings().transcriptionConfig.customVocabulary || undefined,
           });
         }
+        debugSttPrompt = sttPrompt;
         serverTiming.contextBuildDurationMs = Date.now() - contextBuildStart;
 
         const sttStart = Date.now();
@@ -687,27 +724,29 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         if (backend === "gemini") {
           const apiKey = process.env.GOOGLE_API_KEY;
           if (!apiKey) {
+            const message = "GOOGLE_API_KEY not set in environment";
+            await recordFailedUpload(message, "transcribe", { sttModel: "gemini", sttPrompt });
             await stream.writeSSE({
               event: "error",
-              data: JSON.stringify({ error: "GOOGLE_API_KEY not set in environment" }),
+              data: JSON.stringify({ error: message }),
             });
             return;
           }
           rawText = await transcribeWithGemini(buf, uploadFormat.mimeType, apiKey);
           sttModel = "gemini";
         } else if (backend === "openai") {
+          const configuredSttModel = getSettings().transcriptionConfig.sttModel || "gpt-4o-mini-transcribe";
           const apiKey = resolveOpenAIKey();
           if (!apiKey) {
+            const message =
+              "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY in your environment.";
+            await recordFailedUpload(message, "transcribe", { sttModel: configuredSttModel, sttPrompt });
             await stream.writeSSE({
               event: "error",
-              data: JSON.stringify({
-                error:
-                  "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY in your environment.",
-              }),
+              data: JSON.stringify({ error: message }),
             });
             return;
           }
-          const configuredSttModel = getSettings().transcriptionConfig.sttModel || "gpt-4o-mini-transcribe";
           rawText = await transcribeWithOpenai(
             buf,
             uploadFormat.mimeType,
@@ -718,11 +757,14 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           );
           sttModel = configuredSttModel;
         } else {
+          await recordFailedUpload(`Unknown backend: ${backend}`, "validation", { sttModel: backend, sttPrompt });
           await stream.writeSSE({ event: "error", data: JSON.stringify({ error: `Unknown backend: ${backend}` }) });
           return;
         }
 
         const sttDurationMs = Date.now() - sttStart;
+        debugSttModel = sttModel;
+        debugRawTranscript = rawText;
 
         const settings = getSettings();
         const enhancementKey = resolveOpenAIKey();
@@ -803,10 +845,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           });
 
           await writeResultSSE(resultPayload);
-          addTranscriptionLogEntry({
+          await addTranscriptionLogEntry({
             sessionId: sessionId ?? null,
             requestId: transcriptionRequestId ?? null,
             mode,
+            backend: usedBackend,
             uploadDurationMs,
             sttModel,
             sttDurationMs,
@@ -815,8 +858,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             audioSizeBytes: buf.length,
             audioMimeType: audioMimeType ?? uploadFormat.mimeType,
             audioFileName: audioFileName ?? null,
+            audioExtension: uploadFormat.extension,
             serverTiming,
             audioBytes: Buffer.from(buf),
+            result: resultPayload,
+            inputContext: { threadKey, threadTitle, focusedContext, composerText },
             enhancement: {
               model: result._debug.model,
               systemPrompt: result._debug.systemPrompt,
@@ -877,10 +923,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           });
 
           await writeResultSSE(resultPayload);
-          addTranscriptionLogEntry({
+          await addTranscriptionLogEntry({
             sessionId: sessionId ?? null,
             requestId: transcriptionRequestId ?? null,
             mode,
+            backend: usedBackend,
             uploadDurationMs,
             sttModel,
             sttDurationMs,
@@ -889,8 +936,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             audioSizeBytes: buf.length,
             audioMimeType: audioMimeType ?? uploadFormat.mimeType,
             audioFileName: audioFileName ?? null,
+            audioExtension: uploadFormat.extension,
             serverTiming,
             audioBytes: Buffer.from(buf),
+            result: resultPayload,
+            inputContext: { threadKey, threadTitle, focusedContext, composerText },
             enhancement: {
               model: result._debug.model,
               systemPrompt: result._debug.systemPrompt,
@@ -949,10 +999,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           });
 
           await writeResultSSE(resultPayload);
-          addTranscriptionLogEntry({
+          await addTranscriptionLogEntry({
             sessionId: sessionId!,
             requestId: transcriptionRequestId ?? null,
             mode,
+            backend: usedBackend,
             uploadDurationMs,
             sttModel,
             sttDurationMs,
@@ -961,8 +1012,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             audioSizeBytes: buf.length,
             audioMimeType: audioMimeType ?? uploadFormat.mimeType,
             audioFileName: audioFileName ?? null,
+            audioExtension: uploadFormat.extension,
             serverTiming,
             audioBytes: Buffer.from(buf),
+            result: resultPayload,
+            inputContext: { threadKey, threadTitle, focusedContext, composerText },
             enhancement: result._debug
               ? {
                   model: result._debug.model,
@@ -1003,10 +1057,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         });
 
         await writeResultSSE(resultPayload);
-        addTranscriptionLogEntry({
+        await addTranscriptionLogEntry({
           sessionId: sessionId ?? null,
           requestId: transcriptionRequestId ?? null,
           mode,
+          backend: usedBackend,
           uploadDurationMs,
           sttModel,
           sttDurationMs,
@@ -1015,8 +1070,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           audioSizeBytes: buf.length,
           audioMimeType: audioMimeType ?? uploadFormat.mimeType,
           audioFileName: audioFileName ?? null,
+          audioExtension: uploadFormat.extension,
           serverTiming,
           audioBytes: Buffer.from(buf),
+          result: resultPayload,
+          inputContext: { threadKey, threadTitle, focusedContext, composerText },
           enhancement: null,
         });
       } catch (e: unknown) {
@@ -1029,6 +1087,27 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           mode,
           timing: uploadTiming,
           error: msg,
+        });
+        await addTranscriptionLogEntry({
+          status: "error",
+          sessionId: sessionId ?? null,
+          requestId: transcriptionRequestId ?? null,
+          mode,
+          backend,
+          uploadDurationMs,
+          sttModel: debugSttModel,
+          sttDurationMs: 0,
+          sttPrompt: debugSttPrompt,
+          rawTranscript: debugRawTranscript,
+          audioSizeBytes: buf.length,
+          audioMimeType: audioMimeType ?? uploadFormat.mimeType,
+          audioFileName: audioFileName ?? null,
+          audioExtension: uploadFormat.extension,
+          serverTiming,
+          audioBytes: Buffer.from(buf),
+          enhancement: null,
+          inputContext: { threadKey, threadTitle, focusedContext, composerText },
+          error: { message: msg, phase: "transcribe" },
         });
         await stream.writeSSE({ event: "error", data: JSON.stringify({ error: `Transcription failed: ${msg}` }) });
       }

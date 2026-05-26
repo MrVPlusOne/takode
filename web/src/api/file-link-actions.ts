@@ -16,6 +16,8 @@ export interface FileLinkResolveResponse {
   mimeType?: string;
   size?: number;
   canRevealInFinder: boolean;
+  canOpenContainingFolder: boolean;
+  openContainingFolderLabel: string;
   platform: string;
 }
 
@@ -28,11 +30,14 @@ export async function resolveFileLinkAction(target: FileLinkActionTarget): Promi
 
 export async function revealFileLinkInFinder(
   target: FileLinkActionTarget,
-): Promise<{ ok: boolean; absolutePath: string }> {
-  return requestJson<{ ok: boolean; absolutePath: string }>("/fs/file-link/reveal", {
-    method: "POST",
-    body: JSON.stringify(target),
-  });
+): Promise<{ ok: boolean; absolutePath: string; openedPath: string; platform: string }> {
+  return requestJson<{ ok: boolean; absolutePath: string; openedPath: string; platform: string }>(
+    "/fs/file-link/reveal",
+    {
+      method: "POST",
+      body: JSON.stringify(target),
+    },
+  );
 }
 
 export function buildFileLinkPreviewUrl(target: FileLinkActionTarget): string {

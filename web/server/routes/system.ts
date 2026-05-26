@@ -20,7 +20,10 @@ import {
   getTranscriptionLogIndex,
   getTranscriptionLogEntry,
   getTranscriptionLogAudio,
+  getTranscriptionLogRecordingDirectory,
+  deleteTranscriptionLogRecording,
 } from "../transcription-enhancer.js";
+import { openLocalPathContainingFolder } from "../local-path-actions.js";
 import type { RouteContext } from "./context.js";
 import {
   getVsCodeSelectionState as getVsCodeSelectionStateController,
@@ -1123,6 +1126,37 @@ export function createSystemRoutes(ctx: RouteContext) {
       headers["Content-Disposition"] = `inline; filename="${audio.fileName.replace(/["\\\r\n]/g, "_")}"`;
     }
     return c.body(new Uint8Array(audio.data), 200, headers);
+  });
+
+  api.post("/transcription-logs/:id/recording/open", async (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
+    const recording = getTranscriptionLogRecordingDirectory(id);
+    if (!recording) return c.json({ error: "Recording not found" }, 404);
+    if (recording.deletedAt) return c.json({ error: "Recording was deleted" }, 410);
+    if (recording.persistenceError) return c.json({ error: recording.persistenceError }, 409);
+    try {
+      return c.json(
+        await openLocalPathContainingFolder({
+          absolutePath: recording.path,
+          isDirectory: true,
+        }),
+      );
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Cannot open recording directory" }, 400);
+    }
+  });
+
+  api.delete("/transcription-logs/:id/recording", async (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
+    try {
+      const entry = await deleteTranscriptionLogRecording(id);
+      if (!entry) return c.json({ error: "Recording not found" }, 404);
+      return c.json(entry);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Cannot delete recording" }, 400);
+    }
   });
 
   // ─── Session Namer Debug Logs ─────────────────────────────────────

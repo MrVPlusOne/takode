@@ -45,6 +45,17 @@ function enhancementColor(entry: TranscriptionLogIndexEntry): string {
   return "text-cc-error";
 }
 
+function statusLabel(entry: TranscriptionLogIndexEntry): string {
+  if (entry.recordingStatus === "error" || entry.status === "error")
+    return `failed: ${entry.error?.message ?? "error"}`;
+  return enhancementLabel(entry);
+}
+
+function statusColor(entry: TranscriptionLogIndexEntry): string {
+  if (entry.recordingStatus === "error" || entry.status === "error") return "text-cc-error";
+  return enhancementColor(entry);
+}
+
 export function TranscriptionDebugPanel() {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<TranscriptionLogIndexEntry[]>([]);
@@ -55,6 +66,10 @@ export function TranscriptionDebugPanel() {
   const [expandedEntry, setExpandedEntry] = useState<TranscriptionLogEntry | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [copiedAudioUrl, setCopiedAudioUrl] = useState(false);
+  const [copiedRecordingPath, setCopiedRecordingPath] = useState(false);
+  const [recordingActionError, setRecordingActionError] = useState("");
+  const [openingRecording, setOpeningRecording] = useState(false);
+  const [deletingRecording, setDeletingRecording] = useState(false);
 
   const fetchIndex = useCallback(() => {
     setLoading(true);
@@ -80,11 +95,15 @@ export function TranscriptionDebugPanel() {
       setExpandedId(null);
       setExpandedEntry(null);
       setCopiedAudioUrl(false);
+      setCopiedRecordingPath(false);
+      setRecordingActionError("");
       return;
     }
     setExpandedId(id);
     setExpandedEntry(null);
     setCopiedAudioUrl(false);
+    setCopiedRecordingPath(false);
+    setRecordingActionError("");
     setDetailLoading(true);
     try {
       const entry = await api.getTranscriptionLogEntry(id);
@@ -98,6 +117,51 @@ export function TranscriptionDebugPanel() {
 
   const selectedIndexEntry = expandedId !== null ? entries.find((e) => e.id === expandedId) : null;
   const audioUrl = expandedEntry?.audioUrl ? resolveAbsoluteUrl(expandedEntry.audioUrl) : null;
+  const recordingPath = expandedEntry?.recordingDirectoryPath ?? null;
+
+  const updateEntry = (entry: TranscriptionLogEntry) => {
+    setExpandedEntry(entry);
+    setEntries((current) => current.map((item) => (item.id === entry.id ? { ...item, ...entry } : item)));
+  };
+
+  const copyRecordingPath = () => {
+    if (!recordingPath || !navigator.clipboard) return;
+    void navigator.clipboard
+      .writeText(recordingPath)
+      .then(() => {
+        setCopiedRecordingPath(true);
+        setRecordingActionError("");
+      })
+      .catch((error: unknown) => setRecordingActionError(error instanceof Error ? error.message : String(error)));
+  };
+
+  const openRecordingDirectory = async () => {
+    if (!expandedEntry) return;
+    setOpeningRecording(true);
+    setRecordingActionError("");
+    try {
+      await api.openTranscriptionRecordingDirectory(expandedEntry.id);
+    } catch (error) {
+      setRecordingActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setOpeningRecording(false);
+    }
+  };
+
+  const deleteRecordingDirectory = async () => {
+    if (!expandedEntry) return;
+    const confirmed = window.confirm("Delete this transcription recording directory? This cannot be undone.");
+    if (!confirmed) return;
+    setDeletingRecording(true);
+    setRecordingActionError("");
+    try {
+      updateEntry(await api.deleteTranscriptionRecording(expandedEntry.id));
+    } catch (error) {
+      setRecordingActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeletingRecording(false);
+    }
+  };
 
   // Close modal on Escape key
   useEffect(() => {
@@ -107,6 +171,8 @@ export function TranscriptionDebugPanel() {
         setExpandedId(null);
         setExpandedEntry(null);
         setCopiedAudioUrl(false);
+        setCopiedRecordingPath(false);
+        setRecordingActionError("");
       }
     };
     document.addEventListener("keydown", handleKeyDown);
@@ -159,7 +225,7 @@ export function TranscriptionDebugPanel() {
                     <span className="text-cc-muted shrink-0">Up {formatDuration(entry.uploadDurationMs)}</span>
                     <span className="text-cc-fg shrink-0 font-mono text-[10px]">{entry.sttModel}</span>
                     <span className="text-cc-muted shrink-0">{formatDuration(entry.sttDurationMs)}</span>
-                    <span className={`flex-1 truncate ${enhancementColor(entry)}`}>{enhancementLabel(entry)}</span>
+                    <span className={`flex-1 truncate ${statusColor(entry)}`}>{statusLabel(entry)}</span>
                     {entry.enhancement && !entry.enhancement.skipReason && (
                       <span className="text-cc-muted shrink-0">{formatDuration(entry.enhancement.durationMs)}</span>
                     )}
@@ -191,6 +257,8 @@ export function TranscriptionDebugPanel() {
               setExpandedId(null);
               setExpandedEntry(null);
               setCopiedAudioUrl(false);
+              setCopiedRecordingPath(false);
+              setRecordingActionError("");
             }}
           >
             <div
@@ -204,8 +272,8 @@ export function TranscriptionDebugPanel() {
                   <h3 className="text-sm font-semibold text-cc-fg">Transcription Detail</h3>
                   {selectedIndexEntry && (
                     <>
-                      <span className={`text-xs ${enhancementColor(selectedIndexEntry)}`}>
-                        {enhancementLabel(selectedIndexEntry)}
+                      <span className={`text-xs ${statusColor(selectedIndexEntry)}`}>
+                        {statusLabel(selectedIndexEntry)}
                       </span>
                       <span className="text-xs text-cc-muted">
                         {timeAgo(selectedIndexEntry.timestamp)} &middot; Up{" "}
@@ -225,6 +293,8 @@ export function TranscriptionDebugPanel() {
                     setExpandedId(null);
                     setExpandedEntry(null);
                     setCopiedAudioUrl(false);
+                    setCopiedRecordingPath(false);
+                    setRecordingActionError("");
                   }}
                   className="px-2 py-1 rounded text-xs text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
                 >
@@ -277,6 +347,58 @@ export function TranscriptionDebugPanel() {
                         </span>
                       )}
                     </div>
+
+                    {(recordingPath || expandedEntry.recordingPersistenceError) && (
+                      <div className="text-xs text-cc-muted border-t border-cc-border pt-3 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-cc-fg">Recording folder</span>
+                          {expandedEntry.recordingDeletedAt && <span className="text-cc-warning">deleted</span>}
+                          {expandedEntry.recordingPersistenceError && (
+                            <span className="text-cc-error">not fully persisted</span>
+                          )}
+                          {recordingPath && !expandedEntry.recordingDeletedAt && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={copyRecordingPath}
+                                className="rounded px-1.5 py-0.5 text-[11px] text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+                              >
+                                {copiedRecordingPath ? "Copied" : "Copy path"}
+                              </button>
+                              {expandedEntry.canOpenRecordingDirectory && (
+                                <button
+                                  type="button"
+                                  onClick={() => void openRecordingDirectory()}
+                                  disabled={openingRecording}
+                                  className="rounded px-1.5 py-0.5 text-[11px] text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  {openingRecording
+                                    ? "Opening..."
+                                    : expandedEntry.openRecordingDirectoryLabel || "Open folder"}
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => void deleteRecordingDirectory()}
+                                disabled={deletingRecording}
+                                className="rounded px-1.5 py-0.5 text-[11px] text-cc-error hover:bg-cc-error/10 transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                {deletingRecording ? "Deleting..." : "Delete recording"}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        {recordingPath && (
+                          <div className="rounded-lg bg-cc-hover px-3 py-2 font-mono text-[11px] text-cc-fg break-all">
+                            {recordingPath}
+                          </div>
+                        )}
+                        {expandedEntry.recordingPersistenceError && (
+                          <div className="text-cc-error">{expandedEntry.recordingPersistenceError}</div>
+                        )}
+                        {recordingActionError && <div className="text-cc-error">{recordingActionError}</div>}
+                      </div>
+                    )}
 
                     {(expandedEntry.serverTiming || expandedEntry.frontendTiming) && (
                       <div className="text-xs text-cc-muted border-t border-cc-border pt-3 space-y-1">

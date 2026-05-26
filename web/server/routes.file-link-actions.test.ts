@@ -94,8 +94,8 @@ describe("file-link filesystem actions", () => {
     });
   });
 
-  it("hides Finder reveal behind a non-macOS server response", async () => {
-    Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+  it("reports unsupported local folder open platforms", async () => {
+    Object.defineProperty(process, "platform", { value: "aix", configurable: true });
 
     const res = await makeApp(tempDir).request("/api/fs/file-link/reveal", {
       method: "POST",
@@ -105,7 +105,7 @@ describe("file-link filesystem actions", () => {
 
     expect(res.status).toBe(501);
     await expect(res.json()).resolves.toMatchObject({
-      error: "Open in Finder is only available on macOS servers",
+      error: "Opening local folders is not supported on aix",
     });
   });
 

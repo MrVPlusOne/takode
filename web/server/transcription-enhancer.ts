@@ -13,6 +13,13 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { formatReplyContentForContext, type ReplyContext } from "../shared/reply-context.js";
+import { getLocalPathOpenCapability } from "./local-path-actions.js";
+import {
+  deleteTranscriptionRecordingDirectory,
+  writeTranscriptionRecording,
+  writeTranscriptionRecordingFrontendTiming,
+  type TranscriptionRecordingStatus,
+} from "./transcription-recordings.js";
 
 // ─── Tunable limits ─────────────────────────────────────────────────────────
 
@@ -1206,6 +1213,7 @@ export interface TranscriptionFrontendTiming extends TranscriptionFrontendTiming
 export interface TranscriptionLogEntry {
   id: number;
   timestamp: number;
+  status?: TranscriptionRecordingStatus;
   sessionId: string | null;
   requestId: string | null;
   mode?: "dictation" | "edit" | "append";
@@ -1234,10 +1242,31 @@ export interface TranscriptionLogEntry {
   } | null;
   /** Browser-visible phase timings reported after transcription completion. */
   frontendTiming: TranscriptionFrontendTiming | null;
+  /** Durable on-disk artifact directory for this request, when persistence succeeded or was attempted. */
+  recordingDirectoryPath?: string;
+  recordingManifestPath?: string;
+  recordingStatus?: TranscriptionRecordingStatus;
+  recordingPersistenceError?: string;
+  recordingDeletedAt?: number;
+  canOpenRecordingDirectory?: boolean;
+  openRecordingDirectoryLabel?: string;
+  error?: {
+    message: string;
+    phase?: string;
+  };
 }
 
 interface StoredTranscriptionLogEntry extends Omit<TranscriptionLogEntry, "audioUrl"> {
   audioBytes: Buffer;
+  backend: string;
+  audioExtension: string;
+  inputContext?: {
+    threadKey?: string;
+    threadTitle?: string;
+    focusedContext?: string;
+    composerText?: string;
+  };
+  result?: unknown;
 }
 
 const MAX_LOG_ENTRIES = 50;
@@ -1252,16 +1281,24 @@ function buildTranscriptionAudioUrl(id: number): string {
 
 function toPublicTranscriptionLogEntry(entry: StoredTranscriptionLogEntry): TranscriptionLogEntry {
   const { audioBytes: _audioBytes, ...rest } = entry;
-  return { ...rest, audioUrl: buildTranscriptionAudioUrl(entry.id) };
+  const capability = getLocalPathOpenCapability();
+  return {
+    ...rest,
+    canOpenRecordingDirectory: Boolean(
+      entry.recordingDirectoryPath && !entry.recordingDeletedAt && capability.canOpenContainingFolder,
+    ),
+    openRecordingDirectoryLabel: capability.openContainingFolderLabel,
+    audioUrl: buildTranscriptionAudioUrl(entry.id),
+  };
 }
 
 /** Add a transcription log entry. Called from routes.ts after each transcription. */
-export function addTranscriptionLogEntry(
+export async function addTranscriptionLogEntry(
   entry: Omit<StoredTranscriptionLogEntry, "id" | "timestamp" | "requestId" | "frontendTiming"> & {
     requestId?: string | null;
     frontendTiming?: TranscriptionFrontendTiming | null;
   },
-): TranscriptionLogEntry {
+): Promise<TranscriptionLogEntry> {
   const requestId = entry.requestId ?? null;
   const pendingFrontendTiming = requestId ? pendingFrontendTimingByRequestId.get(requestId) : null;
   if (requestId && pendingFrontendTiming) pendingFrontendTimingByRequestId.delete(requestId);
@@ -1269,9 +1306,39 @@ export function addTranscriptionLogEntry(
     ...entry,
     requestId,
     frontendTiming: entry.frontendTiming ?? pendingFrontendTiming ?? null,
+    recordingStatus: entry.status ?? "success",
     id: ++logIdCounter,
     timestamp: Date.now(),
   };
+  const recording = await writeTranscriptionRecording({
+    status: full.recordingStatus ?? "success",
+    sessionId: full.sessionId,
+    requestId: full.requestId,
+    mode: full.mode,
+    backend: full.backend,
+    uploadDurationMs: full.uploadDurationMs,
+    sttModel: full.sttModel,
+    sttDurationMs: full.sttDurationMs,
+    sttPrompt: full.sttPrompt,
+    rawTranscript: full.rawTranscript,
+    audioBytes: full.audioBytes,
+    audioMimeType: full.audioMimeType,
+    audioFileName: full.audioFileName,
+    audioExtension: full.audioExtension,
+    serverTiming: full.serverTiming,
+    inputContext: full.inputContext,
+    result: full.result,
+    enhancement: full.enhancement,
+    frontendTiming: full.frontendTiming,
+    error: full.error,
+  });
+  full.recordingDirectoryPath = recording.directoryPath;
+  full.recordingManifestPath = recording.manifestPath;
+  full.recordingStatus = recording.status;
+  if (recording.persistenceError) {
+    full.recordingPersistenceError = recording.persistenceError;
+    console.warn(`[transcription-recordings] failed to persist recording: ${recording.persistenceError}`);
+  }
   transcriptionLog.push(full);
   if (transcriptionLog.length > MAX_LOG_ENTRIES) {
     transcriptionLog.splice(0, transcriptionLog.length - MAX_LOG_ENTRIES);
@@ -1302,8 +1369,38 @@ export function attachTranscriptionFrontendTiming(report: TranscriptionFrontendT
   }
 
   existing.frontendTiming = timing;
+  if (existing.recordingDirectoryPath && !existing.recordingPersistenceError && !existing.recordingDeletedAt) {
+    void writeTranscriptionRecordingFrontendTiming(existing.recordingDirectoryPath, timing).catch((error) => {
+      existing.recordingPersistenceError = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `[transcription-recordings] failed to persist frontend timing: ${existing.recordingPersistenceError}`,
+      );
+    });
+  }
   persistFrontendTimingAttachment(existing.id, timing);
   return { attached: true, logId: existing.id };
+}
+
+export function getTranscriptionLogRecordingDirectory(
+  id: number,
+): { path: string; deletedAt?: number; persistenceError?: string } | undefined {
+  const entry = transcriptionLog.find((e) => e.id === id);
+  if (!entry?.recordingDirectoryPath) return undefined;
+  return {
+    path: entry.recordingDirectoryPath,
+    ...(entry.recordingDeletedAt ? { deletedAt: entry.recordingDeletedAt } : {}),
+    ...(entry.recordingPersistenceError ? { persistenceError: entry.recordingPersistenceError } : {}),
+  };
+}
+
+export async function deleteTranscriptionLogRecording(id: number): Promise<TranscriptionLogEntry | undefined> {
+  const entry = transcriptionLog.find((e) => e.id === id);
+  if (!entry?.recordingDirectoryPath) return undefined;
+  await deleteTranscriptionRecordingDirectory(entry.recordingDirectoryPath);
+  entry.recordingDeletedAt = Date.now();
+  entry.recordingPersistenceError = undefined;
+  persistLogRecord({ kind: "transcription_recording_deleted", logId: id, deletedAt: entry.recordingDeletedAt });
+  return toPublicTranscriptionLogEntry(entry);
 }
 
 export function _resetTranscriptionLogForTest(): void {
