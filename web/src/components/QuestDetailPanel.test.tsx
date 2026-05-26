@@ -1713,6 +1713,13 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
+    const commitsToggle = screen.getByRole("button", { name: "Expand commits, 2 commits" });
+    expect(commitsToggle).toHaveTextContent("Commits");
+    expect(commitsToggle).toHaveTextContent("2 commits");
+    expect(screen.queryByText("First ported commit")).toBeNull();
+    expect(screen.queryByText("Second ported commit")).toBeNull();
+    fireEvent.click(commitsToggle);
+
     expect(await screen.findByText("First ported commit")).toBeTruthy();
     expect(screen.getAllByText("Second ported commit").length).toBeGreaterThanOrEqual(1);
     fireEvent.click(screen.getByLabelText(`Open code commit ${firstSha.slice(0, 7)}`));
@@ -1758,6 +1765,7 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
+    fireEvent.click(screen.getByRole("button", { name: "Expand commits, 1 commit" }));
     fireEvent.click(screen.getByLabelText(`Open code commit ${sha.slice(0, 7)}`));
 
     await waitFor(() => {
@@ -1799,6 +1807,15 @@ describe("QuestDetailPanel", () => {
     });
 
     render(<QuestDetailPanel />);
+
+    const commitsToggle = screen.getByRole("button", { name: "Expand commits, 2 commits" });
+    expect(screen.queryByText("Commit evidence")).toBeNull();
+    expect(commitsToggle).toHaveTextContent("Commits");
+    expect(commitsToggle).toHaveTextContent("2 commits");
+    expect(screen.queryByText("Record memory handoff")).toBeNull();
+    expect(screen.queryByText("Port quest detail UI")).toBeNull();
+    expect(screen.queryByLabelText(`Open memory commit ${memorySha.slice(0, 7)}`)).toBeNull();
+    fireEvent.click(commitsToggle);
 
     expect(await screen.findByText("Record memory handoff")).toBeTruthy();
     expect(screen.getByText("Port quest detail UI")).toBeTruthy();

@@ -945,6 +945,7 @@ export function QuestDetailPanel() {
               </div>
             )}
             <QuestCommitEvidenceList
+              key={quest.questId}
               entries={commitEntries}
               lookupByKey={commitLookupByKey}
               onOpenCommit={openCommitModal}

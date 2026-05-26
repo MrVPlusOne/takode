@@ -45,6 +45,8 @@ function openPlaygroundQuestDetail() {
         previousOwnerSessionIds: ["abc-123"],
         claimedAt: Date.now() - 43200000,
         completedAt: Date.now() - 3600000,
+        commitShas: ["82a3f2b71d4c9000", "7d2c332e9b5a1000"],
+        memoryCommitShas: ["eedb2db46f8a7000"],
         tags: ["ui", "mobile", "bug"],
         verificationItems: [
           { text: "Sidebar does not overflow on iPhone SE", checked: true },
