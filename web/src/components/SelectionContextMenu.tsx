@@ -11,6 +11,16 @@ interface SelectionContextMenuProps {
   onClose: () => void;
 }
 
+export function formatSelectedTextAsBlockquote(text: string): string | null {
+  const selectedText = text.replace(/^[\r\n]+|[\r\n]+$/g, "");
+  if (!selectedText.trim()) return null;
+
+  return selectedText
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+}
+
 /**
  * Floating context menu shown when the user selects text in an assistant message.
  * Offers "Quote selected" (injects blockquote into composer) and a "Copy" submenu
@@ -18,13 +28,8 @@ interface SelectionContextMenuProps {
  */
 export function SelectionContextMenu({ selection, sessionId, onClose }: SelectionContextMenuProps) {
   const handleQuote = useCallback(() => {
-    const text = selection.plainText;
-    if (!text.trim()) return;
-
-    const blockquote = text
-      .split("\n")
-      .map((line) => `> ${line}`)
-      .join("\n");
+    const blockquote = formatSelectedTextAsBlockquote(selection.plainText);
+    if (!blockquote) return;
 
     const store = useStore.getState();
     const currentDraft = store.composerDrafts.get(sessionId);
