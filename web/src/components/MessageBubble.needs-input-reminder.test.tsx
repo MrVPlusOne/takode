@@ -97,6 +97,37 @@ function makeNeedsInputResolutionNoticeMessage(): ChatMessage {
   };
 }
 
+function makeLegacyNeedsInputResolutionNoticeMessage(): ChatMessage {
+  return {
+    id: "needs-input-resolution-notice-legacy",
+    role: "user",
+    content: [
+      "[Needs-input resolution notice]",
+      "Externally resolved same-session same-thread needs-input notifications (main): 1.",
+      "  2. Already handled -- dismissed or resolved outside the agent.",
+      "Do not call `takode notify resolve` for these notifications unless you later recreate a new prompt.",
+    ].join("\n"),
+    timestamp: Date.now(),
+    agentSource: {
+      sessionId: "system:needs-input-resolution",
+      sessionLabel: "Needs Input Resolution",
+    },
+  };
+}
+
+function makeUnparseableNeedsInputResolutionNoticeMessage(): ChatMessage {
+  return {
+    id: "needs-input-resolution-notice-unparseable",
+    role: "user",
+    content: "Unparseable externally resolved notice\nRaw resolution content stays visible on expand.",
+    timestamp: Date.now(),
+    agentSource: {
+      sessionId: "system:needs-input-resolution",
+      sessionLabel: "Needs Input Resolution",
+    },
+  };
+}
+
 describe("MessageBubble needs-input reminder messages", () => {
   beforeEach(() => {
     revertToMessageMock.mockClear();
@@ -326,5 +357,43 @@ describe("MessageBubble needs-input reminder messages", () => {
 
     expect(screen.getByText("confirm collapsible commits section quest")).toBeTruthy();
     expect(screen.getByText(/Do not run `takode notify resolve`/)).toBeTruthy();
+  });
+
+  it("renders legacy verbose needs-input resolution notices as collapsed special-message chips", async () => {
+    render(<MessageBubble message={makeLegacyNeedsInputResolutionNoticeMessage()} sessionId="resolution-session" />);
+
+    const chip = screen.getByTestId("needs-input-resolution-notice-chip");
+    expect(chip).toBeTruthy();
+    expect(chip.textContent).toContain("1 resolved externally in main");
+    expect(screen.queryByTestId("user-message-bubble")).toBeNull();
+    expect(screen.queryByTestId("agent-source-badge")).toBeNull();
+    expect(screen.queryByTitle("Message options")).toBeNull();
+    expect(screen.queryByText("Already handled")).toBeNull();
+    expect(screen.queryByText("(dismissed or resolved outside the agent)")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Expand Needs-input resolution notice" }));
+
+    expect(screen.getByText("2.")).toBeTruthy();
+    expect(screen.getByText("Already handled")).toBeTruthy();
+    expect(screen.getByText("(dismissed or resolved outside the agent)")).toBeTruthy();
+  });
+
+  it("renders unparseable source-tagged needs-input resolution notices as raw expandable chips", async () => {
+    render(
+      <MessageBubble message={makeUnparseableNeedsInputResolutionNoticeMessage()} sessionId="resolution-session" />,
+    );
+
+    const chip = screen.getByTestId("needs-input-resolution-notice-chip");
+    expect(chip).toBeTruthy();
+    expect(chip.textContent).toContain("Resolved externally");
+    expect(screen.queryByTestId("user-message-bubble")).toBeNull();
+    expect(screen.queryByTestId("agent-source-badge")).toBeNull();
+    expect(screen.queryByTitle("Message options")).toBeNull();
+    expect(screen.queryByText(/Raw resolution content stays visible/)).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Expand Needs-input resolution notice" }));
+
+    expect(screen.getByText(/Unparseable externally resolved notice/)).toBeTruthy();
+    expect(screen.getByText(/Raw resolution content stays visible on expand/)).toBeTruthy();
   });
 });
