@@ -192,6 +192,12 @@ function getErrorMessageIdentity(entry: FeedEntry): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
+function isInvisibleFeedEntry(entry: FeedEntry, suppressThreadSystemMarkers: boolean): boolean {
+  if (entry.kind !== "message") return false;
+  if (suppressThreadSystemMarkers && isThreadSystemMarkerMessage(entry.msg)) return true;
+  return isEmptyAssistantMessage(entry.msg);
+}
+
 function GroupedErrorMessages({
   messages,
   sessionId,
@@ -972,9 +978,18 @@ export const FeedEntries = memo(function FeedEntries({
       if (errorIdentity !== null) {
         const batch: ChatMessage[] = [(entry as { kind: "message"; msg: ChatMessage }).msg];
         let j = i + 1;
-        while (j < entries.length && getErrorMessageIdentity(entries[j]) === errorIdentity) {
-          batch.push((entries[j] as { kind: "message"; msg: ChatMessage }).msg);
-          j++;
+        while (j < entries.length) {
+          const next = entries[j];
+          if (getErrorMessageIdentity(next) === errorIdentity) {
+            batch.push((next as { kind: "message"; msg: ChatMessage }).msg);
+            j++;
+            continue;
+          }
+          if (isInvisibleFeedEntry(next, suppressThreadSystemMarkers)) {
+            j++;
+            continue;
+          }
+          break;
         }
         if (batch.length >= 2) {
           result.push(

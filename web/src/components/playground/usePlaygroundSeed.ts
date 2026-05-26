@@ -772,6 +772,33 @@ export function usePlaygroundSeed() {
         }),
       ),
       makePlaygroundMessage({
+        id: "playground-repeated-error-hidden-route-marker",
+        role: "system",
+        content: "",
+        timestamp: Date.now() - 31_000,
+        metadata: {
+          threadTransitionMarker: {
+            type: "thread_transition_marker",
+            id: "playground-repeated-error-hidden-route-marker",
+            timestamp: Date.now() - 31_000,
+            markerKey: "thread-transition:main->repeated-error-playground",
+            sourceThreadKey: "main",
+            threadKey: "repeated-error-playground",
+            transitionedAt: Date.now() - 31_000,
+            reason: "route_switch",
+          },
+        },
+      }),
+      ...Array.from({ length: 4 }, (_, index) =>
+        makePlaygroundMessage({
+          id: `playground-repeated-error-after-hidden-${index + 1}`,
+          role: "system",
+          content: repeatedBackendError,
+          timestamp: Date.now() - 30_500 + index,
+          variant: "error",
+        }),
+      ),
+      makePlaygroundMessage({
         id: "playground-repeated-error-boundary",
         role: "system",
         content: "Session restored after operator intervention",
@@ -783,6 +810,12 @@ export function usePlaygroundSeed() {
         content: repeatedBackendError,
         timestamp: Date.now() - 26_000,
         variant: "error",
+      }),
+      makePlaygroundMessage({
+        id: "playground-repeated-error-followup",
+        role: "user",
+        content: "Continue after the repeated backend errors.",
+        timestamp: Date.now() - 25_000,
       }),
     ]);
 

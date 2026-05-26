@@ -1110,6 +1110,53 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.getByText("Can you recover?")).toBeTruthy();
   });
 
+  it("groups visually adjacent identical errors across suppressed thread markers", () => {
+    const sid = "test-errors-separated-only-by-hidden-thread-marker";
+    const base = 1_700_000_000_000;
+    const errorText =
+      "Error: stream disconnected before completion: error sending request for url (http://localhost:4000/responses)";
+    setStoreMessages(sid, [
+      makeMessage({ id: "e1", role: "system", content: errorText, timestamp: base, variant: "error" }),
+      makeMessage({ id: "e2", role: "system", content: errorText, timestamp: base + 1, variant: "error" }),
+      makeMessage({
+        id: "hidden-route-marker",
+        role: "system",
+        content: "",
+        timestamp: base + 2,
+        metadata: {
+          threadTransitionMarker: {
+            type: "thread_transition_marker",
+            id: "hidden-route-marker",
+            timestamp: base + 2,
+            markerKey: "thread-transition:main->repeated-error-route",
+            sourceThreadKey: "main",
+            threadKey: "repeated-error-route",
+            transitionedAt: base + 2,
+            reason: "route_switch",
+          },
+        },
+      }),
+      makeMessage({ id: "e3", role: "system", content: errorText, timestamp: base + 3, variant: "error" }),
+      makeMessage({ id: "e4", role: "system", content: errorText, timestamp: base + 4, variant: "error" }),
+      makeMessage({ id: "visible-boundary", role: "system", content: "Session restored", timestamp: base + 5 }),
+      makeMessage({ id: "e5", role: "system", content: errorText, timestamp: base + 6, variant: "error" }),
+      makeMessage({ id: "u1", role: "user", content: "Continue after the errors", timestamp: base + 7 }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+    // Suppressed route markers do not render in the collapsed feed, so they
+    // must not split visually adjacent identical error cards into two groups.
+    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
+    expect(screen.getByText("Same error happened 4 times")).toBeTruthy();
+    expect(screen.getAllByTestId("grouped-error-message")).toHaveLength(1);
+    expect(screen.getAllByText(errorText)).toHaveLength(2);
+    expect(screen.getByText("Session restored")).toBeTruthy();
+    expect(screen.getByText("Continue after the errors")).toBeTruthy();
+    expect(document.querySelector('[data-message-id="e3"]')).toBeTruthy();
+    expect(document.querySelector('[data-message-id="e4"]')).toBeTruthy();
+  });
+
   it("does not group non-consecutive repeated errors across intervening messages", () => {
     const sid = "test-nonconsecutive-errors-stay-separate";
     const errorText = "Error: API rate limit exceeded";

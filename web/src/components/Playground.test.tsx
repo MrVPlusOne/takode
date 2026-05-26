@@ -67,7 +67,7 @@ describe("Playground", () => {
     expect(screen.getByText("Shortcut Hints")).toBeTruthy();
     expect(screen.getByText("Timer Messages")).toBeTruthy();
     expect(screen.getByText("Grouped repeated error cards")).toBeTruthy();
-    expect(screen.getByText("Same error happened 4 times")).toBeTruthy();
+    expect(screen.getByText("Same error happened 8 times")).toBeTruthy();
     expect(screen.getByTestId("playground-grouped-repeated-error-feed")).toHaveClass("h-[360px]");
 
     const repeatedErrorText =
