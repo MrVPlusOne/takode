@@ -1101,19 +1101,6 @@ describe("UI state", () => {
   });
 });
 
-// ─── Board block registration ──────────────────────────────────────────────
-
-describe("Board block registration", () => {
-  it("setLatestBoardToolUseId is a no-op when the same board is already latest", () => {
-    useStore.getState().setLatestBoardToolUseId("s1", "tool-1");
-    const previousMap = useStore.getState().latestBoardToolUseId;
-
-    useStore.getState().setLatestBoardToolUseId("s1", "tool-1");
-
-    expect(useStore.getState().latestBoardToolUseId).toBe(previousMap);
-  });
-});
-
 // ─── Collapsible turn registration ────────────────────────────────────────
 
 describe("Collapsible turn registration", () => {

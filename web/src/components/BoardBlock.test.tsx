@@ -1,26 +1,21 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { BoardBlock } from "./BoardBlock.js";
 import type { BoardRowData } from "./BoardTable.js";
 import type { BoardRowSessionStatus } from "../types.js";
 
 const liveRowSessionStatuses = new Map<string, Record<string, BoardRowSessionStatus>>();
-const mockSetLatestBoardToolUseId = vi.fn();
 
 vi.mock("../store.js", () => ({
   useStore: (
     selector: (state: {
-      latestBoardToolUseId: Map<string, string>;
       sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
-      setLatestBoardToolUseId: (sessionId: string, toolUseId: string) => void;
     }) => unknown,
   ) =>
     selector({
-      latestBoardToolUseId: new Map<string, string>(),
       sessionBoardRowStatuses: liveRowSessionStatuses,
-      setLatestBoardToolUseId: mockSetLatestBoardToolUseId,
     }),
 }));
 
@@ -45,7 +40,6 @@ vi.mock("./CollapseFooter.js", () => ({
 describe("BoardBlock", () => {
   beforeEach(() => {
     liveRowSessionStatuses.clear();
-    mockSetLatestBoardToolUseId.mockClear();
   });
 
   it("prefers explicit row session statuses over the live store snapshot", () => {
@@ -58,6 +52,7 @@ describe("BoardBlock", () => {
       <BoardBlock
         board={board}
         sessionId="s-1"
+        defaultOpen
         rowSessionStatuses={{
           "q-42": {
             worker: { sessionId: "worker-inline", sessionNum: 12, status: "running" },
@@ -81,29 +76,31 @@ describe("BoardBlock", () => {
   it("formats embedded quest journey enum labels in the operation header", () => {
     const board: BoardRowData[] = [{ questId: "q-42", title: "Quest", updatedAt: 1 }];
 
-    render(<BoardBlock board={board} operation="advanced q-42 to CODE_REVIEWING" />);
+    render(<BoardBlock board={board} operation="advanced q-42 to CODE_REVIEWING" defaultOpen />);
 
-    expect(screen.getByText("-- advanced q-42 to Code Review")).toBeInTheDocument();
+    expect(screen.getByText("advanced q-42 to Code Review")).toBeInTheDocument();
     expect(screen.queryByText(/CODE_REVIEWING/)).toBeNull();
   });
 
-  it("coalesces dense mount-time latest-board registration to the final board", async () => {
+  it("starts collapsed even when the board has a tool command", () => {
     const board: BoardRowData[] = [{ questId: "q-42", title: "Quest", updatedAt: 1 }];
 
     render(
-      <>
-        <BoardBlock board={board} sessionId="s-1" toolUseId="board-tool-1" />
-        <BoardBlock board={board} sessionId="s-1" toolUseId="board-tool-2" />
-        <BoardBlock board={board} sessionId="s-1" toolUseId="board-tool-3" />
-      </>,
+      <BoardBlock
+        board={board}
+        sessionId="s-1"
+        toolUseId="board-tool-1"
+        originalToolName="Bash"
+        originalInput={{ command: "takode board advance q-42" }}
+        originalCommand="takode board advance q-42"
+      />,
     );
 
-    await act(async () => {
-      await Promise.resolve();
-    });
+    expect(screen.getByText("takode board advance q-42")).toBeInTheDocument();
+    expect(screen.queryByTestId("board-table")).toBeNull();
 
-    expect(mockSetLatestBoardToolUseId).toHaveBeenCalledTimes(1);
-    expect(mockSetLatestBoardToolUseId).toHaveBeenCalledWith("s-1", "board-tool-3");
+    fireEvent.click(screen.getByText("takode board advance q-42"));
+    expect(screen.getByTestId("board-table")).toBeInTheDocument();
   });
 
   it("renders queue warnings when present", () => {
@@ -112,6 +109,7 @@ describe("BoardBlock", () => {
     render(
       <BoardBlock
         board={board}
+        defaultOpen
         queueWarnings={[
           {
             questId: "q-42",
@@ -134,6 +132,7 @@ describe("BoardBlock", () => {
     render(
       <BoardBlock
         board={board}
+        defaultOpen
         operation="present q-942"
         proposalReview={{
           questId: "q-942",

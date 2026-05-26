@@ -110,8 +110,6 @@ export interface AppState {
     Map<string, { toolName: string; elapsedSeconds: number; output?: string; outputTruncated?: boolean }>
   >;
   toolResults: Map<string, Map<string, ToolResultPreview>>;
-  latestBoardToolUseId: Map<string, string>;
-  setLatestBoardToolUseId: (sessionId: string, toolUseId: string) => void;
   sessionBoards: Map<string, BoardRowData[]>;
   setSessionBoard: (sessionId: string, board: BoardRowData[]) => void;
   sessionBoardRowStatuses: Map<string, Record<string, BoardRowSessionStatus>>;

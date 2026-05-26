@@ -23,6 +23,7 @@ import {
   Card,
   PlaygroundAddressedSuggestedAnswerNotificationMarker,
   PlaygroundBoardWithOriginalCommand,
+  PlaygroundCollapsedBoardCommand,
   PlaygroundDedupedNotificationMessage,
   PlaygroundHoverCrossLinkDemo,
   PlaygroundMessageLinkHoverDemo,
@@ -1156,8 +1157,12 @@ export function PlaygroundInteractiveSections() {
         description="Collapsible card rendered when a takode board command outputs board data. Shows quest/worker assignments and freeform status."
       >
         <div className="max-w-3xl space-y-4">
+          <Card label="Collapsed command chip">
+            <PlaygroundCollapsedBoardCommand />
+          </Card>
           <Card label="Board with items">
             <BoardBlock
+              defaultOpen
               operation="advanced q-42 to IMPLEMENTING"
               queueWarnings={[
                 {
@@ -1196,11 +1201,12 @@ export function PlaygroundInteractiveSections() {
               ]}
             />
           </Card>
-          <Card label="Board with raw debug control visible">
+          <Card label="Expanded board with raw inspection">
             <PlaygroundBoardWithOriginalCommand />
           </Card>
           <Card label="Optional Journey proposal">
             <BoardBlock
+              defaultOpen
               operation="present q-942"
               proposalReview={{
                 questId: "q-942",

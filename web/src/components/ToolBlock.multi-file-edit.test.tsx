@@ -20,7 +20,7 @@ beforeEach(() => {
   vi.mocked(api.getSettings).mockResolvedValue({ editorConfig: { editor: "vscode-local" } } as Awaited<
     ReturnType<typeof api.getSettings>
   >);
-  useStore.setState({ toolResults: new Map(), latestBoardToolUseId: new Map() });
+  useStore.setState({ toolResults: new Map() });
 });
 
 afterEach(() => {

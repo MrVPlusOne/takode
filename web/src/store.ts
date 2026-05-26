@@ -240,14 +240,6 @@ export const useStore = create<AppState>((set, get) => ({
   mcpServers: new Map(),
   toolProgress: new Map(),
   toolResults: new Map(),
-  latestBoardToolUseId: new Map(),
-  setLatestBoardToolUseId: (sessionId, toolUseId) =>
-    set((s) => {
-      if (s.latestBoardToolUseId.get(sessionId) === toolUseId) return s;
-      const next = new Map(s.latestBoardToolUseId);
-      next.set(sessionId, toolUseId);
-      return { latestBoardToolUseId: next };
-    }),
   sessionBoards: new Map(),
   setSessionBoard: (sessionId, board) =>
     set((s) => ({ sessionBoards: withMapEntry(s.sessionBoards, sessionId, board) })),
@@ -1940,7 +1932,6 @@ export const useStore = create<AppState>((set, get) => ({
       mcpServers: new Map(),
       toolProgress: new Map(),
       toolResults: new Map(),
-      latestBoardToolUseId: new Map(),
       sessionBoards: new Map(),
       sessionBoardRowStatuses: new Map(),
       sessionCompletedBoards: new Map(),

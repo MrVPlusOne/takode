@@ -115,7 +115,29 @@ export function PlaygroundBoardWithOriginalCommand() {
       originalToolName="Bash"
       originalInput={{ command: "takode board show --json" }}
       originalCommand="takode board show --json"
+      defaultOpen
       defaultShowOriginalCommand
+    />
+  );
+}
+
+export function PlaygroundCollapsedBoardCommand() {
+  return (
+    <BoardBlock
+      board={[
+        {
+          questId: "q-1429",
+          title: "Make workboard tool calls collapse like terminal commands",
+          status: "IMPLEMENTING",
+          updatedAt: Date.now() - 30000,
+        },
+      ]}
+      operation="advance q-1429"
+      toolUseId="playground-board-collapsed-command"
+      sessionId="playground-board-collapsed-command-session"
+      originalToolName="Bash"
+      originalInput={{ command: "takode board advance q-1429" }}
+      originalCommand="takode board advance q-1429"
     />
   );
 }

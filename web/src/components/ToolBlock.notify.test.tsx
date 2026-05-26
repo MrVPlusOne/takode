@@ -21,7 +21,7 @@ beforeEach(() => {
   vi.mocked(api.getSettings).mockResolvedValue({ editorConfig: { editor: "vscode-local" } } as Awaited<
     ReturnType<typeof api.getSettings>
   >);
-  useStore.setState({ sessionNotifications: new Map(), toolResults: new Map(), latestBoardToolUseId: new Map() });
+  useStore.setState({ sessionNotifications: new Map(), toolResults: new Map() });
 });
 
 describe("ToolBlock takode notify rendering", () => {

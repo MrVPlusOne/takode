@@ -31,7 +31,7 @@ beforeEach(() => {
   vi.mocked(api.getSettings).mockResolvedValue({ editorConfig: { editor: "vscode-local" } } as Awaited<
     ReturnType<typeof api.getSettings>
   >);
-  useStore.setState({ toolResults: new Map(), latestBoardToolUseId: new Map() });
+  useStore.setState({ toolResults: new Map() });
 });
 
 // ─── getToolIcon ─────────────────────────────────────────────────────────────
@@ -342,7 +342,7 @@ describe("ToolBlock", () => {
     expect(dollarSpan?.textContent).toBe("$ ");
   });
 
-  it("renders a lightweight raw affordance for takode board tool blocks", async () => {
+  it("renders takode board tool blocks as collapsed command chips with expanded raw controls", async () => {
     const boardOutput = [
       JSON.stringify(
         {
@@ -365,7 +365,7 @@ describe("ToolBlock", () => {
     });
     const toolResults = new Map();
     toolResults.set("board-session", sessionResults);
-    useStore.setState({ toolResults, latestBoardToolUseId: new Map() });
+    useStore.setState({ toolResults });
 
     render(
       <ToolBlock
@@ -376,12 +376,17 @@ describe("ToolBlock", () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByText("Work Board")).toBeTruthy());
-    const rawToggle = screen.getByText("raw");
-    expect(rawToggle.className).toContain("text-cc-muted/55");
-    expect(rawToggle.className).not.toContain("border");
-    fireEvent.click(rawToggle);
+    await waitFor(() => expect(screen.getByText("takode board show --json")).toBeTruthy());
+    expect(screen.queryByText("Work Board")).toBeNull();
+    expect(screen.queryByText("Show raw")).toBeNull();
+    expect(screen.queryByText("Inspect original board command")).toBeNull();
 
+    fireEvent.click(screen.getByText("takode board show --json"));
+    expect(screen.getByText("Work Board")).toBeTruthy();
+    expect(screen.getByText("Show raw")).toBeTruthy();
+    expect(screen.getByText("Inspect original board command")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Show raw"));
     expect(screen.getByText("Original command")).toBeTruthy();
     expect(screen.getAllByText("takode board show --json").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/ORIGINAL BOARD OUTPUT/)).toBeTruthy();
@@ -408,7 +413,7 @@ describe("ToolBlock", () => {
     sessionBoards.set("board-session-toggle", [
       { questId: "q-412", title: "Inspect original board command", workerNum: 5, status: "PLANNING", updatedAt: 100 },
     ]);
-    useStore.setState({ toolResults, sessionBoards, latestBoardToolUseId: new Map() });
+    useStore.setState({ toolResults, sessionBoards });
 
     render(
       <ToolBlock
@@ -419,11 +424,16 @@ describe("ToolBlock", () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByText("raw")).toBeTruthy());
-    fireEvent.click(screen.getByText("raw"));
+    await waitFor(() => expect(screen.getByText("takode board show")).toBeTruthy());
+    expect(screen.queryByText("BOARD OUTPUT MARKER")).toBeNull();
+    expect(screen.queryByText("Inspect original board command")).toBeNull();
+
+    fireEvent.click(screen.getByText("takode board show"));
+    expect(screen.getByText("Inspect original board command")).toBeTruthy();
+    fireEvent.click(screen.getByText("Show raw"));
     expect(screen.getByText(/BOARD OUTPUT MARKER/)).toBeTruthy();
 
-    fireEvent.click(screen.getByText("hide raw"));
+    fireEvent.click(screen.getByText("Hide raw"));
     expect(screen.queryByText("Original command")).toBeNull();
     expect(screen.queryByText(/BOARD OUTPUT MARKER/)).toBeNull();
     expect(screen.getByText("Work Board")).toBeTruthy();
@@ -445,7 +455,7 @@ describe("ToolBlock", () => {
     sessionBoards.set("board-session-detail", [
       { questId: "q-412", title: "Should not render as Work Board", status: "PLANNING", updatedAt: 100 },
     ]);
-    useStore.setState({ toolResults, sessionBoards, latestBoardToolUseId: new Map() });
+    useStore.setState({ toolResults, sessionBoards });
 
     render(
       <ToolBlock
@@ -494,7 +504,7 @@ describe("ToolBlock", () => {
     sessionBoards.set("board-session-error", [
       { questId: "q-412", title: "Stale board row", workerNum: 5, status: "PLANNING", updatedAt: 100 },
     ]);
-    useStore.setState({ toolResults, sessionBoards, latestBoardToolUseId: new Map() });
+    useStore.setState({ toolResults, sessionBoards });
 
     render(
       <ToolBlock
