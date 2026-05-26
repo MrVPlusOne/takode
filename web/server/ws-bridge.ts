@@ -716,6 +716,10 @@ export class WsBridge {
     return getBoardStallSignatureForSessionController(this.sessions, sessionId, questId, this.getBoardWatchdogDeps());
   }
 
+  getBoardRow(sessionId: string, questId: string): BoardRow | null {
+    return this.sessions.get(sessionId)?.board.get(questId) ?? null;
+  }
+
   getBoardDispatchableSignature(sessionId: string, questId: string): string | null {
     return getBoardDispatchableSignatureForSessionController(
       this.sessions,

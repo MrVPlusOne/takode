@@ -585,6 +585,23 @@ describe("board stall warnings", () => {
     vi.useRealTimers();
   });
 
+  it("exposes active board rows for herd dispatcher stale-event pruning", () => {
+    const leaderId = "leader-board-row-lookup";
+    bridge.applyInitialSessionState(leaderId, {});
+    bridge.upsertBoardRow(leaderId, {
+      questId: "q-1429",
+      title: "Parked quest",
+      status: "QUEUED",
+      updatedAt: Date.now(),
+    });
+
+    expect(bridge.getBoardRow(leaderId, "q-1429")).toMatchObject({
+      questId: "q-1429",
+      status: "QUEUED",
+    });
+    expect(bridge.getBoardRow(leaderId, "q-missing")).toBeNull();
+  });
+
   function setupBoardStallHarness(opts?: {
     reviewer?: boolean;
     reviewStage?: "CODE_REVIEWING" | "MENTAL_SIMULATING" | "OUTCOME_REVIEWING";

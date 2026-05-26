@@ -743,7 +743,7 @@ export class HerdEventDispatcher {
     if (!inbox) return;
     this.pruneStaleBoardStallEntries(orchId, inbox);
 
-    const pending = this.getDeliverablePendingEntries(orchId, inbox);
+    let pending = this.getDeliverablePendingEntries(orchId, inbox);
     if (pending.length === 0) {
       this.maybeRetireInbox(orchId, inbox);
       return;
@@ -765,12 +765,14 @@ export class HerdEventDispatcher {
     }
 
     const result = this.deliverPendingEntries(orchId, inbox, pending);
-    if (result.status === "dropped") {
-      this.pruneStaleBoardStallEntries(orchId, inbox);
+    if (result.status === "retry") {
+      this.scheduleRetry(orchId);
+      return;
+    }
+    if (result.status === "dropped" || result.deliveredCount === 0) {
       this.maybeRetireInbox(orchId, inbox);
       return;
     }
-    if (result.status === "retry") this.scheduleRetry(orchId);
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -844,7 +846,11 @@ export class HerdEventDispatcher {
         result: delivery,
         threadKey: group.route.threadKey,
       });
-      if (delivery === "dropped") return { status: "dropped", deliveredCount: deliveredEvents.length };
+      if (delivery === "dropped") {
+        const prunedCount = this.pruneStaleBoardStallEntries(orchId, inbox);
+        if (prunedCount > 0) continue;
+        return { status: "dropped", deliveredCount: deliveredEvents.length };
+      }
       if (delivery === "paused_queued") {
         deliveredEvents.push(...events);
         acceptedEntries.push(
@@ -868,9 +874,11 @@ export class HerdEventDispatcher {
       );
     }
 
+    if (acceptedEntries.length === 0) return { status: "sent", deliveredCount: 0 };
+
     updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, deliveredEvents);
     this.rememberDeliveredEventKeys(inbox, deliveredEvents);
-    inbox.inFlightUpTo = pending[pending.length - 1].seq;
+    inbox.inFlightUpTo = Math.max(...acceptedEntries.map(({ entry }) => entry.seq));
     this.markEntriesAcceptedForDelivery(inbox, acceptedEntries);
     return { status: "sent", deliveredCount: deliveredEvents.length };
   }
@@ -1099,22 +1107,43 @@ export class HerdEventDispatcher {
   }
 
   /** Drop queued board_stalled/board_dispatchable events that no longer match the leader's active board. */
-  private pruneStaleBoardStallEntries(orchId: string, inbox: HerdInbox): void {
-    if (!this.wsBridge.getBoardRow) return;
-    inbox.entries = inbox.entries.filter((entry) => {
-      if (entry.event.event !== "board_stalled" && entry.event.event !== "board_dispatchable") return true;
-      const current = this.wsBridge.getBoardRow!(orchId, entry.event.data.questId);
-      if (!current) return false;
-      if (entry.event.event === "board_stalled") {
-        if (entry.event.data.stage && current.status !== entry.event.data.stage) return false;
-        if (!this.wsBridge.getBoardStallSignature || !entry.event.data.signature) return true;
-        return this.wsBridge.getBoardStallSignature(orchId, entry.event.data.questId) === entry.event.data.signature;
+  private pruneStaleBoardStallEntries(orchId: string, inbox: HerdInbox): number {
+    if (!this.wsBridge.getBoardRow) return 0;
+    const keptEntries: InboxEntry[] = [];
+    let prunedCount = 0;
+    for (const entry of inbox.entries) {
+      if (entry.event.event !== "board_stalled" && entry.event.event !== "board_dispatchable") {
+        keptEntries.push(entry);
+        continue;
       }
-      if (!this.wsBridge.getBoardDispatchableSignature || !entry.event.data.signature) return true;
-      return (
-        this.wsBridge.getBoardDispatchableSignature(orchId, entry.event.data.questId) === entry.event.data.signature
-      );
-    });
+      const current = this.wsBridge.getBoardRow!(orchId, entry.event.data.questId);
+      let keepEntry = true;
+      if (!current) {
+        keepEntry = false;
+      } else if (entry.event.event === "board_stalled") {
+        keepEntry =
+          (!entry.event.data.stage || current.status === entry.event.data.stage) &&
+          (!this.wsBridge.getBoardStallSignature ||
+            !entry.event.data.signature ||
+            this.wsBridge.getBoardStallSignature(orchId, entry.event.data.questId) === entry.event.data.signature);
+      } else {
+        keepEntry =
+          !this.wsBridge.getBoardDispatchableSignature ||
+          !entry.event.data.signature ||
+          this.wsBridge.getBoardDispatchableSignature(orchId, entry.event.data.questId) === entry.event.data.signature;
+      }
+      if (keepEntry) {
+        keptEntries.push(entry);
+        continue;
+      }
+      prunedCount += 1;
+      this.markDeliveryHistoryStatus(inbox, entry, "suppressed");
+      this.traceDelivery(orchId, "suppressed", entry.event, { seq: entry.seq, reason: "stale_board_state" });
+    }
+    if (prunedCount > 0) {
+      inbox.entries = keptEntries;
+    }
+    return prunedCount;
   }
 
   /** Retire an inbox once it has no workers and no queued/in-flight work left. */
