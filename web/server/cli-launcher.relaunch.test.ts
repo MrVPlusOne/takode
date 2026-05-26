@@ -857,11 +857,13 @@ describe("relaunch", () => {
 
     mockSpawn.mockReturnValueOnce(createMockCodexProc(55555));
     await launcher.restoreFromDisk();
+    killSpy.mockClear();
 
     try {
       const result = await launcher.relaunch("stubborn-codex");
       expect(result).toEqual({ ok: true });
       expect(killSpy).toHaveBeenCalledWith(44444, "SIGTERM");
+      expect(killSpy).not.toHaveBeenCalledWith(44444, 0);
       expect(killSpy).not.toHaveBeenCalledWith(44444, "SIGKILL");
     } finally {
       killSpy.mockRestore();
