@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   api,
   type MemoryCatalogEntry,
@@ -14,6 +14,8 @@ import {
 } from "../api.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import { useStore } from "../store.js";
+import type { AppState } from "../store-types.js";
 
 interface MemoryPageProps {
   embedded?: boolean;
@@ -24,6 +26,10 @@ type LoadState<T> =
   | { status: "ready"; data: T; error: null }
   | { status: "error"; data: null; error: string };
 
+type MemoryPreferenceState = Pick<AppState, "currentSessionId" | "sessions" | "treeAssignments" | "treeGroups">;
+
+type MemorySelectionMode = "auto" | "manual";
+
 const MEMORY_KINDS: MemoryKind[] = ["current", "knowledge", "procedures", "decisions", "references", "artifacts"];
 const INITIAL_RECENT_LIMIT = 20;
 const RECENT_INCREMENT = 20;
@@ -31,6 +37,47 @@ type MemorySidePanelTab = "records" | "updates";
 
 function spaceLabel(space: Pick<MemorySpaceInfo, "slug" | "sessionSpaceSlug">): string {
   return space.sessionSpaceSlug ? `${space.slug}/${space.sessionSpaceSlug}` : space.slug;
+}
+
+function cleanSessionSpaceSlug(value: string | null | undefined): string | null {
+  const slug = value?.trim() ?? "";
+  return slug || null;
+}
+
+function preferredMemorySessionSpaceSlug(state: MemoryPreferenceState): string | null {
+  const sessionId = state.currentSessionId;
+  if (!sessionId) return null;
+
+  const session = state.sessions.get(sessionId) ?? null;
+  const explicitSlug = cleanSessionSpaceSlug(session?.memorySessionSpaceSlug);
+  if (explicitSlug) return explicitSlug;
+
+  const treeGroupId =
+    cleanSessionSpaceSlug(session?.treeGroupId) ?? cleanSessionSpaceSlug(state.treeAssignments.get(sessionId));
+  if (!treeGroupId || treeGroupId === "default") return null;
+
+  const treeGroup = state.treeGroups.find((group) => group.id === treeGroupId);
+  return cleanSessionSpaceSlug(treeGroup?.name);
+}
+
+function preferredRootForSessionSpace(data: MemorySpacesResponse, sessionSpaceSlug: string | null): string | null {
+  const targetSlug = cleanSessionSpaceSlug(sessionSpaceSlug);
+  if (!targetSlug) return null;
+
+  const matchesTarget = (space: MemorySpaceInfo) => cleanSessionSpaceSlug(space.sessionSpaceSlug) === targetSlug;
+  const sameServerById = data.spaces.find(
+    (space) => matchesTarget(space) && data.currentServerId && space.serverId === data.currentServerId,
+  );
+  if (sameServerById) return sameServerById.root;
+
+  const sameServerBySlug = data.spaces.find(
+    (space) => matchesTarget(space) && data.currentServerSlug && space.slug === data.currentServerSlug,
+  );
+  return sameServerBySlug?.root ?? data.spaces.find(matchesTarget)?.root ?? null;
+}
+
+function fallbackMemoryRoot(data: MemorySpacesResponse): string | null {
+  return data.spaces.find((space) => space.current)?.root ?? data.spaces[0]?.root ?? null;
 }
 
 function splitMemoryPath(path: string): { name: string; parent: string } {
@@ -840,6 +887,8 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [sidePanelTab, setSidePanelTab] = useState<MemorySidePanelTab>("records");
   const [recentLimit, setRecentLimit] = useState(INITIAL_RECENT_LIMIT);
+  const selectionModeRef = useRef<MemorySelectionMode>("auto");
+  const preferredSessionSpaceSlug = useStore(preferredMemorySessionSpaceSlug);
 
   useEffect(() => {
     let cancelled = false;
@@ -849,10 +898,6 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
       .then((data) => {
         if (cancelled) return;
         setSpacesState({ status: "ready", data, error: null });
-        const preferredRoot = data.spaces.find((space) => space.current)?.root ?? data.spaces[0]?.root ?? null;
-        setSelectedRoot((current) =>
-          current && data.spaces.some((space) => space.root === current) ? current : preferredRoot,
-        );
       })
       .catch((error) => {
         if (!cancelled) {
@@ -867,6 +912,21 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (spacesState.status !== "ready") return;
+    const data = spacesState.data;
+    setSelectedRoot((current) => {
+      const currentStillAvailable = Boolean(current && data.spaces.some((space) => space.root === current));
+      if (selectionModeRef.current === "manual") {
+        if (currentStillAvailable) return current;
+        selectionModeRef.current = "auto";
+      }
+
+      const preferredRoot = preferredRootForSessionSpace(data, preferredSessionSpaceSlug);
+      return preferredRoot ?? (currentStillAvailable ? current : fallbackMemoryRoot(data));
+    });
+  }, [preferredSessionSpaceSlug, spacesState]);
 
   useEffect(() => {
     if (!selectedRoot) return;
@@ -983,6 +1043,7 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   );
 
   function selectRoot(root: string): void {
+    selectionModeRef.current = root ? "manual" : "auto";
     setSelectedRoot(root || null);
     setSelectedPath(null);
     setSelectedUpdateSha(null);

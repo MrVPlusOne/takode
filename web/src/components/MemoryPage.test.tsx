@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -9,6 +9,26 @@ import type {
   MemorySpacesResponse,
   MemoryUpdateDiffResponse,
 } from "../api.js";
+import type { SessionState } from "../types.js";
+
+vi.hoisted(() => {
+  if (typeof globalThis.window !== "undefined" && typeof globalThis.window.matchMedia !== "function") {
+    Object.defineProperty(globalThis.window, "matchMedia", {
+      writable: true,
+      configurable: true,
+      value: (query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+  }
+});
 
 const mockListMemorySpaces = vi.fn();
 const mockGetMemoryCatalog = vi.fn();
@@ -27,6 +47,7 @@ vi.mock("../api.js", () => ({
 }));
 
 import { MemoryPage } from "./MemoryPage.js";
+import { useStore } from "../store.js";
 
 function spacesResponse(): MemorySpacesResponse {
   return {
@@ -56,6 +77,42 @@ function spacesResponse(): MemorySpacesResponse {
       },
     ],
   };
+}
+
+function spacesResponseWithMsi(): MemorySpacesResponse {
+  const base = spacesResponse();
+  return {
+    ...base,
+    spaces: [
+      base.spaces[0],
+      {
+        slug: "prod",
+        root: "/Users/test/.companion/memory/prod/MSI",
+        current: false,
+        initialized: true,
+        authoredDirs: ["current"],
+        hasAuthoredData: true,
+        sessionSpaceSlug: "MSI",
+        serverId: "server-test",
+      },
+      base.spaces[1],
+    ],
+  };
+}
+
+function makeSession(overrides: Partial<SessionState> = {}): SessionState {
+  return {
+    session_id: "session-1",
+    cwd: "/repo",
+    permission_mode: "default",
+    messages: [],
+    tasks: [],
+    allowed_tools: [],
+    mcp_servers: [],
+    created_at: Date.now(),
+    last_activity_at: Date.now(),
+    ...overrides,
+  } as SessionState;
 }
 
 function recentCommit(overrides: Partial<MemoryRecentCommit> = {}): MemoryRecentCommit {
@@ -293,10 +350,23 @@ function updateDiffResponse(commit = recentCommit()): MemoryUpdateDiffResponse {
 describe("MemoryPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useStore.getState().reset();
     mockListMemorySpaces.mockResolvedValue(spacesResponse());
-    mockGetMemoryCatalog.mockImplementation((opts?: { root?: string }) =>
-      Promise.resolve(opts?.root?.endsWith("/Other") ? otherCatalogResponse() : catalogResponse()),
-    );
+    mockGetMemoryCatalog.mockImplementation((opts?: { root?: string }) => {
+      if (opts?.root?.endsWith("/Other")) return Promise.resolve(otherCatalogResponse());
+      if (opts?.root?.endsWith("/MSI")) {
+        const catalog = catalogResponse();
+        return Promise.resolve({
+          ...catalog,
+          repo: {
+            ...catalog.repo,
+            root: "/Users/test/.companion/memory/prod/MSI",
+            sessionSpaceSlug: "MSI",
+          },
+        });
+      }
+      return Promise.resolve(catalogResponse());
+    });
     mockGetMemoryRecord.mockImplementation((opts?: { root?: string; path?: string }) =>
       Promise.resolve(opts?.root?.endsWith("/Other") ? otherRecordResponse() : recordResponse(opts?.path)),
     );
@@ -427,6 +497,140 @@ describe("MemoryPage", () => {
         path: "current/other-state.md",
       }),
     );
+  });
+
+  it("defaults to the last viewed session's explicit memory session space", async () => {
+    mockListMemorySpaces.mockResolvedValueOnce(spacesResponseWithMsi());
+    useStore.setState({
+      currentSessionId: "msi-session",
+      sessions: new Map([
+        [
+          "msi-session",
+          makeSession({
+            session_id: "msi-session",
+            memorySessionSpaceSlug: "MSI",
+            treeGroupId: "default",
+          }),
+        ],
+      ]),
+    });
+
+    render(<MemoryPage embedded />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Memory space")).toHaveValue("/Users/test/.companion/memory/prod/MSI"),
+    );
+    await waitFor(() =>
+      expect(mockGetMemoryCatalog).toHaveBeenLastCalledWith({
+        root: "/Users/test/.companion/memory/prod/MSI",
+        recentLimit: 20,
+      }),
+    );
+  });
+
+  it("derives the default memory space from tree-group metadata when the session has no explicit slug", async () => {
+    mockListMemorySpaces.mockResolvedValueOnce(spacesResponseWithMsi());
+    useStore.setState({
+      currentSessionId: "grouped-session",
+      sessions: new Map([["grouped-session", makeSession({ session_id: "grouped-session" })]]),
+      treeGroups: [
+        { id: "default", name: "Default" },
+        { id: "msi", name: "MSI" },
+      ],
+      treeAssignments: new Map([["grouped-session", "msi"]]),
+    });
+
+    render(<MemoryPage embedded />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Memory space")).toHaveValue("/Users/test/.companion/memory/prod/MSI"),
+    );
+    await waitFor(() =>
+      expect(mockGetMemoryCatalog).toHaveBeenLastCalledWith({
+        root: "/Users/test/.companion/memory/prod/MSI",
+        recentLimit: 20,
+      }),
+    );
+  });
+
+  it("keeps the existing fallback when the preferred session space is not listed", async () => {
+    useStore.setState({
+      currentSessionId: "missing-space-session",
+      sessions: new Map([
+        [
+          "missing-space-session",
+          makeSession({
+            session_id: "missing-space-session",
+            memorySessionSpaceSlug: "MSI",
+          }),
+        ],
+      ]),
+    });
+
+    render(<MemoryPage embedded />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Memory space")).toHaveValue("/Users/test/.companion/memory/prod/Takode"),
+    );
+    await waitFor(() =>
+      expect(mockGetMemoryCatalog).toHaveBeenLastCalledWith({
+        root: "/Users/test/.companion/memory/prod/Takode",
+        recentLimit: 20,
+      }),
+    );
+  });
+
+  it("preserves manual cross-space selection while remaining in Memory", async () => {
+    mockListMemorySpaces.mockResolvedValueOnce(spacesResponseWithMsi());
+    useStore.setState({
+      currentSessionId: "takode-session",
+      sessions: new Map([
+        [
+          "takode-session",
+          makeSession({
+            session_id: "takode-session",
+            memorySessionSpaceSlug: "Takode",
+          }),
+        ],
+      ]),
+    });
+    render(<MemoryPage embedded />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Memory space")).toHaveValue("/Users/test/.companion/memory/prod/Takode"),
+    );
+    fireEvent.change(screen.getByLabelText("Memory space"), {
+      target: { value: "/Users/test/.companion/memory/prod/Other" },
+    });
+    await waitFor(() =>
+      expect(mockGetMemoryCatalog).toHaveBeenLastCalledWith({
+        root: "/Users/test/.companion/memory/prod/Other",
+        recentLimit: 20,
+      }),
+    );
+
+    act(() => {
+      useStore.setState({
+        currentSessionId: "msi-session",
+        sessions: new Map([
+          [
+            "msi-session",
+            makeSession({
+              session_id: "msi-session",
+              memorySessionSpaceSlug: "MSI",
+            }),
+          ],
+        ]),
+      });
+    });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Memory space")).toHaveValue("/Users/test/.companion/memory/prod/Other"),
+    );
+    expect(mockGetMemoryCatalog).toHaveBeenLastCalledWith({
+      root: "/Users/test/.companion/memory/prod/Other",
+      recentLimit: 20,
+    });
   });
 
   it("collapses kind groups and filters simple record rows without clearing selected detail", async () => {
