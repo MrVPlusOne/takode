@@ -196,6 +196,62 @@ describe("Codex spawn preparation", () => {
     expect(updatedConfig).toContain('"TAKODE_API_PORT"');
   });
 
+  it("scrubs session-scoped developer instructions from an existing session config", async () => {
+    // Existing Takode session homes can already contain stale guardrails; launch
+    // prep should remove only that root key before Codex writes fresh ones.
+    const sessionHome = join(codexHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    mkdirSync(sessionHome, { recursive: true });
+    writeFileSync(
+      configPath,
+      [
+        'model_provider = "mai-litellm"',
+        'model = "gpt-5.5"',
+        'model_reasoning_effort = "high"',
+        'approval_policy = "on-request"',
+        'sandbox_mode = "workspace-write"',
+        'developer_instructions = """',
+        "old Takode session guardrails",
+        '"""',
+        "",
+        "[features]",
+        "other_feature = true",
+        "",
+        "[model_providers.mai-litellm]",
+        'name = "MAI LiteLLM"',
+        'base_url = "http://localhost:4000/v1"',
+        'env_key = "LITELLM_API_KEY"',
+        'wire_api = "responses"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    await launchCodex({
+      env: {
+        COMPANION_PORT: "3456",
+      },
+    });
+
+    const updatedConfig = await Bun.file(configPath).text();
+    expect(updatedConfig).toContain('model_provider = "mai-litellm"');
+    expect(updatedConfig).toContain('model = "gpt-5.5"');
+    expect(updatedConfig).toContain('model_reasoning_effort = "high"');
+    expect(updatedConfig).toContain('approval_policy = "on-request"');
+    expect(updatedConfig).toContain('sandbox_mode = "workspace-write"');
+    expect(updatedConfig).toContain("[features]");
+    expect(updatedConfig).toContain("other_feature = true");
+    expect(updatedConfig).toContain("multi_agent = true");
+    expect(updatedConfig).toContain("image_generation = false");
+    expect(updatedConfig).toContain("[model_providers.mai-litellm]");
+    expect(updatedConfig).toContain('name = "MAI LiteLLM"');
+    expect(updatedConfig).toContain('base_url = "http://localhost:4000/v1"');
+    expect(updatedConfig).toContain('env_key = "LITELLM_API_KEY"');
+    expect(updatedConfig).toContain('wire_api = "responses"');
+    expect(updatedConfig).not.toContain("developer_instructions");
+    expect(updatedConfig).not.toContain("old Takode session guardrails");
+  });
+
   it("builds host Codex PATH from enriched startup data without hot-path shell capture", async () => {
     // Spawn prep should reuse startup-warmed shell data; re-capturing a shell in
     // this path is slow and can stall session startup.
