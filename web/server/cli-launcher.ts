@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, access, readFile, writeFile } from "node:fs/promises";
+import { mkdir, access, writeFile } from "node:fs/promises";
 
 const execPromise = promisify(execCb);
 import type { Subprocess } from "bun";
@@ -77,15 +77,6 @@ async function waitForProcessExit(pid: number, timeoutMs: number): Promise<boole
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   return !isProcessAlive(pid);
-}
-
-async function readProcessCmdline(pid: number): Promise<string | null> {
-  try {
-    const raw = await readFile(`/proc/${pid}/cmdline`, "utf8");
-    return raw.replace(/\0/g, " ").trim() || null;
-  } catch {
-    return null;
-  }
 }
 
 async function captureProcessSnapshot(pid: number): Promise<string[]> {
@@ -317,26 +308,24 @@ export class CliLauncher {
       }
     } catch {}
 
-    const exitedGracefully = proc
-      ? await Promise.race([
-          proc.exited.then(() => true).catch(() => true),
-          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2000)),
-        ])
-      : await waitForProcessExit(pid, 2000);
+    if (!proc) {
+      console.warn(
+        `[cli-launcher] Sent SIGTERM to untracked persisted pid ${pid} for session ${sessionTag(sessionId)}` +
+          `${reason ? ` (${reason})` : ""}; refusing SIGKILL without a live subprocess handle`,
+      );
+      return;
+    }
+
+    const exitedGracefully = await Promise.race([
+      proc.exited.then(() => true).catch(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2000)),
+    ]);
     if (exitedGracefully) return;
 
     console.warn(
       `[cli-launcher] Process ${pid} for session ${sessionTag(sessionId)} did not exit after SIGTERM` +
         `${reason ? ` (${reason})` : ""}; escalating to SIGKILL`,
     );
-    if (!proc) {
-      const cmdline = await readProcessCmdline(pid);
-      console.warn(
-        `[cli-launcher] Refusing SIGKILL for untracked persisted pid ${pid} on session ${sessionTag(sessionId)}` +
-          `${cmdline ? ` (still running: ${cmdline})` : ""}`,
-      );
-      return;
-    }
     try {
       process.kill(pid, "SIGKILL");
     } catch {}

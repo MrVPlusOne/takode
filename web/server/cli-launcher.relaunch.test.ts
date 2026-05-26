@@ -858,18 +858,12 @@ describe("relaunch", () => {
     mockSpawn.mockReturnValueOnce(createMockCodexProc(55555));
     await launcher.restoreFromDisk();
 
-    vi.useFakeTimers();
     try {
-      const relaunchPromise = launcher.relaunch("stubborn-codex");
-      await vi.advanceTimersByTimeAsync(2_100);
-      await vi.runOnlyPendingTimersAsync();
-
-      const result = await relaunchPromise;
+      const result = await launcher.relaunch("stubborn-codex");
       expect(result).toEqual({ ok: true });
       expect(killSpy).toHaveBeenCalledWith(44444, "SIGTERM");
       expect(killSpy).not.toHaveBeenCalledWith(44444, "SIGKILL");
     } finally {
-      vi.useRealTimers();
       killSpy.mockRestore();
     }
   });
