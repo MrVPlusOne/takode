@@ -1234,17 +1234,51 @@ describe("QuestDetailPanel", () => {
     });
   });
 
-  it("shows edit controls for human and agent feedback, with delete only for agent feedback", () => {
+  it("shows user and agent feedback labels with edit and delete controls", () => {
     const quest = makeVerificationQuest();
     useStore.setState({ quests: [quest], questOverlayId: "q-42" });
 
     render(<QuestDetailPanel />);
 
+    expect(screen.getByText("user")).toBeTruthy();
+    expect(screen.queryByText("human")).toBeNull();
     expect(screen.getByLabelText("Edit feedback 1")).toBeTruthy();
-    expect(screen.queryByLabelText("Delete agent feedback 1")).toBeNull();
+    expect(screen.getByLabelText("Delete user feedback 1")).toBeTruthy();
 
     expect(screen.getByLabelText("Edit feedback 2")).toBeTruthy();
     expect(screen.getByLabelText("Delete agent feedback 2")).toBeTruthy();
+  });
+
+  it("shows session attribution for user feedback submitted on behalf of the user", () => {
+    const quest = makeVerificationQuest({
+      feedback: [
+        {
+          author: "human",
+          text: "User asked through a worker session.",
+          ts: Date.now() - 7200000,
+          authorSessionId: "session-feedback",
+        },
+      ],
+    });
+    useStore.setState({
+      quests: [quest],
+      questOverlayId: "q-42",
+      sdkSessions: [
+        {
+          sessionId: "session-feedback",
+          sessionNum: 1930,
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+        } as any,
+      ],
+    });
+
+    render(<QuestDetailPanel />);
+
+    expect(screen.getByRole("link", { name: "#1930" })).toBeTruthy();
+    expect(screen.getByText("on behalf of user")).toBeTruthy();
+    expect(screen.queryByText("human")).toBeNull();
   });
 
   it("edits human feedback and updates the quest in store", async () => {
@@ -1328,7 +1362,7 @@ describe("QuestDetailPanel", () => {
     });
   });
 
-  it("requires explicit confirmation before deleting agent feedback", async () => {
+  it("requires explicit confirmation before deleting feedback", async () => {
     const quest = makeVerificationQuest();
     useStore.setState({ quests: [quest], questOverlayId: "q-42" });
     const updatedQuest = advanceQuestUpdate(
@@ -1339,6 +1373,10 @@ describe("QuestDetailPanel", () => {
     mockDeleteQuestFeedback.mockResolvedValue(updatedQuest);
 
     render(<QuestDetailPanel />);
+
+    fireEvent.click(screen.getByLabelText("Delete user feedback 1"));
+    expect(screen.getByLabelText("Confirm delete user feedback 1")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Cancel delete user feedback 1"));
 
     fireEvent.click(screen.getByLabelText("Delete agent feedback 2"));
 
@@ -1381,10 +1419,10 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByLabelText("Delete agent feedback 2"));
-    fireEvent.click(screen.getByLabelText("Cancel delete agent feedback 2"));
+    fireEvent.click(screen.getByLabelText("Delete user feedback 1"));
+    fireEvent.click(screen.getByLabelText("Cancel delete user feedback 1"));
 
-    expect(screen.queryByLabelText("Confirm delete agent feedback 2")).toBeNull();
+    expect(screen.queryByLabelText("Confirm delete user feedback 1")).toBeNull();
     expect(useStore.getState().questOverlayId).toBe("q-42");
   });
 

@@ -586,8 +586,8 @@ describe("DELETE /api/quests/:questId/feedback/:index", () => {
     );
   });
 
-  it("rejects deletes for human feedback entries", async () => {
-    // Human review comments should not be removable through the agent-feedback delete path.
+  it("deletes a human feedback entry by index", async () => {
+    // User feedback can be removed when it was added accidentally or as placeholder review text.
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1-v3",
       questId: "q-1",
@@ -599,16 +599,35 @@ describe("DELETE /api/quests/:questId/feedback/:index", () => {
       sessionId: "session-1",
       claimedAt: Date.now(),
       verificationItems: [],
-      feedback: [{ author: "human", text: "Please verify spacing", ts: Date.now(), addressed: false }],
+      feedback: [
+        { author: "human", text: "Please verify spacing", ts: Date.now(), addressed: false },
+        { author: "agent", text: "Addressed", ts: Date.now(), authorSessionId: "session-1" },
+      ],
     } as any);
-    const patchSpy = vi.spyOn(questStore, "patchQuest");
+    const patchSpy = vi.spyOn(questStore, "patchQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      createdAt: Date.now(),
+      status: "done",
+      description: "Needs verification",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      feedback: [{ author: "agent", text: "Addressed", ts: Date.now(), authorSessionId: "session-1" }],
+    } as any);
 
     const res = await app.request("/api/quests/q-1/feedback/0", {
       method: "DELETE",
     });
 
-    expect(res.status).toBe(400);
-    expect(patchSpy).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(patchSpy.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        feedback: [expect.objectContaining({ author: "agent", text: "Addressed" })],
+      }),
+    );
   });
 
   it("returns 400 for an out-of-range delete index", async () => {

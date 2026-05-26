@@ -1217,8 +1217,11 @@ export function QuestDetailPanel() {
                             const isConfirmingDelete =
                               confirmDeleteFeedback?.questId === quest.questId &&
                               confirmDeleteFeedback?.index === entryIndex;
-                            const feedbackSessionId = entry.author === "agent" ? entry.authorSessionId : undefined;
-                            const feedbackAuthorLabel = entry.author;
+                            const isUserFeedback = entry.author === "human";
+                            const feedbackSessionId = entry.authorSessionId;
+                            const feedbackAuthorLabel = isUserFeedback ? "user" : entry.author;
+                            const feedbackAuthorSuffix =
+                              isUserFeedback && feedbackSessionId ? "on behalf of user" : undefined;
                             return (
                               <div
                                 key={entryIndex}
@@ -1232,15 +1235,22 @@ export function QuestDetailPanel() {
                               >
                                 <div className="flex items-center gap-1.5 mb-0.5">
                                   {feedbackSessionId ? (
-                                    <CompactSessionLink
-                                      sessionId={feedbackSessionId}
-                                      className="text-xs font-medium font-mono text-cc-primary hover:text-cc-primary-hover cursor-pointer"
-                                      onNavigate={closePanel}
-                                    />
+                                    <>
+                                      <CompactSessionLink
+                                        sessionId={feedbackSessionId}
+                                        className="text-xs font-medium font-mono text-cc-primary hover:text-cc-primary-hover cursor-pointer"
+                                        onNavigate={closePanel}
+                                      />
+                                      {feedbackAuthorSuffix && (
+                                        <span className="text-[11px] font-medium text-amber-400/70">
+                                          {feedbackAuthorSuffix}
+                                        </span>
+                                      )}
+                                    </>
                                   ) : (
                                     <span
                                       className={`text-xs font-medium ${
-                                        entry.author === "human" ? "text-amber-400/70" : "text-cc-muted"
+                                        isUserFeedback ? "text-amber-400/70" : "text-cc-muted"
                                       }`}
                                     >
                                       {feedbackAuthorLabel}
@@ -1286,21 +1296,19 @@ export function QuestDetailPanel() {
                                             <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L3.463 11.098a.25.25 0 00-.064.108l-.386 1.35 1.35-.386a.25.25 0 00.108-.064l8.61-8.61a.25.25 0 000-.354L12.427 2.487z" />
                                           </svg>
                                         </button>
-                                        {entry.author === "agent" && (
-                                          <button
-                                            onClick={() => {
-                                              setEditingFeedback(null);
-                                              setConfirmDeleteFeedback({ questId: quest.questId, index: entryIndex });
-                                            }}
-                                            className="text-cc-muted/30 hover:text-red-400 cursor-pointer transition-colors"
-                                            title="Delete agent feedback"
-                                            aria-label={`Delete agent feedback ${entryIndex + 1}`}
-                                          >
-                                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-                                              <path d="M6.5 1.75A1.75 1.75 0 004.75 3.5v.25H2.5a.75.75 0 000 1.5h.568l.55 7.155A2 2 0 005.612 14.5h4.776a2 2 0 001.994-1.845l.55-7.155h.568a.75.75 0 000-1.5H11.25V3.5A1.75 1.75 0 009.5 1.75h-3zm3.25 2H6.25V3.5a.25.25 0 01.25-.25h3a.25.25 0 01.25.25v.25zm-4.63 1.5l.52 6.766a.5.5 0 00.498.484h4.724a.5.5 0 00.498-.484l.52-6.766H5.12zm2.13 1.25a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm-2 0a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm4 0a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4z" />
-                                            </svg>
-                                          </button>
-                                        )}
+                                        <button
+                                          onClick={() => {
+                                            setEditingFeedback(null);
+                                            setConfirmDeleteFeedback({ questId: quest.questId, index: entryIndex });
+                                          }}
+                                          className="text-cc-muted/30 hover:text-red-400 cursor-pointer transition-colors"
+                                          title={`Delete ${feedbackAuthorLabel} feedback`}
+                                          aria-label={`Delete ${feedbackAuthorLabel} feedback ${entryIndex + 1}`}
+                                        >
+                                          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                                            <path d="M6.5 1.75A1.75 1.75 0 004.75 3.5v.25H2.5a.75.75 0 000 1.5h.568l.55 7.155A2 2 0 005.612 14.5h4.776a2 2 0 001.994-1.845l.55-7.155h.568a.75.75 0 000-1.5H11.25V3.5A1.75 1.75 0 009.5 1.75h-3zm3.25 2H6.25V3.5a.25.25 0 01.25-.25h3a.25.25 0 01.25.25v.25zm-4.63 1.5l.52 6.766a.5.5 0 00.498.484h4.724a.5.5 0 00.498-.484l.52-6.766H5.12zm2.13 1.25a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm-2 0a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm4 0a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4z" />
+                                          </svg>
+                                        </button>
                                       </>
                                     )}
                                   </span>
@@ -1374,14 +1382,14 @@ export function QuestDetailPanel() {
                                       onClick={() => handleDeleteFeedback(quest.questId, entryIndex)}
                                       disabled={feedbackSubmitting}
                                       className="text-xs px-2.5 py-1 rounded bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25 disabled:opacity-40 cursor-pointer"
-                                      aria-label={`Confirm delete agent feedback ${entryIndex + 1}`}
+                                      aria-label={`Confirm delete ${feedbackAuthorLabel} feedback ${entryIndex + 1}`}
                                     >
                                       Confirm delete
                                     </button>
                                     <button
                                       onClick={() => setConfirmDeleteFeedback(null)}
                                       className="text-xs px-2.5 py-1 rounded text-cc-muted hover:text-cc-fg cursor-pointer"
-                                      aria-label={`Cancel delete agent feedback ${entryIndex + 1}`}
+                                      aria-label={`Cancel delete ${feedbackAuthorLabel} feedback ${entryIndex + 1}`}
                                     >
                                       Cancel
                                     </button>

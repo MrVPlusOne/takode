@@ -62,7 +62,7 @@ export interface QuestFeedbackEntry {
   /** Human-readable scan summary for long feedback/comment text. */
   tldr?: string;
   ts: number;
-  /** Companion session ID that authored this entry (for agent comments). */
+  /** Companion session ID that submitted this entry, including on-behalf-of-user feedback. */
   authorSessionId?: string;
   /** Images attached to this feedback entry */
   images?: QuestImage[];

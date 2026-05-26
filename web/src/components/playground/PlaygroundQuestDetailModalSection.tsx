@@ -107,6 +107,7 @@ function openPlaygroundQuestDetail() {
             text: "Please also check iPad mini",
             ts: Date.now() - 7200000,
             addressed: true,
+            authorSessionId: "abc-123",
           },
           {
             author: "agent" as const,

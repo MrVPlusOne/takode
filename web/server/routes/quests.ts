@@ -1039,7 +1039,7 @@ export function createQuestRoutes(ctx: RouteContext) {
     if (author === "agent" && resolvedAuthorSessionId.length === 0) {
       return c.json({ error: "sessionId is required for agent feedback (or provide Companion auth headers)" }, 400);
     }
-    const authorSessionId = author === "agent" ? resolvedAuthorSessionId : undefined;
+    const authorSessionId = resolvedAuthorSessionId || undefined;
     if (!text || typeof text !== "string" || !text.trim()) {
       return c.json({ error: "text is required" }, 400);
     }
@@ -1047,7 +1047,8 @@ export function createQuestRoutes(ctx: RouteContext) {
       return c.json(
         {
           error:
-            `Unknown sessionId: ${authorSessionId}. ` + "Agent feedback must include a valid Companion session ID.",
+            `Unknown sessionId: ${authorSessionId}. ` +
+            "Feedback session attribution requires a valid Companion session ID.",
         },
         400,
       );
@@ -1165,7 +1166,6 @@ export function createQuestRoutes(ctx: RouteContext) {
           ? ((current as { feedback?: import("../quest-types.js").QuestFeedbackEntry[] }).feedback ?? [])
           : [];
       if (index >= existing.length) return c.json({ error: "Index out of range" }, 400);
-      if (existing[index]?.author !== "agent") return c.json({ error: "Only agent feedback can be deleted" }, 400);
       const updated = existing.filter((_, feedbackIndex) => feedbackIndex !== index);
       const quest = await questStore.patchQuest(c.req.param("questId"), { feedback: updated }, { current });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
