@@ -1305,6 +1305,36 @@ diff --git a/src/routes/summary.ts b/src/routes/summary.ts
               />
             </div>
           </Card>
+          <Card label="Code commit modal diff slot">
+            <div
+              data-testid="playground-quest-commit-diff-slot"
+              className="quest-commit-diff-scroll max-h-64 overflow-auto bg-cc-bg/40 px-4 pb-4 pt-0"
+            >
+              <div className="quest-commit-diff-content flex flex-col gap-3">
+                <DiffViewer
+                  unifiedDiff={`diff --git a/web/server/quest-cli-memory-commit-flags.test.ts b/web/server/quest-cli-memory-commit-flags.test.ts
+--- a/web/server/quest-cli-memory-commit-flags.test.ts
++++ b/web/server/quest-cli-memory-commit-flags.test.ts
+@@ -48,8 +48,14 @@ function readJson(req: IncomingMessage): Promise<JsonObject> {
+   return new Promise((resolve) => {
++    let body = "";
++    req.on("data", (chunk) => {
++      body += String(chunk);
++    });
++    req.on("end", () => {
++      resolve(body ? (JSON.parse(body) as JsonObject) : {});
++    });
+   });
+ }
+`}
+                  mode="full"
+                  showLineNumbers
+                  stickyFileHeaders
+                  collapsibleFiles
+                />
+              </div>
+            </div>
+          </Card>
           <Card label="Unified diff with expandable gap between hunks">
             <DiffViewer
               unifiedDiff={`diff --git a/src/config.ts b/src/config.ts

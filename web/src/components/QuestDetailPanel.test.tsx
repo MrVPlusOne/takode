@@ -1725,6 +1725,12 @@ describe("QuestDetailPanel", () => {
     expect(screen.getByText("+12 additions")).toBeTruthy();
     expect(screen.getByText("-4 deletions")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Collapse file" })).toBeTruthy();
+    const modal = screen.getByTestId("quest-commit-modal");
+    const diffScroll = modal.querySelector(".quest-commit-diff-scroll");
+    const diffContent = modal.querySelector(".quest-commit-diff-content");
+    expect(diffScroll).toHaveClass("pt-0", "px-4", "pb-4");
+    expect(diffContent).not.toHaveClass("pt-4");
+    expect(diffContent?.firstElementChild).toHaveClass("diff-viewer");
 
     fireEvent.click(screen.getByText("Next"));
 

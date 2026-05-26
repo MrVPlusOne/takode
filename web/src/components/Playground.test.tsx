@@ -149,6 +149,17 @@ describe("Playground", () => {
     expect(within(modal).getByText("Default (gpt-5.5) ▾")).toBeTruthy();
   });
 
+  it("documents the quest commit diff slot with a flush sticky file header", () => {
+    render(<Playground />);
+
+    const diffSlot = screen.getByTestId("playground-quest-commit-diff-slot");
+    const diffContent = diffSlot.querySelector(".quest-commit-diff-content");
+    expect(diffSlot).toHaveClass("pt-0", "px-4", "pb-4");
+    expect(diffContent?.firstElementChild).toHaveClass("diff-viewer");
+    expect(within(diffSlot).getByRole("button", { name: "Collapse file" })).toBeTruthy();
+    expect(within(diffSlot).getByText("quest-cli-memory-commit-flags.test.ts")).toBeTruthy();
+  });
+
   it("documents leader thread routing and full Main activity", () => {
     render(<Playground />);
 

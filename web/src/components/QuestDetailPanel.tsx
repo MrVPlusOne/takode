@@ -1738,7 +1738,7 @@ export function QuestDetailPanel() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-auto p-4 bg-cc-bg/40">
+            <div className="quest-commit-diff-scroll flex-1 overflow-auto bg-cc-bg/40 px-4 pb-4 pt-0">
               {commitLookupLoadingKey === activeCommitKey &&
               (!activeCommitDetails || (activeCommitDetails.available && !activeCommitDetails.diff)) ? (
                 <div className="h-full min-h-48 flex items-center justify-center text-sm text-cc-muted">
@@ -1760,7 +1760,11 @@ export function QuestDetailPanel() {
                   </div>
                 </div>
               ) : activeCommitDetails ? (
-                <div className="space-y-3">
+                <div
+                  className={`quest-commit-diff-content flex flex-col gap-3 ${
+                    activeCommitDetails.truncated ? "pt-4" : ""
+                  }`}
+                >
                   {activeCommitDetails.truncated && (
                     <div className="px-3 py-2 text-xs bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-300">
                       Commit diff truncated for display.
