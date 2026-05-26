@@ -209,16 +209,24 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     resolveSessionDeps,
   } = deps;
 
-  async function cleanupDoneQueuedRows(bridgeSession: any): Promise<void> {
-    const queuedQuestIds = [...bridgeSession.board.values()]
-      .filter((row: BoardRow) => (row.status || "").trim().toUpperCase() === "QUEUED")
-      .map((row: BoardRow) => row.questId);
-    for (const questId of queuedQuestIds) {
+  function syncDoneQuestBoardState(questId: string): void {
+    const boardBridge = wsBridge as {
+      completeDoneBoardRowsForQuest?: (questId: string) => string[];
+      completeQueuedBoardRowsForQuest?: (questId: string) => string[];
+    };
+    if (boardBridge.completeDoneBoardRowsForQuest) {
+      boardBridge.completeDoneBoardRowsForQuest(questId);
+      return;
+    }
+    boardBridge.completeQueuedBoardRowsForQuest?.(questId);
+  }
+
+  async function cleanupDoneBoardRows(bridgeSession: any): Promise<void> {
+    const activeQuestIds = [...bridgeSession.board.values()].map((row: BoardRow) => row.questId);
+    for (const questId of activeQuestIds) {
       const quest = await questStore.getQuest(questId).catch(() => null);
       if (quest?.status !== "done") continue;
-      (
-        wsBridge as { completeQueuedBoardRowsForQuest?: (questId: string) => string[] }
-      ).completeQueuedBoardRowsForQuest?.(questId);
+      syncDoneQuestBoardState(questId);
     }
   }
 
@@ -234,7 +242,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
 
     const bridgeSession = wsBridge.getSession(id);
-    if (bridgeSession) await cleanupDoneQueuedRows(bridgeSession);
+    if (bridgeSession) await cleanupDoneBoardRows(bridgeSession);
     const board = bridgeSession ? getBoardController(bridgeSession) : [];
     const resolve = c.req.query("resolve") === "true";
     const includeCompleted = c.req.query("include_completed") === "true";
@@ -778,9 +786,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     if (mergedIsQueued) {
       const quest = await questStore.getQuest(questId).catch(() => null);
       if (quest?.status === "done") {
-        (
-          wsBridge as { completeQueuedBoardRowsForQuest?: (questId: string) => string[] }
-        ).completeQueuedBoardRowsForQuest?.(questId);
+        syncDoneQuestBoardState(questId);
         return c.json({ error: `Cannot queue ${questId}: quest is already done.` }, 409);
       }
     }

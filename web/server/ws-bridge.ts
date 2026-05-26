@@ -118,6 +118,7 @@ import {
   handleCodexAdapterBrowserMessage as handleCodexAdapterBrowserMessageController,
 } from "./bridge/codex-adapter-browser-message-controller.js";
 import {
+  completeDoneBoardRowsForQuestInAllSessions as completeDoneBoardRowsForQuestInAllSessionsController,
   completeQueuedBoardRowsForQuestInAllSessions as completeQueuedBoardRowsForQuestInAllSessionsController,
   getBoardForSession as getBoardForSessionController,
   getBoardDispatchableSignature as getBoardDispatchableSignatureController,
@@ -1175,7 +1176,18 @@ export class WsBridge {
   }
 
   completeQueuedBoardRowsForQuest(questId: string): string[] {
-    return completeQueuedBoardRowsForQuestInAllSessionsController(this.sessions, questId, {
+    return this.completeBoardRowsForQuest(questId, completeQueuedBoardRowsForQuestInAllSessionsController);
+  }
+
+  completeDoneBoardRowsForQuest(questId: string): string[] {
+    return this.completeBoardRowsForQuest(questId, completeDoneBoardRowsForQuestInAllSessionsController);
+  }
+
+  private completeBoardRowsForQuest(
+    questId: string,
+    completeRows: typeof completeQueuedBoardRowsForQuestInAllSessionsController,
+  ): string[] {
+    return completeRows(this.sessions, questId, {
       broadcastBoard: (targetSession, board, completedBoard) =>
         this.broadcastToBrowsers(targetSession as Session, {
           type: "board_updated",

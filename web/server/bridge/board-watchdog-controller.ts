@@ -561,6 +561,23 @@ export function completeQueuedBoardRowsForQuestInAllSessions(
   questId: string,
   deps: Pick<WorkBoardStateDeps, "broadcastBoard" | "persistSession" | "markNotificationDone">,
 ): string[] {
+  return completeBoardRowsForQuestInAllSessions(sessions, questId, deps, { queuedOnly: true });
+}
+
+export function completeDoneBoardRowsForQuestInAllSessions(
+  sessions: BoardSessionsLike,
+  questId: string,
+  deps: Pick<WorkBoardStateDeps, "broadcastBoard" | "persistSession" | "markNotificationDone">,
+): string[] {
+  return completeBoardRowsForQuestInAllSessions(sessions, questId, deps, { queuedOnly: false });
+}
+
+function completeBoardRowsForQuestInAllSessions(
+  sessions: BoardSessionsLike,
+  questId: string,
+  deps: Pick<WorkBoardStateDeps, "broadcastBoard" | "persistSession" | "markNotificationDone">,
+  options: { queuedOnly: boolean },
+): string[] {
   const completedInSessions: string[] = [];
   const normalizedQuestId = questId.toLowerCase();
 
@@ -571,7 +588,7 @@ export function completeQueuedBoardRowsForQuestInAllSessions(
     if (!boardQuestId) continue;
 
     const row = session.board.get(boardQuestId);
-    if (!row || !isQueuedBoardRowStatus(row.status)) continue;
+    if (!row || (options.queuedOnly && !isQueuedBoardRowStatus(row.status))) continue;
 
     const removedWaitForInput = clearBoardRowWaitForInputIds(row);
     for (const notificationId of removedWaitForInput) {

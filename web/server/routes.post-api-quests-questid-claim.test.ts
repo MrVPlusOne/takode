@@ -292,6 +292,7 @@ function createMockBridge() {
     addTaskEntry: vi.fn(),
     updateQuestTaskEntries: vi.fn(),
     removeBoardRowFromAll: vi.fn(),
+    completeDoneBoardRowsForQuest: vi.fn(),
     prepareSessionForRevert: vi.fn(
       (sessionId: string, truncateIdx: number, options?: { clearCodexState?: boolean }) => {
         const session = bridge.getOrCreateSession.mock.results.at(-1)?.value;
@@ -1119,6 +1120,7 @@ describe("POST /api/quests/:questId/complete", () => {
       commitShas: undefined,
       sessionId: "worker-1",
     });
+    expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1");
   });
 
   it("resolves numeric completion sessionId before leader authorization and lookup", async () => {

@@ -3,6 +3,7 @@ import { QUEST_JOURNEY_STATES } from "../../shared/quest-journey.js";
 import type { BoardRow, SessionAttentionRecord } from "../session-types.js";
 import {
   advanceBoardRow,
+  completeDoneBoardRowsForQuestInAllSessions,
   getBoard,
   getCompletedBoard,
   upsertBoardRow,
@@ -14,6 +15,7 @@ interface TestSession {
   board: Map<string, BoardRow>;
   completedBoard: Map<string, BoardRow>;
   boardDispatchStates: Map<string, unknown>;
+  boardStallStates: Map<string, unknown>;
   attentionRecords: SessionAttentionRecord[];
 }
 
@@ -23,6 +25,7 @@ function createSession(): TestSession {
     board: new Map(),
     completedBoard: new Map(),
     boardDispatchStates: new Map(),
+    boardStallStates: new Map(),
     attentionRecords: [],
   };
 }
@@ -443,5 +446,90 @@ describe("Quest Journey board phase timing", () => {
       "leader-1",
       "q-1036 ready for review: Finish compact lifecycle cards",
     );
+  });
+});
+
+describe("done quest board reconciliation", () => {
+  it("moves active Memory rows for completed quests out of the active board", () => {
+    const session = createSession();
+    const deps = createDeps();
+    session.board.set("q-1430", {
+      questId: "q-1430",
+      title: "Completed Memory quest",
+      status: "MEMORY",
+      createdAt: 1,
+      updatedAt: 2,
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "implement", "memory"],
+        activePhaseIndex: 2,
+        currentPhaseId: "memory",
+        phaseTimings: {
+          "2": { startedAt: 2 },
+        },
+      },
+    });
+    session.board.set("q-1431", {
+      questId: "q-1431",
+      title: "Unfinished Memory quest",
+      status: "MEMORY",
+      createdAt: 3,
+      updatedAt: 4,
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "memory"],
+        activePhaseIndex: 1,
+        currentPhaseId: "memory",
+      },
+    });
+
+    const touched = completeDoneBoardRowsForQuestInAllSessions(new Map([[session.id, session]]), "q-1430", deps);
+
+    expect(touched).toEqual(["leader-1"]);
+    expect(getBoard(session).map((row) => row.questId)).toEqual(["q-1431"]);
+    expect(getCompletedBoard(session)).toEqual([
+      expect.objectContaining({
+        questId: "q-1430",
+        status: "MEMORY",
+        completedAt: expect.any(Number),
+        journey: expect.objectContaining({
+          phaseTimings: expect.objectContaining({
+            "2": expect.objectContaining({ endedAt: expect.any(Number) }),
+          }),
+        }),
+      }),
+    ]);
+    expect(deps.broadcastBoard).toHaveBeenCalledWith(
+      session,
+      [expect.objectContaining({ questId: "q-1431" })],
+      [expect.objectContaining({ questId: "q-1430" })],
+    );
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+    expect(deps.notifyReview).not.toHaveBeenCalled();
+  });
+
+  it("preserves active Memory rows that have not been reconciled as done", () => {
+    const session = createSession();
+    const deps = createDeps();
+    session.board.set("q-1431", {
+      questId: "q-1431",
+      title: "Unfinished Memory quest",
+      status: "MEMORY",
+      createdAt: 1,
+      updatedAt: 2,
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "memory"],
+        activePhaseIndex: 1,
+        currentPhaseId: "memory",
+      },
+    });
+
+    const touched = completeDoneBoardRowsForQuestInAllSessions(new Map([[session.id, session]]), "q-9999", deps);
+
+    expect(touched).toEqual([]);
+    expect(getBoard(session)).toEqual([expect.objectContaining({ questId: "q-1431", status: "MEMORY" })]);
+    expect(getCompletedBoard(session)).toEqual([]);
+    expect(deps.broadcastBoard).not.toHaveBeenCalled();
   });
 });

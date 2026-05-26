@@ -353,9 +353,15 @@ export function createQuestRoutes(ctx: RouteContext) {
 
   const syncDoneQuestBoardState = (questId: string, quest: QuestmasterTask): void => {
     if (quest.status !== "done") return;
-    (wsBridge as { completeQueuedBoardRowsForQuest?: (questId: string) => string[] }).completeQueuedBoardRowsForQuest?.(
-      questId,
-    );
+    const boardBridge = wsBridge as {
+      completeDoneBoardRowsForQuest?: (questId: string) => string[];
+      completeQueuedBoardRowsForQuest?: (questId: string) => string[];
+    };
+    if (boardBridge.completeDoneBoardRowsForQuest) {
+      boardBridge.completeDoneBoardRowsForQuest(questId);
+      return;
+    }
+    boardBridge.completeQueuedBoardRowsForQuest?.(questId);
   };
 
   const transitionQuestAndSync = async (

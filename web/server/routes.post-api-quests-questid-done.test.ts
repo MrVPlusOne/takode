@@ -288,6 +288,7 @@ function createMockBridge() {
     addTaskEntry: vi.fn(),
     updateQuestTaskEntries: vi.fn(),
     removeBoardRowFromAll: vi.fn(),
+    completeDoneBoardRowsForQuest: vi.fn(),
     completeQueuedBoardRowsForQuest: vi.fn(),
     prepareSessionForRevert: vi.fn(
       (sessionId: string, truncateIdx: number, options?: { clearCodexState?: boolean }) => {
@@ -579,6 +580,6 @@ describe("POST /api/quests/:questId/done", () => {
       claimedQuestTitle: undefined,
       claimedQuestStatus: undefined,
     });
-    expect(bridge.completeQueuedBoardRowsForQuest).toHaveBeenCalledWith("q-1");
+    expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1");
   });
 });
