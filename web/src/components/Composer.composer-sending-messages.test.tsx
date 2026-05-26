@@ -628,7 +628,7 @@ describe("Composer sending messages", () => {
     const textarea = container.querySelector("textarea")!;
 
     fireEvent.change(textarea, { target: { value: "click send" } });
-    fireEvent.click(screen.getByTitle("Send message"));
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
     expect(mockSendToSession).toHaveBeenCalledWith(
       "s1",
@@ -648,7 +648,7 @@ describe("Composer sending messages", () => {
     const textarea = container.querySelector("textarea")!;
 
     fireEvent.change(textarea, { target: { value: "continue the work" } });
-    fireEvent.click(screen.getByTitle("Send message"));
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
     expect(mockSendToSession).toHaveBeenCalledWith(
       "s1",
@@ -716,7 +716,7 @@ describe("Composer sending messages", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Ready")).toBeTruthy();
-      expect(screen.getByTitle("Send message")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
     });
 
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
@@ -771,7 +771,7 @@ describe("Composer sending messages", () => {
       expect(screen.getByText("Ready")).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByTitle("Send message"));
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     expect(mockSendToSession).toHaveBeenCalledWith(
       "s1",
       expect.objectContaining({

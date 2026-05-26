@@ -127,7 +127,7 @@ function PlaygroundComposerPermissionToolbar({
           isRunning={false}
           handleInterrupt={() => {}}
           handleSend={() => {}}
-          sendButtonTitle="Send message"
+          sendButtonTitle="Send: Enter; New line: Shift+Enter"
           sendPressing={false}
         />
       </div>

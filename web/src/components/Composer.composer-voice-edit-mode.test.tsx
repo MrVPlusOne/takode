@@ -981,7 +981,7 @@ describe("Composer voice edit mode", () => {
 
     const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
     expect(textarea.value).toBe("Please rewrite this update into two short bullets.");
-    expect(screen.getByTitle("Send message").hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Send message" }).hasAttribute("disabled")).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
 

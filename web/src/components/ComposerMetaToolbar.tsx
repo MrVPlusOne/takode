@@ -417,6 +417,7 @@ export function ComposerMetaToolbar({
             <button
               onClick={handleSend}
               disabled={!canSend}
+              aria-label="Send message"
               className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-full transition-colors ${
                 canSend
                   ? "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"

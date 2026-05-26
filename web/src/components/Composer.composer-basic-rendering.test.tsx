@@ -542,8 +542,7 @@ describe("Composer basic rendering", () => {
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea");
     expect(textarea).toBeTruthy();
-    // Send button (the round one with the arrow SVG) - identified by title
-    const sendBtn = screen.getByTitle("Send message");
+    const sendBtn = screen.getByRole("button", { name: "Send message" });
     expect(sendBtn).toBeTruthy();
   });
 
@@ -644,7 +643,7 @@ describe("Composer basic rendering", () => {
     const textarea = container.querySelector("textarea");
     const footer = screen.getByTestId("composer-footer-toolbar");
     const meta = screen.getByTestId("composer-footer-meta");
-    const sendButton = screen.getByTitle("Send message");
+    const sendButton = screen.getByRole("button", { name: "Send message" });
     const permissionSelector = screen.getByTitle(/Default:/);
 
     expect(textarea).toBeTruthy();

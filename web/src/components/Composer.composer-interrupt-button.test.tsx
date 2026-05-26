@@ -538,7 +538,7 @@ describe("Composer interrupt button", () => {
 
     // Unified button: empty composer + running → stop button
     expect(screen.getByTitle("Stop generation")).toBeTruthy();
-    expect(screen.queryByTitle("Send message")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
 
   it("interrupt button sends interrupt message", () => {
@@ -554,7 +554,7 @@ describe("Composer interrupt button", () => {
     setupMockStore({ sessionStatus: "idle" });
     render(<Composer sessionId="s1" />);
 
-    expect(screen.getByTitle("Send message")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
     // Unified button: stop button only shows when running + empty composer
     expect(screen.queryByTitle("Stop generation")).toBeNull();
   });

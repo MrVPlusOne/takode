@@ -556,7 +556,7 @@ describe("Composer send button state", () => {
 
     fireEvent.change(textarea, { target: { value: "queue while disconnected" } });
 
-    const sendBtn = screen.getByTitle("Send message");
+    const sendBtn = screen.getByRole("button", { name: "Send message" });
     expect(sendBtn.hasAttribute("disabled")).toBe(false);
   });
 
@@ -578,7 +578,7 @@ describe("Composer send button state", () => {
 
     fireEvent.change(textarea, { target: { value: "Hold this draft" } });
 
-    const sendBtn = screen.getByTitle("Send message");
+    const sendBtn = screen.getByRole("button", { name: "Send message" });
     expect(sendBtn.hasAttribute("disabled")).toBe(false);
 
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
@@ -618,7 +618,7 @@ describe("Composer send button state", () => {
     });
     expect(await screen.findByAltText("offline.png")).toBeTruthy();
     expect(screen.getByText("Ready")).toBeTruthy();
-    expect(screen.getByTitle("Send message").hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Send message" }).hasAttribute("disabled")).toBe(false);
   });
 
   it("keeps file mention search available while the CLI is disconnected and the browser is connected", async () => {
@@ -654,7 +654,20 @@ describe("Composer send button state", () => {
 
     fireEvent.change(textarea, { target: { value: "Hello world" } });
 
-    const sendBtn = screen.getByTitle("Send message");
+    const sendBtn = screen.getByRole("button", { name: "Send message" });
     expect(sendBtn.hasAttribute("disabled")).toBe(false);
+    expect(sendBtn.getAttribute("title")).toBe("Send: Enter; New line: Shift+Enter");
+  });
+
+  it("describes touch keyboard send and newline behavior in the send tooltip", async () => {
+    mediaState.touchDevice = true;
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "Hello from touch" } });
+
+    const sendBtn = screen.getByRole("button", { name: "Send message" });
+    expect(sendBtn.hasAttribute("disabled")).toBe(false);
+    expect(sendBtn.getAttribute("title")).toBe("Send: tap button; New line: Enter");
   });
 });

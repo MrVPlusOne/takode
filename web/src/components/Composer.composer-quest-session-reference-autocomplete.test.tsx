@@ -738,7 +738,7 @@ describe("Composer quest/session reference autocomplete", () => {
         selectionStart: "Please review q-41 and sync with #687 ".length,
       },
     });
-    fireEvent.click(screen.getByTitle("Send message"));
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
     expect(mockSendToSession).toHaveBeenCalledWith(
       "s1",

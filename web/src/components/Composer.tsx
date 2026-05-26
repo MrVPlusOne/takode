@@ -1759,8 +1759,11 @@ export function Composer({
     : !canUseInput
       ? "Resume session to upload images"
       : "Upload image";
-  const sendButtonTitle =
-    attachmentBlockReason || (activePendingUserUpload ? "Delivering pending message" : "Send message");
+  const sendButtonShortcutTitle = usesTouchKeyboard
+    ? "Send: tap button; New line: Enter"
+    : "Send: Enter; New line: Shift+Enter";
+  const sendButtonBlockTitle = attachmentBlockReason || (activePendingUserUpload ? "Delivering pending message" : null);
+  const sendButtonTitle = sendButtonBlockTitle ?? (canSend ? sendButtonShortcutTitle : "Send message");
   const plainReferencePreviews = useMemo(() => {
     const questIds = new Set(previewQuestIds);
     const sessionNums = new Set(previewSessionNums);
