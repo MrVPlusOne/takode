@@ -42,14 +42,23 @@ const maiWrapperRootMarker = ".mai-agents-root";
 const maiWrapperEnvHostPrefix = "companion-codex-home-";
 const maiWrapperHostnameShimDirName = ".mai-wrapper-bin";
 const imagegenSkillRelativePath = ".system/imagegen";
-const agentsSkillsHome = join(homedir(), ".agents", "skills");
 const deprecatedCodexSkillsDirName = "skills";
 const defaultCodexEffectiveContextWindowPercent = 95;
 const defaultCodexNonLeaderAutoCompactThresholdPercent = 90;
+const spawnPrepCacheTtlMs = 60_000;
 
 type HostCodexBinaryKind = "native" | "dotslash" | "bootstrap";
 type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 type CodexApprovalPolicy = "never" | "untrusted" | "on-request" | "on-failure";
+const hostLaunchBinaryCache = new Map<string, TimedPromiseCacheEntry<{ binary: string; dotslashCache?: string }>>();
+const legacySkillMigrationCache = new Map<string, TimedPromiseCacheEntry<void>>();
+let spawnPrepCacheStats: CodexSpawnPrepCacheStats = {
+  hostLaunchBinaryCacheHits: 0,
+  hostLaunchBinaryCacheMisses: 0,
+  latestCachedCodexArtifactScans: 0,
+  legacySkillMigrationCacheHits: 0,
+  legacySkillMigrationCacheMisses: 0,
+};
 interface MaiWrapperSessionLaunchSpec {
   hostnameShimDir: string;
 }
@@ -61,6 +70,19 @@ interface MaiWrapperHostSpec {
 }
 
 export class MissingCodexBinaryError extends Error {}
+
+interface TimedPromiseCacheEntry<T> {
+  expiresAtMs: number;
+  promise: Promise<T>;
+}
+
+interface CodexSpawnPrepCacheStats {
+  hostLaunchBinaryCacheHits: number;
+  hostLaunchBinaryCacheMisses: number;
+  latestCachedCodexArtifactScans: number;
+  legacySkillMigrationCacheHits: number;
+  legacySkillMigrationCacheMisses: number;
+}
 
 interface CodexLaunchInfo {
   cwd: string;
@@ -98,6 +120,65 @@ async function fileExists(path: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+function nowMs(): number {
+  return Date.now();
+}
+
+function getAgentsSkillsHome(): string {
+  return join(homedir(), ".agents", "skills");
+}
+
+async function pathFingerprint(path: string): Promise<string> {
+  if (!(await fileExists(path))) return "missing";
+  const pathStat = await stat(path).catch(() => null);
+  if (!pathStat) return "missing";
+  const isDirectory = typeof pathStat.isDirectory === "function" && pathStat.isDirectory();
+  const isFile = typeof pathStat.isFile === "function" && pathStat.isFile();
+  return `${isDirectory ? "dir" : isFile ? "file" : "other"}:${pathStat.size}:${pathStat.mtimeMs}`;
+}
+
+async function directoryEntryFingerprint(path: string): Promise<string> {
+  const fingerprint = await pathFingerprint(path);
+  if (fingerprint === "missing") return fingerprint;
+  const entries = await readdir(path, { withFileTypes: true }).catch(() => null);
+  if (!entries) return fingerprint;
+  const entrySummary = entries
+    .map((entry) => {
+      const kind = entry.isSymbolicLink() ? "link" : entry.isDirectory() ? "dir" : entry.isFile() ? "file" : "other";
+      return `${entry.name}:${kind}`;
+    })
+    .sort()
+    .join(",");
+  return `${fingerprint}:${entrySummary}`;
+}
+
+function getFreshCachedPromise<T>(cache: Map<string, TimedPromiseCacheEntry<T>>, key: string): Promise<T> | null {
+  const cached = cache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAtMs <= nowMs()) {
+    cache.delete(key);
+    return null;
+  }
+  return cached.promise;
+}
+
+async function setTimedPromiseCacheEntry<T>(
+  cache: Map<string, TimedPromiseCacheEntry<T>>,
+  key: string,
+  makePromise: () => Promise<T>,
+): Promise<T> {
+  const promise = makePromise();
+  cache.set(key, { expiresAtMs: nowMs() + spawnPrepCacheTtlMs, promise });
+  try {
+    return await promise;
+  } catch (error) {
+    if (cache.get(key)?.promise === promise) {
+      cache.delete(key);
+    }
+    throw error;
   }
 }
 
@@ -614,6 +695,7 @@ function getLegacyDotslashCacheDirs(): string[] {
 }
 
 async function findLatestCachedCodexArtifact(): Promise<string | null> {
+  spawnPrepCacheStats.latestCachedCodexArtifactScans++;
   const candidates: Array<{ path: string; mtimeMs: number }> = [];
 
   for (const root of getLegacyDotslashCacheDirs()) {
@@ -871,15 +953,55 @@ async function copySeedEntry(
 
 async function migrateLegacyCodexSkillsToAgentsHome(
   sourceHome: string,
-  options?: { filterImagegenSkill?: boolean; timing?: CooperativeTiming },
+  options?: {
+    filterImagegenSkill?: boolean;
+    timing?: CooperativeTiming;
+    destSkillsHome?: string;
+    legacyCodexHome?: string;
+  },
 ): Promise<void> {
-  const dest = agentsSkillsHome;
+  const dest = options?.destSkillsHome ?? getAgentsSkillsHome();
+  const legacyCodexHome = options?.legacyCodexHome ?? getLegacyCodexHome();
+  const sourceHomePath = resolve(sourceHome);
+  const legacyHomePath = resolve(legacyCodexHome);
+  const sourceRoots = Array.from(
+    new Set([join(sourceHomePath, "skills"), join(legacyHomePath, "skills")].map((candidate) => resolve(candidate))),
+  );
+  const rootFingerprints = await Promise.all(sourceRoots.map((root) => directoryEntryFingerprint(root)));
+  const destFingerprint = await directoryEntryFingerprint(dest);
+  const cacheKey = JSON.stringify({
+    dest: resolve(dest),
+    destFingerprint,
+    filterImagegenSkill: options?.filterImagegenSkill === true,
+    roots: sourceRoots.map((root, index) => [root, rootFingerprints[index]]),
+  });
+
+  const cached = getFreshCachedPromise(legacySkillMigrationCache, cacheKey);
+  if (cached) {
+    spawnPrepCacheStats.legacySkillMigrationCacheHits++;
+    return cached;
+  }
+
+  spawnPrepCacheStats.legacySkillMigrationCacheMisses++;
+  return setTimedPromiseCacheEntry(legacySkillMigrationCache, cacheKey, () =>
+    migrateLegacyCodexSkillsToAgentsHomeUncached({
+      ...options,
+      destSkillsHome: dest,
+      sourceRoots,
+    }),
+  );
+}
+
+async function migrateLegacyCodexSkillsToAgentsHomeUncached(options: {
+  filterImagegenSkill?: boolean;
+  timing?: CooperativeTiming;
+  destSkillsHome: string;
+  sourceRoots: string[];
+}): Promise<void> {
+  const dest = options.destSkillsHome;
   const excludedRelativePaths = options?.filterImagegenSkill ? new Set([imagegenSkillRelativePath]) : new Set<string>();
 
-  const legacyCandidates = Array.from(
-    new Set([join(sourceHome, "skills"), join(getLegacyCodexHome(), "skills")].map((candidate) => resolve(candidate))),
-  );
-  for (const legacySkillsHome of legacyCandidates) {
+  for (const legacySkillsHome of options.sourceRoots) {
     if (legacySkillsHome === resolve(dest)) continue;
     const entries = await readdir(legacySkillsHome, { withFileTypes: true }).catch(() => []);
     for (const entry of entries) {
@@ -1088,6 +1210,36 @@ function renderContainerCodexAuthRefresh(): string {
 }
 
 async function resolveHostCodexLaunchBinary(
+  sessionId: string,
+  binary: string,
+  codexHomeRoot: string,
+  timing?: CooperativeTiming,
+): Promise<{ binary: string; dotslashCache?: string }> {
+  const binaryFingerprint = await pathFingerprint(binary);
+  const legacyCacheRoots = getLegacyDotslashCacheDirs().map((root) => resolve(root));
+  const cacheKey = JSON.stringify({
+    binary: resolve(binary),
+    binaryFingerprint,
+    codexHomeRoot: resolve(codexHomeRoot),
+    legacyCacheRoots,
+  });
+  const cached = getFreshCachedPromise(hostLaunchBinaryCache, cacheKey);
+  if (cached) {
+    const result = await cached;
+    if (await fileExists(result.binary)) {
+      spawnPrepCacheStats.hostLaunchBinaryCacheHits++;
+      return result;
+    }
+    hostLaunchBinaryCache.delete(cacheKey);
+  }
+
+  spawnPrepCacheStats.hostLaunchBinaryCacheMisses++;
+  return setTimedPromiseCacheEntry(hostLaunchBinaryCache, cacheKey, () =>
+    resolveHostCodexLaunchBinaryUncached(sessionId, binary, codexHomeRoot, timing),
+  );
+}
+
+async function resolveHostCodexLaunchBinaryUncached(
   sessionId: string,
   binary: string,
   codexHomeRoot: string,
@@ -1324,4 +1476,41 @@ export async function prepareCodexSpawn(
       leader: leaderLaunch,
     });
   }
+}
+
+export function _resetCodexSpawnPrepCachesForTest(): void {
+  hostLaunchBinaryCache.clear();
+  legacySkillMigrationCache.clear();
+  spawnPrepCacheStats = {
+    hostLaunchBinaryCacheHits: 0,
+    hostLaunchBinaryCacheMisses: 0,
+    latestCachedCodexArtifactScans: 0,
+    legacySkillMigrationCacheHits: 0,
+    legacySkillMigrationCacheMisses: 0,
+  };
+}
+
+export function _getCodexSpawnPrepCacheStatsForTest(): CodexSpawnPrepCacheStats {
+  return { ...spawnPrepCacheStats };
+}
+
+export function _resolveHostCodexLaunchBinaryForTest(
+  sessionId: string,
+  binary: string,
+  codexHomeRoot: string,
+  timing?: CooperativeTiming,
+): Promise<{ binary: string; dotslashCache?: string }> {
+  return resolveHostCodexLaunchBinary(sessionId, binary, codexHomeRoot, timing);
+}
+
+export function _migrateLegacyCodexSkillsToAgentsHomeForTest(
+  sourceHome: string,
+  options?: {
+    filterImagegenSkill?: boolean;
+    timing?: CooperativeTiming;
+    destSkillsHome?: string;
+    legacyCodexHome?: string;
+  },
+): Promise<void> {
+  return migrateLegacyCodexSkillsToAgentsHome(sourceHome, options);
 }
