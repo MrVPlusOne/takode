@@ -787,6 +787,12 @@ describe("POST /api/transcribe", () => {
       }),
     );
 
+    const indexRes = await app.request("/api/transcription-logs");
+    expect(indexRes.status).toBe(200);
+    const [indexEntry] = (await indexRes.json()) as Array<Record<string, unknown>>;
+    expect(indexEntry).not.toHaveProperty("inputContext");
+    expect(indexEntry).not.toHaveProperty("result");
+
     // The debug panel should be able to inspect the exact source audio behind a transcript.
     const logEntry = transcriptionEnhancer.getTranscriptionLogIndex()[0];
     const audioRes = await app.request(logEntry.audioUrl);

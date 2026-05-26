@@ -1269,6 +1269,11 @@ interface StoredTranscriptionLogEntry extends Omit<TranscriptionLogEntry, "audio
   result?: unknown;
 }
 
+type PublicStoredTranscriptionLogFields = Omit<
+  StoredTranscriptionLogEntry,
+  "audioBytes" | "backend" | "audioExtension" | "inputContext" | "result"
+>;
+
 const MAX_LOG_ENTRIES = 50;
 const MAX_PENDING_FRONTEND_TIMINGS = 50;
 let logIdCounter = 0;
@@ -1280,10 +1285,18 @@ function buildTranscriptionAudioUrl(id: number): string {
 }
 
 function toPublicTranscriptionLogEntry(entry: StoredTranscriptionLogEntry): TranscriptionLogEntry {
-  const { audioBytes: _audioBytes, ...rest } = entry;
+  const {
+    audioBytes: _audioBytes,
+    backend: _backend,
+    audioExtension: _audioExtension,
+    inputContext: _inputContext,
+    result: _result,
+    ...publicFields
+  } = entry;
+  const publicEntry: PublicStoredTranscriptionLogFields = publicFields;
   const capability = getLocalPathOpenCapability();
   return {
-    ...rest,
+    ...publicEntry,
     canOpenRecordingDirectory: Boolean(
       entry.recordingDirectoryPath && !entry.recordingDeletedAt && capability.canOpenContainingFolder,
     ),
