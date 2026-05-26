@@ -365,7 +365,11 @@ describe("direct user needs-input reminders", () => {
         sessionLabel: "Needs Input Resolution",
       },
     });
-    expect(sentCliContent(deps)).toContain("2. Already handled -- dismissed or resolved outside the agent.");
+    expect(sentCliContent(deps)).toContain("Resolved same-session same-thread needs-input (main): 1.");
+    expect(sentCliContent(deps)).toContain("2. Already handled (resolved outside the agent).");
+    expect(sentCliContent(deps)).toContain(
+      "Do not run `takode notify resolve` for these same-session prompts unless a new prompt is recreated later.",
+    );
     expect(session.notifications?.[0]?.resolutionNotice).toMatchObject({ status: "delivered" });
 
     await handleUserMessage(session, userMessage({ content: "Another direct user message" }), deps);

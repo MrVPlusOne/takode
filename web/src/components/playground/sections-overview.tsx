@@ -98,6 +98,7 @@ import {
   PlaygroundMcpRow,
   PlaygroundAddressedNotifyToolBlock,
   PlaygroundNeedsInputReminderMessage,
+  PlaygroundNeedsInputResolutionNoticeMessage,
   PlaygroundCompactionRecoveryEventMessage,
   PlaygroundLeaderKickoffEventMessage,
   PlaygroundLongSleepGuardMessage,
@@ -737,6 +738,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Needs-input reminder (partial, details visible)">
             <PlaygroundNeedsInputReminderMessage variant="partial" />
+          </Card>
+          <Card label="Needs-input resolution notice">
+            <PlaygroundNeedsInputResolutionNoticeMessage />
           </Card>
           <Card label="Thread-routing reminder">
             <PlaygroundThreadRoutingReminderMessage />

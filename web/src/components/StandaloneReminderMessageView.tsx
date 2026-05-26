@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ChatMessage, SessionNotification } from "../types.js";
+import { buildNeedsInputResolutionNoticeViewModel } from "../utils/needs-input-resolution-notice.js";
 import { buildNeedsInputReminderViewModel } from "../utils/needs-input-reminder.js";
 import { buildQuestThreadReminderViewModel } from "../utils/quest-thread-reminder.js";
 import {
@@ -11,7 +12,12 @@ import { buildThreadRoutingReminderViewModel } from "../utils/thread-routing-rem
 import { useStore } from "../store.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { MarkdownContent } from "./MarkdownContent.js";
-import { NeedsInputReminderView, QuestThreadReminderView, ThreadRoutingReminderView } from "./MessageReminderViews.js";
+import {
+  NeedsInputReminderView,
+  NeedsInputResolutionNoticeView,
+  QuestThreadReminderView,
+  ThreadRoutingReminderView,
+} from "./MessageReminderViews.js";
 
 type SearchHighlightInfo = { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
 
@@ -86,6 +92,11 @@ function buildStandaloneReminderBody(
         <NeedsInputReminderView reminder={needsInputReminder} />
       </div>
     );
+  }
+
+  const needsInputResolutionNotice = buildNeedsInputResolutionNoticeViewModel(message);
+  if (needsInputResolutionNotice) {
+    return <NeedsInputResolutionNoticeView notice={needsInputResolutionNotice} />;
   }
 
   const systemReminder = buildSystemReminderViewModel(message);

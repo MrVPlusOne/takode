@@ -41,6 +41,10 @@ const NEEDS_INPUT_REMINDER_SOURCE = {
   sessionId: "system:needs-input-reminder",
   sessionLabel: "Needs Input Reminder",
 };
+const NEEDS_INPUT_RESOLUTION_SOURCE = {
+  sessionId: "system:needs-input-resolution",
+  sessionLabel: "Needs Input Resolution",
+};
 
 export function PlaygroundSectionGroup({
   groupId,
@@ -932,6 +936,28 @@ export function PlaygroundNeedsInputReminderMessage({ variant }: { variant: "res
   }, [isPartial, sessionId, variant]);
 
   return <MessageBubble message={message} sessionId={sessionId} showTimestamp={false} />;
+}
+
+export function PlaygroundNeedsInputResolutionNoticeMessage() {
+  const message: ChatMessage = {
+    id: "playground-needs-input-resolution-notice-msg",
+    role: "user",
+    content: [
+      "[Needs-input resolution notice]",
+      "Resolved same-session same-thread needs-input (q-1431): 1.",
+      "  487. confirm collapsible commits section quest (answered in notification UI).",
+      "Do not run `takode notify resolve` for these same-session prompts unless a new prompt is recreated later.",
+    ].join("\n"),
+    timestamp: Date.now() - 25_000,
+    agentSource: NEEDS_INPUT_RESOLUTION_SOURCE,
+    metadata: {
+      threadKey: "q-1431",
+      questId: "q-1431",
+      threadRefs: [{ threadKey: "q-1431", questId: "q-1431", source: "explicit" }],
+    },
+  };
+
+  return <MessageBubble message={message} sessionId="playground-needs-input-resolution-notice" showTimestamp={false} />;
 }
 
 export function PlaygroundThreadRoutingReminderMessage() {

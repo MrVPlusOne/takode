@@ -23,7 +23,7 @@ function formatReminderSummary(summary: string | undefined): string {
 }
 
 function formatResolutionSource(source: "manual" | "response" | undefined): string {
-  return source === "response" ? "answered through the notification UI" : "dismissed or resolved outside the agent";
+  return source === "response" ? "answered in notification UI" : "resolved outside the agent";
 }
 
 function extractReminderNotificationInfo(reminderText: string): { referencedIds: string[]; totalCount: number | null } {
@@ -134,12 +134,12 @@ export function buildNeedsInputResolutionNoticeForDirectUserMessage(
   const visible = resolved.slice(0, 5);
   const header =
     resolved.length === 1
-      ? `Externally resolved same-session same-thread needs-input notifications (${messageRoute.threadKey}): 1.`
-      : `Externally resolved same-session same-thread needs-input notifications (${messageRoute.threadKey}): ${resolved.length}. Showing newest ${visible.length}.`;
+      ? `Resolved same-session same-thread needs-input (${messageRoute.threadKey}): 1.`
+      : `Resolved same-session same-thread needs-input (${messageRoute.threadKey}): ${resolved.length}; showing newest ${visible.length}.`;
   const lines = visible.map((notification) => {
     const id = notification.numericId === null ? notification.id : String(notification.numericId);
     const source = formatResolutionSource(notification.resolutionNotice?.source);
-    return `  ${id}. ${formatReminderSummary(notification.summary)} -- ${source}.`;
+    return `  ${id}. ${formatReminderSummary(notification.summary)} (${source}).`;
   });
 
   return {
@@ -147,7 +147,7 @@ export function buildNeedsInputResolutionNoticeForDirectUserMessage(
       "[Needs-input resolution notice]",
       header,
       ...lines,
-      "Do not call `takode notify resolve` for these notifications unless you later recreate a new prompt.",
+      "Do not run `takode notify resolve` for these same-session prompts unless a new prompt is recreated later.",
     ].join("\n"),
     notificationIds: visible.map((notification) => notification.id),
     threadRoute: messageRoute,

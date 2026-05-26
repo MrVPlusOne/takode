@@ -74,6 +74,29 @@ function makeTruncatedNeedsInputReminderMessage(): ChatMessage {
   };
 }
 
+function makeNeedsInputResolutionNoticeMessage(): ChatMessage {
+  return {
+    id: "needs-input-resolution-notice-1",
+    role: "user",
+    content: [
+      "[Needs-input resolution notice]",
+      "Resolved same-session same-thread needs-input (q-1431): 1.",
+      "  487. confirm collapsible commits section quest (answered in notification UI).",
+      "Do not run `takode notify resolve` for these same-session prompts unless a new prompt is recreated later.",
+    ].join("\n"),
+    timestamp: Date.now(),
+    agentSource: {
+      sessionId: "system:needs-input-resolution",
+      sessionLabel: "Needs Input Resolution",
+    },
+    metadata: {
+      threadKey: "q-1431",
+      questId: "q-1431",
+      threadRefs: [{ threadKey: "q-1431", questId: "q-1431", source: "explicit" }],
+    },
+  };
+}
+
 describe("MessageBubble needs-input reminder messages", () => {
   beforeEach(() => {
     revertToMessageMock.mockClear();
@@ -284,5 +307,24 @@ describe("MessageBubble needs-input reminder messages", () => {
     } finally {
       useStore.setState({ sessionNotifications: prevNotifications });
     }
+  });
+
+  it("renders needs-input resolution notices as collapsed special-message chips", async () => {
+    render(<MessageBubble message={makeNeedsInputResolutionNoticeMessage()} sessionId="resolution-session" />);
+
+    const chip = screen.getByTestId("needs-input-resolution-notice-chip");
+    expect(chip).toBeTruthy();
+    expect(screen.getByText("Needs-input resolution notice")).toBeTruthy();
+    expect(chip.textContent).toContain("1 resolved externally in q-1431");
+    expect(screen.getByText("resolved")).toBeTruthy();
+    expect(screen.queryByTestId("agent-source-badge")).toBeNull();
+    expect(screen.queryByTitle("Message options")).toBeNull();
+    expect(screen.queryByText("confirm collapsible commits section quest")).toBeNull();
+    expect(screen.queryByText(/takode notify resolve/)).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Expand Needs-input resolution notice" }));
+
+    expect(screen.getByText("confirm collapsible commits section quest")).toBeTruthy();
+    expect(screen.getByText(/Do not run `takode notify resolve`/)).toBeTruthy();
   });
 });

@@ -1,4 +1,5 @@
 import type { ChatMessage } from "../types.js";
+import { NEEDS_INPUT_RESOLUTION_NOTICE_SOURCE_ID } from "./needs-input-resolution-notice.js";
 import { NEEDS_INPUT_REMINDER_SOURCE_ID } from "./needs-input-reminder.js";
 import { QUEST_THREAD_REMINDER_SOURCE_ID } from "../../shared/quest-thread-reminder.js";
 import { THREAD_ROUTING_REMINDER_SOURCE_ID } from "../../shared/thread-routing-reminder.js";
@@ -21,6 +22,7 @@ export function isStandaloneReminderMessage(message: ReminderCandidate): boolean
     sourceId === QUEST_THREAD_REMINDER_SOURCE_ID ||
     sourceId === THREAD_ROUTING_REMINDER_SOURCE_ID ||
     sourceId === NEEDS_INPUT_REMINDER_SOURCE_ID ||
+    sourceId === NEEDS_INPUT_RESOLUTION_NOTICE_SOURCE_ID ||
     sourceId?.startsWith("resource-lease:") === true ||
     sourceId === "system:long-sleep-guard" ||
     sourceId?.startsWith("system:restart-continuation:") === true

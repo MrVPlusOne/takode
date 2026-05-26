@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { NeedsInputResolutionNoticeViewModel } from "../utils/needs-input-resolution-notice.js";
 import type { NeedsInputReminderViewModel } from "../utils/needs-input-reminder.js";
 import type { QuestThreadReminderViewModel } from "../utils/quest-thread-reminder.js";
 import type { ThreadRoutingReminderViewModel } from "../utils/thread-routing-reminder.js";
@@ -205,6 +206,71 @@ export function NeedsInputReminderView({ reminder }: { reminder: NeedsInputRemin
               </span>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function NeedsInputResolutionNoticeView({ notice }: { notice: NeedsInputResolutionNoticeViewModel }) {
+  const [collapsed, setCollapsed] = useState(true);
+
+  return (
+    <div className="text-left">
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-2 rounded-md border border-emerald-400/20 bg-emerald-500/8 px-2 py-1 text-left transition-colors hover:bg-emerald-500/12 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cc-primary/60"
+        onClick={() => setCollapsed((value) => !value)}
+        aria-expanded={!collapsed}
+        aria-label={`${collapsed ? "Expand" : "Collapse"} ${notice.title}`}
+        data-testid="needs-input-resolution-notice-chip"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          className={`h-3 w-3 shrink-0 text-cc-muted/55 transition-transform ${collapsed ? "" : "rotate-90"}`}
+        >
+          <path d="M6 4l4 4-4 4" />
+        </svg>
+        <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5 shrink-0 text-emerald-300/80" aria-hidden="true">
+          <path
+            d="M4 8.25l2.35 2.35L12 4.95"
+            stroke="currentColor"
+            strokeWidth="1.45"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <circle cx="8" cy="8" r="5.75" stroke="currentColor" strokeWidth="1.15" />
+        </svg>
+        <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-snug text-cc-muted">
+          <span className="text-cc-fg/85">{notice.title}</span>
+          <span className="text-cc-muted/75"> · {notice.description}</span>
+        </span>
+        <span className="shrink-0 rounded-full border border-emerald-400/25 px-1.5 py-0.5 font-mono-code text-[9px] leading-none text-emerald-200/80">
+          resolved
+        </span>
+      </button>
+
+      {!collapsed && (
+        <div className="mt-1.5 rounded-md border border-cc-border/25 bg-cc-card/35 px-2.5 py-2">
+          {notice.warning && <p className="mb-2 text-[11px] leading-snug text-cc-muted">{notice.warning}</p>}
+          {notice.entries.length > 0 ? (
+            <div className="space-y-1 font-mono-code text-[12px] leading-relaxed">
+              {notice.entries.map((entry) => (
+                <div key={`${entry.rawId}-${entry.summary}`} className="flex min-w-0 items-start gap-2">
+                  <span className="shrink-0 text-cc-muted/70">{entry.rawId}.</span>
+                  <span className="min-w-0 flex-1 text-cc-muted">
+                    <span className="text-cc-fg/85">{entry.summary}</span>
+                    {entry.source && <span className="text-cc-muted/75"> ({entry.source})</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <pre className="max-h-[260px] overflow-y-auto whitespace-pre-wrap break-words font-mono-code text-[11px] leading-relaxed text-cc-muted/90">
+              {notice.rawContent}
+            </pre>
+          )}
         </div>
       )}
     </div>
