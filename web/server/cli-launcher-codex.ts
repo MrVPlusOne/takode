@@ -34,6 +34,7 @@ const shellEnvPolicyHeader = `[${shellEnvPolicySection}]`;
 const codexFeaturesHeader = "[features]";
 const codexMultiAgentFeature = "multi_agent";
 const codexImageGenerationFeature = "image_generation";
+const sessionScopedCodexConfigKeys = new Set(["developer_instructions"]);
 const dotslashShebang = "#!/usr/bin/env dotslash";
 const codexBootstrapCacheMarker = 'CACHE_DIR = os.path.expanduser("~/.cache/codex")';
 const nodeShebangRe = /^#!.*\bnode(?:\s|$)/;
@@ -335,6 +336,53 @@ function renderMaiWrapperSessionEnv(hostEnvRaw: string, codexHome: string, optio
   }
 
   return out;
+}
+
+function removeTopLevelTomlSettings(configToml: string, keys: Set<string>): string {
+  if (keys.size === 0 || !configToml.trim()) return configToml;
+
+  const endsWithNewline = configToml.endsWith("\n");
+  const lines = configToml.split("\n");
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+
+  const out: string[] = [];
+  let inRoot = true;
+  let skipUntilMultilineDelimiter: '"""' | "'''" | null = null;
+
+  for (const line of lines) {
+    if (skipUntilMultilineDelimiter) {
+      if (line.includes(skipUntilMultilineDelimiter)) {
+        skipUntilMultilineDelimiter = null;
+      }
+      continue;
+    }
+
+    const trimmed = line.trim();
+    if (/^\[\[?.+\]\]?\s*(?:#.*)?$/.test(trimmed)) {
+      inRoot = false;
+      out.push(line);
+      continue;
+    }
+
+    const assignment = inRoot ? line.match(/^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*=/) : null;
+    const key = assignment?.[1];
+    if (!key || !keys.has(key)) {
+      out.push(line);
+      continue;
+    }
+
+    const valueStart = line.slice(line.indexOf("=") + 1).trimStart();
+    const delimiter = valueStart.startsWith('"""') ? '"""' : valueStart.startsWith("'''") ? "'''" : null;
+    if (delimiter && !valueStart.slice(delimiter.length).includes(delimiter)) {
+      skipUntilMultilineDelimiter = delimiter;
+    }
+  }
+
+  return out.join("\n") + (endsWithNewline ? "\n" : "");
+}
+
+function scrubSessionScopedCodexConfig(configToml: string): string {
+  return removeTopLevelTomlSettings(configToml, sessionScopedCodexConfigKeys);
 }
 
 async function ensureMaiWrapperHostnameShim(shimDir: string, hostnameValue: string): Promise<void> {
@@ -1071,7 +1119,12 @@ async function prepareCodexHome(
           continue;
         }
         if (!(await fileExists(dest))) {
-          await copyFile(src, dest);
+          if (name === "config.toml") {
+            const seededConfig = await readFile(src, "utf-8");
+            await writeFile(dest, scrubSessionScopedCodexConfig(seededConfig), "utf-8");
+          } else {
+            await copyFile(src, dest);
+          }
         }
         await options?.timing?.yieldIfDue(`seed Codex ${name}`);
       } catch (error) {
@@ -1145,7 +1198,8 @@ async function ensureCodexSessionConfig(
   }
   await options?.timing?.yieldIfDue("read Codex session config");
 
-  let next = upsertBooleanSettingInSection(current, codexFeaturesHeader, codexMultiAgentFeature, true);
+  let next = scrubSessionScopedCodexConfig(current);
+  next = upsertBooleanSettingInSection(next, codexFeaturesHeader, codexMultiAgentFeature, true);
   if (usesMaiLitellmProvider(next)) {
     next = upsertBooleanSettingInSection(next, codexFeaturesHeader, codexImageGenerationFeature, false);
   }
@@ -1364,7 +1418,7 @@ export async function prepareCodexSpawn(
     }
 
     const maiWrapperLaunchSpec =
-      !isContainerized && leaderLaunch && maiWrapperHostSpec
+      !isContainerized && maiWrapperHostSpec
         ? await timing.step("resolve MAI wrapper launch", () =>
             resolveMaiWrapperSessionLaunchSpec(maiWrapperHostSpec, sessionId, codexHome, options),
           )

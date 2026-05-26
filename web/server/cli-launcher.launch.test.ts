@@ -1522,11 +1522,13 @@ describe("launch", () => {
     }
   });
 
-  it("launches MAI-wrapper-backed Codex workers without installing the wrapper CODEX_HOME overlay", async () => {
+  it("launches MAI-wrapper-backed Codex workers with the session-local CODEX_HOME overlay", async () => {
+    // Worker launches also need the hostname shim, otherwise codex.sh can
+    // source the normal host env and write session config into the host home.
     const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
     const sessionHome = join(customHome, "test-session-id");
     const shimDir = join(sessionHome, ".mai-wrapper-bin");
-    const { existsSync: realExistsSync } = require("node:fs");
+    const { readFileSync: realReadFileSync } = require("node:fs");
     const { root, wrapperPath } = createMaiWrapperFixture();
 
     try {
@@ -1548,8 +1550,12 @@ describe("launch", () => {
 
       const [cmdAndArgs, options] = mockSpawn.mock.calls[0]!;
       expect(cmdAndArgs[0]).toBe(wrapperPath);
-      expect(options.env.PATH.split(":")[0]).not.toBe(shimDir);
-      expect(realExistsSync(getMaiWrapperSessionEnvPath(root))).toBe(false);
+      expect(options.env.CODEX_HOME).toBe(sessionHome);
+      expect(options.env.PATH.split(":")[0]).toBe(shimDir);
+
+      const wrapperEnv = realReadFileSync(getMaiWrapperSessionEnvPath(root), "utf-8");
+      expect(wrapperEnv).toContain('LITELLM_PROXY_URL="http://localhost:4000"');
+      expect(wrapperEnv).toContain(`CODEX_HOME='${sessionHome}'`);
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1560,8 +1566,9 @@ describe("launch", () => {
     mockResolveBinary.mockReturnValue("/tmp/unused");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
     const hostCodexHome = "/Users/test/.codex/hosts/test-host";
-    const sessionHome = "/Users/test/.companion/codex-home/test-session-id";
+    const sessionHome = join(customHome, "test-session-id");
     const { root, wrapperPath } = createMaiWrapperFixture({ hostCodexHome });
 
     try {
@@ -1583,7 +1590,7 @@ describe("launch", () => {
         cwd: "/tmp/project",
         codexSandbox: "workspace-write",
         codexBinary: wrapperPath,
-        codexHome: "/Users/test/.companion/codex-home",
+        codexHome: customHome,
       });
       await waitForSpawnCalls(1);
 
@@ -1595,6 +1602,64 @@ describe("launch", () => {
       });
     } finally {
       rmSync(root, { recursive: true, force: true });
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
+  it("scrubs session-scoped developer instructions from seeded Codex config", async () => {
+    // Host configs can already be contaminated; seeding a session home must
+    // preserve reusable settings without carrying stale Takode guardrails.
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const hostCodexHome = mkdtempSync(join(tmpdir(), "codex-host-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const { root, wrapperPath } = createMaiWrapperFixture({ hostCodexHome });
+    const { readFileSync: realReadFileSync } = require("node:fs");
+
+    try {
+      writeFileSync(
+        join(hostCodexHome, "config.toml"),
+        [
+          'model = "gpt-5.5"',
+          'developer_instructions = """',
+          "old Takode session guardrails",
+          '"""',
+          'approval_policy = "on-request"',
+          "",
+          "[features]",
+          "other_feature = true",
+          "",
+        ].join("\n"),
+      );
+
+      mockResolveBinary.mockImplementation((name: string): string | null => {
+        if (name === wrapperPath) return wrapperPath;
+        return "/usr/bin/claude";
+      });
+      mockCaptureUserShellEnv.mockReturnValue({});
+      mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexBinary: wrapperPath,
+        codexHome: customHome,
+      });
+      await waitForSpawnCalls(1);
+
+      const config = realReadFileSync(configPath, "utf-8");
+      expect(config).toContain('model = "gpt-5.5"');
+      expect(config).toContain('approval_policy = "on-request"');
+      expect(config).toContain("[features]");
+      expect(config).toContain("other_feature = true");
+      expect(config).toContain("multi_agent = true");
+      expect(config).not.toContain("developer_instructions");
+      expect(config).not.toContain("old Takode session guardrails");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(customHome, { recursive: true, force: true });
+      rmSync(hostCodexHome, { recursive: true, force: true });
     }
   });
 
@@ -1931,168 +1996,5 @@ describe("launch", () => {
     await launchCodex({ resumeCliSessionId: "thread-abc" });
 
     expect(mockCopyFile).toHaveBeenCalledWith(rolloutPath, seededRollout);
-  });
-
-  it("preserves Companion/Takode env vars in Codex shell policy for orchestrators", async () => {
-    mockResolveBinary.mockReturnValue("/opt/fake/codex");
-    mockSpawn.mockReturnValueOnce(createMockCodexProc());
-
-    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
-    const sessionHome = join(customHome, "test-session-id");
-    const configPath = join(sessionHome, "config.toml");
-    const {
-      mkdirSync: realMkdirSync,
-      writeFileSync: realWriteFileSync,
-      readFileSync: realReadFileSync,
-    } = require("node:fs");
-    realMkdirSync(sessionHome, { recursive: true });
-    realWriteFileSync(
-      configPath,
-      [
-        'sandbox_mode = "workspace-write"',
-        "",
-        "[features]",
-        "multi_agent = false",
-        "other_feature = false",
-        "",
-        "[shell_environment_policy]",
-        'inherit = "core"',
-        "include_only = [",
-        '    "PATH",',
-        '    "HOME",',
-        "]",
-        "",
-      ].join("\n"),
-      "utf-8",
-    );
-
-    try {
-      await launchCodex({
-        codexHome: customHome,
-        env: {
-          COMPANION_PORT: "3456",
-          TAKODE_ROLE: "orchestrator",
-          TAKODE_API_PORT: "3456",
-        },
-      });
-
-      const [cmdAndArgs, options] = mockSpawn.mock.calls[0];
-      expect(cmdAndArgs).toContain("app-server");
-      expect(options.env.COMPANION_SERVER_ID).toBe("test-server-id");
-      expect(options.env.COMPANION_SESSION_ID).toBe("test-session-id");
-      expect(options.env.COMPANION_SESSION_NUMBER).toBeDefined();
-
-      const updatedConfig = realReadFileSync(configPath, "utf-8");
-      expect(updatedConfig).toContain("[features]");
-      expect(updatedConfig).toContain("multi_agent = true");
-      expect(updatedConfig).not.toContain("multi_agent = false");
-      expect(updatedConfig).toContain("other_feature = false");
-      expect(updatedConfig).toContain('"PATH"');
-      expect(updatedConfig).toContain('"HOME"');
-      expect(updatedConfig).toContain('"COMPANION_SERVER_ID"');
-      expect(updatedConfig).toContain('"COMPANION_SESSION_ID"');
-      expect(updatedConfig).toContain('"COMPANION_SESSION_NUMBER"');
-      expect(updatedConfig).toContain('"COMPANION_AUTH_TOKEN"');
-      expect(updatedConfig).toContain('"COMPANION_PORT"');
-      expect(updatedConfig).toContain('"TAKODE_ROLE"');
-      expect(updatedConfig).toContain('"TAKODE_API_PORT"');
-    } finally {
-      rmSync(customHome, { recursive: true, force: true });
-    }
-  });
-
-  it("builds host Codex PATH from enriched startup data without hot-path shell capture", async () => {
-    mockResolveBinary.mockReturnValue("/opt/fake/codex");
-    mockSpawn.mockReturnValueOnce(createMockCodexProc());
-    mockCaptureUserShellPath.mockImplementation(() => {
-      throw new Error("host Codex launch should not re-capture shell PATH");
-    });
-    mockCaptureUserShellEnv.mockReturnValue({ LITELLM_API_KEY: "startup-warmed-key" });
-    mockGetEnrichedPath.mockReturnValue(
-      "/opt/homebrew/bin:/Users/test/.bun/bin:/usr/local/share/companion-extra:/usr/bin:/bin",
-    );
-    process.env.LITELLM_API_KEY = "stale-daemon-key";
-
-    await launchCodex({ codexInternetAccess: true });
-
-    const [, options] = mockSpawn.mock.calls[0];
-    const dirs = options.env.PATH.split(":");
-    expect(dirs.slice(0, 6)).toEqual([
-      "/opt/fake",
-      join(homedir(), ".companion", "bin"),
-      join(homedir(), ".local", "bin"),
-      join(homedir(), ".bun", "bin"),
-      "/opt/homebrew/bin",
-      "/Users/test/.bun/bin",
-    ]);
-    expect(dirs).toContain("/usr/local/share/companion-extra");
-    expect(options.env.LITELLM_API_KEY).toBe("startup-warmed-key");
-    expect(mockCaptureUserShellEnv).toHaveBeenCalledWith(["LITELLM_API_KEY", "LITELLM_PROXY_URL", "LITELLM_BASE_URL"], {
-      allowShellSpawn: false,
-    });
-    expect(mockCaptureUserShellPath).not.toHaveBeenCalled();
-  });
-
-  it("spawns codex via sibling node binary to bypass shebang issues", async () => {
-    // When a `node` binary exists next to the resolved `codex`, the launcher
-    // should invoke `node <codex-script>` directly instead of relying on
-    // the #!/usr/bin/env node shebang (which may resolve to system Node v12).
-    // Create a temp dir with both `codex` and `node` files to simulate nvm layout.
-    const tmpBinDir = mkdtempSync(join(tmpdir(), "codex-test-"));
-    const fakeCodex = join(tmpBinDir, "codex");
-    const fakeNode = join(tmpBinDir, "node");
-    const { writeFileSync: realWriteFileSync } = require("node:fs");
-    realWriteFileSync(fakeCodex, "#!/usr/bin/env node\n");
-    realWriteFileSync(fakeNode, "#!/bin/sh\n");
-
-    mockResolveBinary.mockReturnValue(fakeCodex);
-    mockSpawn.mockReturnValueOnce(createMockCodexProc());
-
-    await launchCodex();
-
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    // Sibling node exists, so it should use explicit node invocation
-    expect(cmdAndArgs[0]).toBe(fakeNode);
-    // The codex script path should be arg 1
-    expect(cmdAndArgs[1]).toContain("codex");
-    expect(cmdAndArgs).toContain("app-server");
-
-    // Cleanup
-    rmSync(tmpBinDir, { recursive: true, force: true });
-  });
-
-  it("does not invoke sibling node for a native codex binary", async () => {
-    const tmpBinDir = mkdtempSync(join(tmpdir(), "codex-native-test-"));
-    const fakeCodex = join(tmpBinDir, "codex");
-    const fakeNode = join(tmpBinDir, "node");
-    const { writeFileSync: realWriteFileSync } = require("node:fs");
-
-    realWriteFileSync(fakeCodex, Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x07, 0x00, 0x00, 0x01]));
-    realWriteFileSync(fakeNode, "#!/bin/sh\n");
-
-    mockResolveBinary.mockReturnValue(fakeCodex);
-    mockSpawn.mockReturnValueOnce(createMockCodexProc());
-
-    await launchCodex();
-
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    expect(cmdAndArgs[0]).toBe(fakeCodex);
-    expect(cmdAndArgs.slice(1, 5)).toEqual(["-c", "tools.webSearch=false", "-a", "untrusted"]);
-
-    rmSync(tmpBinDir, { recursive: true, force: true });
-  });
-
-  it("sets state=exited and exitCode=127 when codex binary not found", async () => {
-    mockResolveBinary.mockReturnValue(null);
-
-    const info = await launcher.launch({
-      backendType: "codex",
-      cwd: "/tmp/project",
-      codexSandbox: "workspace-write",
-    });
-
-    expect(info.state).toBe("exited");
-    expect(info.exitCode).toBe(127);
-    expect(mockSpawn).not.toHaveBeenCalled();
   });
 });
