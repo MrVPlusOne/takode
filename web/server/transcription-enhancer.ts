@@ -1361,10 +1361,10 @@ export async function addTranscriptionLogEntry(
   return toPublicTranscriptionLogEntry(full);
 }
 
-export function attachTranscriptionFrontendTiming(report: TranscriptionFrontendTimingReport): {
+export async function attachTranscriptionFrontendTiming(report: TranscriptionFrontendTimingReport): Promise<{
   attached: boolean;
   logId?: number;
-} {
+}> {
   const timing = { ...report, receivedAt: Date.now() };
   const existing = transcriptionLog.find(
     (entry) =>
@@ -1383,12 +1383,14 @@ export function attachTranscriptionFrontendTiming(report: TranscriptionFrontendT
 
   existing.frontendTiming = timing;
   if (existing.recordingDirectoryPath && !existing.recordingPersistenceError && !existing.recordingDeletedAt) {
-    void writeTranscriptionRecordingFrontendTiming(existing.recordingDirectoryPath, timing).catch((error) => {
+    try {
+      await writeTranscriptionRecordingFrontendTiming(existing.recordingDirectoryPath, timing);
+    } catch (error) {
       existing.recordingPersistenceError = error instanceof Error ? error.message : String(error);
       console.warn(
         `[transcription-recordings] failed to persist frontend timing: ${existing.recordingPersistenceError}`,
       );
-    });
+    }
   }
   persistFrontendTimingAttachment(existing.id, timing);
   return { attached: true, logId: existing.id };

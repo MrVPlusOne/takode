@@ -525,7 +525,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
   api.post("/transcribe/frontend-timing", async (c) => {
     const report = normalizeFrontendTimingReport(await c.req.json().catch(() => null));
     if (!report) return c.json({ error: "Invalid frontend transcription timing report" }, 400);
-    const result = attachTranscriptionFrontendTiming(report);
+    const result = await attachTranscriptionFrontendTiming(report);
     return c.json({ ok: true, ...result });
   });
 
