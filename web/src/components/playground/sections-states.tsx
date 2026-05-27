@@ -1308,7 +1308,7 @@ diff --git a/src/routes/summary.ts b/src/routes/summary.ts
           <Card label="Code commit modal diff slot">
             <div
               data-testid="playground-quest-commit-diff-slot"
-              className="quest-commit-diff-scroll max-h-64 overflow-auto bg-cc-bg/40 px-4 pb-4 pt-0"
+              className="quest-commit-diff-scroll h-64 min-h-0 overflow-auto bg-cc-bg/40 px-4 pb-4 pt-0"
             >
               <div className="quest-commit-diff-content flex flex-col gap-3">
                 <DiffViewer
@@ -1332,6 +1332,16 @@ diff --git a/src/routes/summary.ts b/src/routes/summary.ts
                   stickyFileHeaders
                   collapsibleFiles
                 />
+              </div>
+            </div>
+          </Card>
+          <Card label="Code commit modal loading footprint">
+            <div
+              data-testid="playground-quest-commit-loading-slot"
+              className="quest-commit-diff-scroll h-64 min-h-0 overflow-auto bg-cc-bg/40 px-4 pb-4 pt-0"
+            >
+              <div className="flex h-full min-h-48 items-center justify-center text-sm text-cc-muted">
+                Loading commit diff...
               </div>
             </div>
           </Card>
