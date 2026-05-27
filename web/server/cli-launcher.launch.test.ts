@@ -1058,7 +1058,7 @@ describe("launch", () => {
     }
   });
 
-  it("applies the context-window override only to Codex leaders", async () => {
+  it("applies the derived context guard only to Codex leaders", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
     const sessionHome = join(customHome, "test-session-id");
@@ -1072,19 +1072,19 @@ describe("launch", () => {
         cwd: "/tmp/project",
         codexSandbox: "workspace-write",
         codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
       });
       await waitForSpawnCalls(1);
 
       let config = realReadFileSync(configPath, "utf-8");
-      expect(config).not.toContain("model_context_window = 1000000");
-      expect(config).not.toContain("model_auto_compact_token_limit = 1000000");
+      expect(config).not.toContain("model_context_window = 344445");
+      expect(config).not.toContain("model_auto_compact_token_limit = 310000");
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
       launcher.setSettingsGetter(() => ({
         claudeBinary: "",
         codexBinary: "/opt/fake/codex",
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
       }));
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
@@ -1092,8 +1092,8 @@ describe("launch", () => {
       await waitForSpawnCalls(2);
 
       config = realReadFileSync(configPath, "utf-8");
-      expect(config).toContain("model_context_window = 1000000");
-      expect(config).toContain("model_auto_compact_token_limit = 1000000");
+      expect(config).toContain("model_context_window = 344445");
+      expect(config).toContain("model_auto_compact_token_limit = 310000");
     } finally {
       rmSync(customHome, { recursive: true, force: true });
     }
@@ -1189,7 +1189,7 @@ describe("launch", () => {
         codexSandbox: "workspace-write",
         codexBinary: wrapperPath,
         codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
       });
       await waitForSpawnCalls(1);
 
@@ -1200,7 +1200,7 @@ describe("launch", () => {
       launcher.setSettingsGetter(() => ({
         claudeBinary: "",
         codexBinary: wrapperPath,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
       }));
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
@@ -1218,8 +1218,8 @@ describe("launch", () => {
       expect(wrapperEnv).toContain(`CODEX_HOME='${sessionHome}'`);
 
       const config = realReadFileSync(configPath, "utf-8");
-      expect(config).toContain("model_context_window = 1000000");
-      expect(config).toContain("model_auto_compact_token_limit = 1000000");
+      expect(config).toContain("model_context_window = 344445");
+      expect(config).toContain("model_auto_compact_token_limit = 310000");
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1248,7 +1248,7 @@ describe("launch", () => {
         codexSandbox: "workspace-write",
         codexBinary: wrapperPath,
         codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
         env: {
           TAKODE_ROLE: "orchestrator",
           TAKODE_API_PORT: "3457",
@@ -1266,8 +1266,8 @@ describe("launch", () => {
       expect(wrapperEnv).toContain(`CODEX_HOME='${sessionHome}'`);
 
       const config = realReadFileSync(configPath, "utf-8");
-      expect(config).toContain("model_context_window = 1000000");
-      expect(config).toContain("model_auto_compact_token_limit = 1000000");
+      expect(config).toContain("model_context_window = 344445");
+      expect(config).toContain("model_auto_compact_token_limit = 310000");
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1286,7 +1286,7 @@ describe("launch", () => {
     try {
       writeFileSync(
         join(hostCodexHome, "config.toml"),
-        ['model = "gpt-5.5"', "model_context_window = 1000000", "model_auto_compact_token_limit = 750000", ""].join(
+        ['model = "gpt-5.5"', "model_context_window = 344445", "model_auto_compact_token_limit = 750000", ""].join(
           "\n",
         ),
       );
@@ -1329,7 +1329,7 @@ describe("launch", () => {
         codexSandbox: "workspace-write",
         codexBinary: wrapperPath,
         codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
         env: {
           TAKODE_ROLE: "orchestrator",
         },
@@ -1341,9 +1341,9 @@ describe("launch", () => {
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
       const overridden = catalog.models.find((entry: any) => entry.slug === "gpt-5.5");
-      expect(overridden.context_window).toBe(1_052_632);
-      expect(overridden.max_context_window).toBe(1_052_632);
-      expect(overridden.auto_compact_token_limit).toBe(1_000_000);
+      expect(overridden.context_window).toBe(344_445);
+      expect(overridden.max_context_window).toBe(344_445);
+      expect(overridden.auto_compact_token_limit).toBe(310_000);
 
       const untouched = catalog.models.find((entry: any) => entry.slug === "gpt-5.4");
       expect(untouched.context_window).toBe(272000);
@@ -1406,7 +1406,7 @@ describe("launch", () => {
         codexSandbox: "workspace-write",
         codexBinary: wrapperPath,
         codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
         env: {
           TAKODE_ROLE: "orchestrator",
         },
@@ -1423,9 +1423,9 @@ describe("launch", () => {
           display_name: "GPT-5.5",
           description: "Newest model",
           effective_context_window_percent: 95,
-          context_window: 1_052_632,
-          max_context_window: 1_052_632,
-          auto_compact_token_limit: 1_000_000,
+          context_window: 344_445,
+          max_context_window: 344_445,
+          auto_compact_token_limit: 310_000,
           visibility: "list",
         },
       ]);
@@ -1759,7 +1759,7 @@ describe("launch", () => {
     }
   });
 
-  it("applies the context-window override to containerized Codex leaders only", async () => {
+  it("applies the derived context guard to containerized Codex leaders only", async () => {
     const customHome = mkdtempSync(join(tmpdir(), "codex-container-home-test-"));
 
     try {
@@ -1769,7 +1769,7 @@ describe("launch", () => {
         cwd: "/tmp/project",
         codexSandbox: "workspace-write",
         codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
         containerId: "abc123def456",
         containerName: "companion-session-1",
         containerImage: "ubuntu:22.04",
@@ -1783,14 +1783,14 @@ describe("launch", () => {
       let bashIndex = cmdAndArgs.indexOf("-lc");
       expect(bashIndex).toBeGreaterThan(-1);
       let innerScript = cmdAndArgs[bashIndex + 1];
-      expect(innerScript).not.toContain("model_context_window = 1000000");
-      expect(innerScript).not.toContain("model_auto_compact_token_limit = 1000000");
+      expect(innerScript).not.toContain("model_context_window = 344445");
+      expect(innerScript).not.toContain("model_auto_compact_token_limit = 310000");
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
       launcher.setSettingsGetter(() => ({
         claudeBinary: "",
         codexBinary: "codex",
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
       }));
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
@@ -1803,8 +1803,8 @@ describe("launch", () => {
       expect(bashIndex).toBeGreaterThan(-1);
       innerScript = cmdAndArgs[bashIndex + 1];
       expect(innerScript).toContain("cat > \"/root/.codex/config.toml\" <<'__COMPANION_CODEX_CONFIG__'");
-      expect(innerScript).toContain("model_context_window = 1000000");
-      expect(innerScript).toContain("model_auto_compact_token_limit = 1000000");
+      expect(innerScript).toContain("model_context_window = 344445");
+      expect(innerScript).toContain("model_auto_compact_token_limit = 310000");
       expect(innerScript).toContain("exec 'codex' '-c' 'tools.webSearch=false' '-a'");
     } finally {
       rmSync(customHome, { recursive: true, force: true });

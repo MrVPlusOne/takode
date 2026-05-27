@@ -138,8 +138,12 @@ export interface LaunchOptions {
   codexReasoningEffort?: string;
   /** Optional override for CODEX_HOME used by Codex sessions. */
   codexHome?: string;
-  /** Codex leader-only effective context window override for session-local config. */
+  /** Deprecated compatibility setting; leader launch config is now derived from recycle thresholds. */
   codexLeaderContextWindowOverrideTokens?: number;
+  /** Codex leader-only in-place recycle trigger used to derive session-local launch config. */
+  codexLeaderRecycleThresholdTokens?: number;
+  /** Optional exact-model recycle threshold overrides keyed by user-visible Codex model ID. */
+  codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
   /** Codex non-leader auto-compact threshold as a percent of effective model context. */
   codexNonLeaderAutoCompactThresholdPercent?: number;
   /** Docker container ID — when set, CLI runs inside container via docker exec */
@@ -198,7 +202,8 @@ export class CliLauncher {
     | (() => {
         claudeBinary: string;
         codexBinary: string;
-        codexLeaderContextWindowOverrideTokens?: number;
+        codexLeaderRecycleThresholdTokens?: number;
+        codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
         codexNonLeaderAutoCompactThresholdPercent?: number;
       })
     | null = null;
@@ -280,7 +285,8 @@ export class CliLauncher {
     fn: () => {
       claudeBinary: string;
       codexBinary: string;
-      codexLeaderContextWindowOverrideTokens?: number;
+      codexLeaderRecycleThresholdTokens?: number;
+      codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
       codexNonLeaderAutoCompactThresholdPercent?: number;
     },
   ): void {
@@ -868,7 +874,8 @@ export class CliLauncher {
             codexInternetAccess: info.codexInternetAccess,
             codexReasoningEffort: info.codexReasoningEffort,
             codexHome: info.codexHome,
-            codexLeaderContextWindowOverrideTokens: binSettings.codexLeaderContextWindowOverrideTokens,
+            codexLeaderRecycleThresholdTokens: binSettings.codexLeaderRecycleThresholdTokens,
+            codexLeaderRecycleThresholdTokensByModel: binSettings.codexLeaderRecycleThresholdTokensByModel,
             codexNonLeaderAutoCompactThresholdPercent: binSettings.codexNonLeaderAutoCompactThresholdPercent,
             containerId: info.containerId,
             containerName: info.containerName,
@@ -1238,6 +1245,19 @@ export class CliLauncher {
     let spawnCwd: string | undefined;
     let sandboxMode: "read-only" | "workspace-write" | "danger-full-access" | undefined;
     try {
+      const binSettings = this.settingsGetter?.();
+      const codexOptions = binSettings
+        ? {
+            ...options,
+            codexLeaderRecycleThresholdTokens:
+              options.codexLeaderRecycleThresholdTokens ?? binSettings.codexLeaderRecycleThresholdTokens,
+            codexLeaderRecycleThresholdTokensByModel:
+              options.codexLeaderRecycleThresholdTokensByModel ?? binSettings.codexLeaderRecycleThresholdTokensByModel,
+            codexNonLeaderAutoCompactThresholdPercent:
+              options.codexNonLeaderAutoCompactThresholdPercent ??
+              binSettings.codexNonLeaderAutoCompactThresholdPercent,
+          }
+        : options;
       const spawnSpec = await prepareCodexSpawn(
         sessionId,
         {
@@ -1245,7 +1265,7 @@ export class CliLauncher {
           cliSessionId: info.cliSessionId,
           isOrchestrator: info.isOrchestrator,
         },
-        options,
+        codexOptions,
       );
       spawnCmd = spawnSpec.spawnCmd;
       spawnEnv = spawnSpec.spawnEnv;

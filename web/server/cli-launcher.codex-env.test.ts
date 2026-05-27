@@ -191,7 +191,7 @@ describe("Codex launch env", () => {
       cwd: "/tmp/project",
       codexSandbox: "workspace-write",
       codexHome: customHome,
-      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       containerId: "abc123def456",
       containerName: "companion-session-1",
       containerImage: "ubuntu:22.04",
