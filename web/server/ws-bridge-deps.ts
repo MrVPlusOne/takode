@@ -439,8 +439,10 @@ export function getSessionNotificationDeps(host: any) {
       sessionId: string,
       category: "question" | "completed",
       detail: string,
-      options?: { skipReadCheck?: boolean },
+      options?: { skipReadCheck?: boolean; notificationId?: string },
     ) => host.pushoverNotifier?.scheduleNotification(sessionId, category, detail, undefined, options),
+    cancelScheduledNotification: (sessionId: string, notificationId: string) =>
+      host.pushoverNotifier?.cancelNotification(sessionId, notificationId),
   };
 }
 

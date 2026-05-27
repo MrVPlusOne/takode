@@ -479,6 +479,7 @@ let sessionStore: ReturnType<typeof createMockStore>;
 let tracker: ReturnType<typeof createMockTracker>;
 let recorder: ReturnType<typeof createMockRecorder>;
 let timerManager: ReturnType<typeof createMockTimerManager>;
+let pushoverNotifier: { scheduleNotification: ReturnType<typeof vi.fn>; cancelNotification: ReturnType<typeof vi.fn> };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -498,6 +499,7 @@ beforeEach(() => {
   tracker = createMockTracker();
   recorder = createMockRecorder();
   timerManager = createMockTimerManager();
+  pushoverNotifier = { scheduleNotification: vi.fn(), cancelNotification: vi.fn() };
   app = new Hono();
   const terminalManager = { getInfo: () => null, spawn: () => "", kill: () => {} } as any;
   app.route(
@@ -512,6 +514,8 @@ beforeEach(() => {
       recorder,
       undefined,
       timerManager,
+      undefined,
+      pushoverNotifier as any,
     ),
   );
 
@@ -1113,6 +1117,7 @@ describe("Takode server-authoritative auth", () => {
       changed: true,
     });
     expect(bridge._sessions["orch-1"].notifications[0].done).toBe(true);
+    expect(pushoverNotifier.cancelNotification).toHaveBeenCalledWith("orch-1", "n-4");
   });
 
   it("clears linked board wait-for-input state when a needs-input notification is resolved", async () => {
@@ -1294,6 +1299,7 @@ describe("Takode server-authoritative auth", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, count: 3 });
     expect(bridge._sessions["orch-1"].notifications.every((notif: any) => notif.done)).toBe(true);
+    expect(pushoverNotifier.cancelNotification).toHaveBeenCalledWith("orch-1", "n-3");
   });
 
   it("includes active needs-input notifications in takode pending output", async () => {

@@ -21,7 +21,6 @@ import {
 import { buildLeaderContextResume } from "../takode-leader-context-resume.js";
 import {
   getHerdDiagnostics as getHerdDiagnosticsController,
-  markAllNotificationsDone as markAllNotificationsDoneController,
   markNotificationDone as markNotificationDoneController,
   notifyUser as notifyUserController,
   summarizePendingPermissions,
@@ -59,6 +58,7 @@ import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
 import type { RouteContext } from "./context.js";
 import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
 import { registerTakodeBoardRoutes } from "./takode-board.js";
+import { registerTakodeNotificationInboxRoutes } from "./takode-notification-inbox.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
 import { getPauseState, isSessionPaused } from "../session-pause.js";
 import { buildLeaderActivePhaseSummaryForSnapshot as buildLeaderSummary } from "./session-list-snapshot.js";
@@ -299,8 +299,10 @@ export function createTakodeRoutes(ctx: RouteContext) {
       sessionId: string,
       category: "question" | "completed",
       detail: string,
-      options?: { skipReadCheck?: boolean },
+      options?: { skipReadCheck?: boolean; notificationId?: string },
     ) => pushoverNotifier?.scheduleNotification(sessionId, category, detail, undefined, options),
+    cancelScheduledNotification: (sessionId: string, notificationId: string) =>
+      pushoverNotifier?.cancelNotification(sessionId, notificationId),
   };
   const notificationPersistDeps = {
     broadcastToBrowsers: (session: BridgeSession, msg: unknown) => wsBridge.broadcastToSession(session.id, msg as any),
@@ -310,6 +312,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
       completedBoard: import("../session-types.js").BoardRow[],
     ) => broadcastBoardUpdate(session, board, completedBoard),
     persistSession: (session: BridgeSession) => wsBridge.persistSessionById(session.id),
+    cancelScheduledNotification: (sessionId: string, notificationId: string) =>
+      pushoverNotifier?.cancelNotification(sessionId, notificationId),
   };
   const boardWatchdogDeps = {
     getLauncherSessionInfo: (sessionId: string) => launcher.getSession(sessionId),
@@ -639,6 +643,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     } as any);
 
   registerTakodeNotificationResponseRoute(api, ctx, notificationPersistDeps);
+  registerTakodeNotificationInboxRoutes(api, ctx, notificationPersistDeps);
 
   api.get("/takode/me", (c) => {
     const auth = authenticateTakodeCaller(c);
@@ -1914,74 +1919,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
     return c.json(buildSelfNeedsInputNotifications(session));
-  });
-
-  api.post("/sessions/:id/notifications/needs-input/:notificationId/resolve", async (c) => {
-    const auth = authenticateTakodeCaller(c);
-    if ("response" in auth) return auth.response;
-
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-    if (id !== auth.callerId) {
-      return c.json({ error: "Can only resolve notifications for your own session" }, 403);
-    }
-
-    const numericId = Number.parseInt(c.req.param("notificationId"), 10);
-    if (!Number.isInteger(numericId) || numericId <= 0) {
-      return c.json({ error: "notificationId must be a positive integer" }, 400);
-    }
-
-    const session = wsBridge.getSession(id);
-    if (!session) return c.json({ error: "Session not found" }, 404);
-
-    const rawNotificationId = `n-${numericId}`;
-    const notification = session.notifications.find(
-      (entry) => entry.id === rawNotificationId && entry.category === "needs-input",
-    );
-    if (!notification) return c.json({ error: "Notification not found" }, 404);
-    const wasDone = notification.done;
-    markNotificationDoneController(session, rawNotificationId, true, notificationPersistDeps);
-    return c.json({ ok: true, notificationId: numericId, rawNotificationId, changed: !wasDone });
-  });
-
-  // ─── Notification Inbox ─────────────────────────────────────────────
-
-  api.post("/sessions/:id/notifications/:notifId/done", async (c) => {
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-    const notifId = c.req.param("notifId");
-    const body = await c.req.json().catch(() => ({}));
-    const done = body.done !== false;
-    const session = wsBridge.getSession(id);
-    if (!session) return c.json({ error: "Session not found" }, 404);
-    const ok = markNotificationDoneController(session, notifId, done, notificationPersistDeps, {
-      ...(done ? { resolutionNotice: "pending" as const, resolutionNoticeSource: "manual" as const } : {}),
-    });
-    if (!ok) return c.json({ error: "Notification not found" }, 404);
-    return c.json({ ok: true });
-  });
-
-  api.post("/sessions/:id/notifications/done-all", async (c) => {
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-    const body = await c.req.json().catch(() => ({}));
-    const done = body.done !== false;
-    const session = wsBridge.getSession(id);
-    if (!session) return c.json({ error: "Session not found" }, 404);
-    const count = markAllNotificationsDoneController(session, done, notificationPersistDeps, {
-      ...(done ? { resolutionNotice: "pending" as const, resolutionNoticeSource: "manual" as const } : {}),
-    });
-    return c.json({ ok: true, count });
-  });
-
-  api.get("/sessions/:id/notifications", (c) => {
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-    const notifications = (wsBridge.getSession(id)?.notifications ?? []).filter(
-      (notification: { category?: unknown }) =>
-        notification.category === "needs-input" || notification.category === "review",
-    );
-    return c.json(notifications);
   });
 
   // ─── Work Board ──────────────────────────────────────────────────────

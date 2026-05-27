@@ -39,6 +39,13 @@ export interface PushoverNotifierOpts {
   getLastReadAt: (sessionId: string) => number;
 }
 
+export interface PushoverScheduleOptions {
+  /** When true, bypass the lastReadAt suppression check (for explicit user notifications). */
+  skipReadCheck?: boolean;
+  /** Takode notification ID that can later cancel/revalidate this pending push. */
+  notificationId?: string;
+}
+
 interface PendingNotification {
   sessionId: string;
   eventType: PushoverEventType;
@@ -47,8 +54,12 @@ interface PendingNotification {
   detail?: string;
   /** Permission/question request IDs included in this batch */
   requestIds: string[];
-  /** Tool names for batched permissions (for display) */
-  toolNames: string[];
+  /** Takode notification IDs included in this batch */
+  notificationIds: string[];
+  /** Request details keyed by request ID, used when still-active batched items fire. */
+  requestDetails: Record<string, string>;
+  /** Notification details keyed by notification ID, used when still-active batched items fire. */
+  notificationDetails: Record<string, string>;
   /** When true, bypass the lastReadAt suppression check (for explicit user notifications). */
   skipReadCheck?: boolean;
 }
@@ -135,7 +146,7 @@ export class PushoverNotifier {
     eventType: PushoverEventType,
     detail?: string,
     requestId?: string,
-    options?: { skipReadCheck?: boolean },
+    options?: PushoverScheduleOptions,
   ): void {
     const settings = this.opts.getSettings();
     if (!this.isConfigured() || !this.isEventEnabled(eventType, settings)) return;
@@ -144,15 +155,18 @@ export class PushoverNotifier {
     const key = `${sessionId}:${eventType}`;
     const existing = this.pending.get(key);
 
-    if (isBatchable && existing && requestId) {
+    const notificationId = options?.notificationId;
+
+    if (isBatchable && existing && (requestId || notificationId)) {
       // Merge into existing batch — extend timer but cap at original delay
-      existing.requestIds.push(requestId);
-      if (detail) {
-        const toolName = detail.split(":")[0]?.trim();
-        if (toolName && !existing.toolNames.includes(toolName)) {
-          existing.toolNames.push(toolName);
-        }
+      if (requestId && !existing.requestIds.includes(requestId)) {
+        existing.requestIds.push(requestId);
       }
+      if (notificationId && !existing.notificationIds.includes(notificationId)) {
+        existing.notificationIds.push(notificationId);
+      }
+      if (detail && requestId) existing.requestDetails[requestId] = detail;
+      if (detail && notificationId) existing.notificationDetails[notificationId] = detail;
       // Extend the batch window, but don't exceed the configured delay from original creation
       const maxFireAt = existing.createdAt + settings.pushoverDelaySeconds * 1000;
       const batchFireAt = Math.min(Date.now() + PERMISSION_BATCH_WINDOW_MS, maxFireAt);
@@ -177,7 +191,9 @@ export class PushoverNotifier {
       timer: setTimeout(() => this.fire(key), delayMs),
       detail,
       requestIds: requestId ? [requestId] : [],
-      toolNames: detail ? ([detail.split(":")[0]?.trim()].filter(Boolean) as string[]) : [],
+      notificationIds: notificationId ? [notificationId] : [],
+      requestDetails: detail && requestId ? { [requestId]: detail } : {},
+      notificationDetails: detail && notificationId ? { [notificationId]: detail } : {},
       skipReadCheck: options?.skipReadCheck,
     };
     this.pending.set(key, pending);
@@ -192,13 +208,32 @@ export class PushoverNotifier {
 
       const idx = pending.requestIds.indexOf(requestId);
       if (idx !== -1) {
+        delete pending.requestDetails[requestId];
         pending.requestIds.splice(idx, 1);
-        if (pending.requestIds.length === 0) {
+        if (pending.requestIds.length === 0 && pending.notificationIds.length === 0) {
           clearTimeout(pending.timer);
           this.pending.delete(key);
         }
         return;
       }
+    }
+  }
+
+  /** Cancel a specific Takode notification from a pending Pushover batch. */
+  cancelNotification(sessionId: string, notificationId: string): void {
+    for (const [key, pending] of this.pending) {
+      if (pending.sessionId !== sessionId) continue;
+
+      const idx = pending.notificationIds.indexOf(notificationId);
+      if (idx === -1) continue;
+
+      delete pending.notificationDetails[notificationId];
+      pending.notificationIds.splice(idx, 1);
+      if (pending.requestIds.length === 0 && pending.notificationIds.length === 0) {
+        clearTimeout(pending.timer);
+        this.pending.delete(key);
+      }
+      return;
     }
   }
 
@@ -266,8 +301,9 @@ export class PushoverNotifier {
 
     // Build title
     let title: string;
-    if ((eventType === "permission" || eventType === "question") && pending.requestIds.length > 1) {
-      title = `${pending.requestIds.length} ${eventType === "question" ? "questions" : "permissions"} waiting`;
+    const pendingItemCount = Math.max(1, pending.requestIds.length + pending.notificationIds.length);
+    if ((eventType === "permission" || eventType === "question") && pendingItemCount > 1) {
+      title = `${pendingItemCount} ${eventType === "question" ? "questions" : "permissions"} waiting`;
     } else {
       title = EVENT_TITLE[eventType];
     }
@@ -291,8 +327,12 @@ export class PushoverNotifier {
     }
 
     // Line 3: event-specific detail
-    if ((eventType === "permission" || eventType === "question") && pending.toolNames.length > 1) {
-      lines.push(pending.toolNames.join(", "));
+    const activeDetails = this.getActiveDetails(pending);
+    const displayNames = [...new Set(activeDetails.map((detail) => this.getDisplayName(detail)).filter(Boolean))];
+    if ((eventType === "permission" || eventType === "question") && displayNames.length > 1) {
+      lines.push(displayNames.join(", "));
+    } else if (activeDetails[0]) {
+      lines.push(activeDetails[0]);
     } else if (pending.detail) {
       lines.push(pending.detail);
     }
@@ -383,5 +423,22 @@ export class PushoverNotifier {
   private buildDeepLink(sessionId: string): string {
     const base = this.opts.getBaseUrl().replace(/\/+$/, "");
     return `${base}/#/${sessionId}`;
+  }
+
+  private getActiveDetails(pending: PendingNotification): string[] {
+    const details: string[] = [];
+    for (const requestId of pending.requestIds) {
+      const detail = pending.requestDetails[requestId];
+      if (detail) details.push(detail);
+    }
+    for (const notificationId of pending.notificationIds) {
+      const detail = pending.notificationDetails[notificationId];
+      if (detail) details.push(detail);
+    }
+    return details;
+  }
+
+  private getDisplayName(detail: string): string {
+    return detail.split(":")[0]?.trim() ?? "";
   }
 }

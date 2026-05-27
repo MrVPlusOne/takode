@@ -44,7 +44,7 @@ type NotifyUserDeps = PersistNotificationDeps & {
     sessionId: string,
     category: "question" | "completed",
     detail: string,
-    options?: { skipReadCheck?: boolean },
+    options?: { skipReadCheck?: boolean; notificationId?: string },
   ) => void;
 };
 
@@ -56,6 +56,7 @@ type NotifyUserOptions = {
 
 type NotificationDoneDeps = PersistNotificationDeps & {
   broadcastBoard?: (session: SessionLike, board: BoardRow[], completedBoard: BoardRow[]) => void;
+  cancelScheduledNotification?: (sessionId: string, notificationId: string) => void;
 };
 
 type ResolutionNoticeMode = "pending" | "delivered";
@@ -63,6 +64,7 @@ type ResolutionNoticeMode = "pending" | "delivered";
 type NotificationDoneOptions = {
   resolutionNotice?: ResolutionNoticeMode;
   resolutionNoticeSource?: "manual" | "response";
+  suppressScheduledNotificationCancel?: boolean;
 };
 
 export function setAttention(
@@ -290,9 +292,12 @@ export function notifyUser(
   broadcastNotificationStatus(session, deps);
 
   if (category === "needs-input" || category === "review") {
-    deps.scheduleNotification?.(session.id, category === "needs-input" ? "question" : "completed", summary, {
-      skipReadCheck: true,
-    });
+    deps.scheduleNotification?.(
+      session.id,
+      category === "needs-input" ? "question" : "completed",
+      summary,
+      category === "needs-input" ? { skipReadCheck: true, notificationId: notif.id } : { skipReadCheck: true },
+    );
   }
 
   if (anchor) {
@@ -409,6 +414,9 @@ export function markNotificationDone(
   const notif = session.notifications.find((entry: SessionNotification) => entry.id === notifId);
   if (!notif) return false;
   if (notif.done === done) {
+    if (done && notif.category === "needs-input" && !options.suppressScheduledNotificationCancel) {
+      deps.cancelScheduledNotification?.(session.id, notifId);
+    }
     if (done) broadcastNotificationRefresh(session, deps);
     return true;
   }
@@ -417,6 +425,9 @@ export function markNotificationDone(
   touchNotificationStatus(session);
   const clearedBoardWaits =
     done && notif.category === "needs-input" ? removeNotificationLinksFromBoardRows(session, notifId) : false;
+  if (done && notif.category === "needs-input" && !options.suppressScheduledNotificationCancel) {
+    deps.cancelScheduledNotification?.(session.id, notifId);
+  }
   deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
   if (clearedBoardWaits) {
     deps.broadcastBoard?.(session, getSortedBoardRows(session), getSortedCompletedBoardRows(session));
@@ -454,6 +465,9 @@ export function markAllNotificationsDone(
     updateResolutionNoticeForDoneChange(notif, done, options);
     if (done && notif.category === "needs-input") {
       clearedBoardWaits = removeNotificationLinksFromBoardRows(session, notif.id) || clearedBoardWaits;
+      if (!options.suppressScheduledNotificationCancel) {
+        deps.cancelScheduledNotification?.(session.id, notif.id);
+      }
     }
     count += 1;
   }

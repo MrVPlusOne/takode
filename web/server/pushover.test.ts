@@ -261,6 +261,41 @@ describe("PushoverNotifier", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("cancels a resolved needs-input notification before delayed Pushover sends", async () => {
+    notifier = new PushoverNotifier(makeOpts());
+    notifier.scheduleNotification("sess-1", "question", "Approve alignment", undefined, {
+      skipReadCheck: true,
+      notificationId: "n-1",
+    });
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    notifier.cancelNotification("sess-1", "n-1");
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("cancels only the resolved needs-input notification from a pending question batch", async () => {
+    notifier = new PushoverNotifier(makeOpts());
+    notifier.scheduleNotification("sess-1", "question", "Approve alignment", undefined, {
+      skipReadCheck: true,
+      notificationId: "n-1",
+    });
+    notifier.scheduleNotification("sess-1", "question", "Choose deploy target", undefined, {
+      skipReadCheck: true,
+      notificationId: "n-2",
+    });
+
+    notifier.cancelNotification("sess-1", "n-1");
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const body = lastFetchBody();
+    expect(body.get("title")).toBe("Question from Claude");
+    expect(body.get("message")).toContain("Choose deploy target");
+    expect(body.get("message")).not.toContain("Approve alignment");
+  });
+
   it("cancels individual request from batch, keeps batch if others remain", async () => {
     notifier = new PushoverNotifier(makeOpts());
     notifier.scheduleNotification("sess-1", "permission", "Bash", "req-1");

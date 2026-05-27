@@ -29,6 +29,10 @@ function createTestApp() {
   const broadcastToSession = vi.fn();
   const persistSessionById = vi.fn();
   const injectUserMessage = vi.fn((): "sent" | "queued" | "paused_queued" | "dropped" | "no_session" => "sent");
+  const pushoverNotifier = {
+    scheduleNotification: vi.fn(),
+    cancelNotification: vi.fn(),
+  };
   const launcher = {
     resolveSessionId: vi.fn((id: string) => id),
     getSession: vi.fn((id: string) =>
@@ -49,6 +53,7 @@ function createTestApp() {
         persistSessionById,
         emitTakodeEvent: vi.fn(),
       },
+      pushoverNotifier,
       authenticateTakodeCaller: vi.fn(() => ({
         callerId: "orch-1",
         caller: { sessionId: "orch-1", isOrchestrator: true },
@@ -57,7 +62,15 @@ function createTestApp() {
     } as any),
   );
 
-  return { app, handleBrowserMessage, injectUserMessage, broadcastToSession, persistSessionById, session };
+  return {
+    app,
+    handleBrowserMessage,
+    injectUserMessage,
+    broadcastToSession,
+    persistSessionById,
+    pushoverNotifier,
+    session,
+  };
 }
 
 describe("takode answer permission routing", () => {
@@ -182,7 +195,7 @@ describe("takode answer paused sessions", () => {
 
 describe("takode needs-input notification response routing", () => {
   it("routes a notification response through programmatic delivery and marks it done", async () => {
-    const { app, injectUserMessage, session } = createTestApp();
+    const { app, injectUserMessage, pushoverNotifier, session } = createTestApp();
     session.notifications.push({
       id: "n-1",
       category: "needs-input",
@@ -230,6 +243,7 @@ describe("takode needs-input notification response routing", () => {
       },
     );
     expect(session.notifications[0].done).toBe(true);
+    expect(pushoverNotifier.cancelNotification).toHaveBeenCalledWith("worker-1", "n-1");
   });
 
   it("accepts queued delivery and marks the notification done", async () => {
@@ -255,7 +269,7 @@ describe("takode needs-input notification response routing", () => {
   });
 
   it("leaves the notification unresolved when delivery is not accepted", async () => {
-    const { app, injectUserMessage, session } = createTestApp();
+    const { app, injectUserMessage, pushoverNotifier, session } = createTestApp();
     injectUserMessage.mockReturnValueOnce("no_session");
     session.notifications.push({
       id: "n-1",
@@ -274,6 +288,7 @@ describe("takode needs-input notification response routing", () => {
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: "Response could not be delivered", delivery: "no_session" });
     expect(session.notifications[0].done).toBe(false);
+    expect(pushoverNotifier.cancelNotification).not.toHaveBeenCalled();
   });
 });
 

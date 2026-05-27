@@ -88,6 +88,7 @@ function makeDeps() {
     broadcastToBrowsers: vi.fn(),
     persistSession: vi.fn(),
     scheduleNotification: vi.fn(),
+    cancelScheduledNotification: vi.fn(),
     emitTakodeEvent: vi.fn(),
     broadcastBoard: vi.fn(),
   };
@@ -120,6 +121,35 @@ describe("session notification status metadata", () => {
         notificationStatusVersion: 2,
       }),
     );
+  });
+
+  it("tags explicit needs-input Pushover schedules with their notification id", () => {
+    const session = makeSession();
+    const deps = makeDeps();
+
+    notifyUser(session, "needs-input", "Approve deploy", deps);
+
+    expect(deps.scheduleNotification).toHaveBeenCalledWith("s1", "question", "Approve deploy", {
+      skipReadCheck: true,
+      notificationId: "n-1",
+    });
+  });
+
+  it("cancels only the resolved needs-input notification's scheduled Pushover", () => {
+    const session = makeSession({
+      notifications: [
+        { id: "n-1", category: "needs-input", summary: "Resolved", timestamp: 100, messageId: null, done: false },
+        { id: "n-2", category: "needs-input", summary: "Still pending", timestamp: 101, messageId: null, done: false },
+      ],
+    });
+    const deps = makeDeps();
+
+    markNotificationDone(session, "n-1", true, deps);
+
+    expect(deps.cancelScheduledNotification).toHaveBeenCalledTimes(1);
+    expect(deps.cancelScheduledNotification).toHaveBeenCalledWith("s1", "n-1");
+    expect(session.notifications[0].done).toBe(true);
+    expect(session.notifications[1].done).toBe(false);
   });
 
   it("rebroadcasts fresh notification metadata for idempotent done operations", () => {
