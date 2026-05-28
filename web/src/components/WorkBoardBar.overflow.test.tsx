@@ -188,7 +188,7 @@ describe("WorkBoardBar overflow tabs", () => {
     expect(screen.getByTestId("thread-tab-strip")).toHaveClass("mobile-scroll-stable-surface", "w-full");
   });
 
-  it("freezes visible tab widths from the close affordance while the mouse remains over the tab strip", () => {
+  it("keeps visible tab widths fluid when the close affordance is hovered", () => {
     setMeasuredRailWidth(960, 180);
 
     const view = render(
@@ -207,11 +207,12 @@ describe("WorkBoardBar overflow tabs", () => {
     ).getByTestId("thread-tab-close");
     fireEvent.pointerEnter(selectedClose, { pointerType: "mouse" });
 
-    expect(strip).toHaveAttribute("data-close-target-width-frozen", "true");
-    expect(strip).toHaveAttribute("data-frozen-thread-tab-width", "180");
-    expect(strip.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 180px");
+    expect(strip).toHaveAttribute("data-close-target-width-frozen", "false");
+    expect(strip).toHaveAttribute("data-frozen-thread-tab-width", "");
+    expect(strip.getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
     for (const tab of view.getAllByTestId("thread-tab")) {
-      expect(tab).toHaveClass("w-[var(--thread-tab-frozen-width)]", "flex-none");
+      expect(tab).toHaveClass("min-w-[var(--thread-tab-width)]", "flex-[1_1_var(--thread-tab-width)]");
+      expect(tab).not.toHaveClass("flex-none");
     }
 
     view.rerender(
@@ -224,23 +225,17 @@ describe("WorkBoardBar overflow tabs", () => {
       />,
     );
 
-    const frozenStrip = view.getByTestId("thread-tab-strip");
-    expect(frozenStrip).toHaveAttribute("data-close-target-width-frozen", "true");
+    const rerenderedStrip = view.getByTestId("thread-tab-strip");
+    expect(rerenderedStrip).toHaveAttribute("data-close-target-width-frozen", "false");
+    expect(rerenderedStrip.getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
     expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-2", "q-3"]);
-    for (const tab of view.getAllByTestId("thread-tab")) {
-      expect(tab).toHaveClass("w-[var(--thread-tab-frozen-width)]", "flex-none");
-    }
-
-    fireEvent.pointerLeave(frozenStrip, { pointerType: "mouse" });
-
-    expect(view.getByTestId("thread-tab-strip")).toHaveAttribute("data-close-target-width-frozen", "false");
     for (const tab of view.getAllByTestId("thread-tab")) {
       expect(tab).toHaveClass("min-w-[var(--thread-tab-width)]", "flex-[1_1_var(--thread-tab-width)]");
       expect(tab).not.toHaveClass("flex-none");
     }
   });
 
-  it("preserves each sortable tab width when hover freezes close target geometry", () => {
+  it("keeps sortable tabs on fluid sizing during close-button hover", () => {
     setMeasuredRailWidthByThreadKey(960, {
       main: 241.5,
       "q-1": 303.75,
@@ -268,20 +263,16 @@ describe("WorkBoardBar overflow tabs", () => {
 
     fireEvent.pointerEnter(within(q1Tab).getByTestId("thread-tab-close"), { pointerType: "mouse" });
 
-    expect(strip).toHaveAttribute("data-close-target-width-frozen", "true");
-    expect(strip.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 241.5px");
-    expect(mainTab.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 241.5px");
-    expect(q1Tab.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 303.75px");
-    expect(q2Tab.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 287.25px");
-    expect(q1Tab).toHaveClass("w-[var(--thread-tab-frozen-width)]", "flex-none");
-    expect(q2Tab).toHaveClass("w-[var(--thread-tab-frozen-width)]", "flex-none");
-
-    fireEvent.pointerLeave(strip, { pointerType: "mouse" });
-
-    expect(view.getByTestId("thread-tab-strip")).toHaveAttribute("data-close-target-width-frozen", "false");
-    expect(view.getAllByTestId("thread-tab")[0]?.getAttribute("style") ?? "").not.toContain(
-      "--thread-tab-frozen-width",
-    );
+    expect(strip).toHaveAttribute("data-close-target-width-frozen", "false");
+    expect(strip.getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
+    expect(mainTab.getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
+    expect(q1Tab.getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
+    expect(q2Tab.getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
+    expect(mainTab).toHaveClass("min-w-[var(--thread-tab-width)]", "flex-[1_1_var(--thread-tab-width)]");
+    expect(q1Tab).toHaveClass("min-w-[var(--thread-tab-width)]", "flex-[1_1_var(--thread-tab-width)]");
+    expect(q2Tab).toHaveClass("min-w-[var(--thread-tab-width)]", "flex-[1_1_var(--thread-tab-width)]");
+    expect(q1Tab).not.toHaveClass("flex-none");
+    expect(q2Tab).not.toHaveClass("flex-none");
   });
 
   it("keeps quest hover cards from freezing or shrinking the tab strip", async () => {
@@ -365,7 +356,7 @@ describe("WorkBoardBar overflow tabs", () => {
     }
   });
 
-  it("releases frozen tab widths when the More menu is dismissed or closed from a hidden row", async () => {
+  it("keeps More-menu interactions free of close-hover frozen widths", async () => {
     setMeasuredRailWidth(392, 76);
     const onCloseThreadTab = vi.fn();
 
@@ -386,8 +377,8 @@ describe("WorkBoardBar overflow tabs", () => {
       ).getByTestId("thread-tab-close"),
       { pointerType: "mouse" },
     );
-    expect(strip).toHaveAttribute("data-close-target-width-frozen", "true");
-    expect(strip.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 76px");
+    expect(strip).toHaveAttribute("data-close-target-width-frozen", "false");
+    expect(strip.getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
 
     fireEvent.click(await screen.findByTestId("thread-tabs-more-button"));
     expect(screen.getByTestId("thread-tabs-more-list")).toBeInTheDocument();
@@ -417,9 +408,9 @@ describe("WorkBoardBar overflow tabs", () => {
     expect(strip.getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
   });
 
-  it("keeps frozen tab widths when the last hidden tab leaves More during a visible close", () => {
+  it("keeps fluid tab widths when the last hidden tab leaves More during a visible close", () => {
     // At 472px, five tabs need a More menu with one hidden tab, while four tabs fit without More.
-    // Closing a visible tab should promote the final hidden tab without releasing the mouse close-target freeze.
+    // Closing a visible tab should not leave the strip in a fixed-width hover state while the final hidden tab promotes.
     setMeasuredRailWidth(472, 76);
 
     const view = render(
@@ -448,8 +439,8 @@ describe("WorkBoardBar overflow tabs", () => {
       { pointerType: "mouse" },
     );
 
-    expect(strip).toHaveAttribute("data-close-target-width-frozen", "true");
-    expect(strip.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 76px");
+    expect(strip).toHaveAttribute("data-close-target-width-frozen", "false");
+    expect(strip.getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
 
     view.rerender(
       <WorkBoardBar
@@ -469,17 +460,8 @@ describe("WorkBoardBar overflow tabs", () => {
       "q-4",
       "q-5",
     ]);
-    expect(promotedStrip).toHaveAttribute("data-close-target-width-frozen", "true");
-    expect(promotedStrip.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 76px");
-    for (const tab of view.getAllByTestId("thread-tab")) {
-      expect(tab).toHaveClass("w-[var(--thread-tab-frozen-width)]", "flex-none");
-      expect(tab).not.toHaveClass("flex-[1_1_var(--thread-tab-width)]");
-    }
-
-    fireEvent.pointerLeave(promotedStrip, { pointerType: "mouse" });
-
-    expect(view.getByTestId("thread-tab-strip")).toHaveAttribute("data-close-target-width-frozen", "false");
-    expect(view.getByTestId("thread-tab-strip").getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
+    expect(promotedStrip).toHaveAttribute("data-close-target-width-frozen", "false");
+    expect(promotedStrip.getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
     for (const tab of view.getAllByTestId("thread-tab")) {
       expect(tab).toHaveClass("min-w-[var(--thread-tab-width)]", "flex-[1_1_var(--thread-tab-width)]");
       expect(tab).not.toHaveClass("flex-none");
