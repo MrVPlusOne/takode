@@ -748,4 +748,80 @@ describe("SessionHoverCard", () => {
       mockStoreState.sessionBoards = undefined;
     }
   });
+
+  it("shows leader active quests from session-list snapshots when live board rows are not loaded", () => {
+    mockStoreState.quests = [
+      {
+        questId: "q-snapshot",
+        title: "Snapshot-provided active quest",
+        status: "in_progress",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        description: "",
+      } as QuestmasterTask,
+    ];
+    mockStoreState.sessionBoards = new Map([
+      [
+        "torchflow-leader",
+        [
+          {
+            questId: "q-live",
+            title: "Torchflow live active quest",
+            status: "IMPLEMENTING",
+            createdAt: 1,
+            updatedAt: 3,
+            journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
+          },
+        ],
+      ],
+    ]);
+
+    const live = render(
+      <SessionHoverCard
+        session={makeSession({ id: "torchflow-leader", isOrchestrator: true })}
+        sessionName="Torchflow Leader"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Torchflow live active quest")).toBeInTheDocument();
+    live.unmount();
+
+    mockStoreState.sessionBoards = new Map();
+    render(
+      <SessionHoverCard
+        session={makeSession({
+          id: "other-leader",
+          isOrchestrator: true,
+          leaderActiveBoardRows: [
+            {
+              questId: "q-snapshot",
+              status: "PLANNING",
+              createdAt: 1,
+              updatedAt: 2,
+              journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "alignment" },
+            },
+          ],
+        })}
+        sessionName="Other Leader"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-2"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    const section = screen.getByTestId("session-hover-active-quests");
+    expect(within(section).getByText("Snapshot-provided active quest")).toBeInTheDocument();
+    expect(within(section).getByText("Alignment")).toBeInTheDocument();
+  });
 });

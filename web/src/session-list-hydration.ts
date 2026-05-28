@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { useStore } from "./store.js";
 import type { SdkSessionInfo } from "./types.js";
+import type { BoardRowData } from "./components/BoardTable.js";
 import {
   setSdkSessionsWithNotificationFreshness,
   shouldApplyAttentionReasonWithNotificationFreshness,
@@ -165,10 +166,38 @@ function hydrateSessionDerivedMetadata(store: ReturnType<typeof useStore.getStat
   if (!stringArrayEqual(currentKeywords, nextKeywords)) {
     store.setSessionKeywords(session.sessionId, nextKeywords);
   }
-
-  if (session.leaderActiveBoardRows !== undefined) {
-    store.setSessionBoard(session.sessionId, session.leaderActiveBoardRows);
+  if (session.isOrchestrator === true && Array.isArray(session.leaderActiveBoardRows)) {
+    const currentBoardRows = store.sessionBoards.get(session.sessionId);
+    if (!boardRowsEqual(currentBoardRows, session.leaderActiveBoardRows)) {
+      store.setSessionBoard(session.sessionId, session.leaderActiveBoardRows);
+    }
   }
+}
+
+function boardRowsEqual(a: BoardRowData[] | undefined, b: BoardRowData[] | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (!boardRowEqual(a[i]!, b[i]!)) return false;
+  }
+  return true;
+}
+
+function boardRowEqual(a: BoardRowData, b: BoardRowData): boolean {
+  return (
+    a.questId === b.questId &&
+    a.title === b.title &&
+    a.worker === b.worker &&
+    a.workerNum === b.workerNum &&
+    a.status === b.status &&
+    a.createdAt === b.createdAt &&
+    a.updatedAt === b.updatedAt &&
+    a.completedAt === b.completedAt &&
+    stringArrayEqual(a.waitFor, b.waitFor) &&
+    stringArrayEqual(a.waitForInput, b.waitForInput) &&
+    JSON.stringify(a.journey ?? null) === JSON.stringify(b.journey ?? null)
+  );
 }
 
 function collectAttentionUpdate(

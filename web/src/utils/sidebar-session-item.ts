@@ -1,5 +1,6 @@
 import type { LeaderProfilePortrait } from "../../shared/leader-profile-portraits.js";
 import type { LeaderActivePhaseSummarySegment } from "../../shared/leader-active-phase-summary.js";
+import type { BoardRow } from "../types.js";
 
 export interface SidebarSessionItem {
   id: string;
@@ -51,6 +52,7 @@ export interface SidebarSessionItem {
   leaderProfilePortraitId?: string | null;
   leaderProfilePortrait?: LeaderProfilePortrait;
   leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
+  leaderActiveBoardRows?: BoardRow[];
   herdedBy?: string;
   sessionNum?: number | null;
   reviewerOf?: number;

@@ -153,7 +153,7 @@ describe("session list hydration", () => {
     expect(state.sdkSessions[0]).not.toHaveProperty("leaderActiveBoardRows");
   });
 
-  it("clears stale leader phase summaries from authoritative session snapshots", () => {
+  it("clears stale leader phase summaries and board rows from authoritative session snapshots", () => {
     useStore.getState().setSessionBoard("leader", [
       {
         questId: "q-stale",

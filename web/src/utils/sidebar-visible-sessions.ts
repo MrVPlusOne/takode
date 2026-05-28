@@ -144,6 +144,7 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
         leaderProfilePortraitId: sdkInfo?.leaderProfilePortraitId ?? null,
         leaderProfilePortrait: sdkInfo?.leaderProfilePortrait,
         leaderActivePhaseSummary: sdkInfo?.leaderActivePhaseSummary,
+        leaderActiveBoardRows: sdkInfo?.leaderActiveBoardRows,
         herdedBy: sdkInfo?.herdedBy,
         sessionNum: sdkInfo?.sessionNum ?? null,
         reviewerOf: sdkInfo?.reviewerOf,

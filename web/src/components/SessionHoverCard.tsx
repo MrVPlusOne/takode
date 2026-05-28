@@ -75,7 +75,9 @@ export function SessionHoverCard({
   const zoomLevel = useStore((st) => st.zoomLevel ?? 1);
   const quests = useStore((st) => st.quests) ?? [];
   const activeLeaderBoardRows =
-    useStore((st) => (s.isOrchestrator ? st.sessionBoards?.get(s.id) : undefined)) ?? EMPTY_BOARD_ROWS;
+    useStore((st) => (s.isOrchestrator ? st.sessionBoards?.get(s.id) : undefined)) ??
+    s.leaderActiveBoardRows ??
+    EMPTY_BOARD_ROWS;
 
   // For worker/reviewer sessions: find the leader that owns them.
   const sdkSessions = useStore((st) => st.sdkSessions);
