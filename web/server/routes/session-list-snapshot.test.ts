@@ -406,6 +406,18 @@ describe("buildEnrichedSessionsSnapshot", () => {
     const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, bridgeSession));
 
     expect(snapshot[0]).toMatchObject({
+      leaderActiveBoardRows: [
+        {
+          questId: "q-1",
+          title: "Implement metadata hydration",
+          status: "IMPLEMENTING",
+        },
+        {
+          questId: "q-2",
+          title: "Wait for worker",
+          status: "QUEUED",
+        },
+      ],
       leaderActivePhaseSummary: [
         { label: "Implement", count: 1, tone: "phase" },
         { label: "Queued", count: 1, tone: "status" },
@@ -418,6 +430,6 @@ describe("buildEnrichedSessionsSnapshot", () => {
 
     const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, makeBridgeSession([])));
 
-    expect(snapshot[0]).toMatchObject({ leaderActivePhaseSummary: [] });
+    expect(snapshot[0]).toMatchObject({ leaderActiveBoardRows: [], leaderActivePhaseSummary: [] });
   });
 });

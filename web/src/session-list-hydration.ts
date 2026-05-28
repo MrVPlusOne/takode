@@ -114,7 +114,12 @@ export function _resetActiveSessionMetadataRefreshForTest(): void {
 }
 
 function stripSearchMetadata(session: SdkSessionInfo): SdkSessionInfo {
-  const { taskHistory: _taskHistory, keywords: _keywords, ...rest } = session;
+  const {
+    taskHistory: _taskHistory,
+    keywords: _keywords,
+    leaderActiveBoardRows: _leaderActiveBoardRows,
+    ...rest
+  } = session;
   return rest;
 }
 
@@ -159,6 +164,10 @@ function hydrateSessionDerivedMetadata(store: ReturnType<typeof useStore.getStat
   const currentKeywords = store.sessionKeywords.get(session.sessionId);
   if (!stringArrayEqual(currentKeywords, nextKeywords)) {
     store.setSessionKeywords(session.sessionId, nextKeywords);
+  }
+
+  if (session.leaderActiveBoardRows !== undefined) {
+    store.setSessionBoard(session.sessionId, session.leaderActiveBoardRows);
   }
 }
 

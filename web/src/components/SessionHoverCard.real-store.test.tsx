@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { StrictMode } from "react";
 import type { SessionTaskEntry } from "../../server/session-types.js";
 import type { QuestmasterTask, SdkSessionInfo } from "../types.js";
 import { useStore } from "../store.js";
+import { hydrateSessionList } from "../session-list-hydration.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 
@@ -164,5 +165,87 @@ describe("SessionHoverCard with the real store", () => {
     const reactErrors = consoleError.mock.calls.flat().join("\n");
     expect(reactErrors).not.toContain("Maximum update depth");
     expect(reactErrors).not.toContain("getSnapshot");
+  });
+
+  it("renders leader active quest rows after session-list hydration", () => {
+    // Regression coverage for q-1455: sidebar snapshots can show leader phase
+    // counts before a leader chat is opened, and the hover must still have the
+    // exact board rows/titles needed for the active quest section.
+    const now = Date.now();
+    hydrateSessionList([
+      {
+        sessionId: "leader-session",
+        sessionNum: 565,
+        state: "connected",
+        cwd: "/repo",
+        createdAt: now - 120_000,
+        backendType: "codex",
+        model: "gpt-5.5",
+        cliConnected: true,
+        isOrchestrator: true,
+        leaderActivePhaseSummary: [{ label: "Implement", count: 1, tone: "phase", color: "#4ade80" }],
+        leaderActiveBoardRows: [
+          {
+            questId: "q-1455",
+            title: "Restore active quest rows in leader session hover",
+            status: "IMPLEMENTING",
+            createdAt: now - 90_000,
+            updatedAt: now - 30_000,
+            journey: {
+              mode: "active",
+              phaseIds: ["alignment", "implement", "code-review"],
+              currentPhaseId: "implement",
+            },
+          },
+        ],
+      },
+    ]);
+
+    expect(useStore.getState().sdkSessions[0]?.leaderActivePhaseSummary).toEqual([
+      { label: "Implement", count: 1, tone: "phase", color: "#4ade80" },
+    ]);
+
+    render(
+      <StrictMode>
+        <SessionHoverCard
+          session={makeSession({
+            id: "leader-session",
+            isOrchestrator: true,
+            sessionNum: 565,
+            model: "gpt-5.5",
+            backendType: "codex",
+          })}
+          sessionName="Leader Session"
+          sessionPreview="Latest leader coordination update"
+          taskHistory={[
+            {
+              title: "Legacy leader task that should not render",
+              action: "name",
+              timestamp: now - 20_000,
+              triggerMessageId: "leader-task",
+            },
+          ]}
+          sessionState={undefined}
+          cliSessionId="cli-leader"
+          anchorRect={new DOMRect(120, 80, 200, 40)}
+          onMouseEnter={() => {}}
+          onMouseLeave={() => {}}
+        />
+      </StrictMode>,
+    );
+
+    const section = screen.getByTestId("session-hover-active-quests");
+    expect(within(section).getByText("Active quests")).toBeInTheDocument();
+    const row = within(section).getByTestId("session-hover-active-quest-row");
+    expect(row).toHaveAttribute("data-quest-id", "q-1455");
+    expect(row).toHaveAttribute("data-title-color", "normal");
+    expect(within(row).getByTestId("session-hover-active-quest-phase")).toHaveTextContent("Implement");
+    expect(within(row).getByTestId("session-hover-active-quest-title")).toHaveTextContent(
+      "Restore active quest rows in leader session hover",
+    );
+    expect(screen.queryByText("Herding")).toBeNull();
+    expect(screen.queryByText("Tasks")).toBeNull();
+    expect(screen.getByText("Last message")).toBeInTheDocument();
+    expect(screen.getByText("Latest leader coordination update")).toBeInTheDocument();
   });
 });

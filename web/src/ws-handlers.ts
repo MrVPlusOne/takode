@@ -710,6 +710,9 @@ function handleParsedMessage(
           ? { leaderActivePhaseSummary: update.leaderActivePhaseSummary }
           : {}),
       });
+      if (update.leaderActiveBoardRows !== undefined) {
+        store.setSessionBoard(targetSessionId, update.leaderActiveBoardRows);
+      }
       applyNotificationStatusUpdate(targetSessionId, update);
       if (update.status !== undefined) {
         store.setSessionStatus(targetSessionId, update.status === "compacting" ? "compacting" : update.status);

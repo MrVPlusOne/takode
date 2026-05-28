@@ -1972,7 +1972,10 @@ export class WsBridge {
         ...getSessionActivitySnapshotController(session),
         ...(msg.type === "status_change" ? { status: msg.status } : {}),
         ...(msg.type === "board_updated"
-          ? { leaderActivePhaseSummary: msg.leaderActivePhaseSummary ?? buildLeaderActivePhaseSummary(msg.board) }
+          ? {
+              leaderActiveBoardRows: msg.board,
+              leaderActivePhaseSummary: msg.leaderActivePhaseSummary ?? buildLeaderActivePhaseSummary(msg.board),
+            }
           : {}),
       },
     });

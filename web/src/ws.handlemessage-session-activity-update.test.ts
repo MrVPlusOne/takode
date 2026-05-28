@@ -246,6 +246,15 @@ describe("handleMessage: session_activity_update", () => {
           { label: "Port", count: 1, tone: "phase", color: "#f59e0b" },
           { label: "Queued", count: 1, tone: "status" },
         ],
+        leaderActiveBoardRows: [
+          {
+            questId: "q-1455",
+            title: "Restore leader hover rows",
+            status: "PORTING",
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        ],
       },
     });
 
@@ -255,16 +264,26 @@ describe("handleMessage: session_activity_update", () => {
       { label: "Port", count: 1, tone: "phase", color: "#f59e0b" },
       { label: "Queued", count: 1, tone: "status" },
     ]);
+    expect(useStore.getState().sessionBoards.get("other-leader")).toEqual([
+      {
+        questId: "q-1455",
+        title: "Restore leader hover rows",
+        status: "PORTING",
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    ]);
 
     fireMessage({
       type: "session_activity_update",
       session_id: "other-leader",
-      session: { leaderActivePhaseSummary: [] },
+      session: { leaderActivePhaseSummary: [], leaderActiveBoardRows: [] },
     });
 
     expect(
       useStore.getState().sdkSessions.find((session) => session.sessionId === "other-leader")?.leaderActivePhaseSummary,
     ).toEqual([]);
+    expect(useStore.getState().sessionBoards.get("other-leader")).toEqual([]);
   });
 
   it("rejects older notification status updates for inactive sidebar rows", () => {

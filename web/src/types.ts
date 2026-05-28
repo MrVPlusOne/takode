@@ -1,5 +1,6 @@
 import type {
   BoardParticipantStatus,
+  BoardRow,
   BoardRowSessionStatus,
   SessionState,
   CodexAppReference,
@@ -72,6 +73,7 @@ import type {
 
 export type {
   BoardParticipantStatus,
+  BoardRow,
   BoardRowSessionStatus,
   SessionState,
   CodexAppReference,
@@ -368,6 +370,8 @@ export interface SdkSessionInfo {
   leaderOpenThreadTabs?: SessionState["leaderOpenThreadTabs"];
   /** Server-owned active Quest Journey phase counts for leader sidebar chips. */
   leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
+  /** Server-owned active leader board rows for hover/detail surfaces. */
+  leaderActiveBoardRows?: BoardRow[];
   /** Session UUID of the leader that has herded this worker (single leader per session) */
   herdedBy?: string;
   /** Short integer session ID (e.g. #5), stable across restarts */

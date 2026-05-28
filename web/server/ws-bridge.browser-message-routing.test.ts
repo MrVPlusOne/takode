@@ -907,6 +907,41 @@ describe("Browser message routing", () => {
     );
   });
 
+  it("broadcasts leader active board rows in global session activity updates", () => {
+    bridge.getOrCreateSession("leader-board");
+    const observerBrowser = makeBrowserSocket("observer");
+    bridge.handleBrowserOpen(observerBrowser, "observer");
+    observerBrowser.send.mockClear();
+
+    const board = [
+      {
+        questId: "q-1455",
+        title: "Restore active quest rows in leader session hover",
+        status: "IMPLEMENTING",
+        createdAt: 1,
+        updatedAt: 2,
+        journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
+      },
+    ];
+
+    bridge.broadcastToSession("leader-board", {
+      type: "board_updated",
+      board,
+      completedBoard: [],
+    } as any);
+
+    const activity = observerBrowser.send.mock.calls
+      .map(([raw]: [string]) => JSON.parse(raw))
+      .find((msg: any) => msg.type === "session_activity_update" && msg.session_id === "leader-board");
+
+    expect(activity?.session.leaderActiveBoardRows).toEqual([
+      expect.objectContaining({ questId: "q-1455", title: "Restore active quest rows in leader session hover" }),
+    ]);
+    expect(activity?.session.leaderActivePhaseSummary).toEqual([
+      expect.objectContaining({ label: "Implement", count: 1, tone: "phase" }),
+    ]);
+  });
+
   it("vscode_selection_update: ignores stale updates and keeps inspectable clears", () => {
     bridge.handleBrowserMessage(
       browser,

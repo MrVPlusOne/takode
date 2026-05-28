@@ -60,10 +60,16 @@ export function _resetScheduledWorktreeGitStateRefreshesForTest(): void {
 }
 
 export function buildLeaderActivePhaseSummaryForSnapshot(isOrchestrator: boolean | undefined, bridgeSession: unknown) {
+  const board = buildLeaderActiveBoardRowsForSnapshot(isOrchestrator, bridgeSession);
+  if (board === undefined) return undefined;
+  return buildLeaderActivePhaseSummary(board);
+}
+
+export function buildLeaderActiveBoardRowsForSnapshot(isOrchestrator: boolean | undefined, bridgeSession: unknown) {
   if (isOrchestrator !== true) return undefined;
-  return buildLeaderActivePhaseSummary(
-    hasBoardState(bridgeSession) ? getBoardController(bridgeSession as Parameters<typeof getBoardController>[0]) : [],
-  );
+  return hasBoardState(bridgeSession)
+    ? getBoardController(bridgeSession as Parameters<typeof getBoardController>[0])
+    : [];
 }
 
 function hasBoardState(bridgeSession: unknown): boolean {
@@ -161,10 +167,12 @@ export async function buildEnrichedSessionsSnapshot(
           leaderProfilePortrait && leaderProfilePortrait.poolId !== "fallback"
             ? leaderProfilePortrait.id
             : (safeSession.leaderProfilePortraitId ?? null);
-        const leaderActivePhaseSummary = buildLeaderActivePhaseSummaryForSnapshot(
+        const leaderActiveBoardRows = buildLeaderActiveBoardRowsForSnapshot(
           safeSession.isOrchestrator,
           currentBridgeSession,
         );
+        const leaderActivePhaseSummary =
+          leaderActiveBoardRows === undefined ? undefined : buildLeaderActivePhaseSummary(leaderActiveBoardRows);
         const gitAhead = bridge?.git_ahead || 0;
         const gitBehind = bridge?.git_behind || 0;
         return {
@@ -201,6 +209,7 @@ export async function buildEnrichedSessionsSnapshot(
           ...(bridge?.codex_token_details ? { codexTokenDetails: bridge.codex_token_details } : {}),
           ...(bridge?.claude_token_details ? { claudeTokenDetails: bridge.claude_token_details } : {}),
           ...(bridge?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: bridge.leaderOpenThreadTabs } : {}),
+          ...(leaderActiveBoardRows !== undefined ? { leaderActiveBoardRows } : {}),
           ...(leaderActivePhaseSummary !== undefined ? { leaderActivePhaseSummary } : {}),
           lastMessagePreview: currentBridgeSession?.lastUserMessage || "",
           cliConnected,

@@ -112,6 +112,16 @@ describe("session list hydration", () => {
           { label: "Implement", count: 1, tone: "phase", color: "#34d399" },
           { label: "Queued", count: 1, tone: "status" },
         ],
+        leaderActiveBoardRows: [
+          {
+            questId: "q-1455",
+            title: "Restore active quest rows",
+            status: "IMPLEMENTING",
+            createdAt: 1,
+            updatedAt: 2,
+            journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
+          },
+        ],
         taskHistory: [{ title: "Task", action: "new", timestamp: 10, triggerMessageId: "m1" }],
         keywords: ["mobile", "reconnect"],
       }),
@@ -128,15 +138,44 @@ describe("session list hydration", () => {
       { title: "Task", action: "new", timestamp: 10, triggerMessageId: "m1" },
     ]);
     expect(state.sessionKeywords.get("s1")).toEqual(["mobile", "reconnect"]);
+    expect(state.sessionBoards.get("s1")).toEqual([
+      {
+        questId: "q-1455",
+        title: "Restore active quest rows",
+        status: "IMPLEMENTING",
+        createdAt: 1,
+        updatedAt: 2,
+        journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
+      },
+    ]);
     expect(state.sdkSessions[0]).not.toHaveProperty("taskHistory");
     expect(state.sdkSessions[0]).not.toHaveProperty("keywords");
+    expect(state.sdkSessions[0]).not.toHaveProperty("leaderActiveBoardRows");
   });
 
   it("clears stale leader phase summaries from authoritative session snapshots", () => {
+    useStore.getState().setSessionBoard("leader", [
+      {
+        questId: "q-stale",
+        title: "Stale leader board row",
+        status: "IMPLEMENTING",
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    ]);
     hydrateSessionList([
       makeSdkSession("leader", {
         isOrchestrator: true,
         leaderActivePhaseSummary: [{ label: "Execute", count: 1, tone: "phase", color: "#60a5fa" }],
+        leaderActiveBoardRows: [
+          {
+            questId: "q-keep",
+            title: "Current active row",
+            status: "EXECUTING",
+            createdAt: 3,
+            updatedAt: 4,
+          },
+        ],
       }),
     ]);
 
@@ -144,9 +183,11 @@ describe("session list hydration", () => {
       makeSdkSession("leader", {
         isOrchestrator: true,
         leaderActivePhaseSummary: [],
+        leaderActiveBoardRows: [],
       }),
     ]);
 
     expect(useStore.getState().sdkSessions[0]?.leaderActivePhaseSummary).toEqual([]);
+    expect(useStore.getState().sessionBoards.get("leader")).toEqual([]);
   });
 });

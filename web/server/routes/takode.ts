@@ -61,7 +61,7 @@ import { registerTakodeBoardRoutes } from "./takode-board.js";
 import { registerTakodeNotificationInboxRoutes } from "./takode-notification-inbox.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
 import { getPauseState, isSessionPaused } from "../session-pause.js";
-import { buildLeaderActivePhaseSummaryForSnapshot as buildLeaderSummary } from "./session-list-snapshot.js";
+import { buildLeaderActiveBoardRowsForSnapshot } from "./session-list-snapshot.js";
 import { scheduleWorktreeGitStateRefreshForSnapshot } from "./session-list-snapshot.js";
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
 import { normalizeAffectedThreadKey, normalizeNotifyThreadRoute } from "./takode-route-thread-helpers.js";
@@ -411,7 +411,12 @@ export function createTakodeRoutes(ctx: RouteContext) {
             : null;
           const cliConnected = wsBridge.isBackendConnected(s.sessionId);
           const effectiveState = cliConnected && currentBridgeSession?.isGenerating ? "running" : safeSession.state;
-          const leaderActivePhaseSummary = buildLeaderSummary(safeSession.isOrchestrator, currentBridgeSession);
+          const leaderActiveBoardRows = buildLeaderActiveBoardRowsForSnapshot(
+            safeSession.isOrchestrator,
+            currentBridgeSession,
+          );
+          const leaderActivePhaseSummary =
+            leaderActiveBoardRows === undefined ? undefined : buildLeaderActivePhaseSummary(leaderActiveBoardRows);
           return {
             ...safeSession,
             state: effectiveState,
@@ -435,6 +440,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
             claimedQuestId: bridge?.claimedQuestId ?? null,
             claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
             claimedQuestVerificationInboxUnread: bridge?.claimedQuestVerificationInboxUnread,
+            ...(leaderActiveBoardRows !== undefined ? { leaderActiveBoardRows } : {}),
             ...(leaderActivePhaseSummary !== undefined ? { leaderActivePhaseSummary } : {}),
             ...(attention ?? {}),
             ...(s.isWorktree && s.archived

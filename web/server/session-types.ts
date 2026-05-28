@@ -1079,6 +1079,7 @@ export type BrowserIncomingMessageBase =
         activeReviewNotificationCount?: number;
         notificationStatusVersion?: number;
         notificationStatusUpdatedAt?: number;
+        leaderActiveBoardRows?: BoardRow[];
         leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
       };
     }
