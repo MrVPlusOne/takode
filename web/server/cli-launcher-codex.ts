@@ -561,6 +561,28 @@ function readTopLevelStringSetting(configToml: string, key: string): string | un
   return undefined;
 }
 
+function readTopLevelNumberSetting(configToml: string, key: string): number | undefined {
+  const lines = configToml.split("\n");
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(.+?)\\s*$`);
+
+  for (const line of lines) {
+    if (/^\s*\[[^\]]+\]\s*$/.test(line)) break;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const match = line.match(keyPattern);
+    if (!match?.[1]) continue;
+    const value = Number(
+      match[1]
+        .replace(/\s+#.*$/, "")
+        .replace(/_/g, "")
+        .trim(),
+    );
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined;
+  }
+
+  return undefined;
+}
+
 function usesMaiLitellmProvider(configToml: string): boolean {
   return readTopLevelStringSetting(configToml, "model_provider")?.trim().toLowerCase() === "mai-litellm";
 }
@@ -602,6 +624,56 @@ function resolveConfigPathValue(configDir: string, rawPath: string): string {
 
 function coercePositiveNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function displayNameFromModelSlug(modelSlug: string): string {
+  if (/^gpt-/i.test(modelSlug)) return `GPT-${modelSlug.slice(4)}`;
+  return modelSlug
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => (part.length <= 3 ? part.toUpperCase() : part[0].toUpperCase() + part.slice(1)))
+    .join(" ");
+}
+
+function ensureCodexModelEntrySchemaDefaults(modelEntry: Record<string, any>, modelSlug: string): boolean {
+  let changed = false;
+  const setDefault = (key: string, value: any, isValid: (current: unknown) => boolean) => {
+    if (isValid(modelEntry[key])) return;
+    modelEntry[key] = value;
+    changed = true;
+  };
+
+  setDefault("display_name", displayNameFromModelSlug(modelSlug), (value) => typeof value === "string");
+  setDefault(
+    "supported_reasoning_levels",
+    [
+      { effort: "low", description: "Fast responses with lighter reasoning" },
+      { effort: "medium", description: "Balances speed and reasoning depth for everyday tasks" },
+      { effort: "high", description: "Greater reasoning depth for complex problems" },
+      { effort: "xhigh", description: "Extra high reasoning depth for complex problems" },
+    ],
+    Array.isArray,
+  );
+  setDefault("shell_type", "shell_command", (value) => typeof value === "string");
+  setDefault("visibility", "list", (value) => typeof value === "string");
+  setDefault("supported_in_api", true, (value) => typeof value === "boolean");
+  setDefault("priority", 0, (value) => typeof value === "number" && Number.isFinite(value));
+  setDefault("base_instructions", "", (value) => typeof value === "string");
+  setDefault("supports_reasoning_summaries", true, (value) => typeof value === "boolean");
+  setDefault("support_verbosity", true, (value) => typeof value === "boolean");
+  setDefault(
+    "truncation_policy",
+    { mode: "tokens", limit: 10000 },
+    (value) =>
+      !!value &&
+      typeof value === "object" &&
+      typeof (value as any).mode === "string" &&
+      typeof (value as any).limit === "number",
+  );
+  setDefault("supports_parallel_tool_calls", true, (value) => typeof value === "boolean");
+  setDefault("experimental_supported_tools", [], Array.isArray);
+
+  return changed;
 }
 
 function resolveCodexLeaderRecycleThresholdTokens(
@@ -655,6 +727,13 @@ async function ensureCodexLeaderModelCatalogOverride(
     model: options?.model,
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
     catalogFilename: "takode-leader-model-catalog.json",
+    createModelEntry: (modelSlug) => ({
+      slug: modelSlug,
+      context_window: launchGuard.rawContextWindow,
+      max_context_window: launchGuard.rawContextWindow,
+      effective_context_window_percent: defaultCodexEffectiveContextWindowPercent,
+      auto_compact_token_limit: launchGuard.autoCompactTokenLimit,
+    }),
     mutateModelEntry: (modelEntry) => {
       const effectivePercent =
         coercePositiveNumber(modelEntry.effective_context_window_percent) || defaultCodexEffectiveContextWindowPercent;
@@ -678,10 +757,20 @@ async function ensureCodexNonLeaderModelCatalogOverride(
   autoCompactThresholdPercent: number,
   options?: { model?: string; modelCatalogConfigPath?: string },
 ): Promise<{ catalogJson?: string; configToml: string }> {
+  const configuredRawContextWindow = readTopLevelNumberSetting(configToml, "model_context_window");
   return ensureCodexModelCatalogOverride(codexHome, configToml, {
     model: options?.model,
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
     catalogFilename: "takode-model-catalog.json",
+    createModelEntry: configuredRawContextWindow
+      ? (modelSlug) => ({
+          slug: modelSlug,
+          context_window: configuredRawContextWindow,
+          max_context_window: configuredRawContextWindow,
+          effective_context_window_percent: defaultCodexEffectiveContextWindowPercent,
+          auto_compact_token_limit: null,
+        })
+      : undefined,
     mutateModelEntry: (modelEntry) => {
       const effectivePercent =
         coercePositiveNumber(modelEntry.effective_context_window_percent) || defaultCodexEffectiveContextWindowPercent;
@@ -706,6 +795,7 @@ async function ensureCodexModelCatalogOverride(
     model?: string;
     modelCatalogConfigPath?: string;
     catalogFilename: string;
+    createModelEntry?: (modelSlug: string) => Record<string, any>;
     mutateModelEntry: (modelEntry: Record<string, any>) => boolean;
   },
 ): Promise<{ catalogJson?: string; configToml: string }> {
@@ -730,23 +820,35 @@ async function ensureCodexModelCatalogOverride(
       parsedCatalog = null;
     }
   }
-  if (!Array.isArray(parsedCatalog?.models)) return { configToml };
+  if (!Array.isArray(parsedCatalog?.models)) {
+    if (!options.createModelEntry) return { configToml };
+    parsedCatalog = { models: [] };
+  }
 
   const modelEntries = parsedCatalog.models as any[];
-  const modelEntry = modelEntries.find((entry: any) => entry?.slug === modelSlug);
-  if (!modelEntry || typeof modelEntry !== "object") return { configToml };
-  const changed = options.mutateModelEntry(modelEntry);
-  if (!changed) return { configToml };
+  let modelEntry = modelEntries.find((entry: any) => entry?.slug === modelSlug);
+  let addedModelEntry = false;
+  if (!modelEntry || typeof modelEntry !== "object") {
+    if (!options.createModelEntry) return { configToml };
+    modelEntry = options.createModelEntry(modelSlug);
+    modelEntries.push(modelEntry);
+    addedModelEntry = true;
+  }
+  const schemaDefaultsChanged = ensureCodexModelEntrySchemaDefaults(modelEntry, modelSlug);
+  const changed = options.mutateModelEntry(modelEntry) || addedModelEntry || schemaDefaultsChanged;
 
   const catalogJson = JSON.stringify(parsedCatalog, null, 2) + "\n";
   const catalogPath = join(codexHome, options.catalogFilename);
+  const catalogConfigPath = options?.modelCatalogConfigPath || catalogPath;
+  const configuredCatalogPath = existingCatalogPathValue
+    ? resolveConfigPathValue(codexHome, existingCatalogPathValue)
+    : undefined;
+  if (!changed && configuredCatalogPath === resolveConfigPathValue(codexHome, catalogConfigPath)) {
+    return { configToml };
+  }
   await writeFile(catalogPath, catalogJson, "utf-8");
 
-  const nextConfigToml = upsertTopLevelStringSetting(
-    configToml,
-    "model_catalog_json",
-    options?.modelCatalogConfigPath || catalogPath,
-  );
+  const nextConfigToml = upsertTopLevelStringSetting(configToml, "model_catalog_json", catalogConfigPath);
   return { configToml: nextConfigToml, catalogJson };
 }
 
@@ -1629,4 +1731,19 @@ export function _migrateLegacyCodexSkillsToAgentsHomeForTest(
   },
 ): Promise<void> {
   return migrateLegacyCodexSkillsToAgentsHome(sourceHome, options);
+}
+
+export function _ensureCodexSessionConfigForTest(
+  codexHome: string,
+  envVars: string[],
+  options?: {
+    leaderRecycleThresholdTokens?: number;
+    leaderRecycleThresholdTokensByModel?: Record<string, number>;
+    nonLeaderAutoCompactThresholdPercent?: number;
+    model?: string;
+    modelCatalogConfigPath?: string;
+    timing?: CooperativeTiming;
+  },
+): Promise<{ configToml: string; modelCatalogJson?: string }> {
+  return ensureCodexSessionConfig(codexHome, envVars, options);
 }

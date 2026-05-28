@@ -1151,7 +1151,7 @@ describe("launch", () => {
       expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      expect(catalog.models).toEqual([
+      expect(catalog.models).toMatchObject([
         {
           slug: "gpt-5.5",
           display_name: "GPT-5.5",
@@ -1417,7 +1417,7 @@ describe("launch", () => {
       expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      expect(catalog.models).toEqual([
+      expect(catalog.models).toMatchObject([
         {
           slug: "gpt-5.5",
           display_name: "GPT-5.5",
