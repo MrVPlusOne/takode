@@ -1380,6 +1380,125 @@ describe("takode spawn", () => {
     );
   });
 
+  it("updates active board rows that still point at a replaced worktree worker", async () => {
+    const boardUpdates: JsonObject[] = [];
+    const sessionInfoById: Record<string, JsonObject> = {
+      "new-worker": {
+        sessionId: "new-worker",
+        sessionNum: 1952,
+        name: "Fresh Worker",
+        state: "running",
+        backendType: "codex",
+        cwd: "/wt/main-wt-1111",
+        createdAt: Date.now(),
+        cliConnected: true,
+        isGenerating: false,
+        isWorktree: true,
+        actualBranch: "main-wt-1111",
+      },
+    };
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-replace", isOrchestrator: true }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/leader-replace") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-replace", sessionNum: 1484, backendType: "codex" }));
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/1950/replace-worktree-worker") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            oldSessionId: "worker-old",
+            oldSessionNum: 1950,
+            oldSessionName: "Previous Worker",
+            oldSessionLabel: "#1950",
+            newSessionId: "new-worker",
+            recycledPath: "/wt/main-wt-1111",
+            repoRoot: "/repo",
+            baseBranch: "main",
+            baseSha: "abcdef1234567890",
+            reset: { ok: true, output: "HEAD is now at abcdef" },
+          }),
+        );
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/new-worker/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(sessionInfoById["new-worker"]));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/leader-replace/board?resolve=true") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            board: [
+              {
+                questId: "q-1452",
+                title: "Update single-turn RL pipeline overview",
+                worker: "worker-old",
+                workerNum: 1950,
+                status: "ALIGNMENT",
+                createdAt: 1,
+                updatedAt: 2,
+              },
+            ],
+          }),
+        );
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/leader-replace/board") {
+        boardUpdates.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            board: [
+              {
+                questId: "q-1452",
+                worker: "new-worker",
+                workerNum: 1952,
+                status: "ALIGNMENT",
+                createdAt: 1,
+                updatedAt: 3,
+              },
+            ],
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(
+      ["spawn", "--port", String(port), "--replace-worktree-worker", "1950", "--backend", "codex", "--cwd", "/repo"],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-replace",
+        COMPANION_AUTH_TOKEN: "auth-replace",
+      },
+    );
+
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(boardUpdates).toEqual([{ questId: "q-1452", worker: "new-worker", workerNum: 1952 }]);
+    expect(result.stdout).toContain("Replaced #1950 with #1952");
+    expect(result.stdout).toContain("board=updated q-1452 worker to #1952");
+  });
+
   it("rejects unsupported spawn flags instead of ignoring them", async () => {
     const result = await runTakode(["spawn", "--unsupported-flag"], {
       ...process.env,

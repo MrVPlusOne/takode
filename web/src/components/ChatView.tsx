@@ -440,16 +440,17 @@ function QuestBannerParticipantChip({
   );
   const sessionId = candidateSessionId ?? resolvedSession?.sessionId ?? null;
   const sessionNum = candidateSessionNum ?? resolvedSession?.sessionNum ?? undefined;
+  const displayName = participant?.name ?? resolvedSession?.name ?? undefined;
   const dotProps = useParticipantSessionStatusDotProps(sessionId, participant?.status);
   if (currentSessionId && sessionId === currentSessionId) return null;
   if (!sessionId && sessionNum == null) return null;
-  const label = `${role} #${sessionNum ?? "?"}${participant?.name ? ` ${participant.name}` : ""}`;
+  const label = `${role} #${sessionNum ?? "?"}${displayName ? ` ${displayName}` : ""}`;
   const content = (
     <>
       {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
       <span className={QUEST_PARTICIPANT_ROLE_CLASS}>{role}</span>
       <span className={QUEST_PARTICIPANT_SESSION_CLASS}>{`#${sessionNum ?? "?"}`}</span>
-      {participant?.name && <span className={QUEST_PARTICIPANT_NAME_CLASS}>{participant.name}</span>}
+      {displayName && <span className={QUEST_PARTICIPANT_NAME_CLASS}>{displayName}</span>}
     </>
   );
 
@@ -466,6 +467,17 @@ function QuestBannerParticipantChip({
       {content}
     </SessionInlineLink>
   );
+}
+
+function boardWorkerParticipantForRow(row?: QuestThreadBannerRow): BoardRowSessionStatus["worker"] | undefined {
+  const participant = row?.rowStatus?.worker;
+  const boardWorkerId = row?.boardRow?.worker;
+  const boardWorkerNum = row?.boardRow?.workerNum;
+  if (!boardWorkerId && boardWorkerNum == null) return participant;
+  if (!participant) return undefined;
+  if (boardWorkerId && participant.sessionId === boardWorkerId) return participant;
+  if (boardWorkerNum != null && participant.sessionNum === boardWorkerNum) return participant;
+  return undefined;
 }
 
 function QuestStatusFallbackPill({ status }: { status?: string }) {
@@ -978,7 +990,7 @@ export function QuestThreadBanner({
                   <>
                     <QuestBannerParticipantChip
                       role="Worker"
-                      participant={row?.rowStatus?.worker}
+                      participant={boardWorkerParticipantForRow(row)}
                       fallbackSessionId={row?.boardRow?.worker}
                       fallbackSessionNum={row?.boardRow?.workerNum}
                     />

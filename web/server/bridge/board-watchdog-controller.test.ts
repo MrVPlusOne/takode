@@ -41,6 +41,20 @@ function createDeps(): WorkBoardStateDeps {
   };
 }
 
+describe("Work Board row merge", () => {
+  it("clears stale workerNum when worker changes without a resolved number", () => {
+    // A worker ID and worker number must not silently describe different sessions.
+    const session = createSession();
+    const deps = createDeps();
+
+    upsertBoardRow(session, { questId: "q-1452", worker: "worker-old", workerNum: 1950 }, deps);
+    upsertBoardRow(session, { questId: "q-1452", worker: "worker-new" }, deps);
+
+    expect(getBoard(session)[0]).toEqual(expect.objectContaining({ worker: "worker-new" }));
+    expect(getBoard(session)[0]?.workerNum).toBeUndefined();
+  });
+});
+
 describe("Quest Journey board phase timing", () => {
   beforeEach(() => {
     vi.useFakeTimers();

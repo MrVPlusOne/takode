@@ -700,6 +700,8 @@ export function upsertBoardRow(
   const now = Date.now();
   const status = mergeStr(row.status, existing?.status);
   const noCode = row.noCode !== undefined ? row.noCode : existing?.noCode;
+  const workerChanged =
+    row.worker !== undefined && row.worker !== "" && row.worker !== existing?.worker && row.workerNum === undefined;
   const journeyRevised = hasBoardJourneyRevision(existing?.journey, row.journey);
   let baseJourney =
     row.journey || existing?.journey
@@ -728,7 +730,7 @@ export function upsertBoardRow(
     questId: row.questId,
     title: mergeStr(row.title, existing?.title),
     worker: mergeStr(row.worker, existing?.worker),
-    workerNum: clearingWorker ? undefined : (row.workerNum ?? existing?.workerNum),
+    workerNum: clearingWorker || workerChanged ? undefined : (row.workerNum ?? existing?.workerNum),
     noCode,
     journey: normalizeBoardRowJourneyPlan({ journey: baseJourney, noCode }, status),
     status,

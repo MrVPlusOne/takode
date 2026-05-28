@@ -28,6 +28,7 @@ interface MockStoreState {
     archived?: boolean;
     isOrchestrator?: boolean;
     sessionNum?: number;
+    name?: string;
     herdedBy?: string;
   }>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
@@ -284,5 +285,70 @@ describe("ChatView session quest context", () => {
     expect(scope.getByLabelText("Leader #1563")).toHaveAttribute("href", "#session-1563?thread=q-1450");
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveTextContent("code-review");
     expect(scope.queryByTestId("task-outline-bar")).not.toBeInTheDocument();
+  });
+
+  it("shows the current board worker when row status still references the replaced worker", async () => {
+    resetStore({
+      sessions: new Map([["leader-1452", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      connectionStatus: new Map([["leader-1452", "connected"]]),
+      cliConnected: new Map([["leader-1452", true]]),
+      cliEverConnected: new Map([["leader-1452", true]]),
+      cliDisconnectReason: new Map([["leader-1452", null]]),
+      sessionStatus: new Map([["leader-1452", "idle"]]),
+      sdkSessions: [
+        { sessionId: "leader-1452", archived: false, isOrchestrator: true, sessionNum: 1484 },
+        { sessionId: "worker-old", archived: true, sessionNum: 1950, name: "Previous Worker" },
+        { sessionId: "worker-new", archived: false, sessionNum: 1952, name: "Fresh Worker" },
+      ],
+      sessionBoards: new Map([
+        [
+          "leader-1452",
+          [
+            {
+              questId: "q-1452",
+              title: "Update single-turn RL pipeline overview",
+              worker: "worker-new",
+              workerNum: 1952,
+              status: "ALIGNMENT",
+              updatedAt: 4,
+              createdAt: 2,
+              journey: {
+                mode: "active",
+                phaseIds: ["alignment", "explore", "implement"],
+                currentPhaseId: "alignment",
+              },
+            },
+          ],
+        ],
+      ]),
+      sessionBoardRowStatuses: new Map([
+        [
+          "leader-1452",
+          {
+            "q-1452": {
+              worker: { sessionId: "worker-old", sessionNum: 1950, name: "Previous Worker", status: "archived" },
+              reviewer: null,
+            },
+          },
+        ],
+      ]),
+      quests: [
+        {
+          questId: "q-1452",
+          title: "Update single-turn RL pipeline overview",
+          status: "in_progress",
+          sessionId: "worker-old",
+          leaderSessionId: "leader-1452",
+          createdAt: 1,
+        },
+      ],
+    });
+    const view = render(<ChatView sessionId="leader-1452" hasThreadRoute routeThreadKey="q-1452" />);
+    const scope = within(view.container);
+
+    const banner = await scope.findByTestId("quest-thread-banner");
+    expect(banner).toHaveTextContent("q-1452");
+    expect(scope.getByLabelText("Worker #1952 Fresh Worker")).toBeInTheDocument();
+    expect(scope.queryByLabelText("Worker #1950 Previous Worker")).not.toBeInTheDocument();
   });
 });

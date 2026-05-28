@@ -518,6 +518,75 @@ type ReplacementResponse = {
   reset: { ok: boolean; output?: string | null };
 };
 
+type ReplacementBoardRow = {
+  questId: string;
+  worker?: string;
+  workerNum?: number | null;
+};
+
+type ReplacementBoardWorkerUpdate = {
+  updatedQuestIds: string[];
+  error?: string;
+};
+
+function boardRowMatchesReplacedWorker(row: ReplacementBoardRow, replacement: ReplacementResponse): boolean {
+  if (row.worker && row.worker === replacement.oldSessionId) return true;
+  return (
+    typeof row.workerNum === "number" &&
+    typeof replacement.oldSessionNum === "number" &&
+    row.workerNum === replacement.oldSessionNum
+  );
+}
+
+function replacementWorkerRefForCommand(session: TakodeSessionInfo): string {
+  return typeof session.sessionNum === "number" ? String(session.sessionNum) : session.sessionId;
+}
+
+async function updateReplacementBoardWorker(
+  base: string,
+  leaderSessionId: string,
+  replacement: ReplacementResponse,
+  newSession: TakodeSessionInfo,
+): Promise<ReplacementBoardWorkerUpdate> {
+  try {
+    const current = (await apiGet(base, `/sessions/${encodeURIComponent(leaderSessionId)}/board?resolve=true`)) as {
+      board?: ReplacementBoardRow[];
+    };
+    const matchingRows = (current.board ?? []).filter((row) => boardRowMatchesReplacedWorker(row, replacement));
+    const updatedQuestIds: string[] = [];
+    for (const row of matchingRows) {
+      await apiPost(base, `/sessions/${encodeURIComponent(leaderSessionId)}/board`, {
+        questId: row.questId,
+        worker: newSession.sessionId,
+        ...(typeof newSession.sessionNum === "number" ? { workerNum: newSession.sessionNum } : {}),
+      });
+      updatedQuestIds.push(row.questId);
+    }
+    return { updatedQuestIds };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { updatedQuestIds: [], error: message };
+  }
+}
+
+function printReplacementBoardWorkerUpdate(update: ReplacementBoardWorkerUpdate, newSession: TakodeSessionInfo): void {
+  if (update.error) {
+    console.log(`        board=check failed: ${formatInlineText(update.error)}; verify with takode board show`);
+    return;
+  }
+  const newLabel = newSession.sessionNum !== undefined ? `#${newSession.sessionNum}` : newSession.sessionId.slice(0, 8);
+  if (update.updatedQuestIds.length > 0) {
+    console.log(`        board=updated ${formatInlineText(update.updatedQuestIds.join(", "))} worker to ${newLabel}`);
+    return;
+  }
+  const workerRef = replacementWorkerRefForCommand(newSession);
+  console.log(
+    `        board=unchanged; if this replacement is for an active quest, run ${formatInlineText(
+      `takode board set <quest-id> --worker ${workerRef}`,
+    )}`,
+  );
+}
+
 function printReplacementSummary(replacement: ReplacementResponse, newSession: TakodeSessionInfo): void {
   const oldLabel =
     replacement.oldSessionLabel ||
@@ -752,6 +821,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     }
 
     const newSession = await fetchSessionInfo(base, replacement.newSessionId);
+    const boardWorkerUpdate = await updateReplacementBoardWorker(base, leaderSessionId, replacement, newSession);
     if (jsonMode) {
       console.log(
         JSON.stringify(
@@ -762,6 +832,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
             useWorktree,
             leaderSessionId,
             replacement,
+            boardWorkerUpdate,
             message: message || null,
             sessions: [buildSessionInfoJson(newSession, jsonOptions)],
           },
@@ -773,6 +844,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     }
 
     printReplacementSummary(replacement, newSession);
+    printReplacementBoardWorkerUpdate(boardWorkerUpdate, newSession);
     printSpawnedSession(newSession);
     return;
   }
