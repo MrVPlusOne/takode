@@ -28,6 +28,10 @@ import { CooperativeTiming } from "./cooperative-timing.js";
 import { resolveBinary, getEnrichedPath, captureUserShellEnv } from "./path-resolver.js";
 import { sessionTag } from "./session-tag.js";
 import { isDeprecatedProjectSkillSlug } from "./skill-symlink.js";
+import {
+  CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS,
+  resolveCodexLeaderRecycleThresholdTokensFromEffectiveContext,
+} from "./codex-leader-recycle-threshold.js";
 
 const shellEnvPolicySection = "shell_environment_policy";
 const shellEnvPolicyHeader = `[${shellEnvPolicySection}]`;
@@ -46,9 +50,10 @@ const imagegenSkillRelativePath = ".system/imagegen";
 const deprecatedCodexSkillsDirName = "skills";
 const defaultCodexEffectiveContextWindowPercent = 95;
 const defaultCodexNonLeaderAutoCompactThresholdPercent = 90;
-const defaultCodexLeaderRecycleThresholdTokens = 260_000;
+const defaultCodexLeaderRecycleThresholdTokens = CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS;
 const defaultCodexLeaderRecycleHeadroomTokens = 50_000;
 const defaultCodexLeaderRecycleHeadroomPercent = 10;
+const takodeLeaderModelCatalogFilename = "takode-leader-model-catalog.json";
 const spawnPrepCacheTtlMs = 60_000;
 
 type HostCodexBinaryKind = "native" | "dotslash" | "bootstrap";
@@ -107,8 +112,8 @@ interface CodexLaunchOptions {
   containerId?: string;
   env?: Record<string, string>;
   resumeCliSessionId?: string;
+  /** Legacy compatibility only; leader thresholds are derived from model effective context. */
   codexLeaderRecycleThresholdTokens?: number;
-  codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
   codexNonLeaderAutoCompactThresholdPercent?: number;
 }
 
@@ -117,6 +122,7 @@ export interface CodexSpawnSpec {
   spawnEnv: Record<string, string | undefined>;
   spawnCwd: string | undefined;
   sandboxMode?: CodexSandboxMode;
+  codexLeaderRecycleThresholdTokens?: number;
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -676,23 +682,74 @@ function ensureCodexModelEntrySchemaDefaults(modelEntry: Record<string, any>, mo
   return changed;
 }
 
-function resolveCodexLeaderRecycleThresholdTokens(
-  defaultThresholdTokens: number | undefined,
-  thresholdsByModel: Record<string, number> | undefined,
-  modelId: string | undefined,
-): number {
-  const normalizedModelId = typeof modelId === "string" ? modelId.trim() : "";
-  const modelThreshold = normalizedModelId ? thresholdsByModel?.[normalizedModelId] : undefined;
-  return Math.floor(
-    coercePositiveNumber(modelThreshold) ??
-      coercePositiveNumber(defaultThresholdTokens) ??
-      defaultCodexLeaderRecycleThresholdTokens,
-  );
-}
-
 interface CodexLeaderLaunchGuard {
   rawContextWindow: number;
   autoCompactTokenLimit: number;
+}
+
+function effectiveContextWindowFromModelEntry(modelEntry: Record<string, any>): number | undefined {
+  const rawContextWindow =
+    coercePositiveNumber(modelEntry.context_window) || coercePositiveNumber(modelEntry.max_context_window);
+  if (!rawContextWindow) return undefined;
+  const effectivePercent =
+    coercePositiveNumber(modelEntry.effective_context_window_percent) || defaultCodexEffectiveContextWindowPercent;
+  const effectiveContextWindow = Math.floor((rawContextWindow * effectivePercent) / 100);
+  return effectiveContextWindow >= 1 ? effectiveContextWindow : undefined;
+}
+
+async function readModelCatalogEntry(catalogPath: string, modelSlug: string): Promise<Record<string, any> | undefined> {
+  if (!(await fileExists(catalogPath))) return undefined;
+  try {
+    const parsed = JSON.parse(await readFile(catalogPath, "utf-8"));
+    if (!Array.isArray(parsed?.models)) return undefined;
+    const modelEntry = parsed.models.find((entry: any) => entry?.slug === modelSlug);
+    return modelEntry && typeof modelEntry === "object" ? modelEntry : undefined;
+  } catch (error) {
+    console.warn(`[cli-launcher] Failed to parse Codex model catalog ${catalogPath}:`, error);
+    return undefined;
+  }
+}
+
+async function resolveCodexLeaderRecycleThresholdForConfig(
+  codexHome: string,
+  configToml: string,
+  modelId: string | undefined,
+): Promise<number> {
+  const modelSlug = modelId || readTopLevelStringSetting(configToml, "model");
+  const configuredRawContextWindow = readTopLevelNumberSetting(configToml, "model_context_window");
+  const existingCatalogPathValue = readTopLevelStringSetting(configToml, "model_catalog_json");
+  const existingCatalogPath = existingCatalogPathValue
+    ? resolveConfigPathValue(codexHome, existingCatalogPathValue)
+    : undefined;
+  const existingCatalogIsTakodeLeaderGenerated =
+    !!existingCatalogPath && basename(existingCatalogPath) === takodeLeaderModelCatalogFilename;
+  if (!modelSlug) {
+    const configuredEffectiveContextWindow =
+      configuredRawContextWindow && !existingCatalogIsTakodeLeaderGenerated
+        ? Math.floor((configuredRawContextWindow * defaultCodexEffectiveContextWindowPercent) / 100)
+        : undefined;
+    return resolveCodexLeaderRecycleThresholdTokensFromEffectiveContext(configuredEffectiveContextWindow);
+  }
+
+  const sourceCatalogCandidates = [
+    existingCatalogPath && !existingCatalogIsTakodeLeaderGenerated ? existingCatalogPath : undefined,
+    join(codexHome, "models_cache.json"),
+    join(getLegacyCodexHome(), "models_cache.json"),
+  ].filter((candidate, index, all): candidate is string => !!candidate && all.indexOf(candidate) === index);
+
+  for (const sourceCatalogPath of sourceCatalogCandidates) {
+    const modelEntry = await readModelCatalogEntry(sourceCatalogPath, modelSlug);
+    const effectiveContextWindow = modelEntry ? effectiveContextWindowFromModelEntry(modelEntry) : undefined;
+    if (effectiveContextWindow) {
+      return resolveCodexLeaderRecycleThresholdTokensFromEffectiveContext(effectiveContextWindow);
+    }
+  }
+
+  const configuredEffectiveContextWindow =
+    configuredRawContextWindow && !existingCatalogIsTakodeLeaderGenerated
+      ? Math.floor((configuredRawContextWindow * defaultCodexEffectiveContextWindowPercent) / 100)
+      : undefined;
+  return resolveCodexLeaderRecycleThresholdTokensFromEffectiveContext(configuredEffectiveContextWindow);
 }
 
 function deriveCodexLeaderLaunchGuard(
@@ -726,7 +783,7 @@ async function ensureCodexLeaderModelCatalogOverride(
   const override = await ensureCodexModelCatalogOverride(codexHome, configToml, {
     model: options?.model,
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
-    catalogFilename: "takode-leader-model-catalog.json",
+    catalogFilename: takodeLeaderModelCatalogFilename,
     createModelEntry: (modelSlug) => ({
       slug: modelSlug,
       context_window: launchGuard.rawContextWindow,
@@ -1329,14 +1386,15 @@ async function ensureCodexSessionConfig(
   codexHome: string,
   envVars: string[],
   options?: {
+    leaderLaunch?: boolean;
+    /** Legacy test/compatibility fields are ignored; leader thresholds are metadata-derived. */
     leaderRecycleThresholdTokens?: number;
-    leaderRecycleThresholdTokensByModel?: Record<string, number>;
     nonLeaderAutoCompactThresholdPercent?: number;
     model?: string;
     modelCatalogConfigPath?: string;
     timing?: CooperativeTiming;
   },
-): Promise<{ configToml: string; modelCatalogJson?: string }> {
+): Promise<{ configToml: string; modelCatalogJson?: string; leaderRecycleThresholdTokens?: number }> {
   const configPath = join(codexHome, "config.toml");
   let current = "";
   try {
@@ -1353,16 +1411,13 @@ async function ensureCodexSessionConfig(
   }
   next = upsertShellEnvironmentIncludeOnly(next, ["PATH", ...NON_INTERACTIVE_GIT_EDITOR_ENV_KEYS, ...envVars]);
   const modelId = options?.model || readTopLevelStringSetting(next, "model");
-  const leaderRecycleThresholdTokens = options?.leaderRecycleThresholdTokens
-    ? resolveCodexLeaderRecycleThresholdTokens(
-        options.leaderRecycleThresholdTokens,
-        options.leaderRecycleThresholdTokensByModel,
-        modelId,
-      )
+  const leaderLaunch = options?.leaderLaunch ?? !options?.nonLeaderAutoCompactThresholdPercent;
+  const leaderRecycleThresholdTokens = leaderLaunch
+    ? await resolveCodexLeaderRecycleThresholdForConfig(codexHome, next, modelId)
     : undefined;
   const nonLeaderAutoCompactThresholdPercent = options?.nonLeaderAutoCompactThresholdPercent;
   let modelCatalogJson: string | undefined;
-  if (leaderRecycleThresholdTokens && leaderRecycleThresholdTokens > 0) {
+  if (leaderLaunch && leaderRecycleThresholdTokens && leaderRecycleThresholdTokens > 0) {
     const override = await ensureCodexLeaderModelCatalogOverride(codexHome, next, leaderRecycleThresholdTokens, {
       model: modelId,
       modelCatalogConfigPath: options?.modelCatalogConfigPath,
@@ -1394,7 +1449,7 @@ async function ensureCodexSessionConfig(
     await writeFile(configPath, next, "utf-8");
     await options?.timing?.yieldIfDue("write Codex session config");
   }
-  return { configToml: next, modelCatalogJson };
+  return { configToml: next, modelCatalogJson, leaderRecycleThresholdTokens };
 }
 
 function renderContainerCodexFileWrite(path: string, contents: string, heredocMarker: string): string {
@@ -1525,13 +1580,10 @@ export async function prepareCodexSpawn(
     const shellEnvVars = Object.keys(options.env || {}).filter(
       (name) => name.startsWith("COMPANION_") || name.startsWith("TAKODE_"),
     );
-    const leaderRecycleThresholdTokens = leaderLaunch ? options.codexLeaderRecycleThresholdTokens : undefined;
-    const leaderRecycleThresholdTokensByModel = leaderLaunch
-      ? options.codexLeaderRecycleThresholdTokensByModel
-      : undefined;
     const nonLeaderAutoCompactThresholdPercent = !leaderLaunch
       ? options.codexNonLeaderAutoCompactThresholdPercent || defaultCodexNonLeaderAutoCompactThresholdPercent
       : undefined;
+    let resolvedLeaderRecycleThresholdTokens: number | undefined;
     let containerLeaderConfigToml: string | undefined;
     let containerModelCatalogJson: string | undefined;
     const containerModelCatalogPath = leaderLaunch
@@ -1551,26 +1603,22 @@ export async function prepareCodexSpawn(
           },
         ),
       );
-      await timing.step("ensure Codex session config", () =>
+      const sessionConfig = await timing.step("ensure Codex session config", () =>
         ensureCodexSessionConfig(codexHome, shellEnvVars, {
-          leaderRecycleThresholdTokens,
-          leaderRecycleThresholdTokensByModel,
+          leaderLaunch,
           nonLeaderAutoCompactThresholdPercent,
           model: options.model,
           timing,
         }),
       );
-    } else if (
-      (leaderRecycleThresholdTokens && leaderRecycleThresholdTokens > 0) ||
-      (nonLeaderAutoCompactThresholdPercent && nonLeaderAutoCompactThresholdPercent > 0)
-    ) {
+      resolvedLeaderRecycleThresholdTokens = sessionConfig.leaderRecycleThresholdTokens;
+    } else if (leaderLaunch || (nonLeaderAutoCompactThresholdPercent && nonLeaderAutoCompactThresholdPercent > 0)) {
       await timing.step("prepare container Codex home", () =>
         prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId, undefined, { timing }),
       );
       const containerConfig = await timing.step("ensure container Codex session config", () =>
         ensureCodexSessionConfig(codexHome, shellEnvVars, {
-          leaderRecycleThresholdTokens,
-          leaderRecycleThresholdTokensByModel,
+          leaderLaunch,
           nonLeaderAutoCompactThresholdPercent,
           model: options.model,
           modelCatalogConfigPath: containerModelCatalogPath,
@@ -1579,6 +1627,7 @@ export async function prepareCodexSpawn(
       );
       containerLeaderConfigToml = containerConfig.configToml;
       containerModelCatalogJson = containerConfig.modelCatalogJson;
+      resolvedLeaderRecycleThresholdTokens = containerConfig.leaderRecycleThresholdTokens;
     }
 
     const maiWrapperLaunchSpec =
@@ -1637,6 +1686,7 @@ export async function prepareCodexSpawn(
         spawnEnv: { ...process.env, PATH: containerSpawnPath },
         spawnCwd: undefined,
         sandboxMode,
+        codexLeaderRecycleThresholdTokens: resolvedLeaderRecycleThresholdTokens,
       };
     }
 
@@ -1686,6 +1736,7 @@ export async function prepareCodexSpawn(
       }),
       spawnCwd: info.cwd,
       sandboxMode,
+      codexLeaderRecycleThresholdTokens: resolvedLeaderRecycleThresholdTokens,
     };
   } finally {
     timing.finish({
@@ -1738,12 +1789,12 @@ export function _ensureCodexSessionConfigForTest(
   envVars: string[],
   options?: {
     leaderRecycleThresholdTokens?: number;
-    leaderRecycleThresholdTokensByModel?: Record<string, number>;
+    leaderLaunch?: boolean;
     nonLeaderAutoCompactThresholdPercent?: number;
     model?: string;
     modelCatalogConfigPath?: string;
     timing?: CooperativeTiming;
   },
-): Promise<{ configToml: string; modelCatalogJson?: string }> {
+): Promise<{ configToml: string; modelCatalogJson?: string; leaderRecycleThresholdTokens?: number }> {
   return ensureCodexSessionConfig(codexHome, envVars, options);
 }

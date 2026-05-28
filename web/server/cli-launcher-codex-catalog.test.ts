@@ -68,6 +68,89 @@ describe("Codex session catalog hardening", () => {
     });
   });
 
+  it("derives leader recycle threshold from source effective context minus the fixed buffer", async () => {
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const catalogPath = join(codexHome, "takode-leader-model-catalog.json");
+    const model = "takode-test-large";
+    await writeFile(configPath, `model = "${model}"\n`, "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: model,
+            context_window: 600_000,
+            max_context_window: 600_000,
+            effective_context_window_percent: 95,
+            auto_compact_token_limit: null,
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    const result = await _ensureCodexSessionConfigForTest(codexHome, [], { model });
+
+    // The leader recycle threshold uses source effective context (600K * 95%)
+    // minus the fixed 25K buffer, while q-1446's provider guard stays higher.
+    expect(result.leaderRecycleThresholdTokens).toBe(545_000);
+    const config = await readFile(configPath, "utf-8");
+    expect(config).toContain("model_context_window = 666112");
+    expect(config).toContain("model_auto_compact_token_limit = 599500");
+
+    const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
+    expect(catalog.models[0]).toMatchObject({
+      context_window: 666_112,
+      max_context_window: 666_112,
+      effective_context_window_percent: 95,
+      auto_compact_token_limit: 599_500,
+    });
+  });
+
+  it("does not derive relaunch thresholds from Takode's generated leader catalog", async () => {
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const catalogPath = join(codexHome, "takode-leader-model-catalog.json");
+    const model = "takode-test-relaunch";
+    await writeFile(
+      configPath,
+      [
+        `model = "${model}"`,
+        "model_context_window = 631053",
+        "model_auto_compact_token_limit = 599500",
+        `model_catalog_json = ${JSON.stringify(catalogPath)}`,
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    await writeFile(
+      catalogPath,
+      JSON.stringify({
+        models: [
+          {
+            slug: model,
+            context_window: 631_053,
+            max_context_window: 631_053,
+            effective_context_window_percent: 95,
+            auto_compact_token_limit: 599_500,
+          },
+        ],
+      }),
+      "utf-8",
+    );
+    await writeFile(join(codexHome, "models_cache.json"), JSON.stringify({ models: [] }), "utf-8");
+
+    const result = await _ensureCodexSessionConfigForTest(codexHome, [], { model });
+
+    // Relaunch prep must not treat Takode's own generated leader catalog or
+    // top-level guard values as source model capacity, or thresholds drift up.
+    expect(result.leaderRecycleThresholdTokens).toBe(260_000);
+    const config = await readFile(configPath, "utf-8");
+    expect(config).toContain("model_context_window = 344445");
+    expect(config).toContain("model_auto_compact_token_limit = 310000");
+  });
+
   it("synthesizes a non-leader catalog entry from an existing raw context setting", async () => {
     const codexHome = await makeCodexHome();
     const configPath = join(codexHome, "config.toml");

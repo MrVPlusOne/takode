@@ -45,91 +45,6 @@ interface SettingsPageProps {
   isActive?: boolean;
 }
 
-interface CodexLeaderThresholdOverrideDraft {
-  draftId: string;
-  modelId: string;
-  thresholdTokens: string;
-}
-
-let codexLeaderThresholdOverrideDraftIdCounter = 0;
-
-function createCodexLeaderThresholdOverrideDraft(
-  modelId = "",
-  thresholdTokens = "",
-  draftId?: string,
-): CodexLeaderThresholdOverrideDraft {
-  codexLeaderThresholdOverrideDraftIdCounter += 1;
-  return {
-    draftId: draftId ?? `codex-leader-threshold-draft-${codexLeaderThresholdOverrideDraftIdCounter}`,
-    modelId,
-    thresholdTokens,
-  };
-}
-
-function codexLeaderThresholdOverrideDraftsFromSettings(
-  overrides: Record<string, number> | undefined,
-  existingDrafts: CodexLeaderThresholdOverrideDraft[] = [],
-): CodexLeaderThresholdOverrideDraft[] {
-  const nextEntries = Object.entries(overrides ?? {})
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([modelId, thresholdTokens]) => ({
-      modelId,
-      thresholdTokens: String(thresholdTokens),
-    }));
-  const unusedDraftIds = new Set(existingDrafts.map((draft) => draft.draftId));
-  return nextEntries.map(({ modelId, thresholdTokens }) => {
-    const matchingDraft = existingDrafts.find((draft) => {
-      if (!unusedDraftIds.has(draft.draftId)) return false;
-      const normalizedDraft = normalizeCodexLeaderThresholdOverrideDraftForComparison(draft);
-      return normalizedDraft.modelId === modelId && normalizedDraft.thresholdTokens === thresholdTokens;
-    });
-    if (matchingDraft) {
-      unusedDraftIds.delete(matchingDraft.draftId);
-      return { ...matchingDraft, modelId, thresholdTokens };
-    }
-    return createCodexLeaderThresholdOverrideDraft(modelId, thresholdTokens);
-  });
-}
-
-function normalizeCodexLeaderThresholdOverrideDraftForComparison(
-  draft: Pick<CodexLeaderThresholdOverrideDraft, "modelId" | "thresholdTokens">,
-): { modelId: string; thresholdTokens: string } {
-  const modelId = draft.modelId.trim();
-  const trimmedThresholdTokens = draft.thresholdTokens.trim();
-  const thresholdNumber = Number(trimmedThresholdTokens);
-  return {
-    modelId,
-    thresholdTokens:
-      Number.isInteger(thresholdNumber) && thresholdNumber >= 1 ? String(thresholdNumber) : trimmedThresholdTokens,
-  };
-}
-
-function parseCodexLeaderThresholdOverrideDrafts(
-  drafts: CodexLeaderThresholdOverrideDraft[],
-): { ok: true; value: Record<string, number> } | { ok: false; error: string } {
-  const overrides: Record<string, number> = {};
-  for (const draft of drafts) {
-    const modelId = draft.modelId.trim();
-    const rawThreshold = draft.thresholdTokens.trim();
-    if (!modelId && !rawThreshold) continue;
-    if (!modelId || !rawThreshold) {
-      return { ok: false, error: "Each Codex leader model override needs both a model ID and a threshold." };
-    }
-    const thresholdTokens = Number(rawThreshold);
-    if (!Number.isInteger(thresholdTokens) || thresholdTokens < 1) {
-      return { ok: false, error: `Threshold for ${modelId} must be a positive integer.` };
-    }
-    if (overrides[modelId] !== undefined) {
-      return { ok: false, error: `Duplicate Codex leader model override: ${modelId}` };
-    }
-    overrides[modelId] = thresholdTokens;
-  }
-  return {
-    ok: true,
-    value: Object.fromEntries(Object.entries(overrides).sort(([left], [right]) => left.localeCompare(right))),
-  };
-}
-
 export function SettingsPage({ embedded = false, isActive = true }: SettingsPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -175,16 +90,9 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [binSaving, setBinSaving] = useState(false);
   const [binError, setBinError] = useState("");
   const [codexNonLeaderAutoCompactThresholdPercent, setCodexNonLeaderAutoCompactThresholdPercent] = useState(90);
-  const [codexLeaderRecycleThresholdTokens, setCodexLeaderRecycleThresholdTokens] = useState(260_000);
-  const [codexLeaderRecycleThresholdTokensByModel, setCodexLeaderRecycleThresholdTokensByModel] = useState<
-    Record<string, number>
-  >({});
   const [leaderProfilePools, setLeaderProfilePools] = useState<LeaderProfilePoolSettings | undefined>(undefined);
-  const [codexLeaderThresholdOverrideDrafts, setCodexLeaderThresholdOverrideDrafts] = useState<
-    CodexLeaderThresholdOverrideDraft[]
-  >([]);
-  const [codexLeaderSettingsSaving, setCodexLeaderSettingsSaving] = useState(false);
-  const [codexLeaderSettingsError, setCodexLeaderSettingsError] = useState("");
+  const [codexNonLeaderAutoCompactSaving, setCodexNonLeaderAutoCompactSaving] = useState(false);
+  const [codexNonLeaderAutoCompactError, setCodexNonLeaderAutoCompactError] = useState("");
   const [claudeTest, setClaudeTest] = useState<{
     ok: boolean;
     resolvedPath?: string;
@@ -203,7 +111,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState("");
   const binDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const codexLeaderSettingsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const codexNonLeaderAutoCompactDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Session lifecycle state
   const [maxKeepAlive, setMaxKeepAlive] = useState(0);
@@ -335,12 +243,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         setClaudeBin(s.claudeBinary || "");
         setCodexBin(s.codexBinary || "");
         setCodexNonLeaderAutoCompactThresholdPercent(s.codexNonLeaderAutoCompactThresholdPercent ?? 90);
-        setCodexLeaderRecycleThresholdTokens(s.codexLeaderRecycleThresholdTokens ?? 260_000);
-        setCodexLeaderRecycleThresholdTokensByModel(s.codexLeaderRecycleThresholdTokensByModel ?? {});
         setLeaderProfilePools(s.leaderProfilePools);
-        setCodexLeaderThresholdOverrideDrafts((currentDrafts) =>
-          codexLeaderThresholdOverrideDraftsFromSettings(s.codexLeaderRecycleThresholdTokensByModel, currentDrafts),
-        );
         setDefaultClaudeBackend(s.defaultClaudeBackend || "claude");
         setLogFile(s.logFile || "");
         setMaxKeepAlive(s.maxKeepAlive || 0);
@@ -534,63 +437,26 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
     }, 800);
   }
 
-  function debouncedSaveCodexLeaderSettings(
-    newNonLeaderAutoCompactThresholdPercent: number,
-    newThreshold: number,
-    newThresholdsByModel: Record<string, number>,
-  ) {
-    if (codexLeaderSettingsDebounceRef.current) clearTimeout(codexLeaderSettingsDebounceRef.current);
-    codexLeaderSettingsDebounceRef.current = setTimeout(async () => {
-      setCodexLeaderSettingsSaving(true);
-      setCodexLeaderSettingsError("");
+  function debouncedSaveCodexNonLeaderAutoCompactThreshold(newNonLeaderAutoCompactThresholdPercent: number) {
+    if (codexNonLeaderAutoCompactDebounceRef.current) {
+      clearTimeout(codexNonLeaderAutoCompactDebounceRef.current);
+    }
+    codexNonLeaderAutoCompactDebounceRef.current = setTimeout(async () => {
+      setCodexNonLeaderAutoCompactSaving(true);
+      setCodexNonLeaderAutoCompactError("");
       try {
         const res = await api.updateSettings({
           codexNonLeaderAutoCompactThresholdPercent: newNonLeaderAutoCompactThresholdPercent,
-          codexLeaderRecycleThresholdTokens: newThreshold,
-          codexLeaderRecycleThresholdTokensByModel: newThresholdsByModel,
         });
         setCodexNonLeaderAutoCompactThresholdPercent(
           res.codexNonLeaderAutoCompactThresholdPercent ?? newNonLeaderAutoCompactThresholdPercent,
         );
-        setCodexLeaderRecycleThresholdTokens(res.codexLeaderRecycleThresholdTokens ?? newThreshold);
-        const nextThresholdsByModel = res.codexLeaderRecycleThresholdTokensByModel ?? newThresholdsByModel;
-        setCodexLeaderRecycleThresholdTokensByModel(nextThresholdsByModel);
-        setCodexLeaderThresholdOverrideDrafts((currentDrafts) =>
-          codexLeaderThresholdOverrideDraftsFromSettings(nextThresholdsByModel, currentDrafts),
-        );
       } catch (err: unknown) {
-        setCodexLeaderSettingsError(err instanceof Error ? err.message : String(err));
+        setCodexNonLeaderAutoCompactError(err instanceof Error ? err.message : String(err));
       } finally {
-        setCodexLeaderSettingsSaving(false);
+        setCodexNonLeaderAutoCompactSaving(false);
       }
     }, 800);
-  }
-
-  function updateCodexLeaderThresholdOverrideDrafts(nextDrafts: CodexLeaderThresholdOverrideDraft[]) {
-    setCodexLeaderThresholdOverrideDrafts(nextDrafts);
-    const parsed = parseCodexLeaderThresholdOverrideDrafts(nextDrafts);
-    if (!parsed.ok) {
-      setCodexLeaderSettingsError(parsed.error);
-      return;
-    }
-    setCodexLeaderSettingsError("");
-    setCodexLeaderRecycleThresholdTokensByModel(parsed.value);
-    debouncedSaveCodexLeaderSettings(
-      codexNonLeaderAutoCompactThresholdPercent,
-      codexLeaderRecycleThresholdTokens,
-      parsed.value,
-    );
-  }
-
-  function updateCodexLeaderThresholdOverrideDraft(
-    index: number,
-    patch: Partial<CodexLeaderThresholdOverrideDraft>,
-  ): void {
-    updateCodexLeaderThresholdOverrideDrafts(
-      codexLeaderThresholdOverrideDrafts.map((draft, draftIndex) =>
-        draftIndex === index ? { ...draft, ...patch } : draft,
-      ),
-    );
   }
 
   async function onTestBinary(which: "claude" | "codex") {
@@ -1055,11 +921,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                   onChange={(e) => {
                     const next = Math.min(100, Math.max(1, Number(e.target.value) || 1));
                     setCodexNonLeaderAutoCompactThresholdPercent(next);
-                    debouncedSaveCodexLeaderSettings(
-                      next,
-                      codexLeaderRecycleThresholdTokens,
-                      codexLeaderRecycleThresholdTokensByModel,
-                    );
+                    debouncedSaveCodexNonLeaderAutoCompactThreshold(next);
                   }}
                   className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
                 />
@@ -1067,99 +929,6 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                   Applied only to new and relaunched non-leader Codex sessions. Takode writes a session-local model
                   catalog override so provider auto-compaction triggers at this percent of each model&apos;s effective
                   context window.
-                </p>
-              </div>
-
-              <div hidden={settingsSearch.rowHidden("cli", "codex-leader-recycle-threshold")}>
-                <label className="block text-sm font-medium mb-1.5" htmlFor="codex-leader-recycle-threshold">
-                  Codex Leader Recycle Budget
-                </label>
-                <input
-                  id="codex-leader-recycle-threshold"
-                  type="number"
-                  min={1}
-                  step={1000}
-                  value={codexLeaderRecycleThresholdTokens}
-                  onChange={(e) => {
-                    const next = Math.max(1, Number(e.target.value) || 1);
-                    setCodexLeaderRecycleThresholdTokens(next);
-                    debouncedSaveCodexLeaderSettings(
-                      codexNonLeaderAutoCompactThresholdPercent,
-                      next,
-                      codexLeaderRecycleThresholdTokensByModel,
-                    );
-                  }}
-                  className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
-                />
-                <p className="mt-1.5 text-xs text-cc-muted">
-                  Takode recycles Codex leaders at this tracked context budget and derives the session-local provider
-                  compaction guard automatically.
-                </p>
-              </div>
-
-              <div hidden={settingsSearch.rowHidden("cli", "codex-leader-recycle-threshold-overrides")}>
-                <div className="flex items-center justify-between gap-3 mb-1.5">
-                  <label className="block text-sm font-medium" htmlFor="codex-leader-recycle-threshold-model-0">
-                    Codex Leader Model Budget Overrides
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setCodexLeaderThresholdOverrideDrafts([
-                        ...codexLeaderThresholdOverrideDrafts,
-                        createCodexLeaderThresholdOverrideDraft(),
-                      ])
-                    }
-                    className="px-2.5 py-1 text-xs rounded-md border border-cc-border text-cc-fg bg-cc-hover hover:bg-cc-active cursor-pointer"
-                  >
-                    Add Override
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {codexLeaderThresholdOverrideDrafts.length === 0 && (
-                    <p className="text-xs text-cc-muted">No model-specific overrides. The default budget applies.</p>
-                  )}
-                  {codexLeaderThresholdOverrideDrafts.map((draft, index) => (
-                    <div key={draft.draftId} className="grid grid-cols-[minmax(0,1fr)_160px_auto] gap-2">
-                      <input
-                        id={`codex-leader-recycle-threshold-model-${index}`}
-                        aria-label={`Codex Leader Recycle Budget Model ${index + 1}`}
-                        type="text"
-                        value={draft.modelId}
-                        placeholder="gpt-5.4"
-                        onChange={(e) => updateCodexLeaderThresholdOverrideDraft(index, { modelId: e.target.value })}
-                        className="min-w-0 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
-                      />
-                      <input
-                        aria-label={`Codex Leader Recycle Budget Tokens ${index + 1}`}
-                        type="number"
-                        min={1}
-                        step={1000}
-                        value={draft.thresholdTokens}
-                        placeholder="430000"
-                        onChange={(e) =>
-                          updateCodexLeaderThresholdOverrideDraft(index, { thresholdTokens: e.target.value })
-                        }
-                        className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateCodexLeaderThresholdOverrideDrafts(
-                            codexLeaderThresholdOverrideDrafts.filter((_, draftIndex) => draftIndex !== index),
-                          )
-                        }
-                        className="px-2.5 py-2 text-xs rounded-md border border-cc-border text-cc-fg bg-cc-hover hover:bg-cc-active cursor-pointer"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <p className="mt-1.5 text-xs text-cc-muted">
-                  Match exact Session Info model IDs such as <code>gpt-5.4</code> or <code>gpt-5.5</code>. When tracked
-                  Codex leader usage crosses the resolved threshold, Takode recycles the underlying Codex thread in
-                  place and keeps the same Takode session.
                 </p>
               </div>
 
@@ -1233,13 +1002,13 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                   {editorError}
                 </div>
               )}
-              {codexLeaderSettingsError && (
+              {codexNonLeaderAutoCompactError && (
                 <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-                  {codexLeaderSettingsError}
+                  {codexNonLeaderAutoCompactError}
                 </div>
               )}
 
-              {(binSaving || editorSaving || codexLeaderSettingsSaving) && (
+              {(binSaving || editorSaving || codexNonLeaderAutoCompactSaving) && (
                 <p className="text-xs text-cc-muted">Saving...</p>
               )}
 

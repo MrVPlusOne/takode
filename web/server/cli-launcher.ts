@@ -140,10 +140,8 @@ export interface LaunchOptions {
   codexHome?: string;
   /** Deprecated compatibility setting; leader launch config is now derived from recycle thresholds. */
   codexLeaderContextWindowOverrideTokens?: number;
-  /** Codex leader-only in-place recycle trigger used to derive session-local launch config. */
+  /** Legacy compatibility only; leader thresholds are derived from source model effective context. */
   codexLeaderRecycleThresholdTokens?: number;
-  /** Optional exact-model recycle threshold overrides keyed by user-visible Codex model ID. */
-  codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
   /** Codex non-leader auto-compact threshold as a percent of effective model context. */
   codexNonLeaderAutoCompactThresholdPercent?: number;
   /** Docker container ID — when set, CLI runs inside container via docker exec */
@@ -202,8 +200,6 @@ export class CliLauncher {
     | (() => {
         claudeBinary: string;
         codexBinary: string;
-        codexLeaderRecycleThresholdTokens?: number;
-        codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
         codexNonLeaderAutoCompactThresholdPercent?: number;
       })
     | null = null;
@@ -285,8 +281,6 @@ export class CliLauncher {
     fn: () => {
       claudeBinary: string;
       codexBinary: string;
-      codexLeaderRecycleThresholdTokens?: number;
-      codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
       codexNonLeaderAutoCompactThresholdPercent?: number;
     },
   ): void {
@@ -874,8 +868,6 @@ export class CliLauncher {
             codexInternetAccess: info.codexInternetAccess,
             codexReasoningEffort: info.codexReasoningEffort,
             codexHome: info.codexHome,
-            codexLeaderRecycleThresholdTokens: binSettings.codexLeaderRecycleThresholdTokens,
-            codexLeaderRecycleThresholdTokensByModel: binSettings.codexLeaderRecycleThresholdTokensByModel,
             codexNonLeaderAutoCompactThresholdPercent: binSettings.codexNonLeaderAutoCompactThresholdPercent,
             containerId: info.containerId,
             containerName: info.containerName,
@@ -1249,10 +1241,6 @@ export class CliLauncher {
       const codexOptions = binSettings
         ? {
             ...options,
-            codexLeaderRecycleThresholdTokens:
-              options.codexLeaderRecycleThresholdTokens ?? binSettings.codexLeaderRecycleThresholdTokens,
-            codexLeaderRecycleThresholdTokensByModel:
-              options.codexLeaderRecycleThresholdTokensByModel ?? binSettings.codexLeaderRecycleThresholdTokensByModel,
             codexNonLeaderAutoCompactThresholdPercent:
               options.codexNonLeaderAutoCompactThresholdPercent ??
               binSettings.codexNonLeaderAutoCompactThresholdPercent,
@@ -1271,6 +1259,11 @@ export class CliLauncher {
       spawnEnv = spawnSpec.spawnEnv;
       spawnCwd = spawnSpec.spawnCwd;
       sandboxMode = spawnSpec.sandboxMode;
+      if (typeof spawnSpec.codexLeaderRecycleThresholdTokens === "number") {
+        info.codexLeaderRecycleThresholdTokens = spawnSpec.codexLeaderRecycleThresholdTokens;
+      } else {
+        delete info.codexLeaderRecycleThresholdTokens;
+      }
     } catch (err) {
       if (err instanceof MissingCodexBinaryError) {
         console.error(`[cli-launcher] ${err.message}`);

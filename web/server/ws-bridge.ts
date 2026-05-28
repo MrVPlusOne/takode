@@ -275,7 +275,6 @@ import {
   refreshWorktreeGitStateForSnapshot as refreshWorktreeGitStateForSnapshotController,
   recomputeDiffIfDirty as recomputeDiffIfDirtyController,
 } from "./bridge/session-git-state.js";
-import { getSettings, resolveCodexLeaderRecycleThresholdTokens } from "./settings-manager.js";
 import type {
   BackendAdapter,
   CompactRequestedAwareAdapter,

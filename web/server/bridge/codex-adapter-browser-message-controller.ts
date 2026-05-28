@@ -88,6 +88,7 @@ function updateActiveTurnRouteFromLeaderAssistant(
 
 type CodexLeaderRecycleLauncherInfo = {
   isOrchestrator?: boolean;
+  codexLeaderRecycleThresholdTokens?: number;
   codexLeaderRecycleLineage?: {
     recycleEvents?: Array<{
       trigger?: CodexLeaderRecycleTrigger;
@@ -98,17 +99,22 @@ type CodexLeaderRecycleLauncherInfo = {
   };
 };
 
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 1 ? Math.floor(value) : undefined;
+}
+
 function withCodexLeaderRecycleThreshold(
   session: CodexBrowserMessageSessionLike,
   patch: Record<string, unknown>,
-  deps: Pick<CodexAdapterBrowserMessageDeps, "getCodexLeaderRecycleThresholdTokens" | "getLauncherSessionInfo">,
+  deps: Pick<CodexAdapterBrowserMessageDeps, "getLauncherSessionInfo">,
 ): Record<string, unknown> {
   const launcherInfo = deps.getLauncherSessionInfo(session.id);
   if (launcherInfo?.isOrchestrator !== true) return patch;
-  const modelId =
-    typeof patch.model === "string" ? patch.model : typeof session.state?.model === "string" ? session.state.model : "";
-  const thresholdTokens = deps.getCodexLeaderRecycleThresholdTokens(modelId);
-  if (thresholdTokens < 1) return patch;
+  const thresholdTokens =
+    positiveInteger(launcherInfo.codexLeaderRecycleThresholdTokens) ??
+    positiveInteger(patch.codex_leader_recycle_threshold_tokens) ??
+    positiveInteger(session.state?.codex_leader_recycle_threshold_tokens);
+  if (!thresholdTokens) return patch;
   return { ...patch, codex_leader_recycle_threshold_tokens: thresholdTokens };
 }
 
@@ -177,7 +183,6 @@ function shouldTriggerCodexLeaderThresholdRecycle(
 }
 
 export interface CodexAdapterBrowserMessageDeps {
-  getCodexLeaderRecycleThresholdTokens: (modelId?: string) => number;
   getLauncherSessionInfo: (sessionId: string) => CodexLeaderRecycleLauncherInfo | null | undefined;
   touchActivity: (sessionId: string) => void;
   clearOptimisticRunningTimer: (session: CodexBrowserMessageSessionLike, reason: string) => void;
@@ -333,7 +338,10 @@ export async function handleCodexAdapterBrowserMessage(
     deps.cacheSlashCommandState(session, enriched);
     deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
     const launcherInfo = deps.getLauncherSessionInfo(session.id);
-    const recycleThresholdTokens = deps.getCodexLeaderRecycleThresholdTokens(session.state.model);
+    const recycleThresholdTokens =
+      positiveInteger(session.state.codex_leader_recycle_threshold_tokens) ??
+      positiveInteger(launcherInfo?.codexLeaderRecycleThresholdTokens) ??
+      0;
     const contextTokensUsed = session.state.codex_token_details?.contextTokensUsed;
     if (shouldTriggerCodexLeaderThresholdRecycle(launcherInfo, contextTokensUsed, recycleThresholdTokens)) {
       const recycle = await deps.requestCodexLeaderRecycle(session, "threshold");

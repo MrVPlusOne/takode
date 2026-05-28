@@ -943,7 +943,7 @@ describe("SettingsPage", () => {
     expect(within(cliSection).getByLabelText("Claude Code")).not.toBeVisible();
   });
 
-  it("loads and saves the Codex leader recycle controls", async () => {
+  it("loads and saves the Codex non-leader auto-compact threshold without leader recycle controls", async () => {
     mockApi.getSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
@@ -990,166 +990,40 @@ describe("SettingsPage", () => {
     const autoCompactInput = within(cliSection).getByLabelText(
       "Codex Non-Leader Auto-Compact Threshold",
     ) as HTMLInputElement;
+    // q-1449 hides leader recycle tuning while preserving the separate
+    // q-1450-owned non-leader auto-compact control.
     expect(within(cliSection).queryByLabelText("Codex Leader Context Window")).toBeNull();
-    const thresholdInput = within(cliSection).getByLabelText("Codex Leader Recycle Budget") as HTMLInputElement;
-    const modelInput = within(cliSection).getByLabelText("Codex Leader Recycle Budget Model 1") as HTMLInputElement;
-    const overrideInput = within(cliSection).getByLabelText("Codex Leader Recycle Budget Tokens 1") as HTMLInputElement;
+    expect(within(cliSection).queryByLabelText("Codex Leader Recycle Budget")).toBeNull();
+    expect(within(cliSection).queryByText("Codex Leader Model Budget Overrides")).toBeNull();
 
     expect(autoCompactInput.value).toBe("85");
-    expect(thresholdInput.value).toBe("275000");
-    expect(modelInput.value).toBe("gpt-5.4");
-    expect(overrideInput.value).toBe("430000");
 
     vi.useFakeTimers();
     try {
       fireEvent.change(autoCompactInput, { target: { value: "88" } });
-      fireEvent.change(thresholdInput, { target: { value: "280000" } });
-      fireEvent.click(within(cliSection).getByRole("button", { name: "Add Override" }));
-      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Budget Model 2"), {
-        target: { value: "gpt-5.5" },
-      });
-      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Budget Tokens 1"), {
-        target: { value: "440000" },
-      });
-      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Budget Tokens 2"), {
-        target: { value: "320000" },
-      });
       await vi.advanceTimersByTimeAsync(900);
 
       expect(mockApi.updateSettings).toHaveBeenLastCalledWith({
         codexNonLeaderAutoCompactThresholdPercent: 88,
-        codexLeaderRecycleThresholdTokens: 280_000,
-        codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 440_000, "gpt-5.5": 320_000 },
       });
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("keeps the same override row input mounted while typing a model id", async () => {
-    mockApi.getSettings.mockResolvedValue({
-      serverName: "",
-      serverId: "test-id",
-      serverSlug: "prod",
-      pushoverConfigured: false,
-      pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
-      pushoverDelaySeconds: 30,
-      pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
-      codexLeaderContextWindowOverrideTokens: 1_000_000,
-      codexLeaderRecycleThresholdTokens: 260_000,
-      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
-      maxKeepAlive: 0,
-      heavyRepoModeEnabled: false,
-      editorConfig: { editor: "none" },
-    });
-
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    const cliSection = settingsSection("CLI & Backends");
-    const modelInput = within(cliSection).getByLabelText("Codex Leader Recycle Budget Model 1") as HTMLInputElement;
-
-    modelInput.focus();
-    expect(document.activeElement).toBe(modelInput);
-
-    fireEvent.change(modelInput, { target: { value: "gpt-5.4." } });
-    expect(within(cliSection).getByLabelText("Codex Leader Recycle Budget Model 1")).toBe(modelInput);
-    expect(document.activeElement).toBe(modelInput);
-
-    fireEvent.change(modelInput, { target: { value: "gpt-5.4.1" } });
-    expect(within(cliSection).getByLabelText("Codex Leader Recycle Budget Model 1")).toBe(modelInput);
-    expect(document.activeElement).toBe(modelInput);
-    expect(modelInput.value).toBe("gpt-5.4.1");
-  });
-
-  it("preserves the same override row through normalized save reconciliation", async () => {
-    mockApi.getSettings.mockResolvedValue({
-      serverName: "",
-      serverId: "test-id",
-      serverSlug: "prod",
-      pushoverConfigured: false,
-      pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
-      pushoverDelaySeconds: 30,
-      pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
-      codexLeaderContextWindowOverrideTokens: 1_000_000,
-      codexLeaderRecycleThresholdTokens: 260_000,
-      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
-      maxKeepAlive: 0,
-      heavyRepoModeEnabled: false,
-      editorConfig: { editor: "none" },
-    });
-    mockApi.updateSettings.mockResolvedValue({
-      serverName: "",
-      serverId: "test-id",
-      serverSlug: "prod",
-      pushoverConfigured: false,
-      pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
-      pushoverDelaySeconds: 30,
-      pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
-      codexLeaderContextWindowOverrideTokens: 1_000_000,
-      codexLeaderRecycleThresholdTokens: 260_000,
-      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
-      maxKeepAlive: 0,
-      heavyRepoModeEnabled: false,
-      editorConfig: { editor: "none" },
-    });
-
-    render(<SettingsPage />);
-    await waitForSettingsPage();
-
-    const cliSection = settingsSection("CLI & Backends");
-    const modelInput = within(cliSection).getByLabelText("Codex Leader Recycle Budget Model 1") as HTMLInputElement;
-    const thresholdInput = within(cliSection).getByLabelText(
-      "Codex Leader Recycle Budget Tokens 1",
-    ) as HTMLInputElement;
-
-    vi.useFakeTimers();
-    try {
-      modelInput.focus();
-      fireEvent.change(modelInput, { target: { value: " gpt-5.4 " } });
-      fireEvent.change(thresholdInput, { target: { value: "0430000" } });
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(900);
-      });
-
-      expect(mockApi.updateSettings).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
-        }),
-      );
-
-      expect(within(cliSection).getByLabelText("Codex Leader Recycle Budget Model 1")).toBe(modelInput);
-      expect(within(cliSection).getByLabelText("Codex Leader Recycle Budget Tokens 1")).toBe(thresholdInput);
-      expect(document.activeElement).toBe(modelInput);
-      expect(modelInput.value).toBe("gpt-5.4");
-      expect(thresholdInput.value).toBe("430000");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("keeps the model override surface discoverable in Settings search", async () => {
+  it("does not expose Codex leader recycle controls in Settings search", async () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
 
     fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), {
-      target: { value: "gpt-5.4" },
+      target: { value: "leader recycle" },
     });
 
     const cliSection = settingsSection("CLI & Backends");
-    expect(within(cliSection).getByText("Codex Leader Model Budget Overrides")).toBeVisible();
-    expect(within(cliSection).getByRole("button", { name: "Add Override" })).toBeVisible();
-    expect(within(cliSection).getByLabelText("Codex Leader Recycle Budget")).not.toBeVisible();
+    // The removed leader recycle controls should not remain discoverable
+    // through the settings search index after the visible rows are removed.
+    expect(cliSection).not.toBeVisible();
+    expect(screen.getByText('No settings match "leader recycle".')).toBeInTheDocument();
   });
 
   it("shows an empty state when no settings match", async () => {

@@ -30,6 +30,8 @@ export interface SdkSessionInfo {
   cliSessionId?: string;
   /** Codex leader recycle lineage across fresh-thread swaps within one Takode session. */
   codexLeaderRecycleLineage?: CodexLeaderRecycleLineage;
+  /** Resolved Codex leader recycle threshold derived at launch from source model effective context. */
+  codexLeaderRecycleThresholdTokens?: number;
   /** Pending Codex leader recycle awaiting a fresh replacement thread and recovery prompt. */
   codexLeaderRecyclePending?: {
     eventIndex: number;

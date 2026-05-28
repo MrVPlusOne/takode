@@ -3,24 +3,8 @@ import { vi } from "vitest";
 const mockExecSync = vi.hoisted(() => vi.fn());
 const mockExec = vi.hoisted(() => vi.fn());
 const mockShouldSettingsRuleApprove = vi.hoisted(() => vi.fn().mockResolvedValue(null));
-const mockGetSettings = vi.hoisted(() =>
-  vi.fn(() => ({
-    codexLeaderRecycleThresholdTokens: 260_000,
-    codexLeaderRecycleThresholdTokensByModel: {},
-  })),
-);
 vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
-vi.mock("./settings-manager.js", () => ({
-  getSettings: mockGetSettings,
-  resolveCodexLeaderRecycleThresholdTokens: (settings: any, modelId?: string) => {
-    const normalizedModelId = modelId?.trim();
-    const modelOverride = normalizedModelId
-      ? settings.codexLeaderRecycleThresholdTokensByModel?.[normalizedModelId]
-      : null;
-    return typeof modelOverride === "number" ? modelOverride : settings.codexLeaderRecycleThresholdTokens;
-  },
-}));
 // Mock settings rule loading so real user ~/.claude/settings.json rules don't
 // interfere with tests. Tests that need specific rules override this per-call.
 vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
@@ -553,10 +537,6 @@ beforeEach(() => {
   bridge.resetTrafficStats();
   mockExecSync.mockReset();
   mockExec.mockReset();
-  mockGetSettings.mockReset().mockReturnValue({
-    codexLeaderRecycleThresholdTokens: 260_000,
-    codexLeaderRecycleThresholdTokensByModel: {},
-  });
   mockShouldSettingsRuleApprove.mockReset().mockResolvedValue(null);
   // Default: mockExec delegates to mockExecSync so tests that set up
   // mockExecSync automatically work for async computeDiffStatsAsync too.
@@ -710,6 +690,7 @@ describe("Codex /compact passthrough", () => {
               backendType: "codex",
               isOrchestrator: true,
               cliSessionId: "thread-threshold",
+              codexLeaderRecycleThresholdTokens: 260_000,
               codexLeaderRecyclePending: null,
             }
           : null,
@@ -798,11 +779,7 @@ describe("Codex /compact passthrough", () => {
     ).toBe(false);
   });
 
-  it("uses exact-model Codex leader recycle threshold overrides before the default fallback", async () => {
-    mockGetSettings.mockReturnValue({
-      codexLeaderRecycleThresholdTokens: 260_000,
-      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
-    });
+  it("uses the launch-derived Codex leader recycle threshold", async () => {
     const browser = makeBrowserSocket("leader-threshold-per-model");
     const adapter = makeCodexAdapterMock();
     const launcher = {
@@ -813,6 +790,7 @@ describe("Codex /compact passthrough", () => {
               backendType: "codex",
               isOrchestrator: true,
               cliSessionId: "thread-threshold-per-model",
+              codexLeaderRecycleThresholdTokens: 430_000,
               codexLeaderRecyclePending: null,
             }
           : null,
@@ -882,6 +860,7 @@ describe("Codex /compact passthrough", () => {
               backendType: "codex",
               isOrchestrator: true,
               cliSessionId: "thread-resumed",
+              codexLeaderRecycleThresholdTokens: 260_000,
               codexLeaderRecyclePending: null,
               codexLeaderRecycleLineage: {
                 cliSessionIds: ["thread-before", "thread-resumed"],
@@ -942,6 +921,7 @@ describe("Codex /compact passthrough", () => {
       backendType: "codex",
       isOrchestrator: true,
       cliSessionId: "thread-before",
+      codexLeaderRecycleThresholdTokens: 260_000,
       codexLeaderRecyclePending: {
         eventIndex: 0,
         trigger: "threshold" as const,

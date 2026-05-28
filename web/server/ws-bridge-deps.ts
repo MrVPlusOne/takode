@@ -256,7 +256,6 @@ import {
   refreshWorktreeGitStateForSnapshot as refreshWorktreeGitStateForSnapshotController,
   recomputeDiffIfDirty as recomputeDiffIfDirtyController,
 } from "./bridge/session-git-state.js";
-import { getSettings, resolveCodexLeaderRecycleThresholdTokens } from "./settings-manager.js";
 import type {
   BackendAdapter,
   CompactRequestedAwareAdapter,
@@ -934,10 +933,6 @@ export function getCodexAdapterBrowserMessageDeps(host: any) {
   const codexRecoveryDeps = host.getCodexRecoveryOrchestratorDeps();
   return {
     ...runtime,
-    getCodexLeaderRecycleThresholdTokens: (modelId?: string) => {
-      const settings = getSettings();
-      return resolveCodexLeaderRecycleThresholdTokens(settings, modelId);
-    },
     getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
     touchActivity: (sessionId: string) => host.launcher?.touchActivity(sessionId),
     clearOptimisticRunningTimer: (targetSession: unknown, reason: string) =>

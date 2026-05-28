@@ -235,14 +235,11 @@ describe("buildEnrichedSessionsSnapshot", () => {
   });
 
   it("exposes the resolved Codex leader recycle threshold for session info display", async () => {
-    updateSettings({
-      codexLeaderRecycleThresholdTokens: 260_000,
-      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.5": 430_000 },
-    });
     const launcherSession = makeLauncherSession({
       backendType: "codex",
       isOrchestrator: true,
       model: "gpt-5.4",
+      codexLeaderRecycleThresholdTokens: 545_000,
     });
     const bridgeSession = {
       ...makeBridgeSession([]),
@@ -253,16 +250,16 @@ describe("buildEnrichedSessionsSnapshot", () => {
 
     expect(snapshot[0]).toMatchObject({
       model: "gpt-5.5",
-      codexLeaderRecycleThresholdTokens: 430_000,
+      codexLeaderRecycleThresholdTokens: 545_000,
     });
   });
 
   it("does not expose the Codex leader recycle threshold for control sessions", async () => {
-    updateSettings({ codexLeaderRecycleThresholdTokens: 260_000 });
     const launcherSession = makeLauncherSession({
       backendType: "codex",
       isOrchestrator: false,
       model: "gpt-5.5",
+      codexLeaderRecycleThresholdTokens: 545_000,
     });
 
     const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, makeBridgeSession([])));

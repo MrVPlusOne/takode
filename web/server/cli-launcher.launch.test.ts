@@ -1084,7 +1084,6 @@ describe("launch", () => {
       launcher.setSettingsGetter(() => ({
         claudeBinary: "",
         codexBinary: "/opt/fake/codex",
-        codexLeaderRecycleThresholdTokens: 260_000,
       }));
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
@@ -1200,7 +1199,6 @@ describe("launch", () => {
       launcher.setSettingsGetter(() => ({
         claudeBinary: "",
         codexBinary: wrapperPath,
-        codexLeaderRecycleThresholdTokens: 260_000,
       }));
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
@@ -1341,9 +1339,9 @@ describe("launch", () => {
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
       const overridden = catalog.models.find((entry: any) => entry.slug === "gpt-5.5");
-      expect(overridden.context_window).toBe(344_445);
-      expect(overridden.max_context_window).toBe(344_445);
-      expect(overridden.auto_compact_token_limit).toBe(310_000);
+      expect(overridden.context_window).toBe(314_889);
+      expect(overridden.max_context_window).toBe(314_889);
+      expect(overridden.auto_compact_token_limit).toBe(283_400);
 
       const untouched = catalog.models.find((entry: any) => entry.slug === "gpt-5.4");
       expect(untouched.context_window).toBe(272000);
@@ -1423,9 +1421,9 @@ describe("launch", () => {
           display_name: "GPT-5.5",
           description: "Newest model",
           effective_context_window_percent: 95,
-          context_window: 344_445,
-          max_context_window: 344_445,
-          auto_compact_token_limit: 310_000,
+          context_window: 314_889,
+          max_context_window: 314_889,
+          auto_compact_token_limit: 283_400,
           visibility: "list",
         },
       ]);
@@ -1790,7 +1788,6 @@ describe("launch", () => {
       launcher.setSettingsGetter(() => ({
         claudeBinary: "",
         codexBinary: "codex",
-        codexLeaderRecycleThresholdTokens: 260_000,
       }));
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);

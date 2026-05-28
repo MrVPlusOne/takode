@@ -6,7 +6,7 @@ import {
   summarizePendingPermissions,
   type NotificationStatusSnapshot,
 } from "../bridge/session-registry-controller.js";
-import { getSettings, resolveCodexLeaderRecycleThresholdTokens } from "../settings-manager.js";
+import { getSettings } from "../settings-manager.js";
 import type { TimerManager } from "../timer-manager.js";
 import type { WsBridge } from "../ws-bridge.js";
 import * as sessionNames from "../session-names.js";
@@ -17,6 +17,10 @@ import { getBoard as getBoardController } from "../bridge/board-watchdog-control
 
 type SessionListEntry = ReturnType<CliLauncher["listSessions"]>[number];
 const scheduledWorktreeGitStateRefreshes = new Map<string, ReturnType<typeof setTimeout>>();
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 1 ? Math.floor(value) : undefined;
+}
 
 export interface BuildEnrichedSessionsSnapshotDeps {
   launcher: CliLauncher;
@@ -103,7 +107,12 @@ export async function buildEnrichedSessionsSnapshot(
           s = launcher.getSession(s.sessionId) ?? s;
         }
 
-        const { sessionAuthToken: _token, injectedSystemPrompt: _prompt, ...safeSession } = s;
+        const {
+          sessionAuthToken: _token,
+          injectedSystemPrompt: _prompt,
+          codexLeaderRecycleThresholdTokens: launcherCodexLeaderRecycleThresholdTokens,
+          ...safeSession
+        } = s;
         const bridgeSession = wsBridge.getSession(s.sessionId);
         // Herded worker notifications route through the leader/board flow and
         // should not create direct user-facing sidebar markers for the worker.
@@ -140,7 +149,8 @@ export async function buildEnrichedSessionsSnapshot(
         const effectiveState = cliConnected && currentBridgeSession?.isGenerating ? "running" : safeSession.state;
         const codexLeaderRecycleThresholdTokens =
           safeSession.backendType === "codex" && safeSession.isOrchestrator === true
-            ? resolveCodexLeaderRecycleThresholdTokens(settings, model)
+            ? (positiveInteger(launcherCodexLeaderRecycleThresholdTokens) ??
+              positiveInteger(bridge?.codex_leader_recycle_threshold_tokens))
             : undefined;
         const leaderProfilePortrait = getLeaderProfilePortraitForSession(
           safeSession,

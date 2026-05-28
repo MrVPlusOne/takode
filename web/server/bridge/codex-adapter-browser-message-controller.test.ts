@@ -96,7 +96,6 @@ function makeThreadStatus({
 
 function makeDeps(broadcasts: BrowserIncomingMessage[]): CodexAdapterBrowserMessageDeps {
   return {
-    getCodexLeaderRecycleThresholdTokens: () => 0,
     getLauncherSessionInfo: () => null,
     touchActivity: vi.fn(),
     clearOptimisticRunningTimer: vi.fn(),

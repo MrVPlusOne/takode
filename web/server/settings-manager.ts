@@ -10,6 +10,7 @@ import {
   normalizeLeaderProfilePoolSettings,
   type LeaderProfilePoolSettings,
 } from "../shared/leader-profile-portraits.js";
+import { CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS } from "./codex-leader-recycle-threshold.js";
 
 export interface CompanionSettings {
   /** Display name for this server instance */
@@ -68,9 +69,9 @@ export interface CompanionSettings {
   codexLeaderContextWindowOverrideTokens: number;
   /** Percent of each non-leader Codex model's effective window to use before auto-compact. */
   codexNonLeaderAutoCompactThresholdPercent?: number;
-  /** Codex leader-only in-place recycle trigger based on tracked context tokens used. */
+  /** Legacy compatibility value; new Codex leader recycle thresholds are derived per launch. */
   codexLeaderRecycleThresholdTokens: number;
-  /** Optional exact-model recycle threshold overrides keyed by user-visible Codex model ID. */
+  /** Legacy compatibility overrides; new Codex leader recycle thresholds are derived from model catalog metadata. */
   codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
   /** Enabled built-in leader profile portrait pools. Optional for backward-compatible tests/mocks. */
   leaderProfilePools?: LeaderProfilePoolSettings;
@@ -220,7 +221,7 @@ let settings: CompanionSettings = {
   questmasterCompactSort: DEFAULT_QUESTMASTER_COMPACT_SORT,
   codexLeaderContextWindowOverrideTokens: 1_000_000,
   codexNonLeaderAutoCompactThresholdPercent: 90,
-  codexLeaderRecycleThresholdTokens: 260_000,
+  codexLeaderRecycleThresholdTokens: CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS,
   codexLeaderRecycleThresholdTokensByModel: {},
   leaderProfilePools: DEFAULT_LEADER_PROFILE_POOLS,
   updatedAt: 0,
@@ -242,19 +243,6 @@ export function normalizeServerSlug(slug: string): string {
 
 export function isValidServerSlug(slug: string): boolean {
   return /^[a-z0-9][a-z0-9._-]{0,79}$/.test(slug);
-}
-
-export function resolveCodexLeaderRecycleThresholdTokens(
-  settings: Pick<CompanionSettings, "codexLeaderRecycleThresholdTokens" | "codexLeaderRecycleThresholdTokensByModel">,
-  modelId?: string,
-): number {
-  const normalizedModelId = typeof modelId === "string" ? modelId.trim() : "";
-  const modelOverride = normalizedModelId
-    ? settings.codexLeaderRecycleThresholdTokensByModel?.[normalizedModelId]
-    : undefined;
-  return typeof modelOverride === "number" && modelOverride >= 1
-    ? modelOverride
-    : settings.codexLeaderRecycleThresholdTokens;
 }
 
 let secrets: CompanionSecrets = {
@@ -512,7 +500,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     codexLeaderRecycleThresholdTokens:
       typeof raw?.codexLeaderRecycleThresholdTokens === "number" && raw.codexLeaderRecycleThresholdTokens >= 1
         ? Math.floor(raw.codexLeaderRecycleThresholdTokens)
-        : 260_000,
+        : CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS,
     codexLeaderRecycleThresholdTokensByModel: normalizeCodexLeaderRecycleThresholdTokensByModel(
       raw?.codexLeaderRecycleThresholdTokensByModel,
     ),
