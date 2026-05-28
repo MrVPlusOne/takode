@@ -151,13 +151,57 @@ describe("Codex session catalog hardening", () => {
     expect(config).toContain("model_auto_compact_token_limit = 310000");
   });
 
-  it("synthesizes a non-leader catalog entry from an existing raw context setting", async () => {
+  it("cleans legacy Takode non-leader catalog references without touching user context settings", async () => {
     const codexHome = await makeCodexHome();
     const configPath = join(codexHome, "config.toml");
     const catalogPath = join(codexHome, "takode-model-catalog.json");
     const model = "takode-test-worker";
-    await writeFile(configPath, `model = "${model}"\nmodel_context_window = 600000\n`, "utf-8");
-    await writeFile(join(codexHome, "models_cache.json"), JSON.stringify({ models: [] }), "utf-8");
+    await writeFile(
+      configPath,
+      [
+        `model = "${model}"`,
+        `model_catalog_json = ${JSON.stringify(catalogPath)}`,
+        "model_context_window = 600000",
+        "model_auto_compact_token_limit = 510000",
+        'model_auto_compact_token_limit_scope = "total"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    await writeFile(
+      catalogPath,
+      JSON.stringify({ models: [{ slug: model, auto_compact_token_limit: 510000 }] }),
+      "utf-8",
+    );
+
+    const result = await _ensureCodexSessionConfigForTest(codexHome, [], {
+      nonLeaderAutoCompactThresholdPercent: 90,
+      model,
+    });
+
+    const config = await readFile(configPath, "utf-8");
+    // q-1450: only the Takode-owned catalog reference is removed. User-owned
+    // Codex context and compact settings are left for Codex itself to honor.
+    expect(config).not.toContain("model_catalog_json");
+    expect(config).toContain("model_context_window = 600000");
+    expect(config).toContain("model_auto_compact_token_limit = 510000");
+    expect(config).toContain('model_auto_compact_token_limit_scope = "total"');
+    expect(result.modelCatalogJson).toBeUndefined();
+
+    const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
+    expect(catalog.models[0].auto_compact_token_limit).toBe(510000);
+  });
+
+  it("preserves custom non-leader model catalog settings", async () => {
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const customCatalogPath = join(codexHome, "custom-models.json");
+    const model = "takode-test-worker";
+    await writeFile(
+      configPath,
+      [`model = "${model}"`, `model_catalog_json = ${JSON.stringify(customCatalogPath)}`, ""].join("\n"),
+      "utf-8",
+    );
 
     await _ensureCodexSessionConfigForTest(codexHome, [], {
       nonLeaderAutoCompactThresholdPercent: 90,
@@ -165,20 +209,7 @@ describe("Codex session catalog hardening", () => {
     });
 
     const config = await readFile(configPath, "utf-8");
-    // Keep the top-level raw context for startup/status readers; the catalog
-    // makes the app-server model metadata path agree with the same raw value.
-    expect(config).toContain("model_context_window = 600000");
-    expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
-
-    const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
-    expect(catalog.models).toHaveLength(1);
-    expectParserSafeEntry(catalog.models[0], model);
-    expect(catalog.models[0]).toMatchObject({
-      context_window: 600_000,
-      max_context_window: 600_000,
-      effective_context_window_percent: 95,
-      auto_compact_token_limit: 513_000,
-    });
+    expect(config).toContain(`model_catalog_json = ${JSON.stringify(customCatalogPath)}`);
   });
 
   it("adds a missing selected model to an otherwise valid catalog", async () => {

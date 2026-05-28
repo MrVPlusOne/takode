@@ -49,12 +49,14 @@ const maiWrapperHostnameShimDirName = ".mai-wrapper-bin";
 const imagegenSkillRelativePath = ".system/imagegen";
 const deprecatedCodexSkillsDirName = "skills";
 const defaultCodexEffectiveContextWindowPercent = 95;
-const defaultCodexNonLeaderAutoCompactThresholdPercent = 90;
 const defaultCodexLeaderRecycleThresholdTokens = CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS;
 const defaultCodexLeaderRecycleHeadroomTokens = 50_000;
 const defaultCodexLeaderRecycleHeadroomPercent = 10;
 const takodeLeaderModelCatalogFilename = "takode-leader-model-catalog.json";
 const spawnPrepCacheTtlMs = 60_000;
+const takodeNonLeaderModelCatalogFilename = "takode-model-catalog.json";
+const containerTakodeNonLeaderModelCatalogPath = "/root/.codex/takode-model-catalog.json";
+const containerTakodeLeaderModelCatalogPath = "/root/.codex/takode-leader-model-catalog.json";
 
 type HostCodexBinaryKind = "native" | "dotslash" | "bootstrap";
 type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
@@ -114,6 +116,7 @@ interface CodexLaunchOptions {
   resumeCliSessionId?: string;
   /** Legacy compatibility only; leader thresholds are derived from model effective context. */
   codexLeaderRecycleThresholdTokens?: number;
+  /** Deprecated compatibility setting; ignored so non-leader compaction follows Codex defaults. */
   codexNonLeaderAutoCompactThresholdPercent?: number;
 }
 
@@ -393,6 +396,20 @@ function removeTopLevelTomlSettings(configToml: string, keys: Set<string>): stri
 
 function scrubSessionScopedCodexConfig(configToml: string): string {
   return removeTopLevelTomlSettings(configToml, sessionScopedCodexConfigKeys);
+}
+
+function isTakodeNonLeaderModelCatalogConfigPath(codexHome: string, rawPath: string): boolean {
+  const resolvedPath = resolveConfigPathValue(codexHome, rawPath);
+  return (
+    resolvedPath === resolve(codexHome, takodeNonLeaderModelCatalogFilename) ||
+    resolvedPath === containerTakodeNonLeaderModelCatalogPath
+  );
+}
+
+function scrubTakodeNonLeaderModelCatalogReference(codexHome: string, configToml: string): string {
+  const catalogPath = readTopLevelStringSetting(configToml, "model_catalog_json");
+  if (!catalogPath || !isTakodeNonLeaderModelCatalogConfigPath(codexHome, catalogPath)) return configToml;
+  return removeTopLevelTomlSettings(configToml, new Set(["model_catalog_json"]));
 }
 
 async function ensureMaiWrapperHostnameShim(shimDir: string, hostnameValue: string): Promise<void> {
@@ -806,43 +823,6 @@ async function ensureCodexLeaderModelCatalogOverride(
     },
   });
   return { ...override, launchGuard };
-}
-
-async function ensureCodexNonLeaderModelCatalogOverride(
-  codexHome: string,
-  configToml: string,
-  autoCompactThresholdPercent: number,
-  options?: { model?: string; modelCatalogConfigPath?: string },
-): Promise<{ catalogJson?: string; configToml: string }> {
-  const configuredRawContextWindow = readTopLevelNumberSetting(configToml, "model_context_window");
-  return ensureCodexModelCatalogOverride(codexHome, configToml, {
-    model: options?.model,
-    modelCatalogConfigPath: options?.modelCatalogConfigPath,
-    catalogFilename: "takode-model-catalog.json",
-    createModelEntry: configuredRawContextWindow
-      ? (modelSlug) => ({
-          slug: modelSlug,
-          context_window: configuredRawContextWindow,
-          max_context_window: configuredRawContextWindow,
-          effective_context_window_percent: defaultCodexEffectiveContextWindowPercent,
-          auto_compact_token_limit: null,
-        })
-      : undefined,
-    mutateModelEntry: (modelEntry) => {
-      const effectivePercent =
-        coercePositiveNumber(modelEntry.effective_context_window_percent) || defaultCodexEffectiveContextWindowPercent;
-      const rawContextWindow =
-        coercePositiveNumber(modelEntry.context_window) || coercePositiveNumber(modelEntry.max_context_window);
-      if (!rawContextWindow) return false;
-      const effectiveContextWindow = Math.floor((rawContextWindow * effectivePercent) / 100);
-      if (effectiveContextWindow < 1) return false;
-      const nextAutoCompactTokenLimit = Math.floor((effectiveContextWindow * autoCompactThresholdPercent) / 100);
-      if (nextAutoCompactTokenLimit < 1) return false;
-      if (modelEntry.auto_compact_token_limit === nextAutoCompactTokenLimit) return false;
-      modelEntry.auto_compact_token_limit = nextAutoCompactTokenLimit;
-      return true;
-    },
-  });
 }
 
 async function ensureCodexModelCatalogOverride(
@@ -1389,6 +1369,7 @@ async function ensureCodexSessionConfig(
     leaderLaunch?: boolean;
     /** Legacy test/compatibility fields are ignored; leader thresholds are metadata-derived. */
     leaderRecycleThresholdTokens?: number;
+    /** Deprecated compatibility setting; ignored so non-leader compaction follows Codex defaults. */
     nonLeaderAutoCompactThresholdPercent?: number;
     model?: string;
     modelCatalogConfigPath?: string;
@@ -1415,7 +1396,6 @@ async function ensureCodexSessionConfig(
   const leaderRecycleThresholdTokens = leaderLaunch
     ? await resolveCodexLeaderRecycleThresholdForConfig(codexHome, next, modelId)
     : undefined;
-  const nonLeaderAutoCompactThresholdPercent = options?.nonLeaderAutoCompactThresholdPercent;
   let modelCatalogJson: string | undefined;
   if (leaderLaunch && leaderRecycleThresholdTokens && leaderRecycleThresholdTokens > 0) {
     const override = await ensureCodexLeaderModelCatalogOverride(codexHome, next, leaderRecycleThresholdTokens, {
@@ -1431,19 +1411,8 @@ async function ensureCodexSessionConfig(
       override.launchGuard.autoCompactTokenLimit,
     );
     await options?.timing?.yieldIfDue("prepare Codex leader derived context guard");
-  } else if (nonLeaderAutoCompactThresholdPercent && nonLeaderAutoCompactThresholdPercent > 0) {
-    const override = await ensureCodexNonLeaderModelCatalogOverride(
-      codexHome,
-      next,
-      nonLeaderAutoCompactThresholdPercent,
-      {
-        model: options?.model,
-        modelCatalogConfigPath: options?.modelCatalogConfigPath,
-      },
-    );
-    next = override.configToml;
-    modelCatalogJson = override.catalogJson;
-    await options?.timing?.yieldIfDue("prepare Codex auto-compact config override");
+  } else {
+    next = scrubTakodeNonLeaderModelCatalogReference(codexHome, next);
   }
   if (next !== current) {
     await writeFile(configPath, next, "utf-8");
@@ -1580,15 +1549,10 @@ export async function prepareCodexSpawn(
     const shellEnvVars = Object.keys(options.env || {}).filter(
       (name) => name.startsWith("COMPANION_") || name.startsWith("TAKODE_"),
     );
-    const nonLeaderAutoCompactThresholdPercent = !leaderLaunch
-      ? options.codexNonLeaderAutoCompactThresholdPercent || defaultCodexNonLeaderAutoCompactThresholdPercent
-      : undefined;
     let resolvedLeaderRecycleThresholdTokens: number | undefined;
     let containerLeaderConfigToml: string | undefined;
     let containerModelCatalogJson: string | undefined;
-    const containerModelCatalogPath = leaderLaunch
-      ? "/root/.codex/takode-leader-model-catalog.json"
-      : "/root/.codex/takode-model-catalog.json";
+    const containerModelCatalogPath = leaderLaunch ? containerTakodeLeaderModelCatalogPath : undefined;
 
     if (!isContainerized) {
       await timing.step("prepare Codex home", () =>
@@ -1606,20 +1570,18 @@ export async function prepareCodexSpawn(
       const sessionConfig = await timing.step("ensure Codex session config", () =>
         ensureCodexSessionConfig(codexHome, shellEnvVars, {
           leaderLaunch,
-          nonLeaderAutoCompactThresholdPercent,
           model: options.model,
           timing,
         }),
       );
       resolvedLeaderRecycleThresholdTokens = sessionConfig.leaderRecycleThresholdTokens;
-    } else if (leaderLaunch || (nonLeaderAutoCompactThresholdPercent && nonLeaderAutoCompactThresholdPercent > 0)) {
+    } else {
       await timing.step("prepare container Codex home", () =>
         prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId, undefined, { timing }),
       );
       const containerConfig = await timing.step("ensure container Codex session config", () =>
         ensureCodexSessionConfig(codexHome, shellEnvVars, {
           leaderLaunch,
-          nonLeaderAutoCompactThresholdPercent,
           model: options.model,
           modelCatalogConfigPath: containerModelCatalogPath,
           timing,
@@ -1663,7 +1625,7 @@ export async function prepareCodexSpawn(
       dockerArgs.push(options.containerId!);
       const innerCmd = [binary, ...args].map((arg) => `'${arg.replace(/'/g, "'\\''")}'`).join(" ");
       const shellCommands: string[] = [renderContainerCodexAuthRefresh()];
-      if (containerModelCatalogJson) {
+      if (containerModelCatalogJson && containerModelCatalogPath) {
         shellCommands.push(
           renderContainerCodexFileWrite(
             containerModelCatalogPath,
@@ -1790,6 +1752,7 @@ export function _ensureCodexSessionConfigForTest(
   options?: {
     leaderRecycleThresholdTokens?: number;
     leaderLaunch?: boolean;
+    /** Deprecated compatibility setting; ignored so non-leader compaction follows Codex defaults. */
     nonLeaderAutoCompactThresholdPercent?: number;
     model?: string;
     modelCatalogConfigPath?: string;

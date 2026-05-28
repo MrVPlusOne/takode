@@ -79,11 +79,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     items: [
       { id: "claude", text: "Claude Code binary path command auto-detect" },
       { id: "codex", text: "Codex binary path command auto-detect" },
-      {
-        id: "codex-non-leader-auto-compact-threshold",
-        text: "Codex non-leader auto compact threshold percent worker normal session effective context window 90%",
-        aliases: ["auto compact", "non leader", "worker", "percent", "90%", "gpt-5.4", "gpt-5.5"],
-      },
       { id: "default-backend", text: "Default Backend Claude CLI Claude SDK backend" },
       { id: "log-file", text: "Log File server runtime logs" },
       { id: "editor", text: "File Link Editor VSCode local remote Cursor none editor", aliases: ["vscode"] },

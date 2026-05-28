@@ -89,10 +89,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [logFile, setLogFile] = useState("");
   const [binSaving, setBinSaving] = useState(false);
   const [binError, setBinError] = useState("");
-  const [codexNonLeaderAutoCompactThresholdPercent, setCodexNonLeaderAutoCompactThresholdPercent] = useState(90);
   const [leaderProfilePools, setLeaderProfilePools] = useState<LeaderProfilePoolSettings | undefined>(undefined);
-  const [codexNonLeaderAutoCompactSaving, setCodexNonLeaderAutoCompactSaving] = useState(false);
-  const [codexNonLeaderAutoCompactError, setCodexNonLeaderAutoCompactError] = useState("");
   const [claudeTest, setClaudeTest] = useState<{
     ok: boolean;
     resolvedPath?: string;
@@ -111,7 +108,6 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState("");
   const binDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const codexNonLeaderAutoCompactDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Session lifecycle state
   const [maxKeepAlive, setMaxKeepAlive] = useState(0);
@@ -242,7 +238,6 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       .then((s) => {
         setClaudeBin(s.claudeBinary || "");
         setCodexBin(s.codexBinary || "");
-        setCodexNonLeaderAutoCompactThresholdPercent(s.codexNonLeaderAutoCompactThresholdPercent ?? 90);
         setLeaderProfilePools(s.leaderProfilePools);
         setDefaultClaudeBackend(s.defaultClaudeBackend || "claude");
         setLogFile(s.logFile || "");
@@ -433,28 +428,6 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         setBinError(err instanceof Error ? err.message : String(err));
       } finally {
         setBinSaving(false);
-      }
-    }, 800);
-  }
-
-  function debouncedSaveCodexNonLeaderAutoCompactThreshold(newNonLeaderAutoCompactThresholdPercent: number) {
-    if (codexNonLeaderAutoCompactDebounceRef.current) {
-      clearTimeout(codexNonLeaderAutoCompactDebounceRef.current);
-    }
-    codexNonLeaderAutoCompactDebounceRef.current = setTimeout(async () => {
-      setCodexNonLeaderAutoCompactSaving(true);
-      setCodexNonLeaderAutoCompactError("");
-      try {
-        const res = await api.updateSettings({
-          codexNonLeaderAutoCompactThresholdPercent: newNonLeaderAutoCompactThresholdPercent,
-        });
-        setCodexNonLeaderAutoCompactThresholdPercent(
-          res.codexNonLeaderAutoCompactThresholdPercent ?? newNonLeaderAutoCompactThresholdPercent,
-        );
-      } catch (err: unknown) {
-        setCodexNonLeaderAutoCompactError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setCodexNonLeaderAutoCompactSaving(false);
       }
     }, 800);
   }
@@ -907,31 +880,6 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                 )}
               </div>
 
-              <div hidden={settingsSearch.rowHidden("cli", "codex-non-leader-auto-compact-threshold")}>
-                <label className="block text-sm font-medium mb-1.5" htmlFor="codex-non-leader-auto-compact-threshold">
-                  Codex Non-Leader Auto-Compact Threshold
-                </label>
-                <input
-                  id="codex-non-leader-auto-compact-threshold"
-                  type="number"
-                  min={1}
-                  max={100}
-                  step={1}
-                  value={codexNonLeaderAutoCompactThresholdPercent}
-                  onChange={(e) => {
-                    const next = Math.min(100, Math.max(1, Number(e.target.value) || 1));
-                    setCodexNonLeaderAutoCompactThresholdPercent(next);
-                    debouncedSaveCodexNonLeaderAutoCompactThreshold(next);
-                  }}
-                  className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
-                />
-                <p className="mt-1.5 text-xs text-cc-muted">
-                  Applied only to new and relaunched non-leader Codex sessions. Takode writes a session-local model
-                  catalog override so provider auto-compaction triggers at this percent of each model&apos;s effective
-                  context window.
-                </p>
-              </div>
-
               <div hidden={settingsSearch.rowHidden("cli", "default-backend")}>
                 <label className="block text-sm font-medium mb-1.5">Default Claude Backend</label>
                 <div className="flex items-center bg-cc-hover/50 rounded-lg p-0.5 w-fit">
@@ -1002,15 +950,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                   {editorError}
                 </div>
               )}
-              {codexNonLeaderAutoCompactError && (
-                <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-                  {codexNonLeaderAutoCompactError}
-                </div>
-              )}
-
-              {(binSaving || editorSaving || codexNonLeaderAutoCompactSaving) && (
-                <p className="text-xs text-cc-muted">Saving...</p>
-              )}
+              {(binSaving || editorSaving) && <p className="text-xs text-cc-muted">Saving...</p>}
 
               <button
                 type="button"

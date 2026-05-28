@@ -943,7 +943,7 @@ describe("SettingsPage", () => {
     expect(within(cliSection).getByLabelText("Claude Code")).not.toBeVisible();
   });
 
-  it("loads and saves the Codex non-leader auto-compact threshold without leader recycle controls", async () => {
+  it("does not expose Codex compact/recycle controls in Settings", async () => {
     mockApi.getSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
@@ -975,7 +975,6 @@ describe("SettingsPage", () => {
       claudeBinary: "",
       codexBinary: "",
       codexLeaderContextWindowOverrideTokens: 1_200_000,
-      codexNonLeaderAutoCompactThresholdPercent: 88,
       codexLeaderRecycleThresholdTokens: 280_000,
       codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 440_000, "gpt-5.5": 320_000 },
       maxKeepAlive: 0,
@@ -987,28 +986,12 @@ describe("SettingsPage", () => {
     await waitForSettingsPage();
 
     const cliSection = settingsSection("CLI & Backends");
-    const autoCompactInput = within(cliSection).getByLabelText(
-      "Codex Non-Leader Auto-Compact Threshold",
-    ) as HTMLInputElement;
-    // q-1449 hides leader recycle tuning while preserving the separate
-    // q-1450-owned non-leader auto-compact control.
+    expect(within(cliSection).queryByLabelText("Codex Non-Leader Auto-Compact Threshold")).toBeNull();
     expect(within(cliSection).queryByLabelText("Codex Leader Context Window")).toBeNull();
     expect(within(cliSection).queryByLabelText("Codex Leader Recycle Budget")).toBeNull();
     expect(within(cliSection).queryByText("Codex Leader Model Budget Overrides")).toBeNull();
 
-    expect(autoCompactInput.value).toBe("85");
-
-    vi.useFakeTimers();
-    try {
-      fireEvent.change(autoCompactInput, { target: { value: "88" } });
-      await vi.advanceTimersByTimeAsync(900);
-
-      expect(mockApi.updateSettings).toHaveBeenLastCalledWith({
-        codexNonLeaderAutoCompactThresholdPercent: 88,
-      });
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(mockApi.updateSettings).not.toHaveBeenCalled();
   });
 
   it("does not expose Codex leader recycle controls in Settings search", async () => {
@@ -1024,6 +1007,20 @@ describe("SettingsPage", () => {
     // through the settings search index after the visible rows are removed.
     expect(cliSection).not.toBeVisible();
     expect(screen.getByText('No settings match "leader recycle".')).toBeInTheDocument();
+  });
+
+  it("does not expose the legacy non-leader auto-compact setting in Settings search", async () => {
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    expect(screen.queryByLabelText("Codex Non-Leader Auto-Compact Threshold")).toBeNull();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), {
+      target: { value: "non leader auto compact" },
+    });
+
+    expect(screen.getByText('No settings match "non leader auto compact".')).toBeInTheDocument();
+    expect(settingsSection("CLI & Backends")).not.toBeVisible();
   });
 
   it("shows an empty state when no settings match", async () => {

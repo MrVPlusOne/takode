@@ -142,7 +142,7 @@ export interface LaunchOptions {
   codexLeaderContextWindowOverrideTokens?: number;
   /** Legacy compatibility only; leader thresholds are derived from source model effective context. */
   codexLeaderRecycleThresholdTokens?: number;
-  /** Codex non-leader auto-compact threshold as a percent of effective model context. */
+  /** Deprecated compatibility setting; non-leader compaction is left to Codex defaults. */
   codexNonLeaderAutoCompactThresholdPercent?: number;
   /** Docker container ID — when set, CLI runs inside container via docker exec */
   containerId?: string;
@@ -200,7 +200,6 @@ export class CliLauncher {
     | (() => {
         claudeBinary: string;
         codexBinary: string;
-        codexNonLeaderAutoCompactThresholdPercent?: number;
       })
     | null = null;
   /** Callback to resolve env profile variables by slug (set by server bootstrap). */
@@ -281,7 +280,6 @@ export class CliLauncher {
     fn: () => {
       claudeBinary: string;
       codexBinary: string;
-      codexNonLeaderAutoCompactThresholdPercent?: number;
     },
   ): void {
     this.settingsGetter = fn;
@@ -868,7 +866,6 @@ export class CliLauncher {
             codexInternetAccess: info.codexInternetAccess,
             codexReasoningEffort: info.codexReasoningEffort,
             codexHome: info.codexHome,
-            codexNonLeaderAutoCompactThresholdPercent: binSettings.codexNonLeaderAutoCompactThresholdPercent,
             containerId: info.containerId,
             containerName: info.containerName,
             containerImage: info.containerImage,
@@ -1241,9 +1238,6 @@ export class CliLauncher {
       const codexOptions = binSettings
         ? {
             ...options,
-            codexNonLeaderAutoCompactThresholdPercent:
-              options.codexNonLeaderAutoCompactThresholdPercent ??
-              binSettings.codexNonLeaderAutoCompactThresholdPercent,
           }
         : options;
       const spawnSpec = await prepareCodexSpawn(
