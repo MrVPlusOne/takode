@@ -14,6 +14,9 @@ const mockStoreState = {
   sessionNotifications: new Map<string, Array<any>>(),
   sessionTimers: new Map<string, Array<{ id: string }>>(),
   sessionBoards: new Map<string, Array<any>>(),
+  sessionCompletedBoards: new Map<string, Array<any>>(),
+  sessionBoardRowStatuses: new Map<string, Record<string, any>>(),
+  quests: [] as Array<any>,
   sdkSessions: [] as Array<any>,
   currentSessionId: "s1",
   updateSdkSession: vi.fn(),
@@ -60,6 +63,9 @@ beforeEach(() => {
   mockStoreState.updateSdkSession.mockClear();
   vi.mocked(api.updateLeaderProfilePortrait).mockClear();
   mockStoreState.sessionBoards.clear();
+  mockStoreState.sessionCompletedBoards.clear();
+  mockStoreState.sessionBoardRowStatuses.clear();
+  mockStoreState.quests = [];
 });
 
 function makeSession(overrides: Partial<SessionItemType> = {}): SessionItemType {
@@ -1367,6 +1373,51 @@ describe("SessionItem quest title label", () => {
     renderSessionItem({ sessionName: "Completed quest" });
 
     expect(screen.getByText("☐ Completed quest")).toBeInTheDocument();
+  });
+
+  it("hides stale reviewer and skip chips when board quest context is available", () => {
+    mockStoreState.quests = [
+      {
+        questId: "q-1450",
+        title: "Worker banner handoff",
+        status: "in_progress",
+        sessionId: "earlier-owner",
+        createdAt: 1,
+      },
+    ];
+    mockStoreState.sessionBoards.set("leader-1", [
+      { questId: "q-1450", title: "Worker banner handoff", worker: "s1", workerNum: 1946, updatedAt: 2 },
+    ]);
+    const reviewer = makeSession({ id: "reviewer-1", sessionNum: 1947, isConnected: true, permCount: 0 });
+
+    renderSessionItem({
+      session: makeSession({
+        sessionNum: 1946,
+        isWorktree: true,
+        diffStatsSkippedReason: "Diff stats skipped",
+      }),
+      reviewerSession: reviewer,
+    });
+
+    expect(screen.queryByTestId("session-reviewer-badge")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("session-git-diff-skipped")).not.toBeInTheDocument();
+    expect(screen.getByText("wt")).toBeInTheDocument();
+  });
+
+  it("preserves reviewer and skip chips when no quest context applies", () => {
+    const reviewer = makeSession({ id: "reviewer-1", sessionNum: 1947, isConnected: true, permCount: 0 });
+
+    renderSessionItem({
+      session: makeSession({
+        sessionNum: 1946,
+        isWorktree: true,
+        diffStatsSkippedReason: "Diff stats skipped",
+      }),
+      reviewerSession: reviewer,
+    });
+
+    expect(screen.getByTestId("session-reviewer-badge")).toBeInTheDocument();
+    expect(screen.getByTestId("session-git-diff-skipped")).toHaveTextContent("skip");
   });
 });
 

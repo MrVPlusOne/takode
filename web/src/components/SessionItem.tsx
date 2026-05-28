@@ -15,6 +15,7 @@ import {
   boardSummarySegmentsFromActivePhaseSummary,
   type BoardSummarySegment,
 } from "./leader-board-summary.js";
+import { findSessionQuestContextCandidate } from "../utils/session-quest-context.js";
 
 const EMPTY_LEADER_BOARD_ROWS: never[] = [];
 
@@ -333,6 +334,19 @@ export function SessionItem({
   const questReviewInboxUnread = s.claimedQuestVerificationInboxUnread ?? bridgeQuestReviewInboxUnread;
   const isQuestNamed =
     !s.isOrchestrator && (storeQuestNamed || questOwnsSessionName(questStatus, questReviewInboxUnread));
+  const hasAssignedQuestContext = useStore((st) =>
+    s.isOrchestrator
+      ? false
+      : !!findSessionQuestContextCandidate({
+          sessionId: s.id,
+          sessionNum: s.sessionNum,
+          quests: st.quests ?? [],
+          sessionBoards: st.sessionBoards ?? new Map(),
+          sessionCompletedBoards: st.sessionCompletedBoards ?? new Map(),
+          rowStatuses: st.sessionBoardRowStatuses ?? new Map(),
+        }),
+  );
+  const hasQuestWorkContext = isQuestNamed || hasAssignedQuestContext;
   const reviewerAttention = useStore((st) =>
     reviewerSession ? st.sessionAttention.get(reviewerSession.id) : undefined,
   );
@@ -871,7 +885,8 @@ export function SessionItem({
                   wt
                 </span>
               )}
-              {reviewerSession &&
+              {!hasQuestWorkContext &&
+                reviewerSession &&
                 (() => {
                   const rvStatus = deriveSessionStatus({
                     archived: reviewerSession.archived,
@@ -956,7 +971,7 @@ export function SessionItem({
                   <span className={sidebarLineRemovalClassName}>-{s.linesRemoved}</span>
                 </span>
               )}
-              {hasSkippedDiffStats && (
+              {!hasQuestWorkContext && hasSkippedDiffStats && (
                 <span
                   className="text-[10px] font-medium text-cc-muted shrink-0"
                   title={gitStatusTitle}

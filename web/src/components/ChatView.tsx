@@ -84,6 +84,7 @@ import {
   type LeaderThreadTabUpdate,
 } from "../../shared/leader-open-thread-tabs.js";
 import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
+import { findSessionQuestContextCandidate } from "../utils/session-quest-context.js";
 import type {
   BoardRowSessionStatus,
   ChatMessage,
@@ -369,29 +370,10 @@ type QuestBannerParticipantRole = "Worker" | "Reviewer" | "Leader";
 type QuestBannerWaitCondition = { kind: "queued"; refs: string[] } | { kind: "user-input"; refs: string[] };
 type QuestBannerQueuedWaitCondition = Extract<QuestBannerWaitCondition, { kind: "queued" }>;
 
-function questTimestamp(quest: QuestmasterTask): number {
-  if ("completedAt" in quest && typeof quest.completedAt === "number") return quest.completedAt;
-  if (typeof quest.statusChangedAt === "number") return quest.statusChangedAt;
-  if (typeof quest.updatedAt === "number") return quest.updatedAt;
-  return quest.createdAt;
-}
-
 function findQuestById(quests: QuestmasterTask[], questId?: string | null): QuestmasterTask | undefined {
   if (!questId) return undefined;
   const normalized = questId.toLowerCase();
   return quests.find((quest) => quest.questId.toLowerCase() === normalized);
-}
-
-function findSessionQuestCandidate(sessionId: string, quests: QuestmasterTask[]): QuestmasterTask | undefined {
-  const active = quests.find((quest) => quest.status === "in_progress" && quest.sessionId === sessionId);
-  if (active) return active;
-  return quests
-    .filter((quest) => {
-      if (quest.status !== "done") return false;
-      if (quest.sessionId === sessionId) return true;
-      return quest.previousOwnerSessionIds?.includes(sessionId) === true;
-    })
-    .sort((a, b) => questTimestamp(b) - questTimestamp(a) || b.questId.localeCompare(a.questId))[0];
 }
 
 function findQuestBoardContext({
@@ -836,6 +818,7 @@ function restorableSelectedThreadKey({
 
 function buildSessionQuestBannerRow({
   sessionId,
+  sessionNum,
   claimedQuestId,
   claimedQuestTitle,
   claimedQuestStatus,
@@ -847,6 +830,7 @@ function buildSessionQuestBannerRow({
   rowStatuses,
 }: {
   sessionId: string;
+  sessionNum?: number | null;
   claimedQuestId?: string | null;
   claimedQuestTitle?: string | null;
   claimedQuestStatus?: string | null;
@@ -857,18 +841,35 @@ function buildSessionQuestBannerRow({
   sessionCompletedBoards: ReadonlyMap<string, readonly BoardRowData[]>;
   rowStatuses: ReadonlyMap<string, Record<string, BoardRowSessionStatus>>;
 }): QuestThreadBannerRow | null {
-  const quest = findQuestById(quests, claimedQuestId) ?? findSessionQuestCandidate(sessionId, quests);
-  const questId = claimedQuestId ?? quest?.questId;
+  const sessionCandidate = claimedQuestId
+    ? null
+    : findSessionQuestContextCandidate({
+        sessionId,
+        sessionNum,
+        quests,
+        sessionBoards,
+        sessionCompletedBoards,
+        rowStatuses,
+      });
+  const quest = findQuestById(quests, claimedQuestId) ?? sessionCandidate?.quest;
+  const questId = claimedQuestId ?? quest?.questId ?? sessionCandidate?.row?.questId;
   if (!questId) return null;
 
-  const leaderSessionId = claimedQuestLeaderSessionId ?? quest?.leaderSessionId ?? herdedBy ?? null;
-  const boardContext = findQuestBoardContext({
-    questId,
-    leaderSessionId,
-    sessionBoards,
-    sessionCompletedBoards,
-    rowStatuses,
-  });
+  const leaderSessionId =
+    claimedQuestLeaderSessionId ?? quest?.leaderSessionId ?? sessionCandidate?.leaderSessionId ?? herdedBy ?? null;
+  const boardContext = sessionCandidate?.row
+    ? {
+        row: sessionCandidate.row as BoardRowData,
+        rowStatus: sessionCandidate.rowStatus,
+        leaderSessionId: sessionCandidate.leaderSessionId,
+      }
+    : findQuestBoardContext({
+        questId,
+        leaderSessionId,
+        sessionBoards,
+        sessionCompletedBoards,
+        rowStatuses,
+      });
   const boardRow = boardContext.row;
   const rowStatus = boardContext.rowStatus;
   const resolvedLeaderSessionId = leaderSessionId ?? boardContext.leaderSessionId ?? null;
@@ -1101,6 +1102,7 @@ export function ChatView({
     isLeaderSession,
     historyLoading,
     hasKnownThreadSources,
+    sessionNum,
     claimedQuestId,
     claimedQuestTitle,
     claimedQuestStatus,
@@ -1129,6 +1131,7 @@ export function ChatView({
           s.sessionBoards.has(sessionId) ||
           s.sessionCompletedBoards.has(sessionId),
         claimedQuestId: sessionState?.claimedQuestId ?? sdkSession?.claimedQuestId,
+        sessionNum: sdkSession?.sessionNum ?? null,
         claimedQuestTitle: sessionState?.claimedQuestTitle ?? sdkSession?.claimedQuestTitle,
         claimedQuestStatus: sessionState?.claimedQuestStatus ?? sdkSession?.claimedQuestStatus,
         claimedQuestLeaderSessionId:
@@ -1183,6 +1186,7 @@ export function ChatView({
       !isLeaderSession
         ? buildSessionQuestBannerRow({
             sessionId,
+            sessionNum,
             claimedQuestId,
             claimedQuestTitle,
             claimedQuestStatus,
@@ -1206,6 +1210,7 @@ export function ChatView({
       isLeaderSession,
       quests,
       sessionId,
+      sessionNum,
     ],
   );
   const composerThreadKey = isLeaderSession ? composeThreadKeyForSelection(selectedThreadKey) : MAIN_THREAD_KEY;
@@ -1750,7 +1755,7 @@ export function ChatView({
       )}
 
       {/* Session task outline — horizontal milestone chips */}
-      {!preview && !isLeaderSession && <TaskOutlineBar sessionId={sessionId} />}
+      {!preview && !isLeaderSession && !sessionQuestBannerRow && <TaskOutlineBar sessionId={sessionId} />}
 
       {/* Persistent work board for orchestrator sessions -- primary thread navigation above the feed */}
       {!preview && (
