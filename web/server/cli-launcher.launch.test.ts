@@ -395,27 +395,6 @@ function getMaiWrapperSessionEnvPath(wrapperRoot: string, sessionId = "test-sess
   return join(wrapperRoot, ".run", `.env-${overlayHost}`);
 }
 
-function expectCodexParseableModelEntryShape(modelEntry: Record<string, any>, slug = "gpt-5.5") {
-  expect(modelEntry).toMatchObject({
-    slug,
-    display_name: expect.any(String),
-    supported_reasoning_levels: expect.any(Array),
-    shell_type: "shell_command",
-    visibility: "list",
-    supported_in_api: true,
-    priority: expect.any(Number),
-    base_instructions: expect.any(String),
-    supports_reasoning_summaries: expect.any(Boolean),
-    support_verbosity: expect.any(Boolean),
-    truncation_policy: {
-      mode: expect.any(String),
-      limit: expect.any(Number),
-    },
-    supports_parallel_tool_calls: expect.any(Boolean),
-    experimental_supported_tools: expect.any(Array),
-  });
-}
-
 const mockSpawn = vi.fn();
 const bunGlobal = globalThis as typeof globalThis & { Bun?: any };
 const hadBunGlobal = typeof bunGlobal.Bun !== "undefined";
@@ -1079,13 +1058,11 @@ describe("launch", () => {
     }
   });
 
-  it("applies the configured context-window override to normal and leader Codex sessions", async () => {
+  it("applies the derived context guard only to Codex leaders", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
     const sessionHome = join(customHome, "test-session-id");
     const configPath = join(sessionHome, "config.toml");
-    const workerCatalogPath = join(sessionHome, "takode-model-catalog.json");
-    const leaderCatalogPath = join(sessionHome, "takode-leader-model-catalog.json");
     const { readFileSync: realReadFileSync } = require("node:fs");
 
     try {
@@ -1093,39 +1070,21 @@ describe("launch", () => {
       const workerInfo = await launcher.launch({
         backendType: "codex",
         cwd: "/tmp/project",
-        model: "gpt-5.5",
         codexSandbox: "workspace-write",
         codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
-        codexNonLeaderAutoCompactThresholdPercent: 90,
-        env: {
-          TAKODE_ROLE: "worker",
-          TAKODE_QUEST_ID: "q-95",
-        },
+        codexLeaderRecycleThresholdTokens: 260_000,
       });
       await waitForSpawnCalls(1);
 
       let config = realReadFileSync(configPath, "utf-8");
-      expect(config).not.toContain("model_context_window = 1000000");
-      expect(config).toContain("model_auto_compact_token_limit = 900000");
-      expect(config).toContain(`model_catalog_json = ${JSON.stringify(workerCatalogPath)}`);
-
-      let catalog = JSON.parse(realReadFileSync(workerCatalogPath, "utf-8"));
-      expect(catalog.models).toHaveLength(1);
-      expectCodexParseableModelEntryShape(catalog.models[0]);
-      expect(catalog.models[0]).toMatchObject({
-        slug: "gpt-5.5",
-        context_window: 1_052_632,
-        max_context_window: 1_052_632,
-        effective_context_window_percent: 95,
-        auto_compact_token_limit: 900_000,
-      });
+      expect(config).not.toContain("model_context_window = 344445");
+      expect(config).not.toContain("model_auto_compact_token_limit = 310000");
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
       launcher.setSettingsGetter(() => ({
         claudeBinary: "",
         codexBinary: "/opt/fake/codex",
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
       }));
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
@@ -1133,266 +1092,8 @@ describe("launch", () => {
       await waitForSpawnCalls(2);
 
       config = realReadFileSync(configPath, "utf-8");
-      expect(config).not.toContain("model_context_window = 1000000");
-      expect(config).toContain("model_auto_compact_token_limit = 900000");
-      expect(config).toContain(`model_catalog_json = ${JSON.stringify(leaderCatalogPath)}`);
-
-      catalog = JSON.parse(realReadFileSync(leaderCatalogPath, "utf-8"));
-      expectCodexParseableModelEntryShape(catalog.models[0]);
-      expect(catalog.models[0]).toMatchObject({
-        slug: "gpt-5.5",
-        context_window: 1_052_632,
-        max_context_window: 1_052_632,
-        effective_context_window_percent: 95,
-        auto_compact_token_limit: 900_000,
-      });
-    } finally {
-      rmSync(customHome, { recursive: true, force: true });
-    }
-  });
-
-  it("backfills a legacy Codex session home with model catalog config on relaunch", async () => {
-    mockResolveBinary.mockReturnValue("/opt/fake/codex");
-    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
-    const sessionHome = join(customHome, "test-session-id");
-    const configPath = join(sessionHome, "config.toml");
-    const catalogPath = join(sessionHome, "takode-model-catalog.json");
-    const { readFileSync: realReadFileSync, rmSync: realRmSync, writeFileSync: realWriteFileSync } = require("node:fs");
-
-    try {
-      mockSpawn.mockReturnValueOnce(createMockCodexProc());
-      const info = await launcher.launch({
-        backendType: "codex",
-        cwd: "/tmp/project",
-        model: "gpt-5.5",
-        codexSandbox: "workspace-write",
-        codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
-        codexNonLeaderAutoCompactThresholdPercent: 90,
-        env: {
-          TAKODE_ROLE: "worker",
-          TAKODE_QUEST_ID: "q-95",
-        },
-      });
-      await waitForSpawnCalls(1);
-
-      // Regression coverage for sessions created before q-95: relaunch is the
-      // recovery boundary that can repair a legacy session CODEX_HOME.
-      realWriteFileSync(
-        configPath,
-        ['model_provider = "mai-litellm"', 'model = "gpt-5.5"', "model_auto_compact_token_limit = 900000", ""].join(
-          "\n",
-        ),
-        "utf-8",
-      );
-      realRmSync(catalogPath, { force: true });
-      launcher.setSettingsGetter(() => ({
-        claudeBinary: "",
-        codexBinary: "/opt/fake/codex",
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
-        codexNonLeaderAutoCompactThresholdPercent: 90,
-      }));
-
-      mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
-      const relaunch = await launcher.relaunch(info.sessionId);
-      expect(relaunch.ok).toBe(true);
-      await waitForSpawnCalls(2);
-
-      const config = realReadFileSync(configPath, "utf-8");
-      expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
-      expect(config).not.toContain("model_context_window");
-      expect(config).toContain("model_auto_compact_token_limit = 900000");
-
-      const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      expectCodexParseableModelEntryShape(catalog.models[0]);
-      expect(catalog.models[0]).toMatchObject({
-        slug: "gpt-5.5",
-        context_window: 1_052_632,
-        max_context_window: 1_052_632,
-        effective_context_window_percent: 95,
-        auto_compact_token_limit: 900_000,
-      });
-    } finally {
-      rmSync(customHome, { recursive: true, force: true });
-    }
-  });
-
-  it("repairs a previously synthesized Codex catalog so Codex can parse it on relaunch", async () => {
-    mockResolveBinary.mockReturnValue("/opt/fake/codex");
-    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
-    const sessionHome = join(customHome, "test-session-id");
-    const configPath = join(sessionHome, "config.toml");
-    const catalogPath = join(sessionHome, "takode-model-catalog.json");
-    const { readFileSync: realReadFileSync, writeFileSync: realWriteFileSync } = require("node:fs");
-
-    try {
-      mockSpawn.mockReturnValueOnce(createMockCodexProc());
-      const info = await launcher.launch({
-        backendType: "codex",
-        cwd: "/tmp/project",
-        model: "gpt-5.5",
-        codexSandbox: "workspace-write",
-        codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
-        codexNonLeaderAutoCompactThresholdPercent: 90,
-        env: {
-          TAKODE_ROLE: "worker",
-          TAKODE_QUEST_ID: "q-95",
-        },
-      });
-      await waitForSpawnCalls(1);
-
-      realWriteFileSync(
-        configPath,
-        ['model = "gpt-5.5"', `model_catalog_json = ${JSON.stringify(catalogPath)}`, ""].join("\n"),
-        "utf-8",
-      );
-      realWriteFileSync(
-        catalogPath,
-        JSON.stringify(
-          {
-            models: [
-              {
-                slug: "gpt-5.5",
-                context_window: 1_052_632,
-                max_context_window: 1_052_632,
-                effective_context_window_percent: 95,
-                auto_compact_token_limit: 900_000,
-              },
-            ],
-          },
-          null,
-          2,
-        ),
-        "utf-8",
-      );
-      launcher.setSettingsGetter(() => ({
-        claudeBinary: "",
-        codexBinary: "/opt/fake/codex",
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
-        codexNonLeaderAutoCompactThresholdPercent: 90,
-      }));
-
-      mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
-      const relaunch = await launcher.relaunch(info.sessionId);
-      expect(relaunch.ok).toBe(true);
-      await waitForSpawnCalls(2);
-
-      const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      expect(catalog.models).toHaveLength(1);
-      expectCodexParseableModelEntryShape(catalog.models[0]);
-      expect(catalog.models[0]).toMatchObject({
-        slug: "gpt-5.5",
-        display_name: "GPT-5.5",
-        context_window: 1_052_632,
-        max_context_window: 1_052_632,
-        effective_context_window_percent: 95,
-        auto_compact_token_limit: 900_000,
-      });
-    } finally {
-      rmSync(customHome, { recursive: true, force: true });
-    }
-  });
-
-  it("generates a leader model catalog from session config when no source catalog exists", async () => {
-    mockResolveBinary.mockReturnValue("/opt/fake/codex");
-    mockSpawn.mockReturnValueOnce(createMockCodexProc());
-
-    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
-    const sessionHome = join(customHome, "test-session-id");
-    const configPath = join(sessionHome, "config.toml");
-    const catalogPath = join(sessionHome, "takode-leader-model-catalog.json");
-    const {
-      mkdirSync: realMkdirSync,
-      writeFileSync: realWriteFileSync,
-      readFileSync: realReadFileSync,
-    } = require("node:fs");
-
-    realMkdirSync(sessionHome, { recursive: true });
-    realWriteFileSync(
-      configPath,
-      ['model = "gpt-5.5"', "model_context_window = 921793", "model_auto_compact_token_limit = 900000", ""].join("\n"),
-      "utf-8",
-    );
-
-    try {
-      await launcher.launch({
-        backendType: "codex",
-        cwd: "/tmp/project",
-        codexSandbox: "workspace-write",
-        codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
-        env: {
-          TAKODE_ROLE: "orchestrator",
-        },
-      });
-      await waitForSpawnCalls(1);
-
-      const config = realReadFileSync(configPath, "utf-8");
-      expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
-      expect(config).not.toContain("model_context_window");
-      expect(config).toContain("model_auto_compact_token_limit = 900000");
-
-      const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      expect(catalog.models).toHaveLength(1);
-      expectCodexParseableModelEntryShape(catalog.models[0]);
-      expect(catalog.models[0]).toMatchObject({
-        slug: "gpt-5.5",
-        context_window: 970_309,
-        max_context_window: 970_309,
-        effective_context_window_percent: 95,
-        auto_compact_token_limit: 900_000,
-      });
-    } finally {
-      rmSync(customHome, { recursive: true, force: true });
-    }
-  });
-
-  it("generates a normal-session model catalog from session config when no source catalog exists", async () => {
-    mockResolveBinary.mockReturnValue("/opt/fake/codex");
-    mockSpawn.mockReturnValueOnce(createMockCodexProc());
-
-    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
-    const sessionHome = join(customHome, "test-session-id");
-    const configPath = join(sessionHome, "config.toml");
-    const catalogPath = join(sessionHome, "takode-model-catalog.json");
-    const {
-      mkdirSync: realMkdirSync,
-      writeFileSync: realWriteFileSync,
-      readFileSync: realReadFileSync,
-    } = require("node:fs");
-
-    realMkdirSync(sessionHome, { recursive: true });
-    realWriteFileSync(
-      configPath,
-      ['model = "gpt-5.5"', "model_context_window = 921793", "model_auto_compact_token_limit = 900000", ""].join("\n"),
-      "utf-8",
-    );
-
-    try {
-      await launcher.launch({
-        backendType: "codex",
-        cwd: "/tmp/project",
-        codexSandbox: "workspace-write",
-        codexHome: customHome,
-      });
-      await waitForSpawnCalls(1);
-
-      const config = realReadFileSync(configPath, "utf-8");
-      expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
-      expect(config).not.toContain("model_context_window");
-      expect(config).toContain("model_auto_compact_token_limit = 900000");
-
-      const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      expect(catalog.models).toHaveLength(1);
-      expectCodexParseableModelEntryShape(catalog.models[0]);
-      expect(catalog.models[0]).toMatchObject({
-        slug: "gpt-5.5",
-        context_window: 970_309,
-        max_context_window: 970_309,
-        effective_context_window_percent: 95,
-        auto_compact_token_limit: 900_000,
-      });
+      expect(config).toContain("model_context_window = 344445");
+      expect(config).toContain("model_auto_compact_token_limit = 310000");
     } finally {
       rmSync(customHome, { recursive: true, force: true });
     }
@@ -1450,90 +1151,16 @@ describe("launch", () => {
       expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      expect(catalog.models).toHaveLength(1);
-      expectCodexParseableModelEntryShape(catalog.models[0]);
-      expect(catalog.models[0]).toMatchObject({
-        slug: "gpt-5.5",
-        display_name: "GPT-5.5",
-        context_window: 272000,
-        max_context_window: 272000,
-        effective_context_window_percent: 95,
-        auto_compact_token_limit: 232560,
-      });
-    } finally {
-      rmSync(customHome, { recursive: true, force: true });
-    }
-  });
-
-  it("does not treat a copied context-window setting as a leader override for non-leader Codex sessions", async () => {
-    mockResolveBinary.mockReturnValue("/opt/fake/codex");
-    mockSpawn.mockReturnValueOnce(createMockCodexProc());
-
-    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
-    const sessionHome = join(customHome, "test-session-id");
-    const configPath = join(sessionHome, "config.toml");
-    const catalogSourcePath = join(sessionHome, "models_cache.json");
-    const leaderCatalogPath = join(sessionHome, "takode-leader-model-catalog.json");
-    const nonLeaderCatalogPath = join(sessionHome, "takode-model-catalog.json");
-    const {
-      mkdirSync: realMkdirSync,
-      writeFileSync: realWriteFileSync,
-      readFileSync: realReadFileSync,
-      existsSync: realExistsSync,
-    } = require("node:fs");
-
-    realMkdirSync(sessionHome, { recursive: true });
-    realWriteFileSync(
-      configPath,
-      ['model = "gpt-5.5"', "model_context_window = 921_793", "model_auto_compact_token_limit = 900000", ""].join("\n"),
-      "utf-8",
-    );
-    realWriteFileSync(
-      catalogSourcePath,
-      JSON.stringify(
+      expect(catalog.models).toMatchObject([
         {
-          models: [
-            {
-              slug: "gpt-5.5",
-              context_window: 272000,
-              max_context_window: 272000,
-              effective_context_window_percent: 95,
-              auto_compact_token_limit: null,
-            },
-          ],
+          slug: "gpt-5.5",
+          display_name: "GPT-5.5",
+          context_window: 272000,
+          max_context_window: 272000,
+          effective_context_window_percent: 95,
+          auto_compact_token_limit: 232560,
         },
-        null,
-        2,
-      ),
-      "utf-8",
-    );
-
-    try {
-      await launcher.launch({
-        backendType: "codex",
-        cwd: "/tmp/project",
-        codexSandbox: "workspace-write",
-        codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
-        codexNonLeaderAutoCompactThresholdPercent: 90,
-      });
-      await waitForSpawnCalls(1);
-
-      const config = realReadFileSync(configPath, "utf-8");
-      expect(config).toContain(`model_catalog_json = ${JSON.stringify(nonLeaderCatalogPath)}`);
-      expect(config).not.toContain("model_context_window");
-      expect(config).toContain("model_auto_compact_token_limit = 900000");
-      expect(realExistsSync(leaderCatalogPath)).toBe(false);
-
-      const catalog = JSON.parse(realReadFileSync(nonLeaderCatalogPath, "utf-8"));
-      expectCodexParseableModelEntryShape(catalog.models[0]);
-      expect(catalog.models[0]).toMatchObject({
-        slug: "gpt-5.5",
-        context_window: 970_309,
-        max_context_window: 970_309,
-        effective_context_window_percent: 95,
-        auto_compact_token_limit: 900_000,
-      });
+      ]);
     } finally {
       rmSync(customHome, { recursive: true, force: true });
     }
@@ -1562,7 +1189,7 @@ describe("launch", () => {
         codexSandbox: "workspace-write",
         codexBinary: wrapperPath,
         codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
       });
       await waitForSpawnCalls(1);
 
@@ -1573,7 +1200,7 @@ describe("launch", () => {
       launcher.setSettingsGetter(() => ({
         claudeBinary: "",
         codexBinary: wrapperPath,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
       }));
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
@@ -1591,8 +1218,8 @@ describe("launch", () => {
       expect(wrapperEnv).toContain(`CODEX_HOME='${sessionHome}'`);
 
       const config = realReadFileSync(configPath, "utf-8");
-      expect(config).not.toContain("model_context_window = 1000000");
-      expect(config).toContain("model_auto_compact_token_limit = 900000");
+      expect(config).toContain("model_context_window = 344445");
+      expect(config).toContain("model_auto_compact_token_limit = 310000");
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1621,7 +1248,7 @@ describe("launch", () => {
         codexSandbox: "workspace-write",
         codexBinary: wrapperPath,
         codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
         env: {
           TAKODE_ROLE: "orchestrator",
           TAKODE_API_PORT: "3457",
@@ -1639,8 +1266,8 @@ describe("launch", () => {
       expect(wrapperEnv).toContain(`CODEX_HOME='${sessionHome}'`);
 
       const config = realReadFileSync(configPath, "utf-8");
-      expect(config).not.toContain("model_context_window = 1000000");
-      expect(config).toContain("model_auto_compact_token_limit = 1000000");
+      expect(config).toContain("model_context_window = 344445");
+      expect(config).toContain("model_auto_compact_token_limit = 310000");
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1659,7 +1286,7 @@ describe("launch", () => {
     try {
       writeFileSync(
         join(hostCodexHome, "config.toml"),
-        ['model = "gpt-5.5"', "model_context_window = 1000000", "model_auto_compact_token_limit = 750000", ""].join(
+        ['model = "gpt-5.5"', "model_context_window = 344445", "model_auto_compact_token_limit = 750000", ""].join(
           "\n",
         ),
       );
@@ -1702,7 +1329,7 @@ describe("launch", () => {
         codexSandbox: "workspace-write",
         codexBinary: wrapperPath,
         codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
         env: {
           TAKODE_ROLE: "orchestrator",
         },
@@ -1711,15 +1338,12 @@ describe("launch", () => {
 
       const config = realReadFileSync(configPath, "utf-8");
       expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
-      expect(config).not.toContain("model_context_window");
-      expect(config).toContain("model_auto_compact_token_limit = 750000");
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
       const overridden = catalog.models.find((entry: any) => entry.slug === "gpt-5.5");
-      expectCodexParseableModelEntryShape(overridden);
-      expect(overridden.context_window).toBe(1_052_632);
-      expect(overridden.max_context_window).toBe(1_052_632);
-      expect(overridden.auto_compact_token_limit).toBe(750_000);
+      expect(overridden.context_window).toBe(344_445);
+      expect(overridden.max_context_window).toBe(344_445);
+      expect(overridden.auto_compact_token_limit).toBe(310_000);
 
       const untouched = catalog.models.find((entry: any) => entry.slug === "gpt-5.4");
       expect(untouched.context_window).toBe(272000);
@@ -1782,7 +1406,7 @@ describe("launch", () => {
         codexSandbox: "workspace-write",
         codexBinary: wrapperPath,
         codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
         env: {
           TAKODE_ROLE: "orchestrator",
         },
@@ -1791,22 +1415,20 @@ describe("launch", () => {
 
       const config = realReadFileSync(configPath, "utf-8");
       expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
-      expect(config).not.toContain("model_context_window");
-      expect(config).toContain("model_auto_compact_token_limit = 1000000");
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      expect(catalog.models).toHaveLength(1);
-      expectCodexParseableModelEntryShape(catalog.models[0]);
-      expect(catalog.models[0]).toMatchObject({
-        slug: "gpt-5.5",
-        display_name: "GPT-5.5",
-        description: "Newest model",
-        effective_context_window_percent: 95,
-        context_window: 1_052_632,
-        max_context_window: 1_052_632,
-        auto_compact_token_limit: 1_000_000,
-        visibility: "list",
-      });
+      expect(catalog.models).toMatchObject([
+        {
+          slug: "gpt-5.5",
+          display_name: "GPT-5.5",
+          description: "Newest model",
+          effective_context_window_percent: 95,
+          context_window: 344_445,
+          max_context_window: 344_445,
+          auto_compact_token_limit: 310_000,
+          visibility: "list",
+        },
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1901,12 +1523,12 @@ describe("launch", () => {
   });
 
   it("launches MAI-wrapper-backed Codex workers with the session-local CODEX_HOME overlay", async () => {
+    // Worker launches also need the hostname shim, otherwise codex.sh can
+    // source the normal host env and write session config into the host home.
     const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
     const sessionHome = join(customHome, "test-session-id");
-    const configPath = join(sessionHome, "config.toml");
-    const catalogPath = join(sessionHome, "takode-model-catalog.json");
     const shimDir = join(sessionHome, ".mai-wrapper-bin");
-    const { existsSync: realExistsSync, readFileSync: realReadFileSync } = require("node:fs");
+    const { readFileSync: realReadFileSync } = require("node:fs");
     const { root, wrapperPath } = createMaiWrapperFixture();
 
     try {
@@ -1920,43 +1542,20 @@ describe("launch", () => {
       await launcher.launch({
         backendType: "codex",
         cwd: "/tmp/project",
-        model: "gpt-5.5",
         codexSandbox: "workspace-write",
         codexBinary: wrapperPath,
         codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 921_793,
-        codexNonLeaderAutoCompactThresholdPercent: 90,
-        env: {
-          TAKODE_ROLE: "worker",
-          TAKODE_QUEST_ID: "q-95",
-        },
       });
       await waitForSpawnCalls(1);
 
       const [cmdAndArgs, options] = mockSpawn.mock.calls[0]!;
       expect(cmdAndArgs[0]).toBe(wrapperPath);
-      expect(options.env.PATH.split(":")[0]).toBe(shimDir);
       expect(options.env.CODEX_HOME).toBe(sessionHome);
+      expect(options.env.PATH.split(":")[0]).toBe(shimDir);
 
-      const overlayEnvPath = getMaiWrapperSessionEnvPath(root);
-      expect(realExistsSync(overlayEnvPath)).toBe(true);
-      const overlayEnv = realReadFileSync(overlayEnvPath, "utf-8");
-      expect(overlayEnv).toContain(`CODEX_HOME='${sessionHome}'`);
-
-      const config = realReadFileSync(configPath, "utf-8");
-      expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
-      expect(config).not.toContain("model_context_window");
-      expect(config).toContain("model_auto_compact_token_limit = 829613");
-
-      const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      expectCodexParseableModelEntryShape(catalog.models[0]);
-      expect(catalog.models[0]).toMatchObject({
-        slug: "gpt-5.5",
-        context_window: 970_309,
-        max_context_window: 970_309,
-        effective_context_window_percent: 95,
-        auto_compact_token_limit: 829_613,
-      });
+      const wrapperEnv = realReadFileSync(getMaiWrapperSessionEnvPath(root), "utf-8");
+      expect(wrapperEnv).toContain('LITELLM_PROXY_URL="http://localhost:4000"');
+      expect(wrapperEnv).toContain(`CODEX_HOME='${sessionHome}'`);
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1971,7 +1570,6 @@ describe("launch", () => {
     const hostCodexHome = "/Users/test/.codex/hosts/test-host";
     const sessionHome = join(customHome, "test-session-id");
     const { root, wrapperPath } = createMaiWrapperFixture({ hostCodexHome });
-    const { existsSync: realExistsSync } = require("node:fs");
 
     try {
       mockResolveBinary.mockImplementation((name: string): string | null => {
@@ -2002,7 +1600,6 @@ describe("launch", () => {
       expect(mockCp).not.toHaveBeenCalledWith(join(homedir(), ".codex", "skills"), join(sessionHome, "skills"), {
         recursive: true,
       });
-      expect(realExistsSync(getMaiWrapperSessionEnvPath(root))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -2162,7 +1759,7 @@ describe("launch", () => {
     }
   });
 
-  it("applies the context-window override to containerized Codex sessions", async () => {
+  it("applies the derived context guard to containerized Codex leaders only", async () => {
     const customHome = mkdtempSync(join(tmpdir(), "codex-container-home-test-"));
 
     try {
@@ -2170,11 +1767,9 @@ describe("launch", () => {
       const workerInfo = await launcher.launch({
         backendType: "codex",
         cwd: "/tmp/project",
-        model: "gpt-5.5",
         codexSandbox: "workspace-write",
         codexHome: customHome,
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
-        codexNonLeaderAutoCompactThresholdPercent: 90,
+        codexLeaderRecycleThresholdTokens: 260_000,
         containerId: "abc123def456",
         containerName: "companion-session-1",
         containerImage: "ubuntu:22.04",
@@ -2188,18 +1783,14 @@ describe("launch", () => {
       let bashIndex = cmdAndArgs.indexOf("-lc");
       expect(bashIndex).toBeGreaterThan(-1);
       let innerScript = cmdAndArgs[bashIndex + 1];
-      expect(innerScript).not.toContain("model_context_window = 1000000");
-      expect(innerScript).toContain("model_auto_compact_token_limit = 900000");
-      expect(innerScript).toContain(
-        "cat > \"/root/.codex/takode-model-catalog.json\" <<'__COMPANION_CODEX_MODEL_CATALOG__'",
-      );
-      expect(innerScript).toContain('model_catalog_json = "/root/.codex/takode-model-catalog.json"');
+      expect(innerScript).not.toContain("model_context_window = 344445");
+      expect(innerScript).not.toContain("model_auto_compact_token_limit = 310000");
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
       launcher.setSettingsGetter(() => ({
         claudeBinary: "",
         codexBinary: "codex",
-        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        codexLeaderRecycleThresholdTokens: 260_000,
       }));
       mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
       const relaunch = await launcher.relaunch(workerInfo.sessionId);
@@ -2212,12 +1803,8 @@ describe("launch", () => {
       expect(bashIndex).toBeGreaterThan(-1);
       innerScript = cmdAndArgs[bashIndex + 1];
       expect(innerScript).toContain("cat > \"/root/.codex/config.toml\" <<'__COMPANION_CODEX_CONFIG__'");
-      expect(innerScript).not.toContain("model_context_window = 1000000");
-      expect(innerScript).toContain("model_auto_compact_token_limit = 900000");
-      expect(innerScript).toContain(
-        "cat > \"/root/.codex/takode-leader-model-catalog.json\" <<'__COMPANION_CODEX_MODEL_CATALOG__'",
-      );
-      expect(innerScript).toContain('model_catalog_json = "/root/.codex/takode-leader-model-catalog.json"');
+      expect(innerScript).toContain("model_context_window = 344445");
+      expect(innerScript).toContain("model_auto_compact_token_limit = 310000");
       expect(innerScript).toContain("exec 'codex' '-c' 'tools.webSearch=false' '-a'");
     } finally {
       rmSync(customHome, { recursive: true, force: true });

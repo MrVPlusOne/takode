@@ -85,16 +85,12 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         aliases: ["auto compact", "non leader", "worker", "percent", "90%", "gpt-5.4", "gpt-5.5"],
       },
       {
-        id: "codex-leader-context-window",
-        text: "Codex leader context window override orchestration recycle compaction tokens 1M",
-      },
-      {
         id: "codex-leader-recycle-threshold",
-        text: "Codex leader recycle threshold orchestration compaction tokens 260k",
+        text: "Codex leader recycle budget orchestration compaction guard threshold tokens 260k",
       },
       {
         id: "codex-leader-recycle-threshold-overrides",
-        text: "Codex leader model threshold overrides per-model exact model ids gpt-5.4 gpt-5.5 fallback override",
+        text: "Codex leader model recycle budget overrides per-model exact model ids gpt-5.4 gpt-5.5 fallback override",
         aliases: ["override", "model id", "gpt-5.4", "gpt-5.5"],
       },
       { id: "default-backend", text: "Default Backend Claude CLI Claude SDK backend" },

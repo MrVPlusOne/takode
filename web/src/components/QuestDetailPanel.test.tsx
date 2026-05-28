@@ -135,6 +135,16 @@ function advanceQuestUpdate<T extends QuestmasterTask>(quest: T, deltaMs = 1): T
   } as T;
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("QuestDetailPanel", () => {
   beforeEach(() => {
     useStore.getState().reset();
@@ -1789,6 +1799,76 @@ describe("QuestDetailPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Collapse file" }));
     expect(screen.queryByText("before")).toBeNull();
     expect(screen.getByRole("button", { name: "Expand file" })).toBeTruthy();
+  });
+
+  it("keeps the commit modal footprint stable while the next commit diff is loading", async () => {
+    const firstSha = "abc1234def567890";
+    const secondSha = "deadbeeffeedcafe";
+    const secondCommit = createDeferred<{
+      sha: string;
+      shortSha: string;
+      message: string;
+      timestamp: number;
+      available: boolean;
+      additions: number;
+      deletions: number;
+      diff: string;
+    }>();
+    const quest = makeVerificationQuest({ commitShas: [firstSha, secondSha] } as Partial<QuestmasterTask>);
+    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
+    mockGetQuestCommit.mockImplementation((_id: string, sha: string, options?: { includeDiff?: boolean }) => {
+      const base = {
+        sha,
+        shortSha: sha.slice(0, 7),
+        message: sha === firstSha ? "First ported commit" : "Second ported commit",
+        timestamp: sha === firstSha ? 1000 : 2000,
+        available: true,
+      };
+      if (options?.includeDiff === false) return Promise.resolve(base);
+      if (sha === secondSha) return secondCommit.promise;
+      return Promise.resolve({
+        ...base,
+        additions: 12,
+        deletions: 4,
+        diff: `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n`,
+      });
+    });
+
+    render(<QuestDetailPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "Expand commits, 2 commits" }));
+    expect(await screen.findByText("First ported commit")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText(`Open code commit ${firstSha.slice(0, 7)}`));
+
+    await waitFor(() => {
+      expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", firstSha);
+    });
+    const modal = screen.getByTestId("quest-commit-modal");
+    const diffScroll = modal.querySelector(".quest-commit-diff-scroll");
+    expect(modal).toHaveClass("h-[90dvh]", "max-h-[calc(100dvh-2rem)]", "min-h-0");
+    expect(diffScroll).toHaveClass("min-h-0", "flex-1", "overflow-auto");
+
+    fireEvent.click(screen.getByText("Next"));
+
+    await waitFor(() => {
+      expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", secondSha);
+    });
+    expect(screen.getByText("Loading commit diff...")).toBeTruthy();
+    expect(screen.getByTestId("quest-commit-modal")).toHaveClass("h-[90dvh]", "max-h-[calc(100dvh-2rem)]", "min-h-0");
+    expect(diffScroll).toHaveClass("min-h-0", "flex-1", "overflow-auto");
+
+    await act(async () => {
+      secondCommit.resolve({
+        sha: secondSha,
+        shortSha: secondSha.slice(0, 7),
+        message: "Second ported commit",
+        timestamp: 2000,
+        available: true,
+        additions: 3,
+        deletions: 1,
+        diff: `diff --git a/other.ts b/other.ts\n--- a/other.ts\n+++ b/other.ts\n@@ -1 +1 @@\n-before\n+after\n`,
+      });
+    });
+    expect(await screen.findByText("+3 additions")).toBeTruthy();
   });
 
   it("shows a graceful unavailable state when a stored commit cannot be loaded", async () => {

@@ -1660,14 +1660,14 @@ export function QuestDetailPanel() {
           onClick={closeCommitModal}
         >
           <div
-            className="w-[min(1100px,96vw)] max-h-[90dvh] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
+            className="h-[90dvh] max-h-[calc(100dvh-2rem)] min-h-0 w-[min(1100px,96vw)] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label={`Commit ${shortCommitSha(activeCommitEntry.sha)}`}
             data-testid="quest-commit-modal"
           >
-            <div className="flex items-start justify-between gap-3 px-3 py-2 border-b border-cc-border">
+            <div className="flex shrink-0 items-start justify-between gap-3 px-3 py-2 border-b border-cc-border">
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="text-[10px] uppercase tracking-[0.08em] text-cc-muted/60">
@@ -1747,7 +1747,7 @@ export function QuestDetailPanel() {
               </div>
             </div>
 
-            <div className="quest-commit-diff-scroll flex-1 overflow-auto bg-cc-bg/40 px-4 pb-4 pt-0">
+            <div className="quest-commit-diff-scroll min-h-0 flex-1 overflow-auto bg-cc-bg/40 px-4 pb-4 pt-0">
               {commitLookupLoadingKey === activeCommitKey &&
               (!activeCommitDetails || (activeCommitDetails.available && !activeCommitDetails.diff)) ? (
                 <div className="h-full min-h-48 flex items-center justify-center text-sm text-cc-muted">

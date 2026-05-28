@@ -153,8 +153,11 @@ describe("Playground", () => {
     render(<Playground />);
 
     const diffSlot = screen.getByTestId("playground-quest-commit-diff-slot");
+    const loadingSlot = screen.getByTestId("playground-quest-commit-loading-slot");
     const diffContent = diffSlot.querySelector(".quest-commit-diff-content");
-    expect(diffSlot).toHaveClass("pt-0", "px-4", "pb-4");
+    expect(diffSlot).toHaveClass("h-64", "min-h-0", "pt-0", "px-4", "pb-4");
+    expect(loadingSlot).toHaveClass("h-64", "min-h-0", "pt-0", "px-4", "pb-4");
+    expect(within(loadingSlot).getByText("Loading commit diff...")).toBeTruthy();
     expect(diffContent?.firstElementChild).toHaveClass("diff-viewer");
     expect(within(diffSlot).getByRole("button", { name: "Collapse file" })).toBeTruthy();
     expect(within(diffSlot).getByText("quest-cli-memory-commit-flags.test.ts")).toBeTruthy();

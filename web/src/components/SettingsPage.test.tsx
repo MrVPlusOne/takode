@@ -990,17 +990,12 @@ describe("SettingsPage", () => {
     const autoCompactInput = within(cliSection).getByLabelText(
       "Codex Non-Leader Auto-Compact Threshold",
     ) as HTMLInputElement;
-    const windowInput = within(cliSection).getByLabelText("Codex Session Context Window") as HTMLInputElement;
-    const thresholdInput = within(cliSection).getByLabelText(
-      "Codex Leader Default Recycle Threshold",
-    ) as HTMLInputElement;
-    const modelInput = within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1") as HTMLInputElement;
-    const overrideInput = within(cliSection).getByLabelText(
-      "Codex Leader Recycle Threshold Tokens 1",
-    ) as HTMLInputElement;
+    expect(within(cliSection).queryByLabelText("Codex Leader Context Window")).toBeNull();
+    const thresholdInput = within(cliSection).getByLabelText("Codex Leader Recycle Budget") as HTMLInputElement;
+    const modelInput = within(cliSection).getByLabelText("Codex Leader Recycle Budget Model 1") as HTMLInputElement;
+    const overrideInput = within(cliSection).getByLabelText("Codex Leader Recycle Budget Tokens 1") as HTMLInputElement;
 
     expect(autoCompactInput.value).toBe("85");
-    expect(windowInput.value).toBe("1100000");
     expect(thresholdInput.value).toBe("275000");
     expect(modelInput.value).toBe("gpt-5.4");
     expect(overrideInput.value).toBe("430000");
@@ -1008,22 +1003,20 @@ describe("SettingsPage", () => {
     vi.useFakeTimers();
     try {
       fireEvent.change(autoCompactInput, { target: { value: "88" } });
-      fireEvent.change(windowInput, { target: { value: "1200000" } });
       fireEvent.change(thresholdInput, { target: { value: "280000" } });
       fireEvent.click(within(cliSection).getByRole("button", { name: "Add Override" }));
-      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 2"), {
+      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Budget Model 2"), {
         target: { value: "gpt-5.5" },
       });
-      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Tokens 1"), {
+      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Budget Tokens 1"), {
         target: { value: "440000" },
       });
-      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Tokens 2"), {
+      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Budget Tokens 2"), {
         target: { value: "320000" },
       });
       await vi.advanceTimersByTimeAsync(900);
 
       expect(mockApi.updateSettings).toHaveBeenLastCalledWith({
-        codexLeaderContextWindowOverrideTokens: 1_200_000,
         codexNonLeaderAutoCompactThresholdPercent: 88,
         codexLeaderRecycleThresholdTokens: 280_000,
         codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 440_000, "gpt-5.5": 320_000 },
@@ -1057,17 +1050,17 @@ describe("SettingsPage", () => {
     await waitForSettingsPage();
 
     const cliSection = settingsSection("CLI & Backends");
-    const modelInput = within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1") as HTMLInputElement;
+    const modelInput = within(cliSection).getByLabelText("Codex Leader Recycle Budget Model 1") as HTMLInputElement;
 
     modelInput.focus();
     expect(document.activeElement).toBe(modelInput);
 
     fireEvent.change(modelInput, { target: { value: "gpt-5.4." } });
-    expect(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1")).toBe(modelInput);
+    expect(within(cliSection).getByLabelText("Codex Leader Recycle Budget Model 1")).toBe(modelInput);
     expect(document.activeElement).toBe(modelInput);
 
     fireEvent.change(modelInput, { target: { value: "gpt-5.4.1" } });
-    expect(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1")).toBe(modelInput);
+    expect(within(cliSection).getByLabelText("Codex Leader Recycle Budget Model 1")).toBe(modelInput);
     expect(document.activeElement).toBe(modelInput);
     expect(modelInput.value).toBe("gpt-5.4.1");
   });
@@ -1114,9 +1107,9 @@ describe("SettingsPage", () => {
     await waitForSettingsPage();
 
     const cliSection = settingsSection("CLI & Backends");
-    const modelInput = within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1") as HTMLInputElement;
+    const modelInput = within(cliSection).getByLabelText("Codex Leader Recycle Budget Model 1") as HTMLInputElement;
     const thresholdInput = within(cliSection).getByLabelText(
-      "Codex Leader Recycle Threshold Tokens 1",
+      "Codex Leader Recycle Budget Tokens 1",
     ) as HTMLInputElement;
 
     vi.useFakeTimers();
@@ -1135,8 +1128,8 @@ describe("SettingsPage", () => {
         }),
       );
 
-      expect(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1")).toBe(modelInput);
-      expect(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Tokens 1")).toBe(thresholdInput);
+      expect(within(cliSection).getByLabelText("Codex Leader Recycle Budget Model 1")).toBe(modelInput);
+      expect(within(cliSection).getByLabelText("Codex Leader Recycle Budget Tokens 1")).toBe(thresholdInput);
       expect(document.activeElement).toBe(modelInput);
       expect(modelInput.value).toBe("gpt-5.4");
       expect(thresholdInput.value).toBe("430000");
@@ -1154,9 +1147,9 @@ describe("SettingsPage", () => {
     });
 
     const cliSection = settingsSection("CLI & Backends");
-    expect(within(cliSection).getByText("Codex Leader Model Threshold Overrides")).toBeVisible();
+    expect(within(cliSection).getByText("Codex Leader Model Budget Overrides")).toBeVisible();
     expect(within(cliSection).getByRole("button", { name: "Add Override" })).toBeVisible();
-    expect(within(cliSection).getByLabelText("Codex Leader Default Recycle Threshold")).not.toBeVisible();
+    expect(within(cliSection).getByLabelText("Codex Leader Recycle Budget")).not.toBeVisible();
   });
 
   it("shows an empty state when no settings match", async () => {
