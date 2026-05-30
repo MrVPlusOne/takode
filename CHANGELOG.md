@@ -1,11 +1,100 @@
 # Takode Changelog
 
+## 2026-05-28
+
+### Changed
+
+- **Codex leader recycling** -- Codex leader recycle thresholds now derive from source effective context with fixed headroom, and normal leader budget and per-model override controls are hidden
+- **Codex non-leader compaction** -- Non-leader Codex sessions now rely on Codex default auto-compaction while preserving legacy settings/API compatibility and user-owned Codex config
+
+### Fixed
+
+- **Quest worker context** -- Board/Journey-assigned workers and reviewers now show quest banner context even when Questmaster ownership remains with another session, with stale task-history chips hidden where the banner is authoritative
+- **Worker replacement display** -- Quest headers and worker chips follow the current Work Board/Journey worker after replacement, and replacement spawn updates matching active board rows or prints compact board-update guidance
+- **Leader hover active quests** -- Leader hover cards hydrate exact active board rows from server snapshots and live updates, restoring active quest lists consistently across leader sessions
+
+## 2026-05-27
+
+### Fixed
+
+- **Codex session catalogs** -- Session-local Codex model catalogs can synthesize or repair parser-safe selected model entries when cache data is missing or minimal
+- **Quest commit diff modal** -- Quest commit diff modals keep a stable full-available footprint while switching commits, including loading, error, and unavailable states
+- **Work Board tab hover** -- Work Board tab close-hover states avoid width drift
+
+## 2026-05-26
+
+### Added
+
+- **Quest feedback controls** -- Quest Detail can delete user feedback, labels user-authored feedback as `user`, and shows session-submitted feedback as `on behalf of user`
+- **Composer shortcut tooltip** -- The send button tooltip now shows both send and newline shortcuts while preserving the accessible `Send message` action name
+
+### Fixed
+
+- **Delayed Pushover cancellation** -- Resolved needs-input prompts now cancel only their own scheduled delayed Pushover push while other unresolved prompts remain scheduled
+- **Needs-input resolution chips** -- Needs-input resolution notices render as collapsed special-message chips with concise expanded context and the duplicate-resolution warning preserved
+- **Codex instruction isolation** -- Takode session developer instructions stay in per-session Codex homes instead of leaking into host/global Codex config
+- **Codex spawn prep stalls** -- Repeated Codex worker spawn/replacement prep avoids unnecessary DotSlash scans and unchanged legacy skill migration work
+- **Relaunch stale PID handling** -- Relaunch treats untracked persisted PIDs as best-effort cleanup only, preserving graceful escalation for tracked live subprocesses
+
+### Changed
+
+- **Takode CI policy** -- GitHub Actions now follows the repository's pinned Bun, frozen install, and no-install script execution policy
+
+## 2026-05-25
+
+### Added
+
+- **Transcription debug recordings** -- Transcription debug mode can persist per-request recording folders with audio, prompts, results, timing, failure artifacts, and copy/open/delete controls
+
+### Changed
+
+- **Work Board tool-call chips** -- Collapsed Work Board tool calls now look like terminal command chips, show the raw `takode board ...` command, and keep raw/graphical toggles inside expanded content
+- **Memory entry defaults** -- Opening Memory now defaults to the last viewed session's available session-space root while preserving manual cross-space selection inside Memory
+- **Quest commit display** -- Quest Detail uses a collapsed-by-default `Commits` section that shows only the commit count until expanded
+
+### Fixed
+
+- **Completed quest board cleanup** -- Done quests, including rows stuck at Memory, leave active Work Board state while unfinished Memory rows remain active
+- **Repeated error cards** -- Visually consecutive identical chat error cards group together even across hidden feed markers while visible separators still split groups
+- **Quote selection cleanup** -- Quoted chat selections trim leading and trailing blank-line edges while preserving internal blank lines
+- **Quest commit modal spacing** -- Quest commit diff modal headers and content spacing are tighter and more stable
+
+## 2026-05-23
+
+### Added
+
+- **Sidebar changelog entry point** -- The sidebar build label now opens the in-app changelog viewer alongside the Settings entry point
+
+### Fixed
+
+- **Codex backend error auto-pause** -- Repeated classified Codex backend result errors now pause and coalesce automatic inputs while keeping manual recovery paths available
+- **Codex auto-pause recovery** -- Queued Codex backlog and browser-origin pending inputs are swept safely during auto-pause and drained exactly once after manual success
+- **Repeated error card grouping** -- Consecutive identical chat error cards collapse into counted cards without changing backend recovery behavior
+
+### Changed
+
+- **Takode-only changelog history** -- The active changelog now stops at the Takode `2026-04-10` baseline instead of rendering inherited upstream Companion releases
+
 ## 2026-05-22
+
+### Added
+
+- **Quest commit evidence** -- Quest Detail can show readable code and memory commit evidence, with commit diff access from the quest surface
 
 ### Fixed
 
 - **Recoverable disconnects** -- Recoverable backend disconnects now appear as quieter feed and Session Info status controls with Resume/Retry actions
 - **Codex queued input wakeups** -- Disconnected Codex sessions now wake for queued model-bound inputs, including leader herd events and board-stall warnings
+- **Needs-input resolution delivery** -- Externally resolved needs-input notifications are delivered as deferred, model-visible notices on the next eligible direct message
+- **Global needs-input navigation** -- Needs-input menus include clearer destination controls and dismiss large overlays when navigation would otherwise be obscured
+- **Blocking UI navigation** -- Quest and session navigation actions dismiss blocking overlays when the target session or quest is opened
+- **Diff viewer stability** -- Full diff views preserve horizontal scrolling and render expanded unchanged lines without blank gaps
+- **Mobile chat controls** -- Mobile thread status chips, collapsed composer controls, and chat-feed spacing fit more cleanly on narrow screens
+- **Leader quest diffs** -- Leader quest tabs open the associated worker diff instead of defaulting to the leader worktree when a worker target is available
+
+### Changed
+
+- **Leader proposal guidance** -- Leader proposal instructions now keep chat approval surfaces concise while detailed worker grounding stays in the quest record
 
 ## 2026-05-21
 
