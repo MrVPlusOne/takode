@@ -18,6 +18,7 @@
 ### Fixed
 
 - **Codex session catalogs** -- Session-local Codex model catalogs can synthesize or repair parser-safe selected model entries when cache data is missing or minimal
+- **Session location after restart** -- Restored sessions preserve Session Space, memory-space, and leader open-tab metadata more reliably, with stale default Session Space state reconciled during list hydration
 - **Quest commit diff modal** -- Quest commit diff modals keep a stable full-available footprint while switching commits, including loading, error, and unavailable states
 - **Work Board tab hover** -- Work Board tab close-hover states avoid width drift
 
@@ -86,6 +87,7 @@
 - **Recoverable disconnects** -- Recoverable backend disconnects now appear as quieter feed and Session Info status controls with Resume/Retry actions
 - **Codex queued input wakeups** -- Disconnected Codex sessions now wake for queued model-bound inputs, including leader herd events and board-stall warnings
 - **Needs-input resolution delivery** -- Externally resolved needs-input notifications are delivered as deferred, model-visible notices on the next eligible direct message
+- **Voice transcription context** -- Thread-scoped transcription now keeps useful older Main-thread context when recent activity is mostly tool or system noise
 - **Global needs-input navigation** -- Needs-input menus include clearer destination controls and dismiss large overlays when navigation would otherwise be obscured
 - **Blocking UI navigation** -- Quest and session navigation actions dismiss blocking overlays when the target session or quest is opened
 - **Diff viewer stability** -- Full diff views preserve horizontal scrolling and render expanded unchanged lines without blank gaps
