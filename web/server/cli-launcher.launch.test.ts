@@ -395,6 +395,16 @@ function getMaiWrapperSessionEnvPath(wrapperRoot: string, sessionId = "test-sess
   return join(wrapperRoot, ".run", `.env-${overlayHost}`);
 }
 
+function codexConfigArgValue(cmdAndArgs: string[], key: string): string | undefined {
+  const prefix = `${key}=`;
+  for (let i = 0; i < cmdAndArgs.length - 1; i++) {
+    if (cmdAndArgs[i] !== "-c") continue;
+    const value = cmdAndArgs[i + 1];
+    if (value.startsWith(prefix)) return value.slice(prefix.length);
+  }
+  return undefined;
+}
+
 const mockSpawn = vi.fn();
 const bunGlobal = globalThis as typeof globalThis & { Bun?: any };
 const hadBunGlobal = typeof bunGlobal.Bun !== "undefined";
@@ -1328,6 +1338,66 @@ describe("launch", () => {
       expect(untouched.context_window).toBe(272000);
       expect(untouched.max_context_window).toBe(1000000);
       expect(untouched.auto_compact_token_limit).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(customHome, { recursive: true, force: true });
+      rmSync(hostCodexHome, { recursive: true, force: true });
+    }
+  });
+
+  it("passes derived leader guard config as final Codex overrides for MAI wrapper launches", async () => {
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const hostCodexHome = mkdtempSync(join(tmpdir(), "codex-host-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const catalogPath = join(sessionHome, "takode-leader-model-catalog.json");
+    const { root, wrapperPath } = createMaiWrapperFixture({ hostCodexHome });
+    const { readFileSync: realReadFileSync } = require("node:fs");
+
+    try {
+      writeFileSync(
+        join(hostCodexHome, "config.toml"),
+        ['model = "gpt-5.5"', "model_context_window = 600000", "model_auto_compact_token_limit = 500000", ""].join(
+          "\n",
+        ),
+      );
+
+      mockResolveBinary.mockImplementation((name: string): string | null => {
+        if (name === wrapperPath) return wrapperPath;
+        return "/usr/bin/claude";
+      });
+      mockCaptureUserShellEnv.mockReturnValue({});
+      mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexBinary: wrapperPath,
+        codexHome: customHome,
+        env: {
+          TAKODE_ROLE: "orchestrator",
+        },
+      });
+      await waitForSpawnCalls(1);
+
+      const [cmdAndArgs] = mockSpawn.mock.calls[0]!;
+      expect(cmdAndArgs[0]).toBe(wrapperPath);
+
+      const config = realReadFileSync(configPath, "utf-8");
+      expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+      expect(config).toContain("model_context_window = 666112");
+      expect(config).toContain("model_auto_compact_token_limit = 599500");
+
+      // The MAI wrapper may rewrite config.toml from host ~/.codex after
+      // Takode prepares the session home. Final -c args keep Takode's leader
+      // guard authoritative for the launched Codex process.
+      expect(codexConfigArgValue(cmdAndArgs, "model_catalog_json")).toBe(JSON.stringify(catalogPath));
+      expect(codexConfigArgValue(cmdAndArgs, "model_context_window")).toBe("666112");
+      expect(codexConfigArgValue(cmdAndArgs, "model_auto_compact_token_limit")).toBe("599500");
+      expect(cmdAndArgs.indexOf("model_auto_compact_token_limit=599500")).toBeLessThan(
+        cmdAndArgs.indexOf("app-server"),
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
