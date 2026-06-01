@@ -1099,6 +1099,7 @@ export function NewSessionModal({
                           onClick={() => {
                             const next = !useWorktree;
                             setUseWorktree(next);
+                            if (!next) setShowBranchDropdown(false);
                             persistGlobalDefault("cc-worktree", String(next));
                           }}
                           className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors ${
@@ -1120,38 +1121,58 @@ export function NewSessionModal({
                       </NewSessionField>
                     )}
 
-                    {gitRepoInfo && useWorktree && (
+                    {(gitRepoInfo || repoInfoLoading || useWorktree) && (
                       <NewSessionField label="Base branch" className="flex-none">
                         <div className="relative" ref={branchDropdownRef}>
-                          <button
-                            onClick={() => {
-                              if (!showBranchDropdown && gitRepoInfo) {
-                                api
-                                  .gitFetch(gitRepoInfo.repoRoot)
-                                  .catch(() => {})
-                                  .finally(() => {
+                          {(() => {
+                            const branchButtonDisabled = !gitRepoInfo || !useWorktree;
+                            const branchLabel = gitRepoInfo
+                              ? selectedBranch || gitRepoInfo.currentBranch
+                              : repoInfoLoading
+                                ? "Detecting..."
+                                : "Branch";
+                            return (
+                              <button
+                                data-testid="new-session-branch-button"
+                                onClick={() => {
+                                  if (branchButtonDisabled) return;
+                                  if (!showBranchDropdown && gitRepoInfo) {
                                     api
-                                      .listBranches(gitRepoInfo.repoRoot)
-                                      .then(setBranches)
-                                      .catch(() => setBranches([]));
-                                  });
-                              }
-                              setShowBranchDropdown(!showBranchDropdown);
-                              setBranchFilter("");
-                            }}
-                            className="flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors cursor-pointer text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-                          >
-                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-60">
-                              <path d="M5 3.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm0 2.122a2.25 2.25 0 10-1.5 0v.378A2.5 2.5 0 007.5 8h1a1 1 0 010 2h-1A2.5 2.5 0 005 12.5v.128a2.25 2.25 0 101.5 0V12.5a1 1 0 011-1h1a2.5 2.5 0 000-5h-1a1 1 0 01-1-1V5.372zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5z" />
-                            </svg>
-                            <span className="max-w-[100px] truncate font-mono-code">
-                              {selectedBranch || gitRepoInfo.currentBranch}
-                            </span>
-                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50">
-                              <path d="M4 6l4 4 4-4" />
-                            </svg>
-                          </button>
-                          {showBranchDropdown && (
+                                      .gitFetch(gitRepoInfo.repoRoot)
+                                      .catch(() => {})
+                                      .finally(() => {
+                                        api
+                                          .listBranches(gitRepoInfo.repoRoot)
+                                          .then(setBranches)
+                                          .catch(() => setBranches([]));
+                                      });
+                                  }
+                                  setShowBranchDropdown(!showBranchDropdown);
+                                  setBranchFilter("");
+                                }}
+                                disabled={branchButtonDisabled}
+                                className={`flex min-w-[8.5rem] items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors ${
+                                  branchButtonDisabled
+                                    ? "cursor-not-allowed text-cc-muted/55 bg-cc-hover/30"
+                                    : "cursor-pointer text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+                                }`}
+                                title={
+                                  branchButtonDisabled
+                                    ? "Enable Worktree to choose a base branch"
+                                    : "Choose the base branch for the worktree"
+                                }
+                              >
+                                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-60 shrink-0">
+                                  <path d="M5 3.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm0 2.122a2.25 2.25 0 10-1.5 0v.378A2.5 2.5 0 007.5 8h1a1 1 0 010 2h-1A2.5 2.5 0 005 12.5v.128a2.25 2.25 0 101.5 0V12.5a1 1 0 011-1h1a2.5 2.5 0 000-5h-1a1 1 0 01-1-1V5.372zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5z" />
+                                </svg>
+                                <span className="max-w-[100px] truncate font-mono-code">{branchLabel}</span>
+                                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50 shrink-0">
+                                  <path d="M4 6l4 4 4-4" />
+                                </svg>
+                              </button>
+                            );
+                          })()}
+                          {gitRepoInfo && useWorktree && showBranchDropdown && (
                             <div className="absolute left-0 top-full mt-1 w-72 max-w-[calc(100vw-2rem)] bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 overflow-hidden">
                               <div className="px-2 py-2 border-b border-cc-border">
                                 <input
@@ -1293,6 +1314,7 @@ export function NewSessionModal({
                           setSessionRole(nextRole);
                           if (nextRole === "leader") {
                             setUseWorktree(false);
+                            setShowBranchDropdown(false);
                           }
                         }}
                         className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors cursor-pointer ${

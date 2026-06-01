@@ -531,6 +531,50 @@ describe("NewSessionModal", () => {
     expect(mockApi.gitPull).not.toHaveBeenCalled();
   });
 
+  it("keeps the branch control mounted and disabled when a leader is not using a worktree", async () => {
+    const user = userEvent.setup();
+    mockGetGlobalNewSessionDefaults.mockReturnValue({
+      backend: "claude",
+      model: "",
+      mode: "agent",
+      askPermission: true,
+      sessionRole: "leader",
+      envSlug: "",
+      cwd: "/tmp/project",
+      useWorktree: false,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+    });
+    mockApi.getRepoInfo.mockResolvedValue({
+      repoRoot: "/tmp/project",
+      repoName: "project",
+      currentBranch: "main",
+      defaultBranch: "main",
+      isWorktree: false,
+    });
+    mockApi.listBranches.mockResolvedValue([
+      { name: "main", isCurrent: true, isRemote: false, worktreePath: null, ahead: 0, behind: 0 },
+    ]);
+
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    expect(await screen.findByText("project")).toBeInTheDocument();
+    const modal = screen.getByTestId("new-session-modal-card");
+    expect(within(modal).getByText("Base branch")).toBeInTheDocument();
+    expect(within(modal).getByRole("button", { name: "Leader" })).toBeInTheDocument();
+
+    const branchButton = within(modal).getByTestId("new-session-branch-button");
+    expect(branchButton).toBeDisabled();
+    expect(branchButton).toHaveTextContent("main");
+
+    await user.click(within(modal).getByRole("button", { name: "Worktree" }));
+
+    expect(within(modal).getByText("Base branch")).toBeInTheDocument();
+    expect(within(modal).getByRole("button", { name: "Leader" })).toBeInTheDocument();
+    expect(within(modal).getByTestId("new-session-branch-button")).toBeEnabled();
+    expect(within(modal).getByTestId("new-session-branch-button")).toHaveTextContent("main");
+  });
+
   it("sends the selected branch when creating a worktree session", async () => {
     const user = userEvent.setup();
     mockGetGlobalNewSessionDefaults.mockReturnValue({
