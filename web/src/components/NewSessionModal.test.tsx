@@ -489,7 +489,7 @@ describe("NewSessionModal", () => {
     });
   });
 
-  it("does not send branch or worktree options when creating a leader from a repo", async () => {
+  it("sends branch and worktree options when creating a worktree-backed leader from a repo", async () => {
     const user = userEvent.setup();
     mockGetGlobalNewSessionDefaults.mockReturnValue({
       backend: "claude",
@@ -523,13 +523,11 @@ describe("NewSessionModal", () => {
 
     await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalled());
     const createOpts = mockQueuePendingSession.mock.calls[0][0].createOpts;
-    expect(createOpts).toEqual(expect.objectContaining({ cwd: "/tmp/project", role: "orchestrator" }));
-    expect(createOpts.branch).toBeUndefined();
+    expect(createOpts).toEqual(
+      expect.objectContaining({ cwd: "/tmp/project", role: "orchestrator", branch: "main", useWorktree: true }),
+    );
     expect(createOpts.createBranch).toBeUndefined();
-    expect(createOpts.useWorktree).toBeUndefined();
-    expect(JSON.parse(JSON.stringify(createOpts))).not.toHaveProperty("branch");
     expect(JSON.parse(JSON.stringify(createOpts))).not.toHaveProperty("createBranch");
-    expect(JSON.parse(JSON.stringify(createOpts))).not.toHaveProperty("useWorktree");
     expect(mockApi.gitPull).not.toHaveBeenCalled();
   });
 

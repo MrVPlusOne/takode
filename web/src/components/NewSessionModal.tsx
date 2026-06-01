@@ -462,7 +462,7 @@ export function NewSessionModal({
     setError("");
     setPullError("");
 
-    const shouldUseWorktree = useWorktree && sessionRole !== "leader";
+    const shouldUseWorktree = useWorktree;
 
     // Branch freshness only matters when the selected branch will be used as a
     // worktree base. Non-worktree session creation must not imply repo sync.
@@ -482,7 +482,7 @@ export function NewSessionModal({
   }
 
   async function doCreateSession() {
-    const shouldUseWorktree = useWorktree && sessionRole !== "leader";
+    const shouldUseWorktree = useWorktree;
     const branchName = shouldUseWorktree ? selectedBranch.trim() || gitRepoInfo?.currentBranch || undefined : undefined;
     const cwdSnapshot = cwd;
     const permissionMode =
@@ -1097,25 +1097,19 @@ export function NewSessionModal({
                       <NewSessionField label="Isolation" className="flex-none">
                         <button
                           onClick={() => {
-                            if (sessionRole === "leader") return;
                             const next = !useWorktree;
                             setUseWorktree(next);
                             persistGlobalDefault("cc-worktree", String(next));
                           }}
-                          disabled={sessionRole === "leader"}
                           className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors ${
-                            sessionRole === "leader"
-                              ? "opacity-40 cursor-not-allowed text-cc-muted"
-                              : useWorktree
-                                ? "bg-cc-primary/15 text-cc-primary font-medium cursor-pointer"
-                                : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
+                            useWorktree
+                              ? "bg-cc-primary/15 text-cc-primary font-medium cursor-pointer"
+                              : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
                           }`}
                           title={
-                            sessionRole === "leader"
-                              ? "Leader sessions don't use worktrees"
-                              : repoInfoLoading
-                                ? "Worktree metadata is loading"
-                                : "Create an isolated worktree for this session"
+                            repoInfoLoading
+                              ? "Worktree metadata is loading"
+                              : "Create an isolated worktree for this session"
                           }
                         >
                           <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-70">

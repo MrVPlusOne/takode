@@ -14,7 +14,7 @@ The `/port-changes` command ports commits from the current worktree session to t
 Every worktree session has these variables injected via system prompt:
 - **Worktree branch**: the `-wt-N` branch you're working on
 - **Base repo checkout**: the main repository path
-- **Base branch**: the branch to sync to (usually the parent branch)
+- **Base branch / port target**: the branch to sync to. For workers spawned by a worktree-backed leader, this is the leader's target branch/worktree branch, not the leader worktree's parent/default branch.
 
 ## Port Workflow
 
@@ -112,6 +112,8 @@ quest complete q-N --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --
 Port is not final quest closure. For every non-cancelled quest, final Memory owns final User review check settlement, structured final debrief metadata, durable-state closure, and the memory statement after accepted tracked changes are synced. Port should still preserve the context Memory will need: user-facing result, important verification, synced commits when relevant, and residual risks.
 
 Every port handoff must report the ordered synced SHAs explicitly so the later handoff can attach them. Put them on a dedicated `Synced SHAs: sha1,sha2` line so final Memory or the leader can copy them directly into `quest complete`. Include a concise accepted-state summary, `Final debrief draft:`, or `Debrief TLDR draft:` when Port has context final Memory will need; the TLDR draft should preserve self-contained quest-journey understanding, not routine port mechanics or raw hashes already present in the dedicated line. If the port worker cannot or should not draft those from available evidence, say so and ask the leader to route final Memory with the right context. Do **not** rely on `/port-changes` logs being parsed after the fact.
+
+Every port handoff must also identify the target used, for example `Port target used: <BASE_REPO> <BASE_BRANCH>`. This matters when the worker was spawned from a worktree-backed leader because the correct target is the leader's branch/worktree target rather than the repository's default branch.
 
 Do not add routine `memory update not needed` statements during Port. Include memory-specific evidence only when material: a completed memory write explicitly assigned to Port, a deferral for final Memory or a curator, relevant memory files/decisions inspected, or accepted facts final Memory needs for durable-memory triage.
 

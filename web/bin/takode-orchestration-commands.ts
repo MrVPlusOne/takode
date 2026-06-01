@@ -628,6 +628,12 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     name?: string | null;
     permissionMode?: string;
     backendType?: string;
+    cwd?: string;
+    isWorktree?: boolean;
+    repoRoot?: string | null;
+    branch?: string | null;
+    actualBranch?: string | null;
+    gitBranch?: string | null;
     memorySessionSpaceSlug?: string;
   };
   const leaderSessionLabel = leader.name
@@ -659,6 +665,12 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   const codexPermissionModeOverride = normalizeCodexSpawnPermissionMode(flags["permission-mode"]);
   const internetOverride = resolveBooleanToggleFlag(flags, "internet", "no-internet");
   const reasoningEffort = resolveReasoningEffort(flags);
+  const leaderWorktreeTargetBranch =
+    leader.isWorktree === true
+      ? (leader.actualBranch || leader.gitBranch || leader.branch || "").trim() || undefined
+      : undefined;
+  const shouldUseLeaderWorktreeTarget =
+    leaderWorktreeTargetBranch !== undefined && useWorktree && typeof flags.cwd !== "string";
 
   // --reviewer <session-number>: create a reviewer session tied to a parent worker
   const reviewerRaw = flags.reviewer;
@@ -754,7 +766,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   const buildCreatePayload = (): Record<string, unknown> => {
     const createPayload: Record<string, unknown> = {
       backend: backendRaw,
-      cwd,
+      cwd: shouldUseLeaderWorktreeTarget && reviewerOfNum === undefined && leader.cwd ? leader.cwd : cwd,
       useWorktree: reviewerOfNum !== undefined ? false : useWorktree,
       createdBy: leaderSessionId,
     };
@@ -774,6 +786,17 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     }
     if (model) {
       createPayload.model = model;
+    }
+
+    if (shouldUseLeaderWorktreeTarget && reviewerOfNum === undefined) {
+      createPayload.branch = leaderWorktreeTargetBranch;
+      createPayload.worktreePortTarget = {
+        repoRoot: leader.repoRoot || undefined,
+        branch: leaderWorktreeTargetBranch,
+        sourceSessionId: leader.sessionId,
+        sourceSessionNum: leader.sessionNum ?? null,
+        sourceLabel: leaderSessionLabel,
+      };
     }
 
     const codexPermissionMode =

@@ -15,7 +15,18 @@ export function getClaudeSdkDebugLogPath(port: number, sessionId: string): strin
 
 export interface CompanionInstructionBuildOptions {
   sessionNum?: number;
-  worktree?: { branch: string; repoRoot: string; parentBranch?: string };
+  worktree?: {
+    branch: string;
+    repoRoot: string;
+    parentBranch?: string;
+    portTarget?: {
+      repoRoot: string;
+      branch: string;
+      sourceSessionId?: string;
+      sourceSessionNum?: number | null;
+      sourceLabel?: string;
+    };
+  };
   extraInstructions?: string;
   backend?: BackendType;
 }
@@ -40,9 +51,15 @@ export function buildCompanionInstructions(opts?: CompanionInstructionBuildOptio
   }
 
   if (opts?.worktree) {
-    const { branch, repoRoot, parentBranch } = opts.worktree;
+    const { branch, repoRoot, parentBranch, portTarget } = opts.worktree;
     const branchLabel = parentBranch ? `\`${branch}\` (created from \`${parentBranch}\`)` : `\`${branch}\``;
-    const syncBaseBranch = parentBranch || branch;
+    const syncRepoRoot = portTarget?.repoRoot || repoRoot;
+    const syncBaseBranch = portTarget?.branch || parentBranch || branch;
+    const portTargetSource = portTarget?.sourceLabel
+      ? `\n- Port target source: ${portTarget.sourceLabel}`
+      : portTarget?.sourceSessionNum !== undefined && portTarget.sourceSessionNum !== null
+        ? `\n- Port target source: leader session #${portTarget.sourceSessionNum}`
+        : "";
 
     parts.push(`# Worktree Session — Branch Guardrails
 
@@ -60,8 +77,8 @@ This is a git worktree. The main repository is at: \`${repoRoot}\`
 Use \`/port-changes\` when asked to port, sync, or push commits to the main repo.
 
 **Sync context for this session:**
-- Base repo checkout: \`${repoRoot}\`
-- Base branch: \`${syncBaseBranch}\``);
+- Base repo checkout: \`${syncRepoRoot}\`
+- Base branch / port target: \`${syncBaseBranch}\`${portTargetSource}`);
   }
 
   parts.push(`## Link Syntax\n\n${TAKODE_LINK_SYNTAX_INSTRUCTIONS}`);

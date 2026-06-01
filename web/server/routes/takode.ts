@@ -726,6 +726,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
       gitHeadSha: bridge?.git_head_sha || null,
       gitDefaultBranch: bridge?.git_default_branch || null,
       diffBaseBranch: bridge?.diff_base_branch || null,
+      isWorktree: safeSession.isWorktree ?? bridge?.is_worktree ?? false,
+      repoRoot: safeSession.repoRoot ?? bridge?.repo_root ?? null,
       gitAhead: bridge?.git_ahead || 0,
       gitBehind: bridge?.git_behind || 0,
       totalLinesAdded: bridge?.total_lines_added || 0,

@@ -71,8 +71,8 @@ describe("new-session-defaults", () => {
     scopedSetItem("cc-backend", "claude");
     scopedSetItem("cc-model-claude", "claude-opus-4-6");
 
-    // The Leader toggle is intentionally not remembered. A saved leader
-    // selection should not make future sessions in the group default to leader.
+    // Group defaults remember the last comparable role/worktree choice, so a
+    // leader worktree selection in one project group should be offered again.
     saveGroupNewSessionDefaults("/repo-a", {
       backend: "codex",
       model: "gpt-5.4",
@@ -92,7 +92,7 @@ describe("new-session-defaults", () => {
       model: "gpt-5.4",
       mode: "default",
       askPermission: false,
-      sessionRole: "worker",
+      sessionRole: "leader",
       envSlug: "sandbox",
       cwd: "/repo-a/worktrees/feature-x",
       useWorktree: true,
@@ -103,7 +103,7 @@ describe("new-session-defaults", () => {
     expect(getCachedGroupNewSessionDefaults("/repo-a")).toMatchObject({
       backend: "codex",
       cwd: "/repo-a/worktrees/feature-x",
-      sessionRole: "worker",
+      sessionRole: "leader",
       codexPermissionMode: "full-access",
     });
 

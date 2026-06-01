@@ -157,6 +157,13 @@ export interface LaunchOptions {
     branch: string;
     actualBranch: string;
     worktreePath: string;
+    portTarget?: {
+      repoRoot: string;
+      branch: string;
+      sourceSessionId?: string;
+      sourceSessionNum?: number | null;
+      sourceLabel?: string;
+    };
   };
   /** CLI session ID to resume (from an external CLI session, e.g. VS Code or terminal) */
   resumeCliSessionId?: string;
@@ -623,6 +630,7 @@ export class CliLauncher {
       info.repoRoot = options.worktreeInfo.repoRoot;
       info.branch = options.worktreeInfo.branch;
       info.actualBranch = options.worktreeInfo.actualBranch;
+      info.worktreePortTarget = options.worktreeInfo.portTarget;
     }
 
     // Phase briefs are global runtime files, but reviewers often share an unported
@@ -1044,6 +1052,7 @@ export class CliLauncher {
               branch: info.actualBranch || info.branch,
               repoRoot: info.repoRoot || "",
               parentBranch: info.actualBranch && info.actualBranch !== info.branch ? info.branch : undefined,
+              portTarget: info.worktreePortTarget,
             },
           }
         : {}),
@@ -1198,6 +1207,7 @@ export class CliLauncher {
               branch: info.actualBranch || info.branch,
               repoRoot: info.repoRoot || "",
               parentBranch: info.actualBranch && info.actualBranch !== info.branch ? info.branch : undefined,
+              portTarget: info.worktreePortTarget,
             },
           }
         : {}),
@@ -1312,6 +1322,7 @@ export class CliLauncher {
               branch: info.actualBranch || info.branch,
               repoRoot: info.repoRoot || "",
               parentBranch: info.actualBranch && info.actualBranch !== info.branch ? info.branch : undefined,
+              portTarget: info.worktreePortTarget,
             },
           }
         : {}),

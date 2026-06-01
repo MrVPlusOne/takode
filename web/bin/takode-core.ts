@@ -482,6 +482,13 @@ export type TakodeSessionInfo = {
   repoRoot?: string;
   branch?: string;
   actualBranch?: string;
+  worktreePortTarget?: {
+    repoRoot: string;
+    branch: string;
+    sourceSessionId?: string;
+    sourceSessionNum?: number | null;
+    sourceLabel?: string;
+  };
   envSlug?: string;
   memorySessionSpaceSlug?: string;
   cronJobId?: string;
@@ -609,6 +616,7 @@ export function buildSessionInfoJson(
     repoRoot: session.repoRoot ?? null,
     branch: session.branch ?? null,
     actualBranch: session.actualBranch ?? null,
+    worktreePortTarget: session.worktreePortTarget ?? null,
     envSlug: session.envSlug ?? null,
     memorySessionSpaceSlug: session.memorySessionSpaceSlug ?? null,
     cronJobId: session.cronJobId ?? null,

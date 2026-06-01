@@ -43,7 +43,7 @@ describe("new-session-defaults-store", () => {
       model: "gpt-5.5",
       mode: "default",
       askPermission: true,
-      sessionRole: "worker",
+      sessionRole: "leader",
       envSlug: "sandbox",
       cwd: "/repo/companion",
       useWorktree: false,

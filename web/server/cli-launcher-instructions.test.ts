@@ -91,6 +91,27 @@ describe("buildCompanionInstructions", () => {
     });
     expect(result).toContain("Worktree Session");
     expect(result).toContain("test-branch");
+    expect(result).toContain("Base branch / port target: `test-branch`");
+  });
+
+  it("uses explicit worktree port target in sync context", () => {
+    const result = buildCompanionInstructions({
+      worktree: {
+        branch: "leader-target-wt-1234-wt-5678",
+        parentBranch: "leader-target-wt-1234",
+        repoRoot: "/repo",
+        portTarget: {
+          repoRoot: "/repo",
+          branch: "leader-target-wt-1234",
+          sourceSessionNum: 7,
+          sourceLabel: "#7 Leader WT",
+        },
+      },
+    });
+
+    expect(result).toContain("leader-target-wt-1234-wt-5678");
+    expect(result).toContain("Base branch / port target: `leader-target-wt-1234`");
+    expect(result).toContain("Port target source: #7 Leader WT");
   });
 
   it("orders leader needs-input notifications after explicit user-visible text", () => {
