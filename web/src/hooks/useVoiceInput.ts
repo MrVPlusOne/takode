@@ -49,6 +49,8 @@ export interface UseVoiceInputReturn {
 }
 
 const DEFAULT_RECORDING_MIME_TYPE = "audio/webm";
+const RECORDING_TIMESLICE_MS = 1000;
+const ENCODED_DURATION_PROBE_TIMEOUT_MS = 300;
 const VOICE_CAPTURE_CONSTRAINTS: MediaTrackConstraints = {
   channelCount: { ideal: 1 },
   echoCancellation: { ideal: true },
@@ -175,6 +177,56 @@ function shouldStoreVoiceLevelHistorySample(timestamp: number, lastSampleTime: n
   return lastSampleTime === null || timestamp - lastSampleTime >= VOICE_LEVEL_HISTORY_SAMPLE_INTERVAL_MS;
 }
 
+type VoiceRecordingStopReason = NonNullable<VoiceRecordingTiming["stopReason"]>;
+
+function formatAudioTrackStates(stream: MediaStream | null | undefined): string | undefined {
+  const states =
+    stream
+      ?.getAudioTracks?.()
+      .map((track) => track.readyState)
+      .filter(Boolean) ?? [];
+  return states.length > 0 ? states.join(",") : undefined;
+}
+
+function getAudioTrackMuted(stream: MediaStream | null | undefined): boolean | undefined {
+  const tracks = stream?.getAudioTracks?.() ?? [];
+  return tracks.length > 0 ? tracks.some((track) => track.muted) : undefined;
+}
+
+async function resolveEncodedBlobDurationMs(blob: Blob): Promise<number | undefined> {
+  if (
+    typeof document === "undefined" ||
+    typeof URL === "undefined" ||
+    typeof URL.createObjectURL !== "function" ||
+    typeof URL.revokeObjectURL !== "function"
+  ) {
+    return undefined;
+  }
+
+  const url = URL.createObjectURL(blob);
+  return await new Promise<number | undefined>((resolve) => {
+    const audio = document.createElement("audio");
+    let settled = false;
+    const finish = (durationMs: number | undefined) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      audio.removeAttribute("src");
+      URL.revokeObjectURL(url);
+      resolve(durationMs);
+    };
+    const timeout = window.setTimeout(() => finish(undefined), ENCODED_DURATION_PROBE_TIMEOUT_MS);
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => {
+      const durationMs =
+        Number.isFinite(audio.duration) && audio.duration > 0 ? Math.round(audio.duration * 1000) : undefined;
+      finish(durationMs);
+    };
+    audio.onerror = () => finish(undefined);
+    audio.src = url;
+  });
+}
+
 /** How long to keep a pre-warmed mic stream before releasing it (stops OS mic indicator). */
 const STREAM_IDLE_TIMEOUT_MS = 5_000;
 
@@ -202,7 +254,20 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     chunkBytes: number;
     chunkCount: number;
     recorderOptions: MediaRecorderOptions;
+    stopReason?: VoiceRecordingStopReason;
+    recorderStateAtStart?: RecordingState;
+    recorderStateAfterStart?: RecordingState;
+    recorderStateAtStopRequest?: RecordingState;
+    requestDataBeforeStop?: boolean;
+    requestDataError?: string;
+    audioTrackStatesAtStart?: string;
+    audioTrackMutedAtStart?: boolean;
+    trackEndedEventCount: number;
+    trackMuteEventCount: number;
+    trackUnmuteEventCount: number;
+    firstTrackEventAt?: number;
   } | null>(null);
+  const trackListenerCleanupRef = useRef<(() => void) | null>(null);
 
   // Pre-warmed mic stream, kept alive between recordings to avoid getUserMedia latency
   const cachedStreamRef = useRef<MediaStream | null>(null);
@@ -279,6 +344,64 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     resetVolumeHistory();
   }, [resetVolumeHistory]);
 
+  const detachTrackListeners = useCallback(() => {
+    trackListenerCleanupRef.current?.();
+    trackListenerCleanupRef.current = null;
+  }, []);
+
+  const attachTrackListeners = useCallback(
+    (stream: MediaStream) => {
+      detachTrackListeners();
+      const listeners: Array<{ track: MediaStreamTrack; type: "ended" | "mute" | "unmute"; listener: EventListener }> =
+        [];
+      const recordTrackEvent = (type: "ended" | "mute" | "unmute") => {
+        const timing = recordingTimingRef.current;
+        if (!timing) return;
+        timing.firstTrackEventAt ??= Date.now();
+        if (type === "ended") timing.trackEndedEventCount += 1;
+        else if (type === "mute") timing.trackMuteEventCount += 1;
+        else timing.trackUnmuteEventCount += 1;
+      };
+      for (const track of stream.getAudioTracks()) {
+        for (const type of ["ended", "mute", "unmute"] as const) {
+          const listener = () => recordTrackEvent(type);
+          track.addEventListener(type, listener);
+          listeners.push({ track, type, listener });
+        }
+      }
+      trackListenerCleanupRef.current = () => {
+        for (const { track, type, listener } of listeners) {
+          track.removeEventListener(type, listener);
+        }
+      };
+    },
+    [detachTrackListeners],
+  );
+
+  const stopRecorder = useCallback((reason: VoiceRecordingStopReason, requestDataBeforeStop: boolean) => {
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state === "inactive") return;
+    const timing = recordingTimingRef.current;
+    if (timing) {
+      timing.stopReason ??= reason;
+      timing.recorderStateAtStopRequest = recorder.state;
+      timing.audioTrackStatesAtStart ??= formatAudioTrackStates(streamRef.current);
+      timing.audioTrackMutedAtStart ??= getAudioTrackMuted(streamRef.current);
+      if (timing.stopRequestedAt === undefined) {
+        timing.stopRequestedAt = Date.now();
+      }
+    }
+    if (requestDataBeforeStop && typeof recorder.requestData === "function") {
+      try {
+        recorder.requestData();
+        if (timing) timing.requestDataBeforeStop = true;
+      } catch (error) {
+        if (timing) timing.requestDataError = error instanceof Error ? error.message : String(error);
+      }
+    }
+    recorder.stop();
+  }, []);
+
   /** Release cached pre-warmed stream and clear idle timeout */
   const releaseCachedStream = useCallback(() => {
     if (idleTimeoutRef.current) {
@@ -332,22 +455,17 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   }, [support.isSupported, resetIdleTimeout]);
 
   const stopRecording = useCallback(() => {
-    if (recorderRef.current && recorderRef.current.state !== "inactive") {
-      if (recordingTimingRef.current && recordingTimingRef.current.stopRequestedAt === undefined) {
-        recordingTimingRef.current.stopRequestedAt = Date.now();
-      }
-      recorderRef.current.stop();
-    }
-  }, []);
+    stopRecorder("manual", true);
+  }, [stopRecorder]);
 
   const cancelRecording = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       cancelledRef.current = true;
-      recorderRef.current.stop();
+      stopRecorder("cancelled", false);
     }
     // Also clear preparing state in case cancel happens during getUserMedia
     setIsPreparing(false);
-  }, []);
+  }, [stopRecorder]);
 
   const startRecording = useCallback(async () => {
     if (!support.isSupported) {
@@ -385,6 +503,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       cachedStreamRef.current = null;
 
       streamRef.current = stream;
+      attachTrackListeners(stream);
 
       // Start volume metering
       startVolumeMonitor(stream);
@@ -397,6 +516,12 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         chunkBytes: 0,
         chunkCount: 0,
         recorderOptions,
+        recorderStateAtStart: recorder.state,
+        audioTrackStatesAtStart: formatAudioTrackStates(stream),
+        audioTrackMutedAtStart: getAudioTrackMuted(stream),
+        trackEndedEventCount: 0,
+        trackMuteEventCount: 0,
+        trackUnmuteEventCount: 0,
       };
 
       recorder.ondataavailable = (e) => {
@@ -414,8 +539,14 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       };
 
       recorder.onstop = () => {
+        const blobBuildStartedAt = Date.now();
+        const timing = recordingTimingRef.current;
+        const audioTrackStatesAtStop = formatAudioTrackStates(streamRef.current);
+        const audioTrackMutedAtStop = getAudioTrackMuted(streamRef.current);
+        const recorderStateAtStopEvent = recorder.state;
         // Stop volume monitor
         stopVolumeMonitor();
+        detachTrackListeners();
         // Release mic
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
@@ -431,62 +562,94 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         }
 
         if (chunksRef.current.length > 0) {
-          const blobBuildStartedAt = Date.now();
           const mimeType = resolveRecordedMimeType(recorder.mimeType, chunksRef.current);
           const blob = new Blob(chunksRef.current, { type: mimeType });
-          const blobReadyAt = Date.now();
-          const timing = recordingTimingRef.current;
-          const recordingTiming: VoiceRecordingTiming | undefined = timing
-            ? {
-                startedAt: timing.startedAt,
-                ...(timing.recorderStartedAt !== undefined ? { recorderStartedAt: timing.recorderStartedAt } : {}),
-                ...(timing.stopRequestedAt !== undefined ? { stopRequestedAt: timing.stopRequestedAt } : {}),
-                ...(timing.firstDataAvailableAt !== undefined
-                  ? { firstDataAvailableAt: timing.firstDataAvailableAt }
-                  : {}),
-                ...(timing.lastDataAvailableAt !== undefined
-                  ? { lastDataAvailableAt: timing.lastDataAvailableAt }
-                  : {}),
-                stopEventAt: blobBuildStartedAt,
-                blobReadyAt,
-                recordingDurationMs:
-                  (timing.stopRequestedAt ?? blobBuildStartedAt) - (timing.recorderStartedAt ?? timing.startedAt),
-                ...(timing.stopRequestedAt !== undefined
-                  ? { stopToBlobReadyMs: blobReadyAt - timing.stopRequestedAt }
-                  : {}),
-                blobBuildDurationMs: blobReadyAt - blobBuildStartedAt,
-                chunkCount: timing.chunkCount,
-                chunkBytes: timing.chunkBytes,
-                blobBytes: blob.size,
-                selectedMimeType: timing.recorderOptions.mimeType ?? null,
-                recorderMimeType: recorder.mimeType || null,
-                blobMimeType: blob.type || null,
-                ...(typeof timing.recorderOptions.audioBitsPerSecond === "number"
-                  ? { audioBitsPerSecond: timing.recorderOptions.audioBitsPerSecond }
-                  : {}),
-                ...(typeof document !== "undefined" ? { pageVisibility: document.visibilityState } : {}),
-              }
-            : undefined;
-          chunksRef.current = [];
-          recordingTimingRef.current = null;
-          optionsRef.current.onAudioReady?.(blob, recordingTiming);
+          const finalizeRecording = async () => {
+            const encodedBlobDurationMs = await resolveEncodedBlobDurationMs(blob);
+            const blobReadyAt = Date.now();
+            const recordingTiming: VoiceRecordingTiming | undefined = timing
+              ? {
+                  startedAt: timing.startedAt,
+                  ...(timing.recorderStartedAt !== undefined ? { recorderStartedAt: timing.recorderStartedAt } : {}),
+                  ...(timing.stopRequestedAt !== undefined ? { stopRequestedAt: timing.stopRequestedAt } : {}),
+                  ...(timing.firstDataAvailableAt !== undefined
+                    ? { firstDataAvailableAt: timing.firstDataAvailableAt }
+                    : {}),
+                  ...(timing.lastDataAvailableAt !== undefined
+                    ? { lastDataAvailableAt: timing.lastDataAvailableAt }
+                    : {}),
+                  stopEventAt: blobBuildStartedAt,
+                  blobReadyAt,
+                  recordingDurationMs:
+                    (timing.stopRequestedAt ?? blobBuildStartedAt) - (timing.recorderStartedAt ?? timing.startedAt),
+                  ...(timing.stopRequestedAt !== undefined
+                    ? { stopToBlobReadyMs: blobReadyAt - timing.stopRequestedAt }
+                    : {}),
+                  blobBuildDurationMs: blobReadyAt - blobBuildStartedAt,
+                  timesliceMs: RECORDING_TIMESLICE_MS,
+                  chunkCount: timing.chunkCount,
+                  chunkBytes: timing.chunkBytes,
+                  blobBytes: blob.size,
+                  ...(encodedBlobDurationMs !== undefined ? { encodedBlobDurationMs } : {}),
+                  selectedMimeType: timing.recorderOptions.mimeType ?? null,
+                  recorderMimeType: recorder.mimeType || null,
+                  blobMimeType: blob.type || null,
+                  ...(typeof timing.recorderOptions.audioBitsPerSecond === "number"
+                    ? { audioBitsPerSecond: timing.recorderOptions.audioBitsPerSecond }
+                    : {}),
+                  ...(timing.stopReason ? { stopReason: timing.stopReason } : {}),
+                  ...(timing.recorderStateAtStart ? { recorderStateAtStart: timing.recorderStateAtStart } : {}),
+                  ...(timing.recorderStateAfterStart
+                    ? { recorderStateAfterStart: timing.recorderStateAfterStart }
+                    : {}),
+                  ...(timing.recorderStateAtStopRequest
+                    ? { recorderStateAtStopRequest: timing.recorderStateAtStopRequest }
+                    : {}),
+                  recorderStateAtStopEvent,
+                  ...(timing.requestDataBeforeStop !== undefined
+                    ? { requestDataBeforeStop: timing.requestDataBeforeStop }
+                    : {}),
+                  ...(timing.requestDataError !== undefined ? { requestDataError: timing.requestDataError } : {}),
+                  ...(timing.audioTrackStatesAtStart !== undefined
+                    ? { audioTrackStatesAtStart: timing.audioTrackStatesAtStart }
+                    : {}),
+                  ...(audioTrackStatesAtStop !== undefined ? { audioTrackStatesAtStop } : {}),
+                  ...(timing.audioTrackMutedAtStart !== undefined
+                    ? { audioTrackMutedAtStart: timing.audioTrackMutedAtStart }
+                    : {}),
+                  ...(audioTrackMutedAtStop !== undefined ? { audioTrackMutedAtStop } : {}),
+                  trackEndedEventCount: timing.trackEndedEventCount,
+                  trackMuteEventCount: timing.trackMuteEventCount,
+                  trackUnmuteEventCount: timing.trackUnmuteEventCount,
+                  ...(timing.firstTrackEventAt !== undefined ? { firstTrackEventAt: timing.firstTrackEventAt } : {}),
+                  ...(typeof document !== "undefined" ? { pageVisibility: document.visibilityState } : {}),
+                }
+              : undefined;
+            chunksRef.current = [];
+            recordingTimingRef.current = null;
+            optionsRef.current.onAudioReady?.(blob, recordingTiming);
+          };
+          void finalizeRecording();
         }
       };
 
       recorder.onerror = () => {
         setError("Recording failed");
+        if (recordingTimingRef.current) recordingTimingRef.current.stopReason = "error";
         setIsRecording(false);
         setIsPreparing(false);
         stopVolumeMonitor();
+        detachTrackListeners();
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
         recorderRef.current = null;
         recordingTimingRef.current = null;
       };
 
-      recorder.start();
+      recorder.start(RECORDING_TIMESLICE_MS);
       if (recordingTimingRef.current) {
         recordingTimingRef.current.recorderStartedAt = Date.now();
+        recordingTimingRef.current.recorderStateAfterStart = recorder.state;
       }
       setIsPreparing(false);
       setIsRecording(true);
@@ -499,7 +662,14 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       }
       recordingTimingRef.current = null;
     }
-  }, [startVolumeMonitor, stopVolumeMonitor, support.isSupported, support.unsupportedMessage]);
+  }, [
+    attachTrackListeners,
+    detachTrackListeners,
+    startVolumeMonitor,
+    stopVolumeMonitor,
+    support.isSupported,
+    support.unsupportedMessage,
+  ]);
 
   const toggleRecording = useCallback(() => {
     if (isRecording) {
@@ -513,7 +683,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   useEffect(() => {
     return () => {
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
-        recorderRef.current.stop();
+        stopRecorder("unmount", false);
       }
       streamRef.current?.getTracks().forEach((t) => t.stop());
       // Release cached pre-warmed stream
@@ -524,8 +694,9 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         idleTimeoutRef.current = null;
       }
       stopVolumeMonitor();
+      detachTrackListeners();
     };
-  }, [stopVolumeMonitor]);
+  }, [detachTrackListeners, stopRecorder, stopVolumeMonitor]);
 
   return {
     isRecording,

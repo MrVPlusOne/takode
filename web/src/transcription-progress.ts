@@ -51,13 +51,30 @@ export interface VoiceRecordingTiming {
   recordingDurationMs?: number;
   stopToBlobReadyMs?: number;
   blobBuildDurationMs?: number;
+  timesliceMs?: number;
   chunkCount: number;
   chunkBytes: number;
   blobBytes: number;
+  encodedBlobDurationMs?: number;
   selectedMimeType?: string | null;
   recorderMimeType?: string | null;
   blobMimeType?: string | null;
   audioBitsPerSecond?: number;
+  stopReason?: "manual" | "cancelled" | "unmount" | "error";
+  recorderStateAtStart?: RecordingState;
+  recorderStateAfterStart?: RecordingState;
+  recorderStateAtStopRequest?: RecordingState;
+  recorderStateAtStopEvent?: RecordingState;
+  requestDataBeforeStop?: boolean;
+  requestDataError?: string;
+  audioTrackStatesAtStart?: string;
+  audioTrackStatesAtStop?: string;
+  audioTrackMutedAtStart?: boolean;
+  audioTrackMutedAtStop?: boolean;
+  trackEndedEventCount?: number;
+  trackMuteEventCount?: number;
+  trackUnmuteEventCount?: number;
+  firstTrackEventAt?: number;
   pageVisibility?: DocumentVisibilityState;
 }
 

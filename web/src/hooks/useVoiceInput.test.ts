@@ -18,12 +18,27 @@ import {
 
 /** Create a mock MediaStream with configurable track readyState */
 function makeMockStream(trackState: "live" | "ended" = "live"): MediaStream {
+  const listeners = new Map<string, Set<EventListener>>();
   const track = {
     readyState: trackState,
     stop: vi.fn(),
     kind: "audio",
     id: "mock-track",
     enabled: true,
+    muted: false,
+    addEventListener: vi.fn((type: string, listener: EventListener) => {
+      const set = listeners.get(type) ?? new Set<EventListener>();
+      set.add(listener);
+      listeners.set(type, set);
+    }),
+    removeEventListener: vi.fn((type: string, listener: EventListener) => {
+      listeners.get(type)?.delete(listener);
+    }),
+    emit: (type: string) => {
+      for (const listener of listeners.get(type) ?? []) {
+        listener(new Event(type));
+      }
+    },
   };
   return {
     getTracks: () => [track],
@@ -44,6 +59,12 @@ class MockMediaRecorder {
   state: "inactive" | "recording" | "paused" = "inactive";
   mimeType = "audio/webm";
   options: MediaRecorderOptions;
+  startTimesliceMs?: number;
+  requestData = vi.fn(() => {
+    if (this.requestDataThrows) throw new Error("requestData failed");
+    this.emitData("flush");
+  });
+  requestDataThrows = false;
   ondataavailable: ((e: { data: Blob }) => void) | null = null;
   onstop: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -54,7 +75,8 @@ class MockMediaRecorder {
     if (options.mimeType) this.mimeType = options.mimeType;
   }
 
-  start() {
+  start(timeslice?: number) {
+    this.startTimesliceMs = timeslice;
     this.state = "recording";
   }
 
@@ -62,8 +84,12 @@ class MockMediaRecorder {
     this.state = "inactive";
     // Deliver a small data chunk, then fire onstop
     // (matches real browser behavior where onstop fires after ondataavailable)
-    this.ondataavailable?.({ data: new Blob(["audio"], { type: "audio/webm" }) });
+    this.emitData("tail");
     this.onstop?.();
+  }
+
+  emitData(data = "audio", type = "audio/webm") {
+    this.ondataavailable?.({ data: new Blob([data], { type }) });
   }
 
   /** Test helper: simulate a recording error mid-recording */
@@ -538,23 +564,98 @@ describe("useVoiceInput — onAudioReady", () => {
     });
     expect(result.current.isRecording).toBe(true);
 
-    act(() => {
+    await act(async () => {
       result.current.stopRecording();
+      await vi.advanceTimersByTimeAsync(300);
     });
     expect(result.current.isRecording).toBe(false);
     expect(onAudioReady).toHaveBeenCalledTimes(1);
     expect(onAudioReady.mock.calls[0][0]).toBeInstanceOf(Blob);
     expect(onAudioReady.mock.calls[0][1]).toEqual(
       expect.objectContaining({
-        chunkCount: 1,
-        chunkBytes: 5,
-        blobBytes: 5,
+        chunkCount: 2,
+        chunkBytes: 9,
+        blobBytes: 9,
+        timesliceMs: 1000,
         selectedMimeType: "audio/mp4;codecs=mp4a.40.2",
         recorderMimeType: "audio/mp4;codecs=mp4a.40.2",
         blobMimeType: "audio/mp4;codecs=mp4a.40.2",
         audioBitsPerSecond: 48_000,
+        stopReason: "manual",
+        recorderStateAtStart: "inactive",
+        recorderStateAfterStart: "recording",
+        recorderStateAtStopRequest: "recording",
+        recorderStateAtStopEvent: "inactive",
+        requestDataBeforeStop: true,
+        audioTrackStatesAtStart: "live",
+        audioTrackStatesAtStop: "live",
+        audioTrackMutedAtStart: false,
+        audioTrackMutedAtStop: false,
+        trackEndedEventCount: 0,
+        trackMuteEventCount: 0,
+        trackUnmuteEventCount: 0,
         stopToBlobReadyMs: expect.any(Number),
         blobBuildDurationMs: expect.any(Number),
+      }),
+    );
+    expect(MockMediaRecorder.lastInstance?.startTimesliceMs).toBe(1000);
+    expect(MockMediaRecorder.lastInstance?.requestData).toHaveBeenCalledTimes(1);
+  });
+
+  it("accumulates periodic, requested, and final non-empty chunks into one blob", async () => {
+    const onAudioReady = vi.fn();
+    const { result } = renderHook(() => useVoiceInput({ onAudioReady }));
+
+    await act(async () => {
+      result.current.startRecording();
+    });
+    const recorder = MockMediaRecorder.lastInstance!;
+    act(() => {
+      recorder.emitData("first");
+      recorder.ondataavailable?.({ data: new Blob([], { type: "audio/webm" }) });
+      recorder.emitData("second");
+    });
+
+    await act(async () => {
+      result.current.stopRecording();
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(onAudioReady).toHaveBeenCalledTimes(1);
+    const blob = onAudioReady.mock.calls[0][0] as Blob;
+    await expect(blob.text()).resolves.toBe("firstsecondflushtail");
+    expect(onAudioReady.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        chunkCount: 4,
+        chunkBytes: 20,
+        blobBytes: 20,
+      }),
+    );
+  });
+
+  it("still stops and reports diagnostics when requestData throws", async () => {
+    const onAudioReady = vi.fn();
+    const { result } = renderHook(() => useVoiceInput({ onAudioReady }));
+
+    await act(async () => {
+      result.current.startRecording();
+    });
+    const recorder = MockMediaRecorder.lastInstance!;
+    recorder.requestDataThrows = true;
+
+    await act(async () => {
+      result.current.stopRecording();
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(onAudioReady).toHaveBeenCalledTimes(1);
+    expect(onAudioReady.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        chunkCount: 1,
+        chunkBytes: 4,
+        blobBytes: 4,
+        requestDataError: "requestData failed",
+        stopReason: "manual",
       }),
     );
   });
@@ -566,8 +667,9 @@ describe("useVoiceInput — onAudioReady", () => {
     await act(async () => {
       result.current.startRecording();
     });
-    act(() => {
+    await act(async () => {
       result.current.cancelRecording();
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     expect(result.current.isRecording).toBe(false);

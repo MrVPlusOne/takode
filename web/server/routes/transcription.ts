@@ -183,6 +183,14 @@ function normalizeStringField(value: unknown, maxLength = 200): string | null | 
   return value.slice(0, maxLength);
 }
 
+function normalizeBooleanField(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function normalizeRecordingState(value: unknown): "inactive" | "recording" | "paused" | undefined {
+  return value === "inactive" || value === "recording" || value === "paused" ? value : undefined;
+}
+
 function normalizeRecordingTiming(value: unknown): TranscriptionRecordingTiming | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const body = value as Record<string, unknown>;
@@ -215,13 +223,45 @@ function normalizeRecordingTiming(value: unknown): TranscriptionRecordingTiming 
     "recordingDurationMs",
     "stopToBlobReadyMs",
     "blobBuildDurationMs",
+    "timesliceMs",
+    "encodedBlobDurationMs",
     "audioBitsPerSecond",
+    "trackEndedEventCount",
+    "trackMuteEventCount",
+    "trackUnmuteEventCount",
   ] as const) {
     const normalized = normalizeFiniteMs(body[key]);
     if (normalized !== undefined) timing[key] = normalized;
   }
+  const firstTrackEventAt = normalizeTimestampMs(body.firstTrackEventAt);
+  if (firstTrackEventAt !== undefined) timing.firstTrackEventAt = firstTrackEventAt;
   for (const key of ["selectedMimeType", "recorderMimeType", "blobMimeType"] as const) {
     const normalized = normalizeStringField(body[key]);
+    if (normalized !== undefined) timing[key] = normalized;
+  }
+  for (const key of ["requestDataError", "audioTrackStatesAtStart", "audioTrackStatesAtStop"] as const) {
+    const normalized = normalizeStringField(body[key]);
+    if (normalized !== undefined && normalized !== null) timing[key] = normalized;
+  }
+  for (const key of ["audioTrackMutedAtStart", "audioTrackMutedAtStop", "requestDataBeforeStop"] as const) {
+    const normalized = normalizeBooleanField(body[key]);
+    if (normalized !== undefined) timing[key] = normalized;
+  }
+  if (
+    body.stopReason === "manual" ||
+    body.stopReason === "cancelled" ||
+    body.stopReason === "unmount" ||
+    body.stopReason === "error"
+  ) {
+    timing.stopReason = body.stopReason;
+  }
+  for (const key of [
+    "recorderStateAtStart",
+    "recorderStateAfterStart",
+    "recorderStateAtStopRequest",
+    "recorderStateAtStopEvent",
+  ] as const) {
+    const normalized = normalizeRecordingState(body[key]);
     if (normalized !== undefined) timing[key] = normalized;
   }
   if (body.pageVisibility === "visible" || body.pageVisibility === "hidden" || body.pageVisibility === "prerender") {

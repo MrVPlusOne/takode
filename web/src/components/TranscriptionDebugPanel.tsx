@@ -434,11 +434,51 @@ export function TranscriptionDebugPanel() {
                         {expandedEntry.frontendTiming?.recordingTiming && (
                           <div>
                             Recording:
+                            {expandedEntry.frontendTiming.recordingTiming.recordingDurationMs !== undefined && (
+                              <span className="ml-2">
+                                Wall{" "}
+                                <span className="text-cc-fg">
+                                  {formatDuration(expandedEntry.frontendTiming.recordingTiming.recordingDurationMs)}
+                                </span>
+                              </span>
+                            )}
+                            {expandedEntry.frontendTiming.recordingTiming.encodedBlobDurationMs !== undefined && (
+                              <span className="ml-2">
+                                Encoded{" "}
+                                <span className="text-cc-fg">
+                                  {formatDuration(expandedEntry.frontendTiming.recordingTiming.encodedBlobDurationMs)}
+                                </span>
+                              </span>
+                            )}
+                            {expandedEntry.frontendTiming.recordingTiming.chunkCount !== undefined && (
+                              <span className="ml-2">
+                                Chunks{" "}
+                                <span className="text-cc-fg">
+                                  {expandedEntry.frontendTiming.recordingTiming.chunkCount}
+                                </span>
+                              </span>
+                            )}
                             {expandedEntry.frontendTiming.recordingTiming.stopToBlobReadyMs !== undefined && (
                               <span className="ml-2">
                                 Stop to blob{" "}
                                 <span className="text-cc-fg">
                                   {formatDuration(expandedEntry.frontendTiming.recordingTiming.stopToBlobReadyMs)}
+                                </span>
+                              </span>
+                            )}
+                            {expandedEntry.frontendTiming.recordingTiming.stopReason && (
+                              <span className="ml-2">
+                                Stop{" "}
+                                <span className="text-cc-fg">
+                                  {expandedEntry.frontendTiming.recordingTiming.stopReason}
+                                </span>
+                              </span>
+                            )}
+                            {expandedEntry.frontendTiming.recordingTiming.audioTrackStatesAtStop && (
+                              <span className="ml-2">
+                                Track{" "}
+                                <span className="text-cc-fg">
+                                  {expandedEntry.frontendTiming.recordingTiming.audioTrackStatesAtStop}
                                 </span>
                               </span>
                             )}

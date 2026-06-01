@@ -1153,13 +1153,30 @@ export interface TranscriptionRecordingTiming {
   recordingDurationMs?: number;
   stopToBlobReadyMs?: number;
   blobBuildDurationMs?: number;
+  timesliceMs?: number;
   chunkCount: number;
   chunkBytes: number;
   blobBytes: number;
+  encodedBlobDurationMs?: number;
   selectedMimeType?: string | null;
   recorderMimeType?: string | null;
   blobMimeType?: string | null;
   audioBitsPerSecond?: number;
+  stopReason?: "manual" | "cancelled" | "unmount" | "error";
+  recorderStateAtStart?: "inactive" | "recording" | "paused";
+  recorderStateAfterStart?: "inactive" | "recording" | "paused";
+  recorderStateAtStopRequest?: "inactive" | "recording" | "paused";
+  recorderStateAtStopEvent?: "inactive" | "recording" | "paused";
+  requestDataBeforeStop?: boolean;
+  requestDataError?: string;
+  audioTrackStatesAtStart?: string;
+  audioTrackStatesAtStop?: string;
+  audioTrackMutedAtStart?: boolean;
+  audioTrackMutedAtStop?: boolean;
+  trackEndedEventCount?: number;
+  trackMuteEventCount?: number;
+  trackUnmuteEventCount?: number;
+  firstTrackEventAt?: number;
   pageVisibility?: "visible" | "hidden" | "prerender";
 }
 
