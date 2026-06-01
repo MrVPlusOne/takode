@@ -489,7 +489,7 @@ describe("NewSessionModal", () => {
     });
   });
 
-  it("does not send branch or worktree options when creating a leader from a repo", async () => {
+  it("sends branch and worktree options when creating a worktree-backed leader from a repo", async () => {
     const user = userEvent.setup();
     mockGetGlobalNewSessionDefaults.mockReturnValue({
       backend: "claude",
@@ -523,14 +523,64 @@ describe("NewSessionModal", () => {
 
     await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalled());
     const createOpts = mockQueuePendingSession.mock.calls[0][0].createOpts;
-    expect(createOpts).toEqual(expect.objectContaining({ cwd: "/tmp/project", role: "orchestrator" }));
-    expect(createOpts.branch).toBeUndefined();
+    expect(createOpts).toEqual(
+      expect.objectContaining({ cwd: "/tmp/project", role: "orchestrator", branch: "main", useWorktree: true }),
+    );
     expect(createOpts.createBranch).toBeUndefined();
-    expect(createOpts.useWorktree).toBeUndefined();
-    expect(JSON.parse(JSON.stringify(createOpts))).not.toHaveProperty("branch");
     expect(JSON.parse(JSON.stringify(createOpts))).not.toHaveProperty("createBranch");
-    expect(JSON.parse(JSON.stringify(createOpts))).not.toHaveProperty("useWorktree");
     expect(mockApi.gitPull).not.toHaveBeenCalled();
+  });
+
+  it("keeps the branch control mounted and disabled when a leader is not using a worktree", async () => {
+    const user = userEvent.setup();
+    mockGetGlobalNewSessionDefaults.mockReturnValue({
+      backend: "claude",
+      model: "",
+      mode: "agent",
+      askPermission: true,
+      sessionRole: "leader",
+      envSlug: "",
+      cwd: "/tmp/project",
+      useWorktree: false,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+    });
+    mockApi.getRepoInfo.mockResolvedValue({
+      repoRoot: "/tmp/project",
+      repoName: "project",
+      currentBranch: "main",
+      defaultBranch: "main",
+      isWorktree: false,
+    });
+    mockApi.listBranches.mockResolvedValue([
+      { name: "main", isCurrent: true, isRemote: false, worktreePath: null, ahead: 0, behind: 0 },
+    ]);
+
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    expect(await screen.findByText("project")).toBeInTheDocument();
+    const modal = screen.getByTestId("new-session-modal-card");
+    const folderRow = within(modal).getByTestId("new-session-workspace-folder-row");
+    const controlsRow = within(modal).getByTestId("new-session-workspace-controls-row");
+    expect(within(folderRow).getByText("Folder")).toBeInTheDocument();
+    expect(within(folderRow).queryByText("Isolation")).not.toBeInTheDocument();
+    expect(within(controlsRow).getByText("Base branch")).toBeInTheDocument();
+    expect(within(controlsRow).getByText("Session role")).toBeInTheDocument();
+    expect(within(controlsRow).getByText("Isolation")).toBeInTheDocument();
+
+    expect(within(modal).getByText("Base branch")).toBeInTheDocument();
+    expect(within(modal).getByRole("button", { name: "Leader" })).toBeInTheDocument();
+
+    const branchButton = within(modal).getByTestId("new-session-branch-button");
+    expect(branchButton).toBeDisabled();
+    expect(branchButton).toHaveTextContent("main");
+
+    await user.click(within(modal).getByRole("button", { name: "Worktree" }));
+
+    expect(within(modal).getByText("Base branch")).toBeInTheDocument();
+    expect(within(modal).getByRole("button", { name: "Leader" })).toBeInTheDocument();
+    expect(within(modal).getByTestId("new-session-branch-button")).toBeEnabled();
+    expect(within(modal).getByTestId("new-session-branch-button")).toHaveTextContent("main");
   });
 
   it("sends the selected branch when creating a worktree session", async () => {

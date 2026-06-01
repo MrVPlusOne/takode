@@ -109,6 +109,14 @@ export interface SdkSessionInfo {
   branch?: string;
   /** Actual git branch in the worktree (may differ for -wt-N branches) */
   actualBranch?: string;
+  /** Branch/repo target that worktree changes should port back to. */
+  worktreePortTarget?: {
+    repoRoot: string;
+    branch: string;
+    sourceSessionId?: string;
+    sourceSessionNum?: number | null;
+    sourceLabel?: string;
+  };
 
   /** Whether this is an assistant-mode session */
   isAssistant?: boolean;

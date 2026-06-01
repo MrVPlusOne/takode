@@ -178,6 +178,84 @@ describe("takode auth fallback", () => {
     }
   });
 
+  it("uses parent worktree session-auth when a leader runs notify from a child directory", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "takode-auth-parent-"));
+    const child = join(tmp, "packages", "app");
+    mkdirSync(child, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
+    mkdirSync(getSessionAuthDir(tmp), { recursive: true });
+
+    const requestBodies: JsonObject[] = [];
+    const seenHeaders: Record<string, string | string[] | undefined>[] = [];
+    const server = createServer(async (req, res) => {
+      seenHeaders.push(req.headers);
+      if (req.method === "GET" && req.url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-worktree", isOrchestrator: true }));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/sessions/leader-worktree/notify") {
+        requestBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            category: "needs-input",
+            anchoredMessageId: "asst-1",
+            notificationId: 11,
+            rawNotificationId: "n-11",
+          }),
+        );
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    writeFileSync(
+      authPath,
+      JSON.stringify({
+        sessionId: "leader-worktree",
+        authToken: "worktree-token",
+        port,
+        serverId: "test-server-id",
+      }),
+      "utf-8",
+    );
+
+    try {
+      const result = await runTakode(
+        ["notify", "needs-input", "Need", "approval", "--suggest", "approve", "--suggest", "revise"],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          COMPANION_PORT: undefined,
+          TAKODE_API_PORT: undefined,
+          HOME: tmp,
+        },
+        child,
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Notification sent (needs-input, id 11)");
+      expect(requestBodies).toEqual([
+        { category: "needs-input", summary: "Need approval", suggestedAnswers: ["approve", "revise"] },
+      ]);
+      expect(seenHeaders.some((h) => h["x-companion-session-id"] === "leader-worktree")).toBe(true);
+      expect(seenHeaders.some((h) => h["x-companion-auth-token"] === "worktree-token")).toBe(true);
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+      try {
+        unlinkSync(authPath);
+      } catch {}
+    }
+  });
+
   it("fails closed when multiple Companion auth contexts exist for the same cwd", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "takode-auth-ambiguous-"));
     mkdirSync(getSessionAuthDir(tmp), { recursive: true });

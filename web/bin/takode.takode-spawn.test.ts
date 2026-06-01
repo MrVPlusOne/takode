@@ -149,6 +149,99 @@ describe("takode spawn", () => {
     expect(result.stdout).toContain("worktree=yes");
   });
 
+  it("uses a worktree-backed leader branch as worker base and port target", async () => {
+    const createBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-worktree", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/leader-worktree") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "leader-worktree",
+            sessionNum: 7,
+            name: "Leader WT",
+            permissionMode: "plan",
+            backendType: "claude",
+            cwd: "/worktrees/project/main-wt-7758",
+            isWorktree: true,
+            repoRoot: "/repo/project",
+            branch: "main",
+            actualBranch: "main-wt-7758",
+          }),
+        );
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/create") {
+        createBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-from-leader" }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/worker-from-leader/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "worker-from-leader",
+            sessionNum: 77,
+            name: "Worker From Leader",
+            state: "running",
+            backendType: "claude",
+            cwd: "/worktrees/project/main-wt-7758-wt-1234",
+            createdAt: Date.now(),
+            cliConnected: true,
+            isGenerating: false,
+            isWorktree: true,
+            branch: "main-wt-7758",
+            actualBranch: "main-wt-7758-wt-1234",
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(["spawn", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-worktree",
+      COMPANION_AUTH_TOKEN: "auth-worktree",
+    });
+
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(createBodies).toHaveLength(1);
+    expect(createBodies[0]).toEqual({
+      backend: "claude",
+      cwd: "/worktrees/project/main-wt-7758",
+      useWorktree: true,
+      createdBy: "leader-worktree",
+      branch: "main-wt-7758",
+      worktreePortTarget: {
+        repoRoot: "/repo/project",
+        branch: "main-wt-7758",
+        sourceSessionId: "leader-worktree",
+        sourceSessionNum: 7,
+        sourceLabel: "#7 Leader WT",
+      },
+    });
+  });
+
   it("inherits memory session-space from the leader for workers and from the parent for reviewers", async () => {
     const createBodies: JsonObject[] = [];
     const created = [{ sessionId: "worker-space" }, { sessionId: "reviewer-space" }];

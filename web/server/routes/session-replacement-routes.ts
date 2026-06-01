@@ -15,6 +15,13 @@ interface RecycledWorktreeInfo {
   actualBranch: string;
   worktreePath: string;
   defaultBranch: string;
+  portTarget?: {
+    repoRoot: string;
+    branch: string;
+    sourceSessionId?: string;
+    sourceSessionNum?: number | null;
+    sourceLabel?: string;
+  };
 }
 
 interface ReplacementSessionResult {
@@ -44,6 +51,7 @@ interface ReplaceableWorker {
   repoRoot: string;
   branch: string;
   actualBranch: string;
+  worktreePortTarget?: RecycledWorktreeInfo["portTarget"];
   memorySessionSpaceSlug?: string;
 }
 
@@ -186,6 +194,7 @@ async function validateReplacementTarget(
       repoRoot: worker.repoRoot,
       branch: worker.branch,
       actualBranch: worker.actualBranch,
+      worktreePortTarget: worker.worktreePortTarget,
       memorySessionSpaceSlug: worker.memorySessionSpaceSlug,
     },
     baseBranch: worker.branch,
@@ -289,6 +298,7 @@ export function registerSessionReplacementRoutes(api: Hono, deps: SessionReplace
         actualBranch: worker.actualBranch,
         worktreePath: worker.cwd,
         defaultBranch: intendedDefaultBranch,
+        portTarget: worker.worktreePortTarget,
       });
 
       return c.json({

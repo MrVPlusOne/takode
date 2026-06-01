@@ -104,9 +104,7 @@ function normalizeDefaults(input: unknown): NewSessionDefaults | null {
     model: normalizeString(raw.model),
     mode,
     askPermission,
-    // Match the existing browser cache semantics: leader is a one-off choice,
-    // not a remembered default for future sessions in the group.
-    sessionRole: "worker",
+    sessionRole: raw.sessionRole === "leader" ? "leader" : "worker",
     envSlug: normalizeString(raw.envSlug),
     cwd: normalizeString(raw.cwd),
     useWorktree: raw.useWorktree === undefined ? true : raw.useWorktree === true,

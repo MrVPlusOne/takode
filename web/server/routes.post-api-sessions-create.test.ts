@@ -896,7 +896,21 @@ describe("POST /api/sessions/create", () => {
     expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ cwd: "/repo" }));
   });
 
-  it("ignores accidental worktree and branch fields for orchestrator create", async () => {
+  it("sets up a worktree for orchestrator create when requested", async () => {
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
+      repoRoot: "/repo",
+      repoName: "project",
+      currentBranch: "main",
+      defaultBranch: "main",
+      isWorktree: false,
+    });
+    vi.mocked(gitUtils.ensureWorktreeAsync).mockResolvedValueOnce({
+      worktreePath: "/home/.companion/worktrees/project/main-wt-1001",
+      branch: "main",
+      actualBranch: "main-wt-1001",
+      isNew: true,
+    });
+
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -904,12 +918,25 @@ describe("POST /api/sessions/create", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(gitUtils.getRepoInfoAsync).not.toHaveBeenCalled();
-    expect(gitUtils.ensureWorktreeAsync).not.toHaveBeenCalled();
+    expect(gitUtils.getRepoInfoAsync).toHaveBeenCalledWith("/repo");
+    expect(gitUtils.ensureWorktreeAsync).toHaveBeenCalledWith("/repo", "main", {
+      baseBranch: "main",
+      createBranch: undefined,
+      forceNew: true,
+    });
     expect(gitUtils.gitFetchAsync).not.toHaveBeenCalled();
     expect(gitUtils.checkoutBranchAsync).not.toHaveBeenCalled();
     expect(gitUtils.gitPullAsync).not.toHaveBeenCalled();
-    expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ cwd: "/repo" }));
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: "/home/.companion/worktrees/project/main-wt-1001",
+        worktreeInfo: expect.objectContaining({
+          branch: "main",
+          actualBranch: "main-wt-1001",
+          portTarget: expect.objectContaining({ repoRoot: "/repo", branch: "main-wt-1001" }),
+        }),
+      }),
+    );
   });
 
   it("returns 500 when launch throws an error", async () => {
@@ -1041,7 +1068,7 @@ describe("POST /api/sessions/create", () => {
     );
   });
 
-  it("creates worker worktrees from the main repo root when cwd is already a worktree", async () => {
+  it("creates worker worktrees from the leader worktree branch when cwd is already a worktree", async () => {
     vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
       repoRoot: "/repo",
       repoName: "companion",
@@ -1051,7 +1078,7 @@ describe("POST /api/sessions/create", () => {
     });
     vi.mocked(gitUtils.ensureWorktreeAsync).mockResolvedValueOnce({
       worktreePath: "/home/.companion/worktrees/companion/jiayi-wt-9326",
-      branch: "jiayi",
+      branch: "jiayi-wt-2775",
       actualBranch: "jiayi-wt-9326",
       isNew: true,
     });
@@ -1066,9 +1093,9 @@ describe("POST /api/sessions/create", () => {
     });
 
     expect(res.status).toBe(200);
-    // When CWD is already a worktree, should use the base branch (jiayi),
-    // not the worktree branch (jiayi-wt-2775), to avoid worktree-of-a-worktree
-    expect(gitUtils.ensureWorktreeAsync).toHaveBeenCalledWith("/repo", "jiayi", {
+    // When CWD is already a worktree, create the new isolated worktree from
+    // the main repo root but keep the current worktree branch as the target.
+    expect(gitUtils.ensureWorktreeAsync).toHaveBeenCalledWith("/repo", "jiayi-wt-2775", {
       baseBranch: "jiayi",
       createBranch: undefined,
       forceNew: true,

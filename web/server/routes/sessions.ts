@@ -45,9 +45,7 @@ import {
 } from "./sessions-helpers.js";
 import { registerSessionsArchiveRoutes } from "./sessions-archive-routes.js";
 import { withProgressHeartbeat } from "./progress-heartbeat.js";
-import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attachment-paths.js";
 import { cleanupWorktree, createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
-import { getImageUploadSourceName, isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { registerSessionMessageSearchRoute } from "./session-message-search-route.js";
 import { parseIncludeArchived, registerSessionSearchRoute } from "./session-search-route.js";
@@ -56,6 +54,8 @@ import { registerSessionPauseRoutes } from "./session-pause-routes.js";
 import { registerSessionLeaderProfileRoute } from "./session-leader-profile-route.js";
 import { registerSessionReplacementRoutes } from "./session-replacement-routes.js";
 import { registerSessionNotificationContextRoute } from "./session-notification-context.js";
+import { registerSessionImageRoutes } from "./session-image-routes.js";
+import { prepareWorktreeForSessionCreate, type WorktreeSessionInfo } from "./session-worktree-create.js";
 import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignments.js";
 import { isSessionPaused } from "../session-pause.js";
 import { LEADER_KICKOFF_SOURCE_ID, LEADER_KICKOFF_SOURCE_LABEL } from "../../shared/injected-event-message.js";
@@ -131,15 +131,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     status: CreationProgressStatus,
     detail?: string,
   ) => Promise<void>;
-
-  interface WorktreeSessionInfo {
-    isWorktree: boolean;
-    repoRoot: string;
-    branch: string;
-    actualBranch: string;
-    worktreePath: string;
-    defaultBranch: string;
-  }
 
   interface SessionConfig {
     launchOptions: LaunchOptions;
@@ -555,54 +546,16 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     await emit("resolving_env", "Environment resolved", "done");
 
-    const shouldCreateWorktree = body.useWorktree && !isOrchestrator;
-
-    if (shouldCreateWorktree && body.branch && !/^[a-zA-Z0-9/_.\-]+$/.test(body.branch)) {
-      throwPreparationError("Invalid branch name", 400, "checkout_branch");
-    }
-
-    if (shouldCreateWorktree) {
-      const worktreeBaseCwd = cwd;
-      if (!worktreeBaseCwd) {
-        throwPreparationError("Worktree mode requires a cwd", 400, "creating_worktree");
-      }
-      await emit("creating_worktree", "Creating worktree...", "in_progress");
-      const repoInfo = await gitUtils.getRepoInfoAsync(worktreeBaseCwd as string);
-      if (!repoInfo) {
-        throwPreparationError("Worktree mode requires a git repository", 400, "creating_worktree");
-      } else {
-        // When the CWD is already inside a worktree (e.g. a leader spawning a worker),
-        // use the base branch so the new worktree branches off the same parent --
-        // not the leader's worktree branch (which would create a worktree-of-a-worktree).
-        const targetBranch = body.branch || (repoInfo.isWorktree ? repoInfo.defaultBranch : repoInfo.currentBranch);
-        if (!targetBranch) {
-          throwPreparationError("Unable to determine branch for worktree session", 400, "creating_worktree");
-        }
-        const result = await withProgressHeartbeat(
-          emit,
-          {
-            step: "creating_worktree",
-            label: "Creating worktree...",
-            detail: `Still preparing ${targetBranch}...`,
-          },
-          () =>
-            gitUtils.ensureWorktreeAsync(repoInfo.repoRoot, targetBranch, {
-              baseBranch: repoInfo.defaultBranch,
-              createBranch: body.createBranch,
-              forceNew: true,
-            }),
-        );
-        cwd = result.worktreePath;
-        worktreeInfo = {
-          isWorktree: true,
-          repoRoot: repoInfo.repoRoot,
-          branch: targetBranch,
-          actualBranch: result.actualBranch,
-          worktreePath: result.worktreePath,
-          defaultBranch: repoInfo.defaultBranch,
-        };
-      }
-      await emit("creating_worktree", "Worktree ready", "done");
+    const preparedWorktree = await prepareWorktreeForSessionCreate({
+      body,
+      cwd,
+      isOrchestrator,
+      emit,
+      throwPreparationError,
+    });
+    if (preparedWorktree) {
+      cwd = preparedWorktree.cwd;
+      worktreeInfo = preparedWorktree.worktreeInfo;
     }
 
     let effectiveImage = companionEnv
@@ -1238,6 +1191,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
       ...rest,
       treeGroupId: bridgeState?.treeGroupId ?? rest.treeGroupId ?? null,
       memorySessionSpaceSlug: bridgeState?.memorySessionSpaceSlug ?? rest.memorySessionSpaceSlug ?? null,
+      gitBranch: bridgeState?.git_branch ?? null,
+      gitDefaultBranch: bridgeState?.git_default_branch ?? null,
+      diffBaseBranch: bridgeState?.diff_base_branch ?? null,
+      isWorktree: rest.isWorktree ?? bridgeState?.is_worktree ?? false,
+      repoRoot: rest.repoRoot ?? bridgeState?.repo_root ?? null,
+      branch: rest.branch ?? (bridgeState?.is_worktree ? bridgeState.git_branch : undefined),
+      actualBranch: rest.actualBranch ?? (bridgeState?.is_worktree ? bridgeState.git_branch : undefined),
       ...(bridgeState?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: bridgeState.leaderOpenThreadTabs } : {}),
       pause: bridgeState?.pause ?? null,
       pausedInputQueueCount: bridgeState?.pause?.queuedMessages.length ?? 0,
@@ -2016,83 +1976,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
       return c.text("File not found", 404);
     }
   });
-  // ─── Image serving ─────────────────────────────────────────
-  api.post("/sessions/:id/images/prepare-user-message", async (c) => {
-    if (!imageStore) return c.json({ error: "Image store not configured" }, 503);
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-
-    const body = await c.req.json().catch(() => null);
-    const images = Array.isArray((body as { images?: unknown[] } | null)?.images)
-      ? ((body as { images: Array<{ mediaType?: unknown; data?: unknown; filename?: unknown }> }).images ?? [])
-      : [];
-    if (images.length === 0) {
-      return c.json({ error: "images must be a non-empty array" }, 400);
-    }
-
-    const invalidImage = images.find(
-      (img) => typeof img?.mediaType !== "string" || typeof img?.data !== "string" || !img.mediaType || !img.data,
-    );
-    if (invalidImage) {
-      return c.json({ error: "Each image must include mediaType and data" }, 400);
-    }
-
-    let imageRefs;
-    try {
-      imageRefs = await Promise.all(
-        images.map((img) =>
-          imageStore.store(id, img.data as string, img.mediaType as string, getImageUploadSourceName(img)),
-        ),
-      );
-    } catch (error) {
-      if (isSharpUnavailableError(error)) {
-        return c.json({ error: SHARP_UNAVAILABLE_MESSAGE }, 503);
-      }
-      throw error;
-    }
-    const paths = deriveAttachmentPaths(id, imageRefs);
-    return c.json({
-      imageRefs,
-      paths,
-      attachmentAnnotation: formatAttachmentPathAnnotation(paths),
-    });
-  });
-  api.delete("/sessions/:id/images/:imageId", async (c) => {
-    if (!imageStore) return c.json({ error: "Image store not configured" }, 503);
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-    const imageId = c.req.param("imageId");
-    if (!imageId) return c.json({ error: "Missing imageId" }, 400);
-    await imageStore.removeImage(id, imageId);
-    return c.json({ ok: true });
-  });
-  api.get("/images/:sessionId/:imageId/thumb", async (c) => {
-    if (!imageStore) return c.json({ error: "Image store not configured" }, 503);
-    const { sessionId, imageId } = c.req.param();
-    // Try thumbnail first, fall back to original
-    const thumbPath = await imageStore.getThumbnailPath(sessionId, imageId);
-    const path = thumbPath || (await imageStore.getOriginalPath(sessionId, imageId));
-    if (!path) return c.json({ error: "Image not found" }, 404);
-    const file = Bun.file(path);
-    return new Response(file, {
-      headers: {
-        "Content-Type": thumbPath ? "image/jpeg" : file.type || "application/octet-stream",
-        "Cache-Control": thumbPath ? "public, max-age=31536000, immutable" : "no-store",
-      },
-    });
-  });
-  api.get("/images/:sessionId/:imageId/full", async (c) => {
-    if (!imageStore) return c.json({ error: "Image store not configured" }, 503);
-    const { sessionId, imageId } = c.req.param();
-    const path = await imageStore.getOriginalPath(sessionId, imageId);
-    if (!path) return c.json({ error: "Image not found" }, 404);
-    const file = Bun.file(path);
-    return new Response(file, {
-      headers: {
-        "Content-Type": file.type || "application/octet-stream",
-        "Cache-Control": "public, max-age=31536000, immutable",
-      },
-    });
-  });
+  registerSessionImageRoutes(api, { imageStore, resolveId });
   return api;
 }

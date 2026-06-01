@@ -356,6 +356,14 @@ export interface SdkSessionInfo {
   isWorktree?: boolean;
   /** The original repo root path (for worktree sessions) */
   repoRoot?: string;
+  /** Branch/repo target that worktree changes should port back to. */
+  worktreePortTarget?: {
+    repoRoot: string;
+    branch: string;
+    sourceSessionId?: string;
+    sourceSessionNum?: number | null;
+    sourceLabel?: string;
+  };
   /** Whether the worktree directory still exists on disk (archived worktree sessions only) */
   worktreeExists?: boolean;
   /** Whether the worktree has uncommitted changes (archived worktree sessions only) */

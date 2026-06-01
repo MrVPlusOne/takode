@@ -132,7 +132,7 @@ function buildDefaults(candidate: NewSessionDefaultsCandidate): NewSessionDefaul
     model: normalizeModel(backend, candidate.model),
     mode,
     askPermission,
-    sessionRole: "worker",
+    sessionRole: candidate.sessionRole === "leader" ? "leader" : "worker",
     envSlug: candidate.envSlug ?? "",
     cwd: candidate.cwd?.trim() ?? "",
     useWorktree: candidate.useWorktree ?? true,
