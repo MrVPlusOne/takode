@@ -184,6 +184,41 @@ describe("session replacement routes", () => {
     );
   });
 
+  it("preserves the replaced worker leader port target in recycled worktree info", async () => {
+    const leaderPortTarget = {
+      repoRoot: "/repo",
+      branch: "leader-target-wt-7758",
+      sourceSessionId: "leader-1",
+      sourceSessionNum: 7,
+      sourceLabel: "#7 Leader WT",
+    };
+    const { app, deps } = makeApp({ worktreePortTarget: leaderPortTarget });
+
+    const res = await app.request("/sessions/worker-1/replace-worktree-worker", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        create: {
+          backend: "claude",
+          cwd: "/repo",
+          useWorktree: true,
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(deps.createSessionFromBody).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        repoRoot: "/repo",
+        branch: "main",
+        actualBranch: "main-wt-1111",
+        worktreePath: "/wt/main-wt-1111",
+        portTarget: leaderPortTarget,
+      }),
+    );
+  });
+
   it("refuses dirty worktrees before archiving", async () => {
     vi.mocked(gitUtils.isWorktreeDirtyAsync).mockResolvedValue(true);
     const { app, deps } = makeApp();

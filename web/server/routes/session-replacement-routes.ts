@@ -194,6 +194,7 @@ async function validateReplacementTarget(
       repoRoot: worker.repoRoot,
       branch: worker.branch,
       actualBranch: worker.actualBranch,
+      worktreePortTarget: worker.worktreePortTarget,
       memorySessionSpaceSlug: worker.memorySessionSpaceSlug,
     },
     baseBranch: worker.branch,
