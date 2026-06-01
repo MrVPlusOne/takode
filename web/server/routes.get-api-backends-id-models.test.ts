@@ -587,6 +587,36 @@ describe("GET /api/backends/:id/models", () => {
     ]);
   });
 
+  it("propagates Codex service-tier metadata from the models cache", async () => {
+    vi.mocked(access).mockResolvedValue(undefined);
+    vi.mocked(readFile).mockReset();
+    vi.mocked(readFile).mockResolvedValue(
+      JSON.stringify({
+        models: [
+          {
+            slug: "gpt-5.4",
+            display_name: "gpt-5.4",
+            description: "Frontier model",
+            visibility: "list",
+            service_tiers: [{ id: "priority", name: "Fast", description: "1.5x speed, increased usage" }],
+          },
+        ],
+      }),
+    );
+
+    const res = await app.request("/api/backends/codex/models", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual([
+      {
+        value: "gpt-5.4",
+        label: "gpt-5.4",
+        description: "Frontier model",
+        serviceTiers: [{ id: "priority", name: "Fast", description: "1.5x speed, increased usage" }],
+      },
+    ]);
+  });
+
   it("returns 404 when codex cache file does not exist", async () => {
     vi.mocked(access).mockRejectedValueOnce(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
 

@@ -556,6 +556,7 @@ export type BrowserOutgoingMessage =
   | { type: "cancel_pending_codex_input"; id: string; client_msg_id?: string }
   | { type: "set_model"; model: string; client_msg_id?: string }
   | { type: "set_codex_reasoning_effort"; effort: string; client_msg_id?: string }
+  | { type: "set_codex_service_tier"; serviceTier: string | null; client_msg_id?: string }
   | { type: "set_codex_ui_mode"; uiMode: "plan" | "agent"; client_msg_id?: string }
   | { type: "set_permission_mode"; mode: string; client_msg_id?: string }
   | { type: "mcp_get_status"; client_msg_id?: string }
@@ -1254,6 +1255,8 @@ export interface SessionState {
   };
   /** Codex reasoning effort (e.g. low/medium/high). */
   codex_reasoning_effort?: string;
+  /** Codex app-server service tier selected for future turns. null/undefined means Standard. */
+  codex_service_tier?: string | null;
   /** If this session was spawned by a cron job */
   cronJobId?: string;
   /** Human-readable name of the cron job that spawned this session */

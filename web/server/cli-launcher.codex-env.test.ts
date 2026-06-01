@@ -128,6 +128,20 @@ afterAll(() => {
   }
 });
 
+it("passes Codex service tier through to adapter options", async () => {
+  await launcher.launch({
+    backendType: "codex",
+    cwd: "/tmp/project",
+    codexServiceTier: "priority",
+    codexSandbox: "workspace-write",
+  });
+  await waitForSpawnCalls(1);
+
+  expect(mockCodexAdapterOptions[0]).toMatchObject({
+    serviceTier: "priority",
+  });
+});
+
 describe("Codex launch env", () => {
   it("enables Codex native multi-agent support in per-session config", async () => {
     const customHome = mkdtempSync(join(tempDir, "codex-home-test-"));

@@ -721,6 +721,66 @@ describe("Composer basic rendering", () => {
     expectNoOverflowHiddenAncestorWithin(screen.getByTestId("composer-reasoning-menu"), footer);
   });
 
+  it("renders a Codex speed menu gated by model service tiers", async () => {
+    mockGetBackendModels.mockResolvedValue([
+      {
+        value: "gpt-5.4",
+        label: "GPT-5.4",
+        description: "Frontier model",
+        serviceTiers: [{ id: "priority", name: "Fast", description: "1.5x speed, increased usage" }],
+      },
+    ]);
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        git_branch: "feature/speed-menu",
+        model: "gpt-5.4",
+        permissionMode: "plan",
+      },
+    });
+
+    render(<Composer sessionId="s1" />);
+
+    await waitFor(() => expect(mockGetBackendModels).toHaveBeenCalledWith("codex"));
+    await userEvent.click(screen.getByTitle("Speed: Standard (applies next turn)"));
+    const menu = screen.getByTestId("composer-speed-menu");
+    expect(within(menu).getByText("Standard")).toBeTruthy();
+    expect(within(menu).getByText("Fast")).toBeTruthy();
+
+    await userEvent.click(within(menu).getByText("Fast"));
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "set_codex_service_tier",
+      serviceTier: "priority",
+    });
+  });
+
+  it("clears an unsupported Codex service tier after model metadata loads", async () => {
+    mockGetBackendModels.mockResolvedValue([
+      {
+        value: "gpt-5.3-codex",
+        label: "GPT-5.3 Codex",
+        description: "No speed tier",
+      },
+    ]);
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        model: "gpt-5.3-codex",
+        permissionMode: "plan",
+        codex_service_tier: "priority",
+      },
+    });
+
+    render(<Composer sessionId="s1" />);
+
+    await waitFor(() =>
+      expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+        type: "set_codex_service_tier",
+        serviceTier: null,
+      }),
+    );
+  });
+
   it("does not switch to the collapsed composer on narrow desktop layouts", () => {
     setViewportWidth(500);
     mediaState.touchDevice = false;

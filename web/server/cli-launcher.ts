@@ -136,6 +136,8 @@ export interface LaunchOptions {
   codexInternetAccess?: boolean;
   /** Codex reasoning effort (e.g. low/medium/high). */
   codexReasoningEffort?: string;
+  /** Codex app-server service tier for future turns. null/undefined means Standard. */
+  codexServiceTier?: string | null;
   /** Optional override for CODEX_HOME used by Codex sessions. */
   codexHome?: string;
   /** Deprecated compatibility setting; leader launch config is now derived from recycle thresholds. */
@@ -614,6 +616,7 @@ export class CliLauncher {
       info.codexInternetAccess = options.codexInternetAccess === true;
       info.codexSandbox = options.codexSandbox;
       info.codexReasoningEffort = options.codexReasoningEffort;
+      info.codexServiceTier = options.codexServiceTier ?? null;
       info.codexHome = options.codexHome;
     }
 
@@ -873,6 +876,7 @@ export class CliLauncher {
             codexSandbox: info.codexSandbox,
             codexInternetAccess: info.codexInternetAccess,
             codexReasoningEffort: info.codexReasoningEffort,
+            codexServiceTier: info.codexServiceTier,
             codexHome: info.codexHome,
             containerId: info.containerId,
             containerName: info.containerName,
@@ -1339,6 +1343,7 @@ export class CliLauncher {
       threadId: info.cliSessionId,
       sandbox: sandboxMode,
       reasoningEffort: options.codexReasoningEffort,
+      serviceTier: options.codexServiceTier ?? null,
       recorder: this.recorder ?? undefined,
       instructions: codexInstructions || undefined,
       failureContextProvider: () => formatStreamTailForError(stderrTail),

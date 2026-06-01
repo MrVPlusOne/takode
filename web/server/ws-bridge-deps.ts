@@ -175,6 +175,7 @@ import {
   handleSetModel as handleSetModelController,
   handleCodexSetModel as handleCodexSetModelController,
   handleCodexSetReasoningEffort as handleCodexSetReasoningEffortController,
+  handleCodexSetServiceTier as handleCodexSetServiceTierController,
   routeBrowserMessage as routeBrowserMessageController,
   handleSdkPermissionRequest as handleSdkPermissionRequestController,
   handleSetAskPermission as handleSetAskPermissionController,
@@ -293,6 +294,7 @@ const WS_BRIDGE_IDEMPOTENT_BROWSER_MESSAGE_TYPES = new Set<string>([
   "interrupt",
   "set_model",
   "set_codex_reasoning_effort",
+  "set_codex_service_tier",
   "set_permission_mode",
   "mcp_get_status",
   "mcp_toggle",
@@ -1230,6 +1232,8 @@ export function getBrowserRoutingDeps(host: any) {
       handleCodexSetUiModeController(targetSession as Session, uiMode, host.getBrowserRoutingDeps()),
     handleCodexSetReasoningEffort: (targetSession: unknown, effort: string) =>
       handleCodexSetReasoningEffortController(targetSession as Session, effort, host.getBrowserRoutingDeps()),
+    handleCodexSetServiceTier: (targetSession: unknown, serviceTier: string | null) =>
+      handleCodexSetServiceTierController(targetSession as Session, serviceTier, host.getBrowserRoutingDeps()),
     handleSetAskPermission: (targetSession: unknown, askPermission: boolean) =>
       handleSetAskPermissionController(targetSession as Session, askPermission, host.getBrowserRoutingDeps()),
     handleInterruptFallback: (targetSession: unknown, source: InterruptSource) =>

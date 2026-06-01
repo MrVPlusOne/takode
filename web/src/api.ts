@@ -420,6 +420,11 @@ export interface BackendModelInfo {
   value: string;
   label: string;
   description: string;
+  serviceTiers?: Array<{
+    id: string;
+    name: string;
+    description?: string;
+  }>;
 }
 
 export interface ActiveTimerSession {

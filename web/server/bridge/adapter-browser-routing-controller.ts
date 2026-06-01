@@ -23,6 +23,7 @@ import {
   handleCodexSetModel,
   handleCodexSetPermissionMode,
   handleCodexSetReasoningEffort,
+  handleCodexSetServiceTier,
   handleCodexSetUiMode,
   handleSetAskPermission,
   handleSetModel,
@@ -39,20 +40,20 @@ import {
   maybeRequestAdapterRelaunchForUserMessage,
 } from "./adapter-browser-routing-recovery.js";
 import type {
-  ActiveTurnRoute,
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
   CLIControlRequestMessage,
-  CodexLeaderRecycleTrigger,
-  CodexOutboundTurn,
   McpServerConfig,
   McpServerDetail,
-  PendingCodexInput,
   PermissionRequest,
-  SessionNotification,
-  SessionState,
   ThreadRef,
 } from "../session-types.js";
+import type {
+  AdapterBrowserRoutingDeps,
+  AdapterBrowserRoutingSessionLike,
+  ControlResponseHandler,
+  InterruptSource,
+} from "./adapter-browser-routing-types.js";
 import { sessionTag } from "../session-tag.js";
 import type { BrowserTransportSessionLike, BrowserTransportSocketLike } from "./browser-transport-controller.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
@@ -78,11 +79,13 @@ export {
   handleCodexSetModel,
   handleCodexSetPermissionMode,
   handleCodexSetReasoningEffort,
+  handleCodexSetServiceTier,
   handleCodexSetUiMode,
   handleSetAskPermission,
   handleSetModel,
   handleSetPermissionMode,
 } from "./adapter-browser-routing-runtime-settings.js";
+export type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
 import {
   handlePermissionRequest as handlePermissionRequestPipeline,
   type PermissionPipelineResult,
@@ -97,11 +100,6 @@ import {
   getDenialSummary,
   NOTABLE_APPROVALS,
 } from "./permission-summaries.js";
-type InterruptSource = "user" | "leader" | "system";
-type ControlResponseHandler = {
-  subtype: string;
-  resolve: (response: unknown) => void;
-};
 type BrowserUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message" }>;
 type PermissionResponseMessage = Extract<BrowserOutgoingMessage, { type: "permission_response" }>;
 type IngestedUserMessage = {
@@ -114,185 +112,6 @@ type IngestedUserMessage = {
   needsInputResolutionNoticeIds?: string[];
   wasGenerating: boolean;
 };
-type SessionNotificationDeps = {
-  isHerdedWorkerSession?: (session: AdapterBrowserRoutingSessionLike) => boolean;
-  broadcastToBrowsers?: (session: AdapterBrowserRoutingSessionLike, msg: BrowserIncomingMessage) => void;
-  persistSession: (session: AdapterBrowserRoutingSessionLike) => void;
-  schedulePermissionNotification?: (session: AdapterBrowserRoutingSessionLike, request: PermissionRequest) => void;
-  scheduleNotification?: (
-    sessionId: string,
-    category: "question" | "completed",
-    detail: string,
-    options?: { skipReadCheck?: boolean },
-  ) => void;
-  cancelPermissionNotification?: (sessionId: string, requestId: string) => void;
-};
-export interface AdapterBrowserRoutingSessionLike {
-  id: string;
-  backendType: "claude" | "codex" | "claude-sdk";
-  state: Pick<
-    SessionState,
-    | "askPermission"
-    | "backend_error"
-    | "backend_state"
-    | "claude_token_details"
-    | "codex_rate_limits"
-    | "codex_image_send_stage"
-    | "codex_reasoning_effort"
-    | "codex_token_details"
-    | "context_used_percent"
-    | "cwd"
-    | "is_compacting"
-    | "model"
-    | "num_turns"
-    | "permissionMode"
-    | "session_id"
-    | "slash_commands"
-    | "total_cost_usd"
-    | "uiMode"
-  >;
-  messageHistory: BrowserIncomingMessage[];
-  notifications?: SessionNotification[];
-  pendingPermissions: Map<string, PermissionRequest>;
-  evaluatingAborts: Map<string, AbortController>;
-  pendingMessages: string[];
-  pendingCodexTurns: CodexOutboundTurn[];
-  pendingCodexInputs: PendingCodexInput[];
-  forceCompactPending: boolean;
-  isGenerating: boolean;
-  lastUserMessage?: string;
-  lastUserMessageDateTag: string;
-  lastOutboundUserNdjson: string | null;
-  consecutiveAdapterFailures: number;
-  codexAdapter: {
-    sendBrowserMessage(msg: unknown): boolean;
-    getCurrentTurnId(): string | null;
-    isConnected(): boolean;
-  } | null;
-  claudeSdkAdapter: {
-    sendBrowserMessage(msg: unknown): boolean;
-    isConnected?(): boolean;
-  } | null;
-}
-
-export interface AdapterBrowserRoutingDeps {
-  sendToCLI: (
-    session: AdapterBrowserRoutingSessionLike,
-    ndjson: string,
-    opts?: {
-      deferUntilCliReady?: boolean;
-      skipUserDispatchLifecycle?: boolean;
-      userMessageHistoryIndex?: number;
-    },
-  ) => UserDispatchTurnTarget | null;
-  broadcastToBrowsers: (session: AdapterBrowserRoutingSessionLike, msg: BrowserIncomingMessage) => void;
-  emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>, actorSessionId?: string) => void;
-  persistSession: (session: AdapterBrowserRoutingSessionLike) => void;
-  sessionNotificationDeps: SessionNotificationDeps;
-  onAgentPaused?: (sessionId: string, history: AdapterBrowserRoutingSessionLike["messageHistory"], cwd: string) => void;
-  getCurrentTurnTriggerSource: (session: AdapterBrowserRoutingSessionLike) => "user" | "leader" | "system" | "unknown";
-  abortAutoApproval: (session: AdapterBrowserRoutingSessionLike, requestId: string) => void;
-  preInterrupt: (session: AdapterBrowserRoutingSessionLike, source: InterruptSource) => void;
-  touchUserMessage: (sessionId: string, timestamp?: number) => void;
-  formatVsCodeSelectionPrompt: (selection: NonNullable<BrowserUserMessage["vscodeSelection"]>) => string;
-  getCliSessionId: (session: AdapterBrowserRoutingSessionLike) => string;
-  nextUserMessageId: (ts: number) => string;
-  onUserMessage?: (
-    sessionId: string,
-    history: AdapterBrowserRoutingSessionLike["messageHistory"],
-    cwd: string,
-    wasGenerating: boolean,
-  ) => void;
-  markRunningFromUserDispatch: (
-    session: AdapterBrowserRoutingSessionLike,
-    reason: string,
-    interruptSource?: InterruptSource | null,
-    userMessageHistoryIndex?: number,
-    activeTurnRoute?: ActiveTurnRoute | null,
-  ) => UserDispatchTurnTarget | null;
-  trackUserMessageForTurn: (
-    session: AdapterBrowserRoutingSessionLike,
-    historyIndex: number,
-    turnTarget: UserDispatchTurnTarget,
-  ) => void;
-  setGenerating: (session: AdapterBrowserRoutingSessionLike, generating: boolean, reason: string) => void;
-  broadcastStatusChange: (
-    session: AdapterBrowserRoutingSessionLike,
-    status: "idle" | "running" | "compacting" | "reverting" | null,
-  ) => void;
-  setCodexImageSendStage: (
-    session: AdapterBrowserRoutingSessionLike,
-    stage: SessionState["codex_image_send_stage"],
-    options?: { persist?: boolean },
-  ) => void;
-  notifyImageSendFailure: (session: AdapterBrowserRoutingSessionLike, err?: unknown) => void;
-  isHerdEventSource: (agentSource: BrowserUserMessage["agentSource"]) => boolean;
-  onSessionActivityStateChanged: (sessionId: string, reason: string) => void;
-  markTurnInterrupted: (session: AdapterBrowserRoutingSessionLike, source: InterruptSource) => void;
-  armCodexFreshTurnRequirement: (session: AdapterBrowserRoutingSessionLike, turnId: string, reason: string) => void;
-  clearCodexFreshTurnRequirement: (session: AdapterBrowserRoutingSessionLike, reason: string) => void;
-  addPendingCodexInput: (session: AdapterBrowserRoutingSessionLike, input: PendingCodexInput) => void;
-  getCancelablePendingCodexInputs: (session: AdapterBrowserRoutingSessionLike) => PendingCodexInput[];
-  removePendingCodexInput: (session: AdapterBrowserRoutingSessionLike, id: string) => PendingCodexInput | null;
-  clearQueuedTurnLifecycleEntries: (session: AdapterBrowserRoutingSessionLike) => void;
-  queueCodexPendingStartBatch: (session: AdapterBrowserRoutingSessionLike, reason: string) => void;
-  pokeStaleCodexPendingDelivery: (
-    session: AdapterBrowserRoutingSessionLike,
-    reason: string,
-    options?: { triggeringInputId?: string },
-  ) => boolean;
-  rebuildQueuedCodexPendingStartBatch: (session: AdapterBrowserRoutingSessionLike) => void;
-  trySteerPendingCodexInputs: (session: AdapterBrowserRoutingSessionLike, reason: string) => boolean;
-  sendToBrowser: (ws: unknown, msg: BrowserIncomingMessage) => void;
-  getLauncherSessionInfo: (sessionId: string) =>
-    | {
-        archived?: boolean;
-        askPermission?: boolean;
-        cliSessionId?: string;
-        codexReasoningEffort?: string;
-        codexSandbox?: "read-only" | "workspace-write" | "danger-full-access";
-        herdedBy?: string | null;
-        isOrchestrator?: boolean;
-        killedByIdleManager?: boolean;
-        model?: string;
-        permissionMode?: string;
-        state?: string;
-        uiMode?: "plan" | "agent";
-      }
-    | null
-    | undefined;
-  requestCodexIntentionalRelaunch: (
-    session: AdapterBrowserRoutingSessionLike,
-    reason: string,
-    delayMs?: number,
-  ) => void;
-  onPermissionModeChanged?: (sessionId: string, newMode: string) => void;
-  sendControlRequest: (
-    session: AdapterBrowserRoutingSessionLike,
-    request: Record<string, unknown>,
-    onResponse?: ControlResponseHandler,
-  ) => void;
-  requestCodexAutoRecovery: (session: AdapterBrowserRoutingSessionLike, reason: string) => boolean;
-  requestCodexLeaderRecycle: (
-    session: AdapterBrowserRoutingSessionLike,
-    trigger: CodexLeaderRecycleTrigger,
-  ) => Promise<{ ok: boolean; error?: string }>;
-  requestCliRelaunch?: (sessionId: string) => void;
-  injectUserMessage: (
-    sessionId: string,
-    content: string,
-    agentSource?: { sessionId: string; sessionLabel?: string },
-  ) => "sent" | "queued" | "dropped" | "no_session";
-  handleSetModel: (session: AdapterBrowserRoutingSessionLike, model: string) => void;
-  handleCodexSetModel: (session: AdapterBrowserRoutingSessionLike, model: string) => void;
-  handleSetPermissionMode: (session: AdapterBrowserRoutingSessionLike, mode: string) => void;
-  handleCodexSetPermissionMode: (session: AdapterBrowserRoutingSessionLike, mode: string) => void;
-  handleCodexSetUiMode: (session: AdapterBrowserRoutingSessionLike, uiMode: "plan" | "agent") => void;
-  handleCodexSetReasoningEffort: (session: AdapterBrowserRoutingSessionLike, effort: string) => void;
-  handleSetAskPermission: (session: AdapterBrowserRoutingSessionLike, askPermission: boolean) => void;
-  handleInterruptFallback: (session: AdapterBrowserRoutingSessionLike, source: InterruptSource) => void;
-}
-
 function findPendingExitPlanPermission(
   session: AdapterBrowserRoutingSessionLike,
   route: ThreadRouteMetadata | null,
@@ -785,6 +604,10 @@ export async function routeBrowserMessage(
       break;
 
     case "set_codex_reasoning_effort":
+      break;
+
+    case "set_codex_service_tier":
+      if (session.backendType === "codex") deps.handleCodexSetServiceTier(session, msg.serviceTier);
       break;
 
     case "set_permission_mode":
@@ -1793,6 +1616,10 @@ export function routeAdapterBrowserMessage(
     }
     if (msg.type === "set_codex_reasoning_effort") {
       deps.handleCodexSetReasoningEffort(session, msg.effort);
+      return true;
+    }
+    if (msg.type === "set_codex_service_tier") {
+      if (session.backendType === "codex") deps.handleCodexSetServiceTier(session, msg.serviceTier);
       return true;
     }
     if (msg.type === "set_ask_permission") {

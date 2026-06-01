@@ -1,8 +1,88 @@
 import type { CodexAppReference, CodexSkillReference } from "./session-types.js";
+import type { JsonRpcPendingRequestSummary, JsonRpcTransportCloseDiagnostics } from "./codex-jsonrpc-transport.js";
+
+interface CodexTransportCloseWaveDiagnostics {
+  sessionId: string;
+  closeId: string;
+  capturedAt: number;
+  process: { pid: number };
+  transport: JsonRpcTransportCloseDiagnostics | null;
+  skillRefresh: {
+    inFlight: Array<{ cause: string }>;
+    last: { cause: string } | null;
+  };
+}
+
+const CODEX_TRANSPORT_CLOSE_WAVE_WINDOW_MS = 1_000;
+const CODEX_TRANSPORT_CLOSE_WAVE_DEBOUNCE_MS = 250;
+const CODEX_TRANSPORT_CLOSE_WAVE_MIN_COUNT = 3;
+let recentCodexTransportCloses: Array<{
+  sessionId: string;
+  closeId: string;
+  closedAt: number;
+  pid: number;
+  closeContext: string | null;
+  lastIncomingMethod: string | null;
+  lastOutgoingMethod: string | null;
+  skillRefreshCause: string | null;
+}> = [];
+let codexTransportCloseWaveTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function isRecoverableCodexInitError(error: string): boolean {
   if (!/\bTransport closed\b/i.test(error)) return false;
   return !hasActionableCodexInitFailure(error);
+}
+
+export function formatPendingRpcRequests(pending: JsonRpcPendingRequestSummary[]): string {
+  return `[${pending.map((entry) => `${entry.id}:${entry.method}:${entry.ageMs}ms`).join(",")}]`;
+}
+
+export function noteCodexTransportCloseForWave(diagnostics: CodexTransportCloseWaveDiagnostics): void {
+  const now = diagnostics.transport?.closedAt ?? diagnostics.capturedAt;
+  recentCodexTransportCloses = recentCodexTransportCloses.filter(
+    (entry) => now - entry.closedAt <= CODEX_TRANSPORT_CLOSE_WAVE_WINDOW_MS,
+  );
+  recentCodexTransportCloses.push({
+    sessionId: diagnostics.sessionId,
+    closeId: diagnostics.closeId,
+    closedAt: now,
+    pid: diagnostics.process.pid,
+    closeContext: diagnostics.transport?.closeContext ?? null,
+    lastIncomingMethod: lastMethod(diagnostics.transport?.recentIncoming),
+    lastOutgoingMethod: lastMethod(diagnostics.transport?.recentOutgoing),
+    skillRefreshCause: diagnostics.skillRefresh.inFlight[0]?.cause ?? diagnostics.skillRefresh.last?.cause ?? null,
+  });
+  if (recentCodexTransportCloses.length < CODEX_TRANSPORT_CLOSE_WAVE_MIN_COUNT) return;
+  if (codexTransportCloseWaveTimer) clearTimeout(codexTransportCloseWaveTimer);
+  codexTransportCloseWaveTimer = setTimeout(() => {
+    codexTransportCloseWaveTimer = null;
+    const latest = Date.now();
+    const wave = recentCodexTransportCloses.filter(
+      (entry) =>
+        latest - entry.closedAt <= CODEX_TRANSPORT_CLOSE_WAVE_WINDOW_MS + CODEX_TRANSPORT_CLOSE_WAVE_DEBOUNCE_MS,
+    );
+    if (wave.length < CODEX_TRANSPORT_CLOSE_WAVE_MIN_COUNT) return;
+    console.warn(
+      `[codex-adapter] Codex transport close wave detected (${wave.length} closes in ~${CODEX_TRANSPORT_CLOSE_WAVE_WINDOW_MS}ms): ` +
+        JSON.stringify({
+          sessions: wave.map((entry) => ({
+            sessionId: entry.sessionId,
+            closeId: entry.closeId,
+            pid: entry.pid,
+            closeContext: entry.closeContext,
+            lastIncomingMethod: entry.lastIncomingMethod,
+            lastOutgoingMethod: entry.lastOutgoingMethod,
+            skillRefreshCause: entry.skillRefreshCause,
+          })),
+        }),
+    );
+  }, CODEX_TRANSPORT_CLOSE_WAVE_DEBOUNCE_MS);
+  if (codexTransportCloseWaveTimer.unref) codexTransportCloseWaveTimer.unref();
+}
+
+function lastMethod(messages: JsonRpcTransportCloseDiagnostics["recentIncoming"] | undefined): string | null {
+  if (!messages || messages.length === 0) return null;
+  return messages[messages.length - 1].method;
 }
 
 function hasActionableCodexInitFailure(error: string): boolean {
@@ -55,6 +135,104 @@ export function toSafeText(value: unknown): string {
     }
   }
   return "";
+}
+
+export function normalizeCodexServiceTier(serviceTier: unknown): string | null {
+  return typeof serviceTier === "string" && serviceTier.trim() ? serviceTier.trim() : null;
+}
+
+export function isCodexServiceTierRejection(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /\b(?:service\s*tier|serviceTier|fast|priority|credit|entitlement|forbidden|unauthorized|unsupported|invalid)\b/i.test(
+    message,
+  );
+}
+
+export function mapCodexApprovalPolicy(mode?: string, askPermission?: boolean): string | undefined {
+  switch (mode) {
+    case "codex-custom":
+      return undefined;
+    case "codex-default":
+    case "codex-auto-review":
+      return "on-request";
+    case "codex-full-access":
+      return "never";
+  }
+  if (askPermission === false) return "never";
+  switch (mode) {
+    case "bypassPermissions":
+      return "never";
+    default:
+      return "untrusted";
+  }
+}
+
+export function mapCodexSandboxPolicy(mode?: string): string | undefined {
+  switch (mode) {
+    case "codex-custom":
+      return undefined;
+    case "codex-full-access":
+    case "bypassPermissions":
+      return "danger-full-access";
+    default:
+      return "workspace-write";
+  }
+}
+
+export function normalizeCodexReasoningEffort(effort: string | undefined, validEfforts: Set<string>): string | null {
+  if (!effort) return null;
+  const normalized = effort.trim().toLowerCase();
+  if (!normalized) return null;
+  return validEfforts.has(normalized) ? normalized : null;
+}
+
+export function isCodexCollaborationModeUnsupportedError(err: unknown): boolean {
+  const text = String(err).toLowerCase();
+  return (
+    text.includes("collaborationmode") &&
+    (text.includes("unknown field") ||
+      text.includes("invalid params") ||
+      text.includes("-32602") ||
+      text.includes("experimentalapi"))
+  );
+}
+
+export function isCodexTransportClosedError(err: unknown): boolean {
+  return String(err).toLowerCase().includes("transport closed");
+}
+
+export function isRecoverableCodexTurnStartError(err: unknown): boolean {
+  const text = String(err).toLowerCase();
+  return isCodexTransportClosedError(err) || text.includes("turn/start timed out");
+}
+
+export function buildCodexCollabMode(
+  options: {
+    uiMode?: string;
+    approvalMode?: string;
+    model?: string;
+    reasoningEffort?: string;
+  },
+  defaultModel: string,
+  validReasoningEfforts: Set<string>,
+): {
+  mode: "default" | "plan";
+  settings: { model: string; reasoning_effort: string | null };
+} {
+  return {
+    mode: options.uiMode === "plan" || options.approvalMode === "plan" ? "plan" : "default",
+    settings: {
+      model: options.model?.trim() || defaultModel,
+      reasoning_effort: normalizeCodexReasoningEffort(options.reasoningEffort, validReasoningEfforts),
+    },
+  };
+}
+
+export function formatCodexInitializationError(err: unknown, failureContext?: string | null): string {
+  const detail = err instanceof Error ? err.message : String(err);
+  let message = `Codex initialization failed: ${detail}`;
+  if (failureContext && isCodexTransportClosedError(err)) message += `. Stderr: ${failureContext}`;
+  return message;
 }
 
 function firstNonEmptyStringValue(...values: unknown[]): string {

@@ -75,6 +75,8 @@ export interface SdkSessionInfo {
   codexSandbox?: "read-only" | "workspace-write" | "danger-full-access";
   /** Reasoning effort selected for Codex sessions (e.g. low/medium/high). */
   codexReasoningEffort?: string;
+  /** Codex app-server service tier selected for future turns. null/undefined means Standard. */
+  codexServiceTier?: string | null;
   /** Optional per-session Codex home override, reused across relaunches. */
   codexHome?: string;
   /** If this session was spawned by a cron job */

@@ -265,6 +265,28 @@ export function handleCodexSetReasoningEffort(
   deps.requestCodexIntentionalRelaunch(session, "set_codex_reasoning_effort");
 }
 
+export function handleCodexSetServiceTier(
+  session: AdapterBrowserRoutingSessionLike,
+  serviceTier: string | null,
+  deps: Pick<AdapterBrowserRoutingDeps, "getLauncherSessionInfo" | "broadcastToBrowsers" | "persistSession">,
+): void {
+  const normalized = typeof serviceTier === "string" ? serviceTier.trim() : "";
+  const next = normalized || null;
+  if ((session.state.codex_service_tier ?? null) === next) return;
+  session.state.codex_service_tier = next;
+  const launchInfo = deps.getLauncherSessionInfo(session.id);
+  if (launchInfo) launchInfo.codexServiceTier = next;
+  session.codexAdapter?.sendBrowserMessage({
+    type: "set_codex_service_tier",
+    serviceTier: next,
+  } as any);
+  deps.broadcastToBrowsers(session, {
+    type: "session_update",
+    session: { codex_service_tier: next },
+  });
+  deps.persistSession(session);
+}
+
 export function handleSetAskPermission(
   session: AdapterBrowserRoutingSessionLike,
   askPermission: boolean,

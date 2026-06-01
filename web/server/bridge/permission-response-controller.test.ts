@@ -115,6 +115,7 @@ function makeDeps(): AdapterBrowserRoutingDeps {
     handleCodexSetPermissionMode: vi.fn(),
     handleCodexSetUiMode: vi.fn(),
     handleCodexSetReasoningEffort: vi.fn(),
+    handleCodexSetServiceTier: vi.fn(),
     handleSetAskPermission: vi.fn(),
     handleInterruptFallback: vi.fn(),
   };

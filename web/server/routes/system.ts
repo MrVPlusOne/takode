@@ -59,6 +59,30 @@ function compareCodexModelSlugs(a: string, b: string): number {
   return a.localeCompare(b);
 }
 
+function normalizeCodexServiceTiers(model: {
+  service_tiers?: unknown;
+  serviceTiers?: unknown;
+}): Array<{ id: string; name: string; description?: string }> | undefined {
+  const raw = Array.isArray(model.service_tiers)
+    ? model.service_tiers
+    : Array.isArray(model.serviceTiers)
+      ? model.serviceTiers
+      : [];
+  const tiers = raw
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const item = entry as Record<string, unknown>;
+      const id = typeof item.id === "string" ? item.id.trim() : "";
+      const name = typeof item.name === "string" ? item.name.trim() : "";
+      if (!id || !name) return null;
+      const description =
+        typeof item.description === "string" && item.description.trim() ? item.description : undefined;
+      return { id, name, ...(description ? { description } : {}) };
+    })
+    .filter((entry): entry is { id: string; name: string; description?: string } => !!entry);
+  return tiers.length > 0 ? tiers : undefined;
+}
+
 // ─── LiteLLM proxy model discovery ──────────────────────────────────────────
 
 interface CachedModels {
@@ -569,6 +593,8 @@ export function createSystemRoutes(ctx: RouteContext) {
               description?: string;
               visibility?: string;
               priority?: number;
+              service_tiers?: unknown;
+              serviceTiers?: unknown;
             }>;
           };
           const models = cache.models
@@ -579,6 +605,7 @@ export function createSystemRoutes(ctx: RouteContext) {
               value: m.slug,
               label: m.display_name || m.slug,
               description: m.description || "",
+              serviceTiers: normalizeCodexServiceTiers(m),
             }));
           if (models.length > 0) return c.json(models);
         } catch {

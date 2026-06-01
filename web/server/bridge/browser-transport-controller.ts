@@ -202,6 +202,7 @@ const BROWSER_ACTIVITY_TYPES: ReadonlySet<string> = new Set([
   "set_permission_mode",
   "set_codex_ui_mode",
   "set_codex_reasoning_effort",
+  "set_codex_service_tier",
   "leader_thread_tabs_update",
 ]);
 

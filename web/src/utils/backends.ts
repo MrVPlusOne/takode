@@ -18,6 +18,11 @@ export interface ModelOption {
   value: string;
   label: string;
   icon: string;
+  serviceTiers?: Array<{
+    id: string;
+    name: string;
+    description?: string;
+  }>;
 }
 
 export interface ModeOption {
@@ -57,6 +62,7 @@ export function toModelOptions(models: BackendModelInfo[]): ModelOption[] {
     value: m.value,
     label: m.label || m.value,
     icon: pickIcon(m.value, i),
+    serviceTiers: m.serviceTiers,
   }));
 }
 

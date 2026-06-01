@@ -355,6 +355,7 @@ export class WsBridge {
     "interrupt",
     "set_model",
     "set_codex_reasoning_effort",
+    "set_codex_service_tier",
     "set_permission_mode",
     "mcp_get_status",
     "mcp_toggle",

@@ -26,6 +26,7 @@ import { CollapseAllButton } from "./ComposerCollapseAllButton.js";
 import { CollapsedComposerBar, ComposerInputSurface } from "./ComposerSurface.js";
 import { PausedInputChip, PauseOtherSourcesButton } from "./SessionPauseComposerControls.js";
 import { ComposerStatusBlocks } from "./ComposerStatusBlocks.js";
+import { useCodexModelOptions } from "./use-codex-model-options.js";
 import {
   createComposerDraftImage,
   ensureSupportedFormat,
@@ -199,9 +200,9 @@ export function Composer({
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showCodexReasoningDropdown, setShowCodexReasoningDropdown] = useState(false);
+  const [showCodexServiceTierDropdown, setShowCodexServiceTierDropdown] = useState(false);
   const [showPermissionDropdown, setShowPermissionDropdown] = useState(false);
   const [pendingPermissionMode, setPendingPermissionMode] = useState<string | null>(null);
-  const [dynamicCodexModels, setDynamicCodexModels] = useState<ModelOption[] | null>(null);
   const [dynamicClaudeModels, setDynamicClaudeModels] = useState<ModelOption[] | null>(null);
   const [sendPressing, setSendPressing] = useState(false);
   const [composerExpanded, setComposerExpanded] = useState(false);
@@ -216,6 +217,7 @@ export function Composer({
   const draftImageSourceFilesRef = useRef(new Map<string, File>());
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const codexReasoningDropdownRef = useRef<HTMLDivElement>(null);
+  const codexServiceTierDropdownRef = useRef<HTMLDivElement>(null);
   const permissionDropdownRef = useRef<HTMLDivElement>(null);
   const voiceCaptureModeRef = useRef<"dictation" | "edit" | "append">("dictation");
   const voiceEditBaseTextRef = useRef("");
@@ -716,6 +718,7 @@ export function Composer({
         permissionMode: sessionData?.permissionMode || "acceptEdits",
         serverUiMode: sessionData?.uiMode,
         codexReasoningEffort: sessionData?.codex_reasoning_effort || "",
+        codexServiceTier: sessionData?.codex_service_tier ?? null,
         slashCommands: sessionData?.slash_commands ?? EMPTY_STRING_ARRAY,
         skills: sessionData?.skills ?? EMPTY_STRING_ARRAY,
         skillMetadata: sessionData?.skill_metadata ?? EMPTY_SKILL_REFERENCES,
@@ -811,19 +814,25 @@ export function Composer({
   const permissionOptions = isCodex ? CODEX_PERMISSION_MODES : CLAUDE_PERMISSION_MODES;
   const permissionMode = isCodex ? codexPermissionMode : claudePermissionMode;
   const codexReasoningEffort = sessionView.codexReasoningEffort;
+  const codexServiceTier = sessionView.codexServiceTier;
   const pauseState = sessionView.pause as SessionPauseState | null;
   const isPaused = !!pauseState?.pausedAt;
   const pausedInputQueueCount = sessionView.pausedInputQueueCount;
   const codexResultErrorAutoPause = sessionView.codexResultErrorAutoPause;
   const codexAutoPausedInputCount = sessionView.codexAutoPausedInputCount;
-  const codexModelOptions = dynamicCodexModels || getModelsForBackend("codex");
+  const { codexModelOptions, codexFastServiceTier } = useCodexModelOptions({
+    isCodex,
+    model: sessionView.model,
+    codexServiceTier,
+    sessionId,
+    loadPersistedSettings,
+  });
   // Resolve the "Default" option: replace the empty-value placeholder with
   // the user's actual configured model from ~/.claude/settings.json so we
   // never send an empty string to set_model (which would make the model
   // selector disappear since sessionData.model becomes falsy).
   const claudeModelOptions = useMemo(() => {
-    const raw = dynamicClaudeModels || getModelsForBackend("claude");
-    return raw.filter((m) => m.value !== "");
+    return (dynamicClaudeModels || getModelsForBackend("claude")).filter((m) => m.value !== "");
   }, [dynamicClaudeModels]);
   const sessionSelectionRoot = getVsCodeSelectionSessionRoot(sessionView.repoRoot, sessionView.cwd);
   const dismissedVsCodeSelectionKey = useStore((s) => s.dismissedVsCodeSelectionKey);
@@ -875,24 +884,6 @@ export function Composer({
   } = autocomplete;
 
   useEffect(() => {
-    if (!isCodex) return;
-    let cancelled = false;
-    void loadPersistedSettings();
-    api
-      .getBackendModels("codex")
-      .then((models) => {
-        if (cancelled || models.length === 0) return;
-        setDynamicCodexModels(toModelOptions(models));
-      })
-      .catch(() => {
-        // Fall back to static model list silently.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isCodex, loadPersistedSettings]);
-
-  useEffect(() => {
     if (isCodex) return;
     let cancelled = false;
     // Fetch dynamic models and the user's configured default in parallel
@@ -935,6 +926,9 @@ export function Composer({
       }
       if (codexReasoningDropdownRef.current && !codexReasoningDropdownRef.current.contains(e.target as Node)) {
         setShowCodexReasoningDropdown(false);
+      }
+      if (codexServiceTierDropdownRef.current && !codexServiceTierDropdownRef.current.contains(e.target as Node)) {
+        setShowCodexServiceTierDropdown(false);
       }
       if (permissionDropdownRef.current && !permissionDropdownRef.current.contains(e.target as Node)) {
         setShowPermissionDropdown(false);
@@ -1946,6 +1940,14 @@ export function Composer({
                 codexReasoningEffort={codexReasoningEffort}
                 onSelectCodexReasoning={(effort) =>
                   sendToSession(sessionId, { type: "set_codex_reasoning_effort", effort })
+                }
+                showCodexServiceTierDropdown={showCodexServiceTierDropdown}
+                setShowCodexServiceTierDropdown={setShowCodexServiceTierDropdown}
+                codexServiceTierDropdownRef={codexServiceTierDropdownRef}
+                codexServiceTier={codexServiceTier}
+                codexFastServiceTier={codexFastServiceTier}
+                onSelectCodexServiceTier={(serviceTier) =>
+                  sendToSession(sessionId, { type: "set_codex_service_tier", serviceTier })
                 }
                 permissionOptions={permissionOptions}
                 permissionMode={permissionMode}

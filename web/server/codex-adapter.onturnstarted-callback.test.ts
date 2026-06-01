@@ -88,11 +88,13 @@ describe("onTurnStarted callback", () => {
   // and legacy-collaborationMode fallback paths.
 
   let proc: ReturnType<typeof createMockProcess>["proc"];
+  let stdin: MockWritableStream;
   let stdout: MockReadableStream;
 
   beforeEach(() => {
     const mock = createMockProcess();
     proc = mock.proc;
+    stdin = mock.stdin;
     stdout = mock.stdout;
   });
 
@@ -146,5 +148,68 @@ describe("onTurnStarted callback", () => {
 
     expect(startedCb).toHaveBeenCalledOnce();
     expect(startedCb).toHaveBeenCalledWith("turn_legacy");
+  });
+
+  it("passes the selected Codex service tier in turn/start params", async () => {
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "gpt-5.4",
+      cwd: "/tmp",
+      serviceTier: "priority",
+    });
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    adapter.sendBrowserMessage({ type: "user_message", content: "fast turn" } as BrowserOutgoingMessage);
+    await tick();
+    stdout.push(JSON.stringify({ id: 3, result: {} }) + "\n");
+    await tick();
+
+    const turnStart = parseWrittenJsonLines(stdin.chunks).find((msg) => msg.method === "turn/start");
+    expect(turnStart?.params.serviceTier).toBe("priority");
+  });
+
+  it("falls back to Standard when Codex rejects a selected service tier", async () => {
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "gpt-5.4",
+      cwd: "/tmp",
+      serviceTier: "priority",
+    });
+    const browserMessages: BrowserIncomingMessage[] = [];
+    const startedCb = vi.fn();
+    adapter.onBrowserMessage((msg) => browserMessages.push(msg));
+    adapter.onTurnStarted(startedCb);
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    adapter.sendBrowserMessage({ type: "user_message", content: "fast turn" } as BrowserOutgoingMessage);
+    await tick();
+
+    stdout.push(JSON.stringify({ id: 3, result: {} }) + "\n");
+    stdout.push(
+      JSON.stringify({
+        id: 4,
+        error: { code: -32602, message: "serviceTier priority is not available for this account" },
+      }) + "\n",
+    );
+    await tick();
+
+    stdout.push(JSON.stringify({ id: 5, result: { turn: { id: "turn_standard" } } }) + "\n");
+    await tick();
+
+    const turnStarts = parseWrittenJsonLines(stdin.chunks).filter((msg) => msg.method === "turn/start");
+    expect(turnStarts[0]?.params.serviceTier).toBe("priority");
+    expect(turnStarts[1]?.params.serviceTier).toBeNull();
+    expect(browserMessages).toContainEqual({
+      type: "session_update",
+      session: { codex_service_tier: null },
+    });
+    expect(startedCb).toHaveBeenCalledWith("turn_standard");
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { NotificationMarker } from "../MessageBubble.js";
+import { NotificationMarker, UserReplyChip } from "../MessageBubble.js";
 import { BoardBlock } from "../BoardBlock.js";
 import type { BoardRowData } from "../BoardTable.js";
 import { CatPawAvatar } from "../CatIcons.js";
@@ -8,7 +8,6 @@ import { ComposerMetaToolbar } from "../ComposerMetaToolbar.js";
 import { PausedInputChip, PauseOtherSourcesButton } from "../SessionPauseComposerControls.js";
 import { WorkBoardBar } from "../WorkBoardBar.js";
 import { TimerChip } from "../TimerWidget.js";
-import { UserReplyChip } from "../MessageBubble.js";
 import { useStore } from "../../store.js";
 import { CLAUDE_MODELS, CLAUDE_PERMISSION_MODES, CODEX_MODELS, CODEX_PERMISSION_MODES } from "../../utils/backends.js";
 import type { QuestJourneyPhaseId } from "../../../shared/quest-journey.js";
@@ -36,6 +35,8 @@ import {
   TimerModalDemo,
 } from "./shared.js";
 
+const PLAYGROUND_FAST_SERVICE_TIER = { id: "priority", name: "Fast", description: "1.5x speed, increased usage" };
+
 function PlaygroundCollapseAllButton() {
   return (
     <button
@@ -60,8 +61,14 @@ function PlaygroundComposerPermissionToolbar({
 }) {
   const modelDropdownRef = useRef<HTMLDivElement | null>(null);
   const codexReasoningDropdownRef = useRef<HTMLDivElement | null>(null);
+  const codexServiceTierDropdownRef = useRef<HTMLDivElement | null>(null);
   const permissionDropdownRef = useRef<HTMLDivElement | null>(null);
   const isCodex = backend === "codex";
+  const codexModelOptions = isCodex
+    ? CODEX_MODELS.map((model) =>
+        model.value === "gpt-5.4" ? { ...model, serviceTiers: [PLAYGROUND_FAST_SERVICE_TIER] } : model,
+      )
+    : CODEX_MODELS;
 
   return (
     <div className="border-t border-cc-border bg-cc-card px-4 py-3">
@@ -88,13 +95,19 @@ function PlaygroundComposerPermissionToolbar({
           setShowModelDropdown={() => {}}
           modelDropdownRef={modelDropdownRef}
           claudeModelOptions={CLAUDE_MODELS.filter((model) => model.value)}
-          codexModelOptions={CODEX_MODELS}
+          codexModelOptions={codexModelOptions}
           onSelectModel={() => {}}
           showCodexReasoningDropdown={false}
           setShowCodexReasoningDropdown={() => {}}
           codexReasoningDropdownRef={codexReasoningDropdownRef}
           codexReasoningEffort={isCodex ? "high" : ""}
           onSelectCodexReasoning={() => {}}
+          showCodexServiceTierDropdown={isCodex && state === "menu"}
+          setShowCodexServiceTierDropdown={() => {}}
+          codexServiceTierDropdownRef={codexServiceTierDropdownRef}
+          codexServiceTier={isCodex ? "priority" : null}
+          codexFastServiceTier={isCodex ? (codexModelOptions[1]?.serviceTiers?.[0] ?? null) : null}
+          onSelectCodexServiceTier={() => {}}
           permissionOptions={isCodex ? CODEX_PERMISSION_MODES : CLAUDE_PERMISSION_MODES}
           permissionMode={isCodex ? "auto-review" : "acceptEdits"}
           showPermissionDropdown={state === "menu"}

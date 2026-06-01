@@ -22,10 +22,21 @@ import {
 } from "./session-types.js";
 import type { RecorderManager } from "./recorder.js";
 import {
+  buildCodexCollabMode,
   extractCodexAppsPage,
   extractCodexMentionInputs,
   extractCodexSkillReferences,
+  formatCodexInitializationError,
+  formatPendingRpcRequests,
+  isCodexCollaborationModeUnsupportedError,
+  isCodexServiceTierRejection,
+  isCodexTransportClosedError,
   isCompactSlashCommand,
+  isRecoverableCodexTurnStartError,
+  mapCodexApprovalPolicy,
+  mapCodexSandboxPolicy,
+  normalizeCodexServiceTier,
+  noteCodexTransportCloseForWave,
   toSafeText,
   unwrapShellWrappedCommand,
 } from "./codex-adapter-utils.js";
@@ -148,6 +159,8 @@ export interface CodexAdapterOptions {
   uiMode?: "plan" | "agent";
   sandbox?: "read-only" | "workspace-write" | "danger-full-access";
   reasoningEffort?: string;
+  /** Codex app-server service tier for future turns. null/undefined means Standard. */
+  serviceTier?: string | null;
   /** If provided, resume an existing thread instead of starting a new one. */
   threadId?: string;
   /** Optional recorder for raw message capture. */
@@ -674,6 +687,7 @@ export class CodexAdapter
         msg.type === "codex_start_pending" ||
         msg.type === "codex_steer_pending" ||
         msg.type === "permission_response" ||
+        msg.type === "set_codex_service_tier" ||
         msg.type === "mcp_get_status" ||
         msg.type === "mcp_toggle" ||
         msg.type === "mcp_reconnect" ||
@@ -709,6 +723,9 @@ export class CodexAdapter
       case "set_model":
         console.warn("[codex-adapter] Runtime model switching not supported by Codex");
         return false;
+      case "set_codex_service_tier":
+        this.options.serviceTier = normalizeCodexServiceTier(msg.serviceTier);
+        return true;
       case "set_permission_mode":
         console.warn("[codex-adapter] Runtime permission mode switching not supported by Codex");
         return false;
@@ -913,6 +930,7 @@ export class CodexAdapter
         session_id: this.sessionId,
         backend_type: "codex",
         model: this.options.model || "",
+        codex_service_tier: normalizeCodexServiceTier(this.options.serviceTier),
         cwd: this.options.cwd || "",
         tools: [],
         permissionMode: this.options.approvalMode || "suggest",
@@ -970,7 +988,7 @@ export class CodexAdapter
 
       this.scheduleInitialSkillMetadataRefresh();
     } catch (err) {
-      const errorMsg = this.formatInitializationError(err);
+      const errorMsg = formatCodexInitializationError(err, this.options.failureContextProvider?.());
       console.error(`[codex-adapter] ${errorMsg}`);
       this.initFailed = true;
       this.connected = false;
@@ -1023,7 +1041,7 @@ export class CodexAdapter
         return;
       } catch (err) {
         const requeued = this.handleTurnStartDispatchFailure(msg);
-        if (requeued && this.isTransportClosedError(err)) {
+        if (requeued && isCodexTransportClosedError(err)) {
           console.warn(
             `[codex-adapter] thread/compact/start transport closed; message re-queued for session ${this.sessionId}`,
           );
@@ -1076,8 +1094,11 @@ export class CodexAdapter
       threadId: this.threadId,
       input,
       cwd: this.options.cwd,
+      serviceTier: normalizeCodexServiceTier(this.options.serviceTier),
     };
-    const collaborationMode = this.collaborationModeSupported ? this.buildCollaborationModeOverride() : null;
+    const collaborationMode = this.collaborationModeSupported
+      ? buildCodexCollabMode(this.options, getDefaultModelForBackend("codex"), CodexAdapter.VALID_REASONING_EFFORTS)
+      : null;
     if (collaborationMode) {
       turnStartParams.collaborationMode = collaborationMode;
     }
@@ -1091,7 +1112,7 @@ export class CodexAdapter
     } catch (err) {
       // Older Codex builds may reject collaborationMode. If so, retry once
       // without it and remember to skip it for future turns.
-      if (collaborationMode && this.isCollaborationModeUnsupportedError(err)) {
+      if (collaborationMode && isCodexCollaborationModeUnsupportedError(err)) {
         this.collaborationModeSupported = false;
         delete turnStartParams.collaborationMode;
         console.warn(`[codex-adapter] collaborationMode not supported; falling back for session ${this.sessionId}`);
@@ -1103,8 +1124,14 @@ export class CodexAdapter
           this.turnStartedCb?.(retry.turn.id);
           return;
         } catch (retryErr) {
+          const serviceTierRetry = await this.retryTurnStartWithoutServiceTier(turnStartParams, retryErr);
+          if (serviceTierRetry) {
+            this.currentTurnId = serviceTierRetry;
+            this.turnStartedCb?.(serviceTierRetry);
+            return;
+          }
           const requeued = this.handleTurnStartDispatchFailure(msg);
-          if (requeued && this.isRecoverableTurnStartError(retryErr)) {
+          if (requeued && isRecoverableCodexTurnStartError(retryErr)) {
             console.warn(
               `[codex-adapter] turn/start did not acknowledge; message re-queued for session ${this.sessionId}: ${retryErr}`,
             );
@@ -1115,8 +1142,14 @@ export class CodexAdapter
         }
       }
 
+      const serviceTierRetry = await this.retryTurnStartWithoutServiceTier(turnStartParams, err);
+      if (serviceTierRetry) {
+        this.currentTurnId = serviceTierRetry;
+        this.turnStartedCb?.(serviceTierRetry);
+        return;
+      }
       const requeued = this.handleTurnStartDispatchFailure(msg);
-      if (requeued && this.isRecoverableTurnStartError(err)) {
+      if (requeued && isRecoverableCodexTurnStartError(err)) {
         console.warn(
           `[codex-adapter] turn/start did not acknowledge; message re-queued for session ${this.sessionId}: ${err}`,
         );
@@ -1166,8 +1199,11 @@ export class CodexAdapter
       threadId: this.threadId,
       input,
       cwd: this.options.cwd,
+      serviceTier: normalizeCodexServiceTier(this.options.serviceTier),
     };
-    const collaborationMode = this.collaborationModeSupported ? this.buildCollaborationModeOverride() : null;
+    const collaborationMode = this.collaborationModeSupported
+      ? buildCodexCollabMode(this.options, getDefaultModelForBackend("codex"), CodexAdapter.VALID_REASONING_EFFORTS)
+      : null;
     if (collaborationMode) turnStartParams.collaborationMode = collaborationMode;
 
     try {
@@ -1177,7 +1213,7 @@ export class CodexAdapter
       this.currentTurnId = result.turn.id;
       this.turnStartedCb?.(result.turn.id);
     } catch (err) {
-      if (collaborationMode && this.isCollaborationModeUnsupportedError(err)) {
+      if (collaborationMode && isCodexCollaborationModeUnsupportedError(err)) {
         this.collaborationModeSupported = false;
         delete turnStartParams.collaborationMode;
         try {
@@ -1188,14 +1224,26 @@ export class CodexAdapter
           this.turnStartedCb?.(retry.turn.id);
           return;
         } catch (retryErr) {
+          const serviceTierRetry = await this.retryTurnStartWithoutServiceTier(turnStartParams, retryErr);
+          if (serviceTierRetry) {
+            this.currentTurnId = serviceTierRetry;
+            this.turnStartedCb?.(serviceTierRetry);
+            return;
+          }
           const requeued = this.handleTurnStartDispatchFailure(msg);
-          if (requeued && this.isRecoverableTurnStartError(retryErr)) return;
+          if (requeued && isRecoverableCodexTurnStartError(retryErr)) return;
           this.emit({ type: "error", message: `Failed to start pending Codex batch: ${retryErr}` });
           return;
         }
       }
+      const serviceTierRetry = await this.retryTurnStartWithoutServiceTier(turnStartParams, err);
+      if (serviceTierRetry) {
+        this.currentTurnId = serviceTierRetry;
+        this.turnStartedCb?.(serviceTierRetry);
+        return;
+      }
       const requeued = this.handleTurnStartDispatchFailure(msg);
-      if (requeued && this.isRecoverableTurnStartError(err)) return;
+      if (requeued && isRecoverableCodexTurnStartError(err)) return;
       this.emit({ type: "error", message: `Failed to start pending Codex batch: ${err}` });
     }
   }
@@ -1878,66 +1926,51 @@ export class CodexAdapter
       model: this.options.model,
       cwd: this.options.cwd,
     };
-    const approvalPolicy = this.mapApprovalPolicy(this.options.approvalMode, this.options.askPermission);
-    const sandbox = this.options.sandbox ?? this.mapSandboxPolicy(this.options.approvalMode);
+    const approvalPolicy = mapCodexApprovalPolicy(this.options.approvalMode, this.options.askPermission);
+    const sandbox = this.options.sandbox ?? mapCodexSandboxPolicy(this.options.approvalMode);
     if (approvalPolicy) params.approvalPolicy = approvalPolicy;
     if (sandbox) params.sandbox = sandbox;
     return params;
   }
 
-  private mapApprovalPolicy(mode?: string, askPermission?: boolean): string | undefined {
-    switch (mode) {
-      case "codex-custom":
-        return undefined;
-      case "codex-default":
-        return "on-request";
-      case "codex-auto-review":
-        return "on-request";
-      case "codex-full-access":
-        return "never";
-    }
-    if (askPermission === false) return "never";
-    switch (mode) {
-      case "bypassPermissions":
-        return "never";
-      case "suggest":
-      case "plan":
-      case "acceptEdits":
-      case "default":
-      default:
-        return "untrusted";
-    }
+  private shouldFallbackServiceTier(err: unknown): boolean {
+    return (
+      !!normalizeCodexServiceTier(this.options.serviceTier) &&
+      !isRecoverableCodexTurnStartError(err) &&
+      isCodexServiceTierRejection(err)
+    );
   }
 
-  private mapSandboxPolicy(mode?: string): string | undefined {
-    switch (mode) {
-      case "codex-custom":
-        return undefined;
-      case "codex-auto-review":
-        return "workspace-write";
-      case "codex-full-access":
-        return "danger-full-access";
-      case "codex-default":
-        return "workspace-write";
-      case "bypassPermissions":
-        return "danger-full-access";
-      default:
-        return "workspace-write";
-    }
-  }
+  private async retryTurnStartWithoutServiceTier(
+    turnStartParams: Record<string, unknown>,
+    err: unknown,
+  ): Promise<string | null> {
+    const failedTier = normalizeCodexServiceTier(this.options.serviceTier);
+    if (!failedTier || !this.shouldFallbackServiceTier(err)) return null;
 
-  private buildCollaborationModeOverride(): {
-    mode: "default" | "plan";
-    settings: { model: string; reasoning_effort: string | null };
-  } | null {
-    const mode = this.options.uiMode === "plan" || this.options.approvalMode === "plan" ? "plan" : "default";
-    return {
-      mode,
-      settings: {
-        model: this.options.model?.trim() || getDefaultModelForBackend("codex"),
-        reasoning_effort: this.normalizeReasoningEffort(this.options.reasoningEffort),
-      },
-    };
+    this.options.serviceTier = null;
+    turnStartParams.serviceTier = null;
+    this.emit({
+      type: "session_update",
+      session: { codex_service_tier: null },
+    });
+    this.emit({
+      type: "error",
+      message: `Codex service tier "${failedTier}" was rejected; falling back to Standard for this turn.`,
+    });
+
+    try {
+      const retry = (await this.transport.call("turn/start", turnStartParams, TURN_START_ACK_TIMEOUT_MS)) as {
+        turn: { id: string };
+      };
+      return retry.turn.id;
+    } catch (retryErr) {
+      console.warn(
+        `[codex-adapter] Standard fallback after service-tier rejection also failed for session ${this.sessionId}:`,
+        retryErr,
+      );
+      return null;
+    }
   }
 
   private async configureDeveloperInstructions(): Promise<void> {
@@ -1953,113 +1986,9 @@ export class CodexAdapter
     });
   }
 
-  private normalizeReasoningEffort(effort?: string): string | null {
-    if (!effort) return null;
-    const normalized = effort.trim().toLowerCase();
-    if (!normalized) return null;
-    return CodexAdapter.VALID_REASONING_EFFORTS.has(normalized) ? normalized : null;
-  }
-
-  private isCollaborationModeUnsupportedError(err: unknown): boolean {
-    const text = String(err).toLowerCase();
-    return (
-      text.includes("collaborationmode") &&
-      (text.includes("unknown field") ||
-        text.includes("invalid params") ||
-        text.includes("-32602") ||
-        text.includes("experimentalapi"))
-    );
-  }
-
-  private isTransportClosedError(err: unknown): boolean {
-    return String(err).toLowerCase().includes("transport closed");
-  }
-
-  private isRecoverableTurnStartError(err: unknown): boolean {
-    const text = String(err).toLowerCase();
-    return this.isTransportClosedError(err) || text.includes("turn/start timed out");
-  }
-
-  private formatInitializationError(err: unknown): string {
-    const detail = err instanceof Error ? err.message : String(err);
-    let message = `Codex initialization failed: ${detail}`;
-    const failureContext = this.options.failureContextProvider?.();
-    if (failureContext && this.isTransportClosedError(err)) {
-      message += `. Stderr: ${failureContext}`;
-    }
-    return message;
-  }
-
   private handleTurnStartDispatchFailure(msg: BrowserOutgoingMessage): boolean {
     if (!this.turnStartFailedCb) return false;
     this.turnStartFailedCb(msg);
     return true;
   }
-}
-
-const CODEX_TRANSPORT_CLOSE_WAVE_WINDOW_MS = 1_000;
-const CODEX_TRANSPORT_CLOSE_WAVE_DEBOUNCE_MS = 250;
-const CODEX_TRANSPORT_CLOSE_WAVE_MIN_COUNT = 3;
-let recentCodexTransportCloses: Array<{
-  sessionId: string;
-  closeId: string;
-  closedAt: number;
-  pid: number;
-  closeContext: string | null;
-  lastIncomingMethod: string | null;
-  lastOutgoingMethod: string | null;
-  skillRefreshCause: string | null;
-}> = [];
-let codexTransportCloseWaveTimer: ReturnType<typeof setTimeout> | null = null;
-
-function formatPendingRpcRequests(pending: JsonRpcPendingRequestSummary[]): string {
-  return `[${pending.map((entry) => `${entry.id}:${entry.method}:${entry.ageMs}ms`).join(",")}]`;
-}
-
-function noteCodexTransportCloseForWave(diagnostics: CodexAdapterDisconnectDiagnostics): void {
-  const now = diagnostics.transport?.closedAt ?? diagnostics.capturedAt;
-  recentCodexTransportCloses = recentCodexTransportCloses.filter(
-    (entry) => now - entry.closedAt <= CODEX_TRANSPORT_CLOSE_WAVE_WINDOW_MS,
-  );
-  recentCodexTransportCloses.push({
-    sessionId: diagnostics.sessionId,
-    closeId: diagnostics.closeId,
-    closedAt: now,
-    pid: diagnostics.process.pid,
-    closeContext: diagnostics.transport?.closeContext ?? null,
-    lastIncomingMethod: lastMethod(diagnostics.transport?.recentIncoming),
-    lastOutgoingMethod: lastMethod(diagnostics.transport?.recentOutgoing),
-    skillRefreshCause: diagnostics.skillRefresh.inFlight[0]?.cause ?? diagnostics.skillRefresh.last?.cause ?? null,
-  });
-  if (recentCodexTransportCloses.length < CODEX_TRANSPORT_CLOSE_WAVE_MIN_COUNT) return;
-  if (codexTransportCloseWaveTimer) clearTimeout(codexTransportCloseWaveTimer);
-  codexTransportCloseWaveTimer = setTimeout(() => {
-    codexTransportCloseWaveTimer = null;
-    const latest = Date.now();
-    const wave = recentCodexTransportCloses.filter(
-      (entry) =>
-        latest - entry.closedAt <= CODEX_TRANSPORT_CLOSE_WAVE_WINDOW_MS + CODEX_TRANSPORT_CLOSE_WAVE_DEBOUNCE_MS,
-    );
-    if (wave.length < CODEX_TRANSPORT_CLOSE_WAVE_MIN_COUNT) return;
-    console.warn(
-      `[codex-adapter] Codex transport close wave detected (${wave.length} closes in ~${CODEX_TRANSPORT_CLOSE_WAVE_WINDOW_MS}ms): ` +
-        JSON.stringify({
-          sessions: wave.map((entry) => ({
-            sessionId: entry.sessionId,
-            closeId: entry.closeId,
-            pid: entry.pid,
-            closeContext: entry.closeContext,
-            lastIncomingMethod: entry.lastIncomingMethod,
-            lastOutgoingMethod: entry.lastOutgoingMethod,
-            skillRefreshCause: entry.skillRefreshCause,
-          })),
-        }),
-    );
-  }, CODEX_TRANSPORT_CLOSE_WAVE_DEBOUNCE_MS);
-  if (codexTransportCloseWaveTimer.unref) codexTransportCloseWaveTimer.unref();
-}
-
-function lastMethod(messages: JsonRpcTransportCloseDiagnostics["recentIncoming"] | undefined): string | null {
-  if (!messages || messages.length === 0) return null;
-  return messages[messages.length - 1].method;
 }

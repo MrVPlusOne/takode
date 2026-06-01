@@ -30,6 +30,12 @@ export function ComposerMetaToolbar({
   codexReasoningDropdownRef,
   codexReasoningEffort,
   onSelectCodexReasoning,
+  showCodexServiceTierDropdown,
+  setShowCodexServiceTierDropdown,
+  codexServiceTierDropdownRef,
+  codexServiceTier,
+  codexFastServiceTier,
+  onSelectCodexServiceTier,
   permissionOptions,
   permissionMode,
   showPermissionDropdown,
@@ -82,6 +88,12 @@ export function ComposerMetaToolbar({
   codexReasoningDropdownRef: RefObject<HTMLDivElement | null>;
   codexReasoningEffort: string;
   onSelectCodexReasoning: (effort: string) => void;
+  showCodexServiceTierDropdown: boolean;
+  setShowCodexServiceTierDropdown: (open: boolean) => void;
+  codexServiceTierDropdownRef: RefObject<HTMLDivElement | null>;
+  codexServiceTier: string | null;
+  codexFastServiceTier: NonNullable<ModelOption["serviceTiers"]>[number] | null;
+  onSelectCodexServiceTier: (serviceTier: string | null) => void;
   permissionOptions: PermissionOption[];
   permissionMode: string;
   showPermissionDropdown: boolean;
@@ -114,6 +126,10 @@ export function ComposerMetaToolbar({
   const pendingPermission = pendingPermissionMode
     ? permissionOptions.find((option) => option.value === pendingPermissionMode)
     : null;
+  const fastSupported = !!codexFastServiceTier;
+  const fastSelected = !!codexFastServiceTier && codexServiceTier === codexFastServiceTier.id;
+  const selectedSpeedLabel = fastSelected ? codexFastServiceTier.name : "Standard";
+  const fastDescription = codexFastServiceTier?.description || "Use increased-priority Codex service tier.";
 
   return (
     <div data-testid="composer-footer-toolbar" className="flex items-center gap-2 px-2.5 pb-2.5 pt-1">
@@ -298,6 +314,63 @@ export function ComposerMetaToolbar({
                               {m.label}
                             </button>
                           ))}
+                        </div>
+                      )}
+                    </div>
+                    <span className="hidden sm:inline shrink-0 text-cc-muted/40">&middot;</span>
+                    <div className="relative shrink-0 hidden sm:block" ref={codexServiceTierDropdownRef}>
+                      <button
+                        onClick={() => setShowCodexServiceTierDropdown(!showCodexServiceTierDropdown)}
+                        disabled={!isConnected}
+                        className={`flex items-center gap-1 transition-colors select-none ${
+                          !isConnected ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
+                        }`}
+                        title={
+                          isConnected
+                            ? `Speed: ${selectedSpeedLabel} (applies next turn)`
+                            : "Resume session to change speed"
+                        }
+                      >
+                        <span>{selectedSpeedLabel.toLowerCase()}</span>
+                        <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
+                          <path d="M4 6l4 4 4-4" />
+                        </svg>
+                      </button>
+                      {showCodexServiceTierDropdown && (
+                        <div
+                          data-testid="composer-speed-menu"
+                          className="absolute left-0 bottom-full z-10 mb-1 w-48 overflow-hidden rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg"
+                        >
+                          <button
+                            onClick={() => {
+                              onSelectCodexServiceTier(null);
+                              setShowCodexServiceTierDropdown(false);
+                            }}
+                            className={`w-full cursor-pointer px-3 py-2 text-left transition-colors hover:bg-cc-hover ${
+                              !fastSelected ? "text-cc-primary" : "text-cc-fg"
+                            }`}
+                          >
+                            <div className="text-xs font-medium">Standard</div>
+                            <div className="mt-0.5 text-[11px] leading-snug text-cc-muted">Default Codex speed.</div>
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (!codexFastServiceTier) return;
+                              onSelectCodexServiceTier(codexFastServiceTier.id);
+                              setShowCodexServiceTierDropdown(false);
+                            }}
+                            disabled={!codexFastServiceTier}
+                            className={`w-full px-3 py-2 text-left transition-colors ${
+                              !codexFastServiceTier
+                                ? "cursor-not-allowed opacity-45"
+                                : "cursor-pointer hover:bg-cc-hover"
+                            } ${fastSelected ? "text-cc-primary" : "text-cc-fg"}`}
+                          >
+                            <div className="text-xs font-medium">Fast</div>
+                            <div className="mt-0.5 text-[11px] leading-snug text-cc-muted">
+                              {fastSupported ? fastDescription : "Not available for this model."}
+                            </div>
+                          </button>
                         </div>
                       )}
                     </div>

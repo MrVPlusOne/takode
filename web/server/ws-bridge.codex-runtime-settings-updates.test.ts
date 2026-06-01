@@ -649,6 +649,50 @@ describe("Codex runtime settings updates", () => {
     expect(relaunchCb).toHaveBeenCalledWith(sid);
   });
 
+  it("set_codex_service_tier updates persisted state and active adapter without relaunch", async () => {
+    const sid = "s-service-tier";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    const relaunchCb = vi.fn();
+    const launcherInfo = { model: "gpt-5.4", codexServiceTier: null as string | null };
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => launcherInfo),
+    };
+    bridge.setLauncher(launcherMock as any);
+    bridge.onSessionRelaunchRequestedCallback(relaunchCb);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "set_codex_service_tier",
+        serviceTier: "priority",
+      }),
+    );
+
+    const session = bridge.getSession(sid)!;
+    expect(session.state.codex_service_tier).toBe("priority");
+    expect(launcherInfo.codexServiceTier).toBe("priority");
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith({
+      type: "set_codex_service_tier",
+      serviceTier: "priority",
+    });
+    expect(relaunchCb).not.toHaveBeenCalled();
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const update = calls.find((c: any) => c.type === "session_update");
+    expect(update).toEqual(
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({ codex_service_tier: "priority" }),
+      }),
+    );
+  });
+
   it("legacy set_ask_permission maps Codex to backend-native full access", async () => {
     const sid = "s3";
     const browser = makeBrowserSocket(sid);
