@@ -138,6 +138,37 @@ async function routeAssistantMessage(
 }
 
 describe("codex-adapter-browser-message-controller thread routing", () => {
+  it("clears launcher service tier when adapter fallback updates Codex service tier to Standard", async () => {
+    // A rejected Fast tier is cleared by the adapter through session_update.
+    // The bridge must also clear launcher state, or a later Codex relaunch can
+    // reconstruct the adapter with the rejected Fast tier again.
+    const session = makeSession();
+    session.state.codex_service_tier = "priority";
+    const launcherInfo = { codexServiceTier: "priority" as string | null };
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = {
+      ...makeDeps(broadcasts),
+      getLauncherSessionInfo: vi.fn(() => launcherInfo),
+    };
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "session_update",
+        session: { codex_service_tier: null },
+      },
+      deps,
+    );
+
+    expect(session.state.codex_service_tier).toBeNull();
+    expect(launcherInfo.codexServiceTier).toBeNull();
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+    expect(broadcasts).toContainEqual({
+      type: "session_update",
+      session: expect.objectContaining({ codex_service_tier: null }),
+    });
+  });
+
   it("preserves history-derived turn metrics across Codex session init reconnect patches", async () => {
     // Codex init/reconnect sends zeroed session metrics; a long restored
     // session must keep the backend-owned counts derived from messageHistory.

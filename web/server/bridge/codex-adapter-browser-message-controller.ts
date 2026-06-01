@@ -88,6 +88,7 @@ function updateActiveTurnRouteFromLeaderAssistant(
 
 type CodexLeaderRecycleLauncherInfo = {
   isOrchestrator?: boolean;
+  codexServiceTier?: string | null;
   codexLeaderRecycleThresholdTokens?: number;
   codexLeaderRecycleLineage?: {
     recycleEvents?: Array<{
@@ -116,6 +117,15 @@ function withCodexLeaderRecycleThreshold(
     positiveInteger(session.state?.codex_leader_recycle_threshold_tokens);
   if (!thresholdTokens) return patch;
   return { ...patch, codex_leader_recycle_threshold_tokens: thresholdTokens };
+}
+
+function mirrorCodexServiceTierToLauncherInfo(
+  patch: Record<string, unknown>,
+  launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
+): void {
+  if (!launcherInfo || !Object.prototype.hasOwnProperty.call(patch, "codex_service_tier")) return;
+  const serviceTier = patch.codex_service_tier;
+  launcherInfo.codexServiceTier = typeof serviceTier === "string" && serviceTier.trim() ? serviceTier.trim() : null;
 }
 
 function withHistoryTurnMetrics(
@@ -329,6 +339,8 @@ export async function handleCodexAdapterBrowserMessage(
     outgoing = { ...msg, session: enriched as unknown as typeof msg.session } as BrowserIncomingMessage;
   } else if (msg.type === "session_update") {
     const sanitized = deps.sanitizeCodexSessionPatch(msg.session as unknown as Record<string, unknown>);
+    const launcherInfo = deps.getLauncherSessionInfo(session.id);
+    mirrorCodexServiceTierToLauncherInfo(sanitized, launcherInfo);
     const enriched = withHistoryTurnMetrics(
       session,
       withCodexLeaderRecycleThreshold(session, { ...sanitized, backend_type: "codex" }, deps),
@@ -337,7 +349,6 @@ export async function handleCodexAdapterBrowserMessage(
     outgoing = { ...msg, session: enriched as unknown as typeof msg.session } as BrowserIncomingMessage;
     deps.cacheSlashCommandState(session, enriched);
     deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
-    const launcherInfo = deps.getLauncherSessionInfo(session.id);
     const recycleThresholdTokens =
       positiveInteger(session.state.codex_leader_recycle_threshold_tokens) ??
       positiveInteger(launcherInfo?.codexLeaderRecycleThresholdTokens) ??
