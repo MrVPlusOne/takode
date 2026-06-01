@@ -1065,271 +1065,281 @@ export function NewSessionModal({
                 )}
 
                 <NewSessionConfigSection title="Workspace">
-                  <div className="flex flex-wrap items-end gap-2">
-                    <NewSessionField label="Folder" className="flex-[1_1_12rem]">
-                      <div>
-                        <button
-                          onClick={() => setShowFolderPicker(true)}
-                          className="flex max-w-full items-center gap-1.5 px-2 py-1 text-xs text-cc-muted hover:text-cc-fg rounded-md hover:bg-cc-hover transition-colors cursor-pointer"
-                        >
-                          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-60 shrink-0">
-                            <path d="M1 3.5A1.5 1.5 0 012.5 2h3.379a1.5 1.5 0 011.06.44l.622.621a.5.5 0 00.353.146H13.5A1.5 1.5 0 0115 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z" />
-                          </svg>
-                          <span className="max-w-[180px] truncate font-mono-code">{dirLabel}</span>
-                          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50 shrink-0">
-                            <path d="M4 6l4 4 4-4" />
-                          </svg>
-                        </button>
-                        {showFolderPicker && (
-                          <FolderPicker
-                            initialPath={cwd || ""}
-                            recentDirsKey={defaultsKey || undefined}
-                            onSelect={(path) => {
-                              setUserSelectedCwd(path);
-                            }}
-                            onClose={() => setShowFolderPicker(false)}
-                          />
-                        )}
-                      </div>
-                    </NewSessionField>
-
-                    {(gitRepoInfo || repoInfoLoading || useWorktree) && (
-                      <NewSessionField label="Isolation" className="flex-none">
-                        <button
-                          onClick={() => {
-                            const next = !useWorktree;
-                            setUseWorktree(next);
-                            if (!next) setShowBranchDropdown(false);
-                            persistGlobalDefault("cc-worktree", String(next));
-                          }}
-                          className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors ${
-                            useWorktree
-                              ? "bg-cc-primary/15 text-cc-primary font-medium cursor-pointer"
-                              : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
-                          }`}
-                          title={
-                            repoInfoLoading
-                              ? "Worktree metadata is loading"
-                              : "Create an isolated worktree for this session"
-                          }
-                        >
-                          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-70">
-                            <path d="M5 3.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm0 2.122a2.25 2.25 0 10-1.5 0v5.256a2.25 2.25 0 101.5 0V5.372zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zm7.5-9.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V7A2.5 2.5 0 0110 9.5H6a1 1 0 000 2h4a2.5 2.5 0 012.5 2.5v.628a2.25 2.25 0 11-1.5 0V14a1 1 0 00-1-1H6a2.5 2.5 0 01-2.5-2.5V10a2.5 2.5 0 012.5-2.5h4a1 1 0 001-1V5.372a2.25 2.25 0 01-1.5-2.122z" />
-                          </svg>
-                          <span>Worktree</span>
-                        </button>
-                      </NewSessionField>
-                    )}
-
-                    {(gitRepoInfo || repoInfoLoading || useWorktree) && (
-                      <NewSessionField label="Base branch" className="flex-none">
-                        <div className="relative" ref={branchDropdownRef}>
-                          {(() => {
-                            const branchButtonDisabled = !gitRepoInfo || !useWorktree;
-                            const branchLabel = gitRepoInfo
-                              ? selectedBranch || gitRepoInfo.currentBranch
-                              : repoInfoLoading
-                                ? "Detecting..."
-                                : "Branch";
-                            return (
-                              <button
-                                data-testid="new-session-branch-button"
-                                onClick={() => {
-                                  if (branchButtonDisabled) return;
-                                  if (!showBranchDropdown && gitRepoInfo) {
-                                    api
-                                      .gitFetch(gitRepoInfo.repoRoot)
-                                      .catch(() => {})
-                                      .finally(() => {
-                                        api
-                                          .listBranches(gitRepoInfo.repoRoot)
-                                          .then(setBranches)
-                                          .catch(() => setBranches([]));
-                                      });
-                                  }
-                                  setShowBranchDropdown(!showBranchDropdown);
-                                  setBranchFilter("");
-                                }}
-                                disabled={branchButtonDisabled}
-                                className={`flex min-w-[8.5rem] items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors ${
-                                  branchButtonDisabled
-                                    ? "cursor-not-allowed text-cc-muted/55 bg-cc-hover/30"
-                                    : "cursor-pointer text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-                                }`}
-                                title={
-                                  branchButtonDisabled
-                                    ? "Enable Worktree to choose a base branch"
-                                    : "Choose the base branch for the worktree"
-                                }
-                              >
-                                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-60 shrink-0">
-                                  <path d="M5 3.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm0 2.122a2.25 2.25 0 10-1.5 0v.378A2.5 2.5 0 007.5 8h1a1 1 0 010 2h-1A2.5 2.5 0 005 12.5v.128a2.25 2.25 0 101.5 0V12.5a1 1 0 011-1h1a2.5 2.5 0 000-5h-1a1 1 0 01-1-1V5.372zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5z" />
-                                </svg>
-                                <span className="max-w-[100px] truncate font-mono-code">{branchLabel}</span>
-                                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50 shrink-0">
-                                  <path d="M4 6l4 4 4-4" />
-                                </svg>
-                              </button>
-                            );
-                          })()}
-                          {gitRepoInfo && useWorktree && showBranchDropdown && (
-                            <div className="absolute left-0 top-full mt-1 w-72 max-w-[calc(100vw-2rem)] bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 overflow-hidden">
-                              <div className="px-2 py-2 border-b border-cc-border">
-                                <input
-                                  type="text"
-                                  value={branchFilter}
-                                  onChange={(e) => setBranchFilter(e.target.value)}
-                                  placeholder="Filter or create branch..."
-                                  className="w-full px-2 py-1 text-base sm:text-xs bg-cc-input-bg border border-cc-border rounded-md text-cc-fg font-mono-code placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/50"
-                                  autoFocus
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Escape") {
-                                      setShowBranchDropdown(false);
-                                    }
-                                  }}
-                                />
-                              </div>
-                              <div className="max-h-[240px] overflow-y-auto py-1">
-                                {(() => {
-                                  const filter = branchFilter.toLowerCase().trim();
-                                  const localBranches = branches.filter(
-                                    (b) => !b.isRemote && (!filter || b.name.toLowerCase().includes(filter)),
-                                  );
-                                  const remoteBranches = branches.filter(
-                                    (b) => b.isRemote && (!filter || b.name.toLowerCase().includes(filter)),
-                                  );
-                                  const exactMatch = branches.some((b) => b.name.toLowerCase() === filter);
-                                  const hasResults = localBranches.length > 0 || remoteBranches.length > 0;
-
-                                  return (
-                                    <>
-                                      {localBranches.length > 0 && (
-                                        <>
-                                          <div className="px-3 py-1 text-[10px] text-cc-muted uppercase tracking-wider">
-                                            Local
-                                          </div>
-                                          {localBranches.map((b) => (
-                                            <button
-                                              key={b.name}
-                                              onClick={() => {
-                                                setSelectedBranch(b.name);
-                                                setIsNewBranch(false);
-                                                if (gitRepoInfo) saveBranch(gitRepoInfo.repoRoot, b.name);
-                                                setShowBranchDropdown(false);
-                                              }}
-                                              className={`w-full px-3 py-1.5 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-2 ${
-                                                b.name === selectedBranch ? "text-cc-primary font-medium" : "text-cc-fg"
-                                              }`}
-                                            >
-                                              <span className="truncate font-mono-code">{b.name}</span>
-                                              <span className="ml-auto flex items-center gap-1.5 shrink-0">
-                                                {b.ahead > 0 && (
-                                                  <span className="text-[9px] text-green-500">{b.ahead}&#8593;</span>
-                                                )}
-                                                {b.behind > 0 && (
-                                                  <span className="text-[9px] text-amber-500">{b.behind}&#8595;</span>
-                                                )}
-                                                {b.worktreePath && (
-                                                  <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400">
-                                                    wt
-                                                  </span>
-                                                )}
-                                                {b.isCurrent && (
-                                                  <span className="text-[9px] px-1 py-0.5 rounded bg-green-500/15 text-green-600 dark:text-green-400">
-                                                    current
-                                                  </span>
-                                                )}
-                                              </span>
-                                            </button>
-                                          ))}
-                                        </>
-                                      )}
-                                      {remoteBranches.length > 0 && (
-                                        <>
-                                          <div className="px-3 py-1 text-[10px] text-cc-muted uppercase tracking-wider mt-1">
-                                            Remote
-                                          </div>
-                                          {remoteBranches.map((b) => (
-                                            <button
-                                              key={`remote-${b.name}`}
-                                              onClick={() => {
-                                                setSelectedBranch(b.name);
-                                                setIsNewBranch(false);
-                                                if (gitRepoInfo) saveBranch(gitRepoInfo.repoRoot, b.name);
-                                                setShowBranchDropdown(false);
-                                              }}
-                                              className={`w-full px-3 py-1.5 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-2 ${
-                                                b.name === selectedBranch ? "text-cc-primary font-medium" : "text-cc-fg"
-                                              }`}
-                                            >
-                                              <span className="truncate font-mono-code">{b.name}</span>
-                                              <span className="text-[9px] px-1 py-0.5 rounded bg-cc-hover text-cc-muted ml-auto shrink-0">
-                                                remote
-                                              </span>
-                                            </button>
-                                          ))}
-                                        </>
-                                      )}
-                                      {!hasResults && filter && (
-                                        <div className="px-3 py-2 text-xs text-cc-muted text-center">
-                                          No matching branches
-                                        </div>
-                                      )}
-                                      {filter && !exactMatch && (
-                                        <div className="border-t border-cc-border mt-1 pt-1">
-                                          <button
-                                            onClick={() => {
-                                              const name = branchFilter.trim();
-                                              setSelectedBranch(name);
-                                              setIsNewBranch(true);
-                                              if (gitRepoInfo) saveBranch(gitRepoInfo.repoRoot, name);
-                                              setShowBranchDropdown(false);
-                                            }}
-                                            className="w-full px-3 py-1.5 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-2 text-cc-primary"
-                                          >
-                                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0">
-                                              <path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z" />
-                                            </svg>
-                                            <span>
-                                              Create{" "}
-                                              <span className="font-mono-code font-medium">{branchFilter.trim()}</span>
-                                            </span>
-                                          </button>
-                                        </div>
-                                      )}
-                                    </>
-                                  );
-                                })()}
-                              </div>
-                            </div>
+                  <div className="space-y-2">
+                    <div data-testid="new-session-workspace-folder-row" className="flex items-end">
+                      <NewSessionField label="Folder" className="flex-[1_1_12rem]">
+                        <div>
+                          <button
+                            onClick={() => setShowFolderPicker(true)}
+                            className="flex max-w-full items-center gap-1.5 px-2 py-1 text-xs text-cc-muted hover:text-cc-fg rounded-md hover:bg-cc-hover transition-colors cursor-pointer"
+                          >
+                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-60 shrink-0">
+                              <path d="M1 3.5A1.5 1.5 0 012.5 2h3.379a1.5 1.5 0 011.06.44l.622.621a.5.5 0 00.353.146H13.5A1.5 1.5 0 0115 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z" />
+                            </svg>
+                            <span className="max-w-[180px] truncate font-mono-code">{dirLabel}</span>
+                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50 shrink-0">
+                              <path d="M4 6l4 4 4-4" />
+                            </svg>
+                          </button>
+                          {showFolderPicker && (
+                            <FolderPicker
+                              initialPath={cwd || ""}
+                              recentDirsKey={defaultsKey || undefined}
+                              onSelect={(path) => {
+                                setUserSelectedCwd(path);
+                              }}
+                              onClose={() => setShowFolderPicker(false)}
+                            />
                           )}
                         </div>
                       </NewSessionField>
-                    )}
+                    </div>
 
-                    <NewSessionField label="Session role" className="flex-none">
-                      <button
-                        onClick={() => {
-                          const nextRole = sessionRole === "leader" ? "worker" : "leader";
-                          setSessionRole(nextRole);
-                          if (nextRole === "leader") {
-                            setUseWorktree(false);
-                            setShowBranchDropdown(false);
-                          }
-                        }}
-                        className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors cursor-pointer ${
-                          sessionRole === "leader"
-                            ? "bg-cc-primary/15 text-cc-primary font-medium"
-                            : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-                        }`}
-                        title="Leader session: gets TAKODE_ROLE and TAKODE_API_PORT env vars for cross-session coordination"
-                      >
-                        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-70">
-                          <path d="M8 2a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM3.5 5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM12.5 5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM8 4.5v2M5 7.5L7 6M11 7.5L9 6M3.5 8v2.5a1 1 0 001 1h7a1 1 0 001-1V8" />
-                        </svg>
-                        <span>Leader</span>
-                      </button>
-                    </NewSessionField>
+                    <div data-testid="new-session-workspace-controls-row" className="flex flex-wrap items-end gap-2">
+                      {(gitRepoInfo || repoInfoLoading || useWorktree) && (
+                        <NewSessionField label="Base branch" className="flex-none">
+                          <div className="relative" ref={branchDropdownRef}>
+                            {(() => {
+                              const branchButtonDisabled = !gitRepoInfo || !useWorktree;
+                              const branchLabel = gitRepoInfo
+                                ? selectedBranch || gitRepoInfo.currentBranch
+                                : repoInfoLoading
+                                  ? "Detecting..."
+                                  : "Branch";
+                              return (
+                                <button
+                                  data-testid="new-session-branch-button"
+                                  onClick={() => {
+                                    if (branchButtonDisabled) return;
+                                    if (!showBranchDropdown && gitRepoInfo) {
+                                      api
+                                        .gitFetch(gitRepoInfo.repoRoot)
+                                        .catch(() => {})
+                                        .finally(() => {
+                                          api
+                                            .listBranches(gitRepoInfo.repoRoot)
+                                            .then(setBranches)
+                                            .catch(() => setBranches([]));
+                                        });
+                                    }
+                                    setShowBranchDropdown(!showBranchDropdown);
+                                    setBranchFilter("");
+                                  }}
+                                  disabled={branchButtonDisabled}
+                                  className={`flex min-w-[8.5rem] items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors ${
+                                    branchButtonDisabled
+                                      ? "cursor-not-allowed text-cc-muted/55 bg-cc-hover/30"
+                                      : "cursor-pointer text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+                                  }`}
+                                  title={
+                                    branchButtonDisabled
+                                      ? "Enable Worktree to choose a base branch"
+                                      : "Choose the base branch for the worktree"
+                                  }
+                                >
+                                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-60 shrink-0">
+                                    <path d="M5 3.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm0 2.122a2.25 2.25 0 10-1.5 0v.378A2.5 2.5 0 007.5 8h1a1 1 0 010 2h-1A2.5 2.5 0 005 12.5v.128a2.25 2.25 0 101.5 0V12.5a1 1 0 011-1h1a2.5 2.5 0 000-5h-1a1 1 0 01-1-1V5.372zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5z" />
+                                  </svg>
+                                  <span className="max-w-[100px] truncate font-mono-code">{branchLabel}</span>
+                                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50 shrink-0">
+                                    <path d="M4 6l4 4 4-4" />
+                                  </svg>
+                                </button>
+                              );
+                            })()}
+                            {gitRepoInfo && useWorktree && showBranchDropdown && (
+                              <div className="absolute left-0 top-full mt-1 w-72 max-w-[calc(100vw-2rem)] bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 overflow-hidden">
+                                <div className="px-2 py-2 border-b border-cc-border">
+                                  <input
+                                    type="text"
+                                    value={branchFilter}
+                                    onChange={(e) => setBranchFilter(e.target.value)}
+                                    placeholder="Filter or create branch..."
+                                    className="w-full px-2 py-1 text-base sm:text-xs bg-cc-input-bg border border-cc-border rounded-md text-cc-fg font-mono-code placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/50"
+                                    autoFocus
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Escape") {
+                                        setShowBranchDropdown(false);
+                                      }
+                                    }}
+                                  />
+                                </div>
+                                <div className="max-h-[240px] overflow-y-auto py-1">
+                                  {(() => {
+                                    const filter = branchFilter.toLowerCase().trim();
+                                    const localBranches = branches.filter(
+                                      (b) => !b.isRemote && (!filter || b.name.toLowerCase().includes(filter)),
+                                    );
+                                    const remoteBranches = branches.filter(
+                                      (b) => b.isRemote && (!filter || b.name.toLowerCase().includes(filter)),
+                                    );
+                                    const exactMatch = branches.some((b) => b.name.toLowerCase() === filter);
+                                    const hasResults = localBranches.length > 0 || remoteBranches.length > 0;
+
+                                    return (
+                                      <>
+                                        {localBranches.length > 0 && (
+                                          <>
+                                            <div className="px-3 py-1 text-[10px] text-cc-muted uppercase tracking-wider">
+                                              Local
+                                            </div>
+                                            {localBranches.map((b) => (
+                                              <button
+                                                key={b.name}
+                                                onClick={() => {
+                                                  setSelectedBranch(b.name);
+                                                  setIsNewBranch(false);
+                                                  if (gitRepoInfo) saveBranch(gitRepoInfo.repoRoot, b.name);
+                                                  setShowBranchDropdown(false);
+                                                }}
+                                                className={`w-full px-3 py-1.5 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-2 ${
+                                                  b.name === selectedBranch
+                                                    ? "text-cc-primary font-medium"
+                                                    : "text-cc-fg"
+                                                }`}
+                                              >
+                                                <span className="truncate font-mono-code">{b.name}</span>
+                                                <span className="ml-auto flex items-center gap-1.5 shrink-0">
+                                                  {b.ahead > 0 && (
+                                                    <span className="text-[9px] text-green-500">{b.ahead}&#8593;</span>
+                                                  )}
+                                                  {b.behind > 0 && (
+                                                    <span className="text-[9px] text-amber-500">{b.behind}&#8595;</span>
+                                                  )}
+                                                  {b.worktreePath && (
+                                                    <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400">
+                                                      wt
+                                                    </span>
+                                                  )}
+                                                  {b.isCurrent && (
+                                                    <span className="text-[9px] px-1 py-0.5 rounded bg-green-500/15 text-green-600 dark:text-green-400">
+                                                      current
+                                                    </span>
+                                                  )}
+                                                </span>
+                                              </button>
+                                            ))}
+                                          </>
+                                        )}
+                                        {remoteBranches.length > 0 && (
+                                          <>
+                                            <div className="px-3 py-1 text-[10px] text-cc-muted uppercase tracking-wider mt-1">
+                                              Remote
+                                            </div>
+                                            {remoteBranches.map((b) => (
+                                              <button
+                                                key={`remote-${b.name}`}
+                                                onClick={() => {
+                                                  setSelectedBranch(b.name);
+                                                  setIsNewBranch(false);
+                                                  if (gitRepoInfo) saveBranch(gitRepoInfo.repoRoot, b.name);
+                                                  setShowBranchDropdown(false);
+                                                }}
+                                                className={`w-full px-3 py-1.5 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-2 ${
+                                                  b.name === selectedBranch
+                                                    ? "text-cc-primary font-medium"
+                                                    : "text-cc-fg"
+                                                }`}
+                                              >
+                                                <span className="truncate font-mono-code">{b.name}</span>
+                                                <span className="text-[9px] px-1 py-0.5 rounded bg-cc-hover text-cc-muted ml-auto shrink-0">
+                                                  remote
+                                                </span>
+                                              </button>
+                                            ))}
+                                          </>
+                                        )}
+                                        {!hasResults && filter && (
+                                          <div className="px-3 py-2 text-xs text-cc-muted text-center">
+                                            No matching branches
+                                          </div>
+                                        )}
+                                        {filter && !exactMatch && (
+                                          <div className="border-t border-cc-border mt-1 pt-1">
+                                            <button
+                                              onClick={() => {
+                                                const name = branchFilter.trim();
+                                                setSelectedBranch(name);
+                                                setIsNewBranch(true);
+                                                if (gitRepoInfo) saveBranch(gitRepoInfo.repoRoot, name);
+                                                setShowBranchDropdown(false);
+                                              }}
+                                              className="w-full px-3 py-1.5 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-2 text-cc-primary"
+                                            >
+                                              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0">
+                                                <path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z" />
+                                              </svg>
+                                              <span>
+                                                Create{" "}
+                                                <span className="font-mono-code font-medium">
+                                                  {branchFilter.trim()}
+                                                </span>
+                                              </span>
+                                            </button>
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </NewSessionField>
+                      )}
+
+                      <NewSessionField label="Session role" className="flex-none">
+                        <button
+                          onClick={() => {
+                            const nextRole = sessionRole === "leader" ? "worker" : "leader";
+                            setSessionRole(nextRole);
+                            if (nextRole === "leader") {
+                              setUseWorktree(false);
+                              setShowBranchDropdown(false);
+                            }
+                          }}
+                          className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors cursor-pointer ${
+                            sessionRole === "leader"
+                              ? "bg-cc-primary/15 text-cc-primary font-medium"
+                              : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+                          }`}
+                          title="Leader session: gets TAKODE_ROLE and TAKODE_API_PORT env vars for cross-session coordination"
+                        >
+                          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-70">
+                            <path d="M8 2a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM3.5 5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM12.5 5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM8 4.5v2M5 7.5L7 6M11 7.5L9 6M3.5 8v2.5a1 1 0 001 1h7a1 1 0 001-1V8" />
+                          </svg>
+                          <span>Leader</span>
+                        </button>
+                      </NewSessionField>
+
+                      {(gitRepoInfo || repoInfoLoading || useWorktree) && (
+                        <NewSessionField label="Isolation" className="flex-none">
+                          <button
+                            onClick={() => {
+                              const next = !useWorktree;
+                              setUseWorktree(next);
+                              if (!next) setShowBranchDropdown(false);
+                              persistGlobalDefault("cc-worktree", String(next));
+                            }}
+                            className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors ${
+                              useWorktree
+                                ? "bg-cc-primary/15 text-cc-primary font-medium cursor-pointer"
+                                : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
+                            }`}
+                            title={
+                              repoInfoLoading
+                                ? "Worktree metadata is loading"
+                                : "Create an isolated worktree for this session"
+                            }
+                          >
+                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-70">
+                              <path d="M5 3.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm0 2.122a2.25 2.25 0 10-1.5 0v5.256a2.25 2.25 0 101.5 0V5.372zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zm7.5-9.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V7A2.5 2.5 0 0110 9.5H6a1 1 0 000 2h4a2.5 2.5 0 012.5 2.5v.628a2.25 2.25 0 11-1.5 0V14a1 1 0 00-1-1H6a2.5 2.5 0 01-2.5-2.5V10a2.5 2.5 0 012.5-2.5h4a1 1 0 001-1V5.372a2.25 2.25 0 01-1.5-2.122z" />
+                            </svg>
+                            <span>Worktree</span>
+                          </button>
+                        </NewSessionField>
+                      )}
+                    </div>
                   </div>
                 </NewSessionConfigSection>
 

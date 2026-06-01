@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import {
   getSessionAuthDir,
   getSessionAuthFilePrefixes,
@@ -50,7 +50,17 @@ function dedupeSessionAuthCandidates(candidates: SessionAuthFileData[]): Session
 
 function getScopedSessionAuthFileData(argv: string[]): SessionAuthFileData | null {
   const authDir = getSessionAuthDir();
-  const prefixes = getSessionAuthFilePrefixes(process.cwd()).map((prefix) => `${prefix}-`);
+  const cwdCandidates = (() => {
+    const candidates: string[] = [];
+    let current = resolve(process.cwd());
+    while (true) {
+      candidates.push(current);
+      const parent = dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+    return candidates;
+  })();
 
   let fileNames: string[];
   try {
@@ -59,10 +69,17 @@ function getScopedSessionAuthFileData(argv: string[]): SessionAuthFileData | nul
     return null;
   }
 
-  const candidates = fileNames
-    .filter((name) => name.endsWith(".json") && prefixes.some((prefix) => name.startsWith(prefix)))
-    .map((name) => readSessionAuthFile(`${authDir}/${name}`))
-    .filter((value): value is SessionAuthFileData => value !== null);
+  const candidates = (() => {
+    for (const cwd of cwdCandidates) {
+      const prefixes = getSessionAuthFilePrefixes(cwd).map((prefix) => `${prefix}-`);
+      const matches = fileNames
+        .filter((name) => name.endsWith(".json") && prefixes.some((prefix) => name.startsWith(prefix)))
+        .map((name) => readSessionAuthFile(`${authDir}/${name}`))
+        .filter((value): value is SessionAuthFileData => value !== null);
+      if (matches.length > 0) return matches;
+    }
+    return [];
+  })();
   const uniqueCandidates = dedupeSessionAuthCandidates(candidates);
 
   if (uniqueCandidates.length === 0) return null;

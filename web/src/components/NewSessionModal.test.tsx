@@ -560,6 +560,14 @@ describe("NewSessionModal", () => {
 
     expect(await screen.findByText("project")).toBeInTheDocument();
     const modal = screen.getByTestId("new-session-modal-card");
+    const folderRow = within(modal).getByTestId("new-session-workspace-folder-row");
+    const controlsRow = within(modal).getByTestId("new-session-workspace-controls-row");
+    expect(within(folderRow).getByText("Folder")).toBeInTheDocument();
+    expect(within(folderRow).queryByText("Isolation")).not.toBeInTheDocument();
+    expect(within(controlsRow).getByText("Base branch")).toBeInTheDocument();
+    expect(within(controlsRow).getByText("Session role")).toBeInTheDocument();
+    expect(within(controlsRow).getByText("Isolation")).toBeInTheDocument();
+
     expect(within(modal).getByText("Base branch")).toBeInTheDocument();
     expect(within(modal).getByRole("button", { name: "Leader" })).toBeInTheDocument();
 
