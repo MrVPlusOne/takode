@@ -48,12 +48,7 @@ import type {
   PermissionRequest,
   ThreadRef,
 } from "../session-types.js";
-import type {
-  AdapterBrowserRoutingDeps,
-  AdapterBrowserRoutingSessionLike,
-  ControlResponseHandler,
-  InterruptSource,
-} from "./adapter-browser-routing-types.js";
+import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
 import { sessionTag } from "../session-tag.js";
 import type { BrowserTransportSessionLike, BrowserTransportSocketLike } from "./browser-transport-controller.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
