@@ -28,14 +28,18 @@ There are two valid target modes:
 - **Remote-backed target**: no "Port target worktree" is injected. Port into the **Base repo checkout** on **Base branch / port target**, then push `origin <BASE_BRANCH>`.
 - **Worktree target**: "Port target worktree" is injected. Port into that exact checkout. Do not fetch, pull, push, or assume `origin/<BASE_BRANCH>` exists for this target unless the handoff explicitly says to publish it.
 
-For a remote-backed target, first prove the base repo is on the intended branch before pulling or cherry-picking:
+For a remote-backed target, first inspect the base repo branch and compare the output to `<BASE_BRANCH>`:
 ```bash
 git -C <BASE_REPO> symbolic-ref --short HEAD
-git -C <BASE_REPO> status
-git -C <BASE_REPO> fetch origin <BASE_BRANCH> && git -C <BASE_REPO> pull --rebase origin <BASE_BRANCH>
 ```
 
 If the current base-repo branch is not exactly `<BASE_BRANCH>`, stop and report the mismatch. Do not use `git checkout` or port into whatever branch is currently checked out.
+
+Only after the current branch is proven to match `<BASE_BRANCH>`, check status and pull remote changes:
+```bash
+git -C <BASE_REPO> status
+git -C <BASE_REPO> fetch origin <BASE_BRANCH> && git -C <BASE_REPO> pull --rebase origin <BASE_BRANCH>
+```
 
 For a worktree target, check the exact target checkout instead:
 ```bash
@@ -80,11 +84,17 @@ Track the resulting **target SHAs** in the same order as you cherry-pick them. T
 
 If cherry-pick still conflicts (it shouldn't after a clean rebase), tell the user the conflicting files and ask how to proceed. Do not force-resolve or abort without asking.
 
-### 5. Run the required verification gate
+### 5. Run the required pre-push gate / pre-handoff gate
 
 Run `git -C <SELECTED_TARGET> log --oneline -5` to confirm the commits landed correctly.
 
-For tracked code/test changes, verify the selected target before publishing or handing off with:
+For tracked code/test changes, verify the main repo before pushing when the selected target is `<BASE_REPO>`:
+- focused affected tests for the accepted change
+- `cd <BASE_REPO>/web && bun --no-install run test`
+- `cd <BASE_REPO>/web && bun --no-install run typecheck`
+- `cd <BASE_REPO>/web && bun --no-install run format:check`
+
+For a worktree target, run the same gate against the selected target before handing off:
 - focused affected tests for the accepted change
 - `cd <SELECTED_TARGET>/web && bun --no-install run test`
 - `cd <SELECTED_TARGET>/web && bun --no-install run typecheck`
