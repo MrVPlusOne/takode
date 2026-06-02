@@ -403,6 +403,16 @@ function scrubSessionScopedCodexConfig(configToml: string): string {
   return removeTopLevelTomlSettings(configToml, sessionScopedCodexConfigKeys);
 }
 
+function isTakodeGeneratedModelCatalogConfigPath(codexHome: string, rawPath: string): boolean {
+  const resolvedPath = resolveConfigPathValue(codexHome, rawPath);
+  return (
+    resolvedPath === resolve(codexHome, takodeLeaderModelCatalogFilename) ||
+    resolvedPath === resolve(codexHome, takodeNonLeaderModelCatalogFilename) ||
+    resolvedPath === containerTakodeLeaderModelCatalogPath ||
+    resolvedPath === containerTakodeNonLeaderModelCatalogPath
+  );
+}
+
 function isTakodeNonLeaderModelCatalogConfigPath(codexHome: string, rawPath: string): boolean {
   const resolvedPath = resolveConfigPathValue(codexHome, rawPath);
   return (
@@ -694,7 +704,9 @@ function extractModelIdsFromCatalogJson(raw: string): string[] {
 async function readCodexModelCatalogIds(codexHome: string, configToml: string): Promise<string[]> {
   const existingCatalogPathValue = readTopLevelStringSetting(configToml, "model_catalog_json");
   const catalogCandidates = [
-    existingCatalogPathValue ? resolveConfigPathValue(codexHome, existingCatalogPathValue) : undefined,
+    existingCatalogPathValue && !isTakodeGeneratedModelCatalogConfigPath(codexHome, existingCatalogPathValue)
+      ? resolveConfigPathValue(codexHome, existingCatalogPathValue)
+      : undefined,
     join(codexHome, "models_cache.json"),
     join(getLegacyCodexHome(), "models_cache.json"),
   ].filter((candidate, index, all): candidate is string => !!candidate && all.indexOf(candidate) === index);
