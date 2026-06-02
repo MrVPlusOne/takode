@@ -1089,6 +1089,14 @@ describe("POST /api/sessions/create", () => {
       body: JSON.stringify({
         cwd: "/home/.companion/worktrees/companion/jiayi-wt-2775",
         useWorktree: true,
+        worktreePortTarget: {
+          repoRoot: "/repo",
+          branch: "jiayi-wt-2775",
+          worktreePath: "/home/.companion/worktrees/companion/jiayi-wt-2775",
+          sourceSessionId: "leader-1",
+          sourceSessionNum: 7,
+          sourceLabel: "#7 Leader WT",
+        },
       }),
     });
 
@@ -1104,6 +1112,20 @@ describe("POST /api/sessions/create", () => {
       expect.objectContaining({
         repoRoot: "/repo",
         worktreePath: "/home/.companion/worktrees/companion/jiayi-wt-9326",
+      }),
+    );
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        worktreeInfo: expect.objectContaining({
+          portTarget: {
+            repoRoot: "/repo",
+            branch: "jiayi-wt-2775",
+            worktreePath: "/home/.companion/worktrees/companion/jiayi-wt-2775",
+            sourceSessionId: "leader-1",
+            sourceSessionNum: 7,
+            sourceLabel: "#7 Leader WT",
+          },
+        }),
       }),
     );
   });

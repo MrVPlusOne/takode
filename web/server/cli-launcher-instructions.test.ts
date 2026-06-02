@@ -103,6 +103,7 @@ describe("buildCompanionInstructions", () => {
         portTarget: {
           repoRoot: "/repo",
           branch: "leader-target-wt-1234",
+          worktreePath: "/worktrees/repo/leader-target-wt-1234",
           sourceSessionNum: 7,
           sourceLabel: "#7 Leader WT",
         },
@@ -111,6 +112,7 @@ describe("buildCompanionInstructions", () => {
 
     expect(result).toContain("leader-target-wt-1234-wt-5678");
     expect(result).toContain("Base branch / port target: `leader-target-wt-1234`");
+    expect(result).toContain("Port target worktree: `/worktrees/repo/leader-target-wt-1234`");
     expect(result).toContain("Port target source: #7 Leader WT");
   });
 

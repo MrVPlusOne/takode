@@ -18,6 +18,7 @@ interface RecycledWorktreeInfo {
   portTarget?: {
     repoRoot: string;
     branch: string;
+    worktreePath?: string;
     sourceSessionId?: string;
     sourceSessionNum?: number | null;
     sourceLabel?: string;

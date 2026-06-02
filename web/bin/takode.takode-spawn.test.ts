@@ -235,6 +235,7 @@ describe("takode spawn", () => {
       worktreePortTarget: {
         repoRoot: "/repo/project",
         branch: "main-wt-7758",
+        worktreePath: "/worktrees/project/main-wt-7758",
         sourceSessionId: "leader-worktree",
         sourceSessionNum: 7,
         sourceLabel: "#7 Leader WT",

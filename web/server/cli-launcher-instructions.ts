@@ -22,6 +22,7 @@ export interface CompanionInstructionBuildOptions {
     portTarget?: {
       repoRoot: string;
       branch: string;
+      worktreePath?: string;
       sourceSessionId?: string;
       sourceSessionNum?: number | null;
       sourceLabel?: string;
@@ -55,6 +56,9 @@ export function buildCompanionInstructions(opts?: CompanionInstructionBuildOptio
     const branchLabel = parentBranch ? `\`${branch}\` (created from \`${parentBranch}\`)` : `\`${branch}\``;
     const syncRepoRoot = portTarget?.repoRoot || repoRoot;
     const syncBaseBranch = portTarget?.branch || parentBranch || branch;
+    const portTargetWorktree = portTarget?.worktreePath
+      ? `\n- Port target worktree: \`${portTarget.worktreePath}\``
+      : "";
     const portTargetSource = portTarget?.sourceLabel
       ? `\n- Port target source: ${portTarget.sourceLabel}`
       : portTarget?.sourceSessionNum !== undefined && portTarget.sourceSessionNum !== null
@@ -78,7 +82,7 @@ Use \`/port-changes\` when asked to port, sync, or push commits to the main repo
 
 **Sync context for this session:**
 - Base repo checkout: \`${syncRepoRoot}\`
-- Base branch / port target: \`${syncBaseBranch}\`${portTargetSource}`);
+- Base branch / port target: \`${syncBaseBranch}\`${portTargetWorktree}${portTargetSource}`);
   }
 
   parts.push(`## Link Syntax\n\n${TAKODE_LINK_SYNTAX_INSTRUCTIONS}`);

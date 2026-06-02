@@ -188,6 +188,7 @@ describe("session replacement routes", () => {
     const leaderPortTarget = {
       repoRoot: "/repo",
       branch: "leader-target-wt-7758",
+      worktreePath: "/wt/leader-target-wt-7758",
       sourceSessionId: "leader-1",
       sourceSessionNum: 7,
       sourceLabel: "#7 Leader WT",

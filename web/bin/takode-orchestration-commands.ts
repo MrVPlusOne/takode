@@ -793,6 +793,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
       createPayload.worktreePortTarget = {
         repoRoot: leader.repoRoot || undefined,
         branch: leaderWorktreeTargetBranch,
+        ...(leader.cwd ? { worktreePath: leader.cwd } : {}),
         sourceSessionId: leader.sessionId,
         sourceSessionNum: leader.sessionNum ?? null,
         sourceLabel: leaderSessionLabel,

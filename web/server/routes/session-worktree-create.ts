@@ -23,6 +23,7 @@ export interface WorktreeSessionInfo {
   portTarget?: {
     repoRoot: string;
     branch: string;
+    worktreePath?: string;
     sourceSessionId?: string;
     sourceSessionNum?: number | null;
     sourceLabel?: string;
@@ -75,6 +76,10 @@ export async function prepareWorktreeForSessionCreate(options: {
     typeof requestedPortTarget?.repoRoot === "string" && requestedPortTarget.repoRoot.trim()
       ? requestedPortTarget.repoRoot.trim()
       : repoInfo.repoRoot;
+  const portTargetWorktreePath =
+    typeof requestedPortTarget?.worktreePath === "string" && requestedPortTarget.worktreePath.trim()
+      ? requestedPortTarget.worktreePath.trim()
+      : undefined;
 
   const result = await withProgressHeartbeat(
     emit,
@@ -104,6 +109,7 @@ export async function prepareWorktreeForSessionCreate(options: {
       portTarget: {
         repoRoot: portTargetRepoRoot,
         branch: requestedPortTargetBranch ?? (isOrchestrator ? result.actualBranch : targetBranch),
+        ...(portTargetWorktreePath ? { worktreePath: portTargetWorktreePath } : {}),
         ...(typeof requestedPortTarget?.sourceSessionId === "string" && requestedPortTarget.sourceSessionId.trim()
           ? { sourceSessionId: requestedPortTarget.sourceSessionId.trim() }
           : {}),
