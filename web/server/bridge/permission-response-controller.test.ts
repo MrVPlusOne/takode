@@ -11,6 +11,7 @@ import {
   handleCodexPermissionRequest,
   handleControlRequest,
   handleSetModel,
+  handleSetPermissionMode,
   handlePermissionResponse,
   routeBrowserMessage,
   handleSdkPermissionRequest,
@@ -218,6 +219,7 @@ describe("permission response handling in browser routing", () => {
 
   it("updates launcher session model when Claude model changes", () => {
     const session = makeSession();
+    session.backendSocket = {} as any;
     const launcherInfo = { model: "claude-sonnet-4-5-20250929" };
     const deps = makeDeps();
     deps.getLauncherSessionInfo = vi.fn(() => launcherInfo);
@@ -232,6 +234,55 @@ describe("permission response handling in browser routing", () => {
       expect.objectContaining({
         type: "session_update",
         session: expect.objectContaining({ model: "claude-opus-4-5-20250929" }),
+      }),
+    );
+  });
+
+  it("updates disconnected Claude model state without queuing a stale CLI control request", () => {
+    const session = makeSession();
+    session.state.backend_state = "disconnected";
+    const launcherInfo = { model: "claude-sonnet-4-5-20250929" };
+    const deps = makeDeps();
+    deps.getLauncherSessionInfo = vi.fn(() => launcherInfo);
+
+    handleSetModel(session, "claude-opus-4-5-20250929", deps);
+
+    expect(session.state.model).toBe("claude-opus-4-5-20250929");
+    expect(launcherInfo.model).toBe("claude-opus-4-5-20250929");
+    expect(deps.sendToCLI).not.toHaveBeenCalled();
+    expect(session.pendingMessages).toHaveLength(0);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({ model: "claude-opus-4-5-20250929" }),
+      }),
+    );
+  });
+
+  it("updates disconnected Claude permission state without queuing a stale CLI control request", () => {
+    const session = makeSession();
+    session.state.backend_state = "disconnected";
+    const launcherInfo = { permissionMode: "acceptEdits", askPermission: true, uiMode: "agent" as const };
+    const deps = makeDeps();
+    deps.getLauncherSessionInfo = vi.fn(() => launcherInfo);
+
+    handleSetPermissionMode(session, "bypassPermissions", deps);
+
+    expect(session.state.permissionMode).toBe("bypassPermissions");
+    expect(session.state.askPermission).toBe(false);
+    expect(launcherInfo).toEqual({
+      permissionMode: "bypassPermissions",
+      askPermission: false,
+      uiMode: "agent",
+    });
+    expect(deps.sendToCLI).not.toHaveBeenCalled();
+    expect(session.pendingMessages).toHaveLength(0);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({ permissionMode: "bypassPermissions", askPermission: false }),
       }),
     );
   });

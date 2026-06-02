@@ -254,6 +254,7 @@ function makeMessage(overrides: Partial<ChatMessage> & { id: string; content: st
 function setupMockStore(
   overrides: {
     isConnected?: boolean;
+    browserConnectionStatus?: "connected" | "disconnected" | "connecting";
     sessionStatus?: "idle" | "running" | "compacting" | null;
     session?: Partial<SessionState>;
     draftText?: string;
@@ -280,6 +281,7 @@ function setupMockStore(
 ) {
   const {
     isConnected = true,
+    browserConnectionStatus = isConnected ? "connected" : "disconnected",
     sessionStatus = "idle",
     session = {},
     draftText = "",
@@ -299,6 +301,9 @@ function setupMockStore(
   const cliConnectedMap = new Map<string, boolean>();
   cliConnectedMap.set("s1", isConnected);
 
+  const connectionStatusMap = new Map<string, "connected" | "disconnected" | "connecting">();
+  connectionStatusMap.set("s1", browserConnectionStatus);
+
   const sessionStatusMap = new Map<string, "idle" | "running" | "compacting" | null>();
   sessionStatusMap.set("s1", sessionStatus);
 
@@ -311,6 +316,7 @@ function setupMockStore(
   mockStoreState = {
     sessions: sessionsMap,
     cliConnected: cliConnectedMap,
+    connectionStatus: connectionStatusMap,
     sessionStatus: sessionStatusMap,
     previousPermissionMode: previousPermissionModeMap,
     askPermission: askPermissionMap,
@@ -588,12 +594,69 @@ describe("Composer permission mode selector", () => {
     expect(screen.queryByTitle(/Plan mode:/)).toBeNull();
   });
 
-  it("permission selector is disabled when CLI is not connected", () => {
-    setupMockStore({ isConnected: false, session: { permissionMode: "acceptEdits" } });
+  it("permission selector remains enabled when CLI is disconnected but Takode is reachable", async () => {
+    setupMockStore({
+      isConnected: false,
+      browserConnectionStatus: "connected",
+      session: { permissionMode: "acceptEdits" },
+    });
     render(<Composer sessionId="s1" />);
 
-    const selector = screen.getByTitle("Resume session to change permissions");
+    const selector = screen.getAllByTitle("Applies on resume")[0];
+    expect(selector.hasAttribute("disabled")).toBe(false);
+
+    await userEvent.click(selector);
+    await userEvent.click(screen.getByText("Full access"));
+
+    expect(
+      screen.getByText("This will apply when the session resumes. Your conversation will be preserved."),
+    ).toBeTruthy();
+    await userEvent.click(screen.getByText("Apply"));
+
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "set_permission_mode",
+      mode: "bypassPermissions",
+    });
+  });
+
+  it("permission selector is disabled when Takode is not reachable", () => {
+    setupMockStore({
+      isConnected: false,
+      browserConnectionStatus: "disconnected",
+      session: { permissionMode: "acceptEdits" },
+    });
+    render(<Composer sessionId="s1" />);
+
+    const selector = screen.getByTitle("Reconnect to Takode to change permissions");
     expect(selector.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("codex launch settings are editable when CLI is disconnected but Takode is reachable", async () => {
+    setupMockStore({
+      isConnected: false,
+      browserConnectionStatus: "connected",
+      session: {
+        backend_type: "codex",
+        model: "gpt-5.3-codex",
+        permissionMode: "codex-default",
+      },
+    });
+    render(<Composer sessionId="s1" />);
+
+    const speedSelector = screen.getByTitle("Applies next turn after resume");
+    expect(speedSelector.hasAttribute("disabled")).toBe(false);
+
+    const reasoningSelector = screen.getByText("default").closest("button");
+    expect(reasoningSelector?.getAttribute("title")).toBe("Applies on resume");
+    expect(reasoningSelector?.hasAttribute("disabled")).toBe(false);
+
+    await userEvent.click(reasoningSelector!);
+    await userEvent.click(screen.getByText("High"));
+
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "set_codex_reasoning_effort",
+      effort: "high",
+    });
   });
 
   it("codex reasoning dropdown sends set_codex_reasoning_effort", async () => {

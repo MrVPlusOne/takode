@@ -14,6 +14,12 @@ import {
   normalizeCodexPermissionProfile,
 } from "../../shared/permission-modes.js";
 
+const VALID_CODEX_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
+
+function shouldSendClassicClaudeControlRequest(session: AdapterBrowserRoutingSessionLike): boolean {
+  return session.backendType === "claude" && !!session.backendSocket;
+}
+
 export function handleSetModel(
   session: AdapterBrowserRoutingSessionLike,
   model: string,
@@ -24,7 +30,7 @@ export function handleSetModel(
 ): void {
   if (session.backendType === "claude-sdk" && session.claudeSdkAdapter) {
     session.claudeSdkAdapter.sendBrowserMessage({ type: "set_model", model } as any);
-  } else {
+  } else if (shouldSendClassicClaudeControlRequest(session)) {
     deps.sendToCLI(
       session,
       JSON.stringify({
@@ -65,7 +71,7 @@ export function handleSetPermissionMode(
   const nextMode = normalizeClaudePermissionMode(mode);
   if (session.backendType === "claude-sdk" && session.claudeSdkAdapter) {
     session.claudeSdkAdapter.sendBrowserMessage({ type: "set_permission_mode", mode: nextMode });
-  } else {
+  } else if (shouldSendClassicClaudeControlRequest(session)) {
     deps.sendToCLI(
       session,
       JSON.stringify({
@@ -251,8 +257,9 @@ export function handleCodexSetReasoningEffort(
     "getLauncherSessionInfo" | "broadcastToBrowsers" | "persistSession" | "requestCodexIntentionalRelaunch"
   >,
 ): void {
-  const normalized = effort.trim();
+  const normalized = effort.trim().toLowerCase();
   const next = normalized || undefined;
+  if (next && !VALID_CODEX_REASONING_EFFORTS.has(next)) return;
   if (session.state.codex_reasoning_effort === next) return;
   session.state.codex_reasoning_effort = next;
   const launchInfo = deps.getLauncherSessionInfo(session.id);

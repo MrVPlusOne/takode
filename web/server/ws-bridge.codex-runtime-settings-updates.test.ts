@@ -617,6 +617,38 @@ describe("Codex runtime settings updates", () => {
     );
   });
 
+  it("set_model updates launcher/session state without an attached Codex adapter", async () => {
+    const sid = "s-codex-missing-adapter-model";
+    const browser = makeBrowserSocket(sid);
+    const relaunchCb = vi.fn();
+    const launcherInfo = { model: "gpt-5.4", permissionMode: "codex-default" };
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => launcherInfo),
+    };
+    bridge.setLauncher(launcherMock as any);
+    bridge.onSessionRelaunchRequestedCallback(relaunchCb);
+    bridge.getOrCreateSession(sid, "codex");
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "set_model",
+        model: "gpt-5.3-codex",
+      }),
+    );
+
+    const session = bridge.getSession(sid)!;
+    expect(session.state.model).toBe("gpt-5.3-codex");
+    expect(launcherInfo.model).toBe("gpt-5.3-codex");
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(session.pendingMessages).toHaveLength(0);
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+  });
+
   it("set_codex_reasoning_effort updates session state and requests relaunch", async () => {
     const sid = "s2";
     const browser = makeBrowserSocket(sid);
@@ -647,6 +679,40 @@ describe("Codex runtime settings updates", () => {
     expect(launcherInfo.codexReasoningEffort).toBe("high");
     expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
     expect(relaunchCb).toHaveBeenCalledWith(sid);
+  });
+
+  it("set_codex_reasoning_effort ignores invalid values", async () => {
+    const sid = "s-invalid-reasoning";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    const relaunchCb = vi.fn();
+    const launcherInfo = { model: "gpt-5.4", codexReasoningEffort: undefined };
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => launcherInfo),
+    };
+    bridge.setLauncher(launcherMock as any);
+    bridge.onSessionRelaunchRequestedCallback(relaunchCb);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "set_codex_reasoning_effort",
+        effort: "very-high",
+      }),
+    );
+
+    const session = bridge.getSession(sid)!;
+    expect(session.state.codex_reasoning_effort).toBeUndefined();
+    expect(launcherInfo.codexReasoningEffort).toBeUndefined();
+    expect(relaunchCb).not.toHaveBeenCalled();
+    expect(
+      browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg)).some((c: any) => c.type === "session_update"),
+    ).toBe(false);
   });
 
   it("set_codex_service_tier updates persisted state and active adapter without relaunch", async () => {

@@ -1926,6 +1926,7 @@ export function Composer({
                 diffLinesRemoved={diffLinesRemoved}
                 isCodex={isCodex}
                 isConnected={isConnected}
+                canEditLaunchSettings={isBrowserServerConnected}
                 imageUploadDisabled={imageUploadDisabled}
                 imageUploadTitle={imageUploadTitle}
                 showModelDropdown={showModelDropdown}

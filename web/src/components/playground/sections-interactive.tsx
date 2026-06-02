@@ -89,6 +89,7 @@ function PlaygroundComposerPermissionToolbar({
           diffLinesRemoved={isCodex ? 0 : 3}
           isCodex={isCodex}
           isConnected={true}
+          canEditLaunchSettings={true}
           imageUploadDisabled={false}
           imageUploadTitle="Upload image"
           showModelDropdown={false}

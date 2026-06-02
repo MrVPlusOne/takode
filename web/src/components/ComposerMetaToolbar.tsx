@@ -17,6 +17,7 @@ export function ComposerMetaToolbar({
   diffLinesRemoved,
   isCodex,
   isConnected,
+  canEditLaunchSettings,
   imageUploadDisabled,
   imageUploadTitle,
   showModelDropdown,
@@ -75,6 +76,7 @@ export function ComposerMetaToolbar({
   diffLinesRemoved: number;
   isCodex: boolean;
   isConnected: boolean;
+  canEditLaunchSettings: boolean;
   imageUploadDisabled: boolean;
   imageUploadTitle: string;
   showModelDropdown: boolean;
@@ -130,6 +132,39 @@ export function ComposerMetaToolbar({
   const fastSelected = !!codexFastServiceTier && codexServiceTier === codexFastServiceTier.id;
   const selectedSpeedLabel = fastSelected ? codexFastServiceTier.name : "Standard";
   const fastDescription = codexFastServiceTier?.description || "Use increased-priority Codex service tier.";
+  const settingsDisabled = !canEditLaunchSettings;
+  const quietSettingsDisabledClass = settingsDisabled
+    ? "opacity-30 cursor-not-allowed text-cc-muted"
+    : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer";
+  const permissionTitle = settingsDisabled
+    ? "Reconnect to Takode to change permissions"
+    : isConnected
+      ? `${selectedPermission.label}: ${selectedPermission.description}`
+      : "Applies on resume";
+  const claudeModelTitle = settingsDisabled
+    ? "Reconnect to Takode to change model"
+    : isConnected
+      ? `Model: ${sessionView.model} (click to change)`
+      : "Applies on resume";
+  const codexModelTitle = settingsDisabled
+    ? "Reconnect to Takode to change model"
+    : isConnected
+      ? `Model: ${sessionView.model} (relaunch required)`
+      : "Applies on resume";
+  const speedTitle = settingsDisabled
+    ? "Reconnect to Takode to change speed"
+    : isConnected
+      ? `Speed: ${selectedSpeedLabel} (applies next turn)`
+      : "Applies next turn after resume";
+  const reasoningTitle = settingsDisabled
+    ? "Reconnect to Takode to change reasoning"
+    : isConnected
+      ? "Reasoning effort (relaunch required)"
+      : "Applies on resume";
+  const permissionChangeDetail = isConnected
+    ? "This will restart the CLI session. Any in-progress operation will be interrupted. Your conversation will be preserved."
+    : "This will apply when the session resumes. Your conversation will be preserved.";
+  const permissionConfirmLabel = isConnected ? "Restart" : "Apply";
 
   return (
     <div data-testid="composer-footer-toolbar" className="flex items-center gap-2 px-2.5 pb-2.5 pt-1">
@@ -138,17 +173,11 @@ export function ComposerMetaToolbar({
           <div className="relative" ref={permissionDropdownRef}>
             <button
               onClick={() => setShowPermissionDropdown(!showPermissionDropdown)}
-              disabled={!isConnected}
+              disabled={settingsDisabled}
               className={`flex max-w-[150px] items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors select-none ${
-                !isConnected
-                  ? "opacity-30 cursor-not-allowed text-cc-muted"
-                  : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
+                quietSettingsDisabledClass
               }`}
-              title={
-                isConnected
-                  ? `${selectedPermission.label}: ${selectedPermission.description}`
-                  : "Resume session to change permissions"
-              }
+              title={permissionTitle}
             >
               <span className="truncate">{selectedPermission.label}</span>
               <svg viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5 shrink-0 opacity-50">
@@ -180,10 +209,7 @@ export function ComposerMetaToolbar({
                 className="absolute left-0 bottom-full z-20 mb-2 w-72 rounded-[10px] border border-cc-border bg-cc-card p-3 shadow-lg"
               >
                 <p className="mb-1 text-xs font-medium text-cc-fg">Change permissions to {pendingPermission.label}?</p>
-                <p className="mb-3 text-[11px] leading-relaxed text-cc-muted">
-                  This will restart the CLI session. Any in-progress operation will be interrupted. Your conversation
-                  will be preserved.
-                </p>
+                <p className="mb-3 text-[11px] leading-relaxed text-cc-muted">{permissionChangeDetail}</p>
                 <div className="flex items-center justify-end gap-2">
                   <button
                     onClick={onCancelPermissionMode}
@@ -195,7 +221,7 @@ export function ComposerMetaToolbar({
                     onClick={onConfirmPermissionMode}
                     className="cursor-pointer rounded-md bg-cc-primary/15 px-2.5 py-1 text-[11px] font-medium text-cc-primary transition-colors hover:bg-cc-primary/25"
                   >
-                    Restart
+                    {permissionConfirmLabel}
                   </button>
                 </div>
               </div>
@@ -238,13 +264,11 @@ export function ComposerMetaToolbar({
                   <div className="relative min-w-0 hidden sm:block" ref={modelDropdownRef}>
                     <button
                       onClick={() => setShowModelDropdown(!showModelDropdown)}
-                      disabled={!isConnected}
+                      disabled={settingsDisabled}
                       className={`flex min-w-0 items-center gap-0.5 font-mono-code transition-colors select-none ${
-                        !isConnected ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
+                        settingsDisabled ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
                       }`}
-                      title={
-                        isConnected ? `Model: ${sessionView.model} (click to change)` : "Resume session to change model"
-                      }
+                      title={claudeModelTitle}
                     >
                       <span className="truncate">{formatModel(sessionView.model)}</span>
                       <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
@@ -279,15 +303,11 @@ export function ComposerMetaToolbar({
                     <div className="relative min-w-0 hidden sm:block" ref={modelDropdownRef}>
                       <button
                         onClick={() => setShowModelDropdown(!showModelDropdown)}
-                        disabled={!isConnected}
+                        disabled={settingsDisabled}
                         className={`flex min-w-0 items-center gap-0.5 font-mono-code transition-colors select-none ${
-                          !isConnected ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
+                          settingsDisabled ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
                         }`}
-                        title={
-                          isConnected
-                            ? `Model: ${sessionView.model} (relaunch required)`
-                            : "Resume session to change model"
-                        }
+                        title={codexModelTitle}
                       >
                         <span className="truncate">{formatModel(sessionView.model)}</span>
                         <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
@@ -321,15 +341,11 @@ export function ComposerMetaToolbar({
                     <div className="relative shrink-0 hidden sm:block" ref={codexServiceTierDropdownRef}>
                       <button
                         onClick={() => setShowCodexServiceTierDropdown(!showCodexServiceTierDropdown)}
-                        disabled={!isConnected}
+                        disabled={settingsDisabled}
                         className={`flex items-center gap-1 transition-colors select-none ${
-                          !isConnected ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
+                          settingsDisabled ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
                         }`}
-                        title={
-                          isConnected
-                            ? `Speed: ${selectedSpeedLabel} (applies next turn)`
-                            : "Resume session to change speed"
-                        }
+                        title={speedTitle}
                       >
                         <span>{selectedSpeedLabel.toLowerCase()}</span>
                         <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
@@ -378,13 +394,11 @@ export function ComposerMetaToolbar({
                     <div className="relative shrink-0 hidden sm:block" ref={codexReasoningDropdownRef}>
                       <button
                         onClick={() => setShowCodexReasoningDropdown(!showCodexReasoningDropdown)}
-                        disabled={!isConnected}
+                        disabled={settingsDisabled}
                         className={`flex items-center gap-1 transition-colors select-none ${
-                          !isConnected ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
+                          settingsDisabled ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
                         }`}
-                        title={
-                          isConnected ? "Reasoning effort (relaunch required)" : "Resume session to change reasoning"
-                        }
+                        title={reasoningTitle}
                       >
                         <span>
                           {CODEX_REASONING_EFFORTS.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() ||

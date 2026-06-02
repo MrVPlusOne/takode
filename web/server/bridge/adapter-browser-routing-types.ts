@@ -68,6 +68,7 @@ export interface AdapterBrowserRoutingSessionLike {
   pendingCodexInputs: PendingCodexInput[];
   forceCompactPending: boolean;
   isGenerating: boolean;
+  backendSocket?: unknown;
   lastUserMessage?: string;
   lastUserMessageDateTag: string;
   lastOutboundUserNdjson: string | null;

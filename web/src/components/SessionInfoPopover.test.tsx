@@ -19,6 +19,7 @@ interface MockStoreState {
       message_history_bytes?: number;
       codex_retained_payload_bytes?: number;
       codex_token_details?: { modelContextWindow?: number; contextTokensUsed?: number };
+      codex_reasoning_effort?: string;
       codex_leader_recycle_threshold_tokens?: number;
       claude_token_details?: { modelContextWindow?: number };
       isOrchestrator?: boolean;
@@ -237,6 +238,19 @@ describe("SessionInfoPopover", () => {
 
     const popover = screen.getByText("Session Info").parentElement?.parentElement as HTMLElement;
     expect(popover).toHaveStyle({ left: "36px", top: "50px", width: "300px" });
+  });
+
+  it("labels launch settings as applying on resume when backend is disconnected but Takode is reachable", () => {
+    resetStore([]);
+    storeState.cliConnected.set("s1", false);
+    storeState.connectionStatus.set("s1", "connected");
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getAllByTitle("Applies on resume")[0]).toBeEnabled();
+    const reasoning = screen.getByText("default").closest("button");
+    expect(reasoning).toHaveAttribute("title", "Applies on resume");
+    expect(reasoning).toBeEnabled();
   });
 
   it("shows the leader portrait inside session info and opens profile editing from it", () => {

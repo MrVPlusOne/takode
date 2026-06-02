@@ -109,6 +109,18 @@ export function SessionInfoPopover({
   const cliDisconnectReason = useStore((s) => s.cliDisconnectReason.get(sessionId) ?? null);
   const serverReachable = useStore((s) => s.serverReachable);
   const codexReasoningEffort = session?.codex_reasoning_effort || "";
+  const modelTitle = !isConnected
+    ? "Reconnect to Takode to change model"
+    : cliConnected
+      ? backendType === "codex"
+        ? `Model: ${model} (relaunch required)`
+        : `Model: ${model} (click to change)`
+      : "Applies on resume";
+  const reasoningTitle = !isConnected
+    ? "Reconnect to Takode to change reasoning"
+    : cliConnected
+      ? "Reasoning effort (relaunch required)"
+      : "Applies on resume";
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showReasoningDropdown, setShowReasoningDropdown] = useState(false);
   const [editorKind, setEditorKind] = useState<EditorKind | null>(null);
@@ -330,7 +342,7 @@ export function SessionInfoPopover({
                         ? "cursor-not-allowed opacity-30 text-cc-muted"
                         : "cursor-pointer text-cc-muted hover:text-cc-fg"
                     }`}
-                    title={`Model: ${model} (click to change)`}
+                    title={modelTitle}
                   >
                     <span>{formatModel(model)}</span>
                     <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
@@ -400,7 +412,7 @@ export function SessionInfoPopover({
                       ? "cursor-not-allowed opacity-30 text-cc-muted"
                       : "cursor-pointer text-cc-muted hover:text-cc-fg"
                   }`}
-                  title="Reasoning effort (relaunch required)"
+                  title={reasoningTitle}
                 >
                   <span>
                     {CODEX_REASONING_EFFORTS.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() ||
