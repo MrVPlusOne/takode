@@ -185,6 +185,86 @@ describe("validateLeaderThreadOutcomes", () => {
     expect(deps.injectUserMessage).not.toHaveBeenCalled();
   });
 
+  it("injects a needs-input reminder for approval-like leader text covered only by Thread Waiting", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [
+        assistantMessage({
+          id: "a1",
+          text: "Proposed quest:\n\n- Title: Prevent missed notifications",
+          timestamp: 20,
+          threadKey: "q-1474",
+        }),
+      ],
+      notifications: [notification({ category: "needs-input", timestamp: 10, threadKey: "q-1474" })],
+      state: {
+        leaderThreadStatuses: { "q-1474": threadStatus({ kind: "waiting", timestamp: 25, threadKey: "q-1474" }) },
+      },
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    const result = validateLeaderThreadOutcomes(session, deps);
+
+    expect(result).toEqual({ checked: true, missing: ["q-1474"], injected: true });
+    expect(deps.injectUserMessage).toHaveBeenCalledWith(
+      "leader",
+      expect.stringContaining("no fresh same-thread `takode notify needs-input` notification was created"),
+      expect.objectContaining({
+        sessionId: THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+      }),
+      expect.objectContaining({ threadKey: "q-1474" }),
+    );
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain(
+      "Existing unresolved needs-input prompts do not cover a new approval or decision prompt.",
+    );
+  });
+
+  it("accepts approval-like leader text when a fresh same-thread needs-input notification exists", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [
+        assistantMessage({
+          id: "a1",
+          text: "**Proposed Quest**\n\nDecision needed: approve dispatch?",
+          timestamp: 20,
+          threadKey: "q-1476",
+        }),
+      ],
+      notifications: [notification({ category: "needs-input", timestamp: 25, threadKey: "q-1476" })],
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    const result = validateLeaderThreadOutcomes(session, deps);
+
+    expect(result).toEqual({ checked: true, missing: [], injected: false });
+    expect(deps.injectUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not treat ordinary status summaries mentioning a proposed quest as blocking prompts", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [
+        assistantMessage({
+          id: "a1",
+          text: "The proposed quest was approved earlier, and I dispatched the worker.",
+          timestamp: 20,
+          threadKey: "q-1476",
+        }),
+      ],
+      notifications: [notification({ category: "waiting", timestamp: 25, threadKey: "q-1476" })],
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    const result = validateLeaderThreadOutcomes(session, deps);
+
+    expect(result).toEqual({ checked: true, missing: [], injected: false });
+    expect(deps.injectUserMessage).not.toHaveBeenCalled();
+  });
+
   it("rejects resolved needs-input notifications as active outcomes", () => {
     const session = {
       id: "leader",

@@ -99,6 +99,8 @@ After sending the confirmation, stop and wait for the user.
 
 If you are acting as a leader/orchestrator and the confirmation asks a blocking question, send the confirmation as a normal leader response with the correct first-line thread marker (`[thread:main]` or `[thread:q-N]`), then run `takode notify needs-input "<brief summary>"` so the user notices. For obvious short choices, add one to three `--suggest <answer>` flags, but never use suggestions instead of the written confirmation context. Do not use `Thread Waiting` or `takode notify waiting` as the only representation of this user wait. Normal worker and reviewer sessions should use ordinary chat.
 
+If you are creating another approval surface while an older prompt is still unresolved, do not reuse or rely on the older notification. New blocking prompt -> new `takode notify needs-input`; after creating it, link the board row with `--wait-for-input` when applicable. `Thread Waiting` is only for non-user waits and is never a substitute for the notification.
+
 If the user corrects the understanding and ambiguity remains, repeat the same structure with the updated understanding. If the user clarifies enough to remove the ambiguity, draft the quest and Journey/scheduling plan together instead of sending a separate restated-understanding-only round.
 
 Only after the user confirms should you create or refine the quest.

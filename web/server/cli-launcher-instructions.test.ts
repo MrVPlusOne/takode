@@ -128,6 +128,11 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Any user wait, including approvals, confirmations");
     expect(result).toContain("never represent a user wait only with `Thread Waiting`");
     expect(result).toContain("`Thread Waiting` or `takode notify waiting`");
+    expect(result).toContain("New blocking prompt -> new `needs-input` notification");
+    expect(result).toContain(
+      "existing unresolved prompts in the same thread or quest do not cover a separate approval or decision",
+    );
+    expect(result).toContain("Link the affected active board row with `--wait-for-input` when applicable");
     expect(result).toContain("one to three `--suggest <answer>` options");
     expect(result).toContain("never use suggestions instead of writing the full context in chat");
     expect(result).toContain("blocks only the thread, quest, or board row it concerns");

@@ -530,6 +530,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("First send the detailed question or decision text");
     expect(guardrails).toContain("`[thread:main]` or `[thread:q-N]`");
     expect(guardrails).toContain("then call `takode notify needs-input`");
+    expect(guardrails).toContain("New blocking prompt -> new `needs-input` notification");
+    expect(guardrails).toContain(
+      "existing unresolved prompts in the same thread or quest do not cover a separate approval or decision",
+    );
+    expect(guardrails).toContain("Link the affected active board row with `--wait-for-input` when applicable");
     expect(guardrails).toContain("takode notify list");
     expect(guardrails).toContain("takode notify resolve <notification-id>");
     expect(guardrails).toContain("After the user answers a same-session `takode notify needs-input` prompt");
