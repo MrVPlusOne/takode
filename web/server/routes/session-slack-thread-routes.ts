@@ -34,6 +34,9 @@ export function registerSessionSlackThreadRoutes(
     return inherited;
   };
 
+  const isLeaderSession = (root: ReturnType<WsBridge["getSession"]>, rootInfo: ReturnType<CliLauncher["getSession"]>) =>
+    root?.state.isOrchestrator === true || rootInfo?.isOrchestrator === true;
+
   api.post("/sessions/:id/slack-threads", async (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
@@ -42,6 +45,9 @@ export function registerSessionSlackThreadRoutes(
     if (!root || !rootInfo) return c.json({ error: "Session not found" }, 404);
     if (root.state.slackThreadChild || rootInfo.hidden) {
       return c.json({ error: "Threads can only start from a root session" }, 400);
+    }
+    if (isLeaderSession(root, rootInfo)) {
+      return c.json({ error: "Slack threads are disabled for leader sessions" }, 403);
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -139,6 +145,12 @@ export function registerSessionSlackThreadRoutes(
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
     const threadId = c.req.param("threadId");
+    const root = wsBridge.getSession(id);
+    const rootInfo = launcher.getSession(id);
+    if (!root || !rootInfo) return c.json({ error: "Session not found" }, 404);
+    if (isLeaderSession(root, rootInfo)) {
+      return c.json({ error: "Slack threads are disabled for leader sessions" }, 403);
+    }
     const body = await c.req.json().catch(() => ({}));
     const content = typeof body.content === "string" ? body.content : "";
     if (!content.trim()) return c.json({ error: "content is required" }, 400);
@@ -146,7 +158,6 @@ export function registerSessionSlackThreadRoutes(
       clientMsgId: typeof body.clientMsgId === "string" ? body.clientMsgId : undefined,
     });
     if (!routed.ok) return c.json({ error: routed.error }, 400);
-    const root = wsBridge.getSession(id);
     const thread = root?.state.slackThreads?.[threadId];
     if (thread) wsBridge.syncSlackThreadRecord(id, threadId);
     return c.json({

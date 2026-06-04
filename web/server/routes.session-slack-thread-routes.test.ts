@@ -163,4 +163,124 @@ describe("Slack thread session routes", () => {
     expect(launchOptions.env).not.toHaveProperty("TAKODE_ROLE");
     expect(childSession.state.permissionMode).toBe("codex-default");
   });
+
+  it("rejects leader sessions before creating or reopening Slack threads", async () => {
+    const root = {
+      id: "leader",
+      state: makeState({
+        session_id: "leader",
+        backend_type: "codex",
+        isOrchestrator: true,
+        slackThreads: {
+          "st-existing": {
+            id: "st-existing",
+            rootSessionId: "leader",
+            childSessionId: "child-session",
+            anchorMessageId: "anchor-1",
+            anchorHistoryIndex: 1,
+            anchorPreview: "Root answer",
+            createdAt: 1,
+            updatedAt: 2,
+            messageCount: 1,
+            seeded: true,
+          },
+        },
+      }),
+      messageHistory: [assistant("anchor-1", "Root answer")],
+    };
+    const launcher = {
+      getSession: vi.fn(() => ({
+        sessionId: "leader",
+        backendType: "codex",
+        cwd: "/repo",
+        model: "gpt-5.5",
+        isOrchestrator: true,
+      })),
+      getSessionLaunchEnv: vi.fn(),
+      launch: vi.fn(),
+      touchActivity: vi.fn(),
+    };
+    const wsBridge = {
+      getSession: vi.fn((id: string) => (id === "leader" ? root : null)),
+      getOrCreateSession: vi.fn(),
+      persistSessionById: vi.fn(),
+      broadcastToSession: vi.fn(),
+      syncSlackThreadRecord: vi.fn(),
+    };
+    const app = new Hono();
+    app.route(
+      "/api",
+      (() => {
+        const api = new Hono();
+        registerSessionSlackThreadRoutes(api, {
+          launcher: launcher as never,
+          wsBridge: wsBridge as never,
+          resolveId: (id) => (id === "leader" ? "leader" : null),
+        });
+        return api;
+      })(),
+    );
+
+    const res = await app.request("/api/sessions/leader/slack-threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ anchorMessageId: "anchor-1" }),
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({ error: "Slack threads are disabled for leader sessions" });
+    expect(launcher.launch).not.toHaveBeenCalled();
+    expect(wsBridge.syncSlackThreadRecord).not.toHaveBeenCalled();
+  });
+
+  it("rejects leader sessions before routing messages to existing Slack threads", async () => {
+    const root = {
+      id: "leader",
+      state: makeState({ session_id: "leader", backend_type: "claude", isOrchestrator: true }),
+      messageHistory: [assistant("anchor-1", "Root answer")],
+    };
+    const launcher = {
+      getSession: vi.fn(() => ({
+        sessionId: "leader",
+        backendType: "claude",
+        cwd: "/repo",
+        model: "claude-sonnet",
+        isOrchestrator: true,
+      })),
+      getSessionLaunchEnv: vi.fn(),
+      launch: vi.fn(),
+      touchActivity: vi.fn(),
+    };
+    const wsBridge = {
+      getSession: vi.fn((id: string) => (id === "leader" ? root : null)),
+      getOrCreateSession: vi.fn(),
+      persistSessionById: vi.fn(),
+      broadcastToSession: vi.fn(),
+      syncSlackThreadRecord: vi.fn(),
+      routeSlackThreadUserMessage: vi.fn(),
+    };
+    const app = new Hono();
+    app.route(
+      "/api",
+      (() => {
+        const api = new Hono();
+        registerSessionSlackThreadRoutes(api, {
+          launcher: launcher as never,
+          wsBridge: wsBridge as never,
+          resolveId: (id) => (id === "leader" ? "leader" : null),
+        });
+        return api;
+      })(),
+    );
+
+    const res = await app.request("/api/sessions/leader/slack-threads/st-existing/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "continue here" }),
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({ error: "Slack threads are disabled for leader sessions" });
+    expect(wsBridge.routeSlackThreadUserMessage).not.toHaveBeenCalled();
+  });
 });

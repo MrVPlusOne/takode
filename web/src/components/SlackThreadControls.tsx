@@ -12,6 +12,14 @@ function openSlackThread(sessionId: string, thread: SlackThreadRecord) {
   );
 }
 
+function useSlackThreadsEnabled(sessionId: string | undefined) {
+  return useStore((s) => {
+    if (!sessionId) return false;
+    if (s.sessions.get(sessionId)?.isOrchestrator === true) return false;
+    return s.sdkSessions.find((session) => session.sessionId === sessionId)?.isOrchestrator !== true;
+  });
+}
+
 export function SlackThreadButton({
   message,
   sessionId,
@@ -22,12 +30,13 @@ export function SlackThreadButton({
   currentThreadKey?: string;
 }) {
   const [creating, setCreating] = useState(false);
+  const slackThreadsEnabled = useSlackThreadsEnabled(sessionId);
   const thread = useStore((s) => {
     const threads = s.sessions.get(sessionId)?.slackThreads ?? {};
     return Object.values(threads).find((candidate) => candidate.anchorMessageId === message.id) ?? null;
   });
   const isRootAssistant = message.role === "assistant" && normalizeThreadKey(currentThreadKey || "main") === "main";
-  if (!isRootAssistant || message.metadata?.slackThreadId) return null;
+  if (!slackThreadsEnabled || !isRootAssistant || message.metadata?.slackThreadId) return null;
 
   const handleClick = async () => {
     if (thread) {
@@ -69,8 +78,11 @@ export function SlackThreadButton({
 }
 
 export function useSlackThreadForMessage(sessionId: string | undefined, message: ChatMessage) {
+  const slackThreadsEnabled = useSlackThreadsEnabled(sessionId);
   return useStore((s) => {
-    if (!sessionId || message.role !== "assistant" || message.metadata?.slackThreadId) return null;
+    if (!slackThreadsEnabled || !sessionId || message.role !== "assistant" || message.metadata?.slackThreadId) {
+      return null;
+    }
     const threads = s.sessions.get(sessionId)?.slackThreads ?? {};
     return Object.values(threads).find((candidate) => candidate.anchorMessageId === message.id) ?? null;
   });

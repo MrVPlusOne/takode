@@ -71,4 +71,11 @@ describe("SlackThreadPanel", () => {
     expect(screen.queryByRole("button", { name: "Start thread" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Open thread with/i })).toBeNull();
   });
+
+  it("explains that Slack thread replies are read-only and must not edit files", () => {
+    render(<SlackThreadPanel rootSessionId="root" thread={makeThread()} onClose={() => {}} />);
+
+    expect(screen.getByText(/Use this thread for analysis and follow-up questions only/i)).toBeTruthy();
+    expect(screen.getByText(/File and repo edits are blocked here/i)).toBeTruthy();
+  });
 });

@@ -1019,6 +1019,59 @@ describe("MessageBubble - assistant messages", () => {
     expect(screen.getByText("Thread follow-up")).toBeTruthy();
   });
 
+  it("suppresses Slack thread controls and summaries for leader sessions", () => {
+    const sessionId = "leader-with-slack-thread";
+    const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Leader root answer" });
+    useStore.getState().addSession({
+      session_id: sessionId,
+      backend_type: "codex",
+      model: "gpt-5.5",
+      cwd: "/tmp/test",
+      tools: [],
+      permissionMode: "default",
+      claude_code_version: "1",
+      mcp_servers: [],
+      agents: [],
+      slash_commands: [],
+      skills: [],
+      total_cost_usd: 0,
+      num_turns: 1,
+      context_used_percent: 0,
+      is_compacting: false,
+      git_branch: "main",
+      is_worktree: false,
+      is_containerized: false,
+      repo_root: "/tmp/test",
+      git_ahead: 0,
+      git_behind: 0,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+      isOrchestrator: true,
+      slackThreads: {
+        "st-test": {
+          id: "st-test",
+          rootSessionId: sessionId,
+          childSessionId: "child-session",
+          anchorMessageId: "assistant-anchor",
+          anchorHistoryIndex: 1,
+          anchorPreview: "Leader answer",
+          createdAt: 1,
+          updatedAt: 2,
+          messageCount: 2,
+          lastMessagePreview: "Thread follow-up",
+          seeded: true,
+        },
+      },
+    } as any);
+
+    render(<MessageBubble message={msg} sessionId={sessionId} currentThreadKey="main" />);
+
+    expect(screen.queryByText("2 replies")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start thread" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Open thread with/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Copy message" })).toBeTruthy();
+  });
+
   it("keeps Slack thread creation available for root assistant messages by default", () => {
     const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Root answer" });
 
@@ -1031,6 +1084,25 @@ describe("MessageBubble - assistant messages", () => {
     expect(toolbar?.className).not.toContain("absolute");
     expect(toolbar?.className).toContain("shrink-0");
     expect(startThread.className).toContain("h-7");
+  });
+
+  it("keeps Slack thread creation available for herded worker sessions", () => {
+    const prevSdkSessions = useStore.getState().sdkSessions;
+    useStore.setState({
+      sdkSessions: [
+        ...prevSdkSessions,
+        { sessionId: "worker-session", state: "connected", cwd: "/repo", createdAt: 1, herdedBy: "leader-session" },
+      ] as any,
+    });
+
+    try {
+      const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Worker answer" });
+      render(<MessageBubble message={msg} sessionId="worker-session" currentThreadKey="main" />);
+
+      expect(screen.getByRole("button", { name: "Start thread" })).toBeTruthy();
+    } finally {
+      useStore.setState({ sdkSessions: prevSdkSessions });
+    }
   });
 
   it("suppresses Slack thread creation for assistant messages embedded in a Slack thread panel", () => {
