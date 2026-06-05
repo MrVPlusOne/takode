@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import "@testing-library/jest-dom";
 
 import { render, screen } from "@testing-library/react";
 import type { ChatMessage, SideChatRecord } from "../types.js";
@@ -77,5 +78,30 @@ describe("SideChatPanel", () => {
 
     expect(screen.getByText(/Use this workspace for analysis and follow-up questions only/i)).toBeTruthy();
     expect(screen.getByText(/File and repo edits are blocked here/i)).toBeTruthy();
+  });
+
+  it("shows bounded replay provenance and fallback reason", () => {
+    render(
+      <SideChatPanel
+        rootSessionId="root"
+        sideChat={makeSideChat({
+          contextStrategy: "bounded-replay",
+          contextFallbackReason: "Codex native fork skipped: anchor turn is not complete",
+        })}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Bounded replay")).toBeTruthy();
+    expect(screen.getByText(/Native fork was unavailable/i)).toBeTruthy();
+    expect(screen.getByText(/anchor turn is not complete/i)).toBeTruthy();
+  });
+
+  it("does not infer native provenance for legacy Side Chat records", () => {
+    render(<SideChatPanel rootSessionId="root" sideChat={makeSideChat({ seeded: true })} onClose={() => {}} />);
+
+    expect(screen.getByText("Legacy status unknown")).toBeTruthy();
+    expect(screen.getByText(/Context provenance is unknown/i)).toBeTruthy();
+    expect(screen.queryByText("Native fork")).toBeNull();
   });
 });

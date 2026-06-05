@@ -359,6 +359,47 @@ export interface ActiveTurnRoute {
   questId?: string;
 }
 
+export type SideChatContextStrategy = "native-fork" | "bounded-replay";
+
+export type SideChatFallbackReasonCode =
+  | "invalid-root-session"
+  | "leader-session"
+  | "invalid-anchor"
+  | "unsupported-backend"
+  | "codex-anchor-not-in-turn"
+  | "codex-anchor-turn-incomplete"
+  | "codex-anchor-not-final-assistant"
+  | "codex-later-turn-incomplete"
+  | "codex-adapter-disconnected"
+  | "codex-fork-failed"
+  | "codex-rollback-failed"
+  | "claude-missing-session-or-anchor"
+  | "claude-fork-failed";
+
+export interface SideChatNativeEligibility {
+  eligible: boolean;
+  reason?: string;
+  reasonCode?: SideChatFallbackReasonCode;
+}
+
+export interface SideChatFallbackEligibility {
+  available: boolean;
+  requiresConfirmation: boolean;
+  reason?: string;
+  reasonCode?: SideChatFallbackReasonCode;
+}
+
+export interface SideChatPreflight {
+  ok: true;
+  anchorMessageId: string;
+  backendType: BackendType;
+  existingSideChat?: SideChatRecord;
+  native: SideChatNativeEligibility;
+  fallback: SideChatFallbackEligibility;
+}
+
+export type SideChatFallbackMode = "native-only" | "allow-bounded-replay";
+
 export interface SideChatRecord {
   id: string;
   rootSessionId: string;
@@ -371,7 +412,8 @@ export interface SideChatRecord {
   messageCount: number;
   lastMessagePreview?: string;
   seeded: boolean;
-  contextStrategy?: "native-fork" | "bounded-replay";
+  contextStrategy?: SideChatContextStrategy;
+  contextFallbackReasonCode?: SideChatFallbackReasonCode;
   contextFallbackReason?: string;
 }
 
@@ -381,7 +423,9 @@ export interface SideChatChildState {
   anchorMessageId: string;
   anchorHistoryIndex: number;
   readOnly: true;
-  contextStrategy?: "native-fork" | "bounded-replay";
+  contextStrategy?: SideChatContextStrategy;
+  contextFallbackReasonCode?: SideChatFallbackReasonCode;
+  contextFallbackReason?: string;
 }
 
 /** @deprecated Legacy persisted type name. Session JSON still uses slackThread* keys. */

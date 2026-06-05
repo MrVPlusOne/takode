@@ -4,6 +4,7 @@ import { useStore } from "../store.js";
 import { connectSession } from "../ws.js";
 import type { ChatMessage, SideChatRecord } from "../types.js";
 import { MessageBubble } from "./MessageBubble.js";
+import { getSideChatContextStatus, SideChatContextBadge } from "./SideChatControls.js";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
@@ -21,6 +22,7 @@ export function SideChatPanel({
   const messages = useStore((s) => s.messages.get(sideChat.childSessionId) ?? EMPTY_MESSAGES);
   const loading = useStore((s) => s.historyLoading.get(sideChat.childSessionId) ?? false);
   const visibleMessages = messages.filter((message) => !message.ephemeral);
+  const contextStatus = getSideChatContextStatus(sideChat);
 
   const send = async () => {
     const content = text.trim();
@@ -46,6 +48,7 @@ export function SideChatPanel({
             <span className="rounded-full border border-cc-border bg-cc-hover/60 px-2 py-0.5 text-[11px] text-cc-muted">
               {sideChat.messageCount}
             </span>
+            <SideChatContextBadge sideChat={sideChat} />
           </div>
           <p className="mt-0.5 line-clamp-2 text-xs text-cc-muted">{sideChat.anchorPreview || "Root reply"}</p>
         </div>
@@ -64,6 +67,17 @@ export function SideChatPanel({
       <div className="border-b border-cc-border bg-cc-hover/30 px-3 py-2 text-xs leading-relaxed text-cc-muted">
         Read-only Side Chat. Use this workspace for analysis and follow-up questions only. File and repo edits are
         blocked here; move any change work back to the main session or a quest workflow.
+        {contextStatus.tone === "fallback" && (
+          <div className="mt-2 rounded-md border border-cc-attention-border bg-cc-attention-bg px-2 py-1.5 text-cc-attention">
+            Bounded replay context. Native fork was unavailable, so this Side Chat has bounded root context only.
+            {sideChat.contextFallbackReason ? ` ${sideChat.contextFallbackReason}` : ""}
+          </div>
+        )}
+        {contextStatus.tone === "unknown" && (
+          <div className="mt-2 rounded-md border border-cc-border bg-cc-hover/50 px-2 py-1.5">
+            Context provenance is unknown for this legacy Side Chat.
+          </div>
+        )}
       </div>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
         {loading && visibleMessages.length === 0 ? (

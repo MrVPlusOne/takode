@@ -1,4 +1,5 @@
 import { CodexThinkingInline, MessageBubble, HerdEventMessage } from "../MessageBubble.js";
+import { SideChatContextBadge } from "../SideChatControls.js";
 import { useStore } from "../../store.js";
 import { DiffViewer } from "../DiffViewer.js";
 import { MarkdownContent } from "../MarkdownContent.js";
@@ -44,6 +45,22 @@ function PlaygroundVoiceHistory() {
   return <VoiceLevelWaveform currentLevel={0.64} samples={volumeHistory} />;
 }
 
+const PLAYGROUND_FALLBACK_SIDE_CHAT = {
+  id: "st-playground-fallback",
+  rootSessionId: MOCK_SESSION_ID,
+  childSessionId: PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID,
+  anchorMessageId: MSG_ASSISTANT.id,
+  anchorHistoryIndex: 2,
+  anchorPreview: "We can stage the migration instead of replacing auth in one pass.",
+  createdAt: Date.now() - 30_000,
+  updatedAt: Date.now() - 8_000,
+  messageCount: 2,
+  lastMessagePreview: "Use a feature flag and keep session cookie validation until parity tests pass.",
+  seeded: true,
+  contextStrategy: "bounded-replay" as const,
+  contextFallbackReason: "Codex native fork skipped: anchor is not the final assistant message in its Codex turn",
+};
+
 export function PlaygroundStateSections() {
   const sideChatMessages = useStore((s) => s.messages.get(PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID) ?? []);
   return (
@@ -64,6 +81,7 @@ export function PlaygroundStateSections() {
                     <span className="rounded-full border border-cc-border bg-cc-hover/60 px-2 py-0.5 text-[11px] text-cc-muted">
                       2
                     </span>
+                    <SideChatContextBadge sideChat={PLAYGROUND_FALLBACK_SIDE_CHAT} />
                   </div>
                   <p className="mt-0.5 line-clamp-2 text-xs text-cc-muted">
                     We can stage the migration instead of replacing auth in one pass.
@@ -73,6 +91,10 @@ export function PlaygroundStateSections() {
               <div className="border-b border-cc-border bg-cc-hover/30 px-3 py-2 text-xs leading-relaxed text-cc-muted">
                 Read-only Side Chat. Use this workspace for analysis and follow-up questions only. File and repo edits
                 are blocked here; move any change work back to the main session or a quest workflow.
+                <div className="mt-2 rounded-md border border-cc-attention-border bg-cc-attention-bg px-2 py-1.5 text-cc-attention">
+                  Bounded replay context. Native fork was unavailable, so this Side Chat has bounded root context only.
+                  Codex native fork skipped: anchor is not the final assistant message in its Codex turn
+                </div>
               </div>
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
                 {sideChatMessages.map((message) => (

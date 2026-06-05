@@ -25,6 +25,30 @@ function assistant(id: string, text: string): Extract<BrowserIncomingMessage, { 
   };
 }
 
+function user(id: string, content: string): Extract<BrowserIncomingMessage, { type: "user_message" }> {
+  return { type: "user_message", id, content, timestamp: 1 };
+}
+
+function result(): BrowserIncomingMessage {
+  return {
+    type: "result",
+    data: {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "",
+      duration_ms: 1,
+      duration_api_ms: 1,
+      num_turns: 1,
+      total_cost_usd: 0,
+      stop_reason: null,
+      usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      uuid: "result",
+      session_id: "root",
+    },
+  } as BrowserIncomingMessage;
+}
+
 function makeState(overrides: Partial<SessionState> = {}): SessionState {
   return {
     session_id: "root",
@@ -58,7 +82,11 @@ describe("Side Chat session routes", () => {
     const root = {
       id: "root",
       state: makeState({ backend_type: "codex", memorySessionSpaceSlug: "Takode" }),
-      messageHistory: [assistant("anchor-1", "Root answer")],
+      messageHistory: [user("u1", "Explain this"), assistant("anchor-1", "Root answer"), result()],
+      codexAdapter: {
+        isConnected: () => true,
+        forkThread: vi.fn(async () => "forked-codex-thread"),
+      },
     };
     const childSession = {
       id: "child",
@@ -169,27 +197,7 @@ describe("Side Chat session routes", () => {
     const root = {
       id: "root",
       state: makeState({ backend_type: "codex" }),
-      messageHistory: [
-        { type: "user_message", id: "u1", content: "Explain this", timestamp: 1 },
-        assistant("anchor-1", "Root answer"),
-        {
-          type: "result",
-          data: {
-            type: "result",
-            subtype: "success",
-            is_error: false,
-            result: "",
-            duration_ms: 1,
-            duration_api_ms: 1,
-            num_turns: 1,
-            total_cost_usd: 0,
-            stop_reason: null,
-            usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-            uuid: "r1",
-            session_id: "root",
-          },
-        } as BrowserIncomingMessage,
-      ],
+      messageHistory: [user("u1", "Explain this"), assistant("anchor-1", "Root answer"), result()],
       codexAdapter: {
         isConnected: () => true,
         forkThread,
@@ -261,6 +269,67 @@ describe("Side Chat session routes", () => {
     expect(json.sideChat.contextStrategy).toBe("native-fork");
     expect(json.thread.id).toBe(json.sideChat.id);
     expect(childSession.state.slackThreadChild?.contextStrategy).toBe("native-fork");
+  });
+
+  it("preflights Codex unsafe anchors before creating a Side Chat", async () => {
+    const root = {
+      id: "root",
+      state: makeState({ backend_type: "codex" }),
+      messageHistory: [
+        user("u1", "Explain this"),
+        assistant("anchor-1", "Partial answer"),
+        assistant("anchor-2", "Final answer"),
+        result(),
+      ],
+      codexAdapter: {
+        isConnected: () => true,
+        forkThread: vi.fn(),
+      },
+    };
+    const launcher = {
+      getSession: vi.fn(() => ({ sessionId: "root", backendType: "codex", cwd: "/repo", model: "gpt-5.5" })),
+      getSessionLaunchEnv: vi.fn(),
+      launch: vi.fn(),
+      touchActivity: vi.fn(),
+    };
+    const wsBridge = {
+      getSession: vi.fn((id: string) => (id === "root" ? root : null)),
+      getOrCreateSession: vi.fn(),
+      persistSessionById: vi.fn(),
+      broadcastToSession: vi.fn(),
+      syncSideChatRecord: vi.fn(),
+    };
+    const app = new Hono();
+    app.route(
+      "/api",
+      (() => {
+        const api = new Hono();
+        registerSessionSideChatRoutes(api, {
+          launcher: launcher as never,
+          wsBridge: wsBridge as never,
+          resolveId: (id) => (id === "root" ? "root" : null),
+        });
+        return api;
+      })(),
+    );
+
+    const res = await app.request("/api/sessions/root/side-chats/preflight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ anchorMessageId: "anchor-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.native).toMatchObject({
+      eligible: false,
+      reasonCode: "codex-anchor-not-final-assistant",
+    });
+    expect(json.fallback).toMatchObject({
+      available: true,
+      requiresConfirmation: true,
+      reasonCode: "codex-anchor-not-final-assistant",
+    });
   });
 
   it("keeps legacy slack-threads creation route as a compatibility alias", async () => {
@@ -403,14 +472,15 @@ describe("Side Chat session routes", () => {
     expect(json.sideChat.contextStrategy).toBe("native-fork");
   });
 
-  it("falls back to bounded replay when Codex native fork cannot represent the anchor safely", async () => {
+  it("blocks silent bounded replay when Codex native fork cannot represent the anchor safely", async () => {
     const root = {
       id: "root",
       state: makeState({ backend_type: "codex" }),
       messageHistory: [
-        { type: "user_message", id: "u1", content: "Explain this", timestamp: 1 },
+        user("u1", "Explain this"),
         assistant("anchor-1", "Partial answer"),
         assistant("anchor-2", "Final answer"),
+        result(),
       ],
       codexAdapter: {
         isConnected: () => true,
@@ -466,6 +536,78 @@ describe("Side Chat session routes", () => {
       body: JSON.stringify({ anchorMessageId: "anchor-1" }),
     });
 
+    expect(res.status).toBe(409);
+    expect(root.codexAdapter.forkThread).not.toHaveBeenCalled();
+    expect(launcher.launch).not.toHaveBeenCalled();
+    const json = await res.json();
+    expect(json.reasonCode).toBe("codex-anchor-not-final-assistant");
+    expect(json.preflight.fallback.available).toBe(true);
+  });
+
+  it("creates bounded replay only with explicit fallback opt-in", async () => {
+    const root = {
+      id: "root",
+      state: makeState({ backend_type: "codex" }),
+      messageHistory: [
+        user("u1", "Explain this"),
+        assistant("anchor-1", "Partial answer"),
+        assistant("anchor-2", "Final answer"),
+        result(),
+      ],
+      codexAdapter: {
+        isConnected: () => true,
+        forkThread: vi.fn(),
+      },
+    };
+    const childSession = {
+      id: "child",
+      state: makeState({ session_id: "child", backend_type: "codex" }),
+      messageHistory: [],
+    };
+    const launcher = {
+      getSession: vi.fn(() => ({
+        sessionId: "root",
+        backendType: "codex",
+        cwd: "/repo",
+        model: "gpt-5.5",
+      })),
+      getSessionLaunchEnv: vi.fn(),
+      launch: vi.fn(async () => ({
+        sessionId: "child",
+        backendType: "codex",
+        cwd: "/repo",
+        createdAt: 2,
+        state: "starting" as const,
+      })),
+      touchActivity: vi.fn(),
+    };
+    const wsBridge = {
+      getSession: vi.fn((id: string) => (id === "root" ? root : null)),
+      getOrCreateSession: vi.fn(() => childSession),
+      persistSessionById: vi.fn(),
+      broadcastToSession: vi.fn(),
+      syncSideChatRecord: vi.fn(),
+    };
+    const app = new Hono();
+    app.route(
+      "/api",
+      (() => {
+        const api = new Hono();
+        registerSessionSideChatRoutes(api, {
+          launcher: launcher as never,
+          wsBridge: wsBridge as never,
+          resolveId: (id) => (id === "root" ? "root" : null),
+        });
+        return api;
+      })(),
+    );
+
+    const res = await app.request("/api/sessions/root/side-chats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ anchorMessageId: "anchor-1", fallbackMode: "allow-bounded-replay" }),
+    });
+
     expect(res.status).toBe(200);
     expect(root.codexAdapter.forkThread).not.toHaveBeenCalled();
     expect(launcher.launch).toHaveBeenCalledWith(
@@ -474,7 +616,9 @@ describe("Side Chat session routes", () => {
     const json = await res.json();
     expect(json.sideChat.seeded).toBe(false);
     expect(json.sideChat.contextStrategy).toBe("bounded-replay");
+    expect(json.sideChat.contextFallbackReasonCode).toBe("codex-anchor-not-final-assistant");
     expect(json.sideChat.contextFallbackReason).toContain("Codex native fork skipped");
+    expect(childSession.state.slackThreadChild?.contextFallbackReasonCode).toBe("codex-anchor-not-final-assistant");
   });
 
   it("rejects leader sessions before creating or reopening Side Chats", async () => {

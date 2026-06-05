@@ -133,6 +133,7 @@ export function usePlaygroundSeed() {
           messageCount: 2,
           lastMessagePreview: "Use a feature flag and keep session cookie validation until parity tests pass.",
           seeded: true,
+          contextStrategy: "native-fork",
         },
       },
     };
@@ -177,6 +178,7 @@ export function usePlaygroundSeed() {
         anchorMessageId: MSG_ASSISTANT.id,
         anchorHistoryIndex: 2,
         readOnly: true,
+        contextStrategy: "native-fork",
       },
       num_turns: 1,
     };

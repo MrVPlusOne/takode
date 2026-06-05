@@ -845,8 +845,14 @@ export class CodexAdapter
       thread: { id: string };
     };
     const threadId = result.thread.id;
-    if (options.rollbackTurns)
-      await this.transport.call("thread/rollback", { threadId, numTurns: options.rollbackTurns });
+    if (options.rollbackTurns) {
+      try {
+        await this.transport.call("thread/rollback", { threadId, numTurns: options.rollbackTurns });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(`Rollback failed: ${message}`);
+      }
+    }
     return threadId;
   }
 

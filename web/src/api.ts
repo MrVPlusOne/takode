@@ -4,6 +4,8 @@ import type {
   ChatMessage,
   BrowserIncomingMessage,
   SideChatRecord,
+  SideChatFallbackMode,
+  SideChatPreflight,
   StreamRecord,
   SessionNotification,
 } from "./types.js";
@@ -973,11 +975,22 @@ export const api = {
   createSession: (opts?: CreateSessionOpts) =>
     post<{ sessionId: string; state: string; cwd: string }>("/sessions/create", opts),
 
-  createSideChat: (sessionId: string, anchorMessageId: string) =>
+  preflightSideChat: (sessionId: string, anchorMessageId: string) =>
+    post<SideChatPreflight>(`/sessions/${encodeURIComponent(sessionId)}/side-chats/preflight`, {
+      anchorMessageId,
+    }),
+
+  createSideChat: (
+    sessionId: string,
+    anchorMessageId: string,
+    options?: { fallbackMode?: SideChatFallbackMode; allowFallbackReplay?: boolean },
+  ) =>
     post<{ ok: true; sideChat: SideChatRecord; thread?: SideChatRecord }>(
       `/sessions/${encodeURIComponent(sessionId)}/side-chats`,
       {
         anchorMessageId,
+        ...(options?.fallbackMode ? { fallbackMode: options.fallbackMode } : {}),
+        ...(options?.allowFallbackReplay ? { allowFallbackReplay: true } : {}),
       },
     ),
 
