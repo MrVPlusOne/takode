@@ -165,6 +165,7 @@ export function SideChatButton({
   const nativeReady = Boolean(sideChat) || preflight?.native.eligible === true;
   const nativeReason = preflight?.native.reason ?? preflightError ?? "Checking native Side Chat support";
   const fallbackReason = preflight?.fallback.reason ?? nativeReason;
+  const showUnavailableReason = !sideChat && preflight && !nativeReady;
 
   return (
     <>
@@ -204,6 +205,15 @@ export function SideChatButton({
         >
           {fallbackConfirming ? "Confirm replay" : "Replay"}
         </button>
+      )}
+      {showUnavailableReason && (
+        <span
+          className="ml-1 max-w-[240px] whitespace-normal rounded-md border border-cc-attention-border bg-cc-attention-bg px-2 py-1 text-[10px] leading-tight text-cc-attention"
+          role="status"
+        >
+          Native fork unavailable: {fallbackReason}
+          {preflight.fallback.available ? " Bounded replay requires confirmation." : ""}
+        </span>
       )}
     </>
   );

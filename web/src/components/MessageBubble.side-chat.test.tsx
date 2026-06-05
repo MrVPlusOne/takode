@@ -250,6 +250,12 @@ describe("MessageBubble Side Chat actions", () => {
 
     const startSideChat = await screen.findByRole("button", { name: "Start Side Chat" });
     await waitFor(() => expect(startSideChat).toBeDisabled());
+    expect(
+      screen.getByText(
+        /Native fork unavailable: Codex native fork skipped: anchor is not the final assistant message/i,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/Bounded replay requires confirmation/i)).toBeTruthy();
     const replay = await screen.findByRole("button", { name: /Use bounded replay Side Chat/i });
 
     await userEvent.click(replay);
