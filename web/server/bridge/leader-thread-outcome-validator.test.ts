@@ -219,6 +219,9 @@ describe("validateLeaderThreadOutcomes", () => {
     expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain(
       "Existing unresolved needs-input prompts do not cover a new approval or decision prompt.",
     );
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain(
+      "it is not diagnosing missing `[thread:...]` visible-text markers or `# thread:...` shell-command markers",
+    );
   });
 
   it("accepts approval-like leader text when a fresh same-thread needs-input notification exists", () => {
@@ -352,6 +355,9 @@ describe("validateLeaderThreadOutcomes", () => {
         sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
       }),
       expect.objectContaining({ threadKey: "q-42" }),
+    );
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain(
+      "This is about outcome status for already routed leader output",
     );
     expect(session.leaderThreadOutcomeValidatedHistoryLength).toBe(2);
   });

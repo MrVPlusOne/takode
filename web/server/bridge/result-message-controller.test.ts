@@ -309,6 +309,7 @@ describe("result-message-controller", () => {
         threadRoutingError: {
           reason: "missing",
           expected: "Start with [thread:main] or [thread:q-N].",
+          source: "visible_text",
           rawContent: "Unrouted leader response",
         },
       } as BrowserIncomingMessage,
@@ -336,6 +337,56 @@ describe("result-message-controller", () => {
       undefined,
       expect.anything(),
     );
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("on visible leader text");
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).not.toContain("previous leader response");
+  });
+
+  it("injects shell-command-specific thread-routing reminders after unrouted leader commands", () => {
+    const session = makeSession();
+    session.messageHistory.push(
+      {
+        type: "user_message",
+        id: "u-q970",
+        content: "continue in quest thread",
+        timestamp: 1,
+        threadKey: "q-970",
+        questId: "q-970",
+      } as BrowserIncomingMessage,
+      {
+        type: "assistant",
+        message: {
+          id: "assistant-missing-command-thread",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [{ type: "tool_use", id: "tool-1", name: "Bash", input: { command: "pwd" } }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: 2,
+        threadRoutingError: {
+          reason: "missing",
+          expected: "Start with [thread:main] or [thread:q-N].",
+          source: "shell_command",
+          rawContent: "pwd",
+        },
+      } as BrowserIncomingMessage,
+    );
+    session.userMessageIdsThisTurn = [0];
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult(), deps);
+
+    expect(deps.injectUserMessage).toHaveBeenCalledWith(
+      "s1",
+      expect.stringContaining("Missing thread marker on leader shell command"),
+      { sessionId: THREAD_ROUTING_REMINDER_SOURCE_ID, sessionLabel: "Thread Routing Reminder" },
+      undefined,
+      expect.objectContaining({ threadKey: "q-970", questId: "q-970" }),
+    );
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("previous leader shell command");
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).not.toContain("previous leader response");
   });
 
   it("injects queued quest thread reminders as synthetic user messages after the turn result", () => {
@@ -400,6 +451,7 @@ describe("result-message-controller", () => {
         threadRoutingError: {
           reason: "missing",
           expected: "Start with [thread:main] or [thread:q-N].",
+          source: "visible_text",
           rawContent: "Still unrouted",
         },
       } as BrowserIncomingMessage,

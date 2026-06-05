@@ -223,6 +223,7 @@ function buildReminderContent(missing: TouchedThread[]): string {
   return [
     "Thread outcome reminder: mark every touched leader thread with a fresh outcome before idling.",
     `Missing outcome marker for: ${labels}.`,
+    "This is about outcome status for already routed leader output; it is not diagnosing missing `[thread:...]` visible-text markers or `# thread:...` shell-command markers.",
     'Use `takode notify needs-input "..."` only for user-blocking prompts. For non-blocking thread status, add a standalone `{[(Thread Waiting: thread | summary)]}` or `{[(Thread Ready: thread | summary)]}` line to your assistant response.',
   ].join("\n");
 }
@@ -232,6 +233,7 @@ function buildNeedsInputPromptReminderContent(missing: TouchedThread[]): string 
   return [
     "Needs-input notification reminder: this leader response appears to ask for a blocking user decision, but no fresh same-thread `takode notify needs-input` notification was created.",
     `Blocking prompt detected for: ${labels}.`,
+    "This is about a missing same-thread needs-input notification after routed leader output; it is not diagnosing missing `[thread:...]` visible-text markers or `# thread:...` shell-command markers.",
     "For every new blocking prompt, publish the routed prompt, run `takode notify needs-input`, link the board row with `--wait-for-input` when applicable, then use `Thread Waiting` only for non-user waits.",
     "Existing unresolved needs-input prompts do not cover a new approval or decision prompt.",
   ].join("\n");

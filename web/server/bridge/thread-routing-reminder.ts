@@ -112,6 +112,7 @@ function threadRoutingErrorForText(
   return {
     reason: parsed.reason,
     expected: THREAD_ROUTING_EXPECTED,
+    source: "visible_text",
     rawContent: content.map((block) => (block.type === "text" ? block.text : "")).join("\n"),
     ...(parsed.marker ? { marker: parsed.marker } : {}),
   };
@@ -121,6 +122,7 @@ function threadRoutingErrorForCommand(command: string): ThreadRoutingError {
   return {
     reason: "missing",
     expected: THREAD_ROUTING_EXPECTED,
+    source: "shell_command",
     rawContent: command,
   };
 }
@@ -306,6 +308,7 @@ export function buildThreadRoutingReminderForCompletedTurn(
   return {
     content: buildThreadRoutingReminderContent({
       reason: error.reason,
+      ...(error.source ? { source: error.source } : {}),
       ...(error.marker ? { marker: error.marker } : {}),
     }),
     route: findTriggeringTurnRoute(session),

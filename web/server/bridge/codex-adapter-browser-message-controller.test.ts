@@ -727,7 +727,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
 
     expect(msg).toMatchObject({
       type: "assistant",
-      threadRoutingError: { reason: "missing", rawContent: "Unmarked Codex leader text" },
+      threadRoutingError: { reason: "missing", source: "visible_text", rawContent: "Unmarked Codex leader text" },
     });
     const content = msg.type === "assistant" ? msg.message.content : [];
     expect(content).toHaveLength(1);
@@ -741,7 +741,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
 
     expect(msg).toMatchObject({
       type: "assistant",
-      threadRoutingError: { reason: "invalid", marker: "[thread:q-941]" },
+      threadRoutingError: { reason: "invalid", source: "visible_text", marker: "[thread:q-941]" },
     });
     const content = msg.type === "assistant" ? msg.message.content : [];
     expect(content[0].type === "text" ? content[0].text : "").toBe("[thread:q-941]No separator");
@@ -759,6 +759,21 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       threadKey: "q-941",
       questId: "q-941",
       threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+    const block = msg.type === "assistant" ? msg.message.content[0] : null;
+    expect(block).toMatchObject({ type: "tool_use", input: { command: "pwd" } });
+  });
+
+  it("preserves unrouted Bash command and records shell-command routing metadata", async () => {
+    const session = makeSession();
+
+    const msg = await routeAssistantMessage(session, [
+      { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "pwd" } },
+    ]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadRoutingError: { reason: "missing", source: "shell_command", rawContent: "pwd" },
     });
     const block = msg.type === "assistant" ? msg.message.content[0] : null;
     expect(block).toMatchObject({ type: "tool_use", input: { command: "pwd" } });

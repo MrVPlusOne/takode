@@ -436,6 +436,7 @@ export type SlackThreadChildState = SideChatChildState;
 export interface ThreadRoutingError {
   reason: "missing" | "invalid";
   expected: string;
+  source?: "visible_text" | "shell_command";
   rawContent?: string;
   marker?: string;
 }

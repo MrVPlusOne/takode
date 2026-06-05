@@ -756,7 +756,7 @@ describe("assistant-message-controller", () => {
 
     expect(msg).toMatchObject({
       type: "assistant",
-      threadRoutingError: { reason: "missing", rawContent: "Unmarked leader text" },
+      threadRoutingError: { reason: "missing", source: "visible_text", rawContent: "Unmarked leader text" },
     });
     const content = msg.type === "assistant" ? msg.message.content : [];
     expect(content).toHaveLength(1);
@@ -771,7 +771,7 @@ describe("assistant-message-controller", () => {
 
     expect(msg).toMatchObject({
       type: "assistant",
-      threadRoutingError: { reason: "invalid", marker: "[thread:side]" },
+      threadRoutingError: { reason: "invalid", source: "visible_text", marker: "[thread:side]" },
     });
     const content = msg.type === "assistant" ? msg.message.content : [];
     expect(content[0].type === "text" ? content[0].text : "").toBe("[thread:side]\nWrong marker");
@@ -785,7 +785,7 @@ describe("assistant-message-controller", () => {
 
     expect(msg).toMatchObject({
       type: "assistant",
-      threadRoutingError: { reason: "invalid", marker: "[thread:q-941]" },
+      threadRoutingError: { reason: "invalid", source: "visible_text", marker: "[thread:q-941]" },
     });
     const content = msg.type === "assistant" ? msg.message.content : [];
     expect(content[0].type === "text" ? content[0].text : "").toBe("[thread:q-941]No separator");
@@ -804,6 +804,22 @@ describe("assistant-message-controller", () => {
       threadKey: "q-941",
       questId: "q-941",
       threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+    const block = msg.type === "assistant" ? msg.message.content[0] : null;
+    expect(block).toMatchObject({ type: "tool_use", input: { command: "pwd" } });
+  });
+
+  it("preserves unrouted Bash command and records shell-command routing metadata", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [
+      { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "pwd" } },
+    ]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadRoutingError: { reason: "missing", source: "shell_command", rawContent: "pwd" },
     });
     const block = msg.type === "assistant" ? msg.message.content[0] : null;
     expect(block).toMatchObject({ type: "tool_use", input: { command: "pwd" } });
