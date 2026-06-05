@@ -1044,10 +1044,22 @@ export function getBoardWatchdogDeps(host: any) {
     timerCount: (sessionId: string) => host.timerManager?.listTimers(sessionId).length ?? 0,
     backendConnected: (targetSession: unknown) => backendConnectedController(targetSession as Session),
     getBoard: (sessionId: string) => getBoardForSessionController(host.sessions, sessionId),
-    notifyUser: (sessionId: string, category: "needs-input" | "review", summary: string) =>
-      notifyUserBySessionIdController(host.sessions, sessionId, category, summary, notificationDeps),
     emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
       host.emitTakodeEvent(sessionId, type as TakodeEventType, data as any),
+    injectLeaderBoardDispatchableReminder: (
+      sessionId: string,
+      candidate: { questId: string; title?: string; summary: string; action?: string },
+    ) => {
+      const quest = candidate.title ? `${candidate.questId} ${candidate.title}` : candidate.questId;
+      const action = candidate.action ? ` | next: ${candidate.action}` : "";
+      host.injectUserMessage(
+        sessionId,
+        `1 event from work board\n\nWork Board | board_dispatchable | ${quest} | ${candidate.summary}${action}`,
+        { sessionId: "herd-events", sessionLabel: "Herd Events" },
+        undefined,
+        { threadKey: candidate.questId.toLowerCase(), questId: candidate.questId },
+      );
+    },
     markNotificationDone: (sessionId: string, notifId: string, done: boolean) =>
       markNotificationDoneBySessionIdController(host.sessions, sessionId, notifId, done, notificationDeps),
     isSessionIdle: (sessionId: string) => isSessionIdleRuntime(host.sessions.get(sessionId)),

@@ -75,12 +75,8 @@ export interface BoardWatchdogDeps {
   timerCount: (sessionId: string) => number;
   backendConnected: (session: SessionLike) => boolean;
   getBoard: (sessionId: string) => BoardRow[];
-  notifyUser: (
-    sessionId: string,
-    category: "needs-input" | "review",
-    summary: string,
-  ) => { ok: true; anchoredMessageId: string | null; notificationId: string } | { ok: false; error: string };
   emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) => void;
+  injectLeaderBoardDispatchableReminder?: (leaderSessionId: string, candidate: BoardDispatchableCandidate) => void;
   markNotificationDone: (sessionId: string, notifId: string, done: boolean) => boolean;
   isSessionIdle: (sessionId: string) => boolean;
 }
@@ -1116,11 +1112,6 @@ export function sweepBoardDispatchableWarnings(
 
       const current = session.boardDispatchStates.get(row.questId);
       if (!current || current.warnedAt) continue;
-      const shouldNotifyLeader = (row.waitFor ?? []).some((dep: string) => getWaitForRefKind(dep) === "free-worker");
-      if (shouldNotifyLeader) {
-        const notifResult = deps.notifyUser(session.id, "needs-input", candidate.summary);
-        if (notifResult.ok) current.notificationId = notifResult.notificationId;
-      }
       const sourceSessionId = findBoardDispatchSourceSessionId(session, row, deps);
       if (sourceSessionId) {
         deps.emitTakodeEvent(sourceSessionId, "board_dispatchable", {
@@ -1130,6 +1121,8 @@ export function sweepBoardDispatchableWarnings(
           summary: candidate.summary,
           ...(candidate.action ? { action: candidate.action } : {}),
         });
+      } else {
+        deps.injectLeaderBoardDispatchableReminder?.(session.id, candidate);
       }
       current.warnedAt = now;
     }

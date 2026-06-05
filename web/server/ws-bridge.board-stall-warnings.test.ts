@@ -1323,18 +1323,22 @@ describe("board stall warnings", () => {
     const herdCalls = injectSpy.mock.calls.filter(
       ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
     );
-    expect(herdCalls).toHaveLength(0);
+    expect(herdCalls).toHaveLength(1);
+    expect(herdCalls[0][1]).toContain("Work Board | board_dispatchable");
+    expect(herdCalls[0][1]).toContain("q-2");
+    expect(herdCalls[0][1]).toContain("active worker-owned board demand is 0/5");
+    expect(herdCalls[0][1]).toContain("raw worker slots show 5/5");
     expect(leaderSession.board.get("q-2")?.waitFor).toEqual(["free-worker"]);
-    expect(leaderSession.attentionReason).toBe("action");
-    expect(leaderSession.notifications.at(-1)?.summary).toContain("active worker-owned board demand is 0/5");
-    expect(leaderSession.notifications.at(-1)?.summary).toContain("raw worker slots show 5/5");
+    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-2 can be dispatched now"))).toBe(
+      false,
+    );
 
     vi.advanceTimersByTime(60_000);
     await Promise.resolve();
     const repeated = injectSpy.mock.calls.filter(
       ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
     );
-    expect(repeated).toHaveLength(0);
+    expect(repeated).toHaveLength(1);
 
     injectSpy.mockRestore();
     dispatcher.destroy();
@@ -1363,11 +1367,9 @@ describe("board stall warnings", () => {
     vi.advanceTimersByTime(31_000);
     await Promise.resolve();
 
-    const dispatchNotif = leaderSession.notifications.find((notif: any) =>
-      notif.summary.includes("worker slots are available"),
+    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-2 can be dispatched now"))).toBe(
+      false,
     );
-    expect(dispatchNotif?.done).toBe(false);
-    expect(leaderSession.attentionReason).toBe("action");
 
     bridge.upsertBoardRow(leaderId, {
       questId: "q-2",
@@ -1376,13 +1378,14 @@ describe("board stall warnings", () => {
       status: "PLANNING",
     });
 
-    expect(leaderSession.notifications.find((notif: any) => notif.id === dispatchNotif.id)?.done).toBe(true);
-    expect(leaderSession.attentionReason).toBeNull();
+    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-2 can be dispatched now"))).toBe(
+      false,
+    );
 
     dispatcher.destroy();
   });
 
-  it("still creates a leader notification when a resolved quest dependency has no source session to attribute", async () => {
+  it("injects a non-notification leader reminder when a resolved quest dependency has no source session", async () => {
     const { leaderId, dispatcher } = setupBoardStallHarness();
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
     const leaderSession = (bridge as any).sessions.get(leaderId);
@@ -1412,15 +1415,16 @@ describe("board stall warnings", () => {
     vi.advanceTimersByTime(31_000);
     await Promise.resolve();
 
-    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("worker slots are available"))).toBe(
-      true,
+    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-3 can be dispatched now"))).toBe(
+      false,
     );
-    expect(leaderSession.attentionReason).toBe("action");
     const herdCalls = injectSpy.mock.calls.filter(
       ([sessionId, content, source]) =>
         sessionId === leaderId && source?.sessionId === "herd-events" && String(content).includes("q-3"),
     );
-    expect(herdCalls).toHaveLength(0);
+    expect(herdCalls).toHaveLength(1);
+    expect(herdCalls[0][1]).toContain("Work Board | board_dispatchable");
+    expect(herdCalls[0][1]).toContain("worker slots are available");
 
     injectSpy.mockRestore();
     dispatcher.destroy();
@@ -1472,7 +1476,7 @@ describe("board stall warnings", () => {
     dispatcher.destroy();
   });
 
-  it("creates a leader nudge for free-worker rows when raw slots are full only because workers are reclaimable", async () => {
+  it("injects a non-notification leader nudge for free-worker rows when workers are reclaimable", async () => {
     const { leaderId, dispatcher, launcherSessions } = setupBoardStallHarness();
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
     const leaderSession = (bridge as any).sessions.get(leaderId);
@@ -1500,18 +1504,18 @@ describe("board stall warnings", () => {
     vi.advanceTimersByTime(31_000);
     await Promise.resolve();
 
-    const dispatchNotif = leaderSession.notifications.find((notif: any) =>
-      notif.summary.includes("q-5 can be dispatched now"),
+    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-5 can be dispatched now"))).toBe(
+      false,
     );
-    expect(dispatchNotif?.summary).toContain("active worker-owned board demand is 1/5");
-    expect(dispatchNotif?.summary).toContain("raw worker slots show 5/5");
-    expect(dispatchNotif?.summary).toContain("reclaimable completed/off-board/review-only workers");
-    expect(dispatchNotif?.done).toBe(false);
     const herdCalls = injectSpy.mock.calls.filter(
       ([sessionId, content, source]) =>
         sessionId === leaderId && source?.sessionId === "herd-events" && String(content).includes("q-5"),
     );
-    expect(herdCalls).toHaveLength(0);
+    expect(herdCalls).toHaveLength(1);
+    expect(herdCalls[0][1]).toContain("Work Board | board_dispatchable");
+    expect(herdCalls[0][1]).toContain("active worker-owned board demand is 1/5");
+    expect(herdCalls[0][1]).toContain("raw worker slots show 5/5");
+    expect(herdCalls[0][1]).toContain("reclaimable completed/off-board/review-only workers");
 
     injectSpy.mockRestore();
     dispatcher.destroy();
@@ -1586,12 +1590,10 @@ describe("board stall warnings", () => {
     vi.advanceTimersByTime(31_000);
     await Promise.resolve();
 
-    const dispatchNotif = leaderSession.notifications.find((notif: any) =>
-      notif.summary.includes("q-6 can be dispatched now"),
-    );
     expect(leaderSession.board.get("q-6")?.waitFor).toEqual(["free-worker"]);
-    expect(dispatchNotif?.summary).toContain("active worker-owned board demand is 1/5");
-    expect(dispatchNotif?.summary).toContain("raw worker slots show 5/5");
+    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-6 can be dispatched now"))).toBe(
+      false,
+    );
 
     dispatcher.destroy();
   });
