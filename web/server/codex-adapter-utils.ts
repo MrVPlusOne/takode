@@ -1,6 +1,22 @@
 import type { CodexAppReference, CodexSkillReference } from "./session-types.js";
 import type { JsonRpcPendingRequestSummary, JsonRpcTransportCloseDiagnostics } from "./codex-jsonrpc-transport.js";
 
+export interface CodexResumeTurnSnapshot {
+  id: string;
+  status: string | null;
+  error: unknown;
+  items: Array<Record<string, unknown>>;
+}
+
+export interface CodexResumeSnapshot {
+  threadId: string;
+  turnCount: number;
+  turns: CodexResumeTurnSnapshot[];
+  lastTurn: CodexResumeTurnSnapshot | null;
+  /** Thread-level status from the resume response (e.g. "idle", "active"). */
+  threadStatus?: string | null;
+}
+
 interface CodexTransportCloseWaveDiagnostics {
   sessionId: string;
   closeId: string;
@@ -233,6 +249,50 @@ export function formatCodexInitializationError(err: unknown, failureContext?: st
   let message = `Codex initialization failed: ${detail}`;
   if (failureContext && isCodexTransportClosedError(err)) message += `. Stderr: ${failureContext}`;
   return message;
+}
+
+export function buildCodexResumeSnapshot(thread: Record<string, unknown> & { id: string }): CodexResumeSnapshot | null {
+  const rawTurns = Array.isArray(thread.turns) ? thread.turns : [];
+  const turns = rawTurns.filter((t): t is Record<string, unknown> => !!t && typeof t === "object");
+  const normalizedTurns = turns.map((turn) => {
+    const turnId = typeof turn.id === "string" ? turn.id : "";
+    const status = typeof turn.status === "string" ? turn.status : null;
+    const items = Array.isArray(turn.items)
+      ? turn.items.filter((it): it is Record<string, unknown> => !!it && typeof it === "object")
+      : [];
+    return {
+      id: turnId,
+      status,
+      error: turn.error ?? null,
+      items,
+    } satisfies CodexResumeTurnSnapshot;
+  });
+  const last = normalizedTurns.length > 0 ? normalizedTurns[normalizedTurns.length - 1] : null;
+  const rawStatus = thread.status;
+  const threadStatus =
+    typeof rawStatus === "object" && rawStatus !== null
+      ? String((rawStatus as Record<string, unknown>).type ?? "")
+      : typeof rawStatus === "string"
+        ? rawStatus
+        : null;
+
+  if (!last) {
+    return {
+      threadId: thread.id,
+      turnCount: 0,
+      turns: [],
+      lastTurn: null,
+      threadStatus,
+    };
+  }
+
+  return {
+    threadId: thread.id,
+    turnCount: normalizedTurns.length,
+    turns: normalizedTurns,
+    lastTurn: last,
+    threadStatus,
+  };
 }
 
 function firstNonEmptyStringValue(...values: unknown[]): string {

@@ -22,6 +22,7 @@ import {
 } from "./session-types.js";
 import type { RecorderManager } from "./recorder.js";
 import {
+  buildCodexResumeSnapshot,
   buildCodexCollabMode,
   extractCodexAppsPage,
   extractCodexMentionInputs,
@@ -39,6 +40,7 @@ import {
   noteCodexTransportCloseForWave,
   toSafeText,
   unwrapShellWrappedCommand,
+  type CodexResumeSnapshot,
 } from "./codex-adapter-utils.js";
 import { CodexApprovalManager } from "./codex-approval-manager.js";
 import { CodexItemEventManager } from "./codex-item-event-manager.js";
@@ -63,6 +65,8 @@ import { CODEX_LOCAL_SLASH_COMMANDS } from "../shared/codex-slash-commands.js";
 const TURN_START_ACK_TIMEOUT_MS = 60_000;
 const STDERR_ROUTER_LINE_BUFFER_MAX = 64 * 1024;
 const INITIAL_SKILL_METADATA_REFRESH_TIMEOUT_MS = 5_000;
+
+export type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "./codex-adapter-utils.js";
 
 type RouterFailureToolName = "write_stdin";
 type CodexSkillRefreshCause = "initialize" | "skills_changed" | "api" | "manual";
@@ -171,22 +175,6 @@ export interface CodexAdapterOptions {
   failureContextProvider?: () => string | null;
 }
 
-export interface CodexResumeTurnSnapshot {
-  id: string;
-  status: string | null;
-  error: unknown;
-  items: Array<Record<string, unknown>>;
-}
-
-export interface CodexResumeSnapshot {
-  threadId: string;
-  turnCount: number;
-  turns: CodexResumeTurnSnapshot[];
-  lastTurn: CodexResumeTurnSnapshot | null;
-  /** Thread-level status from the resume response (e.g. "idle", "active"). */
-  threadStatus?: string | null;
-}
-
 export interface CodexSessionMeta {
   cliSessionId?: string;
   model?: string;
@@ -248,6 +236,8 @@ export class CodexAdapter
   private _lastSkillsChangedAt: number | null = null;
   private _skillsChangeCount = 0;
   private _skillRefreshRetryCount = 0;
+  private _initialSkillMetadataRefreshPending = false;
+  private _initialSkillMetadataRefreshQueued = false;
   skillRefreshStats: CodexSkillRefreshStats = { coalesced: 0, deferred: 0, executed: 0, failed: 0, suppressed: 0 };
 
   private itemEventManager: CodexItemEventManager;
@@ -529,9 +519,9 @@ export class CodexAdapter
     this.emitSkillMetadataStaleState();
   }
 
-  _drainStaleSkillRefresh(): void {
-    // Automatic refresh is intentionally suppressed. The stale state remains
-    // visible until an explicit manual refresh or relaunch obtains fresh data.
+  private drainPendingInitialSkillMetadataRefresh(): void {
+    if (!this._initialSkillMetadataRefreshPending) return;
+    this.queueInitialSkillMetadataRefresh();
   }
 
   _clearSkillRefreshTimer(): void {
@@ -554,17 +544,34 @@ export class CodexAdapter
   }
 
   private scheduleInitialSkillMetadataRefresh(): void {
+    this._initialSkillMetadataRefreshPending = true;
+    this.queueInitialSkillMetadataRefresh();
+  }
+
+  private queueInitialSkillMetadataRefresh(): void {
+    if (this._initialSkillMetadataRefreshQueued) return;
+    this._initialSkillMetadataRefreshQueued = true;
     this.enqueueOutgoingDispatch("initial_skill_metadata_refresh", async () => {
-      if (!this.connected || this.initFailed) return;
+      this._initialSkillMetadataRefreshQueued = false;
+      if (!this._initialSkillMetadataRefreshPending) return;
+      if (!this.connected || this.initFailed) {
+        this._initialSkillMetadataRefreshPending = false;
+        return;
+      }
       if (this.currentTurnId) {
+        this.skillRefreshStats.deferred++;
+        this._skillRefreshRetryCount++;
         console.log(
-          `[codex-adapter] Skipping initial skill/app metadata refresh for session ${this.sessionId}; turn ${this.currentTurnId} is active`,
+          `[codex-adapter] Deferring initial skill/app metadata refresh for session ${this.sessionId}; turn ${this.currentTurnId} is active`,
         );
         return;
       }
+      this._initialSkillMetadataRefreshPending = false;
       try {
+        this.skillRefreshStats.executed++;
         await this.refreshSkills(true, "initialize", INITIAL_SKILL_METADATA_REFRESH_TIMEOUT_MS);
       } catch (err) {
+        this.skillRefreshStats.failed++;
         if (!this.connected) return;
         console.warn(`[codex-adapter] Initial skill/app metadata refresh failed for session ${this.sessionId}:`, err);
       }
@@ -887,7 +894,7 @@ export class CodexAdapter
             this.buildThreadParams({ threadId: this.options.threadId }),
           )) as { thread: Record<string, unknown> & { id: string } };
           this.threadId = resumeResult.thread.id;
-          resumeSnapshot = this.buildResumeSnapshot(resumeResult.thread);
+          resumeSnapshot = buildCodexResumeSnapshot(resumeResult.thread);
           // Only set currentTurnId if the turn is truly in-progress AND the
           // thread itself isn't idle. After a CLI restart, the thread reports
           // idle but the last turn's status may still say "inProgress" — that
@@ -1287,7 +1294,7 @@ export class CodexAdapter
       );
       this.currentTurnId = null;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
-      this._drainStaleSkillRefresh();
+      this.drainPendingInitialSkillMetadataRefresh();
       if (this.emitCompletedResultForHandledWriteStdinRouterError(expectedTurnId)) {
         return true;
       }
@@ -1358,7 +1365,7 @@ export class CodexAdapter
             `[codex-adapter] Turn ${this.currentTurnId} did not complete within ${TIMEOUT_MS}ms after interrupt for session ${this.sessionId}, proceeding anyway`,
           );
           this.currentTurnId = null;
-          this._drainStaleSkillRefresh();
+          this.drainPendingInitialSkillMetadataRefresh();
         }
         resolve();
       }, TIMEOUT_MS);
@@ -1550,7 +1557,7 @@ export class CodexAdapter
       );
       this.currentTurnId = null;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
-      this._drainStaleSkillRefresh();
+      this.drainPendingInitialSkillMetadataRefresh();
       if (this.emitCompletedResultForHandledWriteStdinRouterError(staleTurnId)) {
         return;
       }
@@ -1581,7 +1588,7 @@ export class CodexAdapter
     }
     // Wake any callers waiting for the turn to end (e.g. interruptAndWaitForTurnEnd)
     for (const resolve of this.turnEndResolvers.splice(0)) resolve();
-    this._drainStaleSkillRefresh();
+    this.drainPendingInitialSkillMetadataRefresh();
 
     if (turnId && this.suppressedTurnResultIds.delete(turnId)) {
       this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
@@ -1872,52 +1879,6 @@ export class CodexAdapter
 
   private emit(msg: BrowserIncomingMessage): void {
     this.browserMessageCb?.(msg);
-  }
-
-  private buildResumeSnapshot(thread: Record<string, unknown> & { id: string }): CodexResumeSnapshot | null {
-    const rawTurns = Array.isArray(thread.turns) ? thread.turns : [];
-    const turns = rawTurns.filter((t): t is Record<string, unknown> => !!t && typeof t === "object");
-    const normalizedTurns = turns.map((turn) => {
-      const turnId = typeof turn.id === "string" ? turn.id : "";
-      const status = typeof turn.status === "string" ? turn.status : null;
-      const items = Array.isArray(turn.items)
-        ? turn.items.filter((it): it is Record<string, unknown> => !!it && typeof it === "object")
-        : [];
-      return {
-        id: turnId,
-        status,
-        error: turn.error ?? null,
-        items,
-      } satisfies CodexResumeTurnSnapshot;
-    });
-    const last = normalizedTurns.length > 0 ? normalizedTurns[normalizedTurns.length - 1] : null;
-
-    // Extract thread-level status (e.g. {type: "idle"} or {type: "active"})
-    const rawStatus = thread.status;
-    const threadStatus =
-      typeof rawStatus === "object" && rawStatus !== null
-        ? String((rawStatus as Record<string, unknown>).type ?? "")
-        : typeof rawStatus === "string"
-          ? rawStatus
-          : null;
-
-    if (!last) {
-      return {
-        threadId: thread.id,
-        turnCount: 0,
-        turns: [],
-        lastTurn: null,
-        threadStatus,
-      };
-    }
-
-    return {
-      threadId: thread.id,
-      turnCount: normalizedTurns.length,
-      turns: normalizedTurns,
-      lastTurn: last,
-      threadStatus,
-    };
   }
 
   private buildThreadParams(extra?: Record<string, unknown>): Record<string, unknown> {

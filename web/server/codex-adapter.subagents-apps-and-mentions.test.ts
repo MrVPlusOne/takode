@@ -523,11 +523,13 @@ describe("CodexAdapter", () => {
     );
   });
 
-  it("does not start initialization metadata refresh while a queued user turn starts", async () => {
+  it("defers initialization metadata refresh until a queued user turn completes", async () => {
+    const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", {
       model: "o4-mini",
       cwd: "/home/user/project",
     });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
 
     const accepted = adapter.sendBrowserMessage({ type: "user_message", content: "queued during init" });
     expect(accepted).toBe(true);
@@ -559,6 +561,95 @@ describe("CodexAdapter", () => {
     lines = parseWrittenJsonLines(stdin.chunks);
     expect(lines.filter((line) => line.method === "skills/list")).toHaveLength(0);
     expect(lines.filter((line) => line.method === "app/list")).toHaveLength(0);
+
+    stdout.push(
+      JSON.stringify({
+        method: "turn/completed",
+        params: { thread: { id: "thr_123" }, turn: { id: "turn_queued", status: "completed" } },
+      }) + "\n",
+    );
+    await tick();
+
+    lines = parseWrittenJsonLines(stdin.chunks);
+    const skillsReq = lines.filter((line) => line.method === "skills/list").at(-1);
+    expect(skillsReq).toBeDefined();
+    expect(skillsReq.params).toEqual({
+      cwds: ["/home/user/project"],
+      forceReload: true,
+    });
+
+    stdout.push(
+      JSON.stringify({
+        id: skillsReq.id,
+        result: {
+          data: [
+            {
+              cwd: "/home/user/project",
+              skills: [
+                {
+                  name: "review",
+                  path: "/skills/review/SKILL.md",
+                  description: "Review code",
+                  enabled: true,
+                },
+              ],
+              errors: [],
+            },
+          ],
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    lines = parseWrittenJsonLines(stdin.chunks);
+    const appsReq = lines.filter((line) => line.method === "app/list").at(-1);
+    expect(appsReq).toBeDefined();
+    expect(appsReq.params).toEqual({
+      threadId: "thr_123",
+      forceRefetch: true,
+    });
+
+    stdout.push(
+      JSON.stringify({
+        id: appsReq.id,
+        result: {
+          data: [
+            {
+              id: "connector_google_drive",
+              name: "Google Drive",
+              description: "Search and edit Drive files",
+              isAccessible: true,
+              isEnabled: true,
+            },
+          ],
+          nextCursor: null,
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const metadataUpdate = messages.find(
+      (msg): msg is Extract<BrowserIncomingMessage, { type: "session_update" }> =>
+        msg.type === "session_update" && Array.isArray(msg.session.skills),
+    );
+    expect(metadataUpdate?.session).toEqual(
+      expect.objectContaining({
+        skills: ["review"],
+        skill_metadata: [{ name: "review", path: "/skills/review/SKILL.md", description: "Review code" }],
+        apps: [
+          {
+            id: "connector_google_drive",
+            name: "Google Drive",
+            description: "Search and edit Drive files",
+          },
+        ],
+        skills_stale: false,
+        apps_stale: false,
+        skills_last_change_reason: null,
+      }),
+    );
+    expect(adapter.skillRefreshStats.deferred).toBe(1);
+    expect(adapter.skillRefreshStats.executed).toBe(1);
   });
 
   it("refreshSkills fetches enabled skills for the matching cwd and emits session_update", async () => {
