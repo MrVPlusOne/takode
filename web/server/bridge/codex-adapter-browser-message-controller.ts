@@ -104,19 +104,35 @@ function positiveInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 1 ? Math.floor(value) : undefined;
 }
 
-function withCodexLeaderRecycleThreshold(
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+function withCodexLeaderDisplayBudget(
   session: CodexBrowserMessageSessionLike,
   patch: Record<string, unknown>,
-  deps: Pick<CodexAdapterBrowserMessageDeps, "getLauncherSessionInfo">,
+  launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
 ): Record<string, unknown> {
-  const launcherInfo = deps.getLauncherSessionInfo(session.id);
-  if (launcherInfo?.isOrchestrator !== true) return patch;
+  if (!isCodexLeaderSession(session, launcherInfo)) return patch;
   const thresholdTokens =
-    positiveInteger(launcherInfo.codexLeaderRecycleThresholdTokens) ??
+    positiveInteger(launcherInfo?.codexLeaderRecycleThresholdTokens) ??
     positiveInteger(patch.codex_leader_recycle_threshold_tokens) ??
     positiveInteger(session.state?.codex_leader_recycle_threshold_tokens);
   if (!thresholdTokens) return patch;
-  return { ...patch, codex_leader_recycle_threshold_tokens: thresholdTokens };
+  const next: Record<string, unknown> = { ...patch, codex_leader_recycle_threshold_tokens: thresholdTokens };
+  const tokenDetails = next.codex_token_details;
+  if (tokenDetails && typeof tokenDetails === "object") {
+    const details = tokenDetails as Record<string, unknown>;
+    const contextTokensUsed = positiveInteger(details.contextTokensUsed);
+    next.codex_token_details = {
+      ...details,
+      modelContextWindow: thresholdTokens,
+    };
+    if (contextTokensUsed) {
+      next.context_used_percent = clampPercent(Math.round((contextTokensUsed / thresholdTokens) * 100));
+    }
+  }
+  return next;
 }
 
 function mirrorCodexServiceTierToLauncherInfo(
@@ -329,9 +345,10 @@ export async function handleCodexAdapterBrowserMessage(
 
   if (msg.type === "session_init") {
     const sanitized = deps.sanitizeCodexSessionPatch(msg.session as unknown as Record<string, unknown>);
+    const launcherInfo = deps.getLauncherSessionInfo(session.id);
     const enriched = withHistoryTurnMetrics(
       session,
-      withCodexLeaderRecycleThreshold(session, { ...sanitized, backend_type: "codex" }, deps),
+      withCodexLeaderDisplayBudget(session, { ...sanitized, backend_type: "codex" }, launcherInfo),
     );
     session.state = { ...session.state, ...enriched };
     session.cliInitReceived = true;
@@ -344,7 +361,7 @@ export async function handleCodexAdapterBrowserMessage(
     mirrorCodexServiceTierToLauncherInfo(sanitized, launcherInfo);
     const enriched = withHistoryTurnMetrics(
       session,
-      withCodexLeaderRecycleThreshold(session, { ...sanitized, backend_type: "codex" }, deps),
+      withCodexLeaderDisplayBudget(session, { ...sanitized, backend_type: "codex" }, launcherInfo),
     );
     session.state = { ...session.state, ...enriched };
     outgoing = { ...msg, session: enriched as unknown as typeof msg.session } as BrowserIncomingMessage;

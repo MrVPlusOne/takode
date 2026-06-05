@@ -224,6 +224,96 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     );
   });
 
+  it("uses the leader recycle budget for displayed Codex context stats", async () => {
+    // Codex leaders run with a larger provider envelope underneath. Browser
+    // state should still display Takode's recycle budget so users see when
+    // Takode will recycle the leader, not Codex's hidden provider window.
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = {
+      ...makeDeps(broadcasts),
+      getLauncherSessionInfo: vi.fn(() => ({
+        isOrchestrator: true,
+        codexLeaderRecycleThresholdTokens: 545_000,
+      })),
+    };
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "session_update",
+        session: {
+          context_used_percent: 18,
+          codex_token_details: {
+            contextTokensUsed: 518_366,
+            inputTokens: 10,
+            outputTokens: 20,
+            cachedInputTokens: 30,
+            reasoningOutputTokens: 40,
+            modelContextWindow: 3_027_778,
+          },
+        },
+      },
+      deps,
+    );
+
+    expect(session.state.context_used_percent).toBe(95);
+    expect(session.state.codex_token_details).toMatchObject({
+      contextTokensUsed: 518_366,
+      inputTokens: 10,
+      outputTokens: 20,
+      cachedInputTokens: 30,
+      reasoningOutputTokens: 40,
+      modelContextWindow: 545_000,
+    });
+    expect(deps.requestCodexLeaderRecycle).not.toHaveBeenCalled();
+    expect(broadcasts).toContainEqual(
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({
+          context_used_percent: 95,
+          codex_leader_recycle_threshold_tokens: 545_000,
+          codex_token_details: expect.objectContaining({
+            contextTokensUsed: 518_366,
+            modelContextWindow: 545_000,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("does not rewrite non-leader Codex context stats", async () => {
+    const session = makeSession();
+    session.state.isOrchestrator = false;
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = {
+      ...makeDeps(broadcasts),
+      getLauncherSessionInfo: vi.fn(() => ({ isOrchestrator: false })),
+    };
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "session_update",
+        session: {
+          context_used_percent: 18,
+          codex_token_details: {
+            contextTokensUsed: 518_366,
+            inputTokens: 10,
+            outputTokens: 20,
+            cachedInputTokens: 30,
+            reasoningOutputTokens: 40,
+            modelContextWindow: 3_027_778,
+          },
+        },
+      },
+      deps,
+    );
+
+    expect(session.state.context_used_percent).toBe(18);
+    expect(session.state.codex_token_details.modelContextWindow).toBe(3_027_778);
+  });
+
   it("detects only the scoped Codex context-window exhaustion wording", () => {
     expect(
       isCodexContextWindowExhaustionMessage(

@@ -395,6 +395,13 @@ function getMaiWrapperSessionEnvPath(wrapperRoot: string, sessionId = "test-sess
   return join(wrapperRoot, ".run", `.env-${overlayHost}`);
 }
 
+function mockMaiWrapperBinary(wrapperPath: string, options: { codex?: string } = {}) {
+  mockResolveBinary.mockImplementation((name: string): string | null =>
+    name === wrapperPath ? wrapperPath : options.codex && name === "codex" ? options.codex : "/usr/bin/claude",
+  );
+  mockCaptureUserShellEnv.mockReturnValue({});
+}
+
 function codexConfigArgValue(cmdAndArgs: string[], key: string): string | undefined {
   const prefix = `${key}=`;
   for (let i = 0; i < cmdAndArgs.length - 1; i++) {
@@ -1082,13 +1089,12 @@ describe("launch", () => {
         cwd: "/tmp/project",
         codexSandbox: "workspace-write",
         codexHome: customHome,
-        codexLeaderRecycleThresholdTokens: 260_000,
       });
       await waitForSpawnCalls(1);
 
       let config = realReadFileSync(configPath, "utf-8");
-      expect(config).not.toContain("model_context_window = 344445");
-      expect(config).not.toContain("model_auto_compact_token_limit = 310000");
+      expect(config).not.toContain("model_context_window = 1444445");
+      expect(config).not.toContain("model_auto_compact_token_limit = 1300000");
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
       launcher.setSettingsGetter(() => ({
@@ -1101,8 +1107,8 @@ describe("launch", () => {
       await waitForSpawnCalls(2);
 
       config = realReadFileSync(configPath, "utf-8");
-      expect(config).toContain("model_context_window = 344445");
-      expect(config).toContain("model_auto_compact_token_limit = 310000");
+      expect(config).toContain("model_context_window = 1444445");
+      expect(config).toContain("model_auto_compact_token_limit = 1300000");
     } finally {
       rmSync(customHome, { recursive: true, force: true });
     }
@@ -1137,14 +1143,10 @@ describe("launch", () => {
     );
 
     try {
-      await launcher.launch({
-        backendType: "codex",
-        cwd: "/tmp/project",
-        codexSandbox: "workspace-write",
+      await launchCodex({
         codexHome: customHome,
         codexNonLeaderAutoCompactThresholdPercent: 90,
       });
-      await waitForSpawnCalls(1);
 
       const config = realReadFileSync(configPath, "utf-8");
       expect(config).not.toContain("model_catalog_json");
@@ -1165,23 +1167,13 @@ describe("launch", () => {
     const { root, wrapperPath } = createMaiWrapperFixture();
 
     try {
-      mockResolveBinary.mockImplementation((name: string): string | null => {
-        if (name === wrapperPath) return wrapperPath;
-        if (name === "codex") return "/opt/fake/codex";
-        return "/usr/bin/claude";
-      });
-      mockCaptureUserShellEnv.mockReturnValue({});
+      mockMaiWrapperBinary(wrapperPath, { codex: "/opt/fake/codex" });
 
       mockSpawn.mockReturnValueOnce(createMockCodexProc());
-      const workerInfo = await launcher.launch({
-        backendType: "codex",
-        cwd: "/tmp/project",
-        codexSandbox: "workspace-write",
+      const workerInfo = await launchCodex({
         codexBinary: wrapperPath,
         codexHome: customHome,
-        codexLeaderRecycleThresholdTokens: 260_000,
       });
-      await waitForSpawnCalls(1);
 
       let [cmdAndArgs] = mockSpawn.mock.calls[0]!;
       expect(cmdAndArgs[0]).toBe(wrapperPath);
@@ -1207,8 +1199,8 @@ describe("launch", () => {
       expect(wrapperEnv).toContain(`CODEX_HOME='${sessionHome}'`);
 
       const config = realReadFileSync(configPath, "utf-8");
-      expect(config).toContain("model_context_window = 344445");
-      expect(config).toContain("model_auto_compact_token_limit = 310000");
+      expect(config).toContain("model_context_window = 1444445");
+      expect(config).toContain("model_auto_compact_token_limit = 1300000");
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1224,26 +1216,17 @@ describe("launch", () => {
     const { root, wrapperPath } = createMaiWrapperFixture();
 
     try {
-      mockResolveBinary.mockImplementation((name: string): string | null => {
-        if (name === wrapperPath) return wrapperPath;
-        return "/usr/bin/claude";
-      });
-      mockCaptureUserShellEnv.mockReturnValue({});
+      mockMaiWrapperBinary(wrapperPath);
       mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
-      await launcher.launch({
-        backendType: "codex",
-        cwd: "/tmp/project",
-        codexSandbox: "workspace-write",
+      await launchCodex({
         codexBinary: wrapperPath,
         codexHome: customHome,
-        codexLeaderRecycleThresholdTokens: 260_000,
         env: {
           TAKODE_ROLE: "orchestrator",
           TAKODE_API_PORT: "3457",
         },
       });
-      await waitForSpawnCalls(1);
 
       const [cmdAndArgs, options] = mockSpawn.mock.calls[0]!;
       expect(cmdAndArgs[0]).toBe(wrapperPath);
@@ -1255,8 +1238,8 @@ describe("launch", () => {
       expect(wrapperEnv).toContain(`CODEX_HOME='${sessionHome}'`);
 
       const config = realReadFileSync(configPath, "utf-8");
-      expect(config).toContain("model_context_window = 344445");
-      expect(config).toContain("model_auto_compact_token_limit = 310000");
+      expect(config).toContain("model_context_window = 1444445");
+      expect(config).toContain("model_auto_compact_token_limit = 1300000");
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1305,34 +1288,25 @@ describe("launch", () => {
         ),
       );
 
-      mockResolveBinary.mockImplementation((name: string): string | null => {
-        if (name === wrapperPath) return wrapperPath;
-        return "/usr/bin/claude";
-      });
-      mockCaptureUserShellEnv.mockReturnValue({});
+      mockMaiWrapperBinary(wrapperPath);
       mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
-      await launcher.launch({
-        backendType: "codex",
-        cwd: "/tmp/project",
-        codexSandbox: "workspace-write",
+      await launchCodex({
         codexBinary: wrapperPath,
         codexHome: customHome,
-        codexLeaderRecycleThresholdTokens: 260_000,
         env: {
           TAKODE_ROLE: "orchestrator",
         },
       });
-      await waitForSpawnCalls(1);
 
       const config = realReadFileSync(configPath, "utf-8");
       expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
       const overridden = catalog.models.find((entry: any) => entry.slug === "gpt-5.5");
-      expect(overridden.context_window).toBe(314_889);
-      expect(overridden.max_context_window).toBe(314_889);
-      expect(overridden.auto_compact_token_limit).toBe(283_400);
+      expect(overridden.context_window).toBe(1_296_667);
+      expect(overridden.max_context_window).toBe(1_296_667);
+      expect(overridden.auto_compact_token_limit).toBe(1_167_000);
 
       const untouched = catalog.models.find((entry: any) => entry.slug === "gpt-5.4");
       expect(untouched.context_window).toBe(272000);
@@ -1362,40 +1336,32 @@ describe("launch", () => {
         ),
       );
 
-      mockResolveBinary.mockImplementation((name: string): string | null => {
-        if (name === wrapperPath) return wrapperPath;
-        return "/usr/bin/claude";
-      });
-      mockCaptureUserShellEnv.mockReturnValue({});
+      mockMaiWrapperBinary(wrapperPath);
       mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
-      await launcher.launch({
-        backendType: "codex",
-        cwd: "/tmp/project",
-        codexSandbox: "workspace-write",
+      await launchCodex({
         codexBinary: wrapperPath,
         codexHome: customHome,
         env: {
           TAKODE_ROLE: "orchestrator",
         },
       });
-      await waitForSpawnCalls(1);
 
       const [cmdAndArgs] = mockSpawn.mock.calls[0]!;
       expect(cmdAndArgs[0]).toBe(wrapperPath);
 
       const config = realReadFileSync(configPath, "utf-8");
       expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
-      expect(config).toContain("model_context_window = 666112");
-      expect(config).toContain("model_auto_compact_token_limit = 599500");
+      expect(config).toContain("model_context_window = 3027778");
+      expect(config).toContain("model_auto_compact_token_limit = 2725000");
 
       // The MAI wrapper may rewrite config.toml from host ~/.codex after
       // Takode prepares the session home. Final -c args keep Takode's leader
       // guard authoritative for the launched Codex process.
       expect(codexConfigArgValue(cmdAndArgs, "model_catalog_json")).toBe(JSON.stringify(catalogPath));
-      expect(codexConfigArgValue(cmdAndArgs, "model_context_window")).toBe("666112");
-      expect(codexConfigArgValue(cmdAndArgs, "model_auto_compact_token_limit")).toBe("599500");
-      expect(cmdAndArgs.indexOf("model_auto_compact_token_limit=599500")).toBeLessThan(
+      expect(codexConfigArgValue(cmdAndArgs, "model_context_window")).toBe("3027778");
+      expect(codexConfigArgValue(cmdAndArgs, "model_auto_compact_token_limit")).toBe("2725000");
+      expect(cmdAndArgs.indexOf("model_auto_compact_token_limit=2725000")).toBeLessThan(
         cmdAndArgs.indexOf("app-server"),
       );
     } finally {
@@ -1442,11 +1408,7 @@ describe("launch", () => {
         return "";
       });
 
-      mockResolveBinary.mockImplementation((name: string): string | null => {
-        if (name === wrapperPath) return wrapperPath;
-        return "/usr/bin/claude";
-      });
-      mockCaptureUserShellEnv.mockReturnValue({});
+      mockMaiWrapperBinary(wrapperPath);
       mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
       await launcher.launch({
@@ -1455,7 +1417,6 @@ describe("launch", () => {
         codexSandbox: "workspace-write",
         codexBinary: wrapperPath,
         codexHome: customHome,
-        codexLeaderRecycleThresholdTokens: 260_000,
         env: {
           TAKODE_ROLE: "orchestrator",
         },
@@ -1472,9 +1433,9 @@ describe("launch", () => {
           display_name: "GPT-5.5",
           description: "Newest model",
           effective_context_window_percent: 95,
-          context_window: 314_889,
-          max_context_window: 314_889,
-          auto_compact_token_limit: 283_400,
+          context_window: 1_296_667,
+          max_context_window: 1_296_667,
+          auto_compact_token_limit: 1_167_000,
           visibility: "list",
         },
       ]);
@@ -1503,11 +1464,7 @@ describe("launch", () => {
         return false;
       });
 
-      mockResolveBinary.mockImplementation((name: string): string | null => {
-        if (name === wrapperPath) return wrapperPath;
-        return "/usr/bin/claude";
-      });
-      mockCaptureUserShellEnv.mockReturnValue({});
+      mockMaiWrapperBinary(wrapperPath);
       mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
       await launcher.launch({
@@ -1543,11 +1500,7 @@ describe("launch", () => {
       writeFileSync(hostAuthPath, '{"tokens":{"id_token":"wrapper-host"}}\n', "utf-8");
       writeFileSync(join(hostCodexHome, "config.toml"), ['model = "gpt-5.5"', ""].join("\n"));
 
-      mockResolveBinary.mockImplementation((name: string): string | null => {
-        if (name === wrapperPath) return wrapperPath;
-        return "/usr/bin/claude";
-      });
-      mockCaptureUserShellEnv.mockReturnValue({});
+      mockMaiWrapperBinary(wrapperPath);
       mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
       await launcher.launch({
@@ -1581,11 +1534,7 @@ describe("launch", () => {
     const { root, wrapperPath } = createMaiWrapperFixture();
 
     try {
-      mockResolveBinary.mockImplementation((name: string): string | null => {
-        if (name === wrapperPath) return wrapperPath;
-        return "/usr/bin/claude";
-      });
-      mockCaptureUserShellEnv.mockReturnValue({});
+      mockMaiWrapperBinary(wrapperPath);
       mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
       await launcher.launch({
@@ -1621,11 +1570,7 @@ describe("launch", () => {
     const { root, wrapperPath } = createMaiWrapperFixture({ hostCodexHome });
 
     try {
-      mockResolveBinary.mockImplementation((name: string): string | null => {
-        if (name === wrapperPath) return wrapperPath;
-        return "/usr/bin/claude";
-      });
-      mockCaptureUserShellEnv.mockReturnValue({});
+      mockMaiWrapperBinary(wrapperPath);
       mockExistingPaths(
         hostCodexHome,
         join(hostCodexHome, "skills"),
@@ -1681,11 +1626,7 @@ describe("launch", () => {
         ].join("\n"),
       );
 
-      mockResolveBinary.mockImplementation((name: string): string | null => {
-        if (name === wrapperPath) return wrapperPath;
-        return "/usr/bin/claude";
-      });
-      mockCaptureUserShellEnv.mockReturnValue({});
+      mockMaiWrapperBinary(wrapperPath);
       mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
       await launcher.launch({
@@ -1766,11 +1707,7 @@ describe("launch", () => {
       writeFileSync(join(sessionSkills, ".system", "imagegen", "SKILL.md"), "stale copied skill\n");
       mockExistingPaths(join(agentsSkills, ".system"));
 
-      mockResolveBinary.mockImplementation((name: string): string | null => {
-        if (name === wrapperPath) return wrapperPath;
-        return "/usr/bin/claude";
-      });
-      mockCaptureUserShellEnv.mockReturnValue({});
+      mockMaiWrapperBinary(wrapperPath);
       mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
       await launcher.launch({
@@ -1818,7 +1755,6 @@ describe("launch", () => {
         cwd: "/tmp/project",
         codexSandbox: "workspace-write",
         codexHome: customHome,
-        codexLeaderRecycleThresholdTokens: 260_000,
         containerId: "abc123def456",
         containerName: "companion-session-1",
         containerImage: "ubuntu:22.04",
@@ -1832,8 +1768,8 @@ describe("launch", () => {
       let bashIndex = cmdAndArgs.indexOf("-lc");
       expect(bashIndex).toBeGreaterThan(-1);
       let innerScript = cmdAndArgs[bashIndex + 1];
-      expect(innerScript).not.toContain("model_context_window = 344445");
-      expect(innerScript).not.toContain("model_auto_compact_token_limit = 310000");
+      expect(innerScript).not.toContain("model_context_window = 1444445");
+      expect(innerScript).not.toContain("model_auto_compact_token_limit = 1300000");
 
       (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
       launcher.setSettingsGetter(() => ({
@@ -1851,8 +1787,8 @@ describe("launch", () => {
       expect(bashIndex).toBeGreaterThan(-1);
       innerScript = cmdAndArgs[bashIndex + 1];
       expect(innerScript).toContain("cat > \"/root/.codex/config.toml\" <<'__COMPANION_CODEX_CONFIG__'");
-      expect(innerScript).toContain("model_context_window = 344445");
-      expect(innerScript).toContain("model_auto_compact_token_limit = 310000");
+      expect(innerScript).toContain("model_context_window = 1444445");
+      expect(innerScript).toContain("model_auto_compact_token_limit = 1300000");
       expect(innerScript).toContain("exec 'codex' '-c' 'tools.webSearch=false' '-a'");
     } finally {
       rmSync(customHome, { recursive: true, force: true });

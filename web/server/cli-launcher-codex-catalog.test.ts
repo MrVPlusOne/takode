@@ -54,21 +54,21 @@ describe("Codex session catalog hardening", () => {
 
     const config = await readFile(configPath, "utf-8");
     expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
-    expect(config).toContain("model_context_window = 344445");
-    expect(config).toContain("model_auto_compact_token_limit = 310000");
+    expect(config).toContain("model_context_window = 1444445");
+    expect(config).toContain("model_auto_compact_token_limit = 1300000");
 
     const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
     expect(catalog.models).toHaveLength(1);
     expectParserSafeEntry(catalog.models[0], model);
     expect(catalog.models[0]).toMatchObject({
-      context_window: 344_445,
-      max_context_window: 344_445,
+      context_window: 1_444_445,
+      max_context_window: 1_444_445,
       effective_context_window_percent: 95,
-      auto_compact_token_limit: 310_000,
+      auto_compact_token_limit: 1_300_000,
     });
   });
 
-  it("derives leader recycle threshold from source effective context minus the fixed buffer", async () => {
+  it("derives the leader display budget from source effective context and inflates the provider envelope", async () => {
     const codexHome = await makeCodexHome();
     const configPath = join(codexHome, "config.toml");
     const catalogPath = join(codexHome, "takode-leader-model-catalog.json");
@@ -92,19 +92,20 @@ describe("Codex session catalog hardening", () => {
 
     const result = await _ensureCodexSessionConfigForTest(codexHome, [], { model });
 
-    // The leader recycle threshold uses source effective context (600K * 95%)
-    // minus the fixed 25K buffer, while q-1446's provider guard stays higher.
+    // The leader recycle/display budget uses source effective context (600K * 95%)
+    // minus the fixed 25K buffer. The provider envelope is much larger so
+    // Codex built-in compaction remains behind Takode leader recycling.
     expect(result.leaderRecycleThresholdTokens).toBe(545_000);
     const config = await readFile(configPath, "utf-8");
-    expect(config).toContain("model_context_window = 666112");
-    expect(config).toContain("model_auto_compact_token_limit = 599500");
+    expect(config).toContain("model_context_window = 3027778");
+    expect(config).toContain("model_auto_compact_token_limit = 2725000");
 
     const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
     expect(catalog.models[0]).toMatchObject({
-      context_window: 666_112,
-      max_context_window: 666_112,
+      context_window: 3_027_778,
+      max_context_window: 3_027_778,
       effective_context_window_percent: 95,
-      auto_compact_token_limit: 599_500,
+      auto_compact_token_limit: 2_725_000,
     });
   });
 
@@ -147,8 +148,8 @@ describe("Codex session catalog hardening", () => {
     // top-level guard values as source model capacity, or thresholds drift up.
     expect(result.leaderRecycleThresholdTokens).toBe(260_000);
     const config = await readFile(configPath, "utf-8");
-    expect(config).toContain("model_context_window = 344445");
-    expect(config).toContain("model_auto_compact_token_limit = 310000");
+    expect(config).toContain("model_context_window = 1444445");
+    expect(config).toContain("model_auto_compact_token_limit = 1300000");
   });
 
   it("cleans legacy Takode non-leader catalog references without touching user context settings", async () => {
@@ -235,9 +236,9 @@ describe("Codex session catalog hardening", () => {
     const added = catalog.models.find((entry: Record<string, unknown>) => entry.slug === model);
     expectParserSafeEntry(added, model);
     expect(added).toMatchObject({
-      context_window: 344_445,
-      max_context_window: 344_445,
-      auto_compact_token_limit: 310_000,
+      context_window: 1_444_445,
+      max_context_window: 1_444_445,
+      auto_compact_token_limit: 1_300_000,
     });
   });
 
@@ -263,9 +264,9 @@ describe("Codex session catalog hardening", () => {
     expect(catalog.models).toHaveLength(1);
     expectParserSafeEntry(catalog.models[0], model);
     expect(catalog.models[0]).toMatchObject({
-      context_window: 344_445,
-      max_context_window: 344_445,
-      auto_compact_token_limit: 310_000,
+      context_window: 1_444_445,
+      max_context_window: 1_444_445,
+      auto_compact_token_limit: 1_300_000,
     });
   });
 
