@@ -112,13 +112,38 @@ describe("Side Chat bridge", () => {
       },
       "root",
       "st-1",
-      "Thread question",
+      "Side Chat question",
     );
 
     const routed = vi.mocked(routeBrowserMessage).mock.calls[0][1] as { deliveryContent?: string };
     expect(routed.deliveryContent).toContain("Native backend fork was unavailable");
     expect(routed.deliveryContent).toContain("Root branch context:");
-    expect(routed.deliveryContent).toContain("Thread question");
+    expect(routed.deliveryContent).toContain("Side Chat question");
+  });
+
+  it("uses Side Chat wording when the root record is missing", async () => {
+    const result = await routeSideChatUserMessage(
+      {
+        sessions: new Map([
+          [
+            "root",
+            {
+              id: "root",
+              state: makeState({ session_id: "root", slackThreads: {} }),
+              messageHistory: [],
+            } as never,
+          ],
+        ]),
+        getBrowserRoutingDeps: () => ({}) as never,
+        broadcastToBrowsers: vi.fn(),
+        persistSession: vi.fn(),
+      },
+      "root",
+      "missing",
+      "Side Chat question",
+    );
+
+    expect(result).toEqual({ ok: false, error: "Side Chat not found" });
   });
 
   it("does not replay root transcript for already native-forked Side Chats", async () => {
@@ -157,7 +182,7 @@ describe("Side Chat bridge", () => {
       },
       "root",
       "st-1",
-      "Thread question",
+      "Side Chat question",
     );
 
     const routed = vi.mocked(routeBrowserMessage).mock.calls[0][1] as { deliveryContent?: string };

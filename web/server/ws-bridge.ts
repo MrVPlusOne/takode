@@ -929,8 +929,18 @@ export class WsBridge {
     return syncSideChatRecordController(this.sideChatBridgeDeps, rootSessionId, threadId);
   }
 
+  /** @deprecated Use syncSideChatRecord. Kept for older internal callers during the Side Chat rename. */
+  syncSlackThreadRecord(rootSessionId: string, threadId: string): boolean {
+    return this.syncSideChatRecord(rootSessionId, threadId);
+  }
+
   syncSideChatRecordForChild(childSession: Session): boolean {
     return syncSideChatRecordForChildController(this.sideChatBridgeDeps, childSession);
+  }
+
+  /** @deprecated Use syncSideChatRecordForChild. Kept for older internal callers during the Side Chat rename. */
+  syncSlackThreadRecordForChild(childSession: Session): boolean {
+    return this.syncSideChatRecordForChild(childSession);
   }
 
   async routeSideChatUserMessage(
@@ -940,6 +950,16 @@ export class WsBridge {
     options?: { clientMsgId?: string },
   ): Promise<{ ok: true; childSessionId: string } | { ok: false; error: string }> {
     return routeSideChatUserMessageController(this.sideChatBridgeDeps, rootSessionId, threadId, content, options);
+  }
+
+  /** @deprecated Use routeSideChatUserMessage. Kept for older internal callers during the Side Chat rename. */
+  async routeSlackThreadUserMessage(
+    rootSessionId: string,
+    threadId: string,
+    content: string,
+    options?: { clientMsgId?: string },
+  ): Promise<{ ok: true; childSessionId: string } | { ok: false; error: string }> {
+    return this.routeSideChatUserMessage(rootSessionId, threadId, content, options);
   }
 
   async setSessionPermissionMode(sessionId: string, mode: string): Promise<boolean> {

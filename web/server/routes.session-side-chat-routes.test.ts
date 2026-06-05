@@ -596,4 +596,53 @@ describe("Side Chat session routes", () => {
     await expect(res.json()).resolves.toEqual({ error: "Side Chats are disabled for leader sessions" });
     expect(wsBridge.routeSideChatUserMessage).not.toHaveBeenCalled();
   });
+
+  it("uses Side Chat wording when the new message route targets an unknown Side Chat", async () => {
+    const root = {
+      id: "root",
+      state: makeState({ session_id: "root", backend_type: "claude" }),
+      messageHistory: [assistant("anchor-1", "Root answer")],
+    };
+    const launcher = {
+      getSession: vi.fn(() => ({
+        sessionId: "root",
+        backendType: "claude",
+        cwd: "/repo",
+        model: "claude-sonnet",
+      })),
+      getSessionLaunchEnv: vi.fn(),
+      launch: vi.fn(),
+      touchActivity: vi.fn(),
+    };
+    const wsBridge = {
+      getSession: vi.fn((id: string) => (id === "root" ? root : null)),
+      getOrCreateSession: vi.fn(),
+      persistSessionById: vi.fn(),
+      broadcastToSession: vi.fn(),
+      syncSideChatRecord: vi.fn(),
+      routeSideChatUserMessage: vi.fn(async () => ({ ok: false as const, error: "Side Chat not found" })),
+    };
+    const app = new Hono();
+    app.route(
+      "/api",
+      (() => {
+        const api = new Hono();
+        registerSessionSideChatRoutes(api, {
+          launcher: launcher as never,
+          wsBridge: wsBridge as never,
+          resolveId: (id) => (id === "root" ? "root" : null),
+        });
+        return api;
+      })(),
+    );
+
+    const res = await app.request("/api/sessions/root/side-chats/missing/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "continue here" }),
+    });
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: "Side Chat not found" });
+  });
 });

@@ -42,7 +42,7 @@ export async function routeSideChatUserMessage(
   const root = deps.sessions.get(rootSessionId);
   if (!root) return { ok: false, error: "Root session not found" };
   const record = root.state.slackThreads?.[threadId];
-  if (!record) return { ok: false, error: "Thread not found" };
+  if (!record) return { ok: false, error: "Side Chat not found" };
   const child = deps.sessions.get(record.childSessionId);
   if (!child) return { ok: false, error: "Hidden Side Chat session not found" };
 
