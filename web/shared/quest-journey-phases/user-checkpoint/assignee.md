@@ -3,8 +3,9 @@
 You are preparing a user decision checkpoint before the Journey continues.
 
 Boundary:
-- Present the findings, options, tradeoffs, and a recommendation needed for a user decision.
-- State what user answer would unblock the next Journey revision.
+- Present a self-contained decision packet needed for a user decision: findings, each named option, key tradeoffs, a recommendation, and the exact requested answer.
+- Use internally consistent, human-readable option labels; do not map labels in confusing ways such as making one option mean approval of another option.
+- State what user answer would unblock the next Journey revision. Notification summaries, notification UI options, and `--suggest` choices are only attention/reply affordances and must not be the only place options or tradeoffs appear.
 - Treat this as a mid-Journey decision point, not final `User review checks`. Record the user's decision in checkpoint documentation and let final Memory decide later whether any post-completion user action remains.
 - Do not implement, review, port, complete the quest, or change quest status.
 - Do not treat this as terminal closure, a generic TBD handoff, or optional leader-only indecision.
@@ -19,7 +20,7 @@ Phase documentation:
 - If context was compacted during this phase, or if memory confidence is low, reconstruct the relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, use working memory and current artifacts instead of unnecessary session archaeology.
 - Optional checkpoint: after a valuable nontrivial phase outcome is ready, you may run `takode worker-stream` so the leader can start reading while you finish required paperwork. This does not replace phase documentation, final debrief ownership, or stopping at the phase boundary.
 - When referencing repository files in quest feedback or phase documentation, prefer Takode file-link syntax such as `[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)`; standard Markdown file links are best-effort fallback only.
-- Document the findings, options, tradeoffs, recommendation, required user answer, actual user decision when known, and any Journey-revision implications. Keep the checkpoint decision-oriented rather than replaying all prior phase evidence.
+- Document the findings, named options, key tradeoffs, recommendation, required user answer, actual user decision when known, and any Journey-revision implications. Keep the checkpoint decision-oriented rather than replaying all prior phase evidence.
 
 Deliverable:
-- Return the user-checkpoint packet for the leader to publish and notify on, then stop.
+- Return the self-contained user-checkpoint packet for the leader to publish before notifying, then stop.

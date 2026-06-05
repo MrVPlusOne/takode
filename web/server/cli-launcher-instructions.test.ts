@@ -125,6 +125,9 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("normal worker and reviewer sessions use ordinary assistant text");
     expect(result).toContain("After that text is visible, call `takode notify needs-input`");
     expect(result).toContain("Do not fire the notification before the detailed text is visible");
+    expect(result).toContain("The visible thread text is the decision surface");
+    expect(result).toContain("complete context needed to answer, including options and tradeoffs when relevant");
+    expect(result).toContain("notification summaries, notification UI options, and `--suggest` choices");
     expect(result).toContain("Any user wait, including approvals, confirmations");
     expect(result).toContain("never represent a user wait only with `Thread Waiting`");
     expect(result).toContain("`Thread Waiting` or `takode notify waiting`");
@@ -192,6 +195,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Never propose adjacent `explore -> implement`");
     expect(result).toContain("`explore -> user-checkpoint -> implement`");
     expect(result).toContain("User Checkpoint is an intermediate user-participation stop");
+    expect(result).toContain("self-contained packet with findings, named options, key tradeoffs");
+    expect(result).toContain("exact requested answer");
     expect(result).toContain("User Checkpoints are mandatory by default");
     expect(result).toContain(
       "skip it only when that condition has been evaluated as satisfied and the skip reason is recorded",
@@ -219,6 +224,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("route back deliberately: `implement`");
     expect(result).toContain("point the worker at the exact prior messages, quests, or discussions");
     expect(result).toContain("After that user-visible text exists, call `takode notify needs-input`");
+    expect(result).toContain("The visible thread text is the decision surface");
+    expect(result).toContain("notification summaries, notification UI options, and `--suggest` choices");
     expect(result).toContain("Any user wait, including approvals, confirmations");
     expect(result).toContain("never represent a user wait only with `Thread Waiting`");
     expect(result).toContain("Apply the scoped-wait rule for `needs-input`");
@@ -280,6 +287,10 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Relationship: follow-up of [q-N](quest:q-N)");
     expect(result).toContain("Use `/leader-dispatch` before dispatching a fresh or newly refined quest");
     expect(result).toContain("Use `Goal / Acceptance` as the source of truth for the requested work");
+    expect(result).toContain("the thread text must include enough decision context for that choice");
+    expect(result).toContain(
+      "notification suggestions and quest feedback are not substitutes for options or tradeoffs",
+    );
     expect(result).toContain("do not restate the same work again as a separate quest description");
     expect(result).toContain("full quest-body paste");
     expect(result).toContain("The visible chat approval surface is for the user's decision, not worker grounding");

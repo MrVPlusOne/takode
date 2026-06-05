@@ -427,6 +427,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Use `implement` directly for normal bug fixes");
     expect(guardrails).toContain("`explore -> user-checkpoint -> implement`");
     expect(guardrails).toContain("User Checkpoint is an intermediate user-participation stop");
+    expect(guardrails).toContain("self-contained packet with findings, named options, key tradeoffs");
+    expect(guardrails).toContain("exact requested answer");
     expect(guardrails).toContain("write the approved Journey to the board before or with dispatch");
     expect(guardrails).toContain("Do not use sleep-based waits");
     expect(guardrails).toContain("repeated `takode peek` / `takode scan` checks");
@@ -530,6 +532,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("First send the detailed question or decision text");
     expect(guardrails).toContain("`[thread:main]` or `[thread:q-N]`");
     expect(guardrails).toContain("then call `takode notify needs-input`");
+    expect(guardrails).toContain("The marked response must be self-contained enough to answer");
     expect(guardrails).toContain("New blocking prompt -> new `needs-input` notification");
     expect(guardrails).toContain(
       "existing unresolved prompts in the same thread or quest do not cover a separate approval or decision",
@@ -622,6 +625,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("First send the detailed question or decision text");
     expect(guardrails).toContain("`[thread:main]` or `[thread:q-N]`");
     expect(guardrails).toContain("then call `takode notify needs-input`");
+    expect(guardrails).toContain("never as the only place options or tradeoffs appear");
     expect(guardrails).toContain("so the user never misses it");
     expect(guardrails).toContain("Do not rely on deprecated leader reply suffixes");
     expect(guardrails).toContain("Do **not** call `takode notify review` for quest completion");

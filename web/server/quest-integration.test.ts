@@ -200,6 +200,10 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("visible chat confirmation is for the user's decision, not for worker grounding");
     expect(skill).toContain("Do not paste or mirror the full worker-facing quest body into chat by default");
     expect(skill).toContain("scope, evidence, acceptance criteria, constraints, and related context");
+    expect(skill).toContain(
+      "include the complete decision context in the thread before any `needs-input` notification",
+    );
+    expect(skill).toContain("notification summaries, notification UI options, and `--suggest` choices");
     expect(skill).toContain("combine the `/quest-design` and `/leader-dispatch` approval surfaces");
     expect(skill).toContain("one user confirmation can approve quest text, Journey, and dispatch plan together");
     expect(skill).toContain("do not restate the same work again as a separate quest description");

@@ -200,11 +200,18 @@ describe("Quest Journey phase directory loading", () => {
     expect(userCheckpointPhase?.boardState).toBe("USER_CHECKPOINTING");
     expect(userCheckpointPhase?.contract).toContain("required mid-Journey user decision");
     expect(userCheckpointPhase?.contract).toContain("not treat this as a terminal phase");
-    expect(userCheckpointPhase?.leaderBrief).toContain("findings, options, tradeoffs, and a recommendation");
+    expect(userCheckpointPhase?.leaderBrief).toContain("self-contained user-facing checkpoint");
+    expect(userCheckpointPhase?.leaderBrief).toContain("each named option, key tradeoffs, a recommendation");
+    expect(userCheckpointPhase?.leaderBrief).toContain("the exact requested answer");
+    expect(userCheckpointPhase?.leaderBrief).toContain(
+      "notification summaries, notification UI options, and `--suggest` choices",
+    );
     expect(userCheckpointPhase?.leaderBrief).toContain("takode notify needs-input");
     expect(userCheckpointPhase?.leaderBrief).toContain("wait for the user answer");
     expect(userCheckpointPhase?.leaderBrief).toContain("revise the remaining Journey");
     expect(userCheckpointPhase?.leaderBrief).toContain("Do not use this phase as a terminal phase");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("self-contained decision packet");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("Use internally consistent, human-readable option labels");
     expect(userCheckpointPhase?.assigneeBrief).toContain("required user answer");
     expect(userCheckpointPhase?.assigneeBrief).toContain("Journey-revision implications");
   });
