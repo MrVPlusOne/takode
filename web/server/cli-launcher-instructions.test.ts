@@ -137,6 +137,8 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("never use suggestions instead of writing the full context in chat");
     expect(result).toContain("blocks only the thread, quest, or board row it concerns");
     expect(result).toContain("global orchestration, worker-slot scheduling, shared resource safety");
+    expect(result).toContain("defer, skip, or leave one `needs-input` prompt unresolved");
+    expect(result).toContain("real safety issue or significant global/cross-quest dependency");
     expect(result).toContain("`waiting`");
     expect(result).toContain("Legacy CLI status for sessions that are parked on non-user work only");
     expect(result).toContain("Leader/orchestrator threads should prefer inline `Thread Waiting` markers");
@@ -220,6 +222,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("never represent a user wait only with `Thread Waiting`");
     expect(result).toContain("blocks only the thread, quest, or board row it concerns");
     expect(result).toContain("Treat a prompt as global only when the visible question explicitly concerns");
+    expect(result).toContain("defer, skip, or leave one `needs-input` prompt unresolved");
+    expect(result).toContain("real safety issue or significant global/cross-quest dependency");
     expect(result).toContain("`Thread Waiting` is only for non-user waits such as workers, reviewers, timers");
     expect(result).toContain("Process herd events and continue unrelated quests normally");
     expect(result).toContain("## Memory-Aware Orchestration");
@@ -248,6 +252,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("send the changed worktree back to Code Review only after that checkpoint exists");
     expect(result).toContain("does not apply to purely read-only follow-up review discussion");
     expect(result).toContain("blocks only the thread, quest, or board row it concerns");
+    expect(result).toContain("defer, skip, or leave one `needs-input` prompt unresolved");
     expect(result).toContain("Any user wait, including approvals, confirmations");
     expect(result).toContain("never represent a user wait only with `Thread Waiting`");
     expect(result).toContain("Use `outcome-review` when a reviewer should make an acceptance judgment");
