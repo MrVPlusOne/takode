@@ -1,7 +1,6 @@
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
-import { compactPendingCodexInputsForBrowser } from "./codex-pending-input-safety.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
 import type { PushoverNotifier } from "./pushover.js";
@@ -101,8 +100,12 @@ import {
 } from "./bridge/browser-transport-controller.js";
 import { isSessionPaused } from "./session-pause.js";
 import type { BrowserTransportStateLike } from "./bridge/browser-transport-controller.js";
-import { handleCodexResultErrorAutoPause as handleCodexResultErrorAutoPauseDelivery } from "./bridge/codex-result-error-auto-pause-delivery.js";
 import { deliverProgrammaticUserMessage } from "./bridge/programmatic-user-message-delivery.js";
+import { isSystemSourceTag } from "./bridge/adapter-browser-routing-source-tags.js";
+import {
+  handleCodexResultErrorAutoPauseForBridge,
+  pruneStalePendingCodexHerdInputsForBridge,
+} from "./bridge/ws-bridge-codex-pending-input-deps.js";
 import { pauseSessionForDelivery, unpauseSessionForDelivery } from "./bridge/session-pause-delivery.js";
 import {
   routeSideChatUserMessage as routeSideChatUserMessageController,
@@ -134,7 +137,6 @@ import {
   getBoardStallSignatureForSession as getBoardStallSignatureForSessionController,
   getCompletedBoardForSession as getCompletedBoardForSessionController,
   pruneStaleBoardStalledHerdBatch as pruneStaleBoardStalledHerdBatchController,
-  pruneStalePendingCodexHerdInputs as pruneStalePendingCodexHerdInputsController,
   removeBoardRowFromAllSessions as removeBoardRowFromAllSessionsController,
   sweepBoardDispatchableWarnings as sweepBoardDispatchableWarningsController,
   sweepBoardStallWarnings as sweepBoardStallWarningsController,
@@ -702,7 +704,7 @@ export class WsBridge {
     this.workerStreamCheckpointMsgTo.set(sessionId, range.to);
     const elapsed = session.generationStartedAt ? Date.now() - session.generationStartedAt : 0;
     const turnSource = getCurrentTurnTriggerSourceController(session, {
-      isSystemSourceTag: (agentSource) => this.isSystemSourceTag(agentSource),
+      isSystemSourceTag,
     });
     const activeTurnRoute = session.activeTurnRoute;
 
@@ -836,16 +838,7 @@ export class WsBridge {
     msg: CLIResultMessage,
     completedTurn: CodexOutboundTurn | null,
   ): Promise<void> | void {
-    return handleCodexResultErrorAutoPauseDelivery(session, msg, completedTurn, {
-      broadcastToBrowsers: (targetSession, message) => this.broadcastToBrowsers(targetSession, message),
-      broadcastPendingCodexInputs: (targetSession) =>
-        this.broadcastToBrowsers(targetSession, {
-          type: "codex_pending_inputs",
-          inputs: compactPendingCodexInputsForBrowser(targetSession.pendingCodexInputs),
-        }),
-      persistSession: (targetSession) => this.persistSession(targetSession),
-      getBrowserTransportDeps: () => this.getBrowserTransportDeps(),
-    });
+    return handleCodexResultErrorAutoPauseForBridge(this, session, msg, completedTurn);
   }
 
   private getSessionGitStateDeps() {
@@ -1578,24 +1571,7 @@ export class WsBridge {
   }
 
   private pruneStalePendingCodexHerdInputs(session: Session, reason: string): boolean {
-    return pruneStalePendingCodexHerdInputsController(session, reason, this.getBoardWatchdogDeps(), {
-      broadcastPendingCodexInputs: (targetSession) =>
-        this.broadcastToBrowsers(targetSession as Session, {
-          type: "codex_pending_inputs",
-          inputs: compactPendingCodexInputsForBrowser((targetSession as Session).pendingCodexInputs),
-        }),
-      rebuildQueuedCodexPendingStartBatch: (targetSession) =>
-        rebuildQueuedCodexPendingStartBatchController(
-          targetSession as Session,
-          this.getCodexRecoveryOrchestratorDeps(),
-        ),
-      persistSession: (targetSession) => this.persistSession(targetSession as Session),
-    });
-  }
-
-  private isSystemSourceTag(agentSource: { sessionId: string; sessionLabel?: string } | undefined): boolean {
-    if (!agentSource) return false;
-    return agentSource.sessionId === "system" || agentSource.sessionId.startsWith("system:");
+    return pruneStalePendingCodexHerdInputsForBridge(this, session, reason);
   }
 
   handleBrowserClose(ws: ServerWebSocket<SocketData>, code?: number, reason?: string) {

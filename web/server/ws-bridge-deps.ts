@@ -4,6 +4,7 @@ import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
 import { compactPendingCodexInputsForBrowser } from "./codex-pending-input-safety.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
+import { isSystemSourceTag } from "./bridge/adapter-browser-routing-source-tags.js";
 import type { PushoverNotifier } from "./pushover.js";
 import type { TrafficStatsSnapshot } from "./traffic-stats.js";
 import type {
@@ -513,8 +514,7 @@ export function getSessionRegistryDeps(host: any) {
 export function getCompactionRecoveryRuntimeDeps(host: any) {
   return {
     isLeaderSession: (session: unknown) => readLauncherSession(host, (session as Session).id)?.isOrchestrator === true,
-    isSystemSourceTag: (agentSource: { sessionId: string; sessionLabel?: string } | undefined) =>
-      host.isSystemSourceTag(agentSource),
+    isSystemSourceTag,
     injectUserMessage: (
       sessionId: string,
       content: string,
@@ -633,7 +633,7 @@ export function getClaudeMessageHandlers(host: any) {
       }),
     getCurrentTurnTriggerSource: (targetSession: unknown) =>
       getCurrentTurnTriggerSourceController(targetSession as Session, {
-        isSystemSourceTag: (agentSource) => host.isSystemSourceTag(agentSource),
+        isSystemSourceTag,
       }),
     reconcileTerminalResultState: (targetSession: unknown) => {
       reconcileTerminalResultStateLifecycle(host.getGenerationLifecycleDeps(), targetSession as Session, "result");
@@ -1106,7 +1106,7 @@ export function getBrowserRoutingDeps(host: any) {
       : undefined,
     getCurrentTurnTriggerSource: (targetSession: unknown) =>
       getCurrentTurnTriggerSourceController(targetSession as Session, {
-        isSystemSourceTag: (agentSource) => host.isSystemSourceTag(agentSource),
+        isSystemSourceTag,
       }),
     abortAutoApproval: (targetSession: unknown, requestId: string) =>
       host.abortAutoApproval(targetSession as Session, requestId),
@@ -1436,7 +1436,7 @@ export function getGenerationLifecycleDeps(host: any) {
     },
     getCurrentTurnTriggerSource: (session: Session) =>
       getCurrentTurnTriggerSourceController(session, {
-        isSystemSourceTag: (agentSource) => host.isSystemSourceTag(agentSource),
+        isSystemSourceTag,
       }),
     isHerdedWorker: (session: Session) => host.isHerdedWorkerSession(session),
   };
