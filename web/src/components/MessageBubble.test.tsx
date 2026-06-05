@@ -49,8 +49,7 @@ vi.mock("remark-gfm", () => ({
   default: {},
 }));
 
-import { MessageBubble, HerdEventMessage } from "./MessageBubble.js";
-import { parseHerdEvents } from "../utils/herd-event-parser.js";
+import { MessageBubble } from "./MessageBubble.js";
 import { useStore } from "../store.js";
 
 beforeEach(() => {
@@ -968,6 +967,160 @@ describe("MessageBubble - assistant messages", () => {
     expect(markdown.textContent).toBe("Hello world");
   });
 
+  it("renders a visible Slack thread summary for root assistant messages with server-owned thread records", () => {
+    // Thread counts come from authoritative session state, so reconnect replay
+    // can rebuild the summary without relying on local UI state.
+    const sessionId = "session-with-slack-thread";
+    const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Root answer" });
+    useStore.getState().addSession({
+      session_id: sessionId,
+      backend_type: "claude",
+      model: "claude-sonnet",
+      cwd: "/tmp/test",
+      tools: [],
+      permissionMode: "default",
+      claude_code_version: "1",
+      mcp_servers: [],
+      agents: [],
+      slash_commands: [],
+      skills: [],
+      total_cost_usd: 0,
+      num_turns: 1,
+      context_used_percent: 0,
+      is_compacting: false,
+      git_branch: "main",
+      is_worktree: false,
+      is_containerized: false,
+      repo_root: "/tmp/test",
+      git_ahead: 0,
+      git_behind: 0,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+      slackThreads: {
+        "st-test": {
+          id: "st-test",
+          rootSessionId: sessionId,
+          childSessionId: "child-session",
+          anchorMessageId: "assistant-anchor",
+          anchorHistoryIndex: 1,
+          anchorPreview: "Root answer",
+          createdAt: 1,
+          updatedAt: 2,
+          messageCount: 2,
+          lastMessagePreview: "Thread follow-up",
+          seeded: true,
+        },
+      },
+    } as any);
+
+    render(<MessageBubble message={msg} sessionId={sessionId} currentThreadKey="main" />);
+
+    expect(screen.getByText("2 replies")).toBeTruthy();
+    expect(screen.getByText("Thread follow-up")).toBeTruthy();
+  });
+
+  it("suppresses Slack thread controls and summaries for leader sessions", () => {
+    const sessionId = "leader-with-slack-thread";
+    const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Leader root answer" });
+    useStore.getState().addSession({
+      session_id: sessionId,
+      backend_type: "codex",
+      model: "gpt-5.5",
+      cwd: "/tmp/test",
+      tools: [],
+      permissionMode: "default",
+      claude_code_version: "1",
+      mcp_servers: [],
+      agents: [],
+      slash_commands: [],
+      skills: [],
+      total_cost_usd: 0,
+      num_turns: 1,
+      context_used_percent: 0,
+      is_compacting: false,
+      git_branch: "main",
+      is_worktree: false,
+      is_containerized: false,
+      repo_root: "/tmp/test",
+      git_ahead: 0,
+      git_behind: 0,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+      isOrchestrator: true,
+      slackThreads: {
+        "st-test": {
+          id: "st-test",
+          rootSessionId: sessionId,
+          childSessionId: "child-session",
+          anchorMessageId: "assistant-anchor",
+          anchorHistoryIndex: 1,
+          anchorPreview: "Leader answer",
+          createdAt: 1,
+          updatedAt: 2,
+          messageCount: 2,
+          lastMessagePreview: "Thread follow-up",
+          seeded: true,
+        },
+      },
+    } as any);
+
+    render(<MessageBubble message={msg} sessionId={sessionId} currentThreadKey="main" />);
+
+    expect(screen.queryByText("2 replies")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start thread" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Open thread with/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Copy message" })).toBeTruthy();
+  });
+
+  it("keeps Slack thread creation available for root assistant messages by default", () => {
+    const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Root answer" });
+
+    const { container } = render(<MessageBubble message={msg} sessionId="root-session" currentThreadKey="main" />);
+
+    const toolbar = container.querySelector("[data-message-action-toolbar]");
+    const startThread = screen.getByRole("button", { name: "Start thread" });
+    expect(startThread).toBeTruthy();
+    expect(toolbar).toBeTruthy();
+    expect(toolbar?.className).not.toContain("absolute");
+    expect(toolbar?.className).toContain("shrink-0");
+    expect(startThread.className).toContain("h-7");
+  });
+
+  it("keeps Slack thread creation available for herded worker sessions", () => {
+    const prevSdkSessions = useStore.getState().sdkSessions;
+    useStore.setState({
+      sdkSessions: [
+        ...prevSdkSessions,
+        { sessionId: "worker-session", state: "connected", cwd: "/repo", createdAt: 1, herdedBy: "leader-session" },
+      ] as any,
+    });
+
+    try {
+      const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Worker answer" });
+      render(<MessageBubble message={msg} sessionId="worker-session" currentThreadKey="main" />);
+
+      expect(screen.getByRole("button", { name: "Start thread" })).toBeTruthy();
+    } finally {
+      useStore.setState({ sdkSessions: prevSdkSessions });
+    }
+  });
+
+  it("suppresses Slack thread creation for assistant messages embedded in a Slack thread panel", () => {
+    const msg = makeMessage({ id: "thread-assistant", role: "assistant", content: "Thread answer" });
+
+    render(
+      <MessageBubble
+        message={msg}
+        sessionId="hidden-thread-child"
+        currentThreadKey="main"
+        showSlackThreadActions={false}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Start thread" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Copy message" })).toBeTruthy();
+  });
+
   it("renders deprecated @to(user) tags as raw text", () => {
     const msg = makeMessage({
       role: "assistant",
@@ -1714,404 +1867,5 @@ describe("MessageBubble - content block grouping", () => {
     // The two Read tools should not be grouped since there is a text block between them
     const labels = screen.getAllByText("Read File");
     expect(labels.length).toBe(2);
-  });
-});
-
-// ─── HerdEventMessage tests ─────────────────────────────────────────────────
-
-describe("HerdEventMessage", () => {
-  it("renders event headers collapsed by default", () => {
-    // Herd event with activity lines should show header but NOT activity
-    const msg = makeMessage({
-      role: "user",
-      content: '1 event from 1 session\n\n#8 | turn_end | ✓ 5.0s | tools: 1\n  [10] user: "Fix bug"\n  [11] ✓ "Done"',
-      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-    });
-    render(<HerdEventMessage message={msg} showTimestamp={false} />);
-
-    // Header should be visible
-    expect(screen.getByText(/turn_end.*5\.0s/)).toBeTruthy();
-    // Activity should NOT be visible (collapsed)
-    expect(screen.queryByText(/Fix bug/)).toBeNull();
-  });
-
-  it("expands activity on click when activity lines are present", () => {
-    const msg = makeMessage({
-      role: "user",
-      content: '1 event from 1 session\n\n#8 | turn_end | ✓ 5.0s\n  [10] user: "Fix bug"\n  [11] ✓ "Done"',
-      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-    });
-    render(<HerdEventMessage message={msg} showTimestamp={false} />);
-
-    // Click the header to expand
-    fireEvent.click(screen.getByText(/turn_end/));
-    // Activity should now be visible
-    expect(screen.getByText(/Fix bug/)).toBeTruthy();
-    expect(screen.getByText(/Done/)).toBeTruthy();
-  });
-
-  it("uses the session number as a navigation affordance when the session resolves", () => {
-    // When the herd event session number maps to a live session, clicking that
-    // token should navigate without expanding the chip content.
-    const prevSdkSessions = useStore.getState().sdkSessions;
-    const prevHash = window.location.hash;
-    useStore.setState({
-      sdkSessions: [
-        {
-          sessionId: "worker-8",
-          sessionNum: 8,
-          createdAt: 1,
-          cwd: "/repo",
-          state: "connected",
-        },
-      ],
-    });
-
-    try {
-      const msg = makeMessage({
-        role: "user",
-        content: '1 event from 1 session\n\n#8 | turn_end | ✓ 5.0s\n  [10] user: "Fix bug"\n  [11] ✓ "Done"',
-        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-      });
-      render(<HerdEventMessage message={msg} showTimestamp={false} />);
-
-      fireEvent.click(screen.getByRole("button", { name: "Open session #8" }));
-
-      expect(window.location.hash).toBe("#/session/worker-8");
-      expect(screen.queryByText(/Fix bug/)).toBeNull();
-    } finally {
-      window.location.hash = prevHash;
-      useStore.setState({ sdkSessions: prevSdkSessions });
-    }
-  });
-
-  it("shows the standard session hover card when hovering the resolved session affordance", async () => {
-    const prevSdkSessions = useStore.getState().sdkSessions;
-    const prevSessionNames = useStore.getState().sessionNames;
-    useStore.setState({
-      sdkSessions: [
-        {
-          sessionId: "worker-8",
-          sessionNum: 8,
-          createdAt: 1,
-          cwd: "/repo",
-          state: "connected",
-        },
-      ],
-      sessionNames: new Map([["worker-8", "Auth Worker"]]),
-    });
-
-    try {
-      const msg = makeMessage({
-        role: "user",
-        content: "1 event from 1 session\n\n#8 | turn_end | ✓ 5.0s",
-        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-      });
-      render(<HerdEventMessage message={msg} showTimestamp={false} />);
-
-      fireEvent.mouseEnter(screen.getByRole("button", { name: "Open session #8" }));
-
-      expect(await screen.findByText("Auth Worker")).toBeTruthy();
-    } finally {
-      useStore.setState({ sdkSessions: prevSdkSessions, sessionNames: prevSessionNames });
-    }
-  });
-
-  it("activates the session-number affordance from the keyboard without expanding the chip", async () => {
-    // Regression test for the nested interactive path: Enter and Space on the
-    // #N button should route to the session and must not bubble into the
-    // parent chip's expand/collapse keyboard handler.
-    const prevSdkSessions = useStore.getState().sdkSessions;
-    const prevHash = window.location.hash;
-    const user = userEvent.setup();
-    useStore.setState({
-      sdkSessions: [
-        {
-          sessionId: "worker-8",
-          sessionNum: 8,
-          createdAt: 1,
-          cwd: "/repo",
-          state: "connected",
-        },
-      ],
-    });
-
-    try {
-      const msg = makeMessage({
-        role: "user",
-        content: '1 event from 1 session\n\n#8 | turn_end | ✓ 5.0s\n  [10] user: "Fix bug"\n  [11] ✓ "Done"',
-        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-      });
-      render(<HerdEventMessage message={msg} showTimestamp={false} />);
-
-      const sessionLink = screen.getByRole("button", { name: "Open session #8" });
-
-      sessionLink.focus();
-      await user.keyboard("{Enter}");
-      expect(window.location.hash).toBe("#/session/worker-8");
-      expect(screen.queryByText(/Fix bug/)).toBeNull();
-
-      window.location.hash = prevHash;
-      sessionLink.focus();
-      await user.keyboard(" ");
-      expect(window.location.hash).toBe("#/session/worker-8");
-      expect(screen.queryByText(/Fix bug/)).toBeNull();
-    } finally {
-      window.location.hash = prevHash;
-      useStore.setState({ sdkSessions: prevSdkSessions });
-    }
-  });
-
-  it("keeps an explicit focus-visible style on the session-number affordance", () => {
-    // Regression guard: the #N button suppresses the browser default outline,
-    // so it must carry its own replacement focus-visible treatment.
-    const prevSdkSessions = useStore.getState().sdkSessions;
-    useStore.setState({
-      sdkSessions: [
-        {
-          sessionId: "worker-8",
-          sessionNum: 8,
-          createdAt: 1,
-          cwd: "/repo",
-          state: "connected",
-        },
-      ],
-    });
-
-    try {
-      const msg = makeMessage({
-        role: "user",
-        content: "1 event from 1 session\n\n#8 | turn_end | ✓ 5.0s",
-        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-      });
-      render(<HerdEventMessage message={msg} showTimestamp={false} />);
-
-      const sessionLink = screen.getByRole("button", { name: "Open session #8" });
-      expect(sessionLink.className).toContain("text-amber-400");
-      expect(sessionLink.className).toContain("hover:text-amber-300");
-      expect(sessionLink.className).toContain("focus-visible:text-amber-300");
-      expect(sessionLink.className).toContain("focus-visible:ring-2");
-      expect(sessionLink.className).toContain("focus-visible:ring-amber-400/70");
-      expect(sessionLink.className).toContain("focus-visible:ring-offset-1");
-      expect(sessionLink.className).toContain("focus-visible:ring-offset-cc-card");
-    } finally {
-      useStore.setState({ sdkSessions: prevSdkSessions });
-    }
-  });
-
-  it("falls back safely when the session number cannot be resolved", () => {
-    // Unresolved session numbers should stay visible but behave like the old
-    // chip: clicking the token expands the activity instead of trying to route.
-    const prevSdkSessions = useStore.getState().sdkSessions;
-    useStore.setState({ sdkSessions: [] });
-
-    try {
-      const msg = makeMessage({
-        role: "user",
-        content: '1 event from 1 session\n\n#8 | turn_end | ✓ 5.0s\n  [10] user: "Fix bug"\n  [11] ✓ "Done"',
-        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-      });
-      render(<HerdEventMessage message={msg} showTimestamp={false} />);
-
-      expect(screen.queryByRole("button", { name: "Open session #8" })).toBeNull();
-
-      fireEvent.click(screen.getByText("#8"));
-
-      expect(screen.getByText(/Fix bug/)).toBeTruthy();
-    } finally {
-      useStore.setState({ sdkSessions: prevSdkSessions });
-    }
-  });
-
-  it("renders events without activity as clickable (expand shows untruncated header)", () => {
-    // Event header with no activity lines -- still clickable with chevron,
-    // but no activity <pre> block appears on expand
-    const msg = makeMessage({
-      role: "user",
-      content: "1 event from 1 session\n\n#8 | turn_end | ✓ 5.0s",
-      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-    });
-    render(<HerdEventMessage message={msg} showTimestamp={false} />);
-
-    // Header visible with chevron
-    expect(screen.getByText(/turn_end/)).toBeTruthy();
-    const chip = screen.getByText(/turn_end/).closest('[role="button"]') as HTMLElement;
-    expect(chip.querySelector("svg")).not.toBeNull();
-
-    // Click expands (removes truncation) but shows no activity <pre> block
-    fireEvent.click(chip);
-    expect(chip.closest("div")!.querySelector("pre")).toBeNull();
-  });
-
-  it("renders multiple events with independent collapse state", () => {
-    const msg = makeMessage({
-      role: "user",
-      content:
-        '2 events from 1 session\n\n#8 | turn_end | ✓ 5.0s\n  [10] user: "First"\n#9 | turn_end | ✓ 3.0s\n  [15] user: "Second"',
-      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-    });
-    render(<HerdEventMessage message={msg} showTimestamp={false} />);
-
-    // Both headers visible, no activity
-    expect(screen.getByText(/5\.0s/)).toBeTruthy();
-    expect(screen.getByText(/3\.0s/)).toBeTruthy();
-    expect(screen.queryByText(/First/)).toBeNull();
-    expect(screen.queryByText(/Second/)).toBeNull();
-
-    // Expand only first event
-    fireEvent.click(screen.getByText(/5\.0s/));
-    expect(screen.getByText(/First/)).toBeTruthy();
-    expect(screen.queryByText(/Second/)).toBeNull();
-  });
-
-  it("falls back to raw content when no # lines are found", () => {
-    const msg = makeMessage({
-      role: "user",
-      content: "unexpected format with no event lines",
-      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-    });
-    render(<HerdEventMessage message={msg} showTimestamp={false} />);
-
-    expect(screen.getByText("unexpected format with no event lines")).toBeTruthy();
-  });
-
-  it("treats markdown headings in key message content as activity, not event headers", () => {
-    // Regression test: ## and ### headings from a worker's response (key message)
-    // were incorrectly parsed as separate event headers because they start with #.
-    // Only "#N | type | ..." lines should be treated as event headers.
-    const msg = makeMessage({
-      role: "user",
-      content: [
-        "1 event from 1 session",
-        "",
-        "#287 | turn_end | ✓ 53.6s | tools: 12 | [1]-[22] | 1s ago",
-        "  [1] asst: I'll load skills first.",
-        "  [22] asst: I now have all the evidence.",
-        "## Skeptic Review: Session #286",
-        "### Task",
-        "Fix the autonamer regex.",
-        "### Assessment",
-        "**ACCEPT**: The work is thorough.",
-      ].join("\n"),
-      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-    });
-    render(<HerdEventMessage message={msg} showTimestamp={false} />);
-
-    // Should parse as exactly ONE event (not 4 events for each heading)
-    const buttons = screen.getAllByRole("button");
-    expect(buttons).toHaveLength(1);
-
-    // Header should be the real event line
-    expect(screen.getByText(/turn_end.*53\.6s/)).toBeTruthy();
-
-    // Markdown headings should NOT appear as separate event headers
-    expect(screen.queryByText("## Skeptic Review: Session #286")).toBeNull();
-    expect(screen.queryByText("### Task")).toBeNull();
-
-    // Expand the event -- all content including headings should be visible
-    fireEvent.click(buttons[0]);
-    expect(screen.getByText(/Skeptic Review/)).toBeTruthy();
-    expect(screen.getByText(/ACCEPT/)).toBeTruthy();
-  });
-});
-
-// ─── parseHerdEvents unit tests ─────────────────────────────────────────────
-
-describe("parseHerdEvents", () => {
-  it("parses standard event headers with activity lines", () => {
-    const content = [
-      "1 event from 1 session",
-      "",
-      "#8 | turn_end | ✓ 5.0s | tools: 1",
-      '  [10] user: "Fix bug"',
-      '  [11] ✓ "Done"',
-    ].join("\n");
-
-    const events = parseHerdEvents(content);
-    expect(events).toHaveLength(1);
-    expect(events[0].header).toBe("#8 | turn_end | ✓ 5.0s | tools: 1");
-    expect(events[0].activity).toHaveLength(2);
-  });
-
-  it("does NOT treat markdown headings as event headers", () => {
-    // Key bug: ## and ### headings in key message content were mistakenly
-    // parsed as event headers because they start with #
-    const content = [
-      "1 event from 1 session",
-      "",
-      "#287 | turn_end | ✓ 53.6s",
-      "  [22] asst: Evidence gathered.",
-      "## Skeptic Review",
-      "### Task",
-      "Fix the regex.",
-      "### Assessment",
-      "ACCEPT",
-    ].join("\n");
-
-    const events = parseHerdEvents(content);
-    // Only ONE real event header (#287 | turn_end)
-    expect(events).toHaveLength(1);
-    expect(events[0].header).toBe("#287 | turn_end | ✓ 53.6s");
-    // All remaining lines are activity (including markdown headings)
-    expect(events[0].activity).toContain("## Skeptic Review");
-    expect(events[0].activity).toContain("### Task");
-    expect(events[0].activity).toContain("### Assessment");
-    expect(events[0].activity).toContain("Fix the regex.");
-    expect(events[0].activity).toContain("ACCEPT");
-  });
-
-  it("handles multiple real events in the same batch", () => {
-    const content = [
-      "2 events from 2 sessions",
-      "",
-      "#8 | turn_end | ✓ 5.0s",
-      "  [10] asst: Done.",
-      "#9 | permission_request | Bash",
-    ].join("\n");
-
-    const events = parseHerdEvents(content);
-    expect(events).toHaveLength(2);
-    expect(events[0].header).toMatch(/turn_end/);
-    expect(events[1].header).toMatch(/permission_request/);
-    expect(events[0].activity).toHaveLength(1);
-    expect(events[1].activity).toHaveLength(0);
-  });
-
-  it("returns empty array for empty content", () => {
-    expect(parseHerdEvents("")).toHaveLength(0);
-  });
-
-  it("returns empty array when content has only a batch header (no event lines)", () => {
-    expect(parseHerdEvents("3 events from 2 sessions\n\n")).toHaveLength(0);
-  });
-
-  it("parses event header at very first line (no batch header prefix)", () => {
-    const events = parseHerdEvents("#1 | turn_end | ✓ 1.0s\n  [5] asst: Done.");
-    expect(events).toHaveLength(1);
-    // Activity includes trailing blank line from the split, plus the actual line
-    expect(events[0].activity.some((l) => l.includes("Done"))).toBe(true);
-  });
-
-  it("preserves blank lines in activity for 1:1 fidelity with injected content", () => {
-    // Key message content often has paragraph breaks (blank lines between sections).
-    // These must be preserved so the expanded view is an exact match of what was injected.
-    const content = [
-      "1 event from 1 session",
-      "",
-      "#287 | turn_end | ✓ 53.6s",
-      "  [22] asst: Review complete.",
-      "## Summary",
-      "",
-      "The fix is correct.",
-      "",
-      "## Details",
-      "No issues found.",
-    ].join("\n");
-
-    const events = parseHerdEvents(content);
-    expect(events).toHaveLength(1);
-    // Blank lines between sections should be preserved
-    const joined = events[0].activity.join("\n");
-    expect(joined).toContain("## Summary\n\nThe fix is correct.\n\n## Details");
   });
 });

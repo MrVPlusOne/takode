@@ -48,12 +48,7 @@ import type {
   PermissionRequest,
   ThreadRef,
 } from "../session-types.js";
-import type {
-  AdapterBrowserRoutingDeps,
-  AdapterBrowserRoutingSessionLike,
-  ControlResponseHandler,
-  InterruptSource,
-} from "./adapter-browser-routing-types.js";
+import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
 import { sessionTag } from "../session-tag.js";
 import type { BrowserTransportSessionLike, BrowserTransportSocketLike } from "./browser-transport-controller.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
@@ -70,6 +65,13 @@ import {
 } from "../thread-routing-metadata.js";
 import { isActualHumanUserMessage } from "../user-message-classification.js";
 import { determineUserMessageSourceKind } from "../codex-result-error-auto-pause.js";
+import type {
+  BrowserUserMessage,
+  ControlResponseHandler,
+  IngestedUserMessage,
+  InterruptSource,
+  PermissionResponseMessage,
+} from "./adapter-browser-routing-message-types.js";
 export {
   hasPendingForceCompact,
   isCliSlashCommand,
@@ -100,18 +102,6 @@ import {
   getDenialSummary,
   NOTABLE_APPROVALS,
 } from "./permission-summaries.js";
-type BrowserUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message" }>;
-type PermissionResponseMessage = Extract<BrowserOutgoingMessage, { type: "permission_response" }>;
-type IngestedUserMessage = {
-  timestamp: number;
-  historyEntry: Extract<BrowserIncomingMessage, { type: "user_message" }>;
-  historyIndex: number;
-  imageRefs?: ImageRef[];
-  needsInputReminderText?: string;
-  needsInputResolutionNoticeText?: string;
-  needsInputResolutionNoticeIds?: string[];
-  wasGenerating: boolean;
-};
 function findPendingExitPlanPermission(
   session: AdapterBrowserRoutingSessionLike,
   route: ThreadRouteMetadata | null,
@@ -1197,6 +1187,7 @@ export function ingestUserMessage(
       ...(explicitTarget ? { threadKey: explicitTarget.threadKey } : {}),
       ...(explicitTarget?.questId ? { questId: explicitTarget.questId } : {}),
       ...(explicitThreadRef ? { threadRefs: [explicitThreadRef] } : {}),
+      ...(msg.slackThreadId ? { slackThreadId: msg.slackThreadId } : {}),
     };
     let userMsgHistoryIdx = -1;
     if (commit) {
@@ -1692,6 +1683,7 @@ export function routeAdapterBrowserMessage(
           ...(ingested.historyEntry.threadKey ? { threadKey: ingested.historyEntry.threadKey } : {}),
           ...(ingested.historyEntry.questId ? { questId: ingested.historyEntry.questId } : {}),
           ...(ingested.historyEntry.threadRefs ? { threadRefs: ingested.historyEntry.threadRefs } : {}),
+          ...(ingested.historyEntry.slackThreadId ? { slackThreadId: ingested.historyEntry.slackThreadId } : {}),
           autoPauseSourceKind: determineUserMessageSourceKind(msg),
         });
         markNeedsInputResolutionNoticesQueued(

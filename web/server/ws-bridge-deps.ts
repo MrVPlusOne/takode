@@ -880,6 +880,7 @@ export function getClaudeCliTransportDeps(host: any) {
         persistSession: (messageSession) => host.persistSession(messageSession as Session),
         toolProgressOutputLimit: 12_000,
       });
+      host.syncSlackThreadRecordForChild?.(session);
     },
     recordIncomingRaw: (sessionId: string, data: string, backendType: string, cwd: string) =>
       host.recorder?.record(sessionId, "in", data, "cli", backendType as BackendType, cwd),
@@ -920,6 +921,7 @@ export function getClaudeSdkAdapterLifecycleDeps(host: any) {
     handleSdkBrowserMessage: handlers.handleSdkBrowserMessage,
     handleSdkPermissionRequest: (targetSession: unknown, request: PermissionRequest) =>
       handleSdkPermissionRequestController(targetSession as Session, request, host.getBrowserRoutingDeps()),
+    syncSlackThreadParent: (targetSession: unknown) => host.syncSlackThreadRecordForChild?.(targetSession as Session),
     setCliSessionId: (sessionId: string, cliSessionId: string) =>
       host.launcher?.setCLISessionId(sessionId, cliSessionId),
     requestCliRelaunch: requestCliRelaunchIfUnpaused(host),
@@ -1002,6 +1004,7 @@ export function getCodexAdapterBrowserMessageDeps(host: any) {
       msg: CLIResultMessage,
       completedTurn: CodexOutboundTurn | null,
     ) => host.handleCodexResultErrorAutoPause(targetSession as Session, msg, completedTurn),
+    syncSlackThreadParent: (targetSession: unknown) => host.syncSlackThreadRecordForChild?.(targetSession as Session),
   };
 }
 

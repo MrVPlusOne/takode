@@ -585,6 +585,43 @@ function readTopLevelStringSetting(configToml: string, key: string): string | un
   return undefined;
 }
 
+function readStringSettingInSection(configToml: string, sectionHeader: string, key: string): string | undefined {
+  const lines = configToml.split("\n");
+  const normalizedHeader = sectionHeader.trim().toLowerCase();
+  const sectionStart = lines.findIndex((line) => line.trim().toLowerCase() === normalizedHeader);
+  if (sectionStart === -1) return undefined;
+
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(.+?)\\s*$`);
+  for (let i = sectionStart + 1; i < lines.length; i++) {
+    if (/^\s*\[[^\]]+\]\s*$/.test(lines[i])) break;
+    const trimmed = lines[i].trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const match = lines[i].match(keyPattern);
+    if (!match?.[1]) continue;
+    const value = match[1].trim();
+    if (value.startsWith('"') && value.endsWith('"')) {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value.slice(1, -1);
+      }
+    }
+    if (value.startsWith("'") && value.endsWith("'")) {
+      return value.slice(1, -1).replace(/'\\\\''/g, "'");
+    }
+    return value;
+  }
+
+  return undefined;
+}
+
+function getSelectedProviderEnvKeys(configToml: string): string[] {
+  const provider = readTopLevelStringSetting(configToml, "model_provider")?.trim();
+  if (!provider) return [];
+  const envKey = readStringSettingInSection(configToml, `[model_providers.${provider}]`, "env_key")?.trim();
+  return envKey ? [envKey] : [];
+}
+
 function readTopLevelNumberSetting(configToml: string, key: string): number | undefined {
   const lines = configToml.split("\n");
   const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(.+?)\\s*$`);
@@ -1427,7 +1464,13 @@ async function ensureCodexSessionConfig(
   if (usesMaiLitellmProvider(next)) {
     next = upsertBooleanSettingInSection(next, codexFeaturesHeader, codexImageGenerationFeature, false);
   }
-  next = upsertShellEnvironmentIncludeOnly(next, ["PATH", ...NON_INTERACTIVE_GIT_EDITOR_ENV_KEYS, ...envVars]);
+  const providerEnvKeys = getSelectedProviderEnvKeys(next);
+  next = upsertShellEnvironmentIncludeOnly(next, [
+    "PATH",
+    ...NON_INTERACTIVE_GIT_EDITOR_ENV_KEYS,
+    ...providerEnvKeys,
+    ...envVars,
+  ]);
   const modelId = options?.model || readTopLevelStringSetting(next, "model");
   const leaderLaunch = options?.leaderLaunch ?? !options?.nonLeaderAutoCompactThresholdPercent;
   const leaderRecycleThreshold = leaderLaunch

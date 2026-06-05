@@ -104,6 +104,12 @@ import { handleCodexResultErrorAutoPause as handleCodexResultErrorAutoPauseDeliv
 import { deliverProgrammaticUserMessage } from "./bridge/programmatic-user-message-delivery.js";
 import { pauseSessionForDelivery, unpauseSessionForDelivery } from "./bridge/session-pause-delivery.js";
 import {
+  routeSlackThreadUserMessage as routeSlackThreadUserMessageController,
+  syncSlackThreadRecord as syncSlackThreadRecordController,
+  syncSlackThreadRecordForChild as syncSlackThreadRecordForChildController,
+  type SlackThreadBridgeDeps,
+} from "./slack-thread-bridge.js";
+import {
   flushQueuedCliMessages as flushQueuedCliMessagesController,
   handleCLIClose as handleCLICloseTransportController,
   handleCLIOpen as handleCLIOpenTransportController,
@@ -183,7 +189,6 @@ import {
   handleSetModel as handleSetModelController,
   handleCodexSetModel as handleCodexSetModelController,
   handleCodexSetReasoningEffort as handleCodexSetReasoningEffortController,
-  routeBrowserMessage as routeBrowserMessageController,
   handleSdkPermissionRequest as handleSdkPermissionRequestController,
   handleSetAskPermission as handleSetAskPermissionController,
   handleSetPermissionMode as handleSetPermissionModeController,
@@ -194,6 +199,10 @@ import {
   queueForceCompactPendingMessage as queueForceCompactPendingMessageController,
   tryLlmAutoApproval as tryLlmAutoApprovalController,
 } from "./bridge/adapter-browser-routing-controller.js";
+import {
+  interruptSession as interruptSessionController,
+  setSessionPermissionMode as setSessionPermissionModeController,
+} from "./bridge/browser-control-routing.js";
 import {
   addPendingCodexInput as addPendingCodexInputController,
   attachCodexAdapterLifecycle as attachCodexAdapterLifecycleController,
@@ -364,6 +373,12 @@ export class WsBridge {
     "set_ask_permission",
   ]);
   private sessions = new Map<string, Session>();
+  private slackThreadBridgeDeps: SlackThreadBridgeDeps = {
+    sessions: this.sessions,
+    getBrowserRoutingDeps: () => this.getBrowserRoutingDeps(),
+    broadcastToBrowsers: (session, msg) => this.broadcastToBrowsers(session, msg),
+    persistSession: (session) => this.persistSession(session),
+  };
   /** Per-session serialization chain for externally injected/browser-routed messages.
    *  Preserves send order across async image ingestion without blocking other sessions. */
   private sessionRouteChains = new Map<string, Promise<void>>();
@@ -910,16 +925,25 @@ export class WsBridge {
     return this.sessions.get(sessionId);
   }
 
+  syncSlackThreadRecord(rootSessionId: string, threadId: string): boolean {
+    return syncSlackThreadRecordController(this.slackThreadBridgeDeps, rootSessionId, threadId);
+  }
+
+  syncSlackThreadRecordForChild(childSession: Session): boolean {
+    return syncSlackThreadRecordForChildController(this.slackThreadBridgeDeps, childSession);
+  }
+
+  async routeSlackThreadUserMessage(
+    rootSessionId: string,
+    threadId: string,
+    content: string,
+    options?: { clientMsgId?: string },
+  ): Promise<{ ok: true; childSessionId: string } | { ok: false; error: string }> {
+    return routeSlackThreadUserMessageController(this.slackThreadBridgeDeps, rootSessionId, threadId, content, options);
+  }
+
   async setSessionPermissionMode(sessionId: string, mode: string): Promise<boolean> {
-    const session = this.sessions.get(sessionId);
-    if (!session) return false;
-    await routeBrowserMessageController(
-      session,
-      { type: "set_permission_mode", mode },
-      undefined,
-      this.getBrowserRoutingDeps(),
-    );
-    return true;
+    return setSessionPermissionModeController(this.sessions, this.getBrowserRoutingDeps(), sessionId, mode);
   }
 
   async interruptSession(
@@ -927,19 +951,7 @@ export class WsBridge {
     source: InterruptSource = "user",
     options?: { interruptOrigin?: "restart_prep"; restartPrepOperationId?: string },
   ): Promise<boolean> {
-    const session = this.sessions.get(sessionId);
-    if (!session) return false;
-    if (options?.interruptOrigin === "restart_prep" && session.isGenerating) {
-      session.restartPrepInterruptOrigin = "restart_prep";
-      session.restartPrepInterruptOperationId = options.restartPrepOperationId ?? null;
-    }
-    await routeBrowserMessageController(
-      session,
-      { type: "interrupt", interruptSource: source },
-      undefined,
-      this.getBrowserRoutingDeps(),
-    );
-    return true;
+    return interruptSessionController(this.sessions, this.getBrowserRoutingDeps(), sessionId, source, options);
   }
 
   async recoverCodexRestartPrepBlocker(

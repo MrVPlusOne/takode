@@ -32,6 +32,8 @@ import { formatThreadMarker } from "../../shared/thread-routing.js";
 import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
 import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
 import { buildAssistantImagePreviewItems } from "./image-preview-utils.js";
+import { SlackThreadButton, SlackThreadSummary, useSlackThreadForMessage } from "./SlackThreadControls.js";
+import { MessageTimestamp } from "./MessageTimestamp.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
 
@@ -70,26 +72,6 @@ function useMessageSearchHighlight(sessionId: string | undefined, message: ChatM
   if (!sessionSearchMessageMatchesCategory(message, category, leaderSessionId)) return null;
   if (!query.trim()) return null;
   return { query, mode, isCurrent };
-}
-
-function formatMessageTime(timestamp: number): string {
-  const d = new Date(timestamp);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function formatTurnDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return "";
-  if (ms < 100) return "<0.1s";
-  const seconds = ms / 1000;
-  if (seconds < 10) return `${seconds.toFixed(1).replace(/\.0$/, "")}s`;
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.round(seconds % 60);
-  return `${mins}m ${secs}s`;
 }
 
 function buildCopyMessageLink(sessionId: string | undefined, message: ChatMessage, sdkSessions: SdkSessionInfo[]) {
@@ -139,36 +121,20 @@ async function restoreMessageImagesToDraft(
   return restored;
 }
 
-function MessageTimestamp({ timestamp, turnDurationMs }: { timestamp: number; turnDurationMs?: number }) {
-  const d = new Date(timestamp);
-  if (Number.isNaN(d.getTime())) return null;
-  const timeText = formatMessageTime(timestamp);
-  if (!timeText) return null;
-  const durationText = typeof turnDurationMs === "number" ? formatTurnDuration(turnDurationMs) : "";
-  return (
-    <time
-      data-testid="message-timestamp"
-      dateTime={d.toISOString()}
-      title={d.toLocaleString()}
-      className="inline-block ml-2 text-[11px] text-cc-muted/70"
-    >
-      {durationText ? `${timeText} · ${durationText}` : timeText}
-    </time>
-  );
-}
-
 export const MessageBubble = memo(function MessageBubble({
   message,
   sessionId,
   showTimestamp = true,
   currentThreadKey,
   onSelectThread,
+  showSlackThreadActions = true,
 }: {
   message: ChatMessage;
   sessionId?: string;
   showTimestamp?: boolean;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
+  showSlackThreadActions?: boolean;
 }) {
   // Search highlight state -- must be called unconditionally (hooks can't be after early returns)
   const searchHighlight = useMessageSearchHighlight(sessionId, message);
@@ -360,6 +326,7 @@ export const MessageBubble = memo(function MessageBubble({
         searchHighlight={searchHighlight}
         currentThreadKey={currentThreadKey}
         onSelectThread={onSelectThread}
+        showSlackThreadActions={showSlackThreadActions}
       />
     </div>
   );
@@ -1357,6 +1324,7 @@ function AssistantMessage({
   searchHighlight,
   currentThreadKey,
   onSelectThread,
+  showSlackThreadActions,
 }: {
   message: ChatMessage;
   sessionId?: string;
@@ -1364,6 +1332,7 @@ function AssistantMessage({
   searchHighlight?: SearchHighlightInfo;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
+  showSlackThreadActions: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
@@ -1382,6 +1351,7 @@ function AssistantMessage({
   const resolvedNotification = message.notification ?? inboxAnchoredNotification;
   const suppressToolNotificationMarker = !!resolvedNotification;
   const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
+  const slackThread = useSlackThreadForMessage(sessionId, message);
   const assistantImagePreviewItems = useMemo(
     () => buildAssistantImagePreviewItems(message, sessionId),
     [message, sessionId],
@@ -1403,7 +1373,7 @@ function AssistantMessage({
     return (
       <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-2 sm:gap-3"}`}>
         {!hidePaw && <PawTrailAvatar />}
-        <div ref={contentRef} className="flex-1 min-w-0 pr-6">
+        <div ref={contentRef} className="flex-1 min-w-0">
           {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
           <MarkdownContent
             text={message.content}
@@ -1424,8 +1394,15 @@ function AssistantMessage({
             />
           )}
           {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
+          {showSlackThreadActions && slackThread && <SlackThreadSummary thread={slackThread} sessionId={sessionId} />}
         </div>
-        <MessageActionBar message={message} contentRef={contentRef} sessionId={sessionId} />
+        <MessageActionBar
+          message={message}
+          contentRef={contentRef}
+          sessionId={sessionId}
+          currentThreadKey={currentThreadKey}
+          showSlackThreadActions={showSlackThreadActions}
+        />
       </div>
     );
   }
@@ -1433,7 +1410,7 @@ function AssistantMessage({
   return (
     <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-2 sm:gap-3"}`}>
       {!hidePaw && <PawTrailAvatar />}
-      <div ref={contentRef} className="flex-1 min-w-0 space-y-3 pr-6">
+      <div ref={contentRef} className="flex-1 min-w-0 space-y-3">
         {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
         {shouldRenderContentFallback && (
           <MarkdownContent
@@ -1501,24 +1478,43 @@ function AssistantMessage({
           />
         )}
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
+        {showSlackThreadActions && slackThread && <SlackThreadSummary thread={slackThread} sessionId={sessionId} />}
       </div>
-      {hasTextContent && <MessageActionBar message={message} contentRef={contentRef} sessionId={sessionId} />}
+      {hasTextContent && (
+        <MessageActionBar
+          message={message}
+          contentRef={contentRef}
+          sessionId={sessionId}
+          currentThreadKey={currentThreadKey}
+          showSlackThreadActions={showSlackThreadActions}
+        />
+      )}
     </div>
   );
 }
 
-/** Action bar for assistant messages -- groups reply + copy buttons with shared hover visibility. */
+/** Action bar for assistant messages -- groups reply + copy buttons beside content without covering text. */
 function MessageActionBar({
   message,
   contentRef,
   sessionId,
+  currentThreadKey,
+  showSlackThreadActions,
 }: {
   message: ChatMessage;
   contentRef: React.RefObject<HTMLDivElement | null>;
   sessionId?: string;
+  currentThreadKey?: string;
+  showSlackThreadActions: boolean;
 }) {
   return (
-    <div className="absolute top-0 right-0 shrink-0 flex flex-col items-center opacity-100 transition-opacity sm:flex-row sm:opacity-0 sm:group-hover/msg:opacity-100">
+    <div
+      className="ml-1 inline-flex shrink-0 items-center rounded-md border border-cc-border bg-cc-card/95 p-0.5 opacity-100 shadow-sm transition-opacity sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
+      data-message-action-toolbar
+    >
+      {showSlackThreadActions && sessionId && (
+        <SlackThreadButton message={message} sessionId={sessionId} currentThreadKey={currentThreadKey} />
+      )}
       {sessionId && <ReplyButton message={message} sessionId={sessionId} />}
       <CopyMessageButton message={message} contentRef={contentRef} sessionId={sessionId} />
     </div>
@@ -1540,7 +1536,7 @@ function ReplyButton({ message, sessionId }: { message: ChatMessage; sessionId: 
   return (
     <button
       onClick={handleClick}
-      className="p-1 rounded hover:bg-cc-hover transition-all cursor-pointer"
+      className="inline-flex h-7 w-7 items-center justify-center rounded hover:bg-cc-hover transition-all cursor-pointer"
       title="Reply to this message"
     >
       <svg
@@ -1633,7 +1629,7 @@ function CopyMessageButton({
       <button
         ref={btnRef}
         onClick={toggle}
-        className="p-1 rounded hover:bg-cc-hover transition-all cursor-pointer"
+        className="inline-flex h-7 w-7 items-center justify-center rounded hover:bg-cc-hover transition-all cursor-pointer"
         title="Copy message"
       >
         {copied ? (

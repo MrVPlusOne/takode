@@ -33,6 +33,8 @@ import type {
   SessionAttentionRecordType,
   SessionLifecycleEvent,
   ActiveTurnRoute,
+  SlackThreadRecord,
+  SlackThreadChildState,
   ThreadRef,
   ThreadAttachmentMarker,
   ThreadAttachmentMovementSummary,
@@ -106,6 +108,8 @@ export type {
   SessionAttentionRecordType,
   SessionLifecycleEvent,
   ActiveTurnRoute,
+  SlackThreadRecord,
+  SlackThreadChildState,
   ThreadRef,
   ThreadAttachmentMarker,
   ThreadAttachmentMovementSummary,
@@ -197,6 +201,7 @@ export interface ChatMessage {
     threadRefs?: ThreadRef[];
     threadKey?: string;
     questId?: string;
+    slackThreadId?: string;
     threadAttachmentMarker?: ThreadAttachmentMarker;
     threadTransitionMarker?: ThreadTransitionMarker;
     crossThreadActivityMarker?: {
@@ -307,6 +312,8 @@ export interface SdkSessionInfo {
   containerName?: string;
   containerImage?: string;
   name?: string;
+  /** Hidden implementation session, omitted from normal session lists. */
+  hidden?: boolean;
   backendType?: BackendType;
   /** Durable session-space/group assignment. `default` means confirmed default; null means unknown. */
   treeGroupId?: string | null;

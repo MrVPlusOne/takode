@@ -354,7 +354,7 @@ beforeEach(() => {
   delete process.env.COMPANION_FORCE_BYPASS_IN_CONTAINER;
   tempDir = mkdtempSync(join(tmpdir(), "launcher-test-"));
   store = new SessionStore(tempDir);
-  launcher = new CliLauncher(3456, { serverId: "test-server-id" });
+  launcher = new CliLauncher(3456, { serverId: "test-server-id", memorySessionSpaceSlug: "Takode" });
   launcher.setStore(store);
   mockSpawn.mockReturnValue(createMockProc());
   mockResolveBinary.mockReturnValue("/usr/bin/claude");
@@ -523,6 +523,101 @@ describe("relaunch", () => {
     const [, options] = mockSpawn.mock.calls[0];
     expect(options.env.PROFILE_ONLY).toBe("kept");
     expect(options.env.COMPANION_MEMORY_SPACE_SLUG).toBe("PersistedSpace");
+  });
+
+  it("resolves env profiles during direct launch before first spawn", async () => {
+    launcher.setEnvResolver(async (slug) =>
+      slug === "codex-profile" ? { LITELLM_API_KEY: "profile-key", PROFILE_ONLY: "kept" } : null,
+    );
+
+    await launcher.launch({
+      backendType: "claude",
+      cwd: "/tmp/project",
+      envSlug: "codex-profile",
+      env: { INLINE_ONLY: "also-kept" },
+    });
+
+    const [, options] = mockSpawn.mock.calls[0];
+    expect(options.env.LITELLM_API_KEY).toBe("profile-key");
+    expect(options.env.PROFILE_ONLY).toBe("kept");
+    expect(options.env.INLINE_ONLY).toBe("also-kept");
+    expect(options.env.COMPANION_SESSION_ID).toBe("test-session-id");
+    expect(launcher.getSession("test-session-id")?.envSlug).toBe("codex-profile");
+  });
+
+  it("blocks selected env keys after profile resolution during direct launch", async () => {
+    launcher.setEnvResolver(async (slug) =>
+      slug === "codex-profile"
+        ? { LITELLM_API_KEY: "profile-key", TAKODE_ROLE: "orchestrator", TAKODE_API_PORT: "9999" }
+        : null,
+    );
+
+    await launcher.launch({
+      backendType: "claude",
+      cwd: "/tmp/project",
+      envSlug: "codex-profile",
+      env: { INLINE_ONLY: "kept", TAKODE_ROLE: "worker" },
+      blockedEnvKeys: ["TAKODE_ROLE", "TAKODE_API_PORT"],
+    });
+
+    const [, options] = mockSpawn.mock.calls[0];
+    expect(options.env.LITELLM_API_KEY).toBe("profile-key");
+    expect(options.env.INLINE_ONLY).toBe("kept");
+    expect(options.env.TAKODE_ROLE).toBeUndefined();
+    expect(options.env.TAKODE_API_PORT).toBeUndefined();
+    expect(options.env.COMPANION_SESSION_ID).toBe("test-session-id");
+  });
+
+  it("blocks selected profile env keys when relaunch reconstructs a hidden thread child env", async () => {
+    store.saveLauncher([
+      {
+        sessionId: "hidden-child",
+        state: "exited" as const,
+        backendType: "codex" as const,
+        cwd: "/tmp/project",
+        createdAt: Date.now(),
+        envSlug: "codex-profile",
+        hidden: true,
+        parentSessionId: "root",
+        slackThreadId: "st-1",
+        slackThreadReadOnly: true,
+        blockedEnvKeys: [
+          "COMPANION_AUTH_TOKEN",
+          "COMPANION_SESSION_ID",
+          "COMPANION_SESSION_NUMBER",
+          "TAKODE_ROLE",
+          "TAKODE_API_PORT",
+        ],
+      },
+    ]);
+    await store.flushAll();
+    launcher.setEnvResolver(async (slug) =>
+      slug === "codex-profile"
+        ? {
+            LITELLM_API_KEY: "profile-key",
+            PROFILE_ONLY: "kept",
+            COMPANION_AUTH_TOKEN: "stale-root-auth",
+            COMPANION_SESSION_ID: "root",
+            COMPANION_SESSION_NUMBER: "99",
+            TAKODE_ROLE: "orchestrator",
+            TAKODE_API_PORT: "9999",
+          }
+        : null,
+    );
+    await launcher.restoreFromDisk();
+
+    mockSpawn.mockReturnValueOnce(createMockCodexProc(54321));
+    const result = await launcher.relaunch("hidden-child");
+
+    expect(result).toEqual({ ok: true });
+    const [, options] = mockSpawn.mock.calls[0];
+    expect(options.env.LITELLM_API_KEY).toBe("profile-key");
+    expect(options.env.PROFILE_ONLY).toBe("kept");
+    expect(options.env.COMPANION_AUTH_TOKEN).not.toBe("stale-root-auth");
+    expect(options.env.COMPANION_SESSION_ID).toBe("hidden-child");
+    expect(options.env.COMPANION_SESSION_NUMBER).not.toBe("99");
+    expect(options.env.TAKODE_ROLE).toBeUndefined();
+    expect(options.env.TAKODE_API_PORT).toBeUndefined();
   });
 
   it("returns error for unknown session", async () => {
