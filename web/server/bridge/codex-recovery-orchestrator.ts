@@ -1,6 +1,7 @@
 import { getDefaultModelForBackend } from "../../shared/backend-defaults.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "../codex-adapter.js";
+import type { TurnStartFailureInfo } from "./adapter-interface.js";
 import type {
   BrowserIncomingMessage,
   CLIResultMessage,
@@ -38,7 +39,9 @@ import {
   leaderRouteFromRecoveredAssistant,
 } from "./codex-leader-recovery-diagnostic.js";
 import { consumeCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
+import { handleTerminalTurnStartFailure } from "./codex-terminal-turn-start-failure.js";
 export { clearCodexIntentionalRelaunch, markCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
+export { maybeFlushQueuedCodexMessages } from "./codex-queued-message-flush.js";
 const CODEX_RETRY_SAFE_RESUME_ITEM_TYPES: ReadonlySet<string> = new Set(["reasoning", "contextCompaction"]);
 const CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP = 2;
 const CODEX_INIT_RETRY_BASE_DELAY_MS = 1_000;
@@ -417,16 +420,6 @@ export function dispatchQueuedCodexTurns(
   console.log(
     `[ws-bridge] Dispatched queued Codex turn for session ${sessionTag(session.id)} (${reason}, attempt ${outcome.head.dispatchCount})`,
   );
-}
-
-export function maybeFlushQueuedCodexMessages(
-  session: CodexRecoveryOrchestratorSessionLike,
-  reason: string,
-  deps: Pick<CodexAdapterRecoveryLifecycleDeps, "flushQueuedMessagesToCodexAdapter">,
-): void {
-  const adapter = session.codexAdapter;
-  if (!adapter) return;
-  deps.flushQueuedMessagesToCodexAdapter(session, adapter, reason);
 }
 
 export function setPendingCodexInputCancelable(
@@ -1194,7 +1187,11 @@ export function registerCodexAdapterRecoveryLifecycle(
     }
   });
 
-  adapter.onTurnStartFailed((msg: any) => {
+  adapter.onTurnStartFailed((msg: any, info?: TurnStartFailureInfo) => {
+    if (info?.recoverable === false) {
+      handleTerminalTurnStartFailure(session, adapter, msg, info, deps);
+      return;
+    }
     console.log(`[ws-bridge] Turn start failed for session ${sessionTag(sessionId)}, re-queuing ${msg.type}`);
     if (msg.type === "user_message" || msg.type === "codex_start_pending") {
       const pending =

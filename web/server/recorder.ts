@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import type { BackendType } from "./session-types.js";
 
 const DEFAULT_MAX_LINES = 500_000;
+const DEFAULT_MAX_ENTRY_BYTES = 1_048_576;
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // once per day
 /** Flush buffered entries after this many milliseconds of inactivity. */
 const FLUSH_INTERVAL_MS = 200;
@@ -31,6 +32,8 @@ export interface RecordingEntry {
   dir: RecordingDirection;
   raw: string;
   ch: RecordingChannel;
+  truncated?: boolean;
+  originalBytes?: number;
 }
 
 export interface RecordingFileMeta {
@@ -71,12 +74,20 @@ export class SessionRecorder {
   private buffer: string[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushing = false;
+  private maxEntryBytes: number;
 
-  constructor(sessionId: string, backendType: BackendType, cwd: string, outputDir: string) {
+  constructor(
+    sessionId: string,
+    backendType: BackendType,
+    cwd: string,
+    outputDir: string,
+    maxEntryBytes = DEFAULT_MAX_ENTRY_BYTES,
+  ) {
     const ts = new Date().toISOString().replace(/:/g, "-");
     const suffix = randomBytes(3).toString("hex");
     const filename = `${sessionId}_${backendType}_${ts}_${suffix}.jsonl`;
     this.filePath = join(outputDir, filename);
+    this.maxEntryBytes = maxEntryBytes;
 
     const header: RecordingHeader = {
       _header: true,
@@ -93,11 +104,13 @@ export class SessionRecorder {
 
   record(dir: RecordingDirection, raw: string, channel: RecordingChannel): void {
     if (this.closed) return;
+    const compacted = compactRecordingRaw(raw, this.maxEntryBytes);
     const entry: RecordingEntry = {
       ts: Date.now(),
       dir,
-      raw,
+      raw: compacted.raw,
       ch: channel,
+      ...(compacted.truncated ? { truncated: true, originalBytes: compacted.originalBytes } : {}),
     };
     this.buffer.push(JSON.stringify(entry) + "\n");
     this.lineCount++;
@@ -189,6 +202,7 @@ export class RecorderManager {
   private globalEnabled: boolean;
   private recordingsDir: string;
   private maxLines: number;
+  private maxEntryBytes: number;
   private perSessionEnabled = new Set<string>();
   private perSessionDisabled = new Set<string>();
   private recorders = new Map<string, SessionRecorder>();
@@ -199,11 +213,14 @@ export class RecorderManager {
     globalEnabled?: boolean;
     recordingsDir?: string;
     maxLines?: number;
+    maxEntryBytes?: number;
   }) {
     this.globalEnabled = options?.globalEnabled ?? RecorderManager.resolveEnabled();
     this.recordingsDir =
       options?.recordingsDir ?? process.env.COMPANION_RECORDINGS_DIR ?? join(tmpdir(), "companion-recordings");
     this.maxLines = options?.maxLines ?? (Number(process.env.COMPANION_RECORDINGS_MAX_LINES) || DEFAULT_MAX_LINES);
+    this.maxEntryBytes =
+      options?.maxEntryBytes ?? (Number(process.env.COMPANION_RECORDINGS_MAX_ENTRY_BYTES) || DEFAULT_MAX_ENTRY_BYTES);
 
     if (this.globalEnabled) {
       // Run cleanup at startup (async, non-blocking) and periodically
@@ -232,6 +249,10 @@ export class RecorderManager {
 
   getMaxLines(): number {
     return this.maxLines;
+  }
+
+  getMaxEntryBytes(): number {
+    return this.maxEntryBytes;
   }
 
   getActiveRecorderStats(sessionId: string): ActiveRecordingStats | null {
@@ -271,7 +292,7 @@ export class RecorderManager {
     let recorder = this.recorders.get(sessionId);
     if (!recorder) {
       this.ensureDir();
-      recorder = new SessionRecorder(sessionId, backendType, cwd, this.recordingsDir);
+      recorder = new SessionRecorder(sessionId, backendType, cwd, this.recordingsDir, this.maxEntryBytes);
       this.recorders.set(sessionId, recorder);
     }
     recorder.record(dir, raw, channel);
@@ -293,7 +314,7 @@ export class RecorderManager {
     let recorder = this.recorders.get(sessionId);
     if (!recorder) {
       this.ensureDir();
-      recorder = new SessionRecorder(sessionId, backendType, cwd, this.recordingsDir);
+      recorder = new SessionRecorder(sessionId, backendType, cwd, this.recordingsDir, this.maxEntryBytes);
       this.recorders.set(sessionId, recorder);
     }
     const payload = JSON.stringify({ event, ...data });
@@ -423,6 +444,32 @@ export class RecorderManager {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+export function compactRecordingRaw(
+  raw: string,
+  maxBytes = DEFAULT_MAX_ENTRY_BYTES,
+): { raw: string; truncated: boolean; originalBytes?: number } {
+  const originalBytes = Buffer.byteLength(raw, "utf8");
+  if (originalBytes <= maxBytes) return { raw, truncated: false };
+  const suffix = `\n[Recording truncated: ${originalBytes} bytes total]`;
+  const suffixBytes = Buffer.byteLength(suffix, "utf8");
+  const budget = Math.max(0, maxBytes - suffixBytes);
+  return {
+    raw: truncateUtf8(raw, budget) + suffix,
+    truncated: true,
+    originalBytes,
+  };
+}
+
+function truncateUtf8(text: string, maxBytes: number): string {
+  if (maxBytes <= 0) return "";
+  const buffer = Buffer.from(text, "utf8");
+  if (buffer.byteLength <= maxBytes) return text;
+  return buffer
+    .subarray(0, maxBytes)
+    .toString("utf8")
+    .replace(/\uFFFD+$/u, "");
+}
 
 /** Count newlines in a file. Async to avoid blocking on slow filesystems. */
 async function countFileLines(path: string): Promise<number> {

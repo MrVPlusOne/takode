@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
+import { compactPendingCodexInputsForBrowser } from "./codex-pending-input-safety.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
 import type { PushoverNotifier } from "./pushover.js";
@@ -1265,7 +1266,7 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
     broadcastPendingCodexInputs: (targetSession: unknown) =>
       host.broadcastToBrowsers(targetSession as Session, {
         type: "codex_pending_inputs",
-        inputs: (targetSession as Session).pendingCodexInputs,
+        inputs: compactPendingCodexInputsForBrowser((targetSession as Session).pendingCodexInputs),
       }),
     enqueueCodexTurn: (targetSession: unknown, turn: CodexOutboundTurn) =>
       enqueueCodexTurnState(targetSession as Session, turn),

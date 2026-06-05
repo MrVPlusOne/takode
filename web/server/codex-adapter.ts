@@ -57,6 +57,7 @@ import type {
   RateLimitsAwareAdapter,
   TurnStartedAwareAdapter,
   TurnStartFailedAwareAdapter,
+  TurnStartFailureInfo,
 } from "./bridge/adapter-interface.js";
 import { computeContextTokensUsed, computeContextUsedPercent, type TokenUsage } from "./bridge/context-usage.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
@@ -186,7 +187,7 @@ export class CodexAdapter
   private sessionMetaCb: ((meta: CodexSessionMeta) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
   private initErrorCbs = new Set<(error: string) => void>();
-  private turnStartFailedCb: ((msg: BrowserOutgoingMessage) => void) | null = null;
+  private turnStartFailedCb: ((msg: BrowserOutgoingMessage, info?: TurnStartFailureInfo) => void) | null = null;
   private turnStartedCb: ((turnId: string) => void) | null = null;
   private turnSteeredCb: ((turnId: string, pendingInputIds: string[]) => void) | null = null;
   private turnSteerFailedCb: ((pendingInputIds: string[]) => void) | null = null;
@@ -762,7 +763,7 @@ export class CodexAdapter
     this.initErrorCbs.add(cb);
   }
 
-  onTurnStartFailed(cb: (msg: BrowserOutgoingMessage) => void): void {
+  onTurnStartFailed(cb: (msg: BrowserOutgoingMessage, info?: TurnStartFailureInfo) => void): void {
     this.turnStartFailedCb = cb;
   }
 
@@ -1047,7 +1048,7 @@ export class CodexAdapter
         });
         return;
       } catch (err) {
-        const requeued = this.handleTurnStartDispatchFailure(msg);
+        const requeued = this.handleTurnStartDispatchFailure(msg, err);
         if (requeued && isCodexTransportClosedError(err)) {
           console.warn(
             `[codex-adapter] thread/compact/start transport closed; message re-queued for session ${this.sessionId}`,
@@ -1137,7 +1138,7 @@ export class CodexAdapter
             this.turnStartedCb?.(serviceTierRetry);
             return;
           }
-          const requeued = this.handleTurnStartDispatchFailure(msg);
+          const requeued = this.handleTurnStartDispatchFailure(msg, retryErr);
           if (requeued && isRecoverableCodexTurnStartError(retryErr)) {
             console.warn(
               `[codex-adapter] turn/start did not acknowledge; message re-queued for session ${this.sessionId}: ${retryErr}`,
@@ -1155,7 +1156,7 @@ export class CodexAdapter
         this.turnStartedCb?.(serviceTierRetry);
         return;
       }
-      const requeued = this.handleTurnStartDispatchFailure(msg);
+      const requeued = this.handleTurnStartDispatchFailure(msg, err);
       if (requeued && isRecoverableCodexTurnStartError(err)) {
         console.warn(
           `[codex-adapter] turn/start did not acknowledge; message re-queued for session ${this.sessionId}: ${err}`,
@@ -1237,7 +1238,7 @@ export class CodexAdapter
             this.turnStartedCb?.(serviceTierRetry);
             return;
           }
-          const requeued = this.handleTurnStartDispatchFailure(msg);
+          const requeued = this.handleTurnStartDispatchFailure(msg, retryErr);
           if (requeued && isRecoverableCodexTurnStartError(retryErr)) return;
           this.emit({ type: "error", message: `Failed to start pending Codex batch: ${retryErr}` });
           return;
@@ -1249,7 +1250,7 @@ export class CodexAdapter
         this.turnStartedCb?.(serviceTierRetry);
         return;
       }
-      const requeued = this.handleTurnStartDispatchFailure(msg);
+      const requeued = this.handleTurnStartDispatchFailure(msg, err);
       if (requeued && isRecoverableCodexTurnStartError(err)) return;
       this.emit({ type: "error", message: `Failed to start pending Codex batch: ${err}` });
     }
@@ -1947,9 +1948,17 @@ export class CodexAdapter
     });
   }
 
-  private handleTurnStartDispatchFailure(msg: BrowserOutgoingMessage): boolean {
+  private handleTurnStartDispatchFailure(msg: BrowserOutgoingMessage, err: unknown): boolean {
     if (!this.turnStartFailedCb) return false;
-    this.turnStartFailedCb(msg);
+    const recoverable = isRecoverableCodexTurnStartError(err);
+    if (recoverable) {
+      this.turnStartFailedCb(msg);
+    } else {
+      this.turnStartFailedCb(msg, {
+        recoverable,
+        message: String(err),
+      });
+    }
     return true;
   }
 }

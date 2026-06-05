@@ -176,6 +176,40 @@ describe("onTurnStartFailed callback", () => {
     }
   });
 
+  it("reports nonrecoverable turn/start validation failures without recoverable requeue semantics", async () => {
+    const adapter = await initAdapter();
+    const failedCb = vi.fn();
+    const emitted: BrowserIncomingMessage[] = [];
+    adapter.onBrowserMessage((msg) => emitted.push(msg));
+    adapter.onTurnStartFailed(failedCb);
+
+    adapter.sendBrowserMessage({ type: "user_message", content: "oversized message" } as BrowserOutgoingMessage);
+    await tick();
+
+    stdout.push(JSON.stringify({ id: 3, result: {} }) + "\n");
+    stdout.push(
+      JSON.stringify({
+        id: 4,
+        error: {
+          code: -32602,
+          message: "input_too_large: max_chars=1048576",
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    expect(failedCb).toHaveBeenCalledOnce();
+    expect(failedCb).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user_message", content: "oversized message" }),
+      expect.objectContaining({
+        recoverable: false,
+        message: expect.stringContaining("input_too_large"),
+      }),
+    );
+    const startErrors = emitted.filter((m) => m.type === "error" && m.message.includes("Failed to start turn"));
+    expect(startErrors).toHaveLength(1);
+  });
+
   it("emits a turn/start error when transport closes and no re-queue callback is registered", async () => {
     const adapter = await initAdapter();
     const emitted: BrowserIncomingMessage[] = [];

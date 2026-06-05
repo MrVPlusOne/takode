@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, readdirSync, existsSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { SessionRecorder, RecorderManager } from "./recorder.js";
+import { compactRecordingRaw, SessionRecorder, RecorderManager } from "./recorder.js";
 
 let tempDir: string;
 
@@ -80,6 +80,16 @@ describe("SessionRecorder", () => {
 
     const entry = JSON.parse(lines[1]);
     expect(entry.raw).toBe(rawMsg);
+  });
+
+  it("truncates oversized raw entries with original byte metadata", () => {
+    const raw = "x".repeat(128);
+    const compacted = compactRecordingRaw(raw, 64);
+
+    expect(compacted.truncated).toBe(true);
+    expect(compacted.originalBytes).toBe(128);
+    expect(compacted.raw).toContain("Recording truncated");
+    expect(compacted.raw).not.toBe(raw);
   });
 
   it("records entries with monotonically increasing timestamps", async () => {

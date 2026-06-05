@@ -604,6 +604,74 @@ beforeEach(() => {
 });
 
 describe("Codex pending input delivery", () => {
+  it("rejects oversized deliveryContent before it enters pending Codex state", async () => {
+    process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES = "32";
+    try {
+      const sid = "s-codex-oversized-pending";
+      const browser = makeBrowserSocket(sid);
+      bridge.getOrCreateSession(sid, "codex");
+      bridge.handleBrowserOpen(browser, sid);
+      browser.send.mockClear();
+
+      await bridge.handleBrowserMessage(
+        browser,
+        JSON.stringify({
+          type: "user_message",
+          content: "short visible message",
+          deliveryContent: "x".repeat(64),
+        }),
+      );
+      await Promise.resolve();
+
+      const session = bridge.getSession(sid)!;
+      expect(session.pendingCodexInputs).toHaveLength(0);
+      expect(session.pendingCodexTurns).toHaveLength(0);
+      expect(
+        browser.send.mock.calls
+          .map(([arg]: [string]) => JSON.parse(arg))
+          .some((msg: any) => msg.type === "error" && msg.message.includes("too large to queue safely")),
+      ).toBe(true);
+    } finally {
+      delete process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES;
+    }
+  });
+
+  it("compacts browser pending-input snapshots and keeps them out of replay buffers", async () => {
+    process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES = "1000";
+    process.env.TAKODE_CODEX_PENDING_INPUT_BROWSER_PREVIEW_BYTES = "64";
+    try {
+      const sid = "s-codex-compact-pending";
+      const browser = makeBrowserSocket(sid);
+      bridge.getOrCreateSession(sid, "codex");
+      bridge.handleBrowserOpen(browser, sid);
+      browser.send.mockClear();
+
+      const deliveryContent = "delivery: " + "x".repeat(200);
+      await bridge.handleBrowserMessage(
+        browser,
+        JSON.stringify({
+          type: "user_message",
+          content: "visible",
+          deliveryContent,
+        }),
+      );
+      await Promise.resolve();
+
+      const session = bridge.getSession(sid)!;
+      expect(session.pendingCodexInputs[0]?.deliveryContent).toBe(deliveryContent);
+      const pendingBroadcast = browser.send.mock.calls
+        .map(([arg]: [string]) => JSON.parse(arg))
+        .find((msg: any) => msg.type === "codex_pending_inputs");
+      expect(pendingBroadcast?.inputs[0]?.payloadTruncated).toBe(true);
+      expect(pendingBroadcast?.inputs[0]?.deliveryContent).not.toBe(deliveryContent);
+      expect(pendingBroadcast?.inputs[0]?.deliveryContentBytes).toBe(Buffer.byteLength(deliveryContent, "utf8"));
+      expect(session.eventBuffer.some((event: any) => event.message?.type === "codex_pending_inputs")).toBe(false);
+    } finally {
+      delete process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES;
+      delete process.env.TAKODE_CODEX_PENDING_INPUT_BROWSER_PREVIEW_BYTES;
+    }
+  });
+
   it("keeps Codex user input pending until turn/start acknowledges delivery", async () => {
     const sid = "s-codex-pending";
     const browser = makeBrowserSocket(sid);

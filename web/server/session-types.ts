@@ -503,11 +503,17 @@ export interface PendingCodexInput {
   id: string;
   clientMsgId?: string;
   content: string;
+  /** Original UTF-8 byte length when content is compacted for browser sync. */
+  contentBytes?: number;
   timestamp: number;
   cancelable: boolean;
   imageRefs?: import("./image-store.js").ImageRef[];
   draftImages?: PendingCodexInputImageDraft[];
   deliveryContent?: string;
+  /** Original UTF-8 byte length when deliveryContent is compacted for browser sync. */
+  deliveryContentBytes?: number;
+  /** True only for browser-facing compact snapshots, never for model delivery state. */
+  payloadTruncated?: boolean;
   replyContext?: ReplyContext;
   needsInputReminderText?: string;
   needsInputResolutionNoticeText?: string;

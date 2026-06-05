@@ -1,5 +1,10 @@
 import type { BrowserIncomingMessage, BrowserOutgoingMessage } from "../session-types.js";
 
+export interface TurnStartFailureInfo {
+  recoverable: boolean;
+  message: string;
+}
+
 /** Metadata updates adapters can emit as they initialize or reconnect. */
 export interface AdapterSessionMeta {
   cliSessionId?: string;
@@ -22,7 +27,7 @@ export interface BackendAdapter<TMeta extends AdapterSessionMeta = AdapterSessio
 }
 
 export interface TurnStartFailedAwareAdapter {
-  onTurnStartFailed(cb: (msg: BrowserOutgoingMessage) => void): void;
+  onTurnStartFailed(cb: (msg: BrowserOutgoingMessage, info?: TurnStartFailureInfo) => void): void;
 }
 
 export interface TurnStartedAwareAdapter {

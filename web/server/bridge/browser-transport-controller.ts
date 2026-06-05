@@ -24,6 +24,7 @@ import { sessionTag } from "../session-tag.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
+import { compactPendingCodexInputsForBrowser } from "../codex-pending-input-safety.js";
 import { routeFromHistoryEntry } from "../thread-routing-metadata.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import {
@@ -241,7 +242,7 @@ export function handleBrowserOpen(
   } as BrowserIncomingMessage);
   sendToBrowser(ws, {
     type: "codex_pending_inputs",
-    inputs: session.pendingCodexInputs,
+    inputs: compactPendingCodexInputsForBrowser(session.pendingCodexInputs),
   } as BrowserIncomingMessage);
   void deps
     .getTreeGroupState()

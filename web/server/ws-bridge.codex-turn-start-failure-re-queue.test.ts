@@ -90,7 +90,7 @@ function makeCodexAdapterMock() {
   let onSessionMetaCb: ((meta: any) => void) | undefined;
   let onDisconnectCb: (() => void) | undefined;
   let onInitErrorCb: ((error: string) => void) | undefined;
-  let onTurnStartFailedCb: ((msg: any) => void) | undefined;
+  let onTurnStartFailedCb: ((msg: any, info?: any) => void) | undefined;
   let onTurnStartedCb: ((turnId: string) => void) | undefined;
   let onTurnSteeredCb: ((turnId: string, pendingInputIds: string[]) => void) | undefined;
   let onTurnSteerFailedCb: ((pendingInputIds: string[]) => void) | undefined;
@@ -110,7 +110,7 @@ function makeCodexAdapterMock() {
     onInitError: vi.fn((cb: (error: string) => void) => {
       onInitErrorCb = cb;
     }),
-    onTurnStartFailed: vi.fn((cb: (msg: any) => void) => {
+    onTurnStartFailed: vi.fn((cb: (msg: any, info?: any) => void) => {
       onTurnStartFailedCb = cb;
     }),
     onTurnStarted: vi.fn((cb: (turnId: string) => void) => {
@@ -135,7 +135,7 @@ function makeCodexAdapterMock() {
       onDisconnectCb?.();
     },
     emitInitError: (error: string) => onInitErrorCb?.(error),
-    emitTurnStartFailed: (msg: any) => onTurnStartFailedCb?.(msg),
+    emitTurnStartFailed: (msg: any, info?: any) => onTurnStartFailedCb?.(msg, info),
     emitTurnStarted: (turnId: string) => {
       currentTurnId = turnId;
       onTurnStartedCb?.(turnId);
@@ -605,6 +605,36 @@ describe("Codex turn-start failure re-queue", () => {
       status: "dispatched",
       dispatchCount: 2,
     });
+  });
+
+  it("does not redispatch nonrecoverable turn-start validation failures", () => {
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    emitCodexSessionReady(adapter);
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    void bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "oversized" }));
+
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
+    adapter.emitTurnStartFailed(
+      { type: "user_message", content: "oversized" },
+      {
+        recoverable: false,
+        message: "input_too_large: max_chars=1048576",
+      },
+    );
+
+    const session = bridge.getSession("s1")!;
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(session.pendingCodexTurns).toHaveLength(0);
+    expect(session.isGenerating).toBe(false);
+    expect(
+      browser.send.mock.calls
+        .map(([arg]: [string]) => JSON.parse(arg))
+        .some((msg: any) => msg.type === "error" && msg.message.includes("input_too_large")),
+    ).toBe(true);
   });
 
   it("flushes re-queued message to a new adapter on reattach", () => {

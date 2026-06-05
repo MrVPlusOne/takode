@@ -211,8 +211,15 @@ describe("saveSync / load", () => {
         },
         { seq: 3, message: { type: "session_name_update", name: "Old Name" } },
         { seq: 4, message: { type: "event_replay", events: [] } },
+        {
+          seq: 5,
+          message: {
+            type: "codex_pending_inputs",
+            inputs: [{ id: "pending-1", content: "x".repeat(128), timestamp: 1, cancelable: true }],
+          },
+        },
       ] as PersistedSession["eventBuffer"],
-      nextEventSeq: 5,
+      nextEventSeq: 6,
       lastAckSeq: 1,
     });
     writeFileSync(join(tempDir, "legacy-buffer.json"), JSON.stringify(session), "utf-8");
@@ -221,7 +228,7 @@ describe("saveSync / load", () => {
     const loaded = await freshStore.load("legacy-buffer");
 
     expect(loaded!.eventBuffer).toEqual([{ seq: 1, message: { type: "backend_connected" } }]);
-    expect(loaded!.nextEventSeq).toBe(5);
+    expect(loaded!.nextEventSeq).toBe(6);
     expect(loaded!.lastAckSeq).toBe(1);
 
     await freshStore.flushAll();

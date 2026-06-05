@@ -49,6 +49,7 @@ import type {
   ThreadRef,
 } from "../session-types.js";
 import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
+import { getCodexPendingInputSizeLimit } from "../codex-pending-input-safety.js";
 import { sessionTag } from "../session-tag.js";
 import type { BrowserTransportSessionLike, BrowserTransportSocketLike } from "./browser-transport-controller.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
@@ -1661,7 +1662,7 @@ export function routeAdapterBrowserMessage(
               : "";
           deliveryContent = sourcePrefix + contentWithReminder;
         }
-        deps.addPendingCodexInput(session, {
+        const pendingInput = {
           id: ingested.historyEntry.id,
           ...(msg.client_msg_id ? { clientMsgId: msg.client_msg_id } : {}),
           content: ingested.historyEntry.content,
@@ -1685,7 +1686,19 @@ export function routeAdapterBrowserMessage(
           ...(ingested.historyEntry.threadRefs ? { threadRefs: ingested.historyEntry.threadRefs } : {}),
           ...(ingested.historyEntry.slackThreadId ? { slackThreadId: ingested.historyEntry.slackThreadId } : {}),
           autoPauseSourceKind: determineUserMessageSourceKind(msg),
-        });
+        };
+        const sizeLimit = getCodexPendingInputSizeLimit(pendingInput);
+        if (sizeLimit.overLimit) {
+          deps.broadcastToBrowsers(session, {
+            type: "error",
+            message:
+              `Codex input is too large to queue safely (${sizeLimit.actualBytes} bytes; limit ${sizeLimit.maxBytes}). ` +
+              "The message was not sent to Codex.",
+          });
+          deps.persistSession(session);
+          return true;
+        }
+        deps.addPendingCodexInput(session, pendingInput);
         markNeedsInputResolutionNoticesQueued(
           session,
           ingested.needsInputResolutionNoticeIds,
