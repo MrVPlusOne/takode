@@ -104,11 +104,11 @@ import { handleCodexResultErrorAutoPause as handleCodexResultErrorAutoPauseDeliv
 import { deliverProgrammaticUserMessage } from "./bridge/programmatic-user-message-delivery.js";
 import { pauseSessionForDelivery, unpauseSessionForDelivery } from "./bridge/session-pause-delivery.js";
 import {
-  routeSlackThreadUserMessage as routeSlackThreadUserMessageController,
-  syncSlackThreadRecord as syncSlackThreadRecordController,
-  syncSlackThreadRecordForChild as syncSlackThreadRecordForChildController,
-  type SlackThreadBridgeDeps,
-} from "./slack-thread-bridge.js";
+  routeSideChatUserMessage as routeSideChatUserMessageController,
+  syncSideChatRecord as syncSideChatRecordController,
+  syncSideChatRecordForChild as syncSideChatRecordForChildController,
+  type SideChatBridgeDeps,
+} from "./side-chat-bridge.js";
 import {
   flushQueuedCliMessages as flushQueuedCliMessagesController,
   handleCLIClose as handleCLICloseTransportController,
@@ -373,7 +373,7 @@ export class WsBridge {
     "set_ask_permission",
   ]);
   private sessions = new Map<string, Session>();
-  private slackThreadBridgeDeps: SlackThreadBridgeDeps = {
+  private sideChatBridgeDeps: SideChatBridgeDeps = {
     sessions: this.sessions,
     getBrowserRoutingDeps: () => this.getBrowserRoutingDeps(),
     broadcastToBrowsers: (session, msg) => this.broadcastToBrowsers(session, msg),
@@ -925,21 +925,21 @@ export class WsBridge {
     return this.sessions.get(sessionId);
   }
 
-  syncSlackThreadRecord(rootSessionId: string, threadId: string): boolean {
-    return syncSlackThreadRecordController(this.slackThreadBridgeDeps, rootSessionId, threadId);
+  syncSideChatRecord(rootSessionId: string, threadId: string): boolean {
+    return syncSideChatRecordController(this.sideChatBridgeDeps, rootSessionId, threadId);
   }
 
-  syncSlackThreadRecordForChild(childSession: Session): boolean {
-    return syncSlackThreadRecordForChildController(this.slackThreadBridgeDeps, childSession);
+  syncSideChatRecordForChild(childSession: Session): boolean {
+    return syncSideChatRecordForChildController(this.sideChatBridgeDeps, childSession);
   }
 
-  async routeSlackThreadUserMessage(
+  async routeSideChatUserMessage(
     rootSessionId: string,
     threadId: string,
     content: string,
     options?: { clientMsgId?: string },
   ): Promise<{ ok: true; childSessionId: string } | { ok: false; error: string }> {
-    return routeSlackThreadUserMessageController(this.slackThreadBridgeDeps, rootSessionId, threadId, content, options);
+    return routeSideChatUserMessageController(this.sideChatBridgeDeps, rootSessionId, threadId, content, options);
   }
 
   async setSessionPermissionMode(sessionId: string, mode: string): Promise<boolean> {

@@ -3,7 +3,7 @@ import type {
   TreeGroup,
   ChatMessage,
   BrowserIncomingMessage,
-  SlackThreadRecord,
+  SideChatRecord,
   StreamRecord,
   SessionNotification,
 } from "./types.js";
@@ -973,13 +973,35 @@ export const api = {
   createSession: (opts?: CreateSessionOpts) =>
     post<{ sessionId: string; state: string; cwd: string }>("/sessions/create", opts),
 
-  createSlackThread: (sessionId: string, anchorMessageId: string) =>
-    post<{ ok: true; thread: SlackThreadRecord }>(`/sessions/${encodeURIComponent(sessionId)}/slack-threads`, {
-      anchorMessageId,
-    }),
+  createSideChat: (sessionId: string, anchorMessageId: string) =>
+    post<{ ok: true; sideChat: SideChatRecord; thread?: SideChatRecord }>(
+      `/sessions/${encodeURIComponent(sessionId)}/side-chats`,
+      {
+        anchorMessageId,
+      },
+    ),
 
+  sendSideChatMessage: (sessionId: string, sideChatId: string, content: string, clientMsgId?: string) =>
+    post<{ ok: true; sideChat?: SideChatRecord; thread?: SideChatRecord; childSessionId: string }>(
+      `/sessions/${encodeURIComponent(sessionId)}/side-chats/${encodeURIComponent(sideChatId)}/message`,
+      {
+        content,
+        ...(clientMsgId ? { clientMsgId } : {}),
+      },
+    ),
+
+  /** @deprecated Use createSideChat. Kept for older callers during the route rename. */
+  createSlackThread: (sessionId: string, anchorMessageId: string) =>
+    post<{ ok: true; sideChat: SideChatRecord; thread: SideChatRecord }>(
+      `/sessions/${encodeURIComponent(sessionId)}/slack-threads`,
+      {
+        anchorMessageId,
+      },
+    ),
+
+  /** @deprecated Use sendSideChatMessage. Kept for older callers during the route rename. */
   sendSlackThreadMessage: (sessionId: string, threadId: string, content: string, clientMsgId?: string) =>
-    post<{ ok: true; thread?: SlackThreadRecord; childSessionId: string }>(
+    post<{ ok: true; sideChat?: SideChatRecord; thread?: SideChatRecord; childSessionId: string }>(
       `/sessions/${encodeURIComponent(sessionId)}/slack-threads/${encodeURIComponent(threadId)}/message`,
       {
         content,

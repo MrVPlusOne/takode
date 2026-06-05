@@ -18,7 +18,7 @@ import {
   PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID,
   PLAYGROUND_RESUMING_SESSION_ID,
   PLAYGROUND_SECTIONED_SESSION_ID,
-  PLAYGROUND_SLACK_THREAD_CHILD_SESSION_ID,
+  PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID,
   PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID,
   PLAYGROUND_STARTING_SESSION_ID,
   PLAYGROUND_THREAD_PANEL_SESSION_ID,
@@ -52,7 +52,7 @@ export function usePlaygroundSeed() {
       PLAYGROUND_DISCONNECTED_SESSION_ID,
       PLAYGROUND_BROKEN_SESSION_ID,
       PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID,
-      PLAYGROUND_SLACK_THREAD_CHILD_SESSION_ID,
+      PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID,
       PLAYGROUND_THREAD_PANEL_SESSION_ID,
       "leader-alpha",
       questInProgressId,
@@ -124,7 +124,7 @@ export function usePlaygroundSeed() {
         "st-playground": {
           id: "st-playground",
           rootSessionId: sessionId,
-          childSessionId: PLAYGROUND_SLACK_THREAD_CHILD_SESSION_ID,
+          childSessionId: PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID,
           anchorMessageId: MSG_ASSISTANT.id,
           anchorHistoryIndex: 2,
           anchorPreview: "We can stage the migration instead of replacing auth in one pass.",
@@ -167,9 +167,9 @@ export function usePlaygroundSeed() {
     store.addPermission(sessionId, PERM_BASH);
     store.addPermission(sessionId, PERM_DYNAMIC);
 
-    const slackThreadChildSession: SessionState = {
+    const sideChatChildSession: SessionState = {
       ...session,
-      session_id: PLAYGROUND_SLACK_THREAD_CHILD_SESSION_ID,
+      session_id: PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID,
       hidden: true,
       slackThreadChild: {
         rootSessionId: sessionId,
@@ -180,11 +180,11 @@ export function usePlaygroundSeed() {
       },
       num_turns: 1,
     };
-    store.addSession(slackThreadChildSession);
-    store.setConnectionStatus(PLAYGROUND_SLACK_THREAD_CHILD_SESSION_ID, "connected");
-    store.setCliConnected(PLAYGROUND_SLACK_THREAD_CHILD_SESSION_ID, true);
-    store.setSessionStatus(PLAYGROUND_SLACK_THREAD_CHILD_SESSION_ID, "idle");
-    store.setMessages(PLAYGROUND_SLACK_THREAD_CHILD_SESSION_ID, [
+    store.addSession(sideChatChildSession);
+    store.setConnectionStatus(PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID, true);
+    store.setSessionStatus(PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID, "idle");
+    store.setMessages(PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID, [
       makePlaygroundMessage({
         id: "playground-thread-user",
         role: "user",

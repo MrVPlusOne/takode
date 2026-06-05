@@ -2,16 +2,16 @@ import type { AdapterBrowserRoutingDeps } from "./bridge/adapter-browser-routing
 import { routeBrowserMessage as routeBrowserMessageController } from "./bridge/adapter-browser-routing-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage } from "./session-types.js";
-import { buildBoundedSlackThreadSeedPrompt, updateSlackThreadRecordFromChildHistory } from "./slack-thread-branches.js";
+import { buildBoundedSideChatSeedPrompt, updateSideChatRecordFromChildHistory } from "./side-chat-branches.js";
 
-export interface SlackThreadBridgeDeps {
+export interface SideChatBridgeDeps {
   sessions: Map<string, Session>;
   getBrowserRoutingDeps: () => AdapterBrowserRoutingDeps;
   broadcastToBrowsers: (session: Session, msg: BrowserIncomingMessage) => void;
   persistSession: (session: Session) => void;
 }
 
-export function syncSlackThreadRecord(deps: SlackThreadBridgeDeps, rootSessionId: string, threadId: string): boolean {
+export function syncSideChatRecord(deps: SideChatBridgeDeps, rootSessionId: string, threadId: string): boolean {
   const root = deps.sessions.get(rootSessionId);
   if (!root?.state.slackThreads?.[threadId]) return false;
   const record = root.state.slackThreads[threadId];
@@ -19,21 +19,21 @@ export function syncSlackThreadRecord(deps: SlackThreadBridgeDeps, rootSessionId
   if (!child) return false;
   root.state.slackThreads = {
     ...root.state.slackThreads,
-    [threadId]: updateSlackThreadRecordFromChildHistory(record, child.messageHistory),
+    [threadId]: updateSideChatRecordFromChildHistory(record, child.messageHistory),
   };
   deps.broadcastToBrowsers(root, { type: "session_update", session: { slackThreads: root.state.slackThreads } });
   deps.persistSession(root);
   return true;
 }
 
-export function syncSlackThreadRecordForChild(deps: SlackThreadBridgeDeps, childSession: Session): boolean {
+export function syncSideChatRecordForChild(deps: SideChatBridgeDeps, childSession: Session): boolean {
   const child = childSession.state.slackThreadChild;
   if (!child) return false;
-  return syncSlackThreadRecord(deps, child.rootSessionId, child.threadId);
+  return syncSideChatRecord(deps, child.rootSessionId, child.threadId);
 }
 
-export async function routeSlackThreadUserMessage(
-  deps: SlackThreadBridgeDeps,
+export async function routeSideChatUserMessage(
+  deps: SideChatBridgeDeps,
   rootSessionId: string,
   threadId: string,
   content: string,
@@ -44,11 +44,11 @@ export async function routeSlackThreadUserMessage(
   const record = root.state.slackThreads?.[threadId];
   if (!record) return { ok: false, error: "Thread not found" };
   const child = deps.sessions.get(record.childSessionId);
-  if (!child) return { ok: false, error: "Hidden thread session not found" };
+  if (!child) return { ok: false, error: "Hidden Side Chat session not found" };
 
   const seed = record.seeded
     ? null
-    : buildBoundedSlackThreadSeedPrompt(root.messageHistory, record.anchorHistoryIndex, record.anchorMessageId);
+    : buildBoundedSideChatSeedPrompt(root.messageHistory, record.anchorHistoryIndex, record.anchorMessageId);
   const fallbackNotice = record.contextFallbackReason
     ? `Native backend fork was unavailable, so Takode is using bounded replay context for this Side Chat. ${record.contextFallbackReason}`
     : "Takode is using bounded replay context for this Side Chat.";
@@ -57,7 +57,7 @@ export async function routeSlackThreadUserMessage(
     content,
     ...(seed
       ? {
-          deliveryContent: `${fallbackNotice}${seed.truncated ? ` Earlier context was truncated by ${seed.omittedChars} chars.` : ""}\n\n${seed.prompt}\n\nUser thread message:\n${content}`,
+          deliveryContent: `${fallbackNotice}${seed.truncated ? ` Earlier context was truncated by ${seed.omittedChars} chars.` : ""}\n\n${seed.prompt}\n\nUser Side Chat message:\n${content}`,
         }
       : {}),
     ...(options?.clientMsgId ? { client_msg_id: options.clientMsgId } : {}),
@@ -70,7 +70,7 @@ export async function routeSlackThreadUserMessage(
   if (latest) {
     root.state.slackThreads = {
       ...root.state.slackThreads,
-      [threadId]: updateSlackThreadRecordFromChildHistory({ ...latest, seeded: true }, child.messageHistory),
+      [threadId]: updateSideChatRecordFromChildHistory({ ...latest, seeded: true }, child.messageHistory),
     };
     deps.broadcastToBrowsers(root, { type: "session_update", session: { slackThreads: root.state.slackThreads } });
     deps.persistSession(root);

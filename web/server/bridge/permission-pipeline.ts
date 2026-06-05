@@ -198,7 +198,7 @@ function getHardDeniedPermission<S extends PermissionPipelineSession>(
         request: perm,
         message:
           "Thread turns are read-only. Continue in the root conversation or a normal quest workflow to edit files.",
-        reminder: "This Slack-like thread is read-only for repository and file state.",
+        reminder: "This Side Chat workspace is read-only for repository and file state.",
       };
     }
     if (perm.tool_name === "Bash") {

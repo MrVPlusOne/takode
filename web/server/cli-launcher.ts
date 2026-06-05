@@ -180,12 +180,20 @@ export interface LaunchOptions {
   envSlug?: string;
   /** Env keys to remove after env profile and inline env merging, before Takode identity injection. */
   blockedEnvKeys?: string[];
-  /** Hidden implementation session backing a Slack-like conversation branch. */
+  /** Hidden implementation session backing a Side Chat workspace. */
   hidden?: boolean;
   parentSessionId?: string;
+  sideChatId?: string;
+  sideChatAnchorMessageId?: string;
+  sideChatAnchorHistoryIndex?: number;
+  sideChatReadOnly?: boolean;
+  /** @deprecated Legacy persisted launcher metadata for Side Chat children. */
   slackThreadId?: string;
+  /** @deprecated Legacy persisted launcher metadata for Side Chat children. */
   slackThreadAnchorMessageId?: string;
+  /** @deprecated Legacy persisted launcher metadata for Side Chat children. */
   slackThreadAnchorHistoryIndex?: number;
+  /** @deprecated Legacy persisted launcher metadata for Side Chat children. */
   slackThreadReadOnly?: boolean;
 }
 
@@ -638,10 +646,10 @@ export class CliLauncher {
       blockedEnvKeys: options.blockedEnvKeys?.length ? Array.from(new Set(options.blockedEnvKeys)) : undefined,
       hidden: options.hidden === true,
       parentSessionId: options.parentSessionId,
-      slackThreadId: options.slackThreadId,
-      slackThreadAnchorMessageId: options.slackThreadAnchorMessageId,
-      slackThreadAnchorHistoryIndex: options.slackThreadAnchorHistoryIndex,
-      slackThreadReadOnly: options.slackThreadReadOnly === true,
+      slackThreadId: options.sideChatId ?? options.slackThreadId,
+      slackThreadAnchorMessageId: options.sideChatAnchorMessageId ?? options.slackThreadAnchorMessageId,
+      slackThreadAnchorHistoryIndex: options.sideChatAnchorHistoryIndex ?? options.slackThreadAnchorHistoryIndex,
+      slackThreadReadOnly: (options.sideChatReadOnly ?? options.slackThreadReadOnly) === true,
     };
 
     if (backendType === "codex") {

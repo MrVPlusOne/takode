@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 
 import { render, screen } from "@testing-library/react";
-import type { ChatMessage, SlackThreadRecord } from "../types.js";
+import type { ChatMessage, SideChatRecord } from "../types.js";
 
-const sendSlackThreadMessageMock = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
+const sendSideChatMessageMock = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
 const connectSessionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../api.js", () => ({
   api: {
-    sendSlackThreadMessage: sendSlackThreadMessageMock,
+    sendSideChatMessage: sendSideChatMessageMock,
   },
 }));
 
@@ -25,19 +25,19 @@ vi.mock("remark-gfm", () => ({
 }));
 
 import { useStore } from "../store.js";
-import { SlackThreadPanel } from "./SlackThreadPanel.js";
+import { SideChatPanel } from "./SideChatPanel.js";
 
 function makeAssistantMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
   return {
     id: "thread-assistant",
     role: "assistant",
-    content: "Thread answer",
+    content: "Side Chat answer",
     timestamp: 100,
     ...overrides,
   };
 }
 
-function makeThread(overrides: Partial<SlackThreadRecord> = {}): SlackThreadRecord {
+function makeSideChat(overrides: Partial<SideChatRecord> = {}): SideChatRecord {
   return {
     id: "st-1",
     rootSessionId: "root",
@@ -53,29 +53,29 @@ function makeThread(overrides: Partial<SlackThreadRecord> = {}): SlackThreadReco
   };
 }
 
-describe("SlackThreadPanel", () => {
+describe("SideChatPanel", () => {
   beforeEach(() => {
     useStore.getState().reset();
-    sendSlackThreadMessageMock.mockClear();
+    sendSideChatMessageMock.mockClear();
     connectSessionMock.mockClear();
   });
 
-  it("renders in-thread assistant messages without nested thread creation affordances", () => {
+  it("renders Side Chat assistant messages without nested Side Chat creation affordances", () => {
     useStore.setState({
       messages: new Map([["hidden-child", [makeAssistantMessage()]]]),
     });
 
-    render(<SlackThreadPanel rootSessionId="root" thread={makeThread()} onClose={() => {}} />);
+    render(<SideChatPanel rootSessionId="root" sideChat={makeSideChat()} onClose={() => {}} />);
 
-    expect(screen.getByText("Thread answer")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Start thread" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Open thread with/i })).toBeNull();
+    expect(screen.getByText("Side Chat answer")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Start Side Chat" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Open Side Chat with/i })).toBeNull();
   });
 
-  it("explains that Slack thread replies are read-only and must not edit files", () => {
-    render(<SlackThreadPanel rootSessionId="root" thread={makeThread()} onClose={() => {}} />);
+  it("explains that Side Chat replies are read-only and must not edit files", () => {
+    render(<SideChatPanel rootSessionId="root" sideChat={makeSideChat()} onClose={() => {}} />);
 
-    expect(screen.getByText(/Use this thread for analysis and follow-up questions only/i)).toBeTruthy();
+    expect(screen.getByText(/Use this workspace for analysis and follow-up questions only/i)).toBeTruthy();
     expect(screen.getByText(/File and repo edits are blocked here/i)).toBeTruthy();
   });
 });

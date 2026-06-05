@@ -642,7 +642,7 @@ describe("GET /api/sessions/search", () => {
     expect(json.results.some((r: any) => r.sessionId === "s-archived")).toBe(false);
   });
 
-  it("does not return hidden Slack thread child sessions", async () => {
+  it("does not return hidden Side Chat child sessions", async () => {
     launcher.listSessions.mockReturnValue([
       { sessionId: "root", state: "running", cwd: "/needle-root", createdAt: 1, archived: false },
       {

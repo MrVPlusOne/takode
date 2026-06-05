@@ -967,10 +967,10 @@ describe("MessageBubble - assistant messages", () => {
     expect(markdown.textContent).toBe("Hello world");
   });
 
-  it("renders a visible Slack thread summary for root assistant messages with server-owned thread records", () => {
+  it("renders a visible Side Chat summary for root assistant messages with server-owned Side Chat records", () => {
     // Thread counts come from authoritative session state, so reconnect replay
     // can rebuild the summary without relying on local UI state.
-    const sessionId = "session-with-slack-thread";
+    const sessionId = "session-with-side-chat";
     const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Root answer" });
     useStore.getState().addSession({
       session_id: sessionId,
@@ -1007,7 +1007,7 @@ describe("MessageBubble - assistant messages", () => {
           createdAt: 1,
           updatedAt: 2,
           messageCount: 2,
-          lastMessagePreview: "Thread follow-up",
+          lastMessagePreview: "Side Chat follow-up",
           seeded: true,
         },
       },
@@ -1016,11 +1016,11 @@ describe("MessageBubble - assistant messages", () => {
     render(<MessageBubble message={msg} sessionId={sessionId} currentThreadKey="main" />);
 
     expect(screen.getByText("2 replies")).toBeTruthy();
-    expect(screen.getByText("Thread follow-up")).toBeTruthy();
+    expect(screen.getByText("Side Chat follow-up")).toBeTruthy();
   });
 
-  it("suppresses Slack thread controls and summaries for leader sessions", () => {
-    const sessionId = "leader-with-slack-thread";
+  it("suppresses Side Chat controls and summaries for leader sessions", () => {
+    const sessionId = "leader-with-side-chat";
     const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Leader root answer" });
     useStore.getState().addSession({
       session_id: sessionId,
@@ -1058,7 +1058,7 @@ describe("MessageBubble - assistant messages", () => {
           createdAt: 1,
           updatedAt: 2,
           messageCount: 2,
-          lastMessagePreview: "Thread follow-up",
+          lastMessagePreview: "Side Chat follow-up",
           seeded: true,
         },
       },
@@ -1067,26 +1067,26 @@ describe("MessageBubble - assistant messages", () => {
     render(<MessageBubble message={msg} sessionId={sessionId} currentThreadKey="main" />);
 
     expect(screen.queryByText("2 replies")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Start thread" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Open thread with/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start Side Chat" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Open Side Chat with/i })).toBeNull();
     expect(screen.getByRole("button", { name: "Copy message" })).toBeTruthy();
   });
 
-  it("keeps Slack thread creation available for root assistant messages by default", () => {
+  it("keeps Side Chat creation available for root assistant messages by default", () => {
     const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Root answer" });
 
     const { container } = render(<MessageBubble message={msg} sessionId="root-session" currentThreadKey="main" />);
 
     const toolbar = container.querySelector("[data-message-action-toolbar]");
-    const startThread = screen.getByRole("button", { name: "Start thread" });
-    expect(startThread).toBeTruthy();
+    const startSideChat = screen.getByRole("button", { name: "Start Side Chat" });
+    expect(startSideChat).toBeTruthy();
     expect(toolbar).toBeTruthy();
     expect(toolbar?.className).not.toContain("absolute");
     expect(toolbar?.className).toContain("shrink-0");
-    expect(startThread.className).toContain("h-7");
+    expect(startSideChat.className).toContain("h-7");
   });
 
-  it("keeps Slack thread creation available for herded worker sessions", () => {
+  it("keeps Side Chat creation available for herded worker sessions", () => {
     const prevSdkSessions = useStore.getState().sdkSessions;
     useStore.setState({
       sdkSessions: [
@@ -1099,25 +1099,25 @@ describe("MessageBubble - assistant messages", () => {
       const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Worker answer" });
       render(<MessageBubble message={msg} sessionId="worker-session" currentThreadKey="main" />);
 
-      expect(screen.getByRole("button", { name: "Start thread" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Start Side Chat" })).toBeTruthy();
     } finally {
       useStore.setState({ sdkSessions: prevSdkSessions });
     }
   });
 
-  it("suppresses Slack thread creation for assistant messages embedded in a Slack thread panel", () => {
-    const msg = makeMessage({ id: "thread-assistant", role: "assistant", content: "Thread answer" });
+  it("suppresses Side Chat creation for assistant messages embedded in a Side Chat panel", () => {
+    const msg = makeMessage({ id: "side-chat-assistant", role: "assistant", content: "Side Chat answer" });
 
     render(
       <MessageBubble
         message={msg}
         sessionId="hidden-thread-child"
         currentThreadKey="main"
-        showSlackThreadActions={false}
+        showSideChatActions={false}
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Start thread" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start Side Chat" })).toBeNull();
     expect(screen.getByRole("button", { name: "Copy message" })).toBeTruthy();
   });
 

@@ -18,7 +18,7 @@ import { connectSession, sendToSession } from "../ws.js";
 import { formatWaitForRefLabel, getWaitForRefKind } from "../../shared/quest-journey.js";
 import { MessageFeed } from "./MessageFeed.js";
 import { Composer } from "./Composer.js";
-import { SlackThreadPanel } from "./SlackThreadPanel.js";
+import { SideChatPanel } from "./SideChatPanel.js";
 import {
   PermissionBanner,
   PlanReviewOverlay,
@@ -93,7 +93,7 @@ import type {
   QuestmasterTask,
   SessionAttentionRecord,
   SessionNotification,
-  SlackThreadRecord,
+  SideChatRecord,
 } from "../types.js";
 
 export interface QuestThreadBannerRow {
@@ -118,7 +118,7 @@ type LeaderThreadRow = QuestThreadBannerRow & {
 const EMPTY_BOARD_ROWS: BoardRowData[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
-const EMPTY_SLACK_THREADS: Record<string, SlackThreadRecord> = {};
+const EMPTY_SIDE_CHATS: Record<string, SideChatRecord> = {};
 
 function reviewNotificationIdsForSelectedThread(
   notifications: ReadonlyArray<SessionNotification> | undefined,
@@ -1154,7 +1154,7 @@ export function ChatView({
           sessionState?.claimedQuestLeaderSessionId ?? sdkSession?.claimedQuestLeaderSessionId,
         herdedBy: sdkSession?.herdedBy,
         leaderOpenThreadTabs: sessionState?.leaderOpenThreadTabs ?? sdkSession?.leaderOpenThreadTabs,
-        slackThreads: sessionState?.slackThreads ?? EMPTY_SLACK_THREADS,
+        slackThreads: sessionState?.slackThreads ?? EMPTY_SIDE_CHATS,
       };
     }),
   );
@@ -1171,25 +1171,30 @@ export function ChatView({
       leaderOpenThreadTabs: authoritativeLeaderOpenThreadTabs,
     }),
   );
-  const [selectedSlackThreadId, setSelectedSlackThreadId] = useState<string | null>(null);
-  const selectedSlackThread = selectedSlackThreadId ? slackThreads[selectedSlackThreadId] : undefined;
+  const [selectedSideChatId, setSelectedSideChatId] = useState<string | null>(null);
+  const selectedSideChat = selectedSideChatId ? slackThreads[selectedSideChatId] : undefined;
 
   useEffect(() => {
     const onOpen = (event: Event) => {
       const detail = (event as CustomEvent).detail as
-        | { sessionId?: string; threadId?: string; childSessionId?: string }
+        | { sessionId?: string; sideChatId?: string; threadId?: string; childSessionId?: string }
         | undefined;
-      if (detail?.sessionId !== sessionId || !detail.threadId) return;
-      setSelectedSlackThreadId(detail.threadId);
+      const sideChatId = detail?.sideChatId ?? detail?.threadId;
+      if (detail?.sessionId !== sessionId || !sideChatId) return;
+      setSelectedSideChatId(sideChatId);
       if (detail.childSessionId) connectSession(detail.childSessionId);
     };
+    window.addEventListener("takode:open-side-chat", onOpen);
     window.addEventListener("takode:open-slack-thread", onOpen);
-    return () => window.removeEventListener("takode:open-slack-thread", onOpen);
+    return () => {
+      window.removeEventListener("takode:open-side-chat", onOpen);
+      window.removeEventListener("takode:open-slack-thread", onOpen);
+    };
   }, [sessionId]);
 
   useEffect(() => {
-    if (selectedSlackThread?.childSessionId) connectSession(selectedSlackThread.childSessionId);
-  }, [selectedSlackThread?.childSessionId]);
+    if (selectedSideChat?.childSessionId) connectSession(selectedSideChat.childSessionId);
+  }, [selectedSideChat?.childSessionId]);
   const [openThreadTabKeys, setOpenThreadTabKeys] = useState(() =>
     isLeaderSession ? initialOpenThreadTabKeys(sessionId, authoritativeLeaderOpenThreadTabs) : [],
   );
@@ -1835,11 +1840,11 @@ export function ChatView({
                 onSelectThread={isLeaderSession ? handleSelectThread : undefined}
               />
             </div>
-            {!preview && selectedSlackThread && (
-              <SlackThreadPanel
+            {!preview && selectedSideChat && (
+              <SideChatPanel
                 rootSessionId={sessionId}
-                thread={selectedSlackThread}
-                onClose={() => setSelectedSlackThreadId(null)}
+                sideChat={selectedSideChat}
+                onClose={() => setSelectedSideChatId(null)}
               />
             )}
           </div>

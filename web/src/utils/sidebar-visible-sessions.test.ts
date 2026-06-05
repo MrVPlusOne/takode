@@ -79,7 +79,7 @@ describe("buildSidebarVisibleSessions", () => {
     expect(result.orderedVisibleSessionIds).toEqual(["leader", "worker"]);
   });
 
-  it("filters hidden Slack thread child sessions that only exist in frontend store state", () => {
+  it("filters hidden Side Chat child sessions that only exist in frontend store state", () => {
     const sessions = new Map<string, SessionState>([
       ["root", makeSessionState("root")],
       [
@@ -121,7 +121,7 @@ describe("buildSidebarVisibleSessions", () => {
     expect(result.orderedVisibleSessionIds).toEqual(["root"]);
   });
 
-  it("filters direct Slack thread child socket snapshots using the root thread record", () => {
+  it("filters direct Side Chat child socket snapshots using the root thread record", () => {
     const sessions = new Map<string, SessionState>([
       [
         "root",

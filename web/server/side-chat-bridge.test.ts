@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { routeSlackThreadUserMessage } from "./slack-thread-bridge.js";
-import type { BrowserIncomingMessage, SlackThreadRecord, SessionState } from "./session-types.js";
+import { routeSideChatUserMessage } from "./side-chat-bridge.js";
+import type { BrowserIncomingMessage, SideChatRecord, SessionState } from "./session-types.js";
 
 vi.mock("./bridge/adapter-browser-routing-controller.js", () => ({
   routeBrowserMessage: vi.fn(async () => {}),
@@ -56,7 +56,7 @@ function assistant(id: string, text: string): BrowserIncomingMessage {
   };
 }
 
-function makeRecord(overrides: Partial<SlackThreadRecord> = {}): SlackThreadRecord {
+function makeRecord(overrides: Partial<SideChatRecord> = {}): SideChatRecord {
   return {
     id: "st-1",
     rootSessionId: "root",
@@ -72,8 +72,8 @@ function makeRecord(overrides: Partial<SlackThreadRecord> = {}): SlackThreadReco
   };
 }
 
-describe("Slack thread bridge", () => {
-  it("sends bounded replay diagnostics only for fallback thread context", async () => {
+describe("Side Chat bridge", () => {
+  it("sends bounded replay diagnostics only for fallback Side Chat context", async () => {
     const { routeBrowserMessage } = await import("./bridge/adapter-browser-routing-controller.js");
     vi.mocked(routeBrowserMessage).mockClear();
     const record = makeRecord({
@@ -100,7 +100,7 @@ describe("Slack thread bridge", () => {
       messageHistory: [],
     };
 
-    await routeSlackThreadUserMessage(
+    await routeSideChatUserMessage(
       {
         sessions: new Map([
           ["root", root as never],
@@ -121,7 +121,7 @@ describe("Slack thread bridge", () => {
     expect(routed.deliveryContent).toContain("Thread question");
   });
 
-  it("does not replay root transcript for already native-forked threads", async () => {
+  it("does not replay root transcript for already native-forked Side Chats", async () => {
     const { routeBrowserMessage } = await import("./bridge/adapter-browser-routing-controller.js");
     vi.mocked(routeBrowserMessage).mockClear();
     const record = makeRecord({ seeded: true, contextStrategy: "native-fork" });
@@ -145,7 +145,7 @@ describe("Slack thread bridge", () => {
       messageHistory: [],
     };
 
-    await routeSlackThreadUserMessage(
+    await routeSideChatUserMessage(
       {
         sessions: new Map([
           ["root", root as never],

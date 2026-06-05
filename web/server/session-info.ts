@@ -53,9 +53,9 @@ export interface SdkSessionInfo {
   name?: string;
   /** Hidden implementation session, omitted from normal session lists. */
   hidden?: boolean;
-  /** Parent/root session when this session backs a Slack-like conversation thread. */
+  /** Parent/root session when this session backs a Side Chat workspace. */
   parentSessionId?: string;
-  /** Slack-like branch id when this hidden session backs a root conversation thread. */
+  /** Side Chat id, persisted under the legacy slackThreadId key for compatibility. */
   slackThreadId?: string;
   slackThreadAnchorMessageId?: string;
   slackThreadAnchorHistoryIndex?: number;

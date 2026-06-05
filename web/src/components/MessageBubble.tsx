@@ -32,7 +32,7 @@ import { formatThreadMarker } from "../../shared/thread-routing.js";
 import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
 import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
 import { buildAssistantImagePreviewItems } from "./image-preview-utils.js";
-import { SlackThreadButton, SlackThreadSummary, useSlackThreadForMessage } from "./SlackThreadControls.js";
+import { SideChatButton, SideChatSummary, useSideChatForMessage } from "./SideChatControls.js";
 import { MessageTimestamp } from "./MessageTimestamp.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
@@ -127,14 +127,14 @@ export const MessageBubble = memo(function MessageBubble({
   showTimestamp = true,
   currentThreadKey,
   onSelectThread,
-  showSlackThreadActions = true,
+  showSideChatActions = true,
 }: {
   message: ChatMessage;
   sessionId?: string;
   showTimestamp?: boolean;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
-  showSlackThreadActions?: boolean;
+  showSideChatActions?: boolean;
 }) {
   // Search highlight state -- must be called unconditionally (hooks can't be after early returns)
   const searchHighlight = useMessageSearchHighlight(sessionId, message);
@@ -326,7 +326,7 @@ export const MessageBubble = memo(function MessageBubble({
         searchHighlight={searchHighlight}
         currentThreadKey={currentThreadKey}
         onSelectThread={onSelectThread}
-        showSlackThreadActions={showSlackThreadActions}
+        showSideChatActions={showSideChatActions}
       />
     </div>
   );
@@ -1324,7 +1324,7 @@ function AssistantMessage({
   searchHighlight,
   currentThreadKey,
   onSelectThread,
-  showSlackThreadActions,
+  showSideChatActions,
 }: {
   message: ChatMessage;
   sessionId?: string;
@@ -1332,7 +1332,7 @@ function AssistantMessage({
   searchHighlight?: SearchHighlightInfo;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
-  showSlackThreadActions: boolean;
+  showSideChatActions: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
@@ -1351,7 +1351,7 @@ function AssistantMessage({
   const resolvedNotification = message.notification ?? inboxAnchoredNotification;
   const suppressToolNotificationMarker = !!resolvedNotification;
   const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
-  const slackThread = useSlackThreadForMessage(sessionId, message);
+  const sideChat = useSideChatForMessage(sessionId, message);
   const assistantImagePreviewItems = useMemo(
     () => buildAssistantImagePreviewItems(message, sessionId),
     [message, sessionId],
@@ -1394,14 +1394,14 @@ function AssistantMessage({
             />
           )}
           {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
-          {showSlackThreadActions && slackThread && <SlackThreadSummary thread={slackThread} sessionId={sessionId} />}
+          {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
         </div>
         <MessageActionBar
           message={message}
           contentRef={contentRef}
           sessionId={sessionId}
           currentThreadKey={currentThreadKey}
-          showSlackThreadActions={showSlackThreadActions}
+          showSideChatActions={showSideChatActions}
         />
       </div>
     );
@@ -1478,7 +1478,7 @@ function AssistantMessage({
           />
         )}
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
-        {showSlackThreadActions && slackThread && <SlackThreadSummary thread={slackThread} sessionId={sessionId} />}
+        {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
       </div>
       {hasTextContent && (
         <MessageActionBar
@@ -1486,7 +1486,7 @@ function AssistantMessage({
           contentRef={contentRef}
           sessionId={sessionId}
           currentThreadKey={currentThreadKey}
-          showSlackThreadActions={showSlackThreadActions}
+          showSideChatActions={showSideChatActions}
         />
       )}
     </div>
@@ -1499,21 +1499,21 @@ function MessageActionBar({
   contentRef,
   sessionId,
   currentThreadKey,
-  showSlackThreadActions,
+  showSideChatActions,
 }: {
   message: ChatMessage;
   contentRef: React.RefObject<HTMLDivElement | null>;
   sessionId?: string;
   currentThreadKey?: string;
-  showSlackThreadActions: boolean;
+  showSideChatActions: boolean;
 }) {
   return (
     <div
       className="ml-1 inline-flex shrink-0 items-center rounded-md border border-cc-border bg-cc-card/95 p-0.5 opacity-100 shadow-sm transition-opacity sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
       data-message-action-toolbar
     >
-      {showSlackThreadActions && sessionId && (
-        <SlackThreadButton message={message} sessionId={sessionId} currentThreadKey={currentThreadKey} />
+      {showSideChatActions && sessionId && (
+        <SideChatButton message={message} sessionId={sessionId} currentThreadKey={currentThreadKey} />
       )}
       {sessionId && <ReplyButton message={message} sessionId={sessionId} />}
       <CopyMessageButton message={message} contentRef={contentRef} sessionId={sessionId} />

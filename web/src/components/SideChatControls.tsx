@@ -1,18 +1,18 @@
 import { useState } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
-import type { ChatMessage, SlackThreadRecord } from "../types.js";
+import type { ChatMessage, SideChatRecord } from "../types.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 
-function openSlackThread(sessionId: string, thread: SlackThreadRecord) {
+function openSideChat(sessionId: string, sideChat: SideChatRecord) {
   window.dispatchEvent(
-    new CustomEvent("takode:open-slack-thread", {
-      detail: { sessionId, threadId: thread.id, childSessionId: thread.childSessionId },
+    new CustomEvent("takode:open-side-chat", {
+      detail: { sessionId, sideChatId: sideChat.id, childSessionId: sideChat.childSessionId },
     }),
   );
 }
 
-function useSlackThreadsEnabled(sessionId: string | undefined) {
+function useSideChatsEnabled(sessionId: string | undefined) {
   return useStore((s) => {
     if (!sessionId) return false;
     if (s.sessions.get(sessionId)?.isOrchestrator === true) return false;
@@ -20,7 +20,7 @@ function useSlackThreadsEnabled(sessionId: string | undefined) {
   });
 }
 
-export function SlackThreadButton({
+export function SideChatButton({
   message,
   sessionId,
   currentThreadKey,
@@ -30,25 +30,25 @@ export function SlackThreadButton({
   currentThreadKey?: string;
 }) {
   const [creating, setCreating] = useState(false);
-  const slackThreadsEnabled = useSlackThreadsEnabled(sessionId);
-  const thread = useStore((s) => {
-    const threads = s.sessions.get(sessionId)?.slackThreads ?? {};
-    return Object.values(threads).find((candidate) => candidate.anchorMessageId === message.id) ?? null;
+  const sideChatsEnabled = useSideChatsEnabled(sessionId);
+  const sideChat = useStore((s) => {
+    const sideChats = s.sessions.get(sessionId)?.slackThreads ?? {};
+    return Object.values(sideChats).find((candidate) => candidate.anchorMessageId === message.id) ?? null;
   });
   const isRootAssistant = message.role === "assistant" && normalizeThreadKey(currentThreadKey || "main") === "main";
-  if (!slackThreadsEnabled || !isRootAssistant || message.metadata?.slackThreadId) return null;
+  if (!sideChatsEnabled || !isRootAssistant || message.metadata?.slackThreadId) return null;
 
   const handleClick = async () => {
-    if (thread) {
-      openSlackThread(sessionId, thread);
+    if (sideChat) {
+      openSideChat(sessionId, sideChat);
       return;
     }
     setCreating(true);
     try {
-      const created = await api.createSlackThread(sessionId, message.id);
-      openSlackThread(sessionId, created.thread);
+      const created = await api.createSideChat(sessionId, message.id);
+      openSideChat(sessionId, created.sideChat);
     } catch (error) {
-      console.warn("[slack-thread] failed to create thread", error);
+      console.warn("[side-chat] failed to create Side Chat", error);
     } finally {
       setCreating(false);
     }
@@ -60,8 +60,8 @@ export function SlackThreadButton({
       onClick={handleClick}
       disabled={creating}
       className="inline-flex h-7 w-7 items-center justify-center rounded hover:bg-cc-hover transition-all cursor-pointer disabled:cursor-wait disabled:opacity-60"
-      title={thread ? `Open thread (${thread.messageCount})` : "Start thread"}
-      aria-label={thread ? `Open thread with ${thread.messageCount} messages` : "Start thread"}
+      title={sideChat ? `Open Side Chat (${sideChat.messageCount})` : "Start Side Chat"}
+      aria-label={sideChat ? `Open Side Chat with ${sideChat.messageCount} messages` : "Start Side Chat"}
     >
       <svg
         viewBox="0 0 16 16"
@@ -77,26 +77,26 @@ export function SlackThreadButton({
   );
 }
 
-export function useSlackThreadForMessage(sessionId: string | undefined, message: ChatMessage) {
-  const slackThreadsEnabled = useSlackThreadsEnabled(sessionId);
+export function useSideChatForMessage(sessionId: string | undefined, message: ChatMessage) {
+  const sideChatsEnabled = useSideChatsEnabled(sessionId);
   return useStore((s) => {
-    if (!slackThreadsEnabled || !sessionId || message.role !== "assistant" || message.metadata?.slackThreadId) {
+    if (!sideChatsEnabled || !sessionId || message.role !== "assistant" || message.metadata?.slackThreadId) {
       return null;
     }
-    const threads = s.sessions.get(sessionId)?.slackThreads ?? {};
-    return Object.values(threads).find((candidate) => candidate.anchorMessageId === message.id) ?? null;
+    const sideChats = s.sessions.get(sessionId)?.slackThreads ?? {};
+    return Object.values(sideChats).find((candidate) => candidate.anchorMessageId === message.id) ?? null;
   });
 }
 
-export function SlackThreadSummary({ thread, sessionId }: { thread: SlackThreadRecord; sessionId?: string }) {
-  const count = thread.messageCount ?? 0;
+export function SideChatSummary({ sideChat, sessionId }: { sideChat: SideChatRecord; sessionId?: string }) {
+  const count = sideChat.messageCount ?? 0;
   const label = `${count} ${count === 1 ? "reply" : "replies"}`;
   return (
     <button
       type="button"
       onClick={() => {
         if (!sessionId) return;
-        openSlackThread(sessionId, thread);
+        openSideChat(sessionId, sideChat);
       }}
       className="mt-2 inline-flex max-w-full items-center gap-2 rounded-md border border-cc-border bg-cc-hover/40 px-2.5 py-1 text-left text-xs text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
     >
@@ -104,7 +104,7 @@ export function SlackThreadSummary({ thread, sessionId }: { thread: SlackThreadR
         <path d="M3 4.5h10M3 8h7M3 11.5h5" strokeLinecap="round" />
       </svg>
       <span className="shrink-0 font-medium text-cc-fg/80">{label}</span>
-      {thread.lastMessagePreview && <span className="min-w-0 truncate">{thread.lastMessagePreview}</span>}
+      {sideChat.lastMessagePreview && <span className="min-w-0 truncate">{sideChat.lastMessagePreview}</span>}
     </button>
   );
 }

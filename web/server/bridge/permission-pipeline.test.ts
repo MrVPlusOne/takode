@@ -351,7 +351,7 @@ describe("permission pipeline takode event emission (q-205)", () => {
     expect(deps.emitTakodePermissionRequest).not.toHaveBeenCalled();
   });
 
-  it("hard-denies file mutation tools in read-only Slack thread sessions before mode auto-approval", () => {
+  it("hard-denies file mutation tools in read-only Side Chat sessions before mode auto-approval", () => {
     // Thread turns have no Allow path. Even bypassPermissions must not permit
     // file mutation from a hidden child backend session.
     const session = makeSession({
@@ -383,7 +383,7 @@ describe("permission pipeline takode event emission (q-205)", () => {
     expect(deps.emitTakodePermissionRequest).not.toHaveBeenCalled();
   });
 
-  it("hard-denies obvious shell writes in read-only Slack thread sessions", () => {
+  it("hard-denies obvious shell writes in read-only Side Chat sessions", () => {
     // Shell commands are conservatively screened in thread turns so redirects
     // and common write/install commands cannot reach human approval.
     const session = makeSession({

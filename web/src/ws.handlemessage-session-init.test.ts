@@ -173,7 +173,7 @@ describe("handleMessage: session_init", () => {
     expect(state.questNamedSessions.has("s1")).toBe(false);
   });
 
-  it("keeps direct Slack thread child WebSocket snapshots out of sidebar projection", () => {
+  it("keeps direct Side Chat child WebSocket snapshots out of sidebar projection", () => {
     wsModule.connectSession("root");
     fireMessage({
       type: "session_init",

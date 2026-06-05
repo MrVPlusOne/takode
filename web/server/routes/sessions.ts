@@ -60,7 +60,7 @@ import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignmen
 import { isSessionPaused } from "../session-pause.js";
 import { LEADER_KICKOFF_SOURCE_ID, LEADER_KICKOFF_SOURCE_LABEL } from "../../shared/injected-event-message.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "../memory-session-space.js";
-import { registerSessionSlackThreadRoutes } from "./session-slack-thread-routes.js";
+import { registerSessionSideChatRoutes } from "./session-side-chat-routes.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -875,7 +875,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
   });
 
-  registerSessionSlackThreadRoutes(api, { launcher, wsBridge, resolveId });
+  registerSessionSideChatRoutes(api, { launcher, wsBridge, resolveId });
   registerSessionReplacementRoutes(api, {
     resolveId,
     authenticateTakodeCaller,

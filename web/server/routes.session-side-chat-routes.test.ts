@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
-import { registerSessionSlackThreadRoutes } from "./routes/session-slack-thread-routes.js";
+import { registerSessionSideChatRoutes } from "./routes/session-side-chat-routes.js";
 import type { BrowserIncomingMessage, SessionState } from "./session-types.js";
 
 vi.mock("./session-names.js", () => ({
@@ -53,7 +53,7 @@ function makeState(overrides: Partial<SessionState> = {}): SessionState {
   };
 }
 
-describe("Slack thread session routes", () => {
+describe("Side Chat session routes", () => {
   it("launches hidden Codex children with the root session env profile and runtime env", async () => {
     const root = {
       id: "root",
@@ -106,14 +106,14 @@ describe("Slack thread session routes", () => {
       getOrCreateSession: vi.fn(() => childSession),
       persistSessionById: vi.fn(),
       broadcastToSession: vi.fn(),
-      syncSlackThreadRecord: vi.fn(),
+      syncSideChatRecord: vi.fn(),
     };
     const app = new Hono();
     app.route(
       "/api",
       (() => {
         const api = new Hono();
-        registerSessionSlackThreadRoutes(api, {
+        registerSessionSideChatRoutes(api, {
           launcher: launcher as never,
           wsBridge: wsBridge as never,
           resolveId: (id) => (id === "root" ? "root" : null),
@@ -122,7 +122,7 @@ describe("Slack thread session routes", () => {
       })(),
     );
 
-    const res = await app.request("/api/sessions/root/slack-threads", {
+    const res = await app.request("/api/sessions/root/side-chats", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ anchorMessageId: "anchor-1" }),
@@ -153,7 +153,7 @@ describe("Slack thread session routes", () => {
         },
         hidden: true,
         parentSessionId: "root",
-        slackThreadReadOnly: true,
+        sideChatReadOnly: true,
       }),
     );
     const launchOptions = (launcher.launch as unknown as { mock: { calls: Array<[{ env?: Record<string, string> }]> } })
@@ -229,14 +229,81 @@ describe("Slack thread session routes", () => {
       getOrCreateSession: vi.fn(() => childSession),
       persistSessionById: vi.fn(),
       broadcastToSession: vi.fn(),
-      syncSlackThreadRecord: vi.fn(),
+      syncSideChatRecord: vi.fn(),
     };
     const app = new Hono();
     app.route(
       "/api",
       (() => {
         const api = new Hono();
-        registerSessionSlackThreadRoutes(api, {
+        registerSessionSideChatRoutes(api, {
+          launcher: launcher as never,
+          wsBridge: wsBridge as never,
+          resolveId: (id) => (id === "root" ? "root" : null),
+        });
+        return api;
+      })(),
+    );
+
+    const res = await app.request("/api/sessions/root/side-chats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ anchorMessageId: "anchor-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(forkThread).toHaveBeenCalledWith({ rollbackTurns: undefined });
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeCliSessionId: "forked-codex-thread" }),
+    );
+    const json = await res.json();
+    expect(json.sideChat.seeded).toBe(true);
+    expect(json.sideChat.contextStrategy).toBe("native-fork");
+    expect(json.thread.id).toBe(json.sideChat.id);
+    expect(childSession.state.slackThreadChild?.contextStrategy).toBe("native-fork");
+  });
+
+  it("keeps legacy slack-threads creation route as a compatibility alias", async () => {
+    const root = {
+      id: "root",
+      state: makeState({
+        backend_type: "codex",
+        slackThreads: {
+          "st-existing": {
+            id: "st-existing",
+            rootSessionId: "root",
+            childSessionId: "child-session",
+            anchorMessageId: "anchor-1",
+            anchorHistoryIndex: 0,
+            anchorPreview: "Root answer",
+            createdAt: 1,
+            updatedAt: 2,
+            messageCount: 1,
+            seeded: true,
+          },
+        },
+      }),
+      messageHistory: [assistant("anchor-1", "Root answer")],
+    };
+    const launcher = {
+      getSession: vi.fn(() => ({ sessionId: "root", backendType: "codex", cwd: "/repo", model: "gpt-5.5" })),
+      getSessionLaunchEnv: vi.fn(),
+      launch: vi.fn(),
+      touchActivity: vi.fn(),
+    };
+    const wsBridge = {
+      getSession: vi.fn((id: string) => (id === "root" ? root : null)),
+      getOrCreateSession: vi.fn(),
+      persistSessionById: vi.fn(),
+      broadcastToSession: vi.fn(),
+      syncSideChatRecord: vi.fn(),
+    };
+    const app = new Hono();
+    app.route(
+      "/api",
+      (() => {
+        const api = new Hono();
+        registerSessionSideChatRoutes(api, {
           launcher: launcher as never,
           wsBridge: wsBridge as never,
           resolveId: (id) => (id === "root" ? "root" : null),
@@ -252,14 +319,11 @@ describe("Slack thread session routes", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(forkThread).toHaveBeenCalledWith({ rollbackTurns: undefined });
-    expect(launcher.launch).toHaveBeenCalledWith(
-      expect.objectContaining({ resumeCliSessionId: "forked-codex-thread" }),
-    );
     const json = await res.json();
-    expect(json.thread.seeded).toBe(true);
-    expect(json.thread.contextStrategy).toBe("native-fork");
-    expect(childSession.state.slackThreadChild?.contextStrategy).toBe("native-fork");
+    expect(json.sideChat.id).toBe("st-existing");
+    expect(json.thread.id).toBe("st-existing");
+    expect(launcher.launch).not.toHaveBeenCalled();
+    expect(wsBridge.syncSideChatRecord).toHaveBeenCalledWith("root", "st-existing");
   });
 
   it("uses Claude SDK forkSession for message-anchor hidden children", async () => {
@@ -302,14 +366,14 @@ describe("Slack thread session routes", () => {
       getOrCreateSession: vi.fn(() => childSession),
       persistSessionById: vi.fn(),
       broadcastToSession: vi.fn(),
-      syncSlackThreadRecord: vi.fn(),
+      syncSideChatRecord: vi.fn(),
     };
     const app = new Hono();
     app.route(
       "/api",
       (() => {
         const api = new Hono();
-        registerSessionSlackThreadRoutes(api, {
+        registerSessionSideChatRoutes(api, {
           launcher: launcher as never,
           wsBridge: wsBridge as never,
           resolveId: (id) => (id === "root" ? "root" : null),
@@ -319,7 +383,7 @@ describe("Slack thread session routes", () => {
       })(),
     );
 
-    const res = await app.request("/api/sessions/root/slack-threads", {
+    const res = await app.request("/api/sessions/root/side-chats", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ anchorMessageId: "anchor-1" }),
@@ -328,15 +392,15 @@ describe("Slack thread session routes", () => {
     expect(res.status).toBe(200);
     expect(forkClaudeSession).toHaveBeenCalledWith("parent-claude-session", {
       dir: "/repo",
-      title: "Thread: Root answer",
+      title: "Side Chat: Root answer",
       upToMessageId: "anchor-1",
     });
     expect(launcher.launch).toHaveBeenCalledWith(
       expect.objectContaining({ resumeCliSessionId: "forked-claude-session" }),
     );
     const json = await res.json();
-    expect(json.thread.seeded).toBe(true);
-    expect(json.thread.contextStrategy).toBe("native-fork");
+    expect(json.sideChat.seeded).toBe(true);
+    expect(json.sideChat.contextStrategy).toBe("native-fork");
   });
 
   it("falls back to bounded replay when Codex native fork cannot represent the anchor safely", async () => {
@@ -380,14 +444,14 @@ describe("Slack thread session routes", () => {
       getOrCreateSession: vi.fn(() => childSession),
       persistSessionById: vi.fn(),
       broadcastToSession: vi.fn(),
-      syncSlackThreadRecord: vi.fn(),
+      syncSideChatRecord: vi.fn(),
     };
     const app = new Hono();
     app.route(
       "/api",
       (() => {
         const api = new Hono();
-        registerSessionSlackThreadRoutes(api, {
+        registerSessionSideChatRoutes(api, {
           launcher: launcher as never,
           wsBridge: wsBridge as never,
           resolveId: (id) => (id === "root" ? "root" : null),
@@ -396,7 +460,7 @@ describe("Slack thread session routes", () => {
       })(),
     );
 
-    const res = await app.request("/api/sessions/root/slack-threads", {
+    const res = await app.request("/api/sessions/root/side-chats", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ anchorMessageId: "anchor-1" }),
@@ -408,12 +472,12 @@ describe("Slack thread session routes", () => {
       expect.not.objectContaining({ resumeCliSessionId: expect.any(String) }),
     );
     const json = await res.json();
-    expect(json.thread.seeded).toBe(false);
-    expect(json.thread.contextStrategy).toBe("bounded-replay");
-    expect(json.thread.contextFallbackReason).toContain("Codex native fork skipped");
+    expect(json.sideChat.seeded).toBe(false);
+    expect(json.sideChat.contextStrategy).toBe("bounded-replay");
+    expect(json.sideChat.contextFallbackReason).toContain("Codex native fork skipped");
   });
 
-  it("rejects leader sessions before creating or reopening Slack threads", async () => {
+  it("rejects leader sessions before creating or reopening Side Chats", async () => {
     const root = {
       id: "leader",
       state: makeState({
@@ -454,14 +518,14 @@ describe("Slack thread session routes", () => {
       getOrCreateSession: vi.fn(),
       persistSessionById: vi.fn(),
       broadcastToSession: vi.fn(),
-      syncSlackThreadRecord: vi.fn(),
+      syncSideChatRecord: vi.fn(),
     };
     const app = new Hono();
     app.route(
       "/api",
       (() => {
         const api = new Hono();
-        registerSessionSlackThreadRoutes(api, {
+        registerSessionSideChatRoutes(api, {
           launcher: launcher as never,
           wsBridge: wsBridge as never,
           resolveId: (id) => (id === "leader" ? "leader" : null),
@@ -470,19 +534,19 @@ describe("Slack thread session routes", () => {
       })(),
     );
 
-    const res = await app.request("/api/sessions/leader/slack-threads", {
+    const res = await app.request("/api/sessions/leader/side-chats", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ anchorMessageId: "anchor-1" }),
     });
 
     expect(res.status).toBe(403);
-    await expect(res.json()).resolves.toEqual({ error: "Slack threads are disabled for leader sessions" });
+    await expect(res.json()).resolves.toEqual({ error: "Side Chats are disabled for leader sessions" });
     expect(launcher.launch).not.toHaveBeenCalled();
-    expect(wsBridge.syncSlackThreadRecord).not.toHaveBeenCalled();
+    expect(wsBridge.syncSideChatRecord).not.toHaveBeenCalled();
   });
 
-  it("rejects leader sessions before routing messages to existing Slack threads", async () => {
+  it("rejects leader sessions before routing messages to existing Side Chats", async () => {
     const root = {
       id: "leader",
       state: makeState({ session_id: "leader", backend_type: "claude", isOrchestrator: true }),
@@ -505,15 +569,15 @@ describe("Slack thread session routes", () => {
       getOrCreateSession: vi.fn(),
       persistSessionById: vi.fn(),
       broadcastToSession: vi.fn(),
-      syncSlackThreadRecord: vi.fn(),
-      routeSlackThreadUserMessage: vi.fn(),
+      syncSideChatRecord: vi.fn(),
+      routeSideChatUserMessage: vi.fn(),
     };
     const app = new Hono();
     app.route(
       "/api",
       (() => {
         const api = new Hono();
-        registerSessionSlackThreadRoutes(api, {
+        registerSessionSideChatRoutes(api, {
           launcher: launcher as never,
           wsBridge: wsBridge as never,
           resolveId: (id) => (id === "leader" ? "leader" : null),
@@ -522,14 +586,14 @@ describe("Slack thread session routes", () => {
       })(),
     );
 
-    const res = await app.request("/api/sessions/leader/slack-threads/st-existing/message", {
+    const res = await app.request("/api/sessions/leader/side-chats/st-existing/message", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: "continue here" }),
     });
 
     expect(res.status).toBe(403);
-    await expect(res.json()).resolves.toEqual({ error: "Slack threads are disabled for leader sessions" });
-    expect(wsBridge.routeSlackThreadUserMessage).not.toHaveBeenCalled();
+    await expect(res.json()).resolves.toEqual({ error: "Side Chats are disabled for leader sessions" });
+    expect(wsBridge.routeSideChatUserMessage).not.toHaveBeenCalled();
   });
 });

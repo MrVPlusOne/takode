@@ -359,7 +359,7 @@ export interface ActiveTurnRoute {
   questId?: string;
 }
 
-export interface SlackThreadRecord {
+export interface SideChatRecord {
   id: string;
   rootSessionId: string;
   childSessionId: string;
@@ -375,7 +375,7 @@ export interface SlackThreadRecord {
   contextFallbackReason?: string;
 }
 
-export interface SlackThreadChildState {
+export interface SideChatChildState {
   rootSessionId: string;
   threadId: string;
   anchorMessageId: string;
@@ -383,6 +383,11 @@ export interface SlackThreadChildState {
   readOnly: true;
   contextStrategy?: "native-fork" | "bounded-replay";
 }
+
+/** @deprecated Legacy persisted type name. Session JSON still uses slackThread* keys. */
+export type SlackThreadRecord = SideChatRecord;
+/** @deprecated Legacy persisted type name. Session JSON still uses slackThread* keys. */
+export type SlackThreadChildState = SideChatChildState;
 
 export interface ThreadRoutingError {
   reason: "missing" | "invalid";
@@ -500,7 +505,7 @@ export type BrowserOutgoingMessage =
       threadKey?: string;
       questId?: string;
       threadRefs?: ThreadRef[];
-      /** Slack-like conversation branch backed by a hidden child backend session. */
+      /** Side Chat branch backed by a hidden child backend session. Persisted as slackThreadId for compatibility. */
       slackThreadId?: string;
       /** Present when the message was injected programmatically (e.g. via takode CLI or cron). */
       agentSource?: { sessionId: string; sessionLabel?: string };
@@ -1320,10 +1325,10 @@ export interface SessionState {
   attentionRecords?: SessionAttentionRecord[];
   /** Server-authoritative current Thread Waiting/Ready markers keyed by normalized thread key. */
   leaderThreadStatuses?: Record<string, LeaderThreadStatus>;
-  /** Server-authoritative Slack-like conversation branches anchored to root assistant messages. */
-  slackThreads?: Record<string, SlackThreadRecord>;
-  /** Present on hidden child backend sessions that power one Slack-like branch. */
-  slackThreadChild?: SlackThreadChildState;
+  /** Server-authoritative Side Chat records, persisted under the legacy slackThreads key for compatibility. */
+  slackThreads?: Record<string, SideChatRecord>;
+  /** Present on hidden child backend sessions that power one Side Chat, persisted under the legacy key. */
+  slackThreadChild?: SideChatChildState;
   /** Hidden sessions are omitted from normal user session lists but remain addressable by branch UI. */
   hidden?: boolean;
 }

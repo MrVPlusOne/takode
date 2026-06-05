@@ -1,14 +1,14 @@
-import type { BrowserIncomingMessage, ContentBlock, SlackThreadRecord } from "./session-types.js";
+import type { BrowserIncomingMessage, ContentBlock, SideChatRecord } from "./session-types.js";
 
 const THREAD_ID_RANDOM_BYTES = 6;
 const PREVIEW_LIMIT = 140;
-export const SLACK_THREAD_SEED_MAX_CHARS = 120_000;
+export const SIDE_CHAT_SEED_MAX_CHARS = 120_000;
 
-export function createSlackThreadId(randomUUID: () => string = () => crypto.randomUUID()): string {
+export function createSideChatId(randomUUID: () => string = () => crypto.randomUUID()): string {
   const compact = randomUUID()
     .replace(/-/g, "")
     .slice(0, THREAD_ID_RANDOM_BYTES * 2);
-  return `st-${compact || Date.now().toString(36)}`;
+  return `sc-${compact || Date.now().toString(36)}`;
 }
 
 export function extractMessageText(message: BrowserIncomingMessage): string {
@@ -36,19 +36,19 @@ export function findRootAssistantAnchor(
   return { message, historyIndex, preview: previewText(extractMessageText(message)) };
 }
 
-export function buildSlackThreadSeedPrompt(
+export function buildSideChatSeedPrompt(
   rootHistory: BrowserIncomingMessage[],
   anchorHistoryIndex: number,
   anchorMessageId: string,
 ): string {
-  return buildBoundedSlackThreadSeedPrompt(rootHistory, anchorHistoryIndex, anchorMessageId).prompt;
+  return buildBoundedSideChatSeedPrompt(rootHistory, anchorHistoryIndex, anchorMessageId).prompt;
 }
 
-export function buildBoundedSlackThreadSeedPrompt(
+export function buildBoundedSideChatSeedPrompt(
   rootHistory: BrowserIncomingMessage[],
   anchorHistoryIndex: number,
   anchorMessageId: string,
-  maxChars = SLACK_THREAD_SEED_MAX_CHARS,
+  maxChars = SIDE_CHAT_SEED_MAX_CHARS,
 ): { prompt: string; truncated: boolean; omittedChars: number } {
   const rawTranscript = rootHistory
     .slice(0, anchorHistoryIndex + 1)
@@ -58,7 +58,7 @@ export function buildBoundedSlackThreadSeedPrompt(
       if (message.type === "assistant") {
         const text = extractMessageText(message);
         if (!text.trim()) return [];
-        const anchorSuffix = message.message.id === anchorMessageId ? " (thread anchor)" : "";
+        const anchorSuffix = message.message.id === anchorMessageId ? " (Side Chat anchor)" : "";
         return [`[root assistant ${index}${anchorSuffix}]\n${text}`];
       }
       return [];
@@ -71,7 +71,7 @@ export function buildBoundedSlackThreadSeedPrompt(
       : rawTranscript;
 
   const prompt = [
-    "You are continuing a Slack-like side thread in Takode.",
+    "You are continuing a Side Chat in Takode.",
     "This hidden child backend session is read-only for repository and file state.",
     omittedChars > 0
       ? "Use the bounded root transcript below as partial branch context. Do not assume omitted or later root messages exist."
@@ -81,12 +81,12 @@ export function buildBoundedSlackThreadSeedPrompt(
     "Root branch context:",
     transcript || "(No readable root transcript was available.)",
     "",
-    "Now answer the user's thread message.",
+    "Now answer the user's Side Chat message.",
   ].join("\n");
   return { prompt, truncated: omittedChars > 0, omittedChars };
 }
 
-export function computeCodexSlackThreadForkPlan(
+export function computeCodexSideChatForkPlan(
   history: BrowserIncomingMessage[],
   anchorMessageId: string,
 ): { ok: true; rollbackTurns: number } | { ok: false; reason: string } {
@@ -120,10 +120,10 @@ export function computeCodexSlackThreadForkPlan(
   return { ok: true, rollbackTurns: later.length };
 }
 
-export function updateSlackThreadRecordFromChildHistory(
-  record: SlackThreadRecord,
+export function updateSideChatRecordFromChildHistory(
+  record: SideChatRecord,
   childHistory: BrowserIncomingMessage[],
-): SlackThreadRecord {
+): SideChatRecord {
   const visibleMessages = childHistory.filter(
     (message) => message.type === "user_message" || message.type === "assistant",
   );

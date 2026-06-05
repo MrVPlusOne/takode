@@ -12,7 +12,7 @@ export interface ClaudeSdkAdapterLifecycleDeps {
   refreshGitInfoThenRecomputeDiff: (session: any, options: { notifyPoller: boolean }) => void;
   persistSession: (session: any) => void;
   handleSdkPermissionRequest: (session: any, request: any) => Promise<void> | void;
-  syncSlackThreadParent?: (session: any) => void;
+  syncSideChatParent?: (session: any) => void;
   setCliSessionId: (sessionId: string, cliSessionId: string) => void;
   markTurnInterrupted: (session: any, source: "user" | "leader" | "system") => void;
   setGenerating: (session: any, generating: boolean, reason: string) => void;
@@ -160,12 +160,12 @@ export function attachClaudeSdkAdapterLifecycle(
     }
 
     if (deps.handleSdkBrowserMessage(session, msg)) {
-      deps.syncSlackThreadParent?.(session);
+      deps.syncSideChatParent?.(session);
       return;
     }
 
     deps.broadcastToBrowsers(session, msg);
-    deps.syncSlackThreadParent?.(session);
+    deps.syncSideChatParent?.(session);
   });
 
   adapter.onSessionMeta((meta: any) => {
