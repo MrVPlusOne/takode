@@ -2,6 +2,7 @@ import type { BrowserIncomingMessage, ContentBlock, SlackThreadRecord } from "./
 
 const THREAD_ID_RANDOM_BYTES = 6;
 const PREVIEW_LIMIT = 140;
+export const SLACK_THREAD_SEED_MAX_CHARS = 120_000;
 
 export function createSlackThreadId(randomUUID: () => string = () => crypto.randomUUID()): string {
   const compact = randomUUID()
@@ -40,7 +41,16 @@ export function buildSlackThreadSeedPrompt(
   anchorHistoryIndex: number,
   anchorMessageId: string,
 ): string {
-  const transcript = rootHistory
+  return buildBoundedSlackThreadSeedPrompt(rootHistory, anchorHistoryIndex, anchorMessageId).prompt;
+}
+
+export function buildBoundedSlackThreadSeedPrompt(
+  rootHistory: BrowserIncomingMessage[],
+  anchorHistoryIndex: number,
+  anchorMessageId: string,
+  maxChars = SLACK_THREAD_SEED_MAX_CHARS,
+): { prompt: string; truncated: boolean; omittedChars: number } {
+  const rawTranscript = rootHistory
     .slice(0, anchorHistoryIndex + 1)
     .flatMap((message, index) => {
       if (message.type === "user_message") return [`[root user ${index}]\n${message.content}`];
@@ -54,11 +64,18 @@ export function buildSlackThreadSeedPrompt(
       return [];
     })
     .join("\n\n");
+  const omittedChars = Math.max(0, rawTranscript.length - maxChars);
+  const transcript =
+    omittedChars > 0
+      ? `[Earlier root branch context omitted: ${omittedChars} chars. Fallback replay is bounded; ask the user to continue in the root session if omitted context matters.]\n\n${rawTranscript.slice(-maxChars)}`
+      : rawTranscript;
 
-  return [
+  const prompt = [
     "You are continuing a Slack-like side thread in Takode.",
     "This hidden child backend session is read-only for repository and file state.",
-    "Use the root transcript below as the complete branch context. Do not assume later root messages exist.",
+    omittedChars > 0
+      ? "Use the bounded root transcript below as partial branch context. Do not assume omitted or later root messages exist."
+      : "Use the root transcript below as the complete branch context. Do not assume later root messages exist.",
     "If an edit or other mutation is needed, explain the needed change and ask the user to continue in the root session or a normal quest workflow.",
     "",
     "Root branch context:",
@@ -66,6 +83,41 @@ export function buildSlackThreadSeedPrompt(
     "",
     "Now answer the user's thread message.",
   ].join("\n");
+  return { prompt, truncated: omittedChars > 0, omittedChars };
+}
+
+export function computeCodexSlackThreadForkPlan(
+  history: BrowserIncomingMessage[],
+  anchorMessageId: string,
+): { ok: true; rollbackTurns: number } | { ok: false; reason: string } {
+  const segments: Array<{ completed: boolean; assistantIds: string[] }> = [];
+  let current: { completed: boolean; assistantIds: string[] } | null = null;
+  for (const message of history) {
+    if (message.type === "user_message" || message.type === "leader_user_message") {
+      if (current) segments.push(current);
+      current = { completed: false, assistantIds: [] };
+      continue;
+    }
+    if (!current) continue;
+    if (message.type === "assistant") current.assistantIds.push(message.message.id);
+    if (message.type === "result") {
+      current.completed = true;
+      segments.push(current);
+      current = null;
+    }
+  }
+  if (current) segments.push(current);
+
+  const targetIndex = segments.findIndex((segment) => segment.assistantIds.includes(anchorMessageId));
+  if (targetIndex < 0) return { ok: false, reason: "anchor is not in a Codex turn segment" };
+  const target = segments[targetIndex];
+  if (!target.completed) return { ok: false, reason: "anchor turn is not complete" };
+  if (target.assistantIds[target.assistantIds.length - 1] !== anchorMessageId) {
+    return { ok: false, reason: "anchor is not the final assistant message in its Codex turn" };
+  }
+  const later = segments.slice(targetIndex + 1);
+  if (later.some((segment) => !segment.completed)) return { ok: false, reason: "later Codex turn is still incomplete" };
+  return { ok: true, rollbackTurns: later.length };
 }
 
 export function updateSlackThreadRecordFromChildHistory(

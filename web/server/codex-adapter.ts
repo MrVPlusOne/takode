@@ -61,6 +61,11 @@ import type {
 import { computeContextTokensUsed, computeContextUsedPercent, type TokenUsage } from "./bridge/context-usage.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { CODEX_LOCAL_SLASH_COMMANDS } from "../shared/codex-slash-commands.js";
+import type {
+  CodexSkillRefreshCause,
+  CodexSkillRefreshDiagnostics,
+  CodexSkillRefreshStats,
+} from "./codex-adapter-refresh-types.js";
 
 const TURN_START_ACK_TIMEOUT_MS = 60_000;
 const STDERR_ROUTER_LINE_BUFFER_MAX = 64 * 1024;
@@ -69,28 +74,6 @@ const INITIAL_SKILL_METADATA_REFRESH_TIMEOUT_MS = 5_000;
 export type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "./codex-adapter-utils.js";
 
 type RouterFailureToolName = "write_stdin";
-type CodexSkillRefreshCause = "initialize" | "skills_changed" | "api" | "manual";
-
-interface CodexSkillRefreshStats {
-  coalesced: number;
-  deferred: number;
-  executed: number;
-  failed: number;
-  suppressed: number;
-}
-
-interface CodexSkillRefreshDiagnostics {
-  refreshId: string;
-  cause: CodexSkillRefreshCause;
-  forceReload: boolean;
-  cwds: string[];
-  rpcId: number;
-  startedAt: number;
-  completedAt: number | null;
-  status: "in_flight" | "succeeded" | "failed";
-  error: string | null;
-  inFlightAtStart: number;
-}
 
 interface CodexSkillChangeDiagnostics {
   changeId: string;
@@ -854,6 +837,17 @@ export class CodexAdapter
       }
       throw err;
     }
+  }
+
+  async forkThread(options: { rollbackTurns?: number } = {}): Promise<string> {
+    if (!this.threadId) throw new Error("No Codex thread started yet");
+    const result = (await this.transport.call("thread/fork", this.buildThreadParams({ threadId: this.threadId }))) as {
+      thread: { id: string };
+    };
+    const threadId = result.thread.id;
+    if (options.rollbackTurns)
+      await this.transport.call("thread/rollback", { threadId, numTurns: options.rollbackTurns });
+    return threadId;
   }
 
   private isMissingRolloutError(err: unknown): boolean {

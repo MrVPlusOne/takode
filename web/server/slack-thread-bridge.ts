@@ -2,7 +2,7 @@ import type { AdapterBrowserRoutingDeps } from "./bridge/adapter-browser-routing
 import { routeBrowserMessage as routeBrowserMessageController } from "./bridge/adapter-browser-routing-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage } from "./session-types.js";
-import { buildSlackThreadSeedPrompt, updateSlackThreadRecordFromChildHistory } from "./slack-thread-branches.js";
+import { buildBoundedSlackThreadSeedPrompt, updateSlackThreadRecordFromChildHistory } from "./slack-thread-branches.js";
 
 export interface SlackThreadBridgeDeps {
   sessions: Map<string, Session>;
@@ -48,11 +48,18 @@ export async function routeSlackThreadUserMessage(
 
   const seed = record.seeded
     ? null
-    : buildSlackThreadSeedPrompt(root.messageHistory, record.anchorHistoryIndex, record.anchorMessageId);
+    : buildBoundedSlackThreadSeedPrompt(root.messageHistory, record.anchorHistoryIndex, record.anchorMessageId);
+  const fallbackNotice = record.contextFallbackReason
+    ? `Native backend fork was unavailable, so Takode is using bounded replay context for this Side Chat. ${record.contextFallbackReason}`
+    : "Takode is using bounded replay context for this Side Chat.";
   const msg: BrowserOutgoingMessage = {
     type: "user_message",
     content,
-    ...(seed ? { deliveryContent: `${seed}\n\nUser thread message:\n${content}` } : {}),
+    ...(seed
+      ? {
+          deliveryContent: `${fallbackNotice}${seed.truncated ? ` Earlier context was truncated by ${seed.omittedChars} chars.` : ""}\n\n${seed.prompt}\n\nUser thread message:\n${content}`,
+        }
+      : {}),
     ...(options?.clientMsgId ? { client_msg_id: options.clientMsgId } : {}),
     slackThreadId: threadId,
   };

@@ -212,6 +212,38 @@ describe("CodexAdapter", () => {
     await rollbackPromise;
   });
 
+  it("calls thread/fork and optionally rolls back the forked child thread", async () => {
+    // Side Chat uses the root Codex app-server connection to create the child
+    // thread before launching Takode's hidden child session against that thread.
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    stdin.chunks = [];
+    const forkPromise = adapter.forkThread({ rollbackTurns: 2 });
+    await tick();
+
+    let lines = parseWrittenJsonLines(stdin.chunks);
+    const fork = lines.find((line) => line.method === "thread/fork");
+    expect(fork).toBeDefined();
+    expect(fork.params.threadId).toBe("thr_123");
+
+    stdout.push(JSON.stringify({ id: fork.id, result: { thread: { id: "thr_child" } } }) + "\n");
+    await tick();
+
+    lines = parseWrittenJsonLines(stdin.chunks);
+    const rollback = lines.find((line) => line.method === "thread/rollback");
+    expect(rollback).toBeDefined();
+    expect(rollback.params).toEqual({ threadId: "thr_child", numTurns: 2 });
+
+    stdout.push(JSON.stringify({ id: rollback.id, result: {} }) + "\n");
+    await expect(forkPromise).resolves.toBe("thr_child");
+  });
+
   it("suppresses the interrupted result emitted while rollback interrupts an active turn", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });

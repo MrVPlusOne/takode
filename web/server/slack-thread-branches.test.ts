@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildBoundedSlackThreadSeedPrompt,
   buildSlackThreadSeedPrompt,
+  computeCodexSlackThreadForkPlan,
   findRootAssistantAnchor,
+  SLACK_THREAD_SEED_MAX_CHARS,
   updateSlackThreadRecordFromChildHistory,
 } from "./slack-thread-branches.js";
 import type { BrowserIncomingMessage, SlackThreadRecord } from "./session-types.js";
@@ -30,6 +33,26 @@ function assistant(id: string, text: string, extra: Partial<BrowserIncomingMessa
   } as BrowserIncomingMessage;
 }
 
+function result(): BrowserIncomingMessage {
+  return {
+    type: "result",
+    data: {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "",
+      duration_ms: 1,
+      duration_api_ms: 1,
+      num_turns: 1,
+      total_cost_usd: 0,
+      stop_reason: null,
+      usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      uuid: crypto.randomUUID(),
+      session_id: "root",
+    },
+  };
+}
+
 describe("slack thread branch helpers", () => {
   it("builds seed context through the anchor and excludes later root messages", () => {
     // The hidden child backend receives this seed as its isolated branch context.
@@ -48,6 +71,42 @@ describe("slack thread branch helpers", () => {
     expect(seed).not.toContain("Unrelated build logs");
     expect(seed).not.toContain("Different topic");
     expect(seed).toContain("thread anchor");
+  });
+
+  it("bounds fallback seed replay and explains omitted context", () => {
+    // Replay fallback must stay well below backend per-turn limits because
+    // q-1473 found that unbounded seeds can become nonrecoverable turn/start failures.
+    const huge = "x".repeat(SLACK_THREAD_SEED_MAX_CHARS + 500);
+    const seed = buildBoundedSlackThreadSeedPrompt([user("u0", huge), assistant("a1", "Anchor")], 1, "a1");
+
+    expect(seed.truncated).toBe(true);
+    expect(seed.omittedChars).toBeGreaterThan(0);
+    expect(seed.prompt.length).toBeLessThan(SLACK_THREAD_SEED_MAX_CHARS + 2_000);
+    expect(seed.prompt).toContain("Earlier root branch context omitted");
+    expect(seed.prompt).toContain("Anchor");
+  });
+
+  it("plans Codex native fork rollback only for completed turn-boundary anchors", () => {
+    // Codex rollback is turn-count based upstream. Side Chat native forks should
+    // therefore use only completed turn boundaries instead of sub-turn anchors.
+    const plan = computeCodexSlackThreadForkPlan(
+      [
+        user("u0", "first"),
+        assistant("a1", "First answer"),
+        result(),
+        user("u1", "second"),
+        assistant("a2", "Second answer"),
+        result(),
+      ],
+      "a1",
+    );
+    expect(plan).toEqual({ ok: true, rollbackTurns: 1 });
+
+    const subTurn = computeCodexSlackThreadForkPlan(
+      [user("u0", "first"), assistant("a1", "Partial"), assistant("a2", "Final"), result()],
+      "a1",
+    );
+    expect(subTurn).toEqual({ ok: false, reason: "anchor is not the final assistant message in its Codex turn" });
   });
 
   it("accepts only root assistant anchors for v1 thread creation", () => {

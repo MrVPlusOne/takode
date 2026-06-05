@@ -371,6 +371,8 @@ export interface SlackThreadRecord {
   messageCount: number;
   lastMessagePreview?: string;
   seeded: boolean;
+  contextStrategy?: "native-fork" | "bounded-replay";
+  contextFallbackReason?: string;
 }
 
 export interface SlackThreadChildState {
@@ -379,6 +381,7 @@ export interface SlackThreadChildState {
   anchorMessageId: string;
   anchorHistoryIndex: number;
   readOnly: true;
+  contextStrategy?: "native-fork" | "bounded-replay";
 }
 
 export interface ThreadRoutingError {

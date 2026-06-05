@@ -73,6 +73,7 @@ export type CodexBridgeAdapter = BackendAdapter<CodexSessionMeta> &
   CurrentTurnIdAwareAdapter &
   RateLimitsAwareAdapter & {
     rollbackTurns: (numTurns: number) => Promise<void>;
+    forkThread?: (options?: { rollbackTurns?: number }) => Promise<string>;
   } & Partial<{
     refreshSkills: (
       forceReload?: boolean,

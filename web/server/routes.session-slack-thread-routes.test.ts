@@ -164,6 +164,255 @@ describe("Slack thread session routes", () => {
     expect(childSession.state.permissionMode).toBe("codex-default");
   });
 
+  it("uses Codex thread/fork and resumes the hidden child from the forked thread", async () => {
+    const forkThread = vi.fn(async () => "forked-codex-thread");
+    const root = {
+      id: "root",
+      state: makeState({ backend_type: "codex" }),
+      messageHistory: [
+        { type: "user_message", id: "u1", content: "Explain this", timestamp: 1 },
+        assistant("anchor-1", "Root answer"),
+        {
+          type: "result",
+          data: {
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            result: "",
+            duration_ms: 1,
+            duration_api_ms: 1,
+            num_turns: 1,
+            total_cost_usd: 0,
+            stop_reason: null,
+            usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            uuid: "r1",
+            session_id: "root",
+          },
+        } as BrowserIncomingMessage,
+      ],
+      codexAdapter: {
+        isConnected: () => true,
+        forkThread,
+      },
+    };
+    const childSession = {
+      id: "child",
+      state: makeState({ session_id: "child", backend_type: "codex" }),
+      messageHistory: [],
+    };
+    const launcher = {
+      getSession: vi.fn((id: string) =>
+        id === "root"
+          ? {
+              sessionId: "root",
+              backendType: "codex",
+              cwd: "/repo",
+              model: "gpt-5.5",
+              permissionMode: "codex-default",
+              askPermission: true,
+              uiMode: "agent",
+            }
+          : null,
+      ),
+      getSessionLaunchEnv: vi.fn(),
+      launch: vi.fn(async () => ({
+        sessionId: "child",
+        backendType: "codex",
+        cwd: "/repo",
+        createdAt: 2,
+        state: "starting" as const,
+      })),
+      touchActivity: vi.fn(),
+    };
+    const wsBridge = {
+      getSession: vi.fn((id: string) => (id === "root" ? root : null)),
+      getOrCreateSession: vi.fn(() => childSession),
+      persistSessionById: vi.fn(),
+      broadcastToSession: vi.fn(),
+      syncSlackThreadRecord: vi.fn(),
+    };
+    const app = new Hono();
+    app.route(
+      "/api",
+      (() => {
+        const api = new Hono();
+        registerSessionSlackThreadRoutes(api, {
+          launcher: launcher as never,
+          wsBridge: wsBridge as never,
+          resolveId: (id) => (id === "root" ? "root" : null),
+        });
+        return api;
+      })(),
+    );
+
+    const res = await app.request("/api/sessions/root/slack-threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ anchorMessageId: "anchor-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(forkThread).toHaveBeenCalledWith({ rollbackTurns: undefined });
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeCliSessionId: "forked-codex-thread" }),
+    );
+    const json = await res.json();
+    expect(json.thread.seeded).toBe(true);
+    expect(json.thread.contextStrategy).toBe("native-fork");
+    expect(childSession.state.slackThreadChild?.contextStrategy).toBe("native-fork");
+  });
+
+  it("uses Claude SDK forkSession for message-anchor hidden children", async () => {
+    const root = {
+      id: "root",
+      state: makeState({ backend_type: "claude-sdk", model: "claude-sonnet" }),
+      messageHistory: [assistant("anchor-1", "Root answer")],
+    };
+    const childSession = {
+      id: "child",
+      state: makeState({ session_id: "child", backend_type: "claude-sdk" }),
+      messageHistory: [],
+    };
+    const forkClaudeSession = vi.fn(async () => ({ sessionId: "forked-claude-session" }));
+    const launcher = {
+      getSession: vi.fn((id: string) =>
+        id === "root"
+          ? {
+              sessionId: "root",
+              backendType: "claude-sdk",
+              cliSessionId: "parent-claude-session",
+              cwd: "/repo",
+              model: "claude-sonnet",
+              askPermission: true,
+            }
+          : null,
+      ),
+      getSessionLaunchEnv: vi.fn(),
+      launch: vi.fn(async () => ({
+        sessionId: "child",
+        backendType: "claude-sdk",
+        cwd: "/repo",
+        createdAt: 2,
+        state: "connected" as const,
+      })),
+      touchActivity: vi.fn(),
+    };
+    const wsBridge = {
+      getSession: vi.fn((id: string) => (id === "root" ? root : null)),
+      getOrCreateSession: vi.fn(() => childSession),
+      persistSessionById: vi.fn(),
+      broadcastToSession: vi.fn(),
+      syncSlackThreadRecord: vi.fn(),
+    };
+    const app = new Hono();
+    app.route(
+      "/api",
+      (() => {
+        const api = new Hono();
+        registerSessionSlackThreadRoutes(api, {
+          launcher: launcher as never,
+          wsBridge: wsBridge as never,
+          resolveId: (id) => (id === "root" ? "root" : null),
+          forkClaudeSession,
+        });
+        return api;
+      })(),
+    );
+
+    const res = await app.request("/api/sessions/root/slack-threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ anchorMessageId: "anchor-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(forkClaudeSession).toHaveBeenCalledWith("parent-claude-session", {
+      dir: "/repo",
+      title: "Thread: Root answer",
+      upToMessageId: "anchor-1",
+    });
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeCliSessionId: "forked-claude-session" }),
+    );
+    const json = await res.json();
+    expect(json.thread.seeded).toBe(true);
+    expect(json.thread.contextStrategy).toBe("native-fork");
+  });
+
+  it("falls back to bounded replay when Codex native fork cannot represent the anchor safely", async () => {
+    const root = {
+      id: "root",
+      state: makeState({ backend_type: "codex" }),
+      messageHistory: [
+        { type: "user_message", id: "u1", content: "Explain this", timestamp: 1 },
+        assistant("anchor-1", "Partial answer"),
+        assistant("anchor-2", "Final answer"),
+      ],
+      codexAdapter: {
+        isConnected: () => true,
+        forkThread: vi.fn(),
+      },
+    };
+    const childSession = {
+      id: "child",
+      state: makeState({ session_id: "child", backend_type: "codex" }),
+      messageHistory: [],
+    };
+    const launcher = {
+      getSession: vi.fn(() => ({
+        sessionId: "root",
+        backendType: "codex",
+        cwd: "/repo",
+        model: "gpt-5.5",
+      })),
+      getSessionLaunchEnv: vi.fn(),
+      launch: vi.fn(async () => ({
+        sessionId: "child",
+        backendType: "codex",
+        cwd: "/repo",
+        createdAt: 2,
+        state: "starting" as const,
+      })),
+      touchActivity: vi.fn(),
+    };
+    const wsBridge = {
+      getSession: vi.fn((id: string) => (id === "root" ? root : null)),
+      getOrCreateSession: vi.fn(() => childSession),
+      persistSessionById: vi.fn(),
+      broadcastToSession: vi.fn(),
+      syncSlackThreadRecord: vi.fn(),
+    };
+    const app = new Hono();
+    app.route(
+      "/api",
+      (() => {
+        const api = new Hono();
+        registerSessionSlackThreadRoutes(api, {
+          launcher: launcher as never,
+          wsBridge: wsBridge as never,
+          resolveId: (id) => (id === "root" ? "root" : null),
+        });
+        return api;
+      })(),
+    );
+
+    const res = await app.request("/api/sessions/root/slack-threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ anchorMessageId: "anchor-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(root.codexAdapter.forkThread).not.toHaveBeenCalled();
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.not.objectContaining({ resumeCliSessionId: expect.any(String) }),
+    );
+    const json = await res.json();
+    expect(json.thread.seeded).toBe(false);
+    expect(json.thread.contextStrategy).toBe("bounded-replay");
+    expect(json.thread.contextFallbackReason).toContain("Codex native fork skipped");
+  });
+
   it("rejects leader sessions before creating or reopening Slack threads", async () => {
     const root = {
       id: "leader",

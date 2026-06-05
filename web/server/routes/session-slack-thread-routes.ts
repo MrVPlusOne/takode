@@ -4,7 +4,25 @@ import { getSettings } from "../settings-manager.js";
 import type { CliLauncher } from "../cli-launcher.js";
 import type { WsBridge } from "../ws-bridge.js";
 import type { BackendType } from "../session-types.js";
-import { createSlackThreadId, findRootAssistantAnchor } from "../slack-thread-branches.js";
+import {
+  computeCodexSlackThreadForkPlan,
+  createSlackThreadId,
+  findRootAssistantAnchor,
+} from "../slack-thread-branches.js";
+
+type ForkClaudeSession = (
+  sessionId: string,
+  options: { dir?: string; upToMessageId?: string; title?: string },
+) => Promise<{ sessionId: string }>;
+
+async function defaultForkClaudeSession(
+  sessionId: string,
+  options: { dir?: string; upToMessageId?: string; title?: string },
+): Promise<{ sessionId: string }> {
+  const sdk = await import("@anthropic-ai/claude-agent-sdk");
+  if (typeof sdk.forkSession !== "function") throw new Error("Claude SDK forkSession is unavailable");
+  return sdk.forkSession(sessionId, options);
+}
 
 export function registerSessionSlackThreadRoutes(
   api: Hono,
@@ -12,9 +30,10 @@ export function registerSessionSlackThreadRoutes(
     launcher: CliLauncher;
     wsBridge: WsBridge;
     resolveId: (id: string) => string | null;
+    forkClaudeSession?: ForkClaudeSession;
   },
 ): void {
-  const { launcher, wsBridge, resolveId } = deps;
+  const { launcher, wsBridge, resolveId, forkClaudeSession = defaultForkClaudeSession } = deps;
 
   const blockedChildEnvKeys = [
     "COMPANION_AUTH_TOKEN",
@@ -36,6 +55,56 @@ export function registerSessionSlackThreadRoutes(
 
   const isLeaderSession = (root: ReturnType<WsBridge["getSession"]>, rootInfo: ReturnType<CliLauncher["getSession"]>) =>
     root?.state.isOrchestrator === true || rootInfo?.isOrchestrator === true;
+
+  const tryCreateNativeFork = async (
+    backend: BackendType,
+    root: NonNullable<ReturnType<WsBridge["getSession"]>>,
+    rootInfo: NonNullable<ReturnType<CliLauncher["getSession"]>>,
+    anchor: NonNullable<ReturnType<typeof findRootAssistantAnchor>>,
+  ): Promise<
+    { strategy: "native-fork"; resumeCliSessionId: string } | { strategy: "bounded-replay"; fallbackReason: string }
+  > => {
+    const title = `Thread: ${anchor.preview || anchor.message.message.id}`;
+    if (backend === "codex") {
+      const plan = computeCodexSlackThreadForkPlan(root.messageHistory, anchor.message.message.id);
+      if (!plan.ok) return { strategy: "bounded-replay", fallbackReason: `Codex native fork skipped: ${plan.reason}` };
+      const adapter = root.codexAdapter;
+      if (!adapter?.forkThread || !adapter.isConnected?.()) {
+        return {
+          strategy: "bounded-replay",
+          fallbackReason: "Codex native fork unavailable: root adapter is not connected",
+        };
+      }
+      try {
+        const forkedThreadId = await adapter.forkThread({ rollbackTurns: plan.rollbackTurns || undefined });
+        return { strategy: "native-fork", resumeCliSessionId: forkedThreadId };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { strategy: "bounded-replay", fallbackReason: `Codex native fork failed: ${message}` };
+      }
+    }
+    if (backend === "claude-sdk") {
+      const upToMessageId = anchor.message.uuid || anchor.message.message.id;
+      if (!rootInfo.cliSessionId || !upToMessageId) {
+        return {
+          strategy: "bounded-replay",
+          fallbackReason: "Claude native fork unavailable: missing session or anchor id",
+        };
+      }
+      try {
+        const forked = await forkClaudeSession(rootInfo.cliSessionId, {
+          dir: root.state.cwd || rootInfo.cwd,
+          upToMessageId,
+          title,
+        });
+        return { strategy: "native-fork", resumeCliSessionId: forked.sessionId };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { strategy: "bounded-replay", fallbackReason: `Claude native fork failed: ${message}` };
+      }
+    }
+    return { strategy: "bounded-replay", fallbackReason: `Native fork unavailable for backend ${backend}` };
+  };
 
   api.post("/sessions/:id/slack-threads", async (c) => {
     const id = resolveId(c.req.param("id"));
@@ -69,6 +138,7 @@ export function registerSessionSlackThreadRoutes(
     const backend = (rootInfo.backendType || root.state.backend_type || "claude") as BackendType;
     const binarySettings = getSettings();
     const permissionMode = backend === "codex" ? rootInfo.permissionMode || "codex-default" : "default";
+    const forkContext = await tryCreateNativeFork(backend, root, rootInfo, anchor);
     const child = await launcher.launch({
       backendType: backend,
       cwd: root.state.cwd || rootInfo.cwd,
@@ -85,6 +155,7 @@ export function registerSessionSlackThreadRoutes(
       envSlug: rootInfo.envSlug,
       blockedEnvKeys: blockedChildEnvKeys,
       memorySessionSpaceSlug: root.state.memorySessionSpaceSlug,
+      ...(forkContext.strategy === "native-fork" ? { resumeCliSessionId: forkContext.resumeCliSessionId } : {}),
       hidden: true,
       parentSessionId: id,
       slackThreadId: threadId,
@@ -110,6 +181,7 @@ export function registerSessionSlackThreadRoutes(
       anchorMessageId,
       anchorHistoryIndex: anchor.historyIndex,
       readOnly: true,
+      contextStrategy: forkContext.strategy,
     };
     childSession.state.permissionMode = permissionMode;
     childSession.state.cwd = root.state.cwd || rootInfo.cwd;
@@ -130,7 +202,9 @@ export function registerSessionSlackThreadRoutes(
       createdAt: now,
       updatedAt: now,
       messageCount: 0,
-      seeded: false,
+      seeded: forkContext.strategy === "native-fork",
+      contextStrategy: forkContext.strategy,
+      ...(forkContext.strategy === "bounded-replay" ? { contextFallbackReason: forkContext.fallbackReason } : {}),
     };
     root.state.slackThreads = { ...(root.state.slackThreads ?? {}), [threadId]: thread };
     wsBridge.broadcastToSession(id, {
