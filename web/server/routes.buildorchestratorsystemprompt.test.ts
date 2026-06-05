@@ -575,6 +575,20 @@ describe("buildOrchestratorSystemPrompt", () => {
     expect(prompt).not.toContain("Read your project's instruction files");
   });
 
+  it("scopes leader startup user waits instead of blocking unrelated orchestration", () => {
+    for (const backend of ["claude", "codex", "claude-sdk"] as const) {
+      const prompt = buildOrchestratorSystemPrompt(backend);
+      expect(prompt).toContain("wait only on the affected thread, quest, or board row");
+      expect(prompt).toContain("Do not answer the user decision or advance that affected unit");
+      expect(prompt).toContain("Continue unrelated herd events, quests, and coordination");
+      expect(prompt).toContain("global orchestration, worker-slot scheduling, shared resource safety");
+      expect(prompt).toContain("defer, skip, or leave one prompt unresolved");
+      expect(prompt).toContain("real safety issue or significant global/cross-quest dependency");
+      expect(prompt).not.toContain("WAIT for their answer");
+      expect(prompt).not.toContain("Don't let herd events override your decision to wait");
+    }
+  });
+
   it("injects the Codex-specific startup prompt for connected leader sessions", async () => {
     launcher.getSession.mockReturnValue({ state: "connected" });
 
