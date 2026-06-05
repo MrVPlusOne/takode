@@ -578,12 +578,13 @@ describe("buildOrchestratorSystemPrompt", () => {
   it("scopes leader startup user waits instead of blocking unrelated orchestration", () => {
     for (const backend of ["claude", "codex", "claude-sdk"] as const) {
       const prompt = buildOrchestratorSystemPrompt(backend);
-      expect(prompt).toContain("wait only on the affected thread, quest, or board row");
-      expect(prompt).toContain("Do not answer the user decision or advance that affected unit");
-      expect(prompt).toContain("Continue unrelated herd events, quests, and coordination");
-      expect(prompt).toContain("global orchestration, worker-slot scheduling, shared resource safety");
-      expect(prompt).toContain("defer, skip, or leave one prompt unresolved");
-      expect(prompt).toContain("real safety issue or significant global/cross-quest dependency");
+      expect(prompt).toContain("User questions create scoped waits");
+      expect(prompt).toContain("keep only the affected thread, quest, or board row paused");
+      expect(prompt).toContain("never answer that decision yourself");
+      expect(prompt).toContain("Keep independent herd events, quests, and coordination moving");
+      expect(prompt).toContain("safety, global orchestration, worker-slot, shared-resource, or cross-quest blockers");
+      expect(prompt).toContain("parks one prompt");
+      expect(prompt).toContain("does not depend on that answer");
       expect(prompt).not.toContain("WAIT for their answer");
       expect(prompt).not.toContain("Don't let herd events override your decision to wait");
     }
