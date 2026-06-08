@@ -75,18 +75,16 @@ function preflightFromError(error: unknown): SideChatPreflight | null {
   return preflight && typeof preflight === "object" ? (preflight as SideChatPreflight) : null;
 }
 
-export function SideChatButton({
+export function useSideChatActionState({
   message,
   sessionId,
   currentThreadKey,
   preflightOverride,
-  reasonDefaultOpen = false,
 }: {
   message: ChatMessage;
   sessionId: string;
   currentThreadKey?: string;
   preflightOverride?: SideChatPreflight;
-  reasonDefaultOpen?: boolean;
 }) {
   const [creating, setCreating] = useState(false);
   const [fallbackConfirming, setFallbackConfirming] = useState(false);
@@ -139,8 +137,6 @@ export function SideChatButton({
     sideChatsEnabled,
   ]);
 
-  if (!sideChatsEnabled || !isRootAssistant || message.metadata?.slackThreadId) return null;
-
   const handleClick = async () => {
     if (sideChat) {
       openSideChat(sessionId, sideChat);
@@ -189,72 +185,19 @@ export function SideChatButton({
       }`
     : null;
 
-  return (
-    <>
-      <button
-        type="button"
-        onClick={handleClick}
-        disabled={creating || !nativeReady}
-        className="inline-flex h-7 w-7 items-center justify-center rounded hover:bg-cc-hover transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-        title={
-          sideChat
-            ? `Open Side Chat (${sideChat.messageCount})`
-            : nativeReady
-              ? "Start Side Chat using native fork"
-              : `Native Side Chat unavailable: ${nativeReason}`
-        }
-        aria-label={sideChat ? `Open Side Chat with ${sideChat.messageCount} messages` : "Start Side Chat"}
-      >
-        <svg
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.2"
-          className="w-3.5 h-3.5 text-cc-muted hover:text-cc-fg"
-        >
-          <path d="M3 4.5h10M3 8h7M3 11.5h5" strokeLinecap="round" />
-          <path d="M11 9.5l2 2 2-2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-      {!sideChat && preflight?.fallback.available && (
-        <button
-          type="button"
-          onClick={handleFallbackClick}
-          disabled={creating}
-          className="inline-flex h-7 items-center rounded border border-cc-attention-border bg-cc-attention-bg px-2 text-[11px] font-medium text-cc-attention transition-colors hover:bg-cc-hover disabled:cursor-wait disabled:opacity-60"
-          title={`Use bounded replay Side Chat. ${fallbackReason}`}
-          aria-label={`Use bounded replay Side Chat. ${fallbackReason}`}
-        >
-          {fallbackConfirming ? "Confirm replay" : "Replay"}
-        </button>
-      )}
-      {unavailableDetail && <SideChatUnavailableReason detail={unavailableDetail} defaultOpen={reasonDefaultOpen} />}
-    </>
-  );
-}
-
-export function SideChatUnavailableReason({ detail, defaultOpen = false }: { detail: string; defaultOpen?: boolean }) {
-  return (
-    <details
-      className="group/side-chat-reason relative inline-flex h-7 w-7 shrink-0 items-center justify-center"
-      data-side-chat-unavailable-reason
-      open={defaultOpen}
-    >
-      <summary
-        className="inline-flex h-7 w-7 cursor-help list-none items-center justify-center rounded text-[11px] font-semibold text-cc-attention transition-colors hover:bg-cc-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-cc-attention-border [&::-webkit-details-marker]:hidden"
-        title={detail}
-        aria-label={detail}
-      >
-        <span aria-hidden="true">!</span>
-      </summary>
-      <span
-        className="absolute right-0 top-full z-20 mt-1 w-64 max-w-[min(16rem,calc(100vw-2rem))] rounded-md border border-cc-attention-border bg-cc-attention-bg px-2 py-1.5 text-[10px] leading-snug text-cc-attention shadow-lg"
-        role="status"
-      >
-        {detail}
-      </span>
-    </details>
-  );
+  return {
+    available: sideChatsEnabled && isRootAssistant && !message.metadata?.slackThreadId,
+    creating,
+    fallbackConfirming,
+    fallbackReason,
+    handleClick,
+    handleFallbackClick,
+    nativeReady,
+    nativeReason,
+    preflight,
+    sideChat,
+    unavailableDetail,
+  };
 }
 
 export function useSideChatForMessage(sessionId: string | undefined, message: ChatMessage) {

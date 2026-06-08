@@ -32,7 +32,7 @@ import { formatThreadMarker } from "../../shared/thread-routing.js";
 import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
 import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
 import { buildAssistantImagePreviewItems } from "./image-preview-utils.js";
-import { SideChatButton, SideChatSummary, useSideChatForMessage } from "./SideChatControls.js";
+import { SideChatSummary, useSideChatActionState, useSideChatForMessage } from "./SideChatControls.js";
 import { MessageTimestamp } from "./MessageTimestamp.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
@@ -1395,14 +1395,16 @@ function AssistantMessage({
           )}
           {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
           {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
+          {hasTextContent && (
+            <AssistantMessageMenu
+              message={message}
+              contentRef={contentRef}
+              sessionId={sessionId}
+              currentThreadKey={currentThreadKey}
+              showSideChatActions={showSideChatActions}
+            />
+          )}
         </div>
-        <MessageActionBar
-          message={message}
-          contentRef={contentRef}
-          sessionId={sessionId}
-          currentThreadKey={currentThreadKey}
-          showSideChatActions={showSideChatActions}
-        />
       </div>
     );
   }
@@ -1479,22 +1481,22 @@ function AssistantMessage({
         )}
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
         {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
+        {hasTextContent && (
+          <AssistantMessageMenu
+            message={message}
+            contentRef={contentRef}
+            sessionId={sessionId}
+            currentThreadKey={currentThreadKey}
+            showSideChatActions={showSideChatActions}
+          />
+        )}
       </div>
-      {hasTextContent && (
-        <MessageActionBar
-          message={message}
-          contentRef={contentRef}
-          sessionId={sessionId}
-          currentThreadKey={currentThreadKey}
-          showSideChatActions={showSideChatActions}
-        />
-      )}
     </div>
   );
 }
 
-/** Action bar for assistant messages -- layered so actions do not reduce the content column width. */
-function MessageActionBar({
+/** Compact assistant action menu kept below content so it neither narrows nor covers message text. */
+function AssistantMessageMenu({
   message,
   contentRef,
   sessionId,
@@ -1507,68 +1509,15 @@ function MessageActionBar({
   currentThreadKey?: string;
   showSideChatActions: boolean;
 }) {
-  return (
-    <div
-      className="absolute right-0 top-0 z-10 inline-flex max-w-[calc(100%-0.5rem)] items-center rounded-md border border-cc-border bg-cc-card/95 p-0.5 opacity-100 shadow-sm transition-opacity sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
-      data-message-action-toolbar
-    >
-      {showSideChatActions && sessionId && (
-        <SideChatButton message={message} sessionId={sessionId} currentThreadKey={currentThreadKey} />
-      )}
-      {sessionId && <ReplyButton message={message} sessionId={sessionId} />}
-      <CopyMessageButton message={message} contentRef={contentRef} sessionId={sessionId} />
-    </div>
-  );
-}
-
-/** Reply button -- sets the reply context in the store so the Composer shows a reply chip. */
-function ReplyButton({ message, sessionId }: { message: ChatMessage; sessionId: string }) {
-  const handleClick = useCallback(() => {
-    const store = useStore.getState();
-    const allMessages = store.messages.get(sessionId) ?? [];
-    const otherContents = allMessages
-      .filter((m) => m.role === "assistant" && m.id !== message.id)
-      .map((m) => m.content);
-    const previewText = generateReplyPreview(message.content, otherContents);
-    store.setReplyContext(sessionId, { messageId: message.id, previewText });
-  }, [message, sessionId]);
-
-  return (
-    <button
-      onClick={handleClick}
-      className="inline-flex h-7 w-7 items-center justify-center rounded hover:bg-cc-hover transition-all cursor-pointer"
-      title="Reply to this message"
-    >
-      <svg
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        className="w-3.5 h-3.5 text-cc-muted hover:text-cc-fg"
-      >
-        <path d="M6 3L2 7l4 4" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M2 7h7a4 4 0 014 4v1" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </button>
-  );
-}
-
-/** Copy button for assistant messages.
- *  Uses the ContextMenu component (proven to work on iOS Safari)
- *  which portals to document.body to escape overflow-hidden ancestors. */
-function CopyMessageButton({
-  message,
-  contentRef,
-  sessionId,
-}: {
-  message: ChatMessage;
-  contentRef: React.RefObject<HTMLDivElement | null>;
-  sessionId?: string;
-}) {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const sdkSessions = useStore((s) => s.sdkSessions);
+  const sideChatAction = useSideChatActionState({
+    currentThreadKey,
+    message,
+    sessionId: sessionId ?? "",
+  });
 
   const showFeedback = useCallback((label: string) => {
     setCopied(label);
@@ -1605,6 +1554,17 @@ function CopyMessageButton({
       .catch(console.error);
   }, [message, sdkSessions, sessionId, showFeedback]);
 
+  const handleReply = useCallback(() => {
+    if (!sessionId) return;
+    const store = useStore.getState();
+    const allMessages = store.messages.get(sessionId) ?? [];
+    const otherContents = allMessages
+      .filter((m) => m.role === "assistant" && m.id !== message.id)
+      .map((m) => m.content);
+    const previewText = generateReplyPreview(message.content, otherContents);
+    store.setReplyContext(sessionId, { messageId: message.id, previewText });
+  }, [message, sessionId]);
+
   const toggle = useCallback(() => {
     if (menuPos) {
       setMenuPos(null);
@@ -1614,47 +1574,87 @@ function CopyMessageButton({
     }
   }, [menuPos]);
 
-  const items = useMemo<ContextMenuItem[]>(
-    () => [
+  const items = useMemo<ContextMenuItem[]>(() => {
+    const list: ContextMenuItem[] = [];
+    if (showSideChatActions && sessionId && sideChatAction.available) {
+      if (sideChatAction.sideChat) {
+        list.push({
+          label: `Open Side Chat (${sideChatAction.sideChat.messageCount ?? 0})`,
+          onClick: sideChatAction.handleClick,
+        });
+      } else if (sideChatAction.nativeReady) {
+        list.push({
+          label: sideChatAction.creating ? "Starting Side Chat..." : "Start Side Chat",
+          onClick: sideChatAction.handleClick,
+          disabled: sideChatAction.creating,
+        });
+      } else {
+        list.push({
+          label: sideChatAction.unavailableDetail ?? sideChatAction.nativeReason,
+          onClick: () => {},
+          disabled: true,
+        });
+        if (sideChatAction.preflight?.fallback.available) {
+          list.push({
+            label: sideChatAction.fallbackConfirming ? "Confirm replay Side Chat" : "Replay Side Chat",
+            onClick: sideChatAction.handleFallbackClick,
+            disabled: sideChatAction.creating,
+          });
+        }
+      }
+    }
+    if (sessionId) list.push({ label: "Reply to this message", onClick: handleReply });
+    list.push(
       { label: "Copy as Markdown", onClick: handleCopyMarkdown },
       { label: "Copy as Rich Text", onClick: handleCopyRichText },
       { label: "Copy as Plain Text", onClick: handleCopyPlainText },
-      ...(sessionId ? [{ label: "Copy message link", onClick: handleCopyLink }] : []),
-    ],
-    [handleCopyLink, handleCopyMarkdown, handleCopyPlainText, handleCopyRichText, sessionId],
-  );
+    );
+    if (sessionId) list.push({ label: "Copy message link", onClick: handleCopyLink });
+    return list;
+  }, [
+    handleCopyLink,
+    handleCopyMarkdown,
+    handleCopyPlainText,
+    handleCopyRichText,
+    handleReply,
+    sessionId,
+    showSideChatActions,
+    sideChatAction,
+  ]);
 
   return (
     <>
-      <button
-        ref={btnRef}
-        onClick={toggle}
-        className="inline-flex h-7 w-7 items-center justify-center rounded hover:bg-cc-hover transition-all cursor-pointer"
-        title="Copy message"
+      <div
+        className="mt-1 flex justify-start opacity-100 transition-opacity sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
+        data-message-action-menu-row
       >
-        {copied ? (
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            className="w-3.5 h-3.5 text-cc-success"
-          >
-            <path d="M3 8.5l3.5 3.5 6.5-8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        ) : (
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.2"
-            className="w-3.5 h-3.5 text-cc-muted hover:text-cc-fg"
-          >
-            <rect x="5.5" y="5.5" width="7" height="8" rx="1" />
-            <path d="M3.5 10.5V3a1 1 0 011-1h5.5" />
-          </svg>
-        )}
-      </button>
+        <button
+          ref={btnRef}
+          onClick={toggle}
+          className="inline-flex h-7 items-center gap-1 rounded-md border border-cc-border bg-cc-card/80 px-1.5 text-[11px] text-cc-muted shadow-sm transition-colors hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/40"
+          title="Message options"
+          aria-label="Message options"
+        >
+          {copied ? (
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              className="h-3.5 w-3.5 text-cc-success"
+            >
+              <path d="M3 8.5l3.5 3.5 6.5-8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+              <circle cx="3" cy="8" r="1.5" />
+              <circle cx="8" cy="8" r="1.5" />
+              <circle cx="13" cy="8" r="1.5" />
+            </svg>
+          )}
+          <span>{copied ? `Copied ${copied}` : "Actions"}</span>
+        </button>
+      </div>
       {menuPos && <ContextMenu x={menuPos.x} y={menuPos.y} items={items} onClose={() => setMenuPos(null)} />}
     </>
   );

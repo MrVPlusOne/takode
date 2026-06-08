@@ -6,7 +6,8 @@ const MENU_STYLES = {
   container: "fixed z-50 w-fit min-w-[120px] bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-visible",
   submenuContainer: "fixed z-[60] w-fit min-w-[120px] bg-cc-card border border-cc-border rounded-lg shadow-lg py-1",
   item: "w-full px-2.5 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer whitespace-nowrap",
-  disabledItem: "w-full px-2.5 py-1.5 text-left text-[11px] text-cc-muted font-mono-code break-all leading-relaxed",
+  disabledItem:
+    "w-full max-w-72 whitespace-normal break-words px-2.5 py-1.5 text-left text-[11px] text-cc-muted font-mono-code leading-relaxed",
 } as const;
 
 export interface ContextMenuItem {

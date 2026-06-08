@@ -980,7 +980,8 @@ describe("MessageBubble - assistant messages", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Start Side Chat" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Copy message" })).toBeTruthy();
+    fireEvent.click(screen.getByTitle("Message options"));
+    expect(screen.getByText("Copy as Markdown")).toBeTruthy();
   });
 
   it("renders deprecated @to(user) tags as raw text", () => {
@@ -1091,7 +1092,7 @@ describe("MessageBubble - assistant messages", () => {
         ]);
       render(<MessageBubble message={msg} sessionId="session-abc" />);
 
-      fireEvent.click(screen.getByTitle("Copy message"));
+      fireEvent.click(screen.getByTitle("Message options"));
       fireEvent.click(screen.getByText("Copy message link"));
 
       await waitFor(() => {

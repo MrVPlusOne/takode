@@ -106,10 +106,11 @@ describe("Playground", () => {
   it("documents compact Side Chat action controls and fallback reason states", () => {
     render(<Playground />);
 
-    expect(screen.getByText("Native-available action layer keeps message width")).toBeTruthy();
-    expect(screen.getByText("Fallback reason and replay stay compact")).toBeTruthy();
+    expect(screen.getByText("Native-available action menu keeps message clear")).toBeTruthy();
+    expect(screen.getByText("Fallback reason and replay stay in menu")).toBeTruthy();
     expect(screen.getByText(/Native fork unavailable: Codex native fork skipped/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Use bounded replay Side Chat/i })).toBeTruthy();
+    expect(screen.getByText("Replay Side Chat")).toBeTruthy();
+    expect(screen.getByText("Confirm replay Side Chat")).toBeTruthy();
   });
 
   it("shows the voice mode selector before the recording label in Playground composer states", () => {

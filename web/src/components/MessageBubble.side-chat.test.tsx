@@ -174,7 +174,7 @@ describe("MessageBubble Side Chat actions", () => {
     expect(screen.getByText("Legacy status unknown")).toBeTruthy();
   });
 
-  it("suppresses Side Chat controls and summaries for leader sessions", () => {
+  it("suppresses Side Chat controls and summaries for leader sessions", async () => {
     const sessionId = "leader-with-side-chat";
     const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Leader root answer" });
     useStore.getState().addSession(
@@ -191,7 +191,9 @@ describe("MessageBubble Side Chat actions", () => {
     expect(screen.queryByText("2 replies")).toBeNull();
     expect(screen.queryByRole("button", { name: "Start Side Chat" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Open Side Chat with/i })).toBeNull();
-    expect(screen.getByRole("button", { name: "Copy message" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Message options" }));
+    expect(screen.queryByText("Start Side Chat")).toBeNull();
+    expect(screen.getByText("Copy as Markdown")).toBeTruthy();
   });
 
   it("keeps Side Chat creation available for native-eligible root assistant messages", async () => {
@@ -199,13 +201,13 @@ describe("MessageBubble Side Chat actions", () => {
 
     const { container } = render(<MessageBubble message={msg} sessionId="root-session" currentThreadKey="main" />);
 
-    const toolbar = container.querySelector("[data-message-action-toolbar]");
-    const startSideChat = await screen.findByRole("button", { name: "Start Side Chat" });
-    await waitFor(() => expect(startSideChat).not.toBeDisabled());
-    expect(toolbar).toBeTruthy();
-    expect(toolbar?.className).toContain("absolute");
-    expect(toolbar?.className).not.toContain("shrink-0");
-    expect(startSideChat.className).toContain("h-7");
+    const actionRow = container.querySelector("[data-message-action-menu-row]");
+    expect(actionRow).toBeTruthy();
+    expect(actionRow?.className).toContain("mt-1");
+    expect(actionRow?.className).not.toContain("absolute");
+
+    await userEvent.click(screen.getByRole("button", { name: "Message options" }));
+    await waitFor(() => expect(screen.getByText("Start Side Chat")).toBeTruthy());
   });
 
   it("keeps Side Chat creation available for native-eligible herded worker sessions", async () => {
@@ -221,8 +223,8 @@ describe("MessageBubble Side Chat actions", () => {
       const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Worker answer" });
       render(<MessageBubble message={msg} sessionId="worker-session" currentThreadKey="main" />);
 
-      const startSideChat = await screen.findByRole("button", { name: "Start Side Chat" });
-      await waitFor(() => expect(startSideChat).not.toBeDisabled());
+      await userEvent.click(screen.getByRole("button", { name: "Message options" }));
+      await waitFor(() => expect(screen.getByText("Start Side Chat")).toBeTruthy());
     } finally {
       useStore.setState({ sdkSessions: prevSdkSessions });
     }
@@ -248,21 +250,20 @@ describe("MessageBubble Side Chat actions", () => {
     const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Root answer" });
     const { container } = render(<MessageBubble message={msg} sessionId="root-session" currentThreadKey="main" />);
 
-    const startSideChat = await screen.findByRole("button", { name: "Start Side Chat" });
-    await waitFor(() => expect(startSideChat).toBeDisabled());
-    const reason = screen.getByLabelText(
+    await userEvent.click(screen.getByRole("button", { name: "Message options" }));
+    const reason = await screen.findByText(
       /Native fork unavailable: Codex native fork skipped: anchor is not the final assistant message/i,
     );
     expect(reason).toBeTruthy();
-    expect(container.querySelector("[data-side-chat-unavailable-reason]")).toBeTruthy();
-    expect(container.querySelector("[data-message-action-toolbar]")?.className).toContain("absolute");
-    const replay = await screen.findByRole("button", { name: /Use bounded replay Side Chat/i });
+    expect(container.querySelector("[data-message-action-menu-row]")?.className).not.toContain("absolute");
+    const replay = await screen.findByText("Replay Side Chat");
 
     await userEvent.click(replay);
     expect(createSideChatMock).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: /Use bounded replay Side Chat/i }).textContent).toBe("Confirm replay");
+    await userEvent.click(screen.getByRole("button", { name: "Message options" }));
+    expect(screen.getByText("Confirm replay Side Chat")).toBeTruthy();
 
-    await userEvent.click(screen.getByRole("button", { name: /Use bounded replay Side Chat/i }));
+    await userEvent.click(screen.getByText("Confirm replay Side Chat"));
     await waitFor(() =>
       expect(createSideChatMock).toHaveBeenCalledWith("root-session", "assistant-anchor", {
         fallbackMode: "allow-bounded-replay",
@@ -270,7 +271,7 @@ describe("MessageBubble Side Chat actions", () => {
     );
   });
 
-  it("suppresses Side Chat creation for assistant messages embedded in a Side Chat panel", () => {
+  it("suppresses Side Chat creation for assistant messages embedded in a Side Chat panel", async () => {
     const msg = makeMessage({ id: "side-chat-assistant", role: "assistant", content: "Side Chat answer" });
 
     render(
@@ -283,6 +284,7 @@ describe("MessageBubble Side Chat actions", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Start Side Chat" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Copy message" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Message options" }));
+    expect(screen.getByText("Copy as Markdown")).toBeTruthy();
   });
 });

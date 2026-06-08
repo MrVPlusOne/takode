@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import type { ChatMessage, SideChatPreflight } from "../../types.js";
+import type { ChatMessage } from "../../types.js";
 import { useStore } from "../../store.js";
 import { MessageBubble } from "../MessageBubble.js";
-import { SideChatButton, SideChatContextBadge } from "../SideChatControls.js";
+import { SideChatContextBadge } from "../SideChatControls.js";
 import { Card, Section } from "./shared.js";
 import { MOCK_SESSION_ID, MSG_ASSISTANT, PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID } from "./fixtures.js";
 
@@ -25,31 +25,6 @@ const PLAYGROUND_FALLBACK_SIDE_CHAT = {
   contextFallbackReason: PLAYGROUND_FALLBACK_REASON,
 };
 
-const NATIVE_PREFLIGHT: SideChatPreflight = {
-  ok: true,
-  anchorMessageId: "playground-side-chat-native-action",
-  backendType: "codex",
-  native: { eligible: true },
-  fallback: { available: false, requiresConfirmation: true },
-};
-
-const FALLBACK_PREFLIGHT: SideChatPreflight = {
-  ok: true,
-  anchorMessageId: "playground-side-chat-fallback-action",
-  backendType: "codex",
-  native: {
-    eligible: false,
-    reason: PLAYGROUND_FALLBACK_REASON,
-    reasonCode: "codex-anchor-not-final-assistant",
-  },
-  fallback: {
-    available: true,
-    requiresConfirmation: true,
-    reason: PLAYGROUND_FALLBACK_REASON,
-    reasonCode: "codex-anchor-not-final-assistant",
-  },
-};
-
 function makeAssistantMessage(id: string, content: string): ChatMessage {
   return {
     id,
@@ -59,59 +34,67 @@ function makeAssistantMessage(id: string, content: string): ChatMessage {
   };
 }
 
-function PreviewIconButton({ label, children }: { label: string; children: ReactNode }) {
+function PreviewMenuButton({ copied = false }: { copied?: boolean }) {
   return (
     <button
       type="button"
-      aria-label={label}
-      title={label}
-      className="inline-flex h-7 w-7 items-center justify-center rounded text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
+      aria-label="Message options"
+      title="Message options"
+      className="inline-flex h-7 items-center gap-1 rounded-md border border-cc-border bg-cc-card/80 px-1.5 text-[11px] text-cc-muted shadow-sm"
     >
-      {children}
+      {copied ? (
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
+          <path d="M3 8.5l3.5 3.5 6.5-8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+          <circle cx="3" cy="8" r="1.5" />
+          <circle cx="8" cy="8" r="1.5" />
+          <circle cx="13" cy="8" r="1.5" />
+        </svg>
+      )}
+      <span>{copied ? "Copied Markdown" : "Actions"}</span>
     </button>
   );
 }
 
-function ActionToolbarPreview({
-  label,
-  message,
-  preflight,
-  reasonDefaultOpen = false,
-}: {
-  label: string;
-  message: ChatMessage;
-  preflight: SideChatPreflight;
-  reasonDefaultOpen?: boolean;
-}) {
+function PreviewMenuPanel({ children }: { children: ReactNode }) {
   return (
-    <div className="relative min-h-[128px] overflow-visible border-t border-cc-border bg-cc-card px-4 py-4">
+    <div className="mt-2 w-72 max-w-full rounded-lg border border-cc-border bg-cc-card py-1 text-[11px] text-cc-fg shadow-lg">
+      {children}
+    </div>
+  );
+}
+
+function PreviewMenuItem({ children, muted = false }: { children: ReactNode; muted?: boolean }) {
+  return <div className={`px-2.5 py-1.5 text-left ${muted ? "text-cc-muted leading-relaxed" : ""}`}>{children}</div>;
+}
+
+function ActionMenuPreview({ message, variant }: { message: ChatMessage; variant: "native" | "fallback" }) {
+  return (
+    <div className="border-t border-cc-border bg-cc-card px-4 py-4">
       <MessageBubble
         message={message}
         sessionId={MOCK_SESSION_ID}
         currentThreadKey="main"
         showSideChatActions={false}
       />
-      <div className="absolute right-3 top-4 z-10 inline-flex max-w-[calc(100%-1.5rem)] items-center rounded-md border border-cc-border bg-cc-card/95 p-0.5 shadow-sm">
-        <SideChatButton
-          message={message}
-          sessionId={MOCK_SESSION_ID}
-          currentThreadKey="main"
-          preflightOverride={preflight}
-          reasonDefaultOpen={reasonDefaultOpen}
-        />
-        <PreviewIconButton label={`${label} reply`}>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="h-3.5 w-3.5">
-            <path d="M6 3L2 7l4 4" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M2 7h7a4 4 0 014 4v1" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </PreviewIconButton>
-        <PreviewIconButton label={`${label} copy`}>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="h-3.5 w-3.5">
-            <rect x="5" y="5" width="8" height="8" rx="1.5" />
-            <path d="M3 10V4.5A1.5 1.5 0 014.5 3H10" strokeLinecap="round" />
-          </svg>
-        </PreviewIconButton>
-      </div>
+      <PreviewMenuButton />
+      <PreviewMenuPanel>
+        {variant === "native" ? (
+          <PreviewMenuItem>Start Side Chat</PreviewMenuItem>
+        ) : (
+          <>
+            <PreviewMenuItem muted>
+              Native fork unavailable: {PLAYGROUND_FALLBACK_REASON} Bounded replay requires confirmation.
+            </PreviewMenuItem>
+            <PreviewMenuItem>Replay Side Chat</PreviewMenuItem>
+            <PreviewMenuItem>Confirm replay Side Chat</PreviewMenuItem>
+          </>
+        )}
+        <PreviewMenuItem>Reply to this message</PreviewMenuItem>
+        <PreviewMenuItem>Copy as Markdown</PreviewMenuItem>
+      </PreviewMenuPanel>
     </div>
   );
 }
@@ -119,18 +102,18 @@ function ActionToolbarPreview({
 export function PlaygroundSideChatStates() {
   const sideChatMessages = useStore((s) => s.messages.get(PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID) ?? []);
   const nativeMessage = makeAssistantMessage(
-    NATIVE_PREFLIGHT.anchorMessageId,
-    "Native fork is available, so the compact action layer should not reduce this message line width.",
+    "playground-side-chat-native-action",
+    "Native fork is available, so the compact action menu stays below this message without covering it.",
   );
   const fallbackMessage = makeAssistantMessage(
-    FALLBACK_PREFLIGHT.anchorMessageId,
-    "Native fork is unavailable here, but the replay confirmation and reason stay compact.",
+    "playground-side-chat-fallback-action",
+    "Native fork is unavailable here, but the replay confirmation and reason stay in the menu.",
   );
 
   return (
-    <Section title="Side Chat" description="Root reply affordance and hidden read-only Side Chat panel">
+    <Section title="Side Chat Actions" description="Assistant-message Side Chat action menu states">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <Card label="Root assistant reply with compact overlaid action cluster">
+        <Card label="Root assistant reply with menu trigger and Side Chat count">
           <div className="space-y-4 border-t border-cc-border bg-cc-card px-4 py-4">
             <MessageBubble message={MSG_ASSISTANT} sessionId={MOCK_SESSION_ID} currentThreadKey="main" />
           </div>
@@ -187,16 +170,11 @@ export function PlaygroundSideChatStates() {
             </div>
           </div>
         </Card>
-        <Card label="Native-available action layer keeps message width">
-          <ActionToolbarPreview label="Native Side Chat" message={nativeMessage} preflight={NATIVE_PREFLIGHT} />
+        <Card label="Native-available action menu keeps message clear">
+          <ActionMenuPreview message={nativeMessage} variant="native" />
         </Card>
-        <Card label="Fallback reason and replay stay compact">
-          <ActionToolbarPreview
-            label="Fallback Side Chat"
-            message={fallbackMessage}
-            preflight={FALLBACK_PREFLIGHT}
-            reasonDefaultOpen
-          />
+        <Card label="Fallback reason and replay stay in menu">
+          <ActionMenuPreview message={fallbackMessage} variant="fallback" />
         </Card>
       </div>
     </Section>
