@@ -1257,7 +1257,6 @@ function ThreadTabRail({
                             onClick={(event) => {
                               event.stopPropagation();
                               onCloseThreadTab(threadKey);
-                              closeMoreTabs();
                             }}
                             className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
                             data-testid="thread-tabs-more-row-close"

@@ -403,7 +403,7 @@ describe("WorkBoardBar overflow tabs", () => {
     fireEvent.click(within(q4Row).getByLabelText("Close q-4"));
 
     expect(onCloseThreadTab).toHaveBeenCalledWith("q-4", "q-5");
-    expect(screen.queryByTestId("thread-tabs-more-list")).not.toBeInTheDocument();
+    expect(screen.getByTestId("thread-tabs-more-list")).toBeInTheDocument();
     expect(strip).toHaveAttribute("data-close-target-width-frozen", "false");
     expect(strip.getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
   });
@@ -758,7 +758,7 @@ describe("WorkBoardBar overflow tabs", () => {
     expectNoNotificationSurfaceTone(tab);
   });
 
-  it("keeps hidden tab close affordances in the More tabs list", async () => {
+  it("keeps the More tabs list open after a hidden row close", async () => {
     const onCloseThreadTab = vi.fn();
     // Close fallback should still use the full ordered tab list, even when the closed tab is hidden in More.
     render(
@@ -778,7 +778,45 @@ describe("WorkBoardBar overflow tabs", () => {
     fireEvent.click(within(q4Row).getByLabelText("Close q-4"));
 
     expect(onCloseThreadTab).toHaveBeenCalledWith("q-4", "q-5");
-    expect(screen.queryByTestId("thread-tabs-more-list")).not.toBeInTheDocument();
+    expect(screen.getByTestId("thread-tabs-more-list")).toBeInTheDocument();
+  });
+
+  it("keeps the More tabs list open across multiple hidden row closes", async () => {
+    const onCloseThreadTab = vi.fn();
+    const view = render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-5"
+        openThreadKeys={["q-1", "q-2", "q-3", "q-4", "q-5"]}
+        onCloseThreadTab={onCloseThreadTab}
+        threadRows={THREAD_ROWS}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId("thread-tabs-more-button"));
+    const firstCloseRow = screen.getByLabelText("Close q-4").closest("[data-testid='thread-tabs-more-row']");
+    expect(firstCloseRow).toHaveAttribute("data-thread-key", "q-4");
+    fireEvent.click(within(firstCloseRow as HTMLElement).getByLabelText("Close q-4"));
+    expect(screen.getByTestId("thread-tabs-more-list")).toBeInTheDocument();
+
+    // Simulate the server-owned tab state after the first close while preserving the open popover state.
+    view.rerender(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-5"
+        openThreadKeys={["q-1", "q-2", "q-3", "q-5"]}
+        onCloseThreadTab={onCloseThreadTab}
+        threadRows={THREAD_ROWS}
+      />,
+    );
+
+    const remainingRows = screen.getAllByTestId("thread-tabs-more-row");
+    expect(remainingRows.map((row) => row.getAttribute("data-thread-key"))).toEqual(["q-3"]);
+    fireEvent.click(within(remainingRows[0]).getByLabelText("Close q-3"));
+
+    expect(onCloseThreadTab).toHaveBeenNthCalledWith(1, "q-4", "q-5");
+    expect(onCloseThreadTab).toHaveBeenNthCalledWith(2, "q-3", "q-5");
+    expect(screen.getByTestId("thread-tabs-more-list")).toBeInTheDocument();
   });
 
   it("persists overflow reorder only through the explicit More tabs reorder mode", async () => {
