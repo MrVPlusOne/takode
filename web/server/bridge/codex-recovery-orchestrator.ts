@@ -1044,6 +1044,10 @@ export function registerCodexAdapterRecoveryLifecycle(
     reconcileDuplicateCodexPendingTurns(session, "codex_turn_steer_failed", deps);
     retryNonDrainableCodexHeadTurn(session, "codex_turn_steer_failed_stale_ack_head", deps);
     deps.rebuildQueuedCodexPendingStartBatch(session);
+    if (adapter.getCurrentTurnId?.()) {
+      deps.persistSession(session);
+      return;
+    }
     deps.dispatchQueuedCodexTurns(session, "codex_turn_steer_failed");
   });
 

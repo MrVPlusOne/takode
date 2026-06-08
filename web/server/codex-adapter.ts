@@ -1278,11 +1278,44 @@ export class CodexAdapter
       })) as { turnId: string };
       this.turnSteeredCb?.(result.turnId, msg.pendingInputIds);
     } catch (err) {
-      const recoveredStaleTurn = this.recoverStaleTurnSteerFailure(msg.expectedTurnId, err);
+      const activeTurnMismatch = this.extractRecoverableActiveTurnMismatch(msg.expectedTurnId, err);
+      const recoveredStaleTurn = !!activeTurnMismatch || this.recoverStaleTurnSteerFailure(msg.expectedTurnId, err);
       this.turnSteerFailedCb?.(msg.pendingInputIds);
+      if (activeTurnMismatch) {
+        this.reconcileActiveTurnMismatch(msg.expectedTurnId, activeTurnMismatch);
+      }
       if (recoveredStaleTurn) return;
       this.emit({ type: "error", message: `Failed to steer active Codex turn: ${err}` });
     }
+  }
+
+  private extractRecoverableActiveTurnMismatch(expectedTurnId: string, err: unknown): string | null {
+    const mismatch = this.extractActiveTurnMismatch(err);
+    if (!mismatch || mismatch.expectedTurnId !== expectedTurnId || mismatch.foundTurnId === expectedTurnId) {
+      return null;
+    }
+    if (this.currentTurnId && this.currentTurnId !== expectedTurnId && this.currentTurnId !== mismatch.foundTurnId) {
+      return null;
+    }
+
+    return mismatch.foundTurnId;
+  }
+
+  private reconcileActiveTurnMismatch(expectedTurnId: string, foundTurnId: string): void {
+    console.log(
+      `[codex-adapter] Codex reported active turn ${foundTurnId} while steering stale turn ${expectedTurnId}; ` +
+        `reconciling current turn for session ${this.sessionId}`,
+    );
+    this.currentTurnId = foundTurnId;
+  }
+
+  private extractActiveTurnMismatch(err: unknown): { expectedTurnId: string; foundTurnId: string } | null {
+    const message = err instanceof Error ? err.message : String(err);
+    const match = message.match(/expected active turn id [`'"]([^`'"]+)[`'"] but found [`'"]([^`'"]+)[`'"]/);
+    if (!match) return null;
+    const [, expectedTurnId, foundTurnId] = match;
+    if (!expectedTurnId || !foundTurnId) return null;
+    return { expectedTurnId, foundTurnId };
   }
 
   private recoverStaleTurnSteerFailure(expectedTurnId: string, err: unknown): boolean {

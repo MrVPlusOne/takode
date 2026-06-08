@@ -188,6 +188,45 @@ describe("CodexAdapter stale turn/steer recovery", () => {
     );
   });
 
+  it("reconciles expected/found active-turn steer mismatches without a top-level error", async () => {
+    const emitted: BrowserIncomingMessage[] = [];
+    const steerFailed = vi.fn();
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini", cwd: "/tmp" });
+    adapter.onBrowserMessage((msg) => emitted.push(msg));
+    adapter.onTurnSteerFailed(steerFailed);
+
+    await initializeAdapter(stdout);
+    await startActiveTurn(adapter, stdin, stdout, "turn_new", "newer turn");
+
+    adapter.sendBrowserMessage({
+      type: "codex_steer_pending",
+      pendingInputIds: ["pending-follow-up"],
+      expectedTurnId: "turn_new",
+      inputs: [{ content: "follow-up after stale active-turn mismatch" }],
+    });
+    await tick();
+
+    stdout.push(
+      JSON.stringify({
+        id: findLastRequestId(stdin, "turn/steer"),
+        error: {
+          code: -32600,
+          message: "expected active turn id `turn_new` but found `turn_old`",
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    expect(adapter.getCurrentTurnId()).toBe("turn_old");
+    expect(steerFailed).toHaveBeenCalledWith(["pending-follow-up"]);
+    expect(emitted).not.toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("Failed to steer active Codex turn"),
+      }),
+    );
+  });
+
   it("keeps a newer active turn when a stale expected turn receives no-active-turn", async () => {
     const emitted: BrowserIncomingMessage[] = [];
     const steerFailed = vi.fn();

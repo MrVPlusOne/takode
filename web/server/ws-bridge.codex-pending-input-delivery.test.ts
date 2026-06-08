@@ -1028,6 +1028,141 @@ describe("Codex pending input delivery", () => {
     expect(staleHead.dispatchCount).toBe(1);
   });
 
+  it("keeps a failed expected/found active-turn steer recoverable and commits the image input once", async () => {
+    const sid = "s-codex-active-turn-mismatch";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-active-mismatch", model: "gpt-5.5", cwd: "/repo" });
+    bridge.handleBrowserOpen(browser, sid);
+
+    const session = bridge.getSession(sid)!;
+    adapter.emitTurnStarted("turn-d3a1");
+    adapter.sendBrowserMessage.mockClear();
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "message with image after active-turn mismatch",
+        client_msg_id: "client-image-1",
+        imageRefs: [
+          {
+            imageId: "image-1",
+            media_type: "image/jpeg",
+            optimized: true,
+            sourceName: "pasted.png",
+          },
+        ],
+      }),
+    );
+    await Promise.resolve();
+
+    const steer = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
+    expect(steer).toEqual(
+      expect.objectContaining({
+        type: "codex_steer_pending",
+        expectedTurnId: "turn-d3a1",
+      }),
+    );
+    expect(steer.pendingInputIds).toEqual([session.pendingCodexInputs[0]?.id]);
+    expect(steer.inputs[0]?.content).toContain("message with image after active-turn mismatch");
+    expect(steer.inputs[0]?.content).toContain("/Users/jiayiwei/.companion/images/s-codex-active-turn-mismatch/");
+    expect(steer.inputs[0]?.content).toContain("image-1.takode-agent.jpeg");
+    expect(steer.inputs[0]?.images).toBeUndefined();
+    expect(steer.inputs[0]?.local_images).toBeUndefined();
+
+    session.pendingCodexTurns.unshift({
+      adapterMsg: {
+        type: "codex_start_pending",
+        pendingInputIds: ["active-turn-input"],
+        inputs: [{ content: "already active turn input" }],
+      },
+      userMessageId: "active-turn-input",
+      pendingInputIds: ["active-turn-input"],
+      userContent: "already active turn input",
+      historyIndex: -1,
+      status: "backend_acknowledged",
+      dispatchCount: 1,
+      createdAt: Date.now() - 1_000,
+      updatedAt: Date.now() - 1_000,
+      acknowledgedAt: Date.now() - 1_000,
+      turnTarget: "current",
+      lastError: null,
+      turnId: "turn-c014",
+      disconnectedAt: null,
+      resumeConfirmedAt: null,
+      autoPauseSourceKind: "manual",
+    });
+
+    adapter.emitTurnSteerFailed(steer.pendingInputIds);
+    adapter.setCurrentTurnIdForTest("turn-c014");
+    await Promise.resolve();
+
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(session.pendingCodexInputs[0]).toMatchObject({
+      content: "message with image after active-turn mismatch",
+      cancelable: true,
+      clientMsgId: "client-image-1",
+    });
+    expect(session.pendingCodexInputs[0]?.imageRefs).toEqual([
+      expect.objectContaining({
+        imageId: "image-1",
+        media_type: "image/jpeg",
+        optimized: true,
+      }),
+    ]);
+    expect(
+      session.messageHistory.filter(
+        (msg: any) => msg.type === "user_message" && msg.content === "message with image after active-turn mismatch",
+      ),
+    ).toHaveLength(0);
+    expect(
+      browser.send.mock.calls
+        .map(([arg]: [string]) => JSON.parse(arg))
+        .some((msg: any) => msg.type === "error" && msg.message.includes("Failed to steer active Codex turn")),
+    ).toBe(false);
+
+    adapter.setCurrentTurnIdForTest(null);
+    adapter.sendBrowserMessage.mockClear();
+    adapter.emitBrowserMessage({
+      type: "result",
+      data: { is_error: false, result: "completed stale active turn", codex_turn_id: "turn-c014" },
+    });
+    await Promise.resolve();
+
+    const retry = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
+    expect(retry).toEqual(
+      expect.objectContaining({
+        type: "codex_start_pending",
+        pendingInputIds: [session.pendingCodexInputs[0]?.id],
+      }),
+    );
+    expect(getCodexStartPendingInputs(retry)[0]?.content).toContain("image-1.takode-agent.jpeg");
+    expect((getCodexStartPendingInputs(retry)[0] as any)?.images).toBeUndefined();
+    expect((getCodexStartPendingInputs(retry)[0] as any)?.local_images).toBeUndefined();
+
+    adapter.emitTurnStarted("turn-retry");
+    await Promise.resolve();
+
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    const committed = session.messageHistory.filter(
+      (msg: any) => msg.type === "user_message" && msg.content === "message with image after active-turn mismatch",
+    );
+    expect(committed).toHaveLength(1);
+    expect(committed[0]).toMatchObject({
+      client_msg_id: "client-image-1",
+      images: [
+        expect.objectContaining({
+          imageId: "image-1",
+          media_type: "image/jpeg",
+          optimized: true,
+        }),
+      ],
+    });
+  });
+
   it("does not retry stale pending delivery while the session is actively generating", async () => {
     const sid = "s-codex-stale-generating";
     const adapter = makeCodexAdapterMock();
