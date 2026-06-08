@@ -79,10 +79,14 @@ export function SideChatButton({
   message,
   sessionId,
   currentThreadKey,
+  preflightOverride,
+  reasonDefaultOpen = false,
 }: {
   message: ChatMessage;
   sessionId: string;
   currentThreadKey?: string;
+  preflightOverride?: SideChatPreflight;
+  reasonDefaultOpen?: boolean;
 }) {
   const [creating, setCreating] = useState(false);
   const [fallbackConfirming, setFallbackConfirming] = useState(false);
@@ -98,6 +102,11 @@ export function SideChatButton({
     setFallbackConfirming(false);
     if (!sideChatsEnabled || !isRootAssistant || message.metadata?.slackThreadId || sideChat) {
       setPreflight(null);
+      setPreflightError(null);
+      return;
+    }
+    if (preflightOverride) {
+      setPreflight(preflightOverride);
       setPreflightError(null);
       return;
     }
@@ -120,7 +129,15 @@ export function SideChatButton({
     return () => {
       cancelled = true;
     };
-  }, [isRootAssistant, message.id, message.metadata?.slackThreadId, sessionId, sideChat, sideChatsEnabled]);
+  }, [
+    isRootAssistant,
+    message.id,
+    message.metadata?.slackThreadId,
+    preflightOverride,
+    sessionId,
+    sideChat,
+    sideChatsEnabled,
+  ]);
 
   if (!sideChatsEnabled || !isRootAssistant || message.metadata?.slackThreadId) return null;
 
@@ -166,6 +183,11 @@ export function SideChatButton({
   const nativeReason = preflight?.native.reason ?? preflightError ?? "Checking native Side Chat support";
   const fallbackReason = preflight?.fallback.reason ?? nativeReason;
   const showUnavailableReason = !sideChat && preflight && !nativeReady;
+  const unavailableDetail = showUnavailableReason
+    ? `Native fork unavailable: ${fallbackReason}${
+        preflight.fallback.available ? " Bounded replay requires confirmation." : ""
+      }`
+    : null;
 
   return (
     <>
@@ -206,16 +228,32 @@ export function SideChatButton({
           {fallbackConfirming ? "Confirm replay" : "Replay"}
         </button>
       )}
-      {showUnavailableReason && (
-        <span
-          className="ml-1 max-w-[240px] whitespace-normal rounded-md border border-cc-attention-border bg-cc-attention-bg px-2 py-1 text-[10px] leading-tight text-cc-attention"
-          role="status"
-        >
-          Native fork unavailable: {fallbackReason}
-          {preflight.fallback.available ? " Bounded replay requires confirmation." : ""}
-        </span>
-      )}
+      {unavailableDetail && <SideChatUnavailableReason detail={unavailableDetail} defaultOpen={reasonDefaultOpen} />}
     </>
+  );
+}
+
+export function SideChatUnavailableReason({ detail, defaultOpen = false }: { detail: string; defaultOpen?: boolean }) {
+  return (
+    <details
+      className="group/side-chat-reason relative inline-flex h-7 w-7 shrink-0 items-center justify-center"
+      data-side-chat-unavailable-reason
+      open={defaultOpen}
+    >
+      <summary
+        className="inline-flex h-7 w-7 cursor-help list-none items-center justify-center rounded text-[11px] font-semibold text-cc-attention transition-colors hover:bg-cc-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-cc-attention-border [&::-webkit-details-marker]:hidden"
+        title={detail}
+        aria-label={detail}
+      >
+        <span aria-hidden="true">!</span>
+      </summary>
+      <span
+        className="absolute right-0 top-full z-20 mt-1 w-64 max-w-[min(16rem,calc(100vw-2rem))] rounded-md border border-cc-attention-border bg-cc-attention-bg px-2 py-1.5 text-[10px] leading-snug text-cc-attention shadow-lg"
+        role="status"
+      >
+        {detail}
+      </span>
+    </details>
   );
 }
 

@@ -28,6 +28,7 @@ import {
   PLAYGROUND_SIDE_CHAT_PERMISSION_CHILD_SESSION_ID,
   MSG_ASSISTANT,
 } from "./fixtures.js";
+import { PlaygroundSideChatStates } from "./SideChatPlaygroundStates.js";
 import { PlaygroundSidebarOverflowStates, PlaygroundUniversalSearchStates } from "./search-sidebar-states.js";
 import {
   Card,
@@ -166,6 +167,7 @@ export function PlaygroundStateSections() {
           ))}
         </div>
       </Section>
+      <PlaygroundSideChatStates />
 
       {/* ─── Composer — Voice Recording ──────────────────────────────── */}
       <Section

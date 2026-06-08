@@ -1493,7 +1493,7 @@ function AssistantMessage({
   );
 }
 
-/** Action bar for assistant messages -- groups reply + copy buttons beside content without covering text. */
+/** Action bar for assistant messages -- layered so actions do not reduce the content column width. */
 function MessageActionBar({
   message,
   contentRef,
@@ -1509,7 +1509,7 @@ function MessageActionBar({
 }) {
   return (
     <div
-      className="ml-1 inline-flex shrink-0 items-center rounded-md border border-cc-border bg-cc-card/95 p-0.5 opacity-100 shadow-sm transition-opacity sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
+      className="absolute right-0 top-0 z-10 inline-flex max-w-[calc(100%-0.5rem)] items-center rounded-md border border-cc-border bg-cc-card/95 p-0.5 opacity-100 shadow-sm transition-opacity sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
       data-message-action-toolbar
     >
       {showSideChatActions && sessionId && (

@@ -203,8 +203,8 @@ describe("MessageBubble Side Chat actions", () => {
     const startSideChat = await screen.findByRole("button", { name: "Start Side Chat" });
     await waitFor(() => expect(startSideChat).not.toBeDisabled());
     expect(toolbar).toBeTruthy();
-    expect(toolbar?.className).not.toContain("absolute");
-    expect(toolbar?.className).toContain("shrink-0");
+    expect(toolbar?.className).toContain("absolute");
+    expect(toolbar?.className).not.toContain("shrink-0");
     expect(startSideChat.className).toContain("h-7");
   });
 
@@ -246,16 +246,16 @@ describe("MessageBubble Side Chat actions", () => {
       },
     }));
     const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Root answer" });
-    render(<MessageBubble message={msg} sessionId="root-session" currentThreadKey="main" />);
+    const { container } = render(<MessageBubble message={msg} sessionId="root-session" currentThreadKey="main" />);
 
     const startSideChat = await screen.findByRole("button", { name: "Start Side Chat" });
     await waitFor(() => expect(startSideChat).toBeDisabled());
-    expect(
-      screen.getByText(
-        /Native fork unavailable: Codex native fork skipped: anchor is not the final assistant message/i,
-      ),
-    ).toBeTruthy();
-    expect(screen.getByText(/Bounded replay requires confirmation/i)).toBeTruthy();
+    const reason = screen.getByLabelText(
+      /Native fork unavailable: Codex native fork skipped: anchor is not the final assistant message/i,
+    );
+    expect(reason).toBeTruthy();
+    expect(container.querySelector("[data-side-chat-unavailable-reason]")).toBeTruthy();
+    expect(container.querySelector("[data-message-action-toolbar]")?.className).toContain("absolute");
     const replay = await screen.findByRole("button", { name: /Use bounded replay Side Chat/i });
 
     await userEvent.click(replay);
