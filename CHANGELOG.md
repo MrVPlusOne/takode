@@ -1,5 +1,25 @@
 # Takode Changelog
 
+## 2026-06-08
+
+### Added
+
+- **Side Chat** -- Assistant messages can open native Side Chat sessions, with explicit bounded replay fallback available when a native fork cannot be started
+- **Codex service tier control** -- Codex sessions can choose service-tier speed behavior, with fallback state preserved when a selected tier is unavailable
+
+### Changed
+
+- **Side Chat naming** -- Slack-thread surfaces are now named Side Chat while preserving compatibility aliases for existing saved data and routes
+- **Side Chat action controls** -- Assistant message Side Chat, reply, and copy actions now live in an in-flow message menu so controls stay available without shrinking or covering message text
+- **Leader worktree porting** -- Leader and worker port flows keep target worktree context more reliably and guard branch checks before port operations
+
+### Fixed
+
+- **Side Chat status** -- Side Chat panels show clearer lifecycle and send-state feedback, with native-unavailable reasons and replay confirmation kept visible without disrupting layout
+- **Codex recovery safety** -- Codex launch guards, startup skill metadata retries, oversized-turn handling, and pending-input delivery recover more safely after startup or turn failures
+- **Leader needs-input workflow** -- Leader approval prompts, scoped waits, routing reminders, and dispatch-ready board advisories now use the correct thread and notification surfaces
+- **Session reliability** -- Disconnected session settings edits, Safari voice recording chunks, and worktree leader notifications behave more consistently
+
 ## 2026-05-28
 
 ### Changed
