@@ -454,10 +454,11 @@ describe("Side Chat session routes", () => {
   });
 
   it("uses Claude SDK forkSession for message-anchor hidden children", async () => {
+    const rootHistory = [assistant("anchor-1", "Root answer")];
     const root = {
       id: "root",
       state: makeState({ backend_type: "claude-sdk", model: "claude-sonnet" }),
-      messageHistory: [assistant("anchor-1", "Root answer")],
+      messageHistory: rootHistory,
     };
     const childSession = {
       id: "child",
@@ -523,11 +524,27 @@ describe("Side Chat session routes", () => {
       upToMessageId: "anchor-1",
     });
     expect(launcher.launch).toHaveBeenCalledWith(
-      expect.objectContaining({ resumeCliSessionId: "forked-claude-session" }),
+      expect.objectContaining({
+        backendType: "claude-sdk",
+        hidden: true,
+        parentSessionId: "root",
+        resumeCliSessionId: "forked-claude-session",
+        sideChatReadOnly: true,
+      }),
     );
     const json = await res.json();
     expect(json.sideChat.seeded).toBe(true);
     expect(json.sideChat.contextStrategy).toBe("native-fork");
+    expect(root.messageHistory).toEqual(rootHistory);
+    expect(childSession.messageHistory).toEqual([]);
+    expect(childSession.state.slackThreadChild).toEqual(
+      expect.objectContaining({
+        rootSessionId: "root",
+        anchorMessageId: "anchor-1",
+        readOnly: true,
+        contextStrategy: "native-fork",
+      }),
+    );
   });
 
   it("blocks silent bounded replay when Codex native fork cannot represent the anchor safely", async () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 import { routeSideChatUserMessage } from "./side-chat-bridge.js";
 import type { BrowserIncomingMessage, SideChatRecord, SessionState } from "./session-types.js";
 
@@ -75,7 +75,8 @@ function makeRecord(overrides: Partial<SideChatRecord> = {}): SideChatRecord {
 describe("Side Chat bridge", () => {
   it("sends bounded replay diagnostics only for fallback Side Chat context", async () => {
     const { routeBrowserMessage } = await import("./bridge/adapter-browser-routing-controller.js");
-    vi.mocked(routeBrowserMessage).mockClear();
+    const routeBrowserMessageMock = routeBrowserMessage as Mock;
+    routeBrowserMessageMock.mockClear();
     const record = makeRecord({
       contextStrategy: "bounded-replay",
       contextFallbackReason: "Codex native fork skipped: anchor is not the final assistant message in its Codex turn",
@@ -115,7 +116,7 @@ describe("Side Chat bridge", () => {
       "Side Chat question",
     );
 
-    const routed = vi.mocked(routeBrowserMessage).mock.calls[0][1] as { deliveryContent?: string };
+    const routed = routeBrowserMessageMock.mock.calls[0][1] as { deliveryContent?: string };
     expect(routed.deliveryContent).toContain("Native backend fork was unavailable");
     expect(routed.deliveryContent).toContain("Root branch context:");
     expect(routed.deliveryContent).toContain("Side Chat question");
@@ -148,7 +149,8 @@ describe("Side Chat bridge", () => {
 
   it("does not replay root transcript for already native-forked Side Chats", async () => {
     const { routeBrowserMessage } = await import("./bridge/adapter-browser-routing-controller.js");
-    vi.mocked(routeBrowserMessage).mockClear();
+    const routeBrowserMessageMock = routeBrowserMessage as Mock;
+    routeBrowserMessageMock.mockClear();
     const record = makeRecord({ seeded: true, contextStrategy: "native-fork" });
     const root = {
       id: "root",
@@ -185,7 +187,7 @@ describe("Side Chat bridge", () => {
       "Side Chat question",
     );
 
-    const routed = vi.mocked(routeBrowserMessage).mock.calls[0][1] as { deliveryContent?: string };
+    const routed = routeBrowserMessageMock.mock.calls[0][1] as { deliveryContent?: string };
     expect(routed.deliveryContent).toBeUndefined();
   });
 });
