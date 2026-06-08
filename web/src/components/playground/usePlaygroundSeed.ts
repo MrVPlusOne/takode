@@ -19,6 +19,10 @@ import {
   PLAYGROUND_RESUMING_SESSION_ID,
   PLAYGROUND_SECTIONED_SESSION_ID,
   PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID,
+  PLAYGROUND_SIDE_CHAT_DISCONNECTED_CHILD_SESSION_ID,
+  PLAYGROUND_SIDE_CHAT_ERROR_CHILD_SESSION_ID,
+  PLAYGROUND_SIDE_CHAT_GENERATING_CHILD_SESSION_ID,
+  PLAYGROUND_SIDE_CHAT_PERMISSION_CHILD_SESSION_ID,
   PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID,
   PLAYGROUND_STARTING_SESSION_ID,
   PLAYGROUND_THREAD_PANEL_SESSION_ID,
@@ -53,6 +57,10 @@ export function usePlaygroundSeed() {
       PLAYGROUND_BROKEN_SESSION_ID,
       PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID,
       PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID,
+      PLAYGROUND_SIDE_CHAT_DISCONNECTED_CHILD_SESSION_ID,
+      PLAYGROUND_SIDE_CHAT_GENERATING_CHILD_SESSION_ID,
+      PLAYGROUND_SIDE_CHAT_PERMISSION_CHILD_SESSION_ID,
+      PLAYGROUND_SIDE_CHAT_ERROR_CHILD_SESSION_ID,
       PLAYGROUND_THREAD_PANEL_SESSION_ID,
       "leader-alpha",
       questInProgressId,
@@ -135,6 +143,64 @@ export function usePlaygroundSeed() {
           seeded: true,
           contextStrategy: "native-fork",
         },
+        "st-playground-disconnected": {
+          id: "st-playground-disconnected",
+          rootSessionId: sessionId,
+          childSessionId: PLAYGROUND_SIDE_CHAT_DISCONNECTED_CHILD_SESSION_ID,
+          anchorMessageId: MSG_ASSISTANT.id,
+          anchorHistoryIndex: 2,
+          anchorPreview: "Disconnected hidden child while the root session stays readable.",
+          createdAt: Date.now() - 24_000,
+          updatedAt: Date.now() - 18_000,
+          messageCount: 1,
+          lastMessagePreview: "Queued follow-up will run after reconnect.",
+          seeded: true,
+          contextStrategy: "native-fork",
+        },
+        "st-playground-generating": {
+          id: "st-playground-generating",
+          rootSessionId: sessionId,
+          childSessionId: PLAYGROUND_SIDE_CHAT_GENERATING_CHILD_SESSION_ID,
+          anchorMessageId: MSG_ASSISTANT.id,
+          anchorHistoryIndex: 2,
+          anchorPreview: "Generating Side Chat child with active output tokens.",
+          createdAt: Date.now() - 22_000,
+          updatedAt: Date.now() - 4_000,
+          messageCount: 1,
+          lastMessagePreview: "Drafting a rollout comparison...",
+          seeded: true,
+          contextStrategy: "native-fork",
+        },
+        "st-playground-permission": {
+          id: "st-playground-permission",
+          rootSessionId: sessionId,
+          childSessionId: PLAYGROUND_SIDE_CHAT_PERMISSION_CHILD_SESSION_ID,
+          anchorMessageId: MSG_ASSISTANT.id,
+          anchorHistoryIndex: 2,
+          anchorPreview: "Read-only child denied a repository mutation.",
+          createdAt: Date.now() - 21_000,
+          updatedAt: Date.now() - 6_000,
+          messageCount: 1,
+          lastMessagePreview: "Thread turns are read-only.",
+          seeded: true,
+          contextStrategy: "native-fork",
+        },
+        "st-playground-error": {
+          id: "st-playground-error",
+          rootSessionId: sessionId,
+          childSessionId: PLAYGROUND_SIDE_CHAT_ERROR_CHILD_SESSION_ID,
+          anchorMessageId: MSG_ASSISTANT.id,
+          anchorHistoryIndex: 2,
+          anchorPreview: "Backend error state in the hidden child.",
+          createdAt: Date.now() - 19_000,
+          updatedAt: Date.now() - 5_000,
+          messageCount: 1,
+          lastMessagePreview: "Backend stream disconnected before completion.",
+          seeded: true,
+          contextStrategy: "bounded-replay",
+          contextFallbackReason:
+            "Codex native fork skipped: anchor is not the final assistant message in its Codex turn",
+        },
       },
     };
 
@@ -200,6 +266,118 @@ export function usePlaygroundSeed() {
         content: "Use a feature flag and keep session cookie validation until parity tests pass.",
         timestamp: Date.now() - 8_000,
         metadata: { slackThreadId: "st-playground" },
+      }),
+    ]);
+
+    const sideChatDisconnectedSession: SessionState = {
+      ...sideChatChildSession,
+      session_id: PLAYGROUND_SIDE_CHAT_DISCONNECTED_CHILD_SESSION_ID,
+      backend_state: "disconnected",
+      backend_error: null,
+      slackThreadChild: {
+        ...sideChatChildSession.slackThreadChild!,
+        threadId: "st-playground-disconnected",
+      },
+    };
+    store.addSession(sideChatDisconnectedSession);
+    store.setConnectionStatus(PLAYGROUND_SIDE_CHAT_DISCONNECTED_CHILD_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_SIDE_CHAT_DISCONNECTED_CHILD_SESSION_ID, false);
+    store.setCliEverConnected(PLAYGROUND_SIDE_CHAT_DISCONNECTED_CHILD_SESSION_ID);
+    store.setSessionStatus(PLAYGROUND_SIDE_CHAT_DISCONNECTED_CHILD_SESSION_ID, "idle");
+    store.setPendingCodexInputs(PLAYGROUND_SIDE_CHAT_DISCONNECTED_CHILD_SESSION_ID, [
+      {
+        id: "playground-side-chat-pending",
+        content: "Can you queue this while reconnecting?",
+        timestamp: Date.now() - 2_500,
+        cancelable: true,
+        clientMsgId: "playground-side-chat-pending-client",
+      },
+    ]);
+    store.setMessages(PLAYGROUND_SIDE_CHAT_DISCONNECTED_CHILD_SESSION_ID, [
+      makePlaygroundMessage({
+        id: "playground-side-chat-disconnected-user",
+        role: "user",
+        content: "Can you queue this while reconnecting?",
+        timestamp: Date.now() - 2_500,
+        metadata: { slackThreadId: "st-playground-disconnected" },
+      }),
+    ]);
+
+    const sideChatGeneratingSession: SessionState = {
+      ...sideChatChildSession,
+      session_id: PLAYGROUND_SIDE_CHAT_GENERATING_CHILD_SESSION_ID,
+      backend_state: "connected",
+      backend_error: null,
+      slackThreadChild: {
+        ...sideChatChildSession.slackThreadChild!,
+        threadId: "st-playground-generating",
+      },
+    };
+    store.addSession(sideChatGeneratingSession);
+    store.setConnectionStatus(PLAYGROUND_SIDE_CHAT_GENERATING_CHILD_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_SIDE_CHAT_GENERATING_CHILD_SESSION_ID, true);
+    store.setSessionStatus(PLAYGROUND_SIDE_CHAT_GENERATING_CHILD_SESSION_ID, "running");
+    store.setStreamingStats(PLAYGROUND_SIDE_CHAT_GENERATING_CHILD_SESSION_ID, {
+      startedAt: Date.now() - 9_000,
+      outputTokens: 318,
+    });
+    store.setMessages(PLAYGROUND_SIDE_CHAT_GENERATING_CHILD_SESSION_ID, [
+      makePlaygroundMessage({
+        id: "playground-side-chat-generating-user",
+        role: "user",
+        content: "Compare the rollout risks.",
+        timestamp: Date.now() - 10_000,
+        metadata: { slackThreadId: "st-playground-generating" },
+      }),
+    ]);
+
+    const sideChatPermissionSession: SessionState = {
+      ...sideChatChildSession,
+      session_id: PLAYGROUND_SIDE_CHAT_PERMISSION_CHILD_SESSION_ID,
+      backend_state: "connected",
+      backend_error: null,
+      slackThreadChild: {
+        ...sideChatChildSession.slackThreadChild!,
+        threadId: "st-playground-permission",
+      },
+    };
+    store.addSession(sideChatPermissionSession);
+    store.setConnectionStatus(PLAYGROUND_SIDE_CHAT_PERMISSION_CHILD_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_SIDE_CHAT_PERMISSION_CHILD_SESSION_ID, true);
+    store.setSessionStatus(PLAYGROUND_SIDE_CHAT_PERMISSION_CHILD_SESSION_ID, "idle");
+    store.setMessages(PLAYGROUND_SIDE_CHAT_PERMISSION_CHILD_SESSION_ID, [
+      makePlaygroundMessage({
+        id: "playground-side-chat-denied",
+        role: "system",
+        content:
+          "Thread turns are read-only. Continue in the root conversation or a normal quest workflow to edit files.",
+        timestamp: Date.now() - 6_000,
+        variant: "denied",
+        metadata: { slackThreadId: "st-playground-permission" },
+      }),
+    ]);
+
+    const sideChatErrorSession: SessionState = {
+      ...sideChatChildSession,
+      session_id: PLAYGROUND_SIDE_CHAT_ERROR_CHILD_SESSION_ID,
+      backend_state: "connected",
+      backend_error: "stream disconnected before completion",
+      slackThreadChild: {
+        ...sideChatChildSession.slackThreadChild!,
+        threadId: "st-playground-error",
+      },
+    };
+    store.addSession(sideChatErrorSession);
+    store.setConnectionStatus(PLAYGROUND_SIDE_CHAT_ERROR_CHILD_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_SIDE_CHAT_ERROR_CHILD_SESSION_ID, true);
+    store.setSessionStatus(PLAYGROUND_SIDE_CHAT_ERROR_CHILD_SESSION_ID, "idle");
+    store.setMessages(PLAYGROUND_SIDE_CHAT_ERROR_CHILD_SESSION_ID, [
+      makePlaygroundMessage({
+        id: "playground-side-chat-error-user",
+        role: "user",
+        content: "Why did the backend stop?",
+        timestamp: Date.now() - 7_000,
+        metadata: { slackThreadId: "st-playground-error" },
       }),
     ]);
 

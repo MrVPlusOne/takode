@@ -19,6 +19,10 @@ export const PLAYGROUND_BROKEN_SESSION_ID = "playground-chat-broken";
 export const PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID = "playground-chat-recovery-suppressed";
 export const PLAYGROUND_THREAD_PANEL_SESSION_ID = "playground-thread-panel-wait-for";
 export const PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID = "playground-side-chat-child";
+export const PLAYGROUND_SIDE_CHAT_DISCONNECTED_CHILD_SESSION_ID = "playground-side-chat-child-disconnected";
+export const PLAYGROUND_SIDE_CHAT_GENERATING_CHILD_SESSION_ID = "playground-side-chat-child-generating";
+export const PLAYGROUND_SIDE_CHAT_PERMISSION_CHILD_SESSION_ID = "playground-side-chat-child-permission";
+export const PLAYGROUND_SIDE_CHAT_ERROR_CHILD_SESSION_ID = "playground-side-chat-child-error";
 export const PLAYGROUND_SESSION_ROWS: Array<{ session: SidebarSessionItem; sessionName: string; preview: string }> = [
   {
     session: {
