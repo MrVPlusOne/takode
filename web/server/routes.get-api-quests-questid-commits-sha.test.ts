@@ -723,6 +723,67 @@ describe("GET /api/quests/:questId/memory-commits/:sha", () => {
     expect(mockMemoryCommitDiff).toHaveBeenCalledWith({ sessionSpaceSlug: "Takode", readOnly: true }, "abc1234");
   });
 
+  it("resolves memory commits from the quest Journey worker memory space", async () => {
+    // This covers done quests like q-1489, where the attached memory commit was
+    // authored in MSI even though the viewer request runs from a Takode session.
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v4",
+      questId: "q-1",
+      title: "Quest",
+      status: "done",
+      createdAt: Date.now(),
+      description: "Ready",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      memoryCommitShas: ["abc1234"],
+      journeyRuns: [
+        {
+          runId: "run-1",
+          workerSessionId: "worker-msi",
+          source: "board",
+          phaseIds: ["alignment", "memory"],
+          status: "completed",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          phaseOccurrences: [],
+        },
+      ],
+    } as any);
+    launcher.getSession.mockImplementation((sessionId: string) =>
+      sessionId === "worker-msi" ? ({ sessionId, memorySessionSpaceSlug: "MSI" } as any) : undefined,
+    );
+    mockMemoryCommitDiff.mockResolvedValueOnce({
+      repo: { root: "/memory/prod/MSI", serverId: "s", serverSlug: "prod", sessionSpaceSlug: "MSI", initialized: true },
+      commit: {
+        sha: "abc1234567890abcdef",
+        shortSha: "abc1234",
+        timestamp: 1713292534000,
+        message: "Record MSI memory",
+        authorName: "Takode",
+        authorEmail: "takode-memory@local",
+        actor: null,
+        quest: "q-1",
+        session: "worker-msi",
+        sources: ["q-1"],
+        changedFiles: [{ status: "M", path: "current/slack-reading-state.md" }],
+      },
+      diff: "diff --git a/current/slack-reading-state.md b/current/slack-reading-state.md\n",
+      sourceFiles: [],
+    });
+
+    const res = await app.request("/api/quests/q-1/memory-commits/abc1234?includeDiff=false", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      sha: "abc1234567890abcdef",
+      shortSha: "abc1234",
+      message: "Record MSI memory",
+      available: true,
+    });
+    expect(mockMemoryCommitDiff).toHaveBeenCalledTimes(1);
+    expect(mockMemoryCommitDiff).toHaveBeenCalledWith({ sessionSpaceSlug: "MSI", readOnly: true }, "abc1234");
+  });
+
   it("rejects memory commits that are not attached to the quest", async () => {
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1-v4",
@@ -741,6 +802,38 @@ describe("GET /api/quests/:questId/memory-commits/:sha", () => {
     expect(res.status).toBe(404);
     await expect(res.json()).resolves.toMatchObject({ error: "Memory commit not attached to this quest" });
     expect(mockMemoryCommitDiff).not.toHaveBeenCalled();
+  });
+
+  it("reports attached memory commits as unavailable after provenance and default spaces miss", async () => {
+    // A stale or cross-space SHA should stay gracefully unavailable after every
+    // read-only candidate misses instead of being treated as a route/session failure.
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v4",
+      questId: "q-1",
+      title: "Quest",
+      status: "done",
+      createdAt: Date.now(),
+      description: "Ready",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      previousOwnerSessionIds: ["worker-msi"],
+      memoryCommitShas: ["abc1234"],
+    } as any);
+    launcher.getSession.mockImplementation((sessionId: string) =>
+      sessionId === "worker-msi" ? ({ sessionId, memorySessionSpaceSlug: "MSI" } as any) : undefined,
+    );
+    mockMemoryCommitDiff.mockResolvedValue(null);
+
+    const res = await app.request("/api/quests/q-1/memory-commits/abc1234", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      sha: "abc1234",
+      available: false,
+      reason: "commit_not_available",
+    });
+    expect(mockMemoryCommitDiff).toHaveBeenNthCalledWith(1, { sessionSpaceSlug: "MSI", readOnly: true }, "abc1234");
+    expect(mockMemoryCommitDiff).toHaveBeenNthCalledWith(2, { sessionSpaceSlug: "Takode", readOnly: true }, "abc1234");
   });
 
   it("reports attached memory commits as unavailable when the local memory repo cannot resolve them", async () => {

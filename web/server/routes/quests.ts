@@ -12,6 +12,7 @@ import {
 import { broadcastQuestUpdate } from "./quest-helpers.js";
 import type { OptionalAuthResult, RouteContext } from "./context.js";
 import { isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
+import { normalizeMemorySessionSpaceSlug } from "../memory-session-space.js";
 import { normalizeTldr, QUEST_TLDR_WARNING_HEADER, tldrWarningForContent } from "../quest-tldr.js";
 import {
   QUEST_PHASE_DOCUMENTATION_WARNING_HEADER,
@@ -47,10 +48,6 @@ function parseNumstatTotals(output: string): { additions: number; deletions: num
 
 function shouldIncludeCommitDiff(c: Context): boolean {
   return c.req.query("includeDiff") !== "false";
-}
-
-function memoryRepoOptions(launcher: RouteContext["launcher"]): MemoryRepoOptions {
-  return { sessionSpaceSlug: launcher.getMemorySessionSpaceSlug(), readOnly: true };
 }
 
 function memoryDiffSourceFiles(
@@ -162,6 +159,52 @@ function questRepoCandidates(quest: QuestmasterTask, launcher: RouteContext["lau
   }
 
   return paths;
+}
+
+function questMemorySessionIds(quest: QuestmasterTask): string[] {
+  const seen = new Set<string>();
+  const sessionIds: string[] = [];
+  const add = (sessionId: string | undefined) => {
+    const normalized = sessionId?.trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    sessionIds.push(normalized);
+  };
+
+  add("sessionId" in quest && typeof quest.sessionId === "string" ? quest.sessionId : undefined);
+  for (const sessionId of quest.previousOwnerSessionIds ?? []) add(sessionId);
+  if (quest.leaderSessionId) add(quest.leaderSessionId);
+  for (const run of quest.journeyRuns ?? []) {
+    add(run.workerSessionId);
+    add(run.leaderSessionId);
+    for (const occurrence of run.phaseOccurrences) add(occurrence.assigneeSessionId);
+  }
+  for (const event of quest.ownershipEvents ?? []) {
+    add(event.actorSessionId);
+    add(event.previousOwnerSessionId);
+    add(event.newOwnerSessionId);
+    add(event.previousLeaderSessionId);
+    add(event.newLeaderSessionId);
+  }
+
+  return sessionIds;
+}
+
+function memoryRepoCandidates(quest: QuestmasterTask, launcher: RouteContext["launcher"]): MemoryRepoOptions[] {
+  const seen = new Set<string>();
+  const candidates: MemoryRepoOptions[] = [];
+  const add = (slug: string | null | undefined, options?: { allowDefault?: boolean }) => {
+    if (!options?.allowDefault && !slug?.trim()) return;
+    const sessionSpaceSlug = normalizeMemorySessionSpaceSlug(slug);
+    if (seen.has(sessionSpaceSlug)) return;
+    seen.add(sessionSpaceSlug);
+    candidates.push({ sessionSpaceSlug, readOnly: true });
+  };
+
+  for (const sessionId of questMemorySessionIds(quest)) add(launcher.getSession(sessionId)?.memorySessionSpaceSlug);
+  add(launcher.getMemorySessionSpaceSlug(), { allowDefault: true });
+
+  return candidates;
 }
 
 function resolveClaimLeaderSessionId(
@@ -530,24 +573,26 @@ export function createQuestRoutes(ctx: RouteContext) {
 
     const includeDiff = shouldIncludeCommitDiff(c);
     const { workstreamMemoryService } = await import("../workstream-memory-service.js");
-    const update = await workstreamMemoryService.commitDiff(memoryRepoOptions(launcher), sha);
-    if (!update) {
-      return c.json({ sha, available: false, reason: "commit_not_available" });
+    for (const options of memoryRepoCandidates(quest, launcher)) {
+      const update = await workstreamMemoryService.commitDiff(options, sha);
+      if (!update) continue;
+
+      return c.json({
+        sha: update.commit.sha,
+        shortSha: update.commit.shortSha,
+        message: update.commit.message,
+        timestamp: update.commit.timestamp,
+        ...(includeDiff
+          ? {
+              diff: update.diff,
+              sourceFiles: memoryDiffSourceFiles(update.sourceFiles),
+            }
+          : {}),
+        available: true,
+      });
     }
 
-    return c.json({
-      sha: update.commit.sha,
-      shortSha: update.commit.shortSha,
-      message: update.commit.message,
-      timestamp: update.commit.timestamp,
-      ...(includeDiff
-        ? {
-            diff: update.diff,
-            sourceFiles: memoryDiffSourceFiles(update.sourceFiles),
-          }
-        : {}),
-      available: true,
-    });
+    return c.json({ sha, available: false, reason: "commit_not_available" });
   });
 
   api.get("/quests/:questId/version/:versionId", async (c) => {
