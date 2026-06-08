@@ -3,6 +3,7 @@ import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { PersistedSession } from "../session-store.js";
 import type {
   BoardRow,
+  CodexLeaderRecycleContinuation,
   ContentBlock,
   SessionTaskEntry,
   SessionNotification,
@@ -100,6 +101,7 @@ type SessionRuntimeOptions = {
   pendingCodexInputs?: any[];
   pendingCodexRollback?: { numTurns: number; truncateIdx: number; clearCodexState: boolean } | null;
   pendingCodexRollbackError?: string | null;
+  codexLeaderRecycleContinuation?: CodexLeaderRecycleContinuation | null;
   codexFreshTurnRequiredUntilTurnId?: string | null;
   nextEventSeq?: number;
   eventBuffer?: any[];
@@ -151,6 +153,7 @@ function createSessionRuntime(
     pendingCodexInputs: options.pendingCodexInputs ?? [],
     pendingCodexRollback: options.pendingCodexRollback ?? null,
     pendingCodexRollbackError: options.pendingCodexRollbackError ?? null,
+    codexLeaderRecycleContinuation: options.codexLeaderRecycleContinuation ?? null,
     codexFreshTurnRequiredUntilTurnId: options.codexFreshTurnRequiredUntilTurnId ?? null,
     pendingCodexRollbackWaiter: null,
     nextEventSeq: options.nextEventSeq ?? 1,
@@ -475,6 +478,25 @@ function normalizePersistedCodexTurn(turn: any, now = Date.now()): any {
   };
 }
 
+function normalizePersistedCodexLeaderRecycleContinuation(value: unknown): CodexLeaderRecycleContinuation | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const trigger =
+    record.trigger === "threshold" ||
+    record.trigger === "manual_compact" ||
+    record.trigger === "context_window_exhausted"
+      ? record.trigger
+      : null;
+  if (!trigger || typeof record.content !== "string" || !record.content.trim()) return null;
+  return {
+    trigger,
+    requestedAt: typeof record.requestedAt === "number" ? record.requestedAt : Date.now(),
+    content: record.content,
+    ...(typeof record.threadKey === "string" && record.threadKey.trim() ? { threadKey: record.threadKey } : {}),
+    ...(typeof record.questId === "string" && record.questId.trim() ? { questId: record.questId } : {}),
+  };
+}
+
 export async function restorePersistedSessions(
   sessions: Map<string, SessionLike>,
   persisted: any[],
@@ -501,6 +523,7 @@ export async function restorePersistedSessions(
         pendingCodexInputs: [],
         pendingCodexRollback: null,
         pendingCodexRollbackError: null,
+        codexLeaderRecycleContinuation: null,
         codexFreshTurnRequiredUntilTurnId: null,
         nextEventSeq: 1,
         eventBuffer: [],
@@ -567,6 +590,9 @@ export async function restorePersistedSessions(
             }
           : null,
       pendingCodexRollbackError: typeof p.pendingCodexRollbackError === "string" ? p.pendingCodexRollbackError : null,
+      codexLeaderRecycleContinuation: normalizePersistedCodexLeaderRecycleContinuation(
+        p.codexLeaderRecycleContinuation,
+      ),
       codexFreshTurnRequiredUntilTurnId:
         typeof p.codexFreshTurnRequiredUntilTurnId === "string" ? p.codexFreshTurnRequiredUntilTurnId : null,
       nextEventSeq: p.nextEventSeq && p.nextEventSeq > 0 ? p.nextEventSeq : 1,
@@ -700,6 +726,7 @@ export function buildPersistedSessionPayload(session: SessionLike): PersistedSes
     pendingCodexInputs: session.pendingCodexInputs,
     pendingCodexRollback: session.pendingCodexRollback,
     pendingCodexRollbackError: session.pendingCodexRollbackError,
+    codexLeaderRecycleContinuation: session.codexLeaderRecycleContinuation,
     codexFreshTurnRequiredUntilTurnId: session.codexFreshTurnRequiredUntilTurnId,
     pendingPermissions: Array.from(session.pendingPermissions.entries()),
     eventBuffer: session.eventBuffer,

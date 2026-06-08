@@ -21,6 +21,7 @@ import type {
   BoardRow,
   BrowserIncomingMessage,
   BufferedBrowserEvent,
+  CodexLeaderRecycleContinuation,
   CodexOutboundTurn,
   ContentBlock,
   PendingCodexInput,
@@ -175,6 +176,8 @@ export interface Session {
   intentionalCodexRelaunchReason: string | null;
   /** Whether context compaction occurred during the current turn (for turn_end herd events) */
   compactedDuringTurn: boolean;
+  /** One-shot continuation prompt injected after an intentional Codex leader recycle. */
+  codexLeaderRecycleContinuation: CodexLeaderRecycleContinuation | null;
   /** Message history indices of user messages received during the current turn (for turn_end herd events) */
   userMessageIdsThisTurn: number[];
   /** Synthetic quest-thread attachment reminders queued from leader assistant output for delivery after result. */

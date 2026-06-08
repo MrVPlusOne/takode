@@ -1473,6 +1473,14 @@ export interface SessionNotification {
 
 export type CodexLeaderRecycleTrigger = "threshold" | "manual_compact" | "context_window_exhausted";
 
+export interface CodexLeaderRecycleContinuation {
+  trigger: CodexLeaderRecycleTrigger;
+  requestedAt: number;
+  content: string;
+  threadKey?: string;
+  questId?: string;
+}
+
 export interface SessionContextLengthSnapshot {
   /** Known context length in tokens. Omitted when only percentage/window data is known. */
   contextTokensUsed?: number;

@@ -1,4 +1,4 @@
-import type { BrowserIncomingMessage } from "../session-types.js";
+import type { BrowserIncomingMessage, CodexLeaderRecycleContinuation } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
 import { getKnownSessionNum } from "../cli-launcher.js";
 import { getCompactionRecoveryPrompt, isCompactionRecoveryPrompt } from "../compaction-recovery-prompts.js";
@@ -41,6 +41,7 @@ type CompactionRecoverySessionLike = {
   id: string;
   sessionNum?: number | null;
   messageHistory: BrowserIncomingMessage[];
+  codexLeaderRecycleContinuation?: CodexLeaderRecycleContinuation | null;
 };
 
 export function hasCompactionRecoveryAfterLatestMarker(
@@ -84,6 +85,16 @@ export function injectCompactionRecovery(
     ) => void;
   },
 ): void {
+  const recycleContinuation = session.codexLeaderRecycleContinuation;
+  if (recycleContinuation?.content) {
+    session.codexLeaderRecycleContinuation = null;
+    console.log(`[ws-bridge] Injecting leader recycle continuation for session ${sessionTag(session.id)}`);
+    deps.injectUserMessage(session.id, recycleContinuation.content, {
+      sessionId: COMPACTION_RECOVERY_SOURCE_ID,
+      sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
+    });
+    return;
+  }
   if (hasCompactionRecoveryAfterLatestMarker(session, deps)) return;
   const role = deps.isLeaderSession(session) ? "leader" : "standard";
   const sessionRef = String(getKnownSessionNum(session.id) ?? session.sessionNum ?? session.id);
