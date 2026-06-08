@@ -34,13 +34,21 @@ function makeAssistantMessage(id: string, content: string): ChatMessage {
   };
 }
 
-function PreviewMenuButton({ copied = false }: { copied?: boolean }) {
+type PreviewTriggerMode = "hover" | "focus" | "mobile";
+
+function PreviewMenuButton({ copied = false, mode = "hover" }: { copied?: boolean; mode?: PreviewTriggerMode }) {
+  const stateClass =
+    mode === "focus"
+      ? "opacity-100 ring-2 ring-cc-primary/40"
+      : mode === "mobile"
+        ? "opacity-100"
+        : "opacity-100 sm:opacity-100";
   return (
     <button
       type="button"
       aria-label="Message options"
       title="Message options"
-      className="inline-flex h-7 items-center gap-1 rounded-md border border-cc-border bg-cc-card/80 px-1.5 text-[11px] text-cc-muted shadow-sm"
+      className={`float-right mb-0.5 ml-1 inline-flex h-6 w-6 touch-manipulation items-center justify-center rounded-md border border-cc-border bg-cc-card/80 text-cc-muted shadow-sm ${stateClass}`}
     >
       {copied ? (
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
@@ -53,7 +61,6 @@ function PreviewMenuButton({ copied = false }: { copied?: boolean }) {
           <circle cx="13" cy="8" r="1.5" />
         </svg>
       )}
-      <span>{copied ? "Copied Markdown" : "Actions"}</span>
     </button>
   );
 }
@@ -70,16 +77,27 @@ function PreviewMenuItem({ children, muted = false }: { children: ReactNode; mut
   return <div className={`px-2.5 py-1.5 text-left ${muted ? "text-cc-muted leading-relaxed" : ""}`}>{children}</div>;
 }
 
-function ActionMenuPreview({ message, variant }: { message: ChatMessage; variant: "native" | "fallback" }) {
+function ActionMenuPreview({
+  message,
+  variant,
+  triggerMode = "hover",
+}: {
+  message: ChatMessage;
+  variant: "native" | "fallback";
+  triggerMode?: PreviewTriggerMode;
+}) {
   return (
     <div className="border-t border-cc-border bg-cc-card px-4 py-4">
-      <MessageBubble
-        message={message}
-        sessionId={MOCK_SESSION_ID}
-        currentThreadKey="main"
-        showSideChatActions={false}
-      />
-      <PreviewMenuButton />
+      <div className={triggerMode === "mobile" ? "max-w-[280px]" : ""}>
+        <div className="group/msg flex items-start gap-2 sm:gap-3">
+          <span className="mt-1 h-4 w-4 rounded-full bg-cc-primary/40" aria-hidden />
+          <div className="min-w-0 flex-1 text-sm leading-relaxed text-cc-fg">
+            <PreviewMenuButton mode={triggerMode} />
+            <p>{message.content}</p>
+            <p className="mt-1 text-xs text-cc-muted">3:04 PM</p>
+          </div>
+        </div>
+      </div>
       <PreviewMenuPanel>
         {variant === "native" ? (
           <PreviewMenuItem>Start Side Chat</PreviewMenuItem>
@@ -103,11 +121,15 @@ export function PlaygroundSideChatStates() {
   const sideChatMessages = useStore((s) => s.messages.get(PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID) ?? []);
   const nativeMessage = makeAssistantMessage(
     "playground-side-chat-native-action",
-    "Native fork is available, so the compact action menu stays below this message without covering it.",
+    "Native fork is available, so the tiny action menu trigger sits at the end of the first line.",
   );
   const fallbackMessage = makeAssistantMessage(
     "playground-side-chat-fallback-action",
     "Native fork is unavailable here, but the replay confirmation and reason stay in the menu.",
+  );
+  const mobileMessage = makeAssistantMessage(
+    "playground-side-chat-mobile-action",
+    "On mobile, the tiny touch trigger remains in the first line without pushing the page sideways.",
   );
 
   return (
@@ -170,11 +192,17 @@ export function PlaygroundSideChatStates() {
             </div>
           </div>
         </Card>
-        <Card label="Native-available action menu keeps message clear">
+        <Card label="Desktop hover first-line native menu">
           <ActionMenuPreview message={nativeMessage} variant="native" />
+        </Card>
+        <Card label="Keyboard focus first-line menu trigger">
+          <ActionMenuPreview message={nativeMessage} variant="native" triggerMode="focus" />
         </Card>
         <Card label="Fallback reason and replay stay in menu">
           <ActionMenuPreview message={fallbackMessage} variant="fallback" />
+        </Card>
+        <Card label="Mobile touch first-line menu trigger">
+          <ActionMenuPreview message={mobileMessage} variant="native" triggerMode="mobile" />
         </Card>
       </div>
     </Section>

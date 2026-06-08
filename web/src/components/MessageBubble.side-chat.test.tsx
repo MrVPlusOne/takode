@@ -196,17 +196,29 @@ describe("MessageBubble Side Chat actions", () => {
     expect(screen.getByText("Copy as Markdown")).toBeTruthy();
   });
 
-  it("keeps Side Chat creation available for native-eligible root assistant messages", async () => {
+  it("keeps Side Chat creation in a first-line hover and focus menu for native-eligible root assistant messages", async () => {
     const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Root answer" });
 
     const { container } = render(<MessageBubble message={msg} sessionId="root-session" currentThreadKey="main" />);
 
     const actionRow = container.querySelector("[data-message-action-menu-row]");
     expect(actionRow).toBeTruthy();
-    expect(actionRow?.className).toContain("mt-1");
+    expect(actionRow).toHaveAttribute("data-message-action-menu-placement", "first-line");
+    expect(actionRow?.className).toContain("float-right");
+    expect(actionRow?.className).toContain("opacity-100");
+    expect(actionRow?.className).toContain("sm:opacity-0");
+    expect(actionRow?.className).toContain("sm:group-hover/msg:opacity-100");
+    expect(actionRow?.className).toContain("sm:group-focus-within/msg:opacity-100");
     expect(actionRow?.className).not.toContain("absolute");
+    const trigger = screen.getByRole("button", { name: "Message options" });
+    expect(trigger.className).toContain("h-6");
+    expect(trigger.className).toContain("w-6");
+    expect(trigger).not.toHaveTextContent("Actions");
 
-    await userEvent.click(screen.getByRole("button", { name: "Message options" }));
+    await userEvent.tab();
+    expect(trigger).toHaveFocus();
+
+    await userEvent.click(trigger);
     await waitFor(() => expect(screen.getByText("Start Side Chat")).toBeTruthy());
   });
 
@@ -255,7 +267,11 @@ describe("MessageBubble Side Chat actions", () => {
       /Native fork unavailable: Codex native fork skipped: anchor is not the final assistant message/i,
     );
     expect(reason).toBeTruthy();
-    expect(container.querySelector("[data-message-action-menu-row]")?.className).not.toContain("absolute");
+    const actionRow = container.querySelector("[data-message-action-menu-row]");
+    expect(actionRow).toHaveAttribute("data-message-action-menu-placement", "first-line");
+    expect(actionRow?.className).toContain("float-right");
+    expect(actionRow?.className).toContain("opacity-100");
+    expect(actionRow?.className).not.toContain("absolute");
     const replay = await screen.findByText("Replay Side Chat");
 
     await userEvent.click(replay);

@@ -103,11 +103,15 @@ describe("Playground", () => {
     expect(document.body).toHaveTextContent("tmux new-session");
   });
 
-  it("documents compact Side Chat action controls and fallback reason states", () => {
+  it("documents first-line Side Chat action controls and fallback reason states", () => {
     render(<Playground />);
 
-    expect(screen.getByText("Native-available action menu keeps message clear")).toBeTruthy();
+    expect(screen.getByText("Desktop hover first-line native menu")).toBeTruthy();
+    expect(screen.getByText("Keyboard focus first-line menu trigger")).toBeTruthy();
     expect(screen.getByText("Fallback reason and replay stay in menu")).toBeTruthy();
+    expect(screen.getByText("Mobile touch first-line menu trigger")).toBeTruthy();
+    expect(screen.getAllByText(/tiny action menu trigger sits at the end of the first line/i)).toHaveLength(2);
+    expect(screen.getByText(/tiny touch trigger remains in the first line/i)).toBeTruthy();
     expect(screen.getByText(/Native fork unavailable: Codex native fork skipped/)).toBeTruthy();
     expect(screen.getByText("Replay Side Chat")).toBeTruthy();
     expect(screen.getByText("Confirm replay Side Chat")).toBeTruthy();

@@ -1359,6 +1359,9 @@ function AssistantMessage({
 
   // Only show copy-message button when there's actual text content to copy
   const hasTextContent = message.content || blocks.some((b) => b.type === "text" || b.type === "thinking");
+  const firstContentGroupIndex = shouldRenderContentFallback
+    ? -1
+    : grouped.findIndex((group) => group.kind === "content");
 
   if (
     blocks.length === 0 &&
@@ -1375,6 +1378,15 @@ function AssistantMessage({
         {!hidePaw && <PawTrailAvatar />}
         <div ref={contentRef} className="flex-1 min-w-0">
           {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
+          {hasTextContent && (
+            <AssistantMessageMenu
+              message={message}
+              contentRef={contentRef}
+              sessionId={sessionId}
+              currentThreadKey={currentThreadKey}
+              showSideChatActions={showSideChatActions}
+            />
+          )}
           <MarkdownContent
             text={message.content}
             sessionId={sessionId}
@@ -1395,15 +1407,6 @@ function AssistantMessage({
           )}
           {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
           {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
-          {hasTextContent && (
-            <AssistantMessageMenu
-              message={message}
-              contentRef={contentRef}
-              sessionId={sessionId}
-              currentThreadKey={currentThreadKey}
-              showSideChatActions={showSideChatActions}
-            />
-          )}
         </div>
       </div>
     );
@@ -1415,16 +1418,27 @@ function AssistantMessage({
       <div ref={contentRef} className="flex-1 min-w-0 space-y-3">
         {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
         {shouldRenderContentFallback && (
-          <MarkdownContent
-            text={message.content}
-            sessionId={sessionId}
-            searchHighlight={searchHighlight}
-            enableChatSelectionMenu
-          />
+          <div className="flow-root">
+            {hasTextContent && (
+              <AssistantMessageMenu
+                message={message}
+                contentRef={contentRef}
+                sessionId={sessionId}
+                currentThreadKey={currentThreadKey}
+                showSideChatActions={showSideChatActions}
+              />
+            )}
+            <MarkdownContent
+              text={message.content}
+              sessionId={sessionId}
+              searchHighlight={searchHighlight}
+              enableChatSelectionMenu
+            />
+          </div>
         )}
         {grouped.map((group, i) => {
           if (group.kind === "content") {
-            return (
+            const renderedBlock = (
               <ContentBlockRenderer
                 key={i}
                 block={group.block}
@@ -1435,6 +1449,21 @@ function AssistantMessage({
                 onSelectThread={onSelectThread}
               />
             );
+            if (!shouldRenderContentFallback && hasTextContent && i === firstContentGroupIndex) {
+              return (
+                <div key={i} className="flow-root">
+                  <AssistantMessageMenu
+                    message={message}
+                    contentRef={contentRef}
+                    sessionId={sessionId}
+                    currentThreadKey={currentThreadKey}
+                    showSideChatActions={showSideChatActions}
+                  />
+                  {renderedBlock}
+                </div>
+              );
+            }
+            return renderedBlock;
           }
           // Single tool_use renders as before
           if (group.items.length === 1) {
@@ -1481,21 +1510,12 @@ function AssistantMessage({
         )}
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
         {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
-        {hasTextContent && (
-          <AssistantMessageMenu
-            message={message}
-            contentRef={contentRef}
-            sessionId={sessionId}
-            currentThreadKey={currentThreadKey}
-            showSideChatActions={showSideChatActions}
-          />
-        )}
       </div>
     </div>
   );
 }
 
-/** Compact assistant action menu kept below content so it neither narrows nor covers message text. */
+/** Tiny floated assistant action menu trigger for first-line access without covering message text. */
 function AssistantMessageMenu({
   message,
   contentRef,
@@ -1624,14 +1644,15 @@ function AssistantMessageMenu({
 
   return (
     <>
-      <div
-        className="mt-1 flex justify-start opacity-100 transition-opacity sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
+      <span
+        className="float-right mb-0.5 ml-1 inline-flex opacity-100 transition-opacity sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
+        data-message-action-menu-placement="first-line"
         data-message-action-menu-row
       >
         <button
           ref={btnRef}
           onClick={toggle}
-          className="inline-flex h-7 items-center gap-1 rounded-md border border-cc-border bg-cc-card/80 px-1.5 text-[11px] text-cc-muted shadow-sm transition-colors hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/40"
+          className="inline-flex h-6 w-6 touch-manipulation items-center justify-center rounded-md border border-cc-border bg-cc-card/80 text-cc-muted shadow-sm transition-colors hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/40"
           title="Message options"
           aria-label="Message options"
         >
@@ -1652,9 +1673,8 @@ function AssistantMessageMenu({
               <circle cx="13" cy="8" r="1.5" />
             </svg>
           )}
-          <span>{copied ? `Copied ${copied}` : "Actions"}</span>
         </button>
-      </div>
+      </span>
       {menuPos && <ContextMenu x={menuPos.x} y={menuPos.y} items={items} onClose={() => setMenuPos(null)} />}
     </>
   );
