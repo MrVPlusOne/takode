@@ -1714,7 +1714,9 @@ function AutoApprovedChip({ content, reason }: { content: string; reason?: strin
 
 function CompactMarker({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
   const [expanded, setExpanded] = useState(false);
-  const hasSummary = message.content && message.content !== "Conversation compacted";
+  const markerKind = message.metadata?.compactMarkerKind === "session_recycled" ? "session_recycled" : "compaction";
+  const label = markerKind === "session_recycled" ? "Session recycled" : "Conversation compacted";
+  const hasSummary = message.content && message.content !== label;
 
   return (
     <div className="animate-[fadeSlideIn_0.2s_ease-out]">
@@ -1735,7 +1737,7 @@ function CompactMarker({ message, sessionId }: { message: ChatMessage; sessionId
           >
             <path d="M2 4h12M4 8h8M6 12h4" strokeLinecap="round" />
           </svg>
-          <span>Conversation compacted</span>
+          <span>{label}</span>
           {hasSummary && (
             <svg
               viewBox="0 0 16 16"

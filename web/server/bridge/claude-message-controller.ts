@@ -1253,7 +1253,9 @@ function handleSdkCompactBoundary(
   const meta = msg.compact_metadata;
   if (deps.hasCompactBoundaryReplay(session, cliUuid, meta)) return;
 
-  const existingMarker = session.messageHistory.findLast((message) => message.type === "compact_marker");
+  const existingMarker = session.messageHistory.findLast(
+    (message) => message.type === "compact_marker" && message.markerKind !== "session_recycled",
+  );
   if (existingMarker && existingMarker.type === "compact_marker" && !existingMarker.cliUuid) {
     existingMarker.cliUuid = cliUuid;
     existingMarker.trigger = meta?.trigger;

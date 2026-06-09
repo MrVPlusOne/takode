@@ -293,14 +293,20 @@ export function normalizeHistoryMessageToChatMessages(
   }
 
   if (histMsg.type === "compact_marker") {
+    const markerKind =
+      (histMsg as { markerKind?: "compaction" | "session_recycled" }).markerKind === "session_recycled"
+        ? "session_recycled"
+        : "compaction";
+    const defaultContent = markerKind === "session_recycled" ? "Session recycled" : "Conversation compacted";
     return [
       {
         id: histMsg.id || `compact-${historyIndex}`,
         role: "system",
-        content: histMsg.summary || "Conversation compacted",
+        content: histMsg.summary || defaultContent,
         timestamp: histMsg.timestamp,
         historyIndex,
         variant: "info",
+        metadata: { compactMarkerKind: markerKind },
       },
     ];
   }

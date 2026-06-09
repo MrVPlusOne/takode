@@ -629,7 +629,7 @@ export class SessionStore {
           id: msg.id,
         });
       } else if (msg.type === "compact_marker") {
-        const summary = (msg.summary || "").trim();
+        const summary = (msg.summary || (msg.markerKind === "session_recycled" ? "Session recycled" : "")).trim();
         if (!summary) continue;
         excerpts.push({
           type: "compact_marker",

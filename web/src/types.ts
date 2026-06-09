@@ -235,6 +235,7 @@ export interface ChatMessage {
       updatedAt: number;
     };
     attentionRecord?: SessionAttentionRecord;
+    compactMarkerKind?: "compaction" | "session_recycled";
     threadStatusMarkers?: LeaderThreadStatus[];
     threadRoutingError?: ThreadRoutingError;
     replyContext?: ReplyContext;

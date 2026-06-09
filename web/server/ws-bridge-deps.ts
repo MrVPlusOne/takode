@@ -711,7 +711,9 @@ export function getClaudeMessageHandlers(host: any) {
     broadcastCompactSummary: (targetSession: unknown, summary: string) =>
       host.broadcastToBrowsers(targetSession as Session, { type: "compact_summary", summary }),
     updateLatestCompactMarkerSummary: (targetSession: unknown, summary: string) => {
-      const marker = (targetSession as Session).messageHistory.findLast((entry) => entry.type === "compact_marker");
+      const marker = (targetSession as Session).messageHistory.findLast(
+        (entry) => entry.type === "compact_marker" && entry.markerKind !== "session_recycled",
+      );
       if (marker && marker.type === "compact_marker") {
         (marker as { summary?: string }).summary = summary;
       }

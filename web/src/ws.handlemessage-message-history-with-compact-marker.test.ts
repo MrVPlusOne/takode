@@ -226,4 +226,38 @@ describe("handleMessage: message_history with compact_marker", () => {
     expect(msgs.length).toBe(1);
     expect(msgs[0].content).toBe("Conversation compacted");
   });
+
+  it("renders session recycled markers with a distinct label before recovery", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "message_history",
+      messages: [
+        {
+          type: "compact_marker",
+          timestamp: 8000,
+          id: "session-recycled-8000",
+          markerKind: "session_recycled",
+          trigger: "threshold",
+        },
+        {
+          type: "user_message",
+          id: "recycle-recovery",
+          content: "Recover enough context after leader recycle.",
+          timestamp: 8001,
+        },
+      ],
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0]).toMatchObject({
+      role: "system",
+      content: "Session recycled",
+      variant: "info",
+      metadata: { compactMarkerKind: "session_recycled" },
+    });
+    expect(msgs[1].content).toBe("Recover enough context after leader recycle.");
+  });
 });

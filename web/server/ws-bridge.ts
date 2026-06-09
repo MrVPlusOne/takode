@@ -1794,6 +1794,7 @@ export class WsBridge {
 
     prepareCodexLeaderRecycleSession(session, trigger, CODEX_INTENTIONAL_RELAUNCH_GUARD_MS, {
       clearAllCodexToolResultWatchdogs: clearAllCodexToolResultWatchdogsController,
+      broadcastToBrowsers: (targetSession, message) => this.broadcastToBrowsers(targetSession, message),
       markCodexIntentionalRelaunch: markCodexIntentionalRelaunchController,
       persistSession: (targetSession) => this.persistSession(targetSession),
       replaceQueuedTurnLifecycleEntries: (targetSession) =>

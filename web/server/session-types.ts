@@ -1011,6 +1011,7 @@ export type BrowserIncomingMessageBase =
       id?: string;
       cliUuid?: string;
       summary?: string;
+      markerKind?: "compaction" | "session_recycled";
       trigger?: string;
       preTokens?: number;
     }

@@ -58,6 +58,7 @@ export function hasCompactionRecoveryAfterLatestMarker(
   if (latestCompactIdx < 0) return false;
 
   for (let i = latestCompactIdx + 1; i < session.messageHistory.length; i++) {
+    const latestMarker = session.messageHistory[latestCompactIdx];
     const entry = session.messageHistory[i] as
       | {
           type?: string;
@@ -66,8 +67,9 @@ export function hasCompactionRecoveryAfterLatestMarker(
         }
       | undefined;
     if (entry?.type !== "user_message") continue;
-    if (typeof entry.content !== "string" || !isCompactionRecoveryPrompt(entry.content)) continue;
     if (!deps.isSystemSourceTag(entry.agentSource)) continue;
+    if (latestMarker?.type === "compact_marker" && latestMarker.markerKind === "session_recycled") return true;
+    if (typeof entry.content !== "string" || !isCompactionRecoveryPrompt(entry.content)) continue;
     return true;
   }
   return false;

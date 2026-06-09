@@ -30,6 +30,7 @@ function makeLeaderSession(history: BrowserIncomingMessage[]) {
 function makeDeps() {
   return {
     clearAllCodexToolResultWatchdogs: vi.fn(),
+    broadcastToBrowsers: vi.fn(),
     markCodexIntentionalRelaunch: vi.fn(),
     persistSession: vi.fn(),
     replaceQueuedTurnLifecycleEntries: vi.fn(),
@@ -107,11 +108,28 @@ describe("Codex leader recycle continuation", () => {
     expect(session.pendingCodexTurns).toEqual([]);
     expect(session.pendingCodexInputs).toEqual([]);
     expect(session.interruptedDuringTurn).toBe(true);
+    const recycleMarker = session.messageHistory.at(-1)!;
+    expect(recycleMarker).toMatchObject({
+      type: "compact_marker",
+      markerKind: "session_recycled",
+      trigger: "threshold",
+    });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, recycleMarker);
     expect(session.codexLeaderRecycleContinuation?.content).toContain("interrupted the previous leader turn");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("q-1489");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("Fix Codex active-turn");
 
-    const injectUserMessage = vi.fn();
+    const injectUserMessage = vi.fn(
+      (_sessionId: string, content: string, agentSource?: { sessionId: string; sessionLabel?: string | undefined }) => {
+        session.messageHistory.push({
+          type: "user_message",
+          id: "recycle-continuation",
+          timestamp: Date.now(),
+          content,
+          ...(agentSource ? { agentSource } : {}),
+        });
+      },
+    );
     injectCompactionRecovery(session, {
       isLeaderSession: () => true,
       isSystemSourceTag: (agentSource) => agentSource?.sessionId === "system:compaction-recovery",
@@ -130,5 +148,17 @@ describe("Codex leader recycle continuation", () => {
       sessionId: "system:compaction-recovery",
       sessionLabel: "Compaction Recovery",
     });
+    const markerIndex = session.messageHistory.indexOf(recycleMarker);
+    const continuationIndex = session.messageHistory.findIndex(
+      (entry: { id?: string }) => entry.id === "recycle-continuation",
+    );
+    expect(continuationIndex).toBe(markerIndex + 1);
+
+    injectCompactionRecovery(session, {
+      isLeaderSession: () => true,
+      isSystemSourceTag: (agentSource) => agentSource?.sessionId === "system:compaction-recovery",
+      injectUserMessage,
+    });
+    expect(injectUserMessage).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,8 +1,13 @@
-import type { BrowserIncomingMessage, CodexLeaderRecycleTrigger } from "../session-types.js";
+import type {
+  BrowserIncomingMessage,
+  CodexLeaderRecycleContinuation,
+  CodexLeaderRecycleTrigger,
+} from "../session-types.js";
 import type { Session } from "./ws-bridge-session.js";
 
 export interface CodexLeaderRecycleSessionDeps {
   clearAllCodexToolResultWatchdogs: (session: Session) => void;
+  broadcastToBrowsers: (session: Session, message: BrowserIncomingMessage) => void;
   markCodexIntentionalRelaunch: (session: Session, reason: string, guardMs: number) => void;
   persistSession: (session: Session) => void;
   replaceQueuedTurnLifecycleEntries: (session: Session) => void;
@@ -30,6 +35,7 @@ export function prepareCodexLeaderRecycleSession(
   deps: CodexLeaderRecycleSessionDeps,
 ): void {
   const continuation = buildCodexLeaderRecycleContinuation(session, trigger);
+  const marker = buildCodexLeaderRecycleMarker(trigger, continuation.requestedAt);
   deps.clearAllCodexToolResultWatchdogs(session);
   session.pendingMessages = [];
   session.forceCompactPending = false;
@@ -44,6 +50,8 @@ export function prepareCodexLeaderRecycleSession(
   session.lastOutboundUserNdjson = null;
   session.state.is_compacting = false;
   session.codexLeaderRecycleContinuation = continuation;
+  session.messageHistory.push(marker);
+  deps.broadcastToBrowsers(session, marker);
   deps.replaceQueuedTurnLifecycleEntries(session);
   session.interruptedDuringTurn = true;
   session.interruptSourceDuringTurn = "system";
@@ -53,10 +61,20 @@ export function prepareCodexLeaderRecycleSession(
   deps.persistSession(session);
 }
 
+function buildCodexLeaderRecycleMarker(trigger: CodexLeaderRecycleTrigger, timestamp: number): BrowserIncomingMessage {
+  return {
+    type: "compact_marker",
+    id: `session-recycled-${timestamp}`,
+    timestamp,
+    markerKind: "session_recycled",
+    trigger,
+  };
+}
+
 function buildCodexLeaderRecycleContinuation(
   session: Session,
   trigger: CodexLeaderRecycleTrigger,
-): Session["codexLeaderRecycleContinuation"] {
+): CodexLeaderRecycleContinuation {
   const requestedAt = Date.now();
   const recent = summarizeRecentLeaderTurnContext(session.messageHistory);
   const route = session.activeTurnRoute ?? recent.route;

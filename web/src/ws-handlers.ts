@@ -787,6 +787,12 @@ function handleParsedMessage(
       break;
     }
 
+    case "compact_marker": {
+      const [message] = normalizeHistoryMessageToChatMessages(data, -1);
+      if (message) store.appendMessage(sessionId, message);
+      break;
+    }
+
     case "vscode_selection_state": {
       store.setVsCodeSelectionContext(data.state);
       break;
@@ -1628,7 +1634,14 @@ function handleParsedMessage(
     case "compact_summary": {
       // Update the most recent compact marker with the full summary text
       const msgs = store.messages.get(sessionId) || [];
-      const lastCompact = [...msgs].reverse().find((m) => m.role === "system" && m.id.startsWith("compact-boundary-"));
+      const lastCompact = [...msgs]
+        .reverse()
+        .find(
+          (m) =>
+            m.role === "system" &&
+            m.id.startsWith("compact-boundary-") &&
+            m.metadata?.compactMarkerKind !== "session_recycled",
+        );
       if (lastCompact) {
         store.updateMessage(sessionId, lastCompact.id, { content: data.summary });
       }

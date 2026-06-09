@@ -196,4 +196,27 @@ describe("handleMessage: compact_boundary", () => {
     const markers = msgs.filter((m) => m.id === "compact-boundary-5000");
     expect(markers).toHaveLength(1);
   });
+
+  it("appends live session recycled markers without treating them as compact summaries", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "compact_marker",
+      id: "session-recycled-9000",
+      timestamp: 9000,
+      markerKind: "session_recycled",
+      trigger: "threshold",
+    });
+    fireMessage({ type: "compact_summary", summary: "Old compaction summary should not attach to recycle marker" });
+
+    const msgs = useStore.getState().messages.get("s1") ?? [];
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({
+      id: "session-recycled-9000",
+      role: "system",
+      content: "Session recycled",
+      metadata: { compactMarkerKind: "session_recycled" },
+    });
+  });
 });
