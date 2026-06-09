@@ -29,18 +29,35 @@ export function useParticipantSessionStatusDotProps(
   const disconnectReason = useStore((s) => (sessionId ? s.cliDisconnectReason?.get(sessionId) : undefined));
   const permCount = useStore((s) => (sessionId ? (s.pendingPermissions?.get(sessionId)?.size ?? 0) : 0));
   const hasUnread = useStore((s) => (sessionId ? !!s.sessionAttention?.get(sessionId) : false));
+  const currentSessionId = useStore((s) => s.currentSessionId);
+  const liveTimerCount = useStore((s) => (sessionId ? (s.sessionTimers?.get(sessionId)?.length ?? 0) : 0));
 
   const hasLiveSession =
-    !!sdkSession || hasSessionStatus || hasCliConnected || disconnectReason !== undefined || permCount > 0 || hasUnread;
+    !!sdkSession ||
+    hasSessionStatus ||
+    hasCliConnected ||
+    disconnectReason !== undefined ||
+    permCount > 0 ||
+    hasUnread ||
+    liveTimerCount > 0;
   if (sessionId && hasLiveSession) {
+    const activeTimerCount = sessionId === currentSessionId ? liveTimerCount : (sdkSession?.pendingTimerCount ?? 0);
+    const fallbackProps = fallbackStatus
+      ? participantStatusToDotProps(fallbackStatus)
+      : liveTimerCount > 0
+        ? participantStatusToDotProps("idle")
+        : null;
     return {
-      archived: sdkSession?.archived ?? false,
+      archived: sdkSession?.archived ?? fallbackProps?.archived ?? false,
       permCount,
-      isConnected: hasCliConnected ? cliConnected === true : (sdkSession?.cliConnected ?? false),
-      sdkState: sdkSession?.state ?? null,
-      status: hasSessionStatus ? liveStatus : null,
+      isConnected: hasCliConnected
+        ? cliConnected === true
+        : (sdkSession?.cliConnected ?? fallbackProps?.isConnected ?? false),
+      sdkState: sdkSession?.state ?? fallbackProps?.sdkState ?? null,
+      status: hasSessionStatus ? liveStatus : (fallbackProps?.status ?? null),
       hasUnread,
       idleKilled: disconnectReason === "idle_limit",
+      activeTimerCount: activeTimerCount || liveTimerCount,
     };
   }
 

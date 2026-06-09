@@ -5,6 +5,7 @@ export type SessionVisualStatus =
   | "running"
   | "compacting"
   | "completed_unread"
+  | "scheduled_timer"
   | "idle";
 
 export interface SessionVisualStatusInput {
@@ -22,6 +23,8 @@ export interface SessionVisualStatusInput {
   hasUnread?: boolean;
   /** Whether the session was killed by the idle manager (shows as idle instead of disconnected) */
   idleKilled?: boolean;
+  /** Number of active timers waiting on an otherwise idle session */
+  activeTimerCount?: number;
 }
 
 /**
@@ -29,7 +32,7 @@ export interface SessionVisualStatusInput {
  * Exported for testability.
  */
 export function deriveSessionStatus(props: SessionVisualStatusInput): SessionVisualStatus {
-  const { archived, permCount, isConnected, sdkState, status, hasUnread, idleKilled } = props;
+  const { archived, permCount, isConnected, sdkState, status, hasUnread, idleKilled, activeTimerCount = 0 } = props;
 
   if (archived) return "archived";
   if (permCount > 0) return "permission";
@@ -43,5 +46,6 @@ export function deriveSessionStatus(props: SessionVisualStatusInput): SessionVis
   if (status === "running") return "running";
   if (status === "compacting" || status === "reverting") return "compacting";
   if (hasUnread) return "completed_unread";
+  if (activeTimerCount > 0) return "scheduled_timer";
   return "idle";
 }

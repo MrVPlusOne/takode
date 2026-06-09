@@ -22,12 +22,15 @@ interface MockStoreState {
     archived?: boolean;
     state?: "starting" | "connected" | "running" | "exited";
     cliConnected?: boolean;
+    pendingTimerCount?: number;
   }>;
   cliConnected: Map<string, boolean>;
   cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
   pendingPermissions: Map<string, Map<string, unknown>>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
+  currentSessionId?: string;
+  sessionTimers: Map<string, Array<{ id: string }>>;
   zoomLevel?: number;
 }
 
@@ -63,6 +66,8 @@ beforeEach(() => {
     sessionStatus: new Map(),
     pendingPermissions: new Map(),
     sessionAttention: new Map(),
+    currentSessionId: undefined,
+    sessionTimers: new Map(),
   };
   openQuestOverlay.mockReset();
 });
@@ -495,6 +500,70 @@ describe("BoardTable", () => {
       "disconnected",
       "idle",
     ]);
+  });
+
+  it("uses the timer icon for otherwise idle participant sessions with active timers", () => {
+    // Participant chips share the leader banner status path. They should show
+    // scheduled timer state for idle sessions without overriding active states.
+    mockState.sdkSessions = [
+      { sessionId: "worker-timed", sessionNum: 11, state: "connected", archived: false, cliConnected: true },
+      {
+        sessionId: "reviewer-running",
+        sessionNum: 12,
+        state: "running",
+        archived: false,
+        cliConnected: true,
+        pendingTimerCount: 1,
+      },
+      {
+        sessionId: "worker-snapshot",
+        sessionNum: 13,
+        state: "connected",
+        archived: false,
+        cliConnected: true,
+        pendingTimerCount: 2,
+      },
+    ];
+    mockState.currentSessionId = "worker-timed";
+    mockState.sessionTimers = new Map([["worker-timed", [{ id: "t1" }]]]);
+    mockState.cliConnected = new Map([
+      ["worker-timed", true],
+      ["reviewer-running", true],
+      ["worker-snapshot", true],
+    ]);
+    mockState.sessionStatus = new Map([
+      ["worker-timed", "idle"],
+      ["reviewer-running", "running"],
+      ["worker-snapshot", "idle"],
+    ]);
+    const board: BoardRowData[] = [
+      { questId: "q-1", worker: "worker-timed", workerNum: 11, updatedAt: 2 },
+      { questId: "q-2", worker: "worker-snapshot", workerNum: 13, updatedAt: 1 },
+    ];
+
+    render(
+      <BoardTable
+        board={board}
+        rowSessionStatuses={{
+          "q-1": {
+            worker: { sessionId: "worker-timed", sessionNum: 11, status: "idle" },
+            reviewer: { sessionId: "reviewer-running", sessionNum: 12, status: "running" },
+          },
+          "q-2": {
+            worker: { sessionId: "worker-snapshot", sessionNum: 13, status: "idle" },
+            reviewer: null,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getAllByTestId("session-status-timer-icon").map((icon) => icon.getAttribute("data-count"))).toEqual([
+      "1",
+      "2",
+    ]);
+    expect(screen.getByTitle("1 scheduled timer")).toBeInTheDocument();
+    expect(screen.getByTitle("2 scheduled timers")).toBeInTheDocument();
+    expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "running");
   });
 
   it("renders only linked wait-for-input ids for active rows", () => {

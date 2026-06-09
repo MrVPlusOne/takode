@@ -1,6 +1,6 @@
 import { useRef, useCallback, useState, type RefObject } from "react";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
-import { deriveSessionStatus, type SessionVisualStatus } from "./SessionStatusDot.js";
+import { deriveSessionStatus, ScheduledTimerStatusIcon, type SessionVisualStatus } from "./SessionStatusDot.js";
 import { useStore } from "../store.js";
 import { navigateToSession } from "../utils/routing.js";
 import { getHighlightParts } from "../utils/highlight.js";
@@ -90,6 +90,7 @@ const STATUS_DOT_CLASS: Record<SessionVisualStatus, string> = {
   running: "bg-emerald-500",
   compacting: "bg-emerald-500",
   completed_unread: "bg-blue-500",
+  scheduled_timer: "bg-emerald-500",
   idle: "bg-cc-muted/50",
 };
 
@@ -100,6 +101,7 @@ const STATUS_RING_CLASS: Record<SessionVisualStatus, string> = {
   running: "ring-2 ring-emerald-500/80",
   compacting: "ring-2 ring-emerald-500/80",
   completed_unread: "ring-2 ring-blue-500/70",
+  scheduled_timer: "ring-2 ring-emerald-500/70",
   idle: "ring-2 ring-cc-muted/35",
 };
 
@@ -116,6 +118,7 @@ const REVIEWER_BADGE_THEME: Record<
   compacting: { border: "border-emerald-500/50", text: "text-emerald-400", glow: "rgba(34, 197, 94, 0.35)" },
   permission: { border: "border-amber-400/50", text: "text-amber-400", glow: "rgba(245, 158, 11, 0.35)" },
   completed_unread: { border: "border-blue-500/40", text: "text-blue-400", glow: "" },
+  scheduled_timer: { border: "border-emerald-500/35", text: "text-emerald-400", glow: "" },
   idle: { border: "border-cc-muted/15", text: "text-cc-muted", glow: "" },
   disconnected: { border: "border-cc-muted/15", text: "text-cc-muted", glow: "" },
   archived: { border: "border-cc-muted/15", text: "text-cc-muted", glow: "" },
@@ -189,21 +192,6 @@ function NotificationMarker({
     );
   }
   return null;
-}
-
-function ScheduledTimerStatusIcon({ timerCount }: { timerCount: number }) {
-  return (
-    <span
-      data-testid="session-status-timer-icon"
-      data-count={String(timerCount)}
-      title={`${timerCount} scheduled timer${timerCount === 1 ? "" : "s"}`}
-      className="inline-flex h-3 w-3 shrink-0 self-center items-center justify-center leading-none text-emerald-500"
-    >
-      <svg viewBox="0 0 16 16" fill="currentColor" className="block h-3 w-3 shrink-0 -translate-y-px">
-        <path d="M8 1.75a.75.75 0 01.75.75v.88a4.75 4.75 0 11-1.5 0V2.5A.75.75 0 018 1.75zm0 3A3.25 3.25 0 108 11.25 3.25 3.25 0 008 4.75zm.75 1.5v1.44l1.02.61a.75.75 0 11-.77 1.28L7.62 8.8A.75.75 0 017.25 8V6.25a.75.75 0 011.5 0z" />
-      </svg>
-    </span>
-  );
 }
 
 function buildGitStatusTitle(s: SessionItemType): string {

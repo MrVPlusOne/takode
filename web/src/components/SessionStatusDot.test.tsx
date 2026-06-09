@@ -13,7 +13,9 @@ import { deriveSessionStatus, SessionStatusDot, type SessionStatusDotProps } fro
  *   3. disconnected    -> plug icon, no glow
  *   4. running         -> green dot, breathing glow
  *   5. compacting      -> green dot, breathing glow
- *   6. idle            -> gray dot, no glow
+ *   6. completed_unread -> blue dot, no glow
+ *   7. scheduled_timer -> green timer icon, no glow
+ *   8. idle            -> gray dot, no glow
  */
 
 function makeProps(overrides: Partial<SessionStatusDotProps> = {}): SessionStatusDotProps {
@@ -120,9 +122,21 @@ describe("deriveSessionStatus", () => {
     expect(result).toBe("completed_unread");
   });
 
+  it("returns 'scheduled_timer' when an otherwise idle session has active timers", () => {
+    // Timers are a presentation-only waiting state, below active/attention
+    // states but above a plain idle dot.
+    const result = deriveSessionStatus(makeProps({ activeTimerCount: 2 }));
+    expect(result).toBe("scheduled_timer");
+  });
+
   it("returns 'running' over 'completed_unread' when still running", () => {
     // Even if marked unread, running status takes priority.
     const result = deriveSessionStatus(makeProps({ status: "running", hasUnread: true }));
+    expect(result).toBe("running");
+  });
+
+  it("returns 'running' over 'scheduled_timer' when still running", () => {
+    const result = deriveSessionStatus(makeProps({ status: "running", activeTimerCount: 1 }));
     expect(result).toBe("running");
   });
 
@@ -131,8 +145,18 @@ describe("deriveSessionStatus", () => {
     expect(result).toBe("permission");
   });
 
+  it("returns 'permission' over 'scheduled_timer'", () => {
+    const result = deriveSessionStatus(makeProps({ permCount: 1, activeTimerCount: 1 }));
+    expect(result).toBe("permission");
+  });
+
   it("returns 'disconnected' over 'completed_unread'", () => {
     const result = deriveSessionStatus(makeProps({ isConnected: false, sdkState: "exited", hasUnread: true }));
+    expect(result).toBe("disconnected");
+  });
+
+  it("returns 'disconnected' over 'scheduled_timer'", () => {
+    const result = deriveSessionStatus(makeProps({ isConnected: false, sdkState: "exited", activeTimerCount: 1 }));
     expect(result).toBe("disconnected");
   });
 
@@ -257,6 +281,12 @@ describe("SessionStatusDot component", () => {
     expect(dot.style.animation).toBe("");
   });
 
+  it("does NOT apply glow animation for scheduled timer status", () => {
+    render(<SessionStatusDot {...makeProps({ activeTimerCount: 1 })} />);
+    const timerIcon = screen.getByTestId("session-status-timer-icon");
+    expect(timerIcon.style.animation).toBe("");
+  });
+
   it("does not render a separate pulse ring element", () => {
     // The old pulse ring overlay span has been removed; glow is now on the dot itself
     render(<SessionStatusDot {...makeProps({ status: "running" })} />);
@@ -281,6 +311,9 @@ describe("SessionStatusDot component", () => {
 
     rerender(<SessionStatusDot {...makeProps({ status: "compacting" })} />);
     expect(screen.getByTitle("Compacting context")).toBeInTheDocument();
+
+    rerender(<SessionStatusDot {...makeProps({ activeTimerCount: 1 })} />);
+    expect(screen.getByTitle("1 scheduled timer")).toBeInTheDocument();
   });
 
   it("preserves the unplug icon for disconnected state", () => {
@@ -306,6 +339,14 @@ describe("SessionStatusDot component", () => {
     expect(statusDot).toHaveClass("rounded-full", "bg-blue-500");
     expect(dot.style.animation).toBe(""); // no glow
     expect(screen.getByTitle("Completed — needs review")).toBeInTheDocument();
+  });
+
+  it("renders the timer icon instead of a rounded dot for scheduled_timer state", () => {
+    render(<SessionStatusDot {...makeProps({ activeTimerCount: 2 })} />);
+    const timerIcon = screen.getByTestId("session-status-timer-icon");
+    expect(timerIcon).toHaveAttribute("data-count", "2");
+    expect(timerIcon).toHaveAttribute("title", "2 scheduled timers");
+    expect(screen.queryByTestId("session-status-dot")).toBeNull();
   });
 
   it("renders a simple gray rounded dot for idle status", () => {

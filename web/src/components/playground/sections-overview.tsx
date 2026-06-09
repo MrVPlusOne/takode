@@ -305,7 +305,7 @@ export function PlaygroundOverviewSections() {
       },
     },
     {
-      label: "Worker session banner",
+      label: "Worker session banner with timer",
       threadKey: "q-966",
       row: {
         threadKey: "q-966",
@@ -423,8 +423,8 @@ export function PlaygroundOverviewSections() {
               <QuestThreadBanner
                 row={row}
                 threadKey={threadKey}
-                variant={label === "Worker session banner" ? "session" : "thread"}
-                currentSessionId={label === "Worker session banner" ? "playground-worker-banner" : undefined}
+                variant={label === "Worker session banner with timer" ? "session" : "thread"}
+                currentSessionId={label === "Worker session banner with timer" ? "playground-worker-banner" : undefined}
               />
             </div>
           ))}

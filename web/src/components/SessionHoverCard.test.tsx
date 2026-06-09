@@ -56,6 +56,8 @@ const mockStoreState = {
   sessionNames: new Map<string, string>(),
   quests: undefined as QuestmasterTask[] | undefined,
   sessionBoards: undefined as Map<string, BoardRowData[]> | undefined,
+  currentSessionId: undefined as string | undefined,
+  sessionTimers: new Map<string, Array<{ id: string }>>(),
 };
 
 vi.mock("../store.js", () => ({
@@ -93,6 +95,8 @@ describe("SessionHoverCard", () => {
     mockStoreState.sessionNames = new Map();
     mockStoreState.quests = undefined;
     mockStoreState.sessionBoards = undefined;
+    mockStoreState.currentSessionId = undefined;
+    mockStoreState.sessionTimers = new Map();
   });
 
   it("renders safely when the mocked store omits quests", () => {
@@ -115,6 +119,48 @@ describe("SessionHoverCard", () => {
     expect(screen.getByText("Safe Hover")).toBeInTheDocument();
     expect(screen.getByText("Preview text")).toBeInTheDocument();
     expect(screen.queryByTestId("session-hover-active-quest")).toBeNull();
+  });
+
+  it("shows timer status instead of plain idle when an idle session has active timers", () => {
+    // Mirrors the screenshot gap: the hover card should agree with the
+    // sidebar timer state instead of presenting a timed session as plain idle.
+    render(
+      <SessionHoverCard
+        session={makeSession({ pendingTimerCount: 2 })}
+        sessionName="Timed Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute("data-count", "2");
+    expect(screen.getByText("2 timers")).toBeInTheDocument();
+    expect(screen.queryByText("idle")).toBeNull();
+  });
+
+  it("keeps running status ahead of hover-card timer state", () => {
+    render(
+      <SessionHoverCard
+        session={makeSession({ status: "running", sdkState: "running", pendingTimerCount: 1 })}
+        sessionName="Running Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "running");
+    expect(screen.getByText("running")).toBeInTheDocument();
+    expect(screen.queryByTestId("session-status-timer-icon")).toBeNull();
   });
 
   it("shows the max context window rounded to whole K tokens", () => {

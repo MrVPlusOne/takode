@@ -101,7 +101,7 @@ export function usePlaygroundSeed() {
       [questInProgressId, snapshot.questNamedSessions.has(questInProgressId)],
       [questVerificationId, snapshot.questNamedSessions.has(questVerificationId)],
     ]);
-    const sidebarTimerDemoIds = ["leader-alpha"];
+    const sidebarTimerDemoIds = ["leader-alpha", "playground-worker-banner"];
     const prevSessionTimers = new Map(sidebarTimerDemoIds.map((id) => [id, snapshot.sessionTimers.get(id)]));
 
     const session: SessionState = {
@@ -1222,6 +1222,19 @@ export function usePlaygroundSeed() {
         originalSpec: "20m",
         nextFireAt: Date.now() + 1_200_000,
         createdAt: Date.now() - 240_000,
+        fireCount: 0,
+      },
+    ]);
+    store.setSessionTimers("playground-worker-banner", [
+      {
+        id: "banner-timer-1",
+        sessionId: "playground-worker-banner",
+        title: "Resume banner worker",
+        description: "Worker is idle until the scheduled timer fires.",
+        type: "delay",
+        originalSpec: "12m",
+        nextFireAt: Date.now() + 720_000,
+        createdAt: Date.now() - 180_000,
         fireCount: 0,
       },
     ]);

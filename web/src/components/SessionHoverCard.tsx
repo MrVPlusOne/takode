@@ -7,6 +7,12 @@ import { useStore } from "../store.js";
 import { SessionNumChip } from "./SessionNumChip.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
 import { SessionPayloadStats } from "./SessionPayloadStats.js";
+import {
+  deriveSessionStatus,
+  scheduledTimerStatusLabel,
+  SessionStatusDot,
+  type SessionStatusDotProps,
+} from "./SessionStatusDot.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import {
   getQuestJourneyCurrentPhaseId,
@@ -58,6 +64,27 @@ function leaderQuestPhase(row: BoardRowData): QuestJourneyPhase | null {
   return getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status));
 }
 
+function sessionHoverStatusLabel(visualStatus: ReturnType<typeof deriveSessionStatus>, timerCount: number): string {
+  switch (visualStatus) {
+    case "archived":
+      return "archived";
+    case "permission":
+      return "permission";
+    case "disconnected":
+      return "exited";
+    case "running":
+      return "running";
+    case "compacting":
+      return "compacting";
+    case "completed_unread":
+      return "unread";
+    case "scheduled_timer":
+      return scheduledTimerStatusLabel(timerCount);
+    case "idle":
+      return "idle";
+  }
+}
+
 export function SessionHoverCard({
   session: s,
   sessionName,
@@ -82,6 +109,8 @@ export function SessionHoverCard({
   // For worker/reviewer sessions: find the leader that owns them.
   const sdkSessions = useStore((st) => st.sdkSessions);
   const sdkSessionMeta = useMemo(() => sdkSessions.find((sdk) => sdk.sessionId === s.id), [sdkSessions, s.id]);
+  const currentSessionId = useStore((st) => st.currentSessionId);
+  const liveTimerCount = useStore((st) => st.sessionTimers?.get(s.id)?.length ?? 0);
   const effectiveBackendType = sessionState?.backend_type ?? sdkSessionMeta?.backendType ?? s.backendType;
   const leaderSession = useMemo(() => {
     if (s.isOrchestrator || !s.herdedBy) return null;
@@ -90,29 +119,20 @@ export function SessionHoverCard({
   }, [s.isOrchestrator, s.herdedBy, sdkSessions]);
 
   // Status info
-  const isRunning = s.status === "running";
-  const isCompacting = s.status === "compacting";
-  const isExited = s.sdkState === "exited";
-  const statusLabel = s.archived
-    ? "archived"
-    : isRunning
-      ? "running"
-      : isCompacting
-        ? "compacting"
-        : isExited
-          ? "exited"
-          : "idle";
-  const statusDotClass = s.archived
-    ? "bg-cc-muted/40"
-    : s.permCount > 0
-      ? "bg-cc-warning"
-      : isExited
-        ? "bg-cc-muted/40"
-        : isRunning
-          ? "bg-cc-success"
-          : isCompacting
-            ? "bg-cc-warning"
-            : "bg-cc-success/60";
+  const timerCount = s.id === currentSessionId ? liveTimerCount : (s.pendingTimerCount ?? 0);
+  const activeTimerCount =
+    s.notificationUrgency === "needs-input" || (s.activeNeedsInputNotificationCount ?? 0) > 0 ? 0 : timerCount;
+  const statusDotProps: SessionStatusDotProps = {
+    archived: s.archived,
+    permCount: s.permCount,
+    isConnected: s.isConnected,
+    sdkState: s.sdkState,
+    status: s.status,
+    idleKilled: s.idleKilled,
+    activeTimerCount,
+  };
+  const visualStatus = deriveSessionStatus(statusDotProps);
+  const statusLabel = sessionHoverStatusLabel(visualStatus, activeTimerCount);
 
   const shortId = s.id.slice(0, 8);
   const label = sessionName || s.model || shortId;
@@ -231,7 +251,7 @@ export function SessionHoverCard({
               )}
             </span>
             <span className="flex items-center gap-1.5 shrink-0">
-              <span className={`w-2 h-2 rounded-full ${statusDotClass}`} />
+              <SessionStatusDot className="mt-0" {...statusDotProps} />
               <span className="text-[11px] text-cc-muted">{statusLabel}</span>
             </span>
           </div>
