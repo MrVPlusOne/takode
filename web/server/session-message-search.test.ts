@@ -52,7 +52,16 @@ function compactMarker(id: string, summary: string, timestamp: number): BrowserI
   return {
     type: "compact_marker",
     id,
-    summary,
+    ...(summary ? { summary } : {}),
+    timestamp,
+  };
+}
+
+function recycledMarker(id: string, timestamp: number): BrowserIncomingMessage {
+  return {
+    type: "compact_marker",
+    id,
+    markerKind: "session_recycled",
     timestamp,
   };
 }
@@ -188,5 +197,26 @@ describe("searchSessionMessages", () => {
     expect(response.results.map((result) => result.messageId)).not.toContain("normal-user");
     expect(response.results.every((result) => result.category === "event")).toBe(true);
     expect(response.results.map((result) => result.role)).toEqual(expect.arrayContaining(["system", "user"]));
+  });
+
+  it("labels session recycled markers without compaction wording", () => {
+    const response = searchSessionMessages({
+      sessionId: "leader-session",
+      sessionNum: 456,
+      isLeaderSession: true,
+      messageHistory: [recycledMarker("session-recycled-1", 20)],
+      query: "recycled",
+      filters: { user: false, assistant: false, event: true },
+      scope: "leader_all_tabs",
+    });
+
+    expect(response.results).toHaveLength(1);
+    expect(response.results[0]).toMatchObject({
+      messageId: "session-recycled-1",
+      category: "event",
+      role: "system",
+      snippet: expect.stringContaining("Session recycled"),
+    });
+    expect(response.results[0].snippet).not.toContain("compacted");
   });
 });

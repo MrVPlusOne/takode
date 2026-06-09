@@ -106,13 +106,14 @@ function resultMsg(durationMs: number, isError = false): BrowserIncomingMessage 
 function compactMarker(
   summary: string,
   ts: number,
-  opts?: { trigger?: "auto" | "manual"; preTokens?: number },
+  opts?: { trigger?: "auto" | "manual"; preTokens?: number; markerKind?: "compaction" | "session_recycled" },
 ): BrowserIncomingMessage {
   return {
     type: "compact_marker",
     timestamp: ts,
-    summary,
     id: `compact-${ts}`,
+    ...(summary ? { summary } : {}),
+    ...(opts?.markerKind ? { markerKind: opts.markerKind } : {}),
     ...(opts?.trigger ? { trigger: opts.trigger } : {}),
     ...(opts?.preTokens ? { preTokens: opts.preTokens } : {}),
   } as BrowserIncomingMessage;
@@ -878,6 +879,15 @@ describe("buildReadResponse", () => {
     const result = buildReadResponse(history, 0)!;
     expect(result.type).toBe("compact_marker");
     expect(result.content).toBe("Context was compacted to save tokens");
+  });
+
+  it("reads a session recycled marker without calling it compacted", () => {
+    const history: BrowserIncomingMessage[] = [compactMarker("", 1000, { markerKind: "session_recycled" })];
+
+    const result = buildReadResponse(history, 0)!;
+    expect(result.type).toBe("compact_marker");
+    expect(result.content).toBe("[Session recycled]");
+    expect(result.content).not.toContain("compacted");
   });
 
   it("reads a permission_approved message", () => {

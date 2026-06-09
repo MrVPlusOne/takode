@@ -237,7 +237,8 @@ function messageMatchCandidate(
     }
 
     if (msg.type === "compact_marker") {
-      const content = (msg.summary || "[Context compacted]").trim();
+      const markerIsRecycle = msg.markerKind === "session_recycled";
+      const content = (msg.summary || (markerIsRecycle ? "[Session recycled]" : "[Context compacted]")).trim();
       if (!matches(content)) continue;
 
       const timestamp = typeof msg.timestamp === "number" ? msg.timestamp : (doc.lastActivityAt ?? doc.createdAt);
@@ -245,7 +246,7 @@ function messageMatchCandidate(
         sessionId: doc.sessionId,
         score: 450,
         matchedField: "compact_marker",
-        matchContext: `compaction: ${buildSnippet(content, qWords)}`,
+        matchContext: `${markerIsRecycle ? "session recycle" : "compaction"}: ${buildSnippet(content, qWords)}`,
         matchedAt: timestamp,
         messageMatch: { id: msg.id, timestamp, snippet: buildSnippet(content, qWords) },
       };

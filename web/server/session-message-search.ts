@@ -392,7 +392,9 @@ function textFromContentBlocks(blocks: ContentBlock[]): string {
 function eventTextForMessage(message: BrowserIncomingMessage): string | null {
   switch (message.type) {
     case "compact_marker":
-      return message.summary ?? "Conversation compacted";
+      return (
+        message.summary ?? (message.markerKind === "session_recycled" ? "Session recycled" : "Conversation compacted")
+      );
     case "thread_attachment_marker":
       return `Thread attachment moved ${message.count} message${message.count === 1 ? "" : "s"} to thread ${
         message.questId ?? message.threadKey

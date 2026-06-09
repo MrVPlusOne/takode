@@ -310,6 +310,34 @@ describe("searchSessionDocuments", () => {
     expect(out.results[0].matchContext).toContain("compaction:");
   });
 
+  it("matches session recycled markers without compaction wording", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-recycled",
+        archived: false,
+        createdAt: 100,
+        messageHistory: [
+          {
+            type: "compact_marker",
+            markerKind: "session_recycled",
+            timestamp: 2000,
+            id: "session-recycled-2000",
+          },
+        ],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "recycled" });
+    expect(out.totalMatches).toBe(1);
+    expect(out.results[0]).toMatchObject({
+      sessionId: "s-recycled",
+      matchedField: "compact_marker",
+    });
+    expect(out.results[0].matchContext).toContain("session recycle:");
+    expect(out.results[0].matchContext).toContain("Session recycled");
+    expect(out.results[0].matchContext).not.toContain("compacted");
+  });
+
   it("scores compact_marker matches below user_message matches", () => {
     // Two sessions: one with compaction match, one with user message match
     const docs: SessionSearchDocument[] = [

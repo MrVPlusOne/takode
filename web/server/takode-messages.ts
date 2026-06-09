@@ -727,7 +727,7 @@ function extractFullText(msg: BrowserIncomingMessage, sessionId?: string): strin
       return `Denied: ${msg.tool_name} — ${msg.summary}`;
 
     case "compact_marker":
-      return msg.summary || "[Context compacted]";
+      return getCompactMarkerText(msg);
 
     case "tool_result_preview":
       return (msg as { previews: ToolResultPreview[] }).previews
@@ -740,6 +740,11 @@ function extractFullText(msg: BrowserIncomingMessage, sessionId?: string): strin
     default:
       return "";
   }
+}
+
+function getCompactMarkerText(msg: Extract<BrowserIncomingMessage, { type: "compact_marker" }>): string {
+  if (msg.summary) return msg.summary;
+  return msg.markerKind === "session_recycled" ? "[Session recycled]" : "[Context compacted]";
 }
 
 /** Get the timestamp for any message in the history. */
