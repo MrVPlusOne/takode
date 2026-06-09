@@ -87,7 +87,7 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
     questStatus: currentSessionVm?.claimedQuestStatus,
     questReviewInboxUnread: currentSessionVm?.claimedQuestVerificationInboxUnread,
     idleKilled: state.cliDisconnectReason.get(currentSessionId) === "idle_limit",
-    activeTimerCount: state.sessionTimers.get(currentSessionId)?.length ?? currentSdkSession?.pendingTimerCount ?? 0,
+    activeTimerCount: state.sessionTimers?.get(currentSessionId)?.length ?? currentSdkSession?.pendingTimerCount ?? 0,
     changedFilesCount: countScopedChangedFiles(state, currentSessionId, currentSessionVm),
     leaderProfilePortrait: currentSdkSession?.isOrchestrator ? currentSdkSession.leaderProfilePortrait : undefined,
     pause: currentSessionVm?.pause ?? null,
