@@ -169,6 +169,12 @@ function extractAssistantText(msg: BrowserIncomingMessage): string {
   return texts.join(" ").trim();
 }
 
+function searchExcerptIsSessionRecycle(excerpt: SearchExcerpt): boolean {
+  if (excerpt.type !== "compact_marker") return false;
+  if (excerpt.markerKind === "session_recycled") return true;
+  return excerpt.content.trim().replace(/^\[|\]$/g, "") === "Session recycled";
+}
+
 function messageMatchCandidate(
   doc: SessionSearchDocument,
   qWords: string[],
@@ -193,8 +199,15 @@ function messageMatchCandidate(
             ? "assistant"
             : "compact_marker";
       const score = excerpt.type === "user_message" ? 500 : excerpt.type === "assistant" ? 470 : 450;
+      const isSessionRecycle = searchExcerptIsSessionRecycle(excerpt);
       const prefix =
-        excerpt.type === "user_message" ? "message" : excerpt.type === "assistant" ? "assistant" : "compaction";
+        excerpt.type === "user_message"
+          ? "message"
+          : excerpt.type === "assistant"
+            ? "assistant"
+            : isSessionRecycle
+              ? "session recycle"
+              : "compaction";
       return {
         sessionId: doc.sessionId,
         score,

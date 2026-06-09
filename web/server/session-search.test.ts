@@ -445,6 +445,91 @@ describe("searchSessionDocuments", () => {
     expect(ids).toContain("s-active");
   });
 
+  it("labels archived session_recycled excerpts as session recycle", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-archived-recycled",
+        archived: true,
+        createdAt: 100,
+        messageHistory: [],
+        searchExcerpts: [
+          {
+            type: "compact_marker",
+            markerKind: "session_recycled",
+            content: "Session recycled",
+            timestamp: 2000,
+            id: "session-recycled-2000",
+          },
+        ],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "recycled" });
+
+    expect(out.totalMatches).toBe(1);
+    expect(out.results[0]).toMatchObject({
+      sessionId: "s-archived-recycled",
+      matchedField: "compact_marker",
+    });
+    expect(out.results[0].matchContext).toContain("session recycle:");
+    expect(out.results[0].matchContext).toContain("Session recycled");
+    expect(out.results[0].matchContext).not.toContain("compaction:");
+  });
+
+  it("does not call legacy archived Session recycled excerpts compaction", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-legacy-recycled",
+        archived: true,
+        createdAt: 100,
+        messageHistory: [],
+        searchExcerpts: [
+          {
+            type: "compact_marker",
+            content: "Session recycled",
+            timestamp: 2000,
+            id: "session-recycled-legacy",
+          },
+        ],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "recycled" });
+
+    expect(out.totalMatches).toBe(1);
+    expect(out.results[0].matchContext).toContain("session recycle:");
+    expect(out.results[0].matchContext).not.toContain("compaction:");
+  });
+
+  it("keeps archived real compaction excerpts labeled as compaction", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-archived-compacted",
+        archived: true,
+        createdAt: 100,
+        messageHistory: [],
+        searchExcerpts: [
+          {
+            type: "compact_marker",
+            markerKind: "compaction",
+            content: "Context compacted to 4%",
+            timestamp: 2000,
+            id: "compact-2000",
+          },
+        ],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "compacted" });
+
+    expect(out.totalMatches).toBe(1);
+    expect(out.results[0]).toMatchObject({
+      sessionId: "s-archived-compacted",
+      matchedField: "compact_marker",
+    });
+    expect(out.results[0].matchContext).toContain("compaction:");
+  });
+
   it("prefers messageHistory over searchExcerpts when both are present", () => {
     const docs: SessionSearchDocument[] = [
       {

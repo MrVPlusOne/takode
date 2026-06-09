@@ -21,6 +21,7 @@ export interface SearchExcerpt {
   content: string;
   timestamp: number;
   id?: string;
+  markerKind?: "compaction" | "session_recycled";
 }
 
 // ─── Two-Tier Persistence Design ────────────────────────────────────────────
@@ -636,6 +637,7 @@ export class SessionStore {
           content: summary.slice(0, MAX_CONTENT_LEN),
           timestamp: typeof msg.timestamp === "number" ? msg.timestamp : 0,
           id: msg.id,
+          markerKind: msg.markerKind,
         });
       } else if (msg.type === "assistant") {
         const text = SessionStore.extractAssistantText(msg);

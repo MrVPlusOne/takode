@@ -1654,6 +1654,27 @@ describe("property-based: frozen history correctness", () => {
       expect(excerpts[3]).toMatchObject({ type: "user_message", content: "Tell me more", id: "msg-2" });
     });
 
+    it("extractSearchExcerpts preserves session_recycled marker kind", () => {
+      const messages = [
+        {
+          type: "compact_marker",
+          markerKind: "session_recycled",
+          timestamp: 2000,
+          id: "session-recycled-2000",
+        },
+      ] as PersistedSession["messageHistory"];
+
+      const excerpts = SessionStore.extractSearchExcerpts(messages);
+
+      expect(excerpts).toHaveLength(1);
+      expect(excerpts[0]).toMatchObject({
+        type: "compact_marker",
+        content: "Session recycled",
+        markerKind: "session_recycled",
+        id: "session-recycled-2000",
+      });
+    });
+
     it("extractSearchExcerpts truncates content to 500 chars", () => {
       const longContent = "x".repeat(800);
       const messages = [
