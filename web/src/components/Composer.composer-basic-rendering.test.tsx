@@ -555,6 +555,85 @@ describe("Composer basic rendering", () => {
     expect(textarea?.getAttribute("spellcheck")).toBe("false");
   });
 
+  it("shows the leader quest destination in the desktop Codex placeholder", () => {
+    setupMockStore({ session: { backend_type: "codex", isOrchestrator: true } });
+
+    const { container } = render(<Composer sessionId="s1" threadKey="q-1498" />);
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+
+    expect(textarea.placeholder).toBe("Posting to q-1498 ... (/ for commands, $ for skills/apps, @ for files)");
+  });
+
+  it("keeps the Claude command and file hints after the leader quest destination", () => {
+    setupMockStore({ session: { isOrchestrator: true } });
+
+    const { container } = render(<Composer sessionId="s1" threadKey="q-1498" />);
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+
+    expect(textarea.placeholder).toBe("Posting to q-1498 ... (/ for commands, @ for files)");
+  });
+
+  it("keeps the generic placeholder on the leader Main Thread", () => {
+    setupMockStore({ session: { backend_type: "codex", isOrchestrator: true } });
+
+    const { container } = render(<Composer sessionId="s1" threadKey="main" />);
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+
+    expect(textarea.placeholder).toBe("Type a message... (/ for commands, $ for skills/apps, @ for files)");
+  });
+
+  it("keeps the generic placeholder for non-leader quest-thread renders", () => {
+    setupMockStore({ session: { backend_type: "codex", isOrchestrator: false } });
+
+    const { container } = render(<Composer sessionId="s1" threadKey="q-1498" />);
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+
+    expect(textarea.placeholder).toBe("Type a message... (/ for commands, $ for skills/apps, @ for files)");
+  });
+
+  it("keeps the generic placeholder on touch mobile leader quest tabs", () => {
+    setViewportWidth(500);
+    mediaState.touchDevice = true;
+    setupMockStore({ session: { backend_type: "codex", isOrchestrator: true } });
+
+    const { container } = render(<Composer sessionId="s1" threadKey="q-1498" />);
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+
+    expect(textarea.placeholder).toBe("Type a message... (/ for commands, $ for skills/apps, @ for files)");
+    expect(screen.getByText("Type a message...")).toBeTruthy();
+  });
+
+  it("keeps the generic placeholder on narrow desktop leader quest tabs", () => {
+    setViewportWidth(500);
+    mediaState.touchDevice = false;
+    setupMockStore({ session: { backend_type: "codex", isOrchestrator: true } });
+
+    const { container } = render(<Composer sessionId="s1" threadKey="q-1498" />);
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+
+    expect(textarea.placeholder).toBe("Type a message... (/ for commands, $ for skills/apps, @ for files)");
+  });
+
+  it("keeps pending answer and plan placeholders ahead of the destination cue", () => {
+    setupMockStore({ session: { backend_type: "codex", isOrchestrator: true } });
+    (mockStoreState.pendingPermissions as Map<string, Map<string, unknown>>).set(
+      "s1",
+      new Map([["ask-1", { request_id: "ask-1", tool_name: "AskUserQuestion", input: { questions: [] } }]]),
+    );
+
+    const { container, rerender } = render(<Composer sessionId="s1" threadKey="q-1498" />);
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea.placeholder).toBe("Type your answer...");
+
+    (mockStoreState.pendingPermissions as Map<string, Map<string, unknown>>).set(
+      "s1",
+      new Map([["plan-1", { request_id: "plan-1", tool_name: "ExitPlanMode", input: {} }]]),
+    );
+    rerender(<Composer sessionId="s1" threadKey="q-1498" />);
+
+    expect(textarea.placeholder).toBe("Type to reject plan and send new instructions...");
+  });
+
   it("does not rerender for unrelated sessions and sdkSessions churn", async () => {
     setupMockStore({
       session: { git_branch: "main", model: "claude-sonnet-4-5-20250929" },

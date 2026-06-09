@@ -21,6 +21,7 @@ import {
 import { isTouchDevice } from "../utils/mobile.js";
 import { ComposerMenus } from "./ComposerMenus.js";
 import { ComposerMetaToolbar } from "./ComposerMetaToolbar.js";
+import { buildComposerPlaceholder } from "./composer-placeholder.js";
 import { ComposerReferencePreview } from "./ComposerReferencePreview.js";
 import { CollapseAllButton } from "./ComposerCollapseAllButton.js";
 import { CollapsedComposerBar, ComposerInputSurface } from "./ComposerSurface.js";
@@ -40,6 +41,7 @@ import { collectPlainTakodeReferences, parseCodexModeSlashCommand } from "./comp
 import { useComposerAutocomplete } from "./use-composer-autocomplete.js";
 import type { FailedTranscription, VoiceEditProposal } from "./composer-voice-types.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
+import { useComposerSessionView } from "./use-composer-session-view.js";
 import {
   api,
   type VoiceRecordingTiming,
@@ -68,13 +70,7 @@ import {
   isModifierOnlyKey,
   type ShortcutActionId,
 } from "../shortcuts.js";
-import type {
-  CodexAppReference,
-  CodexSkillReference,
-  ComposerDraftImage,
-  PendingUserUpload,
-  SessionPauseState,
-} from "../types.js";
+import type { ComposerDraftImage, PendingUserUpload, SessionPauseState } from "../types.js";
 import {
   abortPendingUserUpload,
   clearPendingUserUploadController,
@@ -83,9 +79,6 @@ import {
 
 export { ReplyChip } from "./ReplyChip.js";
 
-const EMPTY_STRING_ARRAY: string[] = [];
-const EMPTY_SKILL_REFERENCES: CodexSkillReference[] = [];
-const EMPTY_APP_REFERENCES: CodexAppReference[] = [];
 const EMPTY_PENDING_USER_UPLOADS: PendingUserUpload[] = [];
 const EMPTY_COMPOSER_IMAGES: ComposerDraftImage[] = [];
 const VOICE_SHORTCUT_ACTIONS: readonly ShortcutActionId[] = ["voice_start", "voice_stop"];
@@ -705,44 +698,7 @@ export function Composer({
     return () => clearTimeout(timer);
   }, [voiceError, failedTranscription, setVoiceError]);
 
-  const sessionView = useStore(
-    useShallow((s) => {
-      const sessionData = s.sessions.get(sessionId);
-      const isConnected = s.cliConnected.get(sessionId) ?? false;
-      return {
-        isConnected,
-        browserConnectionStatus: s.connectionStatus?.get(sessionId) ?? (isConnected ? "connected" : "disconnected"),
-        explicitAskPermission: s.askPermission.get(sessionId),
-        backendType: sessionData?.backend_type,
-        backendState: sessionData?.backend_state,
-        permissionMode: sessionData?.permissionMode || "acceptEdits",
-        serverUiMode: sessionData?.uiMode,
-        codexReasoningEffort: sessionData?.codex_reasoning_effort || "",
-        codexServiceTier: sessionData?.codex_service_tier ?? null,
-        slashCommands: sessionData?.slash_commands ?? EMPTY_STRING_ARRAY,
-        skills: sessionData?.skills ?? EMPTY_STRING_ARRAY,
-        skillMetadata: sessionData?.skill_metadata ?? EMPTY_SKILL_REFERENCES,
-        apps: sessionData?.apps ?? EMPTY_APP_REFERENCES,
-        cwd: sessionData?.cwd,
-        repoRoot: sessionData?.repo_root,
-        gitBranch: sessionData?.git_branch,
-        isContainerized: sessionData?.is_containerized === true,
-        gitAhead: sessionData?.git_ahead || 0,
-        gitBehind: sessionData?.git_behind || 0,
-        model: sessionData?.model,
-        totalLinesAdded: sessionData?.total_lines_added,
-        totalLinesRemoved: sessionData?.total_lines_removed,
-        pause: sessionData?.pause ?? null,
-        pausedInputQueueCount: sessionData?.pause?.queuedMessages.length ?? 0,
-        codexResultErrorAutoPause: sessionData?.codex_result_error_auto_pause ?? null,
-        codexAutoPausedInputCount:
-          sessionData?.codex_result_error_auto_pause?.heldInputs.reduce(
-            (total, item) => total + Math.max(1, item.count),
-            0,
-          ) ?? 0,
-      };
-    }),
-  );
+  const sessionView = useComposerSessionView(sessionId);
   const [pauseBusy, setPauseBusy] = useState(false);
   const sdkDiffTotals = useStore(
     useShallow((s) => {
@@ -1636,6 +1592,15 @@ export function Composer({
     allImagesReady;
   const isVoiceInteractionActive = isPreparing || isRecording || isTranscribing;
   const hasActiveReplyContext = !!replyContext;
+  const placeholder = buildComposerPlaceholder({
+    isCodex,
+    isLeaderSession: sessionView.isLeaderSession,
+    threadKey,
+    usesTouchKeyboard,
+    isNarrowLayout,
+    pendingAskUserPerm,
+    pendingPlanPerm,
+  });
 
   // Mobile collapsible composer — keep voice capture visible even when the draft is empty.
   const isCollapsed =
@@ -1823,15 +1788,7 @@ export function Composer({
           handleSelectionChange={handleSelectionChange}
           handleKeyDown={handleKeyDown}
           handlePaste={handlePaste}
-          placeholder={
-            pendingAskUserPerm
-              ? "Type your answer..."
-              : pendingPlanPerm
-                ? "Type to reject plan and send new instructions..."
-                : isCodex
-                  ? "Type a message... (/ for commands, $ for skills/apps, @ for files)"
-                  : "Type a message... (/ for commands, @ for files)"
-          }
+          placeholder={placeholder}
           isRecording={isRecording}
           recordingCursorBefore={preRecordingTextRef.current.before}
           recordingCursorAfter={preRecordingTextRef.current.after}

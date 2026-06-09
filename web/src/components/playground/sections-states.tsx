@@ -927,13 +927,13 @@ export function PlaygroundStateSections() {
             </div>
           </Card>
           <div className="mt-4" />
-          <Card label="Idle — mic button ready">
+          <Card label="Leader quest tab idle placeholder">
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">
               <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-hidden">
                 <textarea
                   readOnly
                   value=""
-                  placeholder="Type a message... (/ for commands)"
+                  placeholder="Posting to q-1498 ... (/ for commands, $ for skills/apps, @ for files)"
                   rows={1}
                   className="w-full px-4 pt-3 pb-1 text-sm bg-transparent resize-none text-cc-fg font-sans-ui placeholder:text-cc-muted"
                   style={{ minHeight: "36px" }}
