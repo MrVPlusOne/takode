@@ -15,11 +15,13 @@ type EditorTarget = "newTitle" | "newDescription";
 export const QuestmasterCreateForm = memo(function QuestmasterCreateForm({
   isVisible,
   allTags,
+  sessionSpaceSlug,
   onCreated,
   onCancel,
 }: {
   isVisible: boolean;
   allTags: string[];
+  sessionSpaceSlug?: string;
   onCreated: (quest: QuestmasterTask) => void;
   onCancel: () => void;
 }) {
@@ -70,6 +72,7 @@ export const QuestmasterCreateForm = memo(function QuestmasterCreateForm({
         title,
         description,
         tags: tags.length > 0 ? tags : undefined,
+        sessionSpaceSlug,
         images: createImages.length > 0 ? createImages : undefined,
       });
       setNewTitle("");

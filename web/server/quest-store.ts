@@ -47,6 +47,7 @@ import {
 } from "./quest-relationships.js";
 import { applyQuestPatch } from "./quest-store-patch.js";
 import { appendOwnershipEvent, archivedOwnerTakeoverEvent } from "./quest-ownership.js";
+import { normalizeQuestSessionSpaceSlug } from "./quest-session-space.js";
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
 
@@ -1239,6 +1240,9 @@ function buildCreatedQuest(
     ...(liveStore ? { statusChangedAt: now } : {}),
     ...(input.tags?.length ? { tags: input.tags } : {}),
     ...(input.parentId ? { parentId: input.parentId } : {}),
+    ...(normalizeQuestSessionSpaceSlug(input.sessionSpaceSlug)
+      ? { sessionSpaceSlug: normalizeQuestSessionSpaceSlug(input.sessionSpaceSlug) }
+      : {}),
     ...(normalizeQuestRelationships(input.relationships, questId)
       ? { relationships: normalizeQuestRelationships(input.relationships, questId) }
       : {}),
@@ -1329,6 +1333,7 @@ function buildTransitionedQuest(
     ...(tldr ? { tldr } : {}),
     ...(current.tags?.length ? { tags: current.tags } : {}),
     ...(current.parentId ? { parentId: current.parentId } : {}),
+    ...(current.sessionSpaceSlug ? { sessionSpaceSlug: current.sessionSpaceSlug } : {}),
     ...(current.images?.length ? { images: current.images } : {}),
     ...(leaderSessionId ? { leaderSessionId } : {}),
     ...currentCommitShaFields(current),

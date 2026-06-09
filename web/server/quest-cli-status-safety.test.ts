@@ -98,6 +98,69 @@ describe("quest CLI status safety", () => {
     }
   });
 
+  it("defaults local quest creation session-space metadata from the session environment", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-create-session-space-env-"));
+
+    try {
+      const result = await runQuest(
+        ["create", "Space quest", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          COMPANION_MEMORY_SPACE_SLUG: "MSI",
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({ questId: "q-1", sessionSpaceSlug: "MSI" });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("lets quest create and edit override session-space metadata explicitly", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-session-space-override-"));
+
+    try {
+      const createResult = await runQuest(
+        ["create", "Override quest", "--session-space", "Research", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          COMPANION_MEMORY_SPACE_SLUG: "MSI",
+          HOME: tmp,
+        },
+        tmp,
+      );
+      expect(createResult.status).toBe(0);
+      expect(JSON.parse(createResult.stdout)).toMatchObject({ questId: "q-1", sessionSpaceSlug: "Research" });
+
+      const editResult = await runQuest(
+        ["edit", "q-1", "--session-space", "Other", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+      expect(editResult.status).toBe(0);
+      expect(editResult.stderr).toBe("");
+      expect(JSON.parse(editResult.stdout)).toMatchObject({ questId: "q-1", sessionSpaceSlug: "Other" });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("sends transition force reasons to the status endpoint", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-transition-force-http-"));
     const authDir = getSessionAuthDir(tmp);

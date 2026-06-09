@@ -523,6 +523,66 @@ beforeEach(() => {
 // ─── Sessions ────────────────────────────────────────────────────────────────
 
 // ─── SSE Session Creation Streaming ──────────────────────────────────────────
+
+describe("POST /api/quests", () => {
+  it("defaults quest session-space metadata from the authenticated creator session", async () => {
+    vi.spyOn(questStore, "createQuest").mockImplementationOnce(async (input: any) => ({
+      id: "q-1-v1",
+      questId: "q-1",
+      version: 1,
+      title: input.title,
+      status: "idea",
+      createdAt: Date.now(),
+      sessionSpaceSlug: input.sessionSpaceSlug,
+    }));
+    launcher.getSession.mockImplementation((sessionId: string) =>
+      sessionId === "creator" ? ({ sessionId, memorySessionSpaceSlug: "MSI" } as any) : undefined,
+    );
+
+    const res = await app.request("/api/quests", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-companion-session-id": "creator",
+        "x-companion-auth-token": "token",
+      },
+      body: JSON.stringify({ title: "Creator quest" }),
+    });
+
+    expect(res.status).toBe(201);
+    await expect(res.json()).resolves.toMatchObject({ questId: "q-1", sessionSpaceSlug: "MSI" });
+    expect(questStore.createQuest).toHaveBeenCalledWith(expect.objectContaining({ sessionSpaceSlug: "MSI" }));
+  });
+
+  it("lets explicit quest session-space metadata override the authenticated creator default", async () => {
+    vi.spyOn(questStore, "createQuest").mockImplementationOnce(async (input: any) => ({
+      id: "q-1-v1",
+      questId: "q-1",
+      version: 1,
+      title: input.title,
+      status: "idea",
+      createdAt: Date.now(),
+      sessionSpaceSlug: input.sessionSpaceSlug,
+    }));
+    launcher.getSession.mockImplementation((sessionId: string) =>
+      sessionId === "creator" ? ({ sessionId, memorySessionSpaceSlug: "MSI" } as any) : undefined,
+    );
+
+    const res = await app.request("/api/quests", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-companion-session-id": "creator",
+        "x-companion-auth-token": "token",
+      },
+      body: JSON.stringify({ title: "Override quest", sessionSpaceSlug: "Other" }),
+    });
+
+    expect(res.status).toBe(201);
+    await expect(res.json()).resolves.toMatchObject({ questId: "q-1", sessionSpaceSlug: "Other" });
+    expect(questStore.createQuest).toHaveBeenCalledWith(expect.objectContaining({ sessionSpaceSlug: "Other" }));
+  });
+});
 /** Parse an SSE response body into an array of {event, data} objects */
 async function parseSSE(res: Response): Promise<{ event: string; data: string }[]> {
   const text = await res.text();
@@ -778,6 +838,53 @@ describe("GET /api/quests/:questId/memory-commits/:sha", () => {
       sha: "abc1234567890abcdef",
       shortSha: "abc1234",
       message: "Record MSI memory",
+      available: true,
+    });
+    expect(mockMemoryCommitDiff).toHaveBeenCalledTimes(1);
+    expect(mockMemoryCommitDiff).toHaveBeenCalledWith({ sessionSpaceSlug: "MSI", readOnly: true }, "abc1234");
+  });
+
+  it("resolves memory commits from explicit quest session-space metadata first", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v4",
+      questId: "q-1",
+      title: "Quest",
+      status: "done",
+      createdAt: Date.now(),
+      description: "Ready",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      sessionSpaceSlug: "MSI",
+      previousOwnerSessionIds: ["worker-takode"],
+      memoryCommitShas: ["abc1234"],
+    } as any);
+    launcher.getSession.mockImplementation((sessionId: string) =>
+      sessionId === "worker-takode" ? ({ sessionId, memorySessionSpaceSlug: "Takode" } as any) : undefined,
+    );
+    mockMemoryCommitDiff.mockResolvedValueOnce({
+      repo: { root: "/memory/prod/MSI", serverId: "s", serverSlug: "prod", sessionSpaceSlug: "MSI", initialized: true },
+      commit: {
+        sha: "abc1234567890abcdef",
+        shortSha: "abc1234",
+        timestamp: 1713292534000,
+        message: "Record explicit space",
+        authorName: "Takode",
+        authorEmail: "takode-memory@local",
+        actor: null,
+        quest: "q-1",
+        session: null,
+        sources: ["q-1"],
+        changedFiles: [{ status: "M", path: "current/state.md" }],
+      },
+      diff: "diff --git a/current/state.md b/current/state.md\n",
+      sourceFiles: [],
+    });
+
+    const res = await app.request("/api/quests/q-1/memory-commits/abc1234?includeDiff=false", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      message: "Record explicit space",
       available: true,
     });
     expect(mockMemoryCommitDiff).toHaveBeenCalledTimes(1);

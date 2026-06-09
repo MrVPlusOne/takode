@@ -150,6 +150,9 @@ export function formatQuestDetail(
   if (q.tags?.length) {
     lines.push(`Tags:        ${q.tags.join(", ")}`);
   }
+  if (q.sessionSpaceSlug) {
+    lines.push(`Session Space: ${q.sessionSpaceSlug}`);
+  }
   if ("sessionId" in q) {
     const sid = (q as { sessionId: string }).sessionId;
     lines.push(`Session:     ${formatSessionLabel(sid, sessionMetadata, { ...options, preferSessionNum: true })}`);

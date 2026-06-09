@@ -259,6 +259,15 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const questOverlayId = useStore((s) => s.questOverlayId);
   const sessionBoards = useStore((s) => s.sessionBoards);
   const sessionCompletedBoards = useStore((s) => s.sessionCompletedBoards);
+  const currentSessionSpaceSlug = useStore((s) => {
+    const sessionId = s.currentSessionId;
+    if (!sessionId) return undefined;
+    return (
+      s.sessions.get(sessionId)?.memorySessionSpaceSlug ??
+      s.sdkSessions.find((session) => session.sessionId === sessionId)?.memorySessionSpaceSlug ??
+      undefined
+    );
+  });
 
   const [filter, setFilter] = useState<Set<QuestStatus>>(() => {
     const persisted = initialViewState?.statusFilter;
@@ -1258,6 +1267,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
         <QuestmasterCreateForm
           isVisible={showCreateForm}
           allTags={allTags}
+          sessionSpaceSlug={currentSessionSpaceSlug}
           onCreated={handleCreateQuestCreated}
           onCancel={handleCreateQuestCancel}
         />

@@ -72,7 +72,8 @@ type MockStoreState = {
   openQuestOverlay: ReturnType<typeof vi.fn>;
   closeQuestOverlay: ReturnType<typeof vi.fn>;
   replaceQuest: ReturnType<typeof vi.fn>;
-  sessions: Map<string, unknown>;
+  currentSessionId: string | null;
+  sessions: Map<string, { memorySessionSpaceSlug?: string }>;
   sessionPreviews: Map<string, unknown>;
   sessionTaskHistory: Map<string, unknown>;
   pendingPermissions: Map<string, unknown>;
@@ -89,6 +90,7 @@ type MockStoreState = {
     archived: boolean;
     sessionNum?: number;
     backendType?: string;
+    memorySessionSpaceSlug?: string;
   }>;
   sessionNames: Map<string, string>;
   sessionBoards: Map<string, unknown[]>;
@@ -179,6 +181,7 @@ function resetState(overrides: Partial<MockStoreState> = {}) {
       mockState.questOverlaySearchHighlight = null;
     }),
     replaceQuest: vi.fn(),
+    currentSessionId: null,
     sessions: new Map(),
     sessionPreviews: new Map(),
     sessionTaskHistory: new Map(),
@@ -1797,6 +1800,8 @@ describe("QuestmasterPage status display", () => {
 
   it("opens quest overlay for newly created quest", async () => {
     // After creating a quest, openQuestOverlay should be called with the new quest's ID.
+    mockState.currentSessionId = "session-msi";
+    mockState.sessions.set("session-msi", { memorySessionSpaceSlug: "MSI" });
     renderQuestmaster();
 
     fireEvent.click(screen.getByRole("button", { name: /New Quest/i }));
@@ -1810,6 +1815,7 @@ describe("QuestmasterPage status display", () => {
         title: "Investigate reconnect jitter",
         description: undefined,
         tags: undefined,
+        sessionSpaceSlug: "MSI",
         images: undefined,
       });
     });

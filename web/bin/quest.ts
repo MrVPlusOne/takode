@@ -83,12 +83,14 @@ import { parseRelationshipFlags } from "./quest-relationship-flags.js";
 import { fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
 import { runTagsCommand } from "./quest-tags-command.js";
 import { runClaimCommand, runReassignCommand } from "./quest-ownership-command.js";
+import { parseCommaSeparatedTags } from "./quest-tag-options.js";
 import { runFeedbackEditCommand } from "./quest-feedback-edit-command.js";
 import {
   guardLocalQuestStatusMutation,
   parseQuestStatusMutationOverride,
   postQuestStatusMutation,
 } from "./quest-status-mutation.js";
+import { COMPANION_MEMORY_SPACE_SLUG_ENV } from "../server/memory-session-space.js";
 import { readFile } from "node:fs/promises";
 import { readFileSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
@@ -1003,6 +1005,7 @@ async function cmdCreate(): Promise<void> {
     "tldr-file",
     "status",
     "tags",
+    "session-space",
     "follow-up-of",
     "image",
     "images",
@@ -1022,7 +1025,7 @@ async function cmdCreate(): Promise<void> {
     die(
       'Usage: quest create [<title> | --title "..." | --title-file <path>|-] ' +
         '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] ' +
-        '[--status idea|refined] [--tags "t1,t2"] [--follow-up-of "q-1,q-2"] ' +
+        '[--status idea|refined] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"] ' +
         '[--image <path>] [--images "p1,p2"]',
     );
   }
@@ -1042,13 +1045,8 @@ async function cmdCreate(): Promise<void> {
   if (status !== undefined && status !== "idea" && status !== "refined") {
     die("--status for quest create must be one of: idea, refined");
   }
-  const tagsStr = option("tags");
-  const tags = tagsStr
-    ? tagsStr
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean)
-    : undefined;
+  const tags = parseCommaSeparatedTags(option("tags"));
+  const sessionSpaceSlug = option("session-space") ?? process.env[COMPANION_MEMORY_SPACE_SLUG_ENV];
   const imagePaths = [
     ...options("image"),
     ...options("images").flatMap((group) => group.split(",").map((p) => p.trim())),
@@ -1073,6 +1071,7 @@ async function cmdCreate(): Promise<void> {
       ...(status ? { status: status as "idea" | "refined" } : {}),
       ...(normalizedTldr ? { tldr: normalizedTldr } : {}),
       tags,
+      ...(sessionSpaceSlug ? { sessionSpaceSlug } : {}),
       ...(relationships ? { relationships } : {}),
       ...(resolvedImages?.length ? { images: resolvedImages } : {}),
     });
@@ -1531,6 +1530,7 @@ async function cmdEdit(): Promise<void> {
     "tldr",
     "tldr-file",
     "tags",
+    "session-space",
     "follow-up-of",
     "clear-follow-up-of",
     "json",
@@ -1539,7 +1539,7 @@ async function cmdEdit(): Promise<void> {
   if (!id) {
     die(
       'Usage: quest edit <questId> [--title "..." | --title-file <path>|-] ' +
-        '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--follow-up-of "q-1,q-2" | --clear-follow-up-of]',
+        '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2" | --clear-follow-up-of]',
     );
   }
 
@@ -1559,13 +1559,8 @@ async function cmdEdit(): Promise<void> {
     label: "Quest TLDR",
   });
   const normalizedTldr = normalizeTldr(tldr);
-  const tagsStr = option("tags");
-  const tags = tagsStr
-    ? tagsStr
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean)
-    : undefined;
+  const tags = parseCommaSeparatedTags(option("tags"));
+  const sessionSpaceSlug = option("session-space");
   if (flag("clear-follow-up-of") && flag("follow-up-of")) {
     die("Use either --follow-up-of or --clear-follow-up-of, not both");
   }
@@ -1576,10 +1571,11 @@ async function cmdEdit(): Promise<void> {
     description === undefined &&
     tldr === undefined &&
     tags === undefined &&
+    sessionSpaceSlug === undefined &&
     relationships === undefined
   ) {
     die(
-      "At least one of --title/--title-file, --desc/--desc-file, --tldr/--tldr-file, --tags, --follow-up-of, or --clear-follow-up-of is required",
+      "At least one of --title/--title-file, --desc/--desc-file, --tldr/--tldr-file, --tags, --session-space, --follow-up-of, or --clear-follow-up-of is required",
     );
   }
 
@@ -1589,6 +1585,7 @@ async function cmdEdit(): Promise<void> {
       ...(description !== undefined ? { description } : {}),
       ...(tldr !== undefined ? { tldr: normalizedTldr ?? "" } : {}),
       ...(tags !== undefined ? { tags } : {}),
+      ...(sessionSpaceSlug !== undefined ? { sessionSpaceSlug } : {}),
       ...(relationships !== undefined ? { relationships } : {}),
     });
     if (!quest) die(`Quest ${id} not found`);

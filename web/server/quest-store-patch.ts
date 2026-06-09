@@ -3,6 +3,7 @@ import { hasQuestReviewMetadata } from "./quest-types.js";
 import { normalizeTldr } from "./quest-tldr.js";
 import { normalizeQuestRelationships } from "./quest-relationships.js";
 import { shouldMarkVerificationInboxUnreadFromFeedbackPatch } from "./quest-store-helpers.js";
+import { normalizeQuestSessionSpaceSlug } from "./quest-session-space.js";
 
 export function applyQuestPatch(current: QuestmasterTask, questId: string, patch: QuestPatchInput): QuestmasterTask {
   const markVerificationInboxUnread = shouldMarkVerificationInboxUnreadFromFeedbackPatch(current, patch.feedback);
@@ -15,6 +16,11 @@ export function applyQuestPatch(current: QuestmasterTask, questId: string, patch
     else delete (updated as { tldr?: string }).tldr;
   }
   if (patch.tags !== undefined) (updated as { tags?: string[] }).tags = patch.tags;
+  if (patch.sessionSpaceSlug !== undefined) {
+    const sessionSpaceSlug = normalizeQuestSessionSpaceSlug(patch.sessionSpaceSlug);
+    if (sessionSpaceSlug) (updated as { sessionSpaceSlug?: string }).sessionSpaceSlug = sessionSpaceSlug;
+    else delete (updated as { sessionSpaceSlug?: string }).sessionSpaceSlug;
+  }
   if (patch.relationships !== undefined) {
     const relationships = normalizeQuestRelationships(patch.relationships, questId);
     if (relationships) (updated as { relationships?: QuestmasterTask["relationships"] }).relationships = relationships;

@@ -230,7 +230,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Draft the refined title, description, and tags, then invoke `/quest-design`");
     expect(skill).toContain("include `Relationship: follow-up of [q-M](quest:q-M)`");
     expect(skill).toContain("Wait for user confirmation or correction");
-    expect(skill).toContain('[--tags "t1,t2"] [--follow-up-of "q-1,q-2"] [--image <path>]');
+    expect(skill).toContain('[--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"]');
     expect(skill).toContain('[--follow-up-of "q-1,q-2" | --clear-follow-up-of]');
     expect(skill).toContain("| `--status idea|refined` | Initial quest status; defaults to `idea` |");
     expect(skill).toContain('| `--follow-up-of "q-1,q-2"` | Persist that the new quest is a true follow-up');

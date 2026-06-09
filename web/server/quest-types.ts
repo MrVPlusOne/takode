@@ -166,6 +166,8 @@ interface QuestBase {
   tags?: string[];
   /** Stable questId of parent task (for subtasks) */
   parentId?: string;
+  /** Session-space slug this quest belongs to. Older quests may omit it and resolve through provenance fallback. */
+  sessionSpaceSlug?: string;
   /** Attached images stored on disk */
   images?: QuestImage[];
   /** Past owners in chronological order. Excludes the current active owner. */
@@ -290,6 +292,7 @@ export interface QuestCreateInput {
   status?: QuestStatus;
   tags?: string[];
   parentId?: string;
+  sessionSpaceSlug?: string;
   relationships?: QuestRelationships;
   /** Pre-saved images to attach on creation */
   images?: QuestImage[];
@@ -301,6 +304,7 @@ export interface QuestPatchInput {
   description?: string;
   tldr?: string;
   tags?: string[];
+  sessionSpaceSlug?: string;
   relationships?: QuestRelationships;
   /** Replace the feedback thread (used by the append endpoint after adding an entry) */
   feedback?: QuestFeedbackEntry[];

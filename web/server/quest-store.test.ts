@@ -161,6 +161,21 @@ describe("createQuest", () => {
     expect(q.parentId).toBe("q-0");
   });
 
+  it("normalizes and persists quest session-space metadata on create and edit", async () => {
+    const q = await questStore.createQuest({
+      title: "Session-space quest",
+      sessionSpaceSlug: " MSI ",
+    });
+
+    expect(q.sessionSpaceSlug).toBe("MSI");
+
+    const updated = await questStore.patchQuest(q.questId, { sessionSpaceSlug: "Other" });
+    expect(updated?.sessionSpaceSlug).toBe("Other");
+
+    const reloaded = await questStore.getQuest(q.questId);
+    expect(reloaded?.sessionSpaceSlug).toBe("Other");
+  });
+
   it("serializes parallel creates and persists distinct quests", async () => {
     const created = await Promise.all(
       Array.from({ length: 6 }, (_, index) =>
