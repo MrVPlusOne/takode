@@ -4,6 +4,7 @@
 
 ### Changed
 
+- **Leader composer destination hints** -- Desktop leader quest tabs now show a placeholder destination cue such as `Posting to q-1498 ...` while Main Thread, mobile/narrow, and non-leader composers keep the generic placeholder
 - **Side Chat action controls** -- Assistant-message Side Chat, reply, and copy actions now sit behind a compact first-line `Message options` trigger that appears on desktop hover or focus and remains usable on touch devices
 - **Timer visibility** -- Session lists, hover cards, Work Board rows, and the top bar now show timer status more consistently across shared session surfaces
 
@@ -12,7 +13,7 @@
 - **Side Chat status** -- Side Chat panels show clearer lifecycle and send-state feedback, with native-unavailable reasons and replay confirmation kept visible without disrupting layout
 - **Codex recovery and recycling** -- Active-turn steering, leader recycle interruptions, recycle boundary markers, and recycled-session labels recover and display more reliably
 - **Work Board tabs** -- Closing a Work Board row keeps neighboring tabs open more predictably
-- **Quest memory evidence** -- Quest commit lookups resolve memory commits against the correct session space
+- **Quest session-space evidence** -- Quests now persist session-space metadata with explicit overrides and centralized legacy fallback, so memory commit evidence resolves against the right session space more consistently
 
 ## 2026-06-05
 
