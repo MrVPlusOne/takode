@@ -2,23 +2,69 @@
 
 ## 2026-06-08
 
-### Added
-
-- **Side Chat** -- Assistant messages can open native Side Chat sessions, with explicit bounded replay fallback available when a native fork cannot be started
-- **Codex service tier control** -- Codex sessions can choose service-tier speed behavior, with fallback state preserved when a selected tier is unavailable
-
 ### Changed
 
-- **Side Chat naming** -- Slack-thread surfaces are now named Side Chat while preserving compatibility aliases for existing saved data and routes
-- **Side Chat action controls** -- Assistant message Side Chat, reply, and copy actions now live in an in-flow message menu so controls stay available without shrinking or covering message text
-- **Leader worktree porting** -- Leader and worker port flows keep target worktree context more reliably and guard branch checks before port operations
+- **Side Chat action controls** -- Assistant-message Side Chat, reply, and copy actions now sit behind a compact first-line `Message options` trigger that appears on desktop hover or focus and remains usable on touch devices
+- **Timer visibility** -- Session lists, hover cards, Work Board rows, and the top bar now show timer status more consistently across shared session surfaces
 
 ### Fixed
 
 - **Side Chat status** -- Side Chat panels show clearer lifecycle and send-state feedback, with native-unavailable reasons and replay confirmation kept visible without disrupting layout
-- **Codex recovery safety** -- Codex launch guards, startup skill metadata retries, oversized-turn handling, and pending-input delivery recover more safely after startup or turn failures
-- **Leader needs-input workflow** -- Leader approval prompts, scoped waits, routing reminders, and dispatch-ready board advisories now use the correct thread and notification surfaces
-- **Session reliability** -- Disconnected session settings edits, Safari voice recording chunks, and worktree leader notifications behave more consistently
+- **Codex recovery and recycling** -- Active-turn steering, leader recycle interruptions, recycle boundary markers, and recycled-session labels recover and display more reliably
+- **Work Board tabs** -- Closing a Work Board row keeps neighboring tabs open more predictably
+- **Quest memory evidence** -- Quest commit lookups resolve memory commits against the correct session space
+
+## 2026-06-05
+
+### Changed
+
+- **Leader prompt guidance** -- Leader needs-input prompts and routing reminders now keep the full decision context in the visible thread before notifying the user
+- **Codex leader budgeting** -- Codex leader display budgets are kept separate from provider limits so leader context status is clearer
+
+### Fixed
+
+- **Side Chat fallback safety** -- Side Chat replay is gated behind explicit confirmation, and native-unavailable reasons stay visible when fallback replay is offered
+- **Dispatch-ready advisories** -- Non-blocking Work Board dispatch nudges no longer use user-blocking needs-input notifications
+- **Codex oversized-turn recovery** -- Oversized turn starts and pending inputs recover more safely instead of dropping or duplicating queued work
+
+## 2026-06-04
+
+### Added
+
+- **Side Chat** -- Worker-session assistant messages can open focused Side Chat sessions for follow-up work while keeping the original conversation intact. Thanks @mike-meow for introducing the feature
+- **Native Side Chat forks** -- Side Chat can use native backend fork support when available instead of relying only on replay-style context
+
+### Changed
+
+- **Side Chat naming** -- Slack-thread surfaces are now named Side Chat while preserving compatibility aliases for existing saved data and routes
+- **Scoped leader waits** -- Leader waits and reminders are scoped more clearly to the thread, quest, or board row they actually block
+
+### Fixed
+
+- **Codex startup metadata** -- Codex startup retries refresh skill metadata more reliably
+- **Leader approval notifications** -- Leader approval prompts are paired with the required user notification instead of silently waiting
+
+## 2026-06-02
+
+### Fixed
+
+- **Disconnected session settings** -- Session setting edits can be made while a backend is disconnected and applied once the session is reachable again
+
+## 2026-06-01
+
+### Added
+
+- **Codex service tier control** -- Codex sessions can choose service-tier speed behavior, with fallback state preserved when a selected tier is unavailable
+
+### Changed
+
+- **Leader worktree porting** -- Leader-created and replacement worker sessions keep target worktree context more reliably, and port branch checks run in a safer order
+
+### Fixed
+
+- **Codex leader launch guards** -- Codex leader launches preserve guard checks and context-budget safeguards more consistently
+- **Safari voice recording** -- Voice recording uploads from Safari are chunked more reliably for transcription
+- **Worktree leader alignment** -- Worktree leader notifications and workspace alignment behave more consistently before port operations
 
 ## 2026-05-28
 
