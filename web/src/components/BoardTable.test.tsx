@@ -566,6 +566,19 @@ describe("BoardTable", () => {
     expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "running");
   });
 
+  it("uses live timer store data when a participant has only a session id", () => {
+    // Covers the participant hook branch where no SDK/status snapshot is
+    // available yet, but the timer store already knows the session is waiting.
+    mockState.sessionTimers = new Map([["worker-timer-only", [{ id: "timer-only" }]]]);
+    const board: BoardRowData[] = [{ questId: "q-1", worker: "worker-timer-only", workerNum: 21, updatedAt: 1 }];
+
+    render(<BoardTable board={board} />);
+
+    expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute("data-count", "1");
+    expect(screen.getByTitle("1 scheduled timer")).toBeInTheDocument();
+    expect(screen.queryByTestId("session-status-dot")).toBeNull();
+  });
+
   it("renders only linked wait-for-input ids for active rows", () => {
     const board: BoardRowData[] = [
       {

@@ -53,6 +53,7 @@ interface MockStoreState {
   cliConnected: Map<string, boolean>;
   cliDisconnectReason: Map<string, "idle_limit" | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | null>;
+  sessionTimers: Map<string, Array<{ id: string }>>;
   sidebarOpen: boolean;
   setSidebarOpen: ReturnType<typeof vi.fn>;
   setSessionInfoOpenSessionId: ReturnType<typeof vi.fn>;
@@ -148,6 +149,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     cliConnected: new Map([["s1", true]]),
     cliDisconnectReason: new Map(),
     sessionStatus: new Map([["s1", "idle"]]),
+    sessionTimers: new Map(),
     sidebarOpen: true,
     setSidebarOpen: vi.fn(),
     setSessionInfoOpenSessionId: vi.fn(),
@@ -310,6 +312,38 @@ describe("TopBar", () => {
     render(<TopBar />);
 
     expect(screen.queryByTitle("Pause session")).not.toBeInTheDocument();
+  });
+
+  it("shows the timer status icon for an otherwise idle current session with active timers", () => {
+    resetStore({
+      currentSessionId: "s1",
+      cliConnected: new Map([["s1", true]]),
+      sessionStatus: new Map([["s1", "idle"]]),
+      sessionTimers: new Map([["s1", [{ id: "timer-1" }]]]),
+      sessions: new Map([["s1", { cwd: "/repo" }]]),
+      sdkSessions: [{ sessionId: "s1", createdAt: 40, cliConnected: true, state: "connected", name: "Timed" }],
+    });
+
+    render(<TopBar />);
+
+    expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute("data-count", "1");
+    expect(screen.queryByTestId("session-status-dot")).toBeNull();
+  });
+
+  it("keeps running top-bar status ahead of active timers", () => {
+    resetStore({
+      currentSessionId: "s1",
+      cliConnected: new Map([["s1", true]]),
+      sessionStatus: new Map([["s1", "running"]]),
+      sessionTimers: new Map([["s1", [{ id: "timer-1" }]]]),
+      sessions: new Map([["s1", { cwd: "/repo" }]]),
+      sdkSessions: [{ sessionId: "s1", createdAt: 40, cliConnected: true, state: "running", name: "Running" }],
+    });
+
+    render(<TopBar />);
+
+    expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "running");
+    expect(screen.queryByTestId("session-status-timer-icon")).toBeNull();
   });
 
   it("uses route-owned chrome on full-page routes without showing the current session title", () => {

@@ -62,6 +62,7 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
       isQuestNamed: false,
       questStatus: undefined,
       idleKilled: false,
+      activeTimerCount: 0,
       changedFilesCount: 0,
       leaderProfilePortrait: undefined,
       pause: null,
@@ -86,6 +87,7 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
     questStatus: currentSessionVm?.claimedQuestStatus,
     questReviewInboxUnread: currentSessionVm?.claimedQuestVerificationInboxUnread,
     idleKilled: state.cliDisconnectReason.get(currentSessionId) === "idle_limit",
+    activeTimerCount: state.sessionTimers.get(currentSessionId)?.length ?? currentSdkSession?.pendingTimerCount ?? 0,
     changedFilesCount: countScopedChangedFiles(state, currentSessionId, currentSessionVm),
     leaderProfilePortrait: currentSdkSession?.isOrchestrator ? currentSdkSession.leaderProfilePortrait : undefined,
     pause: currentSessionVm?.pause ?? null,
@@ -164,6 +166,7 @@ export function TopBar({
     questStatus,
     questReviewInboxUnread,
     idleKilled,
+    activeTimerCount,
     leaderProfilePortrait,
     pause,
   } = useStore(useShallow(getCurrentTopBarSessionState));
@@ -346,6 +349,7 @@ export function TopBar({
                   status={status}
                   hasUnread={currentHasUnread}
                   idleKilled={idleKilled}
+                  activeTimerCount={activeTimerCount}
                 />
               </div>
               {typeof sessionNum === "number" && (
