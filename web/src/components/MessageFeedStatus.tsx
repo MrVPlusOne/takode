@@ -359,15 +359,14 @@ function formatActiveTurnLabel(
     return `Active in ${activeTurnRoute.questId ?? activeTurnRoute.threadKey}`;
   }
 
-  const activeQuestId = questIdFromRoute(activeTurnRoute);
   if (context.isReviewerSession) {
+    const activeQuestId = questIdFromRoute(activeTurnRoute);
     const reviewerQuestId =
       activeQuestId ?? normalizeQuestId(context.reviewedQuestId) ?? normalizeQuestId(context.claimedQuestId);
     return reviewerQuestId ? `Reviewing ${reviewerQuestId}` : "Purring...";
   }
 
-  const workerQuestId = activeQuestId ?? normalizeQuestId(context.claimedQuestId);
-  return workerQuestId ? `Working on ${workerQuestId}` : "Purring...";
+  return "Purring...";
 }
 
 function leaderActiveTurnNavigationTarget(

@@ -687,7 +687,7 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(onSelectThread).not.toHaveBeenCalled();
   });
 
-  it("labels non-leader worker turns as working on the active quest", () => {
+  it("uses the neutral label for worker turns even when the active route carries a quest", () => {
     const sid = "test-worker-active";
     setStoreStatus(sid, "running");
     setStoreStreamingStartedAt(sid, Date.now() - 5000);
@@ -695,11 +695,12 @@ describe("ElapsedTimer - generation stats bar", () => {
 
     render(<ElapsedTimer sessionId={sid} currentThreadKey="main" />);
 
-    expect(screen.getByText("Working on q-975")).toBeTruthy();
+    expect(screen.getByText("Purring...")).toBeTruthy();
+    expect(screen.queryByText("Working on q-975")).toBeNull();
     expect(screen.queryByText("Active in q-975")).toBeNull();
   });
 
-  it("uses a claimed quest for non-leader worker turns when no active quest route is present", () => {
+  it("uses the neutral label for worker turns when a claimed quest is present", () => {
     const sid = "test-worker-claimed";
     setStoreStatus(sid, "running");
     setStoreStreamingStartedAt(sid, Date.now() - 5000);
@@ -707,7 +708,22 @@ describe("ElapsedTimer - generation stats bar", () => {
 
     render(<ElapsedTimer sessionId={sid} />);
 
-    expect(screen.getByText("Working on q-1198")).toBeTruthy();
+    expect(screen.getByText("Purring...")).toBeTruthy();
+    expect(screen.queryByText("Working on q-1198")).toBeNull();
+  });
+
+  it("keeps direct worker chats neutral when only stale previous-quest metadata remains", () => {
+    const sid = "test-worker-stale-direct-chat";
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreActiveTurnRoute(sid, { threadKey: "main" });
+    setStoreSessionState(sid, { claimedQuestId: "q-1478" });
+
+    render(<ElapsedTimer sessionId={sid} currentThreadKey="main" />);
+
+    expect(screen.getByText("Purring...")).toBeTruthy();
+    expect(screen.queryByText("Working on q-1478")).toBeNull();
+    expect(screen.queryByText(/Working on q-/)).toBeNull();
   });
 
   it("labels reviewer turns as reviewing when the active route carries a quest", () => {
