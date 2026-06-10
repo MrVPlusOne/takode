@@ -170,13 +170,20 @@ describe("Codex leader recycle continuation", () => {
     );
 
     const injectUserMessage = vi.fn(
-      (_sessionId: string, content: string, agentSource?: { sessionId: string; sessionLabel?: string | undefined }) => {
+      (
+        _sessionId: string,
+        content: string,
+        agentSource?: { sessionId: string; sessionLabel?: string | undefined },
+        threadRoute?: { threadKey: string; questId?: string },
+      ) => {
         session.messageHistory.push({
           type: "user_message",
           id: "recycle-continuation",
           timestamp: Date.now(),
           content,
           ...(agentSource ? { agentSource } : {}),
+          ...(threadRoute ? { threadKey: threadRoute.threadKey } : {}),
+          ...(threadRoute?.questId ? { questId: threadRoute.questId } : {}),
         });
       },
     );
@@ -188,7 +195,8 @@ describe("Codex leader recycle continuation", () => {
 
     expect(session.codexLeaderRecycleContinuation).toBeNull();
     expect(injectUserMessage).toHaveBeenCalledTimes(1);
-    const [, content, source] = injectUserMessage.mock.calls[0]!;
+    const [, content, source, threadRoute] = injectUserMessage.mock.calls[0]!;
+    expect(threadRoute).toEqual({ threadKey: "q-1489", questId: "q-1489" });
     expect(content).toContain(
       "Do not treat assistant text immediately before this recovery message as a completed response or finished orchestration action.",
     );
@@ -229,6 +237,10 @@ describe("Codex leader recycle continuation", () => {
       (entry: { id?: string }) => entry.id === "recycle-continuation",
     );
     expect(continuationIndex).toBe(markerIndex + 1);
+    expect(session.messageHistory[continuationIndex]).toMatchObject({
+      threadKey: "q-1489",
+      questId: "q-1489",
+    });
 
     injectCompactionRecovery(session, {
       isLeaderSession: () => true,

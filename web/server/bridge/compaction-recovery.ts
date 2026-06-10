@@ -84,6 +84,7 @@ export function injectCompactionRecovery(
       sessionId: string,
       content: string,
       agentSource?: { sessionId: string; sessionLabel?: string },
+      threadRoute?: { threadKey: string; questId?: string },
     ) => void;
   },
 ): void {
@@ -91,10 +92,15 @@ export function injectCompactionRecovery(
   if (recycleContinuation?.content) {
     session.codexLeaderRecycleContinuation = null;
     console.log(`[ws-bridge] Injecting leader recycle continuation for session ${sessionTag(session.id)}`);
-    deps.injectUserMessage(session.id, recycleContinuation.content, {
-      sessionId: COMPACTION_RECOVERY_SOURCE_ID,
-      sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
-    });
+    deps.injectUserMessage(
+      session.id,
+      recycleContinuation.content,
+      {
+        sessionId: COMPACTION_RECOVERY_SOURCE_ID,
+        sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
+      },
+      buildRecycleContinuationThreadRoute(recycleContinuation),
+    );
     return;
   }
   if (hasCompactionRecoveryAfterLatestMarker(session, deps)) return;
@@ -106,4 +112,14 @@ export function injectCompactionRecovery(
     sessionId: COMPACTION_RECOVERY_SOURCE_ID,
     sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
   });
+}
+
+function buildRecycleContinuationThreadRoute(
+  continuation: CodexLeaderRecycleContinuation,
+): { threadKey: string; questId?: string } | undefined {
+  if (!continuation.threadKey) return undefined;
+  return {
+    threadKey: continuation.threadKey,
+    ...(continuation.questId ? { questId: continuation.questId } : {}),
+  };
 }
