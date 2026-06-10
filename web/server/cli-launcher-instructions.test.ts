@@ -293,6 +293,10 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Relationship: follow-up of [q-N](quest:q-N)");
     expect(result).toContain("Use `/leader-dispatch` before dispatching a fresh or newly refined quest");
     expect(result).toContain("Use `Goal / Acceptance` as the source of truth for the requested work");
+    expect(result).toContain("treat that shape as a menu, not a form");
+    expect(result).toContain(
+      "simple approvals should usually be just `Proposed Quest`, `Goal / Acceptance`, one `Journey` line, and one `Scheduling` line",
+    );
     expect(result).toContain("the thread text must include enough decision context for that choice");
     expect(result).toContain(
       "notification suggestions and quest feedback are not substitutes for options or tradeoffs",
@@ -301,6 +305,9 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("full quest-body paste");
     expect(result).toContain("The visible chat approval surface is for the user's decision, not worker grounding");
     expect(result).toContain("the quest record should hold detailed worker grounding");
+    expect(result).toContain("The compact proposal shape is a menu, not a form");
+    expect(result).toContain("do not emit optional headings or explanatory bullets unless they add decision value");
+    expect(result).toContain("single scheduling line");
     expect(result).toContain("optional `Context / Evidence`");
     expect(result).toContain("`Invariants / Must Preserve`");
     expect(result).toContain("quest-design-only requests");

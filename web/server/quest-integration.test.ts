@@ -209,6 +209,10 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("do not restate the same work again as a separate quest description");
     expect(skill).toContain("default `Expected Output / Acceptance` section");
     expect(skill).toContain("full quest-body paste");
+    expect(skill).toContain("Treat the compact shape as a menu, not a form");
+    expect(skill).toContain(
+      "simple approvals should usually be just `Proposed Quest`, `Goal / Acceptance`, one `Journey` line, and one `Scheduling` line",
+    );
     expect(skill).toContain("Omit optional sections when they do not affect the user's decision");
     expect(skill).toContain("`Invariants / Must Preserve`");
     expect(skill).toContain("quest-design-only requests");

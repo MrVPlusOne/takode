@@ -407,6 +407,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("visible chat approval surface is for the user's decision, not worker grounding");
     expect(guardrails).toContain("Do not paste or mirror the full worker-facing quest body into chat by default");
     expect(guardrails).toContain("scope, evidence, acceptance criteria, constraints, and related context");
+    expect(guardrails).toContain("treat that shape as a menu, not a form");
+    expect(guardrails).toContain(
+      "simple approvals should usually be just `Proposed Quest`, `Goal / Acceptance`, one `Journey` line, and one `Scheduling` line",
+    );
     expect(guardrails).toContain("board-owned draft-or-active state for the quest");
     expect(guardrails).toContain("Work Board");
     // Spawn backend default note
@@ -467,6 +471,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain(
       "approval surface concise and decision-oriented rather than pasting the full quest body",
     );
+    expect(guardrails).toContain("The compact proposal shape is a menu, not a form");
+    expect(guardrails).toContain("do not emit optional headings or explanatory bullets unless they add decision value");
     expect(guardrails).toContain("expected worker choice or fresh-spawn intent");
     expect(guardrails).toContain("spawn fresh and dispatch immediately if approved");
     expect(guardrails).toContain(
@@ -594,6 +600,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain(
       "approval surface concise and decision-oriented rather than pasting the full quest body",
     );
+    expect(guardrails).toContain("The compact proposal shape is a menu, not a form");
+    expect(guardrails).toContain("do not emit optional headings or explanatory bullets unless they add decision value");
     expect(guardrails).toContain("expected worker choice or fresh-spawn intent");
     expect(guardrails).toContain("spawn fresh and dispatch immediately if approved");
     expect(guardrails).toContain("Leaders do not own worker quests");

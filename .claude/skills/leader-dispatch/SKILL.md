@@ -47,6 +47,8 @@ If the user clearly asked for a quest to be created and dispatched, optimize for
 
 The chat approval surface is for the user's decision, not for worker grounding. Keep it concise and decision-oriented: concise goals, Journey, scheduling, and only risks, assumptions, ambiguity, out-of-scope boundaries, costly execution, external effects, or user-visible tradeoffs that could affect approval. Do not paste or mirror the full worker-facing quest body into chat by default; preserve that detail in the quest record so workers still have scope, evidence, acceptance criteria, constraints, and related context. When the approval asks the user to choose, include enough in-thread decision context for the choice itself; do not rely on notification suggestions or quest feedback as the option packet.
 
+The compact shape is a menu, not a form to fill out. Do not reproduce every heading, explanatory bullet, or obvious contract detail when the decision can be made from a shorter packet. For the simple case, the whole approval surface should usually be just `Proposed Quest`, `Goal / Acceptance`, one `Journey` line, and one `Scheduling` line. Expand only for a real relationship, material evidence, non-goals, open questions, non-standard phase notes, queueing, capacity pressure, or another tradeoff the user must approve.
+
 ### Proposed Quest
 
 - Title: ...
@@ -244,6 +246,7 @@ This is the `/leader-dispatch` contract:
 
 The proposal should:
 - use a single `Goal / Acceptance` section as both understanding and acceptance criteria; avoid repeating it under `Scope`, `The worker should`, or a separate default `Expected Output / Acceptance` section
+- treat the compact proposal shape as a terse decision packet, not a form that requires every heading or explanatory bullet
 - name the built-in phases you intend to put on the board first
 - explain non-standard phases concisely: why each is needed and what evidence, scenario, outcome, or durable state it covers
 - avoid routine `explore -> implement` for normal bug-fix, docs-change, config-change, prompt-change, or artifact-change work; `implement` includes the investigation, root-cause analysis, code/design reading, and test planning needed to complete those changes

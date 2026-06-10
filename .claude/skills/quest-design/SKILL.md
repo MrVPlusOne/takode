@@ -54,6 +54,8 @@ Use the compact proposal shape when it fits:
 - `Journey`, only when dispatch or Journey approval is in scope
 - `Scheduling`, only when dispatch or queueing is in scope
 
+Treat that shape as a menu, not a form to fill out. Do not reproduce every heading or explanatory bullet when the decision can be made from a shorter packet. For simple quest-plus-dispatch approvals, the whole confirmation should usually be just `Proposed Quest`, `Goal / Acceptance`, one `Journey` line, and one `Scheduling` line. Expand only for a real relationship, material evidence, non-goals, open questions, non-standard phase notes, queueing, capacity pressure, or another tradeoff the user must approve.
+
 Add separate sections only when they carry non-overlapping approval information, such as `Relationship`, `Context / Evidence`, `Out Of Scope`, `Open Questions`, `Invariants / Must Preserve`, `Journey`, non-standard phase notes, and `Scheduling`. Open questions and assumptions are optional and should only cover decisions not already implied by `Goal / Acceptance` or the user's stated facts. Omit optional sections entirely when they add no new approval value; detailed worker grounding belongs in the quest record, not in the chat approval surface.
 
 For Journey notes, omit standard tracked-code phase notes by default: `alignment`, `implement`, `code-review`, and `port` only need notes for unusual phase-specific work. Explain non-standard phases concisely: why the phase is needed and what evidence, scenario, outcome, or durable state it covers.
