@@ -1,5 +1,27 @@
 # Takode Changelog
 
+## 2026-06-10
+
+### Changed
+
+- **Codex leader recycle prompts** -- Recycled leader sessions now receive cleaner recovery instructions with concise session-number Takode commands, no trigger or active-thread diagnostics in the model-facing prompt, and internal routing preserved for the injected recovery message
+
+### Fixed
+
+- **Empty session history** -- Sessions with delivered empty history no longer re-enter a loading state when reselected or reconnected after the server sends its authoritative snapshot
+- **Worker activity status** -- Worker chat status stays neutral during direct worker turns instead of showing stale or noisy quest labels
+
+## 2026-06-09
+
+### Changed
+
+- **Leader proposal guidance** -- Quest and dispatch approval guidance now favors compact decision packets for simple requests while keeping detailed worker grounding in the quest record
+
+### Fixed
+
+- **Codex worker recovery** -- Connected Codex workers interrupted by stuck-watchdog recovery now surface a recovery-pending state while a recoverable backend turn can still finish
+- **Codex leader recycling** -- Recycled leader sessions restore the one-shot recovery prompt path for recovering context without relying on embedded transcript snippets
+
 ## 2026-06-08
 
 ### Changed
