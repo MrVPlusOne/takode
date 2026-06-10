@@ -19,6 +19,7 @@ function makeLeaderSession(history: BrowserIncomingMessage[]) {
     codexFreshTurnRequiredUntilTurnId: "turn-old",
     lastOutboundUserNdjson: "old outbound",
     activeTurnRoute: { threadKey: "q-1489", questId: "q-1489" },
+    sessionNum: 42,
     interruptedDuringTurn: false,
     interruptSourceDuringTurn: null,
     relaunchPending: false,
@@ -40,10 +41,11 @@ function makeDeps() {
 
 describe("Codex leader recycle continuation", () => {
   it("injects a specific stopped-after-tools leader continuation even when old compaction recovery exists", () => {
-    // Regression for q-1494: a leader recycled after tool activity while
-    // preparing a quest-design/dispatch approval surface. Generic compaction
-    // recovery dedupe must not skip the only recovery prompt for this new
-    // recycle, or the user request is stranded.
+    // Regression for q-1494 and q-1500: a leader recycled after tool
+    // activity while preparing a quest-design/dispatch approval surface. The
+    // continuation must be delivered once after the recycle marker, but it
+    // must point the next leader at inspection tools instead of copying recent
+    // assistant/tool snippets into the prompt.
     const history: BrowserIncomingMessage[] = [
       {
         type: "compact_marker",
@@ -81,6 +83,12 @@ describe("Codex leader recycle continuation", () => {
               type: "text",
               text: "This looks separate from q-1491; I’m going to propose it as a follow-up of q-1489.",
             },
+            {
+              type: "tool_use",
+              id: "call-bash",
+              name: "Bash",
+              input: { command: "quest show q-1489" },
+            },
           ],
           stop_reason: null,
           usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -116,8 +124,26 @@ describe("Codex leader recycle continuation", () => {
     });
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, recycleMarker);
     expect(session.codexLeaderRecycleContinuation?.content).toContain("interrupted the previous leader turn");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain(
+      "Do not treat any partial assistant text before this message as a completed continuation.",
+    );
+    expect(session.codexLeaderRecycleContinuation?.content).toContain(
+      "Load skills: /takode-orchestration, /leader-dispatch, and /quest",
+    );
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("takode leader-context-resume 42");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("takode scan 42");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("takode peek 42");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("takode read 42 <msg-id>");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("quest show");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("quest status");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("memory catalog show");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("takode board show");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("q-1489");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("Fix Codex active-turn");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Recent visible context before recycle");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("This looks separate from q-1491");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("tool:Bash");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("quest show q-1489");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Fix Codex active-turn");
 
     const injectUserMessage = vi.fn(
       (_sessionId: string, content: string, agentSource?: { sessionId: string; sessionLabel?: string | undefined }) => {
@@ -143,7 +169,21 @@ describe("Codex leader recycle continuation", () => {
       "Do not treat any partial assistant text before this message as a completed continuation.",
     );
     expect(content).toContain("continue the interrupted workflow");
+    expect(content).toContain("Load skills: /takode-orchestration, /leader-dispatch, and /quest");
+    expect(content).toContain("takode leader-context-resume 42");
+    expect(content).toContain("takode scan 42");
+    expect(content).toContain("takode peek 42");
+    expect(content).toContain("takode read 42 <msg-id>");
+    expect(content).toContain("quest show");
+    expect(content).toContain("quest status");
+    expect(content).toContain("memory catalog show");
+    expect(content).toContain("takode board show");
     expect(content).toContain("q-1489");
+    expect(content).not.toContain("Recent visible context before recycle");
+    expect(content).not.toContain("This looks separate from q-1491");
+    expect(content).not.toContain("tool:Bash");
+    expect(content).not.toContain("quest show q-1489");
+    expect(content).not.toContain("Fix Codex active-turn");
     expect(source).toEqual({
       sessionId: "system:compaction-recovery",
       sessionLabel: "Compaction Recovery",

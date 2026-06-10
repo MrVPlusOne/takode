@@ -3,6 +3,7 @@ import type {
   CodexLeaderRecycleContinuation,
   CodexLeaderRecycleTrigger,
 } from "../session-types.js";
+import { getLeaderContextRecoveryInstructions } from "../compaction-recovery-prompts.js";
 import type { Session } from "./ws-bridge-session.js";
 
 export interface CodexLeaderRecycleSessionDeps {
@@ -76,16 +77,17 @@ function buildCodexLeaderRecycleContinuation(
   trigger: CodexLeaderRecycleTrigger,
 ): CodexLeaderRecycleContinuation {
   const requestedAt = Date.now();
-  const recent = summarizeRecentLeaderTurnContext(session.messageHistory);
-  const route = session.activeTurnRoute ?? recent.route;
+  const route = session.activeTurnRoute ?? null;
   const routeText =
     route?.threadKey || route?.questId ? `\nActive thread before recycle: ${route.threadKey ?? route.questId}` : "";
+  const sessionRef = String((session as { sessionNum?: number | null }).sessionNum ?? session.id);
   const content = [
     "Codex leader recycle interrupted the previous leader turn before it reached a final response.",
     "Do not treat any partial assistant text before this message as a completed continuation.",
-    "Recover enough context from this session's recent history and durable quest/board state, then continue the interrupted workflow if it is safe. If you cannot continue safely, say exactly what is recoverable or what user/leader action is needed.",
     `Recycle trigger: ${trigger}.${routeText}`,
-    recent.summary,
+    "Before continuing, recover enough context to safely resume orchestration:",
+    getLeaderContextRecoveryInstructions(sessionRef),
+    "After reconstructing enough context from Takode, quest, board, and memory state, continue the interrupted workflow if it is safe. If you cannot continue safely, say exactly what is recoverable or what user/leader action is needed.",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -96,56 +98,4 @@ function buildCodexLeaderRecycleContinuation(
     ...(route?.threadKey ? { threadKey: route.threadKey } : {}),
     ...(route?.questId ? { questId: route.questId } : {}),
   };
-}
-
-function summarizeRecentLeaderTurnContext(history: BrowserIncomingMessage[]): {
-  summary: string;
-  route: Session["activeTurnRoute"] | null;
-} {
-  const selected = history
-    .slice(-30)
-    .filter(
-      (entry) => entry.type === "user_message" || entry.type === "assistant" || entry.type === "tool_result_preview",
-    )
-    .slice(-8);
-  const lines: string[] = [];
-  let route: Session["activeTurnRoute"] | null = null;
-  for (const entry of selected) {
-    if (!route && (entry as { threadKey?: string; questId?: string }).threadKey) {
-      route = {
-        threadKey: (entry as { threadKey: string }).threadKey,
-        questId: (entry as { questId?: string }).questId,
-      };
-    }
-    const summary = summarizeHistoryEntry(entry);
-    if (summary) lines.push(summary);
-  }
-  return {
-    summary: lines.length ? `Recent visible context before recycle:\n${lines.join("\n")}` : "",
-    route,
-  };
-}
-
-function summarizeHistoryEntry(entry: BrowserIncomingMessage): string | null {
-  if (entry.type === "user_message") return `- user: ${truncateOneLine(entry.content)}`;
-  if (entry.type === "assistant") {
-    const text = (entry.message.content || [])
-      .map((block) => (block.type === "text" ? block.text : block.type === "tool_use" ? `tool:${block.name}` : ""))
-      .filter(Boolean)
-      .join(" ");
-    return text ? `- assistant: ${truncateOneLine(text)}` : null;
-  }
-  if (entry.type === "tool_result_preview") {
-    const text = entry.previews
-      .map((preview) => `${preview.tool_use_id}: ${preview.content}`)
-      .filter(Boolean)
-      .join(" ");
-    return text ? `- tool result: ${truncateOneLine(text)}` : null;
-  }
-  return null;
-}
-
-function truncateOneLine(text: string, max = 280): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
 }

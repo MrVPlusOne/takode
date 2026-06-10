@@ -622,6 +622,10 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).toContain("takode leader-context-resume 42");
     expect(recoveryCalls[0][1]).toContain("takode board show");
     expect(recoveryCalls[0][1]).toContain("takode scan 42");
+    expect(recoveryCalls[0][1]).toContain("takode peek 42");
+    expect(recoveryCalls[0][1]).toContain("takode read 42 <msg-id>");
+    expect(recoveryCalls[0][1]).toContain("quest show");
+    expect(recoveryCalls[0][1]).toContain("quest status");
     expect(recoveryCalls[0][1]).toContain("memory catalog show");
     expect(recoveryCalls[0][1]).toContain("inspect plausible catalog-listed files directly");
     expect(recoveryCalls[0][1]).toContain("targeted `rg` under `$(memory repo path)`");
