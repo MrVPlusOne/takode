@@ -3,7 +3,7 @@ import type {
   CodexLeaderRecycleContinuation,
   CodexLeaderRecycleTrigger,
 } from "../session-types.js";
-import { getLeaderContextRecoveryInstructions } from "../compaction-recovery-prompts.js";
+import { getLeaderRecycleRecoveryInstructions } from "../compaction-recovery-prompts.js";
 import type { Session } from "./ws-bridge-session.js";
 
 export interface CodexLeaderRecycleSessionDeps {
@@ -83,11 +83,9 @@ function buildCodexLeaderRecycleContinuation(
   const sessionRef = String((session as { sessionNum?: number | null }).sessionNum ?? session.id);
   const content = [
     "Codex leader recycle interrupted the previous leader turn before it reached a final response.",
-    "Do not treat any partial assistant text before this message as a completed continuation.",
-    `Recycle trigger: ${trigger}.${routeText}`,
-    "Before continuing, recover enough context to safely resume orchestration:",
-    getLeaderContextRecoveryInstructions(sessionRef),
-    "After reconstructing enough context from Takode, quest, board, and memory state, continue the interrupted workflow if it is safe. If you cannot continue safely, say exactly what is recoverable or what user/leader action is needed.",
+    "Do not treat assistant text immediately before this recovery message as a completed response or finished orchestration action. Use it only as historical evidence if Takode inspection shows it matters.",
+    routeText.trim(),
+    getLeaderRecycleRecoveryInstructions(sessionRef),
   ]
     .filter(Boolean)
     .join("\n\n");

@@ -49,6 +49,23 @@ export function getLeaderContextRecoveryInstructions(sessionRef: string): string
    - Never implement non-trivial changes yourself -- delegate to workers`;
 }
 
+export function getLeaderRecycleRecoveryInstructions(sessionRef: string): string {
+  return `You are a replacement leader continuing the same Takode session after an intentional Codex leader recycle. Recover context with tools before acting; do not rely on any embedded transcript excerpt.
+
+Start by loading the core orchestration context:
+- Load /takode-orchestration and /quest.
+- Load /leader-dispatch only before choosing workers or dispatching work.
+
+Recover the interrupted session state:
+1. Run \`takode leader-context-resume ${sessionRef}\` for the preferred recovery summary.
+2. Use \`takode scan ${sessionRef}\` only if you need more session history, then \`takode peek ${sessionRef}\` or \`takode read ${sessionRef} <msg-id>\` for specific turns or messages.
+3. Inspect relevant quest state with \`quest show\`, \`quest status\`, and phase feedback commands before advancing Journey work.
+4. Use \`takode board show\` and \`takode list\` when board or herd state matters.
+5. If durable memory may affect the current decision, run \`memory catalog show\` and inspect plausible catalog-listed files directly.
+
+After reconstructing enough context, continue the interrupted workflow only if it is safe. If the board is empty and no same-session \`needs-input\` prompt is unresolved, report recovery complete instead of digging through old review inbox items. If you cannot continue safely, say exactly what is still unclear, recoverable, or needs user/leader action.`;
+}
+
 export function getStandardContextRecoveryInstructions(sessionRef: string): string {
   return `1. Inspect your own session history with Takode tools. Start with \`takode scan ${sessionRef}\`
 2. If you still need detail, inspect your own session further with Takode tools such as \`takode peek ${sessionRef}\` or \`takode read ${sessionRef}\`

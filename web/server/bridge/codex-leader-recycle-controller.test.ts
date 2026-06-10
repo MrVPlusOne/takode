@@ -110,7 +110,7 @@ describe("Codex leader recycle continuation", () => {
     const session = makeLeaderSession(history);
     const deps = makeDeps();
 
-    prepareCodexLeaderRecycleSession(session, "threshold", 15_000, deps);
+    prepareCodexLeaderRecycleSession(session, "manual_compact", 15_000, deps);
 
     expect(session.pendingMessages).toEqual([]);
     expect(session.pendingCodexTurns).toEqual([]);
@@ -120,15 +120,22 @@ describe("Codex leader recycle continuation", () => {
     expect(recycleMarker).toMatchObject({
       type: "compact_marker",
       markerKind: "session_recycled",
-      trigger: "threshold",
+      trigger: "manual_compact",
     });
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, recycleMarker);
     expect(session.codexLeaderRecycleContinuation?.content).toContain("interrupted the previous leader turn");
     expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "Do not treat any partial assistant text before this message as a completed continuation.",
+      "Do not treat assistant text immediately before this recovery message as a completed response or finished orchestration action.",
     );
     expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "Load skills: /takode-orchestration, /leader-dispatch, and /quest",
+      "Use it only as historical evidence if Takode inspection shows it matters.",
+    );
+    expect(session.codexLeaderRecycleContinuation?.content).toContain(
+      "You are a replacement leader continuing the same Takode session",
+    );
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("Load /takode-orchestration and /quest.");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain(
+      "Load /leader-dispatch only before choosing workers or dispatching work.",
     );
     expect(session.codexLeaderRecycleContinuation?.content).toContain("takode leader-context-resume 42");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("takode scan 42");
@@ -139,11 +146,24 @@ describe("Codex leader recycle continuation", () => {
     expect(session.codexLeaderRecycleContinuation?.content).toContain("memory catalog show");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("takode board show");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("q-1489");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("If the board is empty");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Recycle trigger:");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("manual_compact");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("leader-session");
     expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Recent visible context before recycle");
     expect(session.codexLeaderRecycleContinuation?.content).not.toContain("This looks separate from q-1491");
     expect(session.codexLeaderRecycleContinuation?.content).not.toContain("tool:Bash");
     expect(session.codexLeaderRecycleContinuation?.content).not.toContain("quest show q-1489");
     expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Fix Codex active-turn");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("system-interrupted worker herd events");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Use `takode spawn`");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain(
+      "Invoke /leader-dispatch before every dispatch",
+    );
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Follow quest-journey.md");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain(
+      "Never implement non-trivial changes yourself",
+    );
 
     const injectUserMessage = vi.fn(
       (_sessionId: string, content: string, agentSource?: { sessionId: string; sessionLabel?: string | undefined }) => {
@@ -166,10 +186,13 @@ describe("Codex leader recycle continuation", () => {
     expect(injectUserMessage).toHaveBeenCalledTimes(1);
     const [, content, source] = injectUserMessage.mock.calls[0]!;
     expect(content).toContain(
-      "Do not treat any partial assistant text before this message as a completed continuation.",
+      "Do not treat assistant text immediately before this recovery message as a completed response or finished orchestration action.",
     );
-    expect(content).toContain("continue the interrupted workflow");
-    expect(content).toContain("Load skills: /takode-orchestration, /leader-dispatch, and /quest");
+    expect(content).toContain("Use it only as historical evidence if Takode inspection shows it matters.");
+    expect(content).toContain("continue the interrupted workflow only if it is safe");
+    expect(content).toContain("You are a replacement leader continuing the same Takode session");
+    expect(content).toContain("Load /takode-orchestration and /quest.");
+    expect(content).toContain("Load /leader-dispatch only before choosing workers or dispatching work.");
     expect(content).toContain("takode leader-context-resume 42");
     expect(content).toContain("takode scan 42");
     expect(content).toContain("takode peek 42");
@@ -179,11 +202,20 @@ describe("Codex leader recycle continuation", () => {
     expect(content).toContain("memory catalog show");
     expect(content).toContain("takode board show");
     expect(content).toContain("q-1489");
+    expect(content).toContain("If the board is empty");
+    expect(content).not.toContain("Recycle trigger:");
+    expect(content).not.toContain("manual_compact");
+    expect(content).not.toContain("leader-session");
     expect(content).not.toContain("Recent visible context before recycle");
     expect(content).not.toContain("This looks separate from q-1491");
     expect(content).not.toContain("tool:Bash");
     expect(content).not.toContain("quest show q-1489");
     expect(content).not.toContain("Fix Codex active-turn");
+    expect(content).not.toContain("system-interrupted worker herd events");
+    expect(content).not.toContain("Use `takode spawn`");
+    expect(content).not.toContain("Invoke /leader-dispatch before every dispatch");
+    expect(content).not.toContain("Follow quest-journey.md");
+    expect(content).not.toContain("Never implement non-trivial changes yourself");
     expect(source).toEqual({
       sessionId: "system:compaction-recovery",
       sessionLabel: "Compaction Recovery",
