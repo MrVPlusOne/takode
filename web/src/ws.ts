@@ -70,7 +70,7 @@ export { resolveSessionFilePath };
 export function connectSession(sessionId: string) {
   const store = useStore.getState();
   const existingMessages = store.messages.get(sessionId);
-  if (!existingMessages || existingMessages.length === 0) {
+  if ((!existingMessages || existingMessages.length === 0) && !store.historyDelivered.has(sessionId)) {
     store.setHistoryLoading(sessionId, true);
   }
   transport.connectSession(sessionId);

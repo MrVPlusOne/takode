@@ -290,6 +290,7 @@ describe("Session management", () => {
     useStore.getState().setSessionName("s1", "My Session");
     useStore.getState().setConnectionStatus("s1", "connected");
     useStore.getState().setCliConnected("s1", true);
+    useStore.getState().markHistoryDelivered("s1");
     useStore.getState().setSessionStatus("s1", "running");
     useStore.getState().setPreviousPermissionMode("s1", "default");
     // Thread-window cleanup must remove both cached content and the revision
@@ -306,6 +307,7 @@ describe("Session management", () => {
 
     expect(state.sessions.has("s1")).toBe(false);
     expect(state.messages.has("s1")).toBe(false);
+    expect(state.historyDelivered.has("s1")).toBe(false);
     expect(state.threadWindows.has("s1")).toBe(false);
     expect(state.threadWindowMessages.has("s1")).toBe(false);
     expect(state.threadWindowRefreshRevisions.has("s1")).toBe(false);
@@ -1181,6 +1183,7 @@ describe("reset", () => {
     useStore.getState().markRecentlyRenamed("s1");
     useStore.getState().setConnectionStatus("s1", "connected");
     useStore.getState().setCliConnected("s1", true);
+    useStore.getState().markHistoryDelivered("s1");
     useStore.getState().setSessionStatus("s1", "running");
     useStore.getState().setPreviousPermissionMode("s1", "default");
     useStore.getState().setSdkSessions([{ sessionId: "s1", state: "connected", cwd: "/", createdAt: 0 }]);
@@ -1192,6 +1195,7 @@ describe("reset", () => {
     expect(state.sdkSessions).toEqual([]);
     expect(state.currentSessionId).toBeNull();
     expect(state.messages.size).toBe(0);
+    expect(state.historyDelivered.size).toBe(0);
     expect(state.streaming.size).toBe(0);
     expect(state.streamingStartedAt.size).toBe(0);
     expect(state.streamingOutputTokens.size).toBe(0);

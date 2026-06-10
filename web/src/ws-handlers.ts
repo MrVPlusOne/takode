@@ -1424,6 +1424,7 @@ function handleParsedMessage(
       // state_snapshot is sent after subscribe replay completes. If no
       // message_history/history_sync arrived, this was an empty-history
       // session and the optimistic loading placeholder should be cleared.
+      store.markHistoryDelivered(sessionId);
       store.setHistoryLoading(sessionId, false);
       if (data.backendState !== undefined || data.backendError !== undefined) {
         store.updateSession(sessionId, {
@@ -1785,6 +1786,7 @@ function handleParsedMessage(
       store.setMessages(sessionId, chatMessages, { frozenCount });
       clearPendingUploadsCoveredByHistory(sessionId, data.messages);
       store.setHistoryWindow(sessionId, null);
+      store.markHistoryDelivered(sessionId);
       store.setHistoryLoading(sessionId, false);
       if (chatMessages.length > 0) {
         store.setCliEverConnected(sessionId);
@@ -1833,6 +1835,7 @@ function handleParsedMessage(
       });
       clearPendingUploadsCoveredByHistory(sessionId, [...data.frozen_delta, ...data.hot_messages]);
       store.setHistoryWindow(sessionId, null);
+      store.markHistoryDelivered(sessionId);
       store.setHistoryLoading(sessionId, false);
       if (mergedMessages.length > 0) {
         store.setCliEverConnected(sessionId);
@@ -1865,6 +1868,7 @@ function handleParsedMessage(
       store.setMessages(sessionId, chatMessages, { frozenCount });
       clearPendingUploadsCoveredByHistory(sessionId, sourceMessages);
       store.setHistoryWindow(sessionId, data.window);
+      store.markHistoryDelivered(sessionId);
       store.setHistoryLoading(sessionId, false);
       if (chatMessages.length > 0) {
         store.setCliEverConnected(sessionId);

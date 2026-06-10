@@ -159,6 +159,7 @@ export const useStore = create<AppState>((set, get) => ({
   messageFrozenHashes: new Map(),
   messageFrozenRevisions: new Map(),
   historyLoading: new Map(),
+  historyDelivered: new Set(),
   historyWindows: new Map(),
   threadWindows: new Map(),
   threadWindowMessages: new Map(),
@@ -675,6 +676,11 @@ export const useStore = create<AppState>((set, get) => ({
         historyLoading.delete(sessionId);
       }
       return { historyLoading };
+    }),
+  markHistoryDelivered: (sessionId) =>
+    set((s) => {
+      if (s.historyDelivered.has(sessionId)) return {};
+      return { historyDelivered: new Set(s.historyDelivered).add(sessionId) };
     }),
 
   setHistoryWindow: (sessionId, window) =>
@@ -1885,6 +1891,7 @@ export const useStore = create<AppState>((set, get) => ({
       messageFrozenCounts: new Map(),
       messageFrozenRevisions: new Map(),
       historyLoading: new Map(),
+      historyDelivered: new Set(),
       historyWindows: new Map(),
       threadWindows: new Map(),
       threadWindowMessages: new Map(),

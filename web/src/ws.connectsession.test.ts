@@ -292,4 +292,32 @@ describe("connectSession", () => {
 
     expect(useStore.getState().historyLoading.has("s1")).toBe(false);
   });
+
+  it("does not re-enter history loading for a delivered empty session", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "idle",
+      permissionMode: "default",
+      backendConnected: false,
+      backendState: "disconnected",
+      backendError: null,
+      uiMode: null,
+      askPermission: true,
+      lastReadAt: undefined,
+      attentionReason: undefined,
+      generationStartedAt: null,
+    });
+
+    expect(useStore.getState().messages.get("s1")).toEqual([]);
+    expect(useStore.getState().historyDelivered.has("s1")).toBe(true);
+    expect(useStore.getState().historyLoading.has("s1")).toBe(false);
+
+    // Re-selecting or reconnecting the already-delivered empty session should
+    // keep the empty state distinct from true history-pending hydration.
+    wsModule.connectSession("s1");
+
+    expect(useStore.getState().historyLoading.has("s1")).toBe(false);
+  });
 });

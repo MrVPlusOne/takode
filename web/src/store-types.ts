@@ -50,6 +50,7 @@ export interface AppState {
   messageFrozenHashes: Map<string, string>;
   messageFrozenRevisions: Map<string, number>;
   historyLoading: Map<string, boolean>;
+  historyDelivered: Set<string>;
   historyWindows: Map<string, HistoryWindowState>;
   threadWindows: Map<string, Map<string, ThreadWindowState>>;
   threadWindowMessages: Map<string, Map<string, ChatMessage[]>>;
@@ -229,6 +230,7 @@ export interface AppState {
     options?: { frozenCount?: number; frozenHash?: string },
   ) => void;
   setHistoryLoading: (sessionId: string, loading: boolean) => void;
+  markHistoryDelivered: (sessionId: string) => void;
   setHistoryWindow: (sessionId: string, window: HistoryWindowState | null) => void;
   setThreadWindow: (
     sessionId: string,

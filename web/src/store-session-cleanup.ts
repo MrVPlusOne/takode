@@ -14,6 +14,8 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
   messageFrozenRevisions.delete(sessionId);
   const historyLoading = new Map(s.historyLoading);
   historyLoading.delete(sessionId);
+  const historyDelivered = new Set(s.historyDelivered);
+  historyDelivered.delete(sessionId);
   const historyWindows = new Map(s.historyWindows);
   historyWindows.delete(sessionId);
   const threadWindows = new Map(s.threadWindows);
@@ -136,6 +138,7 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
     messageFrozenHashes,
     messageFrozenRevisions,
     historyLoading,
+    historyDelivered,
     historyWindows,
     threadWindows,
     threadWindowMessages,
