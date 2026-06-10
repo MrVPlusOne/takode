@@ -177,6 +177,7 @@ function createSessionRuntime(
     interruptedDuringTurn: false,
     interruptSourceDuringTurn: null,
     compactedDuringTurn: false,
+    provisionalStuckRecovery: null,
     consecutiveAdapterFailures: 0,
     lastAdapterFailureAt: null,
     intentionalCodexRelaunchUntil: null,
@@ -371,6 +372,7 @@ export function prepareSessionForRevert(
   session.awaitingCompactSummary = false;
   session.claudeCompactBoundarySeen = false;
   session.compactedDuringTurn = false;
+  session.provisionalStuckRecovery = null;
   session.forceCompactPending = false;
   if (session.state) session.state.is_compacting = false;
 

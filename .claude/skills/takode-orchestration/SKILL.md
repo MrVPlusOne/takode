@@ -67,7 +67,7 @@ Events from herded sessions are delivered automatically as `[Herd]` user message
 |-------|---------|--------|
 | `turn_end (✓)` | Worker completed successfully | Peek at output, send follow-up or mark done. In `PLANNING`, this may contain a plain-text alignment read-in that should be reviewed and answered with normal `takode send` rather than `takode answer` |
 | `turn_end (✗)` | Worker hit an error | Diagnose the issue, send recovery instructions |
-| `turn_end (⊘)` | User interrupted the worker | Check if it needs redirection |
+| `turn_end (⊘)` | Worker was interrupted by a user, leader, or system | Check whether it is terminal; system or `recovery pending` cases may still recover |
 | `permission_request` | Worker needs approval | For `AskUserQuestion`/`ExitPlanMode`, answer with `takode answer`. **Tool permissions are human-only.** If `(user-initiated)`, don't answer -- the user is handling it |
 | `permission_resolved` | Worker was unblocked | No action needed |
 | `session_error` | Session-level error | Investigate, decide whether to retry |
@@ -88,6 +88,7 @@ Three distinct operations -- never confuse them:
 ## Maintaining Focus
 
 - **Respect scoped waits during herd events.** Keep the affected thread, quest, or board row waiting even if herd events arrive, but continue unrelated orchestration. Only safety/global/worker-slot/shared-resource/cross-quest prompts broaden the wait; a user-parked prompt should not block unrelated work.
+- **System-interrupted worker events can be provisional.** If a `turn_end (⊘)` event says `recovery pending`, or the worker still appears connected/generating after a stuck-watchdog interruption, inspect `takode info`/`takode peek`/`takode scan` and consider a simple continuation or short timer/recheck before writing fallback documentation yourself. Do not ignore real interruptions; take over when recovery failed, the worker is idle with no progress, or the user needs an immediate fallback.
 - **When the user is directly steering a herded worker**: stay out of it. Resume normal coordination once the user stops interacting.
 - **After context compaction, refresh state.** Run `takode list` to see your herd with each worker's recent task history before making dispatch decisions.
 

@@ -1671,6 +1671,10 @@ export interface TakodeTurnEndEventData {
   is_error?: boolean;
   interrupted?: boolean;
   interrupt_source?: "user" | "leader" | "system";
+  /** True when an interruption-style event is an early recovery signal and the backend may still finish. */
+  recovery_pending?: boolean;
+  /** True when the event is informational/provisional rather than a final turn outcome. */
+  provisional?: boolean;
   interrupt_origin?: "restart_prep";
   restart_prep_operation_id?: string;
   compacted?: boolean;

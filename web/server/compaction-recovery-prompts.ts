@@ -14,6 +14,7 @@ export const LEGACY_LEADER_COMPACTION_RECOVERY_PROMPT = `${LEADER_COMPACTION_REC
    - Use \`takode scan <your-session-number>\` to inspect your own session history and recover enough earlier context before acting
    - If durable memory may affect the current decision, run \`memory catalog show\` for orientation; inspect plausible catalog-listed files directly, especially \`current/\`, \`decisions/\`, and \`procedures/\`; use targeted \`rg\` under \`$(memory repo path)\` only when catalog or known context makes a match plausible; skip blind repo-wide memory search when the catalog shows no plausible relevant topic, type, or source
    - Use \`takode board show\` to verify active Journey state and \`takode list\` to reconcile herd/session state when board or worker context matters
+   - Treat system-interrupted worker herd events as actionable but not always terminal. If an event says \`recovery pending\`, or the worker still appears connected or generating after a stuck-watchdog interruption, inspect status/history and consider a simple continuation or short timer/recheck before writing fallback documentation yourself. Do not ignore real interruptions; take over only when recovery failed, the worker is idle with no progress, or user urgency requires it
    - Use \`takode spawn\` to create workers (never Agent tool)
    - Invoke /leader-dispatch before every dispatch
    - Follow quest-journey.md for lifecycle transitions
@@ -41,6 +42,7 @@ export function getCompactionRecoveryPrompt(role: "leader" | "standard", session
    - Use \`takode scan ${sessionRef}\` to inspect your own session history and recover enough earlier context before acting
    - If durable memory may affect the current decision, run \`memory catalog show\` for orientation; inspect plausible catalog-listed files directly, especially \`current/\`, \`decisions/\`, and \`procedures/\`; use targeted \`rg\` under \`$(memory repo path)\` only when catalog or known context makes a match plausible; skip blind repo-wide memory search when the catalog shows no plausible relevant topic, type, or source
    - Use \`takode board show\` to verify active Journey state and \`takode list\` to reconcile herd/session state when board or worker context matters
+   - Treat system-interrupted worker herd events as actionable but not always terminal. If an event says \`recovery pending\`, or the worker still appears connected or generating after a stuck-watchdog interruption, inspect status/history and consider a simple continuation or short timer/recheck before writing fallback documentation yourself. Do not ignore real interruptions; take over only when recovery failed, the worker is idle with no progress, or user urgency requires it
    - Use \`takode spawn\` to create workers (never Agent tool)
    - Invoke /leader-dispatch before every dispatch
    - Follow quest-journey.md for lifecycle transitions

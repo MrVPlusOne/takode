@@ -640,6 +640,10 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).toContain("Keep unrelated dispatch, quests, and herd events moving");
     expect(recoveryCalls[0][1]).toContain("sets one prompt aside");
     expect(recoveryCalls[0][1]).toContain("does not depend on the answer");
+    expect(recoveryCalls[0][1]).toContain("system-interrupted worker herd events");
+    expect(recoveryCalls[0][1]).toContain("recovery pending");
+    expect(recoveryCalls[0][1]).toContain("simple continuation or short timer/recheck");
+    expect(recoveryCalls[0][1]).toContain("take over only when recovery failed");
     expect(recoveryCalls[0][1]).not.toContain("do not dispatch, advance quests");
     expect(recoveryCalls[0][1]).toContain("phase-explicit");
     expect(recoveryCalls[0][1]).toContain("plan only");

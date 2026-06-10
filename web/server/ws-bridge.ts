@@ -274,12 +274,12 @@ import {
   promoteNextQueuedTurn as promoteNextQueuedTurnLifecycle,
   reconcileTerminalResultState as reconcileTerminalResultStateLifecycle,
   replaceQueuedTurnLifecycleEntries as replaceQueuedTurnLifecycleEntriesLifecycle,
-  runStuckSessionWatchdogSweep as runStuckSessionWatchdogSweepLifecycle,
   setGenerating as setGeneratingLifecycle,
   type InterruptSource as GenerationInterruptSource,
   type UserDispatchTurnTarget,
   trackUserMessageForTurn as trackUserMessageForTurnLifecycle,
 } from "./bridge/generation-lifecycle.js";
+import { runWsBridgeStuckSessionWatchdogSweep } from "./bridge/stuck-session-watchdog-controller.js";
 import {
   computeDiffStatsAsync as computeDiffStatsAsyncController,
   makeDefaultState,
@@ -340,16 +340,8 @@ import {
 
 const BOARD_STALL_THRESHOLD_MS = 3 * 60_000;
 
-// ─── Stuck Session Constants ─────────────────────────────────────────────────
-// Shared between the watchdog and system.init reconnect handler.
-
-/** Minimum generation age (ms) before a session is considered potentially stuck.
- *  Used by the watchdog for first detection AND by the seamless reconnect handler
- *  to decide whether a long-running generation should be force-cleared. */
-const STUCK_GENERATION_THRESHOLD_MS = 120_000; // 2 minutes
 const CODEX_DISCONNECT_GRACE_MS = 15_000;
 const CODEX_RECOVERY_TIMEOUT_MS = 30_000;
-const STUCK_PENDING_DELIVERY_MS = 60_000;
 
 // ─── Bridge ───────────────────────────────────────────────────────────────────
 
@@ -592,29 +584,21 @@ export class WsBridge {
   startStuckSessionWatchdog(): void {
     const timer = setInterval(() => {
       const now = Date.now();
-      runStuckSessionWatchdogSweepLifecycle(this.sessions.values(), now, {
-        stuckPendingDeliveryMs: STUCK_PENDING_DELIVERY_MS,
-        stuckThresholdMs: STUCK_GENERATION_THRESHOLD_MS,
-        autoRecoverMs: 300_000,
-        autoRecoverOrchestratorMs: STUCK_GENERATION_THRESHOLD_MS,
-        requestCodexAutoRecovery: (session, reason) => this.requestCodexAutoRecovery(session as Session, reason),
-        broadcastMessage: (session, msg) => this.broadcastToBrowsers(session as Session, msg as BrowserIncomingMessage),
-        recordServerEvent: (session, reason, payload) =>
-          this.recorder?.recordServerEvent(
-            session.id,
-            reason,
-            payload,
-            session.backendType as BackendType,
-            session.state.cwd,
-          ),
-        getLauncherSessionInfo: (sessionId) => this.launcher?.getSession(sessionId),
-        forceFlushPendingEvents: (sessionId) => this.herdEventDispatcher?.forceFlushPendingEvents?.(sessionId) ?? 0,
-        backendConnected: (session) => backendConnectedController(session as Session),
-        markTurnInterrupted: (session, source) => this.markTurnInterrupted(session as Session, source),
+      runWsBridgeStuckSessionWatchdogSweep({
+        sessions: this.sessions.values(),
+        now,
+        launcher: this.launcher,
+        recorder: this.recorder,
+        herdEventDispatcher: this.herdEventDispatcher,
+        requestCodexAutoRecovery: (session, reason) => this.requestCodexAutoRecovery(session, reason),
+        broadcastToBrowsers: (session, message) => this.broadcastToBrowsers(session, message),
+        markTurnInterrupted: (session, source) => this.markTurnInterrupted(session, source),
         setGenerating: (session, generating, reason) =>
-          setGeneratingLifecycle(this.getGenerationLifecycleDeps(), session as Session, generating, reason),
+          setGeneratingLifecycle(this.getGenerationLifecycleDeps(), session, generating, reason),
+        emitTakodeTurnEnd: (sessionId, data) => this.emitTakodeEvent(sessionId, "turn_end", data),
+        buildTurnToolSummary: (session) => this.buildTurnToolSummary(session),
         pokeStaleCodexPendingDelivery: (session, reason) =>
-          pokeStaleCodexPendingDeliveryController(session as Session, reason, this.getCodexRecoveryOrchestratorDeps()),
+          pokeStaleCodexPendingDeliveryController(session, reason, this.getCodexRecoveryOrchestratorDeps()),
       });
       this.sweepBoardStallWarnings(now);
       this.sweepBoardDispatchableWarnings(now);

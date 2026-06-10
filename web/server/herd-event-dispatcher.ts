@@ -1279,8 +1279,9 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
       // Annotate user-initiated turns so the leader knows this wasn't its work
       const userInitiated = evt.data.turn_source === "user" ? " (user-initiated)" : "";
       const interruptSource = evt.data.interrupt_source ?? null;
+      const recoveryPending = evt.data.recovery_pending ? "; recovery pending" : "";
       const success = evt.data.interrupted
-        ? `interrupted${interruptSource ? ` (by ${interruptSource})` : ""}`
+        ? `interrupted${interruptSource || recoveryPending ? ` (by ${interruptSource ?? "unknown"}${recoveryPending})` : ""}`
         : evt.data.is_error
           ? "✗"
           : "✓";
@@ -1582,6 +1583,8 @@ function getStableHerdEventKey(event: TakodeEvent): string | null {
       event.data.interrupt_origin,
       event.data.restart_prep_operation_id,
       event.data.compacted,
+      event.data.recovery_pending,
+      event.data.provisional,
       event.data.threadKey,
       event.data.questId,
       stableToolCountsPart(event.data.tools),

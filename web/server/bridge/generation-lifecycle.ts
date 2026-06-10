@@ -1,5 +1,5 @@
 import { sessionTag } from "../session-tag.js";
-import type { ActiveTurnRoute } from "../session-types.js";
+import type { ActiveTurnRoute, TakodeTurnEndEventData } from "../session-types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 
 /** Reasons that indicate the turn ended due to recovery/error, not a normal result.
@@ -15,6 +15,12 @@ export const RECOVERY_REASONS = new Set([
 
 export type InterruptSource = "user" | "leader" | "system";
 
+export interface ProvisionalStuckRecovery {
+  turnId: string;
+  notifiedAt: number;
+  terminalAfter: number;
+}
+
 export interface GenerationLifecycleSession {
   id: string;
   isGenerating: boolean;
@@ -27,6 +33,7 @@ export interface GenerationLifecycleSession {
   restartPrepInterruptOperationId?: string | null;
   restartPrepInterruptOrigin?: "restart_prep" | null;
   compactedDuringTurn: boolean;
+  provisionalStuckRecovery: ProvisionalStuckRecovery | null;
   userMessageIdsThisTurn: number[];
   questThreadRemindersThisTurn?: unknown[];
   activeTurnRoute?: ActiveTurnRoute | null;
@@ -92,6 +99,10 @@ export interface StuckWatchdogDeps<S extends StuckWatchdogSession> {
   backendConnected: (session: S) => boolean;
   markTurnInterrupted: (session: S, source: InterruptSource) => void;
   setGenerating: (session: S, generating: boolean, reason: string) => void;
+  emitTakodeEvent: (sessionId: string, type: "turn_end", data: TakodeTurnEndEventData) => void;
+  buildTurnToolSummary: (session: S) => Record<string, unknown>;
+  getCurrentTurnTriggerSource?: (session: S) => "user" | "leader" | "system" | "unknown";
+  getRecoverableActiveCodexTurnId?: (session: S) => string | null;
   pokeStaleCodexPendingDelivery?: (session: S, reason: string) => boolean;
 }
 
@@ -263,6 +274,7 @@ function startQueuedTurn<S extends GenerationLifecycleSession>(
   session.restartPrepInterruptOperationId = null;
   session.restartPrepInterruptOrigin = null;
   session.compactedDuringTurn = false;
+  session.provisionalStuckRecovery = null;
   session.userMessageIdsThisTurn = [...entry.userMessageIds];
   session.activeTurnRoute = entry.activeTurnRoute;
   console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${turnReason})`);
@@ -312,6 +324,7 @@ export function reconcileTerminalResultState<S extends GenerationLifecycleSessio
     session.interruptedDuringTurn ||
     session.interruptSourceDuringTurn !== null ||
     session.compactedDuringTurn ||
+    session.provisionalStuckRecovery !== null ||
     session.userMessageIdsThisTurn.length > 0;
   if (!hadResidualState) {
     return { endedTurn: false, clearedResidualState: false };
@@ -322,6 +335,7 @@ export function reconcileTerminalResultState<S extends GenerationLifecycleSessio
   session.interruptedDuringTurn = false;
   session.interruptSourceDuringTurn = null;
   session.compactedDuringTurn = false;
+  session.provisionalStuckRecovery = null;
   session.userMessageIdsThisTurn = [];
   session.questThreadRemindersThisTurn = [];
   deps.onSessionActivityStateChanged(session.id, `generating:${reason}:reconciled`);
@@ -346,6 +360,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.restartPrepInterruptOperationId = null;
     session.restartPrepInterruptOrigin = null;
     session.compactedDuringTurn = false;
+    session.provisionalStuckRecovery = null;
     session.userMessageIdsThisTurn = [];
     session.questThreadRemindersThisTurn = [];
     session.activeTurnRoute = null;
@@ -379,6 +394,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.restartPrepInterruptOperationId = null;
     session.restartPrepInterruptOrigin = null;
     session.compactedDuringTurn = false;
+    session.provisionalStuckRecovery = null;
     session.activeTurnRoute = null;
     deps.emitTakodeEvent(session.id, "turn_end", {
       reason,
@@ -486,6 +502,7 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
       if (!allToolsStale) {
         if (session.stuckNotifiedAt) {
           session.stuckNotifiedAt = null;
+          session.provisionalStuckRecovery = null;
           deps.broadcastMessage(session, { type: "session_unstuck" });
         }
         continue;
@@ -497,6 +514,7 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
     if (sinceLastActivity < deps.stuckThresholdMs) {
       if (session.stuckNotifiedAt) {
         session.stuckNotifiedAt = null;
+        session.provisionalStuckRecovery = null;
         deps.broadcastMessage(session, { type: "session_unstuck" });
       }
       continue;
@@ -525,6 +543,47 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
     const cliConnected = deps.backendConnected(session);
     const recoverThreshold = isOrchestrator ? deps.autoRecoverOrchestratorMs : deps.autoRecoverMs;
     if (elapsed < recoverThreshold || (!cliConnected && elapsed < deps.autoRecoverMs)) continue;
+
+    const recoverableCodexTurnId = deps.getRecoverableActiveCodexTurnId?.(session) ?? null;
+    const canDeferTerminalInterrupt =
+      !isOrchestrator && session.backendType === "codex" && cliConnected && recoverableCodexTurnId;
+    if (canDeferTerminalInterrupt) {
+      const provisional = session.provisionalStuckRecovery;
+      if (provisional?.turnId === recoverableCodexTurnId && now < provisional.terminalAfter) {
+        continue;
+      }
+      if (!provisional || provisional.turnId !== recoverableCodexTurnId) {
+        session.provisionalStuckRecovery = {
+          turnId: recoverableCodexTurnId,
+          notifiedAt: now,
+          terminalAfter: now + deps.autoRecoverMs,
+        };
+        deps.recordServerEvent?.(session, "stuck_recovery_pending", {
+          elapsed,
+          sinceLastActivity,
+          cliConnected,
+          activeTurnId: recoverableCodexTurnId,
+        });
+        deps.emitTakodeEvent(session.id, "turn_end", {
+          reason: "stuck_auto_recovery",
+          duration_ms: elapsed,
+          interrupted: true,
+          interrupt_source: "system",
+          recovery_pending: true,
+          provisional: true,
+          ...(session.compactedDuringTurn ? { compacted: true } : {}),
+          ...deps.buildTurnToolSummary(session),
+          turn_source: deps.getCurrentTurnTriggerSource?.(session) ?? "unknown",
+          ...(session.activeTurnRoute?.threadKey ? { threadKey: session.activeTurnRoute.threadKey } : {}),
+          ...(session.activeTurnRoute?.questId ? { questId: session.activeTurnRoute.questId } : {}),
+        });
+        console.warn(
+          `[ws-bridge] Reported provisional stuck recovery for session ${sessionTag(session.id)} ` +
+            `(${Math.round(elapsed / 1000)}s stuck, active Codex turn ${recoverableCodexTurnId})`,
+        );
+        continue;
+      }
+    }
 
     console.warn(
       `[ws-bridge] Auto-recovering stuck session ${sessionTag(session.id)} ` +

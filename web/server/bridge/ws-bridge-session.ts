@@ -176,6 +176,8 @@ export interface Session {
   intentionalCodexRelaunchReason: string | null;
   /** Whether context compaction occurred during the current turn (for turn_end herd events) */
   compactedDuringTurn: boolean;
+  /** Provisional stuck recovery already reported while waiting for a connected Codex turn to settle. */
+  provisionalStuckRecovery: import("./generation-lifecycle.js").ProvisionalStuckRecovery | null;
   /** One-shot continuation prompt injected after an intentional Codex leader recycle. */
   codexLeaderRecycleContinuation: CodexLeaderRecycleContinuation | null;
   /** Message history indices of user messages received during the current turn (for turn_end herd events) */

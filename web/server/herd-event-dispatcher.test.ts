@@ -2174,6 +2174,17 @@ describe("formatHerdEventBatch", () => {
     expect(result).toContain("interrupted (by leader) 1.6s");
   });
 
+  it("formats provisional interrupted turn_end events with recovery-pending attribution", () => {
+    const events = [
+      makeEvent({
+        event: "turn_end",
+        data: { duration_ms: 1600, interrupted: true, interrupt_source: "system", recovery_pending: true },
+      }),
+    ];
+    const result = formatHerdEventBatch(events);
+    expect(result).toContain("interrupted (by system; recovery pending) 1.6s");
+  });
+
   it("formats turn_end with compacted annotation when context was compacted", () => {
     const events = [
       makeEvent({

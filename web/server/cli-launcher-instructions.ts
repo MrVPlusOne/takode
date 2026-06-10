@@ -268,6 +268,7 @@ Use \`--json\` only when you need exact structured fields for a programmatic dec
 ${copy.forwardedSessionLine}
 
 The \`takode-orchestration\` skill has the full event type table and reaction rules inline in its Herd Events section.
+System-interrupted worker \`turn_end\` herd events are actionable but not always terminal. If an event says \`recovery pending\`, or the worker still appears connected or generating after a stuck-watchdog interruption, inspect \`takode info\`, \`takode peek\`, or \`takode scan\`; consider a simple continuation or a short timer/recheck before taking over documentation yourself. Do not ignore real interruptions: take over only when recovery failed, the worker is idle with no progress, or user urgency requires it.
 
 ## Quest Journey
 

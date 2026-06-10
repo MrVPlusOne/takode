@@ -34,6 +34,7 @@ function makeSession(overrides: Partial<GenerationLifecycleSession> = {}): Gener
     interruptedDuringTurn: false,
     interruptSourceDuringTurn: null,
     compactedDuringTurn: false,
+    provisionalStuckRecovery: null,
     userMessageIdsThisTurn: [],
     activeTurnRoute: null,
     queuedTurnStarts: 0,
@@ -95,6 +96,9 @@ function makeStuckWatchdogDeps(
     backendConnected: vi.fn(() => false),
     markTurnInterrupted: vi.fn(),
     setGenerating: vi.fn(),
+    emitTakodeEvent: vi.fn(),
+    buildTurnToolSummary: vi.fn().mockReturnValue({}),
+    getCurrentTurnTriggerSource: vi.fn((): "unknown" => "unknown"),
     ...overrides,
   };
 }
@@ -448,6 +452,84 @@ describe("runStuckSessionWatchdogSweep", () => {
     );
 
     expect(pokeStaleCodexPendingDelivery).not.toHaveBeenCalled();
+  });
+
+  it("reports connected Codex worker stuck recovery as provisional without clearing generation", () => {
+    const now = 600_000;
+    const session = makeStuckWatchdogSession({
+      isGenerating: true,
+      generationStartedAt: 1,
+      lastCliMessageAt: 0,
+      lastToolProgressAt: 0,
+      codexAdapter: { isConnected: () => true },
+      compactedDuringTurn: true,
+      userMessageIdsThisTurn: [7],
+      activeTurnRoute: { threadKey: "q-1468", questId: "q-1468" },
+    });
+    const deps = makeStuckWatchdogDeps({
+      backendConnected: vi.fn(() => true),
+      getRecoverableActiveCodexTurnId: vi.fn(() => "turn-active"),
+      buildTurnToolSummary: vi.fn(() => ({ userMsgs: { count: 1, ids: [7] }, msgRange: { from: 7, to: 12 } })),
+      getCurrentTurnTriggerSource: vi.fn((): "leader" => "leader"),
+      getLauncherSessionInfo: vi.fn(() => ({})),
+    });
+
+    runStuckSessionWatchdogSweep([session], now, deps);
+
+    expect(deps.emitTakodeEvent).toHaveBeenCalledWith(
+      session.id,
+      "turn_end",
+      expect.objectContaining({
+        reason: "stuck_auto_recovery",
+        interrupted: true,
+        interrupt_source: "system",
+        recovery_pending: true,
+        provisional: true,
+        compacted: true,
+        turn_source: "leader",
+        threadKey: "q-1468",
+        questId: "q-1468",
+      }),
+    );
+    expect(deps.markTurnInterrupted).not.toHaveBeenCalled();
+    expect(deps.setGenerating).not.toHaveBeenCalled();
+    expect(session.isGenerating).toBe(true);
+    expect(session.provisionalStuckRecovery).toMatchObject({
+      turnId: "turn-active",
+      notifiedAt: now,
+      terminalAfter: now + 300_000,
+    });
+
+    vi.mocked(deps.emitTakodeEvent).mockClear();
+    runStuckSessionWatchdogSweep([session], now + 30_000, deps);
+    expect(deps.emitTakodeEvent).not.toHaveBeenCalled();
+  });
+
+  it("terminally clears a provisionally reported connected Codex worker after the recovery window expires", () => {
+    const session = makeStuckWatchdogSession({
+      isGenerating: true,
+      generationStartedAt: 1,
+      lastCliMessageAt: 0,
+      lastToolProgressAt: 0,
+      codexAdapter: { isConnected: () => true },
+      provisionalStuckRecovery: {
+        turnId: "turn-active",
+        notifiedAt: 600_000,
+        terminalAfter: 900_000,
+      },
+    });
+    const deps = makeStuckWatchdogDeps({
+      backendConnected: vi.fn(() => true),
+      getRecoverableActiveCodexTurnId: vi.fn(() => "turn-active"),
+      getLauncherSessionInfo: vi.fn(() => ({})),
+    });
+
+    runStuckSessionWatchdogSweep([session], 900_001, deps);
+
+    expect(deps.markTurnInterrupted).toHaveBeenCalledWith(session, "system");
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "stuck_auto_recovery");
+    expect(deps.broadcastMessage).toHaveBeenCalledWith(session, { type: "status_change", status: "idle" });
+    expect(deps.broadcastMessage).toHaveBeenCalledWith(session, { type: "session_unstuck" });
   });
 });
 

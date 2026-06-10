@@ -246,6 +246,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).not.toContain("Use `memory recall` visibly");
     expect(result).toContain("Do not silently inject memory into workers");
     expect(result).toContain("Memory writes are explicit Journey responsibility");
+    expect(result).toContain("System-interrupted worker `turn_end` herd events are actionable but not always terminal");
+    expect(result).toContain("If an event says `recovery pending`");
+    expect(result).toContain("consider a simple continuation or a short timer/recheck");
+    expect(result).toContain("take over only when recovery failed");
   });
 
   it("returns codex-flavored guardrails for codex backend", () => {
@@ -266,6 +270,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Use `outcome-review` when a reviewer should make an acceptance judgment");
     expect(result).toContain("small bounded reruns or repros");
     expect(result).toContain("approval-gated runs");
+    expect(result).toContain("System-interrupted worker `turn_end` herd events are actionable but not always terminal");
+    expect(result).toContain("the worker still appears connected or generating");
   });
 });
 
