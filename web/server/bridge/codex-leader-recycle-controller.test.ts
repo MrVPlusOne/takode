@@ -145,8 +145,12 @@ describe("Codex leader recycle continuation", () => {
     expect(session.codexLeaderRecycleContinuation?.content).toContain("quest status");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("memory catalog show");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("takode board show");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("q-1489");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("If the board is empty");
+    expect(session.codexLeaderRecycleContinuation).toMatchObject({
+      threadKey: "q-1489",
+      questId: "q-1489",
+    });
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Active thread before recycle:");
     expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Recycle trigger:");
     expect(session.codexLeaderRecycleContinuation?.content).not.toContain("manual_compact");
     expect(session.codexLeaderRecycleContinuation?.content).not.toContain("leader-session");
@@ -201,8 +205,8 @@ describe("Codex leader recycle continuation", () => {
     expect(content).toContain("quest status");
     expect(content).toContain("memory catalog show");
     expect(content).toContain("takode board show");
-    expect(content).toContain("q-1489");
     expect(content).toContain("If the board is empty");
+    expect(content).not.toContain("Active thread before recycle:");
     expect(content).not.toContain("Recycle trigger:");
     expect(content).not.toContain("manual_compact");
     expect(content).not.toContain("leader-session");

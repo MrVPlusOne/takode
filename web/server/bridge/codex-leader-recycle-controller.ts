@@ -78,13 +78,10 @@ function buildCodexLeaderRecycleContinuation(
 ): CodexLeaderRecycleContinuation {
   const requestedAt = Date.now();
   const route = session.activeTurnRoute ?? null;
-  const routeText =
-    route?.threadKey || route?.questId ? `\nActive thread before recycle: ${route.threadKey ?? route.questId}` : "";
   const sessionRef = String((session as { sessionNum?: number | null }).sessionNum ?? session.id);
   const content = [
     "Codex leader recycle interrupted the previous leader turn before it reached a final response.",
     "Do not treat assistant text immediately before this recovery message as a completed response or finished orchestration action. Use it only as historical evidence if Takode inspection shows it matters.",
-    routeText.trim(),
     getLeaderRecycleRecoveryInstructions(sessionRef),
   ]
     .filter(Boolean)
