@@ -1316,6 +1316,14 @@ describe("property-based: frozen history correctness", () => {
 
   const ITERATIONS = 80;
 
+  function seedRanges(total: number, size: number): Array<{ start: number; end: number }> {
+    const ranges: Array<{ start: number; end: number }> = [];
+    for (let start = 1; start <= total; start += size) {
+      ranges.push({ start, end: Math.min(total, start + size - 1) });
+    }
+    return ranges;
+  }
+
   // ── P1: Round-trip correctness ──────────────────────────────────────────
   // For ANY sequence of messages, save() → load() must reconstruct the
   // exact same messageHistory and toolResults.
@@ -1392,44 +1400,102 @@ describe("property-based: frozen history correctness", () => {
   // ── P2: Incremental freeze is append-only ───────────────────────────────
   // After each save, the JSONL content from the previous save must be a
   // prefix of the current content (existing lines are never modified).
-  for (let seed = 1; seed <= ITERATIONS; seed++) {
-    it(
-      `P2: JSONL is append-only — content from previous save is a prefix (seed ${seed})`,
-      async () => {
-        const rng = mulberry32(seed + 10000);
-        const sessionId = `p2-${seed}`;
-        const totalTurns = 1 + Math.floor(rng() * 5);
-        let allMessages: PersistedSession["messageHistory"] = [];
-        let allToolResults: NonNullable<PersistedSession["toolResults"]> = [];
-        let prevLogContent = "";
+  for (const { start, end } of seedRanges(ITERATIONS, 5)) {
+    describe(`P2: JSONL is append-only — content from previous save is a prefix (seeds ${start}-${end})`, () => {
+      let p2TempDir: string;
+      const cases = new Map<
+        number,
+        {
+          sessionId: string;
+          turns: Array<ReturnType<typeof realisticSequence>>;
+          allMessages: PersistedSession["messageHistory"];
+          allToolResults: NonNullable<PersistedSession["toolResults"]>;
+          prevLogContent: string;
+          observations: Array<{ turn: number; previousLog: string; currentLog: string; logPath: string }>;
+        }
+      >();
 
-        for (let t = 0; t < totalTurns; t++) {
-          const { messages: turnMsgs, toolResults: turnTr } = realisticSequence(rng, 1, 0);
-          allMessages = [...allMessages, ...turnMsgs];
-          allToolResults = [...allToolResults, ...turnTr];
+      beforeAll(async () => {
+        p2TempDir = mkdtempSync(join(tmpdir(), "ss-p2-test-"));
+        const p2Store = new SessionStore(p2TempDir);
 
-          const session = makeSession(sessionId, {
-            messageHistory: [...allMessages],
-            toolResults: [...allToolResults],
+        for (let seed = start; seed <= end; seed++) {
+          const rng = mulberry32(seed + 10000);
+          const sessionId = `p2-${seed}`;
+          const totalTurns = 1 + Math.floor(rng() * 5);
+          const turns: Array<ReturnType<typeof realisticSequence>> = [];
+
+          for (let t = 0; t < totalTurns; t++) {
+            turns.push(realisticSequence(rng, 1, 0));
+          }
+
+          cases.set(seed, {
+            sessionId,
+            turns,
+            allMessages: [],
+            allToolResults: [],
+            prevLogContent: "",
+            observations: [],
           });
+        }
 
-          store.saveSync(session);
-          await store.flushAll();
+        const maxTurns = Math.max(...[...cases.values()].map(({ turns }) => turns.length));
+        for (let t = 0; t < maxTurns; t++) {
+          const changedCases: Array<NonNullable<ReturnType<typeof cases.get>>> = [];
+          for (const testCase of cases.values()) {
+            const turn = testCase.turns[t];
+            if (!turn) continue;
 
-          const logPath = join(tempDir, `${sessionId}.history.jsonl`);
-          if (!existsSync(logPath)) continue;
-          const currentLog = await readFile(logPath, "utf-8");
-          if (prevLogContent) {
+            testCase.allMessages = [...testCase.allMessages, ...turn.messages];
+            testCase.allToolResults = [...testCase.allToolResults, ...turn.toolResults];
+            p2Store.saveSync(
+              makeSession(testCase.sessionId, {
+                messageHistory: [...testCase.allMessages],
+                toolResults: [...testCase.allToolResults],
+              }),
+            );
+            changedCases.push(testCase);
+          }
+
+          await p2Store.flushAll();
+
+          await Promise.all(
+            changedCases.map(async (testCase) => {
+              const logPath = join(p2TempDir, `${testCase.sessionId}.history.jsonl`);
+              if (!existsSync(logPath)) return;
+              const currentLog = await readFile(logPath, "utf-8");
+              if (testCase.prevLogContent) {
+                testCase.observations.push({
+                  turn: t,
+                  previousLog: testCase.prevLogContent,
+                  currentLog,
+                  logPath,
+                });
+              }
+              testCase.prevLogContent = currentLog;
+            }),
+          );
+        }
+      }, PROPERTY_TEST_TIMEOUT_MS);
+
+      afterAll(() => {
+        if (p2TempDir) rmSync(p2TempDir, { recursive: true, force: true });
+      });
+
+      for (let seed = start; seed <= end; seed++) {
+        it(`seed ${seed}`, () => {
+          const testCase = cases.get(seed);
+          expect(testCase, `seed=${seed}: missing prepared append-only fixture`).toBeDefined();
+
+          for (const observation of testCase!.observations) {
             expect(
-              currentLog.startsWith(prevLogContent),
-              `seed=${seed}, turn=${t}: JSONL is not append-only — previous content not a prefix (${logPath})`,
+              observation.currentLog.startsWith(observation.previousLog),
+              `seed=${seed}, turn=${observation.turn}: JSONL is not append-only — previous content not a prefix (${observation.logPath})`,
             ).toBe(true);
           }
-          prevLogContent = currentLog;
-        }
-      },
-      PROPERTY_TEST_TIMEOUT_MS,
-    );
+        });
+      }
+    });
   }
 
   // ── P4: Tool results are never lost ─────────────────────────────────────
