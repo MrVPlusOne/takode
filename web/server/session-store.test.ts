@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1315,6 +1316,14 @@ describe("property-based: frozen history correctness", () => {
 
   const ITERATIONS = 80;
 
+  function seedRanges(total: number, size: number): Array<{ start: number; end: number }> {
+    const ranges: Array<{ start: number; end: number }> = [];
+    for (let start = 1; start <= total; start += size) {
+      ranges.push({ start, end: Math.min(total, start + size - 1) });
+    }
+    return ranges;
+  }
+
   // ── P1: Round-trip correctness ──────────────────────────────────────────
   // For ANY sequence of messages, save() → load() must reconstruct the
   // exact same messageHistory and toolResults.
@@ -1368,69 +1377,77 @@ describe("property-based: frozen history correctness", () => {
   // ── P2: Incremental freeze is append-only ───────────────────────────────
   // After each save, the JSONL content from the previous save must be a
   // prefix of the current content (existing lines are never modified).
-  it(
-    "P2: JSONL is append-only — content from previous save is a prefix",
-    async () => {
-      const cases: Array<{
-        seed: number;
-        sessionId: string;
-        turns: Array<ReturnType<typeof realisticSequence>>;
-        allMessages: PersistedSession["messageHistory"];
-        allToolResults: NonNullable<PersistedSession["toolResults"]>;
-        prevLogContent: string;
-      }> = [];
+  for (const { start, end } of seedRanges(ITERATIONS, 20)) {
+    it(
+      `P2: JSONL is append-only — content from previous save is a prefix (seeds ${start}-${end})`,
+      async () => {
+        const cases: Array<{
+          seed: number;
+          sessionId: string;
+          turns: Array<ReturnType<typeof realisticSequence>>;
+          allMessages: PersistedSession["messageHistory"];
+          allToolResults: NonNullable<PersistedSession["toolResults"]>;
+          prevLogContent: string;
+        }> = [];
 
-      for (let seed = 1; seed <= ITERATIONS; seed++) {
-        const rng = mulberry32(seed + 10000);
-        const sessionId = `p2-${seed}`;
+        for (let seed = start; seed <= end; seed++) {
+          const rng = mulberry32(seed + 10000);
+          const sessionId = `p2-${seed}`;
 
-        const totalTurns = 1 + Math.floor(rng() * 5);
-        const turns: Array<ReturnType<typeof realisticSequence>> = [];
+          const totalTurns = 1 + Math.floor(rng() * 5);
+          const turns: Array<ReturnType<typeof realisticSequence>> = [];
 
-        for (let t = 0; t < totalTurns; t++) {
-          turns.push(realisticSequence(rng, 1, 0));
+          for (let t = 0; t < totalTurns; t++) {
+            turns.push(realisticSequence(rng, 1, 0));
+          }
+
+          cases.push({ seed, sessionId, turns, allMessages: [], allToolResults: [], prevLogContent: "" });
         }
 
-        cases.push({ seed, sessionId, turns, allMessages: [], allToolResults: [], prevLogContent: "" });
-      }
+        const maxTurns = Math.max(...cases.map(({ turns }) => turns.length));
+        for (let t = 0; t < maxTurns; t++) {
+          const changedCases: typeof cases = [];
+          for (const testCase of cases) {
+            const turn = testCase.turns[t];
+            if (!turn) continue;
+            testCase.allMessages = [...testCase.allMessages, ...turn.messages];
+            testCase.allToolResults = [...testCase.allToolResults, ...turn.toolResults];
 
-      const maxTurns = Math.max(...cases.map(({ turns }) => turns.length));
-      for (let t = 0; t < maxTurns; t++) {
-        const changedCases: typeof cases = [];
-        for (const testCase of cases) {
-          const turn = testCase.turns[t];
-          if (!turn) continue;
-          testCase.allMessages = [...testCase.allMessages, ...turn.messages];
-          testCase.allToolResults = [...testCase.allToolResults, ...turn.toolResults];
+            const session = makeSession(testCase.sessionId, {
+              messageHistory: [...testCase.allMessages],
+              toolResults: [...testCase.allToolResults],
+            });
 
-          const session = makeSession(testCase.sessionId, {
-            messageHistory: [...testCase.allMessages],
-            toolResults: [...testCase.allToolResults],
-          });
+            store.saveSync(session);
+            changedCases.push(testCase);
+          }
 
-          store.saveSync(session);
-          changedCases.push(testCase);
-        }
+          await store.flushAll();
 
-        await store.flushAll();
+          const logSnapshots = await Promise.all(
+            changedCases.map(async (testCase) => {
+              const logPath = join(tempDir, `${testCase.sessionId}.history.jsonl`);
+              if (!existsSync(logPath)) return { testCase, currentLog: null };
+              return { testCase, currentLog: await readFile(logPath, "utf-8") };
+            }),
+          );
 
-        for (const testCase of changedCases) {
-          const logPath = join(tempDir, `${testCase.sessionId}.history.jsonl`);
-          if (existsSync(logPath)) {
-            const currentLog = readFileSync(logPath, "utf-8");
+          for (const { testCase, currentLog } of logSnapshots) {
+            if (currentLog === null) continue;
+            const logPath = join(tempDir, `${testCase.sessionId}.history.jsonl`);
             if (testCase.prevLogContent) {
               expect(
                 currentLog.startsWith(testCase.prevLogContent),
-                `seed=${testCase.seed}, turn=${t}: JSONL is not append-only — previous content not a prefix`,
+                `seed=${testCase.seed}, turn=${t}: JSONL is not append-only — previous content not a prefix (${logPath})`,
               ).toBe(true);
             }
             testCase.prevLogContent = currentLog;
           }
         }
-      }
-    },
-    PROPERTY_TEST_TIMEOUT_MS,
-  );
+      },
+      PROPERTY_TEST_TIMEOUT_MS,
+    );
+  }
 
   // ── P4: Tool results are never lost ─────────────────────────────────────
   // For any sequence of saves, all tool results present in the input must
@@ -1539,84 +1556,92 @@ describe("property-based: frozen history correctness", () => {
   // Simulates a crash between JSONL append and hot JSON write. After
   // recovery, load() must reconstruct the correct history without
   // message duplication or gaps.
-  it("P6: crash recovery — load() deduplicates overlap after partial write", async () => {
-    const cases: Array<{
-      seed: number;
-      sessionId: string;
-      phase1Msgs: PersistedSession["messageHistory"];
-      phase1Tr: NonNullable<PersistedSession["toolResults"]>;
-      crashTurnMsgs: PersistedSession["messageHistory"];
-      crashTurnTr: NonNullable<PersistedSession["toolResults"]>;
-    }> = [];
+  for (const { start, end } of seedRanges(40, 5)) {
+    it(`P6: crash recovery — load() deduplicates overlap after partial write (seeds ${start}-${end})`, async () => {
+      const cases: Array<{
+        seed: number;
+        sessionId: string;
+        phase1Msgs: PersistedSession["messageHistory"];
+        phase1Tr: NonNullable<PersistedSession["toolResults"]>;
+        crashTurnMsgs: PersistedSession["messageHistory"];
+        crashTurnTr: NonNullable<PersistedSession["toolResults"]>;
+      }> = [];
 
-    for (let seed = 1; seed <= 40; seed++) {
-      const rng = mulberry32(seed + 50000);
-      const sessionId = `p6-${seed}`;
+      for (let seed = start; seed <= end; seed++) {
+        const rng = mulberry32(seed + 50000);
+        const sessionId = `p6-${seed}`;
 
-      // Phase 1: save N completed turns normally
-      const phase1Turns = 1 + Math.floor(rng() * 3);
-      const { messages: phase1Msgs, toolResults: phase1Tr } = realisticSequence(rng, phase1Turns, 0);
-      const { messages: crashTurnMsgs, toolResults: crashTurnTr } = realisticSequence(rng, 1, 0);
+        // Phase 1: save N completed turns normally
+        const phase1Turns = 1 + Math.floor(rng() * 3);
+        const { messages: phase1Msgs, toolResults: phase1Tr } = realisticSequence(rng, phase1Turns, 0);
+        const { messages: crashTurnMsgs, toolResults: crashTurnTr } = realisticSequence(rng, 1, 0);
 
-      cases.push({ seed, sessionId, phase1Msgs, phase1Tr, crashTurnMsgs, crashTurnTr });
+        cases.push({ seed, sessionId, phase1Msgs, phase1Tr, crashTurnMsgs, crashTurnTr });
 
-      const session = makeSession(sessionId, {
-        messageHistory: [...phase1Msgs],
-        toolResults: [...phase1Tr],
-      });
-      store.saveSync(session);
-    }
-    await store.flushAll();
-
-    const { appendFile: fsAppendFile } = await import("node:fs/promises");
-    for (const testCase of cases) {
-      // Record the frozen count from the hot JSON before "crash"
-      const hotBefore = JSON.parse(readFileSync(join(tempDir, `${testCase.sessionId}.json`), "utf-8"));
-
-      // Phase 2: manually append one more completed turn to the JSONL,
-      // simulating JSONL write succeeded but hot write did not.
-      let appendData = "";
-      for (const msg of testCase.crashTurnMsgs) {
-        appendData += JSON.stringify(msg) + "\n";
+        const session = makeSession(sessionId, {
+          messageHistory: [...phase1Msgs],
+          toolResults: [...phase1Tr],
+        });
+        store.saveSync(session);
       }
-      if (testCase.crashTurnTr.length > 0) {
-        appendData += JSON.stringify({ _toolResults: testCase.crashTurnTr }) + "\n";
-      }
+      await store.flushAll();
 
-      await fsAppendFile(join(tempDir, `${testCase.sessionId}.history.jsonl`), appendData, "utf-8");
+      await Promise.all(
+        cases.map(async (testCase) => {
+          // Record the frozen count from the hot JSON before "crash"
+          const hotBefore = JSON.parse(readFileSync(join(tempDir, `${testCase.sessionId}.json`), "utf-8"));
 
-      // Hot JSON is stale — it still has the old _frozenCount but contains
-      // the crash turn in its hot tail.
-      hotBefore.messageHistory = [...testCase.crashTurnMsgs];
-      hotBefore.toolResults = [...testCase.crashTurnTr];
-      writeFileSync(join(tempDir, `${testCase.sessionId}.json`), JSON.stringify(hotBefore), "utf-8");
-    }
+          // Phase 2: manually append one more completed turn to the JSONL,
+          // simulating JSONL write succeeded but hot write did not.
+          let appendData = "";
+          for (const msg of testCase.crashTurnMsgs) {
+            appendData += JSON.stringify(msg) + "\n";
+          }
+          if (testCase.crashTurnTr.length > 0) {
+            appendData += JSON.stringify({ _toolResults: testCase.crashTurnTr }) + "\n";
+          }
 
-    // Load with a fresh store (no in-memory state)
-    const freshStore = new SessionStore(tempDir);
-    for (const testCase of cases) {
-      const loaded = await freshStore.load(testCase.sessionId);
-      expect(loaded, `seed=${testCase.seed}: null after crash recovery`).not.toBeNull();
+          await appendFile(join(tempDir, `${testCase.sessionId}.history.jsonl`), appendData, "utf-8");
 
-      // Total messages = phase1 + crash turn (no duplicates)
-      const expectedTotal = testCase.phase1Msgs.length + testCase.crashTurnMsgs.length;
-      expect(
-        loaded!.messageHistory.length,
-        `seed=${testCase.seed}: expected ${expectedTotal} msgs but got ${loaded!.messageHistory.length}`,
-      ).toBe(expectedTotal);
+          // Hot JSON is stale — it still has the old _frozenCount but contains
+          // the crash turn in its hot tail.
+          hotBefore.messageHistory = [...testCase.crashTurnMsgs];
+          hotBefore.toolResults = [...testCase.crashTurnTr];
+          writeFileSync(join(tempDir, `${testCase.sessionId}.json`), JSON.stringify(hotBefore), "utf-8");
+        }),
+      );
 
-      // Verify ordering: phase1 messages come first, then crash turn
-      for (let i = 0; i < testCase.phase1Msgs.length; i++) {
-        expect(loaded!.messageHistory[i], `seed=${testCase.seed}: phase1 msg[${i}]`).toEqual(testCase.phase1Msgs[i]);
-      }
-      for (let i = 0; i < testCase.crashTurnMsgs.length; i++) {
+      // Load with a fresh store (no in-memory state)
+      const freshStore = new SessionStore(tempDir);
+      const loadedCases = await Promise.all(
+        cases.map(async (testCase) => ({
+          testCase,
+          loaded: await freshStore.load(testCase.sessionId),
+        })),
+      );
+      for (const { testCase, loaded } of loadedCases) {
+        expect(loaded, `seed=${testCase.seed}: null after crash recovery`).not.toBeNull();
+
+        // Total messages = phase1 + crash turn (no duplicates)
+        const expectedTotal = testCase.phase1Msgs.length + testCase.crashTurnMsgs.length;
         expect(
-          loaded!.messageHistory[testCase.phase1Msgs.length + i],
-          `seed=${testCase.seed}: crash msg[${i}]`,
-        ).toEqual(testCase.crashTurnMsgs[i]);
+          loaded!.messageHistory.length,
+          `seed=${testCase.seed}: expected ${expectedTotal} msgs but got ${loaded!.messageHistory.length}`,
+        ).toBe(expectedTotal);
+
+        // Verify ordering: phase1 messages come first, then crash turn
+        for (let i = 0; i < testCase.phase1Msgs.length; i++) {
+          expect(loaded!.messageHistory[i], `seed=${testCase.seed}: phase1 msg[${i}]`).toEqual(testCase.phase1Msgs[i]);
+        }
+        for (let i = 0; i < testCase.crashTurnMsgs.length; i++) {
+          expect(
+            loaded!.messageHistory[testCase.phase1Msgs.length + i],
+            `seed=${testCase.seed}: crash msg[${i}]`,
+          ).toEqual(testCase.crashTurnMsgs[i]);
+        }
       }
-    }
-  });
+    });
+  }
 
   // ── P8: Multiple save-load cycles are idempotent ────────────────────────
   // Repeated save → load → save → load cycles must not cause data growth
