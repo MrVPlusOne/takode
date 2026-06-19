@@ -658,7 +658,7 @@ export function MarkdownContent({
     <div
       id={id}
       data-testid={dataTestId}
-      className={`markdown-body ${sizeClass} text-cc-fg leading-relaxed overflow-hidden break-words ${
+      className={`markdown-body ${sizeClass} text-cc-fg leading-[1.45] overflow-hidden break-words ${
         wrapLongContent ? "min-w-0 max-w-full [overflow-wrap:anywhere]" : ""
       } ${className}`}
       data-chat-selection-scope={enableChatSelectionMenu ? "true" : undefined}
@@ -673,7 +673,7 @@ export function MarkdownContent({
         }
         unwrapDisallowed={isConservative}
         components={{
-          p: ({ children }) => <p className="mb-3 last:mb-0">{highlightChildren(children)}</p>,
+          p: ({ children }) => <p className="mb-2.5 last:mb-0">{highlightChildren(children)}</p>,
           strong: ({ children }) => <strong className="font-semibold text-cc-fg">{highlightChildren(children)}</strong>,
           em: ({ children }) => <em className="italic">{highlightChildren(children)}</em>,
           h1: ({ children }) => (
@@ -685,13 +685,13 @@ export function MarkdownContent({
           h3: ({ children }) => (
             <h3 className="text-base font-semibold text-cc-fg mt-3 mb-1">{highlightChildren(children)}</h3>
           ),
-          ul: ({ children }) => <ul className="list-disc pl-5 mb-3 space-y-1">{children}</ul>,
+          ul: ({ children }) => <ul className="list-disc pl-5 mb-2.5 space-y-0.5">{children}</ul>,
           ol: ({ children, start }) => (
-            <ol start={start} className="list-decimal pl-5 mb-3 space-y-1">
+            <ol start={start} className="list-decimal pl-5 mb-2.5 space-y-0.5">
               {children}
             </ol>
           ),
-          li: ({ children }) => <li className="text-cc-fg">{highlightChildren(children)}</li>,
+          li: ({ children }) => <li className="text-cc-fg leading-[1.45]">{highlightChildren(children)}</li>,
           a: ({ href, children }) => {
             const questId = parseQuestIdFromHref(href);
             if (questId) {

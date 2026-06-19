@@ -87,6 +87,34 @@ describe("MarkdownContent line breaks", () => {
     );
   });
 
+  it("uses a compact readable rhythm for dense chat markdown", () => {
+    // Protects the product-density target for long chat messages with wrapped prose,
+    // bullets, nested bullets, numbered lists, and inline-code-heavy text.
+    const { container } = render(
+      <MarkdownContent
+        text={
+          "The feed should keep `inline-code-heavy` prose readable while using less vertical space across wrapped lines.\n\n- First finding wraps into a longer list item with `rollouts.jsonl` paths and counts that should not look airy.\n  - Nested detail keeps the same compact rhythm.\n- Second finding has another `dataset_id` value.\n\n1. Define the fixed default line height.\n2. Validate the screenshot before porting."
+        }
+      />,
+    );
+
+    const markdownRoot = container.firstElementChild as HTMLElement | null;
+    const paragraph = container.querySelector("p");
+    const unorderedList = container.querySelector("ul");
+    const orderedList = container.querySelector("ol");
+    const firstListItem = container.querySelector("li");
+    const inlineCode = container.querySelector("p code");
+
+    expect(markdownRoot?.classList.contains("leading-[1.45]")).toBe(true);
+    expect(paragraph?.classList.contains("mb-2.5")).toBe(true);
+    expect(unorderedList?.classList.contains("space-y-0.5")).toBe(true);
+    expect(unorderedList?.classList.contains("mb-2.5")).toBe(true);
+    expect(orderedList?.classList.contains("space-y-0.5")).toBe(true);
+    expect(firstListItem?.classList.contains("leading-[1.45]")).toBe(true);
+    expect(inlineCode?.className).toContain("font-mono-code");
+    expect(inlineCode?.className).toContain("text-[13px]");
+  });
+
   it("preserves fenced code blocks while adding breaks only to surrounding prose", () => {
     // Ensures fenced code keeps raw newlines instead of being transformed into <br> tags.
     const { container } = render(
