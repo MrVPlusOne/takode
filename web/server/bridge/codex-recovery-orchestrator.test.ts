@@ -5,6 +5,7 @@ import {
   handleCodexAdapterInitError,
   hydrateCodexResumedHistory,
   markCodexIntentionalRelaunch,
+  pokeStaleCodexPendingDelivery,
   reconcileCodexResumedTurn,
   registerCodexAdapterRecoveryLifecycle,
   type CodexRecoveryOrchestratorSessionLike,
@@ -300,6 +301,129 @@ describe("addPendingCodexInput", () => {
     );
 
     expect(deps.touchUserMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("pokeStaleCodexPendingDelivery", () => {
+  function makeStalePendingDeliverySession() {
+    const session = makeSession([
+      { id: "head-input", content: "stale head", timestamp: 1_000, cancelable: true },
+      { id: "new-input", content: "new herd event", timestamp: 2_000, cancelable: true },
+    ]);
+    session.codexAdapter = {
+      getCurrentTurnId: vi.fn(() => null),
+      isConnected: vi.fn(() => true),
+      sendBrowserMessage: vi.fn(() => true),
+    } as any;
+    const head = makePendingTurn();
+    head.adapterMsg = {
+      type: "codex_start_pending",
+      pendingInputIds: ["head-input"],
+      inputs: [{ content: "stale head" }],
+    } as any;
+    head.userMessageId = "head-input";
+    head.pendingInputIds = ["head-input"];
+    head.status = "backend_acknowledged";
+    head.turnTarget = "current";
+    head.turnId = "turn-stale";
+    head.acknowledgedAt = 1_500;
+    session.pendingCodexTurns = [head];
+    const deps = makeDeps();
+    deps.getCodexHeadTurn = vi.fn(
+      (target: CodexRecoveryOrchestratorSessionLike) => target.pendingCodexTurns[0] ?? null,
+    );
+    return { session, deps, head };
+  }
+
+  it("retries a stale backend-acknowledged head when a different input is queued behind it", () => {
+    // This is the approved faster-recovery envelope: a connected, idle Codex
+    // session with no active turn id and a new pending input behind a stale
+    // backend-acknowledged codex_start_pending head.
+    const { session, deps, head } = makeStalePendingDeliverySession();
+
+    const poked = pokeStaleCodexPendingDelivery(session, "herd_event_message", deps, {
+      triggeringInputId: "new-input",
+    });
+
+    expect(poked).toBe(true);
+    expect(head.status).toBe("queued");
+    expect(head.turnId).toBeNull();
+    expect(deps.dispatchQueuedCodexTurns).toHaveBeenCalledWith(session, "codex_retry_pending_turn");
+    expect(deps.dispatchQueuedCodexTurns).toHaveBeenCalledWith(session, "herd_event_message");
+  });
+
+  it("refuses unsafe stale pending delivery poke states", () => {
+    const cases: Array<{
+      name: string;
+      mutate: (session: CodexRecoveryOrchestratorSessionLike, head: CodexOutboundTurn) => void;
+      triggeringInputId?: string;
+    }> = [
+      {
+        name: "session is still generating",
+        mutate: (session) => {
+          session.isGenerating = true;
+        },
+      },
+      {
+        name: "adapter reports an active turn id",
+        mutate: (session) => {
+          session.codexAdapter!.getCurrentTurnId = vi.fn(() => "turn-active");
+        },
+      },
+      {
+        name: "triggering input is already part of the stale head",
+        mutate: () => undefined,
+        triggeringInputId: "head-input",
+      },
+      {
+        name: "adapter is disconnected",
+        mutate: (session) => {
+          session.codexAdapter!.isConnected = vi.fn(() => false);
+        },
+      },
+      {
+        name: "backend is disconnected",
+        mutate: (session) => {
+          session.state.backend_state = "disconnected";
+        },
+      },
+      {
+        name: "backend is broken",
+        mutate: (session) => {
+          session.state.backend_state = "broken";
+        },
+      },
+      {
+        name: "backend recovery is suppressed",
+        mutate: (session) => {
+          session.state.backend_state = "recovery_suppressed";
+        },
+      },
+      {
+        name: "backend is already recovering",
+        mutate: (session) => {
+          session.state.backend_state = "recovering";
+        },
+      },
+      {
+        name: "head is not a codex_start_pending turn",
+        mutate: (_session, head) => {
+          head.adapterMsg = { type: "user_message", content: "stale head" } as any;
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const { session, deps, head } = makeStalePendingDeliverySession();
+      testCase.mutate(session, head);
+
+      const poked = pokeStaleCodexPendingDelivery(session, "herd_event_message", deps, {
+        triggeringInputId: testCase.triggeringInputId ?? "new-input",
+      });
+
+      expect(poked, testCase.name).toBe(false);
+      expect(deps.dispatchQueuedCodexTurns, testCase.name).not.toHaveBeenCalled();
+    }
   });
 });
 

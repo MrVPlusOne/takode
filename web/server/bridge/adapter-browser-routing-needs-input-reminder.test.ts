@@ -820,6 +820,42 @@ describe("direct user needs-input reminders", () => {
     expect(deps.queueCodexPendingStartBatch).toHaveBeenCalledWith(session, "herd_event_message");
   });
 
+  it("pokes stale Codex pending delivery when a herd input queues behind a stale head", () => {
+    // Herd events are model-bound inputs for leaders. They should get the same
+    // immediate stale-head poke as direct user messages, while the recovery
+    // primitive itself keeps the connected/idle/no-active-turn safety gates.
+    const session = makeSession();
+    session.backendType = "codex";
+    session.codexAdapter = {
+      getCurrentTurnId: () => null,
+      isConnected: () => true,
+      sendBrowserMessage: vi.fn(() => true),
+    } as any;
+    const deps = makeDeps({ isOrchestrator: true });
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+
+    const routed = routeAdapterBrowserMessage(
+      session,
+      userMessage({
+        content: "1 event from 1 session\n\n#1380 | turn_end | interrupted",
+        agentSource: {
+          sessionId: "herd-events",
+          sessionLabel: "Herd Events",
+        },
+      }),
+      null,
+      deps,
+    );
+
+    expect(routed).toBe(true);
+    expect(deps.pokeStaleCodexPendingDelivery).toHaveBeenCalledWith(session, "herd_event_message", {
+      triggeringInputId: "user-1",
+    });
+    expect(deps.queueCodexPendingStartBatch).toHaveBeenCalledWith(session, "herd_event_message");
+  });
+
   it("broadcasts the routed active turn for Codex quest-thread messages while Main is selected", () => {
     const session = makeSession();
     session.backendType = "codex";

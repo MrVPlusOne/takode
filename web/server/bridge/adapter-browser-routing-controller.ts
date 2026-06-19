@@ -1708,7 +1708,7 @@ export function routeAdapterBrowserMessage(
       const currentTurnId = session.codexAdapter?.getCurrentTurnId() ?? null;
       const isHerdEvent = deps.isHerdEventSource(msg.agentSource);
       const deliveryReason = isHerdEvent ? "herd_event_message" : "browser_user_message";
-      if (!isHerdEvent && ingested.historyEntry.id) {
+      if (ingested.historyEntry.id) {
         deps.pokeStaleCodexPendingDelivery(session, deliveryReason, {
           triggeringInputId: ingested.historyEntry.id,
         });
