@@ -103,6 +103,7 @@ type SessionRuntimeOptions = {
   pendingCodexRollbackError?: string | null;
   codexLeaderRecycleContinuation?: CodexLeaderRecycleContinuation | null;
   codexFreshTurnRequiredUntilTurnId?: string | null;
+  codexPendingDeliveryProofSignals?: import("../session-types.js").CodexPendingDeliveryProofSignal[];
   nextEventSeq?: number;
   eventBuffer?: any[];
   lastAckSeq?: number;
@@ -155,6 +156,7 @@ function createSessionRuntime(
     pendingCodexRollbackError: options.pendingCodexRollbackError ?? null,
     codexLeaderRecycleContinuation: options.codexLeaderRecycleContinuation ?? null,
     codexFreshTurnRequiredUntilTurnId: options.codexFreshTurnRequiredUntilTurnId ?? null,
+    codexPendingDeliveryProofSignals: options.codexPendingDeliveryProofSignals ?? [],
     pendingCodexRollbackWaiter: null,
     nextEventSeq: options.nextEventSeq ?? 1,
     eventBuffer: options.eventBuffer ?? [],
@@ -597,6 +599,9 @@ export async function restorePersistedSessions(
       ),
       codexFreshTurnRequiredUntilTurnId:
         typeof p.codexFreshTurnRequiredUntilTurnId === "string" ? p.codexFreshTurnRequiredUntilTurnId : null,
+      codexPendingDeliveryProofSignals: Array.isArray(p.codexPendingDeliveryProofSignals)
+        ? p.codexPendingDeliveryProofSignals
+        : [],
       nextEventSeq: p.nextEventSeq && p.nextEventSeq > 0 ? p.nextEventSeq : 1,
       eventBuffer: Array.isArray(p.eventBuffer) ? p.eventBuffer : [],
       lastAckSeq: typeof p.lastAckSeq === "number" ? p.lastAckSeq : 0,
@@ -730,6 +735,7 @@ export function buildPersistedSessionPayload(session: SessionLike): PersistedSes
     pendingCodexRollbackError: session.pendingCodexRollbackError,
     codexLeaderRecycleContinuation: session.codexLeaderRecycleContinuation,
     codexFreshTurnRequiredUntilTurnId: session.codexFreshTurnRequiredUntilTurnId,
+    codexPendingDeliveryProofSignals: session.codexPendingDeliveryProofSignals,
     pendingPermissions: Array.from(session.pendingPermissions.entries()),
     eventBuffer: session.eventBuffer,
     nextEventSeq: session.nextEventSeq,

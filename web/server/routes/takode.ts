@@ -65,6 +65,7 @@ import { buildLeaderActiveBoardRowsForSnapshot } from "./session-list-snapshot.j
 import { scheduleWorktreeGitStateRefreshForSnapshot } from "./session-list-snapshot.js";
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
 import { normalizeAffectedThreadKey, normalizeNotifyThreadRoute } from "./takode-route-thread-helpers.js";
+import { buildCodexPendingDeliveryDiagnostics } from "../codex-pending-delivery-diagnostics.js";
 
 const THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS = 100;
 const THREAD_ATTACHMENT_UPDATE_VERSION = 1;
@@ -715,6 +716,12 @@ export function createTakodeRoutes(ctx: RouteContext) {
           pendingPermissionSummary: summarizePendingPermissions(currentBridgeSession),
         }
       : null;
+    const codexPendingDelivery =
+      currentBridgeSession?.backendType === "codex" ? buildCodexPendingDeliveryDiagnostics(currentBridgeSession) : null;
+    const codexPendingDeliveryDetails =
+      currentBridgeSession?.backendType === "codex"
+        ? buildCodexPendingDeliveryDiagnostics(currentBridgeSession, { details: true })
+        : null;
     return c.json({
       ...safeSession,
       sessionNum: launcher.getSessionNum(sessionId) ?? null,
@@ -757,6 +764,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
       codexAutoPausedInputCount:
         bridge?.codex_result_error_auto_pause?.heldInputs.reduce((total, item) => total + Math.max(1, item.count), 0) ??
         0,
+      codexPendingDelivery,
+      codexPendingDeliveryDetails,
       ...(attention ?? {}),
       taskHistory: currentBridgeSession?.taskHistory ?? [],
       keywords: currentBridgeSession?.keywords ?? [],

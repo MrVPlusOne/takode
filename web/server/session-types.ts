@@ -692,6 +692,23 @@ export interface CodexResultErrorAutoPauseState {
   heldInputs: CodexAutoPauseHeldInput[];
 }
 
+export type CodexPendingDeliveryProofKind =
+  | "resume_snapshot"
+  | "turn_started"
+  | "turn_steered"
+  | "turn_steer_failed"
+  | "turn_result";
+
+export interface CodexPendingDeliveryProofSignal {
+  kind: CodexPendingDeliveryProofKind;
+  timestamp: number;
+  turnId?: string | null;
+  threadStatus?: string | null;
+  turnStatus?: string | null;
+  classification?: string | null;
+  pendingInputCount?: number;
+}
+
 // Quest Journey state machine -- canonical source in shared/quest-journey.ts
 export { QUEST_JOURNEY_STATES, QUEST_JOURNEY_HINTS } from "../shared/quest-journey.js";
 export type { QuestJourneyPlanState, QuestJourneyState } from "../shared/quest-journey.js";

@@ -51,7 +51,8 @@ Options:
   --json              Output compact JSON
   --details           With --json, output the full session info payload
   --include <fields>  With --json, include opt-in bulky fields:
-                      injectedSystemPrompt, taskHistory, tools, mcpServers, keywords
+                      injectedSystemPrompt, taskHistory, tools, mcpServers, keywords,
+                      codexPendingDeliveryDetails
 `;
 
 const LEADER_CONTEXT_RESUME_HELP = `Usage: takode leader-context-resume <session> [--json]

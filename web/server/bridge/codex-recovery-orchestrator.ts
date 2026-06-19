@@ -40,6 +40,7 @@ import {
 } from "./codex-leader-recovery-diagnostic.js";
 import { consumeCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 import { handleTerminalTurnStartFailure } from "./codex-terminal-turn-start-failure.js";
+import { recordCodexPendingDeliveryProofSignal } from "../codex-pending-delivery-diagnostics.js";
 export { clearCodexIntentionalRelaunch, markCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 export { maybeFlushQueuedCodexMessages } from "./codex-queued-message-flush.js";
 const CODEX_RETRY_SAFE_RESUME_ITEM_TYPES: ReadonlySet<string> = new Set(["reasoning", "contextCompaction"]);
@@ -57,6 +58,7 @@ export interface CodexRecoveryOrchestratorSessionLike {
   pendingCodexInputs: PendingCodexInput[];
   pendingCodexTurns: CodexOutboundTurn[];
   codexFreshTurnRequiredUntilTurnId: string | null;
+  codexPendingDeliveryProofSignals?: import("../session-types.js").CodexPendingDeliveryProofSignal[];
   isGenerating: boolean;
   cliInitReceived: boolean;
   consecutiveAdapterFailures: number;
@@ -354,6 +356,10 @@ export function completeCodexTurnsForResult(
   const outcome = completeCodexTurnsForResultState(session, msg, updatedAt);
   if (outcome.codexTurnId) {
     if (outcome.matched) {
+      recordCodexPendingDeliveryProofSignal(session, {
+        kind: "turn_result",
+        turnId: outcome.codexTurnId,
+      });
       reconcileRecoveredQueuedTurnLifecycle(session, "codex_result_turn_id_completed", deps);
       return true;
     }
@@ -927,6 +933,24 @@ export function registerCodexAdapterRecoveryLifecycle(
     deps.setBackendState(session, "connected", null);
     const recyclePending = deps.getLauncherSessionInfo(session.id)?.codexLeaderRecyclePending;
     const pendingRollback = (session as any).pendingCodexRollback;
+    if (meta.resumeSnapshot) {
+      recordCodexPendingDeliveryProofSignal(session, {
+        kind: "resume_snapshot",
+        turnId:
+          meta.resumeSnapshot && typeof meta.resumeSnapshot.lastTurn?.id === "string"
+            ? meta.resumeSnapshot.lastTurn.id
+            : null,
+        threadStatus:
+          meta.resumeSnapshot && typeof meta.resumeSnapshot.threadStatus === "string"
+            ? meta.resumeSnapshot.threadStatus
+            : null,
+        turnStatus:
+          meta.resumeSnapshot && typeof meta.resumeSnapshot.lastTurn?.status === "string"
+            ? meta.resumeSnapshot.lastTurn.status
+            : null,
+        classification: classifyResumeSnapshotProof(meta.resumeSnapshot),
+      });
+    }
     if (meta.resumeSnapshot && !pendingRollback) {
       deps.hydrateCodexResumedHistory(session, meta.resumeSnapshot);
       reconcileCodexResumedTurn(session, meta.resumeSnapshot, deps);
@@ -991,6 +1015,7 @@ export function registerCodexAdapterRecoveryLifecycle(
 
   adapter.onTurnStarted((turnId: string) => {
     if (session.codexAdapter !== adapter) return;
+    recordCodexPendingDeliveryProofSignal(session, { kind: "turn_started", turnId });
     const pending = deps.getCodexTurnAwaitingAck(session);
     if (!pending) return;
     const committedHistoryIndexes = commitPendingCodexInputs(
@@ -1031,6 +1056,11 @@ export function registerCodexAdapterRecoveryLifecycle(
 
   adapter.onTurnSteered((turnId: string, pendingInputIds: string[]) => {
     if (session.codexAdapter !== adapter) return;
+    recordCodexPendingDeliveryProofSignal(session, {
+      kind: "turn_steered",
+      turnId,
+      pendingInputCount: pendingInputIds.length,
+    });
     const steeredInputs = deps.getPendingCodexInputsByIds(session, pendingInputIds);
     const committedHistoryIndexes = commitPendingCodexInputs(session, pendingInputIds, deps);
     deps.recordSteeredCodexTurn(session, turnId, steeredInputs, committedHistoryIndexes);
@@ -1040,6 +1070,11 @@ export function registerCodexAdapterRecoveryLifecycle(
 
   adapter.onTurnSteerFailed((pendingInputIds: string[]) => {
     if (session.codexAdapter !== adapter) return;
+    recordCodexPendingDeliveryProofSignal(session, {
+      kind: "turn_steer_failed",
+      turnId: adapter.getCurrentTurnId?.() ?? null,
+      pendingInputCount: pendingInputIds.length,
+    });
     deps.setPendingCodexInputsCancelable(session, pendingInputIds, true);
     reconcileDuplicateCodexPendingTurns(session, "codex_turn_steer_failed", deps);
     retryNonDrainableCodexHeadTurn(session, "codex_turn_steer_failed_stale_ack_head", deps);
@@ -1536,6 +1571,17 @@ function summarizeCodexResumeSnapshot(snapshot: unknown): Record<string, unknown
       : null,
   };
 }
+
+function classifyResumeSnapshotProof(snapshot: CodexResumeSnapshot): string {
+  const threadStatus = snapshot.threadStatus ?? null;
+  const turnStatus = snapshot.lastTurn?.status ?? null;
+  if (threadStatus === "idle" && turnStatus === "inProgress") return "idle_thread_inprogress_last_turn";
+  if (threadStatus === "idle") return "idle_thread";
+  if (turnStatus === "inProgress") return "active_inprogress_last_turn";
+  if (turnStatus) return `last_turn_${turnStatus}`;
+  return "no_last_turn";
+}
+
 export function normalizeResumedUserText(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }

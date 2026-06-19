@@ -547,8 +547,61 @@ export type TakodeSessionInfo = {
   codexInternetAccess?: boolean;
   codexSandbox?: string;
   codexReasoningEffort?: string;
+  codexPendingDelivery?: CodexPendingDeliveryDiagnostics | null;
+  codexPendingDeliveryDetails?: CodexPendingDeliveryDiagnosticsDetails | null;
   pause?: { pausedAt: number; queuedMessages?: unknown[] } | null;
   pausedInputQueueCount?: number;
+};
+
+export type CodexPendingDeliveryBlockerReason =
+  | "none"
+  | "not_codex"
+  | "session_generating"
+  | "backend_not_connected"
+  | "adapter_missing"
+  | "adapter_disconnected"
+  | "recovery_suppressed"
+  | "broken"
+  | "backend_recovering"
+  | "active_turn_id_present"
+  | "fresh_turn_required"
+  | "stale_backend_ack_head"
+  | "dispatched_head_pending_ack"
+  | "queued_head_ready"
+  | "unknown_head_state";
+
+export type CodexPendingDeliveryDiagnostics = {
+  pendingInputCount: number;
+  pendingTurnCount: number;
+  oldestPendingAgeMs: number | null;
+  currentTurnId: string | null;
+  backendState: string | null;
+  adapterConnected: boolean | null;
+  isGenerating: boolean;
+  blockerReason: CodexPendingDeliveryBlockerReason;
+  head: {
+    type: string | null;
+    status: string | null;
+    turnId: string | null;
+    turnTarget: string | null;
+    dispatchCount: number | null;
+    pendingInputCount: number;
+  } | null;
+};
+
+export type CodexPendingDeliveryDiagnosticsDetails = CodexPendingDeliveryDiagnostics & {
+  pendingInputIds: string[];
+  headPendingInputIds: string[];
+  freshTurnRequiredUntilTurnId: string | null;
+  proofSignals: Array<{
+    kind: string;
+    timestamp: number;
+    turnId?: string | null;
+    threadStatus?: string | null;
+    turnStatus?: string | null;
+    classification?: string | null;
+    pendingInputCount?: number;
+  }>;
 };
 
 export async function fetchSessionInfo(base: string, sessionRef: string): Promise<TakodeSessionInfo> {
@@ -560,7 +613,14 @@ export type SessionInfoJsonOptions = {
   include?: string[];
 };
 
-const SESSION_INFO_INCLUDE_FIELDS = ["injectedSystemPrompt", "taskHistory", "tools", "mcpServers", "keywords"] as const;
+const SESSION_INFO_INCLUDE_FIELDS = [
+  "injectedSystemPrompt",
+  "taskHistory",
+  "tools",
+  "mcpServers",
+  "keywords",
+  "codexPendingDeliveryDetails",
+] as const;
 
 const SESSION_INFO_INCLUDE_FIELD_SET = new Set<string>(SESSION_INFO_INCLUDE_FIELDS);
 
@@ -669,6 +729,7 @@ export function buildSessionInfoJson(
     codexInternetAccess: session.codexInternetAccess ?? null,
     codexSandbox: session.codexSandbox ?? null,
     codexReasoningEffort: session.codexReasoningEffort ?? null,
+    codexPendingDelivery: session.codexPendingDelivery ?? null,
     pausedInputQueueCount: session.pausedInputQueueCount ?? 0,
     taskHistoryCount: session.taskHistory?.length ?? 0,
     toolsCount: session.tools?.length ?? 0,

@@ -14,6 +14,7 @@ import type {
   BoardRow,
   SessionNotification,
   SessionAttentionRecord,
+  CodexPendingDeliveryProofSignal,
 } from "./session-types.js";
 
 export interface SearchExcerpt {
@@ -87,6 +88,8 @@ export interface PersistedSession {
   codexLeaderRecycleContinuation?: import("./session-types.js").CodexLeaderRecycleContinuation | null;
   /** Codex-only: active turn id that must finish before follow-up input may start a fresh turn. */
   codexFreshTurnRequiredUntilTurnId?: string | null;
+  /** Bounded, payload-free breadcrumbs for pending-delivery blockage diagnostics. */
+  codexPendingDeliveryProofSignals?: CodexPendingDeliveryProofSignal[];
   pendingPermissions: [string, PermissionRequest][];
   eventBuffer?: BufferedBrowserEvent[];
   nextEventSeq?: number;

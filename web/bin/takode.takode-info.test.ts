@@ -108,6 +108,24 @@ describe("takode info", () => {
       codexReasoningEffort: "high",
       codexInternetAccess: true,
       codexSandbox: "danger-full-access",
+      codexPendingDelivery: {
+        pendingInputCount: 2,
+        pendingTurnCount: 1,
+        oldestPendingAgeMs: 65_000,
+        currentTurnId: "turn-active",
+        backendState: "connected",
+        adapterConnected: true,
+        isGenerating: false,
+        blockerReason: "active_turn_id_present",
+        head: {
+          type: "codex_start_pending",
+          status: "backend_acknowledged",
+          turnId: "turn-head",
+          turnTarget: "current",
+          dispatchCount: 1,
+          pendingInputCount: 1,
+        },
+      },
     });
 
     server.listen(0);
@@ -129,6 +147,9 @@ describe("takode info", () => {
     expect(result.stdout).toContain("Internet       enabled");
     expect(result.stdout).toContain("Reasoning      high");
     expect(result.stdout).toContain("Sandbox        danger-full-access");
+    expect(result.stdout).toContain("Pending Send   blocker=active_turn_id_present");
+    expect(result.stdout).toContain("inputs=2 oldest=1m5s");
+    expect(result.stdout).toContain("active=turn-active");
     expect(result.stdout).toContain("Worktree       yes");
     expect(result.stdout).toContain("WT Branch      jiayi");
     expect(result.stdout).toContain("Actual Branch  jiayi-wt-7173");
@@ -152,6 +173,32 @@ describe("takode info", () => {
       tools: ["Read", "Bash"],
       mcpServers: [{ name: "slack", status: "connected" }],
       keywords: ["verbose", "cli"],
+      codexPendingDelivery: {
+        pendingInputCount: 1,
+        pendingTurnCount: 1,
+        oldestPendingAgeMs: 1_000,
+        currentTurnId: "turn-active",
+        backendState: "connected",
+        adapterConnected: true,
+        isGenerating: false,
+        blockerReason: "active_turn_id_present",
+        head: null,
+      },
+      codexPendingDeliveryDetails: {
+        pendingInputCount: 1,
+        pendingTurnCount: 1,
+        oldestPendingAgeMs: 1_000,
+        currentTurnId: "turn-active",
+        backendState: "connected",
+        adapterConnected: true,
+        isGenerating: false,
+        blockerReason: "active_turn_id_present",
+        head: null,
+        pendingInputIds: ["input-1"],
+        headPendingInputIds: [],
+        freshTurnRequiredUntilTurnId: null,
+        proofSignals: [{ kind: "turn_started", timestamp: 123, turnId: "turn-active" }],
+      },
     });
 
     server.listen(0);
@@ -176,12 +223,81 @@ describe("takode info", () => {
       toolsCount: 2,
       mcpServerCount: 1,
       keywordCount: 2,
+      codexPendingDelivery: {
+        blockerReason: "active_turn_id_present",
+        currentTurnId: "turn-active",
+      },
     });
     expect(parsed).not.toHaveProperty("injectedSystemPrompt");
     expect(parsed).not.toHaveProperty("taskHistory");
     expect(parsed).not.toHaveProperty("tools");
     expect(parsed).not.toHaveProperty("mcpServers");
     expect(parsed).not.toHaveProperty("keywords");
+    expect(parsed).not.toHaveProperty("codexPendingDeliveryDetails");
+  });
+
+  it("reveals Codex pending-delivery details only when explicitly included", async () => {
+    const server = createInfoServer({
+      sessionId: "worker-info",
+      sessionNum: 52,
+      name: "Info Worker",
+      state: "running",
+      backendType: "codex",
+      model: "gpt-5.4",
+      cwd: "/tmp/info-worker",
+      createdAt: 123,
+      cliConnected: true,
+      isGenerating: false,
+      codexPendingDelivery: {
+        pendingInputCount: 1,
+        pendingTurnCount: 1,
+        oldestPendingAgeMs: 1_000,
+        currentTurnId: "turn-active",
+        backendState: "connected",
+        adapterConnected: true,
+        isGenerating: false,
+        blockerReason: "active_turn_id_present",
+        head: null,
+      },
+      codexPendingDeliveryDetails: {
+        pendingInputCount: 1,
+        pendingTurnCount: 1,
+        oldestPendingAgeMs: 1_000,
+        currentTurnId: "turn-active",
+        backendState: "connected",
+        adapterConnected: true,
+        isGenerating: false,
+        blockerReason: "active_turn_id_present",
+        head: null,
+        pendingInputIds: ["input-1"],
+        headPendingInputIds: [],
+        freshTurnRequiredUntilTurnId: null,
+        proofSignals: [{ kind: "turn_started", timestamp: 123, turnId: "turn-active" }],
+      },
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(
+      ["info", "worker-info", "--port", String(port), "--json", "--include", "codexPendingDeliveryDetails"],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-info",
+        COMPANION_AUTH_TOKEN: "auth-info",
+      },
+    );
+
+    server.close();
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout) as JsonObject;
+    expect(parsed.codexPendingDeliveryDetails).toMatchObject({
+      blockerReason: "active_turn_id_present",
+      pendingInputIds: ["input-1"],
+      proofSignals: [{ kind: "turn_started", timestamp: 123, turnId: "turn-active" }],
+    });
   });
 
   it("reveals opt-in session detail fields in JSON", async () => {

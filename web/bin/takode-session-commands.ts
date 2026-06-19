@@ -36,7 +36,8 @@ Options:
   --json              Output compact JSON
   --details           With --json, output the full session info payload
   --include <fields>  With --json, include opt-in bulky fields.
-                      Supported: injectedSystemPrompt, taskHistory, tools, mcpServers, keywords
+                      Supported: injectedSystemPrompt, taskHistory, tools, mcpServers, keywords,
+                      codexPendingDeliveryDetails
 `;
 
 const INFO_ALLOWED_FLAGS = new Set(["json", "details", "include"]);
@@ -470,6 +471,7 @@ function printSessionInfo(data: TakodeSessionInfo): void {
     }
     if (data.codexReasoningEffort) console.log(`  Reasoning      ${formatInlineText(data.codexReasoningEffort)}`);
     if (data.codexSandbox) console.log(`  Sandbox        ${formatInlineText(data.codexSandbox)}`);
+    printCodexPendingDeliveryLine(data.codexPendingDelivery);
   }
 
   // ── Working directory ──
@@ -579,6 +581,33 @@ function printSessionInfo(data: TakodeSessionInfo): void {
   if (data.keywords && data.keywords.length > 0) {
     console.log(`  Keywords       ${data.keywords.map((keyword) => formatInlineText(keyword)).join(", ")}`);
   }
+}
+
+function printCodexPendingDeliveryLine(diagnostics: TakodeSessionInfo["codexPendingDelivery"] | undefined): void {
+  if (!diagnostics) return;
+  const hasPendingWork = diagnostics.pendingInputCount > 0 || diagnostics.pendingTurnCount > 0;
+  if (!hasPendingWork && diagnostics.blockerReason === "none") return;
+
+  const parts = [`blocker=${formatInlineText(diagnostics.blockerReason)}`];
+  if (diagnostics.pendingInputCount > 0) {
+    const oldest =
+      diagnostics.oldestPendingAgeMs === null
+        ? ""
+        : ` oldest=${formatDurationSeconds(diagnostics.oldestPendingAgeMs / 1000)}`;
+    parts.push(`inputs=${diagnostics.pendingInputCount}${oldest}`);
+  }
+  if (diagnostics.pendingTurnCount > 0) parts.push(`turns=${diagnostics.pendingTurnCount}`);
+  if (diagnostics.currentTurnId) parts.push(`active=${formatInlineText(diagnostics.currentTurnId)}`);
+  if (diagnostics.head) {
+    const headParts = [diagnostics.head.status, diagnostics.head.turnTarget]
+      .filter((part): part is string => !!part)
+      .map(formatInlineText);
+    if (diagnostics.head.turnId) headParts.push(`turn=${formatInlineText(diagnostics.head.turnId)}`);
+    if (diagnostics.head.dispatchCount !== null) headParts.push(`dispatch=${diagnostics.head.dispatchCount}`);
+    if (headParts.length > 0) parts.push(`head=${headParts.join("/")}`);
+  }
+
+  console.log(`  Pending Send   ${parts.join("; ")}`);
 }
 
 // ─── Tasks handler ───────────────────────────────────────────────────────────

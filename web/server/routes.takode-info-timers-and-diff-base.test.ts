@@ -638,6 +638,68 @@ describe("Takode server-authoritative auth", () => {
     expect(json.pendingTimerCount).toBe(1);
   });
 
+  it("includes compact Codex pending-delivery diagnostics in takode info", async () => {
+    // Exposes just enough pending-delivery state for operational triage
+    // without dumping raw pending input or recovery payloads.
+    setupTakodeSessions();
+    const session = bridge._sessions["worker-1"];
+    session.backendType = "codex";
+    session.state.backend_type = "codex";
+    session.state.backend_state = "connected";
+    session.pendingCodexInputs = [
+      {
+        id: "input-1",
+        content: "large hidden user payload",
+        timestamp: Date.now() - 5_000,
+        cancelable: true,
+      },
+    ];
+    session.pendingCodexTurns = [
+      {
+        adapterMsg: { type: "codex_start_pending", pendingInputIds: ["input-1"], inputs: [{ content: "hidden" }] },
+        userMessageId: "input-1",
+        pendingInputIds: ["input-1"],
+        userContent: "hidden recovery payload",
+        historyIndex: -1,
+        status: "backend_acknowledged",
+        dispatchCount: 1,
+        createdAt: Date.now() - 5_000,
+        updatedAt: Date.now() - 5_000,
+        acknowledgedAt: Date.now() - 4_900,
+        turnTarget: "current",
+        lastError: null,
+        turnId: "turn-head",
+        disconnectedAt: null,
+        resumeConfirmedAt: null,
+      },
+    ];
+    session.codexAdapter = {
+      getCurrentTurnId: () => "turn-active",
+      isConnected: () => true,
+    } as any;
+
+    const res = await app.request("/api/sessions/worker-1/info", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.codexPendingDelivery).toMatchObject({
+      pendingInputCount: 1,
+      pendingTurnCount: 1,
+      currentTurnId: "turn-active",
+      blockerReason: "active_turn_id_present",
+      head: {
+        status: "backend_acknowledged",
+        turnId: "turn-head",
+        turnTarget: "current",
+        dispatchCount: 1,
+      },
+    });
+    expect(JSON.stringify(json.codexPendingDelivery)).not.toContain("large hidden user payload");
+  });
+
   it("includes pendingTimerCount in takode message views", async () => {
     setupTakodeSessions();
     timerManager.listTimers.mockImplementation((sessionId: string) => (sessionId === "worker-1" ? [{ id: "t2" }] : []));
