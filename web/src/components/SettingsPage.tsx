@@ -77,6 +77,9 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [chatMessageLineHeight, setChatMessageLineHeightValue] = useState(DEFAULT_CHAT_MESSAGE_LINE_HEIGHT);
   const [chatMessageLineHeightSaving, setChatMessageLineHeightSaving] = useState(false);
   const [chatMessageLineHeightError, setChatMessageLineHeightError] = useState("");
+  const chatMessageLineHeightSaveSeqRef = useRef(0);
+  const latestChatMessageLineHeightRef = useRef(DEFAULT_CHAT_MESSAGE_LINE_HEIGHT);
+  const persistedChatMessageLineHeightRef = useRef(DEFAULT_CHAT_MESSAGE_LINE_HEIGHT);
 
   // Edit/Write blocks default-expanded preference (localStorage, global)
   const [editBlocksExpanded, setEditBlocksExpanded] = useState(() => {
@@ -257,6 +260,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         const normalizedChatMessageLineHeight = normalizeChatMessageLineHeight(s.chatMessageLineHeight);
         setChatMessageLineHeightValue(normalizedChatMessageLineHeight);
         setChatMessageLineHeight(normalizedChatMessageLineHeight);
+        latestChatMessageLineHeightRef.current = normalizedChatMessageLineHeight;
+        persistedChatMessageLineHeightRef.current = normalizedChatMessageLineHeight;
         setSleepInhibitorEnabled(s.sleepInhibitorEnabled ?? false);
         setSleepInhibitorDuration(s.sleepInhibitorDurationMinutes ?? 5);
         setPoConfigured(s.pushoverConfigured);
@@ -509,8 +514,9 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   }
 
   async function saveChatMessageLineHeight(nextRaw: number) {
-    const previous = chatMessageLineHeight;
     const next = normalizeChatMessageLineHeight(nextRaw);
+    const requestSeq = ++chatMessageLineHeightSaveSeqRef.current;
+    latestChatMessageLineHeightRef.current = next;
     setChatMessageLineHeightValue(next);
     setChatMessageLineHeight(next);
     setChatMessageLineHeightSaving(true);
@@ -518,14 +524,27 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
     try {
       const res = await api.updateSettings({ chatMessageLineHeight: next });
       const saved = normalizeChatMessageLineHeight(res.chatMessageLineHeight);
+      if (requestSeq !== chatMessageLineHeightSaveSeqRef.current) {
+        if (saved !== latestChatMessageLineHeightRef.current) {
+          void saveChatMessageLineHeight(latestChatMessageLineHeightRef.current);
+        } else {
+          persistedChatMessageLineHeightRef.current = saved;
+        }
+        return;
+      }
+      persistedChatMessageLineHeightRef.current = saved;
+      latestChatMessageLineHeightRef.current = saved;
       setChatMessageLineHeightValue(saved);
       setChatMessageLineHeight(saved);
     } catch (err: unknown) {
-      setChatMessageLineHeightValue(previous);
-      setChatMessageLineHeight(previous);
+      if (requestSeq !== chatMessageLineHeightSaveSeqRef.current) return;
+      const fallback = persistedChatMessageLineHeightRef.current;
+      latestChatMessageLineHeightRef.current = fallback;
+      setChatMessageLineHeightValue(fallback);
+      setChatMessageLineHeight(fallback);
       setChatMessageLineHeightError(err instanceof Error ? err.message : String(err));
     } finally {
-      setChatMessageLineHeightSaving(false);
+      if (requestSeq === chatMessageLineHeightSaveSeqRef.current) setChatMessageLineHeightSaving(false);
     }
   }
 

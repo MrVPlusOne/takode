@@ -220,6 +220,34 @@ function settingsSection(title: string): HTMLElement {
   return section as HTMLElement;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function settingsWithChatLineHeight(chatMessageLineHeight: number) {
+  return {
+    serverName: "",
+    serverId: "test-id",
+    serverSlug: "prod",
+    pushoverConfigured: false,
+    pushoverEnabled: true,
+    pushoverDelaySeconds: 30,
+    pushoverBaseUrl: "",
+    claudeBinary: "",
+    codexBinary: "",
+    maxKeepAlive: 0,
+    heavyRepoModeEnabled: false,
+    chatMessageLineHeight,
+    editorConfig: { editor: "none" as const },
+  };
+}
+
 describe("SettingsPage", () => {
   it("loads settings on mount", async () => {
     render(<SettingsPage />);
@@ -602,36 +630,8 @@ describe("SettingsPage", () => {
   });
 
   it("updates chat message line height through server settings", async () => {
-    mockApi.getSettings.mockResolvedValue({
-      serverName: "",
-      serverId: "test-id",
-      serverSlug: "prod",
-      pushoverConfigured: false,
-      pushoverEnabled: true,
-      pushoverDelaySeconds: 30,
-      pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
-      maxKeepAlive: 0,
-      heavyRepoModeEnabled: false,
-      chatMessageLineHeight: 1.5,
-      editorConfig: { editor: "none" },
-    });
-    mockApi.updateSettings.mockResolvedValue({
-      serverName: "",
-      serverId: "test-id",
-      serverSlug: "prod",
-      pushoverConfigured: false,
-      pushoverEnabled: true,
-      pushoverDelaySeconds: 30,
-      pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
-      maxKeepAlive: 0,
-      heavyRepoModeEnabled: false,
-      chatMessageLineHeight: 1.36,
-      editorConfig: { editor: "none" },
-    });
+    mockApi.getSettings.mockResolvedValue(settingsWithChatLineHeight(1.5));
+    mockApi.updateSettings.mockResolvedValue(settingsWithChatLineHeight(1.36));
 
     render(<SettingsPage />);
     const input = await screen.findByLabelText("Chat message line height value");
@@ -644,6 +644,73 @@ describe("SettingsPage", () => {
       expect(mockApi.updateSettings).toHaveBeenCalledWith({ chatMessageLineHeight: 1.36 });
     });
     expect(mockState.setChatMessageLineHeight).toHaveBeenCalledWith(1.36);
+  });
+
+  it("keeps the newest chat line height when save responses complete out of order", async () => {
+    const firstSave = deferred<ReturnType<typeof settingsWithChatLineHeight>>();
+    const secondSave = deferred<ReturnType<typeof settingsWithChatLineHeight>>();
+    const correctiveSave = deferred<ReturnType<typeof settingsWithChatLineHeight>>();
+    mockApi.getSettings.mockResolvedValue(settingsWithChatLineHeight(1.45));
+    mockApi.updateSettings
+      .mockImplementationOnce(() => firstSave.promise)
+      .mockImplementationOnce(() => secondSave.promise)
+      .mockImplementationOnce(() => correctiveSave.promise);
+
+    render(<SettingsPage />);
+    const input = await screen.findByLabelText("Chat message line height value");
+    fireEvent.change(input, { target: { value: "1.50" } });
+    fireEvent.change(input, { target: { value: "1.60" } });
+
+    expect(mockApi.updateSettings).toHaveBeenNthCalledWith(1, { chatMessageLineHeight: 1.5 });
+    expect(mockApi.updateSettings).toHaveBeenNthCalledWith(2, { chatMessageLineHeight: 1.6 });
+
+    await act(async () => {
+      secondSave.resolve(settingsWithChatLineHeight(1.6));
+      await secondSave.promise;
+    });
+    expect(input).toHaveValue(1.6);
+
+    await act(async () => {
+      firstSave.resolve(settingsWithChatLineHeight(1.5));
+      await firstSave.promise;
+    });
+    expect(input).toHaveValue(1.6);
+    expect(mockState.setChatMessageLineHeight).toHaveBeenLastCalledWith(1.6);
+    expect(mockApi.updateSettings).toHaveBeenNthCalledWith(3, { chatMessageLineHeight: 1.6 });
+
+    await act(async () => {
+      correctiveSave.resolve(settingsWithChatLineHeight(1.6));
+      await correctiveSave.promise;
+    });
+    expect(input).toHaveValue(1.6);
+  });
+
+  it("does not rollback a newer chat line height when an older save fails", async () => {
+    const firstSave = deferred<ReturnType<typeof settingsWithChatLineHeight>>();
+    const secondSave = deferred<ReturnType<typeof settingsWithChatLineHeight>>();
+    mockApi.getSettings.mockResolvedValue(settingsWithChatLineHeight(1.45));
+    mockApi.updateSettings
+      .mockImplementationOnce(() => firstSave.promise)
+      .mockImplementationOnce(() => secondSave.promise);
+
+    render(<SettingsPage />);
+    const input = await screen.findByLabelText("Chat message line height value");
+    fireEvent.change(input, { target: { value: "1.50" } });
+    fireEvent.change(input, { target: { value: "1.60" } });
+
+    await act(async () => {
+      firstSave.reject(new Error("older save failed"));
+      await firstSave.promise.catch(() => undefined);
+    });
+    expect(input).toHaveValue(1.6);
+    expect(screen.queryByText("older save failed")).not.toBeInTheDocument();
+    expect(mockState.setChatMessageLineHeight).toHaveBeenLastCalledWith(1.6);
+
+    await act(async () => {
+      secondSave.resolve(settingsWithChatLineHeight(1.6));
+      await secondSave.promise;
+    });
+    expect(input).toHaveValue(1.6);
   });
 
   it("navigates to environments page from settings", async () => {
