@@ -26,6 +26,13 @@ import {
   DEFAULT_STT_MODEL,
   SettingsVoiceTranscriptionSection,
 } from "./SettingsVoiceTranscriptionSection.js";
+import {
+  CHAT_MESSAGE_LINE_HEIGHT_STEP,
+  DEFAULT_CHAT_MESSAGE_LINE_HEIGHT,
+  MAX_CHAT_MESSAGE_LINE_HEIGHT,
+  MIN_CHAT_MESSAGE_LINE_HEIGHT,
+  normalizeChatMessageLineHeight,
+} from "../../shared/chat-display-settings.js";
 import type { LeaderProfilePoolSettings } from "../../shared/leader-profile-portraits.js";
 import { SettingsPageHeader } from "./SettingsPageHeader.js";
 import { SettingsSearchControls, SettingsSectionNav, useSettingsSearchNavigation } from "./settings-search.js";
@@ -58,6 +65,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const setNotificationDesktop = useStore((s) => s.setNotificationDesktop);
   const showUsageBars = useStore((s) => s.showUsageBars);
   const toggleShowUsageBars = useStore((s) => s.toggleShowUsageBars);
+  const setChatMessageLineHeight = useStore((s) => s.setChatMessageLineHeight);
   const shortcutSettings = useStore((s) => s.shortcutSettings);
   const setShortcutsEnabled = useStore((s) => s.setShortcutsEnabled);
   const setShortcutPreset = useStore((s) => s.setShortcutPreset);
@@ -66,6 +74,9 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const notificationApiAvailable = typeof Notification !== "undefined";
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
   const [recordingShortcutActionId, setRecordingShortcutActionId] = useState<ShortcutActionId | null>(null);
+  const [chatMessageLineHeight, setChatMessageLineHeightValue] = useState(DEFAULT_CHAT_MESSAGE_LINE_HEIGHT);
+  const [chatMessageLineHeightSaving, setChatMessageLineHeightSaving] = useState(false);
+  const [chatMessageLineHeightError, setChatMessageLineHeightError] = useState("");
 
   // Edit/Write blocks default-expanded preference (localStorage, global)
   const [editBlocksExpanded, setEditBlocksExpanded] = useState(() => {
@@ -243,6 +254,9 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         setLogFile(s.logFile || "");
         setMaxKeepAlive(s.maxKeepAlive || 0);
         setHeavyRepoModeEnabled(s.heavyRepoModeEnabled ?? false);
+        const normalizedChatMessageLineHeight = normalizeChatMessageLineHeight(s.chatMessageLineHeight);
+        setChatMessageLineHeightValue(normalizedChatMessageLineHeight);
+        setChatMessageLineHeight(normalizedChatMessageLineHeight);
         setSleepInhibitorEnabled(s.sleepInhibitorEnabled ?? false);
         setSleepInhibitorDuration(s.sleepInhibitorDurationMinutes ?? 5);
         setPoConfigured(s.pushoverConfigured);
@@ -491,6 +505,27 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       setHeavyRepoError(err instanceof Error ? err.message : String(err));
     } finally {
       setHeavyRepoSaving(false);
+    }
+  }
+
+  async function saveChatMessageLineHeight(nextRaw: number) {
+    const previous = chatMessageLineHeight;
+    const next = normalizeChatMessageLineHeight(nextRaw);
+    setChatMessageLineHeightValue(next);
+    setChatMessageLineHeight(next);
+    setChatMessageLineHeightSaving(true);
+    setChatMessageLineHeightError("");
+    try {
+      const res = await api.updateSettings({ chatMessageLineHeight: next });
+      const saved = normalizeChatMessageLineHeight(res.chatMessageLineHeight);
+      setChatMessageLineHeightValue(saved);
+      setChatMessageLineHeight(saved);
+    } catch (err: unknown) {
+      setChatMessageLineHeightValue(previous);
+      setChatMessageLineHeight(previous);
+      setChatMessageLineHeightError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setChatMessageLineHeightSaving(false);
     }
   }
 
@@ -749,6 +784,54 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                 <span>Expand Edit/Write Blocks</span>
                 <span className="text-xs text-cc-muted">{editBlocksExpanded ? "On" : "Off"}</span>
               </button>
+              <div
+                hidden={settingsSearch.rowHidden("appearance", "chat-line-height")}
+                className="px-3 py-2 rounded-lg bg-cc-hover text-cc-fg"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-sm" htmlFor="chat-message-line-height">
+                    Chat Message Line Height
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={MIN_CHAT_MESSAGE_LINE_HEIGHT}
+                      max={MAX_CHAT_MESSAGE_LINE_HEIGHT}
+                      step={CHAT_MESSAGE_LINE_HEIGHT_STEP}
+                      value={chatMessageLineHeight.toFixed(2)}
+                      onChange={(e) => {
+                        const next = Number(e.target.value);
+                        if (Number.isFinite(next)) void saveChatMessageLineHeight(next);
+                      }}
+                      aria-label="Chat message line height value"
+                      className="w-16 rounded border border-cc-border bg-cc-input-bg px-2 py-1 text-right text-xs text-cc-fg focus:outline-none focus:border-cc-primary/60"
+                    />
+                    <span className="font-mono-code text-[11px] text-cc-muted">x</span>
+                  </div>
+                </div>
+                <input
+                  id="chat-message-line-height"
+                  type="range"
+                  min={MIN_CHAT_MESSAGE_LINE_HEIGHT}
+                  max={MAX_CHAT_MESSAGE_LINE_HEIGHT}
+                  step={CHAT_MESSAGE_LINE_HEIGHT_STEP}
+                  value={chatMessageLineHeight}
+                  onChange={(e) => saveChatMessageLineHeight(Number(e.target.value))}
+                  className="mt-2 w-full accent-cc-primary"
+                />
+                <div className="mt-1 flex items-center justify-between font-mono-code text-[10px] text-cc-muted">
+                  <span>{MIN_CHAT_MESSAGE_LINE_HEIGHT.toFixed(2)}</span>
+                  <span>
+                    {chatMessageLineHeightSaving
+                      ? "Saving..."
+                      : `Default candidate ${DEFAULT_CHAT_MESSAGE_LINE_HEIGHT.toFixed(2)}`}
+                  </span>
+                  <span>{MAX_CHAT_MESSAGE_LINE_HEIGHT.toFixed(2)}</span>
+                </div>
+                {chatMessageLineHeightError && (
+                  <p className="mt-1 text-xs text-cc-error">{chatMessageLineHeightError}</p>
+                )}
+              </div>
             </CollapsibleSection>
 
             {/* ── 2. Notifications ─────────────────────────────────── */}

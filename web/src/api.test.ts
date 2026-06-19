@@ -1246,6 +1246,18 @@ describe("settings", () => {
     expect(opts.method).toBe("PUT");
     expect(JSON.parse(opts.body)).toEqual({ shortcutSettings });
   });
+
+  it("sends chat message line height through PUT /api/settings", async () => {
+    const settings = { serverName: "", serverId: "test-id", chatMessageLineHeight: 1.36 };
+    mockFetch.mockResolvedValueOnce(mockResponse(settings));
+
+    await api.updateSettings({ chatMessageLineHeight: 1.36 });
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/settings");
+    expect(opts.method).toBe("PUT");
+    expect(JSON.parse(opts.body)).toEqual({ chatMessageLineHeight: 1.36 });
+  });
 });
 
 // ===========================================================================

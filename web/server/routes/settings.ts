@@ -39,6 +39,12 @@ import {
   LEADER_PROFILE_PORTRAITS,
   normalizeLeaderProfilePoolSettings,
 } from "../../shared/leader-profile-portraits.js";
+import {
+  MAX_CHAT_MESSAGE_LINE_HEIGHT,
+  MIN_CHAT_MESSAGE_LINE_HEIGHT,
+  isValidChatMessageLineHeight,
+  normalizeChatMessageLineHeight,
+} from "../../shared/chat-display-settings.js";
 
 export function createSettingsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -750,6 +756,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       sleepInhibitorDurationMinutes: settings.sleepInhibitorDurationMinutes,
       questmasterViewMode: normalizeQuestmasterViewMode(settings.questmasterViewMode),
       questmasterCompactSort: normalizeQuestmasterCompactSort(settings.questmasterCompactSort),
+      chatMessageLineHeight: normalizeChatMessageLineHeight(settings.chatMessageLineHeight),
       codexLeaderContextWindowOverrideTokens: settings.codexLeaderContextWindowOverrideTokens,
       ...(typeof settings.codexNonLeaderAutoCompactThresholdPercent === "number"
         ? { codexNonLeaderAutoCompactThresholdPercent: settings.codexNonLeaderAutoCompactThresholdPercent }
@@ -958,6 +965,14 @@ export function createSettingsRoutes(ctx: RouteContext) {
         return c.json({ error: 'questmasterCompactSort.direction must be "asc" or "desc"' }, 400);
       }
     }
+    if (body.chatMessageLineHeight !== undefined && !isValidChatMessageLineHeight(body.chatMessageLineHeight)) {
+      return c.json(
+        {
+          error: `chatMessageLineHeight must be a number between ${MIN_CHAT_MESSAGE_LINE_HEIGHT} and ${MAX_CHAT_MESSAGE_LINE_HEIGHT}`,
+        },
+        400,
+      );
+    }
     if (
       body.codexLeaderContextWindowOverrideTokens !== undefined &&
       (typeof body.codexLeaderContextWindowOverrideTokens !== "number" ||
@@ -1033,6 +1048,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "sleepInhibitorDurationMinutes",
       "questmasterViewMode",
       "questmasterCompactSort",
+      "chatMessageLineHeight",
       "codexLeaderContextWindowOverrideTokens",
       "codexNonLeaderAutoCompactThresholdPercent",
       "codexLeaderRecycleThresholdTokens",
@@ -1084,6 +1100,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
         body.questmasterCompactSort && typeof body.questmasterCompactSort === "object"
           ? normalizeQuestmasterCompactSort(body.questmasterCompactSort)
           : undefined,
+      ...(typeof body.chatMessageLineHeight === "number"
+        ? { chatMessageLineHeight: normalizeChatMessageLineHeight(body.chatMessageLineHeight) }
+        : {}),
       codexLeaderContextWindowOverrideTokens:
         typeof body.codexLeaderContextWindowOverrideTokens === "number"
           ? body.codexLeaderContextWindowOverrideTokens

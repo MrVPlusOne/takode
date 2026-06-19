@@ -155,6 +155,7 @@ export interface AppState {
   notificationSound: boolean;
   notificationDesktop: boolean;
   showUsageBars: boolean;
+  chatMessageLineHeight: number;
   shortcutSettings: import("./shortcuts.js").ShortcutSettings;
   sidebarOpen: boolean;
   sessionInfoOpenSessionId: string | null;
@@ -193,6 +194,7 @@ export interface AppState {
   toggleNotificationDesktop: () => void;
   setShowUsageBars: (v: boolean) => void;
   toggleShowUsageBars: () => void;
+  setChatMessageLineHeight: (lineHeight: number) => void;
   setShortcutsEnabled: (enabled: boolean) => void;
   setShortcutPreset: (preset: import("./shortcuts.js").ShortcutPresetId) => void;
   setShortcutOverride: (

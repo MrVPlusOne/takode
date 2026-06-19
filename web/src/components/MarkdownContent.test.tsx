@@ -105,14 +105,25 @@ describe("MarkdownContent line breaks", () => {
     const firstListItem = container.querySelector("li");
     const inlineCode = container.querySelector("p code");
 
-    expect(markdownRoot?.classList.contains("leading-[1.45]")).toBe(true);
+    expect((markdownRoot as HTMLElement | null)?.style.lineHeight).toBe("1.45");
     expect(paragraph?.classList.contains("mb-2.5")).toBe(true);
     expect(unorderedList?.classList.contains("space-y-0.5")).toBe(true);
     expect(unorderedList?.classList.contains("mb-2.5")).toBe(true);
     expect(orderedList?.classList.contains("space-y-0.5")).toBe(true);
-    expect(firstListItem?.classList.contains("leading-[1.45]")).toBe(true);
+    expect((firstListItem as HTMLElement | null)?.style.lineHeight).toBe("1.45");
     expect(inlineCode?.className).toContain("font-mono-code");
     expect(inlineCode?.className).toContain("text-[13px]");
+  });
+
+  it("responds to the server-backed chat message line-height setting", () => {
+    useStore.getState().setChatMessageLineHeight(1.62);
+
+    const { container } = render(<MarkdownContent text={"Dense text\n\n- one\n- two"} />);
+
+    const markdownRoot = container.firstElementChild as HTMLElement | null;
+    const firstListItem = container.querySelector("li") as HTMLElement | null;
+    expect(markdownRoot?.style.lineHeight).toBe("1.62");
+    expect(firstListItem?.style.lineHeight).toBe("1.62");
   });
 
   it("preserves fenced code blocks while adding breaks only to surrounding prose", () => {

@@ -61,6 +61,7 @@ vi.mock("./api.js", async (importOriginal) => {
 });
 
 import {
+  hydrateChatDisplaySettingsFromServer,
   hydrateShortcutSettingsFromServer,
   resetQuestRefreshStateForTests,
   reconcileQuestList,
@@ -221,6 +222,25 @@ describe("Shortcut settings hydration", () => {
       shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
     });
     expect(localStorage.getItem("test-server:cc-shortcuts")).toBeNull();
+  });
+});
+
+describe("Chat display settings hydration", () => {
+  it("uses explicit server chat message line height", () => {
+    hydrateChatDisplaySettingsFromServer({ chatMessageLineHeight: 1.36 });
+
+    expect(useStore.getState().chatMessageLineHeight).toBe(1.36);
+    expect(localStorage.getItem("test-server:cc-chat-message-line-height")).toBeNull();
+  });
+
+  it("falls back to the default for missing or invalid server chat message line height", () => {
+    useStore.getState().setChatMessageLineHeight(1.6);
+
+    hydrateChatDisplaySettingsFromServer({});
+    expect(useStore.getState().chatMessageLineHeight).toBe(1.45);
+
+    hydrateChatDisplaySettingsFromServer({ chatMessageLineHeight: 2 });
+    expect(useStore.getState().chatMessageLineHeight).toBe(1.45);
   });
 });
 

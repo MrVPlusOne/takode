@@ -72,6 +72,7 @@ describe("settings-manager", () => {
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
       questmasterCompactSort: { column: "updated", direction: "desc" },
+      chatMessageLineHeight: 1.45,
       leaderProfilePools: { tako: true, shmi: true },
       shortcutSettings: undefined,
       updatedAt: expect.any(Number),
@@ -483,6 +484,7 @@ describe("settings-manager", () => {
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
       questmasterCompactSort: { column: "updated", direction: "desc" },
+      chatMessageLineHeight: 1.45,
       leaderProfilePools: { tako: true, shmi: true },
       shortcutSettings: undefined,
       updatedAt: 0,
@@ -730,6 +732,23 @@ describe("heavyRepoModeEnabled settings", () => {
     writeFileSync(settingsPath, JSON.stringify({ heavyRepoModeEnabled: "true", updatedAt: 0 }), "utf-8");
     _resetForTest(settingsPath);
     expect(getSettings().heavyRepoModeEnabled).toBe(false);
+  });
+});
+
+describe("chatMessageLineHeight settings", () => {
+  it("updates and persists chat message line height", async () => {
+    const updated = updateSettings({ chatMessageLineHeight: 1.36 });
+    expect(updated.chatMessageLineHeight).toBe(1.36);
+
+    await _flushForTest();
+    const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    expect(saved.chatMessageLineHeight).toBe(1.36);
+  });
+
+  it("normalizes invalid persisted chat message line height to the default", () => {
+    writeFileSync(settingsPath, JSON.stringify({ chatMessageLineHeight: 2.2, updatedAt: 0 }), "utf-8");
+    _resetForTest(settingsPath);
+    expect(getSettings().chatMessageLineHeight).toBe(1.45);
   });
 });
 

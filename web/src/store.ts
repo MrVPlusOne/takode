@@ -67,6 +67,12 @@ import {
 } from "./store-feed-window-sync.js";
 import { isDesktopShellLayout } from "./utils/layout.js";
 import { formatReplyContentForPreview } from "./utils/reply-context.js";
+import {
+  createChatDisplaySettingsHydrator,
+  getInitialChatMessageLineHeight,
+  normalizeChatMessageLineHeight,
+} from "./store-chat-display.js";
+import { persistSidePanelStringSet, withMapEntry, withOptionalMapEntry } from "./store-map-utils.js";
 
 // ─── Color Themes ───────────────────────────────────────────────────────────
 
@@ -98,39 +104,9 @@ export type { SearchMatch, SessionSearchCategory, SessionSearchState };
 export type { PendingSession };
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
-const MAX_SIDE_PANEL_STORAGE_ITEMS = 500;
-const MAX_SIDE_PANEL_STORAGE_CHARS = 20_000;
-
-function withMapEntry<K, V>(source: ReadonlyMap<K, V>, key: K, value: V): Map<K, V> {
-  const next = new Map(source);
-  next.set(key, value);
-  return next;
-}
-
-function withOptionalMapEntry<K, V>(source: ReadonlyMap<K, V>, key: K, value: V | null): Map<K, V> {
-  const next = new Map(source);
-  if (value) next.set(key, value);
-  else next.delete(key);
-  return next;
-}
 
 function setShortcutSettingsFromServer(settings: ShortcutSettings): void {
   useStore.setState({ shortcutSettings: normalizeShortcutSettings(settings) });
-}
-
-function persistSidePanelStringSet(storageKey: string, values: Set<string>): void {
-  if (typeof window === "undefined") return;
-  let boundedValues = Array.from(values).slice(-MAX_SIDE_PANEL_STORAGE_ITEMS);
-  let serialized = JSON.stringify(boundedValues);
-  while (serialized.length > MAX_SIDE_PANEL_STORAGE_CHARS && boundedValues.length > 0) {
-    boundedValues = boundedValues.slice(1);
-    serialized = JSON.stringify(boundedValues);
-  }
-  try {
-    scopedSetItem(storageKey, serialized);
-  } catch (error) {
-    console.warn("[takode] Could not persist side panel state; continuing in memory.", error);
-  }
 }
 
 function shouldPauseQuestBackgroundRefresh(): boolean {
@@ -329,6 +305,7 @@ export const useStore = create<AppState>((set, get) => ({
   notificationSound: getInitialNotificationSound(),
   notificationDesktop: getInitialNotificationDesktop(),
   showUsageBars: typeof window !== "undefined" ? scopedGetItem("cc-show-usage") !== "false" : true,
+  chatMessageLineHeight: getInitialChatMessageLineHeight(),
   shortcutSettings: getInitialShortcutSettings(),
   sidebarOpen: typeof window !== "undefined" ? isDesktopShellLayout(getInitialZoomLevel()) : true,
   sessionInfoOpenSessionId: null,
@@ -454,6 +431,7 @@ export const useStore = create<AppState>((set, get) => ({
       scopedSetItem("cc-show-usage", String(next));
       return { showUsageBars: next };
     }),
+  setChatMessageLineHeight: (lineHeight) => set({ chatMessageLineHeight: normalizeChatMessageLineHeight(lineHeight) }),
   setShortcutsEnabled: (enabled) =>
     set((s) => {
       const shortcutSettings = { ...s.shortcutSettings, enabled };
@@ -1954,6 +1932,7 @@ export const useStore = create<AppState>((set, get) => ({
       activeTab: "chat" as const,
       diffPanelSelectedFile: new Map(),
       feedScrollPosition: new Map(),
+      chatMessageLineHeight: getInitialChatMessageLineHeight(),
       shortcutSettings: DEFAULT_SHORTCUT_SETTINGS,
       composerDrafts: new Map(),
       pendingUserUploads: new Map(),
@@ -1978,6 +1957,10 @@ export const useStore = create<AppState>((set, get) => ({
 }));
 
 export const hydrateShortcutSettingsFromServer = createShortcutSettingsHydrator(setShortcutSettingsFromServer);
+
+export const hydrateChatDisplaySettingsFromServer = createChatDisplaySettingsHydrator((lineHeight) =>
+  useStore.setState({ chatMessageLineHeight: lineHeight }),
+);
 
 /** Count permissions that need user attention (excludes those being LLM-evaluated, queued, or auto-approved). */
 export function countUserPermissions(perms: Map<string, unknown> | undefined): number {

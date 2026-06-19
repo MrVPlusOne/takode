@@ -8,6 +8,7 @@ interface MockStoreState {
   notificationSound: boolean;
   notificationDesktop: boolean;
   showUsageBars: boolean;
+  chatMessageLineHeight: number;
   shortcutSettings: {
     enabled: boolean;
     preset: "standard" | "vscode-light" | "vim-light";
@@ -21,6 +22,7 @@ interface MockStoreState {
   toggleNotificationSound: ReturnType<typeof vi.fn>;
   setNotificationDesktop: ReturnType<typeof vi.fn>;
   toggleShowUsageBars: ReturnType<typeof vi.fn>;
+  setChatMessageLineHeight: ReturnType<typeof vi.fn>;
   setShortcutsEnabled: ReturnType<typeof vi.fn>;
   setShortcutPreset: ReturnType<typeof vi.fn>;
   setShortcutOverride: ReturnType<typeof vi.fn>;
@@ -38,6 +40,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     notificationSound: true,
     notificationDesktop: false,
     showUsageBars: false,
+    chatMessageLineHeight: 1.45,
     shortcutSettings: {
       enabled: false,
       preset: "standard",
@@ -51,6 +54,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     toggleNotificationSound: vi.fn(),
     setNotificationDesktop: vi.fn(),
     toggleShowUsageBars: vi.fn(),
+    setChatMessageLineHeight: vi.fn(),
     setShortcutsEnabled: vi.fn(),
     setShortcutPreset: vi.fn(),
     setShortcutOverride: vi.fn(),
@@ -174,6 +178,7 @@ beforeEach(() => {
     codexLeaderRecycleThresholdTokensByModel: {},
     maxKeepAlive: 0,
     heavyRepoModeEnabled: false,
+    chatMessageLineHeight: 1.45,
     editorConfig: { editor: "none" },
   });
   mockApi.restartServer.mockResolvedValue({ ok: true });
@@ -196,6 +201,7 @@ beforeEach(() => {
     codexLeaderRecycleThresholdTokensByModel: {},
     maxKeepAlive: 0,
     heavyRepoModeEnabled: false,
+    chatMessageLineHeight: 1.45,
     editorConfig: { editor: "none" },
   });
   mockApi.getNamerLogs.mockResolvedValue([]);
@@ -595,6 +601,51 @@ describe("SettingsPage", () => {
     expect(mockState.setColorTheme).toHaveBeenCalledWith("dark");
   });
 
+  it("updates chat message line height through server settings", async () => {
+    mockApi.getSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      serverSlug: "prod",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      chatMessageLineHeight: 1.5,
+      editorConfig: { editor: "none" },
+    });
+    mockApi.updateSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      serverSlug: "prod",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      chatMessageLineHeight: 1.36,
+      editorConfig: { editor: "none" },
+    });
+
+    render(<SettingsPage />);
+    const input = await screen.findByLabelText("Chat message line height value");
+    expect(input).toHaveValue(1.5);
+    expect(mockState.setChatMessageLineHeight).toHaveBeenCalledWith(1.5);
+
+    fireEvent.change(input, { target: { value: "1.36" } });
+
+    await waitFor(() => {
+      expect(mockApi.updateSettings).toHaveBeenCalledWith({ chatMessageLineHeight: 1.36 });
+    });
+    expect(mockState.setChatMessageLineHeight).toHaveBeenCalledWith(1.36);
+  });
+
   it("navigates to environments page from settings", async () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
@@ -941,6 +992,18 @@ describe("SettingsPage", () => {
     expect(settingsSection("Appearance & Display")).not.toBeVisible();
     expect(within(cliSection).getByLabelText("Editor")).toBeVisible();
     expect(within(cliSection).getByLabelText("Claude Code")).not.toBeVisible();
+  });
+
+  it("finds chat line-height control from settings search", async () => {
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "line height" } });
+
+    const appearanceSection = settingsSection("Appearance & Display");
+    expect(appearanceSection).toBeVisible();
+    expect(within(appearanceSection).getByLabelText("Chat Message Line Height")).toBeVisible();
+    expect(settingsSection("Notifications")).not.toBeVisible();
   });
 
   it("does not expose Codex compact/recycle controls in Settings", async () => {

@@ -41,12 +41,13 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: "appearance",
     title: "Appearance & Display",
-    aliases: ["theme", "dark", "light", "zoom", "display", "usage", "sidebar", "diff", "edit", "write"],
+    aliases: ["theme", "dark", "light", "zoom", "display", "usage", "sidebar", "diff", "edit", "write", "line height"],
     items: [
       { id: "theme", text: "Theme color theme dark light appearance" },
       { id: "zoom", text: "Zoom display scale text size" },
       { id: "usage-bars", text: "Usage Bars in Sidebar tokens sidebar usage" },
       { id: "edit-blocks", text: "Expand Edit/Write Blocks diffs tool blocks" },
+      { id: "chat-line-height", text: "Chat Message Line Height message markdown density leading spacing" },
     ],
   },
   {

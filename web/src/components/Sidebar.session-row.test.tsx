@@ -248,6 +248,7 @@ vi.mock("../store.js", () => {
   return {
     useStore: useStoreFn,
     countUserPermissions,
+    hydrateChatDisplaySettingsFromServer: vi.fn(),
     hydrateShortcutSettingsFromServer: vi.fn().mockResolvedValue(undefined),
   };
 });

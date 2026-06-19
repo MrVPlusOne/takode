@@ -638,6 +638,7 @@ export function MarkdownContent({
         : "text-[14px] sm:text-[15px]";
 
   const isConservative = variant === "conservative";
+  const chatMessageLineHeight = useStore((s) => s.chatMessageLineHeight);
 
   // Helper: replaces string children with HighlightedText when search is active
   const hl = searchHighlight;
@@ -658,9 +659,10 @@ export function MarkdownContent({
     <div
       id={id}
       data-testid={dataTestId}
-      className={`markdown-body ${sizeClass} text-cc-fg leading-[1.45] overflow-hidden break-words ${
+      className={`markdown-body ${sizeClass} text-cc-fg overflow-hidden break-words ${
         wrapLongContent ? "min-w-0 max-w-full [overflow-wrap:anywhere]" : ""
       } ${className}`}
+      style={{ lineHeight: chatMessageLineHeight }}
       data-chat-selection-scope={enableChatSelectionMenu ? "true" : undefined}
     >
       <Markdown
@@ -691,7 +693,11 @@ export function MarkdownContent({
               {children}
             </ol>
           ),
-          li: ({ children }) => <li className="text-cc-fg leading-[1.45]">{highlightChildren(children)}</li>,
+          li: ({ children }) => (
+            <li className="text-cc-fg" style={{ lineHeight: chatMessageLineHeight }}>
+              {highlightChildren(children)}
+            </li>
+          ),
           a: ({ href, children }) => {
             const questId = parseQuestIdFromHref(href);
             if (questId) {

@@ -566,6 +566,7 @@ export interface AppSettings {
   sleepInhibitorDurationMinutes: number;
   questmasterViewMode: QuestmasterViewMode;
   questmasterCompactSort: QuestmasterCompactSort;
+  chatMessageLineHeight?: number;
   codexLeaderContextWindowOverrideTokens: number;
   codexNonLeaderAutoCompactThresholdPercent?: number;
   codexLeaderRecycleThresholdTokens: number;
@@ -1371,6 +1372,7 @@ export const api = {
     sleepInhibitorDurationMinutes?: number;
     questmasterViewMode?: QuestmasterViewMode;
     questmasterCompactSort?: QuestmasterCompactSort;
+    chatMessageLineHeight?: number;
     codexLeaderContextWindowOverrideTokens?: number;
     codexNonLeaderAutoCompactThresholdPercent?: number;
     codexLeaderRecycleThresholdTokens?: number;

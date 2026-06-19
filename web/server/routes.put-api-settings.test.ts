@@ -1199,6 +1199,39 @@ describe("PUT /api/settings", () => {
     expect(json.heavyRepoModeEnabled).toBe(true);
   });
 
+  it("updates chat message line-height setting", async () => {
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      ...settingsManager.getSettings(),
+      chatMessageLineHeight: 1.36,
+      updatedAt: Date.now(),
+    });
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chatMessageLineHeight: 1.36 }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ chatMessageLineHeight: 1.36 }),
+    );
+    const json = await res.json();
+    expect(json.chatMessageLineHeight).toBe(1.36);
+  });
+
+  it("returns 400 for invalid chat message line-height setting", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chatMessageLineHeight: 2 }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json).toEqual({ error: "chatMessageLineHeight must be a number between 1.3 and 1.7" });
+  });
+
   it("updates Questmaster view mode setting", async () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       ...settingsManager.getSettings(),

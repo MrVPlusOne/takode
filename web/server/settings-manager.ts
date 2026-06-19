@@ -10,6 +10,7 @@ import {
   normalizeLeaderProfilePoolSettings,
   type LeaderProfilePoolSettings,
 } from "../shared/leader-profile-portraits.js";
+import { DEFAULT_CHAT_MESSAGE_LINE_HEIGHT, normalizeChatMessageLineHeight } from "../shared/chat-display-settings.js";
 import { CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS } from "./codex-leader-recycle-threshold.js";
 
 export interface CompanionSettings {
@@ -65,6 +66,8 @@ export interface CompanionSettings {
   questmasterViewMode?: QuestmasterViewMode;
   /** Preferred Questmaster compact-table sort. Optional for backward-compatible tests/mocks. */
   questmasterCompactSort?: QuestmasterCompactSort;
+  /** Chat/message markdown line-height multiplier. Optional for backward-compatible tests/mocks. */
+  chatMessageLineHeight?: number;
   /** Legacy Codex leader context override retained for settings compatibility; new launches derive this internally. */
   codexLeaderContextWindowOverrideTokens: number;
   /** Percent of each non-leader Codex model's effective window to use before auto-compact. */
@@ -219,6 +222,7 @@ let settings: CompanionSettings = {
   sleepInhibitorDurationMinutes: 5,
   questmasterViewMode: "cards",
   questmasterCompactSort: DEFAULT_QUESTMASTER_COMPACT_SORT,
+  chatMessageLineHeight: DEFAULT_CHAT_MESSAGE_LINE_HEIGHT,
   codexLeaderContextWindowOverrideTokens: 1_000_000,
   codexNonLeaderAutoCompactThresholdPercent: 90,
   codexLeaderRecycleThresholdTokens: CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS,
@@ -487,6 +491,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
         ? raw.questmasterViewMode
         : "cards",
     questmasterCompactSort: normalizeQuestmasterCompactSort(raw?.questmasterCompactSort),
+    chatMessageLineHeight: normalizeChatMessageLineHeight(raw?.chatMessageLineHeight),
     codexLeaderContextWindowOverrideTokens:
       typeof raw?.codexLeaderContextWindowOverrideTokens === "number" && raw.codexLeaderContextWindowOverrideTokens >= 1
         ? Math.floor(raw.codexLeaderContextWindowOverrideTokens)
@@ -604,6 +609,7 @@ export function updateSettings(
       | "sleepInhibitorDurationMinutes"
       | "questmasterViewMode"
       | "questmasterCompactSort"
+      | "chatMessageLineHeight"
       | "codexLeaderContextWindowOverrideTokens"
       | "codexNonLeaderAutoCompactThresholdPercent"
       | "codexLeaderRecycleThresholdTokens"
