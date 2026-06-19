@@ -526,6 +526,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       const saved = normalizeChatMessageLineHeight(res.chatMessageLineHeight);
       if (requestSeq !== chatMessageLineHeightSaveSeqRef.current) {
         if (saved !== latestChatMessageLineHeightRef.current) {
+          persistedChatMessageLineHeightRef.current = saved;
           void saveChatMessageLineHeight(latestChatMessageLineHeightRef.current);
         } else {
           persistedChatMessageLineHeightRef.current = saved;

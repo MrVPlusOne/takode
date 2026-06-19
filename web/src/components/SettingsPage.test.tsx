@@ -713,6 +713,43 @@ describe("SettingsPage", () => {
     expect(input).toHaveValue(1.6);
   });
 
+  it("rolls back to the stale success value when its corrective save fails", async () => {
+    const firstSave = deferred<ReturnType<typeof settingsWithChatLineHeight>>();
+    const secondSave = deferred<ReturnType<typeof settingsWithChatLineHeight>>();
+    const correctiveSave = deferred<ReturnType<typeof settingsWithChatLineHeight>>();
+    mockApi.getSettings.mockResolvedValue(settingsWithChatLineHeight(1.45));
+    mockApi.updateSettings
+      .mockImplementationOnce(() => firstSave.promise)
+      .mockImplementationOnce(() => secondSave.promise)
+      .mockImplementationOnce(() => correctiveSave.promise);
+
+    render(<SettingsPage />);
+    const input = await screen.findByLabelText("Chat message line height value");
+    fireEvent.change(input, { target: { value: "1.50" } });
+    fireEvent.change(input, { target: { value: "1.60" } });
+
+    await act(async () => {
+      secondSave.resolve(settingsWithChatLineHeight(1.6));
+      await secondSave.promise;
+    });
+    expect(input).toHaveValue(1.6);
+
+    await act(async () => {
+      firstSave.resolve(settingsWithChatLineHeight(1.5));
+      await firstSave.promise;
+    });
+    expect(mockApi.updateSettings).toHaveBeenNthCalledWith(3, { chatMessageLineHeight: 1.6 });
+    expect(input).toHaveValue(1.6);
+
+    await act(async () => {
+      correctiveSave.reject(new Error("corrective save failed"));
+      await correctiveSave.promise.catch(() => undefined);
+    });
+    expect(input).toHaveValue(1.5);
+    expect(mockState.setChatMessageLineHeight).toHaveBeenLastCalledWith(1.5);
+    expect(screen.getByText("corrective save failed")).toBeInTheDocument();
+  });
+
   it("navigates to environments page from settings", async () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
