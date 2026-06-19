@@ -29,8 +29,6 @@ import {
 import {
   CHAT_MESSAGE_LINE_HEIGHT_STEP,
   DEFAULT_CHAT_MESSAGE_LINE_HEIGHT,
-  MAX_CHAT_MESSAGE_LINE_HEIGHT,
-  MIN_CHAT_MESSAGE_LINE_HEIGHT,
   normalizeChatMessageLineHeight,
 } from "../../shared/chat-display-settings.js";
 import type { LeaderProfilePoolSettings } from "../../shared/leader-profile-portraits.js";
@@ -814,9 +812,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                   </label>
                   <div className="flex items-center gap-2">
                     <input
+                      id="chat-message-line-height"
                       type="number"
-                      min={MIN_CHAT_MESSAGE_LINE_HEIGHT}
-                      max={MAX_CHAT_MESSAGE_LINE_HEIGHT}
                       step={CHAT_MESSAGE_LINE_HEIGHT_STEP}
                       value={chatMessageLineHeight.toFixed(2)}
                       onChange={(e) => {
@@ -829,25 +826,9 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                     <span className="font-mono-code text-[11px] text-cc-muted">x</span>
                   </div>
                 </div>
-                <input
-                  id="chat-message-line-height"
-                  type="range"
-                  min={MIN_CHAT_MESSAGE_LINE_HEIGHT}
-                  max={MAX_CHAT_MESSAGE_LINE_HEIGHT}
-                  step={CHAT_MESSAGE_LINE_HEIGHT_STEP}
-                  value={chatMessageLineHeight}
-                  onChange={(e) => saveChatMessageLineHeight(Number(e.target.value))}
-                  className="mt-2 w-full accent-cc-primary"
-                />
-                <div className="mt-1 flex items-center justify-between font-mono-code text-[10px] text-cc-muted">
-                  <span>{MIN_CHAT_MESSAGE_LINE_HEIGHT.toFixed(2)}</span>
-                  <span>
-                    {chatMessageLineHeightSaving
-                      ? "Saving..."
-                      : `Default candidate ${DEFAULT_CHAT_MESSAGE_LINE_HEIGHT.toFixed(2)}`}
-                  </span>
-                  <span>{MAX_CHAT_MESSAGE_LINE_HEIGHT.toFixed(2)}</span>
-                </div>
+                {chatMessageLineHeightSaving && (
+                  <p className="mt-1 font-mono-code text-[10px] text-cc-muted">Saving...</p>
+                )}
                 {chatMessageLineHeightError && (
                   <p className="mt-1 text-xs text-cc-error">{chatMessageLineHeightError}</p>
                 )}

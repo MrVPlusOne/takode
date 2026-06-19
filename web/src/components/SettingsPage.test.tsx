@@ -636,6 +636,10 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     const input = await screen.findByLabelText("Chat message line height value");
     expect(input).toHaveValue(1.5);
+    expect(input).toHaveAttribute("type", "number");
+    expect(input).not.toHaveAttribute("min");
+    expect(input).not.toHaveAttribute("max");
+    expect(screen.queryByRole("slider", { name: /chat message line height/i })).toBeNull();
     expect(mockState.setChatMessageLineHeight).toHaveBeenCalledWith(1.5);
 
     fireEvent.change(input, { target: { value: "1.36" } });
