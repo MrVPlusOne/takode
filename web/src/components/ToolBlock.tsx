@@ -1373,6 +1373,41 @@ function extractWebSearchUrl(input: Record<string, unknown>): string {
   return "";
 }
 
+function extractWebSearchQueries(input: Record<string, unknown>): string[] {
+  const queries: string[] = [];
+  const addQuery = (query: unknown) => {
+    if (typeof query !== "string") return;
+    const trimmed = query.trim();
+    if (trimmed && !queries.includes(trimmed)) queries.push(trimmed);
+  };
+
+  addQuery(input.query);
+  addQuery(input.q);
+
+  const searchQuery = input.search_query;
+  if (Array.isArray(searchQuery)) {
+    for (const entry of searchQuery) {
+      if (!entry || typeof entry !== "object") continue;
+      const rec = entry as Record<string, unknown>;
+      addQuery(rec.q);
+      addQuery(rec.query);
+    }
+  }
+
+  const action = input.action;
+  if (action && typeof action === "object") {
+    const actionRec = action as Record<string, unknown>;
+    addQuery(actionRec.query);
+    addQuery(actionRec.q);
+    addQuery(actionRec.pattern);
+    if (Array.isArray(actionRec.queries)) {
+      for (const query of actionRec.queries) addQuery(query);
+    }
+  }
+
+  return queries;
+}
+
 function extractWebSearchDomains(input: Record<string, unknown>): string[] {
   const directDomains = input.allowed_domains;
   if (Array.isArray(directDomains)) {
@@ -1397,12 +1432,23 @@ function extractWebSearchDomains(input: Record<string, unknown>): string[] {
 
 function WebSearchDetail({ input }: { input: Record<string, unknown> }) {
   const query = extractWebSearchQuery(input);
+  const queries = extractWebSearchQueries(input);
   const url = extractWebSearchUrl(input);
   const domains = extractWebSearchDomains(input);
 
   return (
     <div className="space-y-1">
-      {query ? <div className="text-xs text-cc-fg font-medium">{query}</div> : null}
+      {queries.length > 1 ? (
+        <div className="space-y-0.5">
+          {queries.map((entry) => (
+            <div key={entry} className="text-xs text-cc-fg font-medium">
+              {entry}
+            </div>
+          ))}
+        </div>
+      ) : query ? (
+        <div className="text-xs text-cc-fg font-medium">{query}</div>
+      ) : null}
       {url ? <div className="text-xs font-mono-code text-cc-primary truncate">{url}</div> : null}
       {domains.length > 0 && <div className="text-[10px] text-cc-muted">domains: {domains.join(", ")}</div>}
     </div>

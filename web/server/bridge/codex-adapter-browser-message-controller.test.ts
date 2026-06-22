@@ -478,6 +478,81 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(session.messageHistory[0]).toMatchObject(msg);
   });
 
+  it("enriches an existing empty WebSearch tool row when Codex completes it with query details", async () => {
+    const session = makeSession();
+    const toolMessageId = "codex-tool_use-ws_progressive";
+    const toolUseId = "ws_progressive";
+    // Codex can start Web Search with only { type: "other" } and later complete
+    // the same stable id with the real search query list. The bridge must update
+    // the existing history row before same-id replay dedupe can drop it.
+    session.messageHistory.push(
+      makeAssistant(
+        [
+          {
+            type: "tool_use",
+            id: toolUseId,
+            name: "WebSearch",
+            input: { query: "", action: { type: "other" } },
+          },
+        ],
+        toolMessageId,
+      ),
+    );
+
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const persistSession = vi.fn();
+    const isDuplicateCodexAssistantReplay = vi.fn(() => true);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      makeAssistant(
+        [
+          {
+            type: "tool_use",
+            id: toolUseId,
+            name: "WebSearch",
+            input: {
+              query: "OpenAI Codex CLI documentation",
+              action: {
+                type: "search",
+                query: "OpenAI Codex CLI documentation",
+                queries: ["OpenAI Codex CLI documentation", "MDN MediaRecorder start timeslice"],
+              },
+            },
+          },
+        ],
+        toolMessageId,
+      ),
+      {
+        ...makeDeps(broadcasts),
+        persistSession,
+        isDuplicateCodexAssistantReplay,
+      },
+    );
+
+    expect(session.messageHistory).toHaveLength(1);
+    const updated = session.messageHistory[0];
+    expect(updated.type).toBe("assistant");
+    const updatedBlock = updated.type === "assistant" ? updated.message.content[0] : undefined;
+    expect(updatedBlock).toMatchObject({
+      type: "tool_use",
+      id: toolUseId,
+      name: "WebSearch",
+      input: {
+        query: "OpenAI Codex CLI documentation",
+        action: {
+          type: "search",
+          query: "OpenAI Codex CLI documentation",
+          queries: ["OpenAI Codex CLI documentation", "MDN MediaRecorder start timeslice"],
+        },
+      },
+    });
+    expect(broadcasts).toHaveLength(1);
+    expect(broadcasts[0]).toMatchObject(updated);
+    expect(persistSession).toHaveBeenCalledWith(session);
+    expect(isDuplicateCodexAssistantReplay).not.toHaveBeenCalled();
+  });
+
   it("records Codex thread status markers only after replay duplicate detection", async () => {
     const session = makeSession();
     const broadcasts: BrowserIncomingMessage[] = [];

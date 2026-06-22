@@ -32,6 +32,8 @@ type CodexBrowserMessageSessionLike = any;
 type CodexBrowserMessageAdapterLike = {
   sendBrowserMessage(msg: unknown): void;
 };
+type AssistantBrowserMessage = Extract<BrowserIncomingMessage, { type: "assistant" }>;
+type ToolUseContentBlock = Extract<ContentBlock, { type: "tool_use" }>;
 
 function isLeaderSessionForAssistantRouting(
   session: CodexBrowserMessageSessionLike,
@@ -68,6 +70,93 @@ function sameActiveTurnRoute(
   next: ActiveTurnRoute | null | undefined,
 ): boolean {
   return (current?.threadKey ?? "main") === (next?.threadKey ?? "main") && current?.questId === next?.questId;
+}
+
+function isWebSearchToolUseBlock(block: ContentBlock): block is ToolUseContentBlock {
+  return block.type === "tool_use" && (block.name === "WebSearch" || block.name === "web_search");
+}
+
+function mergeToolUseInputValues(
+  previous: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...previous };
+
+  for (const [key, value] of Object.entries(incoming)) {
+    if (value == null) continue;
+    if (typeof value === "string") {
+      if (value.trim().length > 0 || !(key in merged)) merged[key] = value;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (value.length > 0 || !(key in merged)) merged[key] = value;
+      continue;
+    }
+    if (typeof value === "object") {
+      const previousValue = merged[key];
+      if (previousValue && typeof previousValue === "object" && !Array.isArray(previousValue)) {
+        merged[key] = mergeToolUseInputValues(
+          previousValue as Record<string, unknown>,
+          value as Record<string, unknown>,
+        );
+      } else if (!(key in merged) || Object.keys(value as Record<string, unknown>).length > 0) {
+        merged[key] = value;
+      }
+      continue;
+    }
+    merged[key] = value;
+  }
+
+  return merged;
+}
+
+function tryEnrichExistingWebSearchToolUse(
+  session: CodexBrowserMessageSessionLike,
+  incoming: AssistantBrowserMessage,
+): AssistantBrowserMessage | null {
+  const incomingToolUses = incoming.message.content.filter(isWebSearchToolUseBlock);
+  if (incomingToolUses.length === 0) return null;
+
+  const incomingId = incoming.message.id;
+  if (!incomingId) return null;
+
+  for (let i = session.messageHistory.length - 1; i >= 0; i--) {
+    const entry = session.messageHistory[i];
+    if (entry?.type !== "assistant") continue;
+    const existing = entry as AssistantBrowserMessage;
+    if (existing.message?.id !== incomingId) continue;
+
+    let changed = false;
+    const nextContent = existing.message.content.map((block) => {
+      if (!isWebSearchToolUseBlock(block)) return block;
+      const incomingBlock = incomingToolUses.find((candidate) => candidate.id === block.id);
+      if (!incomingBlock) return block;
+
+      const mergedInput = mergeToolUseInputValues(block.input || {}, incomingBlock.input || {});
+      if (JSON.stringify(mergedInput) === JSON.stringify(block.input || {})) return block;
+
+      changed = true;
+      return {
+        ...block,
+        name: incomingBlock.name || block.name,
+        input: mergedInput,
+      };
+    });
+
+    if (!changed) return null;
+
+    const updated: AssistantBrowserMessage = {
+      ...existing,
+      message: {
+        ...existing.message,
+        content: nextContent,
+      },
+    };
+    session.messageHistory[i] = updated;
+    return updated;
+  }
+
+  return null;
 }
 
 function updateActiveTurnRouteFromLeaderAssistant(
@@ -504,10 +593,17 @@ export async function handleCodexAdapterBrowserMessage(
 
   if (outgoing?.type === "assistant") {
     const assistantTimestamp = outgoing.timestamp || Date.now();
-    let normalizedAssistant: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
+    let normalizedAssistant: AssistantBrowserMessage = {
       ...outgoing,
       timestamp: assistantTimestamp,
     };
+    const enrichedWebSearch = tryEnrichExistingWebSearchToolUse(session, normalizedAssistant);
+    if (enrichedWebSearch) {
+      deps.persistSession(session);
+      deps.syncSideChatParent?.(session);
+      deps.broadcastToBrowsers(session, enrichedWebSearch);
+      return;
+    }
     if (deps.isDuplicateCodexAssistantReplay(session, normalizedAssistant)) {
       deps.syncSideChatParent?.(session);
       return;
