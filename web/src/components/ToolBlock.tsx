@@ -1361,6 +1361,18 @@ function extractWebSearchQuery(input: Record<string, unknown>): string {
   return "";
 }
 
+function extractWebSearchUrl(input: Record<string, unknown>): string {
+  if (typeof input.url === "string" && input.url.trim()) return input.url.trim();
+
+  const action = input.action;
+  if (action && typeof action === "object") {
+    const actionRec = action as Record<string, unknown>;
+    if (typeof actionRec.url === "string" && actionRec.url.trim()) return actionRec.url.trim();
+  }
+
+  return "";
+}
+
 function extractWebSearchDomains(input: Record<string, unknown>): string[] {
   const directDomains = input.allowed_domains;
   if (Array.isArray(directDomains)) {
@@ -1385,11 +1397,13 @@ function extractWebSearchDomains(input: Record<string, unknown>): string[] {
 
 function WebSearchDetail({ input }: { input: Record<string, unknown> }) {
   const query = extractWebSearchQuery(input);
+  const url = extractWebSearchUrl(input);
   const domains = extractWebSearchDomains(input);
 
   return (
     <div className="space-y-1">
       {query ? <div className="text-xs text-cc-fg font-medium">{query}</div> : null}
+      {url ? <div className="text-xs font-mono-code text-cc-primary truncate">{url}</div> : null}
       {domains.length > 0 && <div className="text-[10px] text-cc-muted">domains: {domains.join(", ")}</div>}
     </div>
   );
@@ -1625,7 +1639,7 @@ export function getPreview(name: string, input: Record<string, unknown>): string
     return full.length > 60 ? full.slice(0, 60) + "..." : full;
   }
   if (name === "WebSearch" || name === "web_search") {
-    return extractWebSearchQuery(input);
+    return extractWebSearchQuery(input) || extractWebSearchUrl(input);
   }
   if (name === "view_image" && input.path) {
     return String(input.path);

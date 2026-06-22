@@ -1386,6 +1386,15 @@ describe("WebSearch result suppression", () => {
     useStore.setState({ toolResults: new Map() });
   });
 
+  it("shows URL detail for URL-only open_page actions", () => {
+    const url = "https://example.com/page";
+
+    render(<ToolBlock name="WebSearch" input={{ action: { type: "open_page", url } }} toolUseId="ws-open-page" />);
+
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getAllByText(url).length).toBeGreaterThanOrEqual(1);
+  });
+
   it("hides RESULT section when content matches the search query", () => {
     const toolResults = new Map();
     const sessionResults = new Map();

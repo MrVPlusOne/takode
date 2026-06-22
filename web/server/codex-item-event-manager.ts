@@ -200,7 +200,7 @@ export class CodexItemEventManager {
 
       case "webSearch": {
         const ws = item as CodexWebSearchItem;
-        this.emitToolUseStart(item.id, "WebSearch", { query: extractWebSearchQuery(ws) }, { parentToolUseId });
+        this.emitToolUseStart(item.id, "WebSearch", this.buildWebSearchToolInput(ws), { parentToolUseId });
         break;
       }
 
@@ -351,6 +351,11 @@ export class CodexItemEventManager {
     if (!item) return;
 
     const itemType = toSafeText(item.type).trim().toLowerCase();
+    if (itemType === "web_search_call") {
+      this.handleRawWebSearchCompleted(params, item);
+      return;
+    }
+
     if (itemType !== "function_call") return;
 
     const toolName = toSafeText(item.name).trim();
@@ -510,7 +515,7 @@ export class CodexItemEventManager {
       case "webSearch": {
         const ws = item as CodexWebSearchItem;
         const wsQuery = extractWebSearchQuery(ws);
-        this.ensureToolUseEmitted(item.id, "WebSearch", { query: wsQuery }, { parentToolUseId });
+        this.ensureToolUseEmitted(item.id, "WebSearch", this.buildWebSearchToolInput(ws), { parentToolUseId });
         const wsResult = extractWebSearchResultText(ws);
         if (wsResult && wsResult !== wsQuery && wsResult !== "Web search completed") {
           this.emitToolResult(item.id, wsResult, false, parentToolUseId);
@@ -1154,6 +1159,62 @@ export class CodexItemEventManager {
 
   private buildImageViewResultText(path: unknown): string {
     return typeof path === "string" && path.trim().length > 0 ? path : "Image viewed successfully.";
+  }
+
+  private handleRawWebSearchCompleted(params: Record<string, unknown>, item: Record<string, unknown>): void {
+    const webSearch = this.normalizeRawWebSearchItem(item);
+    if (!webSearch) return;
+
+    const parentToolUseId = this.resolveParentToolUseId(params, webSearch.id);
+    const webSearchQuery = extractWebSearchQuery(webSearch);
+    this.ensureToolUseData(
+      webSearch.id,
+      "WebSearch",
+      this.buildWebSearchToolInput(webSearch),
+      { parentToolUseId },
+      true,
+    );
+    const webSearchResult = extractWebSearchResultText(webSearch);
+    if (webSearchResult && webSearchResult !== webSearchQuery && webSearchResult !== "Web search completed") {
+      this.emitToolResultOnce(webSearch.id, webSearchResult, false, parentToolUseId);
+    }
+  }
+
+  private normalizeRawWebSearchItem(item: Record<string, unknown>): CodexWebSearchItem | null {
+    const id = toSafeText(item.id ?? item.call_id ?? item.callId).trim() || `raw-web-search-${randomUUID()}`;
+    const normalized = { ...item, id, type: "webSearch" } as CodexWebSearchItem;
+    const action = this.normalizeRawWebSearchAction(item.action);
+    if (action) normalized.action = action;
+    return normalized;
+  }
+
+  private normalizeRawWebSearchAction(action: unknown): CodexWebSearchItem["action"] | undefined {
+    if (!action || typeof action !== "object" || Array.isArray(action)) return undefined;
+    const actionRecord = action as Record<string, unknown>;
+    const normalized: NonNullable<CodexWebSearchItem["action"]> = {};
+
+    for (const key of ["type", "url", "pattern", "query", "q"] as const) {
+      const value = actionRecord[key];
+      if (typeof value === "string" && value.trim()) normalized[key] = value.trim();
+    }
+
+    const queries = actionRecord.queries;
+    if (Array.isArray(queries)) {
+      const queryList = queries.filter(
+        (query): query is string => typeof query === "string" && query.trim().length > 0,
+      );
+      if (queryList.length > 0) normalized.queries = queryList.map((query) => query.trim());
+    }
+
+    return Object.keys(normalized).length > 0 ? normalized : undefined;
+  }
+
+  private buildWebSearchToolInput(item: CodexWebSearchItem): Record<string, unknown> {
+    const input: Record<string, unknown> = { query: extractWebSearchQuery(item) };
+    if (item.action && Object.keys(item.action).length > 0) {
+      input.action = item.action;
+    }
+    return input;
   }
 
   private makeMessageId(kind: string, sourceId?: string): string {

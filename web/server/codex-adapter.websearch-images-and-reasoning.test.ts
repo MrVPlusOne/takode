@@ -181,6 +181,115 @@ describe("CodexAdapter", () => {
     expect(resultMsg).toBeDefined();
   });
 
+  it("normalizes raw web_search_call search actions into WebSearch tool input", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await initializeAdapter(stdout);
+
+    // Regression coverage for Codex Responses-style Web Search completion
+    // items, which carry the query under action rather than the older webSearch
+    // item shape Takode already handled.
+    stdout.push(
+      JSON.stringify({
+        method: "rawResponseItem/completed",
+        params: {
+          item: {
+            type: "web_search_call",
+            id: "ws_raw_search",
+            status: "completed",
+            action: {
+              type: "search",
+              query: "June 2026 Visa Bulletin employment final action dates",
+              queries: ["June 2026 Visa Bulletin employment final action dates"],
+            },
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const toolMsg = messages
+      .filter((m) => m.type === "assistant")
+      .find((m) => {
+        const content = (m as { message: { content: Array<{ type: string; name?: string; id?: string }> } }).message
+          .content;
+        return content.some((b) => b.type === "tool_use" && b.name === "WebSearch" && b.id === "ws_raw_search");
+      });
+
+    expect(toolMsg).toBeDefined();
+    const toolBlock = (
+      toolMsg as {
+        message: { content: Array<{ type: string; input?: { query?: string; action?: Record<string, unknown> } }> };
+      }
+    ).message.content.find((b) => b.type === "tool_use");
+    expect(toolBlock?.input?.query).toBe("June 2026 Visa Bulletin employment final action dates");
+    expect(toolBlock?.input?.action?.type).toBe("search");
+    expect(toolBlock?.input?.action?.queries).toEqual(["June 2026 Visa Bulletin employment final action dates"]);
+  });
+
+  it("normalizes raw web_search_call open_page actions into WebSearch URL detail", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await initializeAdapter(stdout);
+
+    // URL-only open_page actions should still produce useful visible detail,
+    // even when there is no query string for the WebSearch preview.
+    stdout.push(
+      JSON.stringify({
+        method: "rawResponseItem/completed",
+        params: {
+          responseItem: {
+            type: "web_search_call",
+            id: "ws_raw_open",
+            status: "completed",
+            action: {
+              type: "open_page",
+              url: "https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin/2026/visa-bulletin-for-june-2026.html",
+            },
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const toolMsg = messages
+      .filter((m) => m.type === "assistant")
+      .find((m) => {
+        const content = (m as { message: { content: Array<{ type: string; name?: string; id?: string }> } }).message
+          .content;
+        return content.some((b) => b.type === "tool_use" && b.name === "WebSearch" && b.id === "ws_raw_open");
+      });
+    expect(toolMsg).toBeDefined();
+
+    const toolBlock = (
+      toolMsg as {
+        message: { content: Array<{ type: string; input?: { query?: string; action?: Record<string, unknown> } }> };
+      }
+    ).message.content.find((b) => b.type === "tool_use");
+    expect(toolBlock?.input?.query).toBe("");
+    expect(toolBlock?.input?.action?.type).toBe("open_page");
+    expect(toolBlock?.input?.action?.url).toBe(
+      "https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin/2026/visa-bulletin-for-june-2026.html",
+    );
+
+    const resultMsg = messages
+      .filter((m) => m.type === "assistant")
+      .find((m) => {
+        const content = (m as { message: { content: Array<{ type: string; tool_use_id?: string; content?: string }> } })
+          .message.content;
+        return content.some((b) => b.type === "tool_result" && b.tool_use_id === "ws_raw_open");
+      });
+    expect(resultMsg).toBeDefined();
+    const resultBlock = (
+      resultMsg as { message: { content: Array<{ type: string; tool_use_id?: string; content?: string }> } }
+    ).message.content.find((b) => b.type === "tool_result");
+    expect(resultBlock?.content).toContain("visa-bulletin-for-june-2026.html");
+  });
+
   it("deduplicates replayed rawResponseItem/completed view_image calls", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });

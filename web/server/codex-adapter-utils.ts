@@ -647,7 +647,7 @@ export interface CodexMcpToolCallItem extends CodexItem {
 export interface CodexWebSearchItem extends CodexItem {
   type: "webSearch";
   query?: string;
-  action?: { type?: string; url?: string; pattern?: string; query?: string; q?: string };
+  action?: { type?: string; url?: string; pattern?: string; query?: string; q?: string; queries?: string[] };
   result?: string;
   output?: string;
   summary?: string;
