@@ -34,32 +34,14 @@ These are completely different systems. Do NOT confuse them.
 
 ## Required `/quest-design` before quest creation or refinement
 
-Before any agent creates a new quest or refines an `idea` quest into a worker-ready quest, invoke `/quest-design` and complete its confirmation round with the user. This applies to normal sessions, leader sessions, and worker sessions.
+Before any agent creates a new quest or refines an `idea` quest into a worker-ready quest, invoke `/quest-design` and complete its confirmation round with the user. This applies to normal sessions, leader sessions, and worker sessions. Stop and wait for confirmation or correction before writing new quest text or materially changing title, description, or tags.
 
 Use `/quest-design` before:
 - `quest create`
 - `quest edit` or `quest transition --status refined` when refining an `idea` quest
 - materially rewriting title, description, or tags as part of quest refinement
 
-The `/quest-design` confirmation must be concise and include:
-- **Proposed Quest**: title and tags when useful.
-- **Goal / Acceptance**: one source of truth for what the quest or update will ask for and how acceptance should be judged, serving as both understanding and proposed quest scope.
-- **Relationship**: when this is a true follow-up to earlier work, name it as `Relationship: follow-up of [q-N](quest:q-N)` so it can be persisted with `quest create --follow-up-of q-N` or `quest edit q-N --follow-up-of q-M`.
-- **Context / Evidence** when relevant: only prior quests, source examples, screenshots, logs, user reports, or artifact paths that materially affect scope or verification.
-- **Out Of Scope** when relevant: only exclusions that prevent likely misunderstanding.
-- **Open Questions** when relevant: ask only questions that could materially change the quest, and omit this section entirely when nothing meaningful is unclear.
-
-The visible chat confirmation is for the user's decision, not for worker grounding. Make it read like a TLDR for approval: include what the user needs to approve, correct, or choose, and add detail only when it resolves ambiguity, states a user-visible tradeoff, asks for confirmation of a risky assumption, or changes the approval decision. Move most detailed grounding, evidence, acceptance bullets, non-goals, fallback mechanics, and worker-facing context into the quest record instead. When the confirmation asks the user to choose, include the complete decision context in the thread before any `needs-input` notification; notification summaries, notification UI options, and `--suggest` choices are only attention/reply affordances.
-
-When the user clearly wants a quest created and dispatched, combine the `/quest-design` and `/leader-dispatch` approval surfaces: the leader's first response should describe both the proposed quest draft and the proposed Quest Journey/scheduling draft in natural prose, so one user confirmation can approve quest text, Journey, and dispatch plan together. After approval, the leader must write the approved Journey to the board before or with dispatch; do not rely on transcript prose as the only durable Journey record. If meaningful clarification is needed, ask those questions with the quest framing; after the user clarifies and no major ambiguity remains, the next response should include both drafts together. Avoid a separate extra round that only restates understanding after clarification when there are no new questions and no quest/Journey draft yet. More than two confirmation rounds should happen only when genuine additional clarification is needed.
-Use one source of truth for the requested work in that approval surface. Prefer a single `Goal / Acceptance` section that serves as both the leader's understanding and the proposed quest's acceptance criteria. If a concise understanding was already written, either make that text the `Goal / Acceptance` or replace it with one expanded `Goal / Acceptance`; do not restate the same work again as a separate quest description, `Scope` paragraph, `The worker should` list, default `Expected Output / Acceptance` section, or full quest-body paste. Treat the compact shape as a menu, not a form: default to a short approval packet, but preserve judgment and expand for a real relationship, open question, unusual phase reason, user-visible boundary, queueing/capacity choice, or another fact the user needs to approve or correct. Add separate sections only when they carry non-overlapping approval information, such as `Relationship`, `Context / Evidence`, `Out Of Scope`, `Open Questions`, `Invariants / Must Preserve`, `Journey`, non-standard phase notes, and `Scheduling`. Omit optional sections when they do not affect the user's decision. For quest-design-only requests, omit `Journey` and `Scheduling`; for dispatch-only requests where a quest already exists, reference the quest instead of re-describing its accepted scope, then present `Journey` and `Scheduling` with any narrow context or questions needed for approval.
-Leader/orchestrator sessions: after successful quest creation, refinement, or dispatch, trigger a lightweight non-blocking thread reminder when prior discussion may belong to the quest thread by writing this as a standalone line: Thread reminder: attach any prior messages that clearly belong to this quest to [q-N](quest:q-N) with `takode thread attach`. Takode converts that line into a separate injected system reminder, so it should not remain part of assistant prose.
-
-Before creating or refining a quest, explicitly check whether it is a true follow-up to earlier work. Use explicit follow-up relationships for true follow-ups, bug fixes, successors, redesigns, or user-approved next quests that came from prior findings. Do not classify incidental mentions, loose context, or copied examples as follow-ups; those can remain auto-detected reference backlinks. If the relationship is relevant, include it in the approval surface and persist it with `--follow-up-of` after confirmation. If a relationship was recorded by mistake, clear it with `quest edit q-N --clear-follow-up-of`.
-
-For Journey notes, standard phases are self-explanatory by default: `alignment`, `implement`, `code-review`, `port`, and final `memory` only need notes for unusual phase-specific work. Non-standard phases such as `explore`, `user-checkpoint`, `execute`, `outcome-review`, `mental-simulation`, and compatibility `bookkeeping` should be explained concisely with why the phase is needed and what evidence, user decision, scenario, outcome, or durable state it covers. Standard phases are recommended defaults, not mandates; user overrides win. Before adding an extra phase, ask what it contributes over merging the work into a later phase; `implement` includes normal investigation, root-cause analysis, code/design reading, and test planning for approved fixes, docs changes, config changes, prompt changes, and artifact changes. Do not plan adjacent `explore -> implement`; use `implement` directly for normal fixes, or `explore -> user-checkpoint -> implement` when Explore findings may need user steering. User Checkpoints are mandatory by default; mark one optional only with an approved phase note that says it may be skipped and gives the concrete skip condition; after Explore, skip it only when that condition has been evaluated as satisfied and the skip reason is recorded.
-
-Then stop and wait for the user to confirm or correct the understanding before creating or refining the quest. If you are acting as a leader/orchestrator, that user wait must use `takode notify needs-input`; never represent a quest confirmation wait only with `Thread Waiting` or `takode notify waiting`. The detailed confirmation text must be visible before the notification call; do not rely on notification summaries, notification UI options, or `--suggest` choices to carry options or tradeoffs. If the user corrects the understanding and ambiguity remains, do another short `/quest-design` round before writing the quest. If the user has already approved a plan that explicitly covers the quest creation or refinement text, that plan approval can count as the confirmation round.
+The full approval workflow lives in the existing `quest-design` skill. Load that skill for the confirmation shape, combined quest/Journey approval rules, follow-up relationship guidance, and leader notification requirements.
 
 Operations that do not require `/quest-design`:
 - Read-only commands: `quest show`, `quest list`, `quest grep`, `quest history`, and `quest tags`.
@@ -509,9 +491,7 @@ When the user asks you to work on a quest — whether via the Companion "Assign"
    - Reuse existing tags. Only create new tags when no existing tag fits.
 4. **Work**: Implement the changes. Use TodoWrite for sub-step tracking if needed. If you need additional code changes after a reviewer or human review pass, commit the current worktree state, make the follow-up fixes in a separate commit, and send the changed worktree back to Code Review only after that checkpoint exists so the reviewer can inspect a clean incremental diff of only the new work. This does not require reviewers to commit and does not apply to purely read-only follow-up review discussion. **If there is human feedback**, inspect it with `quest feedback list q-N --author human --unaddressed`, address each entry, explain what you did in an agent feedback entry, then mark it with `quest address q-N <index>`. Prefer one consolidated feedback entry when the same update can both summarize the work and explain how human feedback was addressed, for example `quest feedback q-N --text "Summary: fixed the layout issue and addressed feedback #0 by adding flex-wrap"` for short replies, or `quest feedback q-N --text-file -` / `--text-file <path>` when your response includes copied logs or shell-like text. Add separate feedback entries only when the updates are materially different or separation makes the quest easier to read. Run `quest feedback list q-N --author human --unaddressed` to confirm no unaddressed entries remain.
 5. **Self-check**: Before submitting, verify everything you can yourself. For tracked code/test changes, the current full automated gate is `cd web && bun --no-install run typecheck`, `cd web && bun --no-install run test`, and `cd web && bun --no-install run format:check`. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, document the exception explicitly in your summary or handoff before submitting. Do not turn self-verifiable agent evidence into User review checks. **Verify all human feedback entries are marked addressed** by running `quest feedback list q-N --author human --unaddressed` and checking that it returns no entries.
-6. **Submit or hand off completion**: For Quest Journey work, implementation, Execute, Code Review, and Port actors document evidence in phase docs, review verdicts, artifacts, Port notes, commit metadata, and final debrief drafts. They do not invent final User review checks. Final Memory is the normal owner of final `User review checks` settlement after agent-owned evidence is complete. It should complete with no `--items` when no user action remains, or with concise `--items` / `--items-file` entries only when the user still needs to inspect or do something after completion. Final Memory also reconciles quest metadata against accepted scope: check whether the title, TLDR, and description still describe the delivered result; refresh clear final-scope drift, but route ambiguous or intent-changing edits back to the leader or user instead of silently rewriting scope.
-   - **Final debrief metadata is required:** Every completed non-cancelled quest needs both a final debrief and a debrief TLDR. Pass them with `--debrief-file` and `--debrief-tldr-file` when you complete the quest. If you cannot draft reliable final debrief metadata from your context, do not treat the handoff as complete; ask the leader to provide it or route final Memory.
-   - **Worktree sessions:** If you're working in a git worktree, do **not** run `quest complete` until your changes are synced to the main repo checkout and pushed and final Memory or the leader is ready to settle debrief metadata and User review checks. The human verifies from the main repo, not your worktree.
+6. **Submit or hand off completion**: For Quest Journey work, implementation, Execute, Code Review, and Port actors document evidence in phase docs, review verdicts, artifacts, Port notes, commit metadata, and final debrief drafts, then stop at the phase boundary. Final Memory is mandatory for non-cancelled quests and normally completes the quest after accepted evidence is synced when applicable, final debrief metadata is ready, User review checks are settled, and memory/metadata closure is complete. Do not invent final User review checks; complete with no `--items` when no user action remains. Worktree sessions must not run `quest complete` until changes are synced to the main repo checkout and pushed. Read `memory-completion.md` for the detailed completion, final Memory, debrief, commit metadata, and User review check mechanics.
 
 ## Tags
 
@@ -541,34 +521,16 @@ Quests can have attached images at `~/.companion/questmaster/images/`.
 - Only if `quest` is missing, use the full path fallback: `~/.companion/bin/quest`
 - Do not prepend to `PATH` proactively; only if `bun` is missing, check `$HOME/.bun/bin/bun` and prepend `$HOME/.bun/bin` before retrying
 
-## Stream Memory CLI
+## On-demand Memory and completion details
 
-The `stream` CLI manages durable operational/project context that does not live cleanly in code or a single quest. Use streams when work touches live external state, long-running validation, artifact paths, cross-quest project memory, handoffs, or war-room status. Do **not** create stream ceremony for ordinary app-development quests where Questmaster already carries enough context.
+Read `memory-completion.md` when you are finalizing a quest, running final Memory, deciding User review checks, attaching code or memory commits, reviewing done-quest hygiene, or using Stream Memory CLI. The main invariants are:
 
-Common commands:
-
-```bash
-stream create "AI judging" --summary "4-lane monitor active" --tags "ml,judging"
-stream list
-stream show ai-judging
-stream update ai-judging --type decision --entry "Use four judging lanes" --source session:989:3202
-stream update ai-judging --type artifact --entry "Canonical output path recorded" --artifact /mnt/vast/path/output.lance
-stream archive ai-judging --reason "Project complete"
-stream search "Nebius schema"
-stream dashboard 23b-war-room
-stream handoff ai-judging
-```
-
-Important stream concepts:
-- By default, `stream` uses the current Takode session group when `COMPANION_SESSION_ID` is available. Outside Takode/session context, it falls back to a collision-resistant git project scope that maps linked worktrees together, then to the current directory name. Use `--scope` only for deliberate isolation or migration.
-- `stream show` is current-state-first: summary, health, ownership, pinned facts, links, then timeline.
-- Timeline entries are typed: `state-change`, `decision`, `artifact`, `metric`, `alert`, `contradiction`, `supersession`, `handoff`, `ownership`, `verification`, or `note`.
-- Use `--source session:N:M`, `--quest q-N`, `--session N`, `--worker N`, and `--artifact <path>` to preserve provenance and links.
-- Use `--pin <fact>` for durable facts like canonical artifact paths or known-bad configs.
-- Use `--stale <fact-id-or-text>` plus `--supersedes <new-fact>` when an old fact becomes dangerous to repeat.
-- Use `--owner <session>` and `--steering-mode leader-steered|user-steered|monitor-only|blocked` to avoid accidental interference with directly steered workers.
-- Use `stream handoff <stream>` before handing work to another leader/worker.
-- Pass `--json` to any `stream` command for machine-readable output.
+- Final Memory is mandatory for every non-cancelled Quest Journey. It owns final User review check settlement, durable-state closure, final debrief metadata, quest metadata reconciliation, memory consistency checks, cleanup, and follow-up routing.
+- Every completed non-cancelled quest must include a final debrief and debrief TLDR. Completion without both is incomplete.
+- User review checks are optional human-owned checks only. Use them only for things the user still needs to inspect or do; empty User review checks are normal.
+- Code commits and memory commits are distinct. Attach code/docs/template commits with `--commit` / `--commits`; attach file-based memory commits with `--memory-commit` / `--memory-commits`.
+- Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work when they create tracked changes. Do not use `--no-code` for these quests.
+- Worktree changes must be ported/synced to the main repo checkout before completion. Use the main-repo synced SHAs as structured completion metadata.
 
 ## Writing style
 
@@ -602,90 +564,15 @@ Use `quest complete` for the final completion handoff to `done` with review meta
 - Metadata polish is mandatory before implementation (same rules as above), then start coding.
 
 ### in_progress → done with review metadata
-- Is the implementation actually complete?
-- Run the required self-checks yourself before handoff. For tracked code/test changes, the current full automated gate is `cd web && bun --no-install run typecheck`, `cd web && bun --no-install run test`, and `cd web && bun --no-install run format:check`.
-- `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now.
-- If a full run is infeasible, document the exception explicitly in your summary or handoff before asking for verification.
-- **Worktree sessions:** If you made the change in a git worktree, finish the full sync-to-main workflow first (rebase/cherry-pick/push/reset/post-reset verification) before running `quest complete` or describing the work as ready for review.
-- **If the quest produced zero git-tracked changes** (investigation, reporting, design artifact, or similar), complete it with no User review checks unless the user genuinely needs to inspect or do something after completion. Do not add placeholder Port notes, synced SHA lines, or automated-check results as checks. If you are using the CLI locally and want the completion reminder to omit port noise, pass `quest complete ... --no-code`; that flag is only a local reminder switch and does not persist quest metadata.
-- **Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work.** If they produce git-tracked commits, they must be synced and attached as structured commit metadata like any code change. Do not use `--no-code` for these quests.
-- **Final debrief metadata is mandatory:** Every completed non-cancelled quest must include a final debrief and debrief TLDR. Completion without both is incomplete in the workflow, including zero-tracked-change/data-artifact quests, worktree/Port completions, and leader-owned completion after Outcome Review. Use `--debrief-file` and `--debrief-tldr-file` on `quest complete`, `quest done`, or `quest transition --status done` as appropriate.
-- **Every non-cancelled quest should finish in Memory:** Final Memory owns final User review check settlement, durable-state closure, final debrief metadata, quest metadata reconciliation, memory consistency checks, cleanup, and follow-up routing. A quest in `MEMORY` is downstream-unblocking because substantive work is accepted and synced when applicable, but it remains open until Memory finishes. Metadata reconciliation is a final-scope accuracy check for the quest title, TLDR, and description; it is not permission to rewrite active scope or unfinished quests.
-- **If Port is omitted:** keep the Journey explicit and still end in `memory`; do not use fake Port commentary or synced-SHA placeholders.
-- **If the work was ported/synced:** Port reports the ordered synced SHAs on a dedicated `Synced SHAs: sha1,sha2` line. Final Memory or the leader attaches those SHAs and final debrief metadata during the completion handoff with `quest complete q-N --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md`, adding `--items` only for genuine remaining User review checks. Use the merged/cherry-picked SHAs from the main repo, not the pre-port worktree-only SHAs. Because that structured metadata and dedicated line already carry exact commit values, final debrief TLDRs, phase-note TLDRs, and routine user-facing summaries should not repeat the raw hashes.
-- **If a leader controls the handoff:** rely on final Memory for debrief metadata and memory statement, or ask the Memory assignee for `Final debrief draft:` and `Debrief TLDR draft:` if the leader will complete the quest. Do not rely on log parsing or memory.
-- **Do not leave commit info only in comments:** summary comments and quest feedback can describe the port, but the verification handoff must still attach those SHAs as structured commit metadata with `--commit`/`--commits`.
-
-**Pre-submission checklist (all three required -- the skeptic reviewer will verify each one. Reviewers may directly fix clear quest hygiene they know how to fix, but will CHALLENGE ambiguous or substantive misses):**
-
-1. **Address all human feedback.** For each human feedback entry on the quest:
-   - Add or refresh an explicit agent feedback entry explaining HOW you addressed it: `quest feedback q-N --text "Summary: fixed mobile layout with flex-wrap; addressed feedback #0 by preserving the compact breakpoint"` for short replies, or `quest feedback q-N --text-file -` when quoting logs or shell-like text
-   - Prefer one consolidated feedback entry when the same update can both summarize the work and address one or more human feedback entries
-   - Add separate feedback entries only when they are materially different or necessary for readability
-   - Mark the entry as addressed: `quest address q-N <index>` (run `quest feedback list q-N --author human --unaddressed` after to confirm it is gone)
-   - Both steps are required -- an explanation without marking, or marking without explaining, is incomplete
-   - Do not claim feedback was addressed unless both happened
-
-2. **Add or refresh a user-oriented summary comment.** Before submitting, keep a final feedback entry summarizing the outcome for the human reader:
-   - `quest feedback q-N --text "Summary: <what changed, why it matters, and what verification passed>"` for short single-topic summaries
-   - For long multi-topic summaries, write the full `Summary:` body first, then add `--tldr` or `--tldr-file` with one concise bullet or sentence for each major topic
-   - Prefer body first, TLDR second: `quest feedback q-N --text-file /tmp/summary.md --tldr-file /tmp/summary-tldr.md`
-   - For Quest Journey work, the current phase documentation entry should usually carry this detail; prefer a phase-scoped `quest feedback add q-N --text-file ... --tldr-file ... --kind phase-summary` entry over a duplicate flat summary
-   - Briefly describe what changed, why it matters to the user or project, and what verification passed
-   - This should be the one substantive quest-level prose summary by default
-   - Write the summary as an outcome note, not a review or rework timeline
-   - This summary may also be the explanation for addressed human feedback when it clearly names what feedback was handled and how
-   - Re-running the same summary-style feedback (`Summary:` or `Refreshed summary:`) updates the latest agent summary comment instead of appending another near-duplicate summary entry
-   - Before adding a new agent feedback entry, check `quest feedback latest q-N --author agent --full` to see whether the latest summary or worker update can be refreshed instead
-   - If the work was ported normally, rely on structured metadata (`commitShas` via `quest complete ... --commit/--commits ...`) for routine port information instead of adding a second long prose port comment
-   - Only add a second port-specific comment when the porting itself was exceptional and materially worth noting
-   - Avoid review-process timelines, duplicate near-identical comments, and excessive commit-by-commit narration unless that detail is essential to understand the result
-   - The goal: someone reading only the quest (not the session conversation) should understand what happened
-   - Treat this as a required worker deliverable before you report back that the quest is ready
-
-   For every completed non-cancelled quest, prefer structured final debrief metadata over using legacy notes as the outcome summary. If you complete a quest, use `--debrief-file` plus `--debrief-tldr-file`; if the leader controls completion, provide a `Final debrief draft:` and `Debrief TLDR draft:` in the handoff instead. The final debrief body should summarize the user-facing result, important verification, synced commits when relevant, and residual risks; existing `notes` remain for legacy closure details and cancellation reasons. The debrief TLDR should stay higher level and self-contained: issue or need, solution shape, why it works, and key decisions or findings. Routine synced SHAs, raw commit IDs, branch names, command lists or transcripts, raw paths, and verification mechanics belong in the body or structured metadata unless they are central to understanding the outcome. If commit metadata or a `Synced SHAs:` handoff already carries exact values, write the TLDR without the hashes.
-
-3. **User review checks are optional human-owned checks only.** When writing `quest complete --items "..."` or `quest complete --items-file ...`:
-   - Do NOT include implementation details, tests, Code Review, Execute, Port, push status, post-port verification, Memory closure, or automated verification results.
-   - Put what changed, why it matters, synced/ported status, and automated verification results in phase docs, the consolidated `Summary:` quest feedback comment, structured commit metadata, Port notes, review verdicts, artifacts, or the final debrief instead.
-   - DO include only things the user still needs to inspect or do after completion: "popover appears correctly on mobile", "notification chip matches TimerChip styling", "scroll-to-message highlights the right message".
-   - If the answer is "nothing remains for the user", complete with no `--items`. Empty User review checks are normal and preferred over invented checklist entries.
-   - Mid-Journey decisions belong in User Checkpoint, not final User review checks, unless the user explicitly asks for a post-completion follow-up item.
-
-### Review inbox workflow
-- Newly completed quests submitted for review enter the review inbox (`verificationInboxUnread=true`).
-- Use `quest later q-N` after triage/review to move a quest out of inbox while keeping the done quest review-pending.
-- Use `quest inbox q-N` to re-prioritize a review-pending done quest by moving it back into inbox.
-- Use list filters when triaging: `quest list --verification inbox`, `quest list --verification reviewed`, `quest list --verification all`.
-
-### Checking off User review checks
-
-When you review a done quest and confirm a User review check, check it off:
-
-1. Run `quest show q-N` to see the User review checks
-2. For each item you can confirm is working, run `quest check q-N <index>` (0-based index)
-3. Run `quest show q-N` again to confirm the item is now checked (`[x]`)
-4. Add feedback explaining what you verified and how: `quest feedback q-N --text "Verified item 0: ..."`; combine related verified items into one concise comment when that is clearer than several near-duplicate entries
-
-Do not add User review checks for agent-owned evidence just to have something to check. If a historical check is already self-verified by evidence, you may check it off and mention the evidence; future checklists should avoid that item type.
-
-### Reviewer-owned quest hygiene
-
-When you are reviewing another agent's quest, directly fix straightforward quest hygiene issues you can verify and safely perform with Quest CLI commands instead of bouncing them back through leader -> worker -> reviewer. Examples:
-
-- Use `quest address q-N <index>` when worker evidence clearly addressed a human feedback entry but the addressed flag is stale.
-- Use `quest feedback latest/list/show` to inspect whether a summary can be refreshed. When the worker report and diff give enough evidence, add or refresh a user-oriented summary with `quest feedback add q-N --text "Summary: ..."` for short single-topic content, or `quest feedback add q-N --text-file /tmp/summary.md --tldr-file /tmp/summary-tldr.md` for long multi-topic content so the TLDR preserves the major topics from the full summary without spending scan space on incidental raw details.
-- For Quest Journey work, check phase documentation quality before accepting: phase relevance, useful full detail, TLDR completeness where appropriate, focus on conclusions/evidence/risks/handoff facts instead of incidental raw details, and correct phase association when the phase-scoped primitive is available. Challenge TLDRs or routine user-facing summaries that repeat raw commits/hashes when structured commit metadata, a dedicated `Synced SHAs:` line, the full body, or verification sections already carry those identifiers.
-- Use `quest check q-N <index>` when you personally verified a User review check.
-- Report every hygiene fix you made in your ACCEPT/CHALLENGE output.
-
-Still escalate substantive failures and ambiguity. Do not guess about user intent, do not hide missing or dishonest work behind bookkeeping, and do not perform unsupported quest mutations just to avoid a CHALLENGE.
-
-### Done review follow-up
-- **Only the human closes review.** Never clear or override review expectations yourself unless the human explicitly asks you to.
-- **All User review checks should be checked** before treating review as accepted. A quest with zero User review checks can still be complete when no user action remains. If any checks are unchecked (0/N), leave the quest review-pending for the human to review.
-- Include `--notes` with closure info when the human asks you to run `quest done`.
-- Use `--cancelled` with `--notes` if abandoning rather than completing.
+- Confirm the implementation is complete and run the required self-checks before handoff. For tracked code/test changes, the current full automated gate is `cd web && bun --no-install run typecheck`, `cd web && bun --no-install run test`, and `cd web && bun --no-install run format:check`.
+- Worktree sessions must finish the sync-to-main workflow before `quest complete`; the human verifies from the main repo, not the worktree.
+- Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work when they produce tracked changes.
+- Final Memory is mandatory for every non-cancelled Quest Journey and owns final User review check settlement, durable-state closure, final debrief metadata, quest metadata reconciliation, memory consistency checks, cleanup, and follow-up routing.
+- Every completed non-cancelled quest must include final debrief metadata and debrief TLDR metadata. Use `--debrief-file` and `--debrief-tldr-file` on `quest complete`, `quest done`, or `quest transition --status done` as appropriate.
+- User review checks are optional human-owned checks only. Complete with no `--items` when no user action remains; do not add implementation details, tests, Port status, Memory closure, or automated verification results as checks.
+- Keep code commit metadata separate from memory commit metadata: use `--commit` / `--commits` for code/docs/template commits and `--memory-commit` / `--memory-commits` for file-based memory commits.
+- Do not leave commit info only in comments; structured commit metadata is required for completion handoff.
+- Read `memory-completion.md` for detailed pre-submission, final Memory, review inbox, User review check, reviewer hygiene, Stream Memory CLI, and debrief TLDR guidance.
 
 ### Done → in_progress (rework)
 - Human found issues and left feedback. Run `quest show q-N` and read the full feedback thread before resuming work. Address every point raised.

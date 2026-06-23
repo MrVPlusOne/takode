@@ -15,13 +15,32 @@ const AGENTS_SKILL_DIR = join(homedir(), ".agents", "skills", "quest");
 const OLD_SLASH_COMMAND = join(homedir(), ".claude", "commands", "quest.md");
 const OLD_API_DOC = join(homedir(), ".companion", "questmaster", "API.md");
 const TEMPLATE_PATH = join(dirname(fileURLToPath(import.meta.url)), "templates", "quest-skill-docs.md");
+const MEMORY_COMPLETION_TEMPLATE_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "templates",
+  "quest-memory-completion.md",
+);
+const GENERATED_QUEST_SKILL_FILES = [
+  { relativePath: "SKILL.md", templatePath: TEMPLATE_PATH },
+  { relativePath: "memory-completion.md", templatePath: MEMORY_COMPLETION_TEMPLATE_PATH },
+] as const;
 
-let questSkillDocsTemplate: string | null = null;
+type GeneratedQuestSkillFile = {
+  relativePath: string;
+  content: string;
+};
 
-async function getQuestSkillDocsTemplate(): Promise<string> {
-  if (questSkillDocsTemplate !== null) return questSkillDocsTemplate;
-  questSkillDocsTemplate = await readFile(TEMPLATE_PATH, "utf-8");
-  return questSkillDocsTemplate;
+let questSkillFiles: GeneratedQuestSkillFile[] | null = null;
+
+async function getQuestSkillFiles(): Promise<GeneratedQuestSkillFile[]> {
+  if (questSkillFiles !== null) return questSkillFiles;
+  questSkillFiles = await Promise.all(
+    GENERATED_QUEST_SKILL_FILES.map(async (file) => ({
+      relativePath: file.relativePath,
+      content: await readFile(file.templatePath, "utf-8"),
+    })),
+  );
+  return questSkillFiles;
 }
 
 /**
@@ -35,9 +54,9 @@ export async function ensureQuestmasterIntegration(port: number, packageRoot: st
   await writeWrapperScripts(packageRoot);
   writeLocalPathShim();
   writeRipgrepShim();
-  const skillContent = await getQuestSkillDocsTemplate();
-  writeAgentSkill(CLAUDE_SKILL_DIR, skillContent);
-  writeAgentSkill(AGENTS_SKILL_DIR, skillContent);
+  const skillFiles = await getQuestSkillFiles();
+  writeAgentSkill(CLAUDE_SKILL_DIR, skillFiles);
+  writeAgentSkill(AGENTS_SKILL_DIR, skillFiles);
   cleanupOldFiles();
   console.log("[quest-integration] CLI wrapper and agent skill installed");
 }
@@ -191,10 +210,13 @@ exec grep "$\{grep_args[@]}" -- "$pattern" "$\{positional[@]:1}"
   chmodSync(shimPath, 0o755); // sync-ok: quest setup, not called during message handling
 }
 
-function writeAgentSkill(skillDir: string, content: string): void {
+function writeAgentSkill(skillDir: string, files: GeneratedQuestSkillFile[]): void {
   prepareGeneratedSkillDir(skillDir);
-  const skillPath = join(skillDir, "SKILL.md");
-  writeFileSync(skillPath, content, "utf-8"); // sync-ok: quest setup, not called during message handling
+  for (const file of files) {
+    const skillPath = join(skillDir, file.relativePath);
+    mkdirSync(dirname(skillPath), { recursive: true }); // sync-ok: quest setup, not called during message handling
+    writeFileSync(skillPath, file.content, "utf-8"); // sync-ok: quest setup, not called during message handling
+  }
 }
 
 function prepareGeneratedSkillDir(skillDir: string): void {
