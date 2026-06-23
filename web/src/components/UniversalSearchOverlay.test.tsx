@@ -906,6 +906,7 @@ describe("UniversalSearchOverlay", () => {
 
     await screen.findByText("Recent user request about universal search");
     fireEvent.keyDown(dialog, { key: "ArrowDown" });
+    await waitFor(() => expect(screen.getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true"));
     fireEvent.keyDown(dialog, { key: "Enter" });
     expect(callbacks.onOpenMessage).toHaveBeenCalledWith("s-new", "user-old", "main");
     expect(callbacks.onClose).toHaveBeenCalledTimes(1);

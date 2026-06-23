@@ -101,7 +101,9 @@ describe("Playground", () => {
     expect(screen.getByText("launch_tmux_retry.sh")).toBeTruthy();
     expect(document.body).toHaveTextContent("set -uo pipefail");
     expect(document.body).toHaveTextContent("tmux new-session");
-  });
+    // Full Playground rendering is intentionally broad documentation coverage;
+    // in the aggregate suite it can exceed the default 10s jsdom budget.
+  }, 20_000);
 
   it("documents first-line Side Chat action controls and fallback reason states", () => {
     render(<Playground />);

@@ -48,6 +48,13 @@ vi.mock("../utils/highlight.js", () => ({
 
 let mockState: any;
 
+function setDocumentVisibilityForQuestmasterTest(state: DocumentVisibilityState) {
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: state,
+  });
+}
+
 type MockQuestPageOptions = {
   offset?: number;
   limit?: number;
@@ -237,6 +244,7 @@ async function waitForRenderedQuest(questId: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  setDocumentVisibilityForQuestmasterTest("hidden");
   resetState({
     quests: [makeQuest({ questId: "q-1", title: "Needle quest", description: "needle match" })],
   });
@@ -265,6 +273,10 @@ beforeEach(() => {
     path: "/tmp/draft.png",
   });
   window.location.hash = "#/questmaster";
+});
+
+afterEach(() => {
+  setDocumentVisibilityForQuestmasterTest("visible");
 });
 
 describe("QuestmasterPage paged browsing rework", () => {

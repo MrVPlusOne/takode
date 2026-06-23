@@ -101,6 +101,13 @@ type MockStoreState = {
 
 let mockState: MockStoreState;
 
+function setDocumentVisibilityForQuestmasterTest(state: DocumentVisibilityState) {
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: state,
+  });
+}
+
 type MockQuestPageOptions = {
   offset?: number;
   limit?: number;
@@ -383,6 +390,7 @@ async function settleLatestQuestPageRequest() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  setDocumentVisibilityForQuestmasterTest("hidden");
   promptSpy = vi.spyOn(window, "prompt").mockReturnValue("");
   mockClipboardWriteText.mockResolvedValue(undefined);
   Object.assign(navigator, { clipboard: { writeText: mockClipboardWriteText } });
@@ -440,6 +448,7 @@ beforeEach(() => {
 
 afterEach(() => {
   promptSpy.mockRestore();
+  setDocumentVisibilityForQuestmasterTest("visible");
 });
 
 describe("QuestmasterPage status display", () => {
@@ -1285,7 +1294,7 @@ describe("QuestmasterPage status display", () => {
     });
     expect(mockState.openQuestOverlay).not.toHaveBeenCalled();
     expect(mockState.questOverlayId).toBeNull();
-    expect(screen.getByRole("button", { name: "Copied!" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Copied!" })).toBeInTheDocument());
   });
 
   it("opens compact quest id links with hover previews and copies from the adjacent icon", async () => {
