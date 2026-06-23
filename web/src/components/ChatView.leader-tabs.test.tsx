@@ -946,6 +946,39 @@ describe("ChatView leader open thread tabs", () => {
     });
   });
 
+  it("opens a manually created idea quest at the left edge when it first becomes active", async () => {
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-8", "q-5", "q-6"])),
+      sessionBoards: new Map([
+        ["s1", [{ questId: "q-7", status: "ALIGNMENT", title: "Manually created idea", updatedAt: 70 }]],
+      ]),
+      messages: new Map([["s1", [threadMessage("q-8", 80), threadMessage("q-5", 50), threadMessage("q-6", 60)]]]),
+      quests: [
+        { questId: "q-8", title: "Existing visible quest", status: "in_progress" },
+        { questId: "q-5", title: "Older visible quest", status: "in_progress" },
+        { questId: "q-6", title: "Older visible quest B", status: "in_progress" },
+        { questId: "q-7", title: "Manually created idea", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    await waitFor(() =>
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-7,q-8,q-5,q-6"),
+    );
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-7",
+        placement: "first",
+        source: "server_candidate",
+        eventAt: 70,
+      },
+    });
+  });
+
   it("reapplies first placement when a fresh board row surfaces an already-open stale tab", async () => {
     resetStore({
       sessions: leaderSession(leaderTabs(["q-old-a", "q-old-b", "q-new"], [], 10)),
@@ -1030,11 +1063,11 @@ describe("ChatView leader open thread tabs", () => {
     });
   });
 
-  it("does not let an older board row undo a newer authoritative tab order", async () => {
+  it("repairs an already-open active board row into the leftmost leader tab prefix on hydration", async () => {
     resetStore({
       sessions: leaderSession(leaderTabs(["q-old-a", "q-new", "q-old-b"], [], 40)),
       sessionBoards: new Map([
-        ["s1", [{ questId: "q-new", status: "IMPLEMENTING", title: "Already ordered quest", updatedAt: 30 }]],
+        ["s1", [{ questId: "q-new", status: "IMPLEMENTING", title: "Active hidden quest", updatedAt: 30 }]],
       ]),
       messages: new Map([
         ["s1", [threadMessage("q-old-a", 1), threadMessage("q-old-b", 2), threadMessage("q-new", 30)]],
@@ -1042,7 +1075,7 @@ describe("ChatView leader open thread tabs", () => {
       quests: [
         { questId: "q-old-a", title: "Older tab A", status: "in_progress" },
         { questId: "q-old-b", title: "Older tab B", status: "in_progress" },
-        { questId: "q-new", title: "Already ordered quest", status: "in_progress" },
+        { questId: "q-new", title: "Active hidden quest", status: "in_progress" },
       ],
     });
 
@@ -1050,9 +1083,18 @@ describe("ChatView leader open thread tabs", () => {
     const scope = within(view.container);
 
     await waitFor(() =>
-      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-old-a,q-new,q-old-b"),
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-new,q-old-a,q-old-b"),
     );
-    expect(mockSendToSession).not.toHaveBeenCalled();
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-new",
+        placement: "first",
+        source: "server_candidate",
+        eventAt: 30,
+      },
+    });
   });
 
   it("does not resurrect an active quest thread that the user explicitly closed", async () => {

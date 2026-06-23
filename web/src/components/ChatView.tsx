@@ -1461,11 +1461,20 @@ export function ChatView({
 
   useEffect(() => {
     if (!isLeaderSession || preview) return;
+    const initialActiveBoardBaseline = !initializedActiveBoardThreadKeysRef.current;
     const activeBoardThreadKeys = new Set<string>();
     for (const row of activeBoard) {
       const threadKey = normalizeThreadKey(row.questId);
       if (threadKey) activeBoardThreadKeys.add(threadKey);
     }
+
+    const activeBoardOpenThreadKeys = activeBoard
+      .map((row) => normalizeThreadKey(row.questId))
+      .filter((threadKey, index, threadKeys) => {
+        if (!shouldPersistOpenThreadTab(threadKey) || threadKeys.indexOf(threadKey) !== index) return false;
+        const row = activeBoard.find((candidate) => normalizeThreadKey(candidate.questId) === threadKey);
+        return row ? !questOrBoardRowIsCompleted(questStatusByKey.get(threadKey), row.status, row.completedAt) : false;
+      });
 
     // Front insertion stacks candidates, so reverse iteration preserves board order among newly opened rows.
     for (const row of [...activeBoard].reverse()) {
@@ -1480,9 +1489,15 @@ export function ChatView({
         row.updatedAt,
       );
       const alreadyOpen = openThreadTabKeysRef.current.includes(threadKey);
-      // Idea-created quest threads can already be open but hidden under More before
-      // a later board-row activation makes them newly relevant.
-      const repositionExisting = newlySurfacedActiveRow && alreadyOpen && candidateCanOpen;
+      const activeBoardIndex = activeBoardOpenThreadKeys.indexOf(threadKey);
+      const existingOpenIndex = openThreadTabKeysRef.current.indexOf(threadKey);
+      // Active board rows are the highest-priority leader work tabs. A manually
+      // created idea quest can first enter leader activity with its tab already
+      // present but buried under More, so keep active rows in the left prefix.
+      const activeBoardPrefixNeedsRepair =
+        initialActiveBoardBaseline && activeBoardIndex >= 0 && existingOpenIndex !== activeBoardIndex;
+      const repositionExisting =
+        alreadyOpen && candidateCanOpen && (newlySurfacedActiveRow || activeBoardPrefixNeedsRepair);
       if (alreadyOpen && !repositionExisting) continue;
       if (!candidateCanOpen) continue;
       openThreadTab(threadKey, {
