@@ -730,6 +730,10 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatResultSizeLabel(bytes: number): string {
+  return `${formatBytes(bytes)} (UTF-8 bytes)`;
+}
+
 function isLikelyImagePath(path: string): boolean {
   return /\.(png|jpe?g|gif|webp|bmp|svg|ico|avif|heic|heif|tiff?)$/i.test(path);
 }
@@ -869,6 +873,10 @@ function ToolResultSection({
 
   const displayContent = shouldUseLiveTranscriptFallback ? liveOutput : (fullContent ?? preview.content);
   const showExpandButton = !shouldUseLiveTranscriptFallback && preview.is_truncated && fullContent === null;
+  const resultSize =
+    typeof preview.total_size === "number" && Number.isFinite(preview.total_size) ? preview.total_size : null;
+  const resultSizeLabel = resultSize === null ? null : formatResultSizeLabel(resultSize);
+  const resultSizeTitle = resultSize === null ? "" : `Original result size: ${resultSize.toLocaleString()} UTF-8 bytes`;
 
   const fetchFull = async () => {
     setLoading(true);
@@ -897,8 +905,10 @@ function ToolResultSection({
         {shouldUseLiveTranscriptFallback && (
           <span className="text-[10px] text-cc-muted">showing captured transcript</span>
         )}
-        {preview.is_truncated && fullContent === null && (
-          <span className="text-[10px] text-cc-muted">{formatBytes(preview.total_size)}</span>
+        {resultSizeLabel && (
+          <span className="text-[10px] text-cc-muted" title={resultSizeTitle}>
+            output size: {resultSizeLabel}
+          </span>
         )}
       </div>
       {showExpandButton && (
@@ -907,7 +917,7 @@ function ToolResultSection({
           disabled={loading}
           className="mb-1 text-[10px] text-cc-primary hover:underline cursor-pointer disabled:opacity-50"
         >
-          {loading ? "Loading..." : `Show full result (${formatBytes(preview.total_size)})`}
+          {loading ? "Loading..." : `Show full result${resultSizeLabel ? ` (${resultSizeLabel})` : ""}`}
         </button>
       )}
       <div className="group/code relative rounded-lg overflow-hidden">

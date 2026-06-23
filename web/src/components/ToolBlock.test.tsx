@@ -1110,6 +1110,47 @@ describe("ToolBlock", () => {
     useStore.setState({ toolResults: new Map() });
   });
 
+  it("keeps the UTF-8 byte size label visible after loading a full result", async () => {
+    // Regression coverage for expanded result previews: the size cue must not
+    // disappear when a truncated preview is replaced by the fetched full output.
+    vi.mocked(api.getToolResult).mockResolvedValue({
+      content: "FULL OUTPUT\nline 2",
+      is_error: false,
+    });
+    const toolResults = new Map();
+    const sessionResults = new Map();
+    sessionResults.set("tool-full-result-size", {
+      tool_use_id: "tool-full-result-size",
+      content: "preview tail",
+      is_error: false,
+      total_size: 4096,
+      is_truncated: true,
+      duration_seconds: 0.2,
+    });
+    toolResults.set("s-full-result-size", sessionResults);
+    useStore.setState({ toolResults });
+
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "cat long-output.txt" }}
+        toolUseId="tool-full-result-size"
+        sessionId="s-full-result-size"
+        defaultOpen
+      />,
+    );
+
+    expect(screen.getByText("output size: 4.0 KB (UTF-8 bytes)")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show full result (4.0 KB (UTF-8 bytes))" }));
+
+    await waitFor(() => expect(screen.getByText(/FULL OUTPUT/)).toBeTruthy());
+    expect(screen.getByText("output size: 4.0 KB (UTF-8 bytes)")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Show full result (4.0 KB (UTF-8 bytes))" })).toBeNull();
+    expect(vi.mocked(api.getToolResult)).toHaveBeenCalledWith("s-full-result-size", "tool-full-result-size");
+
+    useStore.setState({ toolResults: new Map() });
+  });
+
   it("renders JSON for unknown tools when expanded", () => {
     render(<ToolBlock name="CustomTool" input={{ foo: "bar", count: 42 }} toolUseId="tool-9" />);
 

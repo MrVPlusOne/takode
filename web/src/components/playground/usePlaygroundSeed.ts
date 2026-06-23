@@ -1062,10 +1062,10 @@ export function usePlaygroundSeed() {
     store.setToolResult(sessionId, "tu-2", {
       tool_use_id: "tu-2",
       content:
-        'export function authMiddleware(req, res, next) {\n  if (!req.session.userId) {\n    return res.status(401).json({ error: "Unauthorized" });\n  }\n  next();\n}',
+        '...\n  if (!req.session.userId) {\n    return res.status(401).json({ error: "Unauthorized" });\n  }\n  next();\n}',
       is_error: false,
-      total_size: 156,
-      is_truncated: false,
+      total_size: 7168,
+      is_truncated: true,
       duration_seconds: 0.1,
     });
     store.setToolResult(sessionId, "tu-3", {
