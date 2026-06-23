@@ -43,11 +43,11 @@ This skill covers leader discipline and the step-by-step dispatch process. Invok
 
 ## Pre-Dispatch Approval Contract
 
-If the user clearly asked for a quest to be created and dispatched, optimize for a single combined confirmation round. Use this compact shape:
+If the user clearly asked for a quest to be created and dispatched, optimize for a single combined confirmation round.
 
-The chat approval surface is for the user's decision, not for worker grounding. Keep it concise and decision-oriented: concise goals, Journey, scheduling, and only risks, assumptions, ambiguity, out-of-scope boundaries, costly execution, external effects, or user-visible tradeoffs that could affect approval. Do not paste or mirror the full worker-facing quest body into chat by default; preserve that detail in the quest record so workers still have scope, evidence, acceptance criteria, constraints, and related context. When the approval asks the user to choose, include enough in-thread decision context for the choice itself; do not rely on notification suggestions or quest feedback as the option packet.
+The chat approval surface is for the user's decision, not for worker grounding. Make it read like a TLDR for approval: concise goal, Journey, scheduling, and only the details the user needs to approve, correct, or choose. Move most evidence, acceptance bullets, non-goals, fallback mechanics, and worker-facing context into the quest record so workers still have scope, evidence, acceptance criteria, constraints, and related context. When the approval asks the user to choose, include enough in-thread decision context for the choice itself; do not rely on notification suggestions or quest feedback as the option packet.
 
-The compact shape is a menu, not a form to fill out. Do not reproduce every heading, explanatory bullet, or obvious contract detail when the decision can be made from a shorter packet. For the simple case, the whole approval surface should usually be just `Proposed Quest`, `Goal / Acceptance`, one `Journey` line, and one `Scheduling` line. Expand only for a real relationship, material evidence, non-goals, open questions, non-standard phase notes, queueing, capacity pressure, or another tradeoff the user must approve.
+Use this compact shape as a menu, not a form to fill out. Do not reproduce every heading, explanatory bullet, or obvious contract detail when the decision can be made from a shorter packet. Preserve judgment: expand only for a real relationship, open question, unusual phase reason, user-visible boundary, queueing/capacity choice, or another fact the user needs to approve or correct.
 
 ### Proposed Quest
 
@@ -63,11 +63,11 @@ The compact shape is a menu, not a form to fill out. Do not reproduce every head
 
 ### Context / Evidence
 
-- Optional. Include only prior quests, source examples, screenshots, logs, user reports, or artifact paths that materially affect scope or verification.
+- Optional. Include only prior quests, source examples, screenshots, logs, user reports, or artifact paths that the user needs to see to approve or choose; otherwise put them in the quest record.
 
 ### Out Of Scope
 
-- Optional. Include only exclusions that prevent likely misunderstanding.
+- Optional. Include only exclusions that prevent likely user misunderstanding or require confirmation; otherwise put non-goals in the quest record.
 
 ### Open Questions
 
@@ -76,19 +76,19 @@ The compact shape is a menu, not a form to fill out. Do not reproduce every head
 ### Journey
 
 - Planned phases.
-- Concise notes only for non-standard phases or unusual phase-specific work.
+- Concise notes only for non-standard phases or unusual phase-specific work that affect user approval.
 
 ### Scheduling
 
 - Worker choice or fresh-spawn intent.
 - Immediate dispatch vs queueing plan.
-- Capacity replacement/archive plan when worker-slot capacity is tight.
+- Capacity details only when the user must approve a tradeoff; routine fallback mechanics belong in the quest record or leader action after approval.
 
 If meaningful clarification is needed, ask those questions with the quest framing. After the user clarifies and no major ambiguity remains, the next response should include both the drafted quest and the drafted Journey/scheduling plan. Avoid a separate round that only restates understanding after clarification when there are no new questions and no quest/Journey draft yet. More than two confirmation rounds should happen only when genuine additional clarification is needed.
 
 Use one source of truth for the requested work. Prefer a single `Goal / Acceptance` section that serves as both your understanding and the proposed quest's acceptance criteria. If you already wrote a concise understanding, either make that text the `Goal / Acceptance` section or replace it with one expanded `Goal / Acceptance`; do not restate the same work again elsewhere.
 
-Add separate sections only when they carry non-overlapping approval information, such as `Relationship`, `Context / Evidence`, `Out Of Scope`, `Open Questions`, `Invariants / Must Preserve`, `Journey`, non-standard phase notes, and `Scheduling`. Open questions and assumptions are optional and should only cover decisions not already implied by `Goal / Acceptance` or the user's stated facts. Omit optional sections when they do not affect the user's decision; do not expand the proposal just to expose all worker-facing quest details.
+Add separate sections only when they carry non-overlapping approval information, such as `Relationship`, `Context / Evidence`, `Out Of Scope`, `Open Questions`, `Invariants / Must Preserve`, `Journey`, non-standard phase notes, and `Scheduling`. Open questions and assumptions are optional and should only cover decisions not already implied by `Goal / Acceptance` or the user's stated facts. Omit optional sections when they do not affect the user's decision; do not expand the proposal just to expose worker-facing quest details.
 
 For quest-design-only requests, use the same compact spirit but omit `Journey` and `Scheduling`: `Proposed Quest`, `Goal / Acceptance`, and only the optional sections that add new approval value. For dispatch-only requests where the quest already exists, reference the quest instead of re-describing its accepted scope, then present `Journey` and `Scheduling` with any narrow `Context / Evidence` or `Open Questions` needed for dispatch.
 
@@ -106,13 +106,7 @@ Omit notes for standard phases by default: `alignment`, `implement`, `code-revie
 
 When a proposal includes multiple non-standard phase notes, format them as bullets keyed by phase, for example `- Execute: ...` and `- Outcome Review: ...`. Keep the phase list, phase notes, and scheduling plan visually separate so the approval surface is easy to scan before the user confirms.
 
-The scheduling/orchestration plan must state at least:
-- which worker you expect to use, or that you will spawn fresh
-- whether you will dispatch immediately after approval or keep the quest `QUEUED`
-- if `QUEUED`, the exact `--wait-for` reason: `q-N`, `#N`, `free-worker`, or one comma-separated value such as `q-N,#N,free-worker` when multiple blockers apply
-- if worker-slot capacity is tight, whether you will replace an eligible same-repo/base-branch worktree worker or fall back to archiving a reclaimable completed worker before dispatching
-
-Do not present only the phase list and silently decide the worker or queueing mechanics later. The user is approving both the phase plan and the intended dispatch/queueing approach.
+The scheduling/orchestration plan should state the expected worker choice or fresh-spawn intent and whether dispatch is immediate or queued. Include exact `--wait-for` or replacement/archive fallback details only when they are part of the user's decision; otherwise keep those mechanics in the quest record or leader execution notes. Do not present only the phase list and silently decide a materially different worker or queueing approach later.
 
 Examples:
 - **Simple immediate dispatch:** `Journey`: alignment -> implement -> code-review -> port -> memory. `Scheduling`: spawn a fresh worker and dispatch immediately if approved.

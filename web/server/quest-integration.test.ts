@@ -198,8 +198,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Open Questions");
     expect(skill).toContain("omit this section entirely when nothing meaningful is unclear");
     expect(skill).toContain("visible chat confirmation is for the user's decision, not for worker grounding");
-    expect(skill).toContain("Do not paste or mirror the full worker-facing quest body into chat by default");
-    expect(skill).toContain("scope, evidence, acceptance criteria, constraints, and related context");
+    expect(skill).toContain("Make it read like a TLDR for approval");
+    expect(skill).toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");
     expect(skill).toContain(
       "include the complete decision context in the thread before any `needs-input` notification",
     );
@@ -210,9 +210,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("default `Expected Output / Acceptance` section");
     expect(skill).toContain("full quest-body paste");
     expect(skill).toContain("Treat the compact shape as a menu, not a form");
-    expect(skill).toContain(
-      "simple approvals should usually be just `Proposed Quest`, `Goal / Acceptance`, one `Journey` line, and one `Scheduling` line",
-    );
+    expect(skill).toContain("preserve judgment and expand for a real relationship");
     expect(skill).toContain("Omit optional sections when they do not affect the user's decision");
     expect(skill).toContain("`Invariants / Must Preserve`");
     expect(skill).toContain("quest-design-only requests");

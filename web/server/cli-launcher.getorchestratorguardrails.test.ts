@@ -405,12 +405,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("`~/.companion/quest-journey-phases/alignment/assignee.md`");
     expect(guardrails).toContain("one confirmation can approve quest text, Journey, and dispatch plan");
     expect(guardrails).toContain("visible chat approval surface is for the user's decision, not worker grounding");
-    expect(guardrails).toContain("Do not paste or mirror the full worker-facing quest body into chat by default");
-    expect(guardrails).toContain("scope, evidence, acceptance criteria, constraints, and related context");
-    expect(guardrails).toContain("treat that shape as a menu, not a form");
-    expect(guardrails).toContain(
-      "simple approvals should usually be just `Proposed Quest`, `Goal / Acceptance`, one `Journey` line, and one `Scheduling` line",
-    );
+    expect(guardrails).toContain("make it read like a TLDR for approval");
+    expect(guardrails).toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");
+    expect(guardrails).toContain("Use the scannable shape");
+    expect(guardrails).toContain("preserve judgment, but expand only for ambiguity");
     expect(guardrails).toContain("board-owned draft-or-active state for the quest");
     expect(guardrails).toContain("Work Board");
     // Spawn backend default note
@@ -472,9 +470,9 @@ describe("getOrchestratorGuardrails", () => {
       "approval surface concise and decision-oriented rather than pasting the full quest body",
     );
     expect(guardrails).toContain("The compact proposal shape is a menu, not a form");
-    expect(guardrails).toContain("do not emit optional headings or explanatory bullets unless they add decision value");
+    expect(guardrails).toContain("omit optional headings or explanatory bullets unless they add decision value");
     expect(guardrails).toContain("expected worker choice or fresh-spawn intent");
-    expect(guardrails).toContain("spawn fresh and dispatch immediately if approved");
+    expect(guardrails).toContain("Include exact wait-for reasons, replacement/archive fallback mechanics");
     expect(guardrails).toContain(
       "Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work",
     );
@@ -601,9 +599,9 @@ describe("getOrchestratorGuardrails", () => {
       "approval surface concise and decision-oriented rather than pasting the full quest body",
     );
     expect(guardrails).toContain("The compact proposal shape is a menu, not a form");
-    expect(guardrails).toContain("do not emit optional headings or explanatory bullets unless they add decision value");
+    expect(guardrails).toContain("omit optional headings or explanatory bullets unless they add decision value");
     expect(guardrails).toContain("expected worker choice or fresh-spawn intent");
-    expect(guardrails).toContain("spawn fresh and dispatch immediately if approved");
+    expect(guardrails).toContain("Include exact wait-for reasons, replacement/archive fallback mechanics");
     expect(guardrails).toContain("Leaders do not own worker quests");
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
