@@ -730,10 +730,6 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function formatResultSizeLabel(bytes: number): string {
-  return `${formatBytes(bytes)} (UTF-8 bytes)`;
-}
-
 function isLikelyImagePath(path: string): boolean {
   return /\.(png|jpe?g|gif|webp|bmp|svg|ico|avif|heic|heif|tiff?)$/i.test(path);
 }
@@ -875,7 +871,7 @@ function ToolResultSection({
   const showExpandButton = !shouldUseLiveTranscriptFallback && preview.is_truncated && fullContent === null;
   const resultSize =
     typeof preview.total_size === "number" && Number.isFinite(preview.total_size) ? preview.total_size : null;
-  const resultSizeLabel = resultSize === null ? null : formatResultSizeLabel(resultSize);
+  const resultSizeLabel = resultSize === null ? null : formatBytes(resultSize);
   const resultSizeTitle = resultSize === null ? "" : `Original result size: ${resultSize.toLocaleString()} UTF-8 bytes`;
 
   const fetchFull = async () => {
@@ -907,7 +903,7 @@ function ToolResultSection({
         )}
         {resultSizeLabel && (
           <span className="text-[10px] text-cc-muted" title={resultSizeTitle}>
-            output size: {resultSizeLabel}
+            output bytes: {resultSizeLabel}
           </span>
         )}
       </div>
@@ -917,7 +913,7 @@ function ToolResultSection({
           disabled={loading}
           className="mb-1 text-[10px] text-cc-primary hover:underline cursor-pointer disabled:opacity-50"
         >
-          {loading ? "Loading..." : `Show full result${resultSizeLabel ? ` (${resultSizeLabel})` : ""}`}
+          {loading ? "Loading..." : "Show full result"}
         </button>
       )}
       <div className="group/code relative rounded-lg overflow-hidden">

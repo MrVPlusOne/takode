@@ -1140,12 +1140,17 @@ describe("ToolBlock", () => {
       />,
     );
 
-    expect(screen.getByText("output size: 4.0 KB (UTF-8 bytes)")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Show full result (4.0 KB (UTF-8 bytes))" }));
+    expect(screen.getByText("output bytes: 4.0 KB")).toBeTruthy();
+    expect(screen.getAllByText("output bytes: 4.0 KB")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Show full result" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /4\.0 KB/ })).toBeNull();
+    expect(screen.queryByText("Show full result (4.0 KB (UTF-8 bytes))")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show full result" }));
 
     await waitFor(() => expect(screen.getByText(/FULL OUTPUT/)).toBeTruthy());
-    expect(screen.getByText("output size: 4.0 KB (UTF-8 bytes)")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Show full result (4.0 KB (UTF-8 bytes))" })).toBeNull();
+    expect(screen.getByText("output bytes: 4.0 KB")).toBeTruthy();
+    expect(screen.getAllByText("output bytes: 4.0 KB")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Show full result" })).toBeNull();
     expect(vi.mocked(api.getToolResult)).toHaveBeenCalledWith("s-full-result-size", "tool-full-result-size");
 
     useStore.setState({ toolResults: new Map() });
