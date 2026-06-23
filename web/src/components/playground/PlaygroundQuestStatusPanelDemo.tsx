@@ -118,6 +118,22 @@ export function PlaygroundQuestStatusPanelDemo({ variant }: { variant: "claimed"
               addressed: false,
             },
           ],
+          quizItems: [
+            {
+              id: "q-941-ui-context",
+              question: "What should the status panel make recallable after the quest is done?",
+              answer:
+                "The panel should preserve the active quest's owner, review state, and key follow-up facts without forcing the user to reopen the full quest record.",
+              source: "Implement phase summary",
+            },
+            {
+              id: "q-941-hidden-answer",
+              question: "Why are answers collapsed by default?",
+              answer:
+                "Collapsed answers preserve active recall: the user sees the prompt first, then reveals the answer only after trying to remember it.",
+              source: "Quest quiz guidance",
+            },
+          ],
           commitShas: ["abc1234def5678"],
         },
         {

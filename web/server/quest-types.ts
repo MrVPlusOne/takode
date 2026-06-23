@@ -38,6 +38,17 @@ export interface QuestVerificationItem {
   checked: boolean;
 }
 
+export interface QuestQuizItem {
+  /** Stable item id for UI keys and incremental refreshes. */
+  id: string;
+  /** Active-recall prompt shown before the answer is revealed. */
+  question: string;
+  /** Reference answer hidden by default in UI surfaces. */
+  answer: string;
+  /** Optional short provenance note, such as a phase, file, or decision source. */
+  source?: string;
+}
+
 /** Explicit persisted relationships authored by humans or agents. */
 export interface QuestRelationships {
   /** Earlier quests this quest explicitly follows up on. */
@@ -186,6 +197,8 @@ interface QuestBase {
   relatedQuests?: QuestRelatedQuest[];
   /** Durable Quest Journey run snapshots used by phase-scoped documentation. */
   journeyRuns?: QuestJourneyRun[];
+  /** Active-recall quiz items attached to this quest. */
+  quizItems?: QuestQuizItem[];
   /** Threaded feedback conversation that must survive quest version transitions. */
   feedback?: QuestFeedbackEntry[];
 }
@@ -296,6 +309,7 @@ export interface QuestCreateInput {
   relationships?: QuestRelationships;
   /** Pre-saved images to attach on creation */
   images?: QuestImage[];
+  quizItems?: QuestQuizItem[];
 }
 
 /** Same-stage edits (e.g., fixing a typo). Does NOT create a new version. */
@@ -310,6 +324,8 @@ export interface QuestPatchInput {
   feedback?: QuestFeedbackEntry[];
   /** Replace durable Journey run snapshots used by phase-scoped documentation */
   journeyRuns?: QuestJourneyRun[];
+  /** Replace active-recall quiz items attached to this quest. */
+  quizItems?: QuestQuizItem[];
 }
 
 /** Status transitions. Always creates a new version linked to the previous. */
@@ -333,6 +349,8 @@ export interface QuestTransitionInput {
   memoryCommitShas?: string[];
   /** Explicit quest relationships to carry into this new status version. */
   relationships?: QuestRelationships;
+  /** Active-recall quiz items to carry into this new status version. */
+  quizItems?: QuestQuizItem[];
   /** Review inbox state for done quests that are awaiting/under human review. */
   verificationInboxUnread?: boolean;
   /** Closure notes for done status (commit hashes, reasoning, etc.) */

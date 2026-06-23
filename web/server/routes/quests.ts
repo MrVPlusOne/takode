@@ -562,6 +562,26 @@ export function createQuestRoutes(ctx: RouteContext) {
     return c.json(version);
   });
 
+  api.get("/quests/:questId/quiz", async (c) => {
+    const quest = await questStore.getQuest(c.req.param("questId"));
+    if (!quest) return c.json({ error: "Quest not found" }, 404);
+    return c.json({ questId: quest.questId, quizItems: quest.quizItems ?? [] });
+  });
+
+  api.put("/quests/:questId/quiz", async (c) => {
+    const auth = authenticateCompanionCallerOptional(c);
+    if (auth && "response" in auth) return auth.response;
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      const quest = await questStore.patchQuest(c.req.param("questId"), { quizItems: body.quizItems ?? body.items });
+      if (!quest) return c.json({ error: "Quest not found" }, 404);
+      broadcastQuestUpdate(wsBridge);
+      return c.json(quest);
+    } catch (e: unknown) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  });
+
   api.post("/quests", async (c) => {
     const auth = authenticateCompanionCallerOptional(c);
     if (auth && "response" in auth) return auth.response;

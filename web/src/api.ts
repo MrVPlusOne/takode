@@ -1641,6 +1641,10 @@ export const api = {
     return get<QuestListPage>(`/quests/_page${qs ? `?${qs}` : ""}`, signal);
   },
   getQuest: (id: string) => get<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`),
+  getQuestQuiz: (id: string) =>
+    get<{ questId: string; quizItems: import("./types.js").QuestQuizItem[] }>(`/quests/${encodeURIComponent(id)}/quiz`),
+  setQuestQuiz: (id: string, quizItems: import("./types.js").QuestQuizItem[]) =>
+    put<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/quiz`, { quizItems }),
   getQuestHistory: (id: string) =>
     get<import("./types.js").QuestHistoryView>(`/quests/${encodeURIComponent(id)}/history`),
   getQuestCommit: (id: string, sha: string, options?: { includeDiff?: boolean }) => {

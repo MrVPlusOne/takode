@@ -191,8 +191,9 @@ function questMatchesCurrentPageCorpus(
     quest.status === "done" && quest.cancelled !== true ? `${quest.debriefTldr ?? ""}\n${quest.debrief ?? ""}` : "";
   const feedbackText =
     "feedback" in quest ? (quest.feedback ?? []).flatMap((entry) => [entry.tldr ?? "", entry.text]) : [];
+  const quizText = (quest.quizItems ?? []).flatMap((item) => [item.question, item.answer, item.source ?? ""]);
   return multiWordMatch(
-    `${quest.questId}\n${quest.title}\n${(quest.tags ?? []).join("\n")}\n${quest.tldr ?? ""}\n${"description" in quest ? quest.description || "" : ""}\n${doneText}\n${feedbackText.join("\n")}`,
+    `${quest.questId}\n${quest.title}\n${(quest.tags ?? []).join("\n")}\n${quest.tldr ?? ""}\n${"description" in quest ? quest.description || "" : ""}\n${doneText}\n${quizText.join("\n")}\n${feedbackText.join("\n")}`,
     query,
   );
 }

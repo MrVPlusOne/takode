@@ -1,0 +1,30 @@
+import type { QuestmasterTask } from "./quest-types.js";
+import { normalizeQuestQuizItems } from "./quest-quiz.js";
+import { normalizeQuestOwnership } from "./quest-store-helpers.js";
+import { normalizeQuestRelationships, stripDerivedQuestRelationships } from "./quest-relationships.js";
+
+export function normalizeLiveQuest(quest: QuestmasterTask): QuestmasterTask {
+  const normalized = normalizeQuestOwnership(stripDerivedQuestRelationships({ ...quest })) as QuestmasterTask & {
+    id: string;
+    createdAt: number;
+    questId: string;
+    prevId?: string;
+    statusChangedAt?: number;
+    version: number;
+  };
+  normalized.id = normalized.questId;
+  delete normalized.prevId;
+  normalized.createdAt = normalized.createdAt || Date.now();
+  normalized.version = Number.isInteger(normalized.version) && normalized.version > 0 ? normalized.version : 1;
+  normalized.statusChangedAt =
+    typeof normalized.statusChangedAt === "number" && normalized.statusChangedAt > 0
+      ? normalized.statusChangedAt
+      : normalized.createdAt;
+  const relationships = normalizeQuestRelationships(normalized.relationships, normalized.questId);
+  if (relationships) normalized.relationships = relationships;
+  else delete normalized.relationships;
+  const quizItems = normalizeQuestQuizItems(normalized.quizItems);
+  if (quizItems) normalized.quizItems = quizItems;
+  else delete normalized.quizItems;
+  return normalized;
+}

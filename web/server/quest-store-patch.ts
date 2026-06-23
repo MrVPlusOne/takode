@@ -1,6 +1,7 @@
 import type { QuestDone, QuestFeedbackEntry, QuestPatchInput, QuestmasterTask } from "./quest-types.js";
 import { hasQuestReviewMetadata } from "./quest-types.js";
 import { normalizeTldr } from "./quest-tldr.js";
+import { normalizeQuestQuizItems } from "./quest-quiz.js";
 import { normalizeQuestRelationships } from "./quest-relationships.js";
 import { shouldMarkVerificationInboxUnreadFromFeedbackPatch } from "./quest-store-helpers.js";
 import { normalizeQuestSessionSpaceSlug } from "./quest-session-space.js";
@@ -32,6 +33,9 @@ export function applyQuestPatch(current: QuestmasterTask, questId: string, patch
   if (patch.journeyRuns !== undefined) {
     (updated as { journeyRuns?: QuestmasterTask["journeyRuns"] }).journeyRuns =
       patch.journeyRuns.length > 0 ? patch.journeyRuns : undefined;
+  }
+  if (patch.quizItems !== undefined) {
+    (updated as { quizItems?: QuestmasterTask["quizItems"] }).quizItems = normalizeQuestQuizItems(patch.quizItems);
   }
   if (markVerificationInboxUnread && hasQuestReviewMetadata(updated)) {
     (updated as QuestDone).verificationInboxUnread = true;

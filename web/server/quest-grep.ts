@@ -159,6 +159,40 @@ export function grepQuests(
     }
 
     const feedback = "feedback" in quest ? quest.feedback || [] : [];
+    (quest.quizItems ?? []).forEach((item, index) => {
+      pushMatch(
+        {
+          questId: quest.questId,
+          title: quest.title,
+          status: quest.status,
+          matchedField: `quizItems[${index}].question`,
+          snippet: "",
+        },
+        item.question,
+      );
+      pushMatch(
+        {
+          questId: quest.questId,
+          title: quest.title,
+          status: quest.status,
+          matchedField: `quizItems[${index}].answer`,
+          snippet: "",
+        },
+        item.answer,
+      );
+      if (item.source) {
+        pushMatch(
+          {
+            questId: quest.questId,
+            title: quest.title,
+            status: quest.status,
+            matchedField: `quizItems[${index}].source`,
+            snippet: "",
+          },
+          item.source,
+        );
+      }
+    });
     feedback.forEach((entry, index) => {
       if (!entry.text) return;
       pushContentMatch({

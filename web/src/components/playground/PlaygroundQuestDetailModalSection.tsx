@@ -53,6 +53,22 @@ function openPlaygroundQuestDetail() {
           { text: "Scroll works on sidebar content", checked: false },
           { text: "Desktop layout unaffected", checked: true },
         ],
+        quizItems: [
+          {
+            id: "q-42-mobile-failure",
+            question: "What layout failure did this quest fix?",
+            answer:
+              "The mobile sidebar could exceed the viewport on narrow screens, so the fix added a bounded scroll container around sidebar content.",
+            source: "Final debrief",
+          },
+          {
+            id: "q-42-validation",
+            question: "Which validation matters most before accepting this fix?",
+            answer:
+              "Inspect a narrow mobile viewport and a desktop viewport so the fix is proven responsive without regressing the normal layout.",
+            source: "Verification items",
+          },
+        ],
         journeyRuns: [
           {
             runId: "playground-run-1",

@@ -462,6 +462,7 @@ function getQuestBodySearchFields(quest: QuestmasterTask): Array<string | undefi
     questRelationshipSearchText(quest),
     quest.status === "done" && quest.cancelled !== true ? quest.debriefTldr : undefined,
     quest.status === "done" && quest.cancelled !== true ? quest.debrief : undefined,
+    ...(quest.quizItems ?? []).flatMap((item) => [item.question, item.answer, item.source]),
     ...("feedback" in quest ? (quest.feedback ?? []).flatMap((entry) => [entry.tldr, entry.text]) : []),
   ];
 }

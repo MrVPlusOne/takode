@@ -32,6 +32,7 @@ import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { isCompletedJourneyPresentationStatus, QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import { QuestDetailTextSections } from "./QuestDetailTextSections.js";
+import { QuestQuizSection } from "./QuestQuizSection.js";
 import {
   commitLookupKey,
   commitTitle,
@@ -1155,6 +1156,12 @@ export function QuestDetailPanel() {
                 journey={journeyBoardRow?.journey}
                 journeyStatus={journeyStatus}
                 searchHighlight={searchHighlight}
+                sessionId={questMarkdownSessionId}
+                onSessionNavigate={closePanel}
+              />
+
+              <QuestQuizSection
+                items={quest.quizItems}
                 sessionId={questMarkdownSessionId}
                 onSessionNavigate={closePanel}
               />

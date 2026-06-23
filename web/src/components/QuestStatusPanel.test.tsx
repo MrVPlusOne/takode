@@ -103,4 +103,43 @@ describe("QuestStatusPanel", () => {
     expect(feedbackMetric).toHaveClass("border-cc-attention-border", "bg-cc-attention-bg", "text-cc-attention");
     expect(feedbackMetric?.className).not.toContain("amber");
   });
+
+  it("shows a compact quest quiz in the selected-session context", () => {
+    // Verifies the chat/thread-adjacent quest context exposes quiz metadata with hidden answers.
+    useStore.setState({
+      sessions: new Map([
+        [
+          "worker-quiz",
+          {
+            claimedQuestId: "q-77",
+            claimedQuestTitle: "Add quiz metadata",
+            claimedQuestStatus: "done",
+          } as any,
+        ],
+      ]),
+      quests: [
+        {
+          questId: "q-77",
+          title: "Add quiz metadata",
+          status: "done",
+          sessionId: "worker-quiz",
+          createdAt: 1,
+          quizItems: [
+            {
+              id: "memory",
+              question: "What is the quiz for?",
+              answer: "Active recall of the key mental model.",
+              source: "Memory",
+            },
+          ],
+        } as any,
+      ],
+    });
+
+    const { container } = render(<QuestStatusPanel sessionId="worker-quiz" />);
+
+    expect(screen.getByTestId("quest-quiz-compact")).toHaveTextContent("What is the quiz for?");
+    expect(screen.getByTestId("quest-quiz-compact")).toHaveTextContent("1 item");
+    expect((container.querySelector("details") as HTMLDetailsElement | null)?.open).toBe(false);
+  });
 });

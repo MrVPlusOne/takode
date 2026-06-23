@@ -7,6 +7,7 @@ import { getQuestLeaderSessionId } from "../utils/quest-helpers.js";
 import { formatWaitForRefLabel } from "../../shared/quest-journey.js";
 import { orderBoardRows, type BoardRowData } from "./BoardTable.js";
 import { QuestJourneyCompactSummary } from "./QuestJourneyTimeline.js";
+import { QuestQuizSection } from "./QuestQuizSection.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 
 type QuestStatusContextSource = "selected-session" | "board-attention" | "board-active" | "board-proposed";
@@ -29,6 +30,7 @@ interface QuestCounts {
   unaddressedFeedback: number;
   addressedFeedback: number;
   commits: number;
+  quizItems: number;
 }
 
 function humanFeedback(quest?: QuestmasterTask): QuestFeedbackEntry[] {
@@ -56,6 +58,7 @@ function questCounts(quest?: QuestmasterTask): QuestCounts {
     unaddressedFeedback: feedback.filter((entry) => !entry.addressed).length,
     addressedFeedback: feedback.filter((entry) => entry.addressed).length,
     commits: quest?.commitShas?.length ?? 0,
+    quizItems: quest?.quizItems?.length ?? 0,
   };
 }
 
@@ -253,7 +256,8 @@ export function QuestStatusPanel({ sessionId }: { sessionId: string }) {
     counts.inboxUnread ||
     counts.unaddressedFeedback > 0 ||
     counts.addressedFeedback > 0 ||
-    counts.commits > 0;
+    counts.commits > 0 ||
+    counts.quizItems > 0;
 
   return (
     <section className="shrink-0 border-b border-cc-border px-3 py-3" aria-label="Quest status">
@@ -318,6 +322,7 @@ export function QuestStatusPanel({ sessionId }: { sessionId: string }) {
             )}
             {counts.addressedFeedback > 0 && <MetricPill label="Feedback" value={`${counts.addressedFeedback} done`} />}
             {counts.commits > 0 && <MetricPill label="Commits" value={String(counts.commits)} />}
+            {counts.quizItems > 0 && <MetricPill label="Quiz" value={String(counts.quizItems)} />}
           </div>
         )}
 
@@ -332,6 +337,8 @@ export function QuestStatusPanel({ sessionId }: { sessionId: string }) {
             <QuestJourneyCompactSummary journey={context.row.journey} status={context.row.status} />
           </div>
         ) : null}
+
+        <QuestQuizSection items={context.quest?.quizItems} variant="compact" />
 
         <button
           type="button"

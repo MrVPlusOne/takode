@@ -78,6 +78,9 @@ quest feedback edit <id> <index> [--text "..." | --text-file <path>|-] [--tldr "
 quest feedback list <id> [--last N] [--author human|agent|all] [--unaddressed] [--json]  List indexed feedback entries
 quest feedback latest <id> [--author human|agent|all] [--unaddressed] [--full] [--json]  Show latest matching feedback
 quest feedback show <id> <index> [--json]                     Show one indexed feedback entry
+quest quiz show <id> [--json]                                  Show quest quiz Q/A metadata
+quest quiz set <id> --items-file <path|-> [--json]             Replace quest quiz Q/A metadata from JSON
+quest quiz clear <id> [--json]                                 Clear quest quiz Q/A metadata
 quest address <id> <index> [--json]                          Toggle feedback addressed status
 quest delete <id> [--json]                                    Delete quest
 quest resize-image <path> [--max-dim 1920] [--json]           Resize an image to fit within max dimension
@@ -443,6 +446,19 @@ quest edit q-12 --clear-follow-up-of
 
 # Add feedback with an image attachment; put full feedback first, then TLDR metadata
 quest feedback q-12 --text "Fixed with flex-wrap, see screenshot" --tldr "Mobile sidebar fix with screenshot" --image /tmp/screenshot.png
+
+# Attach active-recall quiz question/answer pairs to a quest
+cat >/tmp/quest-quiz.json <<'EOF'
+[
+  {
+    "question": "What decision should the owner remember from this quest?",
+    "answer": "The answer should name the accepted design choice and why it matters.",
+    "source": "final Memory"
+  }
+]
+EOF
+quest quiz set q-12 --items-file /tmp/quest-quiz.json
+quest quiz show q-12
 
 # Mark done and submit optional User review checks
 cat >/tmp/user-review-checks.txt <<'EOF'

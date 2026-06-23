@@ -204,6 +204,10 @@ export function formatQuestDetail(
       lines.push(`  ${sha}`);
     }
   }
+  if (q.quizItems?.length) {
+    lines.push(`Quiz Items: ${q.quizItems.length}`);
+    lines.push(`  Full: quest quiz show ${q.questId}`);
+  }
   lines.push(...formatQuestRelationships(q));
   const phaseDocumentation = summarizeQuestPhaseDocumentation(q);
   const documentedGroups = phaseDocumentation.groups.filter((group) => group.entries.length > 0);

@@ -24,6 +24,7 @@
  *   inbox      Move review-pending quest back to review inbox
  *   check      Toggle a verification checkbox
  *   feedback   Add, edit, or inspect quest feedback entries
+ *   quiz       Show or replace quest quiz Q/A metadata
  *   address    Toggle feedback addressed status
  *   reassign   Reassign quest ownership from a leader session
  *   delete     Delete a quest
@@ -79,9 +80,11 @@ import {
 } from "./quest-feedback.js";
 import { showHelp } from "./quest-help.js";
 import { runOptimizeImageCommand, runResizeImageCommand } from "./quest-image.js";
+import { runHistoryCommand } from "./quest-history-command.js";
 import { parseRelationshipFlags } from "./quest-relationship-flags.js";
 import { fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
 import { runTagsCommand } from "./quest-tags-command.js";
+import { runQuizCommand } from "./quest-quiz.js";
 import { runClaimCommand, runReassignCommand } from "./quest-ownership-command.js";
 import { parseCommaSeparatedTags } from "./quest-tag-options.js";
 import { runFeedbackEditCommand } from "./quest-feedback-edit-command.js";
@@ -962,37 +965,6 @@ async function cmdGrep(): Promise<void> {
   }
 
   if (result.warning) console.log(`Hint: ${result.warning}`);
-}
-
-async function cmdHistory(): Promise<void> {
-  validateFlags(["json"]);
-  const id = positional(0);
-  if (!id) die("Usage: quest history <questId>");
-
-  const quest = await getQuest(id);
-  if (!quest) die(`Quest ${id} not found`);
-  const history = await getQuestHistoryView(id);
-
-  if (jsonOutput) {
-    out(history);
-    return;
-  }
-
-  if (history.mode === "legacy_backup") {
-    console.log("Legacy backup history");
-  } else if (history.mode === "unavailable") {
-    console.log(history.message ?? "History is unavailable.");
-    return;
-  }
-
-  if (history.entries.length === 0) {
-    console.log(history.message ?? "No previous versions.");
-    return;
-  }
-
-  for (const v of history.entries) {
-    console.log(`v${v.version} (${STATUS_LABELS[v.status] ?? v.status}) -- ${timeAgo(v.createdAt)}  [${v.id}]`);
-  }
 }
 
 async function cmdCreate(): Promise<void> {
@@ -1942,7 +1914,17 @@ async function main(): Promise<void> {
     case "status":
       return cmdStatus();
     case "history":
-      return cmdHistory();
+      return runHistoryCommand({
+        positional,
+        validateFlags,
+        jsonOutput,
+        out,
+        die,
+        getQuest,
+        getQuestHistoryView,
+        statusLabels: STATUS_LABELS,
+        timeAgo,
+      });
     case "tags":
       return runTagsCommand({ listQuests, validateFlags, jsonOutput, out });
     case "create":
@@ -1969,6 +1951,22 @@ async function main(): Promise<void> {
       return cmdCheck();
     case "feedback":
       return cmdFeedback();
+    case "quiz":
+      return runQuizCommand({
+        positional,
+        validateFlags,
+        option,
+        jsonOutput,
+        out,
+        die,
+        warn,
+        readOptionTextFile,
+        getQuest,
+        patchQuest,
+        notifyServer,
+        companionPort,
+        companionAuthHeaders,
+      });
     case "address":
       return cmdAddress();
     case "delete":

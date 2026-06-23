@@ -42,6 +42,9 @@ Commands:
   feedback latest <id> [--author human|agent|all] [--unaddressed] [--full] [--json]
                                                          Show latest matching feedback entry
   feedback show <id> <index> [--json]                    Show one indexed feedback entry
+  quiz show <id> [--json]                                Show quest quiz Q/A metadata
+  quiz set <id> --items-file <path|-> [--json]           Replace quest quiz Q/A metadata from JSON
+  quiz clear <id> [--json]                               Clear quest quiz Q/A metadata
   address <id> <index> [--json]                          Toggle feedback addressed status
   delete <id> [--json]                                   Delete quest
   resize-image <path> [--max-dim 1920] [--json]          Resize an image to fit within max dimension
@@ -81,6 +84,8 @@ Safer rich-text input:
   quest claim q-1 --force --reason "board assigned this phase to me"
   quest reassign q-1 --session 42 --reason "stale previous worker"
   quest feedback q-1 --text-file note.md --tldr-file note-tldr.md
+  quest quiz set q-1 --items-file quiz.json
+  quest quiz show q-1
   quest feedback edit q-1 0 --text-file note.md --tldr-file note-tldr.md
   quest feedback latest q-1 --author human --unaddressed --full
   quest feedback show q-1 0

@@ -21,6 +21,7 @@ import type {
 import { hasQuestReviewMetadata } from "./quest-types.js";
 import { getName } from "./session-names.js";
 import { normalizeTldr } from "./quest-tldr.js";
+import { normalizeQuestQuizItems } from "./quest-quiz.js";
 import {
   getActiveSessionId,
   getLeaderSessionId,
@@ -48,6 +49,7 @@ import {
 import { applyQuestPatch } from "./quest-store-patch.js";
 import { appendOwnershipEvent, archivedOwnerTakeoverEvent } from "./quest-ownership.js";
 import { normalizeQuestSessionSpaceSlug } from "./quest-session-space.js";
+import { normalizeLiveQuest } from "./quest-store-normalize.js";
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
 
@@ -292,29 +294,6 @@ function computeNextQuestNumber(quests: QuestmasterTask[]): number {
 
 function computeNextQuestNumberFromQuestIds(questIds: string[]): number {
   return questIds.reduce((maxNumber, questId) => Math.max(maxNumber, extractQuestNumber(questId)), 0) + 1;
-}
-
-function normalizeLiveQuest(quest: QuestmasterTask): QuestmasterTask {
-  const normalized = normalizeQuestOwnership(stripDerivedQuestRelationships({ ...quest })) as QuestmasterTask & {
-    id: string;
-    createdAt: number;
-    questId: string;
-    prevId?: string;
-    statusChangedAt?: number;
-    version: number;
-  };
-  normalized.id = normalized.questId;
-  delete normalized.prevId;
-  normalized.createdAt = normalized.createdAt || Date.now();
-  normalized.version = Number.isInteger(normalized.version) && normalized.version > 0 ? normalized.version : 1;
-  normalized.statusChangedAt =
-    typeof normalized.statusChangedAt === "number" && normalized.statusChangedAt > 0
-      ? normalized.statusChangedAt
-      : normalized.createdAt;
-  const relationships = normalizeQuestRelationships(normalized.relationships, normalized.questId);
-  if (relationships) normalized.relationships = relationships;
-  else delete normalized.relationships;
-  return normalized;
 }
 
 function normalizeLiveQuestStore(value: unknown): LiveQuestStore {
@@ -1230,6 +1209,7 @@ function buildCreatedQuest(
 ): QuestmasterTask {
   const status = input.status || "idea";
   const tldr = normalizeTldr(input.tldr);
+  const quizItems = normalizeQuestQuizItems(input.quizItems);
   const base = {
     id: liveStore ? questId : `${questId}-v1`,
     questId,
@@ -1247,6 +1227,7 @@ function buildCreatedQuest(
       ? { relationships: normalizeQuestRelationships(input.relationships, questId) }
       : {}),
     ...(input.images?.length ? { images: input.images } : {}),
+    ...(quizItems ? { quizItems } : {}),
   };
 
   switch (status) {
@@ -1314,6 +1295,9 @@ function buildTransitionedQuest(
   const tldr = input.tldr !== undefined ? normalizeTldr(input.tldr) : normalizeTldr(current.tldr);
   const currentFeedback = current.feedback;
   const currentJourneyRuns = current.journeyRuns;
+  const currentQuizItems = normalizeQuestQuizItems(current.quizItems);
+  const inputQuizItems = normalizeQuestQuizItems(input.quizItems);
+  const quizItems = inputQuizItems ?? currentQuizItems;
   const currentActiveSessionId = getActiveSessionId(current);
   const currentPreviousOwners = getPreviousOwnerSessionIds(current);
   const ownershipEvents = appendOwnershipEvent(current.ownershipEvents, input.ownershipEvent, now);
@@ -1341,6 +1325,7 @@ function buildTransitionedQuest(
     ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
     ...(ownershipEvents?.length ? { ownershipEvents } : {}),
     ...(currentJourneyRuns?.length ? { journeyRuns: currentJourneyRuns } : {}),
+    ...(quizItems ? { quizItems } : {}),
     ...(currentFeedback?.length ? { feedback: currentFeedback } : {}),
   };
   if ((input.commitShas !== undefined || input.memoryCommitShas !== undefined) && targetStatus !== "done") {
@@ -1479,6 +1464,7 @@ function buildCancelledQuest(current: QuestmasterTask, notes: string | undefined
   }
   const cancelFeedback = current.feedback;
   const cancelJourneyRuns = current.journeyRuns;
+  const cancelQuizItems = normalizeQuestQuizItems(current.quizItems);
   const quest: QuestDone = {
     id: liveStore ? current.questId : nextVersionId(current.questId, current.version),
     questId: current.questId,
@@ -1506,6 +1492,7 @@ function buildCancelledQuest(current: QuestmasterTask, notes: string | undefined
       : {}),
     ...(current.commitShas?.length ? { commitShas: current.commitShas } : {}),
     ...(cancelJourneyRuns?.length ? { journeyRuns: cancelJourneyRuns } : {}),
+    ...(cancelQuizItems ? { quizItems: cancelQuizItems } : {}),
     status: "done",
     ...(description ? { description } : {}),
     claimedAt: "claimedAt" in current ? (current as QuestInProgress).claimedAt : now,
