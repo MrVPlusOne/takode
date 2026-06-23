@@ -1163,6 +1163,7 @@ export function QuestDetailPanel() {
               <QuestQuizSection
                 items={quest.quizItems}
                 sessionId={questMarkdownSessionId}
+                collapsed
                 onSessionNavigate={closePanel}
               />
 

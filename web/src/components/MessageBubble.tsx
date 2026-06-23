@@ -3,6 +3,7 @@ import type { ChatMessage, ComposerDraftImage, ContentBlock, SdkSessionInfo } fr
 import { isSubagentToolName } from "../types.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import { AssistantQuestQuizContent } from "./AssistantQuestQuizContent.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { CollapseFooter } from "./CollapseFooter.js";
 import { Lightbox } from "./Lightbox.js";
@@ -34,6 +35,7 @@ import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
 import { buildAssistantImagePreviewItems } from "./image-preview-utils.js";
 import { SideChatSummary, useSideChatActionState, useSideChatForMessage } from "./SideChatControls.js";
 import { MessageTimestamp } from "./MessageTimestamp.js";
+import { shouldShowCompactGuidance } from "../utils/assistant-message-guidance.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
 
@@ -331,15 +333,6 @@ export const MessageBubble = memo(function MessageBubble({
     </div>
   );
 });
-
-function shouldShowCompactGuidance(content: string): boolean {
-  const normalized = content.toLowerCase();
-  if (normalized.includes("prompt is too long")) return true;
-  if (normalized.includes("payload too large")) return true;
-  if (normalized.includes("request too large")) return true;
-  if (normalized.includes("failed to parse request") && normalized.includes("payload")) return true;
-  return normalized.includes("413") && (normalized.includes("payload") || normalized.includes("request"));
-}
 
 /** Auto-collapse content that exceeds a height threshold.
  *  Shows a gradient fade and "Show more" pill when collapsed. */
@@ -1387,7 +1380,7 @@ function AssistantMessage({
               showSideChatActions={showSideChatActions}
             />
           )}
-          <MarkdownContent
+          <AssistantQuestQuizContent
             text={message.content}
             sessionId={sessionId}
             searchHighlight={searchHighlight}
@@ -1428,7 +1421,7 @@ function AssistantMessage({
                 showSideChatActions={showSideChatActions}
               />
             )}
-            <MarkdownContent
+            <AssistantQuestQuizContent
               text={message.content}
               sessionId={sessionId}
               searchHighlight={searchHighlight}
@@ -1778,7 +1771,7 @@ function ContentBlockRenderer({
 
   if (block.type === "text") {
     return (
-      <MarkdownContent
+      <AssistantQuestQuizContent
         text={block.text}
         sessionId={sessionId}
         searchHighlight={searchHighlight}

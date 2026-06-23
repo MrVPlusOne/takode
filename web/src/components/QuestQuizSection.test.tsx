@@ -33,6 +33,7 @@ describe("QuestQuizSection", () => {
     expect(screen.getByTestId("quest-quiz-compact")).toHaveTextContent("Quiz");
     expect(screen.getAllByTestId("quest-quiz-item")).toHaveLength(2);
     expect(screen.getByText("+1 more in quest details")).toBeInTheDocument();
+    expect(screen.getByText("Source: Memory")).not.toBeVisible();
 
     const firstDetails = container.querySelector("details") as HTMLDetailsElement | null;
     expect(firstDetails).toBeTruthy();
@@ -40,5 +41,61 @@ describe("QuestQuizSection", () => {
 
     fireEvent.click(screen.getAllByText("Show answer")[0]!);
     expect(firstDetails?.open).toBe(true);
+    expect(screen.getByText("Source: Memory")).toBeVisible();
+  });
+
+  it("can collapse the whole quest-detail quiz section before individual answer reveals", () => {
+    // Keeps the direct quest UI scannable: users opt into the quiz, then each answer.
+    const { container } = render(
+      <QuestQuizSection
+        collapsed
+        items={[
+          {
+            id: "one",
+            question: "Which decision matters?",
+            answer: "The quiz belongs in quest metadata.",
+          },
+        ]}
+      />,
+    );
+
+    const sectionDetails = screen.getByTestId("quest-quiz-section") as HTMLDetailsElement;
+    expect(sectionDetails.open).toBe(false);
+    expect(screen.getByText("1 item")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Quiz"));
+    expect(sectionDetails.open).toBe(true);
+
+    const answerDetails = container.querySelectorAll("details")[1] as HTMLDetailsElement | undefined;
+    expect(answerDetails?.open).toBe(false);
+    fireEvent.click(screen.getByText("Show answer"));
+    expect(answerDetails?.open).toBe(true);
+  });
+
+  it("renders an inline completion quiz without surfacing source labels before reveal", () => {
+    const { container } = render(
+      <QuestQuizSection
+        variant="inline"
+        questId="q-8"
+        questTitle="Add Quest Quiz Metadata"
+        items={[
+          {
+            id: "one",
+            question: "Why show this quiz inline?",
+            answer: "The completion moment is when recall is useful.",
+            source: "completion summary",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId("quest-quiz-inline")).toHaveTextContent("q-8");
+    expect(screen.getByText("Add Quest Quiz Metadata")).toBeInTheDocument();
+    expect(screen.getByText("Source: completion summary")).not.toBeVisible();
+
+    const answerDetails = container.querySelector("details") as HTMLDetailsElement | null;
+    expect(answerDetails?.open).toBe(false);
+    fireEvent.click(screen.getByText("Show answer"));
+    expect(screen.getByText("Source: completion summary")).toBeVisible();
   });
 });

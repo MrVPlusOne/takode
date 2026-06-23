@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   PermissionBanner,
   PermissionsCollapsedChip,
@@ -16,6 +17,7 @@ import { SessionStatusDot } from "../SessionStatusDot.js";
 import { SessionItem } from "../SessionItem.js";
 import { YarnBallDot } from "../CatIcons.js";
 import { getShortcutTitle } from "../../shortcuts.js";
+import { useStore } from "../../store.js";
 import {
   MOCK_MCP_SERVERS,
   MOCK_PR_DRAFT,
@@ -32,6 +34,7 @@ import {
   MSG_ASSISTANT,
   MSG_ASSISTANT_IMAGE_PREVIEW,
   MSG_ASSISTANT_LEADER_USER,
+  MSG_ASSISTANT_QUEST_QUIZ,
   MSG_ASSISTANT_THINKING,
   MSG_ASSISTANT_THINKING_CODEX,
   MSG_ASSISTANT_THINKING_CODEX_SHORT,
@@ -112,6 +115,39 @@ import {
   TaskRow,
 } from "./shared.js";
 import type { SessionAttentionRecord } from "../../types.js";
+
+function PlaygroundAssistantQuestQuizMessage() {
+  useEffect(() => {
+    useStore.setState((state) => ({
+      quests: [
+        ...state.quests.filter((quest) => quest.questId !== "q-8"),
+        {
+          questId: "q-8",
+          title: "Add Quest Quiz Metadata",
+          status: "done",
+          quizItems: [
+            {
+              id: "q8-purpose",
+              question: "What is the core purpose of Quest Quiz metadata in V1?",
+              answer:
+                "To attach concise active-recall Q/A to a quest so the user can retrieve key decisions, tradeoffs, risks, and reusable lessons after agent work.",
+              source: "q-8 scope",
+            },
+            {
+              id: "q8-completion-surface",
+              question: "Where should the generated quiz appear in the leader conversation?",
+              answer:
+                "Inline immediately after the leader's final completion or done-status summary, so the user sees it at the moment the quest closes.",
+              source: "human feedback #5",
+            },
+          ],
+        } as any,
+      ],
+    }));
+  }, []);
+
+  return <MessageBubble message={MSG_ASSISTANT_QUEST_QUIZ} />;
+}
 
 const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
   {
@@ -771,6 +807,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Assistant message (markdown)">
             <MessageBubble message={MSG_ASSISTANT} />
+          </Card>
+          <Card label="Assistant completion quiz">
+            <PlaygroundAssistantQuestQuizMessage />
           </Card>
           <Card label="Assistant message (image preview group)">
             <MessageBubble message={MSG_ASSISTANT_IMAGE_PREVIEW} sessionId="playground" />
