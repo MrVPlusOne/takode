@@ -1474,11 +1474,17 @@ export function ChatView({
       if (questOrBoardRowIsCompleted(questStatusByKey.get(threadKey), row.status, row.completedAt)) continue;
       const newlySurfacedActiveRow =
         initializedActiveBoardThreadKeysRef.current && !observedActiveBoardThreadKeysRef.current.has(threadKey);
-      const repositionExisting =
-        shouldRepositionExistingOpenThreadFromEvent(authoritativeLeaderOpenThreadTabs, threadKey, row.updatedAt) &&
-        newlySurfacedActiveRow;
-      if (openThreadTabKeysRef.current.includes(threadKey) && !repositionExisting) continue;
-      if (!canServerCandidateOpenThread(authoritativeLeaderOpenThreadTabs, threadKey, row.updatedAt)) continue;
+      const candidateCanOpen = canServerCandidateOpenThread(
+        authoritativeLeaderOpenThreadTabs,
+        threadKey,
+        row.updatedAt,
+      );
+      const alreadyOpen = openThreadTabKeysRef.current.includes(threadKey);
+      // Idea-created quest threads can already be open but hidden under More before
+      // a later board-row activation makes them newly relevant.
+      const repositionExisting = newlySurfacedActiveRow && alreadyOpen && candidateCanOpen;
+      if (alreadyOpen && !repositionExisting) continue;
+      if (!candidateCanOpen) continue;
       openThreadTab(threadKey, {
         intent: "server_candidate",
         eventAt: row.updatedAt,

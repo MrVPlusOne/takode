@@ -984,6 +984,52 @@ describe("ChatView leader open thread tabs", () => {
     });
   });
 
+  it("surfaces an already-open idea quest when it later becomes active even if its row timestamp is stale", async () => {
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-8", "q-5", "q-6", "q-7"], [], 100)),
+      sessionBoards: new Map([["s1", []]]),
+      messages: new Map([
+        [
+          "s1",
+          [threadMessage("q-8", 80), threadMessage("q-5", 50), threadMessage("q-6", 60), threadMessage("q-7", 70)],
+        ],
+      ]),
+      quests: [
+        { questId: "q-8", title: "Existing visible quest", status: "in_progress" },
+        { questId: "q-5", title: "Older visible quest", status: "in_progress" },
+        { questId: "q-6", title: "Older visible quest B", status: "in_progress" },
+        { questId: "q-7", title: "Idea refined later", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-8,q-5,q-6,q-7");
+
+    // Regression: idea-created quest threads can already exist in the persisted
+    // tab list before their board row appears. The activation event should
+    // promote that existing tab even when the board timestamp is older than the
+    // current server-owned tab-state timestamp.
+    mockState.sessionBoards = new Map([
+      ["s1", [{ questId: "q-7", status: "ALIGNMENT", title: "Idea refined later", updatedAt: 70 }]],
+    ]);
+    view.rerender(<ChatView sessionId="s1" />);
+
+    await waitFor(() =>
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-7,q-8,q-5,q-6"),
+    );
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-7",
+        placement: "first",
+        source: "server_candidate",
+        eventAt: 70,
+      },
+    });
+  });
+
   it("does not let an older board row undo a newer authoritative tab order", async () => {
     resetStore({
       sessions: leaderSession(leaderTabs(["q-old-a", "q-new", "q-old-b"], [], 40)),
