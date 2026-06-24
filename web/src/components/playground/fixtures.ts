@@ -654,7 +654,7 @@ export const MSG_ASSISTANT_QUEST_QUIZ: ChatMessage = {
   id: "msg-assistant-quest-quiz",
   role: "assistant",
   content:
-    "[q-8](quest:q-8) is complete. The V1 quest quiz metadata path is in place, and the completion summary is ready for review.\n\n<!-- takode:quest-quiz q-8 -->",
+    "[q-8](quest:q-8) is complete. The V1 quest quiz metadata path is in place, and the completion summary is ready for review.\n\n{[(Quest Quiz: q-8)]}",
   timestamp: Date.now() - 49500,
 };
 

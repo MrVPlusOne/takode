@@ -1033,7 +1033,7 @@ describe("MessageBubble - assistant messages", () => {
     expect(markdownBlocks[1].textContent).toBe("Final status for user @to(user)");
   });
 
-  it("renders a hidden-marker quest quiz inline after assistant completion text", () => {
+  it("renders a quest quiz directive inline after assistant completion text", () => {
     // Completion summaries can include this hidden directive so the feed shows active-recall Q/A in place.
     useStore.setState({
       quests: [
@@ -1053,13 +1053,13 @@ describe("MessageBubble - assistant messages", () => {
     });
     const msg = makeMessage({
       role: "assistant",
-      content: "Status changed to done.\n\n<!-- takode:quest-quiz q-8 -->",
+      content: "Status changed to done.\n\n{[(Quest Quiz: q-8)]}",
     });
 
     const { container } = render(<MessageBubble message={msg} />);
 
     expect(screen.getAllByTestId("markdown")[0]?.textContent).toBe("Status changed to done.");
-    expect(screen.queryByText(/takode:quest-quiz/i)).toBeNull();
+    expect(screen.queryByText(/Quest Quiz:/i)).toBeNull();
     expect(screen.getByTestId("quest-quiz-inline").textContent).toContain("q-8");
     expect(screen.getByText("What is the core purpose of Quest Quiz metadata?")).toBeTruthy();
     expect(screen.getByText("To attach active-recall Q/A to quests after agent work.")).toBeTruthy();
@@ -1071,7 +1071,7 @@ describe("MessageBubble - assistant messages", () => {
     expect(screen.getByText("To attach active-recall Q/A to quests after agent work.")).toBeTruthy();
   });
 
-  it("renders hidden-marker quest quizzes from assistant text content blocks", () => {
+  it("renders quest quiz directives from assistant text content blocks", () => {
     useStore.setState({
       quests: [
         {
@@ -1090,7 +1090,7 @@ describe("MessageBubble - assistant messages", () => {
     const msg = makeMessage({
       role: "assistant",
       content: "",
-      contentBlocks: [{ type: "text", text: "Final summary.\n\n<!-- quest-quiz:q-42 -->" }],
+      contentBlocks: [{ type: "text", text: "Final summary.\n\n{[(Quest Quiz: q-42)]}" }],
     });
 
     render(<MessageBubble message={msg} />);
