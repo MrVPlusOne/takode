@@ -122,7 +122,7 @@ function QuestQuizItemRow({
             <div className={answerClassName(variant)}>
               <MarkdownContent
                 text={item.answer}
-                size={variant === "compact" ? "sm" : "default"}
+                size={variant === "compact" ? "sm" : "md"}
                 variant="conservative"
                 sessionId={sessionId}
                 wrapLongContent

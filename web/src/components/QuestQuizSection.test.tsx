@@ -71,7 +71,8 @@ describe("QuestQuizSection", () => {
     expect(answerDetails?.open).toBe(false);
     fireEvent.click(screen.getByText("Show answer"));
     expect(answerDetails?.open).toBe(true);
-    expect(screen.getByText("The quiz belongs in quest metadata.").closest(".markdown-body")).toHaveClass(
+    expect(screen.getByText("The quiz belongs in quest metadata.").closest(".markdown-body")).toHaveClass("text-sm");
+    expect(screen.getByText("The quiz belongs in quest metadata.").closest(".markdown-body")).not.toHaveClass(
       "text-[13px]",
       "sm:text-[14px]",
     );
@@ -102,9 +103,11 @@ describe("QuestQuizSection", () => {
     expect(answerDetails?.open).toBe(false);
     fireEvent.click(screen.getByText("Show answer"));
     expect(screen.getByText("The completion moment is when recall is useful.").closest(".markdown-body")).toHaveClass(
-      "text-[13px]",
-      "sm:text-[14px]",
+      "text-sm",
     );
+    expect(
+      screen.getByText("The completion moment is when recall is useful.").closest(".markdown-body"),
+    ).not.toHaveClass("text-[13px]", "sm:text-[14px]");
     expect(screen.getByText("Source: completion summary")).toBeVisible();
   });
 });

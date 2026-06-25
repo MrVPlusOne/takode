@@ -618,7 +618,7 @@ export function MarkdownContent({
   stopLinkPropagation = false,
 }: {
   text: string;
-  size?: "default" | "sm";
+  size?: "default" | "sm" | "md";
   variant?: "full" | "conservative";
   id?: string;
   "data-testid"?: string;
@@ -633,9 +633,11 @@ export function MarkdownContent({
   const sizeClass =
     size === "sm"
       ? "text-xs"
-      : variant === "conservative"
-        ? "text-[13px] sm:text-[14px]"
-        : "text-[14px] sm:text-[15px]";
+      : size === "md"
+        ? "text-sm"
+        : variant === "conservative"
+          ? "text-[13px] sm:text-[14px]"
+          : "text-[14px] sm:text-[15px]";
 
   const isConservative = variant === "conservative";
   const chatMessageLineHeight = useStore((s) => s.chatMessageLineHeight);
