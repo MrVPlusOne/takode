@@ -347,6 +347,16 @@ describe("Quest Journey phase directory loading", () => {
       expect(phase.leaderBrief).toContain("full agent-oriented detail plus TLDR metadata");
       expect(phase.leaderBrief).toContain("Provide only deltas the assignee is unlikely to infer");
     }
+
+    const memoryPhase = phases.find((phase) => phase.id === "memory");
+    expect(memoryPhase?.assigneeBrief).toContain("self-contained without requiring the user");
+    expect(memoryPhase?.assigneeBrief).toContain("what the quest actually changed, taught, clarified, or made durable");
+    expect(memoryPhase?.assigneeBrief).toContain(
+      "do not turn future-agent/system-memory facts into user-facing quiz questions",
+    );
+    expect(memoryPhase?.assigneeBrief).toContain(
+      "self-containment, user value, human-vs-agent memory separation, clarity, and source grounding",
+    );
   });
 
   it("seeds Bookkeeping briefs as cross-phase durable-state guidance", async () => {

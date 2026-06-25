@@ -1002,12 +1002,19 @@ describe("QuestDetailPanel", () => {
     expect(codeBlock).toHaveClass("overflow-x-hidden", "whitespace-pre-wrap", "break-words");
   });
 
-  it("orders completed quest detail as TLDRs, full details, then Journey details", () => {
+  it("orders completed quest detail as quiz, TLDRs, full details, then Journey details", () => {
     const quest = makeVerificationQuest({
       tldr: "Initial TLDR.",
       description: "Initial quest description.",
       debrief: "Final debrief outcome.",
       debriefTldr: "Final debrief TLDR.",
+      quizItems: [
+        {
+          id: "quiz-1",
+          question: "What placement matters?",
+          answer: "The quiz appears before TLDR metadata.",
+        },
+      ],
       journeyRuns: [
         {
           runId: "run-1",
@@ -1048,13 +1055,18 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
+    const quizSection = screen.getByTestId("quest-quiz-section");
     expect(screen.getByText("TLDR")).toBeTruthy();
     expect(screen.getByText("Description TLDR")).toBeTruthy();
     expect(screen.getByText("Debrief TLDR")).toBeTruthy();
     expect(screen.getByText("Full Description")).toBeTruthy();
     expect(screen.getByText("Full Final Debrief")).toBeTruthy();
     expect(screen.getByText("Journey Details")).toBeTruthy();
+    expect(quizSection.compareDocumentPosition(screen.getByText("TLDR")) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
     const text = document.body.textContent ?? "";
+    expect(text.indexOf("Quiz")).toBeLessThan(text.indexOf("Description TLDR"));
     expect(text.indexOf("Initial TLDR.")).toBeLessThan(text.indexOf("Final debrief TLDR."));
     expect(text.indexOf("Final debrief TLDR.")).toBeLessThan(text.indexOf("Full Description"));
     expect(text.indexOf("Full Description")).toBeLessThan(text.indexOf("Initial quest description."));

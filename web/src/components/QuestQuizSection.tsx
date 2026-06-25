@@ -119,10 +119,11 @@ function QuestQuizItemRow({
               <span className="group-open:hidden">Show answer</span>
               <span className="hidden group-open:inline">Hide answer</span>
             </summary>
-            <div className="mt-1 min-w-0 max-w-full overflow-hidden rounded-md border border-cc-border/70 bg-cc-bg/50 px-2 py-1.5 text-cc-fg">
+            <div className={answerClassName(variant)}>
               <MarkdownContent
                 text={item.answer}
-                size="sm"
+                size={variant === "compact" ? "sm" : "default"}
+                variant="conservative"
                 sessionId={sessionId}
                 wrapLongContent
                 onSessionNavigate={onSessionNavigate}
@@ -134,4 +135,9 @@ function QuestQuizItemRow({
       </div>
     </div>
   );
+}
+
+function answerClassName(variant: "detail" | "compact" | "inline"): string {
+  const textSize = variant === "compact" ? "text-xs" : "text-sm";
+  return `mt-1 min-w-0 max-w-full overflow-hidden rounded-md border border-cc-border/70 bg-cc-bg/50 px-2 py-1.5 ${textSize} text-cc-fg`;
 }

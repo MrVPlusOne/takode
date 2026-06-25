@@ -1158,13 +1158,14 @@ export function QuestDetailPanel() {
                 searchHighlight={searchHighlight}
                 sessionId={questMarkdownSessionId}
                 onSessionNavigate={closePanel}
-              />
-
-              <QuestQuizSection
-                items={quest.quizItems}
-                sessionId={questMarkdownSessionId}
-                collapsed
-                onSessionNavigate={closePanel}
+                beforeSummary={
+                  <QuestQuizSection
+                    items={quest.quizItems}
+                    sessionId={questMarkdownSessionId}
+                    collapsed
+                    onSessionNavigate={closePanel}
+                  />
+                }
               />
 
               {/* Images (read-only) */}

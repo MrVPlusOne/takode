@@ -42,6 +42,7 @@ describe("QuestQuizSection", () => {
     fireEvent.click(screen.getAllByText("Show answer")[0]!);
     expect(firstDetails?.open).toBe(true);
     expect(screen.getByText("Source: Memory")).toBeVisible();
+    expect(screen.getByText("The key design decision.").closest(".markdown-body")).toHaveClass("text-xs");
   });
 
   it("can collapse the whole quest-detail quiz section before individual answer reveals", () => {
@@ -70,6 +71,10 @@ describe("QuestQuizSection", () => {
     expect(answerDetails?.open).toBe(false);
     fireEvent.click(screen.getByText("Show answer"));
     expect(answerDetails?.open).toBe(true);
+    expect(screen.getByText("The quiz belongs in quest metadata.").closest(".markdown-body")).toHaveClass(
+      "text-[13px]",
+      "sm:text-[14px]",
+    );
   });
 
   it("renders an inline completion quiz without surfacing source labels before reveal", () => {
@@ -96,6 +101,10 @@ describe("QuestQuizSection", () => {
     const answerDetails = container.querySelector("details") as HTMLDetailsElement | null;
     expect(answerDetails?.open).toBe(false);
     fireEvent.click(screen.getByText("Show answer"));
+    expect(screen.getByText("The completion moment is when recall is useful.").closest(".markdown-body")).toHaveClass(
+      "text-[13px]",
+      "sm:text-[14px]",
+    );
     expect(screen.getByText("Source: completion summary")).toBeVisible();
   });
 });

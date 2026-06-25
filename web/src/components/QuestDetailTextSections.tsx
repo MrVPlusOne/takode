@@ -22,6 +22,7 @@ interface QuestDetailTextSectionsProps {
   searchHighlight?: string | null;
   sessionId?: string;
   onSessionNavigate?: () => void;
+  beforeSummary?: ReactNode;
 }
 
 export function QuestDetailTextSections({
@@ -32,6 +33,7 @@ export function QuestDetailTextSections({
   searchHighlight,
   sessionId,
   onSessionNavigate,
+  beforeSummary,
 }: QuestDetailTextSectionsProps) {
   const description = getQuestDescription(quest);
   const questTldr = getQuestTldr(quest);
@@ -48,6 +50,7 @@ export function QuestDetailTextSections({
     !questDebrief &&
     !questDebriefTldr &&
     !quest.relatedQuests?.length &&
+    !beforeSummary &&
     !phaseDocumentationSummary.hasPhaseDocumentation &&
     !(quest.status === "done" && journey)
   ) {
@@ -57,6 +60,7 @@ export function QuestDetailTextSections({
   return (
     <div className="min-w-0 max-w-full space-y-2 overflow-x-hidden">
       <QuestRelationshipLinks quest={quest} />
+      {beforeSummary}
       {hasFinalDebrief ? (
         <>
           {(questTldr || questDebriefTldr) && (

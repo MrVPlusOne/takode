@@ -56,6 +56,14 @@ For every completed non-cancelled quest, prefer structured final debrief metadat
 
 Metadata reconciliation is a final-scope accuracy check for the quest title, TLDR, and description. It is not permission to rewrite active scope or unfinished quests.
 
+## Quest quiz metadata
+
+Generate or refresh quest quiz metadata when active recall would help the human retain the important mental model from the accepted quest. Use `quest quiz set <quest-id> --items-file <path|->` to attach concise question/answer pairs.
+
+Quiz items should be self-contained from the quest record and accepted scope. Focus on what the quest changed, taught, clarified, or made durable for the user: accepted decisions, concepts, tradeoffs, risks, failure modes, surprising facts, reusable lessons, and meaningful interface/protocol/command/syntax/invocation choices when remembering them helps the user operate, debug, or evaluate the result later.
+
+Do not primarily quiz the user on their own earlier motivations or choices. Do not turn future-agent/system-memory facts into user-facing quiz questions; preserve those in file-based memory or instruction surfaces when appropriate. Keep answers plain-language, use bullets when an answer contains a list, and preflight each item for self-containment, user value, human-vs-agent memory separation, clarity, and source grounding. Skip quiz generation when the accepted work has no durable user-facing learning value, and say so in the phase note.
+
 ## Commit metadata
 
 If the work was ported/synced, Port reports the ordered synced SHAs on a dedicated `Synced SHAs: sha1,sha2` line. Final Memory or the leader attaches those SHAs and final debrief metadata during the completion handoff:

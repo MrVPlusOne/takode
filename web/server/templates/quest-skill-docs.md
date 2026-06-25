@@ -451,8 +451,8 @@ quest feedback q-12 --text "Fixed with flex-wrap, see screenshot" --tldr "Mobile
 cat >/tmp/quest-quiz.json <<'EOF'
 [
   {
-    "question": "What decision should the owner remember from this quest?",
-    "answer": "The answer should name the accepted design choice and why it matters.",
+    "question": "What accepted behavior should the user remember from this quest?",
+    "answer": "Name the behavior in plain language and explain why it helps the user operate, debug, or evaluate the result.",
     "source": "final Memory"
   }
 ]
@@ -486,6 +486,8 @@ quest done q-12 --notes-file /tmp/quest-closeout.txt
 quest cancel q-5 --notes "Superseded by q-12"
 quest cancel q-5 --notes-file /tmp/quest-closeout.txt
 ```
+
+Quest quiz items are for user-facing active recall, not future-agent memory. Generate them from the quest record and accepted scope so each question is self-contained. Prefer useful recall of what the quest changed, taught, clarified, or made durable; avoid asking the user to recite their own earlier motivations or internal system instructions. Use plain-language answers, bullets for lists, and a quick preflight for self-containment, user value, human-vs-agent memory separation, clarity, and source grounding.
 
 ## When assigned a quest
 

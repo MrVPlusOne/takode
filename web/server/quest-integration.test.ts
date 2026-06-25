@@ -126,7 +126,13 @@ describe("ensureQuestmasterIntegration", () => {
     const memoryCompletion = writtenFile("/home/tester/.agents/skills/quest/memory-completion.md");
 
     expect(mainSkill).toContain("Read `memory-completion.md`");
+    expect(mainSkill).toContain("Quest quiz items are for user-facing active recall");
+    expect(mainSkill).toContain("human-vs-agent memory separation");
     expect(memoryCompletion).toContain("Stream Memory CLI");
+    expect(memoryCompletion).toContain("Quest quiz metadata");
+    expect(memoryCompletion).toContain("self-contained from the quest record and accepted scope");
+    expect(memoryCompletion).toContain("Do not primarily quiz the user on their own earlier motivations or choices");
+    expect(memoryCompletion).toContain("future-agent/system-memory facts");
     expect(memoryCompletion).toContain("User review checks are optional human-owned checks only");
     expect(memoryCompletion).toContain("--memory-commit <sha>");
   });
