@@ -1,5 +1,51 @@
 # Takode Changelog
 
+## 2026-06-25
+
+### Changed
+
+- **Quest Quiz readability** -- Quest detail now places Quiz before TLDR, revealed answers match question sizing in full/detail contexts, and quiz guidance distinguishes human active recall from future-agent memory
+
+## 2026-06-24
+
+### Changed
+
+- **Quest Quiz completion directive** -- Leader completion summaries can render a quest quiz inline with the standalone `{[(Quest Quiz: q-N)]}` directive, while directive-shaped text in code blocks stays literal
+
+## 2026-06-23
+
+### Added
+
+- **Quest Quiz metadata** -- Quests can store active-recall Q/A metadata with CLI/API read-write paths and hidden-answer quiz UI in completion and Quest detail surfaces
+
+### Changed
+
+- **Generated quest skill docs** -- Detailed final-Memory and completion mechanics now live in an on-demand generated subfile so leaders keep essential quest guidance with less recovery context
+- **Leader proposal guidance** -- Quest and dispatch proposals now read more like concise approval TLDRs while detailed grounding stays in the quest record
+
+### Fixed
+
+- **Active quest tabs** -- Newly active leader quest rows, including manually created idea quests, surface into the leftmost visible quest-tab slot while preserving overflow behavior
+- **Tool result size labels** -- Expanded result blocks keep one compact `output bytes: N` label visible and avoid repeating size text in the `Show full result` action
+
+## 2026-06-22
+
+### Fixed
+
+- **Codex Web Search details** -- Web Search tool cards render useful query and URL details across raw `web_search_call`, older `webSearch`, and progressive same-id updates, including multi-query actions
+- **UI test stability** -- Aggregate Playground, UniversalSearch, and Questmaster test flakes were stabilized without deleting coverage
+
+## 2026-06-18
+
+### Added
+
+- **Chat line height setting** -- Settings can adjust server-backed chat message line height for denser or airier Markdown message text
+- **Codex pending delivery diagnostics** -- `takode info` and recovery state now expose Codex pending-delivery diagnostics for debugging stuck or recoverable turns
+
+### Fixed
+
+- **Codex herd input recovery** -- Stale Codex pending-delivery state is poked when herd inputs arrive so queued leader or board input can recover more reliably
+
 ## 2026-06-10
 
 ### Changed
