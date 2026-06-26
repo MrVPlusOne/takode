@@ -30,6 +30,7 @@ import {
 } from "./fixtures.js";
 import { PlaygroundSideChatStates } from "./SideChatPlaygroundStates.js";
 import { PlaygroundSidebarOverflowStates, PlaygroundUniversalSearchStates } from "./search-sidebar-states.js";
+import { PlaygroundUserMessageNavigatorSection } from "./PlaygroundUserMessageNavigatorSection.js";
 import {
   Card,
   PlaygroundClaudeMdButton,
@@ -1968,6 +1969,7 @@ diff --git a/src/routes/summary.ts b/src/routes/summary.ts
       </Section>
 
       <PlaygroundUniversalSearchStates />
+      <PlaygroundUserMessageNavigatorSection />
       <PlaygroundSidebarOverflowStates />
 
       {/* ─── Folder Picker ──────────────────────────────── */}

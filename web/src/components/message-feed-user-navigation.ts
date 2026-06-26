@@ -9,6 +9,9 @@ export interface UserNavigationTarget {
   key: string;
   turnId: string;
   blockId: string;
+  messageId: string;
+  content: string;
+  timestamp: number;
 }
 
 export function collectUserNavigationTargets(turns: readonly Turn[], leaderSessionId: string): UserNavigationTarget[] {
@@ -18,14 +21,28 @@ export function collectUserNavigationTargets(turns: readonly Turn[], leaderSessi
     const boundaryMessage = getEntryMessage(turn.userEntry);
     if (boundaryMessage && isUserNavigationTargetMessage(boundaryMessage, leaderSessionId)) {
       const blockId = getTurnFeedBlockId(turn.id);
-      targets.push({ key: blockId, turnId: turn.id, blockId });
+      targets.push({
+        key: blockId,
+        turnId: turn.id,
+        blockId,
+        messageId: boundaryMessage.id,
+        content: boundaryMessage.content,
+        timestamp: boundaryMessage.timestamp,
+      });
     }
 
     for (const entry of turn.allEntries) {
       const message = getEntryMessage(entry);
       if (!message || !isUserNavigationTargetMessage(message, leaderSessionId)) continue;
       const blockId = getMessageFeedBlockId(message.id);
-      targets.push({ key: blockId, turnId: turn.id, blockId });
+      targets.push({
+        key: blockId,
+        turnId: turn.id,
+        blockId,
+        messageId: message.id,
+        content: message.content,
+        timestamp: message.timestamp,
+      });
     }
   }
 

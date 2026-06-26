@@ -85,6 +85,7 @@ import { getSavedViewportRestoreKey, readSavedViewportPosition } from "./message
 import { getHistoryBoundaryWindowRequest, getThreadBoundaryWindowRequest } from "./message-feed-window-paging.js";
 import { collectUserNavigationTargets } from "./message-feed-user-navigation.js";
 import { useUserMessageNavigation } from "./message-feed-user-navigation-hook.js";
+import { UserMessageNavigator } from "./UserMessageNavigator.js";
 import {
   isUserBoundaryEntry,
   useFeedModel,
@@ -1056,8 +1057,6 @@ export function MessageFeed({
   const navFabStackClassName = isTouch
     ? `gap-2 ${isScrolling ? "opacity-60" : "opacity-0 pointer-events-none"}`
     : "gap-4";
-  const userTurnNavGroupClassName = isTouch ? "flex flex-col gap-2" : "flex flex-col gap-1.5";
-
   const resetVisibleSectionsToLatest = useCallback(
     (behavior: ScrollBehavior = "auto") => {
       if (activeThreadWindow && hasNewerSections) {
@@ -1946,30 +1945,21 @@ export function MessageFeed({
                 <path d="M4 12h8" strokeLinecap="round" />
               </svg>
             </button>
-            <div className={userTurnNavGroupClassName}>
-              <button
-                onClick={handleScrollToPreviousUserMessageClick}
-                className={navFabButtonClassName}
-                title="Previous user message"
-                aria-label="Previous user message"
-              >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-                  <path d="M4 7l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M8 3v10" strokeLinecap="round" />
-                </svg>
-              </button>
-              <button
-                onClick={handleScrollToNextUserMessageClick}
-                className={navFabButtonClassName}
-                title="Next user message"
-                aria-label="Next user message"
-              >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-                  <path d="M4 9l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M8 3v10" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
+            <UserMessageNavigator
+              sessionId={sessionId}
+              currentThreadKey={normalizedThreadKey}
+              isLeaderSession={isLeaderSession}
+              useServerSearch={!herdingLeaderSessionId}
+              isTouch={isTouch}
+              containerRef={containerRef}
+              contentRootRef={contentRootRef}
+              targets={userNavigationTargets}
+              visibleWindowSignature={visibleWindowSignature}
+              buttonClassName={navFabButtonClassName}
+              onPrevious={handleScrollToPreviousUserMessageClick}
+              onNext={handleScrollToNextUserMessageClick}
+              onSelectTarget={(target) => scrollToFeedBlock(target.blockId, target.turnId)}
+            />
             {/* Go to bottom */}
             <button
               onClick={handleScrollToBottomClick}

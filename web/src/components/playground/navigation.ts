@@ -109,6 +109,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Cat Theme Elements",
     "Session Search",
     "Universal Search",
+    "User Message Navigator",
     "Folder Picker",
   ]),
 ];

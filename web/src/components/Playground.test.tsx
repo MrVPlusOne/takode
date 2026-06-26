@@ -137,7 +137,9 @@ describe("Playground", () => {
     const appendRecordingLabel = within(appendRow).getByText("Recording");
     expect(appendToggle.compareDocumentPosition(appendRecordingLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(appendRow).getByLabelText("Current and recent input level")).toBeTruthy();
-  });
+    // Full Playground rendering is intentionally broad documentation coverage;
+    // in the aggregate suite it can exceed the default 10s jsdom budget.
+  }, 20_000);
 
   it("documents Composer backend-native permission selector states", () => {
     render(<Playground />);
