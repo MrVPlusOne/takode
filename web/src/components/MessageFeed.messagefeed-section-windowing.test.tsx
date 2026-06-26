@@ -28,7 +28,7 @@ beforeAll(() => {
   });
 });
 
-import { render, screen, fireEvent, act, within } from "@testing-library/react";
+import { render, screen, fireEvent, act, within, waitFor } from "@testing-library/react";
 import type { BrowserIncomingMessage, ChatMessage, ThreadWindowEntry } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
@@ -56,9 +56,16 @@ const mockCollapseAllTurnActivity = vi.fn();
 const mockClearBottomAlignOnNextUserMessage = vi.fn();
 const mockSetComposerDraft = vi.fn();
 const mockSendToSession: any = vi.fn(() => true);
+const mockSearchSessionMessages = vi.fn();
 
 vi.mock("../ws.js", () => ({
   sendToSession: (sessionId: string, msg: any) => mockSendToSession(sessionId, msg),
+}));
+
+vi.mock("../api.js", () => ({
+  api: {
+    searchSessionMessages: (...args: unknown[]) => mockSearchSessionMessages(...args),
+  },
 }));
 
 vi.mock("../store.js", () => {
@@ -443,6 +450,53 @@ function setStoreScrollToMessage(sessionId: string, messageId: string) {
   mockStoreValues.scrollToMessageId = map;
 }
 
+function getDefaultSearchMessages(sessionId: string, options: { scope?: string; threadKey?: string | null }) {
+  if (options.scope === "current_thread" && options.threadKey) {
+    const threadMessages = mockStoreValues.threadWindowMessages as Map<string, Map<string, ChatMessage[]>> | undefined;
+    return threadMessages?.get(sessionId)?.get(options.threadKey) ?? [];
+  }
+  const messages = mockStoreValues.messages as Map<string, ChatMessage[]> | undefined;
+  return messages?.get(sessionId) ?? [];
+}
+
+function buildMessageSearchResponse(
+  sessionId: string,
+  options: { scope?: string; threadKey?: string | null } = {},
+  messages = getDefaultSearchMessages(sessionId, options),
+) {
+  const results = messages
+    .filter((message) => message.role === "user" || message.metadata?.leaderUserMessage === true)
+    .map((message, index) => ({
+      id: `${sessionId}:${message.id}`,
+      sessionId,
+      sessionNum: null,
+      messageId: message.id,
+      historyIndex: message.historyIndex ?? index,
+      role: message.role,
+      category: "user",
+      timestamp: message.timestamp,
+      snippet: message.content,
+      fullText: message.content,
+      ...(options.threadKey ? { routeThreadKey: options.threadKey, sourceThreadKey: options.threadKey } : {}),
+    }));
+
+  return {
+    sessionId,
+    sessionNum: null,
+    query: "",
+    scope:
+      options.scope === "current_thread"
+        ? { kind: "current_thread", threadKey: options.threadKey ?? "main", label: "Current thread" }
+        : { kind: "session", label: "Session" },
+    filters: { user: true, assistant: true, event: false },
+    totalMatches: results.length,
+    results,
+    nextOffset: null,
+    hasMore: false,
+    tookMs: 1,
+  };
+}
+
 function setStoreBottomAlignNextUserMessage(sessionId: string, enabled = true) {
   const set = new Set<string>();
   if (enabled) set.add(sessionId);
@@ -463,6 +517,10 @@ function resetStore() {
   mockSetComposerDraft.mockReset();
   mockSendToSession.mockReset();
   mockSendToSession.mockReturnValue(true);
+  mockSearchSessionMessages.mockReset();
+  mockSearchSessionMessages.mockImplementation((sessionId: string, options = {}) =>
+    Promise.resolve(buildMessageSearchResponse(sessionId, options as { scope?: string; threadKey?: string | null })),
+  );
   mockStoreValues.messages = new Map();
   mockStoreValues.messageFrozenCounts = new Map();
   mockStoreValues.messageFrozenRevisions = new Map();
@@ -1375,6 +1433,103 @@ describe("MessageFeed section windowing", () => {
 
     const scrollContext = mockScrollIntoView.mock.contexts.at(-1) as HTMLElement | undefined;
     expect(scrollContext?.getAttribute("data-turn-id")).toBe("u2");
+  });
+
+  it("uses global selected-thread user-message targets for the expanded navigator", async () => {
+    const sid = "test-selected-thread-global-user-navigation";
+    const threadKey = "q-1027";
+    const globalMessages = [
+      makeMessage({
+        id: "u1",
+        role: "user",
+        content: "Global oldest prompt",
+        timestamp: 1,
+        historyIndex: 0,
+      }),
+      makeMessage({
+        id: "u2",
+        role: "user",
+        content: "Global middle prompt",
+        timestamp: 3,
+        historyIndex: 2,
+      }),
+      makeMessage({
+        id: "u3",
+        role: "user",
+        content: "Loaded prompt three",
+        timestamp: 5,
+        historyIndex: 4,
+      }),
+      makeMessage({
+        id: "u4",
+        role: "user",
+        content: "Loaded newest prompt",
+        timestamp: 7,
+        historyIndex: 6,
+      }),
+    ];
+    mockSearchSessionMessages.mockImplementation((calledSessionId: string, options = {}) =>
+      Promise.resolve(
+        buildMessageSearchResponse(
+          calledSessionId,
+          options as { scope?: string; threadKey?: string | null },
+          globalMessages,
+        ),
+      ),
+    );
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 2,
+      itemCount: 4,
+      totalItems: 8,
+      sectionItemCount: 2,
+      visibleItemCount: 3,
+      messages: [
+        makeMessage({ id: "u3", role: "user", content: "Loaded prompt three", timestamp: 5, historyIndex: 4 }),
+        makeMessage({ id: "a3", role: "assistant", content: "Reply three", timestamp: 6, historyIndex: 5 }),
+        makeMessage({ id: "u4", role: "user", content: "Loaded newest prompt", timestamp: 7, historyIndex: 6 }),
+        makeMessage({ id: "a4", role: "assistant", content: "Reply four", timestamp: 8, historyIndex: 7 }),
+      ],
+    });
+
+    render(<MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={2} />);
+
+    await waitFor(() =>
+      expect(mockSearchSessionMessages).toHaveBeenCalledWith(
+        sid,
+        expect.objectContaining({
+          query: "",
+          scope: "current_thread",
+          threadKey,
+          filters: { user: true, assistant: false, event: false },
+          limit: 200,
+          offset: 0,
+        }),
+      ),
+    );
+    const trigger = await screen.findByRole("button", { name: /User message navigator, \d+ of 4/ });
+    fireEvent.click(trigger);
+
+    const dialog = screen.getByRole("dialog", { name: "User message selector" });
+    expect(within(dialog).getByText("Global oldest prompt")).toBeTruthy();
+    expect(within(dialog).getByText("Global middle prompt")).toBeTruthy();
+    expect(within(dialog).getByText("Loaded prompt three")).toBeTruthy();
+    expect(within(dialog).getByText("Loaded newest prompt")).toBeTruthy();
+
+    mockSendToSession.mockClear();
+    fireEvent.click(within(dialog).getByText("Global oldest prompt"));
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({
+        type: "thread_window_request",
+        thread_key: threadKey,
+        from_item: 0,
+        item_count: 6,
+      }),
+    );
   });
 
   it("loads older selected-thread content from the boundary button when the viewport cannot scroll upward", () => {

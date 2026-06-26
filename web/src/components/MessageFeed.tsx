@@ -83,7 +83,7 @@ import {
 } from "./message-feed-selected-window.js";
 import { getSavedViewportRestoreKey, readSavedViewportPosition } from "./message-feed-viewport-state.js";
 import { getHistoryBoundaryWindowRequest, getThreadBoundaryWindowRequest } from "./message-feed-window-paging.js";
-import { collectUserNavigationTargets } from "./message-feed-user-navigation.js";
+import { collectUserNavigationTargets, type UserNavigationTarget } from "./message-feed-user-navigation.js";
 import { useUserMessageNavigation } from "./message-feed-user-navigation-hook.js";
 import { UserMessageNavigator } from "./UserMessageNavigator.js";
 import {
@@ -113,6 +113,52 @@ const CENTERED_FEED_STATUS_CLEARANCE_GAP_PX = 64;
 const FLOATING_STATUS_MOBILE_BOTTOM_PX = 8;
 const MOBILE_NAV_BASE_BOTTOM_PX = 12;
 const MOBILE_NAV_STATUS_CLEARANCE_GAP_PX = 8;
+const USER_NAVIGATION_SEARCH_LIMIT = 200;
+const USER_NAVIGATION_SEARCH_MAX_RESULTS = 1000;
+
+type SessionMessageSearchResult = Awaited<ReturnType<typeof api.searchSessionMessages>>["results"][number];
+
+function searchResultsToUserNavigationTargets(results: readonly SessionMessageSearchResult[]): UserNavigationTarget[] {
+  return results
+    .filter((result) => result.category === "user")
+    .sort((left, right) => left.historyIndex - right.historyIndex || left.timestamp - right.timestamp)
+    .map((result, index) => {
+      const isBoundaryUserMessage = result.role === "user";
+      const blockId = isBoundaryUserMessage
+        ? getTurnFeedBlockId(result.messageId)
+        : getMessageFeedBlockId(result.messageId);
+      return {
+        key: blockId,
+        turnId: result.messageId,
+        blockId,
+        messageId: result.messageId,
+        content: result.fullText ?? result.snippet,
+        timestamp: result.timestamp,
+        navigationIndex: index,
+        historyIndex: result.historyIndex,
+      };
+    });
+}
+
+function mergeUserNavigationTargets(
+  primaryTargets: readonly UserNavigationTarget[],
+  visibleLocalTargets: readonly UserNavigationTarget[],
+): UserNavigationTarget[] {
+  const byMessageId = new Map(primaryTargets.map((target) => [target.messageId, target]));
+  const merged = [...primaryTargets];
+  for (const target of visibleLocalTargets) {
+    if (byMessageId.has(target.messageId)) continue;
+    byMessageId.set(target.messageId, target);
+    merged.push(target);
+  }
+  return merged
+    .sort(
+      (left, right) =>
+        (left.historyIndex ?? Number.MAX_SAFE_INTEGER) - (right.historyIndex ?? Number.MAX_SAFE_INTEGER) ||
+        left.timestamp - right.timestamp,
+    )
+    .map((target, index) => ({ ...target, navigationIndex: index }));
+}
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 const SECTION_WINDOW_TRIGGER_PX = 96;
 const SECTION_BOUNDARY_CONTROL_CLASS =
@@ -300,9 +346,75 @@ export function MessageFeed({
     userBoundarySourceSessionId: herdingLeaderSessionId ?? null,
     perf: { sessionId, threadKey: normalizedThreadKey },
   });
-  const userNavigationTargets = useMemo(
+  const localUserNavigationTargets = useMemo(
     () => collectUserNavigationTargets(turns, userNavigationSourceSessionId),
     [turns, userNavigationSourceSessionId],
+  );
+  const [serverUserNavigationTargets, setServerUserNavigationTargets] = useState<UserNavigationTarget[] | null>(null);
+  const useServerUserNavigationTargets = !herdingLeaderSessionId;
+  const latestGlobalMessageId = allMessages.at(-1)?.id ?? "";
+
+  useEffect(() => {
+    if (!useServerUserNavigationTargets) {
+      setServerUserNavigationTargets(null);
+      return;
+    }
+    if (typeof api.searchSessionMessages !== "function") {
+      setServerUserNavigationTargets(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+
+    async function loadTargets() {
+      try {
+        const results: SessionMessageSearchResult[] = [];
+        let offset = 0;
+        while (results.length < USER_NAVIGATION_SEARCH_MAX_RESULTS) {
+          const response = await api.searchSessionMessages(sessionId, {
+            query: "",
+            scope: isLeaderSession ? "current_thread" : "session",
+            threadKey: isLeaderSession ? normalizedThreadKey : undefined,
+            filters: { user: true, assistant: false, event: false },
+            limit: USER_NAVIGATION_SEARCH_LIMIT,
+            offset,
+            signal: controller.signal,
+          });
+          results.push(...response.results);
+          if (!response.hasMore || response.nextOffset == null) break;
+          offset = response.nextOffset;
+        }
+        if (cancelled || controller.signal.aborted) return;
+        setServerUserNavigationTargets(searchResultsToUserNavigationTargets(results));
+      } catch (err) {
+        if (cancelled || controller.signal.aborted) return;
+        console.warn("[message-feed] user-message navigation metadata failed:", err);
+        setServerUserNavigationTargets(null);
+      }
+    }
+
+    void loadTargets();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [
+    allMessages.length,
+    isLeaderSession,
+    latestGlobalMessageId,
+    normalizedThreadKey,
+    sessionId,
+    threadWindowRefreshRevision,
+    useServerUserNavigationTargets,
+  ]);
+
+  const userNavigationTargets = useMemo(
+    () =>
+      serverUserNavigationTargets
+        ? mergeUserNavigationTargets(serverUserNavigationTargets, localUserNavigationTargets)
+        : localUserNavigationTargets,
+    [localUserNavigationTargets, serverUserNavigationTargets],
   );
   const activeLiveSubagentEntries = useMemo(
     () =>
@@ -1034,7 +1146,11 @@ export function MessageFeed({
     containerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
-  const { handleScrollToPreviousUserMessageClick, handleScrollToNextUserMessageClick } = useUserMessageNavigation({
+  const {
+    handleScrollToPreviousUserMessageClick,
+    handleScrollToNextUserMessageClick,
+    handleSelectUserNavigationTarget,
+  } = useUserMessageNavigation({
     containerRef,
     contentRootRef,
     userNavigationTargets,
@@ -1930,7 +2046,7 @@ export function MessageFeed({
         {showScrollButton && (
           <div
             data-testid="message-feed-nav-fabs"
-            className={`absolute bottom-3 right-3 z-10 flex flex-col transition-opacity duration-300 ${navFabStackClassName}`}
+            className={`absolute bottom-3 right-3 z-10 flex flex-col items-center transition-opacity duration-300 ${navFabStackClassName}`}
             style={isTouch ? { bottom: `${mobileNavBottomOffsetPx}px` } : undefined}
           >
             {/* Go to top */}
@@ -1958,7 +2074,7 @@ export function MessageFeed({
               buttonClassName={navFabButtonClassName}
               onPrevious={handleScrollToPreviousUserMessageClick}
               onNext={handleScrollToNextUserMessageClick}
-              onSelectTarget={(target) => scrollToFeedBlock(target.blockId, target.turnId)}
+              onSelectTarget={handleSelectUserNavigationTarget}
             />
             {/* Go to bottom */}
             <button

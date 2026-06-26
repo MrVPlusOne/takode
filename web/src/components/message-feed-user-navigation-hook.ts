@@ -35,6 +35,7 @@ interface UseUserMessageNavigationInput {
 export function useUserMessageNavigation(input: UseUserMessageNavigationInput): {
   handleScrollToPreviousUserMessageClick: () => void;
   handleScrollToNextUserMessageClick: () => void;
+  handleSelectUserNavigationTarget: (target: UserNavigationTarget) => void;
 } {
   const {
     containerRef,
@@ -57,17 +58,7 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
     anchorTargetKey: string | null;
   } | null>(null);
   const pendingLocalTargetRef = useRef<UserNavigationTarget | null>(null);
-
-  const scrollToUserNavigationTarget = useCallback(
-    (target: UserNavigationTarget) => {
-      if (ensureSectionForTurnVisible(target.turnId)) {
-        pendingLocalTargetRef.current = target;
-        return;
-      }
-      scrollToFeedBlock(target.blockId, target.turnId);
-    },
-    [ensureSectionForTurnVisible, scrollToFeedBlock],
-  );
+  const pendingSpecificTargetRef = useRef<UserNavigationTarget | null>(null);
 
   const getMountedUserNavigationTargets = useCallback(() => {
     const contentRoot = contentRootRef.current;
@@ -79,6 +70,94 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
       return element ? [{ target, element }] : [];
     });
   }, [contentRootRef, userNavigationTargets]);
+
+  const isUserNavigationTargetMounted = useCallback(
+    (target: UserNavigationTarget) => {
+      const contentRoot = contentRootRef.current;
+      if (!contentRoot) return false;
+      return Boolean(
+        contentRoot.querySelector<HTMLElement>(`[data-feed-block-id="${escapeSelectorValue(target.blockId)}"]`),
+      );
+    },
+    [contentRootRef],
+  );
+
+  const requestWindowForUserNavigationTarget = useCallback(
+    (target: UserNavigationTarget) => {
+      const targetIndex = target.navigationIndex;
+      if (typeof targetIndex !== "number" || !Number.isFinite(targetIndex)) return false;
+
+      if (activeThreadWindow) {
+        const itemCount = Math.max(
+          1,
+          activeThreadWindow.item_count,
+          activeThreadWindow.section_item_count * activeThreadWindow.visible_item_count,
+        );
+        const maxFrom = Math.max(0, activeThreadWindow.total_items - itemCount);
+        const fromItem = Math.min(Math.max(0, targetIndex - Math.floor(itemCount / 2)), maxFrom);
+        const direction = targetIndex < activeThreadWindow.from_item ? "older" : "newer";
+        const requestKey = `thread:${normalizedThreadKey}:${fromItem}:${itemCount}:target:${target.messageId}`;
+        if (!markSectionLoadPending(direction, requestKey)) return true;
+        autoFollowEnabledRef.current = false;
+        pendingSpecificTargetRef.current = target;
+        requestThreadWindow(fromItem, itemCount);
+        return true;
+      }
+
+      if (activeHistoryWindow) {
+        const turnCount = Math.max(
+          1,
+          activeHistoryWindow.turn_count,
+          activeHistoryWindow.section_turn_count * activeHistoryWindow.visible_section_count,
+        );
+        const maxFrom = Math.max(0, activeHistoryWindow.total_turns - turnCount);
+        const fromTurn = Math.min(Math.max(0, targetIndex - Math.floor(turnCount / 2)), maxFrom);
+        const direction = targetIndex < activeHistoryWindow.from_turn ? "older" : "newer";
+        const requestKey = `history:${fromTurn}:${turnCount}:${activeHistoryWindow.section_turn_count}:${activeHistoryWindow.visible_section_count}:target:${target.messageId}`;
+        if (!markSectionLoadPending(direction, requestKey)) return true;
+        autoFollowEnabledRef.current = false;
+        pendingSpecificTargetRef.current = target;
+        requestHistoryWindow(
+          fromTurn,
+          turnCount,
+          activeHistoryWindow.section_turn_count,
+          activeHistoryWindow.visible_section_count,
+        );
+        return true;
+      }
+
+      return false;
+    },
+    [
+      activeHistoryWindow,
+      activeThreadWindow,
+      autoFollowEnabledRef,
+      markSectionLoadPending,
+      normalizedThreadKey,
+      requestHistoryWindow,
+      requestThreadWindow,
+    ],
+  );
+
+  const scrollToUserNavigationTarget = useCallback(
+    (target: UserNavigationTarget) => {
+      if (!isUserNavigationTargetMounted(target) && requestWindowForUserNavigationTarget(target)) {
+        pendingSpecificTargetRef.current = target;
+        return;
+      }
+      if (ensureSectionForTurnVisible(target.turnId)) {
+        pendingLocalTargetRef.current = target;
+        return;
+      }
+      scrollToFeedBlock(target.blockId, target.turnId);
+    },
+    [
+      ensureSectionForTurnVisible,
+      isUserNavigationTargetMounted,
+      requestWindowForUserNavigationTarget,
+      scrollToFeedBlock,
+    ],
+  );
 
   const scrollToLoadedAdjacentUserNavigationTarget = useCallback(
     (
@@ -153,6 +232,15 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
   }, [scrollToUserNavigationTarget, userNavigationTargets, visibleWindowSignature]);
 
   useEffect(() => {
+    const pending = pendingSpecificTargetRef.current;
+    if (!pending) return;
+    const target = userNavigationTargets.find((candidate) => candidate.messageId === pending.messageId) ?? pending;
+    if (!isUserNavigationTargetMounted(target)) return;
+    pendingSpecificTargetRef.current = null;
+    scrollToFeedBlock(target.blockId, target.turnId);
+  }, [isUserNavigationTargetMounted, scrollToFeedBlock, userNavigationTargets, visibleWindowSignature]);
+
+  useEffect(() => {
     const target = pendingLocalTargetRef.current;
     if (!target) return;
     pendingLocalTargetRef.current = null;
@@ -196,5 +284,6 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
       () => handleUserMessageNavigationClick("next"),
       [handleUserMessageNavigationClick],
     ),
+    handleSelectUserNavigationTarget: scrollToUserNavigationTarget,
   };
 }

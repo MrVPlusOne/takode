@@ -12,6 +12,8 @@ export interface UserNavigationTarget {
   messageId: string;
   content: string;
   timestamp: number;
+  navigationIndex?: number;
+  historyIndex?: number;
 }
 
 export function collectUserNavigationTargets(turns: readonly Turn[], leaderSessionId: string): UserNavigationTarget[] {
@@ -28,6 +30,8 @@ export function collectUserNavigationTargets(turns: readonly Turn[], leaderSessi
         messageId: boundaryMessage.id,
         content: boundaryMessage.content,
         timestamp: boundaryMessage.timestamp,
+        navigationIndex: targets.length,
+        historyIndex: boundaryMessage.historyIndex,
       });
     }
 
@@ -42,6 +46,8 @@ export function collectUserNavigationTargets(turns: readonly Turn[], leaderSessi
         messageId: message.id,
         content: message.content,
         timestamp: message.timestamp,
+        navigationIndex: targets.length,
+        historyIndex: message.historyIndex,
       });
     }
   }
