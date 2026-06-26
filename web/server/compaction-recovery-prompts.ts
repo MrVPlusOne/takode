@@ -33,10 +33,12 @@ export const LEGACY_STANDARD_COMPACTION_RECOVERY_PROMPT = `${STANDARD_COMPACTION
 export function getLeaderContextRecoveryInstructions(sessionRef: string): string {
   return `1. Load skills: /takode-orchestration, /leader-dispatch, and /quest
 2. Run the preferred leader recovery summary: \`takode leader-context-resume ${sessionRef}\`
-3. Key rules:
+3. Run the default recent-turn scan: \`takode scan ${sessionRef}\`
+4. Key rules:
    - Treat the recovery summary as the first pass, then use manual follow-ups when the summary is stale, insufficient, or leaves phase history or user intent unclear
+   - Do not conclude recovery is complete until you have checked recent scan turns for unanswered user requests, interrupted actions, and unmodeled quest setup
    - Scope unresolved user decisions, including \`needs-input\` prompts, to their owner: do not advance the affected thread, quest, or board row, and do not answer on the user's behalf. Keep unrelated dispatch, quests, and herd events moving unless the pending prompt is explicitly safety/global/worker-slot/shared-resource/cross-quest. If the user sets one prompt aside and asks for unrelated work, proceed when that work does not depend on the answer
-   - Use \`takode scan ${sessionRef}\` to inspect your own session history and recover enough earlier context before acting; follow with \`takode peek ${sessionRef}\` or \`takode read ${sessionRef} <msg-id>\` when you need specific turn or message detail
+   - Follow the default scan with \`takode peek ${sessionRef}\` or \`takode read ${sessionRef} <msg-id>\` when you need specific turn or message detail
    - Inspect relevant quest state with \`quest show\`, \`quest status\`, and phase feedback commands before advancing Journey work
    - If durable memory may affect the current decision, run \`memory catalog show\` for orientation; inspect plausible catalog-listed files directly, especially \`current/\`, \`decisions/\`, and \`procedures/\`; use targeted \`rg\` under \`$(memory repo path)\` only when catalog or known context makes a match plausible; skip blind repo-wide memory search when the catalog shows no plausible relevant topic, type, or source
    - Use \`takode board show\` to verify active Journey state and \`takode list\` to reconcile herd/session state when board or worker context matters
@@ -58,14 +60,16 @@ Start by loading the core orchestration context:
 
 Recover the interrupted session state:
 1. Run \`takode leader-context-resume ${sessionRef}\` for the preferred recovery summary.
-2. Use \`takode scan ${sessionRef}\` only if you need more session history, then \`takode peek ${sessionRef}\` or \`takode read ${sessionRef} <msg-id>\` for specific turns or messages.
-3. Inspect relevant quest state with \`quest show\`, \`quest status\`, and phase feedback commands before advancing Journey work.
-4. Use \`takode board show\` and \`takode list\` when board or herd state matters.
-5. If durable memory may affect the current decision, run \`memory catalog show\` and inspect plausible catalog-listed files directly.
+2. Run the default recent-turn scan: \`takode scan ${sessionRef}\`.
+3. Do not conclude recovery is complete until the recent scan turns have been checked for unanswered user requests, interrupted actions, and unmodeled quest setup.
+4. Use \`takode peek ${sessionRef}\` or \`takode read ${sessionRef} <msg-id>\` for specific turns or messages when the scan shows a turn that needs detail.
+5. Inspect relevant quest state with \`quest show\`, \`quest status\`, and phase feedback commands before advancing Journey work.
+6. Use \`takode board show\` and \`takode list\` when board or herd state matters.
+7. If durable memory may affect the current decision, run \`memory catalog show\` and inspect plausible catalog-listed files directly.
 
 Pay special attention to any \`Interrupted direct user work\` section in the recovery summary. Inspect those message links and handle each direct request independently from unrelated quest-scoped waits.
 
-After reconstructing enough context, continue the interrupted workflow only if it is safe. If the board is empty, no same-session \`needs-input\` prompt is unresolved, and no interrupted direct user work is reported, report recovery complete instead of digging through old review inbox items. If you cannot continue safely, say exactly what is still unclear, recoverable, or needs user/leader action.`;
+After reconstructing enough context from the recovery summary, recent-turn scan, and relevant structured state, continue the interrupted workflow only if it is safe. If the scan plus board/quest/notification state show no active work, no same-session \`needs-input\` prompt is unresolved, and no interrupted direct user work is reported, report recovery complete instead of digging through old review inbox items. If you cannot continue safely, say exactly what is still unclear, recoverable, or needs user/leader action.`;
 }
 
 export function getStandardContextRecoveryInstructions(sessionRef: string): string {

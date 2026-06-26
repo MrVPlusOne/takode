@@ -622,6 +622,13 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).toContain("takode leader-context-resume 42");
     expect(recoveryCalls[0][1]).toContain("takode board show");
     expect(recoveryCalls[0][1]).toContain("takode scan 42");
+    expect(recoveryCalls[0][1]).toContain("Run the default recent-turn scan: `takode scan 42`");
+    expect(recoveryCalls[0][1]).toContain(
+      "Do not conclude recovery is complete until you have checked recent scan turns",
+    );
+    expect(recoveryCalls[0][1]).toContain("unanswered user requests");
+    expect(recoveryCalls[0][1]).toContain("interrupted actions");
+    expect(recoveryCalls[0][1]).toContain("unmodeled quest setup");
     expect(recoveryCalls[0][1]).toContain("takode peek 42");
     expect(recoveryCalls[0][1]).toContain("takode read 42 <msg-id>");
     expect(recoveryCalls[0][1]).toContain("quest show");
@@ -634,7 +641,7 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).not.toContain("<your-session-number>");
     expect(recoveryCalls[0][1]).toContain("takode list");
     expect(recoveryCalls[0][1]).not.toContain("takode board show && takode list");
-    expect(recoveryCalls[0][1]).toContain("recover enough earlier context");
+    expect(recoveryCalls[0][1]).toContain("checked recent scan turns");
     expect(recoveryCalls[0][1]).toContain("first pass");
     expect(recoveryCalls[0][1]).toContain("summary is stale, insufficient");
     expect(recoveryCalls[0][1]).toContain("Scope unresolved user decisions, including `needs-input` prompts");

@@ -139,13 +139,26 @@ describe("Codex leader recycle continuation", () => {
     );
     expect(session.codexLeaderRecycleContinuation?.content).toContain("takode leader-context-resume 42");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("takode scan 42");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("Run the default recent-turn scan");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain(
+      "Do not conclude recovery is complete until the recent scan turns have been checked",
+    );
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("unanswered user requests");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("interrupted actions");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("unmodeled quest setup");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("only if you need more session history");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("takode peek 42");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("takode read 42 <msg-id>");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("quest show");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("quest status");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("memory catalog show");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("takode board show");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("If the board is empty");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain(
+      "scan plus board/quest/notification state show no active work",
+    );
+    expect(session.codexLeaderRecycleContinuation?.content).toContain(
+      "report recovery complete instead of digging through old review inbox items",
+    );
     expect(session.codexLeaderRecycleContinuation?.content).toContain("Interrupted direct user work");
     expect(session.codexLeaderRecycleContinuation?.content).toContain(
       "handle each direct request independently from unrelated quest-scoped waits",
@@ -211,13 +224,20 @@ describe("Codex leader recycle continuation", () => {
     expect(content).toContain("Load /leader-dispatch only before choosing workers or dispatching work.");
     expect(content).toContain("takode leader-context-resume 42");
     expect(content).toContain("takode scan 42");
+    expect(content).toContain("Run the default recent-turn scan");
+    expect(content).toContain("Do not conclude recovery is complete until the recent scan turns have been checked");
+    expect(content).toContain("unanswered user requests");
+    expect(content).toContain("interrupted actions");
+    expect(content).toContain("unmodeled quest setup");
+    expect(content).not.toContain("only if you need more session history");
     expect(content).toContain("takode peek 42");
     expect(content).toContain("takode read 42 <msg-id>");
     expect(content).toContain("quest show");
     expect(content).toContain("quest status");
     expect(content).toContain("memory catalog show");
     expect(content).toContain("takode board show");
-    expect(content).toContain("If the board is empty");
+    expect(content).toContain("scan plus board/quest/notification state show no active work");
+    expect(content).toContain("report recovery complete instead of digging through old review inbox items");
     expect(content).toContain("Interrupted direct user work");
     expect(content).toContain("handle each direct request independently from unrelated quest-scoped waits");
     expect(content).not.toContain("Active thread before recycle:");
