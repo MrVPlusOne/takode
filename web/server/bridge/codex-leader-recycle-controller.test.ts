@@ -1,9 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prepareCodexLeaderRecycleSession } from "./codex-leader-recycle-controller.js";
 import { injectCompactionRecovery } from "./compaction-recovery.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
 
-function makeLeaderSession(history: BrowserIncomingMessage[]) {
+const { mockGetKnownSessionNum } = vi.hoisted(() => ({
+  mockGetKnownSessionNum: vi.fn<(sessionId: string) => number | undefined>(),
+}));
+
+vi.mock("../cli-launcher.js", () => ({
+  getKnownSessionNum: mockGetKnownSessionNum,
+}));
+
+function makeLeaderSession(history: BrowserIncomingMessage[], sessionNum: number | null | undefined = 42) {
   return {
     id: "leader-session",
     state: { is_compacting: false },
@@ -19,7 +27,7 @@ function makeLeaderSession(history: BrowserIncomingMessage[]) {
     codexFreshTurnRequiredUntilTurnId: "turn-old",
     lastOutboundUserNdjson: "old outbound",
     activeTurnRoute: { threadKey: "q-1489", questId: "q-1489" },
-    sessionNum: 42,
+    sessionNum,
     interruptedDuringTurn: false,
     interruptSourceDuringTurn: null,
     relaunchPending: false,
@@ -40,6 +48,10 @@ function makeDeps() {
 }
 
 describe("Codex leader recycle continuation", () => {
+  beforeEach(() => {
+    mockGetKnownSessionNum.mockReset();
+  });
+
   it("injects a specific stopped-after-tools leader continuation even when old compaction recovery exists", () => {
     // Regression for q-1494 and q-1500: a leader recycled after tool
     // activity while preparing a quest-design/dispatch approval surface. The
@@ -274,5 +286,29 @@ describe("Codex leader recycle continuation", () => {
       injectUserMessage,
     });
     expect(injectUserMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the known session number when recycle session state lacks sessionNum", () => {
+    // Regression for q-14 feedback #5: the live Codex leader recycle path can
+    // have launcher metadata for the session number even when the bridge
+    // session object does not carry sessionNum, and recovery commands should
+    // still use the short numeric session reference.
+    mockGetKnownSessionNum.mockReturnValue(2);
+    const session = makeLeaderSession([], undefined);
+    const deps = makeDeps();
+
+    prepareCodexLeaderRecycleSession(session, "manual_compact", 15_000, deps);
+
+    expect(mockGetKnownSessionNum).toHaveBeenCalledWith("leader-session");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("takode leader-context-resume 2");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("takode scan 2");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("takode peek 2");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("takode read 2 <msg-id>");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain(
+      "takode leader-context-resume leader-session",
+    );
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("takode scan leader-session");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("Run the default recent-turn scan");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("Interrupted direct user work");
   });
 });
