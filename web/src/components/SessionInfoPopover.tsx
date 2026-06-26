@@ -172,7 +172,7 @@ export function SessionInfoPopover({
     }
     let cancelled = false;
     api
-      .listSessions()
+      .listSessions({ includeArchived: false })
       .then((sessions) => {
         if (cancelled) return;
         setSdkSessionsFallback(sessions);

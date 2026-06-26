@@ -306,7 +306,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     render(<Sidebar />);
 
     await waitFor(() => {
-      expect(mockApi.listSessions).toHaveBeenCalled();
+      expect(mockApi.listSessions).toHaveBeenCalledWith({ includeArchived: false });
       expect(mockState.setSdkSessions).toHaveBeenCalledWith(listed);
     });
     expect(mockConnectAllSessions).not.toHaveBeenCalled();
@@ -1275,6 +1275,17 @@ describe("Sidebar", { timeout: 10000 }, () => {
     render(<Sidebar />);
     // The component renders "Archived (2)"
     expect(screen.getByText(/Archived \(2\)/)).toBeInTheDocument();
+  });
+
+  it("lazy-loads archived sessions from backend ground truth when opened", async () => {
+    const active = makeSdkSession("s1", { archived: false });
+    mockState = createMockState({ sdkSessions: [active] });
+    mockApi.listSessions
+      .mockResolvedValueOnce([active])
+      .mockResolvedValueOnce([active, makeSdkSession("s2", { archived: true })]);
+    render(<Sidebar />);
+    fireEvent.click(screen.getByText("Archived"));
+    await waitFor(() => expect(mockApi.listSessions).toHaveBeenCalledWith({ includeArchived: true }));
   });
 
   it("hides archived delete button on mobile cards (delete via context menu)", () => {

@@ -148,6 +148,7 @@ export function Sidebar() {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [archivedSessionsLoaded, setArchivedSessionsLoaded] = useState(false);
   const [mobileReorderHandleActive, setMobileReorderHandleActive] = useState(false);
   const [archiveConfirmation, setArchiveConfirmation] = useState<ArchiveConfirmationState | null>(null);
   const [contextMenu, setContextMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null);
@@ -223,14 +224,15 @@ export function Sidebar() {
     await hydrateTreeGroups();
   }, []);
 
-  const refreshSessionListNow = useCallback(async () => {
+  async function refreshSessionListNow(includeArchived = archivedSessionsLoaded) {
     try {
-      const list = await api.listSessions();
-      hydrateSessionList(list);
+      const list = await api.listSessions({ includeArchived });
+      hydrateSessionList(list, { preserveMissingArchived: !includeArchived });
+      if (includeArchived) setArchivedSessionsLoaded(true);
     } catch (err) {
       console.warn("[sidebar] session refresh failed:", err);
     }
-  }, []);
+  }
 
   const nextAutoGroupName = useCallback(() => {
     const existing = new Set(treeGroups.map((g) => g.name));
@@ -255,8 +257,8 @@ export function Sidebar() {
       lastRefreshStartedAt = now;
       refreshInFlight = (async () => {
         try {
-          const list = await api.listSessions();
-          if (active) hydrateSessionList(list);
+          const list = await api.listSessions({ includeArchived: false });
+          if (active) hydrateSessionList(list, { preserveMissingArchived: true });
         } catch (e) {
           console.warn("[sidebar] session poll failed:", e);
         } finally {
@@ -648,7 +650,7 @@ export function Sidebar() {
     [sdkSessions, sessions],
   );
 
-  const doArchive = useCallback(async (sessionId: string, force?: boolean) => {
+  async function doArchive(sessionId: string, force?: boolean) {
     try {
       disconnectSession(sessionId);
       useStore.getState().clearSessionAttention(sessionId);
@@ -659,13 +661,8 @@ export function Sidebar() {
     if (useStore.getState().currentSessionId === sessionId) {
       navigateToMostRecentSession({ excludeId: sessionId });
     }
-    try {
-      const list = await api.listSessions();
-      hydrateSessionList(list);
-    } catch {
-      // best-effort
-    }
-  }, []);
+    void refreshSessionListNow();
+  }
 
   const confirmArchive = useCallback(() => {
     if (archiveConfirmation) {
@@ -702,14 +699,9 @@ export function Sidebar() {
           navigateToMostRecentSession({ excludeId: leaderId });
         }
       }
-      try {
-        const list = await api.listSessions();
-        hydrateSessionList(list);
-      } catch {
-        // best-effort
-      }
+      void refreshSessionListNow();
     },
-    [sdkSessions],
+    [refreshSessionListNow, sdkSessions],
   );
 
   const confirmArchiveHerdMembers = useCallback(() => {
@@ -733,20 +725,20 @@ export function Sidebar() {
     }
   }, []);
 
-  const handleUnarchiveSession = useCallback(async (e: React.MouseEvent, sessionId: string) => {
+  async function handleUnarchiveSession(e: React.MouseEvent, sessionId: string) {
     e.stopPropagation();
     try {
       await api.unarchiveSession(sessionId);
     } catch {
       // best-effort
     }
-    try {
-      const list = await api.listSessions();
-      hydrateSessionList(list);
-    } catch {
-      // best-effort
-    }
-  }, []);
+    void refreshSessionListNow(true);
+  }
+
+  const toggleArchivedSessions = useCallback(() => {
+    setShowArchived((current) => !current);
+    if (!showArchived && !archivedSessionsLoaded) void refreshSessionListNow(true);
+  }, [archivedSessionsLoaded, refreshSessionListNow, showArchived]);
 
   const {
     allSessionList,
@@ -1372,6 +1364,7 @@ export function Sidebar() {
         ) : treeViewGroups.length === 0 &&
           activeSessions.length === 0 &&
           cronSessions.length === 0 &&
+          archivedSessionsLoaded &&
           archivedSessions.length === 0 ? (
           <p className="px-3 py-8 text-xs text-cc-muted text-center leading-relaxed">No sessions yet.</p>
         ) : (
@@ -1503,10 +1496,10 @@ export function Sidebar() {
               </div>
             )}
 
-            {archivedSessions.length > 0 && (
+            {(archivedSessionsLoaded || archivedSessions.length > 0 || activeSessions.length > 0) && (
               <div className="mt-2 pt-2 border-t border-cc-border">
                 <button
-                  onClick={() => setShowArchived(!showArchived)}
+                  onClick={toggleArchivedSessions}
                   className="w-full px-3 py-1.5 text-[11px] font-medium text-cc-muted uppercase tracking-wider flex items-center gap-1.5 hover:text-cc-fg transition-colors cursor-pointer"
                 >
                   <svg
@@ -1516,7 +1509,9 @@ export function Sidebar() {
                   >
                     <path d="M6 4l4 4-4 4" />
                   </svg>
-                  Archived ({archivedSessions.length})
+                  {archivedSessions.length > 0 || archivedSessionsLoaded
+                    ? `Archived (${archivedSessions.length})`
+                    : "Archived"}
                 </button>
                 {showArchived && (
                   <div className="space-y-2 sm:space-y-0.5 mt-1">

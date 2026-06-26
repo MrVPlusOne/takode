@@ -132,6 +132,18 @@ describe("listSessions", () => {
     expect(opts).toBeUndefined();
     expect(result).toEqual(sessions);
   });
+
+  it("can explicitly request archived session metadata", async () => {
+    const sessions = [{ sessionId: "s1", state: "exited", cwd: "/tmp", archived: true }];
+    mockFetch.mockResolvedValueOnce(mockResponse(sessions));
+
+    const result = await api.listSessions({ includeArchived: true });
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/sessions?includeArchived=true");
+    expect(opts).toBeUndefined();
+    expect(result).toEqual(sessions);
+  });
 });
 
 describe("refreshSessionGitStatus", () => {

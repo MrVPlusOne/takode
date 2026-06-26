@@ -806,7 +806,7 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
       try {
         await api.unherdSession(sessionId, workerId);
         api
-          .listSessions()
+          .listSessions({ includeArchived: false })
           .then((sessions: SdkSessionInfo[]) => {
             useStore.getState().setSdkSessions(sessions);
           })
@@ -820,7 +820,7 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
 
   const refreshSessions = useCallback(() => {
     api
-      .listSessions()
+      .listSessions({ includeArchived: false })
       .then((sessions: SdkSessionInfo[]) => {
         useStore.getState().setSdkSessions(sessions);
       })

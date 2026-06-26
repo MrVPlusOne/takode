@@ -1025,7 +1025,9 @@ export const api = {
 
   listSessions: (options?: { includeArchived?: boolean }) => {
     const params = new URLSearchParams();
-    if (options?.includeArchived === false) params.set("includeArchived", "false");
+    if (typeof options?.includeArchived === "boolean") {
+      params.set("includeArchived", options.includeArchived ? "true" : "false");
+    }
     const query = params.toString();
     return get<SdkSessionInfo[]>(`/sessions${query ? `?${query}` : ""}`);
   },
