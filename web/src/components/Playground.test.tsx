@@ -57,6 +57,7 @@ vi.mock("remark-gfm", () => ({
 }));
 
 import { Playground } from "./Playground.js";
+import { PlaygroundOverviewSections } from "./playground/sections-overview.js";
 
 describe("Playground", () => {
   it("renders the real chat stack section with integrated chat components", () => {
@@ -94,16 +95,14 @@ describe("Playground", () => {
   });
 
   it("documents multi-file Write blocks whose change diff fields contain raw file content", () => {
-    render(<Playground />);
+    render(<PlaygroundOverviewSections />);
 
     expect(screen.getByRole("button", { name: /Write File.*2 files/ })).toBeTruthy();
     expect(screen.getByText("full_datagen_inner.sh")).toBeTruthy();
     expect(screen.getByText("launch_tmux_retry.sh")).toBeTruthy();
     expect(document.body).toHaveTextContent("set -uo pipefail");
     expect(document.body).toHaveTextContent("tmux new-session");
-    // Full Playground rendering is intentionally broad documentation coverage;
-    // in the aggregate suite it can exceed the default 10s jsdom budget.
-  }, 20_000);
+  });
 
   it("documents first-line Side Chat action controls and fallback reason states", () => {
     render(<Playground />);
