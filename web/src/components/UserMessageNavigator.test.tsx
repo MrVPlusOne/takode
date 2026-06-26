@@ -140,6 +140,38 @@ describe("UserMessageNavigator", () => {
     expect(onSelectTarget).toHaveBeenCalledWith(expect.objectContaining({ messageId: "u2" }));
   });
 
+  it("centers the current user-message row when the selector opens", async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      renderNavigator();
+
+      fireEvent.click(screen.getByRole("button", { name: "User message navigator, 2 of 2" }));
+
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "center", inline: "nearest" }));
+      const dialog = screen.getByRole("dialog", { name: "User message selector" });
+      expect(
+        within(dialog)
+          .getByRole("button", { name: /Find the approval question/ })
+          .getAttribute("aria-current"),
+      ).toBe("location");
+    } finally {
+      if (originalScrollIntoView) {
+        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+          configurable: true,
+          value: originalScrollIntoView,
+        });
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+      }
+    }
+  });
+
   it("uses the existing message search endpoint for queried leader-thread results", async () => {
     mockSearchSessionMessages.mockResolvedValue(messageSearchResponse(["u2"]));
     renderNavigator({ defaultOpen: true, useServerSearch: true, isLeaderSession: true });

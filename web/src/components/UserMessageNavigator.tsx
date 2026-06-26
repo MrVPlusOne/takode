@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { api } from "../api.js";
 import { normalizeForSearch } from "../../shared/search-utils.js";
 import { escapeSelectorValue } from "./message-feed-utils.js";
@@ -47,12 +47,16 @@ export function UserMessageNavigator({
   onSelectTarget,
 }: UserMessageNavigatorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const selectorListRef = useRef<HTMLDivElement>(null);
+  const lastCenteredOpenTokenRef = useRef<number | null>(null);
   const [open, setOpen] = useState(defaultOpen);
+  const [selectorOpenToken, setSelectorOpenToken] = useState(0);
   const [query, setQuery] = useState("");
   const [activeTargetKey, setActiveTargetKey] = useState<string | null>(null);
   const [searchState, setSearchState] = useState<SearchState>({ status: "idle", ids: [] });
   const uniqueTargets = useMemo(() => uniqueUserNavigationTargets(targets), [targets]);
   const activeIndex = uniqueTargets.findIndex((target) => target.key === activeTargetKey);
+  const resolvedActiveTargetKey = activeIndex >= 0 ? activeTargetKey : (uniqueTargets.at(-1)?.key ?? null);
   const activePosition = uniqueTargets.length === 0 ? 0 : activeIndex >= 0 ? activeIndex + 1 : uniqueTargets.length;
   const trimmedQuery = query.trim();
   const displayedTargets = useMemo(() => {
@@ -137,6 +141,33 @@ export function UserMessageNavigator({
     };
   }, [open]);
 
+  useLayoutEffect(() => {
+    if (!open) return;
+    if (lastCenteredOpenTokenRef.current === selectorOpenToken) return;
+
+    const targetKey = resolvedActiveTargetKey;
+    if (!targetKey) {
+      lastCenteredOpenTokenRef.current = selectorOpenToken;
+      return;
+    }
+
+    const targetIsDisplayed = displayedTargets.some((target) => target.key === targetKey);
+    if (!targetIsDisplayed) {
+      if (trimmedQuery) lastCenteredOpenTokenRef.current = selectorOpenToken;
+      return;
+    }
+
+    const selectorList = selectorListRef.current;
+    const selectedRow = selectorList?.querySelector<HTMLElement>(
+      `[data-user-message-target-key="${escapeSelectorValue(targetKey)}"]`,
+    );
+    if (!selectedRow) return;
+    if (typeof selectedRow.scrollIntoView !== "function") return;
+
+    selectedRow.scrollIntoView({ block: "center", inline: "nearest" });
+    lastCenteredOpenTokenRef.current = selectorOpenToken;
+  }, [displayedTargets, open, resolvedActiveTargetKey, selectorOpenToken, trimmedQuery]);
+
   const triggerClassName = isTouch
     ? "h-10 min-w-16 rounded-full border border-cc-border bg-cc-card px-2.5 text-[12px] font-medium text-cc-fg shadow-lg transition-colors hover:bg-cc-hover focus:outline-none focus:ring-2 focus:ring-cc-primary/40"
     : "h-8 min-w-14 rounded-full border border-cc-border bg-cc-card px-2 text-[11px] font-medium text-cc-fg shadow-lg transition-colors hover:bg-cc-hover focus:outline-none focus:ring-2 focus:ring-cc-primary/40";
@@ -159,7 +190,9 @@ export function UserMessageNavigator({
       <button
         type="button"
         onClick={() => {
-          if (hasTargets) setOpen((current) => !current);
+          if (!hasTargets) return;
+          if (!open) setSelectorOpenToken((token) => token + 1);
+          setOpen((current) => !current);
         }}
         className={`${triggerClassName} ${hasTargets ? "" : "cursor-not-allowed opacity-60"}`}
         aria-haspopup="dialog"
@@ -200,7 +233,7 @@ export function UserMessageNavigator({
               className="h-8 w-full rounded-md border border-cc-border bg-cc-bg px-2 text-xs text-cc-fg outline-none transition-colors placeholder:text-cc-muted focus:border-cc-primary/60"
             />
           </div>
-          <div className="min-h-0 overflow-y-auto p-1.5">
+          <div ref={selectorListRef} className="min-h-0 overflow-y-auto p-1.5">
             {searchState.status === "loading" && trimmedQuery && (
               <div className="px-2 py-1.5 text-[11px] text-cc-muted">Searching...</div>
             )}
@@ -210,10 +243,11 @@ export function UserMessageNavigator({
               <div className="space-y-1">
                 {displayedTargets.map((target) => {
                   const position = uniqueTargets.findIndex((candidate) => candidate.messageId === target.messageId) + 1;
-                  const selected = target.key === activeTargetKey;
+                  const selected = target.key === resolvedActiveTargetKey;
                   return (
                     <button
                       key={target.key}
+                      data-user-message-target-key={target.key}
                       type="button"
                       onClick={() => {
                         onSelectTarget(target);
