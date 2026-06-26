@@ -220,6 +220,7 @@ export function Composer({
   const persistedSettingsRef = useRef<Awaited<ReturnType<typeof api.getSettings>> | null>(null);
   const persistedSettingsLoadedRef = useRef(false);
   const persistedSettingsRequestRef = useRef<Promise<Awaited<ReturnType<typeof api.getSettings>> | null> | null>(null);
+  const sendPressingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceStartPendingRef = useRef(false);
   const voiceStartPendingReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceShortcutTapCandidateRef = useRef<string | null>(null);
@@ -300,6 +301,16 @@ export function Composer({
   }, [clearPendingVoiceStart, isPreparing, isRecording]);
 
   useEffect(() => clearPendingVoiceStart, [clearPendingVoiceStart]);
+
+  useEffect(
+    () => () => {
+      if (sendPressingTimerRef.current) {
+        clearTimeout(sendPressingTimerRef.current);
+        sendPressingTimerRef.current = null;
+      }
+    },
+    [],
+  );
 
   const applyPersistedVoicePreference = useCallback((settings: Awaited<ReturnType<typeof api.getSettings>> | null) => {
     persistedSettingsRef.current = settings;
@@ -1013,7 +1024,11 @@ export function Composer({
       }
 
       setSendPressing(true);
-      setTimeout(() => setSendPressing(false), 500);
+      if (sendPressingTimerRef.current) clearTimeout(sendPressingTimerRef.current);
+      sendPressingTimerRef.current = setTimeout(() => {
+        sendPressingTimerRef.current = null;
+        setSendPressing(false);
+      }, 500);
     };
 
     const finalizeReplyNotification = () => {
