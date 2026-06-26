@@ -143,6 +143,21 @@ function threadMessage(questId: string, timestamp: number) {
   };
 }
 
+function needsInputNotification(questId: string, timestamp: number): import("../types.js").SessionNotification {
+  return {
+    id: `n-${questId}`,
+    category: "needs-input",
+    summary: `${questId} needs input`,
+    suggestedAnswers: [],
+    questions: [],
+    timestamp,
+    messageId: null,
+    threadKey: questId,
+    questId,
+    done: false,
+  };
+}
+
 vi.mock("../store.js", () => ({
   useStore: Object.assign((selector: (s: MockStoreState) => unknown) => selector(mockState), {
     getState: () => mockState,
@@ -977,6 +992,70 @@ describe("ChatView leader open thread tabs", () => {
         eventAt: 70,
       },
     });
+  });
+
+  it("promotes routed needs-input notification quest tabs while the board is empty", async () => {
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-13", "q-8", "q-11", "q-12"])),
+      sessionBoards: new Map([["s1", []]]),
+      sessionNotifications: new Map([
+        ["s1", [needsInputNotification("q-10", 100), needsInputNotification("q-12", 120)]],
+      ]),
+      messages: new Map([["s1", [threadMessage("q-13", 13), threadMessage("q-8", 8), threadMessage("q-11", 11)]]]),
+      quests: [
+        { questId: "q-13", title: "Visible quest", status: "in_progress" },
+        { questId: "q-8", title: "Visible quest B", status: "in_progress" },
+        { questId: "q-11", title: "Visible quest C", status: "in_progress" },
+        { questId: "q-10", title: "Absent notification quest", status: "in_progress" },
+        { questId: "q-12", title: "Hidden notification quest", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    await waitFor(() =>
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-12,q-10,q-13,q-8,q-11"),
+    );
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-10",
+        placement: "first",
+        source: "server_candidate",
+        eventAt: 100,
+      },
+    });
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-12",
+        placement: "first",
+        source: "server_candidate",
+        eventAt: 120,
+      },
+    });
+  });
+
+  it("does not reopen a needs-input notification tab after a newer explicit close", async () => {
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-13"], [{ threadKey: "q-12", closedAt: 200 }])),
+      sessionBoards: new Map([["s1", []]]),
+      sessionNotifications: new Map([["s1", [needsInputNotification("q-12", 120)]]]),
+      messages: new Map([["s1", [threadMessage("q-13", 13)]]]),
+      quests: [
+        { questId: "q-13", title: "Visible quest", status: "in_progress" },
+        { questId: "q-12", title: "Closed notification quest", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    await waitFor(() => expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-13"));
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("reapplies first placement when a fresh board row surfaces an already-open stale tab", async () => {

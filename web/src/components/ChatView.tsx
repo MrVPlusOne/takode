@@ -718,6 +718,15 @@ function mergeAttentionThreadRows(
   return [...byKey.values()].sort((a, b) => a.createdAt - b.createdAt || a.threadKey.localeCompare(b.threadKey));
 }
 
+function isNeedsInputNotificationTabCandidate(record: SessionAttentionRecord): boolean {
+  return (
+    record.source.kind === "notification" &&
+    record.type === "needs_input" &&
+    record.priority === "needs_input" &&
+    isAttentionRecordActive(record)
+  );
+}
+
 function isQuestThreadKey(threadKey: string): boolean {
   return /^q-\d+$/i.test(threadKey.trim());
 }
@@ -1458,6 +1467,26 @@ export function ChatView({
     () => new Map(quests.map((quest) => [normalizeThreadKey(quest.questId), quest.status])),
     [quests],
   );
+
+  useEffect(() => {
+    if (!isLeaderSession || preview) return;
+    const byThreadKey = new Map<string, number>();
+    for (const record of attentionRecords) {
+      if (!isNeedsInputNotificationTabCandidate(record)) continue;
+      const threadKey = normalizeThreadKey(record.route.threadKey || record.threadKey);
+      if (!shouldPersistOpenThreadTab(threadKey)) continue;
+      byThreadKey.set(threadKey, Math.max(byThreadKey.get(threadKey) ?? 0, record.updatedAt));
+    }
+    const candidates = [...byThreadKey]
+      .filter(([, eventAt]) => Number.isFinite(eventAt))
+      .sort(([leftKey, leftAt], [rightKey, rightAt]) => leftAt - rightAt || leftKey.localeCompare(rightKey));
+    for (const [threadKey, eventAt] of candidates) {
+      const alreadyOpen = openThreadTabKeysRef.current.includes(threadKey);
+      const repositionExisting = alreadyOpen && openThreadTabKeysRef.current[0] !== threadKey;
+      if (alreadyOpen && !repositionExisting) continue;
+      openThreadTab(threadKey, { intent: "server_candidate", eventAt, placement: "first", repositionExisting });
+    }
+  }, [attentionRecords, isLeaderSession, openThreadTab, preview]);
 
   useEffect(() => {
     if (!isLeaderSession || preview) return;
