@@ -60,6 +60,8 @@ Metadata reconciliation is a final-scope accuracy check for the quest title, TLD
 
 Generate or refresh quest quiz metadata when active recall would help the human retain the important mental model from the accepted quest. Use `quest quiz set <quest-id> --items-file <path|->` to attach concise question/answer pairs.
 
+If quiz metadata exists or was updated, the visible completion message still needs a complementary useful outcome summary; the quiz is not a replacement for that summary. Render `{[(Quest Quiz: q-N)]}` on its own physical line where the inline quiz should appear.
+
 Quiz items should be self-contained from the quest record and accepted scope. Focus on what the quest changed, taught, clarified, or made durable for the user: accepted decisions, concepts, tradeoffs, risks, failure modes, surprising facts, reusable lessons, and meaningful interface/protocol/command/syntax/invocation choices when remembering them helps the user operate, debug, or evaluate the result later.
 
 Do not primarily quiz the user on their own earlier motivations or choices. Do not turn future-agent/system-memory facts into user-facing quiz questions; preserve those in file-based memory or instruction surfaces when appropriate. Keep answers plain-language, use bullets when an answer contains a list, and preflight each item for self-containment, user value, human-vs-agent memory separation, clarity, and source grounding. Skip quiz generation when the accepted work has no durable user-facing learning value, and say so in the phase note.

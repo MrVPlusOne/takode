@@ -501,6 +501,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("title, TLDR, and description still match the accepted delivered scope");
     expect(guardrails).toContain("Final debrief TLDRs and routine user-facing summaries should describe");
     expect(guardrails).toContain("without repeating raw commit hashes already carried");
+    expect(guardrails).toContain("When telling the user a quest is complete");
+    expect(guardrails).toContain("lead with the delivered result or decision, why it matters");
+    expect(guardrails).toContain("final debrief metadata status, no-op memory statements");
+    expect(guardrails).toContain("{[(Quest Quiz: q-N)]}");
     expect(guardrails).toContain("ambiguous or intent-changing edits route back to the leader or user");
     expect(guardrails).toContain("omits `port` but still ends in `memory`");
     expect(guardrails).toContain("attach their synced SHAs before final Memory");

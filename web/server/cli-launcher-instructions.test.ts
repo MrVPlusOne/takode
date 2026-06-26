@@ -331,6 +331,10 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("dedicated `Synced SHAs:` lines");
     expect(result).toContain("Final debrief TLDRs and routine user-facing summaries should describe");
     expect(result).toContain("without repeating raw commit hashes already carried");
+    expect(result).toContain("When telling the user a quest is complete");
+    expect(result).toContain("lead with the delivered result or decision, why it matters");
+    expect(result).toContain("final debrief metadata status, no-op memory statements");
+    expect(result).toContain("{[(Quest Quiz: q-N)]}");
     expect(result).toContain("Phase documentation should be useful, not ritual");
     expect(result).toContain("Use value-based compression instead of hard length caps");
     expect(result).toContain("file-by-file diff narration");

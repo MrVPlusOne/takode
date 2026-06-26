@@ -156,6 +156,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Machine-oriented bookkeeping, including synced SHA lists");
     expect(skill).toContain("Once commits or hashes are attached as structured metadata");
     expect(skill).toContain("do not repeat the raw identifiers in TLDRs");
+    expect(skill).toContain("User-facing quest completion summaries should lead with the outcome");
+    expect(skill).toContain("final debrief metadata status, no-op memory statements");
     expect(skill).toContain("File Link Guidance");
     expect(skill).toContain("[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)");
     expect(skill).toContain("Standard Markdown file links to repo files may be opened best-effort");
@@ -286,6 +288,10 @@ describe("ensureQuestmasterIntegration", () => {
       "command lists or transcripts, raw paths, and verification mechanics belong in the body",
     );
     expect(memoryCompletion).toContain("If commit metadata or a `Synced SHAs:` handoff already carries exact values");
+    expect(memoryCompletion).toContain(
+      "the visible completion message still needs a complementary useful outcome summary",
+    );
+    expect(memoryCompletion).toContain("{[(Quest Quiz: q-N)]}");
     expect(memoryCompletion).toContain(
       "Challenge TLDRs or routine user-facing summaries that repeat raw commits/hashes",
     );

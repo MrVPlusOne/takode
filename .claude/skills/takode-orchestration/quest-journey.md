@@ -177,6 +177,7 @@ Rules:
 - **Workers and reviewers document, report, then stop at phase boundaries.** They do not self-review, self-port, self-transition, or self-complete unless explicitly instructed.
 - **Porting requires an explicit instruction.** Port syncs accepted tracked changes, verifies the main repo, reports synced SHAs and risks, then stops. After Port, advance to final Memory instead of completing the quest from Port.
 - **Every completed non-cancelled quest needs final Memory.** Completion without Memory closure, final User review check settlement, final debrief metadata, debrief TLDR metadata, quest metadata reconciliation, and one memory statement is incomplete. A quest in `MEMORY` is downstream-unblocking because substantive work has been accepted and synced when applicable, but the row stays open until Memory finishes.
+- **Quest completion summaries are outcome notes.** When the leader tells the user a quest is complete, lead with the delivered result or decision, why it matters, and any real next action or residual risk. Keep routine internals such as raw commit hashes, empty User review checks, final debrief metadata status, no-op memory statements, command lists, and routine verification out of the visible summary unless directly useful. If quest quiz metadata exists or was updated, write a complementary outcome summary first, then render `{[(Quest Quiz: q-N)]}` on its own physical line where the quiz should appear.
 
 ## Review Phases
 
