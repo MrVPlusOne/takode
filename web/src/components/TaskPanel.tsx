@@ -22,6 +22,7 @@ import {
 } from "../utils/backends.js";
 import { coalesceSessionViewModel } from "../utils/session-view-model.js";
 import { navigateToSession } from "../utils/navigation.js";
+import { hydrateSessionList } from "../session-list-hydration.js";
 
 const EMPTY_TASKS: TaskItem[] = [];
 
@@ -808,7 +809,7 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
         api
           .listSessions({ includeArchived: false })
           .then((sessions: SdkSessionInfo[]) => {
-            useStore.getState().setSdkSessions(sessions);
+            hydrateSessionList(sessions, { preserveMissingArchived: true });
           })
           .catch(() => {});
       } catch (e) {
@@ -822,7 +823,7 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
     api
       .listSessions({ includeArchived: false })
       .then((sessions: SdkSessionInfo[]) => {
-        useStore.getState().setSdkSessions(sessions);
+        hydrateSessionList(sessions, { preserveMissingArchived: true });
       })
       .catch(() => {});
   }, []);

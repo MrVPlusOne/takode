@@ -1496,47 +1496,45 @@ export function Sidebar() {
               </div>
             )}
 
-            {(archivedSessionsLoaded || archivedSessions.length > 0 || activeSessions.length > 0) && (
-              <div className="mt-2 pt-2 border-t border-cc-border">
-                <button
-                  onClick={toggleArchivedSessions}
-                  className="w-full px-3 py-1.5 text-[11px] font-medium text-cc-muted uppercase tracking-wider flex items-center gap-1.5 hover:text-cc-fg transition-colors cursor-pointer"
+            <div className="mt-2 pt-2 border-t border-cc-border">
+              <button
+                onClick={toggleArchivedSessions}
+                className="w-full px-3 py-1.5 text-[11px] font-medium text-cc-muted uppercase tracking-wider flex items-center gap-1.5 hover:text-cc-fg transition-colors cursor-pointer"
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  className={`w-3 h-3 transition-transform ${showArchived ? "rotate-90" : ""}`}
                 >
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    className={`w-3 h-3 transition-transform ${showArchived ? "rotate-90" : ""}`}
-                  >
-                    <path d="M6 4l4 4-4 4" />
-                  </svg>
-                  {archivedSessions.length > 0 || archivedSessionsLoaded
-                    ? `Archived (${archivedSessions.length})`
-                    : "Archived"}
-                </button>
-                {showArchived && (
-                  <div className="space-y-2 sm:space-y-0.5 mt-1">
-                    {archivedSessions.map((s) => (
-                      <div key={s.id}>
-                        <SessionItem
-                          session={s}
-                          isActive={currentSessionId === s.id}
-                          isArchived
-                          sessionName={sessionNames.get(s.id)}
-                          sessionPreview={sessionPreviews.get(s.id)}
-                          permCount={countUserPermissions(pendingPermissions.get(s.id))}
-                          isRecentlyRenamed={recentlyRenamed.has(s.id)}
-                          herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
-                          herdHoverHighlight={herdHoverHighlights.get(s.id)}
-                          reviewerSession={s.sessionNum != null ? reviewerByParent.get(s.sessionNum) : undefined}
-                          useStatusBar
-                          {...sessionItemProps}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+                  <path d="M6 4l4 4-4 4" />
+                </svg>
+                {archivedSessions.length > 0 || archivedSessionsLoaded
+                  ? `Archived (${archivedSessions.length})`
+                  : "Archived"}
+              </button>
+              {showArchived && (
+                <div className="space-y-2 sm:space-y-0.5 mt-1">
+                  {archivedSessions.map((s) => (
+                    <div key={s.id}>
+                      <SessionItem
+                        session={s}
+                        isActive={currentSessionId === s.id}
+                        isArchived
+                        sessionName={sessionNames.get(s.id)}
+                        sessionPreview={sessionPreviews.get(s.id)}
+                        permCount={countUserPermissions(pendingPermissions.get(s.id))}
+                        isRecentlyRenamed={recentlyRenamed.has(s.id)}
+                        herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
+                        herdHoverHighlight={herdHoverHighlights.get(s.id)}
+                        reviewerSession={s.sessionNum != null ? reviewerByParent.get(s.sessionNum) : undefined}
+                        useStatusBar
+                        {...sessionItemProps}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>

@@ -70,6 +70,7 @@ interface MockStoreState {
   sdkSessions: {
     sessionId: string;
     isOrchestrator?: boolean;
+    archived?: boolean;
     backendType?: string;
     cwd?: string;
     gitBranch?: string;
@@ -91,11 +92,22 @@ interface MockStoreState {
   sessionBoards: Map<string, Array<any>>;
   sessionNames: Map<string, string>;
   sessionPreviews: Map<string, string>;
+  sessionKeywords: Map<string, string[]>;
+  sessionNotifications: Map<string, any[]>;
+  sessionAttention: Map<string, "action" | "error" | "review" | null>;
   pendingPermissions: Map<string, Map<string, unknown>>;
   cliConnected: Map<string, boolean>;
   askPermission: Map<string, boolean>;
   cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
   openQuestOverlay: ReturnType<typeof vi.fn>;
+  setSessionName: ReturnType<typeof vi.fn>;
+  markRecentlyRenamed: ReturnType<typeof vi.fn>;
+  markQuestNamed: ReturnType<typeof vi.fn>;
+  clearQuestNamed: ReturnType<typeof vi.fn>;
+  setSessionPreview: ReturnType<typeof vi.fn>;
+  setSessionTaskHistory: ReturnType<typeof vi.fn>;
+  setSessionKeywords: ReturnType<typeof vi.fn>;
+  setSessionBoard: ReturnType<typeof vi.fn>;
   setSdkSessions: ReturnType<typeof vi.fn>;
 }
 
@@ -116,11 +128,26 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionBoards: new Map(),
     sessionNames: new Map(),
     sessionPreviews: new Map(),
+    sessionKeywords: new Map(),
+    sessionNotifications: new Map(),
+    sessionAttention: new Map(),
     pendingPermissions: new Map(),
     cliConnected: new Map(),
     askPermission: new Map(),
     cliDisconnectReason: new Map(),
     openQuestOverlay: vi.fn(),
+    setSessionName: vi.fn((sessionId: string, name: string) => mockState.sessionNames.set(sessionId, name)),
+    markRecentlyRenamed: vi.fn(),
+    markQuestNamed: vi.fn(),
+    clearQuestNamed: vi.fn(),
+    setSessionPreview: vi.fn((sessionId: string, preview: string) => mockState.sessionPreviews.set(sessionId, preview)),
+    setSessionTaskHistory: vi.fn((sessionId: string, history: any[]) =>
+      mockState.sessionTaskHistory.set(sessionId, history),
+    ),
+    setSessionKeywords: vi.fn((sessionId: string, keywords: string[]) =>
+      mockState.sessionKeywords.set(sessionId, keywords),
+    ),
+    setSessionBoard: vi.fn((sessionId: string, rows: any[]) => mockState.sessionBoards.set(sessionId, rows)),
     setSdkSessions: vi.fn(),
     ...overrides,
   };
@@ -129,6 +156,10 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
 vi.mock("../store.js", () => {
   const useStore = (selector: (s: MockStoreState) => unknown) => selector(mockState);
   useStore.getState = () => mockState;
+  useStore.setState = (patch: Partial<MockStoreState> | ((state: MockStoreState) => Partial<MockStoreState>)) => {
+    const next = typeof patch === "function" ? patch(mockState) : patch;
+    mockState = { ...mockState, ...next };
+  };
   return {
     useStore,
     countUserPermissions: () => 0,
@@ -219,6 +250,56 @@ describe("TaskPanel", () => {
         leaderSessionId: "s1",
       }),
     );
+  });
+
+  it("preserves already-loaded archived rows after active-only herded-session refreshes", async () => {
+    const leader = {
+      sessionId: "s1",
+      sessionNum: 1,
+      state: "connected" as const,
+      cwd: "/repo",
+      createdAt: 1,
+      backendType: "codex",
+      isOrchestrator: true,
+    };
+    const worker = {
+      sessionId: "worker-1",
+      sessionNum: 2,
+      state: "connected" as const,
+      cwd: "/repo",
+      createdAt: 2,
+      backendType: "codex",
+      herdedBy: "s1",
+      permissionMode: "codex-default",
+      name: "Worker One",
+    };
+    const archived = {
+      sessionId: "archived-1",
+      sessionNum: 3,
+      state: "exited" as const,
+      cwd: "/repo",
+      createdAt: 3,
+      backendType: "codex",
+      archived: true,
+      name: "Archived One",
+    };
+    resetStore({
+      sessions: new Map([["s1", { backend_type: "codex" }]]),
+      sdkSessions: [leader, worker, archived],
+      setSdkSessions: vi.fn((sessions) => {
+        mockState.sdkSessions = sessions as MockStoreState["sdkSessions"];
+      }),
+    });
+    mockApi.listSessions.mockResolvedValueOnce([leader, worker]);
+
+    render(<TaskPanel sessionId="s1" />);
+    fireEvent.click(screen.getByTitle("Unherd this session"));
+
+    await waitFor(() => expect(mockApi.listSessions).toHaveBeenCalledWith({ includeArchived: false }));
+    await waitFor(() =>
+      expect(mockState.sdkSessions.map((session) => session.sessionId)).toEqual(["s1", "worker-1", "archived-1"]),
+    );
+    expect(mockState.sdkSessions.find((session) => session.sessionId === "archived-1")).toEqual(archived);
   });
 
   it("keeps a single scroll container for long MCP content even without tasks", () => {

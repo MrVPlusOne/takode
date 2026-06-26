@@ -299,10 +299,12 @@ vi.mock("./utils/vscode-bridge.js", () => ({
 }));
 
 import App from "./App.js";
+import { hydrateSessionList } from "./session-list-hydration.js";
 import { resetSessionGitStatusAutoRefreshForTest } from "./utils/session-git-status-auto-refresh.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(hydrateSessionList).mockReset();
   resetSessionGitStatusAutoRefreshForTest();
   mockListSessions.mockResolvedValue([]);
   mockRefreshSessionGitStatus.mockResolvedValue({ ok: true });
@@ -639,6 +641,37 @@ describe("App hidden panels", () => {
     expect(screen.queryByTestId("session-creation-view")).toBeNull();
     expect(mockState.setCurrentSession).not.toHaveBeenCalledWith("123");
     expect(mockConnectSession).not.toHaveBeenCalledWith("123");
+  });
+
+  it("falls back to a full backend session snapshot for archived numeric routes", async () => {
+    const archivedSession = {
+      sessionId: "archived-route",
+      createdAt: 2,
+      archived: true,
+      cwd: "/repo/archived",
+      backendType: "claude" as const,
+      sessionNum: 123,
+    };
+    resetStore({ currentSessionId: null, sdkSessions: [], sessions: new Map(), messages: new Map() });
+    mockListSessions.mockResolvedValueOnce([]).mockResolvedValueOnce([archivedSession]);
+    vi.mocked(hydrateSessionList).mockImplementation((sessions) => {
+      mockState.sdkSessions = sessions as MockStoreState["sdkSessions"];
+    });
+    window.location.hash = "#/session/123";
+
+    const view = render(<App />);
+
+    await waitFor(() => expect(mockListSessions).toHaveBeenNthCalledWith(1, { includeArchived: false }));
+    await waitFor(() => expect(mockListSessions).toHaveBeenNthCalledWith(2, { includeArchived: true }));
+    expect(hydrateSessionList).toHaveBeenNthCalledWith(1, [], { preserveMissingArchived: true });
+    expect(hydrateSessionList).toHaveBeenNthCalledWith(2, [archivedSession]);
+
+    view.rerender(<App />);
+
+    await waitFor(() => {
+      expect(mockState.setCurrentSession).toHaveBeenCalledWith("archived-route");
+      expect(mockConnectSession).toHaveBeenCalledWith("archived-route");
+    });
   });
 
   it("cleans up preview mode when searchPreviewSessionId is cleared", () => {
