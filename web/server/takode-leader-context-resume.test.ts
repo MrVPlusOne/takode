@@ -12,12 +12,15 @@ function makeUserMessage(
   content: string,
   timestamp: number,
   agentSource?: { sessionId: string; sessionLabel?: string },
+  routing?: { threadKey?: string; questId?: string },
 ): Extract<BrowserIncomingMessage, { type: "user_message" }> {
   return {
     type: "user_message",
     content,
     timestamp,
     ...(agentSource ? { agentSource } : {}),
+    ...(routing?.threadKey ? { threadKey: routing.threadKey } : {}),
+    ...(routing?.questId ? { questId: routing.questId } : {}),
   };
 }
 
@@ -799,6 +802,76 @@ describe("takode leader-context-resume", () => {
     expect(Array.isArray(model.synthesized.activeBoardQuests)).toBe(true);
   });
 
+  it("surfaces interrupted direct user work after leader recycle without embedding message text", async () => {
+    const leaderHistory: BrowserIncomingMessage[] = [
+      makeUserMessage("Earlier completed request.", 1_000),
+      makeResult("Earlier request completed.", 10),
+      makeUserMessage("Cache more side-panel data locally on mobile.", 2_000, undefined, {
+        threadKey: "q-1514",
+        questId: "q-1514",
+      }),
+      makeUserMessage("Pull latest remote changes from jiayi branch into local.", 2_010),
+      makeAssistant("Partial assistant text should not be treated as completion.", 2_020),
+      {
+        type: "compact_marker",
+        timestamp: 2_030,
+        markerKind: "session_recycled",
+        trigger: "manual",
+      },
+      makeUserMessage("Recover after leader recycle.", 2_040, {
+        sessionId: "system:compaction-recovery",
+        sessionLabel: "Compaction Recovery",
+      }),
+    ];
+
+    const model = await buildLeaderContextResume({
+      leader: {
+        sessionId: "leader-session",
+        sessionNum: 41,
+        name: "Leader",
+        isOrchestrator: true,
+        messageHistory: leaderHistory,
+        notifications: [
+          {
+            id: "n-202",
+            category: "needs-input",
+            summary: "q-1514 choose mobile side-panel fix path",
+            timestamp: 1_900,
+            messageId: null,
+            done: false,
+          },
+        ],
+        board: [],
+      },
+      rowSessionStatuses: {},
+      participants: new Map(),
+      loadQuest: async () => null,
+    });
+
+    expect(model.observed.interruptedDirectUserWork).toHaveLength(2);
+    expect(model.observed.interruptedDirectUserWork[0]).toMatchObject({
+      threadKey: "q-1514",
+      questId: "q-1514",
+      source: { messageIndex: 2, sessionNum: 41 },
+    });
+    expect(model.observed.interruptedDirectUserWork[1]).toMatchObject({
+      threadKey: "main",
+      source: { messageIndex: 3, sessionNum: 41 },
+    });
+    expect(model.synthesized.suggestedCommands).toEqual(["takode notify list", "takode read 41 2", "takode read 41 3"]);
+
+    const rendered = renderLeaderContextResumeText(model);
+    expect(rendered).toContain("Interrupted direct user work before latest session recycle: 2");
+    expect(rendered).toContain("[q-1514](quest:q-1514) user message interrupted before a result");
+    expect(rendered).toContain("main user message interrupted before a result");
+    expect(rendered).toContain("[#41 msg 2](session:41:2)");
+    expect(rendered).toContain("[#41 msg 3](session:41:3)");
+    expect(rendered).toContain("scoped-wait reminder");
+    expect(rendered).not.toContain("Cache more side-panel data locally");
+    expect(rendered).not.toContain("Pull latest remote changes");
+    expect(JSON.stringify(model)).not.toContain("Pull latest remote changes");
+  });
+
   it("surfaces verification-ready quests from review notifications before active board state", async () => {
     // This covers the human feedback on q-918: after restart/compaction, the
     // leader must not see "Active quests: 0" before learning that review
@@ -1010,6 +1083,7 @@ describe("takode leader-context-resume", () => {
             timestamp: 12_000,
           },
         ],
+        interruptedDirectUserWork: [],
         reviewNotificationQuests: [
           {
             questId: "q-1",
@@ -1034,6 +1108,7 @@ describe("takode leader-context-resume", () => {
         warnings: [],
       },
       synthesized: {
+        interruptedDirectUserWork: [],
         reviewNotificationQuests: [
           {
             questId: "q-1",

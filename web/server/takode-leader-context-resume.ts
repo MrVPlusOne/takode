@@ -136,6 +136,20 @@ export interface LeaderContextResumeReviewNotificationQuestSynthesis {
   warnings: string[];
 }
 
+export interface LeaderContextResumeInterruptedDirectUserWorkObservation {
+  threadKey: string;
+  questId?: string;
+  source: LeaderContextResumeMessageSource;
+  recycleMarkerSource: LeaderContextResumeMessageSource;
+}
+
+export interface LeaderContextResumeInterruptedDirectUserWorkSynthesis {
+  threadKey: string;
+  summary: string;
+  nextLeaderAction: string;
+  source: LeaderContextResumeMessageSource;
+}
+
 export interface LeaderContextResumeCompletedBoardQuestObservation {
   questId: string;
   title: string;
@@ -149,12 +163,14 @@ export interface LeaderContextResumeModel {
   observed: {
     unresolvedUserDecisions: LeaderContextResumeNotificationObservation[];
     unresolvedNotifications: LeaderContextResumeNotificationObservation[];
+    interruptedDirectUserWork: LeaderContextResumeInterruptedDirectUserWorkObservation[];
     reviewNotificationQuests: LeaderContextResumeReviewNotificationQuestObservation[];
     recentCompletedBoardQuests?: LeaderContextResumeCompletedBoardQuestObservation[];
     activeBoardQuests: LeaderContextResumeQuestObservation[];
     warnings: string[];
   };
   synthesized: {
+    interruptedDirectUserWork: LeaderContextResumeInterruptedDirectUserWorkSynthesis[];
     reviewNotificationQuests: LeaderContextResumeReviewNotificationQuestSynthesis[];
     activeBoardQuests: LeaderContextResumeQuestSynthesis[];
     warnings: string[];
@@ -464,6 +480,13 @@ function formatQuestStatus(status: string | null | undefined): string {
   return status ?? "unknown";
 }
 
+function formatThreadLabel(threadKey: string, questId?: string): string {
+  const normalized = threadKey.trim().toLowerCase();
+  if (normalized === "main") return "main";
+  if (/^q-\d+$/.test(normalized)) return `[${normalized}](quest:${questId ?? normalized})`;
+  return threadKey;
+}
+
 function formatTimestamp(timestamp: number): string {
   if (!Number.isFinite(timestamp) || timestamp <= 0) return "unknown";
   return new Date(timestamp).toISOString();
@@ -697,6 +720,51 @@ function commandForSource(source: LeaderContextResumeMessageSource | undefined):
   return `takode read ${source.sessionNum} ${source.messageIndex}`;
 }
 
+function isDirectUserWorkMessage(
+  message: BrowserIncomingMessage | undefined,
+): message is Extract<BrowserIncomingMessage, { type: "user_message" }> {
+  return message?.type === "user_message" && !message.agentSource?.sessionId && !!message.content?.trim();
+}
+
+function collectInterruptedDirectUserWork(
+  leader: LeaderContextResumeInput["leader"],
+): LeaderContextResumeInterruptedDirectUserWorkObservation[] {
+  let markerIndex = -1;
+  for (let index = leader.messageHistory.length - 1; index >= 0; index -= 1) {
+    const message = leader.messageHistory[index];
+    if (message?.type === "compact_marker" && message.markerKind === "session_recycled") {
+      markerIndex = index;
+      break;
+    }
+  }
+  if (markerIndex < 0) return [];
+  const marker = leader.messageHistory[markerIndex];
+  if (!marker) return [];
+
+  let scanStart = 0;
+  for (let index = markerIndex - 1; index >= 0; index -= 1) {
+    if (leader.messageHistory[index]?.type === "result") {
+      scanStart = index + 1;
+      break;
+    }
+  }
+
+  const recycleMarkerSource = makeMessageSource(leader, markerIndex, extractTimestamp(marker));
+  const observations: LeaderContextResumeInterruptedDirectUserWorkObservation[] = [];
+  for (let index = scanStart; index < markerIndex; index += 1) {
+    const message = leader.messageHistory[index];
+    if (!isDirectUserWorkMessage(message)) continue;
+    const threadKey = message.threadKey?.trim() || "main";
+    observations.push({
+      threadKey,
+      ...(message.questId ? { questId: message.questId } : {}),
+      source: makeMessageSource(leader, index, extractTimestamp(message)),
+      recycleMarkerSource,
+    });
+  }
+  return observations;
+}
+
 function peekCommandForParticipant(participant: LeaderContextResumeParticipantObservation | undefined): string | null {
   if (!participant || participant.sessionNum == null) return null;
   return `takode peek ${participant.sessionNum}`;
@@ -801,6 +869,15 @@ export async function buildLeaderContextResume(input: LeaderContextResumeInput):
     statusSummary: buildReviewNotificationStatusSummary(observation),
     nextLeaderAction: buildReviewNotificationNextAction(observation),
     warnings: buildReviewNotificationWarnings(observation),
+  }));
+
+  const interruptedDirectUserWork = collectInterruptedDirectUserWork(input.leader);
+  const synthesizedInterruptedDirectUserWork = interruptedDirectUserWork.map((observation) => ({
+    threadKey: observation.threadKey,
+    summary: `${formatThreadLabel(observation.threadKey, observation.questId)} user message interrupted before a result`,
+    nextLeaderAction:
+      "inspect the message, continue it if still actionable, or explicitly report why it cannot continue",
+    source: observation.source,
   }));
 
   const recentCompletedBoardQuests: LeaderContextResumeCompletedBoardQuestObservation[] = [];
@@ -996,6 +1073,14 @@ export async function buildLeaderContextResume(input: LeaderContextResumeInput):
   if (unresolvedNotifications.some((notification) => notification.category === "needs-input")) {
     suggestedCommands.unshift("takode notify list");
   }
+  let interruptedCommandInsertIndex = suggestedCommands[0] === "takode notify list" ? 1 : 0;
+  for (const observation of interruptedDirectUserWork) {
+    const sourceCommand = commandForSource(observation.source);
+    if (sourceCommand && !suggestedCommands.includes(sourceCommand)) {
+      suggestedCommands.splice(interruptedCommandInsertIndex, 0, sourceCommand);
+      interruptedCommandInsertIndex += 1;
+    }
+  }
   for (const observation of observedReviewNotificationQuests.slice(0, MAX_REVIEW_NOTIFICATION_QUESTS_IN_TEXT)) {
     const sourceCommand = commandForSource(observation.latestNotification.source);
     if (sourceCommand && !suggestedCommands.includes(sourceCommand)) suggestedCommands.push(sourceCommand);
@@ -1014,12 +1099,14 @@ export async function buildLeaderContextResume(input: LeaderContextResumeInput):
         (notification) => notification.category === "needs-input",
       ),
       unresolvedNotifications,
+      interruptedDirectUserWork,
       reviewNotificationQuests: observedReviewNotificationQuests,
       recentCompletedBoardQuests,
       activeBoardQuests: observedQuests,
       warnings: [...warnings],
     },
     synthesized: {
+      interruptedDirectUserWork: synthesizedInterruptedDirectUserWork,
       reviewNotificationQuests: synthesizedReviewNotificationQuests,
       activeBoardQuests: synthesizedQuests,
       warnings: [...warnings],
@@ -1041,6 +1128,28 @@ export function renderLeaderContextResumeText(model: LeaderContextResumeModel): 
       const sourceSuffix = notification.source ? ` from ${linkMessage(notification.source)}` : "";
       lines.push(`  - ${formatNotificationId(notification.notificationId)}: ${notification.summary}${sourceSuffix}`);
     }
+  }
+
+  const interruptedDirectUserWork = model.observed.interruptedDirectUserWork ?? [];
+  const synthesizedInterruptedDirectUserWork = model.synthesized.interruptedDirectUserWork ?? [];
+  lines.push("");
+  if (interruptedDirectUserWork.length === 0) {
+    lines.push("Interrupted direct user work before latest session recycle: none");
+  } else {
+    lines.push(`Interrupted direct user work before latest session recycle: ${interruptedDirectUserWork.length}`);
+    for (const [index, observation] of interruptedDirectUserWork.entries()) {
+      const synthesized = synthesizedInterruptedDirectUserWork[index];
+      const command = commandForSource(observation.source);
+      lines.push(
+        `- ${synthesized?.summary ?? `${formatThreadLabel(observation.threadKey, observation.questId)} user message interrupted before a result`} from ${linkMessage(observation.source)}${command ? `; inspect with \`${command}\`` : ""}`,
+      );
+      lines.push(
+        `  next leader action: ${synthesized?.nextLeaderAction ?? "inspect the message and decide whether it is still actionable"}`,
+      );
+    }
+    lines.push(
+      "- scoped-wait reminder: unresolved quest/thread needs-input prompts block only their owner; continue unrelated direct work independently when it does not depend on that answer",
+    );
   }
 
   const reviewNotificationQuests = model.observed.reviewNotificationQuests ?? [];

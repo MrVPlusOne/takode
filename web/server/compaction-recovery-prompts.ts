@@ -63,7 +63,9 @@ Recover the interrupted session state:
 4. Use \`takode board show\` and \`takode list\` when board or herd state matters.
 5. If durable memory may affect the current decision, run \`memory catalog show\` and inspect plausible catalog-listed files directly.
 
-After reconstructing enough context, continue the interrupted workflow only if it is safe. If the board is empty and no same-session \`needs-input\` prompt is unresolved, report recovery complete instead of digging through old review inbox items. If you cannot continue safely, say exactly what is still unclear, recoverable, or needs user/leader action.`;
+Pay special attention to any \`Interrupted direct user work\` section in the recovery summary. Inspect those message links and handle each direct request independently from unrelated quest-scoped waits.
+
+After reconstructing enough context, continue the interrupted workflow only if it is safe. If the board is empty, no same-session \`needs-input\` prompt is unresolved, and no interrupted direct user work is reported, report recovery complete instead of digging through old review inbox items. If you cannot continue safely, say exactly what is still unclear, recoverable, or needs user/leader action.`;
 }
 
 export function getStandardContextRecoveryInstructions(sessionRef: string): string {

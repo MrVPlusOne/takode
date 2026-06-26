@@ -146,6 +146,10 @@ describe("Codex leader recycle continuation", () => {
     expect(session.codexLeaderRecycleContinuation?.content).toContain("memory catalog show");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("takode board show");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("If the board is empty");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("Interrupted direct user work");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain(
+      "handle each direct request independently from unrelated quest-scoped waits",
+    );
     expect(session.codexLeaderRecycleContinuation).toMatchObject({
       threadKey: "q-1489",
       questId: "q-1489",
@@ -214,6 +218,8 @@ describe("Codex leader recycle continuation", () => {
     expect(content).toContain("memory catalog show");
     expect(content).toContain("takode board show");
     expect(content).toContain("If the board is empty");
+    expect(content).toContain("Interrupted direct user work");
+    expect(content).toContain("handle each direct request independently from unrelated quest-scoped waits");
     expect(content).not.toContain("Active thread before recycle:");
     expect(content).not.toContain("Recycle trigger:");
     expect(content).not.toContain("manual_compact");
