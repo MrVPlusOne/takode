@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import { DEFAULT_SESSION_DEFAULTS } from "../../shared/session-defaults.js";
 
 interface MockStoreState {
   colorTheme: string;
@@ -68,6 +69,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
 const mockApi = {
   getSettings: vi.fn(),
   updateSettings: vi.fn(),
+  getBackendModels: vi.fn(),
   restartServer: vi.fn(),
   getNamerLogs: vi.fn(),
   getNamerLogEntry: vi.fn(),
@@ -100,6 +102,7 @@ vi.mock("../api.js", () => ({
   api: {
     getSettings: (...args: unknown[]) => mockApi.getSettings(...args),
     updateSettings: (...args: unknown[]) => mockApi.updateSettings(...args),
+    getBackendModels: (...args: unknown[]) => mockApi.getBackendModels(...args),
     restartServer: (...args: unknown[]) => mockApi.restartServer(...args),
     getNamerLogs: (...args: unknown[]) => mockApi.getNamerLogs(...args),
     getNamerLogEntry: (...args: unknown[]) => mockApi.getNamerLogEntry(...args),
@@ -180,7 +183,9 @@ beforeEach(() => {
     heavyRepoModeEnabled: false,
     chatMessageLineHeight: 1.45,
     editorConfig: { editor: "none" },
+    sessionDefaults: DEFAULT_SESSION_DEFAULTS,
   });
+  mockApi.getBackendModels.mockResolvedValue([]);
   mockApi.restartServer.mockResolvedValue({ ok: true });
   mockApi.updateSettings.mockResolvedValue({
     serverName: "",
@@ -203,6 +208,7 @@ beforeEach(() => {
     heavyRepoModeEnabled: false,
     chatMessageLineHeight: 1.45,
     editorConfig: { editor: "none" },
+    sessionDefaults: DEFAULT_SESSION_DEFAULTS,
   });
   mockApi.getNamerLogs.mockResolvedValue([]);
   mockApi.getCaffeinateStatus.mockResolvedValue({ active: false, engagedAt: null, expiresAt: null });

@@ -45,6 +45,12 @@ import {
   isValidChatMessageLineHeight,
   normalizeChatMessageLineHeight,
 } from "../../shared/chat-display-settings.js";
+import {
+  CLAUDE_1M_CONTEXT_TOKENS,
+  DEFAULT_SESSION_DEFAULTS,
+  isSupportedClaudeDefaultMaxContext,
+  normalizeSessionDefaults,
+} from "../../shared/session-defaults.js";
 
 export function createSettingsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -765,6 +771,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       codexLeaderRecycleThresholdTokensByModel: settings.codexLeaderRecycleThresholdTokensByModel ?? {},
       leaderProfilePools: normalizeLeaderProfilePoolSettings(settings.leaderProfilePools),
       ...(settings.shortcutSettings ? { shortcutSettings: settings.shortcutSettings } : {}),
+      sessionDefaults: settings.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS,
       leaderProfilePortraits: LEADER_PROFILE_PORTRAITS,
       leaderProfileFallbackPortrait: FALLBACK_LEADER_PROFILE_PORTRAIT,
       leaderProfilePoolOptions: LEADER_PROFILE_POOLS,
@@ -804,6 +811,8 @@ export function createSettingsRoutes(ctx: RouteContext) {
       body.codexLeaderRecycleThresholdTokensByModel !== undefined
         ? parseCodexLeaderRecycleThresholdTokensByModelFromBody(body.codexLeaderRecycleThresholdTokensByModel)
         : null;
+    const parsedSessionDefaults =
+      body.sessionDefaults !== undefined ? normalizeSessionDefaults(body.sessionDefaults) : undefined;
     if (body.serverName !== undefined && typeof body.serverName !== "string") {
       return c.json({ error: "serverName must be a string" }, 400);
     }
@@ -1005,6 +1014,14 @@ export function createSettingsRoutes(ctx: RouteContext) {
     ) {
       return c.json({ error: parsedCodexLeaderRecycleThresholdTokensByModel.error }, 400);
     }
+    if (parsedSessionDefaults && !isSupportedClaudeDefaultMaxContext(parsedSessionDefaults.claude.maxContextLength)) {
+      return c.json(
+        {
+          error: `sessionDefaults.claude.maxContextLength currently supports only ${CLAUDE_1M_CONTEXT_TOKENS} or empty`,
+        },
+        400,
+      );
+    }
     if (body.leaderProfilePools !== undefined) {
       if (
         typeof body.leaderProfilePools !== "object" ||
@@ -1055,6 +1072,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "codexLeaderRecycleThresholdTokensByModel",
       "leaderProfilePools",
       "shortcutSettings",
+      "sessionDefaults",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -1124,6 +1142,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
         body.shortcutSettings && typeof body.shortcutSettings === "object"
           ? parseShortcutSettingsFromBody(body.shortcutSettings as Record<string, unknown>)
           : undefined,
+      sessionDefaults: parsedSessionDefaults,
       ...(normalizedServerSlug !== undefined ? { serverSlug: normalizedServerSlug } : {}),
     };
     const settings = updateSettings(settingsPatch);

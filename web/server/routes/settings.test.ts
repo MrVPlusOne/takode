@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { _flushForTest, _resetForTest, getSettings } from "../settings-manager.js";
 import { createSettingsRoutes } from "./settings.js";
+import { DEFAULT_SESSION_DEFAULTS } from "../../shared/session-defaults.js";
 
 let tempDir: string;
 
@@ -56,5 +57,55 @@ describe("settings routes", () => {
     const body = await res.json();
     expect(body.shortcutSettings).toEqual(shortcutSettings);
     expect(getSettings().shortcutSettings).toEqual(shortcutSettings);
+  });
+
+  it("accepts centralized session defaults settings updates", async () => {
+    const app = createApp();
+    const sessionDefaults = {
+      codex: {
+        ...DEFAULT_SESSION_DEFAULTS.codex,
+        model: "gpt-5.4",
+        serviceTier: "priority",
+        reasoningEffort: "high",
+        internetAccess: true,
+        maxContextLength: 240_000,
+      },
+      claude: {
+        ...DEFAULT_SESSION_DEFAULTS.claude,
+        model: "claude-sonnet-4-5-20250929",
+        permissionMode: "acceptEdits",
+        reasoningEffort: "max",
+        maxContextLength: 1_000_000,
+      },
+    };
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionDefaults }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.sessionDefaults).toEqual(sessionDefaults);
+    expect(getSettings().sessionDefaults).toEqual(sessionDefaults);
+  });
+
+  it("rejects unsupported Claude max context defaults", async () => {
+    const app = createApp();
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionDefaults: {
+          claude: { ...DEFAULT_SESSION_DEFAULTS.claude, maxContextLength: 200_000 },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: "sessionDefaults.claude.maxContextLength currently supports only 1000000 or empty",
+    });
   });
 });

@@ -192,6 +192,7 @@ import * as settingsManager from "./settings-manager.js";
 import * as transcriptionEnhancer from "./transcription-enhancer.js";
 import * as treeGroupStore from "./tree-group-store.js";
 import { containerManager } from "./container-manager.js";
+import { DEFAULT_SESSION_DEFAULTS } from "../shared/session-defaults.js";
 
 // ─── Mock factories ──────────────────────────────────────────────────────────
 
@@ -482,6 +483,17 @@ let treeGroupTempDir: string;
 let homeDir: string;
 let streamsDir: string;
 
+function overrideSettingsForTest(sessionDefaults: typeof DEFAULT_SESSION_DEFAULTS): () => void {
+  const originalGetSettings = vi.mocked(settingsManager.getSettings).getMockImplementation();
+  vi.mocked(settingsManager.getSettings).mockImplementation(() => ({
+    ...(originalGetSettings?.() ?? settingsManager.getSettings()),
+    sessionDefaults,
+  }));
+  return () => {
+    if (originalGetSettings) vi.mocked(settingsManager.getSettings).mockImplementation(originalGetSettings);
+  };
+}
+
 beforeEach(async () => {
   vi.clearAllMocks();
   trafficStats.reset();
@@ -572,6 +584,136 @@ describe("POST /api/sessions/create", () => {
     expect(launcher.launch).toHaveBeenCalledWith(
       expect.objectContaining({ model: "claude-sonnet-4-5-20250929", cwd: "/test" }),
     );
+  });
+
+  it("applies centralized Codex session defaults when create fields are omitted", async () => {
+    const restoreSettings = overrideSettingsForTest({
+      codex: {
+        ...DEFAULT_SESSION_DEFAULTS.codex,
+        model: "gpt-5.4",
+        serviceTier: "priority",
+        reasoningEffort: "high",
+        internetAccess: true,
+        maxContextLength: 240_000,
+      },
+      claude: DEFAULT_SESSION_DEFAULTS.claude,
+    });
+
+    let res: Response;
+    try {
+      res = await app.request("/api/sessions/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ backend: "codex", cwd: "/test" }),
+      });
+    } finally {
+      restoreSettings();
+    }
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backendType: "codex",
+        model: "gpt-5.4",
+        codexServiceTier: "priority",
+        codexReasoningEffort: "high",
+        codexInternetAccess: true,
+        codexMaxContextLength: 240_000,
+      }),
+    );
+  });
+
+  it("keeps explicit create fields ahead of centralized Codex defaults", async () => {
+    const restoreSettings = overrideSettingsForTest({
+      codex: {
+        ...DEFAULT_SESSION_DEFAULTS.codex,
+        model: "gpt-5.4",
+        serviceTier: "priority",
+        reasoningEffort: "high",
+        internetAccess: true,
+        maxContextLength: 240_000,
+      },
+      claude: DEFAULT_SESSION_DEFAULTS.claude,
+    });
+
+    let res: Response;
+    try {
+      res = await app.request("/api/sessions/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          backend: "codex",
+          cwd: "/test",
+          model: "gpt-5",
+          codexServiceTier: null,
+          codexReasoningEffort: "medium",
+          codexInternetAccess: false,
+          codexMaxContextLength: 180_000,
+        }),
+      });
+    } finally {
+      restoreSettings();
+    }
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gpt-5",
+        codexServiceTier: null,
+        codexReasoningEffort: "medium",
+        codexInternetAccess: false,
+        codexMaxContextLength: 180_000,
+      }),
+    );
+  });
+
+  it("applies centralized Claude session defaults when create fields are omitted", async () => {
+    const restoreSettings = overrideSettingsForTest({
+      codex: DEFAULT_SESSION_DEFAULTS.codex,
+      claude: {
+        ...DEFAULT_SESSION_DEFAULTS.claude,
+        model: "claude-sonnet-4-5-20250929",
+        permissionMode: "acceptEdits",
+        reasoningEffort: "max",
+        maxContextLength: 1_000_000,
+      },
+    });
+
+    let res: Response;
+    try {
+      res = await app.request("/api/sessions/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ backend: "claude", cwd: "/test" }),
+      });
+    } finally {
+      restoreSettings();
+    }
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backendType: "claude",
+        model: "claude-sonnet-4-5-20250929",
+        permissionMode: "acceptEdits",
+        claudeReasoningEffort: "max",
+        claudeMaxContextLength: 1_000_000,
+      }),
+    );
+  });
+
+  it("rejects unsupported Claude max context overrides during session creation", async () => {
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ backend: "claude", cwd: "/test", claudeMaxContextLength: 200_000 }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "claudeMaxContextLength currently supports only 1000000 or empty",
+    });
+    expect(launcher.launch).not.toHaveBeenCalled();
   });
 
   it("persists explicit default tree group metadata during session creation", async () => {

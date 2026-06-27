@@ -110,6 +110,7 @@ interface CodexLaunchOptions {
   codexSandbox?: CodexSandboxMode;
   codexInternetAccess?: boolean;
   codexReasoningEffort?: string;
+  codexMaxContextLength?: number;
   codexHome?: string;
   containerId?: string;
   env?: Record<string, string>;
@@ -1693,6 +1694,9 @@ export async function prepareCodexSpawn(
     args.push("-c", `tools.webSearch=${options.codexInternetAccess === true ? "true" : "false"}`);
     if (options.codexReasoningEffort) {
       args.push("-c", `model_reasoning_effort=${options.codexReasoningEffort}`);
+    }
+    if (options.codexMaxContextLength) {
+      args.push("-c", `model_context_window=${options.codexMaxContextLength}`);
     }
     if (options.permissionMode === "codex-auto-review") {
       args.push("-c", "approvals_reviewer=auto_review");

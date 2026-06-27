@@ -1,6 +1,7 @@
 import type { HerdSessionsResponse } from "../shared/herd-types.ts";
 import { HERD_WORKER_SLOT_LIMIT, TAKODE_PEEK_CONTENT_LIMIT, formatQuotedContent } from "../shared/takode-constants.ts";
 import { isValidQuestId } from "../shared/quest-journey.ts";
+import { CLAUDE_REASONING_EFFORTS, CODEX_REASONING_EFFORTS } from "../shared/session-defaults.ts";
 import {
   apiDelete,
   apiGet,
@@ -380,7 +381,10 @@ Options:
   --permission-mode <mode>     Codex-only: default, auto-review, full-access, or custom
   --ask / --no-ask             Override inherited ask mode
   --internet / --no-internet   Codex-only: enable or disable internet access
-  --reasoning-effort <level>   Codex-only: low, medium, or high
+  --reasoning-effort <level>   Override reasoning effort (Codex: low/medium/high/xhigh; Claude: low/medium/high/max)
+  --service-tier <tier>        Codex-only: service tier id; use "standard" for Standard
+  --speed <tier>               Alias for --service-tier
+  --max-context <tokens>       Override max context length
   --no-worktree                Disable worktree creation
   --fixed-name <name>          Set a fixed session name (disables auto-naming)
   --reviewer <session>         Create a reviewer session tied to a parent worker (by session number)
@@ -413,6 +417,9 @@ const SPAWN_ALLOWED_FLAGS = new Set([
   "no-internet",
   "reasoning",
   "reasoning-effort",
+  "service-tier",
+  "speed",
+  "max-context",
   "no-worktree",
   "fixed-name",
   "reviewer",
@@ -424,7 +431,8 @@ const SPAWN_ALLOWED_FLAGS = new Set([
   "h",
 ]);
 
-const VALID_REASONING_EFFORTS = new Set(["low", "medium", "high"]);
+const VALID_CODEX_REASONING_EFFORTS = new Set<string>(CODEX_REASONING_EFFORTS);
+const VALID_CLAUDE_REASONING_EFFORTS = new Set<string>(CLAUDE_REASONING_EFFORTS);
 const CODEX_PERMISSION_MODE_ALIASES = new Map<string, string>([
   ["default", "codex-default"],
   ["codex-default", "codex-default"],
@@ -463,12 +471,33 @@ function resolveReasoningEffort(flags: Record<string, string | boolean>): string
   }
   const raw = primary ?? alias;
   if (raw === undefined) return undefined;
-  if (typeof raw !== "string") err("--reasoning-effort requires a value: low, medium, or high.");
+  if (typeof raw !== "string") err("--reasoning-effort requires a value.");
   const normalized = raw.trim().toLowerCase();
-  if (!VALID_REASONING_EFFORTS.has(normalized)) {
-    err(`Invalid --reasoning-effort: ${raw}. Expected low, medium, or high.`);
+  if (!VALID_CODEX_REASONING_EFFORTS.has(normalized) && !VALID_CLAUDE_REASONING_EFFORTS.has(normalized)) {
+    err(`Invalid --reasoning-effort: ${raw}.`);
   }
   return normalized;
+}
+
+function resolveServiceTier(flags: Record<string, string | boolean>): string | null | undefined {
+  const primary = flags["service-tier"];
+  const alias = flags.speed;
+  if (primary !== undefined && alias !== undefined) err("Cannot combine --service-tier and --speed.");
+  const raw = primary ?? alias;
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string") err("--service-tier requires a value.");
+  const normalized = raw.trim();
+  if (!normalized) err("--service-tier requires a non-empty value.");
+  return normalized.toLowerCase() === "standard" ? null : normalized;
+}
+
+function resolveMaxContext(flags: Record<string, string | boolean>): number | undefined {
+  const raw = flags["max-context"];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string") err("--max-context requires a positive integer token count.");
+  const parsed = Number(raw.trim());
+  if (!Number.isSafeInteger(parsed) || parsed < 1) err("--max-context requires a positive integer token count.");
+  return parsed;
 }
 
 function buildSpawnDetailParts(session: TakodeSessionInfo): string[] {
@@ -481,9 +510,14 @@ function buildSpawnDetailParts(session: TakodeSessionInfo): string[] {
   parts.push(`worktree=${session.isWorktree ? "yes" : "no"}`);
   if (session.backendType === "codex") {
     if (session.codexReasoningEffort) parts.push(`reasoning=${session.codexReasoningEffort}`);
+    if (session.codexServiceTier) parts.push(`serviceTier=${session.codexServiceTier}`);
+    if (session.codexMaxContextLength) parts.push(`maxContext=${session.codexMaxContextLength}`);
     if (typeof session.codexInternetAccess === "boolean") {
       parts.push(`internet=${session.codexInternetAccess ? "on" : "off"}`);
     }
+  } else {
+    if (session.claudeReasoningEffort) parts.push(`reasoning=${session.claudeReasoningEffort}`);
+    if (session.claudeMaxContextLength) parts.push(`maxContext=${session.claudeMaxContextLength}`);
   }
   return parts;
 }
@@ -665,6 +699,8 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   const codexPermissionModeOverride = normalizeCodexSpawnPermissionMode(flags["permission-mode"]);
   const internetOverride = resolveBooleanToggleFlag(flags, "internet", "no-internet");
   const reasoningEffort = resolveReasoningEffort(flags);
+  const serviceTierOverride = resolveServiceTier(flags);
+  const maxContextOverride = resolveMaxContext(flags);
   const leaderWorktreeTargetBranch =
     leader.isWorktree === true
       ? (leader.actualBranch || leader.gitBranch || leader.branch || "").trim() || undefined
@@ -708,8 +744,17 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   if (backendRaw !== "codex" && internetOverride !== undefined) {
     err("--internet and --no-internet are only supported for Codex sessions.");
   }
-  if (backendRaw !== "codex" && reasoningEffort !== undefined) {
-    err("--reasoning-effort is only supported for Codex sessions.");
+  if (backendRaw === "codex" && reasoningEffort !== undefined && !VALID_CODEX_REASONING_EFFORTS.has(reasoningEffort)) {
+    err(`Invalid --reasoning-effort for Codex: ${reasoningEffort}.`);
+  }
+  if (backendRaw !== "codex" && reasoningEffort !== undefined && !VALID_CLAUDE_REASONING_EFFORTS.has(reasoningEffort)) {
+    err(`Invalid --reasoning-effort for Claude: ${reasoningEffort}.`);
+  }
+  if (backendRaw !== "codex" && serviceTierOverride !== undefined) {
+    err("--service-tier and --speed are only supported for Codex sessions.");
+  }
+  if (backendRaw !== "codex" && maxContextOverride !== undefined && maxContextOverride !== 1_000_000) {
+    err("--max-context for Claude currently supports only 1000000.");
   }
   if (backendRaw !== "codex" && codexPermissionModeOverride !== undefined) {
     err("--permission-mode is only supported for Codex sessions.");
@@ -815,12 +860,15 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     }
 
     if (backendRaw === "codex") {
-      createPayload.codexReasoningEffort = reasoningEffort || "high";
+      if (reasoningEffort) createPayload.codexReasoningEffort = reasoningEffort;
+      if (serviceTierOverride !== undefined) createPayload.codexServiceTier = serviceTierOverride;
+      if (maxContextOverride !== undefined) createPayload.codexMaxContextLength = maxContextOverride;
       if (internetOverride !== undefined) {
         createPayload.codexInternetAccess = internetOverride;
-      } else if (inheritBypass) {
-        createPayload.codexInternetAccess = true;
       }
+    } else {
+      if (reasoningEffort) createPayload.claudeReasoningEffort = reasoningEffort;
+      if (maxContextOverride !== undefined) createPayload.claudeMaxContextLength = maxContextOverride;
     }
 
     return createPayload;

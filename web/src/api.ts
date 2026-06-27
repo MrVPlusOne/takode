@@ -21,6 +21,7 @@ import { searchSessionMessages } from "./api/session-message-search.js";
 import { transcribe } from "./api/transcription.js";
 import type { VoiceTranscriptionFrontendTimingReport, VoiceTranscriptionTiming } from "./transcription-progress.js";
 import type { ShortcutSettings } from "./shortcuts.js";
+import type { SessionDefaultsSettings } from "../shared/session-defaults.js";
 
 export type {
   MessageSearchCategory,
@@ -311,6 +312,10 @@ export interface CreateSessionOpts {
   codexBinary?: string;
   codexInternetAccess?: boolean;
   codexReasoningEffort?: string;
+  codexServiceTier?: string | null;
+  codexMaxContextLength?: number;
+  claudeReasoningEffort?: string;
+  claudeMaxContextLength?: number;
   allowedTools?: string[];
   envSlug?: string;
   branch?: string;
@@ -576,6 +581,7 @@ export interface AppSettings {
   leaderProfileFallbackPortrait: LeaderProfilePortrait;
   leaderProfilePoolOptions: LeaderProfilePool[];
   shortcutSettings?: ShortcutSettings;
+  sessionDefaults: SessionDefaultsSettings;
   restartSupported: boolean;
   logFile?: string | null;
   claudeDefaultModel?: string;
@@ -1381,6 +1387,7 @@ export const api = {
     codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
     leaderProfilePools?: LeaderProfilePoolSettings;
     shortcutSettings?: ShortcutSettings;
+    sessionDefaults?: SessionDefaultsSettings;
   }) => put<AppSettings>("/settings", data),
   updateLeaderProfilePortrait: (sessionId: string, portraitId: string) =>
     put<{

@@ -35,8 +35,11 @@ import type { HerdChangeEvent, HerdSessionsResponse } from "../shared/herd-types
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
 import type { SdkSessionInfo } from "./session-info.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "./memory-session-space.js";
+import type { LaunchOptions } from "./cli-launcher-options.js";
+import { CLAUDE_1M_CONTEXT_BETA, CLAUDE_1M_CONTEXT_TOKENS } from "../shared/session-defaults.js";
 
 export type { SdkSessionInfo } from "./session-info.js";
+export type { LaunchOptions } from "./cli-launcher-options.js";
 
 function appendUniqueCliSessionId(
   lineage: CodexLeaderRecycleLineage | undefined,
@@ -115,86 +118,6 @@ function sanitizeSpawnArgsForLog(args: string[]): string {
     }
   }
   return out.join(" ");
-}
-
-export interface LaunchOptions {
-  model?: string;
-  permissionMode?: string;
-  /** Whether permission prompts are enabled (shared UI state; backend-specific mapping). */
-  askPermission?: boolean;
-  /** Codex collaboration UI mode, kept separate from the permission profile. */
-  uiMode?: "plan" | "agent";
-  cwd?: string;
-  claudeBinary?: string;
-  codexBinary?: string;
-  allowedTools?: string[];
-  env?: Record<string, string>;
-  backendType?: BackendType;
-  /** Codex sandbox mode. */
-  codexSandbox?: "read-only" | "workspace-write" | "danger-full-access";
-  /** Whether Codex internet/web search should be enabled for this session. */
-  codexInternetAccess?: boolean;
-  /** Codex reasoning effort (e.g. low/medium/high). */
-  codexReasoningEffort?: string;
-  /** Codex app-server service tier for future turns. null/undefined means Standard. */
-  codexServiceTier?: string | null;
-  /** Optional override for CODEX_HOME used by Codex sessions. */
-  codexHome?: string;
-  /** Deprecated compatibility setting; leader launch config is now derived from recycle thresholds. */
-  codexLeaderContextWindowOverrideTokens?: number;
-  /** Legacy compatibility only; leader thresholds are derived from source model effective context. */
-  codexLeaderRecycleThresholdTokens?: number;
-  /** Deprecated compatibility setting; non-leader compaction is left to Codex defaults. */
-  codexNonLeaderAutoCompactThresholdPercent?: number;
-  /** Docker container ID — when set, CLI runs inside container via docker exec */
-  containerId?: string;
-  /** Docker container name */
-  containerName?: string;
-  /** Docker image used for the container */
-  containerImage?: string;
-  /** Pre-resolved worktree info from the session creation flow */
-  worktreeInfo?: {
-    isWorktree: boolean;
-    repoRoot: string;
-    branch: string;
-    actualBranch: string;
-    worktreePath: string;
-    portTarget?: {
-      repoRoot: string;
-      branch: string;
-      worktreePath?: string;
-      sourceSessionId?: string;
-      sourceSessionNum?: number | null;
-      sourceLabel?: string;
-    };
-  };
-  /** CLI session ID to resume (from an external CLI session, e.g. VS Code or terminal) */
-  resumeCliSessionId?: string;
-  /** Plugin directories to load for SDK sessions (maps to --plugin-dir CLI flags). */
-  pluginDirs?: string[];
-  /** Extra instructions appended to the system prompt (e.g., orchestrator guardrails). */
-  extraInstructions?: string;
-  /** Authoritative Takode memory/session-space slug for default memory repo resolution. */
-  memorySessionSpaceSlug?: string;
-  /** Env profile slug used to resolve launch env, matching normal session creation. */
-  envSlug?: string;
-  /** Env keys to remove after env profile and inline env merging, before Takode identity injection. */
-  blockedEnvKeys?: string[];
-  /** Hidden implementation session backing a Side Chat workspace. */
-  hidden?: boolean;
-  parentSessionId?: string;
-  sideChatId?: string;
-  sideChatAnchorMessageId?: string;
-  sideChatAnchorHistoryIndex?: number;
-  sideChatReadOnly?: boolean;
-  /** @deprecated Legacy persisted launcher metadata for Side Chat children. */
-  slackThreadId?: string;
-  /** @deprecated Legacy persisted launcher metadata for Side Chat children. */
-  slackThreadAnchorMessageId?: string;
-  /** @deprecated Legacy persisted launcher metadata for Side Chat children. */
-  slackThreadAnchorHistoryIndex?: number;
-  /** @deprecated Legacy persisted launcher metadata for Side Chat children. */
-  slackThreadReadOnly?: boolean;
 }
 
 /**
@@ -657,7 +580,11 @@ export class CliLauncher {
       info.codexSandbox = options.codexSandbox;
       info.codexReasoningEffort = options.codexReasoningEffort;
       info.codexServiceTier = options.codexServiceTier ?? null;
+      info.codexMaxContextLength = options.codexMaxContextLength;
       info.codexHome = options.codexHome;
+    } else {
+      info.claudeReasoningEffort = options.claudeReasoningEffort;
+      info.claudeMaxContextLength = options.claudeMaxContextLength;
     }
 
     // Store container metadata if provided
@@ -921,6 +848,7 @@ export class CliLauncher {
             codexInternetAccess: info.codexInternetAccess,
             codexReasoningEffort: info.codexReasoningEffort,
             codexServiceTier: info.codexServiceTier,
+            codexMaxContextLength: info.codexMaxContextLength,
             codexHome: info.codexHome,
             containerId: info.containerId,
             containerName: info.containerName,
@@ -933,6 +861,8 @@ export class CliLauncher {
           await this.spawnClaudeSdk(sessionId, info, {
             model: info.model,
             permissionMode: info.permissionMode,
+            claudeReasoningEffort: info.claudeReasoningEffort,
+            claudeMaxContextLength: info.claudeMaxContextLength,
             cwd: info.cwd,
             claudeBinary: binSettings.claudeBinary || undefined,
             env: runtimeEnv,
@@ -943,6 +873,8 @@ export class CliLauncher {
           this.spawnCLI(sessionId, info, {
             model: info.model,
             permissionMode: info.permissionMode,
+            claudeReasoningEffort: info.claudeReasoningEffort,
+            claudeMaxContextLength: info.claudeMaxContextLength,
             cwd: info.cwd,
             claudeBinary: binSettings.claudeBinary || undefined,
             resumeSessionId: info.cliSessionId,
@@ -1066,6 +998,12 @@ export class CliLauncher {
     }
     if (effectivePermissionMode) {
       args.push("--permission-mode", effectivePermissionMode);
+    }
+    if (options.claudeReasoningEffort) {
+      args.push("--effort", options.claudeReasoningEffort);
+    }
+    if (options.claudeMaxContextLength === CLAUDE_1M_CONTEXT_TOKENS) {
+      args.push("--betas", CLAUDE_1M_CONTEXT_BETA);
     }
     if (options.allowedTools) {
       for (const tool of options.allowedTools) {
@@ -1268,6 +1206,8 @@ export class CliLauncher {
       model: options.model,
       cwd: info.cwd,
       permissionMode: options.permissionMode,
+      reasoningEffort: options.claudeReasoningEffort,
+      betas: options.claudeMaxContextLength === CLAUDE_1M_CONTEXT_TOKENS ? [CLAUDE_1M_CONTEXT_BETA] : undefined,
       cliSessionId: info.cliSessionId,
       env: options.env as Record<string, string | undefined>,
       claudeBinary: options.claudeBinary,

@@ -12,6 +12,11 @@ import {
 } from "../shared/leader-profile-portraits.js";
 import { DEFAULT_CHAT_MESSAGE_LINE_HEIGHT, normalizeChatMessageLineHeight } from "../shared/chat-display-settings.js";
 import { CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS } from "./codex-leader-recycle-threshold.js";
+import {
+  DEFAULT_SESSION_DEFAULTS,
+  normalizeSessionDefaults,
+  type SessionDefaultsSettings,
+} from "../shared/session-defaults.js";
 
 export interface CompanionSettings {
   /** Display name for this server instance */
@@ -80,6 +85,8 @@ export interface CompanionSettings {
   leaderProfilePools?: LeaderProfilePoolSettings;
   /** User-configured keyboard shortcut settings. Undefined means no server-side shortcut preference exists yet. */
   shortcutSettings?: ShortcutSettings;
+  /** Server-authoritative defaults for future manually-created and spawned sessions. Optional for backward-compatible tests/mocks. */
+  sessionDefaults?: SessionDefaultsSettings;
   updatedAt: number;
 }
 
@@ -228,6 +235,7 @@ let settings: CompanionSettings = {
   codexLeaderRecycleThresholdTokens: CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS,
   codexLeaderRecycleThresholdTokensByModel: {},
   leaderProfilePools: DEFAULT_LEADER_PROFILE_POOLS,
+  sessionDefaults: DEFAULT_SESSION_DEFAULTS,
   updatedAt: 0,
 };
 
@@ -511,6 +519,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     ),
     leaderProfilePools: normalizeLeaderProfilePoolSettings(raw?.leaderProfilePools),
     shortcutSettings: normalizeShortcutSettings(raw?.shortcutSettings),
+    sessionDefaults: normalizeSessionDefaults(raw?.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS),
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -616,6 +625,7 @@ export function updateSettings(
       | "codexLeaderRecycleThresholdTokensByModel"
       | "leaderProfilePools"
       | "shortcutSettings"
+      | "sessionDefaults"
       | "serverSlug"
     >
   >,
@@ -628,6 +638,9 @@ export function updateSettings(
   }
   if (defined.leaderProfilePools) {
     defined.leaderProfilePools = normalizeLeaderProfilePoolSettings(defined.leaderProfilePools);
+  }
+  if (defined.sessionDefaults) {
+    defined.sessionDefaults = normalizeSessionDefaults(defined.sessionDefaults);
   }
   if (typeof defined.serverSlug === "string") {
     const normalizedSlug = normalizeServerSlug(defined.serverSlug);

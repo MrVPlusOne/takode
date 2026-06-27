@@ -547,6 +547,10 @@ export type TakodeSessionInfo = {
   codexInternetAccess?: boolean;
   codexSandbox?: string;
   codexReasoningEffort?: string;
+  codexServiceTier?: string | null;
+  codexMaxContextLength?: number;
+  claudeReasoningEffort?: string;
+  claudeMaxContextLength?: number;
   codexPendingDelivery?: CodexPendingDeliveryDiagnostics | null;
   codexPendingDeliveryDetails?: CodexPendingDeliveryDiagnosticsDetails | null;
   pause?: { pausedAt: number; queuedMessages?: unknown[] } | null;
@@ -729,6 +733,10 @@ export function buildSessionInfoJson(
     codexInternetAccess: session.codexInternetAccess ?? null,
     codexSandbox: session.codexSandbox ?? null,
     codexReasoningEffort: session.codexReasoningEffort ?? null,
+    codexServiceTier: session.codexServiceTier ?? null,
+    codexMaxContextLength: session.codexMaxContextLength ?? null,
+    claudeReasoningEffort: session.claudeReasoningEffort ?? null,
+    claudeMaxContextLength: session.claudeMaxContextLength ?? null,
     codexPendingDelivery: session.codexPendingDelivery ?? null,
     pausedInputQueueCount: session.pausedInputQueueCount ?? 0,
     taskHistoryCount: session.taskHistory?.length ?? 0,

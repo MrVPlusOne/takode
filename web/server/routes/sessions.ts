@@ -11,7 +11,7 @@ import * as sessionNames from "../session-names.js";
 import * as treeGroupStore from "../tree-group-store.js";
 import * as newSessionDefaultsStore from "../new-session-defaults-store.js";
 import { containerManager, ContainerManager, type ContainerConfig, type ContainerInfo } from "../container-manager.js";
-import type { CreationStepId, TakodeSessionArchivedEventData } from "../session-types.js";
+import type { CreationStepId } from "../session-types.js";
 import { hasContainerClaudeAuth } from "../claude-container-auth.js";
 import { hasContainerCodexAuth } from "../codex-container-auth.js";
 import { getSettings, getClaudeUserDefaultModel, getServerId } from "../settings-manager.js";
@@ -20,7 +20,7 @@ import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.
 import { trafficStats } from "../traffic-stats.js";
 import { generateUniqueSessionName } from "../../src/utils/names.js";
 import type { HerdSessionsResponse } from "../../shared/herd-types.js";
-import type { RouteContext, OptionalAuthResult } from "./context.js";
+import type { RouteContext } from "./context.js";
 import { resolveSessionCreateModel } from "./session-create-model.js";
 import {
   applyInitialSessionState as applyInitialSessionStateController,
@@ -56,11 +56,13 @@ import { registerSessionReplacementRoutes } from "./session-replacement-routes.j
 import { registerSessionNotificationContextRoute } from "./session-notification-context.js";
 import { registerSessionImageRoutes } from "./session-image-routes.js";
 import { prepareWorktreeForSessionCreate, type WorktreeSessionInfo } from "./session-worktree-create.js";
+import type { CreationProgressStatus, EmitCreationProgress, SessionConfig } from "./session-create-config.js";
 import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignments.js";
 import { isSessionPaused } from "../session-pause.js";
 import { LEADER_KICKOFF_SOURCE_ID, LEADER_KICKOFF_SOURCE_LABEL } from "../../shared/injected-event-message.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "../memory-session-space.js";
 import { registerSessionSideChatRoutes } from "./session-side-chat-routes.js";
+import { applySessionDefaultsToCreateBody, SessionDefaultValidationError } from "../session-defaults-application.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -125,34 +127,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
   });
 
   // ─── SDK Sessions (--sdk-url) ─────────────────────────────────────
-  type CreationProgressStatus = "in_progress" | "done" | "error";
-  type EmitCreationProgress = (
-    step: CreationStepId,
-    label: string,
-    status: CreationProgressStatus,
-    detail?: string,
-  ) => Promise<void>;
-
-  interface SessionConfig {
-    launchOptions: LaunchOptions;
-    initialModeState: ReturnType<RouteContext["resolveInitialModeState"]>;
-    initialCwd: string;
-    isAssistantMode: boolean;
-    isOrchestrator: boolean;
-    envSlug?: string;
-    createdBy?: unknown;
-    noAutoName?: boolean;
-    fixedName?: string;
-    /** Session number of the parent worker this reviewer is reviewing */
-    reviewerOf?: number;
-    treeGroupId?: string;
-    treeGroupExplicitlyRequested: boolean;
-    worktreeInfo?: WorktreeSessionInfo;
-    containerInfo?: ContainerInfo;
-    resumeCliSessionId?: string;
-    memorySessionSpaceSlug: string;
-  }
-
   const markOrchestratorSession = (sessionId: string, backend: SessionBackend) =>
     markOrchestratorSessionAfterConnect({ launcher, wsBridge }, sessionId, buildOrchestratorSystemPrompt(backend), {
       sessionId: LEADER_KICKOFF_SOURCE_ID,
@@ -436,6 +410,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
     backend: SessionBackend,
     emitProgress?: EmitCreationProgress,
   ): Promise<SessionConfig> => {
+    const binarySettings = getSettings();
+    try {
+      body = applySessionDefaultsToCreateBody(body, backend, binarySettings);
+    } catch (error) {
+      if (error instanceof SessionDefaultValidationError) throwPreparationError(error.message, 400);
+      throw error;
+    }
     const emit = async (step: CreationStepId, label: string, status: CreationProgressStatus, detail?: string) => {
       if (!emitProgress) return;
       await emitProgress(step, label, status, detail);
@@ -471,7 +452,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
       const resumeAskPermission = body.askPermission !== false;
       const initialModeState = resolveInitialModeState(backend, body.permissionMode, resumeAskPermission);
       const initialCwd = body.cwd ? resolve(expandTilde(body.cwd)) : process.cwd();
-      const binarySettings = getSettings();
       const launchOptions: LaunchOptions = {
         cwd: initialCwd,
         claudeBinary: body.claudeBinary || binarySettings.claudeBinary || undefined,
@@ -777,10 +757,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
       backend === "codex" && typeof body.codexReasoningEffort === "string"
         ? body.codexReasoningEffort.trim() || undefined
         : undefined;
+    const claudeReasoningEffort =
+      backend !== "codex" && typeof body.claudeReasoningEffort === "string"
+        ? body.claudeReasoningEffort.trim() || undefined
+        : undefined;
     const orchestratorGuardrails = isOrchestrator ? launcher.getOrchestratorGuardrails(backend) : undefined;
 
     const initialCwd = cwd || process.cwd();
-    const binarySettings = getSettings();
     const launchOptions: LaunchOptions = {
       model,
       permissionMode: initialModeState.permissionMode,
@@ -795,6 +778,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
       codexSandbox:
         backend === "codex" ? resolveCodexSandboxForPermissionMode(initialModeState.permissionMode) : undefined,
       codexReasoningEffort,
+      codexServiceTier:
+        backend === "codex" && (typeof body.codexServiceTier === "string" || body.codexServiceTier === null)
+          ? body.codexServiceTier
+          : undefined,
+      codexMaxContextLength: backend === "codex" ? body.codexMaxContextLength : undefined,
+      claudeReasoningEffort,
+      claudeMaxContextLength: backend !== "codex" ? body.claudeMaxContextLength : undefined,
       allowedTools: body.allowedTools,
       env: envVars,
       backendType: backend,

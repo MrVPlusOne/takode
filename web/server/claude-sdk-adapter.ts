@@ -41,6 +41,8 @@ export interface ClaudeSdkAdapterOptions {
   model?: string;
   cwd: string;
   permissionMode?: string;
+  reasoningEffort?: string;
+  betas?: string[];
   cliSessionId?: string;
   env?: Record<string, string | undefined>;
   claudeBinary?: string;
@@ -209,6 +211,12 @@ export class ClaudeSdkAdapter
     if (this.options.debugFile) {
       sessionOptions.debugFile = this.options.debugFile;
     }
+    if (this.options.reasoningEffort) {
+      (sessionOptions as any).effort = this.options.reasoningEffort;
+    }
+    if (this.options.betas?.length) {
+      (sessionOptions as any).betas = this.options.betas;
+    }
 
     console.log(
       `[claude-sdk-adapter] Creating session ${this.sessionId} with options:`,
@@ -216,6 +224,8 @@ export class ClaudeSdkAdapter
         cwd: this.options.cwd,
         permissionMode: sessionOptions.permissionMode,
         model: sessionOptions.model ?? "(from settings.json)",
+        reasoningEffort: this.options.reasoningEffort ?? null,
+        betas: this.options.betas ?? [],
         settingSources: sessionOptions.settingSources,
         plugins: plugins.map((p) => p.path),
         claudeBinary: this.options.claudeBinary ?? "(default)",
@@ -272,10 +282,18 @@ export class ClaudeSdkAdapter
     if (v4Class && originalV4Initialize) {
       const patchedSettingSources = sessionOptions.settingSources as string[];
       const patchedPlugins = plugins;
+      const patchedReasoningEffort = this.options.reasoningEffort;
+      const patchedBetas = this.options.betas;
       v4Class.prototype.initialize = function patchedV4Initialize(this: any) {
         this.options.settingSources = patchedSettingSources;
         if (patchedPlugins.length > 0) {
           this.options.plugins = patchedPlugins;
+        }
+        if (patchedReasoningEffort) {
+          this.options.effort = patchedReasoningEffort;
+        }
+        if (patchedBetas?.length) {
+          this.options.betas = patchedBetas;
         }
         return originalV4Initialize.call(this);
       };

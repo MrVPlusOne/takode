@@ -84,4 +84,21 @@ describe("ClaudeSdkAdapter launch env", () => {
     expect(sessionOptions.env.EDITOR).toBe("code --wait");
     expect(sessionOptions.env.VISUAL).toBe("code --wait");
   });
+
+  it("passes reasoning effort and betas into SDK session options", async () => {
+    new ClaudeSdkAdapter("sdk-session", {
+      cwd: process.cwd(),
+      reasoningEffort: "max",
+      betas: ["context-1m-2025-08-07"],
+    });
+
+    await vi.waitFor(() => expect(sdkMocks.createSession).toHaveBeenCalled());
+
+    const sessionOptions = sdkMocks.createSession.mock.calls.at(-1)?.[0] as {
+      effort?: string;
+      betas?: string[];
+    };
+    expect(sessionOptions.effort).toBe("max");
+    expect(sessionOptions.betas).toEqual(["context-1m-2025-08-07"]);
+  });
 });

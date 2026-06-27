@@ -7,6 +7,7 @@ import {
   type BackendInfo,
   type CliSession,
   type ServerNewSessionDefaults,
+  type AppSettings,
 } from "../api.js";
 import { getRecentDirs } from "../utils/recent-dirs.js";
 import { queuePendingSession } from "../utils/pending-creation.js";
@@ -132,6 +133,7 @@ export function NewSessionModal({
   const [codexPermissionMode, setCodexPermissionMode] = useState<CodexPermissionMode>(
     () => defaults.codexPermissionMode,
   );
+  const [settingsDefaults, setSettingsDefaults] = useState<AppSettings["sessionDefaults"] | null>(null);
   const [askPermission, setAskPermission] = useState(() => defaults.askPermission);
 
   // Resume mode state
@@ -286,6 +288,20 @@ export function NewSessionModal({
     api
       .getBackends()
       .then(setBackends)
+      .catch(() => {});
+    api
+      .getSettings()
+      .then((settings) => {
+        setSettingsDefaults(settings.sessionDefaults);
+        const backendDefaults = settings.sessionDefaults[backend === "codex" ? "codex" : "claude"];
+        if (backendDefaults.model) setModel(backendDefaults.model);
+        if (backend === "codex") {
+          setCodexInternetAccess(settings.sessionDefaults.codex.internetAccess);
+          setCodexReasoningEffort(settings.sessionDefaults.codex.reasoningEffort);
+        } else if (settings.sessionDefaults.claude.permissionMode) {
+          setMode(settings.sessionDefaults.claude.permissionMode);
+        }
+      })
       .catch(() => {});
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -503,6 +519,10 @@ export function NewSessionModal({
       backend,
       codexInternetAccess: backend === "codex" ? codexInternetAccess : undefined,
       codexReasoningEffort: backend === "codex" ? codexReasoningEffort || undefined : undefined,
+      codexServiceTier: backend === "codex" ? settingsDefaults?.codex.serviceTier : undefined,
+      codexMaxContextLength: backend === "codex" ? settingsDefaults?.codex.maxContextLength || undefined : undefined,
+      claudeReasoningEffort: backend !== "codex" ? settingsDefaults?.claude.reasoningEffort || undefined : undefined,
+      claudeMaxContextLength: backend !== "codex" ? settingsDefaults?.claude.maxContextLength || undefined : undefined,
       assistantMode: undefined,
       askPermission: effectiveAskPermission,
       role: sessionRole === "leader" ? ("orchestrator" as const) : undefined,
@@ -602,6 +622,10 @@ export function NewSessionModal({
       ),
       codexInternetAccess: backend === "codex" ? codexInternetAccess : undefined,
       codexReasoningEffort: backend === "codex" ? codexReasoningEffort || undefined : undefined,
+      codexServiceTier: backend === "codex" ? settingsDefaults?.codex.serviceTier : undefined,
+      codexMaxContextLength: backend === "codex" ? settingsDefaults?.codex.maxContextLength || undefined : undefined,
+      claudeReasoningEffort: backend !== "codex" ? settingsDefaults?.claude.reasoningEffort || undefined : undefined,
+      claudeMaxContextLength: backend !== "codex" ? settingsDefaults?.claude.maxContextLength || undefined : undefined,
       treeGroupId: treeGroupId || undefined,
     };
 

@@ -16,6 +16,7 @@ const mockApi = {
   getCodexDefaultModel: vi.fn(),
   listEnvs: vi.fn(),
   getBackends: vi.fn(),
+  getSettings: vi.fn(),
   getBackendModels: vi.fn(),
   getRepoInfo: vi.fn(),
   listBranches: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("../api.js", () => ({
     getCodexDefaultModel: (...args: unknown[]) => mockApi.getCodexDefaultModel(...args),
     listEnvs: (...args: unknown[]) => mockApi.listEnvs(...args),
     getBackends: (...args: unknown[]) => mockApi.getBackends(...args),
+    getSettings: (...args: unknown[]) => mockApi.getSettings(...args),
     getBackendModels: (...args: unknown[]) => mockApi.getBackendModels(...args),
     getRepoInfo: (...args: unknown[]) => mockApi.getRepoInfo(...args),
     listBranches: (...args: unknown[]) => mockApi.listBranches(...args),
@@ -75,6 +77,7 @@ vi.mock("./CatIcons.js", () => ({
 }));
 
 import { NewSessionModal } from "./NewSessionModal.js";
+import { DEFAULT_SESSION_DEFAULTS } from "../../shared/session-defaults.js";
 
 describe("NewSessionModal", () => {
   beforeEach(() => {
@@ -111,6 +114,7 @@ describe("NewSessionModal", () => {
       { id: "claude", name: "Claude Code", available: true },
       { id: "codex", name: "Codex", available: true },
     ]);
+    mockApi.getSettings.mockResolvedValue({ sessionDefaults: DEFAULT_SESSION_DEFAULTS });
     mockApi.getBackendModels.mockResolvedValue([]);
     mockApi.getRepoInfo.mockRejectedValue(new Error("not a repo"));
     mockApi.listBranches.mockResolvedValue([]);
@@ -443,7 +447,7 @@ describe("NewSessionModal", () => {
     const modal = await screen.findByTestId("new-session-modal-card");
     expect(within(modal).getByText("Engine")).toBeInTheDocument();
     expect(within(modal).getByText("Permission mode")).toBeInTheDocument();
-    expect(within(modal).getByRole("button", { name: "Default" })).toBeInTheDocument();
+    expect(within(modal).getAllByRole("button", { name: "Default" }).length).toBeGreaterThan(0);
 
     expect(within(modal).getByText("Codex options")).toBeInTheDocument();
     expect(within(modal).getByText("Network access")).toBeInTheDocument();

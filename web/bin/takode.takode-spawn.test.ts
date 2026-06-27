@@ -139,7 +139,6 @@ describe("takode spawn", () => {
       cwd: process.cwd(),
       useWorktree: true,
       createdBy: "leader-1",
-      codexReasoningEffort: "high",
     });
     expect(result.stdout).toContain('#21 "Worker One"');
     expect(result.stdout).toContain("model=gpt-5.4");
@@ -579,7 +578,6 @@ describe("takode spawn", () => {
       expect.objectContaining({
         backend: "codex",
         permissionMode: "codex-auto-review",
-        codexReasoningEffort: "high",
       }),
     );
     expect(createBodies[0]).not.toHaveProperty("askPermission");
@@ -1027,6 +1025,8 @@ describe("takode spawn", () => {
             isWorktree: false,
             codexReasoningEffort: "medium",
             codexInternetAccess: true,
+            codexServiceTier: "priority",
+            codexMaxContextLength: 240000,
             injectedSystemPrompt: "large injected prompt",
             taskHistory: [{ title: "Trace spawn output", startedAt: 100 }],
             tools: ["Bash", "Read"],
@@ -1056,6 +1056,10 @@ describe("takode spawn", () => {
         "gpt-5.4",
         "--reasoning-effort",
         "medium",
+        "--service-tier",
+        "priority",
+        "--max-context",
+        "240000",
         "--internet",
         "--no-ask",
         "--json",
@@ -1081,6 +1085,8 @@ describe("takode spawn", () => {
         permissionMode: "codex-full-access",
         codexReasoningEffort: "medium",
         codexInternetAccess: true,
+        codexServiceTier: "priority",
+        codexMaxContextLength: 240000,
       },
     ]);
 
@@ -1089,6 +1095,8 @@ describe("takode spawn", () => {
         model: string;
         codexReasoningEffort: string;
         codexInternetAccess: boolean;
+        codexServiceTier: string;
+        codexMaxContextLength: number;
         askPermission: boolean;
         isWorktree: boolean;
         taskHistoryCount: number;
@@ -1105,6 +1113,8 @@ describe("takode spawn", () => {
         permissionMode: "codex-full-access",
         codexReasoningEffort: "medium",
         codexInternetAccess: true,
+        codexServiceTier: "priority",
+        codexMaxContextLength: 240000,
         askPermission: false,
         isWorktree: false,
         taskHistoryCount: 1,
@@ -1118,6 +1128,102 @@ describe("takode spawn", () => {
     expect(parsed.sessions[0]).not.toHaveProperty("tools");
     expect(parsed.sessions[0]).not.toHaveProperty("mcpServers");
     expect(parsed.sessions[0]).not.toHaveProperty("keywords");
+  });
+
+  it("passes explicit Claude reasoning and max context spawn options through", async () => {
+    const createBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-claude-flags", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/leader-claude-flags") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-claude-flags", permissionMode: "plan", backendType: "claude" }));
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/create") {
+        createBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-claude-flags" }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/worker-claude-flags/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "worker-claude-flags",
+            sessionNum: 42,
+            state: "running",
+            backendType: "claude",
+            model: "claude-sonnet-4-5-20250929",
+            cwd: "/tmp/claude-worker",
+            createdAt: Date.now(),
+            cliConnected: true,
+            isGenerating: false,
+            claudeReasoningEffort: "max",
+            claudeMaxContextLength: 1000000,
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(
+      [
+        "spawn",
+        "--port",
+        String(port),
+        "--backend",
+        "claude",
+        "--model",
+        "claude-sonnet-4-5-20250929",
+        "--reasoning-effort",
+        "max",
+        "--max-context",
+        "1000000",
+        "--json",
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-claude-flags",
+        COMPANION_AUTH_TOKEN: "auth-claude-flags",
+      },
+    );
+
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(createBodies).toEqual([
+      {
+        backend: "claude",
+        cwd: process.cwd(),
+        useWorktree: true,
+        createdBy: "leader-claude-flags",
+        model: "claude-sonnet-4-5-20250929",
+        claudeReasoningEffort: "max",
+        claudeMaxContextLength: 1000000,
+      },
+    ]);
+
+    const parsed = JSON.parse(result.stdout) as { sessions: JsonObject[] };
+    expect(parsed.sessions[0]).toMatchObject({
+      backendType: "claude",
+      claudeReasoningEffort: "max",
+      claudeMaxContextLength: 1000000,
+    });
   });
 
   it("reveals opt-in spawn session fields in JSON", async () => {

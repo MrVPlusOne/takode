@@ -613,6 +613,20 @@ describe("launch", () => {
     expect(cmdAndArgs[modelIdx + 1]).toBe("claude-opus-4-20250514");
   });
 
+  it("passes Claude reasoning effort and 1M context beta when provided", async () => {
+    await launcher.launch({
+      cwd: "/tmp",
+      claudeReasoningEffort: "max",
+      claudeMaxContextLength: 1_000_000,
+    });
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    expect(cmdAndArgs).toContain("--effort");
+    expect(cmdAndArgs[cmdAndArgs.indexOf("--effort") + 1]).toBe("max");
+    expect(cmdAndArgs).toContain("--betas");
+    expect(cmdAndArgs[cmdAndArgs.indexOf("--betas") + 1]).toBe("context-1m-2025-08-07");
+  });
+
   it("passes --permission-mode when provided", async () => {
     await launcher.launch({ permissionMode: "bypassPermissions", cwd: "/tmp" });
 
@@ -931,6 +945,22 @@ describe("launch", () => {
     expect(cmdAndArgs).toContain("app-server");
     expect(cmdAndArgs).toContain("-c");
     expect(cmdAndArgs).toContain("model_reasoning_effort=high");
+  });
+
+  it("passes explicit Codex max context via config flag when provided", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexMaxContextLength: 240_000,
+      codexSandbox: "workspace-write",
+    });
+    await waitForSpawnCalls(1);
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    expect(codexConfigArgValue(cmdAndArgs, "model_context_window")).toBe("240000");
   });
 
   it("logs session stderr with the human session number when available", async () => {

@@ -14,6 +14,7 @@ import {
   _flushForTest,
   _getSecretsPathForTest,
 } from "./settings-manager.js";
+import { DEFAULT_SESSION_DEFAULTS } from "../shared/session-defaults.js";
 
 let tempDir: string;
 let settingsPath: string;
@@ -75,6 +76,7 @@ describe("settings-manager", () => {
       chatMessageLineHeight: 1.45,
       leaderProfilePools: { tako: true, shmi: true },
       shortcutSettings: undefined,
+      sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       updatedAt: expect.any(Number),
       codexLeaderRecycleThresholdTokensByModel: {},
     });
@@ -124,6 +126,47 @@ describe("settings-manager", () => {
 
     _resetForTest(settingsPath);
     expect(getSettings().leaderProfilePools).toEqual({ tako: false, shmi: true });
+  });
+
+  it("normalizes and persists centralized session defaults", async () => {
+    const updated = updateSettings({
+      sessionDefaults: {
+        codex: {
+          model: "gpt-5.4",
+          serviceTier: "priority",
+          reasoningEffort: "high",
+          internetAccess: true,
+          maxContextLength: 250_000,
+        },
+        claude: {
+          model: "claude-sonnet-4-5-20250929",
+          permissionMode: "acceptEdits",
+          reasoningEffort: "max",
+          maxContextLength: 1_000_000,
+        },
+      },
+    });
+
+    expect(updated.sessionDefaults).toEqual({
+      codex: {
+        model: "gpt-5.4",
+        serviceTier: "priority",
+        reasoningEffort: "high",
+        internetAccess: true,
+        maxContextLength: 250_000,
+      },
+      claude: {
+        model: "claude-sonnet-4-5-20250929",
+        permissionMode: "acceptEdits",
+        reasoningEffort: "max",
+        maxContextLength: 1_000_000,
+      },
+    });
+
+    await _flushForTest();
+    const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    expect(saved.sessionDefaults.codex.serviceTier).toBe("priority");
+    expect(saved.sessionDefaults.claude.maxContextLength).toBe(1_000_000);
   });
 
   it("stores OpenAI API keys in a separate secrets file", async () => {
@@ -487,6 +530,7 @@ describe("settings-manager", () => {
       chatMessageLineHeight: 1.45,
       leaderProfilePools: { tako: true, shmi: true },
       shortcutSettings: undefined,
+      sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       updatedAt: 0,
       codexLeaderRecycleThresholdTokensByModel: {},
     });

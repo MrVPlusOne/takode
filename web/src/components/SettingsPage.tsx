@@ -19,6 +19,7 @@ import { CollapsibleSection, isCollapsibleSectionCollapsed } from "./Collapsible
 import { SettingsAutoApprovalSection } from "./SettingsAutoApprovalSection.js";
 import { SettingsLeaderProfilesSection } from "./SettingsLeaderProfilesSection.js";
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
+import { SettingsSessionDefaultsSection } from "./SettingsSessionDefaultsSection.js";
 import { SettingsShortcutSection } from "./SettingsShortcutSection.js";
 import {
   BUILT_IN_STT_MODELS,
@@ -31,6 +32,11 @@ import {
   DEFAULT_CHAT_MESSAGE_LINE_HEIGHT,
   normalizeChatMessageLineHeight,
 } from "../../shared/chat-display-settings.js";
+import {
+  DEFAULT_SESSION_DEFAULTS,
+  normalizeSessionDefaults,
+  type SessionDefaultsSettings,
+} from "../../shared/session-defaults.js";
 import type { LeaderProfilePoolSettings } from "../../shared/leader-profile-portraits.js";
 import { SettingsPageHeader } from "./SettingsPageHeader.js";
 import { SettingsSearchControls, SettingsSectionNav, useSettingsSearchNavigation } from "./settings-search.js";
@@ -117,6 +123,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [claudeTesting, setClaudeTesting] = useState(false);
   const [codexTesting, setCodexTesting] = useState(false);
   const [editorChoice, setEditorChoice] = useState<EditorKind>("none");
+  const [sessionDefaults, setSessionDefaults] = useState<SessionDefaultsSettings>(DEFAULT_SESSION_DEFAULTS);
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState("");
   const binDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -269,6 +276,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         setPoBaseUrl(s.pushoverBaseUrl || "");
         setRestartSupported(s.restartSupported);
         setServerSlug(s.serverSlug || "");
+        setSessionDefaults(normalizeSessionDefaults(s.sessionDefaults));
         setAaEnabled(s.autoApprovalEnabled);
         setAaModel(s.autoApprovalModel ?? "");
         setAaMaxConcurrency(s.autoApprovalMaxConcurrency ?? 4);
@@ -1055,6 +1063,12 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               onCollapsedChange={setSessionsCollapsed}
               {...settingsSearch.sectionSearch("sessions")}
             >
+              <SettingsSessionDefaultsSection
+                isActive={isActive}
+                sessionDefaults={sessionDefaults}
+                onSaved={setSessionDefaults}
+              />
+
               {/* Session Lifecycle — auto-saves on change */}
               <div className="space-y-3">
                 <div>
