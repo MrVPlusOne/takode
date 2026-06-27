@@ -554,6 +554,88 @@ describe("NewSessionModal", () => {
     expect(createOpts.codexReasoningEffort).toBeUndefined();
   });
 
+  it("uses saved Claude permission settings defaults without sending stale local defaults", async () => {
+    const user = userEvent.setup();
+    mockGetGlobalNewSessionDefaults.mockReturnValue({
+      backend: "claude",
+      model: "",
+      mode: "acceptEdits",
+      askPermission: true,
+      sessionRole: "worker",
+      envSlug: "",
+      cwd: "",
+      useWorktree: true,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+      codexPermissionMode: "default",
+    });
+    mockApi.getSettings.mockResolvedValue({
+      sessionDefaults: {
+        ...DEFAULT_SESSION_DEFAULTS,
+        claude: {
+          ...DEFAULT_SESSION_DEFAULTS.claude,
+          permissionMode: "bypassPermissions",
+        },
+      },
+    });
+
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    expect(await screen.findByRole("button", { name: "Full access" })).toBeInTheDocument();
+
+    await user.click(await screen.findByRole("button", { name: "Create Session" }));
+
+    await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalled());
+    const createOpts = latestQueuedCreateOpts();
+    expect(createOpts.permissionMode).toBeUndefined();
+    expect(createOpts.askPermission).toBeUndefined();
+  });
+
+  it("preserves an explicit Claude permission override across backend switches", async () => {
+    const user = userEvent.setup();
+    mockGetGlobalNewSessionDefaults.mockReturnValue({
+      backend: "claude",
+      model: "",
+      mode: "acceptEdits",
+      askPermission: true,
+      sessionRole: "worker",
+      envSlug: "",
+      cwd: "",
+      useWorktree: true,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+      codexPermissionMode: "default",
+    });
+    mockApi.getSettings.mockResolvedValue({
+      sessionDefaults: {
+        ...DEFAULT_SESSION_DEFAULTS,
+        claude: {
+          ...DEFAULT_SESSION_DEFAULTS.claude,
+          permissionMode: "bypassPermissions",
+        },
+      },
+    });
+
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    await user.click(await screen.findByRole("button", { name: "Full access" }));
+    await user.click(await screen.findByText("Plan"));
+    await user.click(await screen.findByRole("button", { name: "Codex" }));
+    await user.click(await screen.findByRole("button", { name: "Claude Code" }));
+
+    expect(await screen.findByRole("button", { name: "Plan" })).toBeInTheDocument();
+
+    await user.click(await screen.findByRole("button", { name: "Create Session" }));
+
+    await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalled());
+    expect(latestQueuedCreateOpts()).toEqual(
+      expect.objectContaining({
+        permissionMode: "plan",
+        askPermission: true,
+      }),
+    );
+  });
+
   it("keeps explicit Codex UI choices ahead of saved settings defaults", async () => {
     const user = userEvent.setup();
     mockGetGlobalNewSessionDefaults.mockReturnValue({

@@ -140,6 +140,7 @@ export function NewSessionModal({
     codexInternetAccess: false,
     codexReasoningEffort: false,
   });
+  const claudePermissionModeOverrideRef = useRef<string | null>(null);
   const [askPermission, setAskPermission] = useState(() => defaults.askPermission);
 
   // Resume mode state
@@ -218,6 +219,7 @@ export function NewSessionModal({
       codexInternetAccess: false,
       codexReasoningEffort: false,
     };
+    claudePermissionModeOverrideRef.current = null;
   }
 
   function backendDefaultKey(targetBackend: BackendType): "claude" | "codex" {
@@ -355,6 +357,7 @@ export function NewSessionModal({
   function updateMode(value: string, opts?: { userEdit?: boolean }) {
     if (opts?.userEdit) {
       defaultFieldEditedRef.current.claudePermissionMode = true;
+      claudePermissionModeOverrideRef.current = value;
     }
     setMode(value);
     persistGlobalDefault("cc-mode", value);
@@ -375,8 +378,12 @@ export function NewSessionModal({
       }
     }
 
-    if (newBackend !== "codex" && defaultFieldEditedRef.current.claudePermissionMode) {
-      updateMode(getDefaultMode(newBackend));
+    if (newBackend === "codex") {
+      setMode(getDefaultMode("codex"));
+    } else if (defaultFieldEditedRef.current.claudePermissionMode) {
+      const editedClaudeMode = claudePermissionModeOverrideRef.current || getDefaultMode(newBackend);
+      setMode(editedClaudeMode);
+      setAskPermission(deriveAskPermissionForMode("claude", editedClaudeMode));
     }
     applySettingsDefaultsForBackend(newBackend, settingsDefaults);
   }
