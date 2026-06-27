@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from "react";
+import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import { normalizeForSearch } from "../../shared/search-utils.js";
 import { escapeSelectorValue } from "./message-feed-utils.js";
@@ -47,10 +57,12 @@ export function UserMessageNavigator({
   onSelectTarget,
 }: UserMessageNavigatorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const selectorDialogRef = useRef<HTMLDivElement>(null);
   const selectorListRef = useRef<HTMLDivElement>(null);
   const lastCenteredOpenTokenRef = useRef<number | null>(null);
   const [open, setOpen] = useState(defaultOpen);
   const [selectorOpenToken, setSelectorOpenToken] = useState(0);
+  const [mobileSelectorStyle, setMobileSelectorStyle] = useState<CSSProperties | undefined>();
   const [query, setQuery] = useState("");
   const [activeTargetKey, setActiveTargetKey] = useState<string | null>(null);
   const [searchState, setSearchState] = useState<SearchState>({ status: "idle", ids: [] });
@@ -128,6 +140,7 @@ export function UserMessageNavigator({
     if (!open) return;
     const handlePointerDown = (event: PointerEvent) => {
       if (rootRef.current?.contains(event.target as Node)) return;
+      if (selectorDialogRef.current?.contains(event.target as Node)) return;
       setOpen(false);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -140,6 +153,31 @@ export function UserMessageNavigator({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [open]);
+
+  const updateMobileSelectorStyle = useCallback(() => {
+    if (!isTouch || !open || typeof window === "undefined") return;
+    const rect = rootRef.current?.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    if (!rect || (rect.top === 0 && rect.right === 0 && rect.width === 0 && rect.height === 0)) {
+      setMobileSelectorStyle({ right: 16, bottom: 96 });
+      return;
+    }
+    setMobileSelectorStyle({
+      right: Math.max(16, viewportWidth - rect.right),
+      bottom: Math.max(16, viewportHeight - rect.top + 8),
+    });
+  }, [isTouch, open]);
+
+  useLayoutEffect(() => {
+    updateMobileSelectorStyle();
+  }, [updateMobileSelectorStyle, selectorOpenToken]);
+
+  useEffect(() => {
+    if (!isTouch || !open) return;
+    window.addEventListener("resize", updateMobileSelectorStyle);
+    return () => window.removeEventListener("resize", updateMobileSelectorStyle);
+  }, [isTouch, open, updateMobileSelectorStyle]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -172,6 +210,71 @@ export function UserMessageNavigator({
     ? "h-10 min-w-16 rounded-full border border-cc-border bg-cc-card px-2.5 text-[12px] font-medium text-cc-fg shadow-lg transition-colors hover:bg-cc-hover focus:outline-none focus:ring-2 focus:ring-cc-primary/40"
     : "h-8 min-w-14 rounded-full border border-cc-border bg-cc-card px-2 text-[11px] font-medium text-cc-fg shadow-lg transition-colors hover:bg-cc-hover focus:outline-none focus:ring-2 focus:ring-cc-primary/40";
   const hasTargets = uniqueTargets.length > 0;
+  const selectorClassName = isTouch
+    ? "fixed z-50 flex max-h-[min(420px,calc(100dvh-2rem))] w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-cc-border bg-cc-card text-cc-fg shadow-[0_25px_60px_rgba(0,0,0,0.5)]"
+    : "absolute bottom-[calc(100%+0.5rem)] right-0 z-20 flex max-h-[min(420px,calc(100vh-12rem))] w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-cc-border bg-cc-card shadow-xl sm:bottom-0 sm:right-[calc(100%+0.5rem)] sm:w-[360px]";
+  const selectorDialog =
+    hasTargets && open ? (
+      <div
+        ref={selectorDialogRef}
+        role="dialog"
+        aria-label="User message selector"
+        className={selectorClassName}
+        style={isTouch ? mobileSelectorStyle : undefined}
+      >
+        <div className="border-b border-cc-border p-2">
+          <label className="sr-only" htmlFor={`user-message-navigator-search-${sessionId}`}>
+            Search user messages
+          </label>
+          <input
+            id={`user-message-navigator-search-${sessionId}`}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search user messages..."
+            className="h-8 w-full rounded-md border border-cc-border bg-cc-bg px-2 text-xs text-cc-fg outline-none transition-colors placeholder:text-cc-muted focus:border-cc-primary/60"
+          />
+        </div>
+        <div ref={selectorListRef} className="min-h-0 overflow-y-auto p-1.5">
+          {searchState.status === "loading" && trimmedQuery && (
+            <div className="px-2 py-1.5 text-[11px] text-cc-muted">Searching...</div>
+          )}
+          {displayedTargets.length === 0 ? (
+            <div className="px-2 py-3 text-xs text-cc-muted">No matching user messages.</div>
+          ) : (
+            <div className="space-y-1">
+              {displayedTargets.map((target) => {
+                const position = uniqueTargets.findIndex((candidate) => candidate.messageId === target.messageId) + 1;
+                const selected = target.key === resolvedActiveTargetKey;
+                return (
+                  <button
+                    key={target.key}
+                    data-user-message-target-key={target.key}
+                    type="button"
+                    onClick={() => {
+                      onSelectTarget(target);
+                      setActiveTargetKey(target.key);
+                      setOpen(false);
+                    }}
+                    className={`flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors ${
+                      selected ? "bg-cc-primary/15 text-cc-fg" : "text-cc-fg/90 hover:bg-cc-hover focus:bg-cc-hover"
+                    } focus:outline-none focus:ring-2 focus:ring-cc-primary/35`}
+                    aria-current={selected ? "location" : undefined}
+                  >
+                    <span className="mt-0.5 w-7 shrink-0 text-[10px] tabular-nums text-cc-muted">{position || 1}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="line-clamp-2 break-words">{previewText(target.content)}</span>
+                      <span className="mt-0.5 block text-[10px] text-cc-muted">
+                        {formatNavigatorTime(target.timestamp)}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    ) : null;
 
   return (
     <div ref={rootRef} className="relative flex flex-col items-center gap-1.5">
@@ -215,67 +318,9 @@ export function UserMessageNavigator({
           <path d="M8 3v10" strokeLinecap="round" />
         </svg>
       </button>
-      {hasTargets && open && (
-        <div
-          role="dialog"
-          aria-label="User message selector"
-          className="absolute bottom-[calc(100%+0.5rem)] right-0 z-20 flex max-h-[min(420px,calc(100vh-12rem))] w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-cc-border bg-cc-card shadow-xl sm:bottom-0 sm:right-[calc(100%+0.5rem)] sm:w-[360px]"
-        >
-          <div className="border-b border-cc-border p-2">
-            <label className="sr-only" htmlFor={`user-message-navigator-search-${sessionId}`}>
-              Search user messages
-            </label>
-            <input
-              id={`user-message-navigator-search-${sessionId}`}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search user messages..."
-              className="h-8 w-full rounded-md border border-cc-border bg-cc-bg px-2 text-xs text-cc-fg outline-none transition-colors placeholder:text-cc-muted focus:border-cc-primary/60"
-            />
-          </div>
-          <div ref={selectorListRef} className="min-h-0 overflow-y-auto p-1.5">
-            {searchState.status === "loading" && trimmedQuery && (
-              <div className="px-2 py-1.5 text-[11px] text-cc-muted">Searching...</div>
-            )}
-            {displayedTargets.length === 0 ? (
-              <div className="px-2 py-3 text-xs text-cc-muted">No matching user messages.</div>
-            ) : (
-              <div className="space-y-1">
-                {displayedTargets.map((target) => {
-                  const position = uniqueTargets.findIndex((candidate) => candidate.messageId === target.messageId) + 1;
-                  const selected = target.key === resolvedActiveTargetKey;
-                  return (
-                    <button
-                      key={target.key}
-                      data-user-message-target-key={target.key}
-                      type="button"
-                      onClick={() => {
-                        onSelectTarget(target);
-                        setActiveTargetKey(target.key);
-                        setOpen(false);
-                      }}
-                      className={`flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors ${
-                        selected ? "bg-cc-primary/15 text-cc-fg" : "text-cc-fg/90 hover:bg-cc-hover focus:bg-cc-hover"
-                      } focus:outline-none focus:ring-2 focus:ring-cc-primary/35`}
-                      aria-current={selected ? "location" : undefined}
-                    >
-                      <span className="mt-0.5 w-7 shrink-0 text-[10px] tabular-nums text-cc-muted">
-                        {position || 1}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="line-clamp-2 break-words">{previewText(target.content)}</span>
-                        <span className="mt-0.5 block text-[10px] text-cc-muted">
-                          {formatNavigatorTime(target.timestamp)}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {isTouch && selectorDialog && typeof document !== "undefined"
+        ? createPortal(selectorDialog, document.body)
+        : selectorDialog}
     </div>
   );
 }

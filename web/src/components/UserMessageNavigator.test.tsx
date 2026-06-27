@@ -75,6 +75,7 @@ function renderNavigator(
     defaultOpen: boolean;
     useServerSearch: boolean;
     isLeaderSession: boolean;
+    isTouch: boolean;
   }> = {},
 ) {
   const onPrevious = vi.fn();
@@ -99,7 +100,7 @@ function renderNavigator(
           currentThreadKey="q-12"
           isLeaderSession={props.isLeaderSession ?? true}
           useServerSearch={props.useServerSearch ?? false}
-          isTouch={false}
+          isTouch={props.isTouch ?? false}
           containerRef={containerRef}
           contentRootRef={contentRootRef}
           targets={targets}
@@ -191,5 +192,31 @@ describe("UserMessageNavigator", () => {
     );
     expect(await within(dialog).findByText(/Find the approval question/)).toBeTruthy();
     expect(within(dialog).queryByText(/mobile layout/)).toBeNull();
+  });
+
+  it("renders the touch selector as a solid fixed layer outside auto-hiding nav opacity", () => {
+    renderNavigator({ defaultOpen: true, isTouch: true });
+
+    const dialog = screen.getByRole("dialog", { name: "User message selector" });
+    const className = dialog.getAttribute("class") ?? "";
+
+    expect(dialog.parentElement).toBe(document.body);
+    expect(className).toContain("fixed");
+    expect(className).toContain("z-50");
+    expect(className).toContain("bg-cc-card");
+    expect(className).not.toContain("bg-cc-card/");
+  });
+
+  it("keeps the touch selector open for interaction until an explicit outside dismissal", () => {
+    renderNavigator({ defaultOpen: true, isTouch: true });
+    const dialog = screen.getByRole("dialog", { name: "User message selector" });
+
+    fireEvent.pointerDown(within(dialog).getByLabelText("Search user messages"));
+
+    expect(screen.getByRole("dialog", { name: "User message selector" })).toBeTruthy();
+
+    fireEvent.pointerDown(document.body);
+
+    expect(screen.queryByRole("dialog", { name: "User message selector" })).toBeNull();
   });
 });
