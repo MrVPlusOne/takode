@@ -24,6 +24,8 @@ export interface SessionViewModel {
   totalCostUsd?: number;
   contextUsedPercent?: number;
   modelContextWindow?: number;
+  codexMaxContextLength?: number;
+  claudeMaxContextLength?: number;
   codexLeaderRecycleThresholdTokens?: number;
   contextTokensUsed?: number;
   messageHistoryBytes?: number;
@@ -105,7 +107,15 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
     userTurnCount: session.userTurnCount,
     agentTurnCount: session.agentTurnCount,
     numTurns: session.userTurnCount ?? session.numTurns,
-    modelContextWindow: session.codexTokenDetails?.modelContextWindow ?? session.claudeTokenDetails?.modelContextWindow,
+    modelContextWindow: resolveEffectiveModelContextWindow({
+      backendType: session.backendType,
+      codexMaxContextLength: session.codexMaxContextLength,
+      claudeMaxContextLength: session.claudeMaxContextLength,
+      codexTokenDetailsModelContextWindow: session.codexTokenDetails?.modelContextWindow,
+      claudeTokenDetailsModelContextWindow: session.claudeTokenDetails?.modelContextWindow,
+    }),
+    codexMaxContextLength: session.codexMaxContextLength,
+    claudeMaxContextLength: session.claudeMaxContextLength,
     codexLeaderRecycleThresholdTokens: session.codexLeaderRecycleThresholdTokens,
     contextTokensUsed: session.codexTokenDetails?.contextTokensUsed,
     messageHistoryBytes: session.messageHistoryBytes,
@@ -156,12 +166,43 @@ export function coalesceSessionViewModel(
   const userTurnCount = preferHistoryCount(primaryVm?.userTurnCount, fallbackVm?.userTurnCount);
   const agentTurnCount = preferHistoryCount(primaryVm?.agentTurnCount, fallbackVm?.agentTurnCount);
   const numTurns = userTurnCount ?? preferHistoryCount(primaryVm?.numTurns, fallbackVm?.numTurns);
+  const codexMaxContextLength = primaryVm?.codexMaxContextLength ?? fallbackVm?.codexMaxContextLength;
+  const claudeMaxContextLength = primaryVm?.claudeMaxContextLength ?? fallbackVm?.claudeMaxContextLength;
 
   return {
     ...(merged as SessionViewModel),
     userTurnCount,
     agentTurnCount,
     numTurns,
+    codexMaxContextLength,
+    claudeMaxContextLength,
+    modelContextWindow:
+      codexMaxContextLength ??
+      claudeMaxContextLength ??
+      primaryVm?.modelContextWindow ??
+      fallbackVm?.modelContextWindow,
     sessionId: primaryVm?.sessionId || fallbackVm?.sessionId || "",
   };
+}
+
+export function resolveEffectiveModelContextWindow({
+  backendType,
+  codexMaxContextLength,
+  claudeMaxContextLength,
+  codexTokenDetailsModelContextWindow,
+  claudeTokenDetailsModelContextWindow,
+}: {
+  backendType?: BackendType;
+  codexMaxContextLength?: number;
+  claudeMaxContextLength?: number;
+  codexTokenDetailsModelContextWindow?: number;
+  claudeTokenDetailsModelContextWindow?: number;
+}): number | undefined {
+  if (backendType === "codex" && isPositiveFinite(codexMaxContextLength)) return codexMaxContextLength;
+  if (backendType !== "codex" && isPositiveFinite(claudeMaxContextLength)) return claudeMaxContextLength;
+  return codexTokenDetailsModelContextWindow ?? claudeTokenDetailsModelContextWindow;
+}
+
+function isPositiveFinite(value: number | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }

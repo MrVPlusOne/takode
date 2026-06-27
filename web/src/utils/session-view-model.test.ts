@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { SessionState, SdkSessionInfo } from "../types.js";
-import { coalesceSessionViewModel, toSessionViewModel } from "./session-view-model.js";
+import {
+  coalesceSessionViewModel,
+  resolveEffectiveModelContextWindow,
+  toSessionViewModel,
+} from "./session-view-model.js";
 
 const codexTokenDetails = {
   inputTokens: 0,
@@ -86,6 +90,23 @@ describe("toSessionViewModel", () => {
     expect(vm.sessionNum).toBe(9);
     expect(vm.claimedQuestStatus).toBe("done");
     expect(vm.claimedQuestVerificationInboxUnread).toBe(true);
+  });
+
+  it("uses configured Codex max context as the effective model context window", () => {
+    const sdk = {
+      sessionId: "s31",
+      state: "connected",
+      cwd: "/work",
+      createdAt: 1,
+      backendType: "codex",
+      codexMaxContextLength: 600_000,
+      codexTokenDetails,
+    } as SdkSessionInfo;
+
+    const vm = toSessionViewModel(sdk);
+
+    expect(vm.modelContextWindow).toBe(600_000);
+    expect(vm.codexMaxContextLength).toBe(600_000);
   });
 });
 
@@ -179,5 +200,66 @@ describe("coalesceSessionViewModel", () => {
     expect(vm?.numTurns).toBe(12);
     expect(vm?.userTurnCount).toBe(12);
     expect(vm?.agentTurnCount).toBe(9);
+  });
+
+  it("keeps configured max context effective when live token details report the catalog default", () => {
+    const primary = {
+      session_id: "s31",
+      backend_type: "codex",
+      model: "gpt-5.5",
+      cwd: "/repo",
+      tools: [],
+      permissionMode: "codex-full-access",
+      claude_code_version: "1.0.0",
+      mcp_servers: [],
+      agents: [],
+      slash_commands: [],
+      skills: [],
+      total_cost_usd: 0,
+      num_turns: 1,
+      context_used_percent: 7,
+      codex_token_details: codexTokenDetails,
+      is_compacting: false,
+      git_branch: "",
+      is_worktree: false,
+      is_containerized: false,
+      repo_root: "/repo",
+      git_ahead: 0,
+      git_behind: 0,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+    } as SessionState;
+    const fallback = {
+      sessionId: "s31",
+      backendType: "codex",
+      codexMaxContextLength: 600_000,
+      codexTokenDetails,
+    } as SdkSessionInfo;
+
+    const vm = coalesceSessionViewModel(primary, fallback);
+
+    expect(vm?.modelContextWindow).toBe(600_000);
+    expect(vm?.codexMaxContextLength).toBe(600_000);
+  });
+});
+
+describe("resolveEffectiveModelContextWindow", () => {
+  it("uses backend token details when no max context override is configured", () => {
+    expect(
+      resolveEffectiveModelContextWindow({
+        backendType: "codex",
+        codexTokenDetailsModelContextWindow: 258_400,
+      }),
+    ).toBe(258_400);
+  });
+
+  it("keeps configured Claude max context ahead of default token metadata", () => {
+    expect(
+      resolveEffectiveModelContextWindow({
+        backendType: "claude-sdk",
+        claudeMaxContextLength: 1_000_000,
+        claudeTokenDetailsModelContextWindow: 200_000,
+      }),
+    ).toBe(1_000_000);
   });
 });

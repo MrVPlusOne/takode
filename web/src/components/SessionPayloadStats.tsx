@@ -27,6 +27,7 @@ interface SessionPayloadStatsProps {
   turns: number;
   contextPercent: number;
   contextWindow: number;
+  contextWindowTitle?: string;
   historyBytes: number;
   codexRetainedPayloadBytes: number;
   isCodexSession: boolean;
@@ -39,6 +40,7 @@ export function SessionPayloadStats({
   turns,
   contextPercent,
   contextWindow,
+  contextWindowTitle,
   historyBytes,
   codexRetainedPayloadBytes,
   isCodexSession,
@@ -66,6 +68,7 @@ export function SessionPayloadStats({
     items.push({
       key: "context-window",
       text: formatContextWindowLabel(contextWindow),
+      title: contextWindowTitle,
     });
   }
 

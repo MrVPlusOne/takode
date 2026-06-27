@@ -19,9 +19,11 @@ interface MockStoreState {
       message_history_bytes?: number;
       codex_retained_payload_bytes?: number;
       codex_token_details?: { modelContextWindow?: number; contextTokensUsed?: number };
+      codexMaxContextLength?: number;
       codex_reasoning_effort?: string;
       codex_leader_recycle_threshold_tokens?: number;
       claude_token_details?: { modelContextWindow?: number };
+      claudeMaxContextLength?: number;
       isOrchestrator?: boolean;
       lifecycle_events?: Array<{
         type: "compaction";
@@ -49,8 +51,10 @@ interface MockStoreState {
     backendType?: "claude" | "codex" | "claude-sdk";
     contextUsedPercent?: number;
     codexTokenDetails?: { modelContextWindow?: number; contextTokensUsed?: number };
+    codexMaxContextLength?: number;
     codexLeaderRecycleThresholdTokens?: number;
     claudeTokenDetails?: { modelContextWindow?: number };
+    claudeMaxContextLength?: number;
     sessionLifecycleEvents?: Array<{
       type: "compaction";
       id: string;
@@ -716,6 +720,30 @@ describe("SessionInfoPopover", () => {
 
     expect(screen.getByText("73% context")).toBeInTheDocument();
     expect(screen.getByText("258 K tokens")).toBeInTheDocument();
+  });
+
+  it("uses configured Codex max context for session info after restore", () => {
+    resetStore([]);
+    storeState.sessions = new Map();
+    storeState.sdkSessions = [
+      {
+        sessionId: "s31",
+        cwd: "/repo",
+        backendType: "codex",
+        contextUsedPercent: 7,
+        codexMaxContextLength: 600_000,
+        codexTokenDetails: { modelContextWindow: 258_400 },
+      },
+    ];
+
+    render(<SessionInfoPopover sessionId="s31" onClose={() => {}} />);
+
+    expect(screen.getByText("7% context")).toBeInTheDocument();
+    expect(screen.getByText("600 K tokens")).toHaveAttribute(
+      "title",
+      "Configured max context window. Backend token metadata currently reports 258 K tokens.",
+    );
+    expect(screen.queryByText("258 K tokens")).toBeNull();
   });
 
   it("uses sdk session recycle threshold metadata for restored Codex leaders", () => {

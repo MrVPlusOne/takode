@@ -22,6 +22,8 @@ import {
 } from "../../shared/quest-journey.js";
 import { orderLeaderActivePhaseRows } from "../../shared/leader-active-phase-summary.js";
 import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
+import { resolveEffectiveModelContextWindow } from "../utils/session-view-model.js";
+import { formatContextWindowLabel } from "../utils/token-format.js";
 
 interface SessionHoverCardProps {
   session: SessionItemType;
@@ -180,12 +182,29 @@ export function SessionHoverCard({
     sdkSessionMeta?.userTurnCount ?? sdkSessionMeta?.numTurns,
   );
   const contextPercent = sessionState?.context_used_percent ?? sdkSessionMeta?.contextUsedPercent ?? 0;
+  const configuredMaxContextLength =
+    backendType === "codex" ? sdkSessionMeta?.codexMaxContextLength : sdkSessionMeta?.claudeMaxContextLength;
+  const backendReportedContextWindow =
+    backendType === "codex"
+      ? (sessionState?.codex_token_details?.modelContextWindow ?? sdkSessionMeta?.codexTokenDetails?.modelContextWindow)
+      : (sessionState?.claude_token_details?.modelContextWindow ??
+        sdkSessionMeta?.claudeTokenDetails?.modelContextWindow);
   const contextWindow =
-    sessionState?.codex_token_details?.modelContextWindow ??
-    sessionState?.claude_token_details?.modelContextWindow ??
-    sdkSessionMeta?.codexTokenDetails?.modelContextWindow ??
-    sdkSessionMeta?.claudeTokenDetails?.modelContextWindow ??
-    0;
+    resolveEffectiveModelContextWindow({
+      backendType,
+      codexMaxContextLength: backendType === "codex" ? configuredMaxContextLength : undefined,
+      claudeMaxContextLength: backendType !== "codex" ? configuredMaxContextLength : undefined,
+      codexTokenDetailsModelContextWindow: backendType === "codex" ? backendReportedContextWindow : undefined,
+      claudeTokenDetailsModelContextWindow: backendType !== "codex" ? backendReportedContextWindow : undefined,
+    }) ?? 0;
+  const contextWindowTitle =
+    configuredMaxContextLength &&
+    backendReportedContextWindow &&
+    backendReportedContextWindow < configuredMaxContextLength
+      ? `Configured max context window. Backend token metadata currently reports ${formatContextWindowLabel(backendReportedContextWindow)}.`
+      : configuredMaxContextLength
+        ? "Configured max context window."
+        : undefined;
   const isCodexSession = effectiveBackendType === "codex";
   const messageHistoryBytes = sessionState?.message_history_bytes ?? sdkSessionMeta?.messageHistoryBytes ?? 0;
   const codexRetainedPayloadBytes =
@@ -481,6 +500,7 @@ export function SessionHoverCard({
               turns={turns}
               contextPercent={contextPercent}
               contextWindow={contextWindow}
+              contextWindowTitle={contextWindowTitle}
               historyBytes={messageHistoryBytes}
               codexRetainedPayloadBytes={codexRetainedPayloadBytes}
               isCodexSession={isCodexSession}

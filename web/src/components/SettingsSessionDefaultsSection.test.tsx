@@ -56,6 +56,12 @@ describe("SettingsSessionDefaultsSection", () => {
     expect(await screen.findByRole("heading", { name: "Session Defaults" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText("Default Codex speed")).toHaveValue("priority"));
     expect(screen.getByLabelText("Default Claude reasoning effort")).toHaveValue("max");
+    expect(screen.getByLabelText("Default Codex max context length")).toHaveAttribute("placeholder", "No override");
+    expect(screen.getByLabelText("Default Claude max context length")).toHaveAttribute("placeholder", "No override");
+    expect(screen.getByText(/Optional Codex context window in tokens/i)).toBeInTheDocument();
+    expect(screen.getByText(/Empty leaves the selected model\/backend default unchanged/i)).toBeInTheDocument();
+    expect(screen.getByText(/Optional Claude context window in tokens/i)).toBeInTheDocument();
+    expect(screen.getByText(/currently supported value: 1,000,000/i)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Default Codex reasoning effort"), { target: { value: "medium" } });
     fireEvent.click(screen.getByRole("button", { name: "Save Defaults" }));

@@ -190,9 +190,12 @@ export function SettingsSessionDefaultsSection({
                 codex: { ...current.codex, maxContextLength: parseOptionalPositiveInteger(event.target.value) },
               }))
             }
-            placeholder="Backend default"
+            placeholder="No override"
             className={inputClass}
           />
+          <p className="text-xs text-cc-muted">
+            Optional Codex context window in tokens. Empty leaves the selected model/backend default unchanged.
+          </p>
         </div>
 
         <div className="space-y-3">
@@ -261,9 +264,13 @@ export function SettingsSessionDefaultsSection({
                 claude: { ...current.claude, maxContextLength: parseOptionalPositiveInteger(event.target.value) },
               }))
             }
-            placeholder={`Empty or ${CLAUDE_1M_CONTEXT_TOKENS}`}
+            placeholder="No override"
             className={inputClass}
           />
+          <p className="text-xs text-cc-muted">
+            Optional Claude context window in tokens. Empty leaves the backend default unchanged; currently supported
+            value: {CLAUDE_1M_CONTEXT_TOKENS.toLocaleString()}.
+          </p>
         </div>
       </div>
 

@@ -17,10 +17,11 @@ import { CompactSessionLink } from "./CompactSessionLink.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
 import { SessionPayloadStats } from "./SessionPayloadStats.js";
 import { api, type EditorKind } from "../api.js";
-import type { SdkSessionInfo, SessionLifecycleEvent } from "../types.js";
+import type { SdkSessionInfo, SessionLifecycleEvent, SessionState } from "../types.js";
 import { openPathWithEditorPreference } from "../utils/vscode-bridge.js";
 import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
 import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
+import { formatContextWindowLabel } from "../utils/token-format.js";
 
 const POPOVER_MARGIN = 12;
 const POPOVER_GAP = 8;
@@ -193,6 +194,7 @@ export function SessionInfoPopover({
   const contextStats = getSessionInfoContextStats(sessionVm, effectiveSdkSession);
   const contextPercent = contextStats.contextPercent;
   const contextWindow = contextStats.contextWindow;
+  const contextWindowTitle = getContextWindowTitle(session, effectiveSdkSession, contextWindow);
   const hasStats =
     turns > 0 || contextPercent > 0 || contextWindow > 0 || historyBytes > 0 || codexRetainedPayloadBytes > 0;
   const codexLeaderRecycleLineage = effectiveSdkSession?.codexLeaderRecycleLineage;
@@ -589,6 +591,7 @@ export function SessionInfoPopover({
               turns={turns}
               contextPercent={contextPercent}
               contextWindow={contextWindow}
+              contextWindowTitle={contextWindowTitle}
               historyBytes={historyBytes}
               codexRetainedPayloadBytes={codexRetainedPayloadBytes}
               isCodexSession={isCodexSession}
@@ -703,6 +706,25 @@ function getSessionInfoContextStats(
 
 function positiveNumber(value: number | undefined): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function getContextWindowTitle(
+  session: SessionState | undefined,
+  sdkSession: SdkSessionInfo | undefined,
+  contextWindow: number,
+): string | undefined {
+  const backendType = session?.backend_type ?? sdkSession?.backendType;
+  const configuredMaxContextLength =
+    backendType === "codex" ? sdkSession?.codexMaxContextLength : sdkSession?.claudeMaxContextLength;
+  if (!configuredMaxContextLength || contextWindow !== configuredMaxContextLength) return undefined;
+  const backendReportedContextWindow =
+    backendType === "codex"
+      ? (session?.codex_token_details?.modelContextWindow ?? sdkSession?.codexTokenDetails?.modelContextWindow)
+      : (session?.claude_token_details?.modelContextWindow ?? sdkSession?.claudeTokenDetails?.modelContextWindow);
+  if (backendReportedContextWindow && backendReportedContextWindow < configuredMaxContextLength) {
+    return `Configured max context window. Backend token metadata currently reports ${formatContextWindowLabel(backendReportedContextWindow)}.`;
+  }
+  return "Configured max context window.";
 }
 
 function LifecycleEventRow({ event }: { event: SessionLifecycleEvent }) {
