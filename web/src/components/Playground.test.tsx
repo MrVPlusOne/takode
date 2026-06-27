@@ -152,6 +152,18 @@ describe("Playground", () => {
     );
   });
 
+  it("documents the mobile user-message navigator in its open touch overlay state", () => {
+    render(<Playground />);
+
+    expect(screen.getByText("Mobile touch selector with fixed solid overlay")).toBeTruthy();
+    const openTouchSelector = screen
+      .getAllByRole("dialog", { name: "User message selector" })
+      .find((dialog) => dialog.parentElement === document.body && dialog.className.includes("fixed"));
+
+    expect(openTouchSelector).toBeTruthy();
+    expect(openTouchSelector?.className).toContain("bg-cc-card");
+  });
+
   it("documents the labeled New Session modal layout", () => {
     render(<Playground />);
 

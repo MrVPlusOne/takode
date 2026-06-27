@@ -207,6 +207,45 @@ describe("UserMessageNavigator", () => {
     expect(className).not.toContain("bg-cc-card/");
   });
 
+  it("clamps the touch selector within the viewport above the bottom anchor", () => {
+    const originalInnerHeight = window.innerHeight;
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 240 });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 360 });
+
+    try {
+      renderNavigator({ isTouch: true });
+
+      const trigger = screen.getByRole("button", { name: "User message navigator, 2 of 2" });
+      const root = trigger.parentElement;
+      expect(root).toBeTruthy();
+      root!.getBoundingClientRect = vi.fn(
+        () =>
+          ({
+            top: 64,
+            right: 340,
+            bottom: 184,
+            left: 276,
+            width: 64,
+            height: 120,
+            x: 276,
+            y: 64,
+            toJSON: () => ({}),
+          }) as DOMRect,
+      );
+
+      fireEvent.click(trigger);
+
+      const dialog = screen.getByRole("dialog", { name: "User message selector" });
+      expect(dialog.style.bottom).toBe("152px");
+      expect(dialog.style.maxHeight).toBe("72px");
+      expect(dialog.style.right).toBe("20px");
+    } finally {
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalInnerHeight });
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalInnerWidth });
+    }
+  });
+
   it("keeps the touch selector open for interaction until an explicit outside dismissal", () => {
     renderNavigator({ defaultOpen: true, isTouch: true });
     const dialog = screen.getByRole("dialog", { name: "User message selector" });

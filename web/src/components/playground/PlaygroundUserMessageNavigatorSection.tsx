@@ -129,6 +129,7 @@ export function PlaygroundUserMessageNavigatorSection() {
               targets={PLAYGROUND_NAV_TARGETS}
               visibleWindowSignature="playground-user-message-navigator-mobile"
               buttonClassName={touchNavButtonClassName}
+              defaultOpen
               onPrevious={() => {}}
               onNext={() => {}}
               onSelectTarget={() => {}}

@@ -39,6 +39,10 @@ interface SearchState {
 }
 
 const SEARCH_LIMIT = 100;
+const MOBILE_SELECTOR_TOP_MARGIN_PX = 16;
+const MOBILE_SELECTOR_FALLBACK_BOTTOM_PX = 96;
+const MOBILE_SELECTOR_MIN_REACHABLE_HEIGHT_PX = 72;
+const MOBILE_SELECTOR_MAX_HEIGHT_PX = 420;
 
 export function UserMessageNavigator({
   sessionId,
@@ -159,13 +163,28 @@ export function UserMessageNavigator({
     const rect = rootRef.current?.getBoundingClientRect();
     const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
     const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    const rawBottomOffset =
+      !rect || (rect.top === 0 && rect.right === 0 && rect.width === 0 && rect.height === 0)
+        ? MOBILE_SELECTOR_FALLBACK_BOTTOM_PX
+        : viewportHeight - rect.top + 8;
+    const maxBottomOffset = Math.max(
+      MOBILE_SELECTOR_TOP_MARGIN_PX,
+      viewportHeight - MOBILE_SELECTOR_TOP_MARGIN_PX - MOBILE_SELECTOR_MIN_REACHABLE_HEIGHT_PX,
+    );
+    const bottomOffset = Math.min(Math.max(MOBILE_SELECTOR_TOP_MARGIN_PX, rawBottomOffset), maxBottomOffset);
+    const availableHeight = Math.max(0, viewportHeight - bottomOffset - MOBILE_SELECTOR_TOP_MARGIN_PX);
     if (!rect || (rect.top === 0 && rect.right === 0 && rect.width === 0 && rect.height === 0)) {
-      setMobileSelectorStyle({ right: 16, bottom: 96 });
+      setMobileSelectorStyle({
+        right: MOBILE_SELECTOR_TOP_MARGIN_PX,
+        bottom: bottomOffset,
+        maxHeight: Math.min(MOBILE_SELECTOR_MAX_HEIGHT_PX, availableHeight),
+      });
       return;
     }
     setMobileSelectorStyle({
-      right: Math.max(16, viewportWidth - rect.right),
-      bottom: Math.max(16, viewportHeight - rect.top + 8),
+      right: Math.max(MOBILE_SELECTOR_TOP_MARGIN_PX, viewportWidth - rect.right),
+      bottom: bottomOffset,
+      maxHeight: Math.min(MOBILE_SELECTOR_MAX_HEIGHT_PX, availableHeight),
     });
   }, [isTouch, open]);
 
@@ -211,7 +230,7 @@ export function UserMessageNavigator({
     : "h-8 min-w-14 rounded-full border border-cc-border bg-cc-card px-2 text-[11px] font-medium text-cc-fg shadow-lg transition-colors hover:bg-cc-hover focus:outline-none focus:ring-2 focus:ring-cc-primary/40";
   const hasTargets = uniqueTargets.length > 0;
   const selectorClassName = isTouch
-    ? "fixed z-50 flex max-h-[min(420px,calc(100dvh-2rem))] w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-cc-border bg-cc-card text-cc-fg shadow-[0_25px_60px_rgba(0,0,0,0.5)]"
+    ? "fixed z-50 flex w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-cc-border bg-cc-card text-cc-fg shadow-[0_25px_60px_rgba(0,0,0,0.5)]"
     : "absolute bottom-[calc(100%+0.5rem)] right-0 z-20 flex max-h-[min(420px,calc(100vh-12rem))] w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-cc-border bg-cc-card shadow-xl sm:bottom-0 sm:right-[calc(100%+0.5rem)] sm:w-[360px]";
   const selectorDialog =
     hasTargets && open ? (
