@@ -79,6 +79,12 @@ vi.mock("./CatIcons.js", () => ({
 import { NewSessionModal } from "./NewSessionModal.js";
 import { DEFAULT_SESSION_DEFAULTS } from "../../shared/session-defaults.js";
 
+function latestQueuedCreateOpts() {
+  const lastCall = mockQueuePendingSession.mock.calls.at(-1);
+  if (!lastCall) throw new Error("Expected a queued session");
+  return lastCall[0].createOpts as Record<string, unknown>;
+}
+
 describe("NewSessionModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -463,7 +469,142 @@ describe("NewSessionModal", () => {
     expect(await within(modal).findByText("Default (gpt-5.5)")).toBeInTheDocument();
   });
 
-  it("passes the Codex config default as the explicit model when creating from Default", async () => {
+  it("uses saved Codex settings defaults on initial open without sending stale local defaults", async () => {
+    const user = userEvent.setup();
+    mockGetGlobalNewSessionDefaults.mockReturnValue({
+      backend: "codex",
+      model: "",
+      mode: "agent",
+      askPermission: true,
+      sessionRole: "worker",
+      envSlug: "",
+      cwd: "",
+      useWorktree: true,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+      codexPermissionMode: "default",
+    });
+    mockApi.getSettings.mockResolvedValue({
+      sessionDefaults: {
+        ...DEFAULT_SESSION_DEFAULTS,
+        codex: {
+          ...DEFAULT_SESSION_DEFAULTS.codex,
+          model: "gpt-5.4",
+          internetAccess: false,
+          reasoningEffort: "low",
+        },
+      },
+    });
+
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    expect(await screen.findByRole("button", { name: /GPT-5\.4/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Low" })).toBeInTheDocument();
+
+    await user.click(await screen.findByRole("button", { name: "Create Session" }));
+
+    await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalled());
+    const createOpts = latestQueuedCreateOpts();
+    expect(createOpts.model).toBeUndefined();
+    expect(createOpts.codexInternetAccess).toBeUndefined();
+    expect(createOpts.codexReasoningEffort).toBeUndefined();
+  });
+
+  it("uses saved Codex settings defaults after switching backend instead of legacy local defaults", async () => {
+    const user = userEvent.setup();
+    mockGetGlobalNewSessionDefaults.mockReturnValue({
+      backend: "claude",
+      model: "",
+      mode: "agent",
+      askPermission: true,
+      sessionRole: "worker",
+      envSlug: "",
+      cwd: "",
+      useWorktree: true,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+      codexPermissionMode: "default",
+    });
+    mockApi.getSettings.mockResolvedValue({
+      sessionDefaults: {
+        ...DEFAULT_SESSION_DEFAULTS,
+        codex: {
+          ...DEFAULT_SESSION_DEFAULTS.codex,
+          model: "gpt-5.4",
+          internetAccess: false,
+          reasoningEffort: "low",
+        },
+      },
+    });
+
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    await waitFor(() => expect(mockApi.getSettings).toHaveBeenCalled());
+    await user.click(await screen.findByRole("button", { name: "Codex" }));
+
+    expect(await screen.findByRole("button", { name: /GPT-5\.4/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Low" })).toBeInTheDocument();
+
+    await user.click(await screen.findByRole("button", { name: "Create Session" }));
+
+    await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalled());
+    const createOpts = latestQueuedCreateOpts();
+    expect(createOpts.model).toBeUndefined();
+    expect(createOpts.codexInternetAccess).toBeUndefined();
+    expect(createOpts.codexReasoningEffort).toBeUndefined();
+  });
+
+  it("keeps explicit Codex UI choices ahead of saved settings defaults", async () => {
+    const user = userEvent.setup();
+    mockGetGlobalNewSessionDefaults.mockReturnValue({
+      backend: "codex",
+      model: "",
+      mode: "agent",
+      askPermission: true,
+      sessionRole: "worker",
+      envSlug: "",
+      cwd: "",
+      useWorktree: true,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+      codexPermissionMode: "default",
+    });
+    mockApi.getSettings.mockResolvedValue({
+      sessionDefaults: {
+        ...DEFAULT_SESSION_DEFAULTS,
+        codex: {
+          ...DEFAULT_SESSION_DEFAULTS.codex,
+          model: "gpt-5.4",
+          internetAccess: false,
+          reasoningEffort: "low",
+        },
+      },
+    });
+    mockApi.getBackendModels.mockResolvedValue([
+      { value: "gpt-5.4", label: "GPT-5.4" },
+      { value: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+    ]);
+
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    await user.click(await screen.findByRole("button", { name: /GPT-5\.4/ }));
+    await user.click(await screen.findByRole("button", { name: /GPT-5\.4 Mini/ }));
+    await user.click(screen.getByRole("button", { name: "Internet" }));
+    await user.click(screen.getByRole("button", { name: "Low" }));
+    await user.click(await screen.findByRole("button", { name: "High" }));
+    await user.click(screen.getByRole("button", { name: "Create Session" }));
+
+    await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalled());
+    expect(latestQueuedCreateOpts()).toEqual(
+      expect.objectContaining({
+        model: "gpt-5.4-mini",
+        codexInternetAccess: true,
+        codexReasoningEffort: "high",
+      }),
+    );
+  });
+
+  it("passes the Codex config default as the explicit model when the user selects Default", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     mockGetGlobalNewSessionDefaults.mockReturnValue({
@@ -481,6 +622,8 @@ describe("NewSessionModal", () => {
 
     render(<NewSessionModal open={true} onClose={onClose} />);
 
+    await user.click(await screen.findByRole("button", { name: /Default \(gpt-5\.5\)/ }));
+    await user.click((await screen.findAllByRole("button", { name: /Default \(gpt-5\.5\)/ })).at(-1)!);
     await user.click(await screen.findByRole("button", { name: "Create Session" }));
 
     await waitFor(() => {

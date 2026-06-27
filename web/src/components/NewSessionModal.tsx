@@ -134,6 +134,12 @@ export function NewSessionModal({
     () => defaults.codexPermissionMode,
   );
   const [settingsDefaults, setSettingsDefaults] = useState<AppSettings["sessionDefaults"] | null>(null);
+  const defaultFieldEditedRef = useRef({
+    model: { claude: false, codex: false },
+    claudePermissionMode: false,
+    codexInternetAccess: false,
+    codexReasoningEffort: false,
+  });
   const [askPermission, setAskPermission] = useState(() => defaults.askPermission);
 
   // Resume mode state
@@ -202,6 +208,49 @@ export function NewSessionModal({
     setCodexReasoningEffort(d.codexReasoningEffort);
     setCodexPermissionMode(normalizeCodexPermissionMode(d.codexPermissionMode));
     setSessionRole(d.sessionRole);
+    applySettingsDefaultsForBackend(d.backend, settingsDefaults);
+  }
+
+  function resetDefaultFieldEdits() {
+    defaultFieldEditedRef.current = {
+      model: { claude: false, codex: false },
+      claudePermissionMode: false,
+      codexInternetAccess: false,
+      codexReasoningEffort: false,
+    };
+  }
+
+  function backendDefaultKey(targetBackend: BackendType): "claude" | "codex" {
+    return targetBackend === "codex" ? "codex" : "claude";
+  }
+
+  function applySettingsDefaultsForBackend(
+    targetBackend: BackendType,
+    nextSettingsDefaults: AppSettings["sessionDefaults"] | null,
+  ) {
+    if (!nextSettingsDefaults) return;
+    const targetKey = backendDefaultKey(targetBackend);
+    const edits = defaultFieldEditedRef.current;
+
+    if (!edits.model[targetKey]) {
+      setModel(nextSettingsDefaults[targetKey].model);
+    }
+
+    if (targetKey === "codex") {
+      if (!edits.codexInternetAccess) {
+        setCodexInternetAccess(nextSettingsDefaults.codex.internetAccess);
+      }
+      if (!edits.codexReasoningEffort) {
+        setCodexReasoningEffort(nextSettingsDefaults.codex.reasoningEffort);
+      }
+      return;
+    }
+
+    if (!edits.claudePermissionMode) {
+      const nextMode = nextSettingsDefaults.claude.permissionMode || getDefaultMode("claude");
+      setMode(nextMode);
+      setAskPermission(deriveAskPermissionForMode("claude", nextMode));
+    }
   }
 
   function setSystemCwd(path: string) {
@@ -221,6 +270,7 @@ export function NewSessionModal({
   useEffect(() => {
     if (!open) return;
     cwdUserEditedRef.current = false;
+    resetDefaultFieldEdits();
     const d = defaultsKey ? getGroupNewSessionDefaults(defaultsKey) : getGlobalNewSessionDefaults();
     applyDefaults(d);
     setSelectedBranch("");
@@ -293,19 +343,19 @@ export function NewSessionModal({
       .getSettings()
       .then((settings) => {
         setSettingsDefaults(settings.sessionDefaults);
-        const backendDefaults = settings.sessionDefaults[backend === "codex" ? "codex" : "claude"];
-        if (backendDefaults.model) setModel(backendDefaults.model);
-        if (backend === "codex") {
-          setCodexInternetAccess(settings.sessionDefaults.codex.internetAccess);
-          setCodexReasoningEffort(settings.sessionDefaults.codex.reasoningEffort);
-        } else if (settings.sessionDefaults.claude.permissionMode) {
-          setMode(settings.sessionDefaults.claude.permissionMode);
-        }
       })
       .catch(() => {});
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function updateMode(value: string) {
+  useEffect(() => {
+    if (!open) return;
+    applySettingsDefaultsForBackend(backend, settingsDefaults);
+  }, [open, backend, settingsDefaults]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function updateMode(value: string, opts?: { userEdit?: boolean }) {
+    if (opts?.userEdit) {
+      defaultFieldEditedRef.current.claudePermissionMode = true;
+    }
     setMode(value);
     persistGlobalDefault("cc-mode", value);
   }
@@ -315,15 +365,20 @@ export function NewSessionModal({
     persistGlobalDefault("cc-backend", newBackend);
     setDynamicModels(null);
 
-    const savedModel = scopedGetItem(`cc-model-${newBackend}`);
-    const statics = getModelsForBackend(newBackend);
-    if (savedModel && (statics.some((m) => m.value === savedModel) || newBackend === "codex")) {
-      setModel(savedModel);
-    } else {
-      setModel(newBackend === "codex" ? "" : getDefaultModel(newBackend));
+    if (!settingsDefaults || defaultFieldEditedRef.current.model[backendDefaultKey(newBackend)]) {
+      const savedModel = scopedGetItem(`cc-model-${newBackend}`);
+      const statics = getModelsForBackend(newBackend);
+      if (savedModel && (statics.some((m) => m.value === savedModel) || newBackend === "codex")) {
+        setModel(savedModel);
+      } else {
+        setModel(newBackend === "codex" ? "" : getDefaultModel(newBackend));
+      }
     }
 
-    updateMode(getDefaultMode(newBackend));
+    if (newBackend !== "codex" && defaultFieldEditedRef.current.claudePermissionMode) {
+      updateMode(getDefaultMode(newBackend));
+    }
+    applySettingsDefaultsForBackend(newBackend, settingsDefaults);
   }
 
   // Fetch dynamic models from the server (LiteLLM proxy discovery).
@@ -471,6 +526,19 @@ export function NewSessionModal({
 
   const dirLabel = cwd ? cwd.split("/").pop() || cwd : "Select folder";
 
+  function resolveModelOverrideForCreate(): string | undefined {
+    const key = backendDefaultKey(backend);
+    if (!defaultFieldEditedRef.current.model[key]) return undefined;
+    if (backend === "codex" && model === "") return codexDefaultModel || "";
+    return model;
+  }
+
+  function resolvePermissionModeOverrideForCreate(): string | undefined {
+    if (backend === "codex") return resolveCodexPermissionCliMode(codexPermissionMode);
+    if (!defaultFieldEditedRef.current.claudePermissionMode) return undefined;
+    return resolveClaudePermissionCliMode(normalizeClaudePermission(mode));
+  }
+
   async function handleCreate() {
     if (sending) return;
 
@@ -501,15 +569,19 @@ export function NewSessionModal({
     const shouldUseWorktree = useWorktree;
     const branchName = shouldUseWorktree ? selectedBranch.trim() || gitRepoInfo?.currentBranch || undefined : undefined;
     const cwdSnapshot = cwd;
-    const permissionMode =
+    const permissionMode = resolvePermissionModeOverrideForCreate();
+    const effectiveAskPermission =
+      permissionMode === undefined
+        ? undefined
+        : deriveAskPermissionForMode(backend === "codex" ? "codex" : "claude", permissionMode);
+    const persistedPermissionMode =
       backend === "codex"
         ? resolveCodexPermissionCliMode(codexPermissionMode)
         : resolveClaudePermissionCliMode(normalizeClaudePermission(mode));
-    const effectiveAskPermission = deriveAskPermissionForMode(backend === "codex" ? "codex" : "claude", permissionMode);
 
     // Build creation opts (stored in pending session for retry)
     const createOpts = {
-      model: backend === "codex" && model === "" ? codexDefaultModel || undefined : model,
+      model: resolveModelOverrideForCreate(),
       permissionMode,
       cwd: cwdSnapshot || undefined,
       envSlug: selectedEnv || undefined,
@@ -517,12 +589,10 @@ export function NewSessionModal({
       createBranch: shouldUseWorktree && branchName && isNewBranch ? true : undefined,
       useWorktree: shouldUseWorktree || undefined,
       backend,
-      codexInternetAccess: backend === "codex" ? codexInternetAccess : undefined,
-      codexReasoningEffort: backend === "codex" ? codexReasoningEffort || undefined : undefined,
-      codexServiceTier: backend === "codex" ? settingsDefaults?.codex.serviceTier : undefined,
-      codexMaxContextLength: backend === "codex" ? settingsDefaults?.codex.maxContextLength || undefined : undefined,
-      claudeReasoningEffort: backend !== "codex" ? settingsDefaults?.claude.reasoningEffort || undefined : undefined,
-      claudeMaxContextLength: backend !== "codex" ? settingsDefaults?.claude.maxContextLength || undefined : undefined,
+      codexInternetAccess:
+        backend === "codex" && defaultFieldEditedRef.current.codexInternetAccess ? codexInternetAccess : undefined,
+      codexReasoningEffort:
+        backend === "codex" && defaultFieldEditedRef.current.codexReasoningEffort ? codexReasoningEffort : undefined,
       assistantMode: undefined,
       askPermission: effectiveAskPermission,
       role: sessionRole === "leader" ? ("orchestrator" as const) : undefined,
@@ -534,8 +604,10 @@ export function NewSessionModal({
       const defaultsToPersist: NewSessionDefaults = {
         backend: backend as NewSessionBackend,
         model,
-        mode: backend === "codex" ? getDefaultMode("codex") : permissionMode,
-        askPermission: effectiveAskPermission,
+        mode: backend === "codex" ? getDefaultMode("codex") : persistedPermissionMode,
+        askPermission:
+          effectiveAskPermission ??
+          deriveAskPermissionForMode(backend === "codex" ? "codex" : "claude", persistedPermissionMode),
         sessionRole,
         envSlug: selectedEnv,
         cwd: cwdSnapshot,
@@ -606,26 +678,22 @@ export function NewSessionModal({
     if (sending || !resumeSessionId) return;
     setSending(true);
     setError("");
+    const permissionMode = resolvePermissionModeOverrideForCreate();
 
     const createOpts = {
       backend,
       cwd: cwd || undefined,
       envSlug: selectedEnv || undefined,
       resumeCliSessionId: resumeSessionId,
-      permissionMode:
-        backend === "codex"
-          ? resolveCodexPermissionCliMode(codexPermissionMode)
-          : resolveClaudePermissionCliMode(normalizeClaudePermission(mode)),
-      askPermission: deriveAskPermissionForMode(
-        backend === "codex" ? "codex" : "claude",
-        backend === "codex" ? resolveCodexPermissionCliMode(codexPermissionMode) : normalizeClaudePermission(mode),
-      ),
-      codexInternetAccess: backend === "codex" ? codexInternetAccess : undefined,
-      codexReasoningEffort: backend === "codex" ? codexReasoningEffort || undefined : undefined,
-      codexServiceTier: backend === "codex" ? settingsDefaults?.codex.serviceTier : undefined,
-      codexMaxContextLength: backend === "codex" ? settingsDefaults?.codex.maxContextLength || undefined : undefined,
-      claudeReasoningEffort: backend !== "codex" ? settingsDefaults?.claude.reasoningEffort || undefined : undefined,
-      claudeMaxContextLength: backend !== "codex" ? settingsDefaults?.claude.maxContextLength || undefined : undefined,
+      permissionMode,
+      askPermission:
+        permissionMode === undefined
+          ? undefined
+          : deriveAskPermissionForMode(backend === "codex" ? "codex" : "claude", permissionMode),
+      codexInternetAccess:
+        backend === "codex" && defaultFieldEditedRef.current.codexInternetAccess ? codexInternetAccess : undefined,
+      codexReasoningEffort:
+        backend === "codex" && defaultFieldEditedRef.current.codexReasoningEffort ? codexReasoningEffort : undefined,
       treeGroupId: treeGroupId || undefined,
     };
 
@@ -998,7 +1066,7 @@ export function NewSessionModal({
                                 <button
                                   key={option.value}
                                   onClick={() => {
-                                    updateMode(option.value);
+                                    updateMode(option.value, { userEdit: true });
                                     setAskPermission(deriveAskPermissionForMode("claude", option.value));
                                     persistGlobalDefault(
                                       "cc-ask-permission",
@@ -1031,6 +1099,7 @@ export function NewSessionModal({
                         <button
                           onClick={() => {
                             const next = !codexInternetAccess;
+                            defaultFieldEditedRef.current.codexInternetAccess = true;
                             setCodexInternetAccess(next);
                             persistGlobalDefault("cc-codex-internet-access", next ? "1" : "0");
                           }}
@@ -1069,6 +1138,7 @@ export function NewSessionModal({
                                 <button
                                   key={effort.value || "default"}
                                   onClick={() => {
+                                    defaultFieldEditedRef.current.codexReasoningEffort = true;
                                     setCodexReasoningEffort(effort.value);
                                     persistGlobalDefault("cc-codex-reasoning-effort", effort.value);
                                     setShowReasoningDropdown(false);
@@ -1463,6 +1533,7 @@ export function NewSessionModal({
                               <button
                                 key={m.value}
                                 onClick={() => {
+                                  defaultFieldEditedRef.current.model[backendDefaultKey(backend)] = true;
                                   setModel(m.value);
                                   persistGlobalDefault(`cc-model-${backend}`, m.value);
                                   setShowModelDropdown(false);
