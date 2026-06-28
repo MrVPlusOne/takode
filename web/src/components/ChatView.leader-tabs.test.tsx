@@ -243,6 +243,19 @@ vi.mock("./WorkBoardBar.js", () => ({
           <button type="button" data-testid="mock-workboard-main" onClick={() => onSelectThread("main")}>
             Main
           </button>
+          {openThreadKeys
+            .filter((threadKey) => !threadRows.some((row) => row.threadKey === threadKey))
+            .map((threadKey) => (
+              <button
+                type="button"
+                key={`open-${threadKey}`}
+                data-testid="mock-workboard-open-thread"
+                data-thread-key={threadKey}
+                onClick={() => onSelectThread(threadKey)}
+              >
+                Open {threadKey}
+              </button>
+            ))}
           {threadRows.map((row) => (
             <button type="button" key={row.threadKey} onClick={() => onSelectThread(row.threadKey)}>
               {row.questId ?? row.threadKey} {row.title}
@@ -765,6 +778,40 @@ describe("ChatView leader open thread tabs", () => {
       expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1395,q-1391,q-1376"),
     );
     expect(mockSendToSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps a server-open tab selectable while active needs-input rows are still hydrated separately", async () => {
+    window.location.hash = "#/session/s1";
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-1517", "q-1513", "q-1468", "q-1404"])),
+      sessionNotifications: new Map([
+        ["s1", [needsInputNotification("q-1513", 120), needsInputNotification("q-1468", 100)]],
+      ]),
+      messages: new Map([["s1", [threadMessage("q-1404", 1)]]]),
+      quests: [
+        { questId: "q-1517", title: "New active checkpoint", status: "in_progress" },
+        { questId: "q-1513", title: "Waiting for access", status: "in_progress" },
+        { questId: "q-1468", title: "Waiting for allocation", status: "in_progress" },
+        { questId: "q-1404", title: "Completed visible tab", status: "done" },
+      ],
+    });
+
+    const view = render(<RouteAwareLeaderSession />);
+    const scope = within(view.container);
+
+    // Regression for active leader sessions with scoped needs-input prompts:
+    // route repair must trust already-open server tabs even when their
+    // projected thread rows lag behind notification/thread hydration.
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    fireEvent.click(
+      scope
+        .getAllByTestId("mock-workboard-open-thread")
+        .find((button) => button.getAttribute("data-thread-key") === "q-1517")!,
+    );
+
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1517"));
+    expect(window.location.hash).toBe("#/session/s1?thread=q-1517");
+    expect(readLeaderSelectedThreadKey("s1")).toBe("q-1517");
   });
 
   it("migrates valid legacy localStorage only when no server state exists", async () => {

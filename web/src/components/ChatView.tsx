@@ -784,10 +784,17 @@ function markerSourceMatchesSelectedThread(
   return selectedThread === MAIN_THREAD_KEY;
 }
 
-function isAvailableLeaderThread(threadKey: string, rows: LeaderThreadRow[]): boolean {
+function isAvailableLeaderThread(
+  threadKey: string,
+  rows: LeaderThreadRow[],
+  openThreadKeys: ReadonlyArray<string> = [],
+): boolean {
   const normalized = normalizeThreadKey(threadKey);
   if (normalized === MAIN_THREAD_KEY || normalized === ALL_THREADS_KEY) return true;
-  return rows.some((row) => row.threadKey === normalized);
+  return (
+    rows.some((row) => row.threadKey === normalized) ||
+    openThreadKeys.some((key) => normalizeThreadKey(key) === normalized)
+  );
 }
 
 function questOrBoardRowIsCompleted(questStatus?: string, boardRowStatus?: string, completedAt?: number): boolean {
@@ -1590,7 +1597,7 @@ export function ChatView({
     }
 
     const nextThreadKey = normalizeThreadKey(routeThreadKey);
-    if (isAvailableLeaderThread(nextThreadKey, navigationThreadRows)) {
+    if (isAvailableLeaderThread(nextThreadKey, navigationThreadRows, openThreadTabKeys)) {
       const localSelectionRoute = locallySelectedRouteThreadKeyRef.current === nextThreadKey;
       if (localSelectionRoute) {
         locallySelectedRouteThreadKeyRef.current = null;
