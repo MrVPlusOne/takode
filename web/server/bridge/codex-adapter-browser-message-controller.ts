@@ -19,6 +19,7 @@ import {
 import { queueQuestThreadRemindersForCompletedTurn } from "./quest-thread-reminder.js";
 import { recordCompactionFinished, recordCompactionStarted } from "./session-lifecycle-events.js";
 import { shouldTrackCodexToolResultRecovery } from "./tool-result-recovery-controller.js";
+import { recordContextUsageHistory } from "./context-usage.js";
 import {
   appendThreadTransitionMarkerForRouteSwitch,
   normalizeThreadRoute,
@@ -453,6 +454,9 @@ export async function handleCodexAdapterBrowserMessage(
       withCodexLeaderDisplayBudget(session, { ...sanitized, backend_type: "codex" }, launcherInfo),
     );
     session.state = { ...session.state, ...enriched };
+    if ("context_used_percent" in enriched || "codex_token_details" in enriched) {
+      recordContextUsageHistory(session, "codex_token_usage");
+    }
     outgoing = { ...msg, session: enriched as unknown as typeof msg.session } as BrowserIncomingMessage;
     deps.cacheSlashCommandState(session, enriched);
     deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });

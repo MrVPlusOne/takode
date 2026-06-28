@@ -1,4 +1,11 @@
-import type { CLIResultMessage, SessionState } from "../session-types.js";
+import type {
+  CLIResultMessage,
+  ContextUsageHistoryEntry,
+  ContextUsageHistorySource,
+  SessionState,
+} from "../session-types.js";
+
+const CONTEXT_USAGE_HISTORY_LIMIT = 200;
 
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
@@ -107,4 +114,79 @@ export function extractClaudeTokenDetails(
     cachedInputTokens,
     modelContextWindow,
   };
+}
+
+interface ContextUsageHistorySessionLike {
+  state: Pick<
+    SessionState,
+    "context_used_percent" | "codex_token_details" | "claude_token_details" | "codex_leader_recycle_threshold_tokens"
+  >;
+  contextUsageHistory?: ContextUsageHistoryEntry[];
+}
+
+function usageHistorySignature(entry: ContextUsageHistoryEntry): string {
+  const { timestamp: _timestamp, source: _source, ...rest } = entry;
+  return JSON.stringify(rest);
+}
+
+export function buildContextUsageHistoryEntry(
+  state: ContextUsageHistorySessionLike["state"],
+  source: ContextUsageHistorySource,
+  timestamp = Date.now(),
+): ContextUsageHistoryEntry | null {
+  const codex = state.codex_token_details;
+  const claude = state.claude_token_details;
+  const details = source === "codex_token_usage" ? codex : claude;
+  const contextUsedPercent =
+    typeof state.context_used_percent === "number" && Number.isFinite(state.context_used_percent)
+      ? state.context_used_percent
+      : undefined;
+
+  const entry: ContextUsageHistoryEntry = {
+    timestamp,
+    source,
+    ...(contextUsedPercent !== undefined ? { contextUsedPercent } : {}),
+  };
+
+  if (codex && source === "codex_token_usage") {
+    Object.assign(entry, {
+      ...(typeof codex.contextTokensUsed === "number" ? { contextTokensUsed: codex.contextTokensUsed } : {}),
+      inputTokens: codex.inputTokens,
+      outputTokens: codex.outputTokens,
+      cachedInputTokens: codex.cachedInputTokens,
+      reasoningOutputTokens: codex.reasoningOutputTokens,
+      modelContextWindow: codex.modelContextWindow,
+      ...(typeof state.codex_leader_recycle_threshold_tokens === "number"
+        ? { leaderRecycleThresholdTokens: state.codex_leader_recycle_threshold_tokens }
+        : {}),
+    });
+  } else if (details) {
+    Object.assign(entry, {
+      inputTokens: details.inputTokens,
+      outputTokens: details.outputTokens,
+      cachedInputTokens: details.cachedInputTokens,
+      modelContextWindow: details.modelContextWindow,
+    });
+  }
+
+  return Object.keys(entry).length > 2 ? entry : null;
+}
+
+export function recordContextUsageHistory(
+  session: ContextUsageHistorySessionLike,
+  source: ContextUsageHistorySource,
+  timestamp = Date.now(),
+): boolean {
+  const entry = buildContextUsageHistoryEntry(session.state, source, timestamp);
+  if (!entry) return false;
+
+  const current = Array.isArray(session.contextUsageHistory) ? session.contextUsageHistory : [];
+  const last = current[current.length - 1];
+  if (last && usageHistorySignature(last) === usageHistorySignature(entry)) {
+    session.contextUsageHistory = current;
+    return false;
+  }
+
+  session.contextUsageHistory = [...current, entry].slice(-CONTEXT_USAGE_HISTORY_LIMIT);
+  return true;
 }

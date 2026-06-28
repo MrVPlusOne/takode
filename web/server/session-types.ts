@@ -709,6 +709,21 @@ export interface CodexPendingDeliveryProofSignal {
   pendingInputCount?: number;
 }
 
+export type ContextUsageHistorySource = "claude_assistant_usage" | "claude_result_usage" | "codex_token_usage";
+
+export interface ContextUsageHistoryEntry {
+  timestamp: number;
+  source: ContextUsageHistorySource;
+  contextUsedPercent?: number;
+  contextTokensUsed?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedInputTokens?: number;
+  reasoningOutputTokens?: number;
+  modelContextWindow?: number;
+  leaderRecycleThresholdTokens?: number;
+}
+
 // Quest Journey state machine -- canonical source in shared/quest-journey.ts
 export { QUEST_JOURNEY_STATES, QUEST_JOURNEY_HINTS } from "../shared/quest-journey.js";
 export type { QuestJourneyPlanState, QuestJourneyState } from "../shared/quest-journey.js";

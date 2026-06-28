@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildContextUsageHistoryEntry,
   computeContextUsedPercent,
   computeResultContextUsedPercent,
   extractClaudeTokenDetails,
+  recordContextUsageHistory,
 } from "./context-usage.js";
 
 describe("context-usage helpers", () => {
@@ -105,5 +107,66 @@ describe("context-usage helpers", () => {
       cachedInputTokens: 0,
       modelContextWindow: 1_000_000,
     });
+  });
+
+  it("models reported Codex context usage separately from leader recycle thresholds", () => {
+    // The history sample is reported runtime usage. The leader recycle budget
+    // is captured as a separate comparison field, not collapsed into provider
+    // or hidden-reasoning measurement.
+    expect(
+      buildContextUsageHistoryEntry(
+        {
+          context_used_percent: 42,
+          codex_leader_recycle_threshold_tokens: 545_000,
+          codex_token_details: {
+            contextTokensUsed: 230_000,
+            inputTokens: 1_000_000,
+            outputTokens: 10_000,
+            cachedInputTokens: 700_000,
+            reasoningOutputTokens: 4_000,
+            modelContextWindow: 545_000,
+          },
+        },
+        "codex_token_usage",
+        123,
+      ),
+    ).toEqual({
+      timestamp: 123,
+      source: "codex_token_usage",
+      contextUsedPercent: 42,
+      contextTokensUsed: 230_000,
+      inputTokens: 1_000_000,
+      outputTokens: 10_000,
+      cachedInputTokens: 700_000,
+      reasoningOutputTokens: 4_000,
+      modelContextWindow: 545_000,
+      leaderRecycleThresholdTokens: 545_000,
+    });
+  });
+
+  it("records bounded context usage history only when reported values change", () => {
+    // Duplicate token snapshots can be emitted repeatedly while streaming; the
+    // persisted history should stay useful and bounded rather than growing on
+    // identical reports.
+    const session = {
+      state: {
+        context_used_percent: 10,
+        claude_token_details: {
+          inputTokens: 100,
+          outputTokens: 5,
+          cachedInputTokens: 0,
+          modelContextWindow: 1_000,
+        },
+      },
+      contextUsageHistory: [],
+    };
+
+    expect(recordContextUsageHistory(session, "claude_result_usage", 1)).toBe(true);
+    expect(recordContextUsageHistory(session, "claude_result_usage", 2)).toBe(false);
+
+    session.state.context_used_percent = 20;
+    expect(recordContextUsageHistory(session, "claude_result_usage", 3)).toBe(true);
+    expect(session.contextUsageHistory).toHaveLength(2);
+    expect(session.contextUsageHistory.at(-1)).toMatchObject({ timestamp: 3, contextUsedPercent: 20 });
   });
 });

@@ -29,6 +29,7 @@ import {
   computeResultContextUsedPercent,
   extractClaudeTokenDetails,
   inferContextWindowFromModel,
+  recordContextUsageHistory,
   resolveResultContextWindow,
   type TokenUsage,
 } from "./context-usage.js";
@@ -141,10 +142,12 @@ export interface AssistantMessageSessionLike {
   state: {
     model: string;
     context_used_percent: number;
+    claude_token_details?: SessionState["claude_token_details"];
     isOrchestrator?: boolean;
     leaderThreadStatuses?: SessionState["leaderThreadStatuses"];
     slackThreadChild?: SessionState["slackThreadChild"];
   };
+  contextUsageHistory?: import("../session-types.js").ContextUsageHistoryEntry[];
 }
 
 interface HandleAssistantMessageDeps {
@@ -248,6 +251,7 @@ export interface ResultMessageSessionLike {
     | "leaderThreadStatuses"
     | "slackThreadChild"
   >;
+  contextUsageHistory?: import("../session-types.js").ContextUsageHistoryEntry[];
   notifications?: SessionNotification[];
   leaderThreadOutcomeValidatedHistoryLength?: number;
   diffStatsDirty: boolean;
@@ -739,6 +743,9 @@ export function handleResultMessage(
   const nextClaudeTokenDetails = extractClaudeTokenDetails(msg.modelUsage, session.state.model);
   if (nextClaudeTokenDetails) {
     session.state.claude_token_details = nextClaudeTokenDetails;
+  }
+  if (typeof nextContextPct === "number" || nextClaudeTokenDetails) {
+    recordContextUsageHistory(session, "claude_result_usage");
   }
 
   const turnDurationMs =
@@ -1689,6 +1696,7 @@ function maybeUpdateContextUsedPercentFromAssistantUsage(
   const nextContextPct = computeContextUsedPercent(usage, contextWindow);
   if (typeof nextContextPct !== "number" || session.state.context_used_percent === nextContextPct) return;
   session.state.context_used_percent = nextContextPct;
+  recordContextUsageHistory(session, "claude_assistant_usage");
   broadcastToBrowsers(session, {
     type: "session_update",
     session: { context_used_percent: nextContextPct },

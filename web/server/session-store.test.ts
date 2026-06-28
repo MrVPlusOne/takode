@@ -128,6 +128,21 @@ describe("saveSync / load", () => {
     expect(loaded!.state).toEqual(session.state);
   });
 
+  it("persists context usage history outside browser session state", async () => {
+    const session = makeSession("usage-history", {
+      contextUsageHistory: [{ timestamp: 1, source: "codex_token_usage", contextUsedPercent: 12 }],
+    });
+    store.saveSync(session);
+    await store.flushAll();
+
+    const loaded = await store.load("usage-history");
+
+    expect(loaded?.contextUsageHistory).toEqual([
+      { timestamp: 1, source: "codex_token_usage", contextUsedPercent: 12 },
+    ]);
+    expect(loaded?.state).not.toHaveProperty("contextUsageHistory");
+  });
+
   it("returns null for a non-existent session", async () => {
     const loaded = await store.load("does-not-exist");
     expect(loaded).toBeNull();

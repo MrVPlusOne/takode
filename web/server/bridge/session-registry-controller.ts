@@ -4,6 +4,7 @@ import type { PersistedSession } from "../session-store.js";
 import type {
   BoardRow,
   CodexLeaderRecycleContinuation,
+  ContextUsageHistoryEntry,
   ContentBlock,
   SessionTaskEntry,
   SessionNotification,
@@ -104,6 +105,7 @@ type SessionRuntimeOptions = {
   codexLeaderRecycleContinuation?: CodexLeaderRecycleContinuation | null;
   codexFreshTurnRequiredUntilTurnId?: string | null;
   codexPendingDeliveryProofSignals?: import("../session-types.js").CodexPendingDeliveryProofSignal[];
+  contextUsageHistory?: ContextUsageHistoryEntry[];
   nextEventSeq?: number;
   eventBuffer?: any[];
   lastAckSeq?: number;
@@ -157,6 +159,7 @@ function createSessionRuntime(
     codexLeaderRecycleContinuation: options.codexLeaderRecycleContinuation ?? null,
     codexFreshTurnRequiredUntilTurnId: options.codexFreshTurnRequiredUntilTurnId ?? null,
     codexPendingDeliveryProofSignals: options.codexPendingDeliveryProofSignals ?? [],
+    contextUsageHistory: options.contextUsageHistory ?? [],
     pendingCodexRollbackWaiter: null,
     nextEventSeq: options.nextEventSeq ?? 1,
     eventBuffer: options.eventBuffer ?? [],
@@ -534,6 +537,7 @@ export async function restorePersistedSessions(
         lastAckSeq: 0,
         processedClientMessageIds: [],
         toolResults: new Map(),
+        contextUsageHistory: Array.isArray(p.contextUsageHistory) ? p.contextUsageHistory : [],
         lastReadAt: typeof p.lastReadAt === "number" ? p.lastReadAt : 0,
         attentionReason: p.attentionReason ?? null,
         taskHistory: Array.isArray(p.taskHistory) ? p.taskHistory : [],
@@ -602,6 +606,7 @@ export async function restorePersistedSessions(
       codexPendingDeliveryProofSignals: Array.isArray(p.codexPendingDeliveryProofSignals)
         ? p.codexPendingDeliveryProofSignals
         : [],
+      contextUsageHistory: Array.isArray(p.contextUsageHistory) ? p.contextUsageHistory : [],
       nextEventSeq: p.nextEventSeq && p.nextEventSeq > 0 ? p.nextEventSeq : 1,
       eventBuffer: Array.isArray(p.eventBuffer) ? p.eventBuffer : [],
       lastAckSeq: typeof p.lastAckSeq === "number" ? p.lastAckSeq : 0,
@@ -736,6 +741,7 @@ export function buildPersistedSessionPayload(session: SessionLike): PersistedSes
     codexLeaderRecycleContinuation: session.codexLeaderRecycleContinuation,
     codexFreshTurnRequiredUntilTurnId: session.codexFreshTurnRequiredUntilTurnId,
     codexPendingDeliveryProofSignals: session.codexPendingDeliveryProofSignals,
+    contextUsageHistory: session.contextUsageHistory,
     pendingPermissions: Array.from(session.pendingPermissions.entries()),
     eventBuffer: session.eventBuffer,
     nextEventSeq: session.nextEventSeq,

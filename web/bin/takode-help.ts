@@ -21,6 +21,7 @@ import {
 } from "./takode-board.js";
 import { SPAWN_FLAG_USAGE } from "./takode-orchestration-commands.js";
 import { PERMISSION_GET_HELP, PERMISSION_HELP, PERMISSION_SET_HELP } from "./takode-permission-commands.js";
+import { CONTEXT_DOCTOR_HELP } from "./takode-context-diagnostics.js";
 
 const LIST_HELP = `Usage: takode list [--herd|--active|--all] [--tasks] [--json]
 
@@ -293,6 +294,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "leader-context-resume":
       console.log(LEADER_CONTEXT_RESUME_HELP);
       return true;
+    case "context-doctor":
+      console.log(CONTEXT_DOCTOR_HELP);
+      return true;
     case "file-resolve":
       console.log(FILE_RESOLVE_HELP);
       return true;
@@ -477,6 +481,7 @@ Commands:
   search   Search sessions via server-side ranking (available to all sessions)
   info     Show detailed metadata for a session
   leader-context-resume  Recover compact leader/orchestrator context for a session
+  context-doctor  Analyze observable context-heavy session payloads
   file-resolve  Resolve paths or file links against a session filesystem context
   spawn    Create and auto-herd new worker sessions
   tasks    Show a session task outline (available to all sessions)
@@ -531,6 +536,7 @@ Examples:
   takode info 1
   takode info 1 --json
   takode leader-context-resume 1
+  takode context-doctor 1
   takode file-resolve --session 1 artifacts/preview.png file:artifacts/preview.png
   takode spawn --backend claude-sdk --count 2
   takode spawn --backend codex --count 3 --message "Check flaky tests"

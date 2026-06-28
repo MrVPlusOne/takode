@@ -15,6 +15,7 @@ import type {
   SessionNotification,
   SessionAttentionRecord,
   CodexPendingDeliveryProofSignal,
+  ContextUsageHistoryEntry,
 } from "./session-types.js";
 
 export interface SearchExcerpt {
@@ -90,6 +91,8 @@ export interface PersistedSession {
   codexFreshTurnRequiredUntilTurnId?: string | null;
   /** Bounded, payload-free breadcrumbs for pending-delivery blockage diagnostics. */
   codexPendingDeliveryProofSignals?: CodexPendingDeliveryProofSignal[];
+  /** Bounded, payload-free reported context usage samples for diagnostics. */
+  contextUsageHistory?: ContextUsageHistoryEntry[];
   pendingPermissions: [string, PermissionRequest][];
   eventBuffer?: BufferedBrowserEvent[];
   nextEventSeq?: number;

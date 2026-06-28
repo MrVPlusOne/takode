@@ -24,6 +24,7 @@ import type {
   CodexLeaderRecycleContinuation,
   CodexOutboundTurn,
   CodexPendingDeliveryProofSignal,
+  ContextUsageHistoryEntry,
   ContentBlock,
   PendingCodexInput,
   PermissionRequest,
@@ -203,6 +204,8 @@ export interface Session {
   codexFreshTurnRequiredUntilTurnId: string | null;
   /** Bounded, payload-free breadcrumbs for diagnosing pending-delivery blockage. */
   codexPendingDeliveryProofSignals: CodexPendingDeliveryProofSignal[];
+  /** Bounded reported-token/context usage samples for opt-in diagnostics. */
+  contextUsageHistory?: ContextUsageHistoryEntry[];
   /** Whether system.init has been received since the last CLI connect.
    *  False during --resume replay — messages sent before init are dropped by CLI. */
   cliInitReceived: boolean;

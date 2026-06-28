@@ -58,6 +58,7 @@ import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
 import type { RouteContext } from "./context.js";
 import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
 import { registerTakodeBoardRoutes } from "./takode-board.js";
+import { registerTakodeContextDiagnosticsRoutes } from "./takode-context-diagnostics.js";
 import { registerTakodeNotificationInboxRoutes } from "./takode-notification-inbox.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
 import { getPauseState, isSessionPaused } from "../session-pause.js";
@@ -651,6 +652,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
   registerTakodeNotificationResponseRoute(api, ctx, notificationPersistDeps);
   registerTakodeNotificationInboxRoutes(api, ctx, notificationPersistDeps);
+  registerTakodeContextDiagnosticsRoutes(api, ctx);
 
   api.get("/takode/me", (c) => {
     const auth = authenticateTakodeCaller(c);
