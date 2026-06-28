@@ -643,6 +643,18 @@ describe("Session management", () => {
     expect(useStore.getState().diffPanelSelectedFile).toBe(selectedMap);
   });
 
+  it("setDiffFileStats: preserves the existing map for same-value updates", () => {
+    useStore.getState().setDiffFileStats("s1", new Map([["/repo/src/app.ts", { additions: 1, deletions: 2 }]]));
+    const statsMap = useStore.getState().diffFileStats;
+
+    useStore.getState().setDiffFileStats("s1", new Map([["/repo/src/app.ts", { additions: 1, deletions: 2 }]]));
+
+    expect(useStore.getState().diffFileStats).toBe(statsMap);
+
+    useStore.getState().setDiffFileStats("s1", new Map([["/repo/src/app.ts", { additions: 1, deletions: 3 }]]));
+    expect(useStore.getState().diffFileStats).not.toBe(statsMap);
+  });
+
   it("removeSession: does not clear currentSessionId if a different session is removed", () => {
     useStore.getState().addSession(makeSession("s1"));
     useStore.getState().addSession(makeSession("s2"));

@@ -76,6 +76,22 @@ import { persistSidePanelStringSet, withMapEntry, withOptionalMapEntry } from ".
 
 // ─── Color Themes ───────────────────────────────────────────────────────────
 
+function diffFileStatsEqual(
+  a: Map<string, { additions: number; deletions: number }> | undefined,
+  b: Map<string, { additions: number; deletions: number }>,
+): boolean {
+  if (a === b) return true;
+  if (!a || a.size !== b.size) return false;
+  for (const [path, nextStats] of b) {
+    const currentStats = a.get(path);
+    if (!currentStats) return false;
+    if (currentStats.additions !== nextStats.additions || currentStats.deletions !== nextStats.deletions) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Available color themes. All non-"light" themes are dark variants. */
 export type ColorTheme = "light" | "dark" | "vscode-dark";
 
@@ -1175,6 +1191,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   setDiffFileStats: (sessionId, stats) =>
     set((s) => {
+      if (diffFileStatsEqual(s.diffFileStats.get(sessionId), stats)) return s;
       const diffFileStats = new Map(s.diffFileStats);
       diffFileStats.set(sessionId, stats);
       return { diffFileStats };
