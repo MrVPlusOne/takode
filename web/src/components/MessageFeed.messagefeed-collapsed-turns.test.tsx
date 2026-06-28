@@ -843,54 +843,6 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.queryByText("Destination quest dispatch")).toBeNull();
   });
 
-  it("renders repeated same-destination route-switch handoffs without duplicate React keys", () => {
-    const sid = "test-duplicate-route-switch-handoff-keys";
-    const firstMarker = transitionMarker({
-      id: "transition-first",
-      sourceThreadKey: "q-910",
-      sourceQuestId: "q-910",
-      threadKey: "q-911",
-      questId: "q-911",
-    });
-    const secondMarker = transitionMarker({
-      id: "transition-second",
-      sourceThreadKey: "q-910",
-      sourceQuestId: "q-910",
-      threadKey: "q-911",
-      questId: "q-911",
-    });
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    setStoreMessages(sid, [
-      makeMessage({
-        id: firstMarker.id,
-        role: "system",
-        content: "Work continued from thread:q-910 to thread:q-911",
-        metadata: { threadTransitionMarker: firstMarker },
-      }),
-      makeMessage({
-        id: secondMarker.id,
-        role: "system",
-        content: "Work continued from thread:q-910 to thread:q-911",
-        metadata: { threadTransitionMarker: secondMarker },
-      }),
-    ]);
-
-    try {
-      render(<MessageFeed sessionId={sid} threadKey="q-910" />);
-
-      expect(screen.getByTestId("thread-transition-marker").textContent).toContain(
-        "Work continued from thread:q-910 to thread:q-911",
-      );
-      expect(
-        consoleError.mock.calls.some((args) =>
-          args.some((arg) => String(arg).includes("Encountered two children with the same key")),
-        ),
-      ).toBe(false);
-    } finally {
-      consoleError.mockRestore();
-    }
-  });
-
   it("does not surface quest-to-quest route-switch handoffs as Main noise", () => {
     const sid = "test-main-suppresses-quest-route-switch-handoff";
     const marker = transitionMarker({

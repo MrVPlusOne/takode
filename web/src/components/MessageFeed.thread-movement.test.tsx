@@ -487,40 +487,51 @@ describe("MessageFeed - thread movement rows", () => {
     expect(mockMarkdownRenderCount.count).toBe(initialRenderCount);
   });
 
-  it("keys repeated same-route transition summaries by marker identity", () => {
-    const sid = "test-repeated-transition-summary-keys";
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const first = transitionMarker({ id: "handoff-1", sourceThreadKey: "main", threadKey: "q-1517" });
-    const second = transitionMarker({ id: "handoff-2", sourceThreadKey: "main", threadKey: "q-1517" });
+  it("renders repeated same-destination route-switch handoffs without duplicate React keys", () => {
+    const sid = "test-duplicate-route-switch-handoff-keys";
+    const firstMarker = transitionMarker({
+      id: "transition-first",
+      sourceThreadKey: "q-910",
+      sourceQuestId: "q-910",
+      threadKey: "q-911",
+      questId: "q-911",
+    });
+    const secondMarker = transitionMarker({
+      id: "transition-second",
+      sourceThreadKey: "q-910",
+      sourceQuestId: "q-910",
+      threadKey: "q-911",
+      questId: "q-911",
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     setStoreMessages(sid, [
-      makeMessage({ id: "u1", role: "user", content: "Coordinate q-1517", timestamp: 100 }),
       makeMessage({
-        id: first.id,
+        id: firstMarker.id,
         role: "system",
-        content: "Work continued from Main to thread:q-1517",
-        timestamp: 101,
-        metadata: { threadTransitionMarker: first },
+        content: "Work continued from thread:q-910 to thread:q-911",
+        metadata: { threadTransitionMarker: firstMarker },
       }),
       makeMessage({
-        id: second.id,
+        id: secondMarker.id,
         role: "system",
-        content: "Work continued from Main to thread:q-1517",
-        timestamp: 102,
-        metadata: { threadTransitionMarker: second },
+        content: "Work continued from thread:q-910 to thread:q-911",
+        metadata: { threadTransitionMarker: secondMarker },
       }),
     ]);
 
     try {
-      render(<MessageFeed sessionId={sid} />);
+      render(<MessageFeed sessionId={sid} threadKey="q-910" />);
 
       expect(screen.getByTestId("thread-transition-marker").textContent).toContain(
-        "Work continued from Main to thread:q-1517",
+        "Work continued from thread:q-910 to thread:q-911",
       );
-      expect(consoleErrorSpy.mock.calls.some((call) => call.some((arg) => String(arg).includes("same key")))).toBe(
-        false,
-      );
+      expect(
+        consoleError.mock.calls.some((args) =>
+          args.some((arg) => String(arg).includes("Encountered two children with the same key")),
+        ),
+      ).toBe(false);
     } finally {
-      consoleErrorSpy.mockRestore();
+      consoleError.mockRestore();
     }
   });
 });
