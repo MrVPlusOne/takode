@@ -783,16 +783,16 @@ describe("ChatView leader open thread tabs", () => {
   it("keeps a server-open tab selectable while active needs-input rows are still hydrated separately", async () => {
     window.location.hash = "#/session/s1";
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-1517", "q-1513", "q-1468", "q-1404"])),
+      sessions: leaderSession(leaderTabs(["q-900001", "q-900002", "q-900003", "q-900004"])),
       sessionNotifications: new Map([
-        ["s1", [needsInputNotification("q-1513", 120), needsInputNotification("q-1468", 100)]],
+        ["s1", [needsInputNotification("q-900002", 120), needsInputNotification("q-900003", 100)]],
       ]),
-      messages: new Map([["s1", [threadMessage("q-1404", 1)]]]),
+      messages: new Map([["s1", [threadMessage("q-900004", 1)]]]),
       quests: [
-        { questId: "q-1517", title: "New active checkpoint", status: "in_progress" },
-        { questId: "q-1513", title: "Waiting for access", status: "in_progress" },
-        { questId: "q-1468", title: "Waiting for allocation", status: "in_progress" },
-        { questId: "q-1404", title: "Completed visible tab", status: "done" },
+        { questId: "q-900001", title: "Active UI routing tab", status: "in_progress" },
+        { questId: "q-900002", title: "Needs input thread A", status: "in_progress" },
+        { questId: "q-900003", title: "Needs input thread B", status: "in_progress" },
+        { questId: "q-900004", title: "Completed thread", status: "done" },
       ],
     });
 
@@ -806,12 +806,12 @@ describe("ChatView leader open thread tabs", () => {
     fireEvent.click(
       scope
         .getAllByTestId("mock-workboard-open-thread")
-        .find((button) => button.getAttribute("data-thread-key") === "q-1517")!,
+        .find((button) => button.getAttribute("data-thread-key") === "q-900001")!,
     );
 
-    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1517"));
-    expect(window.location.hash).toBe("#/session/s1?thread=q-1517");
-    expect(readLeaderSelectedThreadKey("s1")).toBe("q-1517");
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-900001"));
+    expect(window.location.hash).toBe("#/session/s1?thread=q-900001");
+    expect(readLeaderSelectedThreadKey("s1")).toBe("q-900001");
   });
 
   it("migrates valid legacy localStorage only when no server state exists", async () => {
