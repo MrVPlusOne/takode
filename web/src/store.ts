@@ -1674,6 +1674,9 @@ export const useStore = create<AppState>((set, get) => ({
 
   setDiffPanelSelectedFile: (sessionId, filePath) =>
     set((s) => {
+      const current = s.diffPanelSelectedFile.get(sessionId) ?? null;
+      if (current === filePath) return s;
+
       const diffPanelSelectedFile = new Map(s.diffPanelSelectedFile);
       if (filePath) {
         diffPanelSelectedFile.set(sessionId, filePath);

@@ -65,6 +65,53 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
   };
 }
 
+type MockIntersectionObserverInstance = {
+  callback: IntersectionObserverCallback;
+  observe: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+};
+
+function installMockIntersectionObserver() {
+  const instances: MockIntersectionObserverInstance[] = [];
+  const previous = globalThis.IntersectionObserver;
+
+  class MockIntersectionObserver {
+    callback: IntersectionObserverCallback;
+    observe = vi.fn();
+    disconnect = vi.fn();
+    unobserve = vi.fn();
+    takeRecords = vi.fn(() => []);
+    root = null;
+    rootMargin = "";
+    thresholds = [];
+
+    constructor(callback: IntersectionObserverCallback) {
+      this.callback = callback;
+      instances.push(this);
+    }
+  }
+
+  globalThis.IntersectionObserver = MockIntersectionObserver as unknown as typeof IntersectionObserver;
+  return {
+    instances,
+    restore: () => {
+      globalThis.IntersectionObserver = previous;
+    },
+  };
+}
+
+function makeIntersectingEntry(target: Element, top = 10): IntersectionObserverEntry {
+  return {
+    boundingClientRect: { top } as DOMRectReadOnly,
+    intersectionRatio: 1,
+    intersectionRect: {} as DOMRectReadOnly,
+    isIntersecting: true,
+    rootBounds: null,
+    target,
+    time: 0,
+  };
+}
+
 vi.mock("../store.js", () => {
   const useStoreFn = (selector: (s: MockStoreState) => unknown) => selector(storeState);
   useStoreFn.getState = () => storeState;
@@ -203,6 +250,53 @@ describe("DiffPanel", () => {
     // Base branch selector should show the resolved default
     const select = container.querySelector("select") as HTMLSelectElement;
     expect(select).toBeTruthy();
+  });
+
+  it("does not dispatch redundant selected-file updates from repeated viewport observer callbacks", async () => {
+    // Regression for the live React #185 lane: browser IntersectionObserver
+    // callbacks can repeat for the already-selected file while DiffPanel is
+    // rendering. Same-value callbacks must not write to the global store again.
+    const observerMock = installMockIntersectionObserver();
+    try {
+      mockApi.getFileDiff.mockResolvedValue({
+        path: "/repo/src/app.ts",
+        diff: `diff --git a/src/app.ts b/src/app.ts
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1 +1,2 @@
+ old
++new`,
+        baseBranch: "main",
+      });
+      resetStore({
+        sessions: new Map([["s1", { cwd: "/repo", git_default_branch: "main" }]]),
+        changedFiles: new Map([["s1", new Set(["/repo/src/app.ts"])]]),
+        diffPanelSelectedFile: new Map([["s1", "/repo/src/app.ts"]]),
+      });
+
+      const { container } = render(<DiffPanel sessionId="s1" />);
+
+      await waitFor(() => {
+        expect(observerMock.instances.length).toBeGreaterThanOrEqual(2);
+      });
+      const fileElement = container.querySelector("[data-file-path='/repo/src/app.ts']") as HTMLElement;
+      expect(fileElement).toBeTruthy();
+
+      const selectionObserver = observerMock.instances[0];
+      storeState.setDiffPanelSelectedFile.mockClear();
+      selectionObserver.callback(
+        [makeIntersectingEntry(fileElement)],
+        selectionObserver as unknown as IntersectionObserver,
+      );
+      selectionObserver.callback(
+        [makeIntersectingEntry(fileElement)],
+        selectionObserver as unknown as IntersectionObserver,
+      );
+
+      expect(storeState.setDiffPanelSelectedFile).not.toHaveBeenCalled();
+    } finally {
+      observerMock.restore();
+    }
   });
 
   it("clears loading state when an in-flight diff request is superseded", async () => {

@@ -158,6 +158,11 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollingToFileRef = useRef(false);
+  const selectedFileRef = useRef<string | null>(selectedFile);
+
+  useEffect(() => {
+    selectedFileRef.current = selectedFile;
+  }, [selectedFile]);
 
   // File picker dropdown open state
   const [filePickerOpen, setFilePickerOpen] = useState(false);
@@ -583,7 +588,10 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
         }
         if (topEntry) {
           const abs = (topEntry.target as HTMLElement).dataset.filePath;
-          if (abs) setSelectedFile(sessionId, abs);
+          if (abs && selectedFileRef.current !== abs) {
+            selectedFileRef.current = abs;
+            setSelectedFile(sessionId, abs);
+          }
         }
       },
       { root: container, rootMargin: "0px 0px -70% 0px", threshold: 0 },

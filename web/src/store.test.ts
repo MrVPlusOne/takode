@@ -630,6 +630,19 @@ describe("Session management", () => {
     expect(useStore.getState().sessionKeywords).toBe(previousMap);
   });
 
+  it("setDiffPanelSelectedFile: preserves the existing map for same-value updates", () => {
+    useStore.getState().setDiffPanelSelectedFile("s1", "/repo/src/app.ts");
+    const selectedMap = useStore.getState().diffPanelSelectedFile;
+
+    useStore.getState().setDiffPanelSelectedFile("s1", "/repo/src/app.ts");
+
+    expect(useStore.getState().diffPanelSelectedFile).toBe(selectedMap);
+    expect(useStore.getState().diffPanelSelectedFile.get("s1")).toBe("/repo/src/app.ts");
+
+    useStore.getState().setDiffPanelSelectedFile("missing", null);
+    expect(useStore.getState().diffPanelSelectedFile).toBe(selectedMap);
+  });
+
   it("removeSession: does not clear currentSessionId if a different session is removed", () => {
     useStore.getState().addSession(makeSession("s1"));
     useStore.getState().addSession(makeSession("s2"));
