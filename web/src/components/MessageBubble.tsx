@@ -8,7 +8,7 @@ import { HighlightedText } from "./HighlightedText.js";
 import { CollapseFooter } from "./CollapseFooter.js";
 import { Lightbox } from "./Lightbox.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
-import { StarredMessageIndicator } from "./StarredMessageIndicator.js";
+import { StarredMessageRailMarker } from "./StarredMessageIndicator.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE, parseHerdEvents } from "../utils/herd-event-parser.js";
 import { useStore, getSessionSearchState, countUserPermissions } from "../store.js";
@@ -35,7 +35,7 @@ import { SideChatSummary, useSideChatForMessage } from "./SideChatControls.js";
 import { AssistantMessageMenu, UserMessageMenu } from "./MessageActionMenus.js";
 import { MessageTimestamp } from "./MessageTimestamp.js";
 import { shouldShowCompactGuidance } from "../utils/assistant-message-guidance.js";
-import { isMessageStarred } from "../utils/starred-messages.js";
+import { isStarActionableMessage } from "../utils/starred-messages.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
 
@@ -74,6 +74,13 @@ function useMessageSearchHighlight(sessionId: string | undefined, message: ChatM
   if (!sessionSearchMessageMatchesCategory(message, category, leaderSessionId)) return null;
   if (!query.trim()) return null;
   return { query, mode, isCurrent };
+}
+
+function useFeedStarredMessage(sessionId: string | undefined, message: ChatMessage): boolean {
+  const starred = useStore((s) =>
+    Boolean(sessionId && message.id && s.sessions.get(sessionId)?.starredMessages?.[message.id]),
+  );
+  return starred && isStarActionableMessage(message);
 }
 
 export const MessageBubble = memo(function MessageBubble({
@@ -990,9 +997,8 @@ function UserMessage({
 }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
-  const session = useStore((s) => s.sessions.get(sessionId ?? ""));
-  const isCodex = session?.backend_type === "codex";
-  const starred = isMessageStarred(session, message.id);
+  const isCodex = useStore((s) => s.sessions.get(sessionId ?? "")?.backend_type === "codex");
+  const starred = useFeedStarredMessage(sessionId, message);
   const messagesBySession = useStore((s) => s.messages);
   const sessionMessages = sessionId ? (messagesBySession.get(sessionId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES;
   const canRevert = useMemo(() => {
@@ -1026,12 +1032,17 @@ function UserMessage({
           : null;
 
   return (
-    <div className="flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out]">
+    <div className="relative flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out]">
+      {starred && (
+        <span className="pointer-events-none absolute left-0 top-2.5 z-0 flex w-10 items-center sm:w-[calc(20%_-_0.375rem)] sm:max-w-40">
+          <StarredMessageRailMarker side="user" />
+          <span className="ml-1 h-px min-w-0 flex-1 bg-gradient-to-r from-amber-300/30 to-amber-300/0" />
+        </span>
+      )}
       <div
         data-testid="user-message-bubble"
-        className="min-w-0 max-w-[calc(100%_-_2rem)] sm:max-w-[80%] sm:min-w-[200px] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg"
+        className="relative z-10 min-w-0 max-w-[calc(100%_-_2rem)] sm:max-w-[80%] sm:min-w-[200px] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg"
       >
-        {starred && <StarredMessageIndicator compact />}
         {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
         {message.agentSource && <AgentSourceBadge source={message.agentSource} />}
         {replyContext && <UserReplyChip previewText={replyContext.previewText} messageId={replyContext.messageId} />}
@@ -1182,8 +1193,7 @@ function AssistantMessage({
   const resolvedNotification = message.notification ?? inboxAnchoredNotification;
   const suppressToolNotificationMarker = !!resolvedNotification;
   const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
-  const session = useStore((s) => s.sessions.get(sessionId ?? ""));
-  const starred = isMessageStarred(session, message.id);
+  const starred = useFeedStarredMessage(sessionId, message);
   const sideChat = useSideChatForMessage(sessionId, message);
   const assistantImagePreviewItems = useMemo(
     () => buildAssistantImagePreviewItems(message, sessionId),
@@ -1195,6 +1205,7 @@ function AssistantMessage({
   const firstContentGroupIndex = shouldRenderContentFallback
     ? -1
     : grouped.findIndex((group) => group.kind === "content");
+  const showRailMarker = starred || !hidePaw;
 
   if (
     blocks.length === 0 &&
@@ -1207,10 +1218,9 @@ function AssistantMessage({
 
   if (blocks.length === 0 && message.content) {
     return (
-      <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-2 sm:gap-3"}`}>
-        {!hidePaw && <PawTrailAvatar />}
+      <div className={`group/msg relative flex items-start ${showRailMarker ? "gap-2 sm:gap-3" : ""}`}>
+        {showRailMarker && (starred ? <StarredMessageRailMarker side="assistant" /> : <PawTrailAvatar />)}
         <div ref={contentRef} className="flex-1 min-w-0">
-          {starred && <StarredMessageIndicator compact />}
           {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
           {hasTextContent && (
             <AssistantMessageMenu
@@ -1247,10 +1257,9 @@ function AssistantMessage({
   }
 
   return (
-    <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-2 sm:gap-3"}`}>
-      {!hidePaw && <PawTrailAvatar />}
+    <div className={`group/msg relative flex items-start ${showRailMarker ? "gap-2 sm:gap-3" : ""}`}>
+      {showRailMarker && (starred ? <StarredMessageRailMarker side="assistant" /> : <PawTrailAvatar />)}
       <div ref={contentRef} className="flex-1 min-w-0 space-y-3">
-        {starred && <StarredMessageIndicator compact />}
         {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
         {shouldRenderContentFallback && (
           <div className="flow-root">

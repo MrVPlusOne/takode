@@ -28,6 +28,8 @@ import {
   PLAYGROUND_THREAD_PANEL_SESSION_ID,
   MSG_ASSISTANT,
   MSG_ASSISTANT_TOOLS,
+  MSG_STARRED_ASSISTANT,
+  MSG_STARRED_USER,
   MSG_TOOL_ERROR,
   MSG_USER,
   PERM_BASH,
@@ -128,6 +130,26 @@ export function usePlaygroundSeed() {
       git_behind: 0,
       total_lines_added: 142,
       total_lines_removed: 38,
+      starredMessages: {
+        [MSG_STARRED_USER.id]: {
+          messageId: MSG_STARRED_USER.id,
+          role: "user",
+          historyIndex: MSG_STARRED_USER.historyIndex ?? 90,
+          sourceThreadKey: "main",
+          routeThreadKey: "main",
+          timestamp: MSG_STARRED_USER.timestamp,
+          starredAt: Date.now() - 12_000,
+        },
+        [MSG_STARRED_ASSISTANT.id]: {
+          messageId: MSG_STARRED_ASSISTANT.id,
+          role: "assistant",
+          historyIndex: MSG_STARRED_ASSISTANT.historyIndex ?? 91,
+          sourceThreadKey: "main",
+          routeThreadKey: "main",
+          timestamp: MSG_STARRED_ASSISTANT.timestamp,
+          starredAt: Date.now() - 10_000,
+        },
+      },
       slackThreads: {
         "st-playground": {
           id: "st-playground",

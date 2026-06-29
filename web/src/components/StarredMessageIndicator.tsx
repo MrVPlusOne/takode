@@ -6,18 +6,17 @@ export function StarIcon({ className = "h-3.5 w-3.5" }: { className?: string }) 
   );
 }
 
-export function StarredMessageIndicator({ compact = false }: { compact?: boolean }) {
+export function StarredMessageRailMarker({ side }: { side: "assistant" | "user" }) {
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-300/20 bg-amber-300/10 text-amber-200 ${
-        compact ? "px-1 py-0.5" : "px-1.5 py-0.5"
+      className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-md border border-amber-300/25 bg-amber-300/10 text-amber-200 shadow-[0_0_0_1px_rgba(251,191,36,0.05)] ${
+        side === "assistant" ? "mt-1.5" : ""
       }`}
       title="Starred message"
       aria-label="Starred message"
-      data-testid="starred-message-indicator"
+      data-testid={`starred-message-${side}-rail`}
     >
-      <StarIcon className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
-      {!compact && <span className="sr-only">Starred</span>}
+      <StarIcon className="h-3 w-3" />
     </span>
   );
 }

@@ -569,6 +569,14 @@ export const MSG_USER: ChatMessage = {
   timestamp: Date.now() - 60000,
 };
 
+export const MSG_STARRED_USER: ChatMessage = {
+  id: "msg-starred-user",
+  role: "user",
+  content: "Pin this rollout checkpoint so I can find it after switching threads.",
+  timestamp: Date.now() - 59500,
+  historyIndex: 90,
+};
+
 export const MSG_USER_MARKDOWN: ChatMessage = {
   id: "msg-1-md",
   role: "user",
@@ -648,6 +656,14 @@ export const MSG_ASSISTANT: ChatMessage = {
     },
   ],
   timestamp: Date.now() - 50000,
+};
+
+export const MSG_STARRED_ASSISTANT: ChatMessage = {
+  id: "msg-starred-assistant",
+  role: "assistant",
+  content: "Saved implementation note: keep the feed marker out of Markdown so navigation does not remount content.",
+  timestamp: Date.now() - 49800,
+  historyIndex: 91,
 };
 
 export const MSG_ASSISTANT_QUEST_QUIZ: ChatMessage = {

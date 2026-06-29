@@ -39,6 +39,8 @@ import {
   MSG_ASSISTANT_THINKING_CODEX,
   MSG_ASSISTANT_THINKING_CODEX_SHORT,
   MSG_ASSISTANT_TOOLS,
+  MSG_STARRED_ASSISTANT,
+  MSG_STARRED_USER,
   MSG_COMPACT_COLLAPSED,
   MSG_COMPACT_WITH_SUMMARY,
   MSG_DENIED_BASH,
@@ -754,6 +756,9 @@ export function PlaygroundOverviewSections() {
           <Card label="User message">
             <MessageBubble message={MSG_USER} />
           </Card>
+          <Card label="Starred user message (side rail)">
+            <MessageBubble message={MSG_STARRED_USER} sessionId={MOCK_SESSION_ID} />
+          </Card>
           <Card label="User message with Markdown (conservative subset)">
             <MessageBubble message={MSG_USER_MARKDOWN} />
           </Card>
@@ -807,6 +812,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Assistant message (markdown)">
             <MessageBubble message={MSG_ASSISTANT} />
+          </Card>
+          <Card label="Starred assistant message (rail marker)">
+            <MessageBubble message={MSG_STARRED_ASSISTANT} sessionId={MOCK_SESSION_ID} />
           </Card>
           <Card label="Assistant completion quiz">
             <PlaygroundAssistantQuestQuizMessage />

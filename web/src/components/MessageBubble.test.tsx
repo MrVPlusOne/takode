@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   THREAD_OUTCOME_REMINDER_SOURCE_ID,
@@ -54,6 +54,7 @@ vi.mock("remark-gfm", () => ({
 }));
 
 import { MessageBubble } from "./MessageBubble.js";
+import { HidePawContext } from "./PawTrail.js";
 import { useStore } from "../store.js";
 import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
 
@@ -254,10 +255,52 @@ describe("MessageBubble - user messages", () => {
 
     render(<MessageBubble message={msg} sessionId="star-session" />);
 
-    expect(screen.getByTestId("starred-message-indicator")).toBeTruthy();
+    const rail = screen.getByTestId("starred-message-user-rail");
+    const bubble = screen.getByTestId("user-message-bubble");
+    expect(rail).toBeTruthy();
+    expect(bubble.contains(rail)).toBe(false);
+    expect(bubble.querySelector('[data-testid="starred-message-indicator"]')).toBeNull();
     fireEvent.click(screen.getByTitle("Message options"));
     fireEvent.click(screen.getByText("Unstar message"));
     expect(unstarMessageMock).toHaveBeenCalledWith("star-session", "user-star");
+  });
+
+  it("keeps feed star indicators current when the starred sidecar changes without replacing the session object", () => {
+    const msg = makeMessage({
+      id: "user-star-live-update",
+      role: "user",
+      content: "Keep this visible",
+      historyIndex: 5,
+    });
+    const session = { session_id: "star-session", starredMessages: {} } as any;
+    useStore.setState({
+      sessions: new Map([["star-session", session]]),
+    });
+
+    render(<MessageBubble message={msg} sessionId="star-session" />);
+
+    expect(screen.queryByTestId("starred-message-user-rail")).toBeNull();
+
+    act(() => {
+      session.starredMessages = {
+        "user-star-live-update": {
+          messageId: "user-star-live-update",
+          role: "user",
+          historyIndex: 5,
+          sourceThreadKey: "main",
+          routeThreadKey: "main",
+          timestamp: msg.timestamp,
+          starredAt: msg.timestamp + 1,
+        },
+      };
+      useStore.setState((state) => {
+        const sessions = new Map(state.sessions);
+        sessions.set("star-session", session);
+        return { sessions };
+      });
+    });
+
+    expect(screen.getByTestId("starred-message-user-rail")).toBeTruthy();
   });
 
   it("does not expose star actions for fallback-normalized user rows", () => {
@@ -1086,6 +1129,47 @@ describe("MessageBubble - assistant messages", () => {
     fireEvent.click(screen.getByTitle("Message options"));
     fireEvent.click(screen.getByText("Star message"));
     expect(starMessageMock).toHaveBeenCalledWith("star-session", "assistant-star", { historyIndex: 4 });
+  });
+
+  it("renders starred assistant indicators in the leading rail slot even when the regular paw is hidden", () => {
+    const msg = makeMessage({
+      id: "assistant-starred-rail",
+      role: "assistant",
+      content: "Save this answer",
+      historyIndex: 4,
+    });
+    useStore.setState({
+      sessions: new Map([
+        [
+          "star-session",
+          {
+            session_id: "star-session",
+            starredMessages: {
+              "assistant-starred-rail": {
+                messageId: "assistant-starred-rail",
+                role: "assistant",
+                historyIndex: 4,
+                sourceThreadKey: "main",
+                routeThreadKey: "main",
+                timestamp: msg.timestamp,
+                starredAt: msg.timestamp + 1,
+              },
+            },
+          } as any,
+        ],
+      ]),
+    });
+
+    render(
+      <HidePawContext.Provider value={true}>
+        <MessageBubble message={msg} sessionId="star-session" />
+      </HidePawContext.Provider>,
+    );
+
+    const rail = screen.getByTestId("starred-message-assistant-rail");
+    expect(rail).toBeTruthy();
+    expect(screen.getByTestId("markdown").contains(rail)).toBe(false);
+    expect(screen.queryByTestId("starred-message-indicator")).toBeNull();
   });
 
   it("does not expose star actions for fallback-normalized leader-user rows", () => {
