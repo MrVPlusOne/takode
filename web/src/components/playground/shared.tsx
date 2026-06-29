@@ -1229,6 +1229,9 @@ export function PlaygroundHoverCrossLinkDemo({ text }: { text: string }) {
           model: "gpt-5.4-mini",
           repoRoot: "/Users/stan/Dev/takode",
           herdedBy: "playground-hover-leader",
+          notificationUrgency: "needs-input",
+          activeNotificationCount: 2,
+          activeNeedsInputNotificationCount: 2,
         });
       }
       if (!nextSdkSessions.some((session) => session.sessionId === "playground-hover-reviewer")) {

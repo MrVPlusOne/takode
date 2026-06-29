@@ -60,6 +60,8 @@ const mockStoreState = {
   sessionBoards: undefined as Map<string, BoardRowData[]> | undefined,
   currentSessionId: undefined as string | undefined,
   sessionTimers: new Map<string, Array<{ id: string }>>(),
+  sessionNotifications: new Map<string, Array<any>>(),
+  sessionAttention: new Map<string, "action" | "error" | "review" | null>(),
 };
 
 vi.mock("../store.js", () => ({
@@ -99,6 +101,8 @@ describe("SessionHoverCard", () => {
     mockStoreState.sessionBoards = undefined;
     mockStoreState.currentSessionId = undefined;
     mockStoreState.sessionTimers = new Map();
+    mockStoreState.sessionNotifications = new Map();
+    mockStoreState.sessionAttention = new Map();
   });
 
   it("renders safely when the mocked store omits quests", () => {
@@ -163,6 +167,79 @@ describe("SessionHoverCard", () => {
     expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "running");
     expect(screen.getByText("running")).toBeInTheDocument();
     expect(screen.queryByTestId("session-status-timer-icon")).toBeNull();
+  });
+
+  it("explains active needs-input status near the top of the hover card", () => {
+    render(
+      <SessionHoverCard
+        session={makeSession({
+          notificationUrgency: "needs-input",
+          activeNotificationCount: 2,
+          activeNeedsInputNotificationCount: 2,
+        })}
+        sessionName="Needs Input Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    const status = screen.getByTestId("session-hover-attention-status");
+    expect(status).toHaveTextContent("2 needs-input notifications");
+    expect(within(status).getByTestId("session-hover-attention-status-dot")).toHaveClass("bg-amber-400");
+  });
+
+  it("uses conversations for unread status copy without mixed tab wording", () => {
+    render(
+      <SessionHoverCard
+        session={makeSession({
+          notificationUrgency: "review",
+          activeNotificationCount: 3,
+          activeReviewNotificationCount: 3,
+        })}
+        sessionName="Unread Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    const status = screen.getByTestId("session-hover-attention-status");
+    expect(status).toHaveTextContent("3 unread conversations");
+    expect(status).not.toHaveTextContent("tabs/conversations");
+    expect(within(status).getByTestId("session-hover-attention-status-dot")).toHaveClass("bg-blue-500");
+  });
+
+  it("explains muted needs-input status with the existing muted gray dot", () => {
+    render(
+      <SessionHoverCard
+        session={makeSession({
+          notificationUrgency: null,
+          activeNotificationCount: 0,
+          mutedNeedsInputNotificationCount: 1,
+        })}
+        sessionName="Muted Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    const status = screen.getByTestId("session-hover-attention-status");
+    expect(status).toHaveTextContent("1 muted needs-input notification");
+    expect(within(status).getByTestId("session-hover-attention-status-dot")).toHaveClass("bg-cc-muted/45");
   });
 
   it("shows the max context window rounded to whole K tokens", () => {

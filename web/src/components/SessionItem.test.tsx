@@ -906,6 +906,19 @@ describe("SessionItem notification marker", () => {
     expect(marker).toHaveAttribute("data-urgency", "needs-input");
   });
 
+  it("keeps the notification marker visible when the session row is hovered", () => {
+    // The sidebar hover card opens from the whole row, so the status marker must
+    // not fade out at the same moment the detail pop-up appears.
+    setSessionNotifications("s1", [
+      { id: "n-input", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
+    ]);
+
+    renderSessionItem();
+    const marker = screen.getByTestId("session-notification-marker");
+    expect(marker).toHaveAttribute("data-urgency", "needs-input");
+    expect(marker.className).not.toContain("group-hover:opacity-0");
+  });
+
   it("shows muted needs-input as a gray marker when no active notification wins", () => {
     // Muted needs-input remains unresolved, but it should not use the amber active
     // attention state. The row still exposes a quieter discoverability marker.

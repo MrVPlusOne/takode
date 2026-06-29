@@ -201,7 +201,7 @@ function NotificationMarker({
       <span
         data-testid="session-notification-marker"
         data-urgency="needs-input"
-        className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[8px] h-[8px] rounded-full bg-amber-400 sm:group-hover:opacity-0 transition-opacity pointer-events-none"
+        className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[8px] h-[8px] rounded-full bg-amber-400 transition-opacity pointer-events-none"
       />
     );
   }
@@ -210,7 +210,7 @@ function NotificationMarker({
       <span
         data-testid="session-notification-marker"
         data-urgency="review"
-        className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 sm:group-hover:opacity-0 transition-opacity pointer-events-none"
+        className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 transition-opacity pointer-events-none"
       />
     );
   }
@@ -220,7 +220,7 @@ function NotificationMarker({
         data-testid="session-notification-marker"
         data-urgency="muted-needs-input"
         title="Muted needs-input"
-        className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full border border-cc-muted/70 bg-cc-muted/45 sm:group-hover:opacity-0 transition-opacity pointer-events-none"
+        className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full border border-cc-muted/70 bg-cc-muted/45 transition-opacity pointer-events-none"
       />
     );
   }
@@ -1195,12 +1195,12 @@ export function SessionItem({
 
       {/* Action attention badge (needs-input via takode notify, no pending permissions) */}
       {!archived && effectiveAttention === "action" && permCount === 0 && (
-        <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[8px] h-[8px] rounded-full bg-amber-400 sm:group-hover:opacity-0 transition-opacity pointer-events-none" />
+        <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[8px] h-[8px] rounded-full bg-amber-400 transition-opacity pointer-events-none" />
       )}
 
       {/* Review attention badge (shown when session needs review and no higher-priority badge) */}
       {!archived && effectiveAttention === "review" && permCount === 0 && (
-        <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 sm:group-hover:opacity-0 transition-opacity pointer-events-none" />
+        <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 transition-opacity pointer-events-none" />
       )}
 
       {/* Notification inbox markers (shown when no server attention, permission, or timer-status icon is active).

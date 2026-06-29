@@ -1984,7 +1984,7 @@ export function PlaygroundInteractiveSections() {
             <PlaygroundHoverCrossLinkDemo text="Hover [q-418](quest:q-418) to see status, Journey, owner, and leader metadata in the quest hover preview." />
           </Card>
           <Card label="Session hover shows active quest">
-            <PlaygroundHoverCrossLinkDemo text="Hover [#566](session:566) to see the worker's active quest chip in the session hover preview." />
+            <PlaygroundHoverCrossLinkDemo text="Hover [#566](session:566) to see the worker's active quest chip and needs-input status line in the session hover preview." />
           </Card>
           <Card label="Leader hover shows active quests">
             <PlaygroundHoverCrossLinkDemo text="Hover [#565](session:565) to see active leader board quests with colored phase labels and normal titles." />

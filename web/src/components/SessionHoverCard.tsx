@@ -24,6 +24,7 @@ import { orderLeaderActivePhaseRows } from "../../shared/leader-active-phase-sum
 import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
 import { resolveEffectiveModelContextWindow } from "../utils/session-view-model.js";
 import { formatContextWindowLabel } from "../utils/token-format.js";
+import type { SessionNotification } from "../types.js";
 
 interface SessionHoverCardProps {
   session: SessionItemType;
@@ -87,6 +88,73 @@ function sessionHoverStatusLabel(visualStatus: ReturnType<typeof deriveSessionSt
   }
 }
 
+type SessionHoverAttentionStatus = {
+  dotClassName: string;
+  label: string;
+};
+
+function positiveCount(value: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function getSessionHoverAttentionStatus({
+  session,
+  notifications,
+  attention,
+}: {
+  session: SessionItemType;
+  notifications: SessionNotification[] | undefined;
+  attention: "action" | "error" | "review" | null | undefined;
+}): SessionHoverAttentionStatus | null {
+  const openNotifications = notifications?.filter((notification) => !notification.done);
+  const liveActiveNeedsInputCount =
+    openNotifications?.filter((notification) => notification.category === "needs-input" && !notification.muted)
+      .length ?? 0;
+  const liveUnreadCount =
+    openNotifications?.filter((notification) => notification.category === "review" && !notification.muted).length ?? 0;
+  const liveMutedNeedsInputCount =
+    openNotifications?.filter((notification) => notification.category === "needs-input" && notification.muted).length ??
+    0;
+
+  const activeNeedsInputCount =
+    liveActiveNeedsInputCount ||
+    positiveCount(session.activeNeedsInputNotificationCount) ||
+    (session.notificationUrgency === "needs-input" ? positiveCount(session.activeNotificationCount) || 1 : 0) ||
+    (attention === "action" ? 1 : 0);
+  if (activeNeedsInputCount > 0) {
+    return {
+      dotClassName: "bg-amber-400",
+      label: pluralize(activeNeedsInputCount, "needs-input notification"),
+    };
+  }
+
+  const unreadCount =
+    liveUnreadCount ||
+    positiveCount(session.activeReviewNotificationCount) ||
+    (session.notificationUrgency === "review" ? positiveCount(session.activeNotificationCount) || 1 : 0) ||
+    (attention === "review" ? 1 : 0);
+  if (unreadCount > 0) {
+    return {
+      dotClassName: "bg-blue-500",
+      label: pluralize(unreadCount, "unread conversation"),
+    };
+  }
+
+  const mutedNeedsInputCount = liveMutedNeedsInputCount || positiveCount(session.mutedNeedsInputNotificationCount) || 0;
+  if (mutedNeedsInputCount > 0) {
+    return {
+      dotClassName: "border border-cc-muted/70 bg-cc-muted/45",
+      label: pluralize(mutedNeedsInputCount, "muted needs-input notification"),
+    };
+  }
+
+  return null;
+}
+
 export function SessionHoverCard({
   session: s,
   sessionName,
@@ -113,6 +181,8 @@ export function SessionHoverCard({
   const sdkSessionMeta = useMemo(() => sdkSessions.find((sdk) => sdk.sessionId === s.id), [sdkSessions, s.id]);
   const currentSessionId = useStore((st) => st.currentSessionId);
   const liveTimerCount = useStore((st) => st.sessionTimers?.get(s.id)?.length ?? 0);
+  const sessionNotifications = useStore((st) => st.sessionNotifications?.get(s.id));
+  const sessionAttention = useStore((st) => st.sessionAttention?.get(s.id) ?? null);
   const effectiveBackendType = sessionState?.backend_type ?? sdkSessionMeta?.backendType ?? s.backendType;
   const leaderSession = useMemo(() => {
     if (s.isOrchestrator || !s.herdedBy) return null;
@@ -135,6 +205,11 @@ export function SessionHoverCard({
   };
   const visualStatus = deriveSessionStatus(statusDotProps);
   const statusLabel = sessionHoverStatusLabel(visualStatus, activeTimerCount);
+  const attentionStatus = getSessionHoverAttentionStatus({
+    session: s,
+    notifications: sessionNotifications,
+    attention: sessionAttention,
+  });
 
   const shortId = s.id.slice(0, 8);
   const label = sessionName || s.model || shortId;
@@ -295,6 +370,19 @@ export function SessionHoverCard({
               </>
             )}
           </div>
+          {attentionStatus && (
+            <div
+              data-testid="session-hover-attention-status"
+              className="mt-2 flex min-w-0 items-center gap-1.5 text-[11px] leading-tight text-cc-muted"
+            >
+              <span
+                data-testid="session-hover-attention-status-dot"
+                className={`h-1.5 w-1.5 shrink-0 rounded-full ${attentionStatus.dotClassName}`}
+                aria-hidden="true"
+              />
+              <span className="min-w-0 truncate">{attentionStatus.label}</span>
+            </div>
+          )}
           {s.cwd && (
             <SessionPathSummary
               cwd={s.cwd}
