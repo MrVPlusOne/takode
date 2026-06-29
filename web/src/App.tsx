@@ -354,13 +354,16 @@ export default function App() {
     let failures = 0;
     const poll = async () => {
       const ok = await checkHealth();
+      const store = useStore.getState();
       if (ok) {
         failures = 0;
-        useStore.getState().setServerReachable(true);
+        if (!store.serverReachable) {
+          store.setServerReachable(true);
+        }
       } else {
         failures++;
-        if (failures >= 2) {
-          useStore.getState().setServerReachable(false);
+        if (failures >= 2 && store.serverReachable) {
+          store.setServerReachable(false);
         }
       }
     };

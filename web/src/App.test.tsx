@@ -569,6 +569,25 @@ describe("App hidden panels", () => {
     expect(screen.queryByText("Server unreachable")).toBeNull();
   });
 
+  it("does not republish unchanged health state on a successful poll", async () => {
+    resetStore({ serverReachable: true });
+    mockCheckHealth.mockResolvedValueOnce(true);
+
+    render(<App />);
+
+    await waitFor(() => expect(mockCheckHealth).toHaveBeenCalled());
+    expect(mockState.setServerReachable).not.toHaveBeenCalled();
+  });
+
+  it("marks the server reachable when a successful poll recovers from unreachable state", async () => {
+    resetStore({ serverReachable: false });
+    mockCheckHealth.mockResolvedValueOnce(true);
+
+    render(<App />);
+
+    await waitFor(() => expect(mockState.setServerReachable).toHaveBeenCalledWith(true));
+  });
+
   it("resolves readable message deep links through raw history index before selecting and scrolling", async () => {
     resetStore({
       currentSessionId: null,
