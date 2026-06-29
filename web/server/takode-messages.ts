@@ -1595,6 +1595,7 @@ export function buildPeekRangeForContainingMessage(
     showTools?: boolean;
     threadKey?: string;
     includeContext?: boolean;
+    contextUsageHistory?: ContextUsageHistoryEntry[];
     getToolResult?: ReadOptions["getToolResult"];
   } = {},
   sessionId?: string,
@@ -1639,6 +1640,7 @@ export function buildPeekRangeForContainingMessage(
         showTools: options.showTools,
         threadKey: options.threadKey,
         includeContext: options.includeContext,
+        contextUsageHistory: options.contextUsageHistory,
       },
       sessionId,
     ),

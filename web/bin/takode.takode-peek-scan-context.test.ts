@@ -161,6 +161,56 @@ describe("takode scan/peek context diagnostics", () => {
         return;
       }
 
+      if (method === "GET" && url === "/api/sessions/153/messages?turnContaining=1&showTools=true&context=true") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Context Worker",
+            status: "idle",
+            quest: null,
+            mode: "range",
+            totalMessages: 4,
+            from: 0,
+            to: 3,
+            messages: [
+              {
+                idx: 0,
+                type: "user",
+                content: "inspect quest",
+                ts: now - 60_000,
+                contextUsage: null,
+              },
+              {
+                idx: 1,
+                type: "assistant",
+                content: "",
+                ts: now - 59_500,
+                contextUsage: context.reportedUsage,
+                tools: [
+                  {
+                    idx: 0,
+                    name: "Bash",
+                    summary: "Show quest q-1452",
+                    status: "completed",
+                    context: {
+                      resultBytes: 29_400,
+                      hiddenResultBytes: 29_393,
+                      commandFamily: "quest show",
+                      commandSummary: "Show quest q-1452",
+                    },
+                  },
+                ],
+              },
+              { idx: 3, type: "result", content: "done", ts: now - 59_000, success: true, contextUsage: null },
+            ],
+            bounds: [{ turn: 0, si: 0, ei: 3 }],
+          }),
+        );
+        return;
+      }
+
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: `unexpected ${method} ${url}` }));
     });
@@ -177,6 +227,10 @@ describe("takode scan/peek context diagnostics", () => {
         env,
       );
       const contextPeek = await runTakode(["peek", "153", "--turn", "0", "--context", "--port", String(port)], env);
+      const containingPeek = await runTakode(
+        ["peek", "153", "--turn-containing", "1", "--context", "--port", String(port)],
+        env,
+      );
 
       expect(compactScan.status).toBe(0);
       expect(compactScan.stderr).toBe("");
@@ -192,9 +246,14 @@ describe("takode scan/peek context diagnostics", () => {
       expect(contextPeek.stdout).toContain("ctx 42% 230,000/545,000 tokens codex_token_usage");
       expect(contextPeek.stdout).toContain("ctx unavailable");
       expect(contextPeek.stdout).toContain("Bash ✓ Show quest q-1452 [quest show, result 28.7 KiB");
+      expect(containingPeek.status).toBe(0);
+      expect(containingPeek.stderr).toBe("");
+      expect(containingPeek.stdout).toContain("ctx 42% 230,000/545,000 tokens codex_token_usage");
+      expect(containingPeek.stdout).toContain("ctx unavailable");
       expect(requests).toContain("GET /api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=1");
       expect(requests).toContain("GET /api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=1&context=true");
       expect(requests).toContain("GET /api/sessions/153/messages?turn=0&showTools=true&context=true");
+      expect(requests).toContain("GET /api/sessions/153/messages?turnContaining=1&showTools=true&context=true");
     } finally {
       server.close();
     }

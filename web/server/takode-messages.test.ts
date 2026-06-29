@@ -740,6 +740,37 @@ describe("buildPeekRange", () => {
     }
   });
 
+  it("preserves reported usage when resolving a containing turn with --context", () => {
+    const history: BrowserIncomingMessage[] = [
+      userMsg("main prompt", 1000),
+      assistantMsg("thread answer", 1500),
+      resultMsg(200),
+    ];
+
+    const result = buildPeekRangeForContainingMessage(history, 1, {
+      includeContext: true,
+      contextUsageHistory: [
+        { timestamp: 1200, source: "codex_token_usage", contextUsedPercent: 42 },
+        { timestamp: 1800, source: "codex_token_usage", contextUsedPercent: 84 },
+      ],
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    if (result.ok) {
+      expect(result.response.messages[0].contextUsage).toBeNull();
+      expect(result.response.messages[1].contextUsage).toMatchObject({
+        timestamp: 1200,
+        source: "codex_token_usage",
+        contextUsedPercent: 42,
+      });
+      expect(result.response.messages[2].contextUsage).toMatchObject({
+        timestamp: 1200,
+        source: "codex_token_usage",
+        contextUsedPercent: 42,
+      });
+    }
+  });
+
   it("rejects message-to-turn lookup when the message is outside the selected thread", () => {
     const history: BrowserIncomingMessage[] = [
       userMsg("main prompt", 1000),
