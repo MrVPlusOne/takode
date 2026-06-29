@@ -16,6 +16,35 @@ export async function setSessionPermissionMode(
   return true;
 }
 
+export async function setSessionModel(
+  sessions: Map<string, Session>,
+  browserRoutingDeps: AdapterBrowserRoutingDeps,
+  sessionId: string,
+  model: string,
+): Promise<boolean> {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+  await routeBrowserMessageController(session, { type: "set_model", model }, undefined, browserRoutingDeps);
+  return true;
+}
+
+export async function setCodexServiceTier(
+  sessions: Map<string, Session>,
+  browserRoutingDeps: AdapterBrowserRoutingDeps,
+  sessionId: string,
+  serviceTier: string | null,
+): Promise<boolean> {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+  await routeBrowserMessageController(
+    session,
+    { type: "set_codex_service_tier", serviceTier },
+    undefined,
+    browserRoutingDeps,
+  );
+  return true;
+}
+
 export async function interruptSession(
   sessions: Map<string, Session>,
   browserRoutingDeps: AdapterBrowserRoutingDeps,

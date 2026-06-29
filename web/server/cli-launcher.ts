@@ -1624,6 +1624,38 @@ export class CliLauncher {
     return this.sessions.get(sessionId);
   }
 
+  updateSessionLaunchConfig(
+    sessionId: string,
+    updates: Partial<
+      Pick<
+        SdkSessionInfo,
+        | "model"
+        | "permissionMode"
+        | "askPermission"
+        | "uiMode"
+        | "codexInternetAccess"
+        | "codexSandbox"
+        | "codexReasoningEffort"
+        | "codexServiceTier"
+        | "codexMaxContextLength"
+        | "claudeReasoningEffort"
+        | "claudeMaxContextLength"
+      >
+    >,
+  ): SdkSessionInfo | undefined {
+    const info = this.sessions.get(sessionId);
+    if (!info) return undefined;
+    let changed = false;
+    for (const key of Object.keys(updates) as Array<keyof typeof updates>) {
+      const next = updates[key];
+      if (info[key] === next) continue;
+      (info as unknown as Record<string, unknown>)[key] = next;
+      changed = true;
+    }
+    if (changed) this.persistState();
+    return info;
+  }
+
   /**
    * Check if a session exists and is alive (not exited).
    */

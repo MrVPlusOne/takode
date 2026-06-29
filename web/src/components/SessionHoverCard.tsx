@@ -241,8 +241,8 @@ export function SessionHoverCard({
   const contextWindow =
     resolveEffectiveModelContextWindow({
       backendType,
-      codexMaxContextLength: backendType === "codex" ? configuredMaxContextLength : undefined,
-      claudeMaxContextLength: backendType !== "codex" ? configuredMaxContextLength : undefined,
+      codexMaxContextLength: backendType === "codex" ? (configuredMaxContextLength ?? undefined) : undefined,
+      claudeMaxContextLength: backendType !== "codex" ? (configuredMaxContextLength ?? undefined) : undefined,
       codexTokenDetailsModelContextWindow: backendType === "codex" ? backendReportedContextWindow : undefined,
       claudeTokenDetailsModelContextWindow: backendType !== "codex" ? backendReportedContextWindow : undefined,
     }) ?? 0;

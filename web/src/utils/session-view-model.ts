@@ -73,7 +73,12 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
       totalCostUsd: session.total_cost_usd,
       contextUsedPercent: session.context_used_percent,
       modelContextWindow:
-        session.codex_token_details?.modelContextWindow ?? session.claude_token_details?.modelContextWindow,
+        session.codex_max_context_length ??
+        session.claude_max_context_length ??
+        session.codex_token_details?.modelContextWindow ??
+        session.claude_token_details?.modelContextWindow,
+      codexMaxContextLength: session.codex_max_context_length ?? undefined,
+      claudeMaxContextLength: session.claude_max_context_length ?? undefined,
       codexLeaderRecycleThresholdTokens: session.codex_leader_recycle_threshold_tokens,
       contextTokensUsed: session.codex_token_details?.contextTokensUsed,
       messageHistoryBytes: session.message_history_bytes,
@@ -109,13 +114,13 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
     numTurns: session.userTurnCount ?? session.numTurns,
     modelContextWindow: resolveEffectiveModelContextWindow({
       backendType: session.backendType,
-      codexMaxContextLength: session.codexMaxContextLength,
-      claudeMaxContextLength: session.claudeMaxContextLength,
+      codexMaxContextLength: session.codexMaxContextLength ?? undefined,
+      claudeMaxContextLength: session.claudeMaxContextLength ?? undefined,
       codexTokenDetailsModelContextWindow: session.codexTokenDetails?.modelContextWindow,
       claudeTokenDetailsModelContextWindow: session.claudeTokenDetails?.modelContextWindow,
     }),
-    codexMaxContextLength: session.codexMaxContextLength,
-    claudeMaxContextLength: session.claudeMaxContextLength,
+    codexMaxContextLength: session.codexMaxContextLength ?? undefined,
+    claudeMaxContextLength: session.claudeMaxContextLength ?? undefined,
     codexLeaderRecycleThresholdTokens: session.codexLeaderRecycleThresholdTokens,
     contextTokensUsed: session.codexTokenDetails?.contextTokensUsed,
     messageHistoryBytes: session.messageHistoryBytes,

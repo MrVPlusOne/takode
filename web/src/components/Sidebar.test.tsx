@@ -31,6 +31,14 @@ const mockApi = {
   archiveSession: vi.fn().mockResolvedValue({}),
   archiveGroup: vi.fn().mockResolvedValue({ ok: true, archived: 1, failed: 0 }),
   unarchiveSession: vi.fn().mockResolvedValue({}),
+  relaunchSession: vi.fn().mockResolvedValue({ ok: true }),
+  updateSessionConfig: vi.fn().mockResolvedValue({
+    ok: true,
+    restartRequired: false,
+    session: {},
+    sessionState: {},
+  }),
+  getBackendModels: vi.fn().mockResolvedValue([]),
   createTreeGroup: vi.fn().mockResolvedValue({ ok: true, group: { id: "group-2", name: "Group 2" } }),
   assignSessionToTreeGroup: vi.fn().mockResolvedValue({ ok: true }),
   assignSessionsToTreeGroup: vi.fn().mockResolvedValue({ ok: true }),
@@ -53,6 +61,9 @@ vi.mock("../api.js", () => ({
     archiveSession: (...args: unknown[]) => mockApi.archiveSession(...args),
     archiveGroup: (...args: unknown[]) => mockApi.archiveGroup(...args),
     unarchiveSession: (...args: unknown[]) => mockApi.unarchiveSession(...args),
+    relaunchSession: (...args: unknown[]) => mockApi.relaunchSession(...args),
+    updateSessionConfig: (...args: unknown[]) => mockApi.updateSessionConfig(...args),
+    getBackendModels: (...args: unknown[]) => mockApi.getBackendModels(...args),
     createTreeGroup: (...args: unknown[]) => mockApi.createTreeGroup(...args),
     assignSessionToTreeGroup: (...args: unknown[]) => mockApi.assignSessionToTreeGroup(...args),
     assignSessionsToTreeGroup: (...args: unknown[]) => mockApi.assignSessionsToTreeGroup(...args),
@@ -129,6 +140,8 @@ interface MockStoreState {
   markRecentlyRenamed: ReturnType<typeof vi.fn>;
   clearRecentlyRenamed: ReturnType<typeof vi.fn>;
   setSdkSessions: ReturnType<typeof vi.fn>;
+  updateSession: ReturnType<typeof vi.fn>;
+  updateSdkSession: ReturnType<typeof vi.fn>;
   closeTerminal: ReturnType<typeof vi.fn>;
   openNewSessionModal: ReturnType<typeof vi.fn>;
   closeNewSessionModal: ReturnType<typeof vi.fn>;
@@ -232,6 +245,8 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     markRecentlyRenamed: vi.fn(),
     clearRecentlyRenamed: vi.fn(),
     setSdkSessions: vi.fn(),
+    updateSession: vi.fn(),
+    updateSdkSession: vi.fn(),
     closeTerminal: vi.fn(),
     openNewSessionModal: vi.fn(),
     closeNewSessionModal: vi.fn(),
@@ -1797,6 +1812,28 @@ describe("Sidebar", { timeout: 10000 }, () => {
 
     fireEvent.click(screen.getByText("Copy Session Number"));
     expect(mockWriteClipboardText).toHaveBeenCalledWith("#1147");
+  });
+
+  it("opens Configure Session from the session context menu", async () => {
+    const session = makeSession("s1");
+    const sdk = makeSdkSession("s1", { sessionNum: 1533, backendType: "codex", model: "gpt-5.4" });
+    mockState = createMockState({
+      sessions: new Map([["s1", { ...session, backend_type: "codex", model: "gpt-5.4" }]]),
+      sdkSessions: [sdk],
+      currentSessionId: "s1",
+      cliConnected: new Map([["s1", true]]),
+    });
+
+    render(<Sidebar />);
+    const sessionButton = screen.getByText("gpt-5.4").closest("button")!;
+    fireEvent.contextMenu(sessionButton, { clientX: 100, clientY: 120 });
+
+    expect(screen.getByText("Configure Session")).toBeInTheDocument();
+    expect(screen.getByText("Configure Session").closest(".fixed")).toHaveClass("w-56");
+    fireEvent.click(screen.getByText("Configure Session"));
+
+    expect(await screen.findByRole("dialog", { name: "Configure Session" })).toBeInTheDocument();
+    expect(screen.getByText(/Codex session settings for #1533/)).toBeInTheDocument();
   });
 
   it("offers a force-herd action to the current leader for workers owned by another leader", async () => {

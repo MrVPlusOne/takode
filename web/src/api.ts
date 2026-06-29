@@ -1,5 +1,6 @@
 import type {
   SdkSessionInfo,
+  SessionState,
   TreeGroup,
   ChatMessage,
   BrowserIncomingMessage,
@@ -334,6 +335,29 @@ export interface CreateSessionOpts {
   memorySessionSpaceSlug?: string;
   /** CLI session ID to resume (from an external CLI session, e.g. VS Code or terminal) */
   resumeCliSessionId?: string;
+}
+
+export interface SessionConfigPatch {
+  model?: string;
+  permissionMode?: string;
+  codexInternetAccess?: boolean;
+  codexReasoningEffort?: string | null;
+  codexServiceTier?: string | null;
+  codexMaxContextLength?: number | null;
+  claudeReasoningEffort?: string | null;
+  claudeMaxContextLength?: number | null;
+}
+
+export interface SessionConfigUpdateResponse {
+  ok: boolean;
+  sessionId: string;
+  backendConnected: boolean;
+  restartRequired: boolean;
+  restartRequiredFields: string[];
+  immediateFields: string[];
+  changedFields: string[];
+  session: Partial<SdkSessionInfo>;
+  sessionState: Partial<SessionState>;
 }
 
 export interface ServerNewSessionDefaults {
@@ -1085,6 +1109,9 @@ export const api = {
   deleteSession: (sessionId: string) => del(`/sessions/${encodeURIComponent(sessionId)}`),
 
   relaunchSession: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/relaunch`),
+
+  updateSessionConfig: (sessionId: string, patch: SessionConfigPatch) =>
+    put<SessionConfigUpdateResponse>(`/sessions/${encodeURIComponent(sessionId)}/config`, patch),
 
   pauseSession: (sessionId: string) =>
     post<{ ok: boolean; sessionId: string; queued: number }>(`/sessions/${encodeURIComponent(sessionId)}/pause`),

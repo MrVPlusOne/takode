@@ -25,17 +25,19 @@ import { formatContextWindowLabel } from "../utils/token-format.js";
 
 const POPOVER_MARGIN = 12;
 const POPOVER_GAP = 8;
-const POPOVER_WIDTH = 300;
+const POPOVER_WIDTH = 390;
 const POPOVER_MIN_HEIGHT = 180;
 
 export function SessionInfoPopover({
   sessionId,
   onClose,
   anchorElement,
+  onConfigure,
 }: {
   sessionId: string;
   onClose: () => void;
   anchorElement?: HTMLElement | null;
+  onConfigure?: (sessionId: string) => void;
 }) {
   const session = useStore((s) => s.sessions.get(sessionId));
   const sdkSession = useStore((s) => s.sdkSessions.find((x) => x.sessionId === sessionId));
@@ -374,6 +376,16 @@ export function SessionInfoPopover({
               </>
             )}
           </div>
+          {onConfigure && (
+            <button
+              type="button"
+              data-testid="session-info-configure-session"
+              onClick={() => onConfigure(sessionId)}
+              className="inline-flex items-center rounded-md border border-cc-border px-2 py-1 text-[11px] font-medium text-cc-fg transition-colors hover:border-cc-primary/40 hover:bg-cc-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
+            >
+              Configure Session
+            </button>
+          )}
           {recoverableConnectionPresentation && (
             <div
               className="rounded-lg border border-cc-border/70 bg-cc-hover/20 px-2.5 py-2"

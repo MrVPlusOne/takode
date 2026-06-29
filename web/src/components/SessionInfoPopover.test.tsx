@@ -241,7 +241,17 @@ describe("SessionInfoPopover", () => {
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} anchorElement={anchor} />);
 
     const popover = screen.getByText("Session Info").parentElement?.parentElement as HTMLElement;
-    expect(popover).toHaveStyle({ left: "36px", top: "50px", width: "300px" });
+    expect(popover).toHaveStyle({ left: "28px", top: "50px", width: "390px" });
+  });
+
+  it("offers a Configure Session entry point", () => {
+    resetStore([]);
+    const onConfigure = vi.fn();
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} onConfigure={onConfigure} />);
+
+    fireEvent.click(screen.getByTestId("session-info-configure-session"));
+    expect(onConfigure).toHaveBeenCalledWith("s1");
   });
 
   it("labels launch settings as applying on resume when backend is disconnected but Takode is reachable", () => {

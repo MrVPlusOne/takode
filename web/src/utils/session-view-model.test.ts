@@ -108,6 +108,41 @@ describe("toSessionViewModel", () => {
     expect(vm.modelContextWindow).toBe(600_000);
     expect(vm.codexMaxContextLength).toBe(600_000);
   });
+
+  it("uses live configured max context from SessionState ahead of token metadata", () => {
+    const session = {
+      session_id: "s32",
+      backend_type: "codex",
+      model: "gpt-5",
+      cwd: "/repo",
+      tools: [],
+      permissionMode: "codex-default",
+      claude_code_version: "1.0.0",
+      mcp_servers: [],
+      agents: [],
+      slash_commands: [],
+      skills: [],
+      total_cost_usd: 0,
+      num_turns: 1,
+      context_used_percent: 12,
+      codex_max_context_length: 750_000,
+      codex_token_details: codexTokenDetails,
+      is_compacting: false,
+      git_branch: "",
+      is_worktree: false,
+      is_containerized: false,
+      repo_root: "/repo",
+      git_ahead: 0,
+      git_behind: 0,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+    } as SessionState;
+
+    const vm = toSessionViewModel(session);
+
+    expect(vm.modelContextWindow).toBe(750_000);
+    expect(vm.codexMaxContextLength).toBe(750_000);
+  });
 });
 
 describe("coalesceSessionViewModel", () => {

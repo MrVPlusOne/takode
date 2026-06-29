@@ -52,6 +52,7 @@ import { registerSessionStarredMessagesRoute } from "./session-starred-messages-
 import { parseIncludeArchived, registerSessionSearchRoute } from "./session-search-route.js";
 import { registerSessionPermissionModeRoute, resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
 import { registerSessionPauseRoutes } from "./session-pause-routes.js";
+import { registerSessionConfigRoutes } from "./session-config-routes.js";
 import { registerSessionLeaderProfileRoute } from "./session-leader-profile-route.js";
 import { registerSessionReplacementRoutes } from "./session-replacement-routes.js";
 import { registerSessionNotificationContextRoute } from "./session-notification-context.js";
@@ -867,6 +868,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
   });
 
   registerSessionSideChatRoutes(api, { launcher, wsBridge, resolveId });
+  registerSessionConfigRoutes(api, { launcher, wsBridge, resolveId });
   registerSessionReplacementRoutes(api, {
     resolveId,
     authenticateTakodeCaller,

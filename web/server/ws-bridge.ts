@@ -204,6 +204,8 @@ import {
 } from "./bridge/adapter-browser-routing-controller.js";
 import {
   interruptSession as interruptSessionController,
+  setCodexServiceTier as setCodexServiceTierController,
+  setSessionModel as setSessionModelController,
   setSessionPermissionMode as setSessionPermissionModeController,
 } from "./bridge/browser-control-routing.js";
 import {
@@ -942,6 +944,14 @@ export class WsBridge {
 
   async setSessionPermissionMode(sessionId: string, mode: string): Promise<boolean> {
     return setSessionPermissionModeController(this.sessions, this.getBrowserRoutingDeps(), sessionId, mode);
+  }
+
+  async setSessionModel(sessionId: string, model: string): Promise<boolean> {
+    return setSessionModelController(this.sessions, this.getBrowserRoutingDeps(), sessionId, model);
+  }
+
+  async setCodexServiceTier(sessionId: string, serviceTier: string | null): Promise<boolean> {
+    return setCodexServiceTierController(this.sessions, this.getBrowserRoutingDeps(), sessionId, serviceTier);
   }
 
   async interruptSession(

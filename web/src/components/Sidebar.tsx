@@ -28,6 +28,8 @@ import { bootstrapServerId, scopedGetItem } from "../utils/scoped-storage.js";
 import { TreeViewGroup } from "./TreeViewGroup.js";
 import { SessionItem, type ArchiveConfirmationState } from "./SessionItem.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
+import { ConfigureSessionModal } from "./ConfigureSessionModal.js";
+import { buildMoveToSubmenu } from "./SidebarContextMenu.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { SidebarBuildLabel } from "./SidebarBuildLabel.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
@@ -64,30 +66,6 @@ const restrictToVerticalAxis: Modifier = ({ transform }) => ({
   ...transform,
   x: 0,
 });
-
-/** Build "Move to..." submenu items for the session context menu (tree view only). */
-function buildMoveToSubmenu(
-  treeGroups: Array<{ id: string; name: string }>,
-  treeAssignments: Map<string, string>,
-  sessionId: string,
-): ContextMenuItem[] {
-  if (treeGroups.length === 0) return [];
-  const currentGroup = treeAssignments.get(sessionId) || "default";
-  const otherGroups = treeGroups.filter((g) => g.id !== currentGroup);
-  if (otherGroups.length === 0) return [];
-  return [
-    {
-      label: "Move to Session Space...",
-      onClick: () => {},
-      children: otherGroups.map((g) => ({
-        label: g.name,
-        onClick: () => {
-          api.assignSessionToTreeGroup(sessionId, g.id).catch(console.error);
-        },
-      })),
-    },
-  ];
-}
 
 function SortableTreeGroup({
   id,
@@ -152,6 +130,7 @@ export function Sidebar() {
   const [mobileReorderHandleActive, setMobileReorderHandleActive] = useState(false);
   const [archiveConfirmation, setArchiveConfirmation] = useState<ArchiveConfirmationState | null>(null);
   const [contextMenu, setContextMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null);
+  const [configureSessionId, setConfigureSessionId] = useState<string | null>(null);
   const [hoveredSession, setHoveredSession] = useState<{ sessionId: string; rect: DOMRect } | null>(null);
   const [hash, setHash] = useState(() => (typeof window !== "undefined" ? window.location.hash : ""));
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -1770,6 +1749,16 @@ export function Sidebar() {
             ...(!isArchived
               ? [
                   {
+                    label: "Configure Session",
+                    onClick: () => {
+                      setConfigureSessionId(contextMenu.sessionId);
+                    },
+                  },
+                ]
+              : []),
+            ...(!isArchived
+              ? [
+                  {
                     label: isPaused ? "Unpause Session" : "Pause Session",
                     onClick: () => {
                       void handlePauseToggle(contextMenu.sessionId, isPaused);
@@ -1891,8 +1880,20 @@ export function Sidebar() {
             },
           ];
 
-          return <ContextMenu x={contextMenu.x} y={contextMenu.y} items={items} onClose={() => setContextMenu(null)} />;
+          return (
+            <ContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              items={items}
+              onClose={() => setContextMenu(null)}
+              widthClassName="w-56 max-w-[calc(100vw-1rem)]"
+              itemClassName="whitespace-normal break-words leading-snug"
+            />
+          );
         })()}
+      {configureSessionId && (
+        <ConfigureSessionModal sessionId={configureSessionId} onClose={() => setConfigureSessionId(null)} />
+      )}
       {/* Session hover card */}
       {hoveredSession &&
         (() => {

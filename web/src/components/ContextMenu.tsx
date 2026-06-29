@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 
 // Shared styles for menu containers and items, extracted to avoid duplication.
 const MENU_STYLES = {
-  container: "fixed z-50 w-fit min-w-[120px] bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-visible",
+  container: "fixed z-50 bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-visible",
   submenuContainer: "fixed z-[60] w-fit min-w-[120px] bg-cc-card border border-cc-border rounded-lg shadow-lg py-1",
   item: "w-full px-2.5 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer whitespace-nowrap",
   disabledItem:
@@ -29,9 +29,18 @@ interface ContextMenuProps {
   y: number;
   items: ContextMenuItem[];
   onClose: () => void;
+  widthClassName?: string;
+  itemClassName?: string;
 }
 
-export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
+export function ContextMenu({
+  x,
+  y,
+  items,
+  onClose,
+  widthClassName = "w-fit min-w-[120px]",
+  itemClassName = "",
+}: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [confirmingItem, setConfirmingItem] = useState<ContextMenuItem | null>(null);
   const [expandedSubmenu, setExpandedSubmenu] = useState<number | null>(null);
@@ -79,7 +88,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   // Portal to document.body so the menu escapes overflow-hidden ancestors
   // and the CSS transform containing block on the root layout div.
   return createPortal(
-    <div ref={menuRef} className={MENU_STYLES.container} style={{ left: x, top: y }}>
+    <div ref={menuRef} className={`${MENU_STYLES.container} ${widthClassName}`} style={{ left: x, top: y }}>
       {confirmingItem ? (
         <div className="p-3 w-56">
           <p className="text-xs text-cc-fg mb-1 font-medium">{confirmingItem.confirm!.title}</p>
@@ -128,6 +137,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
                   }
                   onClose();
                 }}
+                itemClassName={itemClassName}
               />
             ) : (
               <button
@@ -145,7 +155,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
                   }
                 }}
                 onMouseEnter={() => setExpandedSubmenu(null)}
-                className={MENU_STYLES.item}
+                className={`${MENU_STYLES.item} ${itemClassName}`}
               >
                 {item.label}
               </button>
@@ -165,12 +175,14 @@ function SubmenuItem({
   onOpen,
   onClose,
   onAction,
+  itemClassName,
 }: {
   item: ContextMenuItem;
   isOpen: boolean;
   onOpen: () => void;
   onClose: () => void;
   onAction: (child: ContextMenuItem) => void;
+  itemClassName?: string;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const subRef = useRef<HTMLDivElement>(null);
@@ -205,7 +217,10 @@ function SubmenuItem({
         onClose();
       }}
     >
-      <button onClick={onOpen} className={`${MENU_STYLES.item} flex items-center justify-between`}>
+      <button
+        onClick={onOpen}
+        className={`${MENU_STYLES.item} ${itemClassName ?? ""} flex items-center justify-between`}
+      >
         <span>{item.label}</span>
         <svg
           viewBox="0 0 16 16"
@@ -220,7 +235,11 @@ function SubmenuItem({
       {isOpen && item.children && (
         <div ref={subRef} className={MENU_STYLES.submenuContainer} style={subStyle} onMouseLeave={() => onClose()}>
           {item.children.map((child, ci) => (
-            <button key={`${child.label}-${ci}`} onClick={() => onAction(child)} className={MENU_STYLES.item}>
+            <button
+              key={`${child.label}-${ci}`}
+              onClick={() => onAction(child)}
+              className={`${MENU_STYLES.item} ${itemClassName ?? ""}`}
+            >
               {child.label}
             </button>
           ))}

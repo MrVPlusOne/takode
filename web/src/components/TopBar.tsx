@@ -6,6 +6,7 @@ import { SessionStatusDot } from "./SessionStatusDot.js";
 import { parseHash, threadRouteFromHash } from "../utils/routing.js";
 import { navigateTo } from "../utils/navigation.js";
 import { SessionInfoPopover } from "./SessionInfoPopover.js";
+import { ConfigureSessionModal } from "./ConfigureSessionModal.js";
 import { coalesceSessionViewModel, type SessionViewModel } from "../utils/session-view-model.js";
 import { resolveDiffTarget } from "../utils/diff-target.js";
 import { questLabel } from "../utils/quest-helpers.js";
@@ -188,6 +189,7 @@ export function TopBar({
     }),
   );
   const [infoOpen, setInfoOpen] = useState(false);
+  const [configureSessionId, setConfigureSessionId] = useState<string | null>(null);
   const sessionInfoAnchorRef = useRef<HTMLDivElement | null>(null);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
   const isPaused = !!pause?.pausedAt;
@@ -459,7 +461,14 @@ export function TopBar({
                 sessionId={currentSessionId}
                 onClose={() => setInfoOpen(false)}
                 anchorElement={sessionInfoAnchorRef.current}
+                onConfigure={(targetSessionId) => {
+                  setConfigureSessionId(targetSessionId);
+                  setInfoOpen(false);
+                }}
               />
+            )}
+            {configureSessionId && (
+              <ConfigureSessionModal sessionId={configureSessionId} onClose={() => setConfigureSessionId(null)} />
             )}
           </>
         )}

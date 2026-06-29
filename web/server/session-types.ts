@@ -1305,6 +1305,14 @@ export interface SessionState {
   /** Server-authored backend failure detail for disconnected/broken states. */
   backend_error?: string | null;
   model: string;
+  /** Server-owned configured Codex web access for the next launch/resume. */
+  codex_internet_access?: boolean | null;
+  /** Server-owned configured Codex context-window override for the next launch/resume. */
+  codex_max_context_length?: number | null;
+  /** Server-owned configured Claude reasoning effort for the next launch/resume. */
+  claude_reasoning_effort?: string | null;
+  /** Server-owned configured Claude max-context override for the next launch/resume. */
+  claude_max_context_length?: number | null;
   cwd: string;
   tools: string[];
   permissionMode: string;

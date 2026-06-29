@@ -232,8 +232,12 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.diffStatsSkippedReason === b.diffStatsSkippedReason &&
     a.gitStatusRefreshedAt === b.gitStatusRefreshedAt &&
     a.gitStatusRefreshError === b.gitStatusRefreshError &&
+    a.codexInternetAccess === b.codexInternetAccess &&
     a.codexReasoningEffort === b.codexReasoningEffort &&
     a.codexServiceTier === b.codexServiceTier &&
+    a.codexMaxContextLength === b.codexMaxContextLength &&
+    a.claudeReasoningEffort === b.claudeReasoningEffort &&
+    a.claudeMaxContextLength === b.claudeMaxContextLength &&
     a.cronJobId === b.cronJobId &&
     a.cronJobName === b.cronJobName &&
     a.pendingTimerCount === b.pendingTimerCount &&
