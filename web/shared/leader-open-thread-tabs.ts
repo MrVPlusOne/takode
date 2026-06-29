@@ -169,10 +169,18 @@ export function applyLeaderThreadTabUpdate(
         return state;
       }
       const placement = record.placement === "last" ? "last" : "first";
+      const orderedOpenThreadKeys = placeLeaderOpenThreadTabKey(state.orderedOpenThreadKeys, threadKey, placement);
+      const closedThreadTombstones = state.closedThreadTombstones.filter((entry) => entry.threadKey !== threadKey);
+      if (
+        arraysEqual(state.orderedOpenThreadKeys, orderedOpenThreadKeys) &&
+        closedThreadTombstones.length === state.closedThreadTombstones.length
+      ) {
+        return state;
+      }
       return {
         ...state,
-        orderedOpenThreadKeys: placeLeaderOpenThreadTabKey(state.orderedOpenThreadKeys, threadKey, placement),
-        closedThreadTombstones: state.closedThreadTombstones.filter((entry) => entry.threadKey !== threadKey),
+        orderedOpenThreadKeys,
+        closedThreadTombstones,
         updatedAt: now,
       };
     }

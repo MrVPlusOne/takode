@@ -1086,6 +1086,62 @@ describe("ChatView leader open thread tabs", () => {
     });
   });
 
+  it("promotes needs-input notification tabs once per new event across authoritative refreshes", async () => {
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-13"])),
+      sessionBoards: new Map([["s1", []]]),
+      sessionNotifications: new Map([
+        ["s1", [needsInputNotification("q-10", 100), needsInputNotification("q-12", 120)]],
+      ]),
+      messages: new Map([["s1", [threadMessage("q-13", 13)]]]),
+      quests: [
+        { questId: "q-13", title: "Visible quest", status: "in_progress" },
+        { questId: "q-10", title: "Notification quest A", status: "in_progress" },
+        { questId: "q-12", title: "Notification quest B", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    await waitFor(() =>
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-12,q-10,q-13"),
+    );
+    expect(
+      mockSendToSession.mock.calls.filter(
+        ([, msg]) => (msg as { operation?: { source?: string } }).operation?.source === "server_candidate",
+      ),
+    ).toHaveLength(2);
+    mockSendToSession.mockClear();
+
+    mockState.sessions = leaderSession(leaderTabs(["q-12", "q-10", "q-13"], [], 200));
+    view.rerender(<ChatView sessionId="s1" />);
+    await waitFor(() =>
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-12,q-10,q-13"),
+    );
+    expect(mockSendToSession).not.toHaveBeenCalled();
+
+    mockState.sessionNotifications = new Map([
+      ["s1", [needsInputNotification("q-10", 140), needsInputNotification("q-12", 120)]],
+    ]);
+    view.rerender(<ChatView sessionId="s1" />);
+
+    await waitFor(() =>
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-10,q-12,q-13"),
+    );
+    expect(mockSendToSession).toHaveBeenCalledTimes(1);
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-10",
+        placement: "first",
+        source: "server_candidate",
+        eventAt: 140,
+      },
+    });
+  });
+
   it("does not reopen a needs-input notification tab after a newer explicit close", async () => {
     resetStore({
       sessions: leaderSession(leaderTabs(["q-13"], [{ threadKey: "q-12", closedAt: 200 }])),

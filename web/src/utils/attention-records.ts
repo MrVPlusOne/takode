@@ -123,6 +123,15 @@ export function isAttentionRecordActive(record: Pick<AttentionRecord, "state">):
   return ACTIVE_ATTENTION_STATES.has(record.state);
 }
 
+export function isNeedsInputNotificationTabCandidate(record: AttentionRecord): boolean {
+  return (
+    record.source.kind === "notification" &&
+    record.type === "needs_input" &&
+    record.priority === "needs_input" &&
+    isAttentionRecordActive(record)
+  );
+}
+
 function isRedundantActiveNotification(record: AttentionRecord, availableMessageIds?: ReadonlySet<string>): boolean {
   if (record.source.kind !== "notification" || !isAttentionRecordActive(record)) return false;
   if (record.priority === "needs_input" && record.type === "needs_input") return true;

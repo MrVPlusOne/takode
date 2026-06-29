@@ -68,6 +68,7 @@ import {
 import {
   buildAttentionRecords,
   isAttentionRecordActive,
+  isNeedsInputNotificationTabCandidate,
   parseQuestIdsFromReviewSummary,
 } from "../utils/attention-records.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
@@ -718,15 +719,6 @@ function mergeAttentionThreadRows(
   return [...byKey.values()].sort((a, b) => a.createdAt - b.createdAt || a.threadKey.localeCompare(b.threadKey));
 }
 
-function isNeedsInputNotificationTabCandidate(record: SessionAttentionRecord): boolean {
-  return (
-    record.source.kind === "notification" &&
-    record.type === "needs_input" &&
-    record.priority === "needs_input" &&
-    isAttentionRecordActive(record)
-  );
-}
-
 function isQuestThreadKey(threadKey: string): boolean {
   return /^q-\d+$/i.test(threadKey.trim());
 }
@@ -1368,6 +1360,7 @@ export function ChatView({
   const lastManualThreadSelectionAtRef = useRef(0);
   const locallySelectedRouteThreadKeyRef = useRef<string | null>(null);
   const lastProcessedRouteThreadKeyRef = useRef<string | null>(null);
+  const promotedNeedsInputTabEventsRef = useRef<Map<string, number>>(new Map());
   const initializedActiveBoardThreadKeysRef = useRef(false);
   const observedActiveBoardThreadKeysRef = useRef<Set<string>>(new Set());
   const initializedAttachmentMarkerKeysRef = useRef(false);
@@ -1419,6 +1412,7 @@ export function ChatView({
     initializedAttachmentMarkerKeysRef.current = false;
     locallySelectedRouteThreadKeyRef.current = null;
     lastProcessedRouteThreadKeyRef.current = null;
+    promotedNeedsInputTabEventsRef.current.clear();
     initializedActiveBoardThreadKeysRef.current = false;
     observedActiveBoardThreadKeysRef.current = new Set();
     baselineAttachmentMarkersAfterHistoryLoadRef.current = false;
@@ -1488,10 +1482,15 @@ export function ChatView({
       .filter(([, eventAt]) => Number.isFinite(eventAt))
       .sort(([leftKey, leftAt], [rightKey, rightAt]) => leftAt - rightAt || leftKey.localeCompare(rightKey));
     for (const [threadKey, eventAt] of candidates) {
+      if (eventAt <= (promotedNeedsInputTabEventsRef.current.get(threadKey) ?? -1)) continue;
       const alreadyOpen = openThreadTabKeysRef.current.includes(threadKey);
       const repositionExisting = alreadyOpen && openThreadTabKeysRef.current[0] !== threadKey;
-      if (alreadyOpen && !repositionExisting) continue;
+      if (alreadyOpen && !repositionExisting) {
+        promotedNeedsInputTabEventsRef.current.set(threadKey, eventAt);
+        continue;
+      }
       openThreadTab(threadKey, { intent: "server_candidate", eventAt, placement: "first", repositionExisting });
+      promotedNeedsInputTabEventsRef.current.set(threadKey, eventAt);
     }
   }, [attentionRecords, isLeaderSession, openThreadTab, preview]);
 

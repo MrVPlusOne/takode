@@ -297,6 +297,39 @@ describe("leader_thread_tabs_update", () => {
     expect(deps.broadcastToBrowsers).toHaveBeenCalledTimes(1);
   });
 
+  it("does not broadcast an effective no-op leader tab open", () => {
+    const serverState = {
+      version: 1 as const,
+      orderedOpenThreadKeys: ["q-1", "q-2"],
+      closedThreadTombstones: [],
+      updatedAt: 1,
+    };
+    const session = makeSession({
+      state: {
+        permissionMode: "default",
+        isOrchestrator: true,
+        leaderOpenThreadTabs: serverState,
+      } as any,
+    });
+    const deps = makeInjectDeps();
+
+    const handled = handleBrowserProtocolMessage(
+      session,
+      {
+        type: "leader_thread_tabs_update",
+        operation: { type: "open", threadKey: "q-1", placement: "first", source: "server_candidate", eventAt: 20 },
+        client_msg_id: "tabs-noop-open-1",
+      },
+      undefined,
+      deps,
+    );
+
+    expect(handled).toBe(true);
+    expect(session.state.leaderOpenThreadTabs).toEqual(serverState);
+    expect(deps.persistSession).toHaveBeenCalledTimes(1);
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
+  });
+
   it("persists reordered tabs while preserving server-open keys omitted by stale clients", () => {
     const session = makeSession({
       state: {
