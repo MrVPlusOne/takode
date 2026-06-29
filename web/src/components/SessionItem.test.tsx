@@ -993,6 +993,9 @@ describe("SessionItem notification marker", () => {
       {
         sessionId: "s1",
         isOrchestrator: true,
+        notificationUrgency: "review",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 7,
         leaderOpenThreadTabs: {
           version: 1,
           orderedOpenThreadKeys: [],
@@ -1023,6 +1026,9 @@ describe("SessionItem notification marker", () => {
       {
         sessionId: "s1",
         isOrchestrator: true,
+        notificationUrgency: "review",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 8,
         leaderOpenThreadTabs: {
           version: 1,
           orderedOpenThreadKeys: ["q-1"],

@@ -164,11 +164,16 @@ function useNotificationUrgency(sessionId: string, fallbackUrgency: Notification
     const liveUrgency = getHighestNotificationUrgency(activeNotifications);
     const snapshotUrgency = snapshot?.notificationUrgency ?? null;
     const snapshotActiveCount = snapshot?.activeNotificationCount;
+    const summaryCanOverrideWithReview =
+      snapshotUrgency !== "review" ||
+      !snapshot?.isOrchestrator ||
+      activeNotifications.some((n) => n.category === "review");
     const hasFreshSnapshot =
       snapshot?.notificationStatusVersion !== undefined || snapshot?.notificationStatusUpdatedAt !== undefined;
     if (
       hasFreshSnapshot &&
       snapshotUrgency &&
+      summaryCanOverrideWithReview &&
       snapshotActiveCount !== undefined &&
       snapshotActiveCount > 0 &&
       (liveUrgency !== snapshotUrgency || activeAttentionNotifications.length !== snapshotActiveCount)
