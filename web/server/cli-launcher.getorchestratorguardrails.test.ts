@@ -390,6 +390,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("confirm");
     expect(guardrails).toContain("quest");
     expect(guardrails).toContain("/quest-design");
+    expect(guardrails).toContain("## Durable Names in Handoffs");
+    expect(guardrails).toContain("keep quest IDs out of the Takode-external durable names");
+    expect(guardrails).toContain("Do not ask for a `q-N`-specific destination, filename, job label");
+    expect(guardrails).toContain("commit message, or PR description");
+    expect(guardrails).toContain("quest links, phase notes, board state, or memory metadata");
     expect(guardrails).toContain("sub-agent");
     // Core leader behaviors remain inline
     expect(guardrails).toContain("Create a quest for any non-trivial work");
@@ -568,6 +573,10 @@ describe("getOrchestratorGuardrails", () => {
     const guardrails = launcher.getOrchestratorGuardrails("codex");
     expect(guardrails).toContain("leader session");
     expect(guardrails).toContain("Delegate all major work");
+    expect(guardrails).toContain("## Durable Names in Handoffs");
+    expect(guardrails).toContain("keep quest IDs out of the Takode-external durable names");
+    expect(guardrails).toContain("Do not ask for a `q-N`-specific destination, filename, job label");
+    expect(guardrails).toContain("commit message, or PR description");
     // Skill references for detailed workflows
     expect(guardrails).toContain("/leader-dispatch");
     expect(guardrails).toContain("/quest-design");

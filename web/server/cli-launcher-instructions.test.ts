@@ -39,6 +39,30 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Do not use `file://` URI schemes");
   });
 
+  it("keeps quest IDs out of Takode-external durable names while preserving internal uses", () => {
+    for (const backend of ["claude", "codex"] as const) {
+      const result = buildCompanionInstructions({ sessionNum: 42, backend });
+      expect(result).toContain("## Durable Names and Quest IDs");
+      expect(result).toContain("Quest IDs such as `q-1234` are local Takode coordination identifiers");
+      expect(result).toContain("quest comments and feedback");
+      expect(result).toContain("session/thread routing");
+      expect(result).toContain("board state");
+      expect(result).toContain("Takode links");
+      expect(result).toContain("phase notes");
+      expect(result).toContain("memory source/provenance metadata");
+      expect(result).toContain("Do not put quest IDs in Takode-external durable names");
+      expect(result).toContain("code identifiers");
+      expect(result).toContain("filenames or directories");
+      expect(result).toContain("dataset/artifact/checkpoint/debug paths");
+      expect(result).toContain("retained job or run labels");
+      expect(result).toContain("PR titles or descriptions");
+      expect(result).toContain("commit subjects or bodies");
+      expect(result).toContain("user-facing durable labels");
+      expect(result).toContain("Use descriptive names from the project, source, date range, content, or purpose");
+      expect(result).toContain("record quest provenance in Questmaster or memory metadata");
+    }
+  });
+
   it("includes catalog-first file-based memory and write-lock guidance", () => {
     const result = buildCompanionInstructions({ sessionNum: 42, backend: "codex" });
 
@@ -183,6 +207,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("true follow-up of earlier work");
     expect(result).toContain("Relationship: follow-up of [q-N](quest:q-N)");
     expect(result).toContain("quest create ... --follow-up-of q-N");
+    expect(result).toContain("## Durable Names in Handoffs");
+    expect(result).toContain("keep quest IDs out of the Takode-external durable names");
+    expect(result).toContain("Do not ask for a `q-N`-specific destination, filename, job label");
+    expect(result).toContain("commit message, or PR description");
+    expect(result).toContain("source, date range, scope, or purpose");
     expect(result).toContain("initial Journey proposal-and-approval contract");
     expect(result).toContain("durable board recording");
     expect(result).toContain("visible chat approval surface is for the user's decision, not worker grounding");
@@ -257,6 +286,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("orchestrator leader session");
     expect(result).toContain("/quest-design");
     expect(result).toContain("persist it with `--follow-up-of`");
+    expect(result).toContain("## Durable Names in Handoffs");
+    expect(result).toContain("keep quest IDs out of the Takode-external durable names");
+    expect(result).toContain("Do not ask for a `q-N`-specific destination, filename, job label");
+    expect(result).toContain("commit message, or PR description");
     expect(result).toContain("initial Journey proposal-and-approval");
     expect(result).toContain("write the approved Journey to the board before or with dispatch");
     expect(result).toContain("Alignment approval is leader-owned by default");
@@ -286,7 +319,13 @@ describe("buildInjectedSystemPromptForDebug", () => {
 
     expect(result).toContain("You are Takode session #7.");
     expect(result).toContain("Worktree Session");
+    expect(result).toContain("## Durable Names and Quest IDs");
+    expect(result).toContain("Do not put quest IDs in Takode-external durable names");
+    expect(result).toContain("PR titles or descriptions");
+    expect(result).toContain("commit subjects or bodies");
     expect(result).toContain("Takode -- Cross-Session Orchestration");
+    expect(result).toContain("## Durable Names in Handoffs");
+    expect(result).toContain("Do not ask for a `q-N`-specific destination");
     expect(result).toContain("Every dispatched task follows a **Quest Journey** assembled from phases");
     expect(result).toContain("Use `/quest-design` before creating or materially refining quest text");
     expect(result).toContain("explicitly check whether the quest is a true follow-up to earlier work");
@@ -383,7 +422,10 @@ describe("buildInjectedSystemPromptForDebug", () => {
     const result = buildInjectedSystemPromptForDebug({ sessionNum: 8, backend: "codex" });
 
     expect(result).toContain("You are Takode session #8.");
+    expect(result).toContain("## Durable Names and Quest IDs");
+    expect(result).toContain("Do not put quest IDs in Takode-external durable names");
     expect(result).not.toContain("Takode -- Cross-Session Orchestration");
+    expect(result).not.toContain("## Durable Names in Handoffs");
     expect(result).not.toContain("leader-dispatch");
   });
 });

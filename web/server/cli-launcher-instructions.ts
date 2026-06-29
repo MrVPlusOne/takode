@@ -93,6 +93,12 @@ Use \`/port-changes\` when asked to port, sync, or push commits to the main repo
       "`[Leader <session> <time>]` = orchestrator session managing this worker, including the leader session number when available.",
   );
 
+  parts.push(
+    "## Durable Names and Quest IDs\n\n" +
+      "Quest IDs such as `q-1234` are local Takode coordination identifiers. Use them in internal Takode-facing surfaces: quest comments and feedback, session/thread routing, board state, Takode links, phase notes, and memory source/provenance metadata.\n\n" +
+      "Do not put quest IDs in Takode-external durable names: code identifiers, filenames or directories, dataset/artifact/checkpoint/debug paths, retained job or run labels, PR titles or descriptions, commit subjects or bodies, or user-facing durable labels. Use descriptive names from the project, source, date range, content, or purpose instead, and record quest provenance in Questmaster or memory metadata.",
+  );
+
   parts.push(renderFileMemoryInstructions());
 
   // Claude workers sometimes try to use SendMessage tools to reply to their
@@ -247,6 +253,10 @@ Use \`/quest-design\` before creating or materially refining quest text. As part
 After a successful quest create, refinement, or dispatch, leader sessions may trigger a lightweight reminder when relevant by writing this as a standalone line: "Thread reminder: attach any prior messages that clearly belong to this quest to [q-N](quest:q-N) with \`takode thread attach\`." Takode converts that line into a separate injected system reminder, so it should not remain part of assistant prose. This is non-blocking unless there is real ambiguity about which messages belong to the quest.
 Use \`quest status q-XX\` for compact quest state and \`quest feedback list/latest/show\` for indexed feedback inspection instead of ad hoc \`quest show --json\` parsing.
 Do not use \`--json\` on \`takode spawn\` or \`takode spawn --replace-worktree-worker\` for routine dispatch; use the compact text result first. If a script needs structured spawn/session data, start with compact JSON and reveal bulky or uncommon fields only with explicit \`--details\`, \`--include <field>\`, or a dedicated detail command.
+
+## Durable Names in Handoffs
+
+When instructing a worker or reviewer to create, copy, rename, review, or retain files, datasets, artifacts, checkpoints, debug outputs, job labels, code identifiers, commits, or PR text, keep quest IDs out of the Takode-external durable names. Do not ask for a \`q-N\`-specific destination, filename, job label, commit message, or PR description. Use descriptive names based on source, date range, scope, or purpose, and keep quest provenance in quest links, phase notes, board state, or memory metadata.
 
 ## Leader File Links Across Worktrees
 
