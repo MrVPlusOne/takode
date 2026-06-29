@@ -44,11 +44,11 @@ describe("quest CLI relationships", () => {
   });
 
   it("writes explicit follow-up links and shows derived backlinks", async () => {
-    // Exercises the user-facing CLI contract: write with --follow-up-of, inspect forward/reverse links via show.
+    // Exercises the user-facing CLI contract: write with --follow-up-of, then reveal relationship metadata via show.
     expect((await runQuest(["create", "Original"], home)).status).toBe(0);
     expect((await runQuest(["create", "Follow-up", "--follow-up-of", "q-1"], home)).status).toBe(0);
 
-    const original = await runQuest(["show", "q-1"], home);
+    const original = await runQuest(["show", "q-1", "--sections", "metadata"], home);
     const followUp = await runQuest(["show", "q-2", "--json"], home);
 
     expect(original.stdout).toContain("Relationships:");

@@ -66,7 +66,7 @@ function baseEnv(home: string, port?: number): Record<string, string | undefined
 }
 
 describe("quest CLI feedback inspection", () => {
-  it("prints stable feedback indices in quest show and warns about unaddressed human feedback", async () => {
+  it("prints unaddressed human feedback in quest show and warns about it", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-feedback-show-"));
     seedQuest(tmp, {
       id: "q-1-v2",
@@ -89,7 +89,7 @@ describe("quest CLI feedback inspection", () => {
 
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("#0 [human");
-      expect(result.stdout).toContain("#1 [agent");
+      expect(result.stdout).not.toContain("#1 [agent");
       expect(result.stderr).toContain("Warning: unaddressed human feedback on q-1: #0");
       expect(result.stderr).toContain("quest feedback list q-1 --unaddressed");
     } finally {
