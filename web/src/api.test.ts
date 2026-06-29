@@ -1347,6 +1347,24 @@ describe("getSessionUsageLimits", () => {
 });
 
 // ===========================================================================
+// notifications
+// ===========================================================================
+describe("notifications", () => {
+  it("uses the browser notification mute route with a muted body", async () => {
+    mockFetch.mockResolvedValueOnce(mockResponse({ ok: true, muted: true, changed: true }));
+
+    const result = await api.setNotificationMuted("session/1", "n-7", true);
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/sessions/session%2F1/notifications/n-7/muted");
+    expect(opts.method).toBe("POST");
+    expect(opts.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(opts.body)).toEqual({ muted: true });
+    expect(result).toEqual({ ok: true, muted: true, changed: true });
+  });
+});
+
+// ===========================================================================
 // getCloudProviderPlan
 // ===========================================================================
 describe("getCloudProviderPlan", () => {

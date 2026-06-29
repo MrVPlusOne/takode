@@ -1166,8 +1166,8 @@ export const api = {
 
   setNotificationMuted: (sessionId: string, notifId: string, muted: boolean) =>
     post<{ ok: boolean; muted: boolean; changed: boolean }>(
-      `/sessions/${encodeURIComponent(sessionId)}/notifications/needs-input/${encodeURIComponent(notifId.replace(/^n-/, ""))}/${muted ? "mute" : "unmute"}`,
-      {},
+      `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/muted`,
+      { muted },
     ),
 
   sendNeedsInputResponse: (

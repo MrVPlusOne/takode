@@ -1159,6 +1159,43 @@ describe("Takode server-authoritative auth", () => {
     expect(bridge._sessions["orch-1"].attentionReason).toBe("action");
   });
 
+  it("lets browser REST mute and unmute needs-input notifications across sessions without Takode auth", async () => {
+    setupTakodeSessions();
+    bridge._sessions["worker-1"].notifications = [
+      { id: "n-7", category: "needs-input", summary: "Browser mute me", timestamp: 1000, messageId: null, done: false },
+    ];
+    bridge._sessions["worker-1"].attentionReason = "action";
+
+    const muteRes = await app.request("/api/sessions/worker-1/notifications/n-7/muted", {
+      method: "POST",
+      body: JSON.stringify({ muted: true }),
+    });
+
+    expect(muteRes.status).toBe(200);
+    expect(await muteRes.json()).toEqual({
+      ok: true,
+      notificationId: "n-7",
+      rawNotificationId: "n-7",
+      muted: true,
+      changed: true,
+    });
+    expect(bridge._sessions["worker-1"].notifications[0]).toMatchObject({ done: false, muted: true });
+    expect(bridge._sessions["worker-1"].notifications[0].resolutionNotice).toBeUndefined();
+    expect(bridge._sessions["worker-1"].attentionReason).toBeNull();
+    expect(pushoverNotifier.cancelNotification).not.toHaveBeenCalledWith("worker-1", "n-7");
+
+    const unmuteRes = await app.request("/api/sessions/worker-1/notifications/n-7/muted", {
+      method: "POST",
+      body: JSON.stringify({ muted: false }),
+    });
+
+    expect(unmuteRes.status).toBe(200);
+    expect(await unmuteRes.json()).toMatchObject({ ok: true, muted: false, changed: true });
+    expect(bridge._sessions["worker-1"].notifications[0]).toMatchObject({ done: false });
+    expect(bridge._sessions["worker-1"].notifications[0].muted).toBeUndefined();
+    expect(bridge._sessions["worker-1"].attentionReason).toBe("action");
+  });
+
   it("clears linked board wait-for-input state when a needs-input notification is resolved", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].notifications = [

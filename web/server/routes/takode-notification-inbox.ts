@@ -77,6 +77,32 @@ export function registerTakodeNotificationInboxRoutes(
 
   api.post("/sessions/:id/notifications/needs-input/:notificationId/unmute", (c) => setNeedsInputMuted(c, false));
 
+  api.post("/sessions/:id/notifications/:notifId/muted", async (c) => {
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    const notifId = c.req.param("notifId");
+    const body = await c.req.json().catch(() => ({}));
+    const muted = body.muted === true;
+    const session = wsBridge.getSession(id);
+    if (!session) return c.json({ error: "Session not found" }, 404);
+    const notification = session.notifications.find(
+      (entry) => entry.id === notifId && entry.category === "needs-input",
+    );
+    if (!notification) return c.json({ error: "Notification not found" }, 404);
+    if (notification.done) return c.json({ error: "Cannot mute a resolved notification" }, 409);
+
+    const wasMuted = notification.muted === true;
+    const ok = setNotificationMutedController(session, notifId, muted, notificationPersistDeps);
+    if (!ok) return c.json({ error: "Notification not found" }, 404);
+    return c.json({
+      ok: true,
+      notificationId: notifId,
+      rawNotificationId: notifId,
+      muted,
+      changed: wasMuted !== muted,
+    });
+  });
+
   api.post("/sessions/:id/notifications/:notifId/done", async (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
