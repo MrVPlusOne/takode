@@ -14,6 +14,7 @@ type AttentionRecord = SessionAttentionRecord;
 
 const STATE_LABELS: Record<AttentionRecord["state"], string> = {
   unresolved: "Needs attention",
+  muted: "Muted",
   seen: "Seen",
   resolved: "Resolved",
   dismissed: "Dismissed",

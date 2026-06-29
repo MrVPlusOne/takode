@@ -174,6 +174,7 @@ export function Sidebar() {
   const sessionTaskHistory = useStore((s) => s.sessionTaskHistory);
   const pendingPermissions = useStore((s) => s.pendingPermissions);
   const sessionAttention = useStore((s) => s.sessionAttention);
+  const sessionAttentionRecords = useStore((s) => s.sessionAttentionRecords);
   const sessionNotifications = useStore((s) => s.sessionNotifications);
   const askPermissionMap = useStore((s) => s.askPermission);
   const reorderMode = useStore((s) => s.reorderMode);
@@ -748,6 +749,7 @@ export function Sidebar() {
     archivedSessions,
     orderedVisibleSessionIds,
     treeViewGroups,
+    sessionSetAttention,
   } = useMemo(
     () =>
       buildSidebarVisibleSessions({
@@ -765,6 +767,7 @@ export function Sidebar() {
         collapsedTreeGroups,
         expandedHerdNodes,
         sessionAttention,
+        sessionAttentionRecords,
         sessionSortMode,
         countUserPermissions,
       }),
@@ -781,6 +784,7 @@ export function Sidebar() {
       treeAssignments,
       treeNodeOrder,
       sessionAttention,
+      sessionAttentionRecords,
       collapsedTreeGroups,
       expandedHerdNodes,
       sessionSortMode,
@@ -1056,7 +1060,7 @@ export function Sidebar() {
     onConfirmArchive: confirmArchive,
     onConfirmArchiveHerdMembers: confirmArchiveHerdMembers,
     onCancelArchive: cancelArchive,
-    sessionAttention,
+    sessionAttention: sessionSetAttention,
     herdHoverHighlights,
   };
 

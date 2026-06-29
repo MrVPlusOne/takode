@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildSidebarVisibleSessions } from "./sidebar-visible-sessions.js";
-import type { SessionState, SdkSessionInfo, TreeGroup } from "../types.js";
+import type { SessionAttentionRecord, SessionState, SdkSessionInfo, TreeGroup } from "../types.js";
 
 function makeSessionState(id: string, overrides: Partial<SessionState> = {}): SessionState {
   return {
@@ -43,6 +43,29 @@ function makeSdkSession(id: string, overrides: Partial<SdkSessionInfo> = {}): Sd
   };
 }
 
+function attentionRecord(overrides: Partial<SessionAttentionRecord> = {}): SessionAttentionRecord {
+  return {
+    id: "attention:q-1",
+    leaderSessionId: "leader",
+    type: "review_ready",
+    source: { kind: "notification", id: "n-review", questId: "q-1" },
+    questId: "q-1",
+    threadKey: "q-1",
+    title: "Review q-1",
+    summary: "Review q-1",
+    actionLabel: "Review",
+    priority: "review",
+    state: "unresolved",
+    createdAt: 100,
+    updatedAt: 100,
+    route: { threadKey: "q-1", questId: "q-1" },
+    chipEligible: true,
+    ledgerEligible: true,
+    dedupeKey: "attention:q-1",
+    ...overrides,
+  };
+}
+
 describe("buildSidebarVisibleSessions", () => {
   it("derives ordered visible rows without reviewer sessions", () => {
     const sessions = new Map<string, SessionState>([
@@ -77,6 +100,83 @@ describe("buildSidebarVisibleSessions", () => {
     });
 
     expect(result.orderedVisibleSessionIds).toEqual(["leader", "worker"]);
+  });
+
+  it("keeps leader review blue only when an open thread tab has a blue notification", () => {
+    const sessions = new Map<string, SessionState>([["leader", makeSessionState("leader")]]);
+    const sdkSessions: SdkSessionInfo[] = [
+      makeSdkSession("leader", {
+        isOrchestrator: true,
+        cliConnected: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-1"],
+          closedThreadTombstones: [],
+          updatedAt: 100,
+        },
+      }),
+    ];
+
+    const result = buildSidebarVisibleSessions({
+      sessions,
+      sdkSessions,
+      cliConnected: new Map(),
+      cliDisconnectReason: new Map(),
+      sessionStatus: new Map(),
+      pendingPermissions: new Map(),
+      askPermission: new Map(),
+      diffFileStats: new Map(),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map(),
+      treeNodeOrder: new Map(),
+      collapsedTreeGroups: new Set(),
+      expandedHerdNodes: new Set(),
+      sessionAttention: new Map([["leader", "review"]]),
+      sessionAttentionRecords: new Map([["leader", [attentionRecord()]]]),
+      sessionSortMode: "created",
+      countUserPermissions: () => 0,
+    });
+
+    expect(result.sessionSetAttention.get("leader")).toBe("review");
+    expect(result.treeViewGroups[0]?.unreadCount).toBe(1);
+  });
+
+  it("treats directly closed unread thread tabs as read for the session blue dot", () => {
+    const sessions = new Map<string, SessionState>([["leader", makeSessionState("leader")]]);
+    const sdkSessions: SdkSessionInfo[] = [
+      makeSdkSession("leader", {
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: [],
+          closedThreadTombstones: [{ threadKey: "q-1", closedAt: 200 }],
+          updatedAt: 200,
+        },
+      }),
+    ];
+
+    const result = buildSidebarVisibleSessions({
+      sessions,
+      sdkSessions,
+      cliConnected: new Map(),
+      cliDisconnectReason: new Map(),
+      sessionStatus: new Map(),
+      pendingPermissions: new Map(),
+      askPermission: new Map(),
+      diffFileStats: new Map(),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map(),
+      treeNodeOrder: new Map(),
+      collapsedTreeGroups: new Set(),
+      expandedHerdNodes: new Set(),
+      sessionAttention: new Map([["leader", "review"]]),
+      sessionAttentionRecords: new Map([["leader", [attentionRecord()]]]),
+      sessionSortMode: "created",
+      countUserPermissions: () => 0,
+    });
+
+    expect(result.sessionSetAttention.get("leader")).toBeNull();
+    expect(result.treeViewGroups[0]?.unreadCount).toBe(0);
   });
 
   it("filters hidden Side Chat child sessions that only exist in frontend store state", () => {

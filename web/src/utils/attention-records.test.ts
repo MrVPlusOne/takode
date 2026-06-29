@@ -150,6 +150,18 @@ describe("attention records", () => {
     expect(selectAttentionChipRecords(records)).toHaveLength(1);
   });
 
+  it("keeps muted needs-input notifications out of active chips and ledger attention", () => {
+    const records = buildAttentionRecords({
+      leaderSessionId: "leader-1",
+      notifications: [notification({ muted: true })],
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ type: "needs_input", state: "muted" });
+    expect(selectMainLedgerRecords(records)).toHaveLength(0);
+    expect(selectAttentionChipRecords(records)).toHaveLength(0);
+  });
+
   it("deduplicates repeated source signatures and lets the latest source state win", () => {
     const records = buildAttentionRecords({
       leaderSessionId: "leader-1",

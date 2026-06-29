@@ -1327,6 +1327,70 @@ describe("WorkBoardBar", () => {
     expect(currentTab).toHaveClass("border-cc-primary/45", "bg-cc-card", "text-cc-fg");
   });
 
+  it("renders muted-only needs-input tabs with a gray muted bell", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", [{ ...BOARD_DATA[0]!, waitForInput: ["n-muted"] }]]]),
+    });
+
+    const { getAllByTestId } = render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-1"
+        openThreadKeys={["q-1"]}
+        attentionRecords={[
+          attentionRecord({
+            id: "notification:n-muted",
+            source: { kind: "notification", id: "n-muted", questId: "q-1" },
+            state: "muted",
+            dedupeKey: "notification:n-muted",
+          }),
+        ]}
+      />,
+    );
+
+    const tab = getAllByTestId("thread-tab").find((candidate) => candidate.getAttribute("data-thread-key") === "q-1")!;
+    expect(tab).toHaveAttribute("data-needs-input", "false");
+    expect(tab).toHaveAttribute("data-muted-needs-input", "true");
+    expect(within(tab).queryByTestId("thread-tab-needs-input-bell")).not.toBeInTheDocument();
+    expect(within(tab).getByTestId("thread-tab-muted-needs-input-bell")).toHaveClass("text-cc-muted");
+  });
+
+  it("keeps active needs-input amber ahead of muted needs-input on the same tab", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", [{ ...BOARD_DATA[0]!, waitForInput: ["n-active", "n-muted"] }]]]),
+    });
+
+    const { getAllByTestId } = render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-1"
+        openThreadKeys={["q-1"]}
+        attentionRecords={[
+          attentionRecord({
+            id: "notification:n-active",
+            source: { kind: "notification", id: "n-active", questId: "q-1" },
+            state: "unresolved",
+            dedupeKey: "notification:n-active",
+          }),
+          attentionRecord({
+            id: "notification:n-muted",
+            source: { kind: "notification", id: "n-muted", questId: "q-1" },
+            state: "muted",
+            dedupeKey: "notification:n-muted",
+          }),
+        ]}
+      />,
+    );
+
+    const tab = getAllByTestId("thread-tab").find((candidate) => candidate.getAttribute("data-thread-key") === "q-1")!;
+    expect(tab).toHaveAttribute("data-needs-input", "true");
+    expect(tab).toHaveAttribute("data-muted-needs-input", "true");
+    expect(within(tab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-cc-attention");
+    expect(within(tab).queryByTestId("thread-tab-muted-needs-input-bell")).not.toBeInTheDocument();
+  });
+
   it("marks the output glint as reduced-motion-disabled while keeping the static marker contract", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],

@@ -609,7 +609,12 @@ function attentionRecordFromNotification(
         questIds: [] as string[],
       };
   const route = routeForNotification(notification, display.questId);
-  const state: SessionAttentionRecord["state"] = notification.done ? "resolved" : "unresolved";
+  const state: SessionAttentionRecord["state"] =
+    !notification.done && notification.category === "needs-input" && notification.muted
+      ? "muted"
+      : notification.done
+        ? "resolved"
+        : "unresolved";
   const isJourneyFinished = display.kind === "journey_finished";
   const hasExplicitFinishedRecords =
     isJourneyFinished &&
@@ -638,7 +643,7 @@ function attentionRecordFromNotification(
     ...(state === "resolved" ? { resolvedAt: notification.timestamp } : {}),
     route,
     chipEligible: !isJourneyFinished,
-    ledgerEligible: !hasExplicitFinishedRecords,
+    ledgerEligible: !hasExplicitFinishedRecords && state !== "muted",
     dedupeKey: `notification:${notification.id}`,
   };
 }

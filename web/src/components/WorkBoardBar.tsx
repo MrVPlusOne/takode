@@ -247,6 +247,7 @@ interface PrimaryThreadChip {
   detail?: string;
   messageCount?: number;
   needsInput: boolean;
+  mutedNeedsInput: boolean;
   blueNudge: boolean;
   titleColor?: string;
   canClose: boolean;
@@ -302,6 +303,7 @@ function SortableThreadTabContainer({
       data-testid="thread-tab"
       data-thread-key={tab.threadKey}
       data-needs-input={tab.needsInput ? "true" : "false"}
+      data-muted-needs-input={tab.mutedNeedsInput ? "true" : "false"}
       data-blue-notification={tab.blueNudge ? "true" : "false"}
       data-active-output={activeOutput ? "true" : "false"}
       data-new-tab={newTab ? "true" : "false"}
@@ -383,11 +385,39 @@ function isBlueNotificationAttention(record: AttentionRecord): boolean {
 }
 
 function isThreadTabAttention(record: AttentionRecord): boolean {
-  return isPrimaryThreadAttention(record) || isBlueNotificationAttention(record);
+  return isPrimaryThreadAttention(record) || isBlueNotificationAttention(record) || isMutedNeedsInputAttention(record);
 }
 
 function isNeedsInputAttention(record: AttentionRecord): boolean {
   return isAttentionRecordActive(record) && record.priority === "needs_input" && record.type === "needs_input";
+}
+
+function isMutedNeedsInputAttention(record: AttentionRecord): boolean {
+  return record.state === "muted" && record.priority === "needs_input" && record.type === "needs_input";
+}
+
+function notificationIdForAttention(record: AttentionRecord): string | undefined {
+  return record.source.kind === "notification" ? record.source.id : undefined;
+}
+
+function mutedAttentionNotificationIds(attention: ReadonlyArray<AttentionRecord>): Set<string | undefined> {
+  return new Set(attention.filter(isMutedNeedsInputAttention).map(notificationIdForAttention));
+}
+
+function boardRowHasActiveNeedsInput(row: BoardRowData, attention: ReadonlyArray<AttentionRecord>): boolean {
+  if (attention.some(isNeedsInputAttention)) return true;
+  const waitForInput = row.waitForInput ?? [];
+  if (waitForInput.length === 0) return false;
+  const mutedIds = mutedAttentionNotificationIds(attention);
+  return !waitForInput.every((id) => mutedIds.has(id));
+}
+
+function boardRowHasMutedNeedsInput(row: BoardRowData, attention: ReadonlyArray<AttentionRecord>): boolean {
+  if (attention.some(isMutedNeedsInputAttention)) return true;
+  const waitForInput = row.waitForInput ?? [];
+  if (waitForInput.length === 0) return false;
+  const mutedIds = mutedAttentionNotificationIds(attention);
+  return waitForInput.every((id) => mutedIds.has(id));
 }
 
 function boardRowDetail(row: BoardRowData): string | undefined {
@@ -463,6 +493,7 @@ function mergePrimaryThreadChip(chips: Map<string, PrimaryThreadChip>, chip: Pri
     detail: existing.needsInput ? existing.detail : (chip.detail ?? existing.detail),
     messageCount: Math.max(existing.messageCount ?? 0, chip.messageCount ?? 0),
     needsInput: existing.needsInput || chip.needsInput,
+    mutedNeedsInput: existing.mutedNeedsInput || chip.mutedNeedsInput,
     blueNudge: existing.blueNudge || chip.blueNudge,
     titleColor: existing.titleColor ?? chip.titleColor,
     canClose: existing.canClose && chip.canClose,
@@ -501,7 +532,8 @@ function buildPrimaryThreadChips({
       questId: row.questId,
       title: row.title ?? row.questId,
       detail: boardRowDetail(row),
-      needsInput: (row.waitForInput?.length ?? 0) > 0 || attention.some(isNeedsInputAttention),
+      needsInput: boardRowHasActiveNeedsInput(row, attention),
+      mutedNeedsInput: boardRowHasMutedNeedsInput(row, attention),
       blueNudge: attention.some(isBlueNotificationAttention),
       titleColor: boardRowTitleColor(row),
       canClose: false,
@@ -522,6 +554,7 @@ function buildPrimaryThreadChips({
       detail: threadRowDetail(row),
       messageCount: row.messageCount,
       needsInput: attention.some(isNeedsInputAttention),
+      mutedNeedsInput: attention.some(isMutedNeedsInputAttention),
       blueNudge: attention.some(isBlueNotificationAttention),
       canClose: true,
       route: attention[0]?.route,
@@ -539,6 +572,7 @@ function buildPrimaryThreadChips({
       title: record.title,
       detail: record.actionLabel,
       needsInput: records.some(isNeedsInputAttention),
+      mutedNeedsInput: records.some(isMutedNeedsInputAttention),
       blueNudge: records.some(isBlueNotificationAttention),
       canClose: true,
       route: record.route,
@@ -593,6 +627,7 @@ function buildOpenThreadTabs({
       detail: active?.detail ?? (boardRow ? boardRowDetail(boardRow) : doneThreadDetail(row)),
       messageCount: active?.messageCount ?? row?.messageCount,
       needsInput: active?.needsInput ?? (boardRow?.waitForInput?.length ?? 0) > 0,
+      mutedNeedsInput: active?.mutedNeedsInput ?? false,
       blueNudge: active?.blueNudge ?? false,
       titleColor: completedTitleColor ?? active?.titleColor ?? (boardRow ? boardRowTitleColor(boardRow) : undefined),
       canClose: !activeBoardRow,
@@ -722,6 +757,26 @@ function ThreadTabRail({
     );
   }
 
+  function MutedNeedsInputBell({ activeOutput }: { activeOutput: boolean }) {
+    return (
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="relative z-10 h-3 w-3 shrink-0 text-cc-muted"
+        aria-hidden="true"
+        data-testid="thread-tab-muted-needs-input-bell"
+        data-active-output={activeOutput ? "true" : "false"}
+      >
+        <path d="M8 2.5a3.5 3.5 0 0 0-3.5 3.5v1.8c0 .7-.24 1.38-.68 1.92L3 10.75h10l-.82-1.03a3.05 3.05 0 0 1-.68-1.92V6A3.5 3.5 0 0 0 8 2.5Z" />
+        <path d="M6.75 12.5a1.35 1.35 0 0 0 2.5 0" />
+      </svg>
+    );
+  }
+
   function ActiveTitle({
     activeOutput,
     titleColor,
@@ -768,8 +823,10 @@ function ThreadTabRail({
 
   const mainSelected = isSelectedThread(currentThreadKey, MAIN_THREAD_KEY);
   const mainNeedsInput = mainState?.needsInput ?? false;
+  const mainMutedNeedsInput = mainState?.mutedNeedsInput ?? false;
   const mainBlueNudge = mainState?.blueNudge ?? false;
   const showMainBlueNudge = mainBlueNudge && !mainNeedsInput;
+  const showMainMutedNeedsInput = mainMutedNeedsInput && !mainNeedsInput && !mainBlueNudge;
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const activeTurnRoute = useStore((s) => s.activeTurnRoutes.get(sessionId));
   const quests = useStore((s) => s.quests);
@@ -925,8 +982,10 @@ function ThreadTabRail({
   const selectedHidden = hiddenTabs.some((tab) => isSelectedThread(currentThreadKey, tab.threadKey));
   const activeOutputHidden = hiddenTabs.some((tab) => isActiveOutputThread(runningActiveTurnRoute, tab.threadKey));
   const needsInputHidden = hiddenTabs.some((tab) => tab.needsInput);
+  const mutedNeedsInputHidden = hiddenTabs.some((tab) => tab.mutedNeedsInput);
   const blueNudgeHidden = hiddenTabs.some((tab) => tab.blueNudge);
   const showBlueNudgeHidden = blueNudgeHidden && !needsInputHidden;
+  const showMutedNeedsInputHidden = mutedNeedsInputHidden && !needsInputHidden && !blueNudgeHidden;
   const tabStripStyle = {
     "--thread-tab-width": `${compactThreadTabWidthForRail(railWidth)}px`,
   } as CSSProperties;
@@ -966,6 +1025,7 @@ function ThreadTabRail({
           data-thread-key={MAIN_THREAD_KEY}
           data-thread-tab-width-source="true"
           data-needs-input={mainNeedsInput ? "true" : "false"}
+          data-muted-needs-input={mainMutedNeedsInput ? "true" : "false"}
           data-blue-notification={mainBlueNudge ? "true" : "false"}
           data-active-output={mainActiveOutput ? "true" : "false"}
           data-min-label="Main Thread"
@@ -974,6 +1034,7 @@ function ThreadTabRail({
           {mainActiveOutput && <ActiveOutputIndicator />}
           {mainNeedsInput && <NeedsInputBell activeOutput={mainActiveOutput} />}
           {showMainBlueNudge && <BlueNotificationBell activeOutput={mainActiveOutput} />}
+          {showMainMutedNeedsInput && <MutedNeedsInputBell activeOutput={mainActiveOutput} />}
           <ActiveTitle activeOutput={mainActiveOutput}>
             <span className="min-w-0 truncate">Main Thread</span>
           </ActiveTitle>
@@ -985,6 +1046,7 @@ function ThreadTabRail({
               const selected = isSelectedThread(currentThreadKey, tab.threadKey);
               const activeOutput = isActiveOutputThread(runningActiveTurnRoute, tab.threadKey);
               const showBlueNudge = tab.blueNudge && !tab.needsInput;
+              const showMutedNeedsInput = tab.mutedNeedsInput && !tab.needsInput && !tab.blueNudge;
               const tone = tabTone({ selected, needsInput: tab.needsInput, blueNudge: tab.blueNudge });
               const newTab = newTabKeys?.has(tab.threadKey) ?? false;
               const hoverQuest = tab.questId ? questById.get(normalizeThreadKey(tab.questId)) : undefined;
@@ -1017,6 +1079,7 @@ function ThreadTabRail({
                   >
                     {tab.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
                     {showBlueNudge && <BlueNotificationBell activeOutput={activeOutput} />}
+                    {showMutedNeedsInput && <MutedNeedsInputBell activeOutput={activeOutput} />}
                     <ActiveTitle activeOutput={activeOutput} titleColor={displayTitleColor}>
                       {displayQuestId && <span className="shrink-0 font-mono-code">{displayQuestId}</span>}
                       <span className="min-w-0 truncate">{displayTitle}</span>
@@ -1073,6 +1136,7 @@ function ThreadTabRail({
                   data-thread-key={tab.threadKey}
                   data-thread-tab-width-source="true"
                   data-needs-input={tab.needsInput ? "true" : "false"}
+                  data-muted-needs-input={tab.mutedNeedsInput ? "true" : "false"}
                   data-blue-notification={tab.blueNudge ? "true" : "false"}
                   data-active-output={activeOutput ? "true" : "false"}
                   data-new-tab={newTab ? "true" : "false"}
@@ -1107,6 +1171,7 @@ function ThreadTabRail({
               data-has-selected={selectedHidden ? "true" : "false"}
               data-has-active-output={activeOutputHidden ? "true" : "false"}
               data-has-needs-input={needsInputHidden ? "true" : "false"}
+              data-has-muted-needs-input={mutedNeedsInputHidden ? "true" : "false"}
               data-has-blue-notification={blueNudgeHidden ? "true" : "false"}
               aria-haspopup="menu"
               aria-expanded={moreTabsOpen}
@@ -1117,6 +1182,7 @@ function ThreadTabRail({
               )}
               {needsInputHidden && <NeedsInputBell activeOutput={activeOutputHidden} />}
               {showBlueNudgeHidden && <BlueNotificationBell activeOutput={activeOutputHidden} />}
+              {showMutedNeedsInputHidden && <MutedNeedsInputBell activeOutput={activeOutputHidden} />}
               <span>More</span>
               <span className="rounded-sm bg-cc-hover/70 px-1 font-mono-code text-[10px] text-cc-fg">
                 {hiddenTabs.length}
@@ -1190,6 +1256,7 @@ function ThreadTabRail({
                         data-current={selected ? "true" : "false"}
                         data-active-output={activeOutput ? "true" : "false"}
                         data-needs-input={tab.needsInput ? "true" : "false"}
+                        data-muted-needs-input={tab.mutedNeedsInput ? "true" : "false"}
                         data-blue-notification={tab.blueNudge ? "true" : "false"}
                         data-reorderable={reorderable ? "true" : "false"}
                       >
@@ -1230,6 +1297,9 @@ function ThreadTabRail({
                           )}
                           {tab.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
                           {tab.blueNudge && !tab.needsInput && <BlueNotificationBell activeOutput={activeOutput} />}
+                          {tab.mutedNeedsInput && !tab.needsInput && !tab.blueNudge && (
+                            <MutedNeedsInputBell activeOutput={activeOutput} />
+                          )}
                           <span className="min-w-0 flex-1">
                             <span className="flex min-w-0 items-center gap-1.5">
                               {displayQuestId && <span className="shrink-0 font-mono-code">{displayQuestId}</span>}

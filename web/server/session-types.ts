@@ -1439,7 +1439,14 @@ export type SessionAttentionRecordPriority =
   | "completed"
   | "milestone";
 
-export type SessionAttentionRecordState = "unresolved" | "seen" | "resolved" | "dismissed" | "reopened" | "superseded";
+export type SessionAttentionRecordState =
+  | "unresolved"
+  | "muted"
+  | "seen"
+  | "resolved"
+  | "dismissed"
+  | "reopened"
+  | "superseded";
 
 export interface SessionAttentionRecordRoute {
   threadKey: string;
