@@ -7,6 +7,7 @@ export interface MessageSearchFilters {
   user: boolean;
   assistant: boolean;
   event: boolean;
+  starredOnly?: boolean;
 }
 
 export type MessageSearchScope =
@@ -31,6 +32,7 @@ export interface MessageSearchResult {
   sourceThreadKey?: string;
   sourceLabel?: string;
   questId?: string;
+  starred: boolean;
 }
 
 export interface MessageSearchResponse {
@@ -72,6 +74,9 @@ export async function searchSessionMessages(
   }
   if (typeof options?.filters?.event === "boolean") {
     params.set("includeEvents", options.filters.event ? "true" : "false");
+  }
+  if (typeof options?.filters?.starredOnly === "boolean") {
+    params.set("starredOnly", options.filters.starredOnly ? "true" : "false");
   }
 
   const query = params.toString();

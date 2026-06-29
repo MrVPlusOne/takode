@@ -1248,6 +1248,17 @@ export type CodexOutboundTurnStatus =
   | "completed"
   | "blocked_broken_session";
 
+export interface StarredMessageRecord {
+  messageId: string;
+  role: "user" | "assistant";
+  historyIndex: number;
+  sourceThreadKey: string;
+  routeThreadKey: string;
+  timestamp: number;
+  starredAt: number;
+  questId?: string;
+}
+
 export interface CodexOutboundTurn {
   adapterMsg: BrowserOutgoingMessage;
   userMessageId: string;
@@ -1278,6 +1289,8 @@ export interface SessionState {
   isOrchestrator?: boolean;
   /** Server-owned leader quest/thread tab state. Browsers must treat this as authoritative. */
   leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
+  /** Server-owned starred chat messages keyed by stable raw message ID. */
+  starredMessages?: Record<string, StarredMessageRecord>;
   backend_type?: BackendType;
   /** Server-authored backend lifecycle state. */
   backend_state?:

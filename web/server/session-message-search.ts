@@ -1,4 +1,4 @@
-import type { BrowserIncomingMessage, ContentBlock } from "./session-types.js";
+import type { BrowserIncomingMessage, ContentBlock, StarredMessageRecord } from "./session-types.js";
 import {
   ALL_THREADS_KEY,
   MAIN_THREAD_KEY,
@@ -20,6 +20,7 @@ export interface MessageSearchFilters {
   user: boolean;
   assistant: boolean;
   event: boolean;
+  starredOnly?: boolean;
 }
 
 export type MessageSearchScope =
@@ -44,6 +45,7 @@ export interface MessageSearchResult {
   sourceThreadKey?: string;
   sourceLabel?: string;
   questId?: string;
+  starred: boolean;
 }
 
 export interface MessageSearchResponse {
@@ -70,6 +72,7 @@ export interface SearchSessionMessagesInput {
   filters?: Partial<MessageSearchFilters>;
   limit?: number;
   offset?: number;
+  starredMessages?: Record<string, StarredMessageRecord>;
 }
 
 interface CandidateMessage {
@@ -116,7 +119,8 @@ export function searchSessionMessages(input: SearchSessionMessagesInput): Messag
       }),
     )
     .filter((candidate): candidate is CandidateMessage => candidate !== null)
-    .filter((candidate) => filters[candidate.category]);
+    .filter((candidate) => filters[candidate.category])
+    .filter((candidate) => !filters.starredOnly || Boolean(input.starredMessages?.[candidate.messageId]));
 
   const matched: CandidateMessage[] = query
     ? candidates
@@ -127,7 +131,9 @@ export function searchSessionMessages(input: SearchSessionMessagesInput): Messag
     : [...candidates].sort((left, right) => right.timestamp - left.timestamp || right.historyIndex - left.historyIndex);
 
   const page = matched.slice(offset, offset + limit);
-  const results = page.map((candidate) => candidateToResult(input.sessionId, input.sessionNum, candidate, query));
+  const results = page.map((candidate) =>
+    candidateToResult(input.sessionId, input.sessionNum, candidate, query, input.starredMessages),
+  );
   const nextOffset = offset + results.length < matched.length ? offset + results.length : null;
 
   return {
@@ -247,6 +253,7 @@ function candidateToResult(
   sessionNum: number | null,
   candidate: CandidateMessage,
   query: string,
+  starredMessages: Record<string, StarredMessageRecord> | undefined,
 ): MessageSearchResult {
   const snippetInfo = buildSnippet(candidate.text, query);
   return {
@@ -257,6 +264,7 @@ function candidateToResult(
     historyIndex: candidate.historyIndex,
     role: candidate.role,
     category: candidate.category,
+    starred: Boolean(starredMessages?.[candidate.messageId]),
     timestamp: candidate.timestamp,
     snippet: snippetInfo.snippet,
     ...(candidate.text.length > snippetInfo.snippet.length ? { fullText: candidate.text } : {}),

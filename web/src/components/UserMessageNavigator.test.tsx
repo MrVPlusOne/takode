@@ -21,6 +21,8 @@ const TARGETS: UserNavigationTarget[] = [
     blockId: "turn:u1",
     messageId: "u1",
     content: "Please inspect the mobile layout before changing the composer.",
+    role: "user",
+    starred: false,
     timestamp: 1_700_000_000_000,
   },
   {
@@ -29,6 +31,8 @@ const TARGETS: UserNavigationTarget[] = [
     blockId: "message:u1",
     messageId: "u1",
     content: "Please inspect the mobile layout before changing the composer.",
+    role: "user",
+    starred: false,
     timestamp: 1_700_000_000_000,
   },
   {
@@ -37,6 +41,8 @@ const TARGETS: UserNavigationTarget[] = [
     blockId: "turn:u2",
     messageId: "u2",
     content: "Find the approval question and jump back to it.",
+    role: "user",
+    starred: true,
     timestamp: 1_700_000_060_000,
   },
 ];
@@ -57,6 +63,7 @@ function messageSearchResponse(messageIds: string[]): MessageSearchResponse {
       historyIndex: index,
       role: "user",
       category: "user",
+      starred: false,
       timestamp: 1_700_000_000_000 + index,
       snippet: messageId,
       sourceThreadKey: "q-12",
@@ -126,19 +133,80 @@ describe("UserMessageNavigator", () => {
   it("renders a compact current and total indicator using deduped user targets", () => {
     renderNavigator();
 
-    expect(screen.getByRole("button", { name: "User message navigator, 2 of 2" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Message navigator, 2 of 2" })).toBeTruthy();
   });
 
   it("filters expanded local previews and jumps through the selected target", () => {
     const { onSelectTarget } = renderNavigator({ defaultOpen: true });
     const dialog = screen.getByRole("dialog", { name: "User message selector" });
 
-    fireEvent.change(within(dialog).getByLabelText("Search user messages"), { target: { value: "approval" } });
+    fireEvent.change(within(dialog).getByLabelText("Search messages"), { target: { value: "approval" } });
 
     expect(within(dialog).queryByText(/mobile layout/)).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: /Find the approval question/ }));
 
     expect(onSelectTarget).toHaveBeenCalledWith(expect.objectContaining({ messageId: "u2" }));
+  });
+
+  it("shows starred assistant targets and can filter to starred messages only", () => {
+    const targets: UserNavigationTarget[] = [
+      ...TARGETS,
+      {
+        key: "message:a1",
+        turnId: "u2",
+        blockId: "message:a1",
+        messageId: "a1",
+        content: "Assistant answer worth returning to later.",
+        role: "assistant",
+        starred: true,
+        timestamp: 1_700_000_080_000,
+      },
+    ];
+    const onStarredOnlyChange = vi.fn();
+
+    function Harness() {
+      const containerRef = useRef<HTMLDivElement>(null);
+      const contentRootRef = useRef<HTMLDivElement>(null);
+      return (
+        <div ref={containerRef}>
+          <div ref={contentRootRef}>
+            {targets.map((target) => (
+              <div key={target.key} data-feed-block-id={target.blockId}>
+                {target.content}
+              </div>
+            ))}
+          </div>
+          <UserMessageNavigator
+            sessionId="s1"
+            currentThreadKey="q-12"
+            isLeaderSession
+            useServerSearch={false}
+            isTouch={false}
+            containerRef={containerRef}
+            contentRootRef={contentRootRef}
+            targets={targets}
+            visibleWindowSignature="test"
+            buttonClassName="h-8 w-8"
+            defaultOpen
+            starredOnly
+            onStarredOnlyChange={onStarredOnlyChange}
+            onPrevious={() => {}}
+            onNext={() => {}}
+            onSelectTarget={() => {}}
+          />
+        </div>
+      );
+    }
+
+    render(<Harness />);
+    const dialog = screen.getByRole("dialog", { name: "User message selector" });
+
+    expect(within(dialog).queryByText(/mobile layout/)).toBeNull();
+    expect(within(dialog).getByText(/Find the approval question/)).toBeTruthy();
+    expect(within(dialog).getByText(/Assistant answer worth returning/)).toBeTruthy();
+    expect(within(dialog).getByText("Assistant")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: /Starred/ }));
+    expect(onStarredOnlyChange).toHaveBeenCalledWith(false);
   });
 
   it("centers the current user-message row when the selector opens", async () => {
@@ -152,7 +220,7 @@ describe("UserMessageNavigator", () => {
     try {
       renderNavigator();
 
-      fireEvent.click(screen.getByRole("button", { name: "User message navigator, 2 of 2" }));
+      fireEvent.click(screen.getByRole("button", { name: "Message navigator, 2 of 2" }));
 
       await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "center", inline: "nearest" }));
       const dialog = screen.getByRole("dialog", { name: "User message selector" });
@@ -178,7 +246,7 @@ describe("UserMessageNavigator", () => {
     renderNavigator({ defaultOpen: true, useServerSearch: true, isLeaderSession: true });
     const dialog = screen.getByRole("dialog", { name: "User message selector" });
 
-    fireEvent.change(within(dialog).getByLabelText("Search user messages"), { target: { value: "approval" } });
+    fireEvent.change(within(dialog).getByLabelText("Search messages"), { target: { value: "approval" } });
 
     await waitFor(() => expect(mockSearchSessionMessages).toHaveBeenCalled());
     expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
@@ -216,7 +284,7 @@ describe("UserMessageNavigator", () => {
     try {
       renderNavigator({ isTouch: true });
 
-      const trigger = screen.getByRole("button", { name: "User message navigator, 2 of 2" });
+      const trigger = screen.getByRole("button", { name: "Message navigator, 2 of 2" });
       const root = trigger.parentElement;
       expect(root).toBeTruthy();
       root!.getBoundingClientRect = vi.fn(
@@ -250,7 +318,7 @@ describe("UserMessageNavigator", () => {
     renderNavigator({ defaultOpen: true, isTouch: true });
     const dialog = screen.getByRole("dialog", { name: "User message selector" });
 
-    fireEvent.pointerDown(within(dialog).getByLabelText("Search user messages"));
+    fireEvent.pointerDown(within(dialog).getByLabelText("Search messages"));
 
     expect(screen.getByRole("dialog", { name: "User message selector" })).toBeTruthy();
 

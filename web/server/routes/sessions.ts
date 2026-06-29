@@ -48,6 +48,7 @@ import { withProgressHeartbeat } from "./progress-heartbeat.js";
 import { cleanupWorktree, createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { registerSessionMessageSearchRoute } from "./session-message-search-route.js";
+import { registerSessionStarredMessagesRoute } from "./session-starred-messages-route.js";
 import { parseIncludeArchived, registerSessionSearchRoute } from "./session-search-route.js";
 import { registerSessionPermissionModeRoute, resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
 import { registerSessionPauseRoutes } from "./session-pause-routes.js";
@@ -1172,6 +1173,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
   });
   registerSessionSearchRoute(api, { launcher, wsBridge });
   registerSessionMessageSearchRoute(api, { launcher, wsBridge, resolveId });
+  registerSessionStarredMessagesRoute(api, { launcher, wsBridge, resolveId });
   api.get("/sessions/:id", (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);

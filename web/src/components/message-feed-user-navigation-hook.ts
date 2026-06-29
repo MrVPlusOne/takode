@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
-import type { HistoryWindowState, ThreadWindowState } from "../types.js";
+import type { HistoryWindowState, StarredMessageRecord, ThreadWindowState } from "../types.js";
 import type { Turn } from "../hooks/use-feed-model.js";
 import { escapeSelectorValue } from "./message-feed-utils.js";
 import { getHistoryBoundaryWindowRequest, getThreadBoundaryWindowRequest } from "./message-feed-window-paging.js";
@@ -25,6 +25,7 @@ export function useMessageFeedUserNavigationTargets({
   latestGlobalMessageId,
   normalizedThreadKey,
   sessionId,
+  starredMessages,
   threadWindowRefreshRevision,
   turns,
   userNavigationSourceSessionId,
@@ -35,13 +36,14 @@ export function useMessageFeedUserNavigationTargets({
   latestGlobalMessageId: string;
   normalizedThreadKey: string;
   sessionId: string;
+  starredMessages?: Record<string, StarredMessageRecord>;
   threadWindowRefreshRevision: number;
   turns: readonly Turn[];
   userNavigationSourceSessionId: string;
 }): UserNavigationTarget[] {
   const localUserNavigationTargets = useMemo(
-    () => collectUserNavigationTargets(turns, userNavigationSourceSessionId),
-    [turns, userNavigationSourceSessionId],
+    () => collectUserNavigationTargets(turns, userNavigationSourceSessionId, starredMessages),
+    [starredMessages, turns, userNavigationSourceSessionId],
   );
   const [serverUserNavigationTargets, setServerUserNavigationTargets] = useState<UserNavigationTarget[] | null>(null);
   const useServerUserNavigationTargets = !herdingLeaderSessionId;
@@ -64,7 +66,7 @@ export function useMessageFeedUserNavigationTargets({
             query: "",
             scope: isLeaderSession ? "current_thread" : "session",
             threadKey: isLeaderSession ? normalizedThreadKey : undefined,
-            filters: { user: true, assistant: false, event: false },
+            filters: { user: true, assistant: true, event: false },
             limit: USER_NAVIGATION_SEARCH_LIMIT,
             offset,
             signal: controller.signal,
@@ -94,6 +96,7 @@ export function useMessageFeedUserNavigationTargets({
     latestGlobalMessageId,
     normalizedThreadKey,
     sessionId,
+    starredMessages,
     threadWindowRefreshRevision,
     useServerUserNavigationTargets,
   ]);

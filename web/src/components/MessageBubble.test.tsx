@@ -15,11 +15,15 @@ import {
 import type { ChatMessage, ContentBlock } from "../types.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
+const starMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
+const unstarMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
 const markNotificationDoneMock = vi.hoisted(() => vi.fn(async () => ({})));
 const writeClipboardTextMock = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock("../api.js", () => ({
   api: {
     revertToMessage: revertToMessageMock,
+    starMessage: starMessageMock,
+    unstarMessage: unstarMessageMock,
     markNotificationDone: markNotificationDoneMock,
     getFsImageUrl: (path: string, variant?: "thumbnail" | "full") => {
       const params = new URLSearchParams({ path });
@@ -54,6 +58,8 @@ import { useStore } from "../store.js";
 
 beforeEach(() => {
   writeClipboardTextMock.mockClear();
+  starMessageMock.mockClear();
+  unstarMessageMock.mockClear();
   useStore.setState({ quests: [] });
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
@@ -219,6 +225,38 @@ describe("MessageBubble - user messages", () => {
 
     expect(screen.getByText("Composer.tsx:35-38")).toBeTruthy();
     expect(screen.getByText("Please review this")).toBeTruthy();
+  });
+
+  it("shows starred user indicators and toggles the existing context menu action", () => {
+    const msg = makeMessage({ id: "user-star", role: "user", content: "Remember this", historyIndex: 3 });
+    useStore.setState({
+      sessions: new Map([
+        [
+          "star-session",
+          {
+            session_id: "star-session",
+            starredMessages: {
+              "user-star": {
+                messageId: "user-star",
+                role: "user",
+                historyIndex: 3,
+                sourceThreadKey: "main",
+                routeThreadKey: "main",
+                timestamp: msg.timestamp,
+                starredAt: msg.timestamp + 1,
+              },
+            },
+          } as any,
+        ],
+      ]),
+    });
+
+    render(<MessageBubble message={msg} sessionId="star-session" />);
+
+    expect(screen.getByTestId("starred-message-indicator")).toBeTruthy();
+    fireEvent.click(screen.getByTitle("Message options"));
+    fireEvent.click(screen.getByText("Unstar message"));
+    expect(unstarMessageMock).toHaveBeenCalledWith("star-session", "user-star");
   });
 
   it("renders user messages with image thumbnails from REST URLs", () => {
@@ -1014,6 +1052,19 @@ describe("MessageBubble - assistant messages", () => {
     render(<MessageBubble message={msg} />);
 
     expect(screen.getByTestId("markdown").textContent).toBe("Internal handoff details @to(self)");
+  });
+
+  it("adds a star action for stable assistant bubbles", () => {
+    const msg = makeMessage({ id: "assistant-star", role: "assistant", content: "Save this answer", historyIndex: 4 });
+    useStore.setState({
+      sessions: new Map([["star-session", { session_id: "star-session", starredMessages: {} } as any]]),
+    });
+
+    render(<MessageBubble message={msg} sessionId="star-session" />);
+
+    fireEvent.click(screen.getByTitle("Message options"));
+    fireEvent.click(screen.getByText("Star message"));
+    expect(starMessageMock).toHaveBeenCalledWith("star-session", "assistant-star", { historyIndex: 4 });
   });
 
   it("keeps deprecated suffixes in mixed text and tool blocks", () => {

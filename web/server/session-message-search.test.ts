@@ -86,6 +86,7 @@ describe("searchSessionMessages", () => {
       snippet: expect.stringContaining("constellation"),
       sourceLabel: "Main",
       routeThreadKey: "main",
+      starred: false,
     });
   });
 
@@ -218,5 +219,44 @@ describe("searchSessionMessages", () => {
       snippet: expect.stringContaining("Session recycled"),
     });
     expect(response.results[0].snippet).not.toContain("compacted");
+  });
+
+  it("marks starred results and filters starred-only without changing query ranking", () => {
+    const response = searchSessionMessages({
+      sessionId: "leader-session",
+      sessionNum: 456,
+      isLeaderSession: true,
+      messageHistory: [
+        user("unstarred", "alpha result newer", 30),
+        user("starred-low", "alpha result older", 10),
+        assistant("starred-high", "alpha result newest assistant", 40),
+      ],
+      query: "alpha result",
+      filters: { user: true, assistant: true, event: false, starredOnly: true },
+      starredMessages: {
+        "starred-low": {
+          messageId: "starred-low",
+          role: "user",
+          historyIndex: 1,
+          sourceThreadKey: "main",
+          routeThreadKey: "main",
+          timestamp: 10,
+          starredAt: 100,
+        },
+        "starred-high": {
+          messageId: "starred-high",
+          role: "assistant",
+          historyIndex: 2,
+          sourceThreadKey: "main",
+          routeThreadKey: "main",
+          timestamp: 40,
+          starredAt: 101,
+        },
+      },
+    });
+
+    expect(response.results.map((result) => result.messageId)).toEqual(["starred-low", "starred-high"]);
+    expect(response.results.every((result) => result.starred)).toBe(true);
+    expect(response.results.map((result) => result.messageId)).not.toContain("unstarred");
   });
 });

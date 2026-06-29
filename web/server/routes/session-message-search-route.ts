@@ -39,7 +39,9 @@ export function registerSessionMessageSearchRoute(api: Hono, deps: SessionMessag
         user: parseBoolean(c.req.query("includeUser")),
         assistant: parseBoolean(c.req.query("includeAssistant")),
         event: parseBoolean(c.req.query("includeEvents")),
+        starredOnly: parseBoolean(c.req.query("starredOnly")),
       },
+      starredMessages: bridgeSession.state.starredMessages,
       limit: parseInteger(c.req.query("limit")),
       offset: parseInteger(c.req.query("offset")),
     });

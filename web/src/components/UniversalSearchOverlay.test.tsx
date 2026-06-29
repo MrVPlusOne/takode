@@ -127,6 +127,7 @@ function messageResult(overrides: Partial<MessageSearchResult>): MessageSearchRe
     historyIndex: 0,
     role: "user",
     category: "user",
+    starred: false,
     timestamp: now - 10_000,
     snippet: "Recent user request about universal search",
     routeThreadKey: "main",
@@ -145,7 +146,7 @@ function messageSearchResponse(
     sessionNum: 11,
     query: "",
     scope: { kind: "current_thread", threadKey: "main", label: "Searching in #11 Main" },
-    filters: { user: true, assistant: false, event: false },
+    filters: { user: true, assistant: false, event: false, starredOnly: false },
     totalMatches: results.length,
     results,
     nextOffset: null,
@@ -358,7 +359,7 @@ describe("UniversalSearchOverlay", () => {
         query: "",
         scope: "session",
         threadKey: undefined,
-        filters: { user: true, assistant: false, event: false },
+        filters: { user: true, assistant: false, event: false, starredOnly: false },
         limit: 20,
       }),
     );
@@ -470,7 +471,7 @@ describe("UniversalSearchOverlay", () => {
         "s-new",
         expect.objectContaining({
           scope: "leader_all_tabs",
-          filters: { user: true, assistant: true, event: false },
+          filters: { user: true, assistant: true, event: false, starredOnly: false },
         }),
       ),
     );
@@ -478,8 +479,36 @@ describe("UniversalSearchOverlay", () => {
     const stored = JSON.parse(localStorage.getItem("cc-universal-search-message-settings") || "{}");
     expect(stored).toEqual({
       scope: "leader_all_tabs",
-      filters: { user: true, assistant: true, event: false },
+      filters: { user: true, assistant: true, event: false, starredOnly: false },
     });
+  });
+
+  it("requests starred-only Message results and renders star indicators without changing filters", async () => {
+    mockSearchSessionMessages.mockResolvedValue(
+      messageSearchResponse([
+        messageResult({
+          messageId: "assistant-starred",
+          role: "assistant",
+          category: "assistant",
+          starred: true,
+          snippet: "Starred assistant note about the search overlay",
+        }),
+      ]),
+    );
+    renderOverlay();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Starred" }));
+
+    await waitFor(() =>
+      expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
+        "s-new",
+        expect.objectContaining({
+          filters: { user: true, assistant: false, event: false, starredOnly: true },
+        }),
+      ),
+    );
+    const resultRow = await screen.findByText("Starred assistant note about the search overlay");
+    expect(resultRow.closest('[role="option"]')?.querySelector("svg")).not.toBeNull();
   });
 
   it("requests and renders Events-only Message results as event cards", async () => {
@@ -500,7 +529,7 @@ describe("UniversalSearchOverlay", () => {
         ],
         {
           scope: { kind: "leader_all_tabs", label: "Searching in #11 across tabs" },
-          filters: { user: false, assistant: false, event: true },
+          filters: { user: false, assistant: false, event: true, starredOnly: false },
         },
       ),
     );
@@ -513,7 +542,7 @@ describe("UniversalSearchOverlay", () => {
         "s-new",
         expect.objectContaining({
           scope: "leader_all_tabs",
-          filters: { user: false, assistant: false, event: true },
+          filters: { user: false, assistant: false, event: true, starredOnly: false },
         }),
       ),
     );

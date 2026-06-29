@@ -17,7 +17,26 @@ function makeRoute(history: BrowserIncomingMessage[]) {
     } as any,
     wsBridge: {
       getSession: vi.fn((id: string) =>
-        id === sessionId ? { id, messageHistory: history, state: { isOrchestrator: false } } : null,
+        id === sessionId
+          ? {
+              id,
+              messageHistory: history,
+              state: {
+                isOrchestrator: false,
+                starredMessages: {
+                  old: {
+                    messageId: "old",
+                    role: "user",
+                    historyIndex: 0,
+                    sourceThreadKey: "main",
+                    routeThreadKey: "main",
+                    timestamp: 10,
+                    starredAt: 100,
+                  },
+                },
+              },
+            }
+          : null,
       ),
     } as any,
     resolveId: vi.fn((raw: string) => (raw === sessionId || raw === "123" ? sessionId : null)),
@@ -33,7 +52,7 @@ describe("GET /sessions/:id/message-search", () => {
     ]);
 
     const res = await app.request(
-      "/sessions/123/message-search?q=dragon&scope=current_thread&includeUser=true&includeAssistant=false&limit=1",
+      "/sessions/123/message-search?q=dragon&scope=current_thread&includeUser=true&includeAssistant=false&starredOnly=true&limit=1",
     );
     const body = await res.json();
 
@@ -49,6 +68,7 @@ describe("GET /sessions/:id/message-search", () => {
         {
           messageId: "old",
           historyIndex: 0,
+          starred: true,
           snippet: expect.stringContaining("dragonfruit"),
         },
       ],

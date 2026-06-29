@@ -88,7 +88,7 @@ import {
 import { getHistoryBoundaryWindowRequest, getThreadBoundaryWindowRequest } from "./message-feed-window-paging.js";
 import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
 import { useMessageFeedUserNavigationTargets, useUserMessageNavigation } from "./message-feed-user-navigation-hook.js";
-import { UserMessageNavigator } from "./UserMessageNavigator.js";
+import { MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
 import {
   isUserBoundaryEntry,
   useFeedModel,
@@ -238,6 +238,7 @@ export function MessageFeed({
   const frozenRevision = useStore((s) => s.messageFrozenRevisions.get(sessionId) ?? 0);
   const historyWindow = useStore((s) => s.historyWindows.get(sessionId) ?? null);
   const leaderProjection = useStore((s) => s.leaderProjections?.get(sessionId) ?? null);
+  const starredMessages = useStore((s) => s.sessions.get(sessionId)?.starredMessages);
   const streamingText = useStore((s) => s.streaming.get(sessionId));
   const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
@@ -274,6 +275,7 @@ export function MessageFeed({
   const [selectedCodexTerminalId, setSelectedCodexTerminalId] = useState<string | null>(null);
   const [dismissedSubagentChips, setDismissedSubagentChips] = useState<Map<string, string>>(new Map());
   const [liveActivityRailVersion, setLiveActivityRailVersion] = useState(0);
+  const [navigatorStarredOnly, setNavigatorStarredOnly] = useState(false);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const isTouch = useMemo(() => isTouchDevice(), []);
   const taskTurnOffsetsRef = useRef<TurnOffsetIndex[]>([]);
@@ -311,10 +313,15 @@ export function MessageFeed({
     latestGlobalMessageId,
     normalizedThreadKey,
     sessionId,
+    starredMessages,
     threadWindowRefreshRevision,
     turns,
     userNavigationSourceSessionId,
   });
+  const activeUserNavigationTargets = useMemo(
+    () => (navigatorStarredOnly ? userNavigationTargets.filter((target) => target.starred) : userNavigationTargets),
+    [navigatorStarredOnly, userNavigationTargets],
+  );
   const activeLiveSubagentEntries = useMemo(
     () =>
       collectLiveSubagentEntries(
@@ -1052,7 +1059,7 @@ export function MessageFeed({
   } = useUserMessageNavigation({
     containerRef,
     contentRootRef,
-    userNavigationTargets,
+    userNavigationTargets: activeUserNavigationTargets,
     activeHistoryWindow,
     activeThreadWindow,
     normalizedThreadKey,
@@ -1941,54 +1948,28 @@ export function MessageFeed({
           </div>
         )}
 
-        {/* Navigation FABs — desktop: top, prev/next, bottom; mobile: same stack, auto-hide */}
-        {showScrollButton && (
-          <div
-            data-testid="message-feed-nav-fabs"
-            className={`absolute bottom-3 right-3 z-10 flex flex-col items-center transition-opacity duration-300 ${navFabStackClassName}`}
-            style={isTouch ? { bottom: `${mobileNavBottomOffsetPx}px` } : undefined}
-          >
-            {/* Go to top */}
-            <button
-              onClick={handleScrollToTopClick}
-              className={navFabButtonClassName}
-              title="Go to top"
-              aria-label="Go to top"
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-                <path d="M4 8l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M4 12h8" strokeLinecap="round" />
-              </svg>
-            </button>
-            <UserMessageNavigator
-              sessionId={sessionId}
-              currentThreadKey={normalizedThreadKey}
-              isLeaderSession={isLeaderSession}
-              useServerSearch={!herdingLeaderSessionId}
-              isTouch={isTouch}
-              containerRef={containerRef}
-              contentRootRef={contentRootRef}
-              targets={userNavigationTargets}
-              visibleWindowSignature={visibleWindowSignature}
-              buttonClassName={navFabButtonClassName}
-              onPrevious={handleScrollToPreviousUserMessageClick}
-              onNext={handleScrollToNextUserMessageClick}
-              onSelectTarget={handleSelectUserNavigationTarget}
-            />
-            {/* Go to bottom */}
-            <button
-              onClick={handleScrollToBottomClick}
-              className={navFabButtonClassName}
-              title="Go to bottom"
-              aria-label="Go to bottom"
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-                <path d="M4 8l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M4 4h8" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
-        )}
+        <MessageFeedNavigationControls
+          showScrollButton={showScrollButton}
+          navFabStackClassName={navFabStackClassName}
+          isTouch={isTouch}
+          mobileNavBottomOffsetPx={mobileNavBottomOffsetPx}
+          navFabButtonClassName={navFabButtonClassName}
+          sessionId={sessionId}
+          normalizedThreadKey={normalizedThreadKey}
+          isLeaderSession={isLeaderSession}
+          useServerSearch={!herdingLeaderSessionId}
+          containerRef={containerRef}
+          contentRootRef={contentRootRef}
+          userNavigationTargets={userNavigationTargets}
+          visibleWindowSignature={visibleWindowSignature}
+          navigatorStarredOnly={navigatorStarredOnly}
+          onNavigatorStarredOnlyChange={setNavigatorStarredOnly}
+          onScrollToTop={handleScrollToTopClick}
+          onPreviousUserMessage={handleScrollToPreviousUserMessageClick}
+          onNextUserMessage={handleScrollToNextUserMessageClick}
+          onSelectUserNavigationTarget={handleSelectUserNavigationTarget}
+          onScrollToBottom={handleScrollToBottomClick}
+        />
 
         {/* Floating context menu for text selection within assistant messages */}
         <SelectionContextMenu selection={textSelection} sessionId={sessionId} onClose={textSelection.dismiss} />

@@ -8,6 +8,7 @@ import type {
   SideChatPreflight,
   StreamRecord,
   SessionNotification,
+  StarredMessageRecord,
 } from "./types.js";
 import type {
   LeaderProfilePool,
@@ -1130,6 +1131,17 @@ export const api = {
 
   revertToMessage: (sessionId: string, messageId: string) =>
     post(`/sessions/${encodeURIComponent(sessionId)}/revert`, { messageId }),
+
+  starMessage: (sessionId: string, messageId: string, opts?: { historyIndex?: number }) =>
+    put<{ ok: boolean; starredMessages: Record<string, StarredMessageRecord> }>(
+      `/sessions/${encodeURIComponent(sessionId)}/starred-messages/${encodeURIComponent(messageId)}`,
+      opts ?? {},
+    ),
+
+  unstarMessage: (sessionId: string, messageId: string) =>
+    del<{ ok: boolean; starredMessages: Record<string, StarredMessageRecord> }>(
+      `/sessions/${encodeURIComponent(sessionId)}/starred-messages/${encodeURIComponent(messageId)}`,
+    ),
 
   archiveSession: (sessionId: string, opts?: { force?: boolean }) =>
     post(`/sessions/${encodeURIComponent(sessionId)}/archive`, opts),

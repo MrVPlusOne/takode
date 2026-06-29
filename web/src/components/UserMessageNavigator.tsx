@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import { normalizeForSearch } from "../../shared/search-utils.js";
 import { escapeSelectorValue } from "./message-feed-utils.js";
+import { StarIcon } from "./StarredMessageIndicator.js";
 import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
 
 type ElementRef<T> = RefObject<T | null>;
@@ -28,6 +29,8 @@ interface UserMessageNavigatorProps {
   visibleWindowSignature: string;
   buttonClassName: string;
   defaultOpen?: boolean;
+  starredOnly?: boolean;
+  onStarredOnlyChange?: (value: boolean) => void;
   onPrevious: () => void;
   onNext: () => void;
   onSelectTarget: (target: UserNavigationTarget) => void;
@@ -56,6 +59,8 @@ export function UserMessageNavigator({
   visibleWindowSignature,
   buttonClassName,
   defaultOpen = false,
+  starredOnly = false,
+  onStarredOnlyChange,
   onPrevious,
   onNext,
   onSelectTarget,
@@ -71,26 +76,31 @@ export function UserMessageNavigator({
   const [activeTargetKey, setActiveTargetKey] = useState<string | null>(null);
   const [searchState, setSearchState] = useState<SearchState>({ status: "idle", ids: [] });
   const uniqueTargets = useMemo(() => uniqueUserNavigationTargets(targets), [targets]);
-  const activeIndex = uniqueTargets.findIndex((target) => target.key === activeTargetKey);
-  const resolvedActiveTargetKey = activeIndex >= 0 ? activeTargetKey : (uniqueTargets.at(-1)?.key ?? null);
-  const activePosition = uniqueTargets.length === 0 ? 0 : activeIndex >= 0 ? activeIndex + 1 : uniqueTargets.length;
+  const navigationTargets = useMemo(
+    () => (starredOnly ? uniqueTargets.filter((target) => target.starred) : uniqueTargets),
+    [starredOnly, uniqueTargets],
+  );
+  const activeIndex = navigationTargets.findIndex((target) => target.key === activeTargetKey);
+  const resolvedActiveTargetKey = activeIndex >= 0 ? activeTargetKey : (navigationTargets.at(-1)?.key ?? null);
+  const activePosition =
+    navigationTargets.length === 0 ? 0 : activeIndex >= 0 ? activeIndex + 1 : navigationTargets.length;
   const trimmedQuery = query.trim();
   const displayedTargets = useMemo(() => {
-    if (!trimmedQuery) return uniqueTargets;
+    if (!trimmedQuery) return navigationTargets;
     if (useServerSearch && searchState.status === "idle") {
-      const byMessageId = new Map(uniqueTargets.map((target) => [target.messageId, target]));
+      const byMessageId = new Map(navigationTargets.map((target) => [target.messageId, target]));
       return searchState.ids.flatMap((id) => {
         const target = byMessageId.get(id);
         return target ? [target] : [];
       });
     }
-    return filterTargetsLocally(uniqueTargets, trimmedQuery);
-  }, [searchState.ids, searchState.status, trimmedQuery, uniqueTargets, useServerSearch]);
+    return filterTargetsLocally(navigationTargets, trimmedQuery);
+  }, [navigationTargets, searchState.ids, searchState.status, trimmedQuery, useServerSearch]);
 
   const syncActiveTarget = useCallback(() => {
-    const nextKey = resolveActiveTargetKey(containerRef.current, contentRootRef.current, uniqueTargets);
+    const nextKey = resolveActiveTargetKey(containerRef.current, contentRootRef.current, navigationTargets);
     setActiveTargetKey((current) => (current === nextKey ? current : nextKey));
-  }, [containerRef, contentRootRef, uniqueTargets]);
+  }, [containerRef, contentRootRef, navigationTargets]);
 
   useEffect(() => {
     syncActiveTarget();
@@ -228,7 +238,7 @@ export function UserMessageNavigator({
   const triggerClassName = isTouch
     ? "h-10 min-w-16 rounded-full border border-cc-border bg-cc-card px-2.5 text-[12px] font-medium text-cc-fg shadow-lg transition-colors hover:bg-cc-hover focus:outline-none focus:ring-2 focus:ring-cc-primary/40"
     : "h-8 min-w-14 rounded-full border border-cc-border bg-cc-card px-2 text-[11px] font-medium text-cc-fg shadow-lg transition-colors hover:bg-cc-hover focus:outline-none focus:ring-2 focus:ring-cc-primary/40";
-  const hasTargets = uniqueTargets.length > 0;
+  const hasTargets = navigationTargets.length > 0;
   const selectorClassName = isTouch
     ? "fixed z-50 flex w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-cc-border bg-cc-card text-cc-fg shadow-[0_25px_60px_rgba(0,0,0,0.5)]"
     : "absolute bottom-[calc(100%+0.5rem)] right-0 z-20 flex max-h-[min(420px,calc(100vh-12rem))] w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-cc-border bg-cc-card shadow-xl sm:bottom-0 sm:right-[calc(100%+0.5rem)] sm:w-[360px]";
@@ -243,26 +253,42 @@ export function UserMessageNavigator({
       >
         <div className="border-b border-cc-border p-2">
           <label className="sr-only" htmlFor={`user-message-navigator-search-${sessionId}`}>
-            Search user messages
+            Search messages
           </label>
           <input
             id={`user-message-navigator-search-${sessionId}`}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search user messages..."
+            placeholder="Search messages..."
             className="h-8 w-full rounded-md border border-cc-border bg-cc-bg px-2 text-xs text-cc-fg outline-none transition-colors placeholder:text-cc-muted focus:border-cc-primary/60"
           />
+          {onStarredOnlyChange && (
+            <button
+              type="button"
+              aria-pressed={starredOnly}
+              onClick={() => onStarredOnlyChange(!starredOnly)}
+              className={`mt-1.5 inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+                starredOnly
+                  ? "border-amber-300/30 bg-amber-300/12 text-amber-200"
+                  : "border-cc-border bg-cc-bg/60 text-cc-muted hover:text-cc-fg"
+              }`}
+            >
+              <StarIcon className="h-3 w-3" />
+              Starred
+            </button>
+          )}
         </div>
         <div ref={selectorListRef} className="min-h-0 overflow-y-auto p-1.5">
           {searchState.status === "loading" && trimmedQuery && (
             <div className="px-2 py-1.5 text-[11px] text-cc-muted">Searching...</div>
           )}
           {displayedTargets.length === 0 ? (
-            <div className="px-2 py-3 text-xs text-cc-muted">No matching user messages.</div>
+            <div className="px-2 py-3 text-xs text-cc-muted">No matching messages.</div>
           ) : (
             <div className="space-y-1">
               {displayedTargets.map((target) => {
-                const position = uniqueTargets.findIndex((candidate) => candidate.messageId === target.messageId) + 1;
+                const position =
+                  navigationTargets.findIndex((candidate) => candidate.messageId === target.messageId) + 1;
                 const selected = target.key === resolvedActiveTargetKey;
                 return (
                   <button
@@ -281,6 +307,12 @@ export function UserMessageNavigator({
                   >
                     <span className="mt-0.5 w-7 shrink-0 text-[10px] tabular-nums text-cc-muted">{position || 1}</span>
                     <span className="min-w-0 flex-1">
+                      <span className="mb-0.5 flex items-center gap-1.5 text-[10px] text-cc-muted">
+                        {target.starred && <StarIcon className="h-3 w-3 text-amber-200" />}
+                        {target.role === "assistant" && (
+                          <span className="rounded border border-cc-border/70 px-1 uppercase">Assistant</span>
+                        )}
+                      </span>
                       <span className="line-clamp-2 break-words">{previewText(target.content)}</span>
                       <span className="mt-0.5 block text-[10px] text-cc-muted">
                         {formatNavigatorTime(target.timestamp)}
@@ -303,6 +335,7 @@ export function UserMessageNavigator({
         className={buttonClassName}
         title="Previous user message"
         aria-label="Previous user message"
+        disabled={!hasTargets}
       >
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
           <path d="M4 7l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
@@ -319,11 +352,11 @@ export function UserMessageNavigator({
         className={`${triggerClassName} ${hasTargets ? "" : "cursor-not-allowed opacity-60"}`}
         aria-haspopup="dialog"
         aria-expanded={hasTargets && open}
-        aria-label={`User message navigator, ${activePosition} of ${uniqueTargets.length}`}
-        title="User message navigator"
+        aria-label={`Message navigator, ${activePosition} of ${navigationTargets.length}`}
+        title="Message navigator"
         disabled={!hasTargets}
       >
-        {activePosition} / {uniqueTargets.length}
+        {activePosition} / {navigationTargets.length}
       </button>
       <button
         type="button"
@@ -331,6 +364,7 @@ export function UserMessageNavigator({
         className={buttonClassName}
         title="Next user message"
         aria-label="Next user message"
+        disabled={!hasTargets}
       >
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
           <path d="M4 9l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />

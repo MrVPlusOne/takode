@@ -18,13 +18,15 @@ import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 import { compareSearchRanks, rankSearchFields, type SearchRank } from "../../shared/search-utils.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
+import { StarIcon } from "./StarredMessageIndicator.js";
 
 export type UniversalSearchMode = "quests" | "sessions" | "messages";
 
 type MessageFilter = "user" | "assistant" | "event";
+type MessageFilters = Record<MessageFilter, boolean> & { starredOnly?: boolean };
 type MessageSearchSettings = {
   scope: MessageSearchScopeKind;
-  filters: Record<MessageFilter, boolean>;
+  filters: MessageFilters;
 };
 
 type UniversalSearchResult =
@@ -75,6 +77,7 @@ const DEFAULT_MESSAGE_SEARCH_SETTINGS: MessageSearchSettings = {
     user: true,
     assistant: false,
     event: false,
+    starredOnly: false,
   },
 };
 
@@ -151,6 +154,10 @@ function normalizeStoredMessageSearchSettings(settings: Partial<MessageSearchSet
         typeof settings.filters?.event === "boolean"
           ? settings.filters.event
           : DEFAULT_MESSAGE_SEARCH_SETTINGS.filters.event,
+      starredOnly:
+        typeof settings.filters?.starredOnly === "boolean"
+          ? settings.filters.starredOnly
+          : DEFAULT_MESSAGE_SEARCH_SETTINGS.filters.starredOnly,
     },
   };
 }
@@ -420,11 +427,12 @@ export function UniversalSearchOverlay({
     effectiveMessageScope,
     messageSettings.filters.assistant,
     messageSettings.filters.event,
+    messageSettings.filters.starredOnly,
     messageSettings.filters.user,
     mode,
   ]);
 
-  const searchKey = `${mode}:${debouncedQuery.trim()}:scope=${effectiveMessageScope}:thread=${currentThreadKey ?? ""}:user=${messageSettings.filters.user}:assistant=${messageSettings.filters.assistant}:event=${messageSettings.filters.event}`;
+  const searchKey = `${mode}:${debouncedQuery.trim()}:scope=${effectiveMessageScope}:thread=${currentThreadKey ?? ""}:user=${messageSettings.filters.user}:assistant=${messageSettings.filters.assistant}:event=${messageSettings.filters.event}:starred=${messageSettings.filters.starredOnly}`;
 
   useEffect(() => {
     if (!open) return;
@@ -868,6 +876,24 @@ export function UniversalSearchOverlay({
                   </button>
                 );
               })}
+              <button
+                type="button"
+                aria-pressed={Boolean(messageSettings.filters.starredOnly)}
+                onClick={() =>
+                  setMessageSettings((current) => ({
+                    ...current,
+                    filters: { ...current.filters, starredOnly: !current.filters.starredOnly },
+                  }))
+                }
+                className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+                  messageSettings.filters.starredOnly
+                    ? "border-amber-300/30 bg-amber-300/12 text-amber-200"
+                    : "border-cc-border bg-cc-bg/60 text-cc-muted hover:text-cc-fg"
+                }`}
+              >
+                <StarIcon className="h-3 w-3" />
+                Starred
+              </button>
             </div>
           )}
         </div>
@@ -1287,6 +1313,7 @@ function MessageResultRow({
             <span className="rounded-md bg-cc-hover px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cc-muted">
               {badgeLabel}
             </span>
+            {message.starred && <StarIcon className="h-3.5 w-3.5 text-amber-200" />}
             {message.sourceLabel && (
               <span className="rounded-md border border-cc-border px-1.5 py-0.5 text-[10px] text-cc-muted">
                 {message.sourceLabel}

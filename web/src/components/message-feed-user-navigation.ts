@@ -1,4 +1,5 @@
 import type { ChatMessage } from "../types.js";
+import type { StarredMessageRecord } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 import { isInjectedEventMessage } from "../utils/injected-event-message.js";
 import { getMessageFeedBlockId, getTurnFeedBlockId } from "./message-feed-utils.js";
@@ -11,6 +12,8 @@ export interface UserNavigationTarget {
   blockId: string;
   messageId: string;
   content: string;
+  role: "user" | "assistant";
+  starred: boolean;
   timestamp: number;
   navigationIndex?: number;
   historyIndex?: number;
@@ -24,13 +27,14 @@ export interface ServerUserNavigationSearchResult {
   messageId: string;
   fullText?: string;
   snippet: string;
+  starred: boolean;
 }
 
 export function searchResultsToUserNavigationTargets(
   results: readonly ServerUserNavigationSearchResult[],
 ): UserNavigationTarget[] {
   return results
-    .filter((result) => result.category === "user")
+    .filter((result) => result.category === "user" || (result.category === "assistant" && result.starred))
     .sort((left, right) => left.historyIndex - right.historyIndex || left.timestamp - right.timestamp)
     .map((result, index) => {
       const isBoundaryUserMessage = result.role === "user";
@@ -43,6 +47,8 @@ export function searchResultsToUserNavigationTargets(
         blockId,
         messageId: result.messageId,
         content: result.fullText ?? result.snippet,
+        role: result.role === "assistant" ? "assistant" : "user",
+        starred: result.starred,
         timestamp: result.timestamp,
         navigationIndex: index,
         historyIndex: result.historyIndex,
@@ -70,12 +76,16 @@ export function mergeUserNavigationTargets(
     .map((target, index) => ({ ...target, navigationIndex: index }));
 }
 
-export function collectUserNavigationTargets(turns: readonly Turn[], leaderSessionId: string): UserNavigationTarget[] {
+export function collectUserNavigationTargets(
+  turns: readonly Turn[],
+  leaderSessionId: string,
+  starredMessages?: Record<string, StarredMessageRecord>,
+): UserNavigationTarget[] {
   const targets: UserNavigationTarget[] = [];
 
   for (const turn of turns) {
     const boundaryMessage = getEntryMessage(turn.userEntry);
-    if (boundaryMessage && isUserNavigationTargetMessage(boundaryMessage, leaderSessionId)) {
+    if (boundaryMessage && isUserNavigationTargetMessage(boundaryMessage, leaderSessionId, starredMessages)) {
       const blockId = getTurnFeedBlockId(turn.id);
       targets.push({
         key: blockId,
@@ -83,6 +93,8 @@ export function collectUserNavigationTargets(turns: readonly Turn[], leaderSessi
         blockId,
         messageId: boundaryMessage.id,
         content: boundaryMessage.content,
+        role: boundaryMessage.role === "assistant" ? "assistant" : "user",
+        starred: Boolean(starredMessages?.[boundaryMessage.id]),
         timestamp: boundaryMessage.timestamp,
         navigationIndex: targets.length,
         historyIndex: boundaryMessage.historyIndex,
@@ -91,7 +103,7 @@ export function collectUserNavigationTargets(turns: readonly Turn[], leaderSessi
 
     for (const entry of turn.allEntries) {
       const message = getEntryMessage(entry);
-      if (!message || !isUserNavigationTargetMessage(message, leaderSessionId)) continue;
+      if (!message || !isUserNavigationTargetMessage(message, leaderSessionId, starredMessages)) continue;
       const blockId = getMessageFeedBlockId(message.id);
       targets.push({
         key: blockId,
@@ -99,6 +111,8 @@ export function collectUserNavigationTargets(turns: readonly Turn[], leaderSessi
         blockId,
         messageId: message.id,
         content: message.content,
+        role: message.role === "assistant" ? "assistant" : "user",
+        starred: Boolean(starredMessages?.[message.id]),
         timestamp: message.timestamp,
         navigationIndex: targets.length,
         historyIndex: message.historyIndex,
@@ -123,8 +137,13 @@ export function findAdjacentUserNavigationTarget(
   return anchorIndex < targets.length - 1 ? targets[anchorIndex + 1]! : null;
 }
 
-function isUserNavigationTargetMessage(message: ChatMessage, leaderSessionId: string): boolean {
-  if (message.role === "assistant") return message.metadata?.leaderUserMessage === true;
+function isUserNavigationTargetMessage(
+  message: ChatMessage,
+  leaderSessionId: string,
+  starredMessages?: Record<string, StarredMessageRecord>,
+): boolean {
+  if (message.role === "assistant")
+    return message.metadata?.leaderUserMessage === true || Boolean(starredMessages?.[message.id]);
   if (message.role !== "user") return false;
   if (isInjectedEventMessage(message)) return false;
 

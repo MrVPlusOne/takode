@@ -10,6 +10,8 @@ const PLAYGROUND_NAV_TARGETS: UserNavigationTarget[] = [
     blockId: "turn:user-nav-1",
     messageId: "user-nav-1",
     content: "Review the thread navigation controls and keep the composer reachable on mobile.",
+    role: "user",
+    starred: false,
     timestamp: Date.now() - 420_000,
   },
   {
@@ -18,6 +20,8 @@ const PLAYGROUND_NAV_TARGETS: UserNavigationTarget[] = [
     blockId: "turn:user-nav-2",
     messageId: "user-nav-2",
     content: "Find the worker handoff where the implementation notes mention current-tab scoping.",
+    role: "user",
+    starred: false,
     timestamp: Date.now() - 260_000,
   },
   {
@@ -26,7 +30,19 @@ const PLAYGROUND_NAV_TARGETS: UserNavigationTarget[] = [
     blockId: "turn:user-nav-3",
     messageId: "user-nav-3",
     content: "Jump back to the approval question before sending the final summary.",
+    role: "user",
+    starred: true,
     timestamp: Date.now() - 90_000,
+  },
+  {
+    key: "message:assistant-nav-1",
+    turnId: "user-nav-3",
+    blockId: "message:assistant-nav-1",
+    messageId: "assistant-nav-1",
+    content: "Assistant summary starred for later review.",
+    role: "assistant",
+    starred: true,
+    timestamp: Date.now() - 45_000,
   },
 ];
 
