@@ -8,7 +8,7 @@ Commands:
                                                          List quests with optional filters
   mine   [--json]                                        List quests owned by current session
   grep   <pattern> [--count N] [--json]                  Search inside quest title, description, debrief, and feedback/comments with snippets
-  show   <id> [--json]                                   Show quest detail
+  show   <id> [--sections <list>] [--full] [--json]       Show compact quest detail; reveal sections on demand
   status <id> [--json]                                   Show compact action-oriented quest status
   history <id> [--json]                                  Show quest history
   tags   [--json]                                        List all existing tags with counts
@@ -71,6 +71,13 @@ Search tips:
   quest list --text "foo"   Filter quests broadly by text
   quest grep "foo|bar"      Search inside quest text/debrief/comments with contextual snippets
   quest grep "follow_up"    Search related quest metadata and backlinks too
+
+Quest detail reveal:
+  quest show q-1                                        Compact index by default
+  quest show q-1 --sections description,debrief         Reveal high-level bodies
+  quest show q-1 --sections phases                      Reveal phase index and TLDRs, not full bodies
+  quest show q-1 --sections phase:7                     Reveal one full phase note by # index
+  quest show q-1 --full                                 Expensive full detail; prefer --sections first
 
 Safer rich-text input:
   quest create --title-file title.txt --desc-file body.md

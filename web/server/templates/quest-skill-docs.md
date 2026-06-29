@@ -57,7 +57,7 @@ When in doubt about whether a change is quest creation/refinement or routine boo
 ```
 quest list   [--status <s1,s2>] [--tag <t>] [--tags "t1,t2"] [--session <sid>] [--text <q>] [--verification <scope>] [--json]  List quests
 quest grep   <pattern> [--count N] [--json]                  Search quest title, description, final debrief, and feedback/comments
-quest show   <id> [--json]                                    Show quest detail
+quest show   <id> [--sections <list>] [--full] [--json]        Show compact quest detail; reveal sections on demand
 quest status <id> [--json]                                    Show compact action-oriented status and next action
 quest history <id> [--json]                                   Show quest history (legacy backup after cutover)
 quest tags   [--json]                                         List all existing tags with counts
@@ -403,7 +403,32 @@ printf '%s\n' 'Superseded by q-13 with copied `$(note)` text' | \
 | `--reason <text>` | Required with `--force`; explain why the caller is intentionally overriding the leader/owner guard |
 | `--json` | Output JSON |
 
-### quest show <id>, quest history <id>, quest check <id> <n>, quest address <id> <n>, quest later <id>, quest inbox <id>, quest delete <id>, quest mine, quest tags
+### quest show <id> [--sections <list>] [--full] [--json]
+
+Plain-text `quest show q-N` is compact by default: it shows the status/header, quest TLDR, description/debrief preview, unaddressed feedback, a bounded phase-note index with short previews, and reveal hints.
+
+Use `--sections <list>` to reveal high-level details before reaching for `--full`. The list is comma-separated and supports:
+- `description` — reveal the full quest description body
+- `debrief` — reveal the final debrief TLDR/body when present
+- `metadata` — reveal tags, ownership/session, review, commit, relationship, image, and timestamp metadata
+- `phases` — reveal the phase index/details and TLDRs, not full phase bodies
+- `phase:<index>` — reveal exactly one full phase note by the `#<index>` shown in the phase index
+
+Examples:
+
+```bash
+quest show q-12
+quest show q-12 --sections description,debrief
+quest show q-12 --sections phases
+quest show q-12 --sections phase:7
+quest show q-12 --sections description,debrief,phase:7
+```
+
+`quest show q-N --full` remains available as the full-detail escape hatch, but it can consume substantial context on historical quests. Prefer targeted `--sections` reveals first.
+
+JSON compatibility is preserved: `quest show q-N --json` returns the full quest object for scripts.
+
+### quest history <id>, quest check <id> <n>, quest address <id> <n>, quest later <id>, quest inbox <id>, quest delete <id>, quest mine, quest tags
 These commands accept only `--json` for JSON output.
 
 ## Usage Examples
@@ -494,7 +519,7 @@ Quest quiz items are for user-facing active recall, not future-agent memory. Gen
 
 When the user asks you to work on a quest — whether via the Companion "Assign" button or free-form text like "work on q-5" — follow this order:
 
-1. **Read and verify**: `quest show q-N` — understand the full scope. Prefer the plain-text form for normal reading and judgment; it is more scannable and token-efficient than `--json`. Use `quest status q-N` for a compact next-action summary. Use `quest feedback list/latest/show` for indexed feedback inspection, and reserve `--json` for exact machine fields such as `commitShas` or legacy backup metadata from `quest history`. **Verify the title matches what you expect.** If the quest title/description doesn't match the task you were asked to work on, STOP — you may have the wrong quest ID. If the quest has a **Feedback** section, read it carefully — these are review comments from the human that must be addressed.
+1. **Read and verify**: `quest show q-N` — understand the compact scope index first. Prefer the plain-text form for normal reading and judgment; it is more scannable and token-efficient than `--json`. Use `quest show q-N --sections description,debrief,metadata,phases` for targeted detail, `quest show q-N --sections phase:<index>` for one full phase note, and `quest show q-N --full` only when the expensive full-detail output is really needed. Use `quest status q-N` for a compact next-action summary. Use `quest feedback list/latest/show` for indexed feedback inspection, and reserve `--json` for exact machine fields such as `commitShas` or legacy backup metadata from `quest history`. **Verify the title matches what you expect.** If the quest title/description doesn't match the task you were asked to work on, STOP — you may have the wrong quest ID. If the quest has a **Feedback** section, read it carefully — these are review comments from the human that must be addressed.
    - When you need to search across many quests or within quest comments for prior decisions, prefer `quest grep <pattern>` over manually scanning `quest show` output or relying on `quest list --text`.
 2. **Claim immediately**: `quest claim q-N` — always claim first, regardless of the quest's current status. This links it to your session. If this fails because another session already claimed it, **STOP and tell the user** — do not proceed.
 3. **Polish metadata (required before coding)**:

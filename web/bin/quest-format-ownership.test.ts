@@ -28,7 +28,7 @@ describe("formatQuestDetail ownership audit", () => {
       ],
     };
 
-    const detail = formatQuestDetail(quest);
+    const detail = formatQuestDetail(quest, undefined, { sections: "metadata" });
 
     expect(detail).toContain("Ownership:   1 event(s)");
     expect(detail).toContain("force_claim");

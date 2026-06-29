@@ -10,7 +10,7 @@
  * Commands:
  *   list       List all quests (latest versions)
  *   mine       List quests owned by current session
- *   show       Show full quest detail
+ *   show       Show compact quest detail with progressive reveal
  *   status     Show compact action-oriented quest status
  *   history    Show quest history (live or legacy backup)
  *   create     Create a new quest
@@ -52,7 +52,7 @@ import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "../server/ques
 import { applyQuestListFilters } from "../server/quest-list-filters.js";
 import { grepQuests } from "../server/quest-grep.js";
 import { getName } from "../server/session-names.js";
-import { formatQuestDetail, formatQuestLine, formatSessionLabel } from "./quest-format.js";
+import { formatQuestLine, formatSessionLabel } from "./quest-format.js";
 import { parseCommitShas } from "./quest-commit-flags.js";
 import {
   normalizeTldr,
@@ -83,6 +83,7 @@ import { runOptimizeImageCommand, runResizeImageCommand } from "./quest-image.js
 import { runHistoryCommand } from "./quest-history-command.js";
 import { parseRelationshipFlags } from "./quest-relationship-flags.js";
 import { fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
+import { runShowCommand } from "./quest-show-command.js";
 import { runTagsCommand } from "./quest-tags-command.js";
 import { runQuizCommand } from "./quest-quiz.js";
 import { runClaimCommand, runReassignCommand } from "./quest-ownership-command.js";
@@ -836,23 +837,6 @@ async function cmdList(): Promise<void> {
       );
     }
   }
-}
-
-async function cmdShow(): Promise<void> {
-  validateFlags(["json"]);
-  const id = positional(0);
-  if (!id) die("Usage: quest show <questId>");
-
-  const quest = await getQuest(id);
-  if (!quest) die(`Quest ${id} not found`);
-
-  if (jsonOutput) {
-    out(quest);
-    return;
-  }
-  const sessionMetadata = await getSessionMetadataMap();
-  console.log(formatQuestDetail(quest, sessionMetadata, { currentSessionId, getSessionName: getName }));
-  printHumanFeedbackWarning(quest);
 }
 
 async function cmdStatus(): Promise<void> {
@@ -1910,7 +1894,20 @@ async function main(): Promise<void> {
     case "grep":
       return cmdGrep();
     case "show":
-      return cmdShow();
+      return runShowCommand({
+        validateFlags,
+        positional,
+        flag,
+        option,
+        getQuest,
+        getSessionMetadataMap,
+        currentSessionId,
+        getSessionName: getName,
+        jsonOutput,
+        out,
+        die,
+        printHumanFeedbackWarning,
+      });
     case "status":
       return cmdStatus();
     case "history":

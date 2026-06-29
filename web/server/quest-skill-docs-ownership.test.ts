@@ -46,4 +46,15 @@ describe("quest skill ownership docs", () => {
     expect(memoryCompletion).toContain("Keep code commit metadata separate from memory commit metadata");
     expect(memoryCompletion).toContain("file-based memory repo commits");
   });
+
+  it("documents quest show progressive reveal before expensive full detail", () => {
+    const docs = readTemplate("quest-skill-docs.md");
+
+    expect(docs).toContain("quest show   <id> [--sections <list>] [--full] [--json]");
+    expect(docs).toContain("Plain-text `quest show q-N` is compact by default");
+    expect(docs).toContain("quest show q-12 --sections description,debrief");
+    expect(docs).toContain("quest show q-12 --sections phases");
+    expect(docs).toContain("quest show q-12 --sections phase:7");
+    expect(docs).toContain("Prefer targeted `--sections` reveals first.");
+  });
 });
