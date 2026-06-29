@@ -413,6 +413,17 @@ describe("navigateToSessionMessageId", () => {
     expect(useStore.getState().scrollToMessageId.get("validation-alpha")).toBe("alpha-thread-target");
     expect(useStore.getState().expandAllInTurn.get("validation-alpha")).toBe("alpha-thread-target");
   });
+
+  it("preserves explicit Main thread context for stable message routes", () => {
+    navigateToSessionMessageId("validation-alpha", "alpha-main-target", {
+      routeSessionId: 41,
+      threadKey: "main",
+      preserveMainThreadRoute: true,
+    });
+
+    expect(window.location.hash).toBe("#/session/41/msg/alpha-main-target?thread=main");
+    expect(useStore.getState().scrollToMessageId.get("validation-alpha")).toBe("alpha-main-target");
+  });
 });
 
 describe("navigateHome", () => {

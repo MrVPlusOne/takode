@@ -620,6 +620,7 @@ export type BrowserOutgoingMessage =
       section_item_count: number;
       visible_item_count: number;
       cached_window_hash?: string;
+      target_message_id?: string;
       feed_window_sync_version?: number;
     }
   | {

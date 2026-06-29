@@ -1148,6 +1148,70 @@ describe("MessageFeed section windowing", () => {
     );
   });
 
+  it("requests a selected-thread window containing a missing message deep-link target", async () => {
+    const sid = "test-leader-main-deep-link-target-window";
+    const target = makeMessage({
+      id: "u-starred-target",
+      role: "user",
+      content: "Starred target outside the current window",
+      timestamp: 100,
+      historyIndex: 1,
+    });
+    const recent = makeMessage({
+      id: "u-recent-window",
+      role: "user",
+      content: "Recent selected window content",
+      timestamp: 200,
+      historyIndex: 42,
+    });
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreMessages(sid, [target, recent]);
+    setStoreHistoryWindow(sid);
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey: "main",
+      fromItem: 7,
+      itemCount: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      totalItems: 37,
+      sectionItemCount: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visibleItemCount: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      messages: [recent],
+    });
+    setStoreScrollToMessage(sid, target.id);
+
+    const { rerender } = render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+    await flushFeedObservers();
+    expect(mockClearScrollToMessage).not.toHaveBeenCalledWith(sid);
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({
+        type: "thread_window_request",
+        thread_key: "main",
+        target_message_id: target.id,
+      }),
+    );
+
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      totalItems: 37,
+      sectionItemCount: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visibleItemCount: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      messages: [target, recent],
+    });
+    setStoreThreadWindowRevisions({ sessionId: sid, threadKey: "main", refreshRevision: 1, appliedRevision: 1 });
+    rerender(<MessageFeed sessionId={sid} threadKey="main" />);
+
+    await flushFeedObservers();
+    expect(screen.getByText("Starred target outside the current window")).toBeTruthy();
+    expect(mockClearScrollToMessage).toHaveBeenCalledWith(sid);
+    const scrollTarget = mockScrollIntoView.mock.contexts.at(-1) as HTMLElement | undefined;
+    expect(scrollTarget?.getAttribute("data-message-id")).toBe(target.id);
+  });
+
   // Non-Main selected leader threads follow the same stale-but-visible path; the
   // regression was a temporary loading/empty state before thread_window_sync arrived.
   it("keeps stale leader quest-thread content visible while refreshing after history replacement", async () => {

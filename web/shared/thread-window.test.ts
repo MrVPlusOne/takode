@@ -915,4 +915,29 @@ describe("thread window hydration", () => {
     expect(sync.entries).toHaveLength(3);
     expect(sync.entries.map((entry) => entry.history_index)).toEqual([700, 800, 900]);
   });
+
+  it("centers a thread window on a target message id when requested", () => {
+    const history: BrowserIncomingMessage[] = [];
+    for (let i = 0; i < 20; i++) {
+      history.push(user(`u${i}`, `message ${i}`));
+      history.push(assistant(`a${i}`, `answer ${i}`));
+    }
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: -1,
+      itemCount: 4,
+      sectionItemCount: 2,
+      visibleItemCount: 2,
+      targetMessageId: "u6",
+    });
+
+    expect(sync.window.from_item).toBe(4);
+    expect(sync.window.item_count).toBe(4);
+    expect(sync.entries.some((entry) => entry.message.type === "user_message" && entry.message.id === "u6")).toBe(true);
+    expect(sync.entries.map((entry) => entry.history_index)).toContain(12);
+    expect(sync.window.has_older_items).toBe(true);
+    expect(sync.window.has_newer_items).toBe(true);
+  });
 });

@@ -23,6 +23,7 @@ export interface BuildThreadWindowInput {
   itemCount: number;
   sectionItemCount: number;
   visibleItemCount: number;
+  targetMessageId?: string;
 }
 
 interface FeedItem {
@@ -62,12 +63,23 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
   const ranges = buildConversationRanges(items);
   const totalItems = ranges.length;
   const requestedFromItem = Math.floor(input.fromItem);
+  const targetRangeIndex = input.targetMessageId
+    ? findConversationRangeIndexForMessage(items, ranges, input.targetMessageId)
+    : null;
   const initialFromItem =
     totalItems === 0
       ? 0
-      : requestedFromItem < 0
-        ? Math.max(0, totalItems - requestedItemCount)
-        : Math.max(0, Math.min(requestedFromItem, Math.max(0, totalItems - 1)));
+      : targetRangeIndex != null
+        ? Math.max(
+            0,
+            Math.min(
+              targetRangeIndex - Math.floor(requestedItemCount / 2),
+              Math.max(0, totalItems - requestedItemCount),
+            ),
+          )
+        : requestedFromItem < 0
+          ? Math.max(0, totalItems - requestedItemCount)
+          : Math.max(0, Math.min(requestedFromItem, Math.max(0, totalItems - 1)));
   const initialEndItem = Math.min(totalItems, initialFromItem + requestedItemCount);
   const filledRange = fillSparseThreadWindowRange({
     messageHistory: input.messageHistory,
@@ -109,6 +121,19 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
       visible_item_count: visibleItemCount,
     },
   };
+}
+
+function findConversationRangeIndexForMessage(
+  items: FeedItem[],
+  ranges: ConversationRange[],
+  targetMessageId: string,
+): number | null {
+  const targetItemIndex = items.findIndex(
+    (item) => rawMessageId(item.entry.message, item.entry.history_index) === targetMessageId,
+  );
+  if (targetItemIndex < 0) return null;
+  const rangeIndex = ranges.findIndex((range) => targetItemIndex >= range.startItem && targetItemIndex < range.endItem);
+  return rangeIndex >= 0 ? rangeIndex : null;
 }
 
 export function buildProjectedThreadEntries(

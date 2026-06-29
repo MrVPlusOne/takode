@@ -229,7 +229,10 @@ export default function App() {
     useStore.getState().openQuestOverlay(questId, query || undefined);
   }, []);
   const handleOpenUniversalMessage = useCallback((sessionId: string, messageId: string, threadKey?: string | null) => {
-    navigateToSessionMessageId(sessionId, messageId, { threadKey: threadKey ?? undefined });
+    navigateToSessionMessageId(sessionId, messageId, {
+      threadKey: threadKey ?? undefined,
+      preserveMainThreadRoute: threadKey != null,
+    });
   }, []);
   const shouldKeepMobileSidebarMounted = !isDesktopShell;
   const shouldRenderSidebar = sidebarOpen || shouldKeepMobileSidebarMounted;

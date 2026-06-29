@@ -467,6 +467,7 @@ export function handleBrowserProtocolMessage(
       sectionItemCount: msg.section_item_count,
       visibleItemCount: msg.visible_item_count,
       cachedWindowHash: msg.cached_window_hash,
+      targetMessageId: msg.target_message_id,
       feedWindowSyncVersion: msg.feed_window_sync_version,
     });
     return true;
@@ -1157,6 +1158,7 @@ export function sendThreadWindowSync(
     sectionItemCount: number;
     visibleItemCount: number;
     cachedWindowHash?: string;
+    targetMessageId?: string;
     feedWindowSyncVersion?: number;
   },
 ): void {
@@ -1173,6 +1175,7 @@ export function sendThreadWindowSync(
     itemCount: normalizedItemCount,
     sectionItemCount: normalizedSectionItemCount,
     visibleItemCount: normalizedVisibleItemCount,
+    targetMessageId: options.targetMessageId,
   });
   const windowHash = computeHistoryPayloadSyncHash({
     threadKey: sync.threadKey,

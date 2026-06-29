@@ -71,10 +71,9 @@ import { useCollapsePolicy } from "../hooks/use-collapse-policy.js";
 import { useTextSelection } from "../hooks/useTextSelection.js";
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
-import { getThreadWindowItemCount } from "../../shared/thread-window.js";
 import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
 import { collectAnchoredNotificationMessageIds } from "../utils/anchored-notifications.js";
-import { getCachedHistoryWindowHash, getCachedThreadWindowHash } from "../utils/history-window-cache.js";
+import { getCachedHistoryWindowHash } from "../utils/history-window-cache.js";
 import { buildFeedMessageModel, buildFeedWindowModel } from "../utils/feed-render-model.js";
 import {
   hasMissingSelectedThreadWindowContext,
@@ -88,6 +87,8 @@ import {
 import { getHistoryBoundaryWindowRequest, getThreadBoundaryWindowRequest } from "./message-feed-window-paging.js";
 import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
 import { useMessageFeedUserNavigationTargets, useUserMessageNavigation } from "./message-feed-user-navigation-hook.js";
+import { getMissingScrollTargetWindowAction, type PendingTargetWindowRequest } from "./message-feed-scroll-target.js";
+import { useThreadWindowRequester } from "./message-feed-thread-window-request.js";
 import { MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
 import {
   isUserBoundaryEntry,
@@ -288,6 +289,7 @@ export function MessageFeed({
     anchor: FeedViewportAnchor | null;
   } | null>(null);
   const pendingSectionLoadKeyRef = useRef<string | null>(null);
+  const pendingTargetWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
 
   const codexTerminalEntries = useMemo(
     () => (isCodexSession ? collectCodexTerminalEntries(messages, toolResults, toolProgress, toolStartTimestamps) : []),
@@ -648,36 +650,13 @@ export function MessageFeed({
     return true;
   }, []);
 
-  const requestThreadWindow = useCallback(
-    (fromItem: number, requestedItemCount?: number) => {
-      const itemCount = activeThreadWindow
-        ? requestedItemCount ||
-          activeThreadWindow.item_count ||
-          getThreadWindowItemCount(activeThreadWindow.visible_item_count, activeThreadWindow.section_item_count)
-        : getThreadWindowItemCount(DEFAULT_VISIBLE_SECTION_COUNT, sectionTurnCount);
-      const sectionItemCount = activeThreadWindow?.section_item_count ?? sectionTurnCount;
-      const visibleItemCount = activeThreadWindow?.visible_item_count ?? DEFAULT_VISIBLE_SECTION_COUNT;
-      const cachedWindowHash = getCachedThreadWindowHash(sessionId, {
-        threadKey: normalizedThreadKey,
-        fromItem,
-        itemCount,
-        sectionItemCount,
-        visibleItemCount,
-      });
-      const delivered = sendToSession(sessionId, {
-        type: "thread_window_request",
-        thread_key: normalizedThreadKey,
-        from_item: fromItem,
-        item_count: itemCount,
-        section_item_count: sectionItemCount,
-        visible_item_count: visibleItemCount,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
-        ...(cachedWindowHash ? { cached_window_hash: cachedWindowHash } : {}),
-      });
-      if (delivered && !activeThreadWindow) setPendingInitialThreadWindowKey(normalizedThreadKey);
-    },
-    [activeThreadWindow, normalizedThreadKey, sectionTurnCount, sessionId],
-  );
+  const requestThreadWindow = useThreadWindowRequester({
+    activeThreadWindow,
+    normalizedThreadKey,
+    sectionTurnCount,
+    sessionId,
+    setPendingInitialThreadWindowKey,
+  });
 
   useEffect(() => {
     if (!selectedFeedWindowEnabled) return;
@@ -1595,7 +1574,6 @@ export function MessageFeed({
   const clearExpandAllInTurn = useStore((s) => s.clearExpandAllInTurn);
   useEffect(() => {
     if (!scrollToMessageId) return;
-    clearScrollToMessage(sessionId);
     autoFollowEnabledRef.current = false;
 
     // Find which turn contains this message. Check both regular messages and
@@ -1611,6 +1589,22 @@ export function MessageFeed({
         (t.userEntry?.kind === "message" && t.userEntry.msg.id === scrollToMessageId),
     );
     if (!targetTurn) {
+      if (selectedFeedWindowEnabled) {
+        const key = `${normalizedThreadKey}:${scrollToMessageId}`;
+        const action = getMissingScrollTargetWindowAction({
+          pending: pendingTargetWindowRequestRef.current,
+          requestKey: key,
+          revision: selectedThreadWindowRevision,
+        });
+        if (action.kind === "request") {
+          pendingTargetWindowRequestRef.current = action.pending;
+          requestThreadWindow(-1, undefined, scrollToMessageId);
+          return;
+        }
+        if (action.kind === "wait") return;
+        pendingTargetWindowRequestRef.current = null;
+      }
+      clearScrollToMessage(sessionId);
       // Target message genuinely not in turns (e.g. compacted out of history).
       // Fall back to scrolling to the most recent content rather than doing nothing.
       const lastTurn = turns[turns.length - 1];
@@ -1624,6 +1618,8 @@ export function MessageFeed({
       }
       return;
     }
+    pendingTargetWindowRequestRef.current = null;
+    clearScrollToMessage(sessionId);
 
     // Focus: expand target turn, all others revert to defaults (last expanded, rest collapsed)
     useStore.getState().focusTurn(sessionId, targetTurn.id);
@@ -1654,7 +1650,18 @@ export function MessageFeed({
       return;
     }
     scheduleScroll();
-  }, [clearExpandAllInTurn, clearScrollToMessage, ensureSectionForTurnVisible, scrollToMessageId, sessionId, turns]);
+  }, [
+    clearExpandAllInTurn,
+    clearScrollToMessage,
+    ensureSectionForTurnVisible,
+    normalizedThreadKey,
+    requestThreadWindow,
+    scrollToMessageId,
+    selectedFeedWindowEnabled,
+    selectedThreadWindowRevision,
+    sessionId,
+    turns,
+  ]);
 
   // Track which task outline chip should be highlighted based on scroll position.
   // The reference line is near the container top (with a small offset to avoid
