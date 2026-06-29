@@ -1,4 +1,10 @@
 import { findTurnBoundaries } from "./takode-messages.js";
+import {
+  collectToolContextSources,
+  contextByteLength,
+  type ContextCommandBreakdown,
+  toolPreviewSize,
+} from "./context-payload-analysis.js";
 import type { BrowserIncomingMessage, ContextUsageHistoryEntry, ToolResultPreview } from "./session-types.js";
 
 export interface ContextDiagnosticsToolResult {
@@ -10,6 +16,8 @@ export interface ContextDiagnosticsToolResult {
   totalBytes: number;
   hiddenBytes: number;
   truncated: boolean;
+  commandFamily?: string;
+  commandSummary?: string;
   readCommand: string;
   peekCommand: string;
 }
@@ -22,6 +30,8 @@ export interface ContextDiagnosticsHeavyEntry {
   type?: string;
   toolUseId?: string;
   toolName?: string;
+  commandFamily?: string;
+  commandSummary?: string;
   readCommand: string;
   peekCommand: string;
 }
@@ -50,6 +60,7 @@ export interface ContextDiagnostics {
   };
   byMessageType: Record<string, { count: number; bytes: number }>;
   byTool: Record<string, { calls: number; inputBytes: number; resultBytes: number; hiddenResultBytes: number }>;
+  byCommandFamily: Record<string, ContextCommandBreakdown>;
   topEntries: ContextDiagnosticsHeavyEntry[];
   topTurns: ContextDiagnosticsTurnTotal[];
   contextUsageHistoryCount: number;
@@ -67,10 +78,6 @@ interface ContextDiagnosticsSession {
   messageHistory: BrowserIncomingMessage[];
   toolResults: Map<string, IndexedToolResultPayload>;
   contextUsageHistory?: ContextUsageHistoryEntry[];
-}
-
-function byteLength(value: unknown): number {
-  return Buffer.byteLength(typeof value === "string" ? value : JSON.stringify(value), "utf-8");
 }
 
 function commandSessionRef(sessionNum: number | null, sessionId: string): string {
@@ -95,25 +102,13 @@ function addBreakdownBytes(record: Record<string, { count: number; bytes: number
   record[key] = current;
 }
 
-function collectToolNames(messages: BrowserIncomingMessage[]): Map<string, { name: string; inputBytes: number }> {
-  const result = new Map<string, { name: string; inputBytes: number }>();
-  for (const message of messages) {
-    if (message.type !== "assistant" || !Array.isArray(message.message?.content)) continue;
-    for (const block of message.message.content) {
-      if (block.type !== "tool_use") continue;
-      result.set(block.id, { name: block.name, inputBytes: byteLength(block.input ?? {}) });
-    }
-  }
-  return result;
-}
-
 function toolResultTotalBytes(
   preview: ToolResultPreview,
   toolResults: Map<string, IndexedToolResultPayload>,
 ): { totalBytes: number; previewBytes: number; hiddenBytes: number } {
-  const previewBytes = byteLength(preview.content);
+  const previewBytes = contextByteLength(preview.content);
   const indexed = toolResults.get(preview.tool_use_id);
-  const totalBytes = indexed ? byteLength(indexed.content) : Math.max(preview.total_size, previewBytes);
+  const totalBytes = indexed ? contextByteLength(indexed.content) : toolPreviewSize(preview).totalBytes;
   return {
     previewBytes,
     totalBytes,
@@ -132,7 +127,8 @@ export function buildContextDiagnostics(
   const turns = findTurnBoundaries(messages);
   const byMessageType: ContextDiagnostics["byMessageType"] = {};
   const byTool: ContextDiagnostics["byTool"] = {};
-  const toolNames = collectToolNames(messages);
+  const byCommandFamily: ContextDiagnostics["byCommandFamily"] = {};
+  const toolSources = collectToolContextSources(messages);
   const heavyEntries: ContextDiagnosticsHeavyEntry[] = [];
   const turnTotals = turns.map((turn, turnIndex) => ({
     turn: turnIndex,
@@ -151,7 +147,7 @@ export function buildContextDiagnostics(
 
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i];
-    const bytes = byteLength(message);
+    const bytes = contextByteLength(message);
     const turn = findTurnForMessage(turns, i);
     const readCommand = `takode read ${sessionRef} ${i}`;
     const peekCommand = `takode peek ${sessionRef} --turn-containing ${i}`;
@@ -170,7 +166,7 @@ export function buildContextDiagnostics(
     if (message.type !== "tool_result_preview") continue;
     for (const preview of message.previews) {
       const sizes = toolResultTotalBytes(preview, session.toolResults);
-      const tool = toolNames.get(preview.tool_use_id);
+      const tool = toolSources.get(preview.tool_use_id);
       const toolName = tool?.name ?? "unknown";
       const toolRecord = byTool[toolName] ?? { calls: 0, inputBytes: 0, resultBytes: 0, hiddenResultBytes: 0 };
       toolRecord.calls += 1;
@@ -178,6 +174,19 @@ export function buildContextDiagnostics(
       toolRecord.resultBytes += sizes.totalBytes;
       toolRecord.hiddenResultBytes += sizes.hiddenBytes;
       byTool[toolName] = toolRecord;
+      if (tool?.commandFamily) {
+        const commandRecord = byCommandFamily[tool.commandFamily] ?? {
+          calls: 0,
+          inputBytes: 0,
+          resultBytes: 0,
+          hiddenResultBytes: 0,
+        };
+        commandRecord.calls += 1;
+        commandRecord.inputBytes += tool.inputBytes;
+        commandRecord.resultBytes += sizes.totalBytes;
+        commandRecord.hiddenResultBytes += sizes.hiddenBytes;
+        byCommandFamily[tool.commandFamily] = commandRecord;
+      }
 
       toolResultBytes += sizes.totalBytes;
       hiddenToolResultBytes += sizes.hiddenBytes;
@@ -188,6 +197,8 @@ export function buildContextDiagnostics(
         turn,
         toolUseId: preview.tool_use_id,
         toolName,
+        ...(tool?.commandFamily ? { commandFamily: tool.commandFamily } : {}),
+        ...(tool?.commandSummary ? { commandSummary: tool.commandSummary } : {}),
         readCommand,
         peekCommand,
       });
@@ -214,6 +225,7 @@ export function buildContextDiagnostics(
     },
     byMessageType,
     byTool,
+    byCommandFamily,
     topEntries: heavyEntries.sort((a, b) => b.bytes - a.bytes).slice(0, limit),
     topTurns: turnTotals.sort((a, b) => b.totalObservableBytes - a.totalObservableBytes).slice(0, limit),
     contextUsageHistoryCount: contextUsageHistory.length,

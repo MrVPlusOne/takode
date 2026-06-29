@@ -18,6 +18,13 @@ import { deriveAttachmentPaths } from "./attachment-paths.js";
 import { TAKODE_PEEK_CONTENT_LIMIT } from "../shared/takode-constants.js";
 import { isSystemSourceTag } from "./bridge/adapter-browser-routing-source-tags.js";
 import { isCompactionRecoveryPrompt } from "./compaction-recovery-prompts.js";
+import {
+  collectToolContextSources,
+  computeContextTurnSummary,
+  summarizeToolContext,
+  toolPreviewSize,
+  type ContextTurnSummary,
+} from "./context-payload-analysis.js";
 
 // ─── Peek Response Types ──────────────────────────────────────────────────────
 
@@ -32,6 +39,12 @@ export interface TakodePeekTool {
   result?: string;
   resultTruncated?: boolean;
   resultTotalSize?: number;
+  context?: {
+    resultBytes?: number;
+    hiddenResultBytes?: number;
+    commandFamily?: string;
+    commandSummary?: string;
+  };
   syntheticReason?: string;
   retainedOutput?: boolean;
 }
@@ -98,6 +111,7 @@ export interface TakodePeekTurn {
   messages: TakodePeekMessage[];
   threads?: string[];
   threadStatuses?: TakodeThreadStatusSummary[];
+  context?: ContextTurnSummary;
 }
 
 export interface TurnStats {
@@ -127,6 +141,7 @@ export interface TakodePeekTurnSummary {
   threads?: string[];
   /** Compact status-marker summaries touched by this turn. */
   threadStatuses?: TakodeThreadStatusSummary[];
+  context?: ContextTurnSummary;
 }
 
 /** A compaction event that occurred between turns (or before the first turn). */
@@ -181,6 +196,8 @@ export interface BuildPeekRangeOptions {
   threadKey?: string;
   /** When true, populate expanded `tools` array instead of compact `toolCounts` */
   showTools?: boolean;
+  /** Include compact observable context-size annotations for turns and tools. */
+  includeContext?: boolean;
 }
 
 export interface TakodeReadResponse extends TakodeThreadMetadata {
@@ -577,6 +594,7 @@ function buildPeekTool(
   block: { id: string; name: string; input: Record<string, unknown> },
   idx: number,
   toolResultPreviews: Map<string, ToolResultPreview>,
+  includeContext = false,
 ): TakodePeekTool {
   const preview = toolResultPreviews.get(block.id);
   const base: TakodePeekTool = {
@@ -584,9 +602,11 @@ function buildPeekTool(
     name: block.name,
     summary: buildToolSummary(block.name, block.input),
   };
+  const source = includeContext ? summarizeToolContext(block.name, block.input) : null;
   if (!preview) return { ...base, status: "running" };
 
   const isSynthetic = isSyntheticTerminalResultPreview(preview);
+  const sizes = includeContext ? toolPreviewSize(preview) : null;
   return {
     ...base,
     status: isSynthetic ? "orphaned" : preview.is_error ? "error" : "completed",
@@ -594,6 +614,15 @@ function buildPeekTool(
     ...(preview.content ? { result: truncate(preview.content, 100) } : {}),
     ...(preview.is_truncated ? { resultTruncated: true } : {}),
     ...(typeof preview.total_size === "number" ? { resultTotalSize: preview.total_size } : {}),
+    ...(includeContext
+      ? {
+          context: {
+            ...(sizes ? { resultBytes: sizes.totalBytes, hiddenResultBytes: sizes.hiddenBytes } : {}),
+            ...(source?.commandFamily ? { commandFamily: source.commandFamily } : {}),
+            ...(source?.commandSummary ? { commandSummary: source.commandSummary } : {}),
+          },
+        }
+      : {}),
     ...(preview.synthetic_reason ? { syntheticReason: preview.synthetic_reason } : {}),
     ...(typeof preview.retained_output === "boolean" ? { retainedOutput: preview.retained_output } : {}),
   };
@@ -926,6 +955,8 @@ export interface PeekOptions {
   full?: boolean;
   /** Restrict detail turns to this thread. Supported values are "main" and "q-N". */
   threadKey?: string;
+  /** Include compact observable context-size annotations for turns and tools. */
+  includeContext?: boolean;
 }
 
 /** Build peekable messages for a single turn. Reused by buildPeekResponse, buildPeekDefault, and buildPeekRange. */
@@ -939,6 +970,7 @@ function buildTurnMessages(
     sessionId?: string;
     subagentToolUseIds?: Set<string>;
     toolResultPreviews?: Map<string, ToolResultPreview>;
+    includeContext?: boolean;
   } = {},
 ): TakodePeekMessage[] {
   const {
@@ -947,6 +979,7 @@ function buildTurnMessages(
     sessionId,
     subagentToolUseIds = new Set<string>(),
     toolResultPreviews = new Map<string, ToolResultPreview>(),
+    includeContext = false,
   } = opts;
   const startMsg = messageHistory[turn.startIdx];
   const startedAt = extractTimestamp(startMsg);
@@ -1014,7 +1047,7 @@ function buildTurnMessages(
         if (visibleToolBlocks.length > 0) {
           peekMsg.tools = visibleToolBlocks.map((block) => {
             const blockIdx = msg.message.content.indexOf(block);
-            return buildPeekTool(block, blockIdx >= 0 ? blockIdx : 0, toolResultPreviews);
+            return buildPeekTool(block, blockIdx >= 0 ? blockIdx : 0, toolResultPreviews, includeContext);
           });
         }
       }
@@ -1044,9 +1077,10 @@ export function buildPeekResponse(
   options: PeekOptions = {},
   sessionId?: string,
 ): TakodePeekTurn[] {
-  const { turns: turnCount = 1, since = 0, full = false, threadKey } = options;
+  const { turns: turnCount = 1, since = 0, full = false, threadKey, includeContext = false } = options;
   const contentLimit = TAKODE_PEEK_CONTENT_LIMIT;
   const { subagentToolUseIds, toolResultPreviews } = buildSubagentIndexes(messageHistory);
+  const toolSources = includeContext ? collectToolContextSources(messageHistory) : undefined;
 
   const allTurns = findTurnBoundaries(messageHistory);
 
@@ -1078,6 +1112,7 @@ export function buildPeekResponse(
       sessionId,
       subagentToolUseIds,
       toolResultPreviews,
+      includeContext,
     }).filter(
       (msg) => !threadKey || messageParticipatesInThread(messageHistory[msg.idx]!, threadKey) || msg.type === "result",
     );
@@ -1089,6 +1124,9 @@ export function buildPeekResponse(
       ...(durationMs !== null ? { dur: durationMs } : {}),
       messages: peekMessages,
       ...turnThreadSummary(messageHistory, turn),
+      ...(includeContext && toolSources
+        ? { context: computeContextTurnSummary(messageHistory, turn, toolSources) }
+        : {}),
     };
   });
 }
@@ -1099,12 +1137,13 @@ export function buildPeekResponse(
  */
 export function buildPeekDefault(
   messageHistory: BrowserIncomingMessage[],
-  options: { collapsedCount?: number; expandLimit?: number; threadKey?: string } = {},
+  options: { collapsedCount?: number; expandLimit?: number; threadKey?: string; includeContext?: boolean } = {},
   sessionId?: string,
 ): PeekDefaultResponse {
-  const { collapsedCount = 5, expandLimit = 10, threadKey } = options;
+  const { collapsedCount = 5, expandLimit = 10, threadKey, includeContext = false } = options;
   const contentLimit = TAKODE_PEEK_CONTENT_LIMIT;
   const { subagentToolUseIds, toolResultPreviews } = buildSubagentIndexes(messageHistory);
+  const toolSources = includeContext ? collectToolContextSources(messageHistory) : undefined;
 
   const allTurns = findTurnBoundaries(messageHistory);
   const visibleTurns = allTurns.filter((turn) => turnParticipatesInThread(messageHistory, turn, threadKey));
@@ -1149,6 +1188,7 @@ export function buildPeekDefault(
       sessionId,
       subagentToolUseIds,
       toolResultPreviews,
+      includeContext,
     });
     const resultPreview = deriveTurnResultPreview(messageHistory, turn, endMsg, contentLimit, {
       subagentToolUseIds,
@@ -1173,6 +1213,9 @@ export function buildPeekDefault(
       ...((startMsg as any).agentSource ? { agent: (startMsg as any).agentSource } : {}),
       ...(injectedTemplate ? { injectedTemplate } : {}),
       ...turnThreadSummary(messageHistory, turn),
+      ...(includeContext && toolSources
+        ? { context: computeContextTurnSummary(messageHistory, turn, toolSources) }
+        : {}),
     };
   });
 
@@ -1188,6 +1231,7 @@ export function buildPeekDefault(
     sessionId,
     subagentToolUseIds,
     toolResultPreviews,
+    includeContext,
   }).filter(
     (msg) => !threadKey || messageParticipatesInThread(messageHistory[msg.idx]!, threadKey) || msg.type === "result",
   );
@@ -1224,6 +1268,9 @@ export function buildPeekDefault(
       stats: lastTurnStats,
       omittedMsgs,
       ...turnThreadSummary(messageHistory, lastTurn),
+      ...(includeContext && toolSources
+        ? { context: computeContextTurnSummary(messageHistory, lastTurn, toolSources) }
+        : {}),
     },
     ...(compactionEvents.length > 0 ? { compactionEvents } : {}),
   };
@@ -1375,7 +1422,7 @@ export function buildPeekRange(
           if (options.showTools || visibleBlocks.length === 1) {
             peekMsg.tools = visibleBlocks.map((block) => {
               const blockIdx = msg.message.content.indexOf(block);
-              return buildPeekTool(block, blockIdx >= 0 ? blockIdx : 0, toolResultPreviews);
+              return buildPeekTool(block, blockIdx >= 0 ? blockIdx : 0, toolResultPreviews, options.includeContext);
             });
           } else {
             const counts: Record<string, number> = {};
@@ -1496,7 +1543,12 @@ export function buildReadResponse(
 export function buildPeekRangeForContainingMessage(
   messageHistory: BrowserIncomingMessage[],
   idx: number,
-  options: { showTools?: boolean; threadKey?: string; getToolResult?: ReadOptions["getToolResult"] } = {},
+  options: {
+    showTools?: boolean;
+    threadKey?: string;
+    includeContext?: boolean;
+    getToolResult?: ReadOptions["getToolResult"];
+  } = {},
   sessionId?: string,
 ): PeekRangeLookupResult {
   if (!Number.isInteger(idx) || idx < 0) {
@@ -1533,7 +1585,13 @@ export function buildPeekRangeForContainingMessage(
     ok: true,
     response: buildPeekRange(
       messageHistory,
-      { from: turn.startIdx, until: endIdx, showTools: options.showTools, threadKey: options.threadKey },
+      {
+        from: turn.startIdx,
+        until: endIdx,
+        showTools: options.showTools,
+        threadKey: options.threadKey,
+        includeContext: options.includeContext,
+      },
       sessionId,
     ),
   };
@@ -1586,12 +1644,13 @@ export interface PeekTurnScanResponse {
  */
 export function buildPeekTurnScan(
   messageHistory: BrowserIncomingMessage[],
-  options: { fromTurn?: number; turnCount?: number; threadKey?: string } = {},
+  options: { fromTurn?: number; turnCount?: number; threadKey?: string; includeContext?: boolean } = {},
   sessionId?: string,
 ): PeekTurnScanResponse {
-  const { fromTurn = 0, turnCount = 50, threadKey } = options;
+  const { fromTurn = 0, turnCount = 50, threadKey, includeContext = false } = options;
   const contentLimit = TAKODE_PEEK_CONTENT_LIMIT;
   const { subagentToolUseIds, toolResultPreviews } = buildSubagentIndexes(messageHistory);
+  const toolSources = includeContext ? collectToolContextSources(messageHistory) : undefined;
 
   const allTurns = findTurnBoundaries(messageHistory);
   const visibleTurns = allTurns.filter((turn) => turnParticipatesInThread(messageHistory, turn, threadKey));
@@ -1643,6 +1702,7 @@ export function buildPeekTurnScan(
       sessionId,
       subagentToolUseIds,
       toolResultPreviews,
+      includeContext,
     });
     const resultPreview = deriveTurnResultPreview(messageHistory, turn, endMsg, contentLimit, {
       subagentToolUseIds,
@@ -1668,6 +1728,9 @@ export function buildPeekTurnScan(
       ...((startMsg as any).agentSource ? { agent: (startMsg as any).agentSource } : {}),
       ...(injectedTemplate ? { injectedTemplate } : {}),
       ...turnThreadSummary(messageHistory, turn),
+      ...(includeContext && toolSources
+        ? { context: computeContextTurnSummary(messageHistory, turn, toolSources) }
+        : {}),
     };
   });
 

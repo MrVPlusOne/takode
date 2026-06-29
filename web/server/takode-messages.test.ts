@@ -62,6 +62,7 @@ function toolResultPreview(
     durationSeconds?: number;
     syntheticReason?: string;
     retainedOutput?: boolean;
+    totalSize?: number;
   } = {},
 ): BrowserIncomingMessage {
   return {
@@ -71,8 +72,8 @@ function toolResultPreview(
         tool_use_id: toolUseId,
         content,
         is_error: options.isError ?? false,
-        total_size: content.length,
-        is_truncated: false,
+        total_size: options.totalSize ?? content.length,
+        is_truncated: options.totalSize !== undefined ? options.totalSize > content.length : false,
         ...(typeof options.durationSeconds === "number" ? { duration_seconds: options.durationSeconds } : {}),
         ...(options.syntheticReason ? { synthetic_reason: options.syntheticReason } : {}),
         ...(typeof options.retainedOutput === "boolean" ? { retained_output: options.retainedOutput } : {}),
@@ -633,6 +634,30 @@ describe("buildPeekRange", () => {
     ]);
   });
 
+  it("adds opt-in context details to peek tool lines", () => {
+    const history: BrowserIncomingMessage[] = [
+      userMsg("inspect quest", 1000),
+      assistantMsg("", 1500, [
+        { name: "Bash", input: { command: "quest show q-1452", description: "Show quest q-1452" } },
+      ]),
+      toolResultPreview("tu-Bash", "preview", { totalSize: 29_400 }),
+      resultMsg(200),
+    ];
+
+    const compact = buildPeekRange(history, { from: 0, count: 10, showTools: true });
+    const withContext = buildPeekRange(history, { from: 0, count: 10, showTools: true, includeContext: true });
+
+    expect(compact.messages[1].tools?.[0]).not.toHaveProperty("context");
+    expect(withContext.messages[1].tools?.[0]).toMatchObject({
+      context: {
+        resultBytes: 29_400,
+        hiddenResultBytes: 29_393,
+        commandFamily: "quest show",
+        commandSummary: "Show quest q-1452",
+      },
+    });
+  });
+
   it("filters range output by thread participation while preserving the closing result", () => {
     // Thread filtering must include status-marker participation, not only a
     // message's primary route, because leader turns can update another thread.
@@ -776,6 +801,27 @@ describe("buildPeekTurnScan", () => {
       result: "mixed q-1289 reply",
       threads: ["q-1289", "q-1298"],
       threadStatuses: [expect.objectContaining({ threadKey: "q-1298", summary: "waiting on explore" })],
+    });
+  });
+
+  it("adds opt-in observable context summaries to scan turns", () => {
+    // Normal scan stays compact; --context reveals payload metrics and the
+    // Bash command family that made the turn expensive.
+    const history: BrowserIncomingMessage[] = [
+      userMsg("inspect quest", 1000),
+      assistantMsg("", 1500, [{ name: "Bash", input: { command: "quest show q-1452" } }]),
+      toolResultPreview("tu-Bash", "preview", { totalSize: 29_400 }),
+      resultMsg(200),
+    ];
+
+    const compact = buildPeekTurnScan(history, { fromTurn: 0, turnCount: 1 });
+    const withContext = buildPeekTurnScan(history, { fromTurn: 0, turnCount: 1, includeContext: true });
+
+    expect(compact.turns[0]).not.toHaveProperty("context");
+    expect(withContext.turns[0].context).toMatchObject({
+      toolResultBytes: 29_400,
+      hiddenToolResultBytes: 29_393,
+      topCommands: [expect.objectContaining({ family: "quest show", calls: 1 })],
     });
   });
 });

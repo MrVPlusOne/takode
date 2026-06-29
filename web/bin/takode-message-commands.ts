@@ -231,6 +231,12 @@ type PeekTool = {
   result?: string;
   resultTruncated?: boolean;
   resultTotalSize?: number;
+  context?: {
+    resultBytes?: number;
+    hiddenResultBytes?: number;
+    commandFamily?: string;
+    commandSummary?: string;
+  };
   syntheticReason?: string;
   retainedOutput?: boolean;
 };
@@ -266,13 +272,31 @@ function formatPeekToolStatus(tool: PeekTool): string {
   }
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MiB`;
+}
+
+function formatToolContext(tool: PeekTool): string {
+  if (!tool.context) return "";
+  const parts: string[] = [];
+  if (tool.context.commandFamily) parts.push(formatInlineText(tool.context.commandFamily));
+  if (typeof tool.context.resultBytes === "number") parts.push(`result ${formatBytes(tool.context.resultBytes)}`);
+  if (typeof tool.context.hiddenResultBytes === "number" && tool.context.hiddenResultBytes > 0) {
+    parts.push(`hidden ${formatBytes(tool.context.hiddenResultBytes)}`);
+  }
+  return parts.length > 0 ? ` [${parts.join(", ")}]` : "";
+}
+
 function formatPeekToolLine(tool: PeekTool): string {
   const status = formatPeekToolStatus(tool);
   const summary = truncate(tool.summary, 80);
   const parts = [formatInlineText(tool.name), status, summary].filter(Boolean);
+  const context = formatToolContext(tool);
   const result = tool.result ? ` -- ${truncate(tool.result, 100)}${tool.resultTruncated ? " [truncated]" : ""}` : "";
   const reason = tool.syntheticReason ? ` (${formatInlineText(tool.syntheticReason)})` : "";
-  return `${parts.join(" ")}${reason}${result}`;
+  return `${parts.join(" ")}${context}${reason}${result}`;
 }
 
 // ─── Command handlers ───────────────────────────────────────────────────────
@@ -290,6 +314,14 @@ type PeekMessage = ThreadMetadata & {
   injectedTemplate?: TakodeInjectedTemplate;
 };
 
+type TurnContext = {
+  messageBytes: number;
+  toolResultBytes: number;
+  hiddenToolResultBytes: number;
+  totalObservableBytes: number;
+  topCommands?: Array<{ family: string; bytes: number; calls: number }>;
+};
+
 type CollapsedTurn = ThreadMetadata & {
   turn: number;
   si: number;
@@ -303,6 +335,7 @@ type CollapsedTurn = ThreadMetadata & {
   user: string;
   agent?: { sessionId: string; sessionLabel?: string };
   injectedTemplate?: TakodeInjectedTemplate;
+  context?: TurnContext;
 };
 
 type PeekDefaultResponse = {
@@ -325,6 +358,7 @@ type PeekDefaultResponse = {
     messages: PeekMessage[];
     stats: { tools: number; messages: number; subagents: number };
     omittedMsgs: number;
+    context?: TurnContext;
   } | null;
 };
 
@@ -357,11 +391,33 @@ type PeekDetailResponse = {
       end?: number;
       dur?: number;
       messages: PeekMessage[];
+      context?: TurnContext;
     }
   >;
 };
 
 // ─── Peek rendering helpers ──────────────────────────────────────────────────
+
+function formatTurnContextHeader(context: TurnContext | undefined): string {
+  return context ? ` · ctx ${formatBytes(context.totalObservableBytes)}` : "";
+}
+
+function formatTurnContextLines(context: TurnContext | undefined): string[] {
+  if (!context) return [];
+  const parts = [`message JSON ${formatBytes(context.messageBytes)}`];
+  if (context.toolResultBytes > 0) parts.push(`tool results ${formatBytes(context.toolResultBytes)}`);
+  if (context.hiddenToolResultBytes > 0) parts.push(`hidden ${formatBytes(context.hiddenToolResultBytes)}`);
+  if (context.topCommands?.length) {
+    const top = context.topCommands
+      .map((command) => {
+        const calls = command.calls > 1 ? `×${command.calls}` : "";
+        return `${formatInlineText(command.family)}${calls} ${formatBytes(command.bytes)}`;
+      })
+      .join(", ");
+    parts.push(`top ${top}`);
+  }
+  return [`  context: ${parts.join("; ")}`];
+}
 
 function formatCollapsedTurn(turn: CollapsedTurn, surface: "scan" | "peek"): string {
   const endIdx = turn.ei >= 0 ? turn.ei : turn.si; // in-progress turns use si as fallback
@@ -378,7 +434,7 @@ function formatCollapsedTurn(turn: CollapsedTurn, surface: "scan" | "peek"): str
 
   const icon = turn.success === true ? "✓" : turn.success === false ? "✗" : "…";
 
-  const header = `Turn ${turn.turn} · ${msgRange} · ${startTime}-${endTime}${durationPart}${statStr} · ${icon}`;
+  const header = `Turn ${turn.turn} · ${msgRange} · ${startTime}-${endTime}${durationPart}${statStr}${formatTurnContextHeader(turn.context)} · ${icon}`;
 
   const sourceLabel = userSourceLabel(turn);
   const hasUser = !!turn.user;
@@ -386,18 +442,28 @@ function formatCollapsedTurn(turn: CollapsedTurn, surface: "scan" | "peek"): str
 
   // Single-message turn or only one side exists: compact format
   const threadLines = formatThreadLines(turn, { includeStatus: false });
-  if (!hasUser && !hasResult) return [header, ...threadLines].join("\n");
+  const contextLines = formatTurnContextLines(turn.context);
+  if (!hasUser && !hasResult) return [header, ...threadLines, ...contextLines].join("\n");
   if (!hasUser)
-    return [header, ...threadLines, `  ${formatQuotedContent(turn.result, TAKODE_PEEK_CONTENT_LIMIT)}`].join("\n");
+    return [
+      header,
+      ...threadLines,
+      ...contextLines,
+      `  ${formatQuotedContent(turn.result, TAKODE_PEEK_CONTENT_LIMIT)}`,
+    ].join("\n");
   if (!hasResult)
-    return [header, ...threadLines, `  ${sourceLabel}: ${formatTakodeUserContent(turn.user, turn, surface)}`].join(
-      "\n",
-    );
+    return [
+      header,
+      ...threadLines,
+      ...contextLines,
+      `  ${sourceLabel}: ${formatTakodeUserContent(turn.user, turn, surface)}`,
+    ].join("\n");
 
   // Multi-message turn: show source prompt, ellipsis, and assistant response (no asst: tag)
   return [
     header,
     ...threadLines,
+    ...contextLines,
     `  ${sourceLabel}: ${formatTakodeUserContent(turn.user, turn, surface)}`,
     `  ...`,
     `  ${formatQuotedContent(turn.result, TAKODE_PEEK_CONTENT_LIMIT)}`,
@@ -440,6 +506,11 @@ function printExpandedMessages(messages: PeekMessage[]): void {
             if (group.count === 1) {
               const detail = formatPeekToolLine(group.tools[0]!);
               console.log(`  ${pipe}       ${connector} ${detail}`);
+            } else if (group.tools.some((tool) => tool.context)) {
+              for (let ti = 0; ti < group.tools.length; ti++) {
+                const toolConnector = isLastGroup && isLast && ti === group.tools.length - 1 ? "└─" : "├─";
+                console.log(`  ${pipe}       ${toolConnector} ${formatPeekToolLine(group.tools[ti]!)}`);
+              }
             } else {
               // Multiple consecutive calls of the same tool -- show count + combined summaries
               const summaryParts = group.summaries.filter(Boolean).slice(0, 3);
@@ -552,9 +623,10 @@ function printPeekDefault(d: PeekDefaultResponse, sessionRef: string, threadKey?
 
     console.log("");
     console.log(
-      `Turn ${et.turn} (last, ${msgCount} messages) · ${formatTimeShort(et.start)}-${et.end ? formatTimeShort(et.end) : "running"}${durationPart}${statStr}${successIcon}`,
+      `Turn ${et.turn} (last, ${msgCount} messages) · ${formatTimeShort(et.start)}-${et.end ? formatTimeShort(et.end) : "running"}${durationPart}${statStr}${formatTurnContextHeader(et.context)}${successIcon}`,
     );
     for (const line of formatThreadLines(et, { includeStatus: false })) console.log(line);
+    for (const line of formatTurnContextLines(et.context)) console.log(line);
 
     // Omitted messages hint
     if (et.omittedMsgs > 0) {
@@ -702,8 +774,9 @@ function printPeekDetail(d: PeekDetailResponse): void {
 
     const duration = turn.dur ? `${Math.round(turn.dur / 1000)}s` : "running";
     const ended = turn.end ? `, ended ${formatTime(turn.end)}` : "";
-    console.log(`--- Turn ${turn.turn} (${duration}${ended}) ---`);
+    console.log(`--- Turn ${turn.turn} (${duration}${ended})${formatTurnContextHeader(turn.context)} ---`);
     for (const line of formatThreadLines(turn, { includeStatus: false })) console.log(line);
+    for (const line of formatTurnContextLines(turn.context)) console.log(line);
 
     printExpandedMessages(turn.messages);
     console.log("");
@@ -716,13 +789,14 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
   if (!sessionRef)
     err(
-      "Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--turn-containing msg-id] [--thread main|q-N] [--show-tools] [--detail] [--turns N] [--json]",
+      "Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--turn-containing msg-id] [--thread main|q-N] [--show-tools] [--context] [--detail] [--turns N] [--json]",
     );
   const safeSessionRef = formatInlineText(sessionRef);
 
   const flags = parseFlags(args.slice(1));
   const jsonMode = flags.json === true;
   const showTools = flags["show-tools"] === true;
+  const includeContext = flags.context === true;
   const taskNum = parseIntegerFlag(flags, "task", "task number");
   const turnNum = parseIntegerFlag(flags, "turn", "turn number");
   const turnContainingIdx = parseIntegerFlag(flags, "turn-containing", "message index");
@@ -731,6 +805,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
   const count = parsePositiveIntegerFlag(flags, "count", "message count", 60);
   const detail = flags.detail === true;
   const threadKey = parseThreadFilterFlag(flags.thread);
+  if (flags.context !== undefined && flags.context !== true) err("--context does not take a value.");
 
   if (fromIdx !== undefined && fromIdx < 0) err("--from must be a non-negative integer.");
   if (untilIdx !== undefined && untilIdx < 0) err("--until must be a non-negative integer.");
@@ -743,7 +818,8 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
   // Resolve --turn N to a message range via the server
   if (turnNum !== undefined) {
     const params = new URLSearchParams({ turn: String(turnNum) });
-    if (showTools) params.set("showTools", "true");
+    if (showTools || includeContext) params.set("showTools", "true");
+    if (includeContext) params.set("context", "true");
     appendThreadQueryParam(params, threadKey);
     const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
     const data = await apiGet(base, path);
@@ -758,7 +834,8 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
   // Resolve --turn-containing idx to that message's full turn via the server.
   if (turnContainingIdx !== undefined) {
     const params = new URLSearchParams({ turnContaining: String(turnContainingIdx) });
-    if (showTools) params.set("showTools", "true");
+    if (showTools || includeContext) params.set("showTools", "true");
+    if (includeContext) params.set("context", "true");
     appendThreadQueryParam(params, threadKey);
     const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
     const data = await apiGet(base, path);
@@ -779,7 +856,8 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
     if (!task) err(`Task #${taskNum} not found. Use "takode tasks ${safeSessionRef}" to see available tasks.`);
 
     const params = new URLSearchParams({ from: String(task.startIdx), count: String(count) });
-    if (showTools) params.set("showTools", "true");
+    if (showTools || includeContext) params.set("showTools", "true");
+    if (includeContext) params.set("context", "true");
     appendThreadQueryParam(params, threadKey);
     const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
     const data = await apiGet(base, path);
@@ -799,7 +877,8 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
     const params = new URLSearchParams({ count: String(count) });
     if (fromIdx !== undefined) params.set("from", String(fromIdx));
     if (untilIdx !== undefined) params.set("until", String(untilIdx));
-    if (showTools) params.set("showTools", "true");
+    if (showTools || includeContext) params.set("showTools", "true");
+    if (includeContext) params.set("context", "true");
     appendThreadQueryParam(params, threadKey);
     path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
 
@@ -813,6 +892,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
     // Detail mode (legacy behavior)
     const turns = Number(flags.turns) || 1;
     const params = new URLSearchParams({ detail: "true", turns: String(turns) });
+    if (includeContext) params.set("context", "true");
     appendThreadQueryParam(params, threadKey);
     path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
 
@@ -825,6 +905,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
   } else {
     // Default mode (smart overview)
     const params = new URLSearchParams();
+    if (includeContext) params.set("context", "true");
     appendThreadQueryParam(params, threadKey);
     const qs = params.toString();
     path = `/sessions/${encodeURIComponent(sessionRef)}/messages${qs ? `?${qs}` : ""}`;
@@ -937,15 +1018,18 @@ type PeekTurnScanResponse = {
 
 export async function handleScan(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
-  if (!sessionRef) err("Usage: takode scan <session> [--from N] [--until N] [--count N] [--thread main|q-N] [--json]");
+  if (!sessionRef)
+    err("Usage: takode scan <session> [--from N] [--until N] [--count N] [--thread main|q-N] [--context] [--json]");
   const safeSessionRef = formatInlineText(sessionRef);
 
   const flags = parseFlags(args.slice(1));
   const jsonMode = flags.json === true;
+  const includeContext = flags.context === true;
   const explicitFrom = parseIntegerFlag(flags, "from", "turn number");
   const explicitUntil = parseIntegerFlag(flags, "until", "turn number");
   const turnCount = parsePositiveIntegerFlag(flags, "count", "turn count", 50);
   const threadKey = parseThreadFilterFlag(flags.thread);
+  if (flags.context !== undefined && flags.context !== true) err("--context does not take a value.");
 
   if (explicitFrom !== null && explicitFrom !== undefined && explicitFrom < 0)
     err("--from must be a non-negative integer.");
@@ -977,6 +1061,7 @@ export async function handleScan(base: string, args: string[]): Promise<void> {
     fromTurn: String(fromTurn),
     turnCount: String(turnCount),
   });
+  if (includeContext) params.set("context", "true");
   appendThreadQueryParam(params, threadKey);
   const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
   const data = (await apiGet(base, path)) as PeekTurnScanResponse;

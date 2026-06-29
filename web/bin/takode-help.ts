@@ -71,7 +71,7 @@ const TIMERS_HELP = `Usage: takode timers <session> [--json]
 Show pending timers for a session.
 `;
 
-const SCAN_HELP = `Usage: takode scan <session> [--from N] [--until N] [--count N] [--thread main|q-N] [--json]
+const SCAN_HELP = `Usage: takode scan <session> [--from N] [--until N] [--count N] [--thread main|q-N] [--context] [--json]
 
 Scan session turns as collapsed summaries.
 
@@ -80,16 +80,18 @@ Options:
   --until <turn>  Show turns ending before turn N
   --count <n>     Number of turns to show (default: 50)
   --thread <key>  Show only turns participating in main or q-N
+  --context       Include compact observable payload-size diagnostics per turn
   --json          Output JSON
 `;
 
-const PEEK_HELP = `Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--turn-containing msg-id] [--thread main|q-N] [--show-tools] [--detail] [--turns N] [--json]
+const PEEK_HELP = `Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--turn-containing msg-id] [--thread main|q-N] [--show-tools] [--context] [--detail] [--turns N] [--json]
 
 View session activity with progressive detail.
 
 Examples:
   takode peek 1
   takode peek 1 --turn 5
+  takode peek 1 --turn 5 --context
   takode peek 1 --turn-containing 42
   takode peek 1 --thread q-123
   takode peek 1 --from 500 --count 50
@@ -521,6 +523,7 @@ Peek modes:
   takode peek 1 --from 500         Browse messages starting at index 500
   takode peek 1 --until 530 --count 50  Browse backward ending at message 530 (inclusive)
   takode peek 1 --turn-containing 42  Show the turn containing message 42
+  takode peek 1 --turn 5 --context  Show tool/result payload sizes for a turn
   takode peek 1 --detail --turns 3 Full detail on last 3 turns
 
 Global options:

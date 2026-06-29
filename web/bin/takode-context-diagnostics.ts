@@ -107,6 +107,17 @@ export async function handleContextDoctor(base: string, args: string[]): Promise
     .sort((a, b) => b[1].bytes - a[1].bytes);
   printBreakdown("Tool payload bytes", toolRows);
 
+  const commandRows = Object.entries(data.byCommandFamily ?? {})
+    .map(
+      ([name, value]) =>
+        [name, { calls: value.calls, bytes: value.inputBytes + value.resultBytes }] as [
+          string,
+          { calls: number; bytes: number },
+        ],
+    )
+    .sort((a, b) => b[1].bytes - a[1].bytes);
+  printBreakdown("Bash command-family bytes", commandRows);
+
   if (data.topTurns.length > 0) {
     console.log("");
     console.log("Top turns:");
@@ -125,9 +136,12 @@ export async function handleContextDoctor(base: string, args: string[]): Promise
       const turn = entry.turn === null ? "no turn" : `turn ${entry.turn}`;
       const label =
         entry.kind === "tool_result"
-          ? `tool_result ${entry.toolName ?? "unknown"} ${entry.toolUseId ?? ""}`.trim()
+          ? `tool_result ${entry.toolName ?? "unknown"} ${entry.commandFamily ? `(${entry.commandFamily})` : ""} ${
+              entry.toolUseId ?? ""
+            }`.trim()
           : `message ${entry.type ?? "unknown"}`;
       console.log(`  [${entry.messageIndex}] ${turn}  ${formatBytes(entry.bytes)}  ${label}`);
+      if (entry.commandSummary) console.log(`       command: ${entry.commandSummary}`);
       console.log(`       read: ${entry.readCommand}`);
       console.log(`       turn: ${entry.peekCommand}`);
     }

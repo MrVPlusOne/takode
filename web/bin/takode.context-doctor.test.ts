@@ -46,7 +46,8 @@ describe("takode context-doctor", () => {
         totalObservableBytes: 6144,
       },
       byMessageType: { assistant: { count: 1, bytes: 1024 } },
-      byTool: { Read: { calls: 1, inputBytes: 80, resultBytes: 8192, hiddenResultBytes: 4096 } },
+      byTool: { Bash: { calls: 1, inputBytes: 80, resultBytes: 8192, hiddenResultBytes: 4096 } },
+      byCommandFamily: { "quest show": { calls: 1, inputBytes: 60, resultBytes: 8192, hiddenResultBytes: 4096 } },
       topEntries: [
         {
           kind: "tool_result",
@@ -54,7 +55,9 @@ describe("takode context-doctor", () => {
           messageIndex: 2,
           turn: 0,
           toolUseId: "tool-1",
-          toolName: "Read",
+          toolName: "Bash",
+          commandFamily: "quest show",
+          commandSummary: "quest show q-1452",
           readCommand: "takode read 77 2",
           peekCommand: "takode peek 77 --turn-containing 2",
         },
@@ -115,6 +118,9 @@ describe("takode context-doctor", () => {
 
       expect(text.status).toBe(0);
       expect(text.stdout).toContain("Hidden reasoning and provider-side state are not directly measured.");
+      expect(text.stdout).toContain("Bash command-family bytes:");
+      expect(text.stdout).toContain("quest show");
+      expect(text.stdout).toContain("command: quest show q-1452");
       expect(text.stdout).toContain("read: takode read 77 2");
       expect(text.stdout).toContain("turn: takode peek 77 --turn-containing 2");
 

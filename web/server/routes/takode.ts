@@ -912,6 +912,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const detail = c.req.query("detail") === "true";
     const turnParam = c.req.query("turn");
     const scanMode = c.req.query("scan");
+    const includeContext = c.req.query("context") === "true";
     const rawThreadKey = c.req.query("threadKey");
     const threadTarget = rawThreadKey ? normalizeThreadTarget(rawThreadKey) : null;
     if (rawThreadKey && !threadTarget) {
@@ -923,7 +924,10 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (scanMode === "turns") {
       const fromTurn = parseInt(c.req.query("fromTurn") ?? "0", 10);
       const turnCount = parseInt(c.req.query("turnCount") ?? "50", 10);
-      return c.json({ ...base, ...buildPeekTurnScan(history, { fromTurn, turnCount, threadKey }, sessionId) });
+      return c.json({
+        ...base,
+        ...buildPeekTurnScan(history, { fromTurn, turnCount, threadKey, includeContext }, sessionId),
+      });
     }
 
     // Turn mode: resolve turn number to message range, then use range mode
@@ -931,7 +935,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       const result = buildPeekRangeForTurnNumber(
         history,
         parseInt(turnParam, 10),
-        { showTools: c.req.query("showTools") === "true", threadKey },
+        { showTools: c.req.query("showTools") === "true" || includeContext, threadKey, includeContext },
         sessionId,
       );
       return result.ok ? c.json({ ...base, ...result.response }) : c.json({ error: result.error }, result.status);
@@ -941,7 +945,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       const result = buildPeekRangeForContainingMessage(
         history,
         parseInt(c.req.query("turnContaining") ?? "", 10),
-        { showTools: c.req.query("showTools") === "true", threadKey },
+        { showTools: c.req.query("showTools") === "true" || includeContext, threadKey, includeContext },
         sessionId,
       );
       return result.ok ? c.json({ ...base, ...result.response }) : c.json({ error: result.error }, result.status);
@@ -953,8 +957,11 @@ export function createTakodeRoutes(ctx: RouteContext) {
       const from = fromParam !== undefined ? parseInt(fromParam, 10) : undefined;
       const until = untilParam !== undefined ? parseInt(untilParam, 10) : undefined;
       const count = parseInt(c.req.query("count") ?? "60", 10);
-      const showTools = c.req.query("showTools") === "true";
-      return c.json({ ...base, ...buildPeekRange(history, { from, until, count, showTools, threadKey }, sessionId) });
+      const showTools = c.req.query("showTools") === "true" || includeContext;
+      return c.json({
+        ...base,
+        ...buildPeekRange(history, { from, until, count, showTools, threadKey, includeContext }, sessionId),
+      });
     }
 
     if (detail) {
@@ -964,14 +971,20 @@ export function createTakodeRoutes(ctx: RouteContext) {
       const full = c.req.query("full") === "true";
       return c.json({
         ...base,
-        ...{ mode: "detail" as const, turns: buildPeekResponse(history, { turns, since, full, threadKey }, sessionId) },
+        ...{
+          mode: "detail" as const,
+          turns: buildPeekResponse(history, { turns, since, full, threadKey, includeContext }, sessionId),
+        },
       });
     }
 
     // Default mode: smart overview (collapsed recent turns + expanded last turn)
     const collapsedCount = parseInt(c.req.query("collapsed") ?? "5", 10);
     const expandLimit = parseInt(c.req.query("expand") ?? "10", 10);
-    return c.json({ ...base, ...buildPeekDefault(history, { collapsedCount, expandLimit, threadKey }, sessionId) });
+    return c.json({
+      ...base,
+      ...buildPeekDefault(history, { collapsedCount, expandLimit, threadKey, includeContext }, sessionId),
+    });
   });
 
   api.get("/sessions/:id/messages/:idx", (c) => {
