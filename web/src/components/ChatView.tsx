@@ -1614,7 +1614,7 @@ export function ChatView({
         setSelectedThreadKey(nextThreadKey);
       }
       persistLeaderSelectedThreadKey(sessionId, nextThreadKey);
-      if (nextThreadKey === MAIN_THREAD_KEY && hasThreadRoute) {
+      if (nextThreadKey === MAIN_THREAD_KEY && hasThreadRoute && !preserveMessageThreadRoute) {
         navigateToSessionThread(sessionId, MAIN_THREAD_KEY, true);
       }
       return;

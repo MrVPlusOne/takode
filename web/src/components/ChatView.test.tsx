@@ -1185,7 +1185,7 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941");
   });
 
-  it("honors an explicit Main leader route instead of restoring the previous quest thread", async () => {
+  it("preserves an explicit Main leader message route instead of restoring the previous quest thread", async () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
@@ -1215,7 +1215,7 @@ describe("ChatView backend banners", () => {
     await waitFor(() => {
       expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
     });
-    expect(window.location.hash).toBe("#/session/s1/msg/msg-main");
+    expect(window.location.hash).toBe("#/session/s1/msg/msg-main?thread=main");
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-key", "main");
   });
 
