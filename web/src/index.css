@@ -94,13 +94,21 @@ html, body {
   100% { background-color: transparent; }
 }
 
-/* Scroll-to-message highlight: brief amber flash when deep-linking or search-navigating to a message */
+/* Scroll-to-message highlight: brief target flash after navigator/search/deep-link jumps. */
 .message-scroll-highlight {
-  animation: messageScrollHighlight 2s ease-out;
+  animation: messageScrollHighlight 1s ease-out;
+  border-radius: 8px;
 }
 @keyframes messageScrollHighlight {
-  0% { background-color: rgba(251, 191, 36, 0.3); }
+  0% { background-color: rgba(251, 191, 36, 0.18); }
   100% { background-color: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-scroll-highlight {
+    animation: none;
+    background-color: rgba(251, 191, 36, 0.14);
+  }
 }
 
 .reply-highlight-flash {

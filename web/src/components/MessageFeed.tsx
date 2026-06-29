@@ -89,6 +89,7 @@ import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
 import { useMessageFeedUserNavigationTargets, useUserMessageNavigation } from "./message-feed-user-navigation-hook.js";
 import { getMissingScrollTargetWindowAction, type PendingTargetWindowRequest } from "./message-feed-scroll-target.js";
 import { useThreadWindowRequester } from "./message-feed-thread-window-request.js";
+import { flashMessageFeedTarget } from "./message-feed-target-highlight.js";
 import { MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
 import {
   isUserBoundaryEntry,
@@ -840,7 +841,10 @@ export function MessageFeed({
           const target = contentRoot?.querySelector<HTMLElement>(
             `[data-feed-block-id="${escapeSelectorValue(blockId)}"]`,
           );
-          target?.scrollIntoView({ behavior: "smooth", block: "start" });
+          if (target) {
+            target.scrollIntoView({ behavior: "smooth", block: "start" });
+            flashMessageFeedTarget(target);
+          }
         });
       };
       if (sectionChanged) {
@@ -1637,9 +1641,7 @@ export function MessageFeed({
           el.querySelector(`[data-feed-block-id="tool-group:${escapeSelectorValue(scrollToMessageId)}"]`);
         if (target) {
           target.scrollIntoView({ behavior: "smooth", block: "center" });
-          // Brief amber highlight flash on the target
-          (target as HTMLElement).classList.add("message-scroll-highlight");
-          setTimeout(() => (target as HTMLElement).classList.remove("message-scroll-highlight"), 2000);
+          flashMessageFeedTarget(target as HTMLElement);
         }
         // Clear expand-all signal after DOM has settled
         clearExpandAllInTurn(sessionId);

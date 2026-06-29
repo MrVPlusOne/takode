@@ -915,6 +915,7 @@ describe("MessageFeed section windowing", () => {
     expect(screen.getByText("Section 1 turn 2")).toBeTruthy();
     let scrollContext = mockScrollIntoView.mock.contexts.at(-1) as HTMLElement | undefined;
     expect(scrollContext?.getAttribute("data-turn-id")).toBe("u2");
+    expect(scrollContext?.classList.contains("message-scroll-highlight")).toBe(true);
 
     mockScrollIntoView.mockClear();
     fireEvent.click(screen.getByLabelText("Next user message"));
@@ -922,6 +923,7 @@ describe("MessageFeed section windowing", () => {
     expect(screen.getByText("Section 4 marker")).toBeTruthy();
     scrollContext = mockScrollIntoView.mock.contexts.at(-1) as HTMLElement | undefined;
     expect(scrollContext?.getAttribute("data-turn-id")).toBe("u7");
+    expect(scrollContext?.classList.contains("message-scroll-highlight")).toBe(true);
   });
 
   it("requests an older history window from the server when the loaded feed is windowed", () => {
