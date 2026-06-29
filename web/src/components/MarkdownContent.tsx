@@ -2,6 +2,7 @@ import {
   useRef,
   useCallback,
   useMemo,
+  memo,
   useState,
   useEffect,
   Children,
@@ -232,6 +233,21 @@ interface FileLinkBaseContext {
   cwd: string | null;
   repoRoot: string | null;
   isWorktree: boolean;
+}
+
+interface MarkdownContentProps {
+  text: string;
+  size?: "default" | "sm" | "md";
+  variant?: "full" | "conservative";
+  id?: string;
+  "data-testid"?: string;
+  sessionId?: string;
+  searchHighlight?: { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
+  enableChatSelectionMenu?: boolean;
+  wrapLongContent?: boolean;
+  className?: string;
+  onSessionNavigate?: () => void;
+  stopLinkPropagation?: boolean;
 }
 
 function isAbsoluteFilePath(path: string): boolean {
@@ -603,7 +619,7 @@ function MarkdownTableWithViewer({ children }: { children: ReactNode }) {
   );
 }
 
-export function MarkdownContent({
+export const MarkdownContent = memo(function MarkdownContent({
   text,
   size = "default",
   variant = "full",
@@ -616,20 +632,7 @@ export function MarkdownContent({
   className = "",
   onSessionNavigate,
   stopLinkPropagation = false,
-}: {
-  text: string;
-  size?: "default" | "sm" | "md";
-  variant?: "full" | "conservative";
-  id?: string;
-  "data-testid"?: string;
-  sessionId?: string;
-  searchHighlight?: { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
-  enableChatSelectionMenu?: boolean;
-  wrapLongContent?: boolean;
-  className?: string;
-  onSessionNavigate?: () => void;
-  stopLinkPropagation?: boolean;
-}) {
+}: MarkdownContentProps) {
   const sizeClass =
     size === "sm"
       ? "text-xs"
@@ -813,6 +816,32 @@ export function MarkdownContent({
       </Markdown>
     </div>
   );
+}, areMarkdownContentPropsEqual);
+
+function areMarkdownContentPropsEqual(prev: MarkdownContentProps, next: MarkdownContentProps): boolean {
+  return (
+    prev.text === next.text &&
+    prev.size === next.size &&
+    prev.variant === next.variant &&
+    prev.id === next.id &&
+    prev["data-testid"] === next["data-testid"] &&
+    prev.sessionId === next.sessionId &&
+    prev.enableChatSelectionMenu === next.enableChatSelectionMenu &&
+    prev.wrapLongContent === next.wrapLongContent &&
+    prev.className === next.className &&
+    prev.onSessionNavigate === next.onSessionNavigate &&
+    prev.stopLinkPropagation === next.stopLinkPropagation &&
+    searchHighlightEqual(prev.searchHighlight, next.searchHighlight)
+  );
+}
+
+function searchHighlightEqual(
+  prev: MarkdownContentProps["searchHighlight"],
+  next: MarkdownContentProps["searchHighlight"],
+): boolean {
+  if (prev === next) return true;
+  if (!prev || !next) return !prev && !next;
+  return prev.query === next.query && prev.mode === next.mode && prev.isCurrent === next.isCurrent;
 }
 
 function QuestMarkdownLink({

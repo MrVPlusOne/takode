@@ -656,7 +656,7 @@ function TransitionSummaryLine({
   return (
     <>
       {summary.transitions.map((transition, index) => (
-        <span key={`${transition.sourceLabel}-${transition.destination.threadKey}`}>
+        <span key={transition.markerId}>
           {index > 0 && <span className="text-cc-muted">, </span>}
           <span>Work continued from {transition.sourceLabel} to </span>
           <ThreadMarkerDestinationButton destination={transition.destination} onSelectThread={onSelectThread} />
@@ -739,6 +739,7 @@ function summarizeThreadAttachmentMarkers(messages: ChatMessage[]): {
 }
 
 type ThreadTransitionDestinationSummary = {
+  markerId: string;
   sourceLabel: string;
   destination: ThreadMarkerDestinationSummary;
 };
@@ -752,6 +753,7 @@ function summarizeThreadTransitionMarkers(messages: ChatMessage[]): {
     const marker = message.metadata?.threadTransitionMarker;
     if (!marker) continue;
     transitions.push({
+      markerId: marker.id,
       sourceLabel: formatThreadLabel(marker.sourceQuestId ?? marker.sourceThreadKey),
       destination: {
         threadKey: marker.threadKey,
