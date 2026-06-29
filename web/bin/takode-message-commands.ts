@@ -14,6 +14,7 @@ import {
   formatDurationSeconds,
   formatTime,
   formatTimeShort,
+  formatTimestampCompact,
   parseFlags,
   parseIntegerFlag,
   parsePositiveIntegerFlag,
@@ -241,6 +242,15 @@ type PeekTool = {
   retainedOutput?: boolean;
 };
 
+type ReportedContextUsage = {
+  timestamp: number;
+  source: string;
+  contextUsedPercent?: number;
+  contextTokensUsed?: number;
+  modelContextWindow?: number;
+  leaderRecycleThresholdTokens?: number;
+};
+
 function collapseToolCalls(tools: PeekTool[]): CollapsedToolGroup[] {
   const groups: CollapsedToolGroup[] = [];
   for (const tool of tools) {
@@ -289,6 +299,35 @@ function formatToolContext(tool: PeekTool): string {
   return parts.length > 0 ? ` [${parts.join(", ")}]` : "";
 }
 
+function formatNumberCompact(value: number): string {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+}
+
+function formatReportedContextUsage(usage: ReportedContextUsage | null | undefined): string {
+  if (!usage) return "unavailable";
+  const parts: string[] = [];
+  if (typeof usage.contextUsedPercent === "number") parts.push(`${usage.contextUsedPercent}%`);
+  if (typeof usage.contextTokensUsed === "number" && typeof usage.modelContextWindow === "number") {
+    parts.push(
+      `${formatNumberCompact(usage.contextTokensUsed)}/${formatNumberCompact(usage.modelContextWindow)} tokens`,
+    );
+  } else if (typeof usage.contextTokensUsed === "number") {
+    parts.push(`${formatNumberCompact(usage.contextTokensUsed)} tokens`);
+  }
+  if (parts.length === 0) parts.push("recorded");
+  parts.push(`${formatInlineText(usage.source)} ${formatTimestampCompact(usage.timestamp)}`);
+  return parts.join(" ");
+}
+
+function hasContextUsageField(msg: PeekMessage): boolean {
+  return Object.prototype.hasOwnProperty.call(msg, "contextUsage");
+}
+
+function formatMessageContextUsage(msg: PeekMessage): string {
+  if (!hasContextUsageField(msg)) return "";
+  return `ctx ${formatReportedContextUsage(msg.contextUsage)}  `;
+}
+
 function formatPeekToolLine(tool: PeekTool): string {
   const status = formatPeekToolStatus(tool);
   const summary = truncate(tool.summary, 80);
@@ -312,9 +351,11 @@ type PeekMessage = ThreadMetadata & {
   success?: boolean;
   agent?: { sessionId: string; sessionLabel?: string };
   injectedTemplate?: TakodeInjectedTemplate;
+  contextUsage?: ReportedContextUsage | null;
 };
 
 type TurnContext = {
+  reportedUsage?: ReportedContextUsage | null;
   messageBytes: number;
   toolResultBytes: number;
   hiddenToolResultBytes: number;
@@ -404,7 +445,11 @@ function formatTurnContextHeader(context: TurnContext | undefined): string {
 
 function formatTurnContextLines(context: TurnContext | undefined): string[] {
   if (!context) return [];
-  const parts = [`message JSON ${formatBytes(context.messageBytes)}`];
+  const parts: string[] = [];
+  if (Object.prototype.hasOwnProperty.call(context, "reportedUsage")) {
+    parts.push(`reported usage ${formatReportedContextUsage(context.reportedUsage)}`);
+  }
+  parts.push(`message JSON ${formatBytes(context.messageBytes)}`);
   if (context.toolResultBytes > 0) parts.push(`tool results ${formatBytes(context.toolResultBytes)}`);
   if (context.hiddenToolResultBytes > 0) parts.push(`hidden ${formatBytes(context.hiddenToolResultBytes)}`);
   if (context.topCommands?.length) {
@@ -482,7 +527,7 @@ function printExpandedMessages(messages: PeekMessage[]): void {
     switch (msg.type) {
       case "user":
         console.log(
-          `  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  ${formatThreadTag(msg)}${formatTakodeUserContent(msg.content, msg, "peek")}`,
+          `  ${idx.padEnd(7)} ${time}  ${formatMessageContextUsage(msg)}${userSourceLabel(msg)}  ${formatThreadTag(msg)}${formatTakodeUserContent(msg.content, msg, "peek")}`,
         );
         break;
       case "assistant": {
@@ -490,11 +535,11 @@ function printExpandedMessages(messages: PeekMessage[]): void {
         const hasTools = msg.tools && msg.tools.length > 0;
         if (text) {
           console.log(
-            `  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}${formatQuotedContent(text, TAKODE_PEEK_CONTENT_LIMIT)}`,
+            `  ${idx.padEnd(7)} ${time}  ${formatMessageContextUsage(msg)}${formatThreadTag(msg)}${formatQuotedContent(text, TAKODE_PEEK_CONTENT_LIMIT)}`,
           );
         } else if (hasTools) {
           // No text content -- print idx header so the msg ID is always visible
-          console.log(`  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}tool`);
+          console.log(`  ${idx.padEnd(7)} ${time}  ${formatMessageContextUsage(msg)}${formatThreadTag(msg)}tool`);
         }
         if (hasTools) {
           // Collapse consecutive tool calls by name: Read×2, Grep×1
@@ -529,16 +574,18 @@ function printExpandedMessages(messages: PeekMessage[]): void {
         const resultText = msg.content.trim();
         if (resultText) {
           console.log(
-            `  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}${icon} ${formatQuotedContent(resultText, TAKODE_PEEK_CONTENT_LIMIT)}`,
+            `  ${idx.padEnd(7)} ${time}  ${formatMessageContextUsage(msg)}${formatThreadTag(msg)}${icon} ${formatQuotedContent(resultText, TAKODE_PEEK_CONTENT_LIMIT)}`,
           );
         } else {
-          console.log(`  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}${icon} "done"`);
+          console.log(
+            `  ${idx.padEnd(7)} ${time}  ${formatMessageContextUsage(msg)}${formatThreadTag(msg)}${icon} "done"`,
+          );
         }
         break;
       }
       case "system":
         console.log(
-          `  ${idx.padEnd(7)} ${time}  sys   ${formatThreadTag(msg)}${formatQuotedContent(msg.content, TAKODE_PEEK_CONTENT_LIMIT)}`,
+          `  ${idx.padEnd(7)} ${time}  ${formatMessageContextUsage(msg)}sys   ${formatThreadTag(msg)}${formatQuotedContent(msg.content, TAKODE_PEEK_CONTENT_LIMIT)}`,
         );
         break;
     }
@@ -686,7 +733,7 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number,
     switch (msg.type) {
       case "user":
         console.log(
-          `  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  ${formatThreadTag(msg)}${formatTakodeUserContent(msg.content, msg, "peek")}`,
+          `  ${idx.padEnd(7)} ${time}  ${formatMessageContextUsage(msg)}${userSourceLabel(msg)}  ${formatThreadTag(msg)}${formatTakodeUserContent(msg.content, msg, "peek")}`,
         );
         break;
       case "assistant": {
@@ -696,10 +743,10 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number,
           // Expanded tool display (--show-tools)
           if (text) {
             console.log(
-              `  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}${formatQuotedContent(text, TAKODE_PEEK_CONTENT_LIMIT)}`,
+              `  ${idx.padEnd(7)} ${time}  ${formatMessageContextUsage(msg)}${formatThreadTag(msg)}${formatQuotedContent(text, TAKODE_PEEK_CONTENT_LIMIT)}`,
             );
           } else {
-            console.log(`  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}tool`);
+            console.log(`  ${idx.padEnd(7)} ${time}  ${formatMessageContextUsage(msg)}${formatThreadTag(msg)}tool`);
           }
           for (const tool of msg.tools) {
             console.log(`  ${idx.padEnd(7)}           → ${formatPeekToolLine(tool)}`);
@@ -715,10 +762,12 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number,
             : "";
           if (text) {
             console.log(
-              `  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}${formatQuotedContent(text, TAKODE_PEEK_CONTENT_LIMIT)}${toolStr}`,
+              `  ${idx.padEnd(7)} ${time}  ${formatMessageContextUsage(msg)}${formatThreadTag(msg)}${formatQuotedContent(text, TAKODE_PEEK_CONTENT_LIMIT)}${toolStr}`,
             );
           } else if (toolStr) {
-            console.log(`  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}tool ${toolStr}`);
+            console.log(
+              `  ${idx.padEnd(7)} ${time}  ${formatMessageContextUsage(msg)}${formatThreadTag(msg)}tool ${toolStr}`,
+            );
           }
         }
         break;
@@ -728,16 +777,18 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number,
         const resultText = msg.content.trim();
         if (resultText) {
           console.log(
-            `  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}${icon} ${formatQuotedContent(resultText, TAKODE_PEEK_CONTENT_LIMIT)}`,
+            `  ${idx.padEnd(7)} ${time}  ${formatMessageContextUsage(msg)}${formatThreadTag(msg)}${icon} ${formatQuotedContent(resultText, TAKODE_PEEK_CONTENT_LIMIT)}`,
           );
         } else {
-          console.log(`  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}${icon} "done"`);
+          console.log(
+            `  ${idx.padEnd(7)} ${time}  ${formatMessageContextUsage(msg)}${formatThreadTag(msg)}${icon} "done"`,
+          );
         }
         break;
       }
       case "system":
         console.log(
-          `  ${idx.padEnd(7)} ${time}  sys   ${formatThreadTag(msg)}${formatQuotedContent(msg.content, TAKODE_PEEK_CONTENT_LIMIT)}`,
+          `  ${idx.padEnd(7)} ${time}  ${formatMessageContextUsage(msg)}sys   ${formatThreadTag(msg)}${formatQuotedContent(msg.content, TAKODE_PEEK_CONTENT_LIMIT)}`,
         );
         break;
     }

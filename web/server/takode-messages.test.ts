@@ -658,6 +658,38 @@ describe("buildPeekRange", () => {
     });
   });
 
+  it("adds opt-in reported usage to peek messages using the latest prior sample", () => {
+    const history: BrowserIncomingMessage[] = [
+      userMsg("inspect quest", 1000),
+      assistantMsg("reply", 1500),
+      resultMsg(200),
+    ];
+
+    const compact = buildPeekRange(history, { from: 0, count: 10 });
+    const withContext = buildPeekRange(history, {
+      from: 0,
+      count: 10,
+      includeContext: true,
+      contextUsageHistory: [
+        { timestamp: 1200, source: "codex_token_usage", contextUsedPercent: 42 },
+        { timestamp: 1800, source: "codex_token_usage", contextUsedPercent: 84 },
+      ],
+    });
+
+    expect(compact.messages[0]).not.toHaveProperty("contextUsage");
+    expect(withContext.messages[0].contextUsage).toBeNull();
+    expect(withContext.messages[1].contextUsage).toMatchObject({
+      timestamp: 1200,
+      source: "codex_token_usage",
+      contextUsedPercent: 42,
+    });
+    expect(withContext.messages[2].contextUsage).toMatchObject({
+      timestamp: 1200,
+      source: "codex_token_usage",
+      contextUsedPercent: 42,
+    });
+  });
+
   it("filters range output by thread participation while preserving the closing result", () => {
     // Thread filtering must include status-marker participation, not only a
     // message's primary route, because leader turns can update another thread.
@@ -815,10 +847,30 @@ describe("buildPeekTurnScan", () => {
     ];
 
     const compact = buildPeekTurnScan(history, { fromTurn: 0, turnCount: 1 });
-    const withContext = buildPeekTurnScan(history, { fromTurn: 0, turnCount: 1, includeContext: true });
+    const withContext = buildPeekTurnScan(history, {
+      fromTurn: 0,
+      turnCount: 1,
+      includeContext: true,
+      contextUsageHistory: [
+        {
+          timestamp: 900,
+          source: "codex_token_usage",
+          contextUsedPercent: 52,
+          contextTokensUsed: 280_000,
+          modelContextWindow: 545_000,
+        },
+      ],
+    });
 
     expect(compact.turns[0]).not.toHaveProperty("context");
     expect(withContext.turns[0].context).toMatchObject({
+      reportedUsage: {
+        timestamp: 900,
+        source: "codex_token_usage",
+        contextUsedPercent: 52,
+        contextTokensUsed: 280_000,
+        modelContextWindow: 545_000,
+      },
       toolResultBytes: 29_400,
       hiddenToolResultBytes: 29_393,
       topCommands: [expect.objectContaining({ family: "quest show", calls: 1 })],

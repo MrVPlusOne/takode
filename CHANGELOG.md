@@ -16,7 +16,7 @@
 
 ### Added
 
-- **Context diagnostics** -- `takode context doctor`, `takode peek`, and related diagnostics expose context usage, payload composition, and leader context health for operator debugging
+- **Context diagnostics** -- `takode scan --context` and `takode peek --context` expose reported usage and bounded payload navigation hints for leader context-health debugging
 - **Muted needs-input notifications** -- Needs-input prompts can be muted while preserving visible inbox and navigation state for unresolved items
 
 ### Changed

@@ -74,6 +74,17 @@ describe("takode watch deprecation", () => {
     expect(result.stdout).not.toContain("watch");
   });
 
+  it("does not advertise the removed context-doctor command in help output", async () => {
+    const result = await runTakode(["--help"], {
+      ...process.env,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain("context-doctor");
+    expect(result.stdout).toContain("takode scan 1");
+    expect(result.stdout).toContain("takode peek 1");
+  });
+
   it("fails with unknown command for deprecated watch", async () => {
     const result = await runTakode(["watch", "--sessions", "1"], {
       ...process.env,
@@ -83,6 +94,18 @@ describe("takode watch deprecation", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Unknown command: watch");
+    expect(result.stdout).toContain("Usage: takode <command>");
+  });
+
+  it("fails with unknown command for removed context-doctor", async () => {
+    const result = await runTakode(["context-doctor", "1"], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Unknown command: context-doctor");
     expect(result.stdout).toContain("Usage: takode <command>");
   });
 

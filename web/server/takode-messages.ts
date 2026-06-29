@@ -10,6 +10,7 @@ import type {
   BrowserIncomingMessage,
   CLIResultMessage,
   ContentBlock,
+  ContextUsageHistoryEntry,
   ThreadRef,
   ToolResultPreview,
 } from "./session-types.js";
@@ -20,9 +21,11 @@ import { isSystemSourceTag } from "./bridge/adapter-browser-routing-source-tags.
 import { isCompactionRecoveryPrompt } from "./compaction-recovery-prompts.js";
 import {
   collectToolContextSources,
+  contextUsageAtTimestamp,
   computeContextTurnSummary,
   summarizeToolContext,
   toolPreviewSize,
+  type ReportedContextUsage,
   type ContextTurnSummary,
 } from "./context-payload-analysis.js";
 
@@ -97,6 +100,8 @@ export interface TakodePeekMessage {
   /** Disk paths of images attached to this message (user_message only).
    *  Points to the full-quality original files in ~/.companion/images/. */
   images?: string[];
+  /** Latest reported session context usage at or before this message timestamp. */
+  contextUsage?: ReportedContextUsage | null;
 }
 
 export type TakodeInjectedTemplate = "compaction_recovery";
@@ -198,6 +203,8 @@ export interface BuildPeekRangeOptions {
   showTools?: boolean;
   /** Include compact observable context-size annotations for turns and tools. */
   includeContext?: boolean;
+  /** Reported usage samples used to annotate --context output at message/turn start points. */
+  contextUsageHistory?: ContextUsageHistoryEntry[];
 }
 
 export interface TakodeReadResponse extends TakodeThreadMetadata {
@@ -944,6 +951,20 @@ function computeTurnStats(messages: BrowserIncomingMessage[], startIdx: number, 
   return { tools, messages: msgs, subagents };
 }
 
+function buildContextTurnSummary(
+  messages: BrowserIncomingMessage[],
+  turn: TurnBoundary,
+  toolSources: Map<string, ReturnType<typeof summarizeToolContext>> | undefined,
+  usageHistory: ContextUsageHistoryEntry[] | undefined,
+  turnStartTimestamp: number,
+): ContextTurnSummary | undefined {
+  if (!toolSources) return undefined;
+  return {
+    reportedUsage: contextUsageAtTimestamp(usageHistory, turnStartTimestamp),
+    ...computeContextTurnSummary(messages, turn, toolSources),
+  };
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export interface PeekOptions {
@@ -957,6 +978,8 @@ export interface PeekOptions {
   threadKey?: string;
   /** Include compact observable context-size annotations for turns and tools. */
   includeContext?: boolean;
+  /** Reported usage samples used to annotate --context output at message/turn start points. */
+  contextUsageHistory?: ContextUsageHistoryEntry[];
 }
 
 /** Build peekable messages for a single turn. Reused by buildPeekResponse, buildPeekDefault, and buildPeekRange. */
@@ -971,6 +994,7 @@ function buildTurnMessages(
     subagentToolUseIds?: Set<string>;
     toolResultPreviews?: Map<string, ToolResultPreview>;
     includeContext?: boolean;
+    contextUsageHistory?: ContextUsageHistoryEntry[];
   } = {},
 ): TakodePeekMessage[] {
   const {
@@ -980,6 +1004,7 @@ function buildTurnMessages(
     subagentToolUseIds = new Set<string>(),
     toolResultPreviews = new Map<string, ToolResultPreview>(),
     includeContext = false,
+    contextUsageHistory,
   } = opts;
   const startMsg = messageHistory[turn.startIdx];
   const startedAt = extractTimestamp(startMsg);
@@ -1019,6 +1044,9 @@ function buildTurnMessages(
       content,
       ts,
     };
+    if (includeContext) {
+      peekMsg.contextUsage = contextUsageAtTimestamp(contextUsageHistory, ts);
+    }
     peekMsg = applyThreadMetadata(peekMsg, msg);
 
     // Include agent source for user messages (identifies human vs agent vs herd origin)
@@ -1077,7 +1105,14 @@ export function buildPeekResponse(
   options: PeekOptions = {},
   sessionId?: string,
 ): TakodePeekTurn[] {
-  const { turns: turnCount = 1, since = 0, full = false, threadKey, includeContext = false } = options;
+  const {
+    turns: turnCount = 1,
+    since = 0,
+    full = false,
+    threadKey,
+    includeContext = false,
+    contextUsageHistory,
+  } = options;
   const contentLimit = TAKODE_PEEK_CONTENT_LIMIT;
   const { subagentToolUseIds, toolResultPreviews } = buildSubagentIndexes(messageHistory);
   const toolSources = includeContext ? collectToolContextSources(messageHistory) : undefined;
@@ -1113,6 +1148,7 @@ export function buildPeekResponse(
       subagentToolUseIds,
       toolResultPreviews,
       includeContext,
+      contextUsageHistory,
     }).filter(
       (msg) => !threadKey || messageParticipatesInThread(messageHistory[msg.idx]!, threadKey) || msg.type === "result",
     );
@@ -1124,8 +1160,8 @@ export function buildPeekResponse(
       ...(durationMs !== null ? { dur: durationMs } : {}),
       messages: peekMessages,
       ...turnThreadSummary(messageHistory, turn),
-      ...(includeContext && toolSources
-        ? { context: computeContextTurnSummary(messageHistory, turn, toolSources) }
+      ...(includeContext
+        ? { context: buildContextTurnSummary(messageHistory, turn, toolSources, contextUsageHistory, startedAt) }
         : {}),
     };
   });
@@ -1137,10 +1173,16 @@ export function buildPeekResponse(
  */
 export function buildPeekDefault(
   messageHistory: BrowserIncomingMessage[],
-  options: { collapsedCount?: number; expandLimit?: number; threadKey?: string; includeContext?: boolean } = {},
+  options: {
+    collapsedCount?: number;
+    expandLimit?: number;
+    threadKey?: string;
+    includeContext?: boolean;
+    contextUsageHistory?: ContextUsageHistoryEntry[];
+  } = {},
   sessionId?: string,
 ): PeekDefaultResponse {
-  const { collapsedCount = 5, expandLimit = 10, threadKey, includeContext = false } = options;
+  const { collapsedCount = 5, expandLimit = 10, threadKey, includeContext = false, contextUsageHistory } = options;
   const contentLimit = TAKODE_PEEK_CONTENT_LIMIT;
   const { subagentToolUseIds, toolResultPreviews } = buildSubagentIndexes(messageHistory);
   const toolSources = includeContext ? collectToolContextSources(messageHistory) : undefined;
@@ -1189,6 +1231,7 @@ export function buildPeekDefault(
       subagentToolUseIds,
       toolResultPreviews,
       includeContext,
+      contextUsageHistory,
     });
     const resultPreview = deriveTurnResultPreview(messageHistory, turn, endMsg, contentLimit, {
       subagentToolUseIds,
@@ -1213,8 +1256,8 @@ export function buildPeekDefault(
       ...((startMsg as any).agentSource ? { agent: (startMsg as any).agentSource } : {}),
       ...(injectedTemplate ? { injectedTemplate } : {}),
       ...turnThreadSummary(messageHistory, turn),
-      ...(includeContext && toolSources
-        ? { context: computeContextTurnSummary(messageHistory, turn, toolSources) }
+      ...(includeContext
+        ? { context: buildContextTurnSummary(messageHistory, turn, toolSources, contextUsageHistory, startedAt) }
         : {}),
     };
   });
@@ -1232,6 +1275,7 @@ export function buildPeekDefault(
     subagentToolUseIds,
     toolResultPreviews,
     includeContext,
+    contextUsageHistory,
   }).filter(
     (msg) => !threadKey || messageParticipatesInThread(messageHistory[msg.idx]!, threadKey) || msg.type === "result",
   );
@@ -1268,8 +1312,8 @@ export function buildPeekDefault(
       stats: lastTurnStats,
       omittedMsgs,
       ...turnThreadSummary(messageHistory, lastTurn),
-      ...(includeContext && toolSources
-        ? { context: computeContextTurnSummary(messageHistory, lastTurn, toolSources) }
+      ...(includeContext
+        ? { context: buildContextTurnSummary(messageHistory, lastTurn, toolSources, contextUsageHistory, startedAt) }
         : {}),
     },
     ...(compactionEvents.length > 0 ? { compactionEvents } : {}),
@@ -1301,6 +1345,7 @@ export function buildPeekRange(
   const contentLimit = TAKODE_PEEK_CONTENT_LIMIT;
   const allTurns = findTurnBoundaries(messageHistory);
   const { subagentToolUseIds, toolResultPreviews } = buildSubagentIndexes(messageHistory);
+  const { contextUsageHistory } = options;
   const participatingTurnIndexes = new Set<number>();
   if (options.threadKey) {
     allTurns.forEach((turn, index) => {
@@ -1393,6 +1438,9 @@ export function buildPeekRange(
     const content = truncate(rawText, contentLimit);
 
     let peekMsg: TakodePeekMessage = { idx: i, type: toPeekType(msg.type), content, ts };
+    if (options.includeContext) {
+      peekMsg.contextUsage = contextUsageAtTimestamp(contextUsageHistory, ts);
+    }
     peekMsg = applyThreadMetadata(peekMsg, msg);
 
     // Include agent source for user messages (identifies human vs agent vs herd origin)
@@ -1644,10 +1692,16 @@ export interface PeekTurnScanResponse {
  */
 export function buildPeekTurnScan(
   messageHistory: BrowserIncomingMessage[],
-  options: { fromTurn?: number; turnCount?: number; threadKey?: string; includeContext?: boolean } = {},
+  options: {
+    fromTurn?: number;
+    turnCount?: number;
+    threadKey?: string;
+    includeContext?: boolean;
+    contextUsageHistory?: ContextUsageHistoryEntry[];
+  } = {},
   sessionId?: string,
 ): PeekTurnScanResponse {
-  const { fromTurn = 0, turnCount = 50, threadKey, includeContext = false } = options;
+  const { fromTurn = 0, turnCount = 50, threadKey, includeContext = false, contextUsageHistory } = options;
   const contentLimit = TAKODE_PEEK_CONTENT_LIMIT;
   const { subagentToolUseIds, toolResultPreviews } = buildSubagentIndexes(messageHistory);
   const toolSources = includeContext ? collectToolContextSources(messageHistory) : undefined;
@@ -1703,6 +1757,7 @@ export function buildPeekTurnScan(
       subagentToolUseIds,
       toolResultPreviews,
       includeContext,
+      contextUsageHistory,
     });
     const resultPreview = deriveTurnResultPreview(messageHistory, turn, endMsg, contentLimit, {
       subagentToolUseIds,
@@ -1728,8 +1783,8 @@ export function buildPeekTurnScan(
       ...((startMsg as any).agentSource ? { agent: (startMsg as any).agentSource } : {}),
       ...(injectedTemplate ? { injectedTemplate } : {}),
       ...turnThreadSummary(messageHistory, turn),
-      ...(includeContext && toolSources
-        ? { context: computeContextTurnSummary(messageHistory, turn, toolSources) }
+      ...(includeContext
+        ? { context: buildContextTurnSummary(messageHistory, turn, toolSources, contextUsageHistory, startedAt) }
         : {}),
     };
   });

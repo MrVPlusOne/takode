@@ -46,6 +46,13 @@ describe("takode scan/peek context diagnostics", () => {
       user: "inspect quest",
     };
     const context = {
+      reportedUsage: {
+        timestamp: now - 61_000,
+        source: "codex_token_usage",
+        contextUsedPercent: 42,
+        contextTokensUsed: 230_000,
+        modelContextWindow: 545_000,
+      },
       messageBytes: 2_048,
       toolResultBytes: 29_400,
       hiddenToolResultBytes: 29_393,
@@ -118,12 +125,19 @@ describe("takode scan/peek context diagnostics", () => {
             from: 0,
             to: 3,
             messages: [
-              { idx: 0, type: "user", content: "inspect quest", ts: now - 60_000 },
+              {
+                idx: 0,
+                type: "user",
+                content: "inspect quest",
+                ts: now - 60_000,
+                contextUsage: context.reportedUsage,
+              },
               {
                 idx: 1,
                 type: "assistant",
                 content: "",
                 ts: now - 59_500,
+                contextUsage: null,
                 tools: [
                   {
                     idx: 0,
@@ -139,7 +153,7 @@ describe("takode scan/peek context diagnostics", () => {
                   },
                 ],
               },
-              { idx: 3, type: "result", content: "done", ts: now - 59_000, success: true },
+              { idx: 3, type: "result", content: "done", ts: now - 59_000, success: true, contextUsage: null },
             ],
             bounds: [{ turn: 0, si: 0, ei: 3 }],
           }),
@@ -165,11 +179,18 @@ describe("takode scan/peek context diagnostics", () => {
       const contextPeek = await runTakode(["peek", "153", "--turn", "0", "--context", "--port", String(port)], env);
 
       expect(compactScan.status).toBe(0);
+      expect(compactScan.stderr).toBe("");
       expect(compactScan.stdout).not.toContain("context:");
+      expect(compactScan.stdout).not.toContain("reported usage");
+      expect(contextScan.stderr).toBe("");
       expect(contextScan.status).toBe(0);
-      expect(contextScan.stdout).toContain("context: message JSON 2.0 KiB; tool results 28.7 KiB");
+      expect(contextScan.stdout).toContain("context: reported usage 42% 230,000/545,000 tokens codex_token_usage");
+      expect(contextScan.stdout).toContain("message JSON 2.0 KiB; tool results 28.7 KiB");
       expect(contextScan.stdout).toContain("top quest show 28.8 KiB");
       expect(contextPeek.status).toBe(0);
+      expect(contextPeek.stderr).toBe("");
+      expect(contextPeek.stdout).toContain("ctx 42% 230,000/545,000 tokens codex_token_usage");
+      expect(contextPeek.stdout).toContain("ctx unavailable");
       expect(contextPeek.stdout).toContain("Bash ✓ Show quest q-1452 [quest show, result 28.7 KiB");
       expect(requests).toContain("GET /api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=1");
       expect(requests).toContain("GET /api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=1&context=true");

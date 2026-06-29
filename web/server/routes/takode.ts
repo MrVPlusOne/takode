@@ -58,7 +58,6 @@ import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
 import type { RouteContext } from "./context.js";
 import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
 import { registerTakodeBoardRoutes } from "./takode-board.js";
-import { registerTakodeContextDiagnosticsRoutes } from "./takode-context-diagnostics.js";
 import { registerTakodeNotificationInboxRoutes } from "./takode-notification-inbox.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
 import { getPauseState, isSessionPaused } from "../session-pause.js";
@@ -652,7 +651,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
   registerTakodeNotificationResponseRoute(api, ctx, notificationPersistDeps);
   registerTakodeNotificationInboxRoutes(api, ctx, notificationPersistDeps);
-  registerTakodeContextDiagnosticsRoutes(api, ctx);
 
   api.get("/takode/me", (c) => {
     const auth = authenticateTakodeCaller(c);
@@ -919,6 +917,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
       return c.json({ error: "threadKey must be main or q-N" }, 400);
     }
     const threadKey = threadTarget?.threadKey;
+    const contextUsageHistory = bridgeSession?.contextUsageHistory ?? [];
+    const contextOptions = { threadKey, includeContext, contextUsageHistory };
 
     // Turn scan mode: paginated collapsed turn summaries (used by `takode scan`)
     if (scanMode === "turns") {
@@ -926,26 +926,28 @@ export function createTakodeRoutes(ctx: RouteContext) {
       const turnCount = parseInt(c.req.query("turnCount") ?? "50", 10);
       return c.json({
         ...base,
-        ...buildPeekTurnScan(history, { fromTurn, turnCount, threadKey, includeContext }, sessionId),
+        ...buildPeekTurnScan(history, { fromTurn, turnCount, ...contextOptions }, sessionId),
       });
     }
 
     // Turn mode: resolve turn number to message range, then use range mode
     if (turnParam !== undefined) {
+      const showTools = c.req.query("showTools") === "true" || includeContext;
       const result = buildPeekRangeForTurnNumber(
         history,
         parseInt(turnParam, 10),
-        { showTools: c.req.query("showTools") === "true" || includeContext, threadKey, includeContext },
+        { showTools, ...contextOptions },
         sessionId,
       );
       return result.ok ? c.json({ ...base, ...result.response }) : c.json({ error: result.error }, result.status);
     }
 
     if (c.req.query("turnContaining") !== undefined) {
+      const showTools = c.req.query("showTools") === "true" || includeContext;
       const result = buildPeekRangeForContainingMessage(
         history,
         parseInt(c.req.query("turnContaining") ?? "", 10),
-        { showTools: c.req.query("showTools") === "true" || includeContext, threadKey, includeContext },
+        { showTools, ...contextOptions },
         sessionId,
       );
       return result.ok ? c.json({ ...base, ...result.response }) : c.json({ error: result.error }, result.status);
@@ -960,7 +962,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       const showTools = c.req.query("showTools") === "true" || includeContext;
       return c.json({
         ...base,
-        ...buildPeekRange(history, { from, until, count, showTools, threadKey, includeContext }, sessionId),
+        ...buildPeekRange(history, { from, until, count, showTools, ...contextOptions }, sessionId),
       });
     }
 
@@ -973,7 +975,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         ...base,
         ...{
           mode: "detail" as const,
-          turns: buildPeekResponse(history, { turns, since, full, threadKey, includeContext }, sessionId),
+          turns: buildPeekResponse(history, { turns, since, full, ...contextOptions }, sessionId),
         },
       });
     }
@@ -983,7 +985,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const expandLimit = parseInt(c.req.query("expand") ?? "10", 10);
     return c.json({
       ...base,
-      ...buildPeekDefault(history, { collapsedCount, expandLimit, threadKey, includeContext }, sessionId),
+      ...buildPeekDefault(history, { collapsedCount, expandLimit, ...contextOptions }, sessionId),
     });
   });
 

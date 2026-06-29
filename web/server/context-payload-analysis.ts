@@ -1,4 +1,4 @@
-import type { BrowserIncomingMessage, ToolResultPreview } from "./session-types.js";
+import type { BrowserIncomingMessage, ContextUsageHistoryEntry, ToolResultPreview } from "./session-types.js";
 import type { TurnBoundary } from "./takode-messages.js";
 
 export interface ContextToolSource {
@@ -22,6 +22,7 @@ export interface ContextTopCommand {
 }
 
 export interface ContextTurnSummary {
+  reportedUsage?: ReportedContextUsage | null;
   messageBytes: number;
   toolResultBytes: number;
   hiddenToolResultBytes: number;
@@ -29,9 +30,45 @@ export interface ContextTurnSummary {
   topCommands?: ContextTopCommand[];
 }
 
+export type ReportedContextUsage = Pick<
+  ContextUsageHistoryEntry,
+  | "timestamp"
+  | "source"
+  | "contextUsedPercent"
+  | "contextTokensUsed"
+  | "modelContextWindow"
+  | "leaderRecycleThresholdTokens"
+>;
+
 export function contextByteLength(value: unknown): number {
   if (typeof value === "string") return Buffer.byteLength(value, "utf-8");
   return Buffer.byteLength(JSON.stringify(value) ?? "", "utf-8");
+}
+
+export function contextUsageAtTimestamp(
+  history: ContextUsageHistoryEntry[] | undefined,
+  timestamp: number,
+): ReportedContextUsage | null {
+  if (!Array.isArray(history) || history.length === 0) return null;
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
+
+  let best: ContextUsageHistoryEntry | null = null;
+  for (const sample of history) {
+    if (!Number.isFinite(sample.timestamp) || sample.timestamp > timestamp) continue;
+    if (!best || sample.timestamp > best.timestamp) best = sample;
+  }
+  if (!best) return null;
+
+  return {
+    timestamp: best.timestamp,
+    source: best.source,
+    ...(typeof best.contextUsedPercent === "number" ? { contextUsedPercent: best.contextUsedPercent } : {}),
+    ...(typeof best.contextTokensUsed === "number" ? { contextTokensUsed: best.contextTokensUsed } : {}),
+    ...(typeof best.modelContextWindow === "number" ? { modelContextWindow: best.modelContextWindow } : {}),
+    ...(typeof best.leaderRecycleThresholdTokens === "number"
+      ? { leaderRecycleThresholdTokens: best.leaderRecycleThresholdTokens }
+      : {}),
+  };
 }
 
 function truncateInline(value: string, max: number): string {
@@ -170,7 +207,6 @@ function classifyCommandTokens(tokens: string[]): string | null {
     if (subcommand === "scan") return "takode scan";
     if (subcommand === "peek") return "takode peek";
     if (subcommand === "read") return "takode read";
-    if (subcommand === "context-doctor") return "context doctor";
     if (["info", "board", "notify", "worker-stream", "grep", "logs"].includes(subcommand)) return "takode inspect";
     return "takode";
   }

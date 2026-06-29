@@ -21,7 +21,6 @@ import {
 } from "./takode-board.js";
 import { SPAWN_FLAG_USAGE } from "./takode-orchestration-commands.js";
 import { PERMISSION_GET_HELP, PERMISSION_HELP, PERMISSION_SET_HELP } from "./takode-permission-commands.js";
-import { CONTEXT_DOCTOR_HELP } from "./takode-context-diagnostics.js";
 
 const LIST_HELP = `Usage: takode list [--herd|--active|--all] [--tasks] [--json]
 
@@ -80,13 +79,16 @@ Options:
   --until <turn>  Show turns ending before turn N
   --count <n>     Number of turns to show (default: 50)
   --thread <key>  Show only turns participating in main or q-N
-  --context       Include compact observable payload-size diagnostics per turn
+  --context       Include reported usage at turn starts plus compact payload-size navigation hints
   --json          Output JSON
 `;
 
 const PEEK_HELP = `Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--turn-containing msg-id] [--thread main|q-N] [--show-tools] [--context] [--detail] [--turns N] [--json]
 
 View session activity with progressive detail.
+
+Options:
+  --context  Include reported usage at message starts plus compact payload-size navigation hints
 
 Examples:
   takode peek 1
@@ -296,9 +298,6 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "leader-context-resume":
       console.log(LEADER_CONTEXT_RESUME_HELP);
       return true;
-    case "context-doctor":
-      console.log(CONTEXT_DOCTOR_HELP);
-      return true;
     case "file-resolve":
       console.log(FILE_RESOLVE_HELP);
       return true;
@@ -483,7 +482,6 @@ Commands:
   search   Search sessions via server-side ranking (available to all sessions)
   info     Show detailed metadata for a session
   leader-context-resume  Recover compact leader/orchestrator context for a session
-  context-doctor  Analyze observable context-heavy session payloads
   file-resolve  Resolve paths or file links against a session filesystem context
   spawn    Create and auto-herd new worker sessions
   tasks    Show a session task outline (available to all sessions)
@@ -523,7 +521,7 @@ Peek modes:
   takode peek 1 --from 500         Browse messages starting at index 500
   takode peek 1 --until 530 --count 50  Browse backward ending at message 530 (inclusive)
   takode peek 1 --turn-containing 42  Show the turn containing message 42
-  takode peek 1 --turn 5 --context  Show tool/result payload sizes for a turn
+  takode peek 1 --turn 5 --context  Show reported usage and payload navigation hints
   takode peek 1 --detail --turns 3 Full detail on last 3 turns
 
 Global options:
@@ -539,7 +537,6 @@ Examples:
   takode info 1
   takode info 1 --json
   takode leader-context-resume 1
-  takode context-doctor 1
   takode file-resolve --session 1 artifacts/preview.png file:artifacts/preview.png
   takode spawn --backend claude-sdk --count 2
   takode spawn --backend codex --count 3 --message "Check flaky tests"
