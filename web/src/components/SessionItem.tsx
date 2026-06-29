@@ -9,6 +9,7 @@ import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
 import { getHighestNotificationUrgency, type NotificationUrgency } from "../utils/notification-urgency.js";
 import { isClearedNotificationStatus } from "../notification-status.js";
 import { formatGitStatusAge, isGitStatusStale } from "../../shared/git-status-freshness.js";
+import { normalizeLeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
 import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
 import {
   activeBoardSummarySegments,
@@ -16,6 +17,7 @@ import {
   type BoardSummarySegment,
 } from "./leader-board-summary.js";
 import { findSessionQuestContextCandidate } from "../utils/session-quest-context.js";
+import { MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 
 const EMPTY_LEADER_BOARD_ROWS: never[] = [];
 
@@ -144,7 +146,18 @@ function useNotificationUrgency(sessionId: string, fallbackUrgency: Notification
     const snapshotMutedCount = snapshot?.mutedNeedsInputNotificationCount ?? 0;
     if (!notifications) return fallbackUrgency ?? (snapshotMutedCount > 0 ? "muted-needs-input" : null);
     if (isClearedNotificationStatus(snapshot ?? {})) return null;
-    const activeNotifications = notifications?.filter((n) => !n.done);
+    const openThreadKeys = new Set<string>([MAIN_THREAD_KEY]);
+    if (snapshot?.isOrchestrator) {
+      const openTabs = normalizeLeaderOpenThreadTabsState(snapshot.leaderOpenThreadTabs);
+      for (const key of openTabs?.orderedOpenThreadKeys ?? []) openThreadKeys.add(normalizeThreadKey(key));
+    }
+    const activeNotifications = notifications
+      ?.filter((n) => !n.done)
+      .filter((n) => {
+        if (!snapshot?.isOrchestrator || n.category !== "review") return true;
+        const threadKey = normalizeThreadKey(n.threadKey || n.questId || MAIN_THREAD_KEY);
+        return openThreadKeys.has(threadKey);
+      });
     const activeAttentionNotifications = activeNotifications.filter((n) => !(n.category === "needs-input" && n.muted));
     const hasMutedNeedsInput =
       activeNotifications.some((n) => n.category === "needs-input" && n.muted) || snapshotMutedCount > 0;

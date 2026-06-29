@@ -964,6 +964,79 @@ describe("SessionItem notification marker", () => {
     expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "review");
   });
 
+  it("does not render a blue marker for a closed unread leader thread notification", () => {
+    // Closing an unread thread tab counts as reading it for the session-set
+    // indicator. The underlying review notification remains unresolved, but a
+    // closed tab must not keep a hidden blue row marker alive.
+    setSessionNotifications("s1", [
+      {
+        id: "n-review",
+        category: "review",
+        summary: "q-1 ready for review",
+        timestamp: Date.now(),
+        done: false,
+        threadKey: "q-1",
+        questId: "q-1",
+      },
+      {
+        id: "n-muted",
+        category: "needs-input",
+        summary: "Deferred answer",
+        timestamp: Date.now(),
+        done: false,
+        muted: true,
+        threadKey: "q-2",
+        questId: "q-2",
+      },
+    ]);
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: [],
+          closedThreadTombstones: [{ threadKey: "q-1", closedAt: Date.now() }],
+          updatedAt: Date.now(),
+        },
+      },
+    ];
+
+    renderSessionItem({ session: makeSession({ isOrchestrator: true }) });
+
+    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "muted-needs-input");
+  });
+
+  it("keeps the blue marker when a leader review notification belongs to an open thread tab", () => {
+    setSessionNotifications("s1", [
+      {
+        id: "n-review",
+        category: "review",
+        summary: "q-1 ready for review",
+        timestamp: Date.now(),
+        done: false,
+        threadKey: "q-1",
+        questId: "q-1",
+      },
+    ]);
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-1"],
+          closedThreadTombstones: [],
+          updatedAt: Date.now(),
+        },
+      },
+    ];
+
+    renderSessionItem({ session: makeSession({ isOrchestrator: true }) });
+
+    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "review");
+  });
+
   it("does not fall back to a stale snapshot marker after the live inbox is known cleared", () => {
     // A loaded empty inbox is authoritative for the session row. Falling back to
     // an older /api/sessions amber marker would resurrect a resolved needs-input dot.
