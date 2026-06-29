@@ -9,6 +9,8 @@ import { MOCK_SESSION_ID, MSG_ASSISTANT, PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID }
 const PLAYGROUND_FALLBACK_REASON =
   "Codex native fork skipped: anchor is not the final assistant message in its Codex turn";
 
+const EMPTY_SIDE_CHAT_MESSAGES: ChatMessage[] = [];
+
 const PLAYGROUND_FALLBACK_SIDE_CHAT = {
   id: "st-playground-fallback",
   rootSessionId: MOCK_SESSION_ID,
@@ -118,7 +120,9 @@ function ActionMenuPreview({
 }
 
 export function PlaygroundSideChatStates() {
-  const sideChatMessages = useStore((s) => s.messages.get(PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID) ?? []);
+  const sideChatMessages = useStore(
+    (s) => s.messages.get(PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID) ?? EMPTY_SIDE_CHAT_MESSAGES,
+  );
   const nativeMessage = makeAssistantMessage(
     "playground-side-chat-native-action",
     "Native fork is available, so the tiny action menu trigger sits at the end of the first line.",

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 beforeAll(() => {
@@ -57,7 +57,9 @@ vi.mock("remark-gfm", () => ({
 }));
 
 import { Playground } from "./Playground.js";
+import { PlaygroundSideChatStates } from "./playground/SideChatPlaygroundStates.js";
 import { PlaygroundOverviewSections } from "./playground/sections-overview.js";
+import { useStore } from "../store.js";
 
 describe("Playground", () => {
   it("renders the real chat stack section with integrated chat components", () => {
@@ -116,6 +118,22 @@ describe("Playground", () => {
     expect(screen.getByText(/Native fork unavailable: Codex native fork skipped/)).toBeTruthy();
     expect(screen.getByText("Replay Side Chat")).toBeTruthy();
     expect(screen.getByText("Confirm replay Side Chat")).toBeTruthy();
+  });
+
+  it("keeps the missing Side Chat child-message snapshot stable across unrelated store updates", () => {
+    // Missing child-session messages are a normal Playground state. The selector
+    // fallback must be referentially stable so unrelated fixture updates, such as
+    // seeding notification rows, do not trigger React's external-store loop guard.
+    useStore.getState().reset();
+    render(<PlaygroundSideChatStates />);
+
+    expect(screen.getByText("Open read-only Side Chat panel")).toBeTruthy();
+
+    act(() => {
+      useStore.setState({ sessionNotifications: new Map([["unrelated-session", []]]) });
+    });
+
+    expect(screen.getByText("Open read-only Side Chat panel")).toBeTruthy();
   });
 
   it("shows the voice mode selector before the recording label in Playground composer states", () => {
