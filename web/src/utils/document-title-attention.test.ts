@@ -13,7 +13,7 @@ function sdk(sessionId: string, overrides: Partial<SdkSessionInfo> = {}): SdkSes
   };
 }
 
-function needsInput(id: string, timestamp: number, done = false): SessionNotification {
+function needsInput(id: string, timestamp: number, done = false, muted = false): SessionNotification {
   return {
     id,
     category: "needs-input",
@@ -21,6 +21,7 @@ function needsInput(id: string, timestamp: number, done = false): SessionNotific
     timestamp,
     messageId: null,
     done,
+    ...(muted ? { muted: true } : {}),
   };
 }
 
@@ -75,6 +76,15 @@ describe("getDocumentTitleAttentionCount", () => {
     });
 
     expect(result).toBe(1);
+  });
+
+  it("does not count muted needs-input notifications as active title attention", () => {
+    const result = countTitleAttention({
+      sdkSessions: [sdk("muted", { mutedNeedsInputNotificationCount: 1 })],
+      sessionNotifications: new Map([["muted", [needsInput("muted", 1, false, true)]]]),
+    });
+
+    expect(result).toBe(0);
   });
 
   it("preserves non-needs-input title attention alongside the global needs-input count", () => {

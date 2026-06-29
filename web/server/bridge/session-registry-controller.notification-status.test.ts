@@ -6,6 +6,7 @@ import {
   markNotificationDone,
   notifyUser,
   restorePersistedSessions,
+  setNotificationMuted,
 } from "./session-registry-controller.js";
 import { replaceAttentionRecords } from "./attention-record-controller.js";
 import { validateLeaderThreadOutcomes } from "./leader-thread-outcome-validator.js";
@@ -243,6 +244,46 @@ describe("session notification status metadata", () => {
     });
   });
 
+  it("counts muted needs-input separately from active attention", () => {
+    const session = makeSession({
+      attentionReason: "action",
+      notifications: [
+        { id: "n-1", category: "needs-input", summary: "Muted", timestamp: 1000, messageId: null, done: false },
+        { id: "n-2", category: "needs-input", summary: "Active", timestamp: 1001, messageId: null, done: false },
+      ],
+    });
+    const deps = makeDeps();
+
+    expect(setNotificationMuted(session, "n-1", true, deps)).toBe(true);
+    expect(session.notifications[0]).toMatchObject({ muted: true });
+    expect(session.notifications[0].resolutionNotice).toBeUndefined();
+    expect(getNotificationStatusSnapshot(session)).toMatchObject({
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 1,
+      activeNeedsInputNotificationCount: 1,
+      mutedNeedsInputNotificationCount: 1,
+    });
+
+    expect(setNotificationMuted(session, "n-2", true, deps)).toBe(true);
+    expect(getNotificationStatusSnapshot(session)).toMatchObject({
+      notificationUrgency: null,
+      activeNotificationCount: 0,
+      activeNeedsInputNotificationCount: 0,
+      mutedNeedsInputNotificationCount: 2,
+    });
+    expect(session.attentionReason).toBeNull();
+
+    expect(setNotificationMuted(session, "n-1", false, deps)).toBe(true);
+    expect(session.notifications[0].muted).toBeUndefined();
+    expect(getNotificationStatusSnapshot(session)).toMatchObject({
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 1,
+      activeNeedsInputNotificationCount: 1,
+      mutedNeedsInputNotificationCount: 1,
+    });
+    expect(session.attentionReason).toBe("action");
+  });
+
   it("applies inferred thread route metadata to fallback needs-input anchor messages", () => {
     const session = makeSession({
       messageHistory: [
@@ -326,7 +367,9 @@ describe("session notification status metadata", () => {
   it("persists and restores notification status metadata", async () => {
     const persisted = buildPersistedSessionPayload(
       makeSession({
-        notifications: [{ id: "n-1", category: "needs-input", timestamp: 1000, messageId: null, done: false }],
+        notifications: [
+          { id: "n-1", category: "needs-input", timestamp: 1000, messageId: null, done: false, muted: true },
+        ],
         notificationStatusVersion: 9,
         notificationStatusUpdatedAt: 9000,
       }),
@@ -334,6 +377,7 @@ describe("session notification status metadata", () => {
     expect(persisted).toMatchObject({
       notificationStatusVersion: 9,
       notificationStatusUpdatedAt: 9000,
+      notifications: [expect.objectContaining({ id: "n-1", muted: true })],
     });
 
     const sessions = new Map<string, any>();
@@ -347,6 +391,7 @@ describe("session notification status metadata", () => {
     expect(sessions.get("s1")).toMatchObject({
       notificationStatusVersion: 9,
       notificationStatusUpdatedAt: 9000,
+      notifications: [expect.objectContaining({ id: "n-1", muted: true })],
     });
   });
 

@@ -113,6 +113,8 @@ export interface SdkSessionInfo {
   notificationUrgency?: "needs-input" | "review" | null;
   /** Number of unresolved Takode notifications for sidebar snapshots. */
   activeNotificationCount?: number;
+  /** Number of muted unresolved needs-input notifications for sidebar snapshots. */
+  mutedNeedsInputNotificationCount?: number;
   /** Set by idle manager before killing, lets the UI show a less alarming indicator */
   killedByIdleManager?: boolean;
   /** Whether --resume has already been retried once after a fast exit */

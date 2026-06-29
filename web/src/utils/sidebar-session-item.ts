@@ -33,6 +33,7 @@ export interface SidebarSessionItem {
   activeNotificationCount?: number;
   activeNeedsInputNotificationCount?: number;
   activeReviewNotificationCount?: number;
+  mutedNeedsInputNotificationCount?: number;
   notificationStatusVersion?: number;
   notificationStatusUpdatedAt?: number;
   pause?: import("../types.js").SessionPauseState | null;

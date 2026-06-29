@@ -12,6 +12,11 @@ const mockSendNeedsInputResponse = vi.fn(async (_sessionId: string, _notifId: st
   notificationId: _notifId,
   delivery: "accepted",
 }));
+const mockSetNotificationMuted = vi.fn(async (_sessionId: string, _notifId: string, muted: boolean) => ({
+  ok: true,
+  muted,
+  changed: true,
+}));
 const mockSetSessionNotifications = vi.fn((sessionId: string, notifications: any[]) => {
   mockStoreState.sessionNotifications.set(sessionId, notifications);
 });
@@ -46,6 +51,8 @@ vi.mock("../api.js", () => ({
     fetchNotificationContext: (sessionId: string, notifId: string) => mockFetchNotificationContext(sessionId, notifId),
     sendNeedsInputResponse: (sessionId: string, notifId: string, response: any) =>
       mockSendNeedsInputResponse(sessionId, notifId, response),
+    setNotificationMuted: (sessionId: string, notifId: string, muted: boolean) =>
+      mockSetNotificationMuted(sessionId, notifId, muted),
   },
 }));
 
@@ -108,9 +115,10 @@ describe("GlobalNeedsInputMenu", () => {
       delivery: "accepted",
     });
     mockFetchNotificationContext.mockResolvedValue(null);
+    mockSetNotificationMuted.mockResolvedValue({ ok: true, muted: true, changed: true });
   });
 
-  it("renders nothing when there are no unresolved needs-input notifications", () => {
+  it("keeps the global entry accessible when there are no active needs-input notifications", () => {
     resetStore({
       sessionNotifications: new Map([
         [
@@ -137,9 +145,13 @@ describe("GlobalNeedsInputMenu", () => {
       ]),
     });
 
-    const { container } = render(<GlobalNeedsInputMenu />);
+    render(<GlobalNeedsInputMenu />);
 
-    expect(container).toBeEmptyDOMElement();
+    const trigger = screen.getByRole("button", { name: "0 unresolved needs-input notifications across sessions" });
+    expect(trigger).toBeInTheDocument();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Global needs-input notifications" });
+    expect(within(dialog).getByText("No active needs-input")).toBeInTheDocument();
   });
 
   it("opens a needs-input-only menu across multiple sessions", () => {
@@ -183,6 +195,59 @@ describe("GlobalNeedsInputMenu", () => {
     expect(within(dialog).getByText("#21 Leader")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Go to source for Pick model" })).toBeInTheDocument();
     expect(within(dialog).queryByText("Review")).not.toBeInTheDocument();
+  });
+
+  it("separates muted unresolved prompts and can unmute them without answering", async () => {
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-active",
+              category: "needs-input",
+              summary: "Active prompt",
+              timestamp: 20,
+              messageId: "m-active",
+              done: false,
+            },
+            {
+              id: "n-muted",
+              category: "needs-input",
+              summary: "Deferred prompt",
+              timestamp: 10,
+              messageId: "m-muted",
+              done: false,
+              muted: true,
+            },
+          ],
+        ],
+      ]),
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          sessionNum: 21,
+          name: "Leader",
+          createdAt: 1,
+          notificationUrgency: "needs-input",
+          activeNotificationCount: 1,
+          activeNeedsInputNotificationCount: 1,
+          mutedNeedsInputNotificationCount: 1,
+        },
+      ],
+    });
+
+    render(<GlobalNeedsInputMenu />);
+    fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
+    const dialog = screen.getByRole("dialog", { name: "Global needs-input notifications" });
+    expect(within(dialog).getAllByText("Muted")).toHaveLength(2);
+    expect(within(dialog).getByText("Deferred prompt")).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Unmute Deferred prompt" }));
+
+    await waitFor(() => expect(mockSetNotificationMuted).toHaveBeenCalledWith("s1", "n-muted", false));
+    expect(mockSendNeedsInputResponse).not.toHaveBeenCalled();
+    expect(mockStoreState.sessionNotifications.get("s1")?.find((n: any) => n.id === "n-muted")?.muted).not.toBe(true);
   });
 
   it("shows expandable source context from the target session without repeating the prompt as body copy", async () => {
@@ -510,8 +575,11 @@ describe("GlobalNeedsInputMenu", () => {
     });
     rerender(<GlobalNeedsInputMenu />);
 
-    expect(screen.queryByRole("button", { name: /unresolved needs-input/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Global needs-input notifications" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "0 unresolved needs-input notifications across sessions" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Global needs-input notifications" })).toBeInTheDocument();
+    expect(screen.getByText("No active needs-input")).toBeInTheDocument();
   });
 
   it("closes reliably when the open trigger is clicked", async () => {
@@ -743,7 +811,9 @@ describe("GlobalNeedsInputMenu", () => {
     });
     rerender(<GlobalNeedsInputMenu />);
 
-    expect(screen.queryByRole("button", { name: /unresolved needs-input/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "0 unresolved needs-input notifications across sessions" }),
+    ).toBeInTheDocument();
   });
 
   it("loads notification details for sessions whose snapshot says needs-input is active", async () => {
@@ -842,6 +912,8 @@ describe("GlobalNeedsInputMenu", () => {
 
     expect(mockStoreState.sessionNotifications.get("s1")).toBeUndefined();
     expect(mockSetSessionNotifications).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: /unresolved needs-input/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "0 unresolved needs-input notifications across sessions" }),
+    ).toBeInTheDocument();
   });
 });

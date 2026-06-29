@@ -36,6 +36,8 @@ export {
   markNotificationDoneBySessionId,
   notifyUser,
   notifyUserBySessionId,
+  setNotificationMuted,
+  setNotificationMutedBySessionId,
   setAttention,
 } from "./session-notification-controller.js";
 export type { NotificationStatusSnapshot } from "./session-notification-controller.js";
@@ -1342,6 +1344,7 @@ export function getSessionActivitySnapshot(session: SessionLike): {
   activeNotificationCount: number;
   activeNeedsInputNotificationCount: number;
   activeReviewNotificationCount: number;
+  mutedNeedsInputNotificationCount: number;
   notificationStatusVersion: number;
   notificationStatusUpdatedAt: number;
 } {

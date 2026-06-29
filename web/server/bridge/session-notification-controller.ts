@@ -24,6 +24,7 @@ export interface NotificationStatusSnapshot {
   activeNotificationCount: number;
   activeNeedsInputNotificationCount: number;
   activeReviewNotificationCount: number;
+  mutedNeedsInputNotificationCount: number;
   notificationStatusVersion: number;
   notificationStatusUpdatedAt: number;
 }
@@ -65,6 +66,10 @@ type NotificationDoneOptions = {
   resolutionNotice?: ResolutionNoticeMode;
   resolutionNoticeSource?: "manual" | "response";
   suppressScheduledNotificationCancel?: boolean;
+};
+
+type NotificationMuteDeps = PersistNotificationDeps & {
+  isHerdedWorkerSession?: (session: SessionLike) => boolean;
 };
 
 export function setAttention(
@@ -127,6 +132,7 @@ export function getNotificationStatusSnapshot(session: SessionLike): Notificatio
   let activeNotificationCount = 0;
   let activeNeedsInputNotificationCount = 0;
   let activeReviewNotificationCount = 0;
+  let mutedNeedsInputNotificationCount = 0;
   let hasNeedsInput = false;
   let hasReview = false;
   const notifications = getActionableSessionNotifications(session);
@@ -134,6 +140,11 @@ export function getNotificationStatusSnapshot(session: SessionLike): Notificatio
     if (notification.done) continue;
     activeNotificationCount += 1;
     if (notification.category === "needs-input") {
+      if (notification.muted) {
+        mutedNeedsInputNotificationCount += 1;
+        activeNotificationCount -= 1;
+        continue;
+      }
       hasNeedsInput = true;
       activeNeedsInputNotificationCount += 1;
     }
@@ -147,6 +158,7 @@ export function getNotificationStatusSnapshot(session: SessionLike): Notificatio
     activeNotificationCount,
     activeNeedsInputNotificationCount,
     activeReviewNotificationCount,
+    mutedNeedsInputNotificationCount,
     notificationStatusVersion: normalizeStatusNumber(session.notificationStatusVersion, 0),
     notificationStatusUpdatedAt: normalizeStatusNumber(
       session.notificationStatusUpdatedAt,
@@ -451,6 +463,52 @@ export function markNotificationDoneBySessionId(
   return markNotificationDone(session, notifId, done, deps, options);
 }
 
+export function setNotificationMuted(
+  session: SessionLike,
+  notifId: string,
+  muted: boolean,
+  deps: NotificationMuteDeps,
+): boolean {
+  const notif = session.notifications.find((entry: SessionNotification) => entry.id === notifId);
+  if (!notif || notif.category !== "needs-input" || notif.done) return false;
+  const currentlyMuted = notif.muted === true;
+  if (currentlyMuted === muted) {
+    broadcastNotificationRefresh(session, deps);
+    return true;
+  }
+
+  if (muted) {
+    notif.muted = true;
+    notif.mutedAt = Date.now();
+  } else {
+    delete notif.muted;
+    delete notif.mutedAt;
+  }
+
+  touchNotificationStatus(session);
+  deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
+  if (muted) {
+    clearActionAttentionIfNoNotifications(session, deps);
+  } else {
+    setAttention(session, "action", deps);
+  }
+  broadcastNotificationStatus(session, deps);
+  deps.persistSession(session);
+  return true;
+}
+
+export function setNotificationMutedBySessionId(
+  sessions: Map<string, SessionLike>,
+  sessionId: string,
+  notifId: string,
+  muted: boolean,
+  deps: NotificationMuteDeps,
+): boolean {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+  return setNotificationMuted(session, notifId, muted, deps);
+}
+
 export function markAllNotificationsDone(
   session: SessionLike,
   done: boolean,
@@ -501,7 +559,7 @@ export function markAllNotificationsDoneBySessionId(
 export function clearActionAttentionIfNoNotifications(session: SessionLike, deps: BrowserNotificationDeps): void {
   if (session.pendingPermissions.size > 0) return;
   const hasOpenNeedsInput = session.notifications.some(
-    (notif: SessionNotification) => !notif.done && notif.category === "needs-input",
+    (notif: SessionNotification) => !notif.done && !notif.muted && notif.category === "needs-input",
   );
   if (!hasOpenNeedsInput && session.attentionReason === "action") {
     session.attentionReason = null;

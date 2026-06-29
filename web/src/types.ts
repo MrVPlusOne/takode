@@ -370,6 +370,8 @@ export interface SdkSessionInfo {
   activeNeedsInputNotificationCount?: number;
   /** Number of unresolved review notifications for tab-scoped review surfaces. */
   activeReviewNotificationCount?: number;
+  /** Number of muted unresolved needs-input notifications. */
+  mutedNeedsInputNotificationCount?: number;
   /** Monotonic server-owned notification status version for stale update rejection. */
   notificationStatusVersion?: number;
   /** Epoch ms when notification status last changed on the server. */

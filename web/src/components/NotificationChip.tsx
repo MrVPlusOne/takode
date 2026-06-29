@@ -81,7 +81,7 @@ function useNotifications(sessionId: string) {
   const all = useStore((s) => s.sessionNotifications?.get(sessionId)) ?? EMPTY;
   const actionable = useMemo(() => all.filter(isActionableSessionNotification), [all]);
   const needsInput = useMemo(() => actionable.filter((n) => n.category === "needs-input"), [actionable]);
-  const active = useMemo(() => needsInput.filter((n) => !n.done), [needsInput]);
+  const active = useMemo(() => needsInput.filter((n) => !n.done && !n.muted), [needsInput]);
   const done = useMemo(() => needsInput.filter((n) => n.done), [needsInput]);
   return { all: needsInput, active, done };
 }
@@ -133,10 +133,11 @@ function formatRelativeTime(ts: number): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-function getNotificationBreakdown(notifications: ReadonlyArray<Pick<SessionNotification, "category">>) {
+function getNotificationBreakdown(notifications: ReadonlyArray<Pick<SessionNotification, "category" | "muted">>) {
   let needsInput = 0;
   let review = 0;
   for (const notification of notifications) {
+    if (notification.category === "needs-input" && notification.muted) continue;
     if (notification.category === "needs-input") needsInput += 1;
     else if (notification.category === "review") review += 1;
   }

@@ -270,7 +270,7 @@ describe("TopBar", () => {
     expect(entries.map((entry) => entry.sessionNum)).toEqual([12, 11]);
   });
 
-  it("does not render the global control for running, permission, review, or blue unread state alone", () => {
+  it("renders the global needs-input control at zero without counting other attention states", () => {
     resetStore({
       sdkSessions: [
         { sessionId: "s-running", createdAt: 40, cliConnected: true, state: "running" },
@@ -299,7 +299,9 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    expect(screen.queryByRole("button", { name: /unresolved needs-input/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "0 unresolved needs-input notifications across sessions" }),
+    ).toBeInTheDocument();
   });
 
   it("keeps pause controls out of the top bar", () => {

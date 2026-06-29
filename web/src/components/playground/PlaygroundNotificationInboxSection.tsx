@@ -121,7 +121,7 @@ function seedGlobalNeedsInputData() {
         "global-needs-input-leader",
         [
           {
-            id: "global-n-1",
+            id: "n-1",
             category: "needs-input" as const,
             summary: "Choose the worker handoff path",
             suggestedAnswers: ["dispatch now", "wait for review"],
@@ -135,7 +135,7 @@ function seedGlobalNeedsInputData() {
         "global-needs-input-worker",
         [
           {
-            id: "global-n-2",
+            id: "n-2",
             category: "needs-input" as const,
             summary: "Confirm validation coverage",
             questions: [
@@ -147,7 +147,16 @@ function seedGlobalNeedsInputData() {
             done: false,
           },
           {
-            id: "global-review",
+            id: "n-3",
+            category: "needs-input" as const,
+            summary: "Deferred rollout approval",
+            timestamp: now - 3_600_000,
+            messageId: "global-msg-muted",
+            done: false,
+            muted: true,
+          },
+          {
+            id: "n-4",
             category: "review" as const,
             summary: "Review-only item excluded from global needs-input",
             timestamp: now - 15_000,
@@ -200,6 +209,10 @@ function seedGlobalNeedsInputData() {
       createdAt: now,
       sessionNum: 402,
       name: "Worker",
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 1,
+      activeNeedsInputNotificationCount: 1,
+      mutedNeedsInputNotificationCount: 1,
     },
   ]);
 }
@@ -255,7 +268,7 @@ export function PlaygroundNotificationInboxSection() {
             </div>
             <p className="text-[10px] text-cc-muted">
               Shows the top-bar aggregate for unresolved needs-input notifications, with quiet source-context navigation
-              and review or unread-style activity excluded.
+              and review or unread-style activity excluded. Muted prompts appear as a secondary backlog.
             </p>
           </div>
         </Card>

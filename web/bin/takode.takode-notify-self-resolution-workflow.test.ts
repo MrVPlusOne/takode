@@ -137,10 +137,67 @@ describe("takode notify self-resolution workflow", () => {
         return;
       }
 
+      if (method === "GET" && url === "/api/sessions/worker-7/notifications") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify([
+            {
+              id: "n-2",
+              category: "needs-input",
+              summary: "Need rollout decision",
+              timestamp: 1000,
+              messageId: "asst-2",
+              done: false,
+            },
+            {
+              id: "n-7",
+              category: "needs-input",
+              summary: "Need config confirmation",
+              suggestedAnswers: ["yes", "no"],
+              timestamp: 1001,
+              messageId: "asst-7",
+              done: false,
+            },
+            {
+              id: "n-8",
+              category: "needs-input",
+              summary: "Deferred prompt",
+              timestamp: 1002,
+              messageId: "asst-8",
+              done: false,
+              muted: true,
+            },
+            {
+              id: "n-9",
+              category: "needs-input",
+              summary: "Resolved prompt",
+              timestamp: 1003,
+              messageId: "asst-9",
+              done: true,
+            },
+          ]),
+        );
+        return;
+      }
+
       if (method === "POST" && url === "/api/sessions/worker-7/notifications/needs-input/7/resolve") {
         requestBodies.push(await readJson(req));
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: true, notificationId: 7, rawNotificationId: "n-7", changed: false }));
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/worker-7/notifications/needs-input/8/mute") {
+        requestBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, notificationId: 8, rawNotificationId: "n-8", muted: true, changed: false }));
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/worker-7/notifications/needs-input/8/unmute") {
+        requestBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, notificationId: 8, rawNotificationId: "n-8", muted: false, changed: true }));
         return;
       }
 
@@ -295,10 +352,49 @@ describe("takode notify self-resolution workflow", () => {
     });
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("Unresolved same-session needs-input notifications: 2. Resolved: 3.");
+    expect(result.stdout).toContain(
+      "Active unresolved same-session needs-input notifications: 2. Muted: 1. Resolved: 1.",
+    );
     expect(result.stdout).toContain("2. Need rollout decision");
     expect(result.stdout).toContain("7. Need config confirmation");
+    expect(result.stdout).not.toContain("8. Deferred prompt");
     expect(result.stdout).toContain("suggestions: yes, no");
+  });
+
+  it("lists muted same-session needs-input notifications separately", async () => {
+    const result = await runTakode(["notify", "list", "--muted", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "worker-7",
+      COMPANION_AUTH_TOKEN: "auth-7",
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(
+      "Muted unresolved same-session needs-input notifications: 1. Muted: 1. Resolved: 1.",
+    );
+    expect(result.stdout).toContain("8. Deferred prompt");
+    expect(result.stdout).not.toContain("2. Need rollout decision");
+  });
+
+  it("mutes and unmutes same-session needs-input notifications", async () => {
+    const mute = await runTakode(["notify", "mute", "8", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "worker-7",
+      COMPANION_AUTH_TOKEN: "auth-7",
+    });
+    expect(mute.status).toBe(0);
+    expect(mute.stdout).toContain("Needs-input notification 8 was already muted.");
+    expect(requestBodies[0]).toEqual({});
+
+    requestBodies.length = 0;
+    const unmute = await runTakode(["notify", "unmute", "8", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "worker-7",
+      COMPANION_AUTH_TOKEN: "auth-7",
+    });
+    expect(unmute.status).toBe(0);
+    expect(unmute.stdout).toContain("Unmuted needs-input notification 8.");
+    expect(requestBodies[0]).toEqual({});
   });
 
   it("treats resolving an already-resolved notification as a successful no-op", async () => {

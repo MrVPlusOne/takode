@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SdkSessionInfo, SessionNotification } from "../types.js";
-import { getGlobalNeedsInputEntries } from "./global-needs-input.js";
+import { getGlobalMutedNeedsInputEntries, getGlobalNeedsInputEntries } from "./global-needs-input.js";
 
 function sdk(sessionId: string, overrides: Partial<SdkSessionInfo> = {}): SdkSessionInfo {
   return {
@@ -91,5 +91,43 @@ describe("getGlobalNeedsInputEntries", () => {
     });
 
     expect(entries.map((entry) => entry.notification.id)).toEqual(["active"]);
+  });
+
+  it("excludes muted needs-input notifications from the active global queue", () => {
+    // Muted prompts are still unresolved, but they belong in the secondary Muted backlog.
+    const entries = entriesFor({
+      sdkSessions: [
+        sdk("s1", {
+          notificationUrgency: null,
+          activeNotificationCount: 0,
+          activeNeedsInputNotificationCount: 0,
+          mutedNeedsInputNotificationCount: 1,
+          notificationStatusVersion: 8,
+        }),
+      ],
+      sessionNotifications: new Map([["s1", [needsInputNotification({ id: "muted", muted: true })]]]),
+    });
+
+    expect(entries).toEqual([]);
+  });
+
+  it("returns muted unresolved needs-input notifications for the muted backlog", () => {
+    // The muted backlog is discoverable separately from the active attention queue.
+    const muted = needsInputNotification({ id: "muted", muted: true });
+    const entries = getGlobalMutedNeedsInputEntries({
+      sdkSessions: [
+        sdk("s1", {
+          notificationUrgency: null,
+          activeNotificationCount: 0,
+          activeNeedsInputNotificationCount: 0,
+          mutedNeedsInputNotificationCount: 1,
+          notificationStatusVersion: 9,
+        }),
+      ],
+      sessionNotifications: new Map([["s1", [muted, needsInputNotification({ id: "active" })]]]),
+      sessionNames: new Map(),
+    });
+
+    expect(entries.map((entry) => entry.notification.id)).toEqual(["muted"]);
   });
 });

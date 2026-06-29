@@ -1120,6 +1120,45 @@ describe("Takode server-authoritative auth", () => {
     expect(pushoverNotifier.cancelNotification).toHaveBeenCalledWith("orch-1", "n-4");
   });
 
+  it("mutes and unmutes a same-session needs-input notification without resolving it", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].notifications = [
+      { id: "n-6", category: "needs-input", summary: "Mute me", timestamp: 1000, messageId: null, done: false },
+    ];
+    bridge._sessions["orch-1"].attentionReason = "action";
+
+    const muteRes = await app.request("/api/sessions/orch-1/notifications/needs-input/6/mute", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({}),
+    });
+
+    expect(muteRes.status).toBe(200);
+    expect(await muteRes.json()).toEqual({
+      ok: true,
+      notificationId: 6,
+      rawNotificationId: "n-6",
+      muted: true,
+      changed: true,
+    });
+    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({ done: false, muted: true });
+    expect(bridge._sessions["orch-1"].notifications[0].resolutionNotice).toBeUndefined();
+    expect(bridge._sessions["orch-1"].attentionReason).toBeNull();
+    expect(pushoverNotifier.cancelNotification).not.toHaveBeenCalledWith("orch-1", "n-6");
+
+    const unmuteRes = await app.request("/api/sessions/orch-1/notifications/needs-input/6/unmute", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({}),
+    });
+
+    expect(unmuteRes.status).toBe(200);
+    expect(await unmuteRes.json()).toMatchObject({ ok: true, muted: false, changed: true });
+    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({ done: false });
+    expect(bridge._sessions["orch-1"].notifications[0].muted).toBeUndefined();
+    expect(bridge._sessions["orch-1"].attentionReason).toBe("action");
+  });
+
   it("clears linked board wait-for-input state when a needs-input notification is resolved", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].notifications = [

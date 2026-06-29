@@ -1,7 +1,8 @@
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import {
   markAllNotificationsDone as markAllNotificationsDoneController,
   markNotificationDone as markNotificationDoneController,
+  setNotificationMuted as setNotificationMutedController,
 } from "../bridge/session-registry-controller.js";
 import type { RouteContext } from "./context.js";
 
@@ -18,13 +19,13 @@ export function registerTakodeNotificationInboxRoutes(
     const auth = authenticateTakodeCaller(c);
     if ("response" in auth) return auth.response;
 
-    const id = resolveId(c.req.param("id"));
+    const id = resolveId(c.req.param("id") ?? "");
     if (!id) return c.json({ error: "Session not found" }, 404);
     if (id !== auth.callerId) {
       return c.json({ error: "Can only resolve notifications for your own session" }, 403);
     }
 
-    const numericId = Number.parseInt(c.req.param("notificationId"), 10);
+    const numericId = Number.parseInt(c.req.param("notificationId") ?? "", 10);
     if (!Number.isInteger(numericId) || numericId <= 0) {
       return c.json({ error: "notificationId must be a positive integer" }, 400);
     }
@@ -41,6 +42,40 @@ export function registerTakodeNotificationInboxRoutes(
     markNotificationDoneController(session, rawNotificationId, true, notificationPersistDeps);
     return c.json({ ok: true, notificationId: numericId, rawNotificationId, changed: !wasDone });
   });
+
+  const setNeedsInputMuted = async (c: Context, muted: boolean) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+
+    const id = resolveId(c.req.param("id") ?? "");
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    if (id !== auth.callerId) {
+      return c.json({ error: "Can only mute notifications for your own session" }, 403);
+    }
+
+    const numericId = Number.parseInt(c.req.param("notificationId") ?? "", 10);
+    if (!Number.isInteger(numericId) || numericId <= 0) {
+      return c.json({ error: "notificationId must be a positive integer" }, 400);
+    }
+
+    const session = wsBridge.getSession(id);
+    if (!session) return c.json({ error: "Session not found" }, 404);
+
+    const rawNotificationId = `n-${numericId}`;
+    const notification = session.notifications.find(
+      (entry) => entry.id === rawNotificationId && entry.category === "needs-input",
+    );
+    if (!notification) return c.json({ error: "Notification not found" }, 404);
+    if (notification.done) return c.json({ error: "Cannot mute a resolved notification" }, 409);
+
+    const wasMuted = notification.muted === true;
+    setNotificationMutedController(session, rawNotificationId, muted, notificationPersistDeps);
+    return c.json({ ok: true, notificationId: numericId, rawNotificationId, muted, changed: wasMuted !== muted });
+  };
+
+  api.post("/sessions/:id/notifications/needs-input/:notificationId/mute", (c) => setNeedsInputMuted(c, true));
+
+  api.post("/sessions/:id/notifications/needs-input/:notificationId/unmute", (c) => setNeedsInputMuted(c, false));
 
   api.post("/sessions/:id/notifications/:notifId/done", async (c) => {
     const id = resolveId(c.req.param("id"));

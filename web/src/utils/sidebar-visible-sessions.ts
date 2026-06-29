@@ -143,6 +143,7 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
         pendingTimerCount: sdkInfo?.pendingTimerCount ?? 0,
         notificationUrgency: sdkInfo?.notificationUrgency ?? null,
         activeNotificationCount: sdkInfo?.activeNotificationCount ?? 0,
+        mutedNeedsInputNotificationCount: sdkInfo?.mutedNeedsInputNotificationCount ?? 0,
         notificationStatusVersion: sdkInfo?.notificationStatusVersion,
         notificationStatusUpdatedAt: sdkInfo?.notificationStatusUpdatedAt,
         pause: bridgeState?.pause ?? sdkInfo?.pause ?? null,

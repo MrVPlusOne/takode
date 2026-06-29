@@ -140,10 +140,14 @@ function timeAgo(epochMs: number): string {
 function useNotificationUrgency(sessionId: string, fallbackUrgency: NotificationUrgency = null) {
   return useStore((s) => {
     const notifications = s.sessionNotifications?.get(sessionId);
-    if (!notifications) return fallbackUrgency;
     const snapshot = s.sdkSessions?.find((session) => session.sessionId === sessionId);
+    const snapshotMutedCount = snapshot?.mutedNeedsInputNotificationCount ?? 0;
+    if (!notifications) return fallbackUrgency ?? (snapshotMutedCount > 0 ? "muted-needs-input" : null);
     if (isClearedNotificationStatus(snapshot ?? {})) return null;
     const activeNotifications = notifications?.filter((n) => !n.done);
+    const activeAttentionNotifications = activeNotifications.filter((n) => !(n.category === "needs-input" && n.muted));
+    const hasMutedNeedsInput =
+      activeNotifications.some((n) => n.category === "needs-input" && n.muted) || snapshotMutedCount > 0;
     const liveUrgency = getHighestNotificationUrgency(activeNotifications);
     const snapshotUrgency = snapshot?.notificationUrgency ?? null;
     const snapshotActiveCount = snapshot?.activeNotificationCount;
@@ -154,11 +158,12 @@ function useNotificationUrgency(sessionId: string, fallbackUrgency: Notification
       snapshotUrgency &&
       snapshotActiveCount !== undefined &&
       snapshotActiveCount > 0 &&
-      (liveUrgency !== snapshotUrgency || activeNotifications.length !== snapshotActiveCount)
+      (liveUrgency !== snapshotUrgency || activeAttentionNotifications.length !== snapshotActiveCount)
     ) {
       return snapshotUrgency;
     }
     if (liveUrgency) return liveUrgency;
+    if (hasMutedNeedsInput) return "muted-needs-input";
     if (snapshotActiveCount === 0 || (hasFreshSnapshot && snapshotUrgency === null)) return null;
     return s.currentSessionId === sessionId ? null : fallbackUrgency;
   });
@@ -188,6 +193,16 @@ function NotificationMarker({
         data-testid="session-notification-marker"
         data-urgency="review"
         className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 sm:group-hover:opacity-0 transition-opacity pointer-events-none"
+      />
+    );
+  }
+  if (urgency === "muted-needs-input") {
+    return (
+      <span
+        data-testid="session-notification-marker"
+        data-urgency="muted-needs-input"
+        title="Muted needs-input"
+        className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full border border-cc-muted/70 bg-cc-muted/45 sm:group-hover:opacity-0 transition-opacity pointer-events-none"
       />
     );
   }
@@ -518,7 +533,8 @@ export function SessionItem({
     permCount === 0 &&
     !effectiveAttention &&
     timerCount > 0 &&
-    inboxUrgency !== "needs-input";
+    inboxUrgency !== "needs-input" &&
+    inboxUrgency !== "muted-needs-input";
   const statusColorClass = showScheduledTimerIcon ? "bg-emerald-500" : STATUS_DOT_CLASS[visualStatus];
   const glowColor = showScheduledTimerIcon
     ? ""

@@ -1177,6 +1177,7 @@ export type BrowserIncomingMessageBase =
       notifications: SessionNotification[];
       notificationStatusVersion?: number;
       notificationStatusUpdatedAt?: number;
+      mutedNeedsInputNotificationCount?: number;
     }
   | {
       type: "attention_records_update";
@@ -1196,6 +1197,7 @@ export type BrowserIncomingMessageBase =
         activeNotificationCount?: number;
         activeNeedsInputNotificationCount?: number;
         activeReviewNotificationCount?: number;
+        mutedNeedsInputNotificationCount?: number;
         notificationStatusVersion?: number;
         notificationStatusUpdatedAt?: number;
         leaderActiveBoardRows?: BoardRow[];
@@ -1495,6 +1497,9 @@ export interface SessionNotification {
   questId?: string;
   threadRefs?: ThreadRef[];
   done: boolean;
+  /** Muted unresolved needs-input prompts stay answerable but leave active attention counts. */
+  muted?: boolean;
+  mutedAt?: number;
   resolutionNotice?: {
     status: "pending" | "queued" | "delivered";
     source: "manual" | "response";

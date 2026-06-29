@@ -48,7 +48,9 @@ Answer a pending needs-input question or approve/reject an ExitPlanMode prompt f
 
 const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--thread <main|q-N> | --quest <q-N>] [--suggest <answer>]... [--json]
        takode notify needs-input <summary> [--thread <main|q-N> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
-       takode notify list [--json]
+       takode notify list [--muted] [--json]
+       takode notify mute <notification-id> [--json]
+       takode notify unmute <notification-id> [--json]
        takode notify resolve <notification-id> [--json]
 
 Categories:
@@ -1607,7 +1609,37 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
   if (subcommand === "list") {
     const flags = parseFlags(args.slice(1));
     const jsonMode = flags.json === true;
-    const result = (await apiGet(base, `/sessions/${encodeURIComponent(selfId)}/notifications/needs-input/self`)) as {
+    const mutedMode = flags.muted === true;
+    const notifications = (await apiGet(base, `/sessions/${encodeURIComponent(selfId)}/notifications`)) as Array<{
+      id: string;
+      category: string;
+      summary?: string;
+      suggestedAnswers?: string[];
+      questions?: Array<{ prompt: string; suggestedAnswers?: string[] }>;
+      timestamp: number;
+      messageId: string | null;
+      done: boolean;
+      muted?: boolean;
+    }>;
+    const needsInput = notifications.filter((entry) => entry.category === "needs-input");
+    const result = {
+      notifications: needsInput
+        .filter((entry) => !entry.done && (mutedMode ? entry.muted === true : entry.muted !== true))
+        .map((entry) => ({
+          notificationId: Number.parseInt(entry.id.replace(/^n-/, ""), 10),
+          rawNotificationId: entry.id,
+          summary: entry.summary,
+          ...(entry.suggestedAnswers?.length ? { suggestedAnswers: entry.suggestedAnswers } : {}),
+          ...(entry.questions?.length ? { questions: entry.questions } : {}),
+          timestamp: entry.timestamp,
+          messageId: entry.messageId,
+          muted: entry.muted === true,
+        }))
+        .filter((entry) => Number.isInteger(entry.notificationId))
+        .sort((a, b) => a.notificationId - b.notificationId),
+      resolvedCount: needsInput.filter((entry) => entry.done).length,
+      mutedCount: needsInput.filter((entry) => !entry.done && entry.muted === true).length,
+    } as {
       notifications: Array<{
         notificationId: number;
         rawNotificationId: string;
@@ -1616,19 +1648,25 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
         questions?: Array<{ prompt: string; suggestedAnswers?: string[] }>;
         timestamp: number;
         messageId: string | null;
+        muted?: boolean;
       }>;
       resolvedCount: number;
+      mutedCount: number;
     };
     if (jsonMode) {
       console.log(JSON.stringify(result, null, 2));
       return;
     }
     if (result.notifications.length === 0) {
-      console.log(`No unresolved same-session needs-input notifications. Resolved: ${result.resolvedCount}.`);
+      const listLabel = mutedMode ? "muted unresolved" : "active unresolved";
+      console.log(
+        `No ${listLabel} same-session needs-input notifications. Muted: ${result.mutedCount}. Resolved: ${result.resolvedCount}.`,
+      );
       return;
     }
+    const listLabel = mutedMode ? "Muted unresolved" : "Active unresolved";
     console.log(
-      `Unresolved same-session needs-input notifications: ${result.notifications.length}. Resolved: ${result.resolvedCount}.`,
+      `${listLabel} same-session needs-input notifications: ${result.notifications.length}. Muted: ${result.mutedCount}. Resolved: ${result.resolvedCount}.`,
     );
     for (const notification of result.notifications) {
       const summary = notification.summary?.trim() || "(no summary)";
@@ -1649,6 +1687,40 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
         });
       }
     }
+    return;
+  }
+
+  if (subcommand === "mute" || subcommand === "unmute") {
+    const notificationArg = args.slice(1).find((arg) => !arg.startsWith("--"));
+    if (!notificationArg) err(`Usage: takode notify ${subcommand} <notification-id> [--json]`);
+    const notificationId = Number.parseInt(notificationArg, 10);
+    if (!Number.isInteger(notificationId) || notificationId <= 0) {
+      err(`Usage: takode notify ${subcommand} <notification-id> [--json]`);
+    }
+    const flags = parseFlags(args.slice(1));
+    const jsonMode = flags.json === true;
+    const result = (await apiPost(
+      base,
+      `/sessions/${encodeURIComponent(selfId)}/notifications/needs-input/${notificationId}/${subcommand}`,
+      {},
+    )) as {
+      ok: boolean;
+      notificationId: number;
+      rawNotificationId: string;
+      muted: boolean;
+      changed: boolean;
+    };
+    if (jsonMode) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    const action = subcommand === "mute" ? "Muted" : "Unmuted";
+    const already = subcommand === "mute" ? "already muted" : "already unmuted";
+    console.log(
+      result.changed
+        ? `${action} needs-input notification ${result.notificationId}.`
+        : `Needs-input notification ${result.notificationId} was ${already}.`,
+    );
     return;
   }
 

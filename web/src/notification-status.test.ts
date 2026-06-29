@@ -172,6 +172,27 @@ describe("notification status attention freshness", () => {
     expect(useStore.getState().sdkSessions[0]?.activeReviewNotificationCount).toBe(0);
   });
 
+  it("keeps muted needs-input unresolved while removing it from active counts", () => {
+    // Muting is not resolution. The prompt remains cached and separately counted,
+    // but it stops driving active needs-input urgency.
+    useStore.getState().setSdkSessions([session({})]);
+
+    applySessionNotifications("s1", [needsInputNotification({ id: "muted", muted: true })], {
+      notificationStatusVersion: 5,
+      notificationStatusUpdatedAt: 5000,
+    });
+
+    expect(useStore.getState().sessionNotifications.get("s1")).toEqual([
+      needsInputNotification({ id: "muted", muted: true }),
+    ]);
+    expect(useStore.getState().sdkSessions[0]).toMatchObject({
+      notificationUrgency: null,
+      activeNotificationCount: 0,
+      activeNeedsInputNotificationCount: 0,
+      mutedNeedsInputNotificationCount: 1,
+    });
+  });
+
   it("clears cached notification state when only waiting markers arrive", () => {
     useStore.getState().setSdkSessions([session({})]);
     useStore.setState({ sessionNotifications: new Map([["s1", [needsInputNotification()]]]) });

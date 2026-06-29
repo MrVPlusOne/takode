@@ -24,4 +24,12 @@ describe("getHighestNotificationUrgency", () => {
       "needs-input",
     );
   });
+
+  it("ignores muted needs-input when choosing active urgency", () => {
+    // Muted needs-input remains unresolved but should not create amber urgency.
+    expect(getHighestNotificationUrgency([{ category: "needs-input", muted: true } as any])).toBeNull();
+    expect(
+      getHighestNotificationUrgency([{ category: "review" } as any, { category: "needs-input", muted: true } as any]),
+    ).toBe("review");
+  });
 });

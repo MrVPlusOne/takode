@@ -19,6 +19,7 @@ import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
 import { NeedsInputAnswerField } from "./NeedsInputAnswerField.js";
 import {
+  getGlobalMutedNeedsInputEntries,
   getGlobalNeedsInputEntries,
   type GlobalNeedsInputEntry,
   type GlobalNeedsInputState,
@@ -47,18 +48,20 @@ function formatRelativeTime(ts: number): string {
 
 function needsInputFetchRequests(state: GlobalNeedsInputState): NeedsInputFetchRequest[] {
   return state.sdkSessions
-    .filter(
-      (session) =>
-        !session.archived &&
-        session.notificationUrgency === "needs-input" &&
-        (session.activeNotificationCount ?? 0) > 0,
-    )
+    .filter((session) => {
+      if (session.archived) return false;
+      const activeNeedsInputCount =
+        session.activeNeedsInputNotificationCount ??
+        (session.notificationUrgency === "needs-input" ? (session.activeNotificationCount ?? 0) : 0);
+      return activeNeedsInputCount > 0 || (session.mutedNeedsInputNotificationCount ?? 0) > 0;
+    })
     .map((session) => {
       const status: NotificationStatusSnapshot = {
         notificationUrgency: session.notificationUrgency,
         activeNotificationCount: session.activeNotificationCount,
         activeNeedsInputNotificationCount: session.activeNeedsInputNotificationCount,
         activeReviewNotificationCount: session.activeReviewNotificationCount,
+        mutedNeedsInputNotificationCount: session.mutedNeedsInputNotificationCount,
         notificationStatusVersion: session.notificationStatusVersion,
         notificationStatusUpdatedAt: session.notificationStatusUpdatedAt,
       };
@@ -107,12 +110,38 @@ function markLocalNotificationDone(sessionId: string, notificationId: string) {
   const store = useStore.getState();
   const notifications = store.sessionNotifications.get(sessionId);
   if (!notifications) return;
-  store.setSessionNotifications(
-    sessionId,
-    notifications.map((notification) =>
-      notification.id === notificationId ? { ...notification, done: true } : notification,
-    ),
+  const nextNotifications = notifications.map((notification) =>
+    notification.id === notificationId ? { ...notification, done: true } : notification,
   );
+  store.setSessionNotifications(sessionId, nextNotifications);
+  applySessionNotifications(sessionId, nextNotifications, getCurrentNotificationStatus(sessionId));
+}
+
+function getCurrentNotificationStatus(sessionId: string): NotificationStatusSnapshot {
+  const session = useStore.getState().sdkSessions.find((entry) => entry.sessionId === sessionId);
+  return {
+    notificationUrgency: session?.notificationUrgency,
+    activeNotificationCount: session?.activeNotificationCount,
+    activeNeedsInputNotificationCount: session?.activeNeedsInputNotificationCount,
+    activeReviewNotificationCount: session?.activeReviewNotificationCount,
+    mutedNeedsInputNotificationCount: session?.mutedNeedsInputNotificationCount,
+    notificationStatusVersion: session?.notificationStatusVersion,
+    notificationStatusUpdatedAt: session?.notificationStatusUpdatedAt,
+  };
+}
+
+function markLocalNotificationMuted(sessionId: string, notificationId: string, muted: boolean) {
+  const store = useStore.getState();
+  const notifications = store.sessionNotifications.get(sessionId);
+  if (!notifications) return;
+  const nextNotifications = notifications.map((notification) => {
+    if (notification.id !== notificationId) return notification;
+    if (muted) return { ...notification, muted: true, mutedAt: Date.now() };
+    const { muted: _muted, mutedAt: _mutedAt, ...rest } = notification;
+    return rest;
+  });
+  store.setSessionNotifications(sessionId, nextNotifications);
+  applySessionNotifications(sessionId, nextNotifications, getCurrentNotificationStatus(sessionId));
 }
 
 function BellIcon({ className = "" }: { className?: string }) {
@@ -134,15 +163,19 @@ function BellIcon({ className = "" }: { className?: string }) {
 
 function GlobalNeedsInputRow({
   entry,
+  muted,
   onNavigate,
 }: {
   entry: GlobalNeedsInputEntry;
+  muted: boolean;
   onNavigate: (entry: GlobalNeedsInputEntry) => void;
 }) {
   const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, string>>({});
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  const [muteError, setMuteError] = useState<string | null>(null);
   const [remoteSourceContext, setRemoteSourceContext] = useState<{ key: string; value: string | null } | null>(null);
   const [sending, setSending] = useState(false);
+  const [togglingMute, setTogglingMute] = useState(false);
   const messages = useStore((s) => s.messages?.get(entry.sessionId) ?? EMPTY_MESSAGES);
   const questionViews = useMemo(() => getNeedsInputQuestionViews(entry.notification), [entry.notification]);
   const canSendResponse = questionViews.length > 0 && questionViews.every((q) => answersByQuestion[q.key]?.trim());
@@ -208,10 +241,33 @@ function GlobalNeedsInputRow({
     }
   }, [answersByQuestion, canSubmitResponse, entry, ownerThreadKey, questionViews]);
 
+  const toggleMuted = useCallback(async () => {
+    setTogglingMute(true);
+    setMuteError(null);
+    const nextMuted = !muted;
+    try {
+      await api.setNotificationMuted(entry.sessionId, entry.notification.id, nextMuted);
+      markLocalNotificationMuted(entry.sessionId, entry.notification.id, nextMuted);
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : "Please retry.";
+      setMuteError(`${nextMuted ? "Mute" : "Unmute"} failed. ${message}`);
+    } finally {
+      setTogglingMute(false);
+    }
+  }, [entry.notification.id, entry.sessionId, muted]);
+
   return (
-    <div className="px-3 py-2.5 hover:bg-cc-hover/35 transition-colors">
+    <div
+      className={`px-3 py-2.5 transition-colors hover:bg-cc-hover/35 ${muted ? "bg-cc-hover/15" : ""}`}
+      data-muted={muted ? "true" : undefined}
+    >
       <div className="flex items-start gap-2">
-        <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-cc-attention" aria-hidden="true" />
+        <span
+          className={`mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+            muted ? "border border-cc-muted/70 bg-cc-muted/45" : "bg-cc-attention"
+          }`}
+          aria-hidden="true"
+        />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-start gap-2">
             <div className="min-w-0 flex-1">
@@ -219,20 +275,36 @@ function GlobalNeedsInputRow({
                 <span className="truncate text-[11px] font-medium text-cc-muted" title={sessionLabel}>
                   {sessionLabel}
                 </span>
+                {muted && (
+                  <span className="shrink-0 rounded border border-cc-border/70 bg-cc-hover/35 px-1 py-px text-[10px] font-medium text-cc-muted">
+                    Muted
+                  </span>
+                )}
                 <span className="shrink-0 text-[10px] text-cc-muted/55">
                   {formatRelativeTime(entry.notification.timestamp)}
                 </span>
               </div>
               <NeedsInputSourceTarget title={summary} sourceContext={sourceContext} testIdPrefix="global-needs-input" />
             </div>
-            <button
-              type="button"
-              onClick={jump}
-              className="mt-4 inline-flex shrink-0 items-center rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-0.5 text-[11px] font-medium text-cc-attention transition-colors hover:bg-cc-attention-bg/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-attention/45 cursor-pointer"
-              aria-label={`Go to source for ${summary}`}
-            >
-              Go to
-            </button>
+            <div className="mt-4 flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={toggleMuted}
+                disabled={togglingMute}
+                className="inline-flex items-center rounded border border-cc-border/70 bg-cc-card px-2 py-0.5 text-[11px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-muted/45 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                aria-label={`${muted ? "Unmute" : "Mute"} ${summary}`}
+              >
+                {togglingMute ? "..." : muted ? "Unmute" : "Mute"}
+              </button>
+              <button
+                type="button"
+                onClick={jump}
+                className="inline-flex items-center rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-0.5 text-[11px] font-medium text-cc-attention transition-colors hover:bg-cc-attention-bg/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-attention/45 cursor-pointer"
+                aria-label={`Go to source for ${summary}`}
+              >
+                Go to
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -291,19 +363,25 @@ function GlobalNeedsInputRow({
             {sending ? "Sending..." : deliveryError ? "Retry" : "Send Response"}
           </button>
           {deliveryError && <p className="text-[10px] leading-snug text-cc-attention">{deliveryError}</p>}
+          {muteError && <p className="text-[10px] leading-snug text-cc-error">{muteError}</p>}
         </div>
+      )}
+      {questionViews.length === 0 && muteError && (
+        <p className="mt-2 pl-3 text-[10px] leading-snug text-cc-error">{muteError}</p>
       )}
     </div>
   );
 }
 
 function GlobalNeedsInputPopover({
-  entries,
+  activeEntries,
+  mutedEntries,
   sdkSessions,
   onClose,
   triggerRef,
 }: {
-  entries: GlobalNeedsInputEntry[];
+  activeEntries: GlobalNeedsInputEntry[];
+  mutedEntries: GlobalNeedsInputEntry[];
   sdkSessions: SdkSessionInfo[];
   onClose: () => void;
   triggerRef: RefObject<HTMLButtonElement | null>;
@@ -352,7 +430,7 @@ function GlobalNeedsInputPopover({
     >
       <div className="flex items-center justify-between border-b border-cc-border/50 px-3 py-2.5">
         <h2 className="text-[13px] font-medium text-cc-fg">
-          Needs Input <span className="ml-1 text-[11px] text-cc-muted font-normal">({entries.length})</span>
+          Needs Input <span className="ml-1 text-[11px] text-cc-muted font-normal">({activeEntries.length})</span>
         </h2>
         <button
           type="button"
@@ -365,14 +443,39 @@ function GlobalNeedsInputPopover({
           </svg>
         </button>
       </div>
-      <div className="overflow-y-auto divide-y divide-cc-border/20">
-        {entries.map((entry) => (
-          <GlobalNeedsInputRow
-            key={`${entry.sessionId}:${entry.notification.id}`}
-            entry={entry}
-            onNavigate={navigate}
-          />
-        ))}
+      <div className="overflow-y-auto">
+        <section className="divide-y divide-cc-border/20" aria-label="Active needs-input notifications">
+          {activeEntries.length > 0 ? (
+            activeEntries.map((entry) => (
+              <GlobalNeedsInputRow
+                key={`${entry.sessionId}:${entry.notification.id}`}
+                entry={entry}
+                muted={false}
+                onNavigate={navigate}
+              />
+            ))
+          ) : (
+            <div className="px-3 py-5 text-center text-[12px] text-cc-muted">No active needs-input</div>
+          )}
+        </section>
+        {mutedEntries.length > 0 && (
+          <section className="border-t border-cc-border/60" aria-label="Muted needs-input notifications">
+            <div className="flex items-center justify-between bg-cc-hover/20 px-3 py-1.5">
+              <span className="text-[11px] font-medium text-cc-muted">Muted</span>
+              <span className="text-[10px] text-cc-muted/70">{mutedEntries.length}</span>
+            </div>
+            <div className="divide-y divide-cc-border/20">
+              {mutedEntries.map((entry) => (
+                <GlobalNeedsInputRow
+                  key={`${entry.sessionId}:${entry.notification.id}`}
+                  entry={entry}
+                  muted
+                  onNavigate={navigate}
+                />
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </div>,
     document.body,
@@ -395,6 +498,7 @@ export function GlobalNeedsInputMenu() {
     [sessionNotifications, sdkSessions, sessionNames],
   );
   const entries = useMemo(() => getGlobalNeedsInputEntries(state), [state]);
+  const mutedEntries = useMemo(() => getGlobalMutedNeedsInputEntries(state), [state]);
   const fetchRequests = useMemo(() => needsInputFetchRequests(state), [state]);
 
   useEffect(() => {
@@ -413,12 +517,7 @@ export function GlobalNeedsInputMenu() {
 
   const close = useCallback(() => setOpen(false), []);
   const count = entries.length;
-
-  useEffect(() => {
-    if (count === 0) setOpen(false);
-  }, [count]);
-
-  if (count === 0) return null;
+  const hasMuted = mutedEntries.length > 0;
 
   return (
     <>
@@ -426,15 +525,29 @@ export function GlobalNeedsInputMenu() {
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex h-7 items-center gap-1 rounded-lg border border-cc-attention-border bg-cc-attention-bg px-2 text-[11px] font-medium text-cc-attention transition-colors hover:bg-cc-attention-bg/80 cursor-pointer"
+        className={`inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[11px] font-medium transition-colors cursor-pointer ${
+          count > 0
+            ? "border-cc-attention-border bg-cc-attention-bg text-cc-attention hover:bg-cc-attention-bg/80"
+            : "border-cc-border bg-cc-card text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+        }`}
         aria-label={`${count} unresolved needs-input ${count === 1 ? "notification" : "notifications"} across sessions`}
-        title="Needs-input notifications across sessions"
+        title={
+          hasMuted
+            ? "Needs-input notifications across sessions, including muted"
+            : "Needs-input notifications across sessions"
+        }
       >
         <span>{count}</span>
-        <BellIcon className="h-3.5 w-3.5 shrink-0 text-cc-attention" />
+        <BellIcon className={`h-3.5 w-3.5 shrink-0 ${count > 0 ? "text-cc-attention" : "text-cc-muted"}`} />
       </button>
       {open && (
-        <GlobalNeedsInputPopover entries={entries} sdkSessions={sdkSessions} onClose={close} triggerRef={triggerRef} />
+        <GlobalNeedsInputPopover
+          activeEntries={entries}
+          mutedEntries={mutedEntries}
+          sdkSessions={sdkSessions}
+          onClose={close}
+          triggerRef={triggerRef}
+        />
       )}
     </>
   );

@@ -906,6 +906,64 @@ describe("SessionItem notification marker", () => {
     expect(marker).toHaveAttribute("data-urgency", "needs-input");
   });
 
+  it("shows muted needs-input as a gray marker when no active notification wins", () => {
+    // Muted needs-input remains unresolved, but it should not use the amber active
+    // attention state. The row still exposes a quieter discoverability marker.
+    setSessionNotifications("s1", [
+      {
+        id: "n-muted",
+        category: "needs-input",
+        summary: "Deferred answer",
+        timestamp: Date.now(),
+        done: false,
+        muted: true,
+      },
+    ]);
+
+    renderSessionItem();
+    const marker = screen.getByTestId("session-notification-marker");
+    expect(marker).toHaveAttribute("data-urgency", "muted-needs-input");
+    expect(marker.className).toContain("bg-cc-muted");
+  });
+
+  it("keeps active needs-input amber when active and muted notifications coexist", () => {
+    // Active amber is the primary action state even when the same session also
+    // contains muted unresolved prompts.
+    setSessionNotifications("s1", [
+      { id: "n-active", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
+      {
+        id: "n-muted",
+        category: "needs-input",
+        summary: "Deferred answer",
+        timestamp: Date.now(),
+        done: false,
+        muted: true,
+      },
+    ]);
+
+    renderSessionItem();
+    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "needs-input");
+  });
+
+  it("keeps review blue ahead of muted needs-input", () => {
+    // Existing blue review/unread notification semantics should not become gray
+    // just because a deferred needs-input prompt also exists.
+    setSessionNotifications("s1", [
+      { id: "n-review", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
+      {
+        id: "n-muted",
+        category: "needs-input",
+        summary: "Deferred answer",
+        timestamp: Date.now(),
+        done: false,
+        muted: true,
+      },
+    ]);
+
+    renderSessionItem();
+    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "review");
+  });
+
   it("does not fall back to a stale snapshot marker after the live inbox is known cleared", () => {
     // A loaded empty inbox is authoritative for the session row. Falling back to
     // an older /api/sessions amber marker would resurrect a resolved needs-input dot.
