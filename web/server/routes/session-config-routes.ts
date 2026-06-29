@@ -75,6 +75,17 @@ function changed<T>(current: T | undefined | null, next: T | undefined | null): 
   return (current ?? null) !== (next ?? null);
 }
 
+function liveStateValue<T>(
+  state: Record<string, unknown> | undefined,
+  key: string,
+  fallback: T | null | undefined,
+): T | null | undefined {
+  if (state && Object.prototype.hasOwnProperty.call(state, key)) {
+    return state[key] as T | null | undefined;
+  }
+  return fallback;
+}
+
 function buildSessionConfigResponse(session: NonNullable<ReturnType<RouteContext["launcher"]["getSession"]>>) {
   return {
     model: session.model,
@@ -106,6 +117,7 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
 
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const session = wsBridge.getOrCreateSession(id, backendType);
+    const liveState = session.state as unknown as Record<string, unknown>;
     const backendConnected = wsBridge.isBackendConnected(id);
     const restartFields = backendType === "codex" ? CODEX_RESTART_FIELDS : CLAUDE_RESTART_FIELDS;
     const changedFields: ConfigField[] = [];
@@ -124,7 +136,7 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
     const rawModel = parseNullableString(body, "model");
     if (rawModel !== undefined) {
       if (!rawModel) return c.json({ error: "model must be a non-empty string" }, 400);
-      const current = info.model || session.state.model || "";
+      const current = liveStateValue<string>(liveState, "model", info.model) || "";
       if (changed(current, rawModel)) {
         launchPatch.model = rawModel;
         record("model", "model", rawModel);
@@ -145,8 +157,11 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
       }
       const current =
         backendType === "codex"
-          ? normalizeCodexPermissionProfile(info.permissionMode || session.state.permissionMode, "codex-default")
-          : info.permissionMode || session.state.permissionMode || "default";
+          ? normalizeCodexPermissionProfile(
+              liveStateValue<string>(liveState, "permissionMode", info.permissionMode),
+              "codex-default",
+            )
+          : liveStateValue<string>(liveState, "permissionMode", info.permissionMode) || "default";
       if (changed(current, nextMode)) {
         launchPatch.permissionMode = nextMode;
         launchPatch.askPermission = deriveAskPermissionForMode(backendType === "codex" ? "codex" : "claude", nextMode);
@@ -161,7 +176,9 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
     if (backendType === "codex" && hasOwn(body, "codexInternetAccess")) {
       const value = body.codexInternetAccess;
       if (typeof value !== "boolean") return c.json({ error: "codexInternetAccess must be a boolean" }, 400);
-      if (changed(info.codexInternetAccess ?? session.state.codex_internet_access ?? false, value)) {
+      if (
+        changed(liveStateValue<boolean>(liveState, "codex_internet_access", info.codexInternetAccess) ?? false, value)
+      ) {
         launchPatch.codexInternetAccess = value;
         record("codexInternetAccess", "codex_internet_access", value);
       }
@@ -175,7 +192,9 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
       );
       if (!effort.ok) return c.json({ error: effort.error }, 400);
       if (effort.value !== undefined || hasOwn(body, "codexReasoningEffort")) {
-        if (changed(info.codexReasoningEffort ?? session.state.codex_reasoning_effort, effort.value)) {
+        if (
+          changed(liveStateValue<string>(liveState, "codex_reasoning_effort", info.codexReasoningEffort), effort.value)
+        ) {
           launchPatch.codexReasoningEffort = effort.value;
           record("codexReasoningEffort", "codex_reasoning_effort", effort.value ?? null);
         }
@@ -184,7 +203,7 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
       const serviceTier = parseNullableString(body, "codexServiceTier");
       if (serviceTier !== undefined) {
         const next = serviceTier || null;
-        if (changed(info.codexServiceTier ?? session.state.codex_service_tier ?? null, next)) {
+        if (changed(liveStateValue<string>(liveState, "codex_service_tier", info.codexServiceTier) ?? null, next)) {
           launchPatch.codexServiceTier = next;
           record("codexServiceTier", "codex_service_tier", next);
         }
@@ -193,7 +212,12 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
       const maxContext = parseNullablePositiveInteger(body, "codexMaxContextLength");
       if (!maxContext.ok) return c.json({ error: maxContext.error }, 400);
       if (maxContext.value !== undefined) {
-        if (changed(info.codexMaxContextLength ?? session.state.codex_max_context_length, maxContext.value)) {
+        if (
+          changed(
+            liveStateValue<number>(liveState, "codex_max_context_length", info.codexMaxContextLength),
+            maxContext.value,
+          )
+        ) {
           launchPatch.codexMaxContextLength = maxContext.value ?? undefined;
           record("codexMaxContextLength", "codex_max_context_length", maxContext.value ?? null);
         }
@@ -206,7 +230,12 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
       );
       if (!effort.ok) return c.json({ error: effort.error }, 400);
       if (effort.value !== undefined || hasOwn(body, "claudeReasoningEffort")) {
-        if (changed(info.claudeReasoningEffort ?? session.state.claude_reasoning_effort, effort.value)) {
+        if (
+          changed(
+            liveStateValue<string>(liveState, "claude_reasoning_effort", info.claudeReasoningEffort),
+            effort.value,
+          )
+        ) {
           launchPatch.claudeReasoningEffort = effort.value;
           record("claudeReasoningEffort", "claude_reasoning_effort", effort.value ?? null);
         }
@@ -221,7 +250,12 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
             400,
           );
         }
-        if (changed(info.claudeMaxContextLength ?? session.state.claude_max_context_length, maxContext.value)) {
+        if (
+          changed(
+            liveStateValue<number>(liveState, "claude_max_context_length", info.claudeMaxContextLength),
+            maxContext.value,
+          )
+        ) {
           launchPatch.claudeMaxContextLength = maxContext.value ?? undefined;
           record("claudeMaxContextLength", "claude_max_context_length", maxContext.value ?? null);
         }

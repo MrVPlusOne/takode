@@ -149,6 +149,45 @@ describe("ConfigureSessionModal", () => {
     expect(screen.getByLabelText("Session Codex max context length")).toHaveValue(null);
   });
 
+  it("saves a speed value that matches stale sdk metadata but differs from live state", async () => {
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            session_id: "s1",
+            backend_type: "codex",
+            model: "gpt-5.4",
+            permissionMode: "codex-default",
+            codex_service_tier: null,
+          },
+        ],
+      ]),
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          sessionNum: 1533,
+          backendType: "codex",
+          model: "gpt-5.4",
+          permissionMode: "codex-default",
+          codexServiceTier: "priority",
+        },
+      ],
+      cliConnected: new Map([["s1", false]]),
+    });
+    const user = userEvent.setup();
+    render(<ConfigureSessionModal sessionId="s1" onClose={() => {}} />);
+
+    expect(await screen.findByLabelText("Session Codex speed")).toHaveValue("");
+    await user.selectOptions(screen.getByLabelText("Session Codex speed"), "priority");
+    await user.click(screen.getByRole("button", { name: "Save for Next Resume" }));
+
+    await waitFor(() => {
+      expect(mockUpdateSessionConfig).toHaveBeenCalledWith("s1", { codexServiceTier: "priority" });
+    });
+    expect(storeState.updateSession).toHaveBeenCalledWith("s1", { codex_service_tier: "priority" });
+  });
+
   it("uses restart primary action and relaunches after saving restart-required changes", async () => {
     mockUpdateSessionConfig.mockResolvedValueOnce({
       ok: true,

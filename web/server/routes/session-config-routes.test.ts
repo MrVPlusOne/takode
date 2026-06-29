@@ -31,7 +31,9 @@ function makeSessionState(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createApp(options: { backendConnected?: boolean; info?: Record<string, unknown> } = {}) {
+function createApp(
+  options: { backendConnected?: boolean; info?: Record<string, unknown>; sessionState?: Record<string, unknown> } = {},
+) {
   const info = {
     sessionId: "s1",
     backendType: "codex",
@@ -45,7 +47,12 @@ function createApp(options: { backendConnected?: boolean; info?: Record<string, 
   const session = {
     id: "s1",
     backendType: info.backendType,
-    state: makeSessionState({ backend_type: info.backendType, model: info.model, permissionMode: info.permissionMode }),
+    state: makeSessionState({
+      backend_type: info.backendType,
+      model: info.model,
+      permissionMode: info.permissionMode,
+      ...options.sessionState,
+    }),
   };
   const launcher = {
     getSession: vi.fn(() => info),
@@ -93,6 +100,67 @@ describe("session config routes", () => {
     expect(launcher.updateSessionLaunchConfig).toHaveBeenCalledWith("s1", { codexServiceTier: "priority" });
     expect(wsBridge.setCodexServiceTier).toHaveBeenCalledWith("s1", "priority");
     expect(wsBridge.broadcastToSession).not.toHaveBeenCalled();
+  });
+
+  it("updates disconnected live state when stale launcher service tier already matches requested value", async () => {
+    const { app, launcher, wsBridge, session } = createApp({
+      backendConnected: false,
+      info: { codexServiceTier: "priority" },
+      sessionState: { codex_service_tier: null },
+    });
+
+    const res = await app.request("/sessions/s1/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codexServiceTier: "priority" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      restartRequired: false,
+      immediateFields: ["codexServiceTier"],
+      changedFields: ["codexServiceTier"],
+      session: { codexServiceTier: "priority" },
+      sessionState: { codex_service_tier: "priority" },
+    });
+    expect(launcher.updateSessionLaunchConfig).toHaveBeenCalledWith("s1", { codexServiceTier: "priority" });
+    expect(wsBridge.setCodexServiceTier).not.toHaveBeenCalled();
+    expect(wsBridge.broadcastToSession).toHaveBeenCalledWith("s1", {
+      type: "session_update",
+      session: { codex_service_tier: "priority" },
+    });
+    expect(wsBridge.persistSessionById).toHaveBeenCalledWith("s1");
+    expect((session.state as Record<string, unknown>).codex_service_tier).toBe("priority");
+  });
+
+  it("updates restart-required live state when stale launcher max context already matches requested value", async () => {
+    const { app, wsBridge, session } = createApp({
+      backendConnected: false,
+      info: { codexMaxContextLength: 900000 },
+      sessionState: { codex_max_context_length: null },
+    });
+
+    const res = await app.request("/sessions/s1/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codexMaxContextLength: 900000 }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      restartRequired: true,
+      restartRequiredFields: ["codexMaxContextLength"],
+      changedFields: ["codexMaxContextLength"],
+      sessionState: { codex_max_context_length: 900000 },
+    });
+    expect(wsBridge.broadcastToSession).toHaveBeenCalledWith("s1", {
+      type: "session_update",
+      session: { codex_max_context_length: 900000 },
+    });
+    expect(wsBridge.persistSessionById).toHaveBeenCalledWith("s1");
+    expect((session.state as Record<string, unknown>).codex_max_context_length).toBe(900000);
   });
 
   it("persists Codex restart-required settings without invoking immediate handlers", async () => {
