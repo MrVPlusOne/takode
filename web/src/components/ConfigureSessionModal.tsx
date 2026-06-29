@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, type BackendModelInfo, type SessionConfigPatch } from "../api.js";
 import { useStore } from "../store.js";
 import {
@@ -298,7 +299,7 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
   const fieldEffect = (restart: boolean, nextTurn = false) =>
     !cliConnected ? "resume" : restart ? "restart" : nextTurn ? "next-turn" : "now";
 
-  return (
+  const modal = (
     <div
       data-session-info-modal="true"
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 px-4 py-6"
@@ -521,4 +522,7 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
       </div>
     </div>
   );
+
+  // Match other global overlays: escape sidebar/panel overflow and transform containing blocks.
+  return typeof document === "undefined" ? modal : createPortal(modal, document.body);
 }

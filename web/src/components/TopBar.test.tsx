@@ -12,6 +12,8 @@ vi.mock("../api.js", () => ({
     pauseSession: vi.fn().mockResolvedValue({ ok: true }),
     unpauseSession: vi.fn().mockResolvedValue({ ok: true }),
     getSessionNotifications: vi.fn().mockResolvedValue([]),
+    getBackendModels: vi.fn().mockResolvedValue([]),
+    updateSessionConfig: vi.fn().mockResolvedValue({ ok: true, restartRequired: false, session: {}, sessionState: {} }),
     fetchNotificationContext: vi.fn().mockResolvedValue(null),
     markNotificationDone: vi.fn().mockResolvedValue({ ok: true }),
     updateLeaderProfilePortrait: vi.fn(),
@@ -25,8 +27,18 @@ vi.mock("../ws.js", () => ({
   sendToSession: vi.fn(() => true),
 }));
 vi.mock("./SessionInfoPopover.js", () => ({
-  SessionInfoPopover: ({ anchorElement }: { anchorElement?: HTMLElement | null }) => (
-    <div data-testid="session-info-popover" data-anchor-present={anchorElement ? "true" : "false"} />
+  SessionInfoPopover: ({
+    anchorElement,
+    onConfigure,
+  }: {
+    anchorElement?: HTMLElement | null;
+    onConfigure?: (sessionId: string) => void;
+  }) => (
+    <div data-testid="session-info-popover" data-anchor-present={anchorElement ? "true" : "false"}>
+      <button type="button" data-testid="mock-session-info-configure" onClick={() => onConfigure?.("s1")}>
+        Configure Session
+      </button>
+    </div>
   ),
 }));
 vi.mock("./BoardTable.js", async (importOriginal) => {
@@ -80,6 +92,7 @@ interface MockStoreState {
     cwd?: string;
     name?: string;
     sessionNum?: number | null;
+    model?: string;
     permissionMode?: string;
     backendType?: string;
     cliSessionId?: string | null;
@@ -582,6 +595,44 @@ describe("TopBar", () => {
     await waitFor(() => {
       expect(screen.getByTestId("session-info-popover")).toHaveAttribute("data-anchor-present", "true");
     });
+  });
+
+  it("opens Configure Session from Session Info in the global modal layer", async () => {
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            cwd: "/repo",
+            backend_type: "codex",
+            model: "gpt-5.4",
+            permissionMode: "codex-default",
+            codex_service_tier: null,
+          },
+        ],
+      ]),
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          createdAt: 1,
+          sessionNum: 1533,
+          name: "Codex Session",
+          backendType: "codex",
+          model: "gpt-5.4",
+          permissionMode: "codex-default",
+        },
+      ],
+    });
+
+    render(<TopBar />);
+    fireEvent.click(screen.getByText("Codex Session"));
+
+    await waitFor(() => expect(screen.getByTestId("session-info-popover")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("mock-session-info-configure"));
+
+    const dialog = await screen.findByRole("dialog", { name: "Configure Session" });
+    expect(dialog.parentElement).toBe(document.body);
+    expect(screen.queryByTestId("session-info-popover")).not.toBeInTheDocument();
   });
 
   it("does not show a duplicate plan/agent mode label in title bar", () => {

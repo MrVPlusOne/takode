@@ -90,6 +90,18 @@ describe("ConfigureSessionModal", () => {
     mockRelaunchSession.mockResolvedValue({});
   });
 
+  it("portals the overlay to the document body so entry-point containers cannot constrain it", async () => {
+    const { container } = render(
+      <div data-testid="sidebar-contained-entry">
+        <ConfigureSessionModal sessionId="s1" onClose={() => {}} />
+      </div>,
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "Configure Session" });
+    expect(container.querySelector("[role='dialog']")).toBeNull();
+    expect(dialog.parentElement).toBe(document.body);
+  });
+
   it("applies next-turn-only Codex speed changes without relaunching", async () => {
     const onClose = vi.fn();
     const user = userEvent.setup();

@@ -275,7 +275,9 @@ describe("Sidebar session context menu", () => {
     expect(screen.getByText("Configure Session").closest(".fixed")).toHaveClass("w-56");
     fireEvent.click(screen.getByText("Configure Session"));
 
-    expect(await screen.findByRole("dialog", { name: "Configure Session" })).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: "Configure Session" });
+    expect(dialog).toBeInTheDocument();
+    expect(dialog.parentElement).toBe(document.body);
     expect(screen.getByText(/Codex session settings for #1533/)).toBeInTheDocument();
   });
 });
