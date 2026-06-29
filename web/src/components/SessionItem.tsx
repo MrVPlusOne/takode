@@ -6,10 +6,8 @@ import { navigateToSession } from "../utils/routing.js";
 import { getHighlightParts } from "../utils/highlight.js";
 import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
-import { getHighestNotificationUrgency, type NotificationUrgency } from "../utils/notification-urgency.js";
-import { isClearedNotificationStatus } from "../notification-status.js";
+import { type NotificationUrgency } from "../utils/notification-urgency.js";
 import { formatGitStatusAge, isGitStatusStale } from "../../shared/git-status-freshness.js";
-import { normalizeLeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
 import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
 import {
   activeBoardSummarySegments,
@@ -17,7 +15,7 @@ import {
   type BoardSummarySegment,
 } from "./leader-board-summary.js";
 import { findSessionQuestContextCandidate } from "../utils/session-quest-context.js";
-import { MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
+import { deriveEffectiveSessionAttentionStatus } from "../utils/session-attention-status.js";
 
 const EMPTY_LEADER_BOARD_ROWS: never[] = [];
 
@@ -143,47 +141,13 @@ function useNotificationUrgency(sessionId: string, fallbackUrgency: Notification
   return useStore((s) => {
     const notifications = s.sessionNotifications?.get(sessionId);
     const snapshot = s.sdkSessions?.find((session) => session.sessionId === sessionId);
-    const snapshotMutedCount = snapshot?.mutedNeedsInputNotificationCount ?? 0;
-    if (!notifications) return fallbackUrgency ?? (snapshotMutedCount > 0 ? "muted-needs-input" : null);
-    if (isClearedNotificationStatus(snapshot ?? {})) return null;
-    const openThreadKeys = new Set<string>([MAIN_THREAD_KEY]);
-    if (snapshot?.isOrchestrator) {
-      const openTabs = normalizeLeaderOpenThreadTabsState(snapshot.leaderOpenThreadTabs);
-      for (const key of openTabs?.orderedOpenThreadKeys ?? []) openThreadKeys.add(normalizeThreadKey(key));
-    }
-    const activeNotifications = notifications
-      ?.filter((n) => !n.done)
-      .filter((n) => {
-        if (!snapshot?.isOrchestrator || n.category !== "review") return true;
-        const threadKey = normalizeThreadKey(n.threadKey || n.questId || MAIN_THREAD_KEY);
-        return openThreadKeys.has(threadKey);
-      });
-    const activeAttentionNotifications = activeNotifications.filter((n) => !(n.category === "needs-input" && n.muted));
-    const hasMutedNeedsInput =
-      activeNotifications.some((n) => n.category === "needs-input" && n.muted) || snapshotMutedCount > 0;
-    const liveUrgency = getHighestNotificationUrgency(activeNotifications);
-    const snapshotUrgency = snapshot?.notificationUrgency ?? null;
-    const snapshotActiveCount = snapshot?.activeNotificationCount;
-    const summaryCanOverrideWithReview =
-      snapshotUrgency !== "review" ||
-      !snapshot?.isOrchestrator ||
-      activeNotifications.some((n) => n.category === "review");
-    const hasFreshSnapshot =
-      snapshot?.notificationStatusVersion !== undefined || snapshot?.notificationStatusUpdatedAt !== undefined;
-    if (
-      hasFreshSnapshot &&
-      snapshotUrgency &&
-      summaryCanOverrideWithReview &&
-      snapshotActiveCount !== undefined &&
-      snapshotActiveCount > 0 &&
-      (liveUrgency !== snapshotUrgency || activeAttentionNotifications.length !== snapshotActiveCount)
-    ) {
-      return snapshotUrgency;
-    }
-    if (liveUrgency) return liveUrgency;
-    if (hasMutedNeedsInput) return "muted-needs-input";
-    if (snapshotActiveCount === 0 || (hasFreshSnapshot && snapshotUrgency === null)) return null;
-    return s.currentSessionId === sessionId ? null : fallbackUrgency;
+    return deriveEffectiveSessionAttentionStatus({
+      sessionId,
+      currentSessionId: s.currentSessionId,
+      notifications,
+      summary: snapshot,
+      fallbackUrgency,
+    })?.urgency;
   });
 }
 

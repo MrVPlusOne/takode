@@ -54,6 +54,20 @@ const mockStoreState = {
     claudeTokenDetails?: { modelContextWindow?: number };
     codexMaxContextLength?: number;
     claudeMaxContextLength?: number;
+    isOrchestrator?: boolean;
+    notificationUrgency?: "needs-input" | "review" | null;
+    activeNotificationCount?: number;
+    activeNeedsInputNotificationCount?: number;
+    activeReviewNotificationCount?: number;
+    mutedNeedsInputNotificationCount?: number;
+    notificationStatusVersion?: number;
+    notificationStatusUpdatedAt?: number;
+    leaderOpenThreadTabs?: {
+      version: 1;
+      orderedOpenThreadKeys: string[];
+      closedThreadTombstones: Array<{ threadKey: string; closedAt: number }>;
+      updatedAt: number;
+    };
   }>,
   sessionNames: new Map<string, string>(),
   quests: undefined as QuestmasterTask[] | undefined,
@@ -239,6 +253,126 @@ describe("SessionHoverCard", () => {
 
     const status = screen.getByTestId("session-hover-attention-status");
     expect(status).toHaveTextContent("1 muted needs-input notification");
+    expect(within(status).getByTestId("session-hover-attention-status-dot")).toHaveClass("bg-cc-muted/45");
+  });
+
+  it("does not explain stale amber needs-input after a newer cleared summary", () => {
+    // The hover card must follow the same freshness guard as the sidebar row:
+    // a versioned clear summary suppresses older cached full-inbox attention.
+    mockStoreState.sessionNotifications.set("s1", [
+      { id: "n-input", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
+    ]);
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        notificationStatusVersion: 5,
+        notificationStatusUpdatedAt: 5000,
+      },
+    ];
+
+    render(
+      <SessionHoverCard
+        session={makeSession({ notificationUrgency: "needs-input", activeNotificationCount: 1 })}
+        sessionName="Cleared Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.queryByTestId("session-hover-attention-status")).toBeNull();
+  });
+
+  it("does not explain stale action attention after notification status is cleared", () => {
+    // Raw sessionAttention can outlive the versioned notification summary; the
+    // hover card should match the row's effective action-attention suppression.
+    mockStoreState.sessionAttention.set("s1", "action");
+
+    render(
+      <SessionHoverCard
+        session={makeSession({
+          notificationUrgency: null,
+          activeNotificationCount: 0,
+          notificationStatusVersion: 5,
+        })}
+        sessionName="Cleared Attention Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.queryByTestId("session-hover-attention-status")).toBeNull();
+  });
+
+  it("explains muted gray when a leader review notification belongs to a closed thread", () => {
+    // Closed leader review tabs are filtered before deriving the sidebar marker.
+    // The hover explanation must therefore describe the visible muted marker,
+    // not the raw unresolved review notification.
+    mockStoreState.sessionNotifications.set("s1", [
+      {
+        id: "n-review",
+        category: "review",
+        summary: "q-1 ready for review",
+        timestamp: Date.now(),
+        done: false,
+        threadKey: "q-1",
+        questId: "q-1",
+      },
+      {
+        id: "n-muted",
+        category: "needs-input",
+        summary: "Deferred answer",
+        timestamp: Date.now(),
+        done: false,
+        muted: true,
+        threadKey: "q-2",
+        questId: "q-2",
+      },
+    ]);
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        isOrchestrator: true,
+        notificationUrgency: "review",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 7,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: [],
+          closedThreadTombstones: [{ threadKey: "q-1", closedAt: Date.now() }],
+          updatedAt: Date.now(),
+        },
+      },
+    ];
+
+    render(
+      <SessionHoverCard
+        session={makeSession({ isOrchestrator: true })}
+        sessionName="Leader Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    const status = screen.getByTestId("session-hover-attention-status");
+    expect(status).toHaveTextContent("1 muted needs-input notification");
+    expect(status).not.toHaveTextContent("unread conversation");
     expect(within(status).getByTestId("session-hover-attention-status-dot")).toHaveClass("bg-cc-muted/45");
   });
 
