@@ -217,6 +217,8 @@ export interface ChatMessage {
     autoApprovalReason?: string;
     /** Explicit leader-to-user publication created by `takode user-message`. */
     leaderUserMessage?: boolean;
+    /** False when the UI id is a history fallback id rather than a raw stable protocol id. */
+    starStableMessageId?: boolean;
     /** Optional quest/thread memberships. Main is implicit for every message. */
     threadRefs?: ThreadRef[];
     threadKey?: string;

@@ -206,6 +206,7 @@ export function normalizeHistoryMessageToChatMessages(
   } = options;
 
   if (histMsg.type === "user_message") {
+    const stableMessageId = typeof histMsg.id === "string" && histMsg.id.trim().length > 0 ? histMsg.id : null;
     const threadMetadata = {
       ...(histMsg.threadRefs ? { threadRefs: histMsg.threadRefs } : {}),
       ...(histMsg.threadKey ? { threadKey: histMsg.threadKey } : {}),
@@ -220,11 +221,12 @@ export function normalizeHistoryMessageToChatMessages(
     const metadata: ChatMessage["metadata"] = {
       ...(histMsg.replyContext ? { replyContext: histMsg.replyContext } : {}),
       ...(histMsg.vscodeSelection ? { vscodeSelection: histMsg.vscodeSelection } : {}),
+      ...(stableMessageId ? {} : { starStableMessageId: false }),
       ...threadMetadata,
     };
     return [
       {
-        id: histMsg.id || `hist-user-${historyIndex}`,
+        id: stableMessageId ?? `hist-user-${historyIndex}`,
         role: "user",
         content: histMsg.content,
         timestamp: histMsg.timestamp,
@@ -240,8 +242,10 @@ export function normalizeHistoryMessageToChatMessages(
   }
 
   if (histMsg.type === "leader_user_message") {
+    const stableMessageId = typeof histMsg.id === "string" && histMsg.id.trim().length > 0 ? histMsg.id : null;
     const existingMetadata: ChatMessage["metadata"] = {
       leaderUserMessage: true,
+      ...(stableMessageId ? {} : { starStableMessageId: false }),
       ...(histMsg.threadRefs ? { threadRefs: histMsg.threadRefs } : {}),
       ...(histMsg.threadKey ? { threadKey: histMsg.threadKey } : {}),
       ...(histMsg.questId ? { questId: histMsg.questId } : {}),
@@ -251,7 +255,7 @@ export function normalizeHistoryMessageToChatMessages(
     const metadata = mergeThreadMetadata(existingMetadata, repaired.metadata);
     return [
       {
-        id: histMsg.id || `hist-leader-user-${historyIndex}`,
+        id: stableMessageId ?? `hist-leader-user-${historyIndex}`,
         role: "assistant",
         content: repaired.text,
         timestamp: histMsg.timestamp,

@@ -12,7 +12,7 @@ import {
   LEADER_KICKOFF_SOURCE_ID,
   LEADER_KICKOFF_SOURCE_LABEL,
 } from "../../shared/injected-event-message.js";
-import type { ChatMessage, ContentBlock } from "../types.js";
+import type { BrowserIncomingMessage, ChatMessage, ContentBlock } from "../types.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
 const starMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
@@ -55,6 +55,7 @@ vi.mock("remark-gfm", () => ({
 
 import { MessageBubble } from "./MessageBubble.js";
 import { useStore } from "../store.js";
+import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
 
 beforeEach(() => {
   writeClipboardTextMock.mockClear();
@@ -257,6 +258,26 @@ describe("MessageBubble - user messages", () => {
     fireEvent.click(screen.getByTitle("Message options"));
     fireEvent.click(screen.getByText("Unstar message"));
     expect(unstarMessageMock).toHaveBeenCalledWith("star-session", "user-star");
+  });
+
+  it("does not expose star actions for fallback-normalized user rows", () => {
+    const [msg] = normalizeHistoryMessageToChatMessages(
+      {
+        type: "user_message",
+        content: "Legacy user row without a raw stable id",
+        timestamp: Date.now(),
+      } satisfies BrowserIncomingMessage,
+      12,
+    );
+    useStore.setState({
+      sessions: new Map([["star-session", { session_id: "star-session", starredMessages: {} } as any]]),
+    });
+
+    render(<MessageBubble message={msg} sessionId="star-session" />);
+
+    fireEvent.click(screen.getByTitle("Message options"));
+    expect(screen.queryByText("Star message")).toBeNull();
+    expect(starMessageMock).not.toHaveBeenCalled();
   });
 
   it("renders user messages with image thumbnails from REST URLs", () => {
@@ -1065,6 +1086,26 @@ describe("MessageBubble - assistant messages", () => {
     fireEvent.click(screen.getByTitle("Message options"));
     fireEvent.click(screen.getByText("Star message"));
     expect(starMessageMock).toHaveBeenCalledWith("star-session", "assistant-star", { historyIndex: 4 });
+  });
+
+  it("does not expose star actions for fallback-normalized leader-user rows", () => {
+    const [msg] = normalizeHistoryMessageToChatMessages(
+      {
+        type: "leader_user_message",
+        content: "Legacy leader-user row without a raw stable id",
+        timestamp: Date.now(),
+      } as BrowserIncomingMessage,
+      14,
+    );
+    useStore.setState({
+      sessions: new Map([["star-session", { session_id: "star-session", starredMessages: {} } as any]]),
+    });
+
+    render(<MessageBubble message={msg} sessionId="star-session" />);
+
+    fireEvent.click(screen.getByTitle("Message options"));
+    expect(screen.queryByText("Star message")).toBeNull();
+    expect(starMessageMock).not.toHaveBeenCalled();
   });
 
   it("keeps deprecated suffixes in mixed text and tool blocks", () => {

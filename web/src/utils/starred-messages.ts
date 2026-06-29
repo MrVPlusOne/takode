@@ -2,6 +2,7 @@ import type { ChatMessage, SessionState, StarredMessageRecord } from "../types.j
 
 export function isStarActionableMessage(message: ChatMessage): boolean {
   if (!message.id || message.pendingState) return false;
+  if (!hasStableStarMessageId(message)) return false;
   if (message.role === "user") return true;
   if (message.role !== "assistant") return false;
   if (message.metadata?.leaderUserMessage) return true;
@@ -26,4 +27,11 @@ function assistantMessageHasBubbleContent(message: ChatMessage): boolean {
     if (block.type === "thinking") return block.thinking.trim().length > 0;
     return false;
   });
+}
+
+function hasStableStarMessageId(message: ChatMessage): boolean {
+  if (message.metadata?.starStableMessageId === false) return false;
+  if (message.role === "user" && /^hist-user-\d+$/.test(message.id)) return false;
+  if (message.metadata?.leaderUserMessage && /^hist-leader-user-\d+$/.test(message.id)) return false;
+  return true;
 }
