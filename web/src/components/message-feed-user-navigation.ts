@@ -16,6 +16,60 @@ export interface UserNavigationTarget {
   historyIndex?: number;
 }
 
+export interface ServerUserNavigationSearchResult {
+  category: string;
+  role: string;
+  historyIndex: number;
+  timestamp: number;
+  messageId: string;
+  fullText?: string;
+  snippet: string;
+}
+
+export function searchResultsToUserNavigationTargets(
+  results: readonly ServerUserNavigationSearchResult[],
+): UserNavigationTarget[] {
+  return results
+    .filter((result) => result.category === "user")
+    .sort((left, right) => left.historyIndex - right.historyIndex || left.timestamp - right.timestamp)
+    .map((result, index) => {
+      const isBoundaryUserMessage = result.role === "user";
+      const blockId = isBoundaryUserMessage
+        ? getTurnFeedBlockId(result.messageId)
+        : getMessageFeedBlockId(result.messageId);
+      return {
+        key: blockId,
+        turnId: result.messageId,
+        blockId,
+        messageId: result.messageId,
+        content: result.fullText ?? result.snippet,
+        timestamp: result.timestamp,
+        navigationIndex: index,
+        historyIndex: result.historyIndex,
+      };
+    });
+}
+
+export function mergeUserNavigationTargets(
+  primaryTargets: readonly UserNavigationTarget[],
+  visibleLocalTargets: readonly UserNavigationTarget[],
+): UserNavigationTarget[] {
+  const byMessageId = new Map(primaryTargets.map((target) => [target.messageId, target]));
+  const merged = [...primaryTargets];
+  for (const target of visibleLocalTargets) {
+    if (byMessageId.has(target.messageId)) continue;
+    byMessageId.set(target.messageId, target);
+    merged.push(target);
+  }
+  return merged
+    .sort(
+      (left, right) =>
+        (left.historyIndex ?? Number.MAX_SAFE_INTEGER) - (right.historyIndex ?? Number.MAX_SAFE_INTEGER) ||
+        left.timestamp - right.timestamp,
+    )
+    .map((target, index) => ({ ...target, navigationIndex: index }));
+}
+
 export function collectUserNavigationTargets(turns: readonly Turn[], leaderSessionId: string): UserNavigationTarget[] {
   const targets: UserNavigationTarget[] = [];
 

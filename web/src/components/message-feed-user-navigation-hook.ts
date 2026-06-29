@@ -1,14 +1,111 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api } from "../api.js";
 import type { HistoryWindowState, ThreadWindowState } from "../types.js";
+import type { Turn } from "../hooks/use-feed-model.js";
 import { escapeSelectorValue } from "./message-feed-utils.js";
 import { getHistoryBoundaryWindowRequest, getThreadBoundaryWindowRequest } from "./message-feed-window-paging.js";
 import {
+  collectUserNavigationTargets,
   findAdjacentUserNavigationTarget,
+  mergeUserNavigationTargets,
+  searchResultsToUserNavigationTargets,
+  type ServerUserNavigationSearchResult,
   type UserNavigationDirection,
   type UserNavigationTarget,
 } from "./message-feed-user-navigation.js";
 
 type ElementRef<T> = { current: T | null };
+const USER_NAVIGATION_SEARCH_LIMIT = 200;
+const USER_NAVIGATION_SEARCH_MAX_RESULTS = 1000;
+
+export function useMessageFeedUserNavigationTargets({
+  allMessagesLength,
+  herdingLeaderSessionId,
+  isLeaderSession,
+  latestGlobalMessageId,
+  normalizedThreadKey,
+  sessionId,
+  threadWindowRefreshRevision,
+  turns,
+  userNavigationSourceSessionId,
+}: {
+  allMessagesLength: number;
+  herdingLeaderSessionId?: string | null;
+  isLeaderSession: boolean;
+  latestGlobalMessageId: string;
+  normalizedThreadKey: string;
+  sessionId: string;
+  threadWindowRefreshRevision: number;
+  turns: readonly Turn[];
+  userNavigationSourceSessionId: string;
+}): UserNavigationTarget[] {
+  const localUserNavigationTargets = useMemo(
+    () => collectUserNavigationTargets(turns, userNavigationSourceSessionId),
+    [turns, userNavigationSourceSessionId],
+  );
+  const [serverUserNavigationTargets, setServerUserNavigationTargets] = useState<UserNavigationTarget[] | null>(null);
+  const useServerUserNavigationTargets = !herdingLeaderSessionId;
+
+  useEffect(() => {
+    if (!useServerUserNavigationTargets || typeof api.searchSessionMessages !== "function") {
+      setServerUserNavigationTargets(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+
+    async function loadTargets() {
+      try {
+        const results: ServerUserNavigationSearchResult[] = [];
+        let offset = 0;
+        while (results.length < USER_NAVIGATION_SEARCH_MAX_RESULTS) {
+          const response = await api.searchSessionMessages(sessionId, {
+            query: "",
+            scope: isLeaderSession ? "current_thread" : "session",
+            threadKey: isLeaderSession ? normalizedThreadKey : undefined,
+            filters: { user: true, assistant: false, event: false },
+            limit: USER_NAVIGATION_SEARCH_LIMIT,
+            offset,
+            signal: controller.signal,
+          });
+          results.push(...response.results);
+          if (!response.hasMore || response.nextOffset == null) break;
+          offset = response.nextOffset;
+        }
+        if (!cancelled && !controller.signal.aborted) {
+          setServerUserNavigationTargets(searchResultsToUserNavigationTargets(results));
+        }
+      } catch (err) {
+        if (cancelled || controller.signal.aborted) return;
+        console.warn("[message-feed] user-message navigation metadata failed:", err);
+        setServerUserNavigationTargets(null);
+      }
+    }
+
+    void loadTargets();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [
+    allMessagesLength,
+    isLeaderSession,
+    latestGlobalMessageId,
+    normalizedThreadKey,
+    sessionId,
+    threadWindowRefreshRevision,
+    useServerUserNavigationTargets,
+  ]);
+
+  return useMemo(
+    () =>
+      serverUserNavigationTargets
+        ? mergeUserNavigationTargets(serverUserNavigationTargets, localUserNavigationTargets)
+        : localUserNavigationTargets,
+    [localUserNavigationTargets, serverUserNavigationTargets],
+  );
+}
 
 interface UseUserMessageNavigationInput {
   containerRef: ElementRef<HTMLDivElement>;
