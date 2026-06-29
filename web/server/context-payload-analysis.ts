@@ -53,31 +53,147 @@ function firstBashCommandLine(command: string): string {
   );
 }
 
+function splitShellSegments(command: string): string[] {
+  const segments: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!;
+    const next = command[i + 1];
+
+    if (escaped) {
+      current += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && quote !== "'") {
+      current += ch;
+      escaped = true;
+      continue;
+    }
+    if ((ch === "'" || ch === '"') && !quote) {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === quote) {
+      quote = null;
+      current += ch;
+      continue;
+    }
+    if (!quote && (ch === ";" || ch === "|" || ch === "\n" || (ch === "&" && next === "&"))) {
+      if (current.trim()) segments.push(current.trim());
+      current = "";
+      if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) i++;
+      continue;
+    }
+    current += ch;
+  }
+
+  if (current.trim()) segments.push(current.trim());
+  return segments;
+}
+
+function tokenizeShellSegment(segment: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+
+  for (let i = 0; i < segment.length; i++) {
+    const ch = segment[i]!;
+    if (escaped) {
+      current += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if ((ch === "'" || ch === '"') && !quote) {
+      quote = ch;
+      continue;
+    }
+    if (ch === quote) {
+      quote = null;
+      continue;
+    }
+    if (!quote && /\s/.test(ch)) {
+      if (current) tokens.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current) tokens.push(current);
+  return tokens;
+}
+
+function isAssignmentToken(token: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*=/.test(token);
+}
+
+function normalizeExecutable(token: string): string {
+  const base = token.split("/").pop() || token;
+  return base.replace(/^\.\//, "");
+}
+
+function commandTokensForSegment(segment: string): string[] {
+  const tokens = tokenizeShellSegment(segment);
+  while (tokens.length > 0 && isAssignmentToken(tokens[0]!)) tokens.shift();
+  while (["command", "time", "sudo"].includes(tokens[0] ?? "")) tokens.shift();
+  if (tokens[0] === "env") {
+    tokens.shift();
+    while (tokens.length > 0 && (tokens[0]!.startsWith("-") || isAssignmentToken(tokens[0]!))) tokens.shift();
+  }
+  return tokens;
+}
+
+function classifyCommandTokens(tokens: string[]): string | null {
+  if (tokens.length === 0) return null;
+  const executable = normalizeExecutable(tokens[0]!);
+  const subcommand = tokens[1] ?? "";
+
+  if (executable === "cd" || executable === "export" || executable === "source" || executable === ".") return null;
+  if (executable === "quest") {
+    if (subcommand === "show") return "quest show";
+    if (subcommand === "feedback") return "quest feedback";
+    if (["list", "status", "grep", "history", "tags", "quiz", "inbox", "mine"].includes(subcommand)) {
+      return "quest inspect";
+    }
+    return "quest other";
+  }
+  if (executable === "takode") {
+    if (subcommand === "scan") return "takode scan";
+    if (subcommand === "peek") return "takode peek";
+    if (subcommand === "read") return "takode read";
+    if (subcommand === "context-doctor") return "context doctor";
+    if (["info", "board", "notify", "worker-stream", "grep", "logs"].includes(subcommand)) return "takode inspect";
+    return "takode";
+  }
+  if (executable === "memory") return "memory";
+  if (executable === "rg") return "search";
+  if (["grep", "awk", "sed"].includes(executable)) return "text processing";
+  if (["cat", "nl", "head", "tail", "less"].includes(executable)) return "file read";
+  if (executable === "git") return "git";
+  if (["bun", "npm", "pnpm", "yarn", "make"].includes(executable)) return "build/test";
+  if (["ls", "find", "du", "wc"].includes(executable)) return "filesystem inspect";
+  if (["node", "python", "python3", "tsx", "ts-node"].includes(executable)) return "script";
+  return executable || "bash";
+}
+
 export function classifyBashCommand(command: string): string {
   const normalized = command.trim();
   if (!normalized) return "bash";
-  const haystack = normalized.replace(/\s+/g, " ");
-  const firstLine = firstBashCommandLine(normalized);
-  const firstToken = firstLine.match(/(?:^|(?:&&|\|\||;|\|)\s*)([A-Za-z0-9_./:-]+)/)?.[1] ?? "bash";
-
-  if (/\bquest\s+show\b/.test(haystack)) return "quest show";
-  if (/\bquest\s+feedback\b/.test(haystack)) return "quest feedback";
-  if (/\bquest\s+(list|status|grep|history|tags|quiz|inbox|mine)\b/.test(haystack)) return "quest inspect";
-  if (/\bquest\b/.test(haystack)) return "quest other";
-  if (/\btakode\s+scan\b/.test(haystack)) return "takode scan";
-  if (/\btakode\s+peek\b/.test(haystack)) return "takode peek";
-  if (/\btakode\s+read\b/.test(haystack)) return "takode read";
-  if (/\btakode\s+context-doctor\b/.test(haystack)) return "context doctor";
-  if (/\btakode\s+(info|board|notify|worker-stream|grep|logs)\b/.test(haystack)) return "takode inspect";
-  if (/\bmemory\s+/.test(haystack)) return "memory";
-  if (/\brg\b/.test(haystack)) return "search";
-  if (/\b(grep|awk|sed)\b/.test(haystack)) return "text processing";
-  if (/\b(cat|nl|head|tail|less)\b/.test(haystack)) return "file read";
-  if (/\bgit\b/.test(haystack)) return "git";
-  if (/\b(bun|npm|pnpm|yarn|make)\b/.test(haystack)) return "build/test";
-  if (/\b(ls|find|du|wc)\b/.test(haystack)) return "filesystem inspect";
-  if (/\b(node|python|python3|tsx|ts-node)\b/.test(haystack)) return "script";
-  return firstToken.replace(/^\.\//, "") || "bash";
+  const segments = splitShellSegments(firstBashCommandLine(normalized));
+  for (const segment of segments) {
+    const family = classifyCommandTokens(commandTokensForSegment(segment));
+    if (family) return family;
+  }
+  return "bash";
 }
 
 export function summarizeToolContext(name: string, input: Record<string, unknown>): ContextToolSource {
