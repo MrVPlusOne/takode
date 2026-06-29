@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useStore } from "../store.js";
 import type { Turn } from "./use-feed-model.js";
 
@@ -32,11 +32,14 @@ export function useCollapsePolicy({ sessionId, turns }: { sessionId: string; tur
 
   const turnStateById = useMemo(() => new Map(turnStates.map((state) => [state.turnId, state])), [turnStates]);
 
-  const toggleTurn = (turnId: string) => {
-    const state = turnStateById.get(turnId);
-    if (!state) return;
-    toggleTurnActivity(sessionId, turnId, state.defaultExpanded);
-  };
+  const toggleTurn = useCallback(
+    (turnId: string) => {
+      const state = turnStateById.get(turnId);
+      if (!state) return;
+      toggleTurnActivity(sessionId, turnId, state.defaultExpanded);
+    },
+    [sessionId, toggleTurnActivity, turnStateById],
+  );
 
   return {
     turnStates,

@@ -759,7 +759,7 @@ export function MarkdownContent({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={stopLinkPropagation ? (e) => e.stopPropagation() : undefined}
-                className={`text-cc-primary hover:underline ${
+                className={`inline-block max-w-full align-baseline text-cc-primary hover:underline ${
                   wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""
                 }`}
               >

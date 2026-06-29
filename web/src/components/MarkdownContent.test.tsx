@@ -548,6 +548,18 @@ describe("MarkdownContent quest links", () => {
     expect(link.getAttribute("target")).toBe("_blank");
   });
 
+  it("gives external links a rectangular hit target when they wrap", () => {
+    // Long autolinks can wrap across line boxes. The inline-block shell keeps
+    // the clickable element's box rectangular so center clicks do not fall
+    // through to the parent paragraph.
+    render(<MarkdownContent text="[https://example.com/very/long/path](https://example.com/very/long/path)" />);
+
+    const link = screen.getByRole("link", { name: "https://example.com/very/long/path" });
+    expect(link.className).toContain("inline-block");
+    expect(link.className).toContain("max-w-full");
+    expect(link.className).toContain("align-baseline");
+  });
+
   it("routes session: schema links to the referenced session hash", () => {
     useStore.setState((state) => ({
       ...state,

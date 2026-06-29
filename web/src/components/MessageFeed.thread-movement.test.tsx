@@ -27,11 +27,16 @@ beforeAll(() => {
   });
 });
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ChatMessage, ThreadAttachmentMarker } from "../types.js";
 
+const mockMarkdownRenderCount = vi.hoisted(() => ({ count: 0 }));
+
 vi.mock("react-markdown", () => ({
-  default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
+  default: ({ children }: { children: string }) => {
+    mockMarkdownRenderCount.count += 1;
+    return <div data-testid="markdown">{children}</div>;
+  },
 }));
 
 vi.mock("remark-gfm", () => ({
@@ -225,6 +230,7 @@ function resetStore() {
   mockStoreValues.activeTaskTurnId = new Map();
   mockStoreValues.sdkSessions = [];
   mockStoreValues.quests = [];
+  mockMarkdownRenderCount.count = 0;
 }
 
 beforeEach(() => {
@@ -441,5 +447,28 @@ describe("MessageFeed - thread movement rows", () => {
     expect(screen.getByText("No. I did not run takode thread attach.")).toBeTruthy();
     expect(screen.queryByText("Approved and dispatched q-1065.")).toBeNull();
     expect(screen.queryByTestId("thread-attachment-marker")).toBeNull();
+  });
+
+  it("does not rerender stable markdown message bodies for scroll-only feed state changes", () => {
+    const sid = "test-scroll-state-does-not-rerender-markdown";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Navigate to the next user message", timestamp: 100 }),
+      makeMessage({ id: "a1", role: "assistant", content: "Stable assistant markdown", timestamp: 101 }),
+      makeMessage({ id: "u2", role: "user", content: "Another prompt for navigator targets", timestamp: 102 }),
+      makeMessage({ id: "a2", role: "assistant", content: "Latest assistant markdown", timestamp: 103 }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    const initialRenderCount = mockMarkdownRenderCount.count;
+    const scrollContainer = screen.getByTestId("message-feed-scroll-container");
+    Object.defineProperty(scrollContainer, "scrollTop", { configurable: true, value: 240 });
+    Object.defineProperty(scrollContainer, "clientHeight", { configurable: true, value: 600 });
+    Object.defineProperty(scrollContainer, "scrollHeight", { configurable: true, value: 1600 });
+
+    fireEvent.scroll(scrollContainer);
+
+    expect(screen.getByText("Stable assistant markdown")).toBeTruthy();
+    expect(mockMarkdownRenderCount.count).toBe(initialRenderCount);
   });
 });
