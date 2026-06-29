@@ -752,7 +752,8 @@ export default function App() {
             <>
               {/* Chat tab — visible when activeTab is "chat" or no session */}
               <div className={`absolute inset-0 ${activeTab === "chat" || !displayedSessionId ? "" : "hidden"}`}>
-                {displayedSessionId && isPendingId(displayedSessionId) ? (
+                {activeTab !== "chat" && displayedSessionId ? null : displayedSessionId &&
+                  isPendingId(displayedSessionId) ? (
                   <SessionCreationView pendingId={displayedSessionId} />
                 ) : displayedSessionId ? (
                   <ChatView

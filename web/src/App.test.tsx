@@ -522,6 +522,21 @@ describe("App hidden panels", () => {
     expect(screen.getByText("Server unreachable")).toBeInTheDocument();
   });
 
+  it("does not mount the hidden chat view while the diff tab is active", () => {
+    resetStore({
+      activeTab: "diff",
+      currentSessionId: "s1",
+      sessions: new Map([["s1", { backend_type: "claude" }]]),
+      sdkSessions: [{ sessionId: "s1", createdAt: 1, archived: false, backendType: "claude" }],
+    });
+    window.location.hash = "#/session/s1";
+
+    render(<App />);
+
+    expect(screen.getByTestId("diff-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-view")).toBeNull();
+  });
+
   it("renders the right-pane chat in preview mode when searchPreviewSessionId is set", () => {
     resetStore({
       currentSessionId: "s1",
