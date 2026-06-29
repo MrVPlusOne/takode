@@ -720,6 +720,10 @@ function positiveNumber(value: number | undefined): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
+function hasOwn(source: object | undefined, key: string): boolean {
+  return !!source && Object.prototype.hasOwnProperty.call(source, key);
+}
+
 function getContextWindowTitle(
   session: SessionState | undefined,
   sdkSession: SdkSessionInfo | undefined,
@@ -727,7 +731,13 @@ function getContextWindowTitle(
 ): string | undefined {
   const backendType = session?.backend_type ?? sdkSession?.backendType;
   const configuredMaxContextLength =
-    backendType === "codex" ? sdkSession?.codexMaxContextLength : sdkSession?.claudeMaxContextLength;
+    backendType === "codex"
+      ? hasOwn(session, "codex_max_context_length")
+        ? (session?.codex_max_context_length ?? undefined)
+        : (sdkSession?.codexMaxContextLength ?? undefined)
+      : hasOwn(session, "claude_max_context_length")
+        ? (session?.claude_max_context_length ?? undefined)
+        : (sdkSession?.claudeMaxContextLength ?? undefined);
   if (!configuredMaxContextLength || contextWindow !== configuredMaxContextLength) return undefined;
   const backendReportedContextWindow =
     backendType === "codex"

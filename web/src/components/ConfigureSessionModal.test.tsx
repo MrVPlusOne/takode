@@ -108,6 +108,47 @@ describe("ConfigureSessionModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("prefers authoritative live session_update state over stale sdk metadata", async () => {
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            session_id: "s1",
+            backend_type: "codex",
+            model: "gpt-5.4",
+            permissionMode: "codex-full-access",
+            codex_internet_access: false,
+            codex_reasoning_effort: "high",
+            codex_service_tier: "priority",
+            codex_max_context_length: null,
+          },
+        ],
+      ]),
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          sessionNum: 1533,
+          backendType: "codex",
+          model: "gpt-5.4",
+          permissionMode: "codex-default",
+          codexInternetAccess: true,
+          codexReasoningEffort: "low",
+          codexServiceTier: null,
+          codexMaxContextLength: 600000,
+        },
+      ],
+    });
+
+    render(<ConfigureSessionModal sessionId="s1" onClose={() => {}} />);
+
+    expect(await screen.findByLabelText("Session permission mode")).toHaveValue("codex-full-access");
+    expect(screen.getByLabelText("Session Codex internet access")).not.toBeChecked();
+    expect(screen.getByLabelText("Session Codex reasoning effort")).toHaveValue("high");
+    expect(screen.getByLabelText("Session Codex speed")).toHaveValue("priority");
+    expect(screen.getByLabelText("Session Codex max context length")).toHaveValue(null);
+  });
+
   it("uses restart primary action and relaunches after saving restart-required changes", async () => {
     mockUpdateSessionConfig.mockResolvedValueOnce({
       ok: true,
@@ -133,6 +174,29 @@ describe("ConfigureSessionModal", () => {
     expect(mockRelaunchSession).toHaveBeenCalledWith("s1");
   });
 
+  it("uses server backendConnected response instead of stale local connectivity for relaunch", async () => {
+    mockUpdateSessionConfig.mockResolvedValueOnce({
+      ok: true,
+      sessionId: "s1",
+      backendConnected: false,
+      restartRequired: true,
+      changedFields: ["codexReasoningEffort"],
+      immediateFields: [],
+      restartRequiredFields: ["codexReasoningEffort"],
+      session: { codexReasoningEffort: "high" },
+      sessionState: { codex_reasoning_effort: "high" },
+    });
+    const user = userEvent.setup();
+    render(<ConfigureSessionModal sessionId="s1" onClose={() => {}} />);
+
+    await user.selectOptions(await screen.findByLabelText("Session Codex reasoning effort"), "high");
+    expect(screen.getByRole("button", { name: "Restart to Apply Changes" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Restart to Apply Changes" }));
+
+    await waitFor(() => expect(mockUpdateSessionConfig).toHaveBeenCalled());
+    expect(mockRelaunchSession).not.toHaveBeenCalled();
+  });
+
   it("saves restart-required changes for disconnected sessions without relaunching", async () => {
     resetStore({ cliConnected: new Map([["s1", false]]) });
     mockUpdateSessionConfig.mockResolvedValueOnce({
@@ -154,6 +218,30 @@ describe("ConfigureSessionModal", () => {
     await user.click(screen.getByRole("button", { name: "Save for Next Resume" }));
 
     await waitFor(() => expect(mockUpdateSessionConfig).toHaveBeenCalled());
+    expect(mockRelaunchSession).not.toHaveBeenCalled();
+  });
+
+  it("labels disconnected next-turn-only Codex speed changes as save-for-resume", async () => {
+    resetStore({ cliConnected: new Map([["s1", false]]) });
+    mockUpdateSessionConfig.mockResolvedValueOnce({
+      ok: true,
+      sessionId: "s1",
+      backendConnected: false,
+      restartRequired: false,
+      changedFields: ["codexServiceTier"],
+      immediateFields: ["codexServiceTier"],
+      restartRequiredFields: [],
+      session: { codexServiceTier: "priority" },
+      sessionState: { codex_service_tier: "priority" },
+    });
+    const user = userEvent.setup();
+    render(<ConfigureSessionModal sessionId="s1" onClose={() => {}} />);
+
+    await user.selectOptions(await screen.findByLabelText("Session Codex speed"), "priority");
+    expect(screen.getByRole("button", { name: "Save for Next Resume" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Save for Next Resume" }));
+
+    await waitFor(() => expect(mockUpdateSessionConfig).toHaveBeenCalledWith("s1", { codexServiceTier: "priority" }));
     expect(mockRelaunchSession).not.toHaveBeenCalled();
   });
 

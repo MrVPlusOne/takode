@@ -82,6 +82,14 @@ function selectedCodexTierOptions(model: string, options: ModelOption[]) {
   return options.find((option) => option.value === model)?.serviceTiers ?? [];
 }
 
+function liveValue<T>(
+  source: Record<string, unknown> | undefined,
+  key: string,
+): { present: boolean; value: T | undefined } {
+  if (!source || !Object.prototype.hasOwnProperty.call(source, key)) return { present: false, value: undefined };
+  return { present: true, value: source[key] as T | undefined };
+}
+
 function effectCopy(effect: "now" | "next-turn" | "restart" | "resume"): string {
   switch (effect) {
     case "now":
@@ -133,21 +141,40 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
   const [savedMessage, setSavedMessage] = useState("");
 
   useEffect(() => {
+    const live = session as Record<string, unknown> | undefined;
+    const liveCodexInternetAccess = liveValue<boolean | null>(live, "codex_internet_access");
+    const liveCodexReasoningEffort = liveValue<string | null>(live, "codex_reasoning_effort");
+    const liveCodexServiceTier = liveValue<string | null>(live, "codex_service_tier");
+    const liveCodexMaxContextLength = liveValue<number | null>(live, "codex_max_context_length");
+    const liveClaudeReasoningEffort = liveValue<string | null>(live, "claude_reasoning_effort");
+    const liveClaudeMaxContextLength = liveValue<number | null>(live, "claude_max_context_length");
     const permissionMode = isCodex
-      ? normalizeCodexPermissionProfile(sdkSession?.permissionMode ?? session?.permissionMode, "codex-default")
-      : normalizeClaudePermissionMode(sdkSession?.permissionMode ?? session?.permissionMode);
+      ? normalizeCodexPermissionProfile(session?.permissionMode ?? sdkSession?.permissionMode, "codex-default")
+      : normalizeClaudePermissionMode(session?.permissionMode ?? sdkSession?.permissionMode);
     const next: SessionConfigForm = {
-      model: sdkSession?.model || session?.model || "",
+      model: session?.model || sdkSession?.model || "",
       permissionMode,
-      codexInternetAccess: sdkSession?.codexInternetAccess ?? session?.codex_internet_access ?? false,
-      codexReasoningEffort: sdkSession?.codexReasoningEffort ?? session?.codex_reasoning_effort ?? "",
-      codexServiceTier: sdkSession?.codexServiceTier ?? session?.codex_service_tier ?? null,
+      codexInternetAccess: liveCodexInternetAccess.present
+        ? (liveCodexInternetAccess.value ?? false)
+        : (sdkSession?.codexInternetAccess ?? false),
+      codexReasoningEffort: liveCodexReasoningEffort.present
+        ? (liveCodexReasoningEffort.value ?? "")
+        : (sdkSession?.codexReasoningEffort ?? ""),
+      codexServiceTier: liveCodexServiceTier.present
+        ? (liveCodexServiceTier.value ?? null)
+        : (sdkSession?.codexServiceTier ?? null),
       codexMaxContextLength: numberInputValue(
-        sdkSession?.codexMaxContextLength ?? session?.codex_max_context_length ?? null,
+        liveCodexMaxContextLength.present
+          ? liveCodexMaxContextLength.value
+          : (sdkSession?.codexMaxContextLength ?? null),
       ),
-      claudeReasoningEffort: sdkSession?.claudeReasoningEffort ?? session?.claude_reasoning_effort ?? "",
+      claudeReasoningEffort: liveClaudeReasoningEffort.present
+        ? (liveClaudeReasoningEffort.value ?? "")
+        : (sdkSession?.claudeReasoningEffort ?? ""),
       claudeMaxContextLength: numberInputValue(
-        sdkSession?.claudeMaxContextLength ?? session?.claude_max_context_length ?? null,
+        liveClaudeMaxContextLength.present
+          ? liveClaudeMaxContextLength.value
+          : (sdkSession?.claudeMaxContextLength ?? null),
       ),
     };
     setForm(next);
@@ -213,11 +240,11 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
         changedFields.has(key as keyof SessionConfigForm),
       );
   const hasChanges = changedFields.size > 0;
-  const primaryLabel = restartRequired
-    ? cliConnected
+  const primaryLabel = !cliConnected
+    ? "Save for Next Resume"
+    : restartRequired
       ? "Restart to Apply Changes"
-      : "Save for Next Resume"
-    : "Apply Changes";
+      : "Apply Changes";
 
   function update<K extends keyof SessionConfigForm>(key: K, value: SessionConfigForm[K]) {
     setForm((current) => (current ? { ...current, [key]: value } : current));
@@ -254,10 +281,12 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
       const response = await api.updateSessionConfig(sessionId, buildPatch());
       updateSdkSession(sessionId, response.session);
       updateSession(sessionId, response.sessionState);
-      if (response.restartRequired && cliConnected) {
+      if (response.restartRequired && response.backendConnected) {
         await api.relaunchSession(sessionId);
       }
-      setSavedMessage(response.restartRequired && !cliConnected ? "Changes will apply on resume." : "Changes applied.");
+      setSavedMessage(
+        response.restartRequired || !response.backendConnected ? "Changes will apply on resume." : "Changes applied.",
+      );
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

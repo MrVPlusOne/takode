@@ -56,6 +56,23 @@ function preferHistoryCount(live: number | undefined, fallback: number | undefin
   return live ?? fallback ?? 0;
 }
 
+function hasOwn(source: object | undefined, key: string): boolean {
+  return !!source && Object.prototype.hasOwnProperty.call(source, key);
+}
+
+function getConfiguredMaxContextLength(
+  backendType: string | undefined,
+  sessionState: SessionState | undefined,
+  sdkSessionMeta: { codexMaxContextLength?: number | null; claudeMaxContextLength?: number | null } | undefined,
+): number | undefined {
+  if (backendType === "codex") {
+    if (hasOwn(sessionState, "codex_max_context_length")) return sessionState?.codex_max_context_length ?? undefined;
+    return sdkSessionMeta?.codexMaxContextLength ?? undefined;
+  }
+  if (hasOwn(sessionState, "claude_max_context_length")) return sessionState?.claude_max_context_length ?? undefined;
+  return sdkSessionMeta?.claudeMaxContextLength ?? undefined;
+}
+
 function normalizeQuestId(questId: string): string {
   return questId.toLowerCase();
 }
@@ -231,8 +248,7 @@ export function SessionHoverCard({
     sdkSessionMeta?.userTurnCount ?? sdkSessionMeta?.numTurns,
   );
   const contextPercent = sessionState?.context_used_percent ?? sdkSessionMeta?.contextUsedPercent ?? 0;
-  const configuredMaxContextLength =
-    backendType === "codex" ? sdkSessionMeta?.codexMaxContextLength : sdkSessionMeta?.claudeMaxContextLength;
+  const configuredMaxContextLength = getConfiguredMaxContextLength(backendType, sessionState, sdkSessionMeta);
   const backendReportedContextWindow =
     backendType === "codex"
       ? (sessionState?.codex_token_details?.modelContextWindow ?? sdkSessionMeta?.codexTokenDetails?.modelContextWindow)

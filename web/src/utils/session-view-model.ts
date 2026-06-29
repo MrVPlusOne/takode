@@ -24,8 +24,8 @@ export interface SessionViewModel {
   totalCostUsd?: number;
   contextUsedPercent?: number;
   modelContextWindow?: number;
-  codexMaxContextLength?: number;
-  claudeMaxContextLength?: number;
+  codexMaxContextLength?: number | null;
+  claudeMaxContextLength?: number | null;
   codexLeaderRecycleThresholdTokens?: number;
   contextTokensUsed?: number;
   messageHistoryBytes?: number;
@@ -48,8 +48,14 @@ function isSessionState(session: SessionState | SdkSessionInfo): session is Sess
   return "session_id" in session;
 }
 
+function hasOwn(source: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(source, key);
+}
+
 export function toSessionViewModel(session: SessionState | SdkSessionInfo): SessionViewModel {
   if (isSessionState(session)) {
+    const hasCodexMaxContextLength = hasOwn(session, "codex_max_context_length");
+    const hasClaudeMaxContextLength = hasOwn(session, "claude_max_context_length");
     return {
       sessionId: session.session_id,
       backendType: session.backend_type,
@@ -77,8 +83,8 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
         session.claude_max_context_length ??
         session.codex_token_details?.modelContextWindow ??
         session.claude_token_details?.modelContextWindow,
-      codexMaxContextLength: session.codex_max_context_length ?? undefined,
-      claudeMaxContextLength: session.claude_max_context_length ?? undefined,
+      codexMaxContextLength: hasCodexMaxContextLength ? (session.codex_max_context_length ?? null) : undefined,
+      claudeMaxContextLength: hasClaudeMaxContextLength ? (session.claude_max_context_length ?? null) : undefined,
       codexLeaderRecycleThresholdTokens: session.codex_leader_recycle_threshold_tokens,
       contextTokensUsed: session.codex_token_details?.contextTokensUsed,
       messageHistoryBytes: session.message_history_bytes,
@@ -171,8 +177,15 @@ export function coalesceSessionViewModel(
   const userTurnCount = preferHistoryCount(primaryVm?.userTurnCount, fallbackVm?.userTurnCount);
   const agentTurnCount = preferHistoryCount(primaryVm?.agentTurnCount, fallbackVm?.agentTurnCount);
   const numTurns = userTurnCount ?? preferHistoryCount(primaryVm?.numTurns, fallbackVm?.numTurns);
-  const codexMaxContextLength = primaryVm?.codexMaxContextLength ?? fallbackVm?.codexMaxContextLength;
-  const claudeMaxContextLength = primaryVm?.claudeMaxContextLength ?? fallbackVm?.claudeMaxContextLength;
+  const primaryHasCodexMaxContextLength = primaryVm?.codexMaxContextLength !== undefined;
+  const primaryHasClaudeMaxContextLength = primaryVm?.claudeMaxContextLength !== undefined;
+  const codexMaxContextLength = primaryHasCodexMaxContextLength
+    ? primaryVm?.codexMaxContextLength
+    : fallbackVm?.codexMaxContextLength;
+  const claudeMaxContextLength = primaryHasClaudeMaxContextLength
+    ? primaryVm?.claudeMaxContextLength
+    : fallbackVm?.claudeMaxContextLength;
+  const primaryHasConfiguredContext = primaryHasCodexMaxContextLength || primaryHasClaudeMaxContextLength;
 
   return {
     ...(merged as SessionViewModel),
@@ -182,10 +195,10 @@ export function coalesceSessionViewModel(
     codexMaxContextLength,
     claudeMaxContextLength,
     modelContextWindow:
-      codexMaxContextLength ??
-      claudeMaxContextLength ??
+      (isPositiveFinite(codexMaxContextLength ?? undefined) ? codexMaxContextLength : undefined) ??
+      (isPositiveFinite(claudeMaxContextLength ?? undefined) ? claudeMaxContextLength : undefined) ??
       primaryVm?.modelContextWindow ??
-      fallbackVm?.modelContextWindow,
+      (primaryHasConfiguredContext ? undefined : fallbackVm?.modelContextWindow),
     sessionId: primaryVm?.sessionId || fallbackVm?.sessionId || "",
   };
 }

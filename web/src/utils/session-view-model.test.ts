@@ -276,6 +276,47 @@ describe("coalesceSessionViewModel", () => {
     expect(vm?.modelContextWindow).toBe(600_000);
     expect(vm?.codexMaxContextLength).toBe(600_000);
   });
+
+  it("does not fall back to stale sdk max context after a live clear", () => {
+    const primary = {
+      session_id: "s31",
+      backend_type: "codex",
+      model: "gpt-5.5",
+      cwd: "/repo",
+      tools: [],
+      permissionMode: "codex-full-access",
+      claude_code_version: "1.0.0",
+      mcp_servers: [],
+      agents: [],
+      slash_commands: [],
+      skills: [],
+      total_cost_usd: 0,
+      num_turns: 1,
+      context_used_percent: 7,
+      codex_max_context_length: null,
+      codex_token_details: codexTokenDetails,
+      is_compacting: false,
+      git_branch: "",
+      is_worktree: false,
+      is_containerized: false,
+      repo_root: "/repo",
+      git_ahead: 0,
+      git_behind: 0,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+    } as SessionState;
+    const fallback = {
+      sessionId: "s31",
+      backendType: "codex",
+      codexMaxContextLength: 600_000,
+      codexTokenDetails,
+    } as SdkSessionInfo;
+
+    const vm = coalesceSessionViewModel(primary, fallback);
+
+    expect(vm?.modelContextWindow).toBe(codexTokenDetails.modelContextWindow);
+    expect(vm?.codexMaxContextLength).toBeNull();
+  });
 });
 
 describe("resolveEffectiveModelContextWindow", () => {

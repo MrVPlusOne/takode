@@ -535,6 +535,67 @@ describe("SessionHoverCard", () => {
     expect(screen.queryByText("258 K tokens")).toBeNull();
   });
 
+  it("uses live cleared Codex max context instead of stale sdk metadata", () => {
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        contextUsedPercent: 7,
+        codexMaxContextLength: 600_000,
+        codexTokenDetails: { modelContextWindow: 258_400 },
+      },
+    ];
+    const sessionState = {
+      session_id: "s1",
+      backend_type: "codex",
+      model: "gpt-5.5",
+      cwd: "/repo",
+      tools: [],
+      permissionMode: "codex-full-access",
+      claude_code_version: "1.0.0",
+      mcp_servers: [],
+      agents: [],
+      slash_commands: [],
+      skills: [],
+      total_cost_usd: 0,
+      num_turns: 1,
+      context_used_percent: 7,
+      codex_max_context_length: null,
+      codex_token_details: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedInputTokens: 0,
+        reasoningOutputTokens: 0,
+        modelContextWindow: 258_400,
+      },
+      is_compacting: false,
+      git_branch: "",
+      is_worktree: false,
+      is_containerized: false,
+      repo_root: "/repo",
+      git_ahead: 0,
+      git_behind: 0,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+    } as SessionState;
+
+    render(
+      <SessionHoverCard
+        session={makeSession({ backendType: "codex", model: "gpt-5.5" })}
+        sessionName="Bold Cedar"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={sessionState}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("258 K tokens")).toBeInTheDocument();
+    expect(screen.queryByText("600 K tokens")).toBeNull();
+  });
+
   it("uses the backend-owned user turn count for the visible turns label", () => {
     // The hover metric must prefer server-computed real user turns over the
     // legacy CLI num_turns value, which may be per-result for Codex.
