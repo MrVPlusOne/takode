@@ -1503,13 +1503,13 @@ describe("MessageFeed section windowing", () => {
           query: "",
           scope: "current_thread",
           threadKey,
-          filters: { user: true, assistant: false, event: false },
+          filters: { user: true, assistant: true, event: false },
           limit: 200,
           offset: 0,
         }),
       ),
     );
-    const trigger = await screen.findByRole("button", { name: /User message navigator, \d+ of 4/ });
+    const trigger = await screen.findByRole("button", { name: /Message navigator, \d+ of 4/ });
     fireEvent.click(trigger);
 
     const dialog = screen.getByRole("dialog", { name: "User message selector" });
