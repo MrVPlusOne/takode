@@ -1,10 +1,72 @@
 # Takode Changelog
 
+## 2026-06-29
+
+### Added
+
+- **Starred messages** -- Chat messages can be starred from message actions, found in search, and shown with compact feed-rail markers for easier follow-up
+
+### Fixed
+
+- **Message link navigation** -- Links to specific chat messages load the targeted feed window, preserve main-thread routes, and highlight the jump target after navigation
+- **Session status indicators** -- Session status dots stay visible on hover, and hover cards match the sidebar marker state more consistently
+- **Starred message controls** -- Star actions avoid temporary fallback message IDs, and starred markers stay out of the main message content area
+
+## 2026-06-28
+
+### Added
+
+- **Context diagnostics** -- `takode context doctor`, `takode peek`, and related diagnostics expose context usage, payload composition, and leader context health for operator debugging
+- **Muted needs-input notifications** -- Needs-input prompts can be muted while preserving visible inbox and navigation state for unresolved items
+
+### Changed
+
+- **Quest CLI summaries** -- `quest show` output is more compact by default while keeping reveal paths for full descriptions, metadata, and phase notes
+- **Prompt guardrails** -- Session instructions now make durable-name constraints clearer for quest IDs in code, commits, artifacts, and other lasting names
+
+### Fixed
+
+- **Chat feed stability** -- Feed restores, Markdown renders, diff tabs, duplicate transitions, and hidden feed panes avoid redundant updates that could cause jank or loops
+- **Leader quest tabs** -- Automatic tab promotion no longer loops when active quest or needs-input routing changes
+- **Leader review markers** -- Review summary markers from closed tabs are filtered and guarded so session rows stay focused on active review state
+- **Muted needs-input indicators** -- Muted prompts keep sidebar, Work Board, and global notification indicators consistent with their muted state
+
+## 2026-06-27
+
+### Fixed
+
+- **User message navigator** -- Mobile navigator controls stay within the viewport and no longer cover surrounding chat controls
+- **Context default display** -- Session hover cards, info popovers, and Settings show effective max-context defaults more accurately
+
+## 2026-06-26
+
+### Added
+
+- **Session defaults** -- Settings can define default backend, model, permission, and context values for new sessions, with CLI and browser creation paths applying them consistently
+
+### Fixed
+
+- **New Session defaults** -- The New Session modal preserves default precedence, including Claude permission override defaults
+- **User message navigator** -- The navigator centers on the current user message and respects the active thread scope
+- **Needs-input quest tabs** -- Leader quest tabs promote needs-input notifications into view more reliably
+- **Leader recycle labels** -- Recycled leader sessions keep useful session-number fallback labels when recovery metadata is thin
+
 ## 2026-06-25
+
+### Added
+
+- **User message navigator** -- Chat feeds can jump between user messages for faster conversation review
 
 ### Changed
 
 - **Quest Quiz readability** -- Quest detail now places Quiz before TLDR, revealed answers match question sizing in full/detail contexts, and quiz guidance distinguishes human active recall from future-agent memory
+- **Session list loading** -- Sidebar and related session surfaces load lighter list payloads while preserving detail hydration for selected sessions
+
+### Fixed
+
+- **Archived sessions** -- Archived-session list rework keeps sidebar and task-panel behavior stable
+- **Leader recycle recovery** -- Interrupted direct leader work after recycle is surfaced more clearly, and recovery scan prompts are more robust
+- **Composer send animation** -- Send-button animation timers clean up when the composer unmounts
 
 ## 2026-06-24
 
