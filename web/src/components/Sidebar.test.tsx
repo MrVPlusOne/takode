@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 import "@testing-library/jest-dom";
 import type { SessionNotification, SessionState, SdkSessionInfo } from "../types.js";
 import { setTouchDeviceForTest } from "./test-match-media.js";
+import { SessionItem } from "./SessionItem.js";
 
 // ─── Mock setup ──────────────────────────────────────────────────────────────
 
@@ -338,17 +339,51 @@ describe("Sidebar", { timeout: 10000 }, () => {
       }),
     ];
     mockState = createMockState({
+      sdkSessions: listed,
       sessionNotifications: new Map([["s1", []]]),
-      setSdkSessions: vi.fn((sessions: SdkSessionInfo[]) => {
-        mockState.sdkSessions = sessions;
-      }),
     });
-    mockApi.listSessions.mockResolvedValueOnce(listed);
-
-    const { rerender } = render(<Sidebar />);
-
-    await waitFor(() => expect(mockState.setSdkSessions).toHaveBeenCalledWith(listed));
-    rerender(<Sidebar />);
+    render(
+      <SessionItem
+        session={{
+          id: "s1",
+          model: "model",
+          cwd: "/repo",
+          gitBranch: "",
+          isContainerized: false,
+          gitAhead: 0,
+          gitBehind: 0,
+          linesAdded: 0,
+          linesRemoved: 0,
+          isConnected: false,
+          status: null,
+          sdkState: "connected",
+          createdAt: 1000,
+          archived: false,
+          backendType: "claude",
+          repoRoot: "/repo",
+          permCount: 0,
+          notificationUrgency: "needs-input",
+          activeNotificationCount: 1,
+        }}
+        isActive={false}
+        sessionName={undefined}
+        sessionPreview={undefined}
+        permCount={0}
+        isRecentlyRenamed={false}
+        onSelect={() => {}}
+        onStartRename={() => {}}
+        onArchive={() => {}}
+        onUnarchive={() => {}}
+        onDelete={() => {}}
+        onClearRecentlyRenamed={() => {}}
+        editingSessionId={null}
+        editingName=""
+        setEditingName={() => {}}
+        onConfirmRename={() => {}}
+        onCancelRename={() => {}}
+        editInputRef={{ current: null }}
+      />,
+    );
 
     expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "needs-input");
     expect(mockConnectSession).not.toHaveBeenCalled();
