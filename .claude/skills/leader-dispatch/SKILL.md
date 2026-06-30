@@ -11,14 +11,18 @@ This is the hot path. Keep worker grounding in the quest record, phase-specific 
 
 ## Read On Demand
 
-Read these only when the trigger applies:
+This section is the visible reference catalog. Decide whether to open these files from this list; ordinary Markdown reference headings are not loaded until you read the file.
 
-- `references/edge-cases.md`: human feedback rework, stale in-flight completions, screenshots/images, worker or reviewer file links shown to the user, 413/payload recovery, memory-specific dispatch deltas, or final completion-summary details.
-- `references/phase-handoff-examples.md`: you need concrete phrasing examples for phase follow-ups, rework, review, Port, or investigation/design dispatches.
-- `quest-design`: creating a new quest or refining an `idea` quest.
-- `takode-orchestration/quest-journey.md`: Journey revision, phase catalog, Memory/Port closure, or full phase-transition details.
-- `takode-orchestration/board-usage.md`: board proposal, promotion, wait-for, wait-for-input, or detailed board command syntax.
-- `~/.companion/quest-journey-phases/<phase-id>/leader.md`: always read the exact current phase leader brief before advancing or dispatching that phase.
+| Source | Read when | Skip when |
+|--------|-----------|-----------|
+| `references/edge-cases.md` | The dispatch involves human feedback rework, a stale worker/reviewer completion, user screenshots or generated image evidence, 413/payload-size recovery, user-facing links into unported worker/reviewer worktrees, or memory-specific handoff/completion deltas. | Routine quest creation, worker choice, initial Alignment dispatch, or ordinary phase advancement. |
+| `references/phase-handoff-examples.md` | You need concrete wording for a phase handoff, rework instruction, reviewer dispatch, Port instruction, Mental Simulation, Execute, Outcome Review, or no-tracked-change investigation/design dispatch. | You can write a short phase-explicit handoff from the current phase brief and quest-specific deltas. |
+| `quest-design` | You are creating a quest, refining an `idea` quest, materially changing quest title/description/tags, or checking whether a true follow-up relationship needs approval and persistence. | The quest already exists/refined and you are only choosing a worker, advancing phases, or adding routine phase feedback. |
+| `takode-orchestration/quest-journey.md` | You need full Journey transition rules, phase catalog semantics, Journey revision guidance, final Memory/Port closure responsibilities, optional checkpoint skip rules, or zero-tracked-change Journey handling. | The current phase leader brief and board row are enough. |
+| `takode-orchestration/board-usage.md` | You need uncommon board syntax: proposed rows, promotion, `--wait-for`, `--wait-for-input`, optional checkpoint skip commands, full row detail, or direct board troubleshooting. | Routine `board show`, `board set`, `board advance`, or `board detail` is sufficient. |
+| `~/.companion/quest-journey-phases/<phase-id>/leader.md` | Always before advancing, dispatching, or revising a specific phase. Use `takode phases` if you need the exact path. | Never skip for phase transitions. |
+
+Keep the top-level checklist open for routine dispatch. Load references only when their trigger applies.
 
 ## Non-Negotiables
 
