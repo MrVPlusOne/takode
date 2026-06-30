@@ -321,6 +321,36 @@ describe("searchSessionMessages", () => {
 });
 
 // ===========================================================================
+// searchGlobalStarredMessages
+// ===========================================================================
+describe("searchGlobalStarredMessages", () => {
+  it("passes global starred message search parameters through the extracted API helper", async () => {
+    const response = {
+      query: "dragon",
+      totalMatches: 0,
+      results: [],
+      nextOffset: null,
+      hasMore: false,
+      tookMs: 1,
+    };
+    const signal = new AbortController().signal;
+    mockFetch.mockResolvedValueOnce(mockResponse(response));
+
+    const result = await api.searchGlobalStarredMessages({
+      query: "dragon",
+      limit: 20,
+      offset: 40,
+      signal,
+    });
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/sessions/starred-message-search?q=dragon&limit=20&offset=40");
+    expect(opts.signal).toBe(signal);
+    expect(result).toEqual(response);
+  });
+});
+
+// ===========================================================================
 // herdSessions
 // ===========================================================================
 describe("herdSessions", () => {

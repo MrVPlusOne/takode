@@ -8,7 +8,14 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { api, type MessageSearchResponse, type MessageSearchResult, type MessageSearchScopeKind } from "../api.js";
+import {
+  api,
+  type GlobalStarredMessageSearchResponse,
+  type GlobalStarredMessageSearchResult,
+  type MessageSearchResponse,
+  type MessageSearchResult,
+  type MessageSearchScopeKind,
+} from "../api.js";
 import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
 import { getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
 import { getHighlightParts } from "../utils/highlight.js";
@@ -20,10 +27,10 @@ import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { StarIcon } from "./StarredMessageIndicator.js";
 
-export type UniversalSearchMode = "quests" | "sessions" | "messages";
+export type UniversalSearchMode = "quests" | "sessions" | "messages" | "starred";
 
 type MessageFilter = "user" | "assistant" | "event";
-type MessageFilters = Record<MessageFilter, boolean> & { starredOnly?: boolean };
+type MessageFilters = Record<MessageFilter, boolean>;
 type MessageSearchSettings = {
   scope: MessageSearchScopeKind;
   filters: MessageFilters;
@@ -32,7 +39,7 @@ type MessageSearchSettings = {
 type UniversalSearchResult =
   | { kind: "quest"; id: string; quest: QuestmasterTask }
   | { kind: "session"; id: string; session: SdkSessionInfo; rank: SearchRank | null }
-  | { kind: "message"; id: string; message: MessageSearchResult };
+  | { kind: "message"; id: string; message: MessageSearchResult | GlobalStarredMessageSearchResult };
 
 type QuestResultAction =
   | { id: "copy"; label: string }
@@ -46,6 +53,7 @@ export interface UniversalSearchOverlayProps {
   messages: ChatMessage[];
   leaderSessionId?: string;
   messageSearchPreviewResponse?: MessageSearchResponse;
+  starredSearchPreviewResponse?: GlobalStarredMessageSearchResponse;
   presentation?: "fixed" | "inline";
   initialMode?: UniversalSearchMode;
   initialQuery?: string;
@@ -63,6 +71,7 @@ const MODE_OPTIONS: Array<{ id: UniversalSearchMode; label: string }> = [
   { id: "quests", label: "Quests" },
   { id: "sessions", label: "Sessions" },
   { id: "messages", label: "Messages" },
+  { id: "starred", label: "Starred" },
 ];
 
 const MESSAGE_FILTERS: Array<{ id: MessageFilter; label: string }> = [
@@ -77,7 +86,6 @@ const DEFAULT_MESSAGE_SEARCH_SETTINGS: MessageSearchSettings = {
     user: true,
     assistant: false,
     event: false,
-    starredOnly: false,
   },
 };
 
@@ -93,7 +101,7 @@ function useDebouncedValue(value: string, delayMs: number): string {
 }
 
 function isUniversalSearchMode(value: string | null): value is UniversalSearchMode {
-  return value === "quests" || value === "sessions" || value === "messages";
+  return value === "quests" || value === "sessions" || value === "messages" || value === "starred";
 }
 
 function readLastMode(): UniversalSearchMode | null {
@@ -154,10 +162,6 @@ function normalizeStoredMessageSearchSettings(settings: Partial<MessageSearchSet
         typeof settings.filters?.event === "boolean"
           ? settings.filters.event
           : DEFAULT_MESSAGE_SEARCH_SETTINGS.filters.event,
-      starredOnly:
-        typeof settings.filters?.starredOnly === "boolean"
-          ? settings.filters.starredOnly
-          : DEFAULT_MESSAGE_SEARCH_SETTINGS.filters.starredOnly,
     },
   };
 }
@@ -218,7 +222,7 @@ function formatRelativeTime(ts: number | undefined): string {
 }
 
 function getAvailableModes(messageModeAvailable: boolean): UniversalSearchMode[] {
-  return messageModeAvailable ? ["quests", "sessions", "messages"] : ["quests", "sessions"];
+  return messageModeAvailable ? ["quests", "sessions", "messages", "starred"] : ["quests", "sessions", "starred"];
 }
 
 function nextMode(current: UniversalSearchMode, direction: 1 | -1, messageModeAvailable: boolean): UniversalSearchMode {
@@ -311,6 +315,7 @@ export function UniversalSearchOverlay({
   onOpenQuest,
   onOpenMessage,
   messageSearchPreviewResponse,
+  starredSearchPreviewResponse,
   initialMode,
   initialQuery,
 }: UniversalSearchOverlayProps) {
@@ -335,7 +340,7 @@ export function UniversalSearchOverlay({
     null,
   );
   const [remoteState, setRemoteState] = useState<{
-    mode: "quests" | "messages" | null;
+    mode: "quests" | "messages" | "starred" | null;
     status: "idle" | "loading" | "error";
     results: UniversalSearchResult[];
     total: number;
@@ -427,12 +432,11 @@ export function UniversalSearchOverlay({
     effectiveMessageScope,
     messageSettings.filters.assistant,
     messageSettings.filters.event,
-    messageSettings.filters.starredOnly,
     messageSettings.filters.user,
     mode,
   ]);
 
-  const searchKey = `${mode}:${debouncedQuery.trim()}:scope=${effectiveMessageScope}:thread=${currentThreadKey ?? ""}:user=${messageSettings.filters.user}:assistant=${messageSettings.filters.assistant}:event=${messageSettings.filters.event}:starred=${messageSettings.filters.starredOnly}`;
+  const searchKey = `${mode}:${debouncedQuery.trim()}:scope=${effectiveMessageScope}:thread=${currentThreadKey ?? ""}:user=${messageSettings.filters.user}:assistant=${messageSettings.filters.assistant}:event=${messageSettings.filters.event}`;
 
   useEffect(() => {
     if (!open) return;
@@ -524,6 +528,50 @@ export function UniversalSearchOverlay({
         });
       return () => controller.abort();
     }
+
+    if (mode === "starred") {
+      if (starredSearchPreviewResponse) {
+        setRemoteState({
+          mode: "starred",
+          status: "idle",
+          total: starredSearchPreviewResponse.totalMatches,
+          results: starredSearchPreviewResponse.results.map((message) => ({
+            kind: "message",
+            id: message.id,
+            message,
+          })),
+        });
+        return;
+      }
+      const controller = new AbortController();
+      setRemoteState((current) => ({
+        ...current,
+        mode: "starred",
+        status: "loading",
+        results: current.mode === "starred" ? current.results : [],
+      }));
+      void api
+        .searchGlobalStarredMessages({
+          query: trimmedQuery,
+          limit: visibleLimit,
+          signal: controller.signal,
+        })
+        .then((response: GlobalStarredMessageSearchResponse) => {
+          if (controller.signal.aborted || requestSeq !== requestSeqRef.current) return;
+          setRemoteState({
+            mode: "starred",
+            status: "idle",
+            total: response.totalMatches,
+            results: response.results.map((message) => ({ kind: "message", id: message.id, message })),
+          });
+        })
+        .catch((err) => {
+          if (controller.signal.aborted || requestSeq !== requestSeqRef.current) return;
+          console.warn("[universal-search] starred search failed:", err);
+          setRemoteState({ mode: "starred", status: "error", total: 0, results: [] });
+        });
+      return () => controller.abort();
+    }
   }, [
     currentSessionId,
     currentSession?.sessionNum,
@@ -534,12 +582,14 @@ export function UniversalSearchOverlay({
     messageSettings.filters,
     mode,
     open,
+    starredSearchPreviewResponse,
     visibleLimit,
   ]);
 
   const results = useMemo(() => {
     if (mode === "quests") return remoteState.mode === "quests" ? remoteState.results : [];
     if (mode === "sessions") return sessionResults;
+    if (mode === "starred") return remoteState.mode === "starred" ? remoteState.results : [];
     return remoteState.mode === "messages" ? remoteState.results : [];
   }, [mode, remoteState, sessionResults]);
 
@@ -547,13 +597,18 @@ export function UniversalSearchOverlay({
     if (mode === "quests" && remoteState.mode === "quests") return remoteState.total;
     if (mode === "sessions") return totalSessionResults;
     if (mode === "messages" && remoteState.mode === "messages") return remoteState.total;
+    if (mode === "starred" && remoteState.mode === "starred") return remoteState.total;
     return 0;
   }, [mode, remoteState, totalSessionResults]);
 
   const loading =
-    (mode === "quests" || mode === "messages") && remoteState.mode === mode && remoteState.status === "loading";
+    (mode === "quests" || mode === "messages" || mode === "starred") &&
+    remoteState.mode === mode &&
+    remoteState.status === "loading";
   const error =
-    (mode === "quests" || mode === "messages") && remoteState.mode === mode && remoteState.status === "error";
+    (mode === "quests" || mode === "messages" || mode === "starred") &&
+    remoteState.mode === mode &&
+    remoteState.status === "error";
   const hasMore = results.length < totalResults;
   const selectedResultIndex = results.length === 0 ? -1 : Math.min(Math.max(selectedIndex, 0), results.length - 1);
 
@@ -733,9 +788,11 @@ export function UniversalSearchOverlay({
       ? "Search quests..."
       : mode === "sessions"
         ? "Search sessions..."
-        : messageModeAvailable
-          ? "Search messages..."
-          : "Open a session to search messages";
+        : mode === "starred"
+          ? "Search starred messages..."
+          : messageModeAvailable
+            ? "Search messages..."
+            : "Open a session to search messages";
 
   const fixedPresentation = presentation === "fixed";
 
@@ -876,24 +933,6 @@ export function UniversalSearchOverlay({
                   </button>
                 );
               })}
-              <button
-                type="button"
-                aria-pressed={Boolean(messageSettings.filters.starredOnly)}
-                onClick={() =>
-                  setMessageSettings((current) => ({
-                    ...current,
-                    filters: { ...current.filters, starredOnly: !current.filters.starredOnly },
-                  }))
-                }
-                className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
-                  messageSettings.filters.starredOnly
-                    ? "border-amber-300/30 bg-amber-300/12 text-amber-200"
-                    : "border-cc-border bg-cc-bg/60 text-cc-muted hover:text-cc-fg"
-                }`}
-              >
-                <StarIcon className="h-3 w-3" />
-                Starred
-              </button>
             </div>
           )}
         </div>
@@ -908,7 +947,15 @@ export function UniversalSearchOverlay({
           ) : results.length === 0 ? (
             <EmptySearchState
               title="No results"
-              detail={debouncedQuery.trim() ? "Try a shorter query." : "Nothing to show yet."}
+              detail={
+                mode === "starred"
+                  ? debouncedQuery.trim()
+                    ? "No starred messages match."
+                    : "No starred messages yet."
+                  : debouncedQuery.trim()
+                    ? "Try a shorter query."
+                    : "Nothing to show yet."
+              }
             />
           ) : (
             <div role="listbox" aria-label={`${modeLabel} results`} className="space-y-1">
@@ -1297,7 +1344,7 @@ function MessageResultRow({
   onPointerMove,
   onOpen,
 }: {
-  message: MessageSearchResult;
+  message: MessageSearchResult | GlobalStarredMessageSearchResult;
   query: string;
   selected: boolean;
   onPointerMove: () => void;
@@ -1305,6 +1352,7 @@ function MessageResultRow({
 }) {
   const parts = getHighlightParts(message.snippet, query);
   const badgeLabel = message.category;
+  const sessionLabel = formatMessageResultSessionLabel(message);
   return (
     <ResultOption selected={selected} onPointerMove={onPointerMove} onOpen={onOpen}>
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -1314,6 +1362,21 @@ function MessageResultRow({
               {badgeLabel}
             </span>
             {message.starred && <StarIcon className="h-3.5 w-3.5 text-amber-200" />}
+            {sessionLabel && (
+              <span className="max-w-44 truncate rounded-md border border-cc-border px-1.5 py-0.5 text-[10px] text-cc-muted">
+                {sessionLabel}
+              </span>
+            )}
+            {"archived" in message && message.archived && (
+              <span className="rounded-md border border-cc-border px-1.5 py-0.5 text-[10px] text-cc-muted">
+                Archived
+              </span>
+            )}
+            {"reviewerOf" in message && typeof message.reviewerOf === "number" && (
+              <span className="rounded-md border border-cc-border px-1.5 py-0.5 text-[10px] text-cc-muted">
+                Reviewer
+              </span>
+            )}
             {message.sourceLabel && (
               <span className="rounded-md border border-cc-border px-1.5 py-0.5 text-[10px] text-cc-muted">
                 {message.sourceLabel}
@@ -1336,4 +1399,11 @@ function MessageResultRow({
       </div>
     </ResultOption>
   );
+}
+
+function formatMessageResultSessionLabel(message: MessageSearchResult | GlobalStarredMessageSearchResult): string {
+  if (!("sessionName" in message) && !("archived" in message)) return "";
+  const numberLabel = typeof message.sessionNum === "number" ? `#${message.sessionNum}` : "Session";
+  const name = "sessionName" in message ? message.sessionName?.trim() : "";
+  return name ? `${numberLabel} ${name}` : numberLabel;
 }

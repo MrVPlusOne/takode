@@ -19,7 +19,7 @@ import type {
 import { encodeLogQuery, type LogQuery, type LogQueryResponse } from "../shared/logging.js";
 import type { HerdSessionsResponse } from "../shared/herd-types.js";
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
-import { searchSessionMessages } from "./api/session-message-search.js";
+import { searchGlobalStarredMessages, searchSessionMessages } from "./api/session-message-search.js";
 import { transcribe } from "./api/transcription.js";
 import type { VoiceTranscriptionFrontendTimingReport, VoiceTranscriptionTiming } from "./transcription-progress.js";
 import type { ShortcutSettings } from "./shortcuts.js";
@@ -32,6 +32,9 @@ export type {
   MessageSearchResult,
   MessageSearchScope,
   MessageSearchScopeKind,
+  GlobalStarredMessageSearchResponse,
+  GlobalStarredMessageSearchResult,
+  SearchGlobalStarredMessagesOptions,
   SearchSessionMessagesOptions,
 } from "./api/session-message-search.js";
 
@@ -1107,6 +1110,7 @@ export const api = {
   },
 
   searchSessionMessages,
+  searchGlobalStarredMessages,
 
   killSession: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/kill`),
 

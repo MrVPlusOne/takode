@@ -2,7 +2,7 @@ import { useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { DndContext, closestCenter } from "@dnd-kit/core";
 import { UniversalSearchOverlay } from "../UniversalSearchOverlay.js";
 import { TreeViewGroup } from "../TreeViewGroup.js";
-import type { MessageSearchResponse } from "../../api.js";
+import type { GlobalStarredMessageSearchResponse, MessageSearchResponse } from "../../api.js";
 import type { ChatMessage, SdkSessionInfo } from "../../types.js";
 import type { SidebarSessionItem } from "../../utils/sidebar-session-item.js";
 import type { TreeViewGroupData } from "../../utils/tree-grouping.js";
@@ -39,7 +39,7 @@ const PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE: MessageSearchResponse = {
   sessionNum: 1277,
   query: "search",
   scope: { kind: "current_thread", threadKey: "main", label: "Searching in #1277 Main" },
-  filters: { user: true, assistant: false, event: false, starredOnly: false },
+  filters: { user: true, assistant: false, event: false },
   totalMatches: 2,
   nextOffset: null,
   hasMore: false,
@@ -71,6 +71,55 @@ const PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE: MessageSearchResponse = {
       starred: false,
       timestamp: Date.now() - 30 * 60_000,
       snippet: "Default message mode should show recent user messages when the query is empty.",
+      routeThreadKey: "main",
+      sourceThreadKey: "main",
+      sourceLabel: "Main",
+    },
+  ],
+};
+
+const PLAYGROUND_STARRED_SEARCH_RESPONSE: GlobalStarredMessageSearchResponse = {
+  query: "",
+  totalMatches: 2,
+  nextOffset: null,
+  hasMore: false,
+  tookMs: 2,
+  results: [
+    {
+      id: "playground-review:4:review-starred",
+      sessionId: "playground-review",
+      sessionNum: 1278,
+      sessionName: "Review search overlay states",
+      sessionState: "exited",
+      archived: true,
+      reviewerOf: 1277,
+      messageId: "review-starred",
+      historyIndex: 4,
+      role: "assistant",
+      category: "assistant",
+      starred: true,
+      starredAt: Date.now() - 3 * 60_000,
+      timestamp: Date.now() - 40 * 60_000,
+      snippet: "Starred review note about preserving explicit Main thread navigation.",
+      routeThreadKey: "main",
+      sourceThreadKey: "main",
+      sourceLabel: "Main",
+    },
+    {
+      id: "playground-universal:0:universal-user-new",
+      sessionId: "playground-universal",
+      sessionNum: 1277,
+      sessionName: "Universal search implementation",
+      sessionState: "connected",
+      archived: false,
+      messageId: "universal-user-new",
+      historyIndex: 0,
+      role: "user",
+      category: "user",
+      starred: true,
+      starredAt: Date.now() - 8 * 60_000,
+      timestamp: Date.now() - 2 * 60_000,
+      snippet: "Can you make the universal search overlay keyboard efficient and mode scoped?",
       routeThreadKey: "main",
       sourceThreadKey: "main",
       sourceLabel: "Main",
@@ -237,6 +286,22 @@ export function PlaygroundUniversalSearchStates() {
             sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
             messages={PLAYGROUND_UNIVERSAL_MESSAGES}
             leaderSessionId="playground-universal"
+            onClose={() => {}}
+            onOpenQuest={() => {}}
+            onOpenMessage={() => {}}
+          />
+        </Card>
+        <Card label="Overlay with global Starred mode">
+          <UniversalSearchOverlay
+            open
+            presentation="inline"
+            initialMode="starred"
+            currentSessionId="playground-universal"
+            currentThreadKey="main"
+            sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
+            messages={PLAYGROUND_UNIVERSAL_MESSAGES}
+            leaderSessionId="playground-universal"
+            starredSearchPreviewResponse={PLAYGROUND_STARRED_SEARCH_RESPONSE}
             onClose={() => {}}
             onOpenQuest={() => {}}
             onOpenMessage={() => {}}

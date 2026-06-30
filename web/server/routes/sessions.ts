@@ -49,6 +49,7 @@ import { cleanupWorktree, createArchivedWorktreeCleanupQueue } from "./worktree-
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { registerSessionMessageSearchRoute } from "./session-message-search-route.js";
 import { registerSessionStarredMessagesRoute } from "./session-starred-messages-route.js";
+import { registerGlobalStarredMessageSearchRoute } from "./global-starred-message-search-route.js";
 import { parseIncludeArchived, registerSessionSearchRoute } from "./session-search-route.js";
 import { registerSessionPermissionModeRoute, resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
 import { registerSessionPauseRoutes } from "./session-pause-routes.js";
@@ -1174,6 +1175,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     return c.json(enriched);
   });
   registerSessionSearchRoute(api, { launcher, wsBridge });
+  registerGlobalStarredMessageSearchRoute(api, { launcher, wsBridge });
   registerSessionMessageSearchRoute(api, { launcher, wsBridge, resolveId });
   registerSessionStarredMessagesRoute(api, { launcher, wsBridge, resolveId });
   api.get("/sessions/:id", (c) => {

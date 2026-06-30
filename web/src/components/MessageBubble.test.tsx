@@ -303,6 +303,38 @@ describe("MessageBubble - user messages", () => {
     expect(screen.getByTestId("starred-message-user-rail")).toBeTruthy();
   });
 
+  it("opens an unstar menu from the visible user rail star", () => {
+    const msg = makeMessage({ id: "user-star-menu", role: "user", content: "Quick unstar", historyIndex: 3 });
+    useStore.setState({
+      sessions: new Map([
+        [
+          "star-session",
+          {
+            session_id: "star-session",
+            starredMessages: {
+              "user-star-menu": {
+                messageId: "user-star-menu",
+                role: "user",
+                historyIndex: 3,
+                sourceThreadKey: "main",
+                routeThreadKey: "main",
+                timestamp: msg.timestamp,
+                starredAt: msg.timestamp + 1,
+              },
+            },
+          } as any,
+        ],
+      ]),
+    });
+
+    render(<MessageBubble message={msg} sessionId="star-session" />);
+
+    fireEvent.click(screen.getByTestId("starred-message-user-rail"));
+    fireEvent.click(screen.getByText("Unstar message"));
+
+    expect(unstarMessageMock).toHaveBeenCalledWith("star-session", "user-star-menu");
+  });
+
   it("does not expose star actions for fallback-normalized user rows", () => {
     const [msg] = normalizeHistoryMessageToChatMessages(
       {
@@ -1170,6 +1202,43 @@ describe("MessageBubble - assistant messages", () => {
     expect(rail).toBeTruthy();
     expect(screen.getByTestId("markdown").contains(rail)).toBe(false);
     expect(screen.queryByTestId("starred-message-indicator")).toBeNull();
+  });
+
+  it("opens an unstar menu from the visible assistant rail star", () => {
+    const msg = makeMessage({
+      id: "assistant-starred-menu",
+      role: "assistant",
+      content: "Save this answer",
+      historyIndex: 4,
+    });
+    useStore.setState({
+      sessions: new Map([
+        [
+          "star-session",
+          {
+            session_id: "star-session",
+            starredMessages: {
+              "assistant-starred-menu": {
+                messageId: "assistant-starred-menu",
+                role: "assistant",
+                historyIndex: 4,
+                sourceThreadKey: "main",
+                routeThreadKey: "main",
+                timestamp: msg.timestamp,
+                starredAt: msg.timestamp + 1,
+              },
+            },
+          } as any,
+        ],
+      ]),
+    });
+
+    render(<MessageBubble message={msg} sessionId="star-session" />);
+
+    fireEvent.click(screen.getByTestId("starred-message-assistant-rail"));
+    fireEvent.click(screen.getByText("Unstar message"));
+
+    expect(unstarMessageMock).toHaveBeenCalledWith("star-session", "assistant-starred-menu");
   });
 
   it("does not expose star actions for fallback-normalized leader-user rows", () => {

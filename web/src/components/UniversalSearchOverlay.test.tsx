@@ -5,18 +5,25 @@ import type { ComponentProps } from "react";
 
 const mockListQuestPage = vi.fn();
 const mockSearchSessionMessages = vi.fn();
+const mockSearchGlobalStarredMessages = vi.fn();
 const mockClipboardWriteText = vi.fn();
 
 vi.mock("../api.js", () => ({
   api: {
     listQuestPage: (...args: unknown[]) => mockListQuestPage(...args),
     searchSessionMessages: (...args: unknown[]) => mockSearchSessionMessages(...args),
+    searchGlobalStarredMessages: (...args: unknown[]) => mockSearchGlobalStarredMessages(...args),
   },
 }));
 
 import { UniversalSearchOverlay } from "./UniversalSearchOverlay.js";
 import { useStore } from "../store.js";
-import type { MessageSearchResponse, MessageSearchResult } from "../api.js";
+import type {
+  GlobalStarredMessageSearchResponse,
+  GlobalStarredMessageSearchResult,
+  MessageSearchResponse,
+  MessageSearchResult,
+} from "../api.js";
 import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
 
 const now = 1778274000000;
@@ -156,6 +163,45 @@ function messageSearchResponse(
   };
 }
 
+function starredMessageResult(overrides: Partial<GlobalStarredMessageSearchResult>): GlobalStarredMessageSearchResult {
+  const messageId = overrides.messageId ?? "starred-1";
+  return {
+    id: `s-old:0:${messageId}`,
+    sessionId: "s-old",
+    sessionNum: 12,
+    sessionName: "Old session",
+    sessionState: "exited",
+    archived: false,
+    messageId,
+    historyIndex: 0,
+    role: "assistant",
+    category: "assistant",
+    starred: true,
+    starredAt: now - 2_000,
+    timestamp: now - 10_000,
+    snippet: "Starred assistant note about global search",
+    routeThreadKey: "main",
+    sourceThreadKey: "main",
+    sourceLabel: "Main",
+    ...overrides,
+  };
+}
+
+function starredSearchResponse(
+  results: GlobalStarredMessageSearchResult[],
+  overrides: Partial<GlobalStarredMessageSearchResponse> = {},
+): GlobalStarredMessageSearchResponse {
+  return {
+    query: "",
+    totalMatches: results.length,
+    results,
+    nextOffset: null,
+    hasMore: false,
+    tookMs: 1,
+    ...overrides,
+  };
+}
+
 function quest(overrides: Partial<QuestmasterTask> & Pick<QuestmasterTask, "questId" | "title">): QuestmasterTask {
   return {
     status: "in_progress",
@@ -223,6 +269,7 @@ describe("UniversalSearchOverlay", () => {
     window.location.hash = "";
     mockListQuestPage.mockClear();
     mockSearchSessionMessages.mockClear();
+    mockSearchGlobalStarredMessages.mockClear();
     mockClipboardWriteText.mockReset();
     mockClipboardWriteText.mockResolvedValue(undefined);
     Object.defineProperty(window.navigator, "clipboard", {
@@ -252,6 +299,7 @@ describe("UniversalSearchOverlay", () => {
         }),
       ]),
     );
+    mockSearchGlobalStarredMessages.mockResolvedValue(starredSearchResponse([]));
   });
 
   afterEach(() => {
@@ -359,7 +407,7 @@ describe("UniversalSearchOverlay", () => {
         query: "",
         scope: "session",
         threadKey: undefined,
-        filters: { user: true, assistant: false, event: false, starredOnly: false },
+        filters: { user: true, assistant: false, event: false },
         limit: 20,
       }),
     );
@@ -471,7 +519,7 @@ describe("UniversalSearchOverlay", () => {
         "s-new",
         expect.objectContaining({
           scope: "leader_all_tabs",
-          filters: { user: true, assistant: true, event: false, starredOnly: false },
+          filters: { user: true, assistant: true, event: false },
         }),
       ),
     );
@@ -479,36 +527,74 @@ describe("UniversalSearchOverlay", () => {
     const stored = JSON.parse(localStorage.getItem("cc-universal-search-message-settings") || "{}");
     expect(stored).toEqual({
       scope: "leader_all_tabs",
-      filters: { user: true, assistant: true, event: false, starredOnly: false },
+      filters: { user: true, assistant: true, event: false },
     });
   });
 
-  it("requests starred-only Message results and renders star indicators without changing filters", async () => {
-    mockSearchSessionMessages.mockResolvedValue(
-      messageSearchResponse([
-        messageResult({
-          messageId: "assistant-starred",
-          role: "assistant",
-          category: "assistant",
-          starred: true,
-          snippet: "Starred assistant note about the search overlay",
-        }),
-      ]),
+  it("removes old persisted starred-only Message filter state from Universal Search settings", async () => {
+    localStorage.setItem(
+      "cc-universal-search-message-settings",
+      JSON.stringify({ scope: "session", filters: { user: true, assistant: false, event: false, starredOnly: true } }),
     );
     renderOverlay();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Starred" }));
+    await waitFor(() => expect(mockSearchSessionMessages).toHaveBeenCalled());
 
+    expect(screen.getByRole("button", { name: "Starred" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByRole("button", { name: "Unstarred" })).not.toBeInTheDocument();
     await waitFor(() =>
       expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
         "s-new",
         expect.objectContaining({
-          filters: { user: true, assistant: false, event: false, starredOnly: true },
+          filters: { user: true, assistant: false, event: false },
         }),
       ),
     );
+    expect(JSON.parse(localStorage.getItem("cc-universal-search-message-settings") || "{}")).toEqual({
+      scope: "session",
+      filters: { user: true, assistant: false, event: false },
+    });
+  });
+
+  it("requests global Starred mode results and renders session/thread context", async () => {
+    mockSearchGlobalStarredMessages.mockResolvedValue(
+      starredSearchResponse([
+        starredMessageResult({
+          messageId: "assistant-starred",
+          sessionId: "s-old",
+          sessionNum: 12,
+          sessionName: "Old session",
+          archived: true,
+          reviewerOf: 11,
+          routeThreadKey: "main",
+          sourceThreadKey: "main",
+          sourceLabel: "Main",
+          snippet: "Starred assistant note about the search overlay",
+        }),
+      ]),
+    );
+    const callbacks = renderOverlay();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Starred" }));
+
+    await waitFor(() =>
+      expect(mockSearchGlobalStarredMessages).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          query: "",
+          limit: 20,
+        }),
+      ),
+    );
+    expect(mockSearchSessionMessages).toHaveBeenCalledTimes(1);
     const resultRow = await screen.findByText("Starred assistant note about the search overlay");
     expect(resultRow.closest('[role="option"]')?.querySelector("svg")).not.toBeNull();
+    const option = resultRow.closest('[role="option"]') as HTMLElement;
+    expect(within(option).getByText("#12 Old session")).toBeInTheDocument();
+    expect(within(option).getByText("Archived")).toBeInTheDocument();
+    expect(within(option).getByText("Reviewer")).toBeInTheDocument();
+    expect(within(option).getByText("Main")).toBeInTheDocument();
+    fireEvent.click(option);
+    expect(callbacks.onOpenMessage).toHaveBeenCalledWith("s-old", "assistant-starred", "main");
   });
 
   it("requests and renders Events-only Message results as event cards", async () => {
@@ -529,7 +615,7 @@ describe("UniversalSearchOverlay", () => {
         ],
         {
           scope: { kind: "leader_all_tabs", label: "Searching in #11 across tabs" },
-          filters: { user: false, assistant: false, event: true, starredOnly: false },
+          filters: { user: false, assistant: false, event: true },
         },
       ),
     );
@@ -542,7 +628,7 @@ describe("UniversalSearchOverlay", () => {
         "s-new",
         expect.objectContaining({
           scope: "leader_all_tabs",
-          filters: { user: false, assistant: false, event: true, starredOnly: false },
+          filters: { user: false, assistant: false, event: true },
         }),
       ),
     );
@@ -942,7 +1028,7 @@ describe("UniversalSearchOverlay", () => {
 
     callbacks.onClose.mockClear();
     fireEvent.keyDown(dialog, { key: "Tab" });
-    expect(screen.getByRole("button", { name: "Quests" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Starred" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.keyDown(dialog, { key: "Escape" });
     expect(callbacks.onClose).toHaveBeenCalledTimes(1);
   });

@@ -1,3 +1,6 @@
+import { useMemo, useRef, useState } from "react";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
+
 export function StarIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden="true">
@@ -6,17 +9,56 @@ export function StarIcon({ className = "h-3.5 w-3.5" }: { className?: string }) 
   );
 }
 
-export function StarredMessageRailMarker({ side }: { side: "assistant" | "user" }) {
+export function StarredMessageRailMarker({ side, onUnstar }: { side: "assistant" | "user"; onUnstar?: () => void }) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const items = useMemo<ContextMenuItem[]>(
+    () => [
+      {
+        label: "Unstar message",
+        onClick: () => {
+          onUnstar?.();
+        },
+      },
+    ],
+    [onUnstar],
+  );
+  const className = `inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-md border border-amber-300/25 bg-amber-300/10 text-amber-200 shadow-[0_0_0_1px_rgba(251,191,36,0.05)] ${
+    side === "assistant" ? "mt-1.5" : ""
+  }`;
+
+  if (!onUnstar) {
+    return (
+      <span
+        className={className}
+        title="Starred message"
+        aria-label="Starred message"
+        data-testid={`starred-message-${side}-rail`}
+      >
+        <StarIcon className="h-3 w-3" />
+      </span>
+    );
+  }
+
   return (
-    <span
-      className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-md border border-amber-300/25 bg-amber-300/10 text-amber-200 shadow-[0_0_0_1px_rgba(251,191,36,0.05)] ${
-        side === "assistant" ? "mt-1.5" : ""
-      }`}
-      title="Starred message"
-      aria-label="Starred message"
-      data-testid={`starred-message-${side}-rail`}
-    >
-      <StarIcon className="h-3 w-3" />
+    <span className="inline-flex shrink-0">
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`${className} transition-colors hover:border-amber-300/45 hover:bg-amber-300/16 focus:outline-none focus:ring-2 focus:ring-amber-300/25`}
+        title="Starred message"
+        aria-label="Starred message actions"
+        data-testid={`starred-message-${side}-rail`}
+        onClick={(event) => {
+          event.stopPropagation();
+          const rect = buttonRef.current?.getBoundingClientRect();
+          if (!rect) return;
+          setMenuPos({ x: rect.left, y: rect.bottom + 4 });
+        }}
+      >
+        <StarIcon className="h-3 w-3" />
+      </button>
+      {menuPos && <ContextMenu x={menuPos.x} y={menuPos.y} items={items} onClose={() => setMenuPos(null)} />}
     </span>
   );
 }

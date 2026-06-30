@@ -36,6 +36,7 @@ import { AssistantMessageMenu, UserMessageMenu } from "./MessageActionMenus.js";
 import { MessageTimestamp } from "./MessageTimestamp.js";
 import { shouldShowCompactGuidance } from "../utils/assistant-message-guidance.js";
 import { isStarActionableMessage } from "../utils/starred-messages.js";
+import { useMessageStarActions } from "./use-message-star-actions.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
 
@@ -999,6 +1000,7 @@ function UserMessage({
 
   const isCodex = useStore((s) => s.sessions.get(sessionId ?? "")?.backend_type === "codex");
   const starred = useFeedStarredMessage(sessionId, message);
+  const starAction = useMessageStarActions(sessionId, message);
   const messagesBySession = useStore((s) => s.messages);
   const sessionMessages = sessionId ? (messagesBySession.get(sessionId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES;
   const canRevert = useMemo(() => {
@@ -1034,9 +1036,12 @@ function UserMessage({
   return (
     <div className="relative flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out]">
       {starred && (
-        <span className="pointer-events-none absolute left-0 top-2.5 z-0 flex w-10 items-center sm:w-[calc(20%_-_0.375rem)] sm:max-w-40">
-          <StarredMessageRailMarker side="user" />
-          <span className="ml-1 h-px min-w-0 flex-1 bg-gradient-to-r from-amber-300/30 to-amber-300/0" />
+        <span className="absolute left-0 top-2.5 z-0 flex w-10 items-center sm:w-[calc(20%_-_0.375rem)] sm:max-w-40">
+          <StarredMessageRailMarker
+            side="user"
+            onUnstar={starAction.actionable && starAction.starred ? starAction.toggleStarred : undefined}
+          />
+          <span className="pointer-events-none ml-1 h-px min-w-0 flex-1 bg-gradient-to-r from-amber-300/30 to-amber-300/0" />
         </span>
       )}
       <div
@@ -1194,6 +1199,7 @@ function AssistantMessage({
   const suppressToolNotificationMarker = !!resolvedNotification;
   const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
   const starred = useFeedStarredMessage(sessionId, message);
+  const starAction = useMessageStarActions(sessionId, message);
   const sideChat = useSideChatForMessage(sessionId, message);
   const assistantImagePreviewItems = useMemo(
     () => buildAssistantImagePreviewItems(message, sessionId),
@@ -1206,6 +1212,7 @@ function AssistantMessage({
     ? -1
     : grouped.findIndex((group) => group.kind === "content");
   const showRailMarker = starred || !hidePaw;
+  const unstarFromRail = starAction.actionable && starAction.starred ? starAction.toggleStarred : undefined;
 
   if (
     blocks.length === 0 &&
@@ -1219,7 +1226,8 @@ function AssistantMessage({
   if (blocks.length === 0 && message.content) {
     return (
       <div className={`group/msg relative flex items-start ${showRailMarker ? "gap-2 sm:gap-3" : ""}`}>
-        {showRailMarker && (starred ? <StarredMessageRailMarker side="assistant" /> : <PawTrailAvatar />)}
+        {showRailMarker &&
+          (starred ? <StarredMessageRailMarker side="assistant" onUnstar={unstarFromRail} /> : <PawTrailAvatar />)}
         <div ref={contentRef} className="flex-1 min-w-0">
           {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
           {hasTextContent && (
@@ -1258,7 +1266,8 @@ function AssistantMessage({
 
   return (
     <div className={`group/msg relative flex items-start ${showRailMarker ? "gap-2 sm:gap-3" : ""}`}>
-      {showRailMarker && (starred ? <StarredMessageRailMarker side="assistant" /> : <PawTrailAvatar />)}
+      {showRailMarker &&
+        (starred ? <StarredMessageRailMarker side="assistant" onUnstar={unstarFromRail} /> : <PawTrailAvatar />)}
       <div ref={contentRef} className="flex-1 min-w-0 space-y-3">
         {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
         {shouldRenderContentFallback && (

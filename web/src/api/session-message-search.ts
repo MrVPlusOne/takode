@@ -48,11 +48,39 @@ export interface MessageSearchResponse {
   tookMs: number;
 }
 
+export interface GlobalStarredMessageSearchResult extends Omit<MessageSearchResult, "role" | "category" | "starred"> {
+  sessionName?: string;
+  sessionState?: "starting" | "connected" | "running" | "exited";
+  archived: boolean;
+  archivedAt?: number;
+  reviewerOf?: number;
+  role: "user" | "assistant";
+  category: "user" | "assistant";
+  starred: true;
+  starredAt: number;
+}
+
+export interface GlobalStarredMessageSearchResponse {
+  query: string;
+  totalMatches: number;
+  results: GlobalStarredMessageSearchResult[];
+  nextOffset: number | null;
+  hasMore: boolean;
+  tookMs: number;
+}
+
 export interface SearchSessionMessagesOptions {
   query?: string;
   scope?: MessageSearchScopeKind;
   threadKey?: string | null;
   filters?: Partial<MessageSearchFilters>;
+  limit?: number;
+  offset?: number;
+  signal?: AbortSignal;
+}
+
+export interface SearchGlobalStarredMessagesOptions {
+  query?: string;
   limit?: number;
   offset?: number;
   signal?: AbortSignal;
@@ -91,4 +119,23 @@ export async function searchSessionMessages(
     throw new Error(err.error || res.statusText);
   }
   return res.json() as Promise<MessageSearchResponse>;
+}
+
+export async function searchGlobalStarredMessages(
+  options?: SearchGlobalStarredMessagesOptions,
+): Promise<GlobalStarredMessageSearchResponse> {
+  const params = new URLSearchParams();
+  if (options?.query) params.set("q", options.query);
+  if (typeof options?.limit === "number") params.set("limit", String(options.limit));
+  if (typeof options?.offset === "number") params.set("offset", String(options.offset));
+
+  const query = params.toString();
+  const res = await fetch(`${BASE}/sessions/starred-message-search${query ? `?${query}` : ""}`, {
+    signal: options?.signal,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json() as Promise<GlobalStarredMessageSearchResponse>;
 }
