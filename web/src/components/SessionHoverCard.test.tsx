@@ -471,7 +471,7 @@ describe("SessionHoverCard", () => {
     }
   });
 
-  it("shows configured Codex max context instead of stale model-catalog token metadata", () => {
+  it("shows effective Codex context primary and configured raw max secondarily", () => {
     mockStoreState.sdkSessions = [
       {
         sessionId: "s1",
@@ -528,11 +528,14 @@ describe("SessionHoverCard", () => {
     );
 
     expect(screen.getByText("7% context")).toBeInTheDocument();
-    expect(screen.getByText("600 K tokens")).toHaveAttribute(
+    expect(screen.getByText("258 K tokens")).toHaveAttribute(
       "title",
-      "Configured max context window. Backend token metadata currently reports 258 K tokens.",
+      "Backend reported usable context window. Raw configured max context is 600 K tokens.",
     );
-    expect(screen.queryByText("258 K tokens")).toBeNull();
+    expect(screen.getByText("600 K tokens configured")).toHaveAttribute(
+      "title",
+      "Raw configured max context. Codex may reserve part of it; /status reports the usable window.",
+    );
   });
 
   it("uses live cleared Codex max context instead of stale sdk metadata", () => {

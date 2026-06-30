@@ -8,7 +8,13 @@ import {
   type ModelOption,
 } from "../utils/backends.js";
 import {
+  contextWindowLimitWarning,
+  contextWindowPreview,
+  effectiveContextPercentForModel,
+} from "../utils/context-window.js";
+import {
   CLAUDE_1M_CONTEXT_TOKENS,
+  CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
   CLAUDE_REASONING_EFFORTS,
   DEFAULT_SESSION_DEFAULTS,
   normalizeSessionDefaults,
@@ -34,6 +40,11 @@ function parseOptionalPositiveInteger(value: string): number | null {
   if (!trimmed) return null;
   const numeric = Number(trimmed);
   return Number.isSafeInteger(numeric) && numeric > 0 ? numeric : null;
+}
+
+function parsePercent(value: string): number {
+  const numeric = parseOptionalPositiveInteger(value);
+  return numeric && numeric >= 1 && numeric <= 100 ? numeric : CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT;
 }
 
 interface SettingsSessionDefaultsSectionProps {
@@ -82,6 +93,12 @@ export function SettingsSessionDefaultsSection({
   const claudeModelOptions = useMemo(() => modelOptions("claude", claudeModels), [claudeModels]);
   const selectedCodexModel = codexModels.find((model) => model.value === defaults.codex.model);
   const codexServiceTiers = selectedCodexModel?.serviceTiers ?? [];
+  const selectedCodexModelOption = codexModelOptions.find((option) => option.value === defaults.codex.model);
+  const codexEffectivePercent = effectiveContextPercentForModel(
+    selectedCodexModelOption,
+    defaults.codex.effectiveContextWindowPercent,
+  );
+  const codexContextWarning = contextWindowLimitWarning(defaults.codex.maxContextLength, selectedCodexModelOption);
 
   async function save(nextDefaults = defaults) {
     setSaving(true);
@@ -194,8 +211,36 @@ export function SettingsSessionDefaultsSection({
             className={inputClass}
           />
           <p className="text-xs text-cc-muted">
-            Optional Codex context window in tokens. Empty leaves the selected model/backend default unchanged.
+            Raw requested Codex context in tokens. Empty leaves the selected model/backend default unchanged.
           </p>
+          <label className="block space-y-1.5">
+            <span className="text-xs font-medium text-cc-muted">Usable context estimate</span>
+            <input
+              aria-label="Default Codex usable context percent"
+              type="number"
+              min={1}
+              max={100}
+              value={defaults.codex.effectiveContextWindowPercent}
+              onChange={(event) =>
+                setDefaults((current) => ({
+                  ...current,
+                  codex: {
+                    ...current.codex,
+                    effectiveContextWindowPercent: parsePercent(event.target.value),
+                  },
+                }))
+              }
+              className={inputClass}
+            />
+          </label>
+          <p className="text-xs leading-relaxed text-cc-muted">
+            {contextWindowPreview(defaults.codex.maxContextLength, codexEffectivePercent)}
+          </p>
+          {codexContextWarning && (
+            <p className="rounded-lg border border-cc-warning/30 bg-cc-warning/10 px-3 py-2 text-xs leading-relaxed text-cc-fg">
+              {codexContextWarning}
+            </p>
+          )}
         </div>
 
         <div className="space-y-3">

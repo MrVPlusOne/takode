@@ -18,6 +18,10 @@ export interface ModelOption {
   value: string;
   label: string;
   icon: string;
+  contextWindow?: number;
+  maxContextWindow?: number;
+  effectiveContextWindowPercent?: number;
+  autoCompactTokenLimit?: number | null;
   serviceTiers?: Array<{
     id: string;
     name: string;
@@ -62,6 +66,10 @@ export function toModelOptions(models: BackendModelInfo[]): ModelOption[] {
     value: m.value,
     label: m.label || m.value,
     icon: pickIcon(m.value, i),
+    contextWindow: m.contextWindow,
+    maxContextWindow: m.maxContextWindow,
+    effectiveContextWindowPercent: m.effectiveContextWindowPercent,
+    autoCompactTokenLimit: m.autoCompactTokenLimit,
     serviceTiers: m.serviceTiers,
   }));
 }

@@ -78,11 +78,13 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
       numTurns: session.user_turn_count ?? session.num_turns,
       totalCostUsd: session.total_cost_usd,
       contextUsedPercent: session.context_used_percent,
-      modelContextWindow:
-        session.codex_max_context_length ??
-        session.claude_max_context_length ??
-        session.codex_token_details?.modelContextWindow ??
-        session.claude_token_details?.modelContextWindow,
+      modelContextWindow: resolveEffectiveModelContextWindow({
+        backendType: session.backend_type,
+        codexMaxContextLength: session.codex_max_context_length ?? undefined,
+        claudeMaxContextLength: session.claude_max_context_length ?? undefined,
+        codexTokenDetailsModelContextWindow: session.codex_token_details?.modelContextWindow,
+        claudeTokenDetailsModelContextWindow: session.claude_token_details?.modelContextWindow,
+      }),
       codexMaxContextLength: hasCodexMaxContextLength ? (session.codex_max_context_length ?? null) : undefined,
       claudeMaxContextLength: hasClaudeMaxContextLength ? (session.claude_max_context_length ?? null) : undefined,
       codexLeaderRecycleThresholdTokens: session.codex_leader_recycle_threshold_tokens,
@@ -195,10 +197,7 @@ export function coalesceSessionViewModel(
     codexMaxContextLength,
     claudeMaxContextLength,
     modelContextWindow:
-      (isPositiveFinite(codexMaxContextLength ?? undefined) ? codexMaxContextLength : undefined) ??
-      (isPositiveFinite(claudeMaxContextLength ?? undefined) ? claudeMaxContextLength : undefined) ??
-      primaryVm?.modelContextWindow ??
-      (primaryHasConfiguredContext ? undefined : fallbackVm?.modelContextWindow),
+      primaryVm?.modelContextWindow ?? (primaryHasConfiguredContext ? undefined : fallbackVm?.modelContextWindow),
     sessionId: primaryVm?.sessionId || fallbackVm?.sessionId || "",
   };
 }
@@ -216,6 +215,12 @@ export function resolveEffectiveModelContextWindow({
   codexTokenDetailsModelContextWindow?: number;
   claudeTokenDetailsModelContextWindow?: number;
 }): number | undefined {
+  if (backendType === "codex" && isPositiveFinite(codexTokenDetailsModelContextWindow)) {
+    return codexTokenDetailsModelContextWindow;
+  }
+  if (backendType !== "codex" && isPositiveFinite(claudeTokenDetailsModelContextWindow)) {
+    return claudeTokenDetailsModelContextWindow;
+  }
   if (backendType === "codex" && isPositiveFinite(codexMaxContextLength)) return codexMaxContextLength;
   if (backendType !== "codex" && isPositiveFinite(claudeMaxContextLength)) return claudeMaxContextLength;
   return codexTokenDetailsModelContextWindow ?? claudeTokenDetailsModelContextWindow;

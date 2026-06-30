@@ -13,9 +13,15 @@ import {
 } from "../utils/backends.js";
 import {
   CLAUDE_1M_CONTEXT_TOKENS,
+  CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
   CLAUDE_REASONING_EFFORTS,
   type ClaudeReasoningEffort,
 } from "../../shared/session-defaults.js";
+import {
+  contextWindowLimitWarning,
+  contextWindowPreview,
+  effectiveContextPercentForModel,
+} from "../utils/context-window.js";
 import {
   deriveAskPermissionForMode,
   deriveUiModeForMode,
@@ -137,6 +143,9 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
   const [initial, setInitial] = useState<SessionConfigForm | null>(null);
   const [codexModels, setCodexModels] = useState<BackendModelInfo[]>([]);
   const [claudeModels, setClaudeModels] = useState<BackendModelInfo[]>([]);
+  const [codexEffectiveContextPercent, setCodexEffectiveContextPercent] = useState(
+    CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
@@ -198,6 +207,17 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
         if (!cancelled) setClaudeModels(models);
       })
       .catch(() => {});
+    api
+      .getSettings()
+      .then((settings) => {
+        if (!cancelled) {
+          setCodexEffectiveContextPercent(
+            settings.sessionDefaults?.codex.effectiveContextWindowPercent ??
+              CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
+          );
+        }
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -211,6 +231,8 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
     () => (form ? selectedCodexTierOptions(form.model, modelOptions) : []),
     [form, modelOptions],
   );
+  const selectedModelOption = form ? modelOptions.find((option) => option.value === form.model) : undefined;
+  const codexEffectivePercent = effectiveContextPercentForModel(selectedModelOption, codexEffectiveContextPercent);
 
   if (!form || !initial) return null;
   const activeForm = form;
@@ -228,6 +250,8 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
       : claudeContextInvalid
         ? `Claude max context currently supports only ${CLAUDE_1M_CONTEXT_TOKENS.toLocaleString()} or empty.`
         : "";
+  const codexMaxContextValue = codexMaxContext.ok ? codexMaxContext.value : null;
+  const codexContextWarning = isCodex ? contextWindowLimitWarning(codexMaxContextValue, selectedModelOption) : null;
 
   const changedFields = new Set<keyof SessionConfigForm>();
   for (const key of Object.keys(form) as Array<keyof SessionConfigForm>) {
@@ -455,8 +479,13 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
                     className={inputClass}
                   />
                   <p className="mt-1.5 text-xs leading-snug text-cc-muted">
-                    Empty leaves the selected model/backend default unchanged.
+                    Raw requested max. {contextWindowPreview(codexMaxContextValue, codexEffectivePercent)}
                   </p>
+                  {codexContextWarning && (
+                    <p className="mt-1.5 rounded-lg border border-cc-warning/30 bg-cc-warning/10 px-3 py-2 text-xs leading-relaxed text-cc-fg">
+                      {codexContextWarning}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div>

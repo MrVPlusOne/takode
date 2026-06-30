@@ -15,7 +15,7 @@ import { navigateTo } from "../utils/navigation.js";
 import { sendToSession } from "../ws.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
-import { SessionPayloadStats } from "./SessionPayloadStats.js";
+import { SessionContextStats, SessionPayloadStats } from "./SessionPayloadStats.js";
 import { api, type EditorKind } from "../api.js";
 import type { SdkSessionInfo, SessionLifecycleEvent, SessionState } from "../types.js";
 import { openPathWithEditorPreference } from "../utils/vscode-bridge.js";
@@ -196,6 +196,7 @@ export function SessionInfoPopover({
   const contextStats = getSessionInfoContextStats(sessionVm, effectiveSdkSession);
   const contextPercent = contextStats.contextPercent;
   const contextWindow = contextStats.contextWindow;
+  const configuredContextWindow = getConfiguredMaxContextLength(session, effectiveSdkSession);
   const contextWindowTitle = getContextWindowTitle(session, effectiveSdkSession, contextWindow);
   const hasStats =
     turns > 0 || contextPercent > 0 || contextWindow > 0 || historyBytes > 0 || codexRetainedPayloadBytes > 0;
@@ -598,16 +599,24 @@ export function SessionInfoPopover({
 
         {/* Stats */}
         {hasStats && (
-          <div className="px-4 py-2 border-t border-cc-border/50">
+          <div className="px-4 py-2 border-t border-cc-border/50 space-y-1.5">
+            <SessionContextStats
+              contextPercent={contextPercent}
+              contextWindow={contextWindow}
+              contextWindowTitle={contextWindowTitle}
+              configuredContextWindow={configuredContextWindow}
+            />
             <SessionPayloadStats
               turns={turns}
               contextPercent={contextPercent}
               contextWindow={contextWindow}
               contextWindowTitle={contextWindowTitle}
+              configuredContextWindow={configuredContextWindow}
               historyBytes={historyBytes}
               codexRetainedPayloadBytes={codexRetainedPayloadBytes}
               isCodexSession={isCodexSession}
               highlightHighHistoryBytes
+              showContextStats={false}
             />
           </div>
         )}
@@ -724,25 +733,37 @@ function hasOwn(source: object | undefined, key: string): boolean {
   return !!source && Object.prototype.hasOwnProperty.call(source, key);
 }
 
+function getConfiguredMaxContextLength(
+  session: SessionState | undefined,
+  sdkSession: SdkSessionInfo | undefined,
+): number | undefined {
+  const backendType = session?.backend_type ?? sdkSession?.backendType;
+  return backendType === "codex"
+    ? hasOwn(session, "codex_max_context_length")
+      ? (session?.codex_max_context_length ?? undefined)
+      : (sdkSession?.codexMaxContextLength ?? undefined)
+    : hasOwn(session, "claude_max_context_length")
+      ? (session?.claude_max_context_length ?? undefined)
+      : (sdkSession?.claudeMaxContextLength ?? undefined);
+}
+
 function getContextWindowTitle(
   session: SessionState | undefined,
   sdkSession: SdkSessionInfo | undefined,
   contextWindow: number,
 ): string | undefined {
-  const backendType = session?.backend_type ?? sdkSession?.backendType;
-  const configuredMaxContextLength =
-    backendType === "codex"
-      ? hasOwn(session, "codex_max_context_length")
-        ? (session?.codex_max_context_length ?? undefined)
-        : (sdkSession?.codexMaxContextLength ?? undefined)
-      : hasOwn(session, "claude_max_context_length")
-        ? (session?.claude_max_context_length ?? undefined)
-        : (sdkSession?.claudeMaxContextLength ?? undefined);
-  if (!configuredMaxContextLength || contextWindow !== configuredMaxContextLength) return undefined;
+  const configuredMaxContextLength = getConfiguredMaxContextLength(session, sdkSession);
+  if (!configuredMaxContextLength) return undefined;
   const backendReportedContextWindow =
-    backendType === "codex"
+    (session?.backend_type ?? sdkSession?.backendType) === "codex"
       ? (session?.codex_token_details?.modelContextWindow ?? sdkSession?.codexTokenDetails?.modelContextWindow)
       : (session?.claude_token_details?.modelContextWindow ?? sdkSession?.claudeTokenDetails?.modelContextWindow);
+  if (contextWindow !== configuredMaxContextLength && backendReportedContextWindow === contextWindow) {
+    return `Backend reported usable context window. Raw configured max context is ${formatContextWindowLabel(
+      configuredMaxContextLength,
+    )}.`;
+  }
+  if (contextWindow !== configuredMaxContextLength) return undefined;
   if (backendReportedContextWindow && backendReportedContextWindow < configuredMaxContextLength) {
     return `Configured max context window. Backend token metadata currently reports ${formatContextWindowLabel(backendReportedContextWindow)}.`;
   }

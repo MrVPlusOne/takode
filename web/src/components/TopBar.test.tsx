@@ -13,6 +13,7 @@ vi.mock("../api.js", () => ({
     unpauseSession: vi.fn().mockResolvedValue({ ok: true }),
     getSessionNotifications: vi.fn().mockResolvedValue([]),
     getBackendModels: vi.fn().mockResolvedValue([]),
+    getSettings: vi.fn().mockResolvedValue({ sessionDefaults: undefined }),
     updateSessionConfig: vi.fn().mockResolvedValue({ ok: true, restartRequired: false, session: {}, sessionState: {} }),
     fetchNotificationContext: vi.fn().mockResolvedValue(null),
     markNotificationDone: vi.fn().mockResolvedValue({ ok: true }),

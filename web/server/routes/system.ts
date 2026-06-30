@@ -83,6 +83,20 @@ function normalizeCodexServiceTiers(model: {
   return tiers.length > 0 ? tiers : undefined;
 }
 
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+function positivePercent(value: unknown): number | undefined {
+  const numeric = positiveInteger(value);
+  return numeric !== undefined && numeric <= 100 ? numeric : undefined;
+}
+
+function nullablePositiveInteger(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  return positiveInteger(value);
+}
+
 // ─── LiteLLM proxy model discovery ──────────────────────────────────────────
 
 interface CachedModels {
@@ -593,6 +607,10 @@ export function createSystemRoutes(ctx: RouteContext) {
               description?: string;
               visibility?: string;
               priority?: number;
+              context_window?: unknown;
+              max_context_window?: unknown;
+              effective_context_window_percent?: unknown;
+              auto_compact_token_limit?: unknown;
               service_tiers?: unknown;
               serviceTiers?: unknown;
             }>;
@@ -605,6 +623,10 @@ export function createSystemRoutes(ctx: RouteContext) {
               value: m.slug,
               label: m.display_name || m.slug,
               description: m.description || "",
+              contextWindow: positiveInteger(m.context_window),
+              maxContextWindow: positiveInteger(m.max_context_window),
+              effectiveContextWindowPercent: positivePercent(m.effective_context_window_percent),
+              autoCompactTokenLimit: nullablePositiveInteger(m.auto_compact_token_limit),
               serviceTiers: normalizeCodexServiceTiers(m),
             }));
           if (models.length > 0) return c.json(models);

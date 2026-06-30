@@ -137,6 +137,7 @@ describe("settings-manager", () => {
           reasoningEffort: "high",
           internetAccess: true,
           maxContextLength: 250_000,
+          effectiveContextWindowPercent: 90,
         },
         claude: {
           model: "claude-sonnet-4-5-20250929",
@@ -154,6 +155,7 @@ describe("settings-manager", () => {
         reasoningEffort: "high",
         internetAccess: true,
         maxContextLength: 250_000,
+        effectiveContextWindowPercent: 90,
       },
       claude: {
         model: "claude-sonnet-4-5-20250929",

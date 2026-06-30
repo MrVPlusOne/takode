@@ -655,7 +655,7 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByText("73% context")).toBeInTheDocument();
     expect(screen.getByText("1.5 MB replay")).toBeInTheDocument();
     expect(screen.getByText("2.5 MB retained")).toBeInTheDocument();
-    expect(screen.getByText("258 K tokens")).toBeInTheDocument();
+    expect(screen.getByText(/258 K tokens/)).toBeInTheDocument();
   });
 
   it("uses the Codex leader recycle threshold as the effective context window", () => {
@@ -673,7 +673,7 @@ describe("SessionInfoPopover", () => {
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
     expect(screen.getByText("22% context")).toBeInTheDocument();
-    expect(screen.getByText("260 K tokens")).toBeInTheDocument();
+    expect(screen.getByText(/260 K tokens/)).toBeInTheDocument();
     expect(screen.queryByText("6% context")).toBeNull();
     expect(screen.queryByText("950 K tokens")).toBeNull();
   });
@@ -691,7 +691,7 @@ describe("SessionInfoPopover", () => {
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
     expect(screen.getByText("6% context")).toBeInTheDocument();
-    expect(screen.getByText("950 K tokens")).toBeInTheDocument();
+    expect(screen.getByText(/950 K tokens/)).toBeInTheDocument();
     expect(screen.queryByText("22% context")).toBeNull();
     expect(screen.queryByText("260 K tokens")).toBeNull();
   });
@@ -729,10 +729,10 @@ describe("SessionInfoPopover", () => {
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
     expect(screen.getByText("73% context")).toBeInTheDocument();
-    expect(screen.getByText("258 K tokens")).toBeInTheDocument();
+    expect(screen.getByText(/258 K tokens/)).toBeInTheDocument();
   });
 
-  it("uses configured Codex max context for session info after restore", () => {
+  it("shows effective Codex context primary and configured max secondarily after restore", () => {
     resetStore([]);
     storeState.sessions = new Map();
     storeState.sdkSessions = [
@@ -749,11 +749,11 @@ describe("SessionInfoPopover", () => {
     render(<SessionInfoPopover sessionId="s31" onClose={() => {}} />);
 
     expect(screen.getByText("7% context")).toBeInTheDocument();
-    expect(screen.getByText("600 K tokens")).toHaveAttribute(
+    expect(screen.getByText(/258 K tokens/)).toHaveAttribute(
       "title",
-      "Configured max context window. Backend token metadata currently reports 258 K tokens.",
+      "Backend reported usable context window. Raw configured max context is 600 K tokens.",
     );
-    expect(screen.queryByText("258 K tokens")).toBeNull();
+    expect(screen.getByText(/600 K tokens/)).toBeInTheDocument();
   });
 
   it("uses sdk session recycle threshold metadata for restored Codex leaders", () => {

@@ -5,12 +5,14 @@ import "@testing-library/jest-dom";
 import { ConfigureSessionModal } from "./ConfigureSessionModal.js";
 
 const mockGetBackendModels = vi.hoisted(() => vi.fn());
+const mockGetSettings = vi.hoisted(() => vi.fn());
 const mockUpdateSessionConfig = vi.hoisted(() => vi.fn());
 const mockRelaunchSession = vi.hoisted(() => vi.fn());
 
 vi.mock("../api.js", () => ({
   api: {
     getBackendModels: (...args: unknown[]) => mockGetBackendModels(...args),
+    getSettings: (...args: unknown[]) => mockGetSettings(...args),
     updateSessionConfig: (...args: unknown[]) => mockUpdateSessionConfig(...args),
     relaunchSession: (...args: unknown[]) => mockRelaunchSession(...args),
   },
@@ -71,6 +73,8 @@ describe("ConfigureSessionModal", () => {
             {
               value: "gpt-5.4",
               label: "GPT-5.4",
+              maxContextWindow: 300000,
+              effectiveContextWindowPercent: 90,
               serviceTiers: [{ id: "priority", name: "Fast", description: "Fast tier" }],
             },
           ]
@@ -86,6 +90,9 @@ describe("ConfigureSessionModal", () => {
       restartRequiredFields: [],
       session: { codexServiceTier: "priority" },
       sessionState: { codex_service_tier: "priority" },
+    });
+    mockGetSettings.mockResolvedValue({
+      sessionDefaults: { codex: { effectiveContextWindowPercent: 95 } },
     });
     mockRelaunchSession.mockResolvedValue({});
   });
@@ -159,6 +166,29 @@ describe("ConfigureSessionModal", () => {
     expect(screen.getByLabelText("Session Codex reasoning effort")).toHaveValue("high");
     expect(screen.getByLabelText("Session Codex speed")).toHaveValue("priority");
     expect(screen.getByLabelText("Session Codex max context length")).toHaveValue(null);
+  });
+
+  it("previews usable context and warns without blocking when raw Codex max exceeds model metadata", async () => {
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            session_id: "s1",
+            backend_type: "codex",
+            model: "gpt-5.4",
+            permissionMode: "codex-default",
+            codex_max_context_length: 500000,
+          },
+        ],
+      ]),
+    });
+
+    render(<ConfigureSessionModal sessionId="s1" onClose={() => {}} />);
+
+    expect(await screen.findByText(/Estimated \/status window: 450 K tokens usable/i)).toBeInTheDocument();
+    expect(screen.getByText(/Selected model metadata reports 300 K tokens raw max/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apply Changes" })).toBeDisabled();
   });
 
   it("saves a speed value that matches stale sdk metadata but differs from live state", async () => {

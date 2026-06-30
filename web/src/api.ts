@@ -453,6 +453,10 @@ export interface BackendModelInfo {
   value: string;
   label: string;
   description: string;
+  contextWindow?: number;
+  maxContextWindow?: number;
+  effectiveContextWindowPercent?: number;
+  autoCompactTokenLimit?: number | null;
   serviceTiers?: Array<{
     id: string;
     name: string;

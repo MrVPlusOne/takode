@@ -265,8 +265,9 @@ export function SessionHoverCard({
   const contextWindowTitle =
     configuredMaxContextLength &&
     backendReportedContextWindow &&
+    backendReportedContextWindow === contextWindow &&
     backendReportedContextWindow < configuredMaxContextLength
-      ? `Configured max context window. Backend token metadata currently reports ${formatContextWindowLabel(backendReportedContextWindow)}.`
+      ? `Backend reported usable context window. Raw configured max context is ${formatContextWindowLabel(configuredMaxContextLength)}.`
       : configuredMaxContextLength
         ? "Configured max context window."
         : undefined;
@@ -579,6 +580,7 @@ export function SessionHoverCard({
               contextPercent={contextPercent}
               contextWindow={contextWindow}
               contextWindowTitle={contextWindowTitle}
+              configuredContextWindow={configuredMaxContextLength}
               historyBytes={messageHistoryBytes}
               codexRetainedPayloadBytes={codexRetainedPayloadBytes}
               isCodexSession={isCodexSession}

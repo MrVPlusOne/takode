@@ -22,6 +22,7 @@ const loadedDefaults: SessionDefaultsSettings = {
     reasoningEffort: "high",
     internetAccess: true,
     maxContextLength: 240000,
+    effectiveContextWindowPercent: 95,
   },
   claude: {
     ...DEFAULT_SESSION_DEFAULTS.claude,
@@ -42,6 +43,8 @@ describe("SettingsSessionDefaultsSection", () => {
               value: "gpt-5.4",
               label: "GPT-5.4",
               description: "",
+              maxContextWindow: 300000,
+              effectiveContextWindowPercent: 90,
               serviceTiers: [{ id: "priority", name: "Fast" }],
             },
           ]
@@ -57,22 +60,43 @@ describe("SettingsSessionDefaultsSection", () => {
     await waitFor(() => expect(screen.getByLabelText("Default Codex speed")).toHaveValue("priority"));
     expect(screen.getByLabelText("Default Claude reasoning effort")).toHaveValue("max");
     expect(screen.getByLabelText("Default Codex max context length")).toHaveAttribute("placeholder", "No override");
+    expect(screen.getByLabelText("Default Codex usable context percent")).toHaveValue(95);
     expect(screen.getByLabelText("Default Claude max context length")).toHaveAttribute("placeholder", "No override");
-    expect(screen.getByText(/Optional Codex context window in tokens/i)).toBeInTheDocument();
+    expect(screen.getByText(/Raw requested Codex context in tokens/i)).toBeInTheDocument();
     expect(screen.getByText(/Empty leaves the selected model\/backend default unchanged/i)).toBeInTheDocument();
+    expect(screen.getByText(/Estimated \/status window: 216 K tokens usable/i)).toBeInTheDocument();
     expect(screen.getByText(/Optional Claude context window in tokens/i)).toBeInTheDocument();
     expect(screen.getByText(/currently supported value: 1,000,000/i)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Default Codex reasoning effort"), { target: { value: "medium" } });
+    fireEvent.change(screen.getByLabelText("Default Codex usable context percent"), { target: { value: "80" } });
     fireEvent.click(screen.getByRole("button", { name: "Save Defaults" }));
 
     await waitFor(() => {
       expect(mockUpdateSettings).toHaveBeenCalledWith({
         sessionDefaults: expect.objectContaining({
-          codex: expect.objectContaining({ reasoningEffort: "medium", serviceTier: "priority" }),
+          codex: expect.objectContaining({
+            effectiveContextWindowPercent: 80,
+            reasoningEffort: "medium",
+            serviceTier: "priority",
+          }),
           claude: expect.objectContaining({ reasoningEffort: "max", maxContextLength: 1000000 }),
         }),
       });
     });
+  });
+
+  it("warns instead of blocking when configured Codex context exceeds model metadata", async () => {
+    render(
+      <SettingsSessionDefaultsSection
+        sessionDefaults={{
+          ...loadedDefaults,
+          codex: { ...loadedDefaults.codex, maxContextLength: 500000 },
+        }}
+      />,
+    );
+
+    expect(await screen.findByText(/Selected model metadata reports 300 K tokens raw max/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Defaults" })).toBeEnabled();
   });
 });

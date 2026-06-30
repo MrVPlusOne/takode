@@ -92,7 +92,7 @@ describe("toSessionViewModel", () => {
     expect(vm.claimedQuestVerificationInboxUnread).toBe(true);
   });
 
-  it("uses configured Codex max context as the effective model context window", () => {
+  it("uses backend Codex token details as the effective model context window", () => {
     const sdk = {
       sessionId: "s31",
       state: "connected",
@@ -105,11 +105,11 @@ describe("toSessionViewModel", () => {
 
     const vm = toSessionViewModel(sdk);
 
-    expect(vm.modelContextWindow).toBe(600_000);
+    expect(vm.modelContextWindow).toBe(codexTokenDetails.modelContextWindow);
     expect(vm.codexMaxContextLength).toBe(600_000);
   });
 
-  it("uses live configured max context from SessionState ahead of token metadata", () => {
+  it("keeps live configured Codex max context separate from effective token metadata", () => {
     const session = {
       session_id: "s32",
       backend_type: "codex",
@@ -140,7 +140,7 @@ describe("toSessionViewModel", () => {
 
     const vm = toSessionViewModel(session);
 
-    expect(vm.modelContextWindow).toBe(750_000);
+    expect(vm.modelContextWindow).toBe(codexTokenDetails.modelContextWindow);
     expect(vm.codexMaxContextLength).toBe(750_000);
   });
 });
@@ -237,7 +237,7 @@ describe("coalesceSessionViewModel", () => {
     expect(vm?.agentTurnCount).toBe(9);
   });
 
-  it("keeps configured max context effective when live token details report the catalog default", () => {
+  it("keeps configured max context as raw metadata when live token details report the effective window", () => {
     const primary = {
       session_id: "s31",
       backend_type: "codex",
@@ -273,7 +273,7 @@ describe("coalesceSessionViewModel", () => {
 
     const vm = coalesceSessionViewModel(primary, fallback);
 
-    expect(vm?.modelContextWindow).toBe(600_000);
+    expect(vm?.modelContextWindow).toBe(codexTokenDetails.modelContextWindow);
     expect(vm?.codexMaxContextLength).toBe(600_000);
   });
 
@@ -329,13 +329,13 @@ describe("resolveEffectiveModelContextWindow", () => {
     ).toBe(258_400);
   });
 
-  it("keeps configured Claude max context ahead of default token metadata", () => {
+  it("uses backend token details ahead of configured Claude max context", () => {
     expect(
       resolveEffectiveModelContextWindow({
         backendType: "claude-sdk",
         claudeMaxContextLength: 1_000_000,
         claudeTokenDetailsModelContextWindow: 200_000,
       }),
-    ).toBe(1_000_000);
+    ).toBe(200_000);
   });
 });

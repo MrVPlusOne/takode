@@ -28,12 +28,14 @@ interface SessionPayloadStatsProps {
   contextPercent: number;
   contextWindow: number;
   contextWindowTitle?: string;
+  configuredContextWindow?: number | null;
   historyBytes: number;
   codexRetainedPayloadBytes: number;
   isCodexSession: boolean;
   lastActivityAt?: number;
   className?: string;
   highlightHighHistoryBytes?: boolean;
+  showContextStats?: boolean;
 }
 
 export function SessionPayloadStats({
@@ -41,12 +43,14 @@ export function SessionPayloadStats({
   contextPercent,
   contextWindow,
   contextWindowTitle,
+  configuredContextWindow,
   historyBytes,
   codexRetainedPayloadBytes,
   isCodexSession,
   lastActivityAt,
   className = "flex items-center gap-2 text-[11px] text-cc-muted",
   highlightHighHistoryBytes = false,
+  showContextStats = true,
 }: SessionPayloadStatsProps) {
   const items: Array<{ key: string; text: string; title?: string; className?: string }> = [];
 
@@ -57,18 +61,31 @@ export function SessionPayloadStats({
     });
   }
 
-  if (contextPercent > 0) {
+  if (showContextStats && contextPercent > 0) {
     items.push({
       key: "context",
       text: `${Math.round(contextPercent)}% context`,
     });
   }
 
-  if (contextWindow > 0) {
+  if (showContextStats && contextWindow > 0) {
     items.push({
       key: "context-window",
       text: formatContextWindowLabel(contextWindow),
       title: contextWindowTitle,
+    });
+  }
+
+  if (
+    showContextStats &&
+    configuredContextWindow &&
+    configuredContextWindow > 0 &&
+    configuredContextWindow !== contextWindow
+  ) {
+    items.push({
+      key: "configured-context-window",
+      text: `${formatContextWindowLabel(configuredContextWindow)} configured`,
+      title: "Raw configured max context. Codex may reserve part of it; /status reports the usable window.",
     });
   }
 
@@ -115,6 +132,41 @@ export function SessionPayloadStats({
           </span>
         </Fragment>
       ))}
+    </div>
+  );
+}
+
+export function SessionContextStats({
+  contextPercent,
+  contextWindow,
+  contextWindowTitle,
+  configuredContextWindow,
+  className = "flex flex-wrap items-center gap-2 text-[11px] text-cc-muted",
+}: {
+  contextPercent: number;
+  contextWindow: number;
+  contextWindowTitle?: string;
+  configuredContextWindow?: number | null;
+  className?: string;
+}) {
+  const hasContext = contextPercent > 0 || contextWindow > 0 || !!configuredContextWindow;
+  if (!hasContext) return null;
+
+  return (
+    <div className={className}>
+      {contextPercent > 0 && <span>{Math.round(contextPercent)}% context</span>}
+      {contextWindow > 0 && (
+        <span title={contextWindowTitle}>
+          {formatContextWindowLabel(contextWindow)}
+          <span className="ml-1 text-cc-muted/70">usable</span>
+        </span>
+      )}
+      {!!configuredContextWindow && configuredContextWindow > 0 && configuredContextWindow !== contextWindow && (
+        <span title="Raw configured max context. Codex may reserve part of it; /status reports the usable window.">
+          {formatContextWindowLabel(configuredContextWindow)}
+          <span className="ml-1 text-cc-muted/70">configured</span>
+        </span>
+      )}
     </div>
   );
 }
