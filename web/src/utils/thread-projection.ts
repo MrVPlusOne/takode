@@ -1,5 +1,6 @@
 import type {
   ChatMessage,
+  PendingCodexInput,
   SessionNotification,
   ThreadAttachmentMarker,
   ThreadAttachmentMovementSummary,
@@ -466,4 +467,33 @@ export function filterMessagesForThread(messages: ChatMessage[], threadKey: stri
   if (isAllThreadsKey(threadKey)) return messages;
   if (isMainThreadKey(threadKey)) return filterMainThreadMessages(messages);
   return filterQuestThreadMessages(messages, normalizeThreadKey(threadKey));
+}
+
+function pendingCodexInputOwnerKeys(input: PendingCodexInput): { mapped: boolean; keys: Set<string> } {
+  const directTarget = pendingThreadKey(input.threadKey ?? input.questId);
+  if (directTarget) return { mapped: true, keys: new Set([directTarget]) };
+
+  const keys = new Set<string>();
+  for (const ref of input.threadRefs ?? []) {
+    const refTarget = pendingThreadKey(ref.threadKey ?? ref.questId);
+    if (refTarget) keys.add(refTarget);
+  }
+  return { mapped: keys.size > 0, keys };
+}
+
+function pendingThreadKey(value: string | undefined): string | null {
+  if (!value?.trim()) return null;
+  const target = normalizeThreadTarget(value) ?? { threadKey: normalizeThreadKey(value) };
+  const key = normalizeThreadKey(target.threadKey);
+  return key || null;
+}
+
+export function filterPendingCodexInputsForThread(inputs: PendingCodexInput[], threadKey: string): PendingCodexInput[] {
+  const target = normalizeThreadKey(threadKey);
+  if (isAllThreadsKey(target)) return inputs;
+  return inputs.filter((input) => {
+    const owner = pendingCodexInputOwnerKeys(input);
+    if (!owner.mapped) return true;
+    return owner.keys.has(target);
+  });
 }

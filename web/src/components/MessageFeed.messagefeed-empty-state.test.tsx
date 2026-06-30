@@ -541,6 +541,114 @@ describe("MessageFeed - empty state", () => {
     expect(screen.getByText(/Steer the active turn toward auth fixes/)).toBeTruthy();
   });
 
+  // Pending delivery follows reliable thread metadata, while unmapped inputs
+  // stay visible so the UI does not hide a delivery state it cannot route.
+  it("shows routed pending Codex inputs in their owning thread tab", () => {
+    const sid = "test-pending-codex-owner-thread";
+    setStoreMessages(sid, []);
+    setStoreSessionBackend(sid, "codex");
+    setStorePendingCodexInputs(sid, [
+      {
+        id: "pending-1",
+        content: "Continue q-1546 implementation",
+        timestamp: Date.now(),
+        cancelable: true,
+        threadKey: "q-1546",
+        questId: "q-1546",
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1546" />);
+
+    expect(screen.queryByText("Start a conversation")).toBeNull();
+    expect(screen.getByText("Pending delivery")).toBeTruthy();
+    expect(screen.getByText(/Continue q-1546 implementation/)).toBeTruthy();
+  });
+
+  it("hides routed pending Codex inputs from unrelated thread tabs", () => {
+    const sid = "test-pending-codex-unrelated-thread";
+    setStoreMessages(sid, []);
+    setStoreSessionBackend(sid, "codex");
+    setStorePendingCodexInputs(sid, [
+      {
+        id: "pending-1",
+        content: "Continue q-1546 implementation",
+        timestamp: Date.now(),
+        cancelable: true,
+        threadKey: "q-1546",
+        questId: "q-1546",
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1536" />);
+
+    expect(screen.queryByText("Pending delivery")).toBeNull();
+    expect(screen.queryByText(/Continue q-1546 implementation/)).toBeNull();
+    expect(screen.getByText("Start a conversation")).toBeTruthy();
+  });
+
+  it("hides routed pending Codex inputs from Main when a quest thread owns them", () => {
+    const sid = "test-pending-codex-main-thread";
+    setStoreMessages(sid, []);
+    setStoreSessionBackend(sid, "codex");
+    setStorePendingCodexInputs(sid, [
+      {
+        id: "pending-1",
+        content: "Continue q-1546 implementation",
+        timestamp: Date.now(),
+        cancelable: true,
+        threadKey: "q-1546",
+        questId: "q-1546",
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+    expect(screen.queryByText("Pending delivery")).toBeNull();
+    expect(screen.queryByText(/Continue q-1546 implementation/)).toBeNull();
+    expect(screen.getByText("Start a conversation")).toBeTruthy();
+  });
+
+  it("keeps routed pending Codex inputs visible in All Threads", () => {
+    const sid = "test-pending-codex-all-threads";
+    setStoreMessages(sid, []);
+    setStoreSessionBackend(sid, "codex");
+    setStorePendingCodexInputs(sid, [
+      {
+        id: "pending-1",
+        content: "Continue q-1546 implementation",
+        timestamp: Date.now(),
+        cancelable: true,
+        threadKey: "q-1546",
+        questId: "q-1546",
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="all" />);
+
+    expect(screen.getByText("Pending delivery")).toBeTruthy();
+    expect(screen.getByText(/Continue q-1546 implementation/)).toBeTruthy();
+  });
+
+  it("keeps unmapped pending Codex inputs visible instead of guessing a thread", () => {
+    const sid = "test-pending-codex-unmapped";
+    setStoreMessages(sid, []);
+    setStoreSessionBackend(sid, "codex");
+    setStorePendingCodexInputs(sid, [
+      {
+        id: "pending-1",
+        content: "Preserve unknown-route pending input",
+        timestamp: Date.now(),
+        cancelable: true,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1536" />);
+
+    expect(screen.getByText("Pending delivery")).toBeTruthy();
+    expect(screen.getByText(/Preserve unknown-route pending input/)).toBeTruthy();
+  });
+
   it("renders pending local upload messages with immediate local image previews", () => {
     const sid = "test-pending-local-upload";
     setStoreMessages(sid, []);
