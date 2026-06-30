@@ -1,9 +1,17 @@
 import type { SidebarSessionItem } from "./sidebar-session-item.js";
 import { buildTreeViewGroups } from "./tree-grouping.js";
 import { isAttentionRecordActive } from "./attention-records.js";
+import { deriveEffectiveSessionAttentionStatus } from "./session-attention-status.js";
 import { MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
 import { normalizeLeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
-import type { TreeGroup, SessionTaskEntry, SdkSessionInfo, SessionAttentionRecord, SessionState } from "../types.js";
+import type {
+  TreeGroup,
+  SessionTaskEntry,
+  SdkSessionInfo,
+  SessionAttentionRecord,
+  SessionNotification,
+  SessionState,
+} from "../types.js";
 
 type SessionAttentionReason = "action" | "error" | "review" | null;
 
@@ -32,6 +40,7 @@ export interface SidebarVisibleSessionsInput {
   collapsedTreeGroups: Set<string>;
   expandedHerdNodes: Set<string>;
   sessionAttention: Map<string, SessionAttentionReason>;
+  sessionNotifications?: Map<string, SessionNotification[]>;
   sessionAttentionRecords?: Map<string, SessionAttentionRecord[]>;
   sessionSortMode: "created" | "activity";
   countUserPermissions: (perms: Map<string, unknown> | undefined) => number;
@@ -78,24 +87,42 @@ function hasOpenBlueThreadTab(
 export function deriveSessionSetAttention({
   sessionAttention,
   sdkSessions,
+  sessionNotifications,
   sessionAttentionRecords,
 }: {
   sessionAttention: Map<string, SessionAttentionReason>;
   sdkSessions: SdkSessionInfo[];
+  sessionNotifications?: Map<string, SessionNotification[]>;
   sessionAttentionRecords?: Map<string, SessionAttentionRecord[]>;
 }): Map<string, SessionAttentionReason> {
   const sdkById = new Map(sdkSessions.map((session) => [session.sessionId, session]));
   const result = new Map<string, SessionAttentionReason>();
-  for (const [sessionId, attention] of sessionAttention) {
+  const sessionIds = new Set<string>([...sessionAttention.keys(), ...(sessionNotifications?.keys() ?? [])]);
+  for (const sessionId of sessionIds) {
+    const attention = sessionAttention.get(sessionId) ?? null;
     const sdkSession = sdkById.get(sessionId);
-    if (attention === "review" && sdkSession?.isOrchestrator) {
+    if (attention === "error") {
+      result.set(sessionId, "error");
+      continue;
+    }
+    const effectiveStatus = deriveEffectiveSessionAttentionStatus({
+      sessionId,
+      notifications: sessionNotifications?.get(sessionId),
+      summary: sdkSession,
+      fallbackSummary: sdkSession,
+      fallbackUrgency: sdkSession?.notificationUrgency ?? null,
+      attention,
+    });
+    const nextAttention =
+      effectiveStatus?.urgency === "needs-input" ? "action" : effectiveStatus?.urgency === "review" ? "review" : null;
+    if (nextAttention === "review" && sdkSession?.isOrchestrator && !sessionNotifications?.has(sessionId)) {
       result.set(
         sessionId,
         hasOpenBlueThreadTab(sdkSession, sessionAttentionRecords?.get(sessionId) ?? []) ? "review" : null,
       );
       continue;
     }
-    result.set(sessionId, attention);
+    result.set(sessionId, nextAttention);
   }
   return result;
 }
@@ -116,11 +143,17 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
     collapsedTreeGroups,
     expandedHerdNodes,
     sessionAttention,
+    sessionNotifications,
     sessionAttentionRecords,
     sessionSortMode,
     countUserPermissions,
   } = input;
-  const sessionSetAttention = deriveSessionSetAttention({ sessionAttention, sdkSessions, sessionAttentionRecords });
+  const sessionSetAttention = deriveSessionSetAttention({
+    sessionAttention,
+    sdkSessions,
+    sessionNotifications,
+    sessionAttentionRecords,
+  });
 
   const allSessionIds = new Set<string>();
   const slackThreadChildIds = new Set<string>();

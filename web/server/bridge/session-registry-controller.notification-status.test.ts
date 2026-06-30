@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildPersistedSessionPayload,
+  clearAttentionAndMarkRead,
   getNotificationStatusSnapshot,
   markAllNotificationsDone,
   markNotificationDone,
@@ -242,6 +243,59 @@ describe("session notification status metadata", () => {
       activeReviewNotificationCount: 1,
       notificationStatusUpdatedAt: 1001,
     });
+  });
+
+  it("treats review notifications at or before lastReadAt as already read", () => {
+    const session = makeSession({
+      lastReadAt: 2000,
+      notifications: [
+        { id: "n-old-review", category: "review", summary: "Old review", timestamp: 1000, done: false },
+        { id: "n-new-review", category: "review", summary: "New review", timestamp: 3000, done: false },
+        { id: "n-input", category: "needs-input", summary: "Need answer", timestamp: 1000, done: false },
+      ],
+    });
+
+    expect(getNotificationStatusSnapshot(session)).toMatchObject({
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 2,
+      activeNeedsInputNotificationCount: 1,
+      activeReviewNotificationCount: 1,
+    });
+  });
+
+  it("marking a session read broadcasts a cleared review-notification status", () => {
+    const session = makeSession({
+      attentionReason: null,
+      notificationStatusVersion: 4,
+      notifications: [{ id: "n-review", category: "review", summary: "Review", timestamp: 1000, done: false }],
+    });
+    const deps = makeDeps();
+
+    clearAttentionAndMarkRead(session, deps);
+
+    expect(session.attentionReason).toBeNull();
+    expect(session.lastReadAt).toBeGreaterThanOrEqual(1000);
+    expect(session.notificationStatusVersion).toBe(5);
+    expect(getNotificationStatusSnapshot(session)).toMatchObject({
+      notificationUrgency: null,
+      activeNotificationCount: 0,
+      activeReviewNotificationCount: 0,
+    });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "notification_update",
+        notifications: [],
+        notificationStatusVersion: 5,
+      }),
+    );
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({ attentionReason: null, lastReadAt: session.lastReadAt }),
+      }),
+    );
   });
 
   it("counts muted needs-input separately from active attention", () => {

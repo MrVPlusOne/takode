@@ -62,11 +62,9 @@ function getEffectiveAttentionStatus({
   fallbackSummary: SessionAttentionSummary | undefined;
 }): EffectiveSessionAttentionStatus | null {
   if ((permCount ?? 0) > 0) return null;
-  const suppressStaleActionAttention =
-    attention === "action" &&
-    fallbackSummary?.notificationStatusVersion !== undefined &&
-    fallbackSummary.activeNotificationCount === 0;
-  if (suppressStaleActionAttention) return null;
+  const hasFreshClearedNotificationSummary =
+    fallbackSummary?.notificationStatusVersion !== undefined && fallbackSummary.activeNotificationCount === 0;
+  if ((attention === "action" || attention === "review") && hasFreshClearedNotificationSummary) return null;
   if (attention === "action") {
     return { urgency: "needs-input", count: getSummaryCount(fallbackSummary, "needs-input") };
   }

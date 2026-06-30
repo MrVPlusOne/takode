@@ -179,6 +179,134 @@ describe("buildSidebarVisibleSessions", () => {
     expect(result.treeViewGroups[0]?.unreadCount).toBe(0);
   });
 
+  it("uses a fresh cleared notification summary ahead of stale unread attention", () => {
+    const sessions = new Map<string, SessionState>([["leader", makeSessionState("leader")]]);
+    const sdkSessions: SdkSessionInfo[] = [
+      makeSdkSession("leader", {
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        mutedNeedsInputNotificationCount: 0,
+        notificationStatusVersion: 5,
+        notificationStatusUpdatedAt: 5000,
+      }),
+    ];
+
+    const result = buildSidebarVisibleSessions({
+      sessions,
+      sdkSessions,
+      cliConnected: new Map(),
+      cliDisconnectReason: new Map(),
+      sessionStatus: new Map(),
+      pendingPermissions: new Map(),
+      askPermission: new Map(),
+      diffFileStats: new Map(),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map(),
+      treeNodeOrder: new Map(),
+      collapsedTreeGroups: new Set(),
+      expandedHerdNodes: new Set(),
+      sessionAttention: new Map([["leader", "review"]]),
+      sessionNotifications: new Map([
+        [
+          "leader",
+          [
+            {
+              id: "n-review",
+              category: "review",
+              summary: "Stale review",
+              timestamp: 100,
+              done: false,
+              messageId: null,
+            },
+          ],
+        ],
+      ]),
+      sessionSortMode: "created",
+      countUserPermissions: () => 0,
+    });
+
+    expect(result.sessionSetAttention.get("leader")).toBeNull();
+    expect(result.treeViewGroups[0]?.unreadCount).toBe(0);
+  });
+
+  it("preserves active needs-input and muted-only attention semantics", () => {
+    const sessions = new Map<string, SessionState>([
+      ["needs-input", makeSessionState("needs-input")],
+      ["muted", makeSessionState("muted")],
+    ]);
+    const sdkSessions: SdkSessionInfo[] = [
+      makeSdkSession("needs-input", {
+        cliConnected: true,
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+        activeNeedsInputNotificationCount: 1,
+        notificationStatusVersion: 2,
+      }),
+      makeSdkSession("muted", {
+        cliConnected: true,
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        mutedNeedsInputNotificationCount: 1,
+        notificationStatusVersion: 3,
+      }),
+    ];
+
+    const result = buildSidebarVisibleSessions({
+      sessions,
+      sdkSessions,
+      cliConnected: new Map(),
+      cliDisconnectReason: new Map(),
+      sessionStatus: new Map(),
+      pendingPermissions: new Map(),
+      askPermission: new Map(),
+      diffFileStats: new Map(),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map(),
+      treeNodeOrder: new Map(),
+      collapsedTreeGroups: new Set(),
+      expandedHerdNodes: new Set(),
+      sessionAttention: new Map([
+        ["needs-input", "action"],
+        ["muted", null],
+      ]),
+      sessionNotifications: new Map([
+        [
+          "needs-input",
+          [
+            {
+              id: "n-input",
+              category: "needs-input",
+              summary: "Need answer",
+              timestamp: 100,
+              done: false,
+              messageId: null,
+            },
+          ],
+        ],
+        [
+          "muted",
+          [
+            {
+              id: "n-muted",
+              category: "needs-input",
+              summary: "Muted answer",
+              timestamp: 100,
+              done: false,
+              messageId: null,
+              muted: true,
+            },
+          ],
+        ],
+      ]),
+      sessionSortMode: "created",
+      countUserPermissions: () => 0,
+    });
+
+    expect(result.sessionSetAttention.get("needs-input")).toBe("action");
+    expect(result.sessionSetAttention.get("muted")).toBeNull();
+    expect(result.treeViewGroups[0]?.unreadCount).toBe(1);
+  });
+
   it("filters hidden Side Chat child sessions that only exist in frontend store state", () => {
     const sessions = new Map<string, SessionState>([
       ["root", makeSessionState("root")],

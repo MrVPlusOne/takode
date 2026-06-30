@@ -91,9 +91,16 @@ export function setAttention(
 }
 
 export function clearAttentionAndMarkRead(session: SessionLike, deps: PersistNotificationDeps): void {
-  if (session.attentionReason === null) return;
+  const hadUnreadReviewNotifications = getActionableSessionNotifications(session).some(
+    (notification) => notification.category === "review" && !notification.done,
+  );
+  if (session.attentionReason === null && !hadUnreadReviewNotifications) return;
   session.attentionReason = null;
   session.lastReadAt = Date.now();
+  if (hadUnreadReviewNotifications) {
+    touchNotificationStatus(session);
+    deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
+  }
   deps.broadcastToBrowsers?.(session, {
     type: "session_update",
     session: { attentionReason: null, lastReadAt: session.lastReadAt },
@@ -124,8 +131,18 @@ function isActionableSessionNotification(notification: Pick<SessionNotification,
   return notification.category === "needs-input" || notification.category === "review";
 }
 
+function isReadReviewNotification(session: SessionLike, notification: SessionNotification): boolean {
+  if (notification.category !== "review") return false;
+  const timestamp = Number(notification.timestamp ?? 0);
+  const lastReadAt = normalizeStatusNumber(session.lastReadAt, 0);
+  return timestamp > 0 && lastReadAt >= timestamp;
+}
+
 function getActionableSessionNotifications(session: SessionLike): SessionNotification[] {
-  return (session.notifications ?? []).filter(isActionableSessionNotification);
+  return (session.notifications ?? []).filter(
+    (notification: SessionNotification) =>
+      isActionableSessionNotification(notification) && !isReadReviewNotification(session, notification),
+  );
 }
 
 export function getNotificationStatusSnapshot(session: SessionLike): NotificationStatusSnapshot {

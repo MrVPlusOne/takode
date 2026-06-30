@@ -289,6 +289,41 @@ describe("SessionHoverCard", () => {
     expect(screen.queryByTestId("session-hover-attention-status")).toBeNull();
   });
 
+  it("does not explain stale unread conversations after a newer cleared summary", () => {
+    // Selecting/reading a session can clear unread review status before this
+    // browser refreshes an older cached full notification inbox. The hover card
+    // must follow the fresh cleared summary, not the stale blue count.
+    mockStoreState.sessionNotifications.set("s1", [
+      { id: "n-review", category: "review", summary: "Review", timestamp: Date.now(), done: false },
+    ]);
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        notificationStatusVersion: 5,
+        notificationStatusUpdatedAt: 5000,
+      },
+    ];
+
+    render(
+      <SessionHoverCard
+        session={makeSession({ notificationUrgency: "review", activeNotificationCount: 8 })}
+        sessionName="Cleared Unread Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText(/unread conversation/i)).toBeNull();
+    expect(screen.queryByTestId("session-hover-attention-status")).toBeNull();
+  });
+
   it("does not explain stale action attention after notification status is cleared", () => {
     // Raw sessionAttention can outlive the versioned notification summary; the
     // hover card should match the row's effective action-attention suppression.
