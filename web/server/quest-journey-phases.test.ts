@@ -455,6 +455,12 @@ describe("Quest Journey phase directory loading", () => {
     // Port is intentionally narrow. Final durable-state closure belongs in Memory.
     expect(portPhase?.leaderBrief).toContain("Treat Port as optional and narrow");
     expect(portPhase?.leaderBrief).toContain("does not own final Memory closure");
+    expect(portPhase?.leaderBrief).toContain("selected target checkout");
+    expect(portPhase?.leaderBrief).toContain("target used, synced SHAs, and risks");
+    expect(portPhase?.leaderBrief).toContain("Remote-backed mode uses the base repo checkout as the selected target");
+    expect(portPhase?.leaderBrief).toContain("Worktree-target mode uses the injected `Port target worktree`");
+    expect(portPhase?.leaderBrief).toContain("must not be described as syncing to the base/main repo checkout");
+    expect(portPhase?.leaderBrief).not.toContain("verifies the main repo after sync");
     expect(portPhase?.leaderBrief).toContain("advance to final Memory with the deferral context");
     expect(portPhase?.leaderBrief).toContain("Every non-cancelled quest should finish in final Memory");
     expect(portPhase?.leaderBrief).toContain("context-specific memory deltas");
@@ -466,6 +472,13 @@ describe("Quest Journey phase directory loading", () => {
     expect(portPhase?.leaderBrief).toContain("route a curator");
     expect(portPhase?.leaderBrief).not.toContain("Require `memory catalog show`");
     expect(portPhase?.assigneeBrief).toContain("Do not treat Port as final quest closure");
+    expect(portPhase?.assigneeBrief).toContain("selected port target");
+    expect(portPhase?.assigneeBrief).toContain("selected target checkout");
+    expect(portPhase?.assigneeBrief).toContain("Remote-backed mode uses the base repo checkout as the selected target");
+    expect(portPhase?.assigneeBrief).toContain("Worktree-target mode uses the injected `Port target worktree`");
+    expect(portPhase?.assigneeBrief).toContain("must not assume the base repo checkout is the target");
+    expect(portPhase?.assigneeBrief).not.toContain("syncing accepted git-tracked work back to the main repo");
+    expect(portPhase?.assigneeBrief).not.toContain("ordered synced SHAs from the main repo");
     expect(portPhase?.assigneeBrief).toContain("advance to final Memory after Port");
     expect(portPhase?.assigneeBrief).toContain("accepted-state summary");
     expect(portPhase?.assigneeBrief).toContain("memory catalog show");
@@ -481,7 +494,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(portPhase?.assigneeBrief).not.toContain("memory doctor");
     expect(portPhase?.assigneeBrief).not.toContain("memory diff");
     expect(portPhase?.assigneeBrief).not.toContain("memory commit");
-    expect(portPhase?.assigneeBrief).toContain("Document ordered synced SHAs");
+    expect(portPhase?.assigneeBrief).toContain("Document the selected target used, ordered synced SHAs");
     expect(portPhase?.assigneeBrief).toContain("accepted-state or memory-specific context");
   });
 
@@ -494,7 +507,7 @@ describe("Quest Journey phase directory loading", () => {
 
     expect(portPhase?.leaderBrief).toContain("strong Port verification gate for tracked code/test changes");
     expect(portPhase?.leaderBrief).toContain("focused affected tests plus full `bun --no-install run test`");
-    expect(portPhase?.leaderBrief).toContain("before push");
+    expect(portPhase?.leaderBrief).toContain("in the selected target before push or worktree-target handoff");
     expect(portPhase?.leaderBrief).toContain("explicit infeasibility exception");
     expect(portPhase?.leaderBrief).toContain("route the worker back to fix it");
     expect(portPhase?.leaderBrief).toContain("open an immediate fix quest");
@@ -502,9 +515,10 @@ describe("Quest Journey phase directory loading", () => {
 
     expect(portPhase?.assigneeBrief).toContain("strong Port verification gate by default");
     expect(portPhase?.assigneeBrief).toContain("focused affected tests plus full `bun --no-install run test`");
-    expect(portPhase?.assigneeBrief).toContain("before pushing");
+    expect(portPhase?.assigneeBrief).toContain("accepted changes are applied to the selected target");
+    expect(portPhase?.assigneeBrief).toContain("before push or worktree-target handoff");
     expect(portPhase?.assigneeBrief).toContain("skipped or failed full-suite evidence");
-    expect(portPhase?.assigneeBrief).toContain("pre-push and post-push verification results");
+    expect(portPhase?.assigneeBrief).toContain("pre-push/pre-handoff and post-sync verification results");
     expect(portPhase?.assigneeBrief).toContain("Keep the dedicated `Synced SHAs:` line");
     expect(portPhase?.assigneeBrief).toContain("out of TLDR metadata");
   });

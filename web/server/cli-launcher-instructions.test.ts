@@ -140,6 +140,28 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Port target source: #7 Leader WT");
   });
 
+  it("renders explicit leader worktree targets from worker sync metadata", () => {
+    const result = buildCompanionInstructions({
+      worktree: {
+        branch: "main-wt-5892-wt-6573",
+        parentBranch: "main-wt-5892",
+        repoRoot: "/Users/jiayiwei/Code/yolo",
+        portTarget: {
+          repoRoot: "/Users/jiayiwei/Code/yolo",
+          branch: "main-wt-5892",
+          worktreePath: "/Users/jiayiwei/.companion/worktrees/yolo/main-wt-5892",
+          sourceSessionNum: 2078,
+          sourceLabel: "#2078 QA Data Leader",
+        },
+      },
+    });
+
+    expect(result).toContain("Base repo checkout: `/Users/jiayiwei/Code/yolo`");
+    expect(result).toContain("Base branch / port target: `main-wt-5892`");
+    expect(result).toContain("Port target worktree: `/Users/jiayiwei/.companion/worktrees/yolo/main-wt-5892`");
+    expect(result).toContain("Port target source: #2078 QA Data Leader");
+  });
+
   it("orders leader needs-input notifications after explicit user-visible text", () => {
     const result = buildCompanionInstructions({ sessionNum: 1, backend: "codex" });
     // Agents must make the actual question or decision visible before firing

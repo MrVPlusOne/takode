@@ -242,6 +242,188 @@ describe("takode spawn", () => {
     });
   });
 
+  it("preserves leader worktree port target when explicit cwd is the leader worktree", async () => {
+    const leaderWorktree = "/Users/jiayiwei/.companion/worktrees/yolo/main-wt-5892";
+    const createBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-yolo-worktree", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/leader-yolo-worktree") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "leader-yolo-worktree",
+            sessionNum: 2078,
+            name: "QA Data Leader",
+            permissionMode: "codex-full-access",
+            backendType: "codex",
+            cwd: leaderWorktree,
+            isWorktree: true,
+            repoRoot: "/Users/jiayiwei/Code/yolo",
+            branch: "main",
+            actualBranch: "main-wt-5892",
+            gitBranch: "main-wt-5892",
+          }),
+        );
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/create") {
+        createBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-yolo-worktree" }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/worker-yolo-worktree/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "worker-yolo-worktree",
+            sessionNum: 2097,
+            name: "Build V0 QA extraction pipeline",
+            state: "running",
+            backendType: "codex",
+            cwd: "/Users/jiayiwei/.companion/worktrees/yolo/main-wt-5892-wt-6573",
+            createdAt: Date.now(),
+            cliConnected: true,
+            isGenerating: false,
+            isWorktree: true,
+            branch: "main-wt-5892",
+            actualBranch: "main-wt-5892-wt-6573",
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(["spawn", "--port", String(port), "--cwd", leaderWorktree], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-yolo-worktree",
+      COMPANION_AUTH_TOKEN: "auth-yolo-worktree",
+    });
+
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(createBodies).toHaveLength(1);
+    expect(createBodies[0]).toEqual({
+      backend: "codex",
+      cwd: leaderWorktree,
+      useWorktree: true,
+      createdBy: "leader-yolo-worktree",
+      branch: "main-wt-5892",
+      worktreePortTarget: {
+        repoRoot: "/Users/jiayiwei/Code/yolo",
+        branch: "main-wt-5892",
+        worktreePath: leaderWorktree,
+        sourceSessionId: "leader-yolo-worktree",
+        sourceSessionNum: 2078,
+        sourceLabel: "#2078 QA Data Leader",
+      },
+      permissionMode: "codex-full-access",
+    });
+  });
+
+  it("keeps explicit cwd outside the leader worktree as caller-selected", async () => {
+    const createBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-other-cwd", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/leader-other-cwd") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "leader-other-cwd",
+            sessionNum: 7,
+            name: "Leader WT",
+            permissionMode: "plan",
+            backendType: "claude",
+            cwd: "/worktrees/project/main-wt-7758",
+            isWorktree: true,
+            repoRoot: "/repo/project",
+            branch: "main",
+            actualBranch: "main-wt-7758",
+          }),
+        );
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/create") {
+        createBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-other-cwd" }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/worker-other-cwd/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "worker-other-cwd",
+            sessionNum: 78,
+            name: "Worker Other Cwd",
+            state: "running",
+            backendType: "claude",
+            cwd: "/tmp/other-repo-wt",
+            createdAt: Date.now(),
+            cliConnected: true,
+            isGenerating: false,
+            isWorktree: true,
+            branch: "feature",
+            actualBranch: "feature-wt-1234",
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(["spawn", "--port", String(port), "--cwd", "/tmp/other-repo"], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-other-cwd",
+      COMPANION_AUTH_TOKEN: "auth-other-cwd",
+    });
+
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(createBodies).toHaveLength(1);
+    expect(createBodies[0]).toEqual({
+      backend: "claude",
+      cwd: "/tmp/other-repo",
+      useWorktree: true,
+      createdBy: "leader-other-cwd",
+    });
+  });
+
   it("inherits memory session-space from the leader for workers and from the parent for reviewers", async () => {
     const createBodies: JsonObject[] = [];
     const created = [{ sessionId: "worker-space" }, { sessionId: "reviewer-space" }];

@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { HerdSessionsResponse } from "../shared/herd-types.ts";
 import { HERD_WORKER_SLOT_LIMIT, TAKODE_PEEK_CONTENT_LIMIT, formatQuotedContent } from "../shared/takode-constants.ts";
 import { isValidQuestId } from "../shared/quest-journey.ts";
@@ -684,7 +685,8 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     err(`Invalid backend: ${backendRaw}. Expected "claude", "codex", or "claude-sdk".`);
   }
 
-  let cwd = typeof flags.cwd === "string" ? flags.cwd : process.cwd();
+  const explicitCwd = typeof flags.cwd === "string" ? flags.cwd : undefined;
+  let cwd = explicitCwd ?? process.cwd();
   const useWorktree = flags["no-worktree"] === true ? false : true;
   const fixedName = typeof flags["fixed-name"] === "string" ? flags["fixed-name"].trim() : "";
   if (flags["fixed-name"] !== undefined && !fixedName) {
@@ -707,8 +709,12 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     leader.isWorktree === true
       ? (leader.actualBranch || leader.gitBranch || leader.branch || "").trim() || undefined
       : undefined;
+  const explicitCwdMatchesLeaderWorktree =
+    explicitCwd !== undefined && leader.cwd ? resolve(explicitCwd) === resolve(leader.cwd) : false;
   const shouldUseLeaderWorktreeTarget =
-    leaderWorktreeTargetBranch !== undefined && useWorktree && typeof flags.cwd !== "string";
+    leaderWorktreeTargetBranch !== undefined &&
+    useWorktree &&
+    (explicitCwd === undefined || explicitCwdMatchesLeaderWorktree);
 
   // --reviewer <session-number>: create a reviewer session tied to a parent worker
   const reviewerRaw = flags.reviewer;

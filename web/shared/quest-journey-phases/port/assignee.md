@@ -1,11 +1,12 @@
 # Port -- Assignee Brief
 
-You are syncing accepted git-tracked work back to the main repo.
+You are syncing accepted git-tracked work to the selected port target.
 
 Boundary:
-- Port the accepted tracked changes and report ordered synced SHAs from the main repo.
-- For tracked code/test changes, use the strong Port verification gate by default: after the accepted changes are applied to the main repo and before pushing, run focused affected tests plus full `bun --no-install run test`, `bun --no-install run typecheck`, and `bun --no-install run format:check` unless an explicit infeasibility exception is visible before final acceptance.
-- After push/reset, run the required sync verification and any reruns the handoff or pre-push evidence makes necessary.
+- Port the accepted tracked changes and report ordered synced SHAs from the selected target checkout.
+- Resolve the target mode from `/port-changes` context before mutating anything. Remote-backed mode uses the base repo checkout as the selected target and normally pushes after verification. Worktree-target mode uses the injected `Port target worktree` as the selected target and must not assume the base repo checkout is the target.
+- For tracked code/test changes, use the strong Port verification gate by default: after the accepted changes are applied to the selected target and before push or worktree-target handoff, run focused affected tests plus full `bun --no-install run test`, `bun --no-install run typecheck`, and `bun --no-install run format:check` unless an explicit infeasibility exception is visible before final acceptance.
+- After push/reset or worktree-target handoff/reset, run the required sync verification and any reruns the handoff, pre-push, or pre-handoff evidence makes necessary.
 - Do not invent port commentary for zero-tracked-change quests whose Journey omitted `port`.
 - Do not treat Port as final quest closure. Every non-cancelled quest should advance to final Memory after Port, where final debrief metadata and durable-state closure are settled.
 - If Port has context Memory will need, include a concise accepted-state summary, final debrief draft, or debrief TLDR draft in your report. A Port handoff should make Memory cheap, but Port does not replace Memory.
@@ -13,7 +14,7 @@ Boundary:
 
 Verification failure routing:
 - If full `bun --no-install run test` fails and the failure is likely related to the current quest or port, the quest cannot be marked done until the worker fixes it and the gate is rerun.
-- If the full-suite failure appears unrelated to the current port, make the red-main risk explicit in the Port report. The leader should open an immediate fix quest unless there is already an active quest for that failure being worked by another leader.
+- If the full-suite failure appears unrelated to the current port, make the red selected-target risk explicit in the Port report. The leader should open an immediate fix quest unless there is already an active quest for that failure being worked by another leader.
 - Preserve proportional verification, but never let skipped or failed full-suite evidence be silent. A focused-only Port is acceptable only with an explicit infeasibility exception or a leader/user-approved non-code/test scope.
 
 File-based memory:
@@ -32,7 +33,7 @@ Phase documentation:
 - If context was compacted during this phase, or if memory confidence is low, reconstruct the relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, use working memory and current artifacts instead of unnecessary session archaeology.
 - Optional checkpoint: after a valuable nontrivial phase outcome is ready, you may run `takode worker-stream` so the leader can start reading while you finish required paperwork. This does not replace phase documentation, final debrief ownership, or stopping at the phase boundary.
 - When referencing repository files in quest feedback or phase documentation, prefer Takode file-link syntax such as `[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)`; standard Markdown file links are best-effort fallback only.
-- Document ordered synced SHAs, pre-push and post-push verification categories, port anomalies, remaining sync risks, and any accepted-state or memory-specific context final Memory will need. Keep the dedicated `Synced SHAs: sha1,sha2` report line separate for leader bookkeeping and out of TLDR metadata; omit branch command transcripts unless recovery depended on them. Leave final User review check settlement to Memory.
+- Document the selected target used, ordered synced SHAs, pre-push/pre-handoff and post-sync verification categories, port anomalies, remaining sync risks, and any accepted-state or memory-specific context final Memory will need. Keep the dedicated `Synced SHAs: sha1,sha2` report line separate for leader bookkeeping and out of TLDR metadata; omit branch command transcripts unless recovery depended on them. Leave final User review check settlement to Memory.
 
 Deliverable:
-- Return synced SHAs, pre-push and post-push verification results, any accepted-state or memory-specific context final Memory will need, and stop.
+- Return the selected target used, synced SHAs, pre-push/pre-handoff and post-sync verification results, any accepted-state or memory-specific context final Memory will need, and stop.
