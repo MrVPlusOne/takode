@@ -2,6 +2,8 @@ import type { RefObject } from "react";
 import { UserMessageNavigator } from "./UserMessageNavigator.js";
 import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
 
+const DESKTOP_NAV_STACK_BOTTOM_CLASS = "bottom-16";
+
 interface MessageFeedNavigationControlsProps {
   showScrollButton: boolean;
   navFabStackClassName: string;
@@ -51,7 +53,7 @@ export function MessageFeedNavigationControls({
   return (
     <div
       data-testid="message-feed-nav-fabs"
-      className={`absolute bottom-3 right-3 z-10 flex flex-col items-center transition-opacity duration-300 ${navFabStackClassName}`}
+      className={`absolute ${DESKTOP_NAV_STACK_BOTTOM_CLASS} right-3 z-10 flex flex-col items-center transition-opacity duration-300 ${navFabStackClassName}`}
       style={isTouch ? { bottom: `${mobileNavBottomOffsetPx}px` } : undefined}
     >
       <button onClick={onScrollToTop} className={navFabButtonClassName} title="Go to top" aria-label="Go to top">

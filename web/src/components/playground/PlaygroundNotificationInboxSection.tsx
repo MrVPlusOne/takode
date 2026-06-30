@@ -297,7 +297,7 @@ export function PlaygroundNotificationInboxSection() {
               targets, and float above the lower-right status chips instead of colliding with them.
             </p>
             <div className="relative h-32 rounded-lg border border-cc-border bg-cc-bg overflow-hidden">
-              <div className="absolute right-2 flex flex-col gap-2" style={{ bottom: "42px" }}>
+              <div className="absolute right-2 flex flex-col gap-2" style={{ bottom: "64px" }}>
                 <button
                   type="button"
                   className="h-10 w-10 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted"
