@@ -17,6 +17,26 @@ const ORCHESTRATION_DESIGN_SKILL_PATH = join(
 const SKEPTIC_REVIEW_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "skeptic-review", "SKILL.md");
 const WORKTREE_RULES_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "worktree-rules", "SKILL.md");
 const LEADER_DISPATCH_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "leader-dispatch", "SKILL.md");
+const LEADER_DISPATCH_EDGE_CASES_PATH = join(
+  SERVER_DIR,
+  "..",
+  "..",
+  ".claude",
+  "skills",
+  "leader-dispatch",
+  "references",
+  "edge-cases.md",
+);
+const LEADER_DISPATCH_PHASE_HANDOFF_EXAMPLES_PATH = join(
+  SERVER_DIR,
+  "..",
+  "..",
+  ".claude",
+  "skills",
+  "leader-dispatch",
+  "references",
+  "phase-handoff-examples.md",
+);
 const QUEST_SKILL_TEMPLATE_PATH = join(SERVER_DIR, "templates", "quest-skill-docs.md");
 const REPO_ROOT = join(SERVER_DIR, "..", "..");
 const QUEST_JOURNEY_SKILL_SLUGS = [
@@ -124,21 +144,36 @@ describe("index startup skill registration", () => {
     ).rejects.toThrow();
   });
 
-  it("keeps leader handoffs focused on phase-specific deltas", async () => {
-    const source = await readFile(LEADER_DISPATCH_SKILL_PATH, "utf-8");
+  it("keeps leader dispatch hot path compact while preserving handoff references", async () => {
+    const [source, edgeCases, phaseExamples, worktreeRules] = await Promise.all([
+      readFile(LEADER_DISPATCH_SKILL_PATH, "utf-8"),
+      readFile(LEADER_DISPATCH_EDGE_CASES_PATH, "utf-8"),
+      readFile(LEADER_DISPATCH_PHASE_HANDOFF_EXAMPLES_PATH, "utf-8"),
+      readFile(WORKTREE_RULES_SKILL_PATH, "utf-8"),
+    ]);
 
-    expect(source).toContain("Memory command mechanics live in the relevant phase briefs");
-    expect(source).toContain("include only memory-specific deltas");
-    expect(source).toContain("Non-Memory phases should not add routine `memory update not needed` statements");
-    expect(source).toContain("memory record frontmatter `source`");
-    expect(source).toContain("should not routinely add `commit:*` or `session:*` sources");
-    expect(source).toContain("The Port assignee brief owns the standard report shape");
-    expect(source).toContain("Your handoff should add only context-dependent deltas");
-    expect(source).toContain("Leader-specific deltas for this port");
-    expect(source).toContain("do not narrow below the strong Port verification gate");
-    expect(source).toContain("focused affected tests plus full `bun --no-install run test`");
-    expect(source).toContain("route the worker back to fix it before the quest can be marked done");
-    expect(source).toContain("open an immediate fix quest");
+    expect(source).toContain("This section is the visible reference catalog");
+    expect(source).toContain("ordinary Markdown reference headings are not loaded until you read the file");
+    expect(source).toContain("references/edge-cases.md");
+    expect(source).toContain("memory-specific handoff/completion deltas");
+    expect(source).toContain("references/phase-handoff-examples.md");
+    expect(source).toContain("Read this phase brief first:");
+    expect(source).toContain("Provide only deltas the assignee cannot infer");
+    expect(source).not.toContain("Memory command mechanics live in the relevant phase briefs");
+
+    expect(edgeCases).toContain("## Memory-Specific Dispatch Deltas");
+    expect(edgeCases).toContain("Final Memory owns durable-state closure");
+    expect(edgeCases).toContain("Do not require routine `memory update not needed` statements");
+    expect(edgeCases).not.toContain("Read this reference only when");
+
+    expect(phaseExamples).toContain("## Port");
+    expect(phaseExamples).toContain("Include a dedicated `Synced SHAs: sha1,sha2` line");
+    expect(phaseExamples).toContain("Leader-specific deltas: <accepted refs");
+    expect(phaseExamples).not.toContain("Read this reference only when");
+
+    expect(worktreeRules).toContain("Do not silently narrow the gate to focused tests");
+    expect(worktreeRules).toContain("route the worker back to fix it before the quest can be marked done");
+    expect(worktreeRules).toContain("open an immediate fix quest");
   });
 
   it("keeps skeptic-review summary creation guidance from teaching lossy long summaries", async () => {
