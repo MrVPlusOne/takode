@@ -1,13 +1,5 @@
 # Leader Dispatch Edge Cases
 
-Read this reference only when the dispatch or phase handoff involves one of these cases:
-
-- human feedback rework or stale in-flight completions
-- screenshots, generated images, image-heavy browser evidence, or 413/payload recovery
-- worker/reviewer file links that the user should inspect before Port
-- memory-specific dispatch deltas or final completion-summary details
-- a phase handoff where the hot-path checklist is not enough
-
 ## Human Feedback Rework
 
 Fresh human feedback overrides stale in-flight work. If new human feedback lands while a quest is on the board or while an older review/port turn is still completing:

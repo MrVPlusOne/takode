@@ -1,6 +1,6 @@
 # Phase Handoff Examples
 
-Read this reference only when you need concrete phrasing. Keep actual handoffs shorter and include only context-dependent deltas.
+Keep actual handoffs shorter than these examples and include only context-dependent deltas.
 
 ## Implement
 
