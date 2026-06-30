@@ -105,37 +105,94 @@ function collectStarredCandidates(doc: GlobalStarredMessageSearchDocument): Star
   const starredEntries = Object.values(doc.starredMessages ?? {});
   if (starredEntries.length === 0) return [];
   const history = doc.messageHistory ?? [];
-  const excerptById = buildExcerptById(doc.searchExcerpts ?? []);
-  const historyById = history.length > 0 ? buildHistoryById(history) : null;
-
   const candidates: StarredCandidate[] = [];
+  const unresolved: StarredMessageRecord[] = [];
+
   for (const record of starredEntries) {
     if (!record.messageId || (record.role !== "user" && record.role !== "assistant")) continue;
-    const text = resolveStarredText({ record, history, historyById, excerptById });
-    if (!text.trim()) continue;
-    candidates.push({ doc, record, text });
+    const indexedText = textForStableStarRecord(history[record.historyIndex], record);
+    if (addCandidateIfText(candidates, doc, record, indexedText)) continue;
+    unresolved.push(record);
   }
+
+  const unresolvedAfterHistory =
+    unresolved.length > 0 && history.length > 0
+      ? resolveFromHistoryByStarIds(history, unresolved, doc, candidates)
+      : unresolved;
+  if (unresolvedAfterHistory.length > 0) {
+    resolveFromExcerptsByStarIds(doc.searchExcerpts ?? [], unresolvedAfterHistory, doc, candidates);
+  }
+
   return candidates;
 }
 
-function resolveStarredText(input: {
-  record: StarredMessageRecord;
-  history: ReadonlyArray<BrowserIncomingMessage>;
-  historyById: Map<string, BrowserIncomingMessage> | null;
-  excerptById: Map<string, SearchExcerpt>;
-}): string {
-  const indexed = input.history[input.record.historyIndex];
-  const indexedText = textForStableStarRecord(indexed, input.record);
-  if (indexedText) return indexedText;
+function addCandidateIfText(
+  candidates: StarredCandidate[],
+  doc: GlobalStarredMessageSearchDocument,
+  record: StarredMessageRecord,
+  text: string | null | undefined,
+): boolean {
+  if (!text?.trim()) return false;
+  candidates.push({ doc, record, text });
+  return true;
+}
 
-  const byId = input.historyById?.get(input.record.messageId);
-  const byIdText = textForStableStarRecord(byId, input.record);
-  if (byIdText) return byIdText;
+function resolveFromHistoryByStarIds(
+  history: ReadonlyArray<BrowserIncomingMessage>,
+  records: StarredMessageRecord[],
+  doc: GlobalStarredMessageSearchDocument,
+  candidates: StarredCandidate[],
+): StarredMessageRecord[] {
+  const unresolvedById = recordsByMessageId(records);
+  for (let index = 0; index < history.length && unresolvedById.size > 0; index++) {
+    const message = history[index];
+    const id = rawMessageId(message);
+    if (!id) continue;
+    const matches = unresolvedById.get(id);
+    if (!matches) continue;
+    for (const record of matches) {
+      addCandidateIfText(candidates, doc, record, textForStableStarRecord(message, record));
+    }
+    unresolvedById.delete(id);
+  }
+  return [...unresolvedById.values()].flat();
+}
 
-  const excerpt = input.excerptById.get(input.record.messageId);
-  if (!excerpt) return "";
-  if (input.record.role === "user" && excerpt.type !== "user_message") return "";
-  if (input.record.role === "assistant" && excerpt.type !== "assistant") return "";
+function resolveFromExcerptsByStarIds(
+  excerpts: SearchExcerpt[],
+  records: StarredMessageRecord[],
+  doc: GlobalStarredMessageSearchDocument,
+  candidates: StarredCandidate[],
+): void {
+  const unresolvedById = recordsByMessageId(records);
+  for (let index = 0; index < excerpts.length && unresolvedById.size > 0; index++) {
+    const excerpt = excerpts[index];
+    if (!excerpt.id) continue;
+    const matches = unresolvedById.get(excerpt.id);
+    if (!matches) continue;
+    for (const record of matches) {
+      addCandidateIfText(candidates, doc, record, textForExcerptRecord(excerpt, record));
+    }
+    unresolvedById.delete(excerpt.id);
+  }
+}
+
+function recordsByMessageId(records: StarredMessageRecord[]): Map<string, StarredMessageRecord[]> {
+  const byId = new Map<string, StarredMessageRecord[]>();
+  for (const record of records) {
+    const existing = byId.get(record.messageId);
+    if (existing) {
+      existing.push(record);
+    } else {
+      byId.set(record.messageId, [record]);
+    }
+  }
+  return byId;
+}
+
+function textForExcerptRecord(excerpt: SearchExcerpt, record: StarredMessageRecord): string | null {
+  if (record.role === "user" && excerpt.type !== "user_message") return null;
+  if (record.role === "assistant" && excerpt.type !== "assistant") return null;
   return excerpt.content;
 }
 
@@ -203,23 +260,6 @@ function compareStarredRecency(left: StarredCandidate, right: StarredCandidate):
     right.record.timestamp - left.record.timestamp ||
     right.record.historyIndex - left.record.historyIndex
   );
-}
-
-function buildHistoryById(history: ReadonlyArray<BrowserIncomingMessage>): Map<string, BrowserIncomingMessage> {
-  const byId = new Map<string, BrowserIncomingMessage>();
-  for (const message of history) {
-    const id = rawMessageId(message);
-    if (id) byId.set(id, message);
-  }
-  return byId;
-}
-
-function buildExcerptById(excerpts: SearchExcerpt[]): Map<string, SearchExcerpt> {
-  const byId = new Map<string, SearchExcerpt>();
-  for (const excerpt of excerpts) {
-    if (excerpt.id) byId.set(excerpt.id, excerpt);
-  }
-  return byId;
 }
 
 function rawMessageId(message: BrowserIncomingMessage): string | null {

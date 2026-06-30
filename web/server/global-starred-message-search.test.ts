@@ -160,6 +160,48 @@ describe("searchGlobalStarredMessages", () => {
     });
   });
 
+  it("does not iterate full history when a starred record resolves by direct history index", () => {
+    const history = new Proxy([user("direct-star", "direct indexed starred note", 10)], {
+      get(target, prop, receiver) {
+        if (prop === Symbol.iterator) throw new Error("full history iteration should not run");
+        return Reflect.get(target, prop, receiver);
+      },
+    }) as BrowserIncomingMessage[];
+
+    const response = searchGlobalStarredMessages({
+      docs: [
+        doc({
+          messageHistory: history,
+          starredMessages: { "direct-star": star("direct-star", "user", 0, 10, 100) },
+        }),
+      ],
+    });
+
+    expect(response.results.map((result) => result.messageId)).toEqual(["direct-star"]);
+  });
+
+  it("stops archived excerpt fallback once all unresolved starred IDs are found", () => {
+    const searchExcerpts = [
+      { type: "user_message" as const, id: "archived-star", content: "archived starred note", timestamp: 20 },
+    ];
+    Object.defineProperty(searchExcerpts, "1", {
+      get() {
+        throw new Error("unrelated archived excerpt tail should not be read");
+      },
+    });
+
+    const response = searchGlobalStarredMessages({
+      docs: [
+        doc({
+          searchExcerpts,
+          starredMessages: { "archived-star": star("archived-star", "user", 9, 20, 100) },
+        }),
+      ],
+    });
+
+    expect(response.results.map((result) => result.messageId)).toEqual(["archived-star"]);
+  });
+
   it("ignores stale sidecar records when neither history nor excerpts can resolve the stable target", () => {
     const response = searchGlobalStarredMessages({
       docs: [
