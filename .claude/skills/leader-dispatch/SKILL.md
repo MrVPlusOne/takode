@@ -5,267 +5,127 @@ description: "Dispatch workflow for leader/orchestrator sessions. Use when dispa
 
 # Leader Dispatch Workflow
 
-This skill covers leader discipline and the step-by-step dispatch process. Invoke it every time you dispatch a quest, choose a worker, or spawn a new session.
+Use this skill before choosing a worker, spawning, reusing, queueing, or sending the first worker message for a quest.
 
-## Leader Discipline
+This is the hot path. Keep worker grounding in the quest record, phase-specific behavior in the phase briefs, and CLI mechanics in `takode-orchestration` / `board-usage.md`.
 
-### Core Rules
+## Read On Demand
 
-- **Never implement non-trivial changes yourself.** Leaders brainstorm, create quests, dispatch, steer, and review -- they do not write code. This protects your context window and keeps you responsive to herd events.
-- **Investigation and research are also work to delegate.** When the user says "investigate X", create a quest and dispatch a worker to investigate and report findings -- don't explore the codebase yourself.
-- **Never run `quest claim` yourself.** Workers claim quests when dispatched. This is a hard rule -- leaders coordinate, workers claim.
-- **Do not claim a quest on behalf of a worker.** The worker who will do the implementation claims and completes the quest; the leader should never become the quest owner for that work.
-- **User feedback on completed quests triggers a full rework cycle.** When a user reports issues with a completed quest, record the feedback, set the quest back to `refined`, and dispatch with a full Quest Journey. Never treat feedback fixes as "quick patches" that skip phases. See quest-journey.md in /takode-orchestration.
-- **Fresh human feedback overrides stale in-flight work.** If new human feedback lands while the quest is still on the board or while an older review/port turn is still completing, treat that feedback as the new source of truth. Reset the board row to the earliest valid phase for the fresh rework cycle, then stop or ignore stale completion from the older scope instead of letting it advance the quest.
-- **Dispatch immediately when capacity exists.** When a quest is refined and ready, check your herd count before saying "I'll dispatch later." If you have open slots, dispatch now. Don't defer without a concrete reason (e.g., waiting for user input, worker with better context is about to free up).
-- **Do not treat reclaimable completed workers as real capacity blockers.** When a quest is `QUEUED`, compare the active board to the herd. If it has no unresolved `--wait-for` blocker and the only thing keeping worker slots at `5/5` is completed or off-board work sitting in `needs_verification`, replace an eligible owned completed worktree worker with `takode spawn --replace-worktree-worker <session> ...` when the new worker belongs in the same repo/base-branch worktree; if replacement is ineligible, archive one completed worker and dispatch immediately. Alternatively, if the work would significantly benefit from the context of an existing busy worker, keep it queued only with an explicit `--wait-for #N`, `--wait-for q-N`, or comma-separated `--wait-for q-N,#N,free-worker` dependency set.
-- **Fresh worker by default.** Reuse is the exception, not the default. Do not reuse a worker just because it is idle, disconnected, or already available.
-- **`/confirm` is instruction-scoped.** If the user invokes `/confirm` about one instruction, only that instruction is gated. Do not treat `/confirm` as a blanket pause on unrelated active quests or ongoing orchestration duties.
+Read these only when the trigger applies:
 
-### Faithful Communication
+- `references/edge-cases.md`: human feedback rework, stale in-flight completions, screenshots/images, worker or reviewer file links shown to the user, 413/payload recovery, memory-specific dispatch deltas, or final completion-summary details.
+- `references/phase-handoff-examples.md`: you need concrete phrasing examples for phase follow-ups, rework, review, Port, or investigation/design dispatches.
+- `quest-design`: creating a new quest or refining an `idea` quest.
+- `takode-orchestration/quest-journey.md`: Journey revision, phase catalog, Memory/Port closure, or full phase-transition details.
+- `takode-orchestration/board-usage.md`: board proposal, promotion, wait-for, wait-for-input, or detailed board command syntax.
+- `~/.companion/quest-journey-phases/<phase-id>/leader.md`: always read the exact current phase leader brief before advancing or dispatching that phase.
 
-- **Be faithful to the user's words.** When creating quests or dispatching work, preserve the user's original meaning. Do not embellish, reinterpret, or add details the user didn't say.
-- **Ask, don't assume.** If the user's instruction is ambiguous or underspecified, ask a quick follow-up question before dispatching. Every interaction with the user is an opportunity to clarify. Workers can figure out implementation details themselves -- you don't need to fill in gaps with guesses.
-- **Never hallucinate user intent.** If the user says "fix the sidebar bug", don't turn it into "fix the sidebar bug by adjusting the CSS grid layout and adding a media query for mobile breakpoints". Pass through what the user said and let the worker investigate.
-- **Added details need confirmation.** If you want to add specifics to make instructions more actionable (e.g. suggesting an approach, naming specific files, or scoping the fix), confirm with the user first. An over-specified instruction based on wrong assumptions wastes more time than a brief clarifying question.
-- **Classify same-thread feedback before mutating scope.** Most user messages in a quest thread belong to that quest, but a user may occasionally post new-quest or unrelated feature feedback in the wrong thread. Before recording feedback, interrupting workers, resetting a board row, or expanding scope, do a quick relevance check; if the message appears unrelated, cross-cutting, or cleaner as its own unit of work, propose a new quest/Journey and attach the relevant discussion/images there instead of changing the current quest. If unclear, ask a short clarifying question and pause only the affected quest.
-- **Persist true follow-up relationships.** When a new or refined quest is a true follow-up to earlier work, record that relationship with `quest create ... --follow-up-of q-N` or `quest edit q-M --follow-up-of q-N` after approval. Use this for true follow-ups, bug fixes, successors, redesigns, and user-approved next quests from prior findings. Leave incidental mentions and loose background context to auto-detected backlinks.
-- **Use `/quest-design` before quest creation/refinement.** Before creating a quest or refining an `idea` quest into worker-ready scope, invoke `/quest-design` and wait for user confirmation or correction. When the user clearly wants a quest created and dispatched, combine quest-design with this dispatch approval: use the compact proposal shape below so one confirmation can approve quest text, Journey, and dispatch plan. Routine feedback, claims, completion, verification checks, board updates, and already-approved phase transitions do not need a separate confirmation round.
-- **Use the exact created quest ID.** After `quest create`, read the command output and copy the exact printed quest ID into every follow-up command. Never infer that ID from surrounding quest numbers or nearby list output. Prefer `quest create --status refined` after approval when the initial quest should already be refined, so setup does not require a separate guessed-ID transition.
-- **`/leader-dispatch` owns the initial Journey proposal.** Before dispatching a fresh or newly refined quest, get approval for the quest and Journey/scheduling plan, then write that approved Journey to the board before or with dispatch. A separate `takode board present` ceremony is optional, not required.
-- **Standard tracked-code phases are defaults, not mandates.** `alignment -> implement -> code-review -> port -> memory` is the recommended normal path for tracked-code work, but user overrides win. If the user asks to skip `code-review`, `port`, or another standard phase, follow that instruction or briefly confirm the tradeoff; do not refuse because the phase is "mandatory."
-- **Make extra phases earn their keep.** When adding a non-standard phase, ask what that phase contributes over merging the work into a later phase. `implement` already includes normal investigation, root-cause analysis, code/design reading, and test planning for approved fixes, docs changes, config changes, prompt changes, and artifact changes.
-- **Use quest threads for quest-scoped context.** Main is the staging area for unthreaded/global work. Quest threads carry quest-specific activity, and All Threads/global inspection preserves the append-only audit stream.
-- **Thread hygiene at setup points.** After successful quest creation, refinement, or dispatch, include a lightweight reminder to attach clearly quest-specific prior Main discussion to the quest thread with `takode thread attach`. Keep future quest-specific leader responses in `[thread:q-N]`.
-- **Route leader messages explicitly.** Every leader response starts with `[thread:main]` or `[thread:q-N]`. Shell/terminal commands that belong to a thread should start with `# thread:main` or `# thread:q-N`. `takode user-message` is deprecated compatibility only and should not be used as the new publishing path.
-- **New blocking prompt means new needs-input.** Every independent approval, confirmation, clarification, or decision prompt must follow the full checklist: publish the routed prompt with the complete decision context visible in the thread, run `takode notify needs-input` for that prompt, link the board row with `--wait-for-input` when applicable, then use `Thread Waiting` only for non-user waits. Existing unresolved prompts do not cover new decisions, and prompts in other threads or quests are not default blockers for unrelated dispatch. Notification summaries, notification UI options, and `--suggest` choices are only attention/reply affordances; they must not be the only place options, tradeoffs, recommendations, or requested answers appear.
-- **Treat worker/reviewer confusion as a quest-scoped blocking signal.** When a herded worker or reviewer raises a clarification question, answer it from existing context if you can. If not, ask the user in the relevant thread, call `takode notify needs-input`, keep that quest blocked until the ambiguity is resolved, and continue unrelated orchestration. Broaden the wait only for explicit global orchestration, worker-slot scheduling, shared resource safety, or cross-quest dependencies. If the user parks that question, work elsewhere when the other work is independent. Make intentional human-input pauses explicit on the board and never represent them only with `Thread Waiting` or `takode notify waiting`.
+## Non-Negotiables
 
-## Pre-Dispatch Approval Contract
+- **Leaders do not implement non-trivial changes.** Leaders create quests, dispatch, steer, review, and coordinate. Investigation and research are also worker work.
+- **Never run `quest claim` for worker work.** Workers claim quests when dispatched; leaders do not become owners of worker quests.
+- **Use `/quest-design` before quest creation or refinement.** Before creating a quest or refining an `idea` quest, get user confirmation. When the user wants creation plus dispatch, combine that confirmation with this dispatch approval.
+- **Get explicit Journey and Scheduling approval before dispatch.** The user-facing approval must include the initial phase list and the scheduling/orchestration approach, even when the plan is simply "spawn fresh and dispatch immediately if approved."
+- **Write approved Journey state to the board before or with dispatch.** Do not rely on chat transcript prose as the durable Journey record.
+- **Initial dispatch authorizes Alignment only.** The first worker message sends the Alignment brief and asks for a read-in; it does not authorize Implement, Explore, review, Port, or completion.
+- **Fresh worker by default.** Reuse only when there is a real context advantage. A disconnected or idle worker is not automatically a good reuse target.
+- **User waits are scoped.** A `needs-input` prompt blocks only its owning thread, quest, or board row unless the visible prompt explicitly concerns safety, global orchestration, worker-slot scheduling, shared resources, or cross-quest dependency.
+- **New blocking prompt means new `needs-input`.** Publish the self-contained decision text in the thread first, then call `takode notify needs-input`; existing unresolved prompts do not cover a separate decision.
+- **Use shell-safe payload paths.** Use `--message-file`, `--stdin`, or quest `--*-file` flags for multiline or shell-like text. Do not paste backticks, `$(...)`, quotes, braces, logs, or copied commands into inline shell strings.
+- **Follow the board-approved Journey.** If risk or scope changes, revise the board explicitly instead of silently skipping phases.
 
-If the user clearly asked for a quest to be created and dispatched, optimize for a single combined confirmation round.
+## Approval Packet
 
-The chat approval surface is for the user's decision, not for worker grounding. Make it read like a TLDR for approval: concise goal, Journey, scheduling, and only the details the user needs to approve, correct, or choose. Move most evidence, acceptance bullets, non-goals, fallback mechanics, and worker-facing context into the quest record so workers still have scope, evidence, acceptance criteria, constraints, and related context. When the approval asks the user to choose, include enough in-thread decision context for the choice itself; do not rely on notification suggestions or quest feedback as the option packet.
+For creation plus dispatch, one confirmation can approve the quest text, Journey, and scheduling plan. Keep chat concise and decision-oriented; put detailed evidence and worker grounding into the quest record.
 
-Use this compact shape as a menu, not a form to fill out. Do not reproduce every heading, explanatory bullet, or obvious contract detail when the decision can be made from a shorter packet. Preserve judgment: expand only for a real relationship, open question, unusual phase reason, user-visible boundary, queueing/capacity choice, or another fact the user needs to approve or correct.
+Use this shape as a menu, not a form:
 
-### Proposed Quest
+- **Proposed Quest**: title, tags when useful, and true follow-up relationship when relevant.
+- **Goal / Acceptance**: the single source of truth for the requested work and acceptance checks.
+- **Context / Evidence**: only details the user needs to approve, correct, or choose. Otherwise put them in the quest.
+- **Out Of Scope**: only likely misunderstanding boundaries.
+- **Open Questions**: only questions that materially change the quest or dispatch.
+- **Journey**: phase list, with short notes only for non-standard phases or unusual handling.
+- **Scheduling**: worker choice or fresh-spawn intent; immediate dispatch vs explicit queueing.
 
-- Title: ...
-- Tags: ... when useful
-- Relationship: follow-up of [q-N](quest:q-N), when relevant
+Do not repeat the same scope as a separate quest description, `Scope`, `The worker should`, or default expected-output section. `quest-design` owns the full confirmation shape; this skill adds the dispatch pieces: Journey, Scheduling, board recording, and Alignment-only first dispatch.
 
-### Goal / Acceptance
+Before the first worker message:
 
-- One source of truth for the requested work and acceptance checks.
-- Use clean bullets when the request has multiple parts.
-- Do not repeat the same scope again as a separate quest description, `Scope` paragraph, `The worker should` list, or default `Expected Output / Acceptance` section.
+1. The quest exists and is refined or otherwise approved for dispatch.
+2. The user approved the Journey and Scheduling plan.
+3. The approved Journey is on the board with `takode board set ... --phases ...` or by promoting an approved proposed row.
+4. The selected worker/reviewer state matches the board row.
 
-### Context / Evidence
+## Worker Selection
 
-- Optional. Include only prior quests, source examples, screenshots, logs, user reports, or artifact paths that the user needs to see to approve or choose; otherwise put them in the quest record.
-
-### Out Of Scope
-
-- Optional. Include only exclusions that prevent likely user misunderstanding or require confirmation; otherwise put non-goals in the quest record.
-
-### Open Questions
-
-- Optional. Omit the section entirely when there are no meaningful questions.
-
-### Journey
-
-- Planned phases.
-- Concise notes only for non-standard phases or unusual phase-specific work that affect user approval.
-
-### Scheduling
-
-- Worker choice or fresh-spawn intent.
-- Immediate dispatch vs queueing plan.
-- Capacity details only when the user must approve a tradeoff; routine fallback mechanics belong in the quest record or leader action after approval.
-
-If meaningful clarification is needed, ask those questions with the quest framing. After the user clarifies and no major ambiguity remains, the next response should include both the drafted quest and the drafted Journey/scheduling plan. Avoid a separate round that only restates understanding after clarification when there are no new questions and no quest/Journey draft yet. More than two confirmation rounds should happen only when genuine additional clarification is needed.
-
-Use one source of truth for the requested work. Prefer a single `Goal / Acceptance` section that serves as both your understanding and the proposed quest's acceptance criteria. If you already wrote a concise understanding, either make that text the `Goal / Acceptance` section or replace it with one expanded `Goal / Acceptance`; do not restate the same work again elsewhere.
-
-Add separate sections only when they carry non-overlapping approval information, such as `Relationship`, `Context / Evidence`, `Out Of Scope`, `Open Questions`, `Invariants / Must Preserve`, `Journey`, non-standard phase notes, and `Scheduling`. Open questions and assumptions are optional and should only cover decisions not already implied by `Goal / Acceptance` or the user's stated facts. Omit optional sections when they do not affect the user's decision; do not expand the proposal just to expose worker-facing quest details.
-
-For quest-design-only requests, use the same compact spirit but omit `Journey` and `Scheduling`: `Proposed Quest`, `Goal / Acceptance`, and only the optional sections that add new approval value. For dispatch-only requests where the quest already exists, reference the quest instead of re-describing its accepted scope, then present `Journey` and `Scheduling` with any narrow `Context / Evidence` or `Open Questions` needed for dispatch.
-
-Before you dispatch a quest, or intentionally leave it `QUEUED` for a later dispatch, get user approval for the quest and Journey/scheduling plan in prose. After approval and before sending the first worker, write that exact approved Journey to the board with `takode board set ... --phases ...` or by promoting an existing proposed row. Do not rely on the chat transcript as the only durable record of the Journey.
-
-That pre-dispatch approval surface must include both:
-- the planned initial Quest Journey phases
-- the planned scheduling/orchestration approach
-
-When the quest is a true follow-up to earlier work, the approval surface must also include a relationship line, for example `Relationship: follow-up of [q-1023](quest:q-1023)`. After approval, persist that relationship with the quest create/edit command. Do not use explicit follow-up for incidental references; those should remain detected backlinks.
-
-The approval surface can be a natural leader response. It should still be concrete enough that the approved phases and scheduling plan can be written to the board immediately afterward. If a proposed board row already exists, revise that same row with `takode board propose ...` or `takode board propose --spec-file ...` so it remains the draft carrier; `takode board present` is available when you want an explicit rendered proposal artifact.
-
-Omit notes for standard phases by default: `alignment`, `implement`, `code-review`, `port`, and final `memory` are self-explanatory unless the user or quest adds unusual work for that phase. Add concise notes for non-standard phases such as `explore`, `user-checkpoint`, `execute`, `outcome-review`, `mental-simulation`, or compatibility `bookkeeping`; state why the phase is needed and what evidence, user decision, scenario, outcome, or durable state it covers. For every extra phase, ask what it contributes over merging the same work into a later phase. If a `user-checkpoint` is optional, the note must explicitly say it is optional and give the concrete skip condition; do not mark a user-requested checkpoint optional.
-
-When a proposal includes multiple non-standard phase notes, format them as bullets keyed by phase, for example `- Execute: ...` and `- Outcome Review: ...`. Keep the phase list, phase notes, and scheduling plan visually separate so the approval surface is easy to scan before the user confirms.
-
-The scheduling/orchestration plan should state the expected worker choice or fresh-spawn intent and whether dispatch is immediate or queued. Include exact `--wait-for` or replacement/archive fallback details only when they are part of the user's decision; otherwise keep those mechanics in the quest record or leader execution notes. Do not present only the phase list and silently decide a materially different worker or queueing approach later.
-
-Examples:
-- **Simple immediate dispatch:** `Journey`: alignment -> implement -> code-review -> port -> memory. `Scheduling`: spawn a fresh worker and dispatch immediately if approved.
-- **Queued for context:** `Journey`: alignment -> implement -> code-review -> port -> memory. `Scheduling`: keep it queued with `--wait-for #12` because that worker's active context is materially useful; if that context stops mattering, revise to a fresh spawn.
-- **Capacity-tight immediate dispatch:** `Journey`: alignment -> implement -> code-review -> port -> memory. `Scheduling`: dispatch immediately if approved; if worker slots are still `5/5` only because completed workers are reclaimable, replace one completed worktree worker with `takode spawn --replace-worktree-worker <session> ...` when the replacement belongs in the same repo/base-branch worktree; if replacement is ineligible, archive one completed worker and spawn fresh.
-
-## Dispatch Steps
-
-Walk through these steps before dispatching any quest.
-
-### 1. Check the Board
+Start by reading current state:
 
 ```bash
 takode board show
-```
-
-See current quest state and capacity. Identify quests already in progress and available worker slots.
-
-### 2. List Your Herd
-
-```bash
 takode list
 ```
 
-See your herded sessions with status, quest claims, last activity. Identify idle workers that might be reusable.
-
-### 3. Evaluate Available Workers
-
-For each idle or disconnected worker, check what quest it last worked on:
-
-```bash
-takode info <N>
-```
-
-Ask: is the new quest related to this worker's recent context (same feature area, same files, direct follow-up)?
-
-Prefer the plain-text forms of `takode info`, `takode scan`, `takode peek`, and `quest show` when making human judgment calls about reuse, context, or relevance. Use `quest status <id>` for compact quest state and `quest feedback list/latest/show` for indexed feedback inspection. Use `--json` only when you need exact machine fields such as IDs, `commitShas`, version-local quest metadata, or feedback `addressed` flags from `quest feedback list --json`. Do not use `--json` on `takode spawn` or `takode spawn --replace-worktree-worker` for routine dispatch; the compact text output is the default source for new session IDs and replacement status. If a script needs structured spawn output, start with compact JSON and reveal bulky fields only with explicit `--details` or `--include <field>`.
-
-### 4. Decision Rules
+Then decide:
 
 | Situation | Action |
 |-----------|--------|
-| True follow-up work, or critical context mainly lives in one worker session | Reuse that worker |
-| Needed context is recoverable from the repo, quest, or Takode history with reasonable effort | Spawn fresh |
-| Fresh worker is better but older context still matters | Spawn fresh, then choose an explicit handoff pattern |
-| You intentionally want one busy worker's context later | Queue on the board with `--wait-for` |
 | No clear context advantage exists | Spawn fresh |
+| Needed context is recoverable from repo, quest, or Takode history | Spawn fresh and point to sources |
+| True follow-up or critical context lives mainly in one worker | Reuse that worker |
+| Fresh worker is better but old context matters | Spawn fresh and provide source links or ask old worker for a short handoff |
+| You intentionally need one busy worker later | Queue with explicit `--wait-for` |
 
-**Disconnected ≠ dead.** Workers showing `✗` (disconnected) in `takode list` are NOT dead -- they auto-reconnect when you send them a message via `takode send`. But disconnected availability alone is not a reason to reuse them. Reuse still requires a clear context advantage.
+Rules:
 
-**Prefer fresh when context is discoverable.** If the needed context can be recovered from the repo, the quest, or Takode session history with reasonable effort, spawn a fresh worker.
+- **Disconnected does not mean dead.** Disconnected workers can auto-reconnect when sent a message, but disconnected availability alone is not a reuse reason.
+- **Prefer source links over paraphrase.** Link exact sessions, messages, quests, artifacts, or phase notes rather than rewriting their content.
+- **Do not reuse just because a worker is idle or available.** Reuse needs a concrete context advantage.
+- **Queue only with explicit blockers.** Use `--wait-for #N`, `--wait-for q-N`, `--wait-for free-worker`, or one comma-separated value such as `--wait-for q-1143,#12,free-worker`.
+- **Do not leave a queued row without `--wait-for`.** Do not ask workers to queue themselves.
 
-**Reuse only when there is a real context advantage.** Good reuse cases:
-- the new task is a true follow-up to the worker's immediately previous work
-- the critical context lives mainly in that worker's session and a fresh worker would be at high risk of misunderstanding or making mistakes
+### Capacity
 
-**Do not reuse just because the worker is available.** Availability is not the decision rule.
+Worker slots are limited to five. Reviewer sessions do not use worker slots, and archiving reviewers does not free worker capacity.
 
-**If fresh is better but old context still matters, choose deliberately between two handoff patterns:**
-- ask the old worker to write down the hard-to-discover context in a response, then pass that exact session message link to the fresh worker so it can read the note directly via Takode CLI
-- ask the new worker to inspect the older session directly with Takode CLI (`takode info`, `takode scan`, `takode peek`, `takode read`) when a source note is unnecessary
+When all worker slots are used, compare active board work to your herd. If ready work is blocked only by completed/off-board workers waiting in review, do not treat that as a real capacity blocker:
 
-When doing that inspection yourself, prefer the plain-text CLI output first. Reach for `--json` only if the dispatch decision depends on exact structured fields. Bulky or uncommon fields such as injected prompts, raw session objects, full task/history/message payloads, images, recordings, or long logs must be requested explicitly by detail/include flags or a dedicated inspection command.
+- Prefer `takode spawn --replace-worktree-worker <session> ...` for an owned completed worktree worker when the new worker belongs in the same repo/base-branch worktree.
+- If replacement is ineligible, archive the completed worker least likely to be reused.
+- Never archive proactively. Archiving a worktree worker deletes unsynced worktree state, so reclaim capacity only after anything worth keeping has been committed, ported, or otherwise preserved.
 
-**Prefer link-based handoffs over paraphrase.** If the old worker writes a context note, pass the specific session message link rather than rewriting the note yourself. This preserves source fidelity and lets the fresh worker inspect the original wording directly.
+For Execute phases blocked only by a shared lease, dispatch the worker into Execute and let the worker run the phase-brief lease acquire flow. Do not externally queue an already-approved Execute phase merely because a lease is currently held.
 
-**Queue** only with an explicit reason. Add the quest to the board yourself as `QUEUED` with:
-- `--wait-for #N` when you intentionally want a specific busy worker's context later
-- `--wait-for q-N` when another queued/active quest must clear first
-- `--wait-for free-worker` when herd worker-slot capacity must clear
-- one comma-separated `--wait-for` value when multiple blockers apply, such as `--wait-for q-1143,q-1139` or `--wait-for q-1143,#12,free-worker`
+## Shell-Safe Commands
 
-When a queued row has multiple dependency, capacity, or session blockers, record them all in that single comma-separated value. Do not model multi-blocker waits by serially changing the row from one `--wait-for` blocker to another after each blocker clears.
-
-Do not ask workers to "queue" work, and do not leave a `QUEUED` row without `--wait-for`.
-
-Do not leave a quest in `QUEUED` just because `takode list` says `Worker slots used: 5/5`. First distinguish active worker slots (quests still on the active board) from reclaimable completed workers. If the quest is otherwise ready and only reclaimable completed workers are consuming capacity, do not wait: replace an eligible owned completed worktree worker with `takode spawn --replace-worktree-worker <session> ...` when the new worker belongs in the same repo/base-branch worktree; if replacement is ineligible, archive one and dispatch now. If you truly need to wait on capacity, make that explicit with `--wait-for free-worker`. If capacity is only one of several blockers, include it with the others, for example `--wait-for q-1143,#12,free-worker`. If the work would significantly benefit from the context of an existing busy worker, keep it queued only with an explicit `--wait-for #N`, `--wait-for q-N`, or comma-separated dependency set.
-
-For Execute phases blocked only by shared leases, dispatch the worker into Execute and let the worker run the normal `takode lease acquire --wait` flow from the phase brief. Do not pre-queue an already-approved Execute phase merely because `takode lease status` shows another holder; that prevents the worker from joining the lease queue and receiving the lease-promotion wakeup. If you intentionally keep the quest queued outside the worker for another reason, create an explicit `takode timer` checkback and add a `{[(Thread Waiting: q-N | waiting on lease)]}` marker because the leader owns that external wait.
-
-**Spawn fresh** when there is no strong context advantage for reuse, or when the context can be recovered safely from artifacts and history. Point the new worker to relevant quests or past sessions for context:
+Use file/stdin paths for dispatches and corrections:
 
 ```bash
 takode spawn --message-file - <<'EOF'
-<dispatch>
+<dispatch message>
+EOF
+
+takode send <session> --stdin <<'EOF'
+<phase instruction>
 EOF
 ```
 
-**Shell quoting safety.** Do not paste complex text payloads inline inside double quotes if they may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content. Your shell can execute or corrupt that text locally before the target command receives it. Use Takode's non-inline input paths instead: `takode send --stdin` for sent messages, and `takode spawn --message-file <path>` or `--message-file -` for spawn dispatches.
+Use `--message` only for short literal text. Use quest file flags for shell-sensitive quest text or feedback:
 
 ```bash
-takode spawn --message-file - <<'EOF'
-Work on [q-XX](quest:q-XX). Read the quest and claim it: `quest show q-XX && quest claim q-XX`.
-If logs include `$(...)` or backticks, treat them as literal text.
-Return a plan for approval before implementing. After you send the plan, stop and wait for approval.
-EOF
-takode send 2 --stdin <<'EOF'
-Work on [q-XX](quest:q-XX). Read the quest and claim it: `quest show q-XX && quest claim q-XX`.
-If logs include `$(...)` or backticks, treat them as literal text.
-Return a plan for approval before implementing. After you send the plan, stop and wait for approval.
-EOF
+quest create --title-file /tmp/title.txt --desc-file /tmp/description.md --tldr-file /tmp/tldr.md
+quest feedback add q-123 --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md
 ```
 
-For quest comments or port summaries, prefer the quest CLI's safer rich-text path instead of inline shell quoting:
-
-```bash
-cat >/tmp/quest-feedback.txt <<'EOF'
-Port summary: commit abc123 ...
-Treat `foo $(bar)` as literal text, not shell.
-EOF
-quest feedback q-123 --text-file /tmp/quest-feedback.txt
-quest feedback latest q-123 --author human --unaddressed --full
-
-printf '%s\n' 'Port summary: commit abc123 ...' 'Treat `foo $(bar)` as literal text, not shell.' | \
-  quest feedback q-123 --text-file -
-```
-
-**Never use `--no-worktree` unless the user explicitly asks for it** or the project's repo instructions require it. All workers get worktrees by default -- including investigation and debugging tasks, since they almost always lead to code changes. Don't use `--fixed-name` for regular workers -- they auto-name from their quest.
+Never use `--no-worktree` unless the user explicitly asks for it or repo instructions require it. Normal workers, including investigation/debugging workers, get worktrees by default because investigation often leads to tracked changes.
 
 Default to your own backend type unless the user specifies otherwise.
 
-### 5. Approve and Record the Initial Journey
+## Alignment Dispatch
 
-Before dispatching a fresh or newly refined quest, get user approval for the planned initial Journey and scheduling approach. Use natural prose; do not make the user approve a separate board draft/present artifact unless that extra UI is genuinely useful.
+Send this only after approval and board recording:
 
-This is the `/leader-dispatch` contract:
-- `/quest-design` confirms quest understanding and finalizes the quest text.
-- `/quest-design` also confirms any explicit follow-up relationship, so the leader can persist it with `--follow-up-of` instead of leaving true follow-ups as prose only.
-- `/leader-dispatch` proposes the initial Journey and scheduling plan for execution.
-- When the user asked for quest creation plus dispatch and the scope is clear, combine those into one approval surface instead of running a quest-text confirmation and a separate Journey confirmation.
-
-The proposal should:
-- use a single `Goal / Acceptance` section as both understanding and acceptance criteria; avoid repeating it under `Scope`, `The worker should`, or a separate default `Expected Output / Acceptance` section
-- treat the compact proposal shape as a terse decision packet, not a form that requires every heading or explanatory bullet
-- name the built-in phases you intend to put on the board first
-- explain non-standard phases concisely: why each is needed and what evidence, scenario, outcome, or durable state it covers
-- avoid routine `explore -> implement` for normal bug-fix, docs-change, config-change, prompt-change, or artifact-change work; `implement` includes the investigation, root-cause analysis, code/design reading, and test planning needed to complete those changes
-- never propose adjacent `explore -> implement`; use `explore -> user-checkpoint -> implement` when Explore may lead to implementation but findings/options/tradeoffs/recommendation may need user steering first
-- treat `user-checkpoint` as mandatory by default; mark it optional only when the approval surface includes a phase note saying it may be skipped and giving the concrete skip condition; after Explore, skip it only when the condition has been evaluated as satisfied and the skip reason is recorded
-- make it explicit that the first worker dispatch will enter the `alignment` phase (`PLANNING` on the board) only after approval
-- omit notes for standard phases unless unusual phase-specific handling is required
-- treat the default tracked-code path as recommended, not mandatory; if the user changes the phase list, follow or confirm the tradeoff
-
-If the quest already exists and a proposed board row helps, you may put the draft on the board with `takode board propose ...` or `takode board propose --spec-file ...` before approval. If the quest does not exist yet, keep the approval in prose and create the board row immediately after `quest create`. Do not spawn a worker or send the standard dispatch message until the approved Journey is durable on the board.
-
-Once approved, either promote the same proposed board row into active execution with `takode board promote ...` or create the active row directly with `takode board set <quest-id> --worker <N> --phases ...`. The approved Journey must be on the board before or with dispatch so recovery does not depend on reconstructing transcript prose.
-After the quest is created/refined or the dispatch row is active, remind the leader: Thread reminder: attach any prior messages that clearly belong to this quest to [q-N](quest:q-N) with `takode thread attach`.
-
-### 6. Check Herd Limit
-
-Maintain at most **5 worker slots** in your herd. Reviewer sessions do **not** use worker slots. Before spawning, check `takode list` and read the worker-slot summary directly -- do **not** rely on the raw total session count or subtract reviewers yourself. Archiving reviewers does **not** free worker-slot capacity. **Never archive proactively.** Only reclaim capacity when you are at the 5-worker-slot limit AND need to spawn a new worker. Prefer `takode spawn --replace-worktree-worker <session> ...` for completed owned worktree workers when the new worker belongs in the same repo/base-branch worktree; it archives the old worker, safety-checks and resets the recycled worktree, and spawns the replacement in that path. Otherwise archive the worker least likely to be reused -- typically the one whose work is most complete, least related to upcoming tasks, or oldest. Idle and disconnected worker sessions retain valuable context, and archiving a worktree worker deletes uncommitted work, so do not reclaim until anything worth keeping has been ported, committed, or otherwise synced.
-
-### 7. Send Standardized Dispatch Message
-
-**Use this exact template. Do not add extra context, file paths, or investigation instructions.**
-
-Only send this after the user approved the combined pre-dispatch proposal and the approved Journey is durable on the board: initial Journey phases plus the scheduling/orchestration plan.
-
-```
+```text
 Work on [q-XX](quest:q-XX). Load the quest skill first, then read the quest and claim it: `quest show q-XX && quest claim q-XX`.
 
 Read this phase brief first:
@@ -274,130 +134,48 @@ Read this phase brief first:
 Return an alignment read-in for approval covering your concrete understanding, ambiguities, clarification questions, blockers, surprises, and any evidence that may justify leader-owned Journey revision. After you send it, stop and wait for approval.
 ```
 
-When sending this template through the shell, prefer `takode spawn --message-file -` or `takode spawn --message-file <path>` over inline `--message` if you might include shell-like text or multi-line additions.
+If the quest has unaddressed human feedback, add one sentence after the claim instruction:
 
-If the worker needs additional context (related sessions, rejected approaches, user decisions), add it to the quest description before dispatching. When exact prior messages, quests, or discussions are already known, point to those specific sources so the worker can inspect them directly with Takode and quest tools during alignment instead of broad exploration. Workers have the same tools and skills you do -- they run `quest show q-XX` themselves.
-
-When prior memory may affect dispatch or Alignment, use visible memory reads instead of hidden injection. Run `memory catalog show` yourself for leader-side routing, inspect relevant files directly, or tell the worker the relevant catalog/direct-file workflow and exact files to inspect during Alignment.
-
-This dispatch happens only after the user has approved the initial Journey from Step 5. The worker's alignment phase returns a lightweight read-in inside that approved Journey; it is not the first time phases are being proposed, and it is not a routine second user-approval gate.
-
-**Workers must stop after each phase boundary.** The dispatch message only authorizes alignment. After alignment approval, the worker performs the approved next phase. After implementation, the worker STOPS and waits -- it does NOT self-review, run review skills on its own, run `/self-groom`, or self-port. The leader advances the quest through Quest Journey phases.
-
-**Resolve worker/reviewer file links before routing them to the user.** When a worker or reviewer gives you a relative path or relative `file:` link and the user should inspect unported worker/reviewer worktree state, run `takode file-resolve --session <worker-or-reviewer> <path-or-file-link>` and show the returned absolute `file:` link. Example: `takode file-resolve --session 1810 '[CHANGELOG.md:7](file:CHANGELOG.md:7)'` should become an absolute worker-worktree link such as `[CHANGELOG.md:7](file:/Users/jiayiwei/.companion/worktrees/companion/jiayi-wt-9146/CHANGELOG.md:7)`. Repo-relative links are still right after Port/main sync or when you intentionally point at the leader/main checkout.
-
-**Every completed non-cancelled quest needs final Memory.** Completion without Memory closure, final User review check settlement, final debrief metadata, debrief TLDR metadata, quest metadata reconciliation, and one memory statement is incomplete. A quest in `MEMORY` is downstream-unblocking because substantive work is accepted and synced when applicable, but the row remains open until Memory finishes.
-
-**Quest completion summaries are outcome notes.** When reporting a completed quest to the user, lead with the delivered result or decision, why it matters, and any real next action or residual risk. Routine internals such as raw commit hashes, empty User review checks, final debrief metadata status, no-op memory statements, command lists, and routine verification are not good user-facing summary leads unless the exact detail is directly useful. Keep that bookkeeping in structured metadata, phase notes, Port handoffs, Memory notes, or debrief bodies. If quiz metadata exists or was updated, write a complementary outcome summary first, then render `{[(Quest Quiz: q-N)]}` on its own physical line in the appropriate location.
-
-**Memory statements belong in final Memory or material memory handoffs.** Final Memory must include exactly one of `memory updated: <commit>`, `memory update deferred: <reason or curator>`, or `memory update not needed: <reason>` after catalog/direct-file triage. Non-Memory phases should not add routine `memory update not needed` statements. If durable shared facts, live coordination state, accepted preferences/decisions, source digests, external artifact manifests, or material memory files inspected should be captured, the phase actor should update file-based memory under the repo-level lock when explicitly assigned or defer that work deliberately with `memory update deferred: <reason or curator>`.
-
-For memory record frontmatter `source`, quest-backed updates should use the quest ID (`q-N`) as primary provenance and should not routinely add `commit:*` or `session:*` sources because the quest already records those commits, sessions, reviews, and phase history. Include `session:<id>` only when no corresponding quest exists or when the session itself is the durable source of truth; keep exceptional `commit:*` or `session:*` sources for non-quest memory updates where they are genuinely the source of truth.
-
-Memory command mechanics live in the relevant phase briefs and shared Journey docs. In handoffs, include only memory-specific deltas the actor cannot infer: files or decisions already inspected, known freshness or audit concerns, accepted evidence that changes durable facts, or an explicit memory-writing assignment.
-
-**Every phase needs durable quest documentation.** Before a phase is considered complete, the actor for that phase should add or refresh a quest feedback entry scoped to the current phase when working on a quest. Prefer current-phase inference with the q-991 primitive:
-
-```bash
-quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md --kind phase-summary
-```
-
-Use `--kind phase-finding` for exploration findings, `--kind review` for review phases, or `--kind artifact` for execution artifacts when that is more accurate. If current-phase inference is unavailable or ambiguous, require explicit phase/run/occurrence flags such as `--phase implement`, `--phase-position`, `--phase-occurrence`, `--phase-occurrence-id`, or `--journey-run`. Use `--no-phase` only when a flat quest comment is intentional. The full body is for future agents; the TLDR is for human scanning and should preserve the phase's conclusions, decisions, evidence, blockers, risks, handoff facts, and phase-specific outcomes. Low-level details such as full SHAs, branch names, command lists, routine paths, and verification mechanics belong in the full body, structured commit metadata, dedicated `Synced SHAs:` lines, or port metadata unless that exact detail is central to understanding the phase. When documenting repository files, prefer Takode custom file links such as `[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)`; standard Markdown file links are only a best-effort Questmaster fallback.
-
-Use value-based compression for phase documentation instead of hard length caps. Keep phase-local decisions, blockers, recovery context, review judgments, user choices, external artifact state, residual risks, and next-phase handoff facts. Cut or compress file-by-file diff narration, exhaustive command transcripts, routine green test lists, branch hygiene narration, copied tool output, generic review checklists, and repeated commit metadata that Git or Questmaster already preserves. Include low-level detail only when it explains non-obvious risk, recovery, verification, or external state. If the actor's context was compacted during the phase, or if memory confidence is low, they should reconstruct relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, they should use working memory and current artifacts instead of unnecessary session archaeology.
-
-Keep the memory boundary explicit: quest phase notes say what happened in this phase and what the next phase needs; file-based memory stores durable cross-quest knowledge, procedures, decisions, references, and artifact manifests. Non-Memory phases should preserve material memory evidence or deferrals without adding routine no-op memory statements.
-
-Workers and reviewers may use `takode worker-stream` after a valuable nontrivial phase outcome is ready so you can start reading while they finish required paperwork. Treat it as optional early visibility only: do not require it as boilerplate, and do not let it replace phase documentation, final debrief metadata, or leader-owned phase transitions.
-
-**Make every follow-up message phase-explicit.**
-- **Initial dispatch**: invoke the alignment phase and include the exact assignee brief path: `~/.companion/quest-journey-phases/alignment/assignee.md`. The worker returns a lightweight read-in, documents the alignment phase on the quest when possible, then stops. The user-approved proposal that led to this dispatch must already have stated the scheduling/orchestration plan, even in the simple case: "spawn fresh and dispatch immediately if approved."
-- **Every phase dispatch**: include `Read this phase brief first:` plus the exact assignee brief path from `takode phases`, for example `~/.companion/quest-journey-phases/implement/assignee.md`. Do this for workers and reviewers, and remind them to document the current phase before reporting back. Provide only deltas the actor is unlikely to infer from the phase brief, quest record, current artifacts, or their own context: exact accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, files or decisions already inspected, explicit memory-writing assignments, or facts unavailable to that actor. Avoid restating generic closure checklists covered by the brief.
-- **Alignment approval**: after the worker returns the read-in, the leader normally approves the next phase directly. Escalate back to the user only when the read-in introduces significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another real blocking issue. If real unknowns remain, route to `explore`; if the next move is already clear, invoke that phase and say so explicitly. Do not imply review, porting, or quest transitions are authorized.
-- **Review or rework follow-up**: say exactly what the worker should do now, then tell them to report back and wait. Tell the worker to add or refresh the current phase documentation with what changed, why it matters, verification evidence, remaining risks, and addressed feedback when applicable. Do not imply porting is authorized.
-- **Reviewer-owned quest hygiene**: reviewers may directly fix clear quest hygiene issues they know how to fix, including stale addressed flags, missing/refreshable summaries, and User review checks backed by evidence. Reviewers should challenge proposed final checks that are really agent-owned evidence, such as tests, Code Review, Execute, Port, push, post-port verification, or Memory closure, citing the concrete item text by judgment rather than classifiers. Reviewers should judge phase documentation quality, not just presence: phase relevance, useful full detail, TLDR completeness where appropriate, no routine raw commit/hash bookkeeping in TLDRs or user-facing summaries when exact identifiers are already carried elsewhere, and correct phase association when the primitive is available. Expect reviewers to report those fixes or documentation findings in ACCEPT/CHALLENGE output. Do not send the worker rework for hygiene the reviewer already fixed; do send substantive failures, critical intention mismatches, missing or dishonest work, and ambiguity back through the normal review loop.
-- **If review follow-up needs more code changes**: tell the worker to commit the current worktree state, make the fixes in a separate follow-up commit, and send the changed worktree back to Code Review only after that checkpoint exists. This lets the reviewer inspect a clean incremental diff of only the new work. This does not require reviewers to commit and does not apply to purely read-only follow-up review discussion.
-- **Porting**: send a separate, explicit `/port-changes` instruction only after reviewer ACCEPT. The Port assignee brief owns the standard report shape: dedicated `Synced SHAs: sha1,sha2`, pre-push and post-push verification status, accepted-state context final Memory will need, and memory-specific evidence only when material. Your handoff should add only context-dependent deltas: accepted commits or artifacts to sync, required extra verification, known port risks, and whether durable memory writing is explicitly assigned. For tracked code/test changes, do not narrow below the strong Port verification gate unless an explicit infeasibility exception is visible before final acceptance: focused affected tests plus full `bun --no-install run test`, `bun --no-install run typecheck`, and `bun --no-install run format:check` before push. If full-suite failure is likely related to the current quest or port, route the worker back to fix it before the quest can be marked done. If it appears unrelated, open an immediate fix quest unless there is already an active quest for that failure being worked by another leader.
-- **Docs/skills/prompts/templates still count when tracked**: if a worker changes git-tracked docs, skill files, prompts, templates, or other text-only files, treat it as commit-producing work. It must go through normal review, porting, and `quest complete ... --commit/--commits` structured metadata after sync.
-- **Investigation/design quests**: say what artifact or evidence to produce, then tell the worker to stop and report back. Use an explicit Journey that omits `port` only when the quest will produce zero git-tracked changes, but still ends in `memory`. Do not use that for text-only tracked-file edits, and do not assume the worker should self-complete or self-transition the quest.
-- **Memory**: use this mandatory final phase for non-project-tracked durable-state closure, including final debrief metadata, quest metadata reconciliation, memory consistency checks, memory writes or deferrals, cleanup, external durable-state records, and follow-up routing. Memory must not edit tracked project files.
-- **Bookkeeping**: use this compatibility phase for cross-phase or external durable state beyond normal phase notes when it is not final Memory closure, such as consolidated summaries, external docs or links, superseded facts, notification cleanup, thread cleanup, or shared-state updates. Do not dispatch Bookkeeping for final User review check settlement or just to repeat normal phase documentation.
-
-**Use explicit phrasing when steering between phase boundaries.** Good defaults:
-
-```
-Read this phase brief first:
-- `~/.companion/quest-journey-phases/implement/assignee.md`
-
-Implement the approved plan, add or refresh the current Implement phase documentation with full agent-oriented detail plus TLDR metadata, then stop and report back. Document what changed, why it matters, what verification passed, remaining risks, and any addressed feedback. Do not run review workflows on your own, run /self-groom, run /port-changes, or change the quest status yourself.
-```
-
-```
-Read this phase brief first:
-- `~/.companion/quest-journey-phases/implement/assignee.md`
-
-Address the reviewer findings, add or refresh the current Implement phase documentation with full detail plus TLDR metadata, then stop and report back. Do not port yet.
-```
-
-```
-Read this phase brief first:
-- `~/.companion/quest-journey-phases/implement/assignee.md`
-
-Address the review findings. If you need more code changes, commit the current worktree state, make the fixes in a separate follow-up commit, and send the changed worktree back to Code Review only after that checkpoint exists so the reviewer can inspect a clean incremental diff. This does not apply to purely read-only follow-up review discussion. Add or refresh the current Implement phase documentation with full detail plus TLDR metadata, then stop and report back. Do not port yet.
-```
-
-```
-Read this phase brief first:
-- `~/.companion/quest-journey-phases/port/assignee.md`
-
-Port now using /port-changes, add or refresh the current Port phase documentation, then report back when sync is complete. Include a dedicated `Synced SHAs: sha1,sha2` line with the ordered synced SHAs from the main repo so the later `quest complete ... --commits ...` handoff can attach structured commit metadata instead of relying on feedback comments alone.
-
-Use the Port assignee brief for standard post-port verification and accepted-state context final Memory will need. Include memory-specific deltas only when material. Leader-specific deltas for this port: <accepted refs, extra verification, known port risks, explicit memory-writing assignment if any>.
-```
-
-**For feedback rework dispatches**, use this extended template instead:
-
-```
-Work on [q-XX](quest:q-XX). Load the quest skill first, then read the quest and claim it: `quest show q-XX && quest claim q-XX`.
+```text
 The quest has unaddressed human feedback -- read it carefully and factor it into your alignment read-in.
-
-Read this phase brief first:
-- `~/.companion/quest-journey-phases/alignment/assignee.md`
-
-Return an alignment read-in for approval covering your concrete understanding, ambiguities, clarification questions, blockers, surprises, and any evidence that may justify leader-owned Journey revision. After you send it, stop and wait for approval.
 ```
 
-This ensures workers load the quest skill (so CLI commands work), read pending feedback before alignment, and stop at the alignment boundary. Feedback addressing happens during implementation, not alignment.
+Worker context belongs in the quest record or in exact source pointers. If relevant prior messages, quests, artifacts, or memory files are known, put those pointers in the quest or dispatch delta so Alignment can inspect targeted sources instead of rediscovering broadly.
 
-**Feedback rework resets the board cycle.** When new human feedback arrives for a quest that is already on the board, immediately reset that row to the earliest valid phase for the new cycle before doing anything else with stale worker/reviewer completions:
+If prior memory may matter, use visible memory reads. Either inspect the relevant memory files yourself for leader routing, or tell the worker the exact catalog/direct-file workflow and likely files or terms to inspect.
 
-- `PLANNING` if the same worker is still the intended owner and should produce a fresh alignment read-in
-- `QUEUED` if you need to choose a worker again or the prior ownership is no longer valid
+## Phase Handoffs
 
-**Interrupt before redirecting active stale work.** If the old-scope worker is still actively generating when fresh human feedback or an urgent correction changes the source of truth, interrupt it first with `takode interrupt <N>`. Then send the corrected instruction as a fresh message. Do not rely on a queued correction to outrun the old turn.
+After Alignment, leaders own advancement. Escalate to the user only for significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another real blocker. Otherwise advance to the next approved phase yourself.
 
-Do not let a stale review acceptance, stale port confirmation, or any other old-scope completion advance the board after that reset. Those completions are now historical context, not the active quest state.
+Every phase instruction must be phase-explicit:
 
-**Forward user screenshots.** When the user provides screenshots alongside a task request, attach them to the quest via `quest feedback q-XX --image <path>` before dispatching. If no quest exists (e.g. ad-hoc investigation), send the image file path to the worker via `takode send` so they can Read it. `takode spawn` does not support images -- always use a follow-up message or quest attachment. User-uploaded chat and Questmaster images already pass through Takode's image pipeline; do not ask workers to recompress them unless the path is an older unmarked image with concrete size/dimension evidence.
+- Read the exact current phase leader brief yourself.
+- Include `Read this phase brief first:` and the exact assignee brief path from `takode phases`.
+- Authorize only the current phase.
+- Provide only deltas the assignee cannot infer from the phase brief, quest record, current artifacts, or its own context: accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, exact prior messages, files or memory decisions already inspected, or explicit memory-writing assignment.
+- Require phase documentation before reporting back.
+- Tell the assignee to stop after reporting back.
 
-**Local/generated screenshot paths.** When forwarding evidence produced by `agent-browser screenshot`, prefer the returned `.takode-agent.` path. The Takode wrapper preserves the original sibling for precision/debugging; use `--takode-original` only when the worker truly needs the original pixels. For other local/generated image files, run `quest optimize-image <path>` before sending and forward the returned sibling.
+Do not imply the worker can self-review, run `/self-groom`, self-port, change quest status, complete the quest, or continue into later phases. Review, Port, Execute, Outcome Review, Mental Simulation, User Checkpoint, and final Memory each need explicit leader routing.
 
-**413 recovery.** Do not blindly retry a worker or reviewer turn that failed with `413 Payload Too Large` or equivalent request-size wording, especially after image-heavy browser evidence. First try a manual `/compact` or remove redundant local image references where possible. If the session is stuck or retained context cannot be reduced, replace/restart the actor with bounded instructions: point at the durable quest notes, optimized `.takode-agent.` evidence paths, and exact remaining question instead of replaying the full image-heavy transcript.
+## Board Commands
 
-### 8. Board Commands for Proposal and Promotion
+Routine dispatch usually needs only:
 
 ```bash
-takode board propose <quest-id> --spec-file <proposal.json>
-takode board promote <quest-id> --worker <N>
+takode board show
+takode board set <quest-id> --worker <session> --phases alignment,implement,code-review,port,memory
+takode board promote <quest-id> --worker <session>
+takode board advance <quest-id>
+takode board detail <quest-id>
 ```
 
-Use `takode board propose` when an existing quest needs a board-owned draft row before approval. Use `takode board present` only when a rendered proposal artifact is helpful. Use `takode board promote` after approval to turn the same Journey object into active execution, or use `takode board set --worker ... --phases ...` after approval to create the active durable row in one step.
+Use `takode-orchestration/board-usage.md` for proposal rows, `--wait-for`, `--wait-for-input`, optional checkpoint skips, full Journey details, or uncommon board syntax.
 
 ## Task Delegation Style
 
-- **Describe WHAT and WHY, not HOW.** Explain the desired outcome and context -- don't specify files or functions unless you have high confidence from recent direct observation.
-- **Provide cross-quest context the worker wouldn't have.** Relay user decisions, rejected approaches, and related quests.
-- **Include source conversation references.** When dispatching quests from a brainstorming discussion, include the session ID and message range so workers can inspect design rationale.
-- **Include reproduction steps and user observations.** Screenshots, error messages, and user feedback are more valuable than your guesses.
-- **Let workers choose the approach when you lack context to decide.**
-- **Always require a plan before non-trivial implementation.** Do not accept planless implementations.
+- Describe what and why; avoid specifying files or functions unless you have recent direct evidence.
+- Provide source references the worker cannot infer: user decisions, rejected approaches, related quests, session/message links, screenshots, logs, artifact paths, and reproduction steps.
+- Let workers choose implementation approach when you lack enough context.
+- If a plan is needed for the current phase, ask for it explicitly as a phase-specific delta. Do not make every non-trivial implementation invent a separate planning ceremony.

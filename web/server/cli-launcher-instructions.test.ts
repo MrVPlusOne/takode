@@ -301,6 +301,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("If an event says `recovery pending`");
     expect(result).toContain("consider a simple continuation or a short timer/recheck");
     expect(result).toContain("take over only when recovery failed");
+    expect(result).toContain("Fresh worker is the default");
+    expect(result).toContain("disconnected availability is not a reuse reason");
+    expect(result).toContain("reuse disconnected workers only when they have a real context advantage");
+    expect(result).not.toContain("Prefer reusing disconnected workers over spawning fresh sessions");
   });
 
   it("returns codex-flavored guardrails for codex backend", () => {
@@ -327,6 +331,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("approval-gated runs");
     expect(result).toContain("System-interrupted worker `turn_end` herd events are actionable but not always terminal");
     expect(result).toContain("the worker still appears connected or generating");
+    expect(result).toContain("Fresh worker is the default");
+    expect(result).toContain("disconnected availability is not a reuse reason");
+    expect(result).toContain("reuse disconnected workers only when they have a real context advantage");
+    expect(result).not.toContain("Prefer reusing disconnected workers over spawning fresh sessions");
   });
 });
 
