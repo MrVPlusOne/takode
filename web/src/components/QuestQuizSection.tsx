@@ -1,4 +1,5 @@
 import { MarkdownContent } from "./MarkdownContent.js";
+import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { QuestQuizItem } from "../types.js";
 
 interface QuestQuizSectionProps {
@@ -64,7 +65,12 @@ export function QuestQuizSection({
           <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">Quiz</div>
           {variant === "inline" && (
             <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5 text-[11px] text-cc-muted">
-              {questId && <span className="shrink-0 font-mono-code text-cc-info">{questId}</span>}
+              {questId && (
+                <QuestInlineLink
+                  questId={questId}
+                  className="shrink-0 font-mono-code text-cc-primary hover:underline"
+                />
+              )}
               {questTitle && <span className="min-w-0 truncate">{questTitle}</span>}
             </div>
           )}

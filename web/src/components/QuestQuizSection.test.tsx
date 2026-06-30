@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import { useStore } from "../store.js";
 import { QuestQuizSection } from "./QuestQuizSection.js";
 
 describe("QuestQuizSection", () => {
+  beforeEach(() => {
+    useStore.getState().reset();
+    window.location.hash = "#/session/s1";
+  });
+
   it("renders compact quiz prompts with answers collapsed until reveal", () => {
     // Protects the active-recall interaction: prompt first, answer only after explicit reveal.
     const { container } = render(
@@ -96,8 +102,13 @@ describe("QuestQuizSection", () => {
     );
 
     expect(screen.getByTestId("quest-quiz-inline")).toHaveTextContent("q-8");
+    expect(screen.getByRole("link", { name: "q-8" })).toHaveAttribute("href", "#/session/s1?quest=q-8");
     expect(screen.getByText("Add Quest Quiz Metadata")).toBeInTheDocument();
     expect(screen.getByText("Source: completion summary")).not.toBeVisible();
+
+    // The inline quest id must share the real quest-link overlay behavior used by banner links.
+    fireEvent.click(screen.getByRole("link", { name: "q-8" }));
+    expect(useStore.getState().questOverlayId).toBe("q-8");
 
     const answerDetails = container.querySelector("details") as HTMLDetailsElement | null;
     expect(answerDetails?.open).toBe(false);
