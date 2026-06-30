@@ -467,6 +467,17 @@ describe("SessionHoverCard", () => {
     expect(screen.getByText("1.5 MB replay")).toBeInTheDocument();
     expect(screen.getByText("2.5 MB retained")).toBeInTheDocument();
     expect(screen.getByText("258 K tokens")).toBeInTheDocument();
+
+    const contextRow = screen.getByTestId("session-context-stats");
+    const payloadRow = screen.getByTestId("session-payload-stats");
+    expect(within(contextRow).getByText("73% context")).toBeInTheDocument();
+    expect(within(contextRow).getByText("258 K tokens")).toBeInTheDocument();
+    expect(within(contextRow).queryByText("1.5 MB replay")).toBeNull();
+    expect(within(payloadRow).getByText("1 turn")).toBeInTheDocument();
+    expect(within(payloadRow).getByText("1.5 MB replay")).toBeInTheDocument();
+    expect(within(payloadRow).getByText("2.5 MB retained")).toBeInTheDocument();
+    expect(within(payloadRow).queryByText("73% context")).toBeNull();
+    expect(within(payloadRow).queryByText("258 K tokens")).toBeNull();
   });
 
   it("falls back to sdk session metadata when no live session state is present", () => {
@@ -507,6 +518,8 @@ describe("SessionHoverCard", () => {
   });
 
   it("shows effective Codex context primary and configured raw max secondarily", () => {
+    // q-1533 feedback #31: context metrics belong in their own row, with raw
+    // configured max kept beside effective context when the values differ.
     mockStoreState.sdkSessions = [
       {
         sessionId: "s1",
@@ -530,6 +543,8 @@ describe("SessionHoverCard", () => {
       total_cost_usd: 0,
       num_turns: 1,
       context_used_percent: 7,
+      message_history_bytes: 1_572_864,
+      codex_retained_payload_bytes: 2_621_440,
       codex_token_details: {
         inputTokens: 0,
         outputTokens: 0,
@@ -567,10 +582,25 @@ describe("SessionHoverCard", () => {
       "title",
       "Backend reported usable context window. Raw configured max context is 600 K tokens.",
     );
-    expect(screen.getByText("600 K tokens configured")).toHaveAttribute(
-      "title",
+    const configuredContext = screen.getByTitle(
       "Raw configured max context. Codex may reserve part of it; /status reports the usable window.",
     );
+    expect(configuredContext).toHaveTextContent("600 K tokens");
+    expect(configuredContext).toHaveTextContent("configured");
+
+    const contextRow = screen.getByTestId("session-context-stats");
+    const payloadRow = screen.getByTestId("session-payload-stats");
+    expect(within(contextRow).getByText("7% context")).toBeInTheDocument();
+    expect(within(contextRow).getByText("258 K tokens")).toBeInTheDocument();
+    expect(within(contextRow).getByText("600 K tokens")).toBeInTheDocument();
+    expect(within(contextRow).getByText("configured")).toBeInTheDocument();
+    expect(within(contextRow).queryByText("1.5 MB replay")).toBeNull();
+    expect(within(payloadRow).getByText("1 turn")).toBeInTheDocument();
+    expect(within(payloadRow).getByText("1.5 MB replay")).toBeInTheDocument();
+    expect(within(payloadRow).getByText("2.5 MB retained")).toBeInTheDocument();
+    expect(within(payloadRow).queryByText("7% context")).toBeNull();
+    expect(within(payloadRow).queryByText("600 K tokens")).toBeNull();
+    expect(within(payloadRow).queryByText("configured")).toBeNull();
   });
 
   it("uses live cleared Codex max context instead of stale sdk metadata", () => {

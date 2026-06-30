@@ -48,7 +48,7 @@ export function SessionPayloadStats({
   codexRetainedPayloadBytes,
   isCodexSession,
   lastActivityAt,
-  className = "flex items-center gap-2 text-[11px] text-cc-muted",
+  className = "flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-cc-muted",
   highlightHighHistoryBytes = false,
   showContextStats = true,
 }: SessionPayloadStatsProps) {
@@ -123,7 +123,7 @@ export function SessionPayloadStats({
   if (items.length === 0) return null;
 
   return (
-    <div className={className}>
+    <div className={className} data-testid="session-payload-stats">
       {items.map((item, index) => (
         <Fragment key={item.key}>
           {index > 0 && <span className="text-cc-muted/40">&middot;</span>}
@@ -153,7 +153,7 @@ export function SessionContextStats({
   if (!hasContext) return null;
 
   return (
-    <div className={className}>
+    <div className={className} data-testid="session-context-stats">
       {contextPercent > 0 && <span>{Math.round(contextPercent)}% context</span>}
       {contextWindow > 0 && (
         <span title={contextWindowTitle}>

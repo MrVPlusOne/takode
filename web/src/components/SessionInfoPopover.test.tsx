@@ -19,10 +19,12 @@ interface MockStoreState {
       message_history_bytes?: number;
       codex_retained_payload_bytes?: number;
       codex_token_details?: { modelContextWindow?: number; contextTokensUsed?: number };
+      codex_max_context_length?: number | null;
       codexMaxContextLength?: number;
       codex_reasoning_effort?: string;
       codex_leader_recycle_threshold_tokens?: number;
       claude_token_details?: { modelContextWindow?: number };
+      claude_max_context_length?: number | null;
       claudeMaxContextLength?: number;
       isOrchestrator?: boolean;
       lifecycle_events?: Array<{
@@ -50,6 +52,9 @@ interface MockStoreState {
     cwd?: string;
     backendType?: "claude" | "codex" | "claude-sdk";
     contextUsedPercent?: number;
+    numTurns?: number;
+    messageHistoryBytes?: number;
+    codexRetainedPayloadBytes?: number;
     codexTokenDetails?: { modelContextWindow?: number; contextTokensUsed?: number };
     codexMaxContextLength?: number;
     codexLeaderRecycleThresholdTokens?: number;
@@ -80,6 +85,7 @@ interface MockStoreState {
     herdedBy?: string;
     isOrchestrator?: boolean;
     archived?: boolean;
+    lastActivityAt?: number;
     leaderProfilePortrait?: {
       id: string;
       poolId: string;
@@ -640,8 +646,8 @@ describe("SessionInfoPopover", () => {
   });
 
   it("shows the max context window rounded to whole K tokens", () => {
-    // Codex sessions should show both replay and retained payload metrics in
-    // the shared stats row when the server provides both values.
+    // q-1533 feedback #31: the Session Info panel should group context
+    // metrics separately from replay/retained payload metrics.
     resetStore([]);
     const session = storeState.sessions.get("s1");
     if (!session) throw new Error("missing session fixture");
@@ -656,6 +662,17 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByText("1.5 MB replay")).toBeInTheDocument();
     expect(screen.getByText("2.5 MB retained")).toBeInTheDocument();
     expect(screen.getByText(/258 K tokens/)).toBeInTheDocument();
+
+    const contextRow = screen.getByTestId("session-context-stats");
+    const payloadRow = screen.getByTestId("session-payload-stats");
+    expect(within(contextRow).getByText("73% context")).toBeInTheDocument();
+    expect(within(contextRow).getByText(/258 K tokens/)).toBeInTheDocument();
+    expect(within(contextRow).queryByText("1.5 MB replay")).toBeNull();
+    expect(within(payloadRow).getByText("2 turns")).toBeInTheDocument();
+    expect(within(payloadRow).getByText("1.5 MB replay")).toBeInTheDocument();
+    expect(within(payloadRow).getByText("2.5 MB retained")).toBeInTheDocument();
+    expect(within(payloadRow).queryByText("73% context")).toBeNull();
+    expect(within(payloadRow).queryByText(/258 K tokens/)).toBeNull();
   });
 
   it("uses the Codex leader recycle threshold as the effective context window", () => {
@@ -733,6 +750,8 @@ describe("SessionInfoPopover", () => {
   });
 
   it("shows effective Codex context primary and configured max secondarily after restore", () => {
+    // q-1533 feedback #31: restored Session Info metadata should keep the raw
+    // configured max in the context row, not mixed with non-context stats.
     resetStore([]);
     storeState.sessions = new Map();
     storeState.sdkSessions = [
@@ -740,6 +759,9 @@ describe("SessionInfoPopover", () => {
         sessionId: "s31",
         cwd: "/repo",
         backendType: "codex",
+        numTurns: 12,
+        messageHistoryBytes: 1_572_864,
+        codexRetainedPayloadBytes: 2_621_440,
         contextUsedPercent: 7,
         codexMaxContextLength: 600_000,
         codexTokenDetails: { modelContextWindow: 258_400 },
@@ -754,6 +776,20 @@ describe("SessionInfoPopover", () => {
       "Backend reported usable context window. Raw configured max context is 600 K tokens.",
     );
     expect(screen.getByText(/600 K tokens/)).toBeInTheDocument();
+
+    const contextRow = screen.getByTestId("session-context-stats");
+    const payloadRow = screen.getByTestId("session-payload-stats");
+    expect(within(contextRow).getByText("7% context")).toBeInTheDocument();
+    expect(within(contextRow).getByText("258 K tokens")).toBeInTheDocument();
+    expect(within(contextRow).getByText("600 K tokens")).toBeInTheDocument();
+    expect(within(contextRow).getByText("configured")).toBeInTheDocument();
+    expect(within(contextRow).queryByText("1.5 MB replay")).toBeNull();
+    expect(within(payloadRow).getByText("12 turns")).toBeInTheDocument();
+    expect(within(payloadRow).getByText("1.5 MB replay")).toBeInTheDocument();
+    expect(within(payloadRow).getByText("2.5 MB retained")).toBeInTheDocument();
+    expect(within(payloadRow).queryByText("7% context")).toBeNull();
+    expect(within(payloadRow).queryByText("600 K tokens")).toBeNull();
+    expect(within(payloadRow).queryByText("configured")).toBeNull();
   });
 
   it("uses sdk session recycle threshold metadata for restored Codex leaders", () => {

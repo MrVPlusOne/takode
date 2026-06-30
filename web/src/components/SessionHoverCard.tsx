@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
 import { SessionNumChip } from "./SessionNumChip.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
-import { SessionPayloadStats } from "./SessionPayloadStats.js";
+import { SessionContextStats, SessionPayloadStats } from "./SessionPayloadStats.js";
 import {
   deriveSessionStatus,
   scheduledTimerStatusLabel,
@@ -574,7 +574,13 @@ export function SessionHoverCard({
           codexRetainedPayloadBytes > 0 ||
           contextWindow > 0 ||
           s.lastActivityAt) && (
-          <div className="px-4 py-2 border-t border-cc-border/50">
+          <div className="px-4 py-2 border-t border-cc-border/50 space-y-1.5">
+            <SessionContextStats
+              contextPercent={contextPercent}
+              contextWindow={contextWindow}
+              contextWindowTitle={contextWindowTitle}
+              configuredContextWindow={configuredMaxContextLength}
+            />
             <SessionPayloadStats
               turns={turns}
               contextPercent={contextPercent}
@@ -585,6 +591,7 @@ export function SessionHoverCard({
               codexRetainedPayloadBytes={codexRetainedPayloadBytes}
               isCodexSession={isCodexSession}
               lastActivityAt={s.lastActivityAt}
+              showContextStats={false}
             />
           </div>
         )}

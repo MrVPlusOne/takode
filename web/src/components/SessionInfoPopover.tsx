@@ -615,6 +615,7 @@ export function SessionInfoPopover({
               historyBytes={historyBytes}
               codexRetainedPayloadBytes={codexRetainedPayloadBytes}
               isCodexSession={isCodexSession}
+              lastActivityAt={sessionVm?.lastActivityAt}
               highlightHighHistoryBytes
               showContextStats={false}
             />

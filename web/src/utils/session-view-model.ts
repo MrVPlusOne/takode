@@ -32,6 +32,7 @@ export interface SessionViewModel {
   codexRetainedPayloadBytes?: number;
   state?: SdkSessionInfo["state"];
   createdAt?: number;
+  lastActivityAt?: number;
   cliSessionId?: string;
   sessionNum?: number | null;
   name?: string;
@@ -135,6 +136,7 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
     codexRetainedPayloadBytes: session.codexRetainedPayloadBytes,
     state: session.state,
     createdAt: session.createdAt,
+    lastActivityAt: session.lastActivityAt,
     cliSessionId: session.cliSessionId,
     sessionNum: session.sessionNum,
     name: session.name,
