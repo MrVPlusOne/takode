@@ -92,7 +92,7 @@ const EVENT_PRIORITY: Record<PushoverEventType, number> = {
 
 const EVENT_TITLE: Record<PushoverEventType, string> = {
   permission: "Permission needed",
-  question: "Question from Claude",
+  question: "Takode needs input",
   completed: "Ready for review",
   error: "Session error",
 };

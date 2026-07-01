@@ -162,13 +162,14 @@ describe("PushoverNotifier", () => {
     expect(message).toContain("abcdef12");
   });
 
-  it("uses 'Question from Claude' title for AskUserQuestion events", async () => {
+  it("uses a Takode-branded title for AskUserQuestion events", async () => {
     notifier = new PushoverNotifier(makeOpts());
     notifier.scheduleNotification("sess-1", "question", "AskUserQuestion", "req-1");
 
     await vi.advanceTimersByTimeAsync(30_000);
     const body = lastFetchBody();
-    expect(body.get("title")).toBe("Question from Claude");
+    // Regression coverage for the old Claude-specific title.
+    expect(body.get("title")).toBe("Takode needs input");
   });
 
   // ── Deep links ──────────────────────────────────────────────────────
@@ -291,7 +292,7 @@ describe("PushoverNotifier", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(fetch).toHaveBeenCalledTimes(1);
     const body = lastFetchBody();
-    expect(body.get("title")).toBe("Question from Claude");
+    expect(body.get("title")).toBe("Takode needs input");
     expect(body.get("message")).toContain("Choose deploy target");
     expect(body.get("message")).not.toContain("Approve alignment");
   });
