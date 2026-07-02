@@ -1223,7 +1223,8 @@ describe("SessionItem reviewer badge", () => {
 
   it("renders a review badge when reviewerSession is provided", () => {
     // The parent session (sessionNum: 8) should show a compact reviewer
-    // navigation badge with the reviewer session number visible.
+    // navigation badge with a stable visible role label while the session
+    // number stays available through the accessible label and tooltip.
     const reviewer = makeSession({ id: "reviewer-1", sessionNum: 42, reviewerOf: 8 });
     renderSessionItem({
       session: makeSession({ sessionNum: 8 }),
@@ -1232,7 +1233,7 @@ describe("SessionItem reviewer badge", () => {
 
     const badge = screen.getByTestId("session-reviewer-badge");
     expect(badge).toBeInTheDocument();
-    expect(badge).toHaveTextContent("#42");
+    expect(badge).toHaveTextContent("reviewer");
     expect(badge).toHaveAccessibleName("Reviewer #42, click to open");
     expect(badge).toHaveClass("max-w-[3.75rem]", "overflow-hidden");
   });
@@ -1259,6 +1260,25 @@ describe("SessionItem reviewer badge", () => {
     fireEvent.click(screen.getByTestId("session-reviewer-badge"));
 
     expect(mockNavigateToSession).toHaveBeenCalledWith("reviewer-1");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("navigates to the reviewer session from the keyboard without selecting the parent", () => {
+    // The compact badge is keyboard-operable because it replaces a standalone
+    // reviewer row as the user's path into the reviewer session.
+    const reviewer = makeSession({ id: "reviewer-1", sessionNum: 42, reviewerOf: 8 });
+    const { onSelect } = renderSessionItem({
+      session: makeSession({ sessionNum: 8 }),
+      reviewerSession: reviewer,
+    });
+
+    const badge = screen.getByTestId("session-reviewer-badge");
+    fireEvent.keyDown(badge, { key: "Enter" });
+    fireEvent.keyDown(badge, { key: " " });
+
+    expect(mockNavigateToSession).toHaveBeenCalledTimes(2);
+    expect(mockNavigateToSession).toHaveBeenNthCalledWith(1, "reviewer-1");
+    expect(mockNavigateToSession).toHaveBeenNthCalledWith(2, "reviewer-1");
     expect(onSelect).not.toHaveBeenCalled();
   });
 
@@ -1341,7 +1361,7 @@ describe("SessionItem reviewer badge", () => {
 
     const badge = screen.getByTestId("session-reviewer-badge");
     expect(badge).toHaveAttribute("title", "Reviewer, click to open");
-    expect(badge).toHaveTextContent("rev");
+    expect(badge).toHaveTextContent("reviewer");
   });
 
   it("shows running status glow when reviewer is actively working", () => {
@@ -1552,7 +1572,8 @@ describe("SessionItem quest title label", () => {
       reviewerSession: reviewer,
     });
 
-    expect(screen.getByTestId("session-reviewer-badge")).toHaveTextContent("#1947");
+    expect(screen.getByTestId("session-reviewer-badge")).toHaveTextContent("reviewer");
+    expect(screen.getByTestId("session-reviewer-badge")).toHaveAccessibleName("Reviewer #1947, click to open");
     expect(screen.queryByTestId("session-git-diff-skipped")).not.toBeInTheDocument();
     expect(screen.getByText("wt")).toBeInTheDocument();
   });

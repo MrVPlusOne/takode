@@ -178,7 +178,7 @@ describe("TreeViewGroup leader herd summary", () => {
     const workerRow = container.querySelector('[data-session-id="worker-1"]');
     expect(workerRow).toBeTruthy();
     const badge = within(workerRow as HTMLElement).getByTestId("session-reviewer-badge");
-    expect(badge).toHaveTextContent("#12");
+    expect(badge).toHaveTextContent("reviewer");
     expect(badge).toHaveAccessibleName("Reviewer #12, click to open");
     expect(badge).toHaveClass("max-w-[3.75rem]", "overflow-hidden");
     expect(badge).not.toHaveTextContent("Reviewer of");

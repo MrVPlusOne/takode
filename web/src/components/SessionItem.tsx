@@ -555,7 +555,7 @@ export function SessionItem({
     reviewerSession?.sessionNum != null
       ? `Reviewer #${reviewerSession.sessionNum}, click to open`
       : "Reviewer, click to open";
-  const reviewerBadgeText = reviewerSession?.sessionNum != null ? `#${reviewerSession.sessionNum}` : "rev";
+  const reviewerBadgeText = "reviewer";
 
   const renderHighlightedSnippet = (text: string): React.ReactNode => {
     const parts = getHighlightParts(text, matchQuery || "");
