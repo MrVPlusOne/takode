@@ -34,6 +34,35 @@ index 1234567..abcdefg 100644
     expect(screen.getByText("utils.ts")).toBeTruthy();
   });
 
+  it("syntax-highlights every file in a multi-file unified diff without source text", () => {
+    // Session Diff initially renders lightweight unified diffs before full
+    // old/new file contents arrive. Each file must still use its own path for
+    // syntax highlighting so render order does not decide which files are plain.
+    const unifiedDiff = `diff --git a/scripts/early.py b/scripts/early.py
+--- a/scripts/early.py
++++ b/scripts/early.py
+@@ -1,2 +1,2 @@
+-def early():
+-    return "old"
++def early():
++    return "new"
+diff --git a/scripts/later.py b/scripts/later.py
+--- a/scripts/later.py
++++ b/scripts/later.py
+@@ -1,2 +1,2 @@
+-def later():
+-    return "old"
++def later():
++    return "new"`;
+
+    const { container } = render(<DiffViewer unifiedDiff={unifiedDiff} mode="full" />);
+
+    const files = container.querySelectorAll(".diff-file");
+    expect(files).toHaveLength(2);
+    expect(files[0].querySelector(".hljs-keyword")).toBeTruthy();
+    expect(files[1].querySelector(".hljs-keyword")).toBeTruthy();
+  });
+
   it("renders a diff from headerless unified hunks (Codex format)", () => {
     const codexHunkOnlyDiff = `@@ -1,3 +1,3 @@
  const a = 1;
@@ -493,6 +522,13 @@ diff --git a/b.ts b/b.ts
 
     expect(screen.queryByText("const hidden line 10 = 10;")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Show 14 unchanged lines/ }));
-    expect(screen.getByText("const hidden line 10 = 10;")).toBeTruthy();
+    expect(
+      screen.getByText((_, element) => {
+        return (
+          !!element?.classList.contains("diff-line") &&
+          (element.textContent?.includes("const hidden line 10 = 10;") ?? false)
+        );
+      }),
+    ).toBeTruthy();
   });
 });

@@ -252,6 +252,40 @@ describe("DiffPanel", () => {
     expect(select).toBeTruthy();
   });
 
+  it("syntax-highlights lightweight multi-file diffs before full contents are available", async () => {
+    // Regression coverage for the main session Diff tab: Phase 1 only has
+    // unified diffs, while Phase 2 full contents can arrive later or not at all.
+    // Earlier and later same-language files should both render token spans.
+    const diffForPath = (path: string) => {
+      const name = path.endsWith("early.py") ? "early" : "later";
+      return `diff --git a/scripts/${name}.py b/scripts/${name}.py
+--- a/scripts/${name}.py
++++ b/scripts/${name}.py
+@@ -1,2 +1,2 @@
+-def ${name}():
+-    return "old"
++def ${name}():
++    return "new"`;
+    };
+    mockApi.getFileDiff.mockImplementation((path: string) =>
+      Promise.resolve({ path, diff: diffForPath(path), baseBranch: "main" }),
+    );
+
+    resetStore({
+      sessions: new Map([["s1", { cwd: "/repo", git_default_branch: "main" }]]),
+      changedFiles: new Map([["s1", new Set(["/repo/scripts/early.py", "/repo/scripts/later.py"])]]),
+    });
+
+    const { container } = render(<DiffPanel sessionId="s1" />);
+
+    await waitFor(() => {
+      const files = container.querySelectorAll(".diff-file");
+      expect(files).toHaveLength(2);
+      expect(files[0].querySelector(".hljs-keyword")).toBeTruthy();
+      expect(files[1].querySelector(".hljs-keyword")).toBeTruthy();
+    });
+  });
+
   it("does not dispatch redundant selected-file updates from repeated viewport observer callbacks", async () => {
     // Regression for the live React #185 lane: browser IntersectionObserver
     // callbacks can repeat for the already-selected file while DiffPanel is

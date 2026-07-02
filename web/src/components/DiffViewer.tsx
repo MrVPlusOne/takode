@@ -1,7 +1,12 @@
 import { memo, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import * as Diff from "diff";
-import { buildHighlightedLines, inferLanguageFromPath, splitSourceToLines } from "../utils/syntax-highlighting.js";
+import {
+  buildHighlightedLines,
+  highlightCode,
+  inferLanguageFromPath,
+  splitSourceToLines,
+} from "../utils/syntax-highlighting.js";
 
 export interface DiffViewerProps {
   /** Original text (for computing diff from old/new) */
@@ -69,6 +74,7 @@ interface HighlightedLineMaps {
   newLines: string[] | null;
 }
 
+const EMPTY_HIGHLIGHTED_LINES: HighlightedLineMaps = { oldLines: null, newLines: null };
 const GAP_EXPAND_CHUNK = 50;
 const MAX_VISIBLE_DIR_SEGMENTS = 2;
 
@@ -416,6 +422,51 @@ function getLineHtml(line: DiffLine, highlighted: HighlightedLineMaps): string |
   return highlighted.newLines[line.newLineNo - 1] ?? "";
 }
 
+function buildSourceHighlightedLineMaps(
+  oldText: string,
+  newText: string,
+  language: string | null,
+): HighlightedLineMaps {
+  if (!language) return EMPTY_HIGHLIGHTED_LINES;
+  return {
+    oldLines: buildHighlightedLines(oldText, language),
+    newLines: buildHighlightedLines(newText, language),
+  };
+}
+
+function highlightVisibleDiffLine(content: string, language: string | null): string | null {
+  if (!language) return null;
+  if (!content) return "";
+  return highlightCode(content, language);
+}
+
+function buildUnifiedDiffHighlightedLineMaps(hunks: DiffHunk[], language: string | null): HighlightedLineMaps {
+  if (!language) return EMPTY_HIGHLIGHTED_LINES;
+
+  const oldLines: string[] = [];
+  const newLines: string[] = [];
+
+  for (const hunk of hunks) {
+    for (const line of hunk.lines) {
+      const highlighted = highlightVisibleDiffLine(line.content, language);
+      if (highlighted === null) continue;
+
+      if (line.type === "del") {
+        if (line.oldLineNo != null) oldLines[line.oldLineNo - 1] = highlighted;
+        continue;
+      }
+
+      if (line.newLineNo != null) newLines[line.newLineNo - 1] = highlighted;
+      if (line.type === "context" && line.oldLineNo != null) oldLines[line.oldLineNo - 1] = highlighted;
+    }
+  }
+
+  return {
+    oldLines: oldLines.length > 0 ? oldLines : null,
+    newLines: newLines.length > 0 ? newLines : null,
+  };
+}
+
 function LineContent({ line, highlightedHtml }: { line: DiffLine; highlightedHtml: string | null }) {
   if (highlightedHtml !== null) {
     if (!highlightedHtml) return <>&nbsp;</>;
@@ -657,21 +708,6 @@ export const DiffViewer = memo(function DiffViewer({
     [hasSource, normalizedNewText],
   );
 
-  const language = useMemo(() => inferLanguageFromPath(fileName), [fileName]);
-  const highlighted = useMemo<HighlightedLineMaps>(() => {
-    if (!language || !hasSource) {
-      return { oldLines: null, newLines: null };
-    }
-    try {
-      return {
-        oldLines: buildHighlightedLines(normalizedOldText, language),
-        newLines: buildHighlightedLines(normalizedNewText, language),
-      };
-    } catch (err) {
-      console.error("[DiffViewer] Syntax highlighting failed:", err);
-      return { oldLines: null, newLines: null };
-    }
-  }, [hasSource, language, normalizedNewText, normalizedOldText]);
   const sourceFileMap = useMemo(() => buildSourceFileMap(sourceFiles), [sourceFiles]);
 
   const data = useMemo<ParsedFileDiff[]>(() => {
@@ -691,6 +727,34 @@ export const DiffViewer = memo(function DiffViewer({
 
     return [];
   }, [hasSource, normalizedOldText, normalizedNewText, unifiedDiff, fileName]);
+
+  const highlightedByFile = useMemo(() => {
+    const highlights = new Map<string, HighlightedLineMaps>();
+
+    try {
+      data.forEach((file, fi) => {
+        const resolvedFileName = file.fileName || fileName || "";
+        const language = inferLanguageFromPath(resolvedFileName);
+        const fileSource =
+          sourceFileMap.get(resolvedFileName) ?? sourceFileMap.get(normalizeDiffPath(resolvedFileName));
+
+        let highlighted = EMPTY_HIGHLIGHTED_LINES;
+        if (fileSource) {
+          highlighted = buildSourceHighlightedLineMaps(fileSource.oldText, fileSource.newText, language);
+        } else if (hasSource) {
+          highlighted = buildSourceHighlightedLineMaps(normalizedOldText, normalizedNewText, language);
+        } else {
+          highlighted = buildUnifiedDiffHighlightedLineMaps(file.hunks, language);
+        }
+
+        highlights.set(`${fi}:${resolvedFileName}`, highlighted);
+      });
+    } catch (err) {
+      console.error("[DiffViewer] Syntax highlighting failed:", err);
+    }
+
+    return highlights;
+  }, [data, fileName, hasSource, normalizedNewText, normalizedOldText, sourceFileMap]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -736,6 +800,7 @@ export const DiffViewer = memo(function DiffViewer({
         const fileNewSourceLines = fileSource ? splitSourceToLines(fileSource.newText) : newSourceLines;
         const blocks = buildRenderBlocks(file.hunks, fileOldSourceLines, fileNewSourceLines);
         const resolvedHeaderActions = renderHeaderActions ? renderHeaderActions(resolvedFileName) : headerActions;
+        const highlighted = highlightedByFile.get(`${fi}:${resolvedFileName}`) ?? EMPTY_HIGHLIGHTED_LINES;
         const fileCollapseKey = `${fi}:${resolvedFileName}`;
         const isFileCollapsed = !!collapsedFiles[fileCollapseKey];
         const renderedBlocks = blocks.map((block) => {
