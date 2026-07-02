@@ -136,7 +136,10 @@ export interface AssistantMessageSessionLike {
   activeTurnRoute?: ActiveTurnRoute | null;
   messageHistory: BrowserIncomingMessage[];
   questThreadRemindersThisTurn?: import("./quest-thread-reminder.js").QuestThreadReminderInjection[];
-  assistantAccumulator: Map<string, { contentBlockIds: Set<string>; currentHistoryMessageId?: string }>;
+  assistantAccumulator: Map<
+    string,
+    { contentBlockIds: Set<string>; currentHistoryMessageId?: string; rawContent?: ContentBlock[] }
+  >;
   toolStartTimes: Map<string, number>;
   toolProgressOutput: Map<string, string>;
   diffStatsDirty: boolean;
@@ -409,7 +412,10 @@ interface ClaudeSdkBrowserMessageSessionLike {
   resumedFromExternal?: boolean;
   messageHistory: BrowserIncomingMessage[];
   pendingMessages: string[];
-  assistantAccumulator: Map<string, { contentBlockIds: Set<string>; currentHistoryMessageId?: string }>;
+  assistantAccumulator: Map<
+    string,
+    { contentBlockIds: Set<string>; currentHistoryMessageId?: string; rawContent?: ContentBlock[] }
+  >;
   toolStartTimes: Map<string, number>;
   toolProgressOutput: Map<string, string>;
   diffStatsDirty: boolean;
@@ -605,7 +611,11 @@ export function handleAssistantMessage(
       }
       updateActiveTurnRouteFromLeaderAssistant(session, route, deps);
     }
-    session.assistantAccumulator.set(msgId, { contentBlockIds, currentHistoryMessageId });
+    session.assistantAccumulator.set(msgId, {
+      contentBlockIds,
+      currentHistoryMessageId,
+      rawContent: [...msg.message.content],
+    });
   } else {
     const historyMessageId = acc.currentHistoryMessageId ?? msgId;
     const historyEntry = session.messageHistory.findLast(
@@ -614,11 +624,13 @@ export function handleAssistantMessage(
     ) as Extract<BrowserIncomingMessage, { type: "assistant" }> | undefined;
     if (!historyEntry) return;
 
+    const rawExistingContent = acc.rawContent ?? historyEntry.message.content;
     const appendedBlocks = getAssistantContentAppendBlocks(
-      historyEntry.message.content,
+      rawExistingContent,
       msg.message.content,
       acc.contentBlockIds,
     );
+    acc.rawContent = mergeAssistantRawContent(rawExistingContent, msg.message.content);
     const extracted = extractQuestThreadRemindersFromContent(appendedBlocks);
     const statusExtracted = extractLeaderThreadStatusMarkersFromContent(extracted.content);
     const newBlocks = statusExtracted.content;
@@ -1352,6 +1364,22 @@ export function getAssistantContentAppendBlocks(
     append.push(block);
   }
   return append;
+}
+
+function mergeAssistantRawContent(
+  existing: CLIAssistantMessage["message"]["content"],
+  incoming: CLIAssistantMessage["message"]["content"],
+): CLIAssistantMessage["message"]["content"] {
+  if (incoming.length === 0) return existing;
+  const existingSignatures = existing.map((block) => JSON.stringify(block));
+  const incomingSignatures = incoming.map((block) => JSON.stringify(block));
+
+  if (hasAssistantContentSequence(incomingSignatures, existingSignatures)) return [...incoming];
+  if (hasAssistantContentSequence(existingSignatures, incomingSignatures)) return existing;
+
+  const overlap = getAssistantContentOverlapLength(existingSignatures, incomingSignatures);
+  if (overlap > 0) return [...existing, ...incoming.slice(overlap)];
+  return [...existing, ...incoming];
 }
 
 export function extractActivityPreview(session: AssistantMessageSessionLike, content: unknown[]): void {

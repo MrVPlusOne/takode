@@ -795,6 +795,61 @@ describe("assistant-message-controller", () => {
     expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
   });
 
+  it("does not append raw split-route content from same-id cumulative snapshots", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const firstContent: ContentBlock[] = [
+      {
+        type: "text",
+        text: [
+          "[thread:q-1567]",
+          "[q-1567](quest:q-1567) is complete.",
+          "",
+          "{[(Quest Quiz: q-1567)]}",
+          "[thread:q-1570] [q-1570](quest:q-1570) is dispatched.",
+        ].join("\n"),
+      },
+    ];
+    const appendedTool: ContentBlock = {
+      type: "tool_use",
+      id: "tool-after-route",
+      name: "Bash",
+      input: { command: "quest show q-1570" },
+    };
+
+    handleAssistantMessage(session, makeAssistant(firstContent, "post-quiz-route-cumulative"), {
+      hasAssistantReplay: () => false,
+      broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+      persistSession: () => {},
+    });
+    handleAssistantMessage(session, makeAssistant([...firstContent, appendedTool], "post-quiz-route-cumulative"), {
+      hasAssistantReplay: () => false,
+      broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+      persistSession: () => {},
+    });
+
+    const q1567Entry = session.messageHistory.find(
+      (entry) => entry.type === "assistant" && entry.threadKey === "q-1567",
+    ) as Extract<BrowserIncomingMessage, { type: "assistant" }> | undefined;
+    const q1570Entry = session.messageHistory.find(
+      (entry) => entry.type === "assistant" && entry.threadKey === "q-1570",
+    ) as Extract<BrowserIncomingMessage, { type: "assistant" }> | undefined;
+
+    expect(q1567Entry?.message.content).toEqual([
+      {
+        type: "text",
+        text: "[q-1567](quest:q-1567) is complete.\n\n{[(Quest Quiz: q-1567)]}",
+      },
+    ]);
+    expect(q1570Entry?.message.content).toEqual([
+      { type: "text", text: "[q-1570](quest:q-1570) is dispatched." },
+      appendedTool,
+    ]);
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:");
+    expect(broadcasts.filter((msg) => msg.type === "assistant")).toHaveLength(3);
+  });
+
   it("routes leader text when launcher info says orchestrator and session state has not caught up", () => {
     const session = makeSession();
     delete session.state.isOrchestrator;

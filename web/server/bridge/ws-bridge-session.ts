@@ -138,7 +138,10 @@ export interface Session {
   /** Claude WebSocket only: a real compact_boundary arrived for the current compaction cycle. */
   claudeCompactBoundarySeen?: boolean;
   /** Accumulates content blocks for assistant messages with the same ID (parallel tool calls) */
-  assistantAccumulator: Map<string, { contentBlockIds: Set<string>; currentHistoryMessageId?: string }>;
+  assistantAccumulator: Map<
+    string,
+    { contentBlockIds: Set<string>; currentHistoryMessageId?: string; rawContent?: ContentBlock[] }
+  >;
   /** Wall-clock start times for tool calls (tool_use_id → Date.now()). Transient, not persisted. */
   toolStartTimes: Map<string, number>;
   /** Cheap fingerprint of linked-worktree metadata used to skip unnecessary git refreshes. */
