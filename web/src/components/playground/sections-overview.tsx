@@ -1716,6 +1716,9 @@ export function PlaygroundOverviewSections() {
                         sessionPreview={preview}
                         permCount={session.permCount}
                         isRecentlyRenamed={false}
+                        reviewerSession={
+                          session.sessionNum != null ? PLAYGROUND_REVIEWER_MAP.get(session.sessionNum) : undefined
+                        }
                         compact
                         onSelect={() => {}}
                         onStartRename={() => {}}

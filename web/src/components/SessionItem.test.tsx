@@ -1222,8 +1222,8 @@ describe("SessionItem reviewer badge", () => {
   });
 
   it("renders a review badge when reviewerSession is provided", () => {
-    // The parent session (sessionNum: 8) should show a "review" badge when
-    // it has an active reviewer session linked via reviewerOf.
+    // The parent session (sessionNum: 8) should show a compact reviewer
+    // navigation badge with the reviewer session number visible.
     const reviewer = makeSession({ id: "reviewer-1", sessionNum: 42, reviewerOf: 8 });
     renderSessionItem({
       session: makeSession({ sessionNum: 8 }),
@@ -1232,7 +1232,9 @@ describe("SessionItem reviewer badge", () => {
 
     const badge = screen.getByTestId("session-reviewer-badge");
     expect(badge).toBeInTheDocument();
-    expect(badge).toHaveTextContent("review");
+    expect(badge).toHaveTextContent("#42");
+    expect(badge).toHaveAccessibleName("Reviewer #42, click to open");
+    expect(badge).toHaveClass("max-w-[3.75rem]", "overflow-hidden");
   });
 
   it("does not render a review badge when reviewerSession is undefined", () => {
@@ -1317,7 +1319,7 @@ describe("SessionItem reviewer badge", () => {
 
   it("shows reviewer session number in the title tooltip", () => {
     // When the reviewer has a sessionNum, the tooltip should include it
-    // (e.g., "Reviewer #42 — click to open").
+    // (e.g., "Reviewer #42, click to open").
     const reviewer = makeSession({ id: "reviewer-1", sessionNum: 42, reviewerOf: 8 });
     renderSessionItem({
       session: makeSession({ sessionNum: 8 }),
@@ -1325,7 +1327,7 @@ describe("SessionItem reviewer badge", () => {
     });
 
     const badge = screen.getByTestId("session-reviewer-badge");
-    expect(badge).toHaveAttribute("title", "Reviewer #42 — click to open");
+    expect(badge).toHaveAttribute("title", "Reviewer #42, click to open");
   });
 
   it("omits session number from title when reviewer has no sessionNum", () => {
@@ -1338,7 +1340,8 @@ describe("SessionItem reviewer badge", () => {
     });
 
     const badge = screen.getByTestId("session-reviewer-badge");
-    expect(badge).toHaveAttribute("title", "Reviewer — click to open");
+    expect(badge).toHaveAttribute("title", "Reviewer, click to open");
+    expect(badge).toHaveTextContent("rev");
   });
 
   it("shows running status glow when reviewer is actively working", () => {
@@ -1525,7 +1528,7 @@ describe("SessionItem quest title label", () => {
     expect(screen.getByText("☐ Completed quest")).toBeInTheDocument();
   });
 
-  it("hides stale reviewer and skip chips when board quest context is available", () => {
+  it("preserves reviewer navigation while hiding stale skip chips when board quest context is available", () => {
     mockStoreState.quests = [
       {
         questId: "q-1450",
@@ -1549,7 +1552,7 @@ describe("SessionItem quest title label", () => {
       reviewerSession: reviewer,
     });
 
-    expect(screen.queryByTestId("session-reviewer-badge")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-reviewer-badge")).toHaveTextContent("#1947");
     expect(screen.queryByTestId("session-git-diff-skipped")).not.toBeInTheDocument();
     expect(screen.getByText("wt")).toBeInTheDocument();
   });

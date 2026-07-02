@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ComponentProps } from "react";
 import type { SidebarSessionItem } from "../utils/sidebar-session-item.js";
@@ -18,6 +18,9 @@ const mockStoreState = {
   sessionNotifications: new Map<string, Array<unknown>>(),
   sessionTimers: new Map<string, Array<{ id: string }>>(),
   sessionBoards: new Map<string, Array<unknown>>(),
+  sessionCompletedBoards: new Map<string, Array<unknown>>(),
+  sessionBoardRowStatuses: new Map<string, Record<string, unknown>>(),
+  quests: [] as Array<unknown>,
   sdkSessions: [] as Array<{ sessionId: string; leaderActivePhaseSummary?: unknown }>,
   currentSessionId: null as string | null,
 };
@@ -40,8 +43,10 @@ vi.mock("../utils/mobile.js", () => ({
   isTouchDevice: () => false,
 }));
 
+const mockNavigateToSession = vi.hoisted(() => vi.fn());
+
 vi.mock("../utils/routing.js", () => ({
-  navigateToSession: vi.fn(),
+  navigateToSession: mockNavigateToSession,
 }));
 
 import { TreeViewGroup } from "./TreeViewGroup.js";
@@ -106,6 +111,11 @@ describe("TreeViewGroup leader herd summary", () => {
   beforeEach(() => {
     mockStoreState.expandedHerdNodes.clear();
     mockStoreState.sessionAttention.clear();
+    mockStoreState.sessionBoards.clear();
+    mockStoreState.sessionCompletedBoards.clear();
+    mockStoreState.sessionBoardRowStatuses.clear();
+    mockStoreState.quests = [];
+    mockNavigateToSession.mockReset();
   });
 
   it("includes reviewers in member counts and status dots", () => {
@@ -133,6 +143,50 @@ describe("TreeViewGroup leader herd summary", () => {
     );
     expect(runningIndicator).toBeTruthy();
     expect(runningIndicator?.querySelector(".bg-cc-success.rounded-full")).toBeInTheDocument();
+  });
+
+  it("renders compact reviewer session chips inside quest worker rows", () => {
+    // Worker rows with quest context still need an explicit reviewer-session
+    // target, otherwise the leader sidebar has no route into the reviewer.
+    mockStoreState.expandedHerdNodes.add("leader-1");
+    mockStoreState.quests = [
+      {
+        questId: "q-42",
+        title: "Restore reviewer chips",
+        status: "in_progress",
+        sessionId: "worker-1",
+        createdAt: 1,
+      },
+    ];
+    mockStoreState.sessionBoards.set("leader-1", [
+      { questId: "q-42", title: "Restore reviewer chips", worker: "worker-1", workerNum: 11, updatedAt: 2 },
+    ]);
+    const leader = makeSession("leader-1", { isOrchestrator: true, sessionNum: 10 });
+    const worker = makeSession("worker-1", { herdedBy: "leader-1", sessionNum: 11, isWorktree: true });
+    const reviewer = makeSession("reviewer-1", { reviewerOf: 11, sessionNum: 12, status: "idle" });
+    const group: TreeViewGroupData = {
+      id: "team-alpha",
+      name: "Takode",
+      nodes: [{ leader, workers: [worker], reviewers: [reviewer] }],
+      runningCount: 0,
+      permCount: 0,
+      unreadCount: 0,
+    };
+
+    const { container } = renderTreeViewGroup(group);
+
+    const workerRow = container.querySelector('[data-session-id="worker-1"]');
+    expect(workerRow).toBeTruthy();
+    const badge = within(workerRow as HTMLElement).getByTestId("session-reviewer-badge");
+    expect(badge).toHaveTextContent("#12");
+    expect(badge).toHaveAccessibleName("Reviewer #12, click to open");
+    expect(badge).toHaveClass("max-w-[3.75rem]", "overflow-hidden");
+    expect(badge).not.toHaveTextContent("Reviewer of");
+    expect(within(workerRow as HTMLElement).getByText("wt")).toBeInTheDocument();
+
+    fireEvent.click(badge);
+
+    expect(mockNavigateToSession).toHaveBeenCalledWith("reviewer-1");
   });
 
   it("keeps create available on collapsed Session Spaces without toggling collapse", () => {

@@ -551,6 +551,11 @@ export function SessionItem({
         style: glowStyle,
       }
     : undefined;
+  const reviewerBadgeLabel =
+    reviewerSession?.sessionNum != null
+      ? `Reviewer #${reviewerSession.sessionNum}, click to open`
+      : "Reviewer, click to open";
+  const reviewerBadgeText = reviewerSession?.sessionNum != null ? `#${reviewerSession.sessionNum}` : "rev";
 
   const renderHighlightedSnippet = (text: string): React.ReactNode => {
     const parts = getHighlightParts(text, matchQuery || "");
@@ -871,8 +876,7 @@ export function SessionItem({
                   wt
                 </span>
               )}
-              {!hasQuestWorkContext &&
-                reviewerSession &&
+              {reviewerSession &&
                 (() => {
                   const rvStatus = deriveSessionStatus({
                     archived: reviewerSession.archived,
@@ -915,8 +919,9 @@ export function SessionItem({
                         }
                         if (onHoverEnd) onHoverEnd();
                       }}
-                      title={`Reviewer${reviewerSession.sessionNum != null ? ` #${reviewerSession.sessionNum}` : ""} — click to open`}
-                      className={`inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 ${rvTheme.text} bg-cc-muted/10 hover:bg-cc-muted/20 transition-colors cursor-pointer border ${rvTheme.border}`}
+                      title={reviewerBadgeLabel}
+                      aria-label={reviewerBadgeLabel}
+                      className={`inline-flex max-w-[3.75rem] items-center gap-0.5 overflow-hidden text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 ${rvTheme.text} bg-cc-muted/10 hover:bg-cc-muted/20 transition-colors cursor-pointer border ${rvTheme.border}`}
                       style={
                         rvTheme.glow
                           ? {
@@ -931,7 +936,7 @@ export function SessionItem({
                       <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5">
                         <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85a1.007 1.007 0 00-.115-.1zM12 6.5a5.5 5.5 0 11-11 0 5.5 5.5 0 0111 0z" />
                       </svg>
-                      review
+                      <span className="truncate">{reviewerBadgeText}</span>
                     </div>
                   );
                 })()}

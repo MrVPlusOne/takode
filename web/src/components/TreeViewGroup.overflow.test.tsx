@@ -107,7 +107,7 @@ function groupWithHerdUnit(): TreeViewGroupData {
           session("worker-1", { sessionNum: 2, herdedBy: "leader-1" }),
           session("worker-2", { sessionNum: 3, herdedBy: "leader-1" }),
         ],
-        reviewers: [session("reviewer-1", { sessionNum: 4, reviewerOf: 1 })],
+        reviewers: [session("reviewer-1", { sessionNum: 4, reviewerOf: 2 })],
       },
       {
         leader: session("standalone-2"),
@@ -144,7 +144,7 @@ function groupWithHiddenHerdUnit(): TreeViewGroupData {
       {
         leader: session("leader-hidden", { sessionNum: 10, isOrchestrator: true }),
         workers: [session("worker-hidden", { sessionNum: 11, herdedBy: "leader-hidden" })],
-        reviewers: [session("reviewer-hidden", { sessionNum: 12, reviewerOf: 10 })],
+        reviewers: [session("reviewer-hidden", { sessionNum: 12, reviewerOf: 11 })],
       },
     ],
   };
@@ -266,6 +266,7 @@ describe("TreeViewGroup overflow", () => {
 
   it("keeps a hidden leader unit visible when an active reviewer is inside it", () => {
     // Reviewers render as chips on their parent unit, but they should still pull that unit into the folded view.
+    storeState.expandedHerdNodes.add("leader-hidden");
     renderGroup({
       group: groupWithHiddenHerdUnit(),
       visibleSessionLimit: 2,
