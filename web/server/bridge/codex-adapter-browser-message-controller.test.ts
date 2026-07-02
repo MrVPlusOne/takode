@@ -5,7 +5,7 @@ import {
   type CodexAdapterBrowserMessageDeps,
 } from "./codex-adapter-browser-message-controller.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
-import type { ActiveTurnRoute, BrowserIncomingMessage, ContentBlock } from "../session-types.js";
+import type { ActiveTurnRoute, BrowserIncomingMessage, ContentBlock, SessionNotification } from "../session-types.js";
 
 type TestCodexSession = {
   id: string;
@@ -15,6 +15,9 @@ type TestCodexSession = {
   toolProgressOutput: Map<string, string>;
   isGenerating: boolean;
   activeTurnRoute: ActiveTurnRoute | null;
+  notifications: SessionNotification[];
+  notificationCounter: number;
+  attentionReason: "action" | "error" | "review" | null;
   lastCliMessageAt?: number;
 };
 
@@ -27,6 +30,9 @@ function makeSession(): TestCodexSession {
     toolProgressOutput: new Map(),
     isGenerating: false,
     activeTurnRoute: null,
+    notifications: [],
+    notificationCounter: 0,
+    attentionReason: null,
   };
 }
 
@@ -597,6 +603,61 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
         threadStatusMarkers: [expect.objectContaining({ kind: "waiting", threadKey: "q-941" })],
       }),
     ]);
+  });
+
+  it("creates unread review attention from live Codex Thread Ready markers and dedupes replay", async () => {
+    const session = makeSession();
+    session.attentionReason = "action";
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const scheduleNotification = vi.fn();
+    const deps = {
+      ...makeDeps(broadcasts),
+      scheduleNotification,
+    } as CodexAdapterBrowserMessageDeps & { scheduleNotification: ReturnType<typeof vi.fn> };
+    const readyMessage = makeAssistant(
+      [
+        {
+          type: "text",
+          text: "[thread:q-1539]\nDone.\n{[(Thread Ready: q-1539 | quest complete)]}",
+        },
+      ],
+      "codex-ready-live",
+    );
+
+    await handleCodexAdapterBrowserMessage(session, readyMessage, deps);
+    await handleCodexAdapterBrowserMessage(session, readyMessage, deps);
+
+    expect(session.state.leaderThreadStatuses?.["q-1539"]).toMatchObject({
+      kind: "ready",
+      threadKey: "q-1539",
+      messageId: "codex-ready-live",
+    });
+    expect(session.notifications).toEqual([
+      expect.objectContaining({
+        id: "n-1",
+        category: "review",
+        summary: "Thread ready: q-1539 | quest complete",
+        threadKey: "q-1539",
+        questId: "q-1539",
+        messageId: "codex-ready-live",
+        done: false,
+      }),
+    ]);
+    expect(session.attentionReason).toBe("action");
+    expect(scheduleNotification).not.toHaveBeenCalled();
+    expect(broadcasts.filter((msg) => msg.type === "notification_update")).toHaveLength(1);
+    expect(broadcasts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "notification_update",
+          notifications: [expect.objectContaining({ category: "review", threadKey: "q-1539" })],
+        }),
+        expect.objectContaining({
+          type: "assistant",
+          threadStatusMarkers: [expect.objectContaining({ kind: "ready", threadKey: "q-1539" })],
+        }),
+      ]),
+    );
   });
 
   it("preserves unrelated Codex thread statuses when routed output touches a different thread", async () => {
