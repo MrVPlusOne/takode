@@ -1402,12 +1402,15 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
     return c.json({ ok: true, diff_base_branch: branch });
   });
-  api.patch("/sessions/:id/read", (c) => {
+  api.patch("/sessions/:id/read", async (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
-    clearAttentionAndMarkReadController(session, sessionAttentionDeps);
+    const body = await c.req.json().catch(() => ({}));
+    const mode =
+      body && typeof body === "object" && (body as { mode?: unknown }).mode === "session-view" ? "session-view" : "all";
+    clearAttentionAndMarkReadController(session, sessionAttentionDeps, { mode });
     return c.json({ ok: true });
   });
   api.patch("/sessions/:id/unread", (c) => {

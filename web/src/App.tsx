@@ -570,7 +570,7 @@ export default function App() {
           disconnectSession(connectedSessionIdRef.current);
         }
         store.markSessionViewed(resolvedSessionId);
-        api.markSessionRead?.(resolvedSessionId).catch(() => {});
+        api.markSessionRead?.(resolvedSessionId, { mode: "session-view" }).catch(() => {});
         connectSession(resolvedSessionId);
         connectedSessionIdRef.current = resolvedSessionId;
         if (selectedGitRefreshSessionIdRef.current !== resolvedSessionId) {

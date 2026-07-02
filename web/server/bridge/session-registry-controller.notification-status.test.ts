@@ -325,6 +325,75 @@ describe("session notification status metadata", () => {
     );
   });
 
+  it("keeps thread-scoped Thread Ready unread when an automatic session-view read fires from Main", () => {
+    const session = makeSession({
+      attentionReason: "review",
+      notificationStatusVersion: 4,
+    });
+    const deps = makeDeps();
+    recordThreadReadyUnreadNotifications(
+      session,
+      [threadStatus({ kind: "ready", threadKey: "q-1563", timestamp: 1000, messageId: "ready-q1563" })],
+      deps,
+    );
+    deps.broadcastToBrowsers.mockClear();
+    deps.persistSession.mockClear();
+
+    // The user has the leader session open on Main, but has not viewed q-1563.
+    // This must clear only the session-level attention flag; advancing the
+    // broad lastReadAt timestamp would make q-1563 look read by timestamp.
+    clearAttentionAndMarkRead(session, deps, { mode: "session-view" });
+
+    expect(session.attentionReason).toBeNull();
+    expect(session.lastReadAt).toBe(0);
+    expect(getNotificationStatusSnapshot(session)).toMatchObject({
+      notificationUrgency: "review",
+      activeNotificationCount: 1,
+      activeReviewNotificationCount: 1,
+    });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "session_update",
+        session: { attentionReason: null },
+      }),
+    );
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ type: "notification_update" }),
+    );
+  });
+
+  it("keeps broad explicit read behavior for thread-scoped Thread Ready unread", () => {
+    const session = makeSession({
+      attentionReason: "review",
+      notificationStatusVersion: 4,
+    });
+    const deps = makeDeps();
+    recordThreadReadyUnreadNotifications(
+      session,
+      [threadStatus({ kind: "ready", threadKey: "q-1563", timestamp: 1000, messageId: "ready-q1563" })],
+      deps,
+    );
+    deps.broadcastToBrowsers.mockClear();
+
+    clearAttentionAndMarkRead(session, deps);
+
+    expect(session.lastReadAt).toBeGreaterThanOrEqual(1000);
+    expect(getNotificationStatusSnapshot(session)).toMatchObject({
+      notificationUrgency: null,
+      activeNotificationCount: 0,
+      activeReviewNotificationCount: 0,
+    });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "notification_update",
+        notifications: [],
+      }),
+    );
+  });
+
   it("counts muted needs-input separately from active attention", () => {
     const session = makeSession({
       attentionReason: "action",

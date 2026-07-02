@@ -677,7 +677,7 @@ function handleParsedMessage(
         const isViewing = useStore.getState().currentSessionId === sessionId;
         if (isViewing && data.session.attentionReason) {
           // User is viewing this session — suppress badge, tell server we've read it
-          api.markSessionRead?.(sessionId).catch(() => {});
+          api.markSessionRead?.(sessionId, { mode: "session-view" }).catch(() => {});
         } else {
           const sessionAttention = new Map(useStore.getState().sessionAttention);
           sessionAttention.set(sessionId, data.session.attentionReason ?? null);
@@ -720,7 +720,7 @@ function handleParsedMessage(
       if (update.attentionReason !== undefined && shouldApplyAttention) {
         const isViewing = useStore.getState().currentSessionId === targetSessionId;
         if (isViewing && update.attentionReason) {
-          api.markSessionRead?.(targetSessionId).catch(() => {});
+          api.markSessionRead?.(targetSessionId, { mode: "session-view" }).catch(() => {});
         } else {
           const sessionAttention = new Map(useStore.getState().sessionAttention);
           sessionAttention.set(targetSessionId, update.attentionReason ?? null);
@@ -1470,7 +1470,7 @@ function handleParsedMessage(
         if (shouldApplyAttention) {
           const isViewing = useStore.getState().currentSessionId === sessionId;
           if (isViewing && data.attentionReason) {
-            api.markSessionRead?.(sessionId).catch(() => {});
+            api.markSessionRead?.(sessionId, { mode: "session-view" }).catch(() => {});
           } else {
             const sessionAttention = new Map(useStore.getState().sessionAttention);
             sessionAttention.set(sessionId, data.attentionReason ?? null);

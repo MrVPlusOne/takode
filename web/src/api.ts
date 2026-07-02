@@ -1199,7 +1199,8 @@ export const api = {
   renameSession: (sessionId: string, name: string) =>
     patch<{ ok: boolean; name: string }>(`/sessions/${encodeURIComponent(sessionId)}/name`, { name }),
 
-  markSessionRead: (sessionId: string) => patch<{ ok: boolean }>(`/sessions/${encodeURIComponent(sessionId)}/read`),
+  markSessionRead: (sessionId: string, options?: { mode?: "session-view" | "all" }) =>
+    patch<{ ok: boolean }>(`/sessions/${encodeURIComponent(sessionId)}/read`, options),
 
   markSessionUnread: (sessionId: string) => patch<{ ok: boolean }>(`/sessions/${encodeURIComponent(sessionId)}/unread`),
 

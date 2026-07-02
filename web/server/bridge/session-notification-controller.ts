@@ -77,6 +77,10 @@ type ThreadReadyUnreadDeps = PersistNotificationDeps & {
   isHerdedWorkerSession?: (session: SessionLike) => boolean;
 };
 
+type ClearAttentionAndMarkReadOptions = {
+  mode?: "all" | "session-view";
+};
+
 export function setAttention(
   session: SessionLike,
   reason: AttentionReason,
@@ -95,20 +99,33 @@ export function setAttention(
   deps.persistSession(session);
 }
 
-export function clearAttentionAndMarkRead(session: SessionLike, deps: PersistNotificationDeps): void {
-  const hadUnreadReviewNotifications = getActionableSessionNotifications(session).some(
+export function clearAttentionAndMarkRead(
+  session: SessionLike,
+  deps: PersistNotificationDeps,
+  options: ClearAttentionAndMarkReadOptions = {},
+): void {
+  const unreadReviewNotifications = getActionableSessionNotifications(session).filter(
     (notification) => notification.category === "review" && !notification.done,
   );
+  const hasThreadScopedReviewNotifications =
+    options.mode === "session-view" && unreadReviewNotifications.some(isThreadScopedReviewNotification);
+  const shouldAdvanceReadTimestamp = !hasThreadScopedReviewNotifications;
+  const hadUnreadReviewNotifications = shouldAdvanceReadTimestamp && unreadReviewNotifications.length > 0;
   if (session.attentionReason === null && !hadUnreadReviewNotifications) return;
   session.attentionReason = null;
-  session.lastReadAt = Date.now();
+  if (shouldAdvanceReadTimestamp) {
+    session.lastReadAt = Date.now();
+  }
   if (hadUnreadReviewNotifications) {
     touchNotificationStatus(session);
     deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
   }
   deps.broadcastToBrowsers?.(session, {
     type: "session_update",
-    session: { attentionReason: null, lastReadAt: session.lastReadAt },
+    session: {
+      attentionReason: null,
+      ...(shouldAdvanceReadTimestamp ? { lastReadAt: session.lastReadAt } : {}),
+    },
   } as BrowserIncomingMessage);
   deps.persistSession(session);
 }
@@ -141,6 +158,12 @@ function isReadReviewNotification(session: SessionLike, notification: SessionNot
   const timestamp = Number(notification.timestamp ?? 0);
   const lastReadAt = normalizeStatusNumber(session.lastReadAt, 0);
   return timestamp > 0 && lastReadAt >= timestamp;
+}
+
+function isThreadScopedReviewNotification(notification: SessionNotification): boolean {
+  if (notification.category !== "review") return false;
+  const route = normalizeThreadRoute(notification.threadKey, notification.questId);
+  return route !== null && route.threadKey !== "main";
 }
 
 function getActionableSessionNotifications(session: SessionLike): SessionNotification[] {

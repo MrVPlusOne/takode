@@ -537,6 +537,18 @@ describe("App hidden panels", () => {
     expect(screen.queryByTestId("chat-view")).toBeNull();
   });
 
+  it("marks route-open session reads as session views instead of broad explicit reads", async () => {
+    window.location.hash = "#/session/s1";
+
+    render(<App />);
+
+    await waitFor(() =>
+      expect(mockMarkSessionRead).toHaveBeenCalledWith("s1", {
+        mode: "session-view",
+      }),
+    );
+  });
+
   it("renders the right-pane chat in preview mode when searchPreviewSessionId is set", () => {
     resetStore({
       currentSessionId: "s1",

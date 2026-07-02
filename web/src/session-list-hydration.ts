@@ -215,7 +215,7 @@ function collectAttentionUpdate(
   const currentAttention = store.sessionAttention.get(session.sessionId);
   if (currentAttention === session.attentionReason) return batchedAttention;
   if (store.currentSessionId === session.sessionId && session.attentionReason) {
-    api.markSessionRead(session.sessionId).catch(() => {});
+    api.markSessionRead(session.sessionId, { mode: "session-view" }).catch(() => {});
     return batchedAttention;
   }
   const nextAttention = batchedAttention ?? new Map(store.sessionAttention);

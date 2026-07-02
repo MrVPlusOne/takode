@@ -395,7 +395,7 @@ export function Sidebar() {
     setActiveSearchResultIndex(0);
     setSearchPreviewSessionId(null);
     useStore.getState().markSessionViewed(sessionId);
-    api.markSessionRead?.(sessionId).catch(() => {});
+    api.markSessionRead?.(sessionId, { mode: "session-view" }).catch(() => {});
     // Navigate to session hash — App.tsx hash effect handles setCurrentSession + connectSession
     navigateToSession(sessionId);
     requestAnimationFrame(() => {

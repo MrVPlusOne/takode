@@ -121,7 +121,7 @@ const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 const EMPTY_SIDE_CHATS: Record<string, SideChatRecord> = {};
 
-function reviewNotificationIdsForSelectedThread(
+export function reviewNotificationIdsForSelectedThread(
   notifications: ReadonlyArray<SessionNotification> | undefined,
   attentionRecords: ReadonlyArray<SessionAttentionRecord>,
   selectedThreadKey: string,
