@@ -48,6 +48,7 @@ import {
   normalizeLeaderAssistantRouting,
   updateLeaderThreadStatusesForAssistantOutput,
 } from "./thread-routing-reminder.js";
+import { recordThreadReadyUnreadNotifications } from "./session-notification-controller.js";
 import {
   consumeQuestThreadRemindersForCompletedTurn,
   extractQuestThreadRemindersFromContent,
@@ -499,6 +500,7 @@ export function handleAssistantMessage(
     if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
     session.messageHistory.push(browserMsg);
     deps.broadcastToBrowsers(session, browserMsg);
+    recordThreadReadyUnreadNotifications(session, threadStatusRecords, deps);
     if (statusUpdate.changed) {
       deps.broadcastToBrowsers(session, {
         type: "session_update",
@@ -583,6 +585,7 @@ export function handleAssistantMessage(
     if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
     session.messageHistory.push(browserMsg);
     deps.broadcastToBrowsers(session, browserMsg);
+    recordThreadReadyUnreadNotifications(session, threadStatusRecords, deps);
     if (statusUpdate.changed) {
       deps.broadcastToBrowsers(session, {
         type: "session_update",
@@ -660,6 +663,7 @@ export function handleAssistantMessage(
       },
       { skipBuffer: true },
     );
+    recordThreadReadyUnreadNotifications(session, threadStatusRecords, deps);
     if (statusUpdate.changed) {
       deps.broadcastToBrowsers(session, {
         type: "session_update",

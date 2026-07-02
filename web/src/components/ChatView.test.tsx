@@ -696,10 +696,10 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941");
   });
 
-  it("clears tab-scoped review notifications when the owner thread is selected", async () => {
-    // Blue review status is now owned by the thread tab itself. Selecting the
-    // owner conversation should resolve the server-backed review notification
-    // without requiring the user to scroll to an older in-feed marker.
+  it("clears Thread Ready unread notifications when the owner thread is selected", async () => {
+    // Thread Ready unread status is owned by the thread tab itself. Selecting
+    // the owner conversation should resolve the server-backed review
+    // notification without requiring an older in-feed marker.
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
@@ -724,7 +724,7 @@ describe("ChatView backend banners", () => {
             {
               id: "review-q941",
               category: "review",
-              summary: "q-941 ready for review",
+              summary: "Thread ready: q-941 | quest complete",
               timestamp: 2,
               messageId: null,
               threadKey: "q-941",

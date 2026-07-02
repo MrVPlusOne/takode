@@ -4,6 +4,7 @@ import type {
   NeedsInputNotificationQuestion,
   SessionNotification,
 } from "../session-types.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import {
   type ThreadRouteMetadata,
   normalizeThreadRoute,
@@ -69,6 +70,10 @@ type NotificationDoneOptions = {
 };
 
 type NotificationMuteDeps = PersistNotificationDeps & {
+  isHerdedWorkerSession?: (session: SessionLike) => boolean;
+};
+
+type ThreadReadyUnreadDeps = PersistNotificationDeps & {
   isHerdedWorkerSession?: (session: SessionLike) => boolean;
 };
 
@@ -352,6 +357,64 @@ export function notifyUserBySessionId(
   const session = sessions.get(sessionId);
   if (!session) return { ok: false, error: "Session not found" };
   return notifyUser(session, category, summary, deps, options);
+}
+
+function threadReadyUnreadSummary(record: LeaderThreadStatus): string {
+  const label = record.questId ?? record.threadKey;
+  return `Thread ready: ${label}${record.summary ? ` | ${record.summary}` : ""}`;
+}
+
+function hasThreadReadyUnreadNotification(session: SessionLike, record: LeaderThreadStatus, summary: string): boolean {
+  const route = normalizeThreadRoute(record.threadKey, record.questId) ?? { threadKey: "main" };
+  return (session.notifications ?? []).some((notification: SessionNotification) => {
+    if (notification.category !== "review") return false;
+    if (notification.messageId !== record.messageId) return false;
+    if (notification.summary !== summary) return false;
+    const notificationRoute = normalizeThreadRoute(notification.threadKey, notification.questId) ?? {
+      threadKey: "main",
+    };
+    return sameThreadRoute(notificationRoute, route);
+  });
+}
+
+export function recordThreadReadyUnreadNotifications(
+  session: SessionLike,
+  records: ReadonlyArray<LeaderThreadStatus>,
+  deps: ThreadReadyUnreadDeps,
+): boolean {
+  const readyRecords = records.filter((record) => record.kind === "ready");
+  if (readyRecords.length === 0) return false;
+
+  session.notifications ??= [];
+  let changed = false;
+  for (const record of readyRecords) {
+    const threadRoute = normalizeThreadRoute(record.threadKey, record.questId) ?? { threadKey: "main" };
+    const summary = threadReadyUnreadSummary(record);
+    if (hasThreadReadyUnreadNotification(session, record, summary)) continue;
+
+    const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
+    session.notificationCounter = nextNotificationCounter;
+    const notification: SessionNotification = withThreadRoute(
+      {
+        id: `n-${nextNotificationCounter}`,
+        category: "review",
+        summary,
+        timestamp: record.timestamp,
+        messageId: record.messageId,
+        done: false,
+      },
+      threadRoute,
+    );
+    session.notifications.push(notification);
+    changed = true;
+  }
+
+  if (!changed) return false;
+  touchNotificationStatus(session);
+  deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
+  setAttention(session, "review", deps);
+  deps.persistSession(session);
+  return true;
 }
 
 function activeNotificationThreadRoute(session: SessionLike): ThreadRouteMetadata | null {

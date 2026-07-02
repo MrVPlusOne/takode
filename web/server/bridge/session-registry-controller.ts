@@ -36,6 +36,7 @@ export {
   markNotificationDoneBySessionId,
   notifyUser,
   notifyUserBySessionId,
+  recordThreadReadyUnreadNotifications,
   setNotificationMuted,
   setNotificationMutedBySessionId,
   setAttention,

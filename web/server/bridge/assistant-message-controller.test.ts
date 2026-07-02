@@ -366,6 +366,53 @@ describe("assistant-message-controller", () => {
     });
   });
 
+  it("creates unread review attention from Thread Ready markers on the authoritative server path", () => {
+    const session = makeSession() as AssistantMessageSessionLike & {
+      notifications: any[];
+      notificationCounter: number;
+      attentionReason: "action" | "error" | "review" | null;
+    };
+    session.state.isOrchestrator = true;
+    session.notifications = [];
+    session.notificationCounter = 0;
+    session.attentionReason = null;
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(
+      session,
+      makeAssistant([
+        {
+          type: "text",
+          text: "[thread:q-1539]\nDone.\n{[(Thread Ready: q-1539 | quest complete)]}",
+        },
+      ]),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    expect(session.notifications).toEqual([
+      expect.objectContaining({
+        category: "review",
+        summary: "Thread ready: q-1539 | quest complete",
+        threadKey: "q-1539",
+        questId: "q-1539",
+        done: false,
+      }),
+    ]);
+    expect(session.attentionReason).toBe("review");
+    expect(broadcasts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "notification_update",
+          notifications: [expect.objectContaining({ category: "review", threadKey: "q-1539" })],
+        }),
+      ]),
+    );
+  });
+
   it("does not let cross-thread status markers route ordinary Main-thread prose", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;

@@ -6,12 +6,14 @@ import {
   markAllNotificationsDone,
   markNotificationDone,
   notifyUser,
+  recordThreadReadyUnreadNotifications,
   restorePersistedSessions,
   setNotificationMuted,
 } from "./session-registry-controller.js";
 import { replaceAttentionRecords } from "./attention-record-controller.js";
 import { validateLeaderThreadOutcomes } from "./leader-thread-outcome-validator.js";
 import type { SessionAttentionRecord } from "../session-types.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 
 function makeSession(overrides: Record<string, unknown> = {}) {
   return {
@@ -81,6 +83,31 @@ function visibleLeaderMessage(id: string, timestamp: number) {
     parent_tool_use_id: null,
     timestamp,
     threadKey: "main",
+  };
+}
+
+function threadStatus({
+  kind,
+  threadKey = "q-1539",
+  summary = kind === "ready" ? "quest complete" : "waiting on reviewer",
+  messageId = `${kind}-message`,
+  timestamp = 1000,
+}: {
+  kind: LeaderThreadStatus["kind"];
+  threadKey?: string;
+  summary?: string;
+  messageId?: string;
+  timestamp?: number;
+}): LeaderThreadStatus {
+  return {
+    kind,
+    label: kind === "ready" ? "Thread Ready" : "Thread Waiting",
+    threadKey,
+    ...(threadKey !== "main" ? { questId: threadKey } : {}),
+    summary,
+    messageId,
+    timestamp,
+    updatedAt: timestamp,
   };
 }
 
@@ -570,5 +597,70 @@ describe("session notification status metadata", () => {
       "reopened",
       "superseded",
     ]);
+  });
+
+  it("records Thread Ready status markers as internal review unread notifications", () => {
+    const session = makeSession({ state: { isOrchestrator: true } });
+    const deps = makeDeps();
+    const ready = threadStatus({ kind: "ready", threadKey: "q-1539", summary: "quest complete" });
+
+    const changed = recordThreadReadyUnreadNotifications(session, [ready], deps);
+
+    expect(changed).toBe(true);
+    expect(session.notifications).toEqual([
+      expect.objectContaining({
+        id: "n-1",
+        category: "review",
+        summary: "Thread ready: q-1539 | quest complete",
+        threadKey: "q-1539",
+        questId: "q-1539",
+        messageId: "ready-message",
+        done: false,
+      }),
+    ]);
+    expect(session.attentionReason).toBe("review");
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "notification_update",
+        notifications: [
+          expect.objectContaining({
+            category: "review",
+            threadKey: "q-1539",
+          }),
+        ],
+      }),
+    );
+    expect(deps.scheduleNotification).not.toHaveBeenCalled();
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+  });
+
+  it("does not create unread notifications for Thread Waiting markers", () => {
+    const session = makeSession({ state: { isOrchestrator: true } });
+    const deps = makeDeps();
+
+    const changed = recordThreadReadyUnreadNotifications(
+      session,
+      [threadStatus({ kind: "waiting", threadKey: "q-1539" })],
+      deps,
+    );
+
+    expect(changed).toBe(false);
+    expect(session.notifications).toEqual([]);
+    expect(session.attentionReason).toBeNull();
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
+    expect(deps.persistSession).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates replayed Thread Ready markers and preserves active needs-input priority", () => {
+    const session = makeSession({ state: { isOrchestrator: true }, attentionReason: "action" });
+    const deps = makeDeps();
+    const ready = threadStatus({ kind: "ready", threadKey: "q-1539", summary: "quest complete" });
+
+    expect(recordThreadReadyUnreadNotifications(session, [ready], deps)).toBe(true);
+    expect(recordThreadReadyUnreadNotifications(session, [ready], deps)).toBe(false);
+
+    expect(session.notifications).toHaveLength(1);
+    expect(session.attentionReason).toBe("action");
   });
 });

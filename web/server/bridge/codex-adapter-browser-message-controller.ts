@@ -9,13 +9,14 @@ import type {
   PermissionRequest,
   ThreadRef,
 } from "../session-types.js";
-import type { ParsedThreadStatusMarker } from "../../shared/thread-status-marker.js";
+import type { LeaderThreadStatus, ParsedThreadStatusMarker } from "../../shared/thread-status-marker.js";
 import { sessionTag } from "../session-tag.js";
 import {
   hasLeaderVisibleTextContent,
   normalizeLeaderAssistantRouting,
   updateLeaderThreadStatusesForAssistantOutput,
 } from "./thread-routing-reminder.js";
+import { recordThreadReadyUnreadNotifications } from "./session-notification-controller.js";
 import { queueQuestThreadRemindersForCompletedTurn } from "./quest-thread-reminder.js";
 import { recordCompactionFinished, recordCompactionStarted } from "./session-lifecycle-events.js";
 import { shouldTrackCodexToolResultRecovery } from "./tool-result-recovery-controller.js";
@@ -431,6 +432,7 @@ export async function handleCodexAdapterBrowserMessage(
   let outgoing: BrowserIncomingMessage | null = msg;
   let activeRouteFromAssistant: ThreadRouteMetadata | undefined;
   let pendingThreadStatusMarkers: ParsedThreadStatusMarker[] | undefined;
+  let threadStatusRecordsForUnread: LeaderThreadStatus[] = [];
   let leaderThreadStatusesChanged = false;
 
   if (msg.type === "session_init") {
@@ -625,6 +627,7 @@ export async function handleCodexAdapterBrowserMessage(
     if (threadStatusRecords.length > 0) {
       normalizedAssistant = { ...normalizedAssistant, threadStatusMarkers: threadStatusRecords };
     }
+    threadStatusRecordsForUnread = threadStatusRecords;
     leaderThreadStatusesChanged = statusUpdate.changed;
     outgoing = normalizedAssistant;
   }
@@ -644,6 +647,7 @@ export async function handleCodexAdapterBrowserMessage(
         session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
       } as BrowserIncomingMessage);
     }
+    recordThreadReadyUnreadNotifications(session, threadStatusRecordsForUnread, deps);
   } else if (outgoing?.type === "result") {
     if (await maybeRecycleCodexLeaderForContextWindowExhaustion(session, outgoing, deps)) {
       return;

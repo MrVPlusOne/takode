@@ -90,6 +90,16 @@ function reviewAttentionRecord(threadKey: string): SessionAttentionRecord {
   };
 }
 
+function readyResultAttentionRecord(threadKey: string): SessionAttentionRecord {
+  return {
+    ...reviewAttentionRecord(threadKey),
+    id: `thread-ready:${threadKey}`,
+    title: `${threadKey} ready`,
+    summary: `Thread ready: ${threadKey} | quest complete`,
+    dedupeKey: `thread-ready:${threadKey}`,
+  };
+}
+
 function expectNoNotificationSurfaceTone(element: HTMLElement) {
   expect(element.className).not.toContain("border-amber-400/35");
   expect(element.className).not.toContain("bg-amber-400/10");
@@ -596,6 +606,51 @@ describe("WorkBoardBar overflow tabs", () => {
 
     fireEvent.click(within(q4Row).getByTestId("thread-tabs-more-row-select"));
     expect(onSelectThread).toHaveBeenCalledWith("q-4");
+  });
+
+  it("renders Thread Ready unread attention as a blue bell on a visible thread tab", async () => {
+    render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="main"
+        openThreadKeys={["q-4"]}
+        threadRows={THREAD_ROWS}
+        attentionRecords={[readyResultAttentionRecord("q-4")]}
+      />,
+    );
+
+    const q4Tab = (await screen.findAllByTestId("thread-tab")).find(
+      (tab) => tab.getAttribute("data-thread-key") === "q-4",
+    )!;
+    expect(q4Tab).toHaveAttribute("data-blue-notification", "true");
+    expect(q4Tab).toHaveAttribute("data-needs-input", "false");
+    expect(within(q4Tab).getByTestId("thread-tab-blue-notification-bell")).toHaveClass("text-cc-info");
+  });
+
+  it("keeps active needs-input ahead of Thread Ready blue unread attention", async () => {
+    resetStore({
+      sessionBoards: new Map([
+        ["s1", [{ questId: "q-4", title: "Quest 4 thread", status: "WAITING", updatedAt: 4, waitForInput: ["user"] }]],
+      ]),
+    });
+
+    render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="main"
+        openThreadKeys={["q-4"]}
+        threadRows={THREAD_ROWS}
+        attentionRecords={[readyResultAttentionRecord("q-4")]}
+      />,
+    );
+
+    const q4Tab = (await screen.findAllByTestId("thread-tab")).find(
+      (tab) => tab.getAttribute("data-thread-key") === "q-4",
+    )!;
+    expect(q4Tab).toHaveAttribute("data-blue-notification", "true");
+    expect(q4Tab).toHaveAttribute("data-needs-input", "true");
+    expect(within(q4Tab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-cc-attention");
+    expect(within(q4Tab).queryByTestId("thread-tab-blue-notification-bell")).not.toBeInTheDocument();
   });
 
   it("aggregates hidden needs-input nudges without tinting the More button surface", async () => {
