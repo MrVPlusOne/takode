@@ -921,7 +921,7 @@ export function SessionItem({
                       }}
                       title={reviewerBadgeLabel}
                       aria-label={reviewerBadgeLabel}
-                      className={`inline-flex max-w-[3.75rem] items-center gap-0.5 overflow-hidden text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 ${rvTheme.text} bg-cc-muted/10 hover:bg-cc-muted/20 transition-colors cursor-pointer border ${rvTheme.border}`}
+                      className={`inline-flex max-w-[3.75rem] items-center gap-px overflow-hidden text-[9px] font-medium px-1 rounded-full leading-[16px] shrink-0 ${rvTheme.text} bg-cc-muted/10 hover:bg-cc-muted/20 transition-colors cursor-pointer border ${rvTheme.border}`}
                       style={
                         rvTheme.glow
                           ? {
@@ -933,7 +933,7 @@ export function SessionItem({
                       data-testid="session-reviewer-badge"
                       data-reviewer-status={rvStatus}
                     >
-                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5">
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-2 h-2">
                         <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85a1.007 1.007 0 00-.115-.1zM12 6.5a5.5 5.5 0 11-11 0 5.5 5.5 0 0111 0z" />
                       </svg>
                       <span className="truncate">{reviewerBadgeText}</span>

@@ -180,7 +180,7 @@ describe("TreeViewGroup leader herd summary", () => {
     const badge = within(workerRow as HTMLElement).getByTestId("session-reviewer-badge");
     expect(badge).toHaveTextContent("reviewer");
     expect(badge).toHaveAccessibleName("Reviewer #12, click to open");
-    expect(badge).toHaveClass("max-w-[3.75rem]", "overflow-hidden");
+    expect(badge).toHaveClass("max-w-[3.75rem]", "gap-px", "overflow-hidden", "px-1");
     expect(badge).not.toHaveTextContent("Reviewer of");
     expect(within(workerRow as HTMLElement).getByText("wt")).toBeInTheDocument();
 

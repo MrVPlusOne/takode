@@ -1235,7 +1235,8 @@ describe("SessionItem reviewer badge", () => {
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveTextContent("reviewer");
     expect(badge).toHaveAccessibleName("Reviewer #42, click to open");
-    expect(badge).toHaveClass("max-w-[3.75rem]", "overflow-hidden");
+    expect(badge).toHaveClass("max-w-[3.75rem]", "gap-px", "overflow-hidden", "px-1");
+    expect(badge.querySelector("svg")).toHaveClass("w-2", "h-2");
   });
 
   it("does not render a review badge when reviewerSession is undefined", () => {
