@@ -171,6 +171,7 @@ function shouldServerSurfaceBoardRowThreadTab(row: Pick<BoardRow, "questId" | "s
 function surfaceBoardRowThreadTab(session: SessionLike, row: BoardRow): void {
   if (!shouldServerSurfaceBoardRowThreadTab(row)) return;
   const existingState = normalizeLeaderOpenThreadTabsState(session.state?.leaderOpenThreadTabs);
+  if (existingState?.orderedOpenThreadKeys.includes(row.questId.toLowerCase())) return;
   const eventAt = row.createdAt;
   const nextState = applyLeaderThreadTabUpdate(
     existingState,
@@ -188,7 +189,9 @@ function surfaceBoardRowThreadTab(session: SessionLike, row: BoardRow): void {
 }
 
 function surfaceBoardRowThreadTabs(session: SessionLike): void {
-  for (const row of session.board.values() as Iterable<BoardRow>) {
+  // Front insertion stacks candidates, so reverse board order preserves the
+  // visible board order among rows opened during a cold/server backfill.
+  for (const row of [...getBoard(session)].reverse()) {
     surfaceBoardRowThreadTab(session, row);
   }
 }

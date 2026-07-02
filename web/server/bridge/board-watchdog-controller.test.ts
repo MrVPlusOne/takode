@@ -78,6 +78,38 @@ describe("Work Board leader thread tabs", () => {
     expect(deps.persistSession).toHaveBeenCalledWith(session);
   });
 
+  it("preserves board order when backfilling multiple active rows without saved tabs", () => {
+    const session = createSession();
+    const deps = createDeps();
+    session.board.set("q-1", {
+      questId: "q-1",
+      title: "First active row",
+      status: "IMPLEMENTING",
+      createdAt: 100,
+      updatedAt: 100,
+    });
+    session.board.set("q-2", {
+      questId: "q-2",
+      title: "Second active row",
+      status: "CODE_REVIEWING",
+      createdAt: 200,
+      updatedAt: 200,
+    });
+
+    upsertBoardRow(
+      session,
+      {
+        questId: "q-3",
+        title: "Third active row",
+        status: "EXECUTING",
+        updatedAt: 300,
+      },
+      deps,
+    );
+
+    expect((session.state.leaderOpenThreadTabs as any)?.orderedOpenThreadKeys).toEqual(["q-1", "q-2", "q-3"]);
+  });
+
   it("retains an active leader thread tab when the board row completes even if old sessions had no tab state", () => {
     const session = createSession();
     const deps = createDeps();
