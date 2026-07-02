@@ -134,4 +134,26 @@ describe("handleMessage: session_update", () => {
 
     expect(useStore.getState().sessions.get("s1")!.model).toBe("claude-sonnet-4-20250514");
   });
+
+  it("applies leader open-thread tabs carried by board updates", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });
+
+    fireMessage({
+      type: "board_updated",
+      board: [{ questId: "q-9", title: "Active quest", status: "IMPLEMENTING", createdAt: 1, updatedAt: 2 }],
+      completedBoard: [],
+      leaderOpenThreadTabs: {
+        version: 1,
+        orderedOpenThreadKeys: ["q-9"],
+        closedThreadTombstones: [],
+        updatedAt: 2,
+      },
+    });
+
+    expect(useStore.getState().sessionBoards.get("s1")).toEqual([
+      { questId: "q-9", title: "Active quest", status: "IMPLEMENTING", createdAt: 1, updatedAt: 2 },
+    ]);
+    expect(useStore.getState().sessions.get("s1")!.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-9"]);
+  });
 });

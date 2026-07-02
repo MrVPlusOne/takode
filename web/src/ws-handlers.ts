@@ -1355,6 +1355,9 @@ function handleParsedMessage(
       // and any future live-updating inline boards stay current.
       store.setSessionBoard(sessionId, data.board ?? []);
       store.setSessionCompletedBoard(sessionId, data.completedBoard ?? []);
+      if (data.leaderOpenThreadTabs) {
+        store.updateSession(sessionId, { leaderOpenThreadTabs: data.leaderOpenThreadTabs });
+      }
       if (data.leaderActivePhaseSummary !== undefined) {
         store.updateSdkSession(sessionId, { leaderActivePhaseSummary: data.leaderActivePhaseSummary });
       }

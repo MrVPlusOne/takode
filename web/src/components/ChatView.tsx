@@ -1518,10 +1518,11 @@ export function ChatView({
       if (questOrBoardRowIsCompleted(questStatusByKey.get(threadKey), row.status, row.completedAt)) continue;
       const newlySurfacedActiveRow =
         initializedActiveBoardThreadKeysRef.current && !observedActiveBoardThreadKeysRef.current.has(threadKey);
+      const candidateEventAt = row.createdAt ?? row.updatedAt;
       const candidateCanOpen = canServerCandidateOpenThread(
         authoritativeLeaderOpenThreadTabs,
         threadKey,
-        row.updatedAt,
+        candidateEventAt,
       );
       const alreadyOpen = openThreadTabKeysRef.current.includes(threadKey);
       const activeBoardIndex = activeBoardOpenThreadKeys.indexOf(threadKey);
@@ -1537,7 +1538,7 @@ export function ChatView({
       if (!candidateCanOpen) continue;
       openThreadTab(threadKey, {
         intent: "server_candidate",
-        eventAt: row.updatedAt,
+        eventAt: candidateEventAt,
         placement: "first",
         repositionExisting,
       });

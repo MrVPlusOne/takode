@@ -1170,6 +1170,7 @@ export type BrowserIncomingMessageBase =
       type: "board_updated";
       board: BoardRow[];
       completedBoard: BoardRow[];
+      leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
       leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
     }

@@ -917,7 +917,7 @@ describe("ChatView leader open thread tabs", () => {
     resetStore({
       sessions: leaderSession(leaderTabs([])),
       sessionBoards: new Map([
-        ["s1", [{ questId: "q-1231", status: "PORTING", title: "Permission CLI", updatedAt: 10 }]],
+        ["s1", [{ questId: "q-1231", status: "PORTING", title: "Permission CLI", createdAt: 8, updatedAt: 10 }]],
       ]),
       messages: new Map([["s1", [threadMessage("q-1231", 10)]]]),
       quests: [{ questId: "q-1231", title: "Permission CLI", status: "in_progress" }],
@@ -934,7 +934,7 @@ describe("ChatView leader open thread tabs", () => {
         threadKey: "q-1231",
         placement: "first",
         source: "server_candidate",
-        eventAt: 10,
+        eventAt: 8,
       },
     });
 
@@ -1283,7 +1283,7 @@ describe("ChatView leader open thread tabs", () => {
     resetStore({
       sessions: leaderSession(leaderTabs([], [{ threadKey: "q-1231", closedAt: 20 }])),
       sessionBoards: new Map([
-        ["s1", [{ questId: "q-1231", status: "PORTING", title: "Closed quest", updatedAt: 10 }]],
+        ["s1", [{ questId: "q-1231", status: "PORTING", title: "Closed quest", createdAt: 10, updatedAt: 30 }]],
       ]),
       messages: new Map([["s1", [threadMessage("q-1231", 10)]]]),
       quests: [{ questId: "q-1231", title: "Closed quest", status: "in_progress" }],

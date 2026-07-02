@@ -1023,6 +1023,9 @@ export function getWorkBoardStateDeps(host: any) {
         type: "board_updated",
         board,
         completedBoard,
+        ...((targetSession as Session).state?.leaderOpenThreadTabs
+          ? { leaderOpenThreadTabs: (targetSession as Session).state.leaderOpenThreadTabs }
+          : {}),
         leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
         rowSessionStatuses: host.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
       }),

@@ -14,6 +14,11 @@ import {
   type QuestJourneyPhaseId,
   type QuestJourneyPhaseTiming,
 } from "../../shared/quest-journey.js";
+import {
+  applyLeaderThreadTabUpdate,
+  normalizeLeaderOpenThreadTabsState,
+  shouldPersistLeaderThreadTab,
+} from "../../shared/leader-open-thread-tabs.js";
 import { HERD_WORKER_SLOT_LIMIT } from "../../shared/takode-constants.js";
 import type { BoardRow, SessionAttentionRecord, TakodeEvent, TakodeHerdBatchSnapshot } from "../session-types.js";
 import { formatRenderedHerdEventBatch } from "../herd-event-dispatcher.js";
@@ -152,6 +157,40 @@ function isQueuedBoardRowStatus(status: string | undefined): boolean {
 
 function isProposedBoardRowStatus(status: string | undefined): boolean {
   return (status || "").trim().toUpperCase() === "PROPOSED";
+}
+
+function shouldServerSurfaceBoardRowThreadTab(row: Pick<BoardRow, "questId" | "status" | "completedAt">): boolean {
+  return (
+    shouldPersistLeaderThreadTab(row.questId) &&
+    !isQueuedBoardRowStatus(row.status) &&
+    !isProposedBoardRowStatus(row.status) &&
+    row.completedAt === undefined
+  );
+}
+
+function surfaceBoardRowThreadTab(session: SessionLike, row: BoardRow): void {
+  if (!shouldServerSurfaceBoardRowThreadTab(row)) return;
+  const existingState = normalizeLeaderOpenThreadTabsState(session.state?.leaderOpenThreadTabs);
+  const eventAt = row.createdAt;
+  const nextState = applyLeaderThreadTabUpdate(
+    existingState,
+    {
+      type: "open",
+      threadKey: row.questId,
+      placement: "first",
+      source: "server_candidate",
+      eventAt,
+    },
+    row.updatedAt,
+  );
+  if (nextState === existingState || !nextState) return;
+  session.state = { ...(session.state ?? {}), leaderOpenThreadTabs: nextState };
+}
+
+function surfaceBoardRowThreadTabs(session: SessionLike): void {
+  for (const row of session.board.values() as Iterable<BoardRow>) {
+    surfaceBoardRowThreadTab(session, row);
+  }
 }
 
 function getNextBoardJourneyPhaseAdvance(
@@ -624,6 +663,7 @@ function hasCompletedBoardRow(session: SessionLike, questId: string): boolean {
 export function moveBoardRowToCompleted(session: SessionLike, questId: string): BoardRow | null {
   const row = session.board.get(questId);
   if (!row) return null;
+  surfaceBoardRowThreadTab(session, row);
   const now = Date.now();
   if (row.journey) {
     const phaseTimings: Record<string, QuestJourneyPhaseTiming> = { ...(row.journey.phaseTimings ?? {}) };
@@ -677,6 +717,7 @@ export function commitBoard(session: SessionLike, deps: WorkBoardStateDeps): Boa
       session.boardDispatchStates.delete(questId);
     }
   }
+  surfaceBoardRowThreadTabs(session);
   const board = getBoard(session);
   const completedBoard = getCompletedBoard(session);
   deps.broadcastBoard(session, board, completedBoard);

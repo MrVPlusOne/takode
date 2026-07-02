@@ -6,6 +6,7 @@ import {
   completeDoneBoardRowsForQuestInAllSessions,
   getBoard,
   getCompletedBoard,
+  removeBoardRows,
   upsertBoardRow,
   type WorkBoardStateDeps,
 } from "./board-watchdog-controller.js";
@@ -17,6 +18,7 @@ interface TestSession {
   boardDispatchStates: Map<string, unknown>;
   boardStallStates: Map<string, unknown>;
   attentionRecords: SessionAttentionRecord[];
+  state: Record<string, unknown>;
 }
 
 function createSession(): TestSession {
@@ -27,6 +29,7 @@ function createSession(): TestSession {
     boardDispatchStates: new Map(),
     boardStallStates: new Map(),
     attentionRecords: [],
+    state: {},
   };
 }
 
@@ -52,6 +55,73 @@ describe("Work Board row merge", () => {
 
     expect(getBoard(session)[0]).toEqual(expect.objectContaining({ worker: "worker-new" }));
     expect(getBoard(session)[0]?.workerNum).toBeUndefined();
+  });
+});
+
+describe("Work Board leader thread tabs", () => {
+  it("persists server-owned leader thread tabs when active board rows are created", () => {
+    const session = createSession();
+    const deps = createDeps();
+
+    upsertBoardRow(
+      session,
+      {
+        questId: "q-9",
+        title: "Keep active quest tab",
+        status: "IMPLEMENTING",
+      },
+      deps,
+    );
+
+    expect((session.state.leaderOpenThreadTabs as any)?.orderedOpenThreadKeys).toEqual(["q-9"]);
+    expect((session.state.leaderOpenThreadTabs as any)?.closedThreadTombstones).toEqual([]);
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+  });
+
+  it("retains an active leader thread tab when the board row completes even if old sessions had no tab state", () => {
+    const session = createSession();
+    const deps = createDeps();
+    session.board.set("q-9", {
+      questId: "q-9",
+      title: "Complete without browser-authored tab state",
+      status: "MEMORY",
+      createdAt: 100,
+      updatedAt: 200,
+    });
+
+    removeBoardRows(session, ["q-9"], deps);
+
+    expect(session.completedBoard.has("q-9")).toBe(true);
+    expect((session.state.leaderOpenThreadTabs as any)?.orderedOpenThreadKeys).toEqual(["q-9"]);
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+  });
+
+  it("does not revive a completed leader thread tab after an explicit close tombstone", () => {
+    const session = createSession();
+    const deps = createDeps();
+    session.state.leaderOpenThreadTabs = {
+      version: 1,
+      orderedOpenThreadKeys: [],
+      closedThreadTombstones: [{ threadKey: "q-9", closedAt: 200 }],
+      updatedAt: 200,
+    };
+    session.board.set("q-9", {
+      questId: "q-9",
+      title: "Closed before completion",
+      status: "MEMORY",
+      createdAt: 100,
+      updatedAt: 150,
+    });
+
+    removeBoardRows(session, ["q-9"], deps);
+
+    expect(session.completedBoard.has("q-9")).toBe(true);
+    expect(session.state.leaderOpenThreadTabs).toEqual({
+      version: 1,
+      orderedOpenThreadKeys: [],
+      closedThreadTombstones: [{ threadKey: "q-9", closedAt: 200 }],
+      updatedAt: 200,
+    });
   });
 });
 

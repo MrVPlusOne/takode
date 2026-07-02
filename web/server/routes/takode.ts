@@ -642,6 +642,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       type: "board_updated",
       board,
       completedBoard,
+      ...(session.state?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: session.state.leaderOpenThreadTabs } : {}),
       leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
       rowSessionStatuses: buildBoardRowSessionStatusesController(
         [...board, ...completedBoard],
