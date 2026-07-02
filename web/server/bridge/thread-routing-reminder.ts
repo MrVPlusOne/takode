@@ -25,6 +25,7 @@ import { extractQuestThreadRemindersFromContent } from "./quest-thread-reminder.
 
 const THREAD_ROUTING_EXPECTED =
   "Start with [thread:main] or [thread:q-N]. Bash commands must start with # thread:main or # thread:q-N.";
+const QUEST_QUIZ_DIRECTIVE_LINE_RE = /^\s*\{\[\(Quest Quiz:\s*q-\d+\)\]\}\s*$/i;
 
 export interface LeaderAssistantRouteResult {
   content: ContentBlock[];
@@ -103,6 +104,65 @@ export function extractLeaderThreadStatusMarkersFromContent(content: ContentBloc
   }
 
   return { content: nextContent, markers };
+}
+
+function isValidThreadRouteLineAfterQuiz(line: string): boolean {
+  if (!line.trim()) return false;
+  return parseThreadTextPrefix(line).ok;
+}
+
+export function splitLeaderAssistantContentAtPostQuizThreadRoutes(
+  isLeaderSession: boolean,
+  content: ContentBlock[],
+  parentToolUseId: string | null | undefined,
+): ContentBlock[][] {
+  if (!isLeaderSession || parentToolUseId) return [content];
+
+  const segments: ContentBlock[][] = [];
+  let currentBlocks: ContentBlock[] = [];
+  let currentTextLines: string[] = [];
+  let canSplitAfterQuiz = false;
+
+  const flushText = () => {
+    if (currentTextLines.length === 0) return;
+    currentBlocks.push({ type: "text", text: currentTextLines.join("\n") });
+    currentTextLines = [];
+  };
+
+  const flushSegment = () => {
+    flushText();
+    if (currentBlocks.length === 0) return;
+    segments.push(currentBlocks);
+    currentBlocks = [];
+  };
+
+  for (const block of content) {
+    if (block.type !== "text") {
+      flushText();
+      currentBlocks.push(block);
+      canSplitAfterQuiz = false;
+      continue;
+    }
+
+    for (const line of block.text.split(/\r?\n/)) {
+      if (canSplitAfterQuiz && isValidThreadRouteLineAfterQuiz(line)) {
+        flushSegment();
+        currentTextLines.push(line);
+        canSplitAfterQuiz = false;
+        continue;
+      }
+
+      currentTextLines.push(line);
+      if (QUEST_QUIZ_DIRECTIVE_LINE_RE.test(line)) {
+        canSplitAfterQuiz = true;
+      } else if (canSplitAfterQuiz && line.trim() !== "") {
+        canSplitAfterQuiz = false;
+      }
+    }
+  }
+
+  flushSegment();
+  return segments.length > 0 ? segments : [content];
 }
 
 function threadRoutingErrorForText(

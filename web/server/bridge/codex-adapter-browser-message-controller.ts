@@ -14,6 +14,7 @@ import { sessionTag } from "../session-tag.js";
 import {
   hasLeaderVisibleTextContent,
   normalizeLeaderAssistantRouting,
+  splitLeaderAssistantContentAtPostQuizThreadRoutes,
   updateLeaderThreadStatusesForAssistantOutput,
 } from "./thread-routing-reminder.js";
 import { recordThreadReadyUnreadNotifications } from "./session-notification-controller.js";
@@ -523,6 +524,78 @@ export async function handleCodexAdapterBrowserMessage(
   } else if (msg.type === "assistant") {
     const launcherInfo = deps.getLauncherSessionInfo(session.id);
     const isLeaderSession = isLeaderSessionForAssistantRouting(session, launcherInfo);
+    const contentSegments = splitLeaderAssistantContentAtPostQuizThreadRoutes(
+      isLeaderSession,
+      msg.message.content || [],
+      msg.parent_tool_use_id,
+    );
+    if (contentSegments.length > 1) {
+      const timestamp = typeof msg.timestamp === "number" ? msg.timestamp : Date.now();
+      const resolvedMessageId = msg.message.id ?? msg.uuid ?? `assistant-${timestamp}-${session.messageHistory.length}`;
+      for (const [segmentIndex, contentSegment] of contentSegments.entries()) {
+        const routed = normalizeLeaderAssistantRouting(isLeaderSession, contentSegment, msg.parent_tool_use_id);
+        const segmentRoute = routeFromLeaderAssistantResult(routed);
+        if (routed.questThreadReminders?.length) {
+          queueQuestThreadRemindersForCompletedTurn(session, routed.questThreadReminders, segmentRoute);
+        }
+        const segmentMessageId = segmentIndex === 0 ? resolvedMessageId : `${resolvedMessageId}:route-${segmentIndex}`;
+        let normalizedAssistant: AssistantBrowserMessage = {
+          ...msg,
+          message: { ...msg.message, id: segmentMessageId, content: routed.content },
+          timestamp,
+          ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
+          ...(routed.questId ? { questId: routed.questId } : {}),
+          ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
+          ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
+        };
+        const content: ContentBlock[] = normalizedAssistant.message.content || [];
+        const now = Date.now();
+        for (const block of content) {
+          if (
+            block.type === "tool_use" &&
+            block.id &&
+            shouldTrackCodexToolResultRecovery(block) &&
+            !session.toolStartTimes.has(block.id)
+          ) {
+            session.toolStartTimes.set(block.id, now);
+            session.toolProgressOutput.delete(block.id);
+          }
+        }
+        deps.trackCodexQuestCommands(session, content);
+        if (deps.isDuplicateCodexAssistantReplay(session, normalizedAssistant)) continue;
+        const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
+          session,
+          routed.threadStatusMarkers,
+          {
+            messageId: normalizedAssistant.message.id,
+            timestamp,
+          },
+          hasLeaderVisibleTextContent(normalizedAssistant.message.content) ? segmentRoute : undefined,
+        );
+        const threadStatusRecords = statusUpdate.records;
+        if (threadStatusRecords.length > 0) {
+          normalizedAssistant = { ...normalizedAssistant, threadStatusMarkers: threadStatusRecords };
+        }
+        const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
+          session.messageHistory,
+          normalizeThreadRoute(normalizedAssistant.threadKey, normalizedAssistant.questId),
+        );
+        if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
+        session.messageHistory.push(normalizedAssistant);
+        deps.persistSession(session);
+        deps.syncSideChatParent?.(session);
+        if (statusUpdate.changed) {
+          deps.broadcastToBrowsers(session, {
+            type: "session_update",
+            session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
+          } as BrowserIncomingMessage);
+        }
+        recordThreadReadyUnreadNotifications(session, threadStatusRecords, deps);
+        deps.broadcastToBrowsers(session, normalizedAssistant);
+        updateActiveTurnRouteFromLeaderAssistant(session, segmentRoute, deps);
+      }
+      return;
+    }
     const routed = normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content || [], msg.parent_tool_use_id);
     activeRouteFromAssistant = routeFromLeaderAssistantResult(routed);
     if (routed.questThreadReminders?.length) {

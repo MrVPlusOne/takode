@@ -741,6 +741,60 @@ describe("assistant-message-controller", () => {
     ]);
   });
 
+  it("routes post-quiz thread marker prose into the target quest thread", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(
+      session,
+      makeAssistant(
+        [
+          {
+            type: "text",
+            text: [
+              "[thread:q-1567]",
+              "[q-1567](quest:q-1567) is complete.",
+              "",
+              "{[(Quest Quiz: q-1567)]}",
+              "[thread:q-1570] [q-1570](quest:q-1570) is dispatched.",
+            ].join("\n"),
+          },
+        ],
+        "post-quiz-route",
+      ),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    const assistantBroadcasts = broadcasts.filter((msg) => msg.type === "assistant");
+    expect(assistantBroadcasts).toHaveLength(2);
+    expect(assistantBroadcasts[0]).toMatchObject({
+      type: "assistant",
+      threadKey: "q-1567",
+      questId: "q-1567",
+    });
+    expect(assistantBroadcasts[0]?.type === "assistant" ? assistantBroadcasts[0].message.content : []).toEqual([
+      {
+        type: "text",
+        text: "[q-1567](quest:q-1567) is complete.\n\n{[(Quest Quiz: q-1567)]}",
+      },
+    ]);
+    expect(assistantBroadcasts[1]).toMatchObject({
+      type: "assistant",
+      threadKey: "q-1570",
+      questId: "q-1570",
+    });
+    expect(assistantBroadcasts[1]?.type === "assistant" ? assistantBroadcasts[1].message.content : []).toEqual([
+      { type: "text", text: "[q-1570](quest:q-1570) is dispatched." },
+    ]);
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1570]");
+    expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
+  });
+
   it("routes leader text when launcher info says orchestrator and session state has not caught up", () => {
     const session = makeSession();
     delete session.state.isOrchestrator;

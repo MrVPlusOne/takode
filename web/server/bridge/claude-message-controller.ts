@@ -46,6 +46,7 @@ import {
   extractLeaderThreadStatusMarkersFromContent,
   hasLeaderVisibleTextContent,
   normalizeLeaderAssistantRouting,
+  splitLeaderAssistantContentAtPostQuizThreadRoutes,
   updateLeaderThreadStatusesForAssistantOutput,
 } from "./thread-routing-reminder.js";
 import { recordThreadReadyUnreadNotifications } from "./session-notification-controller.js";
@@ -135,7 +136,7 @@ export interface AssistantMessageSessionLike {
   activeTurnRoute?: ActiveTurnRoute | null;
   messageHistory: BrowserIncomingMessage[];
   questThreadRemindersThisTurn?: import("./quest-thread-reminder.js").QuestThreadReminderInjection[];
-  assistantAccumulator: Map<string, { contentBlockIds: Set<string> }>;
+  assistantAccumulator: Map<string, { contentBlockIds: Set<string>; currentHistoryMessageId?: string }>;
   toolStartTimes: Map<string, number>;
   toolProgressOutput: Map<string, string>;
   diffStatsDirty: boolean;
@@ -408,7 +409,7 @@ interface ClaudeSdkBrowserMessageSessionLike {
   resumedFromExternal?: boolean;
   messageHistory: BrowserIncomingMessage[];
   pendingMessages: string[];
-  assistantAccumulator: Map<string, { contentBlockIds: Set<string> }>;
+  assistantAccumulator: Map<string, { contentBlockIds: Set<string>; currentHistoryMessageId?: string }>;
   toolStartTimes: Map<string, number>;
   toolProgressOutput: Map<string, string>;
   diffStatsDirty: boolean;
@@ -462,52 +463,57 @@ export function handleAssistantMessage(
       );
       return;
     }
-    const routed = normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content, msg.parent_tool_use_id);
-    queueQuestThreadRemindersFromLeaderAssistant(
-      session,
-      routed.questThreadReminders,
-      routeFromLeaderAssistantResult(routed),
-    );
     const timestamp = Date.now();
     const resolvedMessageId = msg.message.id ?? msg.uuid ?? `assistant-${timestamp}-${session.messageHistory.length}`;
-    const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
-      session,
-      routed.threadStatusMarkers,
-      {
-        messageId: resolvedMessageId,
+    const contentSegments = splitLeaderAssistantContentAtPostQuizThreadRoutes(
+      isLeaderSession,
+      msg.message.content,
+      msg.parent_tool_use_id,
+    );
+    for (const [segmentIndex, contentSegment] of contentSegments.entries()) {
+      const routed = normalizeLeaderAssistantRouting(isLeaderSession, contentSegment, msg.parent_tool_use_id);
+      const route = routeFromLeaderAssistantResult(routed);
+      queueQuestThreadRemindersFromLeaderAssistant(session, routed.questThreadReminders, route);
+      const segmentMessageId = segmentIndex === 0 ? resolvedMessageId : `${resolvedMessageId}:route-${segmentIndex}`;
+      const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
+        session,
+        routed.threadStatusMarkers,
+        {
+          messageId: segmentMessageId,
+          timestamp,
+        },
+        hasLeaderVisibleTextContent(routed.content) ? route : undefined,
+      );
+      const threadStatusRecords = statusUpdate.records;
+      const browserMsg: BrowserIncomingMessage = {
+        type: "assistant",
+        message: { ...msg.message, id: segmentMessageId, content: routed.content },
+        parent_tool_use_id: msg.parent_tool_use_id,
         timestamp,
-      },
-      hasLeaderVisibleTextContent(routed.content) ? routeFromLeaderAssistantResult(routed) : undefined,
-    );
-    const threadStatusRecords = statusUpdate.records;
-    const browserMsg: BrowserIncomingMessage = {
-      type: "assistant",
-      message: { ...msg.message, id: resolvedMessageId, content: routed.content },
-      parent_tool_use_id: msg.parent_tool_use_id,
-      timestamp,
-      uuid: msg.uuid,
-      ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
-      ...(routed.questId ? { questId: routed.questId } : {}),
-      ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
-      ...(slackThreadId ? { slackThreadId } : {}),
-      ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
-      ...(threadStatusRecords.length > 0 ? { threadStatusMarkers: threadStatusRecords } : {}),
-    };
-    const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
-      session.messageHistory,
-      normalizeThreadRoute(routed.threadKey, routed.questId),
-    );
-    if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
-    session.messageHistory.push(browserMsg);
-    deps.broadcastToBrowsers(session, browserMsg);
-    recordThreadReadyUnreadNotifications(session, threadStatusRecords, deps);
-    if (statusUpdate.changed) {
-      deps.broadcastToBrowsers(session, {
-        type: "session_update",
-        session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
-      });
+        uuid: msg.uuid,
+        ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
+        ...(routed.questId ? { questId: routed.questId } : {}),
+        ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
+        ...(slackThreadId ? { slackThreadId } : {}),
+        ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
+        ...(threadStatusRecords.length > 0 ? { threadStatusMarkers: threadStatusRecords } : {}),
+      };
+      const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
+        session.messageHistory,
+        normalizeThreadRoute(routed.threadKey, routed.questId),
+      );
+      if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
+      session.messageHistory.push(browserMsg);
+      deps.broadcastToBrowsers(session, browserMsg);
+      recordThreadReadyUnreadNotifications(session, threadStatusRecords, deps);
+      if (statusUpdate.changed) {
+        deps.broadcastToBrowsers(session, {
+          type: "session_update",
+          session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
+        });
+      }
+      updateActiveTurnRouteFromLeaderAssistant(session, route, deps);
     }
-    updateActiveTurnRouteFromLeaderAssistant(session, routeFromLeaderAssistantResult(routed), deps);
     maybeUpdateContextUsedPercentFromAssistantUsage(
       session,
       msg.message.usage,
@@ -530,72 +536,81 @@ export function handleAssistantMessage(
       return;
     }
 
-    const routed = normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content, msg.parent_tool_use_id);
-    queueQuestThreadRemindersFromLeaderAssistant(
-      session,
-      routed.questThreadReminders,
-      routeFromLeaderAssistantResult(routed),
-    );
-    const routedMessage = { ...msg.message, content: routed.content };
     const contentBlockIds = new Set<string>();
     const now = Date.now();
-    const toolStartTimesMap: Record<string, number> = {};
-    for (const block of routedMessage.content) {
-      if (block.type === "tool_use" && block.id) {
-        contentBlockIds.add(block.id);
-        if (!session.toolStartTimes.has(block.id)) {
-          session.toolStartTimes.set(block.id, now);
-        }
-        session.toolProgressOutput.delete(block.id);
-        toolStartTimesMap[block.id] = session.toolStartTimes.get(block.id)!;
-        newlyObservedToolUses.push(block);
-      }
-    }
-
     const timestamp = Date.now();
-    const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
-      session,
-      routed.threadStatusMarkers,
-      {
-        messageId: msgId,
+    const contentSegments = splitLeaderAssistantContentAtPostQuizThreadRoutes(
+      isLeaderSession,
+      msg.message.content,
+      msg.parent_tool_use_id,
+    );
+    let currentHistoryMessageId = msgId;
+    for (const [segmentIndex, contentSegment] of contentSegments.entries()) {
+      const routed = normalizeLeaderAssistantRouting(isLeaderSession, contentSegment, msg.parent_tool_use_id);
+      const route = routeFromLeaderAssistantResult(routed);
+      queueQuestThreadRemindersFromLeaderAssistant(session, routed.questThreadReminders, route);
+      const routedMessage = { ...msg.message, content: routed.content };
+      const segmentMessageId = segmentIndex === 0 ? msgId : `${msgId}:route-${segmentIndex}`;
+      currentHistoryMessageId = segmentMessageId;
+      const toolStartTimesMap: Record<string, number> = {};
+      for (const block of routedMessage.content) {
+        if (block.type === "tool_use" && block.id) {
+          contentBlockIds.add(block.id);
+          if (!session.toolStartTimes.has(block.id)) {
+            session.toolStartTimes.set(block.id, now);
+          }
+          session.toolProgressOutput.delete(block.id);
+          toolStartTimesMap[block.id] = session.toolStartTimes.get(block.id)!;
+          newlyObservedToolUses.push(block);
+        }
+      }
+
+      const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
+        session,
+        routed.threadStatusMarkers,
+        {
+          messageId: segmentMessageId,
+          timestamp,
+        },
+        hasLeaderVisibleTextContent(routed.content) ? route : undefined,
+      );
+      const threadStatusRecords = statusUpdate.records;
+      const browserMsg: BrowserIncomingMessage = {
+        type: "assistant",
+        message: { ...routedMessage, id: segmentMessageId, content: [...routedMessage.content] },
+        parent_tool_use_id: msg.parent_tool_use_id,
         timestamp,
-      },
-      hasLeaderVisibleTextContent(routed.content) ? routeFromLeaderAssistantResult(routed) : undefined,
-    );
-    const threadStatusRecords = statusUpdate.records;
-    const browserMsg: BrowserIncomingMessage = {
-      type: "assistant",
-      message: { ...routedMessage, content: [...routedMessage.content] },
-      parent_tool_use_id: msg.parent_tool_use_id,
-      timestamp,
-      uuid: msg.uuid,
-      ...(Object.keys(toolStartTimesMap).length > 0 ? { tool_start_times: toolStartTimesMap } : {}),
-      ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
-      ...(routed.questId ? { questId: routed.questId } : {}),
-      ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
-      ...(slackThreadId ? { slackThreadId } : {}),
-      ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
-      ...(threadStatusRecords.length > 0 ? { threadStatusMarkers: threadStatusRecords } : {}),
-    };
-    session.assistantAccumulator.set(msgId, { contentBlockIds });
-    const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
-      session.messageHistory,
-      normalizeThreadRoute(routed.threadKey, routed.questId),
-    );
-    if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
-    session.messageHistory.push(browserMsg);
-    deps.broadcastToBrowsers(session, browserMsg);
-    recordThreadReadyUnreadNotifications(session, threadStatusRecords, deps);
-    if (statusUpdate.changed) {
-      deps.broadcastToBrowsers(session, {
-        type: "session_update",
-        session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
-      });
+        uuid: msg.uuid,
+        ...(Object.keys(toolStartTimesMap).length > 0 ? { tool_start_times: toolStartTimesMap } : {}),
+        ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
+        ...(routed.questId ? { questId: routed.questId } : {}),
+        ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
+        ...(slackThreadId ? { slackThreadId } : {}),
+        ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
+        ...(threadStatusRecords.length > 0 ? { threadStatusMarkers: threadStatusRecords } : {}),
+      };
+      const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
+        session.messageHistory,
+        normalizeThreadRoute(routed.threadKey, routed.questId),
+      );
+      if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
+      session.messageHistory.push(browserMsg);
+      deps.broadcastToBrowsers(session, browserMsg);
+      recordThreadReadyUnreadNotifications(session, threadStatusRecords, deps);
+      if (statusUpdate.changed) {
+        deps.broadcastToBrowsers(session, {
+          type: "session_update",
+          session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
+        });
+      }
+      updateActiveTurnRouteFromLeaderAssistant(session, route, deps);
     }
-    updateActiveTurnRouteFromLeaderAssistant(session, routeFromLeaderAssistantResult(routed), deps);
+    session.assistantAccumulator.set(msgId, { contentBlockIds, currentHistoryMessageId });
   } else {
+    const historyMessageId = acc.currentHistoryMessageId ?? msgId;
     const historyEntry = session.messageHistory.findLast(
-      (entry) => entry.type === "assistant" && (entry as { message?: { id?: string } }).message?.id === msgId,
+      (entry) =>
+        entry.type === "assistant" && (entry as { message?: { id?: string } }).message?.id === historyMessageId,
     ) as Extract<BrowserIncomingMessage, { type: "assistant" }> | undefined;
     if (!historyEntry) return;
 

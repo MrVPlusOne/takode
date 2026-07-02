@@ -735,7 +735,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       nowSpy.mockRestore();
     }
 
-    const duplicateAssistantArg = vi.mocked(deps.isDuplicateCodexAssistantReplay).mock.calls[0]?.[1];
+    const duplicateAssistantArg = (deps.isDuplicateCodexAssistantReplay as ReturnType<typeof vi.fn>).mock.calls[0]?.[1];
     expect(duplicateAssistantArg).toMatchObject({ type: "assistant", threadKey: "q-941" });
     expect(duplicateAssistantArg).not.toHaveProperty("threadStatusMarkers");
     expect(session.state.leaderThreadStatuses).toEqual({ "q-941": staleStatus });
@@ -922,6 +922,55 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(msg.type === "assistant" ? msg.message.content : []).toMatchObject([
       { type: "text", text: "Same-line Codex routed update" },
     ]);
+  });
+
+  it("routes post-quiz thread marker prose into the target quest thread", async () => {
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      makeAssistant(
+        [
+          {
+            type: "text",
+            text: [
+              "[thread:q-1567]",
+              "[q-1567](quest:q-1567) is complete.",
+              "",
+              "{[(Quest Quiz: q-1567)]}",
+              "[thread:q-1570] [q-1570](quest:q-1570) is dispatched.",
+            ].join("\n"),
+          },
+        ],
+        "codex-post-quiz-route",
+      ),
+      makeDeps(broadcasts),
+    );
+
+    const assistantBroadcasts = broadcasts.filter((msg) => msg.type === "assistant");
+    expect(assistantBroadcasts).toHaveLength(2);
+    expect(assistantBroadcasts[0]).toMatchObject({
+      type: "assistant",
+      threadKey: "q-1567",
+      questId: "q-1567",
+    });
+    expect(assistantBroadcasts[0]?.type === "assistant" ? assistantBroadcasts[0].message.content : []).toEqual([
+      {
+        type: "text",
+        text: "[q-1567](quest:q-1567) is complete.\n\n{[(Quest Quiz: q-1567)]}",
+      },
+    ]);
+    expect(assistantBroadcasts[1]).toMatchObject({
+      type: "assistant",
+      threadKey: "q-1570",
+      questId: "q-1570",
+    });
+    expect(assistantBroadcasts[1]?.type === "assistant" ? assistantBroadcasts[1].message.content : []).toEqual([
+      { type: "text", text: "[q-1570](quest:q-1570) is dispatched." },
+    ]);
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1570]");
+    expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
   });
 
   it("routes leader text when launcher info says orchestrator and session state has not caught up", async () => {
