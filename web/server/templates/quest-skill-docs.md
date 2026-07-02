@@ -513,7 +513,7 @@ quest cancel q-5 --notes "Superseded by q-12"
 quest cancel q-5 --notes-file /tmp/quest-closeout.txt
 ```
 
-Quest quiz items are for user-facing active recall, not future-agent memory. Generate them from the quest record and accepted scope so each question is self-contained. Prefer useful recall of what the quest changed, taught, clarified, or made durable; avoid asking the user to recite their own earlier motivations or internal system instructions. Use plain-language answers, bullets for lists, and a quick preflight for self-containment, user value, human-vs-agent memory separation, clarity, and source grounding.
+Quest quiz items are for user-facing active recall, not future-agent memory. Generate them from the quest record and accepted scope so each question is self-contained. Prefer useful recall of major work/change, agent-discovered mechanisms, root causes, validation limits, failure modes, operational procedures, or critical background knowledge surfaced during the quest. Before saving, run a source-of-origin preflight: reject or rewrite candidates whose answer mainly comes from the user's original request, accepted scope, explicit preference, or User Checkpoint selection. For example, reject "What should `Thread Ready` do?" and rewrite it as "What internal mechanism carries ready-result unread state?" when the answer came from implementation. Use plain-language answers, bullets for lists, and check self-containment, user value, human-vs-agent memory separation, clarity, and source grounding.
 
 ## When assigned a quest
 

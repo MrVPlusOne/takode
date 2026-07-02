@@ -350,7 +350,13 @@ describe("Quest Journey phase directory loading", () => {
 
     const memoryPhase = phases.find((phase) => phase.id === "memory");
     expect(memoryPhase?.assigneeBrief).toContain("self-contained without requiring the user");
-    expect(memoryPhase?.assigneeBrief).toContain("what the quest actually changed, taught, clarified, or made durable");
+    expect(memoryPhase?.assigneeBrief).toContain(
+      "major work/change, new discoveries, and critical related background knowledge",
+    );
+    expect(memoryPhase?.assigneeBrief).toContain("source-of-origin preflight");
+    expect(memoryPhase?.assigneeBrief).toContain("answer mainly comes from the user's original request");
+    expect(memoryPhase?.assigneeBrief).toContain('reject "What should `Thread Ready` do?"');
+    expect(memoryPhase?.assigneeBrief).toContain('ask "What internal mechanism carries ready-result unread state?"');
     expect(memoryPhase?.assigneeBrief).toContain(
       "do not turn future-agent/system-memory facts into user-facing quiz questions",
     );
