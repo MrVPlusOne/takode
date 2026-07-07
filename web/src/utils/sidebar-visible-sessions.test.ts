@@ -439,6 +439,43 @@ describe("buildSidebarVisibleSessions", () => {
     expect(result.treeViewGroups[0].nodes[0].reviewers.map((s) => s.id)).toEqual(["reviewer"]);
   });
 
+  it("carries archived worktree cleanup status into sidebar rows", () => {
+    const result = buildSidebarVisibleSessions({
+      sessions: new Map(),
+      sdkSessions: [
+        makeSdkSession("archived-worktree", {
+          archived: true,
+          isWorktree: true,
+          worktreeExists: true,
+          worktreeCleanupStatus: "failed",
+          worktreeCleanupError: "cleanup failed",
+        }),
+      ],
+      cliConnected: new Map(),
+      cliDisconnectReason: new Map(),
+      sessionStatus: new Map(),
+      pendingPermissions: new Map(),
+      askPermission: new Map(),
+      diffFileStats: new Map(),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map(),
+      treeNodeOrder: new Map(),
+      collapsedTreeGroups: new Set(),
+      expandedHerdNodes: new Set(),
+      sessionAttention: new Map(),
+      sessionSortMode: "created",
+      countUserPermissions: () => 0,
+    });
+
+    expect(result.archivedSessions[0]).toMatchObject({
+      id: "archived-worktree",
+      isWorktree: true,
+      worktreeExists: true,
+      worktreeCleanupStatus: "failed",
+      worktreeCleanupError: "cleanup failed",
+    });
+  });
+
   it("hides workers from ordered visible rows when their herd is collapsed", () => {
     const sessions = new Map<string, SessionState>([
       ["leader", makeSessionState("leader")],

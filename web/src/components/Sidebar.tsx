@@ -279,7 +279,6 @@ export function Sidebar() {
       });
   }, [refreshTreeGroups]);
 
-  // Fetch server settings (name + ID) on mount
   useEffect(() => {
     api
       .getSettings()
@@ -556,7 +555,6 @@ export function Sidebar() {
     [refreshSessionListNow],
   );
 
-  // Hover card: use a flag to detect if mouse moved to the popover card
   const hoverIntentRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function handleHoverStart(sessionId: string, rect: DOMRect) {
@@ -565,7 +563,6 @@ export function Sidebar() {
   }
 
   function handleHoverEnd() {
-    // Small delay to allow mouse to move from session item to popover card
     hoverIntentRef.current = setTimeout(() => {
       setHoveredSession(null);
     }, 100);
@@ -655,7 +652,6 @@ export function Sidebar() {
     async (leaderId: string) => {
       const workers = sdkSessions.filter((s) => s.herdedBy === leaderId && !s.archived);
       try {
-        // Disconnect all herded workers + the leader locally
         for (const w of workers) {
           disconnectSession(w.sessionId);
           useStore.getState().clearSessionAttention(w.sessionId);
@@ -713,12 +709,25 @@ export function Sidebar() {
 
   async function handleRetryWorktreeCleanup(e: React.MouseEvent, sessionId: string) {
     e.stopPropagation();
+    let shouldRefreshImmediately = true;
     try {
-      await api.retryWorktreeCleanup(sessionId);
+      const result = await api.retryWorktreeCleanup(sessionId);
+      if (result.candidate) {
+        useStore.getState().updateSdkSession(result.candidate.sessionId, {
+          worktreeExists: result.candidate.exists,
+          worktreeCleanupStatus: result.candidate.cleanupStatus ?? undefined,
+          worktreeCleanupError: result.candidate.cleanupError ?? undefined,
+          worktreeCleanupStartedAt: result.candidate.cleanupStartedAt ?? undefined,
+          worktreeCleanupFinishedAt: result.candidate.cleanupFinishedAt ?? undefined,
+        });
+        shouldRefreshImmediately = false;
+      }
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Failed to retry worktree cleanup");
+      return;
     }
-    void refreshSessionListNow(true);
+    if (shouldRefreshImmediately) void refreshSessionListNow(true);
+    window.setTimeout(() => void refreshSessionListNow(true), 1500);
   }
 
   const toggleArchivedSessions = useCallback(() => {
@@ -1000,7 +1009,6 @@ export function Sidebar() {
     highlightedRow.scrollIntoView({ block: "nearest" });
   }, [highlightedSidebarSessionId, highlightedSidebarSelector]);
 
-  // Show sort/reorder controls when the session list is visible and has multiple sessions.
   const showSortControls = !searchFocused && !searchQuery && !filteredSessions && activeSessions.length > 1;
   const bulkSourceGroups = treeViewGroups.filter((group) => group.nodes.length > 0);
   const activeBulkSourceGroup = bulkSelectionGroupId
@@ -1023,7 +1031,6 @@ export function Sidebar() {
     return sessionThemes;
   }, [allSessionList]);
 
-  // Shared props for sidebar session rows
   const sessionItemProps = {
     onSelect: handleSelectSession,
     onStartRename: handleStartRename,

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import type { MouseEvent } from "react";
 import type { SdkSessionInfo } from "../types.js";
 
 const mockApi = {
@@ -9,6 +10,7 @@ const mockApi = {
   getSettings: vi.fn().mockResolvedValue({ serverName: "" }),
   getTreeGroups: vi.fn().mockResolvedValue({ groups: [], assignments: {}, nodeOrder: {} }),
   markSessionRead: vi.fn().mockResolvedValue({ ok: true }),
+  retryWorktreeCleanup: vi.fn().mockResolvedValue({ ok: true }),
 };
 
 vi.mock("../api.js", () => ({
@@ -18,6 +20,7 @@ vi.mock("../api.js", () => ({
     getSettings: (...args: unknown[]) => mockApi.getSettings(...args),
     getTreeGroups: (...args: unknown[]) => mockApi.getTreeGroups(...args),
     markSessionRead: (...args: unknown[]) => mockApi.markSessionRead(...args),
+    retryWorktreeCleanup: (...args: unknown[]) => mockApi.retryWorktreeCleanup(...args),
     deleteSession: vi.fn().mockResolvedValue({}),
     archiveSession: vi.fn().mockResolvedValue({}),
     archiveGroup: vi.fn().mockResolvedValue({ ok: true, archived: 0, failed: 0 }),
@@ -46,10 +49,36 @@ vi.mock("../utils/pending-creation.js", () => ({
 }));
 
 vi.mock("./SessionItem.js", () => ({
-  SessionItem: ({ session, sessionName }: { session: { id: string; model?: string | null }; sessionName?: string }) => (
-    <button type="button" data-testid="session-item" data-session-id={session.id}>
-      {sessionName ?? session.model ?? session.id}
-    </button>
+  SessionItem: ({
+    session,
+    sessionName,
+    onRetryWorktreeCleanup,
+  }: {
+    session: {
+      id: string;
+      archived?: boolean;
+      isWorktree?: boolean;
+      model?: string | null;
+      worktreeCleanupStatus?: string;
+      worktreeExists?: boolean;
+    };
+    sessionName?: string;
+    onRetryWorktreeCleanup?: (event: MouseEvent, sessionId: string) => void;
+  }) => (
+    <div data-testid="session-row" data-session-id={session.id}>
+      <button type="button" data-testid="session-item" data-session-id={session.id}>
+        {sessionName ?? session.model ?? session.id}
+      </button>
+      {session.archived &&
+        session.isWorktree &&
+        session.worktreeExists === true &&
+        session.worktreeCleanupStatus !== "pending" &&
+        onRetryWorktreeCleanup && (
+          <button type="button" onClick={(event) => onRetryWorktreeCleanup(event, session.id)}>
+            Retry worktree cleanup
+          </button>
+        )}
+    </div>
   ),
 }));
 
@@ -63,6 +92,7 @@ interface MockStoreState {
   sessionNotifications: Map<string, any[]>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
   setSdkSessions: ReturnType<typeof vi.fn>;
+  updateSdkSession: ReturnType<typeof vi.fn>;
 }
 
 let mockState: MockStoreState;
@@ -148,6 +178,11 @@ function createMockState(): MockStoreState {
     setSdkSessions: vi.fn((sessions: SdkSessionInfo[]) => {
       mockState.sdkSessions = sessions;
     }),
+    updateSdkSession: vi.fn((sessionId: string, updates: Partial<SdkSessionInfo>) => {
+      mockState.sdkSessions = mockState.sdkSessions.map((session) =>
+        session.sessionId === sessionId ? { ...session, ...updates } : session,
+      );
+    }),
   };
 }
 
@@ -172,6 +207,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockState = createMockState();
   mockApi.listSessions.mockResolvedValue([]);
+  mockApi.retryWorktreeCleanup.mockResolvedValue({ ok: true });
   window.location.hash = "";
 });
 
@@ -198,4 +234,73 @@ it("keeps Archived visible on all-archived cold starts and renders rows from the
   expect(screen.getByText("Archived (1)")).toBeInTheDocument();
   expect(screen.getByTestId("session-item")).toHaveAttribute("data-session-id", "archived-1");
   expect(screen.getByText("Archived Only")).toBeInTheDocument();
+});
+
+it("reconciles archived worktree retry state from the retry response without reload", async () => {
+  let setTimeoutSpy: ReturnType<typeof vi.spyOn> | undefined;
+  try {
+    const archived = makeSdkSession("archived-1", {
+      archived: true,
+      isWorktree: true,
+      worktreeExists: true,
+      worktreeCleanupStatus: "failed",
+      worktreeCleanupError: "simulated cleanup failure",
+      name: "Archived Worktree",
+      model: "codex",
+    });
+    const pendingCandidate = {
+      sessionId: "archived-1",
+      sessionNum: 7,
+      name: "Archived Worktree",
+      archivedAt: 1,
+      repoRoot: "/repo",
+      branch: "main",
+      actualBranch: "main-wt-1",
+      worktreePath: "/tmp/main-wt-1",
+      cleanupStatus: "pending",
+      cleanupError: null,
+      cleanupStartedAt: 2,
+      cleanupFinishedAt: null,
+      exists: true,
+      inUseBy: [],
+      retryable: false,
+      owned: true,
+      ownershipReason: "takode-worktree-root",
+      safety: { status: "blocked", summary: "cleanup is already pending" },
+    };
+    mockApi.listSessions.mockResolvedValueOnce([]).mockResolvedValueOnce([archived]).mockResolvedValue([]);
+    mockApi.retryWorktreeCleanup.mockResolvedValueOnce({
+      ok: true,
+      cleanup: { status: "pending", path: "/tmp/main-wt-1" },
+      candidate: pendingCandidate,
+    });
+
+    const view = render(<Sidebar />);
+    fireEvent.click(screen.getByText("Archived"));
+    await waitFor(() => expect(mockApi.listSessions).toHaveBeenCalledWith({ includeArchived: true }));
+    await waitFor(() =>
+      expect(mockState.setSdkSessions).toHaveBeenLastCalledWith([expect.objectContaining({ archived: true })]),
+    );
+    view.rerender(<Sidebar />);
+    expect(screen.getByText("Retry worktree cleanup")).toBeInTheDocument();
+
+    setTimeoutSpy = vi
+      .spyOn(window, "setTimeout")
+      .mockImplementation(() => 0 as unknown as ReturnType<typeof window.setTimeout>);
+    fireEvent.click(screen.getByText("Retry worktree cleanup"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mockState.updateSdkSession).toHaveBeenCalledWith(
+      "archived-1",
+      expect.objectContaining({ worktreeCleanupStatus: "pending" }),
+    );
+    expect(mockState.sdkSessions[0]?.worktreeCleanupStatus).toBe("pending");
+
+    view.rerender(<Sidebar />);
+    expect(screen.queryByText("Retry worktree cleanup")).not.toBeInTheDocument();
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1500);
+  } finally {
+    setTimeoutSpy?.mockRestore();
+  }
 });
