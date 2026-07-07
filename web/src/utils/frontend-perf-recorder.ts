@@ -167,6 +167,15 @@ export type FrontendPerfEntry =
       sessionCount?: number;
       durationMs: number;
       ok: boolean;
+    }
+  | {
+      kind: "session_archived_refresh";
+      timestamp: number;
+      sessionId: string;
+      archivedSessionId: string;
+      sessionCount?: number;
+      durationMs: number;
+      ok: boolean;
     };
 
 export interface FrontendPerfDebugApi {

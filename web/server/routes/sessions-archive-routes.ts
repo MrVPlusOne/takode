@@ -49,6 +49,14 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
     wsBridge,
   } = deps;
 
+  function broadcastSessionArchived(sessionId: string) {
+    wsBridge.broadcastGlobal({
+      type: "session_archived",
+      session_id: sessionId,
+      archivedAt: launcher.getSession(sessionId)?.archivedAt,
+    });
+  }
+
   // Shared helper: archive a single session (kill, cleanup, persist).
   // Used by both /archive and /archive-group endpoints.
   async function archiveSingleSession(id: string, actorSessionId?: string) {
@@ -63,7 +71,21 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
       );
     }
 
-    await launcher.kill(id);
+    const wasArchived = archivedSessionInfo?.archived === true;
+    if (!wasArchived) {
+      launcher.setArchived(id, true);
+    }
+    try {
+      await launcher.kill(id);
+    } catch (error) {
+      if (!wasArchived) {
+        launcher.setArchived(id, false);
+      }
+      throw error;
+    }
+    if (!wasArchived) {
+      broadcastSessionArchived(id);
+    }
 
     // Clean up container if any
     containerManager.removeContainer(id);
@@ -75,7 +97,6 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
     // as an archived ref (refs/companion/archived/) so committed work can be
     // restored on unarchive without polluting the active branch list (q-329).
     const worktreeResult = queueArchivedWorktreeCleanup(id, { archiveBranch: true });
-    launcher.setArchived(id, true);
     await sessionStore.setArchived(id, true);
 
     // Cancel all session-scoped timers when archiving.
@@ -95,10 +116,11 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
       for (const s of allSessions) {
         if (s.reviewerOf === archivedNum && !s.archived) {
           console.log(`[routes] Auto-archiving reviewer session ${s.sessionId} (reviewerOf=#${archivedNum})`);
+          launcher.setArchived(s.sessionId, true);
           await launcher.kill(s.sessionId);
+          broadcastSessionArchived(s.sessionId);
           containerManager.removeContainer(s.sessionId);
           queueArchivedWorktreeCleanup(s.sessionId, { archiveBranch: true });
-          launcher.setArchived(s.sessionId, true);
           await sessionStore.setArchived(s.sessionId, true);
           // Emit after kill so the leader doesn't query a still-alive session
           if (s.herdedBy) {

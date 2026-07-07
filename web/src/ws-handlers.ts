@@ -1,7 +1,14 @@
 import { useStore } from "./store.js";
 import { api } from "./api.js";
 import { createComposerDraftImage } from "./components/composer-image-utils.js";
-import type { BrowserIncomingMessage, BrowserOutgoingMessage, ContentBlock, ChatMessage, TaskItem } from "./types.js";
+import type {
+  BrowserIncomingMessage,
+  BrowserOutgoingMessage,
+  ContentBlock,
+  ChatMessage,
+  SdkSessionInfo,
+  TaskItem,
+} from "./types.js";
 import { generateUniqueSessionName } from "./utils/names.js";
 import { playNotificationSound, playReviewSound, playNeedsInputSound } from "./utils/notification-sound.js";
 import {
@@ -15,10 +22,10 @@ import { formatReplyContentForPreview } from "./utils/reply-context.js";
 import {
   applyNotificationStatusUpdate,
   applySessionNotifications,
-  setSdkSessionsWithNotificationFreshness,
   shouldApplyAttentionReasonWithNotificationFreshness,
   summarizeNotificationStatus,
 } from "./notification-status.js";
+import { hydrateSessionList } from "./session-list-hydration.js";
 import {
   cacheHistoryWindow,
   cacheThreadWindow,
@@ -38,6 +45,8 @@ const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>
 const processedToolUseIds = new Map<string, Set<string>>();
 /** Debounce timer for session_created events -- coalesce rapid bursts into a single API call. */
 let sessionCreatedTimer: ReturnType<typeof setTimeout> | null = null;
+
+let sessionMutationRefreshInFlight: Promise<void> | null = null;
 
 /** Debounce guard: prevent overlapping notification sounds from rapid updates. */
 let lastNotificationSoundAt = 0;
@@ -253,6 +262,72 @@ function shouldNotifyOnResult(sessionId: string, store: ReturnType<typeof useSto
 let idCounter = 0;
 function nextId(): string {
   return `msg-${Date.now()}-${++idCounter}`;
+}
+
+function refreshActiveSidebarSessions(params: {
+  sessionId: string;
+  createdSessionId?: string;
+  archivedSessionId?: string;
+  kind: "session_created_refresh" | "session_archived_refresh";
+}): void {
+  if (sessionMutationRefreshInFlight) return;
+  const startedAt = perfNow();
+  const refresh = api
+    .listSessions({ includeArchived: false })
+    .then((list) => {
+      hydrateSessionList(list, { preserveMissingArchived: true });
+      const durationMs = perfNow() - startedAt;
+      if (params.kind === "session_created_refresh" && params.createdSessionId) {
+        recordFrontendPerfEntry({
+          kind: "session_created_refresh",
+          timestamp: Date.now(),
+          sessionId: params.sessionId,
+          createdSessionId: params.createdSessionId,
+          sessionCount: list.length,
+          durationMs,
+          ok: true,
+        });
+      } else if (params.kind === "session_archived_refresh" && params.archivedSessionId) {
+        recordFrontendPerfEntry({
+          kind: "session_archived_refresh",
+          timestamp: Date.now(),
+          sessionId: params.sessionId,
+          archivedSessionId: params.archivedSessionId,
+          sessionCount: list.length,
+          durationMs,
+          ok: true,
+        });
+      }
+    })
+    .catch((err) => {
+      const durationMs = perfNow() - startedAt;
+      if (params.kind === "session_created_refresh" && params.createdSessionId) {
+        recordFrontendPerfEntry({
+          kind: "session_created_refresh",
+          timestamp: Date.now(),
+          sessionId: params.sessionId,
+          createdSessionId: params.createdSessionId,
+          durationMs,
+          ok: false,
+        });
+      } else if (params.kind === "session_archived_refresh" && params.archivedSessionId) {
+        recordFrontendPerfEntry({
+          kind: "session_archived_refresh",
+          timestamp: Date.now(),
+          sessionId: params.sessionId,
+          archivedSessionId: params.archivedSessionId,
+          durationMs,
+          ok: false,
+        });
+      }
+      console.warn(`[ws] Failed to refresh sessions after ${params.kind}:`, err);
+    })
+    .finally(() => {
+      if (sessionMutationRefreshInFlight === refresh) {
+        sessionMutationRefreshInFlight = null;
+      }
+    });
+  sessionMutationRefreshInFlight = refresh;
 }
 
 /** Merge content blocks from two versions of the same assistant message.
@@ -1299,6 +1374,22 @@ function handleParsedMessage(
       break;
     }
 
+    case "session_archived": {
+      const archivedId = data.session_id;
+      if (archivedId && typeof archivedId === "string") {
+        const updates: Partial<SdkSessionInfo> = { archived: true };
+        if (typeof data.archivedAt === "number") updates.archivedAt = data.archivedAt;
+        store.updateSdkSession(archivedId, updates);
+        store.clearSessionAttention(archivedId);
+        refreshActiveSidebarSessions({
+          sessionId,
+          archivedSessionId: archivedId,
+          kind: "session_archived_refresh",
+        });
+      }
+      break;
+    }
+
     case "session_created": {
       // Another browser or the API created a session — debounce the refresh
       // to coalesce rapid bursts (e.g., multiple sessions created in quick succession).
@@ -1307,32 +1398,11 @@ function handleParsedMessage(
         if (sessionCreatedTimer) clearTimeout(sessionCreatedTimer);
         sessionCreatedTimer = setTimeout(() => {
           sessionCreatedTimer = null;
-          const startedAt = perfNow();
-          api
-            .listSessions()
-            .then((list) => {
-              setSdkSessionsWithNotificationFreshness(list);
-              recordFrontendPerfEntry({
-                kind: "session_created_refresh",
-                timestamp: Date.now(),
-                sessionId,
-                createdSessionId: createdId,
-                sessionCount: list.length,
-                durationMs: perfNow() - startedAt,
-                ok: true,
-              });
-            })
-            .catch((err) => {
-              recordFrontendPerfEntry({
-                kind: "session_created_refresh",
-                timestamp: Date.now(),
-                sessionId,
-                createdSessionId: createdId,
-                durationMs: perfNow() - startedAt,
-                ok: false,
-              });
-              console.warn("[ws] Failed to refresh sessions after session_created:", err);
-            });
+          refreshActiveSidebarSessions({
+            sessionId,
+            createdSessionId: createdId,
+            kind: "session_created_refresh",
+          });
         }, 1_000);
       }
       break;

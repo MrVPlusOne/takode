@@ -127,6 +127,9 @@ function fireMessage(data: Record<string, unknown>) {
 // ===========================================================================
 describe("handleMessage: session_created", () => {
   it("refreshes sdk sessions without opening sockets for every listed session", async () => {
+    useStore
+      .getState()
+      .setSdkSessions([{ sessionId: "archived-loaded", state: "exited", cwd: "/tmp/z", createdAt: 1, archived: true }]);
     listSessionsMock.mockResolvedValueOnce([
       { sessionId: "s-new-1", cwd: "/tmp/a", createdAt: Date.now(), archived: false },
       { sessionId: "s-new-2", cwd: "/tmp/b", createdAt: Date.now(), archived: false },
@@ -139,7 +142,8 @@ describe("handleMessage: session_created", () => {
     await Promise.resolve();
 
     expect(listSessionsMock).toHaveBeenCalledTimes(1);
-    expect(useStore.getState().sdkSessions.map((s) => s.sessionId)).toEqual(["s-new-1", "s-new-2"]);
+    expect(listSessionsMock).toHaveBeenCalledWith({ includeArchived: false });
+    expect(useStore.getState().sdkSessions.map((s) => s.sessionId)).toEqual(["s-new-1", "s-new-2", "archived-loaded"]);
     expect(MockWebSocket.instances).toHaveLength(1);
     expect(MockWebSocket.instances[0]?.url).toBe("ws://localhost:3456/ws/browser/s-origin");
 
@@ -151,6 +155,42 @@ describe("handleMessage: session_created", () => {
           sessionId: "s-origin",
           createdSessionId: "s-new-1",
           sessionCount: 2,
+          ok: true,
+        }),
+      ]),
+    );
+  });
+
+  it("reconciles archived-session broadcasts with an active-only backend snapshot", async () => {
+    useStore.getState().setSdkSessions([
+      { sessionId: "active-to-archive", state: "connected", cwd: "/tmp/a", createdAt: 1, archived: false },
+      { sessionId: "archived-loaded", state: "exited", cwd: "/tmp/z", createdAt: 2, archived: true },
+    ]);
+    listSessionsMock.mockResolvedValueOnce([
+      { sessionId: "still-active", cwd: "/tmp/b", createdAt: 3, archived: false },
+    ]);
+
+    wsModule.connectSession("s-origin");
+    fireMessage({ type: "session_archived", session_id: "active-to-archive", archivedAt: 1234 });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(listSessionsMock).toHaveBeenCalledTimes(1);
+    expect(listSessionsMock).toHaveBeenCalledWith({ includeArchived: false });
+    expect(useStore.getState().sdkSessions).toEqual([
+      expect.objectContaining({ sessionId: "still-active", archived: false }),
+      expect.objectContaining({ sessionId: "active-to-archive", archived: true, archivedAt: 1234 }),
+      expect.objectContaining({ sessionId: "archived-loaded", archived: true }),
+    ]);
+
+    const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
+    expect(getFrontendPerfEntries()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "session_archived_refresh",
+          sessionId: "s-origin",
+          archivedSessionId: "active-to-archive",
+          sessionCount: 1,
           ok: true,
         }),
       ]),

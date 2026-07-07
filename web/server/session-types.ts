@@ -1161,6 +1161,7 @@ export type BrowserIncomingMessageBase =
     }
   | { type: "session_deleted"; session_id: string }
   | { type: "session_created"; session_id: string }
+  | { type: "session_archived"; session_id: string; archivedAt?: number }
   | {
       type: "notification_anchored";
       messageId: string | null;

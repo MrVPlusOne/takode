@@ -556,6 +556,27 @@ describe("POST /api/sessions/:id/archive", () => {
     expect(launcher.kill).toHaveBeenCalledWith("s1");
     expect(launcher.setArchived).toHaveBeenCalledWith("s1", true);
     expect(sessionStore.setArchived).toHaveBeenCalledWith("s1", true);
+    expect(bridge.broadcastGlobal).toHaveBeenCalledWith({
+      type: "session_archived",
+      session_id: "s1",
+      archivedAt: undefined,
+    });
+  });
+
+  it("marks launcher archive intent before killing to suppress disconnect relaunch", async () => {
+    const res = await app.request("/api/sessions/s1/archive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.setArchived).toHaveBeenCalledWith("s1", true);
+    expect(launcher.kill).toHaveBeenCalledWith("s1");
+    expect(launcher.setArchived.mock.invocationCallOrder[0]).toBeLessThan(launcher.kill.mock.invocationCallOrder[0]);
+    expect(bridge.broadcastGlobal.mock.invocationCallOrder[0]).toBeGreaterThan(
+      launcher.kill.mock.invocationCallOrder[0],
+    );
   });
 
   it("returns immediately while archived worktree cleanup continues in the background", async () => {
