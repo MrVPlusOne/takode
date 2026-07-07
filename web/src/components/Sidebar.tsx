@@ -341,7 +341,6 @@ export function Sidebar() {
     cliDisconnectReason,
   ]);
 
-  // Focus server name input when entering edit mode
   useEffect(() => {
     if (editingServerName && serverNameInputRef.current) {
       serverNameInputRef.current.focus();
@@ -406,7 +405,6 @@ export function Sidebar() {
         useStore.getState().focusComposer();
       });
     });
-    // Close sidebar on mobile
     if (!isDesktopLayout) {
       useStore.getState().setSidebarOpen(false);
     }
@@ -513,7 +511,6 @@ export function Sidebar() {
     }
   }, [bulkSelectedSessionIds, bulkSelectionGroupId, bulkTargetGroupId, cancelBulkSelection, refreshTreeGroups]);
 
-  // Focus edit input when entering edit mode
   useEffect(() => {
     if (editingSessionId && editInputRef.current) {
       editInputRef.current.focus();
@@ -523,7 +520,6 @@ export function Sidebar() {
 
   function confirmRename() {
     if (editingSessionId && editingName.trim()) {
-      // Server will broadcast the name update to all browsers via session_update
       api.renameSession(editingSessionId, editingName.trim()).catch(() => {});
     }
     setEditingSessionId(null);
@@ -715,6 +711,16 @@ export function Sidebar() {
     void refreshSessionListNow(true);
   }
 
+  async function handleRetryWorktreeCleanup(e: React.MouseEvent, sessionId: string) {
+    e.stopPropagation();
+    try {
+      await api.retryWorktreeCleanup(sessionId);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to retry worktree cleanup");
+    }
+    void refreshSessionListNow(true);
+  }
+
   const toggleArchivedSessions = useCallback(() => {
     setShowArchived((current) => !current);
     if (!showArchived && !archivedSessionsLoaded) void refreshSessionListNow(true);
@@ -799,7 +805,6 @@ export function Sidebar() {
       if (oldIndex === -1 || newIndex === -1) return;
 
       const reordered = arrayMove(treeViewGroups, oldIndex, newIndex);
-      // Full state replace for group reorder
       const state = {
         groups: reordered.map((g) => ({ id: g.id, name: g.name })),
         assignments: Object.fromEntries(treeAssignments),
@@ -855,10 +860,8 @@ export function Sidebar() {
       const targetGroup = sessionToGroupMap.get(overId);
       if (!sourceGroup || !targetGroup) return;
       if (sourceGroup !== targetGroup) {
-        // Cross-group move: assign session to the target's group
         api.assignSessionToTreeGroup(activeId, targetGroup).catch(console.error);
       } else {
-        // Within-group reorder
         const group = treeViewGroups.find((g) => g.id === sourceGroup);
         if (!group) return;
         const nodeIds = group.nodes.map((n) => n.leader.id);
@@ -1026,6 +1029,7 @@ export function Sidebar() {
     onStartRename: handleStartRename,
     onArchive: handleArchiveSession,
     onUnarchive: handleUnarchiveSession,
+    onRetryWorktreeCleanup: handleRetryWorktreeCleanup,
     onDelete: handleDeleteSession,
     onClearRecentlyRenamed: clearRecentlyRenamed,
     onContextMenu: handleContextMenu,
@@ -1047,7 +1051,6 @@ export function Sidebar() {
 
   return (
     <aside className="w-full sm:w-[260px] h-full flex flex-col bg-cc-sidebar border-r border-cc-border">
-      {/* Header */}
       <div className="p-4 pb-3">
         <div className="flex items-center gap-2 mb-4">
           <img src={logoSrc} alt="" className="h-12 w-12 shrink-0 rounded-xl object-contain" />
@@ -1096,7 +1099,6 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Session list */}
       <div
         ref={sessionScrollerRef}
         data-testid="sidebar-session-scroller"
@@ -1108,7 +1110,6 @@ export function Sidebar() {
           overscrollBehaviorX: "none",
         }}
       >
-        {/* Toolbar: search + mobile edit mode */}
         {allSessionList.length > 0 && (
           <div className="px-2 pb-1.5 flex items-center gap-1">
             <div className="relative flex-1 transition-all duration-200 ease-in-out">
@@ -1216,7 +1217,6 @@ export function Sidebar() {
                 Bulk
               </button>
             )}
-            {/* Edit/Done reorder toggle — mobile only, hidden in activity sort mode */}
             {showSortControls && sessionSortMode !== "activity" && (
               <button
                 onClick={() => setReorderMode(!reorderMode)}
@@ -1227,7 +1227,6 @@ export function Sidebar() {
                 {reorderMode ? "Done" : "Edit"}
               </button>
             )}
-            {/* Sort mode toggle -- switches between creation time and last user message */}
             {showSortControls && (
               <button
                 onClick={() => setSessionSortMode(sessionSortMode === "created" ? "activity" : "created")}
@@ -1354,7 +1353,6 @@ export function Sidebar() {
           <p className="px-3 py-8 text-xs text-cc-muted text-center leading-relaxed">No sessions yet.</p>
         ) : (
           <>
-            {/* Pending sessions — shown above project groups during creation */}
             {pendingSessions.size > 0 && (
               <div className="space-y-2 sm:space-y-0.5 mb-1">
                 {Array.from(pendingSessions.values())
@@ -1524,7 +1522,6 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* Footer */}
       <div className="px-3 py-2 border-t border-cc-border space-y-1.5">
         <SidebarUsageBar />
         <div className="flex items-center justify-around">
@@ -1683,7 +1680,6 @@ export function Sidebar() {
           }}
         />
       </div>
-      {/* Context menu */}
       {contextMenu &&
         (() => {
           const sdk = sdkSessions.find((s) => s.sessionId === contextMenu.sessionId);
@@ -1896,7 +1892,6 @@ export function Sidebar() {
       {configureSessionId && (
         <ConfigureSessionModal sessionId={configureSessionId} onClose={() => setConfigureSessionId(null)} />
       )}
-      {/* Session hover card */}
       {hoveredSession &&
         (() => {
           const s = allSessionList.find((item) => item.id === hoveredSession.sessionId);

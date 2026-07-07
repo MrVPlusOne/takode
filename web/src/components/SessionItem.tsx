@@ -216,6 +216,7 @@ interface SessionItemProps {
   onStartRename: (id: string, currentName: string) => void;
   onArchive: (e: React.MouseEvent, id: string) => void;
   onUnarchive: (e: React.MouseEvent, id: string) => void;
+  onRetryWorktreeCleanup?: (e: React.MouseEvent, id: string) => void;
   onDelete: (e: React.MouseEvent, id: string) => void;
   onClearRecentlyRenamed: (id: string) => void;
   onContextMenu?: (e: React.MouseEvent, id: string) => void;
@@ -270,6 +271,7 @@ export function SessionItem({
   onStartRename,
   onArchive,
   onUnarchive,
+  onRetryWorktreeCleanup,
   onDelete,
   onClearRecentlyRenamed,
   onContextMenu: onCtxMenu,
@@ -471,6 +473,12 @@ export function SessionItem({
   const hasGitStatus = !!s.gitBranch || hasBranchDivergence || hasLineDiff || hasSkippedDiffStats || !!s.isWorktree;
   const gitStatusTitle = hasGitStatus ? buildGitStatusTitle(s) : undefined;
   const gitStatusStale = hasGitStatus ? isGitStatusStale(s.gitStatusRefreshedAt) : false;
+  const canRetryWorktreeCleanup =
+    archived &&
+    s.isWorktree &&
+    s.worktreeExists === true &&
+    s.worktreeCleanupStatus !== "pending" &&
+    !!onRetryWorktreeCleanup;
   const showingSwipeBackdrop = canSwipeToArchive && Math.abs(swipeOffsetPx) > 0;
   const herdHighlightClass =
     herdHoverHighlight === "leader"
@@ -1181,6 +1189,18 @@ export function SessionItem({
       {/* Action buttons */}
       {archived ? (
         <>
+          {canRetryWorktreeCleanup && (
+            <button
+              onClick={(e) => onRetryWorktreeCleanup(e, s.id)}
+              className="absolute right-14 top-1/2 -translate-y-1/2 p-1 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-cc-border text-cc-muted hover:text-cc-attention transition-all cursor-pointer"
+              title="Retry worktree cleanup"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                <path d="M13 6a5 5 0 10-1.5 3.6" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M13 3v3h-3" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={(e) => onUnarchive(e, s.id)}
             className="absolute right-8 top-1/2 -translate-y-1/2 p-1 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-cc-border text-cc-muted hover:text-cc-fg transition-all cursor-pointer"

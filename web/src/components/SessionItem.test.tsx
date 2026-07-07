@@ -320,6 +320,24 @@ describe("SessionItem archived worktree cleanup status", () => {
 
     expect(screen.getByText("wt")).toHaveAttribute("title", "git worktree remove failed");
   });
+
+  it("offers retry for archived worktrees that still exist", () => {
+    const onRetryWorktreeCleanup = vi.fn();
+    renderSessionItem({
+      session: makeSession({
+        archived: true,
+        isWorktree: true,
+        worktreeExists: true,
+        worktreeCleanupStatus: "failed",
+      }),
+      isArchived: true,
+      onRetryWorktreeCleanup,
+    });
+
+    fireEvent.click(screen.getByTitle("Retry worktree cleanup"));
+
+    expect(onRetryWorktreeCleanup).toHaveBeenCalledWith(expect.any(Object), "s1");
+  });
 });
 
 describe("SessionItem rename mode", () => {

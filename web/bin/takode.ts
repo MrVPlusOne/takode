@@ -42,6 +42,7 @@ import {
   handleWorkerStream,
 } from "./takode-orchestration-commands.js";
 import { handlePermission } from "./takode-permission-commands.js";
+import { handleWorktreeCleanup } from "./takode-worktree-cleanup.js";
 import {
   handleInfo,
   handleLeaderContextResume,
@@ -99,6 +100,7 @@ try {
     ["timer", {}],
     ["lease", {}],
     ["permission", { requireOrchestrator: true }],
+    ["worktree-cleanup", { requireOrchestrator: true }],
   ]);
   if (!command || command === "-h" || command === "--help") {
     printUsage();
@@ -248,6 +250,9 @@ try {
       break;
     case "permission":
       await handlePermission(base, args);
+      break;
+    case "worktree-cleanup":
+      await handleWorktreeCleanup(base, args);
       break;
     default:
       console.error(`Unknown command: ${command}`);

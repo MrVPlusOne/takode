@@ -21,6 +21,7 @@ import {
 } from "./takode-board.js";
 import { SPAWN_FLAG_USAGE } from "./takode-orchestration-commands.js";
 import { PERMISSION_GET_HELP, PERMISSION_HELP, PERMISSION_SET_HELP } from "./takode-permission-commands.js";
+import { WORKTREE_CLEANUP_HELP } from "./takode-worktree-cleanup.js";
 
 const LIST_HELP = `Usage: takode list [--herd|--active|--all] [--tasks] [--json]
 
@@ -358,6 +359,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "archive":
       console.log(ARCHIVE_HELP);
       return true;
+    case "worktree-cleanup":
+      console.log(WORKTREE_CLEANUP_HELP);
+      return true;
     case "pending":
       console.log(PENDING_HELP);
       return true;
@@ -502,6 +506,7 @@ Commands:
   unherd   Release a session from your herd (e.g. takode unherd 5)
   interrupt  Interrupt a worker's current turn (e.g. takode interrupt 5)
   archive  Archive a herded session (e.g. takode archive 5)
+  worktree-cleanup  List or retry archived worktree cleanup
   pending  Show pending questions/plans from a herded session
   answer   Answer a pending question or approve/reject a plan
   set-base       Set the diff base branch for a session
@@ -562,6 +567,8 @@ Examples:
   takode branch status
   takode branch set-base origin/main
   takode worker-stream
+  takode worktree-cleanup list
+  takode worktree-cleanup retry 5
   takode phases
   takode board --help
   takode board advance q-12

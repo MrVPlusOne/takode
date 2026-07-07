@@ -3,6 +3,13 @@ import type { WorktreeMapping, WorktreeTracker } from "../worktree-tracker.js";
 
 export type WorktreeCleanupStatus = "pending" | "done" | "failed";
 export type WorktreeCleanupResult = { cleaned?: boolean; dirty?: boolean; path?: string; reason?: string } | undefined;
+export type WorktreeCleanupSafetyStatus = "safe" | "blocked";
+export interface WorktreeCleanupSafety {
+  status: WorktreeCleanupSafetyStatus;
+  reason?: string;
+  dirty?: boolean;
+  committedAhead?: number;
+}
 
 interface WorktreeSessionInfo {
   sessionId: string;
@@ -44,7 +51,7 @@ function withCleanupContext(
   return `Worktree cleanup failed (force=${options.force}, archiveBranch=${options.archiveBranch}, repoRoot=${target.repoRoot}, worktreePath=${target.worktreePath}, branch=${target.branch}, actualBranch=${target.actualBranch ?? "none"}): ${reason}`;
 }
 
-function resolveWorktreeCleanupTarget(
+export function resolveWorktreeCleanupTarget(
   sessionId: string,
   launcher: WorktreeCleanupLauncher,
   worktreeTracker: WorktreeTracker,
@@ -88,6 +95,7 @@ export async function cleanupWorktree(
     await gitUtils.archiveBranchAsync(target.repoRoot, managedBranch);
     const result = await gitUtils.removeWorktreeAsync(target.repoRoot, target.worktreePath, {
       force: shouldForceRemove,
+      branchToDelete: managedBranch,
     });
     if (result.removed) {
       worktreeTracker.removeBySession(target.sessionId);
@@ -119,12 +127,41 @@ export async function cleanupWorktree(
   };
 }
 
+export async function assessWorktreeCleanupSafety(target: WorktreeCleanupTarget): Promise<WorktreeCleanupSafety> {
+  const dirty = await gitUtils.isWorktreeDirtyAsync(target.worktreePath);
+  if (dirty) {
+    return { status: "blocked", reason: "Worktree has uncommitted changes", dirty: true };
+  }
+
+  const baseRef = `refs/heads/${target.branch}`;
+  const baseSha = await gitUtils.resolveRefAsync(target.repoRoot, baseRef);
+  if (!baseSha) {
+    return { status: "blocked", reason: `Base branch not found: ${target.branch}` };
+  }
+
+  const headSha = await gitUtils.resolveRefAsync(target.worktreePath, "HEAD");
+  if (!headSha) {
+    return { status: "blocked", reason: "Worktree HEAD could not be resolved" };
+  }
+
+  const committedAhead = await gitUtils.countCommitsBetweenAsync(target.repoRoot, baseRef, headSha);
+  if (committedAhead > 0) {
+    return {
+      status: "blocked",
+      reason: `Worktree has ${committedAhead} committed change(s) ahead of ${target.branch}`,
+      committedAhead,
+    };
+  }
+
+  return { status: "safe", dirty: false, committedAhead: 0 };
+}
+
 export function createArchivedWorktreeCleanupQueue(deps: ArchivedWorktreeCleanupDeps) {
   const { launcher, pendingWorktreeCleanups, worktreeTracker, logger = console } = deps;
 
   return (
     sessionId: string,
-    options?: { archiveBranch?: boolean },
+    options?: { archiveBranch?: boolean; force?: boolean },
   ): { status: WorktreeCleanupStatus; path?: string } | undefined => {
     const target = resolveWorktreeCleanupTarget(sessionId, launcher, worktreeTracker);
     if (!target) return undefined;
@@ -143,7 +180,7 @@ export function createArchivedWorktreeCleanupQueue(deps: ArchivedWorktreeCleanup
 
     const task = (async () => {
       try {
-        const result = await cleanupWorktree(target, worktreeTracker, true, options);
+        const result = await cleanupWorktree(target, worktreeTracker, options?.force ?? true, options);
         const finishedAt = Date.now();
         const cleanupStatus: WorktreeCleanupStatus = result?.reason ? "failed" : "done";
         launcher.setWorktreeCleanupState(sessionId, {

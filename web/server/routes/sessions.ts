@@ -58,6 +58,7 @@ import { registerSessionLeaderProfileRoute } from "./session-leader-profile-rout
 import { registerSessionReplacementRoutes } from "./session-replacement-routes.js";
 import { registerSessionNotificationContextRoute } from "./session-notification-context.js";
 import { registerSessionImageRoutes } from "./session-image-routes.js";
+import { registerWorktreeCleanupRoutes } from "./worktree-cleanup-routes.js";
 import { prepareWorktreeForSessionCreate, type WorktreeSessionInfo } from "./session-worktree-create.js";
 import type { CreationProgressStatus, EmitCreationProgress, SessionConfig } from "./session-create-config.js";
 import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignments.js";
@@ -1889,6 +1890,14 @@ export function createSessionsRoutes(ctx: RouteContext) {
     queueArchivedWorktreeCleanup,
     pendingWorktreeCleanups,
     applyInitialSessionState,
+  });
+  registerWorktreeCleanupRoutes(api, {
+    launcher,
+    pathExists,
+    pendingWorktreeCleanups,
+    queueArchivedWorktreeCleanup,
+    resolveId,
+    worktreeTracker,
   });
   // ─── Task History (table of contents) ──────────────────────
   api.get("/sessions/:id/tasks", (c) => {

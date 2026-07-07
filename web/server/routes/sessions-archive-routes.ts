@@ -24,7 +24,7 @@ interface SessionsArchiveRoutesDeps {
   prPoller?: RouteContext["prPoller"];
   queueArchivedWorktreeCleanup: (
     sessionId: string,
-    options?: { archiveBranch?: boolean },
+    options?: { archiveBranch?: boolean; force?: boolean },
   ) => QueuedWorktreeCleanupResult;
   resolveId: RouteContext["resolveId"];
   sessionStore: RouteContext["sessionStore"];

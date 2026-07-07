@@ -510,6 +510,27 @@ export interface GitWorktreeInfo {
   isDirty: boolean;
 }
 
+export interface WorktreeCleanupCandidate {
+  sessionId: string;
+  sessionNum: number | null;
+  name: string | null;
+  archivedAt: number | null;
+  repoRoot: string;
+  branch: string;
+  actualBranch: string | null;
+  worktreePath: string;
+  cleanupStatus: "pending" | "done" | "failed" | null;
+  cleanupError: string | null;
+  cleanupStartedAt: number | null;
+  cleanupFinishedAt: number | null;
+  exists: boolean;
+  inUseBy: string[];
+  retryable: boolean;
+  owned: boolean;
+  ownershipReason: string;
+  safety: { status: "not_checked" | "blocked"; summary: string };
+}
+
 export interface QuestCommitLookup {
   sha: string;
   shortSha?: string;
@@ -1185,6 +1206,14 @@ export const api = {
     post<{ ok: boolean; archived: number; failed: number }>(`/sessions/${encodeURIComponent(sessionId)}/archive-group`),
 
   unarchiveSession: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/unarchive`),
+
+  retryWorktreeCleanup: (sessionId: string) =>
+    post<{
+      ok: boolean;
+      cleanup: { status: "pending" | "done" | "failed"; path?: string };
+      candidate?: WorktreeCleanupCandidate;
+      safety?: { status: string; summary: string; reason?: string; dirty?: boolean; committedAhead?: number };
+    }>(`/worktree-cleanup/${encodeURIComponent(sessionId)}/retry`),
 
   listActiveTimers: () => get<ActiveTimerSession[]>("/timers/active"),
 

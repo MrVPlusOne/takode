@@ -73,7 +73,10 @@ describe("createArchivedWorktreeCleanupQueue", () => {
     await pending.get("s1");
 
     expect(gitUtils.archiveBranchAsync).toHaveBeenCalledWith("/repo", "feat-wt-1234");
-    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/repo-wt", { force: true });
+    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/repo-wt", {
+      force: true,
+      branchToDelete: "feat-wt-1234",
+    });
     expect(tracker.removeBySession).toHaveBeenCalledWith("s1");
     expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
       "s1",
@@ -106,7 +109,10 @@ describe("createArchivedWorktreeCleanupQueue", () => {
     await pending.get("s1");
 
     expect(gitUtils.archiveBranchAsync).toHaveBeenCalledWith("/repo", "feat-wt-1234");
-    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/repo-wt", { force: true });
+    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/repo-wt", {
+      force: true,
+      branchToDelete: "feat-wt-1234",
+    });
     expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
       "s1",
       expect.objectContaining({ status: "done", error: undefined, finishedAt: expect.any(Number) }),
@@ -141,7 +147,10 @@ describe("createArchivedWorktreeCleanupQueue", () => {
     queueCleanup("s1", { archiveBranch: true });
     await pending.get("s1");
 
-    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/repo-wt", { force: true });
+    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/repo-wt", {
+      force: true,
+      branchToDelete: "feat-wt-1234",
+    });
     expect(tracker.removeBySession).toHaveBeenCalledWith("s1");
     expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
       "s1",
