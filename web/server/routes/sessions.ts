@@ -67,6 +67,16 @@ import { LEADER_KICKOFF_SOURCE_ID, LEADER_KICKOFF_SOURCE_LABEL } from "../../sha
 import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "../memory-session-space.js";
 import { registerSessionSideChatRoutes } from "./session-side-chat-routes.js";
 import { applySessionDefaultsToCreateBody, SessionDefaultValidationError } from "../session-defaults-application.js";
+import { openLocalPathContainingFolder } from "../local-path-actions.js";
+
+type SessionDirectoryOpenTarget = "working-directory" | "worktree" | "base-repo";
+
+function parseSessionDirectoryOpenTarget(value: unknown): SessionDirectoryOpenTarget | null {
+  if (value === "working-directory" || value === "worktree" || value === "base-repo") {
+    return value;
+  }
+  return null;
+}
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -1210,6 +1220,66 @@ export function createSessionsRoutes(ctx: RouteContext) {
       sessionLifecycleEvents: bridgeState?.lifecycle_events ?? [],
       isGenerating: !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size),
     });
+  });
+
+  api.post("/sessions/:id/directories/open", async (c) => {
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+
+    const session = launcher.getSession(id);
+    if (!session) return c.json({ error: "Session not found" }, 404);
+
+    const body = (await c.req.json().catch(() => null)) as { target?: unknown } | null;
+    const target = parseSessionDirectoryOpenTarget(body?.target);
+    if (!target) {
+      return c.json(
+        {
+          error: 'target must be "working-directory", "worktree", or "base-repo"',
+        },
+        400,
+      );
+    }
+
+    const bridgeSession = wsBridge.getSession(id);
+    const bridgeState = bridgeSession?.state;
+    const info = {
+      cwd: bridgeState?.cwd || session.cwd || "",
+      repoRoot: bridgeState?.repo_root ?? session.repoRoot ?? undefined,
+    };
+    await backfillSessionProjectMeta(info, bridgeSession);
+
+    const isWorktree = Boolean(bridgeState?.is_worktree ?? session.isWorktree);
+    const directoryPath =
+      target === "base-repo" ? info.repoRoot : target === "worktree" && !isWorktree ? undefined : info.cwd;
+
+    if (!directoryPath) {
+      const label =
+        target === "base-repo"
+          ? "Base repo directory"
+          : target === "worktree"
+            ? "Worktree directory"
+            : "Working directory";
+      return c.json({ error: `${label} is not available for this session` }, 404);
+    }
+
+    const infoStat = await stat(directoryPath).catch(() => null);
+    if (!infoStat) {
+      return c.json({ error: `Directory does not exist: ${directoryPath}` }, 404);
+    }
+    if (!infoStat.isDirectory()) {
+      return c.json({ error: `Path is not a directory: ${directoryPath}` }, 400);
+    }
+
+    try {
+      return c.json(
+        await openLocalPathContainingFolder({
+          absolutePath: directoryPath,
+          isDirectory: true,
+        }),
+      );
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Cannot open directory" }, 400);
+    }
   });
   registerSessionLeaderProfileRoute(api, ctx);
 

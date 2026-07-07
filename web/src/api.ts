@@ -730,6 +730,15 @@ export interface VsCodeRemoteOpenFileResponse {
   commandId: string;
 }
 
+export type SessionDirectoryOpenTarget = "working-directory" | "worktree" | "base-repo";
+
+export interface SessionDirectoryOpenResponse {
+  ok: true;
+  absolutePath: string;
+  openedPath: string;
+  platform: string;
+}
+
 // ─── Auto-Approval Types ─────────────────────────────────────────────────────
 
 export interface AutoApprovalConfig {
@@ -1428,6 +1437,8 @@ export const api = {
 
   openVsCodeRemoteFile: (target: VsCodeRemoteOpenFileTarget) =>
     post<VsCodeRemoteOpenFileResponse>("/vscode/open-file", target),
+  openSessionDirectory: (sessionId: string, target: SessionDirectoryOpenTarget) =>
+    post<SessionDirectoryOpenResponse>(`/sessions/${encodeURIComponent(sessionId)}/directories/open`, { target }),
 
   // Settings
   getSettings: () => get<AppSettings>("/settings"),

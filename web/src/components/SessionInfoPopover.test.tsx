@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { api } from "../api.js";
-import { openPathWithEditorPreference } from "../utils/vscode-bridge.js";
 
 interface MockStoreState {
   sessions: Map<
@@ -186,13 +185,10 @@ vi.mock("../api.js", () => ({
   api: {
     getSettings: vi.fn(),
     listSessions: vi.fn(),
+    openSessionDirectory: vi.fn(),
     relaunchSession: vi.fn(),
     updateLeaderProfilePortrait: vi.fn(),
   },
-}));
-
-vi.mock("../utils/vscode-bridge.js", () => ({
-  openPathWithEditorPreference: vi.fn(),
 }));
 
 import { SessionInfoPopover } from "./SessionInfoPopover.js";
@@ -212,17 +208,18 @@ const TAKO_PORTRAIT = {
 describe("SessionInfoPopover", () => {
   beforeEach(() => {
     window.location.hash = "#/session/s1";
-    vi.mocked(api.getSettings).mockReset();
-    vi.mocked(api.getSettings).mockResolvedValue({ editorConfig: { editor: "cursor" } } as Awaited<
-      ReturnType<typeof api.getSettings>
-    >);
     vi.mocked(api.listSessions).mockReset();
     vi.mocked(api.listSessions).mockResolvedValue([]);
+    vi.mocked(api.openSessionDirectory).mockReset();
+    vi.mocked(api.openSessionDirectory).mockResolvedValue({
+      ok: true,
+      absolutePath: "/repo",
+      openedPath: "/repo",
+      platform: "darwin",
+    });
     vi.mocked(api.relaunchSession).mockReset();
     vi.mocked(api.relaunchSession).mockResolvedValue({} as Awaited<ReturnType<typeof api.relaunchSession>>);
     vi.mocked(api.updateLeaderProfilePortrait).mockReset();
-    vi.mocked(openPathWithEditorPreference).mockReset();
-    vi.mocked(openPathWithEditorPreference).mockResolvedValue(true);
   });
 
   it("anchors under the provided title-area affordance with viewport clamping", () => {
@@ -481,7 +478,7 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByRole("button", { name: "Copy Base repo" })).toBeInTheDocument();
   });
 
-  it("opens the session working directory through the configured editor", async () => {
+  it("opens the session working directory through the system file browser", async () => {
     resetStore([]);
     const session = storeState.sessions.get("s1");
     if (!session) throw new Error("missing session fixture");
@@ -495,9 +492,6 @@ describe("SessionInfoPopover", () => {
         backendType: "codex",
       },
     ];
-    vi.mocked(api.getSettings).mockResolvedValue({ editorConfig: { editor: "cursor" } } as Awaited<
-      ReturnType<typeof api.getSettings>
-    >);
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -506,32 +500,34 @@ describe("SessionInfoPopover", () => {
     fireEvent.click(button);
 
     await waitFor(() => {
-      expect(openPathWithEditorPreference).toHaveBeenCalledWith(
-        {
-          absolutePath: "/Users/test/.companion/worktrees/companion/jiayi-wt-3116",
-          targetKind: "directory",
-        },
-        "cursor",
-      );
+      expect(api.openSessionDirectory).toHaveBeenCalledWith("s1", "working-directory");
     });
   });
 
-  it("disables the working directory open action when no editor is configured", async () => {
+  it("opens visible worktree and base repo directory rows through the system file browser", async () => {
     resetStore([]);
-    vi.mocked(api.getSettings).mockResolvedValue({ editorConfig: { editor: "none" } } as Awaited<
-      ReturnType<typeof api.getSettings>
-    >);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.cwd = "/Users/test/.companion/worktrees/companion/jiayi-wt-3116";
+    session.repo_root = "/Users/test/Code/companion";
+    session.is_worktree = true;
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
-    const button = await screen.findByTestId("session-info-open-working-directory");
-    await waitFor(() => expect(button).toBeDisabled());
-    expect(button).toHaveAttribute("title", "Configure an editor in Settings to open this directory.");
+    fireEvent.click(await screen.findByRole("button", { name: "Open Worktree" }));
+    await waitFor(() => {
+      expect(api.openSessionDirectory).toHaveBeenCalledWith("s1", "worktree");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Base repo" }));
+    await waitFor(() => {
+      expect(api.openSessionDirectory).toHaveBeenCalledWith("s1", "base-repo");
+    });
   });
 
-  it("shows an inline error when the configured editor cannot open the working directory", async () => {
+  it("shows an inline error when the system file browser cannot open the working directory", async () => {
     resetStore([]);
-    vi.mocked(openPathWithEditorPreference).mockRejectedValue(new Error("Editor failed"));
+    vi.mocked(api.openSessionDirectory).mockRejectedValue(new Error("Cannot open directory"));
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -539,7 +535,7 @@ describe("SessionInfoPopover", () => {
     await waitFor(() => expect(button).not.toBeDisabled());
     fireEvent.click(button);
 
-    expect(await screen.findByTestId("session-info-open-editor-error")).toHaveTextContent("Editor failed");
+    expect(await screen.findByTestId("session-info-open-directory-error")).toHaveTextContent("Cannot open directory");
   });
 
   it("shows concise herd relationship chips in the info panel", () => {

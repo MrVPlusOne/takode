@@ -4,6 +4,8 @@ interface SessionPathSummaryProps {
   isWorktree?: boolean;
   testIdPrefix?: string;
   interactivePaths?: boolean;
+  onOpenPath?: (path: PathRow) => void;
+  openingPathKey?: string | null;
 }
 
 interface PathRow {
@@ -50,6 +52,8 @@ export function SessionPathSummary({
   isWorktree,
   testIdPrefix,
   interactivePaths,
+  onOpenPath,
+  openingPathKey,
 }: SessionPathSummaryProps) {
   const rows: PathRow[] = [];
   if (!cwd) return null;
@@ -106,20 +110,40 @@ export function SessionPathSummary({
                 </div>
               )}
               {interactivePaths && (
-                <button
-                  type="button"
-                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:cursor-not-allowed disabled:opacity-40"
-                  title={`Copy ${row.label?.toLowerCase() ?? "path"}`}
-                  aria-label={`Copy ${row.label ?? "path"}`}
-                  onClick={() => {
-                    void navigator.clipboard?.writeText(row.path);
-                  }}
-                >
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
-                    <path d="M5.5 5.5h6v8h-6z" />
-                    <path d="M3.5 10.5h-1v-8h6v1" />
-                  </svg>
-                </button>
+                <>
+                  {onOpenPath && (
+                    <button
+                      type="button"
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:cursor-not-allowed disabled:opacity-40"
+                      title={`Open ${row.label?.toLowerCase() ?? "path"}`}
+                      aria-label={`Open ${row.label ?? "path"}`}
+                      disabled={openingPathKey === row.key}
+                      onClick={() => {
+                        onOpenPath(row);
+                      }}
+                    >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
+                        <path d="M6 3.5h6.5V10" />
+                        <path d="M12.5 3.5 6 10" />
+                        <path d="M12.5 12.5h-9v-9" />
+                      </svg>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:cursor-not-allowed disabled:opacity-40"
+                    title={`Copy ${row.label?.toLowerCase() ?? "path"}`}
+                    aria-label={`Copy ${row.label ?? "path"}`}
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(row.path);
+                    }}
+                  >
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
+                      <path d="M5.5 5.5h6v8h-6z" />
+                      <path d="M3.5 10.5h-1v-8h6v1" />
+                    </svg>
+                  </button>
+                </>
               )}
             </div>
             <span className="sr-only">{tail}</span>

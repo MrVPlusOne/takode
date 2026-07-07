@@ -28,7 +28,11 @@ vi.mock("node:child_process", () => {
       if (callback) callback(err, { stdout: e.stdout ?? "", stderr: e.stderr ?? "" });
     }
   });
-  return { execSync: execSyncMock, exec: execMock };
+  const execFileMock = vi.fn((...args: any[]) => {
+    const callback = typeof args[args.length - 1] === "function" ? args[args.length - 1] : undefined;
+    if (callback) callback(null, { stdout: "", stderr: "" });
+  });
+  return { execSync: execSyncMock, exec: execMock, execFile: execFileMock };
 });
 
 const mockResolveBinary = vi.hoisted(() => vi.fn((_name: string) => null as string | null));
@@ -170,7 +174,7 @@ vi.mock("./usage-limits.js", () => ({
 }));
 
 import { Hono } from "hono";
-import { execSync } from "node:child_process";
+import { execFile, execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -582,5 +586,61 @@ describe("GET /api/sessions/:id", () => {
     expect(res.status).toBe(404);
     const json = await res.json();
     expect(json).toEqual({ error: "Session not found" });
+  });
+});
+
+describe("POST /api/sessions/:id/directories/open", () => {
+  it("opens a session-derived directory in the system file browser", async () => {
+    launcher.getSession.mockReturnValue({
+      sessionId: "s1",
+      state: "running",
+      cwd: "/repo/worktree",
+      repoRoot: "/repo/main",
+      isWorktree: true,
+    });
+    vi.mocked(stat).mockResolvedValue({
+      isDirectory: () => true,
+    } as Awaited<ReturnType<typeof stat>>);
+
+    const res = await app.request("/api/sessions/s1/directories/open", {
+      method: "POST",
+      body: JSON.stringify({ target: "base-repo" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      absolutePath: "/repo/main",
+      openedPath: "/repo/main",
+    });
+    expect(stat).toHaveBeenCalledWith("/repo/main");
+    expect(execFile).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining(["/repo/main"]),
+      expect.any(Function),
+    );
+  });
+
+  it("rejects unavailable worktree targets for non-worktree sessions", async () => {
+    launcher.getSession.mockReturnValue({
+      sessionId: "s1",
+      state: "running",
+      cwd: "/repo/main",
+      repoRoot: "/repo/main",
+      isWorktree: false,
+    });
+
+    const res = await app.request("/api/sessions/s1/directories/open", {
+      method: "POST",
+      body: JSON.stringify({ target: "worktree" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({
+      error: "Worktree directory is not available for this session",
+    });
+    expect(execFile).not.toHaveBeenCalled();
   });
 });

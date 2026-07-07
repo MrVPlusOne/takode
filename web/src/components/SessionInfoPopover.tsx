@@ -16,9 +16,8 @@ import { sendToSession } from "../ws.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
 import { SessionContextStats, SessionPayloadStats } from "./SessionPayloadStats.js";
-import { api, type EditorKind } from "../api.js";
+import { api, type SessionDirectoryOpenTarget } from "../api.js";
 import type { SdkSessionInfo, SessionLifecycleEvent, SessionState } from "../types.js";
-import { openPathWithEditorPreference } from "../utils/vscode-bridge.js";
 import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
 import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
 import { formatContextWindowLabel } from "../utils/token-format.js";
@@ -126,10 +125,8 @@ export function SessionInfoPopover({
       : "Applies on resume";
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showReasoningDropdown, setShowReasoningDropdown] = useState(false);
-  const [editorKind, setEditorKind] = useState<EditorKind | null>(null);
-  const [editorConfigError, setEditorConfigError] = useState("");
-  const [openEditorError, setOpenEditorError] = useState("");
-  const [openingEditor, setOpeningEditor] = useState(false);
+  const [openDirectoryError, setOpenDirectoryError] = useState("");
+  const [openingDirectoryTarget, setOpeningDirectoryTarget] = useState<SessionDirectoryOpenTarget | null>(null);
   const [sdkSessionsFallback, setSdkSessionsFallback] = useState<SdkSessionInfo[] | null>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const reasoningDropdownRef = useRef<HTMLDivElement>(null);
@@ -146,26 +143,6 @@ export function SessionInfoPopover({
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setEditorKind(null);
-    setEditorConfigError("");
-    api
-      .getSettings()
-      .then((settings) => {
-        if (cancelled) return;
-        setEditorKind(settings.editorConfig?.editor ?? "none");
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setEditorConfigError(error instanceof Error ? error.message : "Unable to load editor settings.");
-        setEditorKind("none");
-      });
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   useEffect(() => {
@@ -229,16 +206,9 @@ export function SessionInfoPopover({
     const leader = effectiveSdkSessions.find((sdk) => sdk.sessionId === effectiveSdkSession.herdedBy && !sdk.archived);
     return leader?.sessionId ?? effectiveSdkSession.herdedBy;
   }, [effectiveSdkSession?.isOrchestrator, effectiveSdkSession?.herdedBy, effectiveSdkSessions]);
-  const editorDisabledReason = !cwd
-    ? "No working directory is available for this session."
-    : editorConfigError
-      ? `Unable to load editor settings: ${editorConfigError}`
-      : editorKind === null
-        ? "Loading editor settings..."
-        : editorKind === "none"
-          ? "Configure an editor in Settings to open this directory."
-          : "";
-  const canOpenWorkingDirectory = !!cwd && !!editorKind && editorKind !== "none" && !editorConfigError;
+  const directoryDisabledReason = !cwd ? "No working directory is available for this session." : "";
+  const canOpenWorkingDirectory = !!cwd;
+  const canOpenPathRows = Boolean(sessionVm?.isWorktree && sessionVm.repoRoot && sessionVm.repoRoot !== cwd);
   const recoverableConnectionPresentation = getRecoverableSessionConnectionPresentation({
     backendState: session?.backend_state,
     browserConnectionStatus,
@@ -271,25 +241,16 @@ export function SessionInfoPopover({
     return { left, top, width, maxHeight } satisfies CSSProperties;
   }, [anchorElement]);
 
-  async function handleOpenWorkingDirectory() {
-    if (!cwd || !editorKind || editorKind === "none") return;
-    setOpeningEditor(true);
-    setOpenEditorError("");
+  async function handleOpenSessionDirectory(target: SessionDirectoryOpenTarget) {
+    if (!cwd || openingDirectoryTarget) return;
+    setOpeningDirectoryTarget(target);
+    setOpenDirectoryError("");
     try {
-      const opened = await openPathWithEditorPreference(
-        {
-          absolutePath: cwd,
-          targetKind: "directory",
-        },
-        editorKind,
-      );
-      if (!opened) {
-        setOpenEditorError("Configure an editor in Settings to open this directory.");
-      }
+      await api.openSessionDirectory(sessionId, target);
     } catch (error) {
-      setOpenEditorError(error instanceof Error ? error.message : String(error));
+      setOpenDirectoryError(error instanceof Error ? error.message : String(error));
     } finally {
-      setOpeningEditor(false);
+      setOpeningDirectoryTarget(null);
     }
   }
 
@@ -466,10 +427,10 @@ export function SessionInfoPopover({
                   type="button"
                   data-testid="session-info-open-working-directory"
                   className="hidden sm:inline-flex items-center gap-1 rounded-md border border-cc-border px-2 py-1 text-[11px] text-cc-muted transition-colors hover:border-cc-primary/40 hover:bg-cc-hover hover:text-cc-fg disabled:cursor-not-allowed disabled:opacity-45"
-                  disabled={!canOpenWorkingDirectory || openingEditor}
-                  title={editorDisabledReason || "Open this session's working directory in the configured editor"}
+                  disabled={!canOpenWorkingDirectory || openingDirectoryTarget !== null}
+                  title={directoryDisabledReason || "Open this session's working directory in the system file browser"}
                   onClick={() => {
-                    void handleOpenWorkingDirectory();
+                    void handleOpenSessionDirectory("working-directory");
                   }}
                 >
                   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
@@ -477,7 +438,7 @@ export function SessionInfoPopover({
                     <path d="M12.5 3.5 6 10" />
                     <path d="M12.5 12.5h-9v-9" />
                   </svg>
-                  {openingEditor ? "Opening" : "Open"}
+                  {openingDirectoryTarget === "working-directory" ? "Opening" : "Open"}
                 </button>
               </div>
               <SessionPathSummary
@@ -486,10 +447,25 @@ export function SessionInfoPopover({
                 isWorktree={sessionVm?.isWorktree}
                 testIdPrefix="session-info-path"
                 interactivePaths
+                openingPathKey={
+                  openingDirectoryTarget === "worktree"
+                    ? "worktree"
+                    : openingDirectoryTarget === "base-repo"
+                      ? "repo"
+                      : null
+                }
+                onOpenPath={
+                  canOpenPathRows
+                    ? (row) => {
+                        const target = row.key === "repo" ? "base-repo" : "worktree";
+                        void handleOpenSessionDirectory(target);
+                      }
+                    : undefined
+                }
               />
-              {openEditorError && (
-                <div data-testid="session-info-open-editor-error" className="text-[11px] leading-snug text-red-400">
-                  {openEditorError}
+              {openDirectoryError && (
+                <div data-testid="session-info-open-directory-error" className="text-[11px] leading-snug text-cc-error">
+                  {openDirectoryError}
                 </div>
               )}
             </div>
