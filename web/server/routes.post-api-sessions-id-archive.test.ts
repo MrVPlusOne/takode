@@ -661,7 +661,10 @@ describe("POST /api/sessions/:id/archive", () => {
     await Promise.resolve();
 
     expect(gitUtils.archiveBranchAsync).toHaveBeenCalledWith(repoRoot, "main-wt-1234");
-    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith(repoRoot, worktreePath, { force: true });
+    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith(repoRoot, worktreePath, {
+      force: true,
+      branchToDelete: "main-wt-1234",
+    });
     expect(tracker.removeBySession).toHaveBeenCalledWith(sessionId);
     expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
       sessionId,
