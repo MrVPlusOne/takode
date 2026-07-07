@@ -755,6 +755,57 @@ describe("POST /api/sessions/:id/archive", () => {
     expect(launcher.kill).toHaveBeenCalledWith("s1");
   });
 
+  it("rolls back reviewer archived marker when reviewer cascade kill fails", async () => {
+    launcher.getSessionNum.mockReturnValue(42);
+    launcher.listSessions.mockReturnValue([
+      {
+        sessionId: "reviewer-1",
+        state: "connected",
+        cwd: "/test",
+        createdAt: Date.now(),
+        reviewerOf: 42,
+        herdedBy: "leader-1",
+        archived: false,
+      },
+    ]);
+    launcher.kill.mockImplementation(async (id: string) => {
+      if (id === "reviewer-1") throw new Error("reviewer kill failed");
+      return true;
+    });
+
+    await Promise.resolve(
+      app.request("/api/sessions/s1/archive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+    ).catch(() => undefined);
+
+    expect(launcher.kill).toHaveBeenCalledWith("reviewer-1");
+    expect(launcher.setArchived).toHaveBeenCalledWith("reviewer-1", true);
+    expect(launcher.setArchived).toHaveBeenCalledWith("reviewer-1", false);
+    const reviewerKillCall = launcher.kill.mock.calls.findIndex(([id]: [string]) => id === "reviewer-1");
+    const reviewerArchiveTrueCall = launcher.setArchived.mock.calls.findIndex(
+      ([id, archived]: [string, boolean]) => id === "reviewer-1" && archived === true,
+    );
+    const reviewerArchiveFalseCall = launcher.setArchived.mock.calls.findIndex(
+      ([id, archived]: [string, boolean]) => id === "reviewer-1" && archived === false,
+    );
+    expect(launcher.setArchived.mock.invocationCallOrder[reviewerArchiveTrueCall]).toBeLessThan(
+      launcher.kill.mock.invocationCallOrder[reviewerKillCall],
+    );
+    expect(launcher.setArchived.mock.invocationCallOrder[reviewerArchiveFalseCall]).toBeGreaterThan(
+      launcher.kill.mock.invocationCallOrder[reviewerKillCall],
+    );
+    expect(sessionStore.setArchived).not.toHaveBeenCalledWith("reviewer-1", true);
+    expect(bridge.broadcastGlobal).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "session_archived", session_id: "reviewer-1" }),
+    );
+    expect(bridge.emitTakodeEvent).not.toHaveBeenCalledWith("reviewer-1", "session_archived", {
+      archive_source: "cascade",
+    });
+  });
+
   it("marks direct archive herd events as user-initiated when no actor session exists", async () => {
     launcher.getSession.mockReturnValue({
       sessionId: "s1",

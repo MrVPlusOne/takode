@@ -117,7 +117,12 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
         if (s.reviewerOf === archivedNum && !s.archived) {
           console.log(`[routes] Auto-archiving reviewer session ${s.sessionId} (reviewerOf=#${archivedNum})`);
           launcher.setArchived(s.sessionId, true);
-          await launcher.kill(s.sessionId);
+          try {
+            await launcher.kill(s.sessionId);
+          } catch (error) {
+            launcher.setArchived(s.sessionId, false);
+            throw error;
+          }
           broadcastSessionArchived(s.sessionId);
           containerManager.removeContainer(s.sessionId);
           queueArchivedWorktreeCleanup(s.sessionId, { archiveBranch: true });
