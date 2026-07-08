@@ -15,6 +15,8 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { DEFAULT_PORT_PROD } from "./constants.js";
+import { SessionStore } from "./session-store.js";
+import type { BrowserIncomingMessage } from "./session-types.js";
 
 export type DevboxMigrationCommand = "inventory" | "export" | "import" | "start-help";
 
@@ -557,11 +559,55 @@ async function copyEntryToPackage(spec: EntrySpec, destination: string): Promise
     await writeJson(destination, sanitizeSettings(await readJsonRecord(spec.sourcePath)));
     return;
   }
-  await copyPath(spec.sourcePath, destination, spec.excludeNames);
   if (spec.id === "sessions") {
+    await copySessionsToPackage(spec.sourcePath, destination, spec.excludeNames);
     const launcherEntries = await buildHistoricalLauncherCatalog(spec.sourcePath);
     await writeJson(join(destination, "launcher.json"), launcherEntries);
+    return;
   }
+  await copyPath(spec.sourcePath, destination, spec.excludeNames);
+}
+
+async function copySessionsToPackage(
+  sourcePath: string,
+  destination: string,
+  excludeNames?: Set<string>,
+): Promise<void> {
+  await copyPath(sourcePath, destination, excludeNames);
+  let files: string[];
+  try {
+    files = await readdir(sourcePath);
+  } catch {
+    return;
+  }
+  for (const file of files) {
+    if (!file.endsWith(".json") || file === "launcher.json") continue;
+    const sessionId = file.replace(/\.json$/, "");
+    await writeHistoricalSessionHotJson(
+      join(sourcePath, file),
+      join(sourcePath, `${sessionId}.history.jsonl`),
+      join(destination, file),
+    );
+  }
+}
+
+async function writeHistoricalSessionHotJson(sourceHotPath: string, frozenLogPath: string, destinationHotPath: string) {
+  let hot: Record<string, unknown>;
+  try {
+    hot = await readJsonRecord(sourceHotPath);
+  } catch {
+    return;
+  }
+  const hotHistory = Array.isArray(hot.messageHistory) ? (hot.messageHistory as BrowserIncomingMessage[]) : [];
+  const frozenHistory = await readFrozenMessages(frozenLogPath);
+  const excerpts = SessionStore.extractSearchExcerpts([...frozenHistory, ...hotHistory]);
+  const archivedAt = numberOrZero(hot.archivedAt) || Date.now();
+  await writeJson(destinationHotPath, {
+    ...hot,
+    archived: true,
+    archivedAt,
+    _searchExcerpts: excerpts,
+  });
 }
 
 async function buildHistoricalLauncherCatalog(sessionsDir: string): Promise<Array<Record<string, unknown>>> {
@@ -609,6 +655,34 @@ async function buildHistoricalLauncherCatalog(sessionsDir: string): Promise<Arra
     });
   }
   return entries;
+}
+
+async function readFrozenMessages(path: string): Promise<BrowserIncomingMessage[]> {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf-8");
+  } catch {
+    return [];
+  }
+  const messages: BrowserIncomingMessage[] = [];
+  let isFirstNonEmpty = true;
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (isRecord(parsed) && isFirstNonEmpty && parsed.v !== undefined) {
+        isFirstNonEmpty = false;
+        continue;
+      }
+      isFirstNonEmpty = false;
+      if (isRecord(parsed) && parsed._toolResults) continue;
+      messages.push(parsed as BrowserIncomingMessage);
+    } catch {
+      // Match SessionStore's frozen-log tolerance: skip truncated/corrupt lines.
+    }
+  }
+  return messages;
 }
 
 async function collectStats(

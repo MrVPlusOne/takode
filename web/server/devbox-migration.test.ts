@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { mkdtemp } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { SessionStore } from "./session-store.js";
+import { searchSessionDocuments } from "./session-search.js";
 import {
   exportDevboxMigrationPackage,
   importDevboxMigrationPackage,
@@ -38,7 +39,15 @@ async function seedSourceHome(root: string): Promise<void> {
     pendingMessages: [],
     pendingPermissions: [],
   });
-  await writeFile(join(root, "sessions", "3456", "session-a.history.jsonl"), '{"type":"user_message"}\n');
+  await writeFile(
+    join(root, "sessions", "3456", "session-a.history.jsonl"),
+    `${JSON.stringify({ v: 1 })}\n${JSON.stringify({
+      type: "user_message",
+      id: "history-only-user",
+      content: "history-only-search-term lives in the frozen log",
+      timestamp: 123,
+    })}\n`,
+  );
   await writeJson(join(root, "sessions", "3456", "launcher.json"), [{ sessionId: "session-a", state: "running" }]);
   await writeJson(join(root, "questmaster-live", "store.json"), { quests: [] });
   await writeJson(join(root, "questmaster", "q-1-v1.json"), { id: "q-1" });
@@ -153,6 +162,37 @@ describe("devbox migration planner", () => {
     expect(sessions[0].id).toBe("session-a");
     expect(sessions[0].archived).toBe(true);
     expect(sessions[0]._searchDataOnly).toBe(true);
+  });
+
+  it("makes frozen history-only content searchable after import through SessionStore search data", async () => {
+    const source = await mkdtemp(join(tmpdir(), "takode-devbox-source-"));
+    const target = await mkdtemp(join(tmpdir(), "takode-devbox-target-"));
+    const packageDir = await mkdtemp(join(tmpdir(), "takode-devbox-package-"));
+    await seedSourceHome(source);
+    await exportDevboxMigrationPackage({ sourceHome: source, packageDir });
+    await importDevboxMigrationPackage({ packageDir, targetHome: target, apply: true });
+
+    const store = new SessionStore(join(target, "sessions", "3456"));
+    const [session] = await store.loadAll();
+
+    const results = searchSessionDocuments(
+      [
+        {
+          sessionId: session.id,
+          state: "exited",
+          archived: true,
+          createdAt: 0,
+          messageHistory: session.messageHistory,
+          searchExcerpts: session._searchExcerpts,
+        },
+      ],
+      { query: "history-only-search-term", includeArchived: true },
+    );
+
+    expect(session.messageHistory).toEqual([]);
+    expect(session._searchExcerpts?.some((excerpt) => excerpt.content.includes("history-only-search-term"))).toBe(true);
+    expect(results.totalMatches).toBe(1);
+    expect(results.results[0].matchedField).toBe("user_message");
   });
 
   it("refuses to export into source home or existing unowned directories", async () => {
