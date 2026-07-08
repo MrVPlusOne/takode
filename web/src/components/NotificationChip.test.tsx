@@ -7,6 +7,11 @@ import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-
 
 const mockMarkNotificationDone = vi.fn(async (_sessionId: string, _notifId: string, _done = true) => ({ ok: true }));
 const mockMarkAllNotificationsDone = vi.fn(async (_sessionId: string, _done = true) => ({ ok: true, count: 0 }));
+const mockSetNotificationMuted = vi.fn(async (_sessionId: string, _notifId: string, muted: boolean) => ({
+  ok: true,
+  muted,
+  changed: true,
+}));
 const mockSendNeedsInputResponse = vi.fn(async (_sessionId: string, _notifId: string, _response: any) => ({
   ok: true,
   sessionId: _sessionId,
@@ -29,6 +34,9 @@ const mockSetReplyContext = vi.fn((sessionId: string, context: any) => {
 const mockFocusComposer = vi.fn();
 const mockRequestBottomAlignOnNextUserMessage = vi.fn();
 const mockSendToSession = vi.fn((_sessionId: string, _msg: any) => true);
+const mockSetSessionNotifications = vi.fn((sessionId: string, notifications: Array<any>) => {
+  mockNotifications.set(sessionId, notifications);
+});
 
 const mockStoreState: Record<string, any> = {
   sessionNotifications: mockNotifications,
@@ -49,11 +57,16 @@ const mockStoreState: Record<string, any> = {
   setReplyContext: mockSetReplyContext,
   focusComposer: mockFocusComposer,
   requestBottomAlignOnNextUserMessage: mockRequestBottomAlignOnNextUserMessage,
+  setSessionNotifications: mockSetSessionNotifications,
 };
 
 vi.mock("../store.js", () => {
   const useStore: any = (selector: (state: any) => unknown) => selector(mockStoreState);
   useStore.getState = () => mockStoreState;
+  useStore.setState = (updater: any) => {
+    const patch = typeof updater === "function" ? updater(mockStoreState) : updater;
+    if (patch && patch !== mockStoreState) Object.assign(mockStoreState, patch);
+  };
   return { useStore };
 });
 
@@ -62,6 +75,8 @@ vi.mock("../api.js", () => ({
     markNotificationDone: (sessionId: string, notifId: string, done = true) =>
       mockMarkNotificationDone(sessionId, notifId, done),
     markAllNotificationsDone: (sessionId: string, done = true) => mockMarkAllNotificationsDone(sessionId, done),
+    setNotificationMuted: (sessionId: string, notifId: string, muted: boolean) =>
+      mockSetNotificationMuted(sessionId, notifId, muted),
     sendNeedsInputResponse: (sessionId: string, notifId: string, response: any) =>
       mockSendNeedsInputResponse(sessionId, notifId, response),
   },
@@ -189,6 +204,7 @@ describe("NotificationChip", () => {
     mockNotifications.clear();
     mockComposerDrafts.clear();
     mockReplyContexts.clear();
+    mockStoreState.sessionNotifications = mockNotifications;
     mockStoreState.messages = new Map();
     mockStoreState.threadWindowMessages = new Map();
     mockStoreState.quests = [];
@@ -196,6 +212,7 @@ describe("NotificationChip", () => {
     mockStoreState.sdkSessions = [];
     mockMarkNotificationDone.mockClear();
     mockMarkAllNotificationsDone.mockClear();
+    mockSetNotificationMuted.mockClear();
     mockSendNeedsInputResponse.mockClear();
     mockSendNeedsInputResponse.mockResolvedValue({
       ok: true,
@@ -212,6 +229,7 @@ describe("NotificationChip", () => {
     mockRequestBottomAlignOnNextUserMessage.mockClear();
     mockSendToSession.mockClear();
     mockSendToSession.mockReturnValue(true);
+    mockSetSessionNotifications.mockClear();
   });
 
   afterEach(() => {
@@ -528,7 +546,7 @@ describe("NotificationChip", () => {
     expect(screen.getByTestId("notification-source-context").className).not.toContain("line-clamp-3");
     expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open source message for Deploy now?" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go to source for Deploy now?" }));
     expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "msg-123");
     expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "msg-123");
   });
@@ -554,6 +572,94 @@ describe("NotificationChip", () => {
     expect(screen.getAllByText("Confirm scope")).toHaveLength(1);
   });
 
+  it("adds explicit Go to and Mute actions without treating mute as resolution", async () => {
+    setNotifications("s1", [
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "Deploy now?",
+        suggestedAnswers: ["yes", "no"],
+        timestamp: Date.now(),
+        messageId: "msg-123",
+        done: false,
+      },
+    ]);
+
+    render(<NotificationChip sessionId="s1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+
+    expect(screen.queryByRole("button", { name: "Open source message for Deploy now?" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Go to source for Deploy now?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mute Deploy now?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use composer" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mute Deploy now?" }));
+
+    await waitFor(() => expect(mockSetNotificationMuted).toHaveBeenCalledWith("s1", "n-1", true));
+    expect(mockSetSessionNotifications).toHaveBeenCalledWith(
+      "s1",
+      expect.arrayContaining([expect.objectContaining({ id: "n-1", muted: true })]),
+    );
+    expect(mockMarkNotificationDone).not.toHaveBeenCalledWith("s1", "n-1", true);
+    expect(mockSendNeedsInputResponse).not.toHaveBeenCalled();
+  });
+
+  it("keeps muted needs-input rows discoverable and answerable in the per-session panel", () => {
+    setNotifications("s1", [
+      {
+        id: "n-muted",
+        category: "needs-input",
+        summary: "Choose deferred rollout",
+        questions: [{ prompt: "Use canary or hold?", suggestedAnswers: ["canary", "hold"] }],
+        timestamp: Date.now(),
+        messageId: "msg-muted",
+        done: false,
+        muted: true,
+      },
+    ]);
+
+    render(<NotificationChip sessionId="s1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 muted needs-input notification" }));
+
+    const mutedSection = screen.getByLabelText("Muted needs-input notifications");
+    const mutedRow = within(mutedSection).getByTestId("notification-inbox-row");
+    expect(screen.getByRole("dialog", { name: "Notification inbox" })).toHaveTextContent("Notifications(0)");
+    expect(within(mutedSection).getAllByText("Muted").length).toBeGreaterThanOrEqual(1);
+    expect(within(mutedRow).getByRole("button", { name: "Unmute Choose deferred rollout" })).toBeInTheDocument();
+    expect(
+      within(mutedRow).getByRole("button", { name: "Go to source for Choose deferred rollout" }),
+    ).toBeInTheDocument();
+    expect(within(mutedRow).getByRole("button", { name: "canary" })).toBeInTheDocument();
+    expect(within(mutedRow).getByLabelText("Answer for Use canary or hold?")).toBeInTheDocument();
+    expect(within(mutedRow).getByRole("button", { name: "Send Response" })).toBeDisabled();
+    expect(within(mutedRow).getByRole("button", { name: "Use composer" })).toBeInTheDocument();
+  });
+
+  it("does not clear muted unresolved needs-input rows with Read All", () => {
+    setNotifications("s1", [
+      { id: "input-active", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
+      {
+        id: "input-muted",
+        category: "needs-input",
+        summary: "Deferred approval",
+        timestamp: Date.now(),
+        done: false,
+        muted: true,
+      },
+    ]);
+
+    render(<NotificationChip sessionId="s1" />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Notification inbox: 1 needs-input notification, 1 muted needs-input notification",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Read All" }));
+
+    expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "input-active", true);
+    expect(mockMarkNotificationDone).not.toHaveBeenCalledWith("s1", "input-muted", true);
+  });
+
   it("switches to the needs-input owner thread before jumping to the message", () => {
     const onSelectThread = vi.fn();
     vi.useFakeTimers();
@@ -573,7 +679,7 @@ describe("NotificationChip", () => {
     try {
       render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
       fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
-      fireEvent.click(screen.getByRole("button", { name: /Answer q-977/i }));
+      fireEvent.click(screen.getByRole("button", { name: "Go to source for Answer q-977" }));
 
       expect(onSelectThread).toHaveBeenCalledWith("q-977");
       expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
@@ -608,7 +714,7 @@ describe("NotificationChip", () => {
     try {
       render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
       fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
-      fireEvent.click(screen.getByRole("button", { name: /Approve q-977 dispatch/i }));
+      fireEvent.click(screen.getByRole("button", { name: "Go to source for Approve q-977 dispatch?" }));
 
       expect(onSelectThread).toHaveBeenCalledWith("q-977");
       expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
@@ -657,7 +763,7 @@ describe("NotificationChip", () => {
     try {
       render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
       fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
-      fireEvent.click(screen.getByRole("button", { name: /Approve q-977 dispatch/i }));
+      fireEvent.click(screen.getByRole("button", { name: "Go to source for Approve q-977 dispatch?" }));
 
       expect(onSelectThread).toHaveBeenCalledWith("q-977");
       expect(mockRequestScrollToMessage).not.toHaveBeenCalledWith("s1", "herd-turn-end");
@@ -696,7 +802,7 @@ describe("NotificationChip", () => {
     try {
       render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
       fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
-      fireEvent.click(screen.getByRole("button", { name: /Approve q-977 dispatch/i }));
+      fireEvent.click(screen.getByRole("button", { name: "Go to source for Approve q-977 dispatch?" }));
 
       expect(onSelectThread).toHaveBeenCalledWith("q-977");
       expect(mockRequestScrollToMessage).not.toHaveBeenCalledWith("s1", "herd-turn-end");
@@ -998,7 +1104,7 @@ describe("NotificationChip", () => {
 
     render(<NotificationChip sessionId="s1" />);
     fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
-    fireEvent.mouseEnter(screen.getByRole("button", { name: /Confirm scope/i }));
+    fireEvent.mouseEnter(screen.getByText("Confirm scope"));
 
     expect(screen.getByTestId("notification-source-context")).toHaveTextContent("Hidden hover preview body");
     expect(screen.queryByTestId("message-link-hover-card")).toBeNull();

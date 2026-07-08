@@ -5,6 +5,7 @@ import { api } from "../api.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { ChatMessage, SessionNotification } from "../types.js";
 import {
+  applySessionNotifications,
   isActionableSessionNotification,
   isClearedNotificationStatus,
   type NotificationStatusSnapshot,
@@ -82,8 +83,9 @@ function useNotifications(sessionId: string) {
   const actionable = useMemo(() => all.filter(isActionableSessionNotification), [all]);
   const needsInput = useMemo(() => actionable.filter((n) => n.category === "needs-input"), [actionable]);
   const active = useMemo(() => needsInput.filter((n) => !n.done && !n.muted), [needsInput]);
+  const muted = useMemo(() => needsInput.filter((n) => !n.done && n.muted), [needsInput]);
   const done = useMemo(() => needsInput.filter((n) => n.done), [needsInput]);
-  return { all: needsInput, active, done };
+  return { all: needsInput, active, muted, done };
 }
 
 function useNotificationSummary(sessionId: string): NotificationStatusSnapshot {
@@ -152,7 +154,7 @@ function getSummaryBreakdown(summary: NotificationStatusSnapshot) {
 }
 
 function getEffectiveNotificationBreakdown(
-  notifications: ReadonlyArray<Pick<SessionNotification, "category">>,
+  notifications: ReadonlyArray<Pick<SessionNotification, "category" | "muted">>,
   summary: NotificationStatusSnapshot,
 ) {
   if (isClearedNotificationStatus(summary)) return { needsInput: 0, review: 0, waiting: 0 };
@@ -183,30 +185,44 @@ function formatChipAriaLabel({
   needsInput,
   review,
   waiting,
+  mutedNeedsInput,
 }: {
   needsInput: number;
   review: number;
   waiting: number;
+  mutedNeedsInput: number;
 }): string {
   const parts: string[] = [];
   if (needsInput > 0)
     parts.push(`${needsInput} ${needsInput === 1 ? "needs-input notification" : "needs-input notifications"}`);
   if (waiting > 0) parts.push(`${waiting} ${waiting === 1 ? "waiting status" : "waiting statuses"}`);
-  return `Notification inbox: ${parts.join(", ")}`;
+  if (mutedNeedsInput > 0) {
+    parts.push(`${mutedNeedsInput} muted needs-input ${mutedNeedsInput === 1 ? "notification" : "notifications"}`);
+  }
+  return parts.length > 0 ? `Notification inbox: ${parts.join(", ")}` : "Notification inbox: no active notifications";
 }
 
 function NotificationCountInline({
   category,
   count,
   labelText,
+  tone = "active",
 }: {
   category: NotificationCategory;
   count: number;
   labelText: string;
+  tone?: "active" | "muted";
 }) {
   const isNeedsInput = category === "needs-input";
   const isReview = category === "review";
-  const iconClassName = isNeedsInput ? "text-cc-attention" : isReview ? "text-cc-info" : "text-cc-muted/85";
+  const mutedTone = tone === "muted";
+  const iconClassName = mutedTone
+    ? "text-cc-muted"
+    : isNeedsInput
+      ? "text-cc-attention"
+      : isReview
+        ? "text-cc-info"
+        : "text-cc-muted/85";
   const label = isNeedsInput ? "Needs input" : isReview ? "Review" : "Waiting";
 
   return (
@@ -237,7 +253,17 @@ function NotificationCountInline({
           </>
         )}
       </svg>
-      <span className={isNeedsInput ? "text-cc-attention" : isReview ? "text-cc-info" : "text-cc-muted/85"}>
+      <span
+        className={
+          mutedTone
+            ? "text-cc-muted"
+            : isNeedsInput
+              ? "text-cc-attention"
+              : isReview
+                ? "text-cc-info"
+                : "text-cc-muted/85"
+        }
+      >
         {labelText}
       </span>
     </span>
@@ -286,6 +312,33 @@ function getCompactReviewSummary(
   }
 
   return { text: summary, questSummary: parseSingleQuestSummary(summary) };
+}
+
+function getCurrentNotificationStatus(sessionId: string): NotificationStatusSnapshot {
+  const session = useStore.getState().sdkSessions.find((entry) => entry.sessionId === sessionId);
+  return {
+    notificationUrgency: session?.notificationUrgency,
+    activeNotificationCount: session?.activeNotificationCount,
+    activeNeedsInputNotificationCount: session?.activeNeedsInputNotificationCount,
+    activeReviewNotificationCount: session?.activeReviewNotificationCount,
+    mutedNeedsInputNotificationCount: session?.mutedNeedsInputNotificationCount,
+    notificationStatusVersion: session?.notificationStatusVersion,
+    notificationStatusUpdatedAt: session?.notificationStatusUpdatedAt,
+  };
+}
+
+function markLocalNotificationMuted(sessionId: string, notificationId: string, muted: boolean) {
+  const store = useStore.getState();
+  const notifications = store.sessionNotifications.get(sessionId);
+  if (!notifications) return;
+  const nextNotifications = notifications.map((notification) => {
+    if (notification.id !== notificationId) return notification;
+    if (muted) return { ...notification, muted: true, mutedAt: Date.now() };
+    const { muted: _muted, mutedAt: _mutedAt, ...rest } = notification;
+    return rest;
+  });
+  store.setSessionNotifications(sessionId, nextNotifications);
+  applySessionNotifications(sessionId, nextNotifications, getCurrentNotificationStatus(sessionId));
 }
 
 // ─── Notification Item ───────────────────────────────────────────────────────
@@ -341,6 +394,8 @@ function NotificationItem({
   }, [sessionId, notif, currentThreadKey, onSelectThread, jumpTargetMessageId]);
 
   const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, string>>({});
+  const [togglingMute, setTogglingMute] = useState(false);
+  const [muteError, setMuteError] = useState<string | null>(null);
   const questionViews = useMemo(
     () => (notif.category === "needs-input" ? getNeedsInputQuestionViews(notif) : []),
     [notif],
@@ -374,6 +429,8 @@ function NotificationItem({
   );
 
   const isNeedsInput = notif.category === "needs-input";
+  const isMutableNeedsInput = isNeedsInput && !notif.done;
+  const isMutedNeedsInput = isMutableNeedsInput && Boolean(notif.muted);
   const canSendResponse =
     isNeedsInput &&
     !notif.done &&
@@ -406,6 +463,26 @@ function NotificationItem({
       });
     },
     [answersByQuestion, canSendResponse, currentThreadKey, notif, onSelectThread, questionViews, sessionId],
+  );
+  const toggleMuted = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!isMutableNeedsInput || togglingMute) return;
+      const nextMuted = !notif.muted;
+      setTogglingMute(true);
+      setMuteError(null);
+      api
+        .setNotificationMuted(sessionId, notif.id, nextMuted)
+        .then(() => {
+          markLocalNotificationMuted(sessionId, notif.id, nextMuted);
+        })
+        .catch((error) => {
+          const message = error instanceof Error && error.message ? error.message : "Please retry.";
+          setMuteError(`${nextMuted ? "Mute" : "Unmute"} failed. ${message}`);
+        })
+        .finally(() => setTogglingMute(false));
+    },
+    [isMutableNeedsInput, notif.id, notif.muted, sessionId, togglingMute],
   );
   const compactReviewSummary = notif.category === "review" ? getCompactReviewSummary(notif.summary) : null;
   const label = compactReviewSummary?.text || getNotificationTitle(notif);
@@ -449,6 +526,7 @@ function NotificationItem({
       data-testid="notification-inbox-row"
       data-notification-id={notif.id}
       data-notification-category={notif.category}
+      data-muted={isMutedNeedsInput ? "true" : undefined}
     >
       {/* Checkbox */}
       <button
@@ -473,37 +551,75 @@ function NotificationItem({
 
       {/* Content */}
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span
-            className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
-              isNeedsInput ? "bg-cc-attention" : notif.category === "review" ? "bg-cc-info" : "bg-cc-muted/65"
-            }`}
-          />
-          {isNeedsInput ? (
-            <div className="min-w-0 flex-1">
-              <NeedsInputSourceTarget
-                title={label}
-                sourceContext={sourceContext}
-                onNavigate={jumpTargetMessageId ? jumpToMessage : undefined}
-                titleClassName={labelClassName}
-                testIdPrefix="notification"
-              />
-            </div>
-          ) : jumpTargetMessageId ? (
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={jumpToMessage}
-              onKeyDown={handleJumpKeyDown}
-              className="min-w-0 flex-1 cursor-pointer"
-            >
+        <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-2">
+          <div className="flex min-w-0 flex-1 items-start gap-1.5">
+            <span
+              className={`mt-[0.35rem] inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+                isMutedNeedsInput
+                  ? "border border-cc-muted/70 bg-cc-muted/45"
+                  : isNeedsInput
+                    ? "bg-cc-attention"
+                    : notif.category === "review"
+                      ? "bg-cc-info"
+                      : "bg-cc-muted/65"
+              }`}
+            />
+            {isNeedsInput ? (
+              <div className="min-w-0 flex-1">
+                <NeedsInputSourceTarget
+                  title={label}
+                  sourceContext={sourceContext}
+                  titleClassName={labelClassName}
+                  testIdPrefix="notification"
+                />
+              </div>
+            ) : jumpTargetMessageId ? (
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={jumpToMessage}
+                onKeyDown={handleJumpKeyDown}
+                className="min-w-0 flex-1 cursor-pointer"
+              >
+                <div className="text-[12px] text-left">{renderLabel()}</div>
+              </div>
+            ) : (
               <div className="text-[12px] text-left">{renderLabel()}</div>
+            )}
+          </div>
+          {isMutableNeedsInput && (
+            <div className="flex shrink-0 flex-wrap items-center gap-1 pl-3 sm:justify-end sm:pl-0">
+              <button
+                type="button"
+                onClick={toggleMuted}
+                disabled={togglingMute}
+                className="inline-flex items-center rounded border border-cc-border/70 bg-cc-card px-2 py-0.5 text-[11px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-muted/45 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                aria-label={`${isMutedNeedsInput ? "Unmute" : "Mute"} ${label}`}
+              >
+                {togglingMute ? "..." : isMutedNeedsInput ? "Unmute" : "Mute"}
+              </button>
+              {jumpTargetMessageId && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    jumpToMessage();
+                  }}
+                  className="inline-flex items-center rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-0.5 text-[11px] font-medium text-cc-attention transition-colors hover:bg-cc-attention-bg/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-attention/45 cursor-pointer"
+                  aria-label={`Go to source for ${label}`}
+                >
+                  Go to
+                </button>
+              )}
             </div>
-          ) : (
-            <div className="text-[12px] text-left">{renderLabel()}</div>
           )}
         </div>
-        <div className="text-[10px] text-cc-muted mt-0.5 pl-3">{formatRelativeTime(notif.timestamp)}</div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-1 pl-3 text-[10px] text-cc-muted">
+          {isMutedNeedsInput && (
+            <span className="rounded border border-cc-border/70 bg-cc-hover/35 px-1 py-px font-medium">Muted</span>
+          )}
+          <span className="text-cc-muted">{formatRelativeTime(notif.timestamp)}</span>
+        </div>
         {isNeedsInput && !notif.done && (
           <div className="mt-2 space-y-2 pl-3" data-testid="notification-answer-actions">
             {questionViews.map((question, index) => (
@@ -570,6 +686,7 @@ function NotificationItem({
             </div>
           </div>
         )}
+        {muteError && <p className="mt-2 pl-3 text-[10px] leading-snug text-cc-error">{muteError}</p>}
       </div>
     </div>
   );
@@ -590,7 +707,7 @@ function NotificationPopover({
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
 }) {
-  const { active, done } = useNotifications(sessionId);
+  const { active, muted, done } = useNotifications(sessionId);
   const questOverlayId = useStore((s) => s.questOverlayId);
   const [showDone, setShowDone] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -642,7 +759,9 @@ function NotificationPopover({
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-cc-border/50 shrink-0">
         <h2 className="text-[13px] font-medium text-cc-fg">
           Notifications
-          {active.length > 0 && <span className="ml-1.5 text-[11px] text-cc-muted font-normal">({active.length})</span>}
+          {(active.length > 0 || muted.length > 0) && (
+            <span className="ml-1.5 text-[11px] text-cc-muted font-normal">({active.length})</span>
+          )}
         </h2>
         <div className="flex items-center gap-1.5">
           {active.length > 0 && (
@@ -674,7 +793,7 @@ function NotificationPopover({
 
       {/* Notification list */}
       <div className="overflow-y-auto flex-1">
-        {active.length === 0 && done.length === 0 ? (
+        {active.length === 0 && muted.length === 0 && done.length === 0 ? (
           <p className="px-3 py-6 text-center text-[12px] text-cc-muted">No notifications</p>
         ) : (
           <>
@@ -690,6 +809,26 @@ function NotificationPopover({
                   />
                 ))}
               </div>
+            )}
+
+            {muted.length > 0 && (
+              <section className="border-t border-cc-border/60" aria-label="Muted needs-input notifications">
+                <div className="flex items-center justify-between bg-cc-hover/20 px-3 py-1.5">
+                  <span className="text-[11px] font-medium text-cc-muted">Muted</span>
+                  <span className="text-[10px] text-cc-muted/70">{muted.length}</span>
+                </div>
+                <div className="divide-y divide-cc-border/20">
+                  {[...muted].reverse().map((n) => (
+                    <NotificationItem
+                      key={n.id}
+                      notif={n}
+                      sessionId={sessionId}
+                      currentThreadKey={currentThreadKey}
+                      onSelectThread={onSelectThread}
+                    />
+                  ))}
+                </div>
+              </section>
             )}
 
             {done.length > 0 && (
@@ -742,7 +881,7 @@ export function NotificationChip({
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
 }) {
-  const { active } = useNotifications(sessionId);
+  const { active, muted } = useNotifications(sessionId);
   const summary = useNotificationSummary(sessionId);
   const [open, setOpen] = useState(false);
   const chipRef = useRef<HTMLButtonElement>(null);
@@ -750,13 +889,18 @@ export function NotificationChip({
     () => getEffectiveNotificationBreakdown(active, summary),
     [active, summary],
   );
-  const ariaLabel = useMemo(() => formatChipAriaLabel({ needsInput, review, waiting }), [needsInput, review, waiting]);
+  const mutedNeedsInput = muted.length;
+  const ariaLabel = useMemo(
+    () => formatChipAriaLabel({ needsInput, review, waiting, mutedNeedsInput }),
+    [mutedNeedsInput, needsInput, review, waiting],
+  );
   const hasNeedsInput = needsInput > 0;
+  const hasMutedNeedsInput = mutedNeedsInput > 0;
 
   const toggle = useCallback(() => setOpen((p) => !p), []);
   const close = useCallback(() => setOpen(false), []);
 
-  if (needsInput + waiting === 0) return null;
+  if (needsInput + waiting === 0 && !hasMutedNeedsInput) return null;
 
   return (
     <>
@@ -770,6 +914,8 @@ export function NotificationChip({
         <span className="relative inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
           {hasNeedsInput ? (
             <NotificationCountInline category="needs-input" count={needsInput} labelText="needs input" />
+          ) : hasMutedNeedsInput ? (
+            <NotificationCountInline category="needs-input" count={0} labelText="needs input" tone="muted" />
           ) : (
             <NotificationCountInline category="waiting" count={waiting} labelText="status" />
           )}

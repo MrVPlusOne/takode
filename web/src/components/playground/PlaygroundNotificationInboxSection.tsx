@@ -57,6 +57,21 @@ function seedNotificationData() {
             messageId: "mock-msg-15",
             done: true,
           },
+          {
+            id: "n-5",
+            category: "needs-input" as const,
+            summary: "Deferred token rotation approval",
+            questions: [
+              {
+                prompt: "Rotate now or keep muted until the Execute window?",
+                suggestedAnswers: ["rotate now", "keep muted"],
+              },
+            ],
+            timestamp: now - 4_200_000,
+            messageId: "mock-msg-muted",
+            done: false,
+            muted: true,
+          },
         ],
       ],
     ]),
@@ -247,9 +262,9 @@ export function PlaygroundNotificationInboxSection() {
             </div>
             <p className="text-[10px] text-cc-muted">
               Click &quot;Seed notification data&quot; first. The lower-right inbox shows needs-input rows with one
-              prompt title, expandable source context, direct Send Response controls, voice-enabled long-answer fields,
-              and a collapsible Done section. Active review notifications stay out of this panel because blue review
-              status is represented on thread tabs.
+              prompt title, explicit Go to and Mute/Unmute row actions, expandable source context, direct Send Response
+              controls, voice-enabled long-answer fields, a muted backlog, and a collapsible Done section. Active review
+              notifications stay out of this panel because blue review status is represented on thread tabs.
             </p>
           </div>
         </Card>
