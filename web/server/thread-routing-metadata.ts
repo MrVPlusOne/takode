@@ -79,6 +79,11 @@ export function inferCurrentThreadRoute(history: BrowserIncomingMessage[]): Thre
   return { threadKey: "main" };
 }
 
+export function inferRecentKnownQuestThreadRoute(history: BrowserIncomingMessage[]): ThreadRouteMetadata | null {
+  const route = inferCurrentThreadRoute(history);
+  return isQuestThreadKey(route.threadKey) ? threadRouteForTarget(route.threadKey, "inferred") : null;
+}
+
 export function inferThreadRouteForNotificationAnchor(
   history: BrowserIncomingMessage[],
   anchorIndex: number | undefined,

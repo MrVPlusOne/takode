@@ -42,6 +42,7 @@ import {
 import { sessionTag } from "../session-tag.js";
 import type { ImageRef } from "../image-store.js";
 import {
+  applyRecentThreadFallbackToLeaderAssistantRouting,
   buildThreadRoutingReminderForCompletedTurn,
   extractLeaderThreadStatusMarkersFromContent,
   hasLeaderVisibleTextContent,
@@ -477,7 +478,12 @@ export function handleAssistantMessage(
       msg.parent_tool_use_id,
     );
     for (const [segmentIndex, contentSegment] of contentSegments.entries()) {
-      const routed = normalizeLeaderAssistantRouting(isLeaderSession, contentSegment, msg.parent_tool_use_id);
+      const routed = applyRecentThreadFallbackToLeaderAssistantRouting(
+        isLeaderSession,
+        normalizeLeaderAssistantRouting(isLeaderSession, contentSegment, msg.parent_tool_use_id),
+        session.messageHistory,
+        msg.parent_tool_use_id,
+      );
       const route = routeFromLeaderAssistantResult(routed);
       queueQuestThreadRemindersFromLeaderAssistant(session, routed.questThreadReminders, route);
       const segmentMessageId = segmentIndex === 0 ? resolvedMessageId : `${resolvedMessageId}:route-${segmentIndex}`;
@@ -552,7 +558,12 @@ export function handleAssistantMessage(
     );
     let currentHistoryMessageId = msgId;
     for (const [segmentIndex, contentSegment] of contentSegments.entries()) {
-      const routed = normalizeLeaderAssistantRouting(isLeaderSession, contentSegment, msg.parent_tool_use_id);
+      const routed = applyRecentThreadFallbackToLeaderAssistantRouting(
+        isLeaderSession,
+        normalizeLeaderAssistantRouting(isLeaderSession, contentSegment, msg.parent_tool_use_id),
+        session.messageHistory,
+        msg.parent_tool_use_id,
+      );
       const route = routeFromLeaderAssistantResult(routed);
       queueQuestThreadRemindersFromLeaderAssistant(session, routed.questThreadReminders, route);
       const routedMessage = { ...msg.message, content: routed.content };

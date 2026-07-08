@@ -412,6 +412,44 @@ describe("thread window hydration", () => {
     expect(questSync.entries.map((entry) => entry.message.type)).toEqual(["assistant", "tool_result_preview"]);
   });
 
+  it("projects recent-thread fallback tool activity into the inferred quest thread", () => {
+    const history = [
+      assistant("a1", "quest update", { threadKey: "q-1596" }),
+      {
+        ...assistant("a2", "image read", { toolUseId: "tool-image-read" }),
+        threadKey: "q-1596",
+        questId: "q-1596",
+        threadRefs: [{ threadKey: "q-1596", questId: "q-1596", source: "inferred" as const }],
+      },
+      toolResultPreview("tool-image-read", "image preview"),
+    ];
+
+    const mainSync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 5,
+      visibleItemCount: 2,
+    });
+    const questSync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "q-1596",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 5,
+      visibleItemCount: 2,
+    });
+
+    expect(mainSync.entries.map((entry) => entry.message.type)).toEqual([]);
+    expect(questSync.entries.map((entry) => entry.history_index)).toEqual([0, 1, 2]);
+    expect(questSync.entries.map((entry) => entry.message.type)).toEqual([
+      "assistant",
+      "assistant",
+      "tool_result_preview",
+    ]);
+  });
+
   it("preserves Main previews for visible and orphaned tools", () => {
     const visibleMainHistory = [
       assistant("a1", "main tool", { toolUseId: "tool-main" }),

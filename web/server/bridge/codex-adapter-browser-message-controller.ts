@@ -12,6 +12,7 @@ import type {
 import type { LeaderThreadStatus, ParsedThreadStatusMarker } from "../../shared/thread-status-marker.js";
 import { sessionTag } from "../session-tag.js";
 import {
+  applyRecentThreadFallbackToLeaderAssistantRouting,
   hasLeaderVisibleTextContent,
   normalizeLeaderAssistantRouting,
   splitLeaderAssistantContentAtPostQuizThreadRoutes,
@@ -533,7 +534,12 @@ export async function handleCodexAdapterBrowserMessage(
       const timestamp = typeof msg.timestamp === "number" ? msg.timestamp : Date.now();
       const resolvedMessageId = msg.message.id ?? msg.uuid ?? `assistant-${timestamp}-${session.messageHistory.length}`;
       for (const [segmentIndex, contentSegment] of contentSegments.entries()) {
-        const routed = normalizeLeaderAssistantRouting(isLeaderSession, contentSegment, msg.parent_tool_use_id);
+        const routed = applyRecentThreadFallbackToLeaderAssistantRouting(
+          isLeaderSession,
+          normalizeLeaderAssistantRouting(isLeaderSession, contentSegment, msg.parent_tool_use_id),
+          session.messageHistory,
+          msg.parent_tool_use_id,
+        );
         const segmentRoute = routeFromLeaderAssistantResult(routed);
         if (routed.questThreadReminders?.length) {
           queueQuestThreadRemindersForCompletedTurn(session, routed.questThreadReminders, segmentRoute);
@@ -596,7 +602,12 @@ export async function handleCodexAdapterBrowserMessage(
       }
       return;
     }
-    const routed = normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content || [], msg.parent_tool_use_id);
+    const routed = applyRecentThreadFallbackToLeaderAssistantRouting(
+      isLeaderSession,
+      normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content || [], msg.parent_tool_use_id),
+      session.messageHistory,
+      msg.parent_tool_use_id,
+    );
     activeRouteFromAssistant = routeFromLeaderAssistantResult(routed);
     if (routed.questThreadReminders?.length) {
       queueQuestThreadRemindersForCompletedTurn(session, routed.questThreadReminders, activeRouteFromAssistant);

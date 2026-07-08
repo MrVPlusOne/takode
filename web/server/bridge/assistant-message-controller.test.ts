@@ -965,6 +965,89 @@ describe("assistant-message-controller", () => {
     expect(block).toMatchObject({ type: "tool_use", input: { command: "pwd" } });
   });
 
+  it("routes unthreaded leader tool activity to the most recent quest thread", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nInspecting the attached screenshot." }]);
+    const msg = routeAssistantMessage(session, [
+      { type: "tool_use", id: "tool-view-image", name: "view_image", input: { path: "/tmp/screenshot.png" } },
+    ]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "inferred" }],
+    });
+    expect(msg.type === "assistant" ? msg.threadRoutingError : undefined).toBeUndefined();
+  });
+
+  it("keeps unthreaded leader tool activity in Main when no quest thread is known", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [
+      { type: "tool_use", id: "tool-edit", name: "Edit", input: { file_path: "web/server/example.ts" } },
+    ]);
+
+    expect(msg.type === "assistant" ? msg.threadKey : undefined).toBeUndefined();
+    expect(msg.type === "assistant" ? msg.questId : undefined).toBeUndefined();
+    expect(msg.type === "assistant" ? msg.threadRefs : undefined).toBeUndefined();
+    expect(msg.type === "assistant" ? msg.threadRoutingError : undefined).toBeUndefined();
+  });
+
+  it("does not let the recent-thread fallback override explicit Main routing", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nQuest-local work." }]);
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:main]\nGlobal status update." }]);
+
+    expect(msg).toMatchObject({ type: "assistant", threadKey: "main" });
+    expect(msg.type === "assistant" ? msg.questId : undefined).toBeUndefined();
+    expect(msg.type === "assistant" ? msg.threadRefs : undefined).toBeUndefined();
+    expect(msg.type === "assistant" ? msg.message.content : []).toEqual([
+      { type: "text", text: "Global status update." },
+    ]);
+  });
+
+  it("does not let the recent-thread fallback override command-level Main routing", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nQuest-local work." }]);
+    const msg = routeAssistantMessage(session, [
+      { type: "tool_use", id: "tool-global", name: "Bash", input: { command: "# thread:main\npwd" } },
+    ]);
+
+    expect(msg).toMatchObject({ type: "assistant", threadKey: "main" });
+    expect(msg.type === "assistant" ? msg.questId : undefined).toBeUndefined();
+    expect(msg.type === "assistant" ? msg.threadRefs : undefined).toBeUndefined();
+    const block = msg.type === "assistant" ? msg.message.content[0] : null;
+    expect(block).toMatchObject({ type: "tool_use", input: { command: "pwd" } });
+  });
+
+  it("does not apply the recent-thread fallback to non-leader sessions", () => {
+    const session = makeSession();
+    session.messageHistory.push({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: { id: "previous-q941", content: [] } as any,
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+
+    const msg = routeAssistantMessage(session, [
+      { type: "tool_use", id: "tool-read", name: "Read", input: { file_path: "web/server/example.ts" } },
+    ]);
+
+    expect(msg.type === "assistant" ? msg.threadKey : undefined).toBeUndefined();
+    expect(msg.type === "assistant" ? msg.questId : undefined).toBeUndefined();
+    expect(msg.type === "assistant" ? msg.threadRefs : undefined).toBeUndefined();
+  });
+
   it("preserves unrouted Bash command and records shell-command routing metadata", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;

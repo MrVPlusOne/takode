@@ -804,6 +804,23 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     ]);
   });
 
+  it("routes unthreaded Codex file-edit tool activity to the most recent quest thread", async () => {
+    const session = makeSession();
+
+    await routeAssistantMessage(session, [{ type: "text", text: "[thread:q-1195]\nWorking in this quest tab." }]);
+    const toolMsg = await routeAssistantMessage(session, [
+      { type: "tool_use", id: "file-edit-1", name: "Edit", input: { file_path: "web/server/example.ts" } },
+    ]);
+
+    expect(toolMsg).toMatchObject({
+      type: "assistant",
+      threadKey: "q-1195",
+      questId: "q-1195",
+      threadRefs: [{ threadKey: "q-1195", questId: "q-1195", source: "inferred" }],
+    });
+    expect(toolMsg.type === "assistant" ? toolMsg.threadRoutingError : undefined).toBeUndefined();
+  });
+
   it("persists source-thread transition markers before Codex quest handoffs", async () => {
     const session = makeSession();
     session.messageHistory.push({

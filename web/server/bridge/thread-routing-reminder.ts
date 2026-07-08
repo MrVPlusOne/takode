@@ -16,6 +16,7 @@ import {
   type ParsedThreadStatusMarker,
 } from "../../shared/thread-status-marker.js";
 import {
+  inferRecentKnownQuestThreadRoute,
   routeFromHistoryEntry,
   routeKey,
   threadRouteForTarget,
@@ -267,6 +268,30 @@ export function normalizeLeaderAssistantRouting(
     content: nextContent,
     ...questThreadReminders,
     ...threadStatusMarkers,
+  };
+}
+
+function hasRouteableToolActivity(content: ContentBlock[]): boolean {
+  return content.some((block) => block.type === "tool_use" || block.type === "tool_result");
+}
+
+export function applyRecentThreadFallbackToLeaderAssistantRouting(
+  isLeaderSession: boolean,
+  routed: LeaderAssistantRouteResult,
+  history: BrowserIncomingMessage[],
+  parentToolUseId: string | null | undefined,
+): LeaderAssistantRouteResult {
+  if (!isLeaderSession || parentToolUseId) return routed;
+  if (routed.threadKey || routed.threadRoutingError) return routed;
+  if (!hasRouteableToolActivity(routed.content)) return routed;
+
+  const fallbackRoute = inferRecentKnownQuestThreadRoute(history);
+  if (!fallbackRoute) return routed;
+  return {
+    ...routed,
+    threadKey: fallbackRoute.threadKey,
+    ...(fallbackRoute.questId ? { questId: fallbackRoute.questId } : {}),
+    ...(fallbackRoute.threadRefs?.length ? { threadRefs: fallbackRoute.threadRefs } : {}),
   };
 }
 
