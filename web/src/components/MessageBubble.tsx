@@ -1296,6 +1296,7 @@ function AssistantMessage({
                 key={i}
                 block={group.block}
                 sessionId={sessionId}
+                parentMessageId={message.id}
                 searchHighlight={searchHighlight}
                 suppressNotificationMarker={suppressToolNotificationMarker}
                 currentThreadKey={currentThreadKey}
@@ -1450,6 +1451,7 @@ function CompactMarker({ message, sessionId }: { message: ChatMessage; sessionId
 function ContentBlockRenderer({
   block,
   sessionId,
+  parentMessageId,
   searchHighlight,
   suppressNotificationMarker = false,
   currentThreadKey,
@@ -1457,6 +1459,7 @@ function ContentBlockRenderer({
 }: {
   block: ContentBlock;
   sessionId?: string;
+  parentMessageId?: string;
   searchHighlight?: { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
   suppressNotificationMarker?: boolean;
   currentThreadKey?: string;
@@ -1485,6 +1488,8 @@ function ContentBlockRenderer({
         name={block.name}
         input={block.input}
         toolUseId={block.id}
+        sessionId={sessionId}
+        parentMessageId={parentMessageId}
         suppressNotificationMarker={suppressNotificationMarker}
         currentThreadKey={currentThreadKey}
         onSelectThread={onSelectThread}
