@@ -45,6 +45,7 @@ import {
   applyRecentThreadFallbackToLeaderAssistantRouting,
   buildThreadRoutingReminderForCompletedTurn,
   extractLeaderThreadStatusMarkersFromContent,
+  hasRouteableNonBashToolActivity,
   hasLeaderVisibleTextContent,
   normalizeLeaderAssistantRouting,
   splitLeaderAssistantContentAtPostQuizThreadRoutes,
@@ -58,6 +59,7 @@ import {
 } from "./quest-thread-reminder.js";
 import {
   appendThreadTransitionMarkerForRouteSwitch,
+  inferRecentKnownQuestThreadRoute,
   normalizeThreadRoute,
   routeFromHistoryEntry,
   type ThreadRouteMetadata,
@@ -645,13 +647,34 @@ export function handleAssistantMessage(
     const extracted = extractQuestThreadRemindersFromContent(appendedBlocks);
     const statusExtracted = extractLeaderThreadStatusMarkersFromContent(extracted.content);
     const newBlocks = statusExtracted.content;
-    queueQuestThreadRemindersFromLeaderAssistant(
-      session,
-      extracted.reminders,
-      routeFromHistoryEntry(historyEntry as BrowserIncomingMessage) ?? undefined,
-    );
+    let historyEntryRoute = routeFromHistoryEntry(historyEntry as BrowserIncomingMessage) ?? undefined;
+    if (
+      isLeaderSession &&
+      !msg.parent_tool_use_id &&
+      !historyEntryRoute &&
+      historyEntry.threadRoutingError?.source === "visible_text" &&
+      historyEntry.threadRoutingError.reason === "missing" &&
+      hasRouteableNonBashToolActivity(newBlocks)
+    ) {
+      const fallbackRoute = inferRecentKnownQuestThreadRoute(session.messageHistory);
+      if (fallbackRoute) {
+        historyEntry.threadKey = fallbackRoute.threadKey;
+        if (fallbackRoute.questId) {
+          historyEntry.questId = fallbackRoute.questId;
+        } else {
+          delete historyEntry.questId;
+        }
+        if (fallbackRoute.threadRefs?.length) {
+          historyEntry.threadRefs = fallbackRoute.threadRefs;
+        } else {
+          delete historyEntry.threadRefs;
+        }
+        delete historyEntry.threadRoutingError;
+        historyEntryRoute = fallbackRoute;
+      }
+    }
+    queueQuestThreadRemindersFromLeaderAssistant(session, extracted.reminders, historyEntryRoute);
     const timestamp = Date.now();
-    const historyEntryRoute = routeFromHistoryEntry(historyEntry as BrowserIncomingMessage) ?? undefined;
     const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
       session,
       statusExtracted.markers,

@@ -983,6 +983,81 @@ describe("assistant-message-controller", () => {
     expect(msg.type === "assistant" ? msg.threadRoutingError : undefined).toBeUndefined();
   });
 
+  it("routes mixed unmarked text plus non-Bash tool activity to the most recent quest thread", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nPreparing to inspect the file." }]);
+    const msg = routeAssistantMessage(session, [
+      { type: "text", text: "Reading the relevant file now." },
+      { type: "tool_use", id: "tool-read", name: "Read", input: { file_path: "web/server/example.ts" } },
+    ]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "inferred" }],
+    });
+    expect(msg.type === "assistant" ? msg.threadRoutingError : undefined).toBeUndefined();
+    expect(msg.type === "assistant" ? msg.message.content : []).toEqual([
+      { type: "text", text: "Reading the relevant file now." },
+      { type: "tool_use", id: "tool-read", name: "Read", input: { file_path: "web/server/example.ts" } },
+    ]);
+  });
+
+  it("routes cumulative text-then-tool snapshots to the most recent quest thread", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nPreparing to inspect the file." }]);
+    handleAssistantMessage(
+      session,
+      makeAssistant([{ type: "text", text: "Reading the relevant file now." }], "mixed-cumulative"),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+    handleAssistantMessage(
+      session,
+      makeAssistant(
+        [
+          { type: "text", text: "Reading the relevant file now." },
+          { type: "tool_use", id: "tool-read-cumulative", name: "Read", input: { file_path: "web/server/example.ts" } },
+        ],
+        "mixed-cumulative",
+      ),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    const entry = session.messageHistory.find(
+      (message) => message.type === "assistant" && message.message.id === "mixed-cumulative",
+    ) as Extract<BrowserIncomingMessage, { type: "assistant" }> | undefined;
+    expect(entry).toMatchObject({
+      type: "assistant",
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "inferred" }],
+    });
+    expect(entry?.threadRoutingError).toBeUndefined();
+    expect(entry?.message.content).toEqual([
+      { type: "text", text: "Reading the relevant file now." },
+      { type: "tool_use", id: "tool-read-cumulative", name: "Read", input: { file_path: "web/server/example.ts" } },
+    ]);
+    expect(broadcasts.at(-1)).toMatchObject({
+      type: "assistant",
+      threadKey: "q-941",
+      questId: "q-941",
+    });
+  });
+
   it("keeps unthreaded leader tool activity in Main when no quest thread is known", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;
@@ -1062,5 +1137,23 @@ describe("assistant-message-controller", () => {
     });
     const block = msg.type === "assistant" ? msg.message.content[0] : null;
     expect(block).toMatchObject({ type: "tool_use", input: { command: "pwd" } });
+  });
+
+  it("does not let the recent-thread fallback override unmarked Bash diagnostics", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nQuest-local work." }]);
+    const msg = routeAssistantMessage(session, [
+      { type: "tool_use", id: "tool-bash", name: "Bash", input: { command: "pwd" } },
+    ]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadRoutingError: { reason: "missing", source: "shell_command", rawContent: "pwd" },
+    });
+    expect(msg.type === "assistant" ? msg.threadKey : undefined).toBeUndefined();
+    expect(msg.type === "assistant" ? msg.questId : undefined).toBeUndefined();
+    expect(msg.type === "assistant" ? msg.threadRefs : undefined).toBeUndefined();
   });
 });

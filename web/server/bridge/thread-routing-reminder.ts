@@ -271,8 +271,18 @@ export function normalizeLeaderAssistantRouting(
   };
 }
 
-function hasRouteableToolActivity(content: ContentBlock[]): boolean {
-  return content.some((block) => block.type === "tool_use" || block.type === "tool_result");
+export function hasRouteableNonBashToolActivity(content: ContentBlock[]): boolean {
+  return content.some((block) => {
+    if (block.type === "tool_result") return true;
+    return block.type === "tool_use" && block.name !== "Bash";
+  });
+}
+
+function shouldPreserveRoutingErrorForRecentThreadFallback(
+  error: LeaderAssistantRouteResult["threadRoutingError"],
+): boolean {
+  if (!error) return false;
+  return error.source !== "visible_text" || error.reason !== "missing";
 }
 
 export function applyRecentThreadFallbackToLeaderAssistantRouting(
@@ -282,13 +292,15 @@ export function applyRecentThreadFallbackToLeaderAssistantRouting(
   parentToolUseId: string | null | undefined,
 ): LeaderAssistantRouteResult {
   if (!isLeaderSession || parentToolUseId) return routed;
-  if (routed.threadKey || routed.threadRoutingError) return routed;
-  if (!hasRouteableToolActivity(routed.content)) return routed;
+  if (routed.threadKey) return routed;
+  if (!hasRouteableNonBashToolActivity(routed.content)) return routed;
+  if (shouldPreserveRoutingErrorForRecentThreadFallback(routed.threadRoutingError)) return routed;
 
   const fallbackRoute = inferRecentKnownQuestThreadRoute(history);
   if (!fallbackRoute) return routed;
+  const { threadRoutingError: _threadRoutingError, ...routeable } = routed;
   return {
-    ...routed,
+    ...routeable,
     threadKey: fallbackRoute.threadKey,
     ...(fallbackRoute.questId ? { questId: fallbackRoute.questId } : {}),
     ...(fallbackRoute.threadRefs?.length ? { threadRefs: fallbackRoute.threadRefs } : {}),
