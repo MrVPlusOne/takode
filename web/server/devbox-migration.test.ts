@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtemp } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { SessionStore } from "./session-store.js";
 import {
   exportDevboxMigrationPackage,
   importDevboxMigrationPackage,
@@ -27,7 +28,12 @@ async function seedSourceHome(root: string): Promise<void> {
   await writeJson(join(root, "settings-secrets-3456.json"), { namerOpenAIApiKey: "secret" });
   await writeJson(join(root, "sessions", "3456", "session-a.json"), {
     id: "session-a",
-    state: { session_id: "session-a" },
+    state: {
+      session_id: "session-a",
+      cwd: "/Users/jiayiwei/Code/companion",
+      backend_type: "codex",
+      model: "gpt-5.5",
+    },
     messageHistory: [],
     pendingMessages: [],
     pendingPermissions: [],
@@ -58,16 +64,28 @@ describe("devbox migration planner", () => {
     expect(plan.excluded.find((entry) => entry.id === "envs")?.exists).toBe(true);
   });
 
-  it("exports a package without launcher metadata or settings secrets", async () => {
+  it("exports a package with an archived launcher catalog and without settings secrets", async () => {
     const root = await mkdtemp(join(tmpdir(), "takode-devbox-source-"));
     const packageDir = await mkdtemp(join(tmpdir(), "takode-devbox-package-"));
     await seedSourceHome(root);
 
     const result = await exportDevboxMigrationPackage({ sourceHome: root, packageDir });
 
-    // Historical conversations are copied, but launcher/auth material must not enter the portable package.
+    // Historical conversations are copied with a read-only launcher catalog, not live launcher/auth material.
     expect(result.manifest.entries.map((entry) => entry.id)).toContain("sessions");
-    await expect(readFile(join(packageDir, "payload", "sessions", "launcher.json"), "utf-8")).rejects.toThrow();
+    const launcher = JSON.parse(await readFile(join(packageDir, "payload", "sessions", "launcher.json"), "utf-8"));
+    expect(launcher).toEqual([
+      expect.objectContaining({
+        sessionId: "session-a",
+        state: "exited",
+        archived: true,
+        backendType: "codex",
+        model: "gpt-5.5",
+      }),
+    ]);
+    expect(launcher[0]).not.toHaveProperty("pid");
+    expect(launcher[0]).not.toHaveProperty("sessionAuthToken");
+    expect(launcher[0]).not.toHaveProperty("cliSessionId");
     await expect(
       readFile(join(packageDir, "payload", "settings", "settings-secrets-3456.json"), "utf-8"),
     ).rejects.toThrow();
@@ -116,5 +134,39 @@ describe("devbox migration planner", () => {
     expect(JSON.parse(await readFile(join(result.plan.backupDir, "settings-3456.json"), "utf-8")).serverId).toBe(
       "target",
     );
+  });
+
+  it("imports historical sessions as archived launcher catalog entries that SessionStore can read", async () => {
+    const source = await mkdtemp(join(tmpdir(), "takode-devbox-source-"));
+    const target = await mkdtemp(join(tmpdir(), "takode-devbox-target-"));
+    const packageDir = await mkdtemp(join(tmpdir(), "takode-devbox-package-"));
+    await seedSourceHome(source);
+    await exportDevboxMigrationPackage({ sourceHome: source, packageDir });
+
+    await importDevboxMigrationPackage({ packageDir, targetHome: target, apply: true });
+
+    const store = new SessionStore(join(target, "sessions", "3456"));
+    const launcher = await store.loadLauncher<Array<Record<string, unknown>>>();
+    expect(launcher?.[0]).toEqual(expect.objectContaining({ sessionId: "session-a", state: "exited", archived: true }));
+    const sessions = await store.loadAll();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].id).toBe("session-a");
+    expect(sessions[0].archived).toBe(true);
+    expect(sessions[0]._searchDataOnly).toBe(true);
+  });
+
+  it("refuses to export into source home or existing unowned directories", async () => {
+    const source = await mkdtemp(join(tmpdir(), "takode-devbox-source-"));
+    const unowned = await mkdtemp(join(tmpdir(), "takode-devbox-unowned-"));
+    await seedSourceHome(source);
+    await writeFile(join(unowned, "important.txt"), "do not delete\n");
+
+    await expect(exportDevboxMigrationPackage({ sourceHome: source, packageDir: source })).rejects.toThrow(
+      /dangerous migration package directory/,
+    );
+    await expect(exportDevboxMigrationPackage({ sourceHome: source, packageDir: unowned })).rejects.toThrow(
+      /existing non-empty package directory/,
+    );
+    expect(await readFile(join(unowned, "important.txt"), "utf-8")).toBe("do not delete\n");
   });
 });

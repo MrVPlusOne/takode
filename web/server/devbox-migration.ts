@@ -13,7 +13,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { DEFAULT_PORT_PROD } from "./constants.js";
 
 export type DevboxMigrationCommand = "inventory" | "export" | "import" | "start-help";
@@ -152,6 +152,7 @@ interface EntrySpec {
 
 const MANIFEST_FILE = "migration-manifest.json";
 const PAYLOAD_DIR = "payload";
+const PACKAGE_MARKER_FILE = ".takode-devbox-migration-package";
 const DEFAULT_DEVBOX_REPO_PATH = "/home/coder/takode";
 const SECRET_SETTING_KEYS = new Set(["pushoverUserKey", "pushoverApiToken"]);
 
@@ -197,9 +198,11 @@ export async function exportDevboxMigrationPackage(
   options: DevboxMigrationOptions = {},
 ): Promise<DevboxMigrationExportResult> {
   const resolved = resolveOptions(options);
+  await assertSafePackageDirForExport(resolved);
   const plan = await inspectDevboxMigration(options);
   await rm(resolved.packageDir, { recursive: true, force: true });
   await mkdir(join(resolved.packageDir, PAYLOAD_DIR), { recursive: true });
+  await writeFile(join(resolved.packageDir, PACKAGE_MARKER_FILE), "takode-devbox-migration-package\n", "utf-8");
 
   const exportedEntries: DevboxMigrationManifest["entries"] = [];
   for (const entry of plan.entries) {
@@ -443,6 +446,57 @@ function buildEntrySpecs(
   return specs;
 }
 
+async function assertSafePackageDirForExport(resolved: ResolvedOptions): Promise<void> {
+  const packageDir = resolve(resolved.packageDir);
+  const dangerousPaths = [
+    resolved.sourceHome,
+    resolved.targetHome,
+    homedir(),
+    process.cwd(),
+    dirname(process.cwd()),
+  ].map((path) => resolve(path));
+  for (const dangerous of dangerousPaths) {
+    if (packageDir === dangerous) {
+      throw new Error(`Refusing to use dangerous migration package directory: ${packageDir}`);
+    }
+  }
+  if (looksLikeRepositoryRoot(packageDir)) {
+    throw new Error(`Refusing to use repository-like migration package directory: ${packageDir}`);
+  }
+  const existingKind = await existingPackageDirKind(packageDir);
+  if (existingKind === "missing" || existingKind === "empty" || existingKind === "owned") return;
+  throw new Error(
+    `Refusing to delete existing non-empty package directory without ${PACKAGE_MARKER_FILE} or ${MANIFEST_FILE}: ${packageDir}`,
+  );
+}
+
+function looksLikeRepositoryRoot(path: string): boolean {
+  const normalized = path.replace(/\/+$/, "");
+  return normalized === resolve(process.cwd()) || basename(normalized) === ".git";
+}
+
+async function existingPackageDirKind(path: string): Promise<"missing" | "empty" | "owned" | "unsafe"> {
+  try {
+    const pathStat = await lstat(path);
+    if (!pathStat.isDirectory()) return "unsafe";
+  } catch {
+    return "missing";
+  }
+  if (await pathExists(join(path, PACKAGE_MARKER_FILE))) return "owned";
+  if (await isOwnedMigrationManifest(join(path, MANIFEST_FILE))) return "owned";
+  const entries = await readdir(path);
+  return entries.length === 0 ? "empty" : "unsafe";
+}
+
+async function isOwnedMigrationManifest(path: string): Promise<boolean> {
+  try {
+    const manifest = await readJsonRecord(path);
+    return manifest.kind === "takode-devbox-migration" && manifest.version === 1;
+  } catch {
+    return false;
+  }
+}
+
 async function inspectEntry(spec: EntrySpec): Promise<DevboxMigrationEntry> {
   const stats = await collectStats(spec.sourcePath, spec.excludeNames);
   return {
@@ -504,6 +558,57 @@ async function copyEntryToPackage(spec: EntrySpec, destination: string): Promise
     return;
   }
   await copyPath(spec.sourcePath, destination, spec.excludeNames);
+  if (spec.id === "sessions") {
+    const launcherEntries = await buildHistoricalLauncherCatalog(spec.sourcePath);
+    await writeJson(join(destination, "launcher.json"), launcherEntries);
+  }
+}
+
+async function buildHistoricalLauncherCatalog(sessionsDir: string): Promise<Array<Record<string, unknown>>> {
+  const entries: Array<Record<string, unknown>> = [];
+  let files: string[];
+  try {
+    files = await readdir(sessionsDir);
+  } catch {
+    return entries;
+  }
+  for (const file of files.sort()) {
+    if (!file.endsWith(".json") || file === "launcher.json") continue;
+    const sessionPath = join(sessionsDir, file);
+    let hot: Record<string, unknown>;
+    try {
+      hot = await readJsonRecord(sessionPath);
+    } catch {
+      continue;
+    }
+    const sessionId = typeof hot.id === "string" ? hot.id : file.replace(/\.json$/, "");
+    const state = isRecord(hot.state) ? hot.state : {};
+    const createdAt = numberOrZero(state.created_at) || numberOrZero(state.createdAt) || numberOrZero(hot.archivedAt);
+    const archivedAt = numberOrZero(hot.archivedAt) || Date.now();
+    entries.push({
+      sessionId,
+      state: "exited",
+      exitCode: 0,
+      archived: true,
+      archivedAt,
+      createdAt,
+      lastActivityAt: numberOrUndefined(state.lastActivityAt) ?? numberOrUndefined(hot.lastReadAt),
+      lastUserMessageAt: numberOrUndefined(state.lastUserMessageAt),
+      model: stringOrUndefined(state.model),
+      cwd: stringOrUndefined(state.cwd) ?? "",
+      backendType: state.backend_type === "codex" ? "codex" : stringOrUndefined(state.backend_type),
+      isWorktree: state.is_worktree === true,
+      repoRoot: stringOrUndefined(state.repo_root),
+      branch: stringOrUndefined(state.git_branch),
+      actualBranch: stringOrUndefined(state.git_branch),
+      isOrchestrator: state.isOrchestrator === true || state.is_orchestrator === true,
+      treeGroupId: stringOrNullish(state.treeGroupId ?? state.tree_group_id),
+      memorySessionSpaceSlug: stringOrUndefined(state.memorySessionSpaceSlug ?? state.memory_session_space_slug),
+      name: stringOrUndefined(state.name),
+      hidden: state.hidden === true,
+    });
+  }
+  return entries;
 }
 
 async function collectStats(
@@ -650,4 +755,25 @@ async function writeJson(path: string, data: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(tempPath, JSON.stringify(data, null, 2), "utf-8");
   await rename(tempPath, path);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringOrUndefined(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function stringOrNullish(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  return stringOrUndefined(value);
+}
+
+function numberOrZero(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
