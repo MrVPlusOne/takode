@@ -427,7 +427,7 @@ describe("ChatView archived banner", () => {
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
 
-    expect(scope.getByText("This session is archived.")).toBeInTheDocument();
+    expect(scope.getByText("This session is archived. History is read-only.")).toBeInTheDocument();
     fireEvent.click(scope.getByRole("button", { name: "Unarchive" }));
     expect(mockUnarchiveSession).toHaveBeenCalledWith("s1");
   });
@@ -441,7 +441,7 @@ describe("ChatView archived banner", () => {
 
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
-    expect(scope.queryByText("This session is archived.")).not.toBeInTheDocument();
+    expect(scope.queryByText("This session is archived. History is read-only.")).not.toBeInTheDocument();
   });
 });
 
