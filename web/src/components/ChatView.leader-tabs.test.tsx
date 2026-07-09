@@ -51,6 +51,7 @@ interface MockStoreState {
   sessionNames: Map<string, string>;
   questNamedSessions: Set<string>;
   refreshQuests: ReturnType<typeof vi.fn>;
+  refreshQuestSummary: ReturnType<typeof vi.fn>;
   leaderWorkboardViews: Map<string, LeaderWorkboardView>;
   setLeaderWorkboardView: ReturnType<typeof vi.fn>;
   shortcutSettings: {
@@ -96,6 +97,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionNames: new Map([["s1", "Leader Session"]]),
     questNamedSessions: new Set(),
     refreshQuests: vi.fn().mockResolvedValue(undefined),
+    refreshQuestSummary: vi.fn().mockResolvedValue(undefined),
     leaderWorkboardViews: new Map(),
     setLeaderWorkboardView: vi.fn(),
     shortcutSettings: { enabled: false, preset: "standard", overrides: {} },
