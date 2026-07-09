@@ -679,6 +679,12 @@ export interface QuestListPage {
   allTags: string[];
 }
 
+export interface QuestSummary {
+  total: number;
+  active: number;
+  counts: Record<import("./types.js").QuestStatus | "all", number>;
+}
+
 export interface QuestListPageOptions {
   offset?: number;
   limit?: number;
@@ -1728,6 +1734,7 @@ export const api = {
     const qs = params.toString();
     return get<import("./types.js").QuestmasterTask[]>(`/quests${qs ? `?${qs}` : ""}`);
   },
+  getQuestSummary: () => get<QuestSummary>("/quests/_summary"),
   listQuestPage: (options?: QuestListPageOptions, signal?: AbortSignal) => {
     const params = new URLSearchParams();
     if (typeof options?.offset === "number") params.set("offset", String(options.offset));

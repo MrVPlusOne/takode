@@ -14,6 +14,7 @@ const mockDeleteQuestFeedback = vi.fn();
 const mockGetQuestHistory = vi.fn();
 const mockGetQuestCommit = vi.fn();
 const mockGetQuestMemoryCommit = vi.fn();
+const mockGetQuest = vi.fn();
 const mockGetSettings = vi.fn();
 const mockMarkNotificationDone = vi.fn();
 const mockMarkAllNotificationsDone = vi.fn();
@@ -34,6 +35,7 @@ vi.mock("../api.js", () => ({
     addQuestFeedback: (...args: unknown[]) => mockAddQuestFeedback(...args),
     editQuestFeedback: (...args: unknown[]) => mockEditQuestFeedback(...args),
     deleteQuestFeedback: (...args: unknown[]) => mockDeleteQuestFeedback(...args),
+    getQuest: (...args: unknown[]) => mockGetQuest(...args),
     getQuestHistory: (...args: unknown[]) => mockGetQuestHistory(...args),
     getQuestCommit: (...args: unknown[]) => mockGetQuestCommit(...args),
     getQuestMemoryCommit: (...args: unknown[]) => mockGetQuestMemoryCommit(...args),
@@ -157,6 +159,7 @@ describe("QuestDetailPanel", () => {
     mockAddQuestFeedback.mockReset();
     mockEditQuestFeedback.mockReset();
     mockDeleteQuestFeedback.mockReset();
+    mockGetQuest.mockReset();
     mockGetQuestHistory.mockReset();
     mockGetQuestCommit.mockReset();
     mockGetQuestCommit.mockResolvedValue({ sha: "unknown", available: false, reason: "commit_not_available" });
@@ -448,11 +451,28 @@ describe("QuestDetailPanel", () => {
     expect(screen.queryByTestId("quest-journey-timeline")).toBeNull();
   });
 
-  it("renders nothing when questOverlayId does not match any quest", () => {
+  it("shows a loading state when questOverlayId does not match any loaded quest", async () => {
     useStore.setState({ quests: [], questOverlayId: "q-999" });
+    mockGetQuest.mockRejectedValueOnce(new Error("Quest not found"));
 
-    const { container } = render(<QuestDetailPanel />);
-    expect(container.innerHTML).toBe("");
+    render(<QuestDetailPanel />);
+
+    expect(screen.getByTestId("quest-detail-panel")).toBeInTheDocument();
+    expect(screen.getByText("Loading quest...")).toBeInTheDocument();
+    expect(await screen.findByText("Quest not found")).toBeInTheDocument();
+  });
+
+  it("fetches and renders a quest when the overlay id is not in the global quest list", async () => {
+    const quest = makeVerificationQuest({ questId: "q-77", title: "Fetched paged quest" });
+    useStore.setState({ quests: [], questOverlayId: "q-77" });
+    mockGetQuest.mockResolvedValueOnce(quest);
+
+    render(<QuestDetailPanel />);
+
+    expect(screen.getByText("Loading quest...")).toBeInTheDocument();
+    expect(mockGetQuest).toHaveBeenCalledWith("q-77");
+    expect(await screen.findByText("Fetched paged quest")).toBeInTheDocument();
+    expect(useStore.getState().quests.some((stored) => stored.questId === "q-77")).toBe(true);
   });
 
   it("closes on Escape key press", () => {

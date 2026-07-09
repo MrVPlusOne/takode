@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 const mockListQuests = vi.fn();
+const mockGetQuestSummary = vi.fn();
 const mockUpdateSettings = vi.fn();
 
 // vi.hoisted runs before any imports, ensuring browser globals are available when store.ts initializes.
@@ -55,6 +56,7 @@ vi.mock("./api.js", async (importOriginal) => {
     api: {
       ...actual.api,
       listQuests: (...args: unknown[]) => mockListQuests(...args),
+      getQuestSummary: (...args: unknown[]) => mockGetQuestSummary(...args),
       updateSettings: (...args: unknown[]) => mockUpdateSettings(...args),
     },
   };
@@ -153,6 +155,7 @@ beforeEach(() => {
   useStore.getState().reset();
   resetQuestRefreshStateForTests();
   mockListQuests.mockReset();
+  mockGetQuestSummary.mockReset();
   mockUpdateSettings.mockReset();
   mockUpdateSettings.mockResolvedValue({});
   localStorage.clear();
@@ -754,23 +757,27 @@ describe("Questmaster refresh", () => {
     await useStore.getState().refreshQuests({ background: true });
 
     expect(mockListQuests).not.toHaveBeenCalled();
+    expect(mockGetQuestSummary).not.toHaveBeenCalled();
   });
 
-  it("refreshQuests preserves the empty quests array on empty background refreshes", async () => {
+  it("refreshQuests uses lightweight summary data for background refreshes", async () => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       get: () => "visible",
     });
 
     const previousRef = useStore.getState().quests;
-    mockListQuests.mockResolvedValue([]);
+    const summary = { total: 4, active: 3, counts: { all: 4, idea: 1, refined: 1, in_progress: 1, done: 1 } };
+    mockGetQuestSummary.mockResolvedValue(summary);
 
     await useStore.getState().refreshQuests({ background: true, force: true });
 
     expect(useStore.getState().quests).toBe(previousRef);
+    expect(useStore.getState().questSummary).toEqual(summary);
+    expect(mockListQuests).not.toHaveBeenCalled();
   });
 
-  it("refreshQuests preserves unchanged quest references on background refresh", async () => {
+  it("refreshQuests does not replace existing quest bodies on background refresh", async () => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       get: () => "visible",
@@ -781,18 +788,19 @@ describe("Questmaster refresh", () => {
     useStore.getState().setQuests([existing, untouched]);
     const previousRef = useStore.getState().quests;
 
-    mockListQuests.mockResolvedValue([
-      { ...existing },
-      { ...untouched, id: "q-2-v2", version: 2, updatedAt: 3_000, title: "Updated title" },
-    ]);
+    mockGetQuestSummary.mockResolvedValue({
+      total: 2,
+      active: 2,
+      counts: { all: 2, idea: 0, refined: 1, in_progress: 1, done: 0 },
+    });
 
     await useStore.getState().refreshQuests({ background: true, force: true });
 
     const quests = useStore.getState().quests;
-    expect(quests).not.toBe(previousRef);
+    expect(quests).toBe(previousRef);
     expect(quests[0]).toBe(existing);
-    expect(quests[1]).not.toBe(untouched);
-    expect(quests[1].title).toBe("Updated title");
+    expect(quests[1]).toBe(untouched);
+    expect(mockListQuests).not.toHaveBeenCalled();
   });
 });
 

@@ -124,7 +124,7 @@ export function TopBar({
     activeTab,
     setActiveTab,
     activeQuestCount,
-    refreshQuests,
+    refreshQuestSummary,
     isCurrentLeaderSession,
     currentLeaderBoard,
     currentLeaderCompletedCount,
@@ -139,8 +139,9 @@ export function TopBar({
       setSessionInfoOpenSessionId: s.setSessionInfoOpenSessionId,
       activeTab: s.activeTab,
       setActiveTab: s.setActiveTab,
-      activeQuestCount: s.quests.reduce((count, quest) => count + (quest.status !== "done" ? 1 : 0), 0),
-      refreshQuests: s.refreshQuests,
+      activeQuestCount:
+        s.questSummary?.active ?? s.quests.reduce((count, quest) => count + (quest.status !== "done" ? 1 : 0), 0),
+      refreshQuestSummary: s.refreshQuestSummary,
       isCurrentLeaderSession:
         !!s.currentSessionId &&
         (s.sessions.get(s.currentSessionId)?.isOrchestrator === true ||
@@ -214,17 +215,17 @@ export function TopBar({
       if (timeoutId !== null) window.clearTimeout(timeoutId);
       if (document.visibilityState !== "visible") return;
       timeoutId = window.setTimeout(() => {
-        void refreshQuests({ background: true });
+        void refreshQuestSummary();
         scheduleNextPoll();
       }, 15_000);
     };
 
-    void refreshQuests();
+    void refreshQuestSummary({ force: true });
     scheduleNextPoll();
 
     function handleVisibility() {
       if (document.visibilityState === "visible") {
-        void refreshQuests();
+        void refreshQuestSummary({ force: true });
         scheduleNextPoll();
       } else if (timeoutId !== null) {
         window.clearTimeout(timeoutId);
@@ -232,7 +233,7 @@ export function TopBar({
       }
     }
     function handleFocus() {
-      void refreshQuests();
+      void refreshQuestSummary({ force: true });
       scheduleNextPoll();
     }
     document.addEventListener("visibilitychange", handleVisibility);
@@ -242,7 +243,7 @@ export function TopBar({
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("focus", handleFocus);
     };
-  }, [refreshQuests]);
+  }, [refreshQuestSummary]);
 
   // Track the hash before navigating to questmaster so we can toggle back
   const prevHashRef = useRef<string>("");

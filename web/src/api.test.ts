@@ -226,6 +226,27 @@ describe("listQuestPage", () => {
 });
 
 // ===========================================================================
+// getQuestSummary
+// ===========================================================================
+describe("getQuestSummary", () => {
+  it("uses the lightweight quest summary route", async () => {
+    const summary = {
+      total: 12,
+      active: 5,
+      counts: { all: 12, idea: 1, refined: 2, in_progress: 2, done: 7 },
+    };
+    mockFetch.mockResolvedValueOnce(mockResponse(summary));
+
+    const result = await api.getQuestSummary();
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/quests/_summary");
+    expect(opts).toBeUndefined();
+    expect(result).toEqual(summary);
+  });
+});
+
+// ===========================================================================
 // killSession
 // ===========================================================================
 describe("killSession", () => {

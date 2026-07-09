@@ -1750,7 +1750,7 @@ function handleParsedMessage(
     }
 
     case "quest_list_updated": {
-      store.refreshQuests({ background: true, force: true });
+      store.refreshQuestSummary({ force: true });
       break;
     }
 

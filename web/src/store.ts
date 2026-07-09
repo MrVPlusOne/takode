@@ -133,6 +133,24 @@ function questRecencyTs(quest: QuestmasterTask): number {
   return Math.max(quest.createdAt, (quest as { updatedAt?: number }).updatedAt ?? 0, quest.statusChangedAt ?? 0);
 }
 
+function summarizeQuestList(quests: QuestmasterTask[]): import("./api.js").QuestSummary {
+  const counts = {
+    all: quests.length,
+    idea: 0,
+    refined: 0,
+    in_progress: 0,
+    done: 0,
+  };
+  for (const quest of quests) {
+    counts[quest.status] += 1;
+  }
+  return {
+    total: counts.all,
+    active: counts.idea + counts.refined + counts.in_progress,
+    counts,
+  };
+}
+
 const QUEST_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 2_000;
 let pendingQuestBackgroundRefresh: Promise<void> | null = null;
 let lastQuestBackgroundRefreshAt = 0;
@@ -255,19 +273,23 @@ export const useStore = create<AppState>((set, get) => ({
   collapsedTreeNodes: getInitialCollapsedSet("cc-collapsed-tree-nodes"),
   expandedHerdNodes: getInitialCollapsedSet("cc-expanded-herd-nodes"),
   quests: [],
+  questSummary: null,
   questsLoading: false,
   setQuests: (quests) =>
     set((state) => {
       const nextQuests = reconcileQuestList(state.quests, quests);
-      return nextQuests === state.quests ? {} : { quests: nextQuests };
+      return nextQuests === state.quests ? {} : { quests: nextQuests, questSummary: summarizeQuestList(nextQuests) };
     }),
   replaceQuest: (updated) => {
     set((state) => {
-      const quests = state.quests
-        .map((q) => (q.questId === updated.questId ? updated : q))
-        .sort((a, b) => questRecencyTs(b) - questRecencyTs(a));
+      const hasExisting = state.quests.some((q) => q.questId === updated.questId);
+      const quests = (
+        hasExisting
+          ? state.quests.map((q) => (q.questId === updated.questId ? updated : q))
+          : [updated, ...state.quests]
+      ).sort((a, b) => questRecencyTs(b) - questRecencyTs(a));
       const nextQuests = reconcileQuestList(state.quests, quests);
-      return nextQuests === state.quests ? {} : { quests: nextQuests };
+      return nextQuests === state.quests ? {} : { quests: nextQuests, questSummary: summarizeQuestList(nextQuests) };
     });
   },
   refreshQuests: async (opts) => {
@@ -278,13 +300,10 @@ export const useStore = create<AppState>((set, get) => ({
       lastQuestBackgroundRefreshAt = Date.now();
       const refreshPromise = (async () => {
         try {
-          const quests = await api.listQuests();
-          set((state) => {
-            const nextQuests = reconcileQuestList(state.quests, quests);
-            return nextQuests === state.quests ? {} : { quests: nextQuests };
-          });
+          const questSummary = await api.getQuestSummary();
+          set({ questSummary });
         } catch {
-          // Ignore background refresh failures and keep the current quest snapshot.
+          // Ignore background refresh failures and keep the current quest snapshot/summary.
         }
       })();
       const trackedRefresh = refreshPromise.finally(() => {
@@ -302,11 +321,32 @@ export const useStore = create<AppState>((set, get) => ({
       set((state) => {
         const nextQuests = reconcileQuestList(state.quests, quests);
         if (nextQuests === state.quests && !state.questsLoading) return {};
-        return { quests: nextQuests, questsLoading: false };
+        return { quests: nextQuests, questSummary: summarizeQuestList(nextQuests), questsLoading: false };
       });
     } catch {
       set({ questsLoading: false });
     }
+  },
+  refreshQuestSummary: async (opts) => {
+    if (shouldPauseQuestBackgroundRefresh()) return;
+    if (!opts?.force && pendingQuestBackgroundRefresh) return pendingQuestBackgroundRefresh;
+    if (!opts?.force && Date.now() - lastQuestBackgroundRefreshAt < QUEST_BACKGROUND_REFRESH_MIN_INTERVAL_MS) return;
+    lastQuestBackgroundRefreshAt = Date.now();
+    const refreshPromise = (async () => {
+      try {
+        const questSummary = await api.getQuestSummary();
+        set({ questSummary });
+      } catch {
+        // Ignore summary refresh failures and keep the current badge state.
+      }
+    })();
+    const trackedRefresh = refreshPromise.finally(() => {
+      if (pendingQuestBackgroundRefresh === trackedRefresh) {
+        pendingQuestBackgroundRefresh = null;
+      }
+    });
+    pendingQuestBackgroundRefresh = trackedRefresh;
+    return trackedRefresh;
   },
   pendingSessions: new Map(),
   serverName: "",

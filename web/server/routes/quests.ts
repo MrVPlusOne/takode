@@ -424,6 +424,18 @@ export function createQuestRoutes(ctx: RouteContext) {
     return c.json(quests);
   });
 
+  api.get("/quests/_summary", async (c) => {
+    const page = await getQuestListPageAsync(await questStore.listQuests(), {
+      limit: 1,
+    });
+    const counts = page.counts;
+    return c.json({
+      total: counts.all,
+      active: counts.idea + counts.refined + counts.in_progress,
+      counts,
+    });
+  });
+
   api.get("/quests/_page", async (c) => {
     const page = await getQuestListPageAsync(await questStore.listQuests(), {
       status: c.req.query("status"),

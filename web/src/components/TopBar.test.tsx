@@ -135,7 +135,8 @@ interface MockStoreState {
   leaderWorkboardViews: Map<string, LeaderWorkboardView>;
   setLeaderWorkboardView: ReturnType<typeof vi.fn>;
   quests: { status: string }[];
-  refreshQuests: ReturnType<typeof vi.fn>;
+  questSummary: { active: number } | null;
+  refreshQuestSummary: ReturnType<typeof vi.fn>;
   questNamedSessions: Set<string>;
   sessionPreviews: Map<string, string>;
   sessionTaskHistory: Map<string, unknown[]>;
@@ -186,7 +187,8 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     leaderWorkboardViews: new Map(),
     setLeaderWorkboardView: vi.fn(),
     quests: [],
-    refreshQuests: vi.fn().mockResolvedValue(undefined),
+    questSummary: null,
+    refreshQuestSummary: vi.fn().mockResolvedValue(undefined),
     questNamedSessions: new Set(),
     sessionPreviews: new Map(),
     sessionTaskHistory: new Map(),
@@ -484,17 +486,17 @@ describe("TopBar", () => {
 
     try {
       render(<TopBar />);
-      expect(storeState.refreshQuests).toHaveBeenCalledTimes(1);
+      expect(storeState.refreshQuestSummary).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(20_000);
-      expect(storeState.refreshQuests).toHaveBeenCalledTimes(1);
+      expect(storeState.refreshQuestSummary).toHaveBeenCalledTimes(1);
 
       visibilityState = "visible";
       fireEvent(document, new Event("visibilitychange"));
-      expect(storeState.refreshQuests).toHaveBeenCalledTimes(2);
+      expect(storeState.refreshQuestSummary).toHaveBeenCalledTimes(2);
 
       await vi.advanceTimersByTimeAsync(15_000);
-      expect(storeState.refreshQuests).toHaveBeenCalledTimes(3);
+      expect(storeState.refreshQuestSummary).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
     }

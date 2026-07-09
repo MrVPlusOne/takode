@@ -1,4 +1,4 @@
-import type { PRStatusResponse, CreateSessionOpts, CreationProgressEvent } from "./api.js";
+import type { PRStatusResponse, CreateSessionOpts, CreationProgressEvent, QuestSummary } from "./api.js";
 import type { BoardRowData } from "./components/BoardTable.js";
 import type { SearchMatch, SessionSearchCategory, SessionSearchState } from "./store-session-search.js";
 import type { ReplyContext } from "../shared/reply-context.js";
@@ -134,10 +134,12 @@ export interface AppState {
   collapsedTreeNodes: Set<string>;
   expandedHerdNodes: Set<string>;
   quests: QuestmasterTask[];
+  questSummary: QuestSummary | null;
   questsLoading: boolean;
   setQuests: (quests: QuestmasterTask[]) => void;
   replaceQuest: (updated: QuestmasterTask) => void;
   refreshQuests: (opts?: { background?: boolean; force?: boolean }) => Promise<void>;
+  refreshQuestSummary: (opts?: { force?: boolean }) => Promise<void>;
   pendingSessions: Map<string, PendingSession>;
   addPendingSession: (session: PendingSession) => void;
   updatePendingSession: (id: string, updates: Partial<PendingSession>) => void;

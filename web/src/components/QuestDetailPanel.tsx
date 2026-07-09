@@ -73,10 +73,14 @@ export function QuestDetailPanel() {
   const pendingPermissions = useStore((s) => s.pendingPermissions);
   const askPermissionMap = useStore((s) => s.askPermission);
 
-  const quest = useMemo(
+  const storeQuest = useMemo(
     () => (questOverlayId ? (quests.find((q) => q.questId === questOverlayId) ?? null) : null),
     [quests, questOverlayId],
   );
+  const [fetchedQuest, setFetchedQuest] = useState<QuestmasterTask | null>(null);
+  const [questLoading, setQuestLoading] = useState(false);
+  const [questLoadError, setQuestLoadError] = useState("");
+  const quest = storeQuest ?? (fetchedQuest?.questId === questOverlayId ? fetchedQuest : null);
   const journeyBoardRow = useMemo(() => {
     if (!quest) return null;
     for (const board of [...sessionBoards.values(), ...sessionCompletedBoards.values()]) {
@@ -166,6 +170,41 @@ export function QuestDetailPanel() {
     }
     useStore.getState().closeQuestOverlay();
   }, []);
+
+  useEffect(() => {
+    if (!questOverlayId) {
+      setFetchedQuest(null);
+      setQuestLoading(false);
+      setQuestLoadError("");
+      return;
+    }
+    if (storeQuest) {
+      setFetchedQuest(null);
+      setQuestLoading(false);
+      setQuestLoadError("");
+      return;
+    }
+    let cancelled = false;
+    setQuestLoading(true);
+    setQuestLoadError("");
+    api
+      .getQuest(questOverlayId)
+      .then((nextQuest) => {
+        if (cancelled) return;
+        setFetchedQuest(nextQuest);
+        useStore.getState().replaceQuest(nextQuest);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setQuestLoadError(e instanceof Error ? e.message : "Failed to load quest");
+      })
+      .finally(() => {
+        if (!cancelled) setQuestLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [questOverlayId, storeQuest]);
 
   // Escape key: lightbox > assign picker > inline feedback actions > edit cancel > close panel
   useEffect(() => {
@@ -825,7 +864,45 @@ export function QuestDetailPanel() {
       .sort((a, b) => b.createdAt - a.createdAt);
   }, [sdkSessions, sessions, cliConnected, sessionStatus, pendingPermissions, cliDisconnectReason, askPermissionMap]);
 
-  if (!quest || !questOverlayId) return null;
+  if (!questOverlayId) return null;
+  if (!quest) {
+    return createPortal(
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center overflow-x-hidden bg-black/60 px-3 py-4"
+        onClick={closePanel}
+        data-testid="quest-detail-panel-backdrop"
+      >
+        <div
+          className="w-[min(520px,100%)] min-w-0 max-w-full bg-cc-card border border-cc-border rounded-xl shadow-2xl overflow-hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Quest details"
+          onClick={(e) => e.stopPropagation()}
+          data-testid="quest-detail-panel"
+        >
+          <div className="px-4 py-3 border-b border-cc-border flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-cc-fg">Quest details</div>
+              <div className="text-[11px] text-cc-muted font-mono truncate">{questOverlayId}</div>
+            </div>
+            <button
+              onClick={closePanel}
+              className="w-8 h-8 rounded-lg hover:bg-cc-hover text-cc-muted hover:text-cc-fg flex items-center justify-center cursor-pointer shrink-0"
+              aria-label="Close"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+          <div className="px-4 py-5 text-sm text-cc-muted">
+            {questLoading ? "Loading quest..." : questLoadError || "Quest not found."}
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
 
   const isCancelled = isQuestCancelled(quest);
   const cfg = STATUS_CONFIG[quest.status];

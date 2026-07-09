@@ -1015,6 +1015,11 @@ export function Sidebar() {
     ? treeViewGroups.find((group) => group.id === bulkSelectionGroupId)
     : undefined;
   const bulkDisabledBySearch = searchQuery.trim().length > 0;
+  const hasNoActiveSessionRows =
+    treeViewGroups.every((group) => group.nodes.length === 0) &&
+    activeSessions.length === 0 &&
+    cronSessions.length === 0 &&
+    pendingSessions.size === 0;
 
   const herdHoverHighlights = useMemo(() => new Map<string, "leader" | "worker">(), []);
   const herdGroupBadgeThemes = useMemo(() => {
@@ -1487,6 +1492,13 @@ export function Sidebar() {
             )}
 
             <div className="mt-2 pt-2 border-t border-cc-border">
+              {hasNoActiveSessionRows && !showArchived && (
+                <p className="px-3 pb-2 text-[11px] leading-relaxed text-cc-muted">
+                  {archivedSessionsLoaded && archivedSessions.length > 0
+                    ? "Imported history is archived. Open Archived to browse past sessions."
+                    : "No active sessions. Open Archived to load imported history."}
+                </p>
+              )}
               <button
                 onClick={toggleArchivedSessions}
                 className="w-full px-3 py-1.5 text-[11px] font-medium text-cc-muted uppercase tracking-wider flex items-center gap-1.5 hover:text-cc-fg transition-colors cursor-pointer"
