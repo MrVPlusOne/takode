@@ -15,6 +15,7 @@ const mockGetQuestHistory = vi.fn();
 const mockGetQuestCommit = vi.fn();
 const mockGetQuestMemoryCommit = vi.fn();
 const mockGetQuest = vi.fn();
+const mockGetQuestValidated = vi.fn();
 const mockGetSettings = vi.fn();
 const mockMarkNotificationDone = vi.fn();
 const mockMarkAllNotificationsDone = vi.fn();
@@ -36,11 +37,7 @@ vi.mock("../api.js", () => ({
     editQuestFeedback: (...args: unknown[]) => mockEditQuestFeedback(...args),
     deleteQuestFeedback: (...args: unknown[]) => mockDeleteQuestFeedback(...args),
     getQuest: (...args: unknown[]) => mockGetQuest(...args),
-    getQuestValidated: async (...args: unknown[]) => ({
-      status: "fresh",
-      data: await mockGetQuest(...args),
-      etag: null,
-    }),
+    getQuestValidated: (...args: unknown[]) => mockGetQuestValidated(...args),
     getQuestHistory: (...args: unknown[]) => mockGetQuestHistory(...args),
     getQuestCommit: (...args: unknown[]) => mockGetQuestCommit(...args),
     getQuestMemoryCommit: (...args: unknown[]) => mockGetQuestMemoryCommit(...args),
@@ -165,6 +162,11 @@ describe("QuestDetailPanel", () => {
     mockEditQuestFeedback.mockReset();
     mockDeleteQuestFeedback.mockReset();
     mockGetQuest.mockReset();
+    mockGetQuestValidated.mockReset();
+    mockGetQuestValidated.mockImplementation(async (...args: unknown[]) => {
+      const data = await mockGetQuest(...args);
+      return data === undefined ? { status: "not-modified", etag: null } : { status: "fresh", data, etag: null };
+    });
     mockGetQuestHistory.mockReset();
     mockGetQuestCommit.mockReset();
     mockGetQuestCommit.mockResolvedValue({ sha: "unknown", available: false, reason: "commit_not_available" });
@@ -478,6 +480,48 @@ describe("QuestDetailPanel", () => {
     expect(mockGetQuest).toHaveBeenCalledWith("q-77", null);
     expect(await screen.findByText("Fetched paged quest")).toBeInTheDocument();
     expect(useStore.getState().questDetails.get("q-77")?.title).toBe("Fetched paged quest");
+  });
+
+  it("revalidates a cached quest detail with its ETag and preserves it on 304", async () => {
+    const cachedQuest = makeVerificationQuest({ questId: "q-77", title: "Cached paged quest" });
+    useStore.setState({
+      quests: [],
+      questDetails: new Map([["q-77", cachedQuest]]),
+      questDetailEtags: new Map([["q-77", '"detail-v1"']]),
+      questOverlayId: "q-77",
+    });
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"detail-v1"' });
+
+    render(<QuestDetailPanel />);
+
+    expect(screen.getByText("Cached paged quest")).toBeInTheDocument();
+    await waitFor(() => expect(mockGetQuestValidated).toHaveBeenCalledWith("q-77", '"detail-v1"'));
+    expect(useStore.getState().questDetails.get("q-77")).toBe(cachedQuest);
+  });
+
+  it("replaces a cached quest detail when revalidation returns a fresh body", async () => {
+    const cachedQuest = makeVerificationQuest({ questId: "q-77", title: "Cached paged quest" });
+    const freshQuest = makeVerificationQuest({
+      id: "q-77-v4",
+      questId: "q-77",
+      version: 4,
+      title: "Fresh paged quest",
+    });
+    useStore.setState({
+      quests: [],
+      questDetails: new Map([["q-77", cachedQuest]]),
+      questDetailEtags: new Map([["q-77", '"detail-v1"']]),
+      questOverlayId: "q-77",
+    });
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "fresh", data: freshQuest, etag: '"detail-v2"' });
+
+    render(<QuestDetailPanel />);
+
+    expect(screen.getByText("Cached paged quest")).toBeInTheDocument();
+    expect(await screen.findByText("Fresh paged quest")).toBeInTheDocument();
+    expect(mockGetQuestValidated).toHaveBeenCalledWith("q-77", '"detail-v1"');
+    expect(useStore.getState().questDetails.get("q-77")).toBe(freshQuest);
+    expect(useStore.getState().questDetailEtags.get("q-77")).toBe('"detail-v2"');
   });
 
   it("closes on Escape key press", () => {

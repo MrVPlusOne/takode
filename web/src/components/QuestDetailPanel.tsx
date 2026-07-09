@@ -43,6 +43,7 @@ import {
 } from "./QuestCommitEvidence.js";
 import { buildQuestAssignDraft } from "./quest-assign.js";
 import { buildQuestReworkDraft } from "./quest-rework.js";
+import { useQuestDetailRecord } from "./useQuestDetailRecord.js";
 import { summarizeQuestPhaseDocumentation } from "../../shared/quest-phase-documentation-summary.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import type { QuestmasterTask, QuestStatus, QuestVerificationItem, QuestImage, QuestHistoryView } from "../types.js";
@@ -57,8 +58,6 @@ export function QuestDetailPanel() {
   const questOverlayId = useStore((s) => s.questOverlayId);
   const searchHighlight = useStore((s) => s.questOverlaySearchHighlight);
   const quests = useStore((s) => s.quests);
-  const questDetails = useStore((s) => s.questDetails);
-  const questDetailEtags = useStore((s) => s.questDetailEtags);
   const sessionBoards = useStore((s) => s.sessionBoards);
   const sessionCompletedBoards = useStore((s) => s.sessionCompletedBoards);
   const sdkSessions = useStore((s) => s.sdkSessions);
@@ -71,17 +70,7 @@ export function QuestDetailPanel() {
   const pendingPermissions = useStore((s) => s.pendingPermissions);
   const askPermissionMap = useStore((s) => s.askPermission);
 
-  const storeQuest = useMemo(
-    () =>
-      questOverlayId
-        ? (questDetails.get(questOverlayId.toLowerCase()) ?? quests.find((q) => q.questId === questOverlayId) ?? null)
-        : null,
-    [questDetails, quests, questOverlayId],
-  );
-  const [fetchedQuest, setFetchedQuest] = useState<QuestmasterTask | null>(null);
-  const [questLoading, setQuestLoading] = useState(false);
-  const [questLoadError, setQuestLoadError] = useState("");
-  const quest = storeQuest ?? (fetchedQuest?.questId === questOverlayId ? fetchedQuest : null);
+  const { quest, setFetchedQuest, questLoading, questLoadError } = useQuestDetailRecord(questOverlayId);
   const journeyBoardRow = useMemo(() => {
     if (!quest) return null;
     for (const board of [...sessionBoards.values(), ...sessionCompletedBoards.values()]) {
@@ -176,44 +165,6 @@ export function QuestDetailPanel() {
     setFetchedQuest(updatedQuest);
     useStore.getState().upsertQuestDetail(updatedQuest);
   }, []);
-
-  useEffect(() => {
-    if (!questOverlayId) {
-      setFetchedQuest(null);
-      setQuestLoading(false);
-      setQuestLoadError("");
-      return;
-    }
-    if (storeQuest) {
-      setFetchedQuest(null);
-      setQuestLoading(false);
-      setQuestLoadError("");
-      return;
-    }
-    let cancelled = false;
-    setQuestLoading(true);
-    setQuestLoadError("");
-    const currentEtag = questDetailEtags.get(questOverlayId.toLowerCase()) ?? null;
-    api
-      .getQuestValidated(questOverlayId, currentEtag)
-      .then((result) => {
-        if (cancelled) return;
-        if (result.status === "fresh") {
-          setFetchedQuest(result.data);
-          useStore.getState().upsertQuestDetail(result.data, { etag: result.etag });
-        }
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setQuestLoadError(e instanceof Error ? e.message : "Failed to load quest");
-      })
-      .finally(() => {
-        if (!cancelled) setQuestLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [questDetailEtags, questOverlayId, storeQuest]);
 
   // Escape key: lightbox > assign picker > inline feedback actions > edit cancel > close panel
   useEffect(() => {
