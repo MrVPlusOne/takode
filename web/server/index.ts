@@ -38,6 +38,7 @@ import { PushoverNotifier } from "./pushover.js";
 import { PRPoller } from "./pr-poller.js";
 import { RecorderManager } from "./recorder.js";
 import { CronScheduler } from "./cron-scheduler.js";
+import { matchWebSocketRoute } from "./websocket-routes.js";
 import { TimerManager } from "./timer-manager.js";
 import { ResourceLeaseManager } from "./resource-lease-manager.js";
 import { ResourceLeaseStore } from "./resource-lease-store.js";
@@ -827,35 +828,13 @@ const server = Bun.serve<SocketData>({
   async fetch(req, server) {
     const url = new URL(req.url);
 
-    // ── CLI WebSocket — Claude Code CLI connects here via --sdk-url ────
-    const cliMatch = url.pathname.match(/^\/ws\/cli\/([a-f0-9-]+)$/);
-    if (cliMatch) {
-      const sessionId = cliMatch[1];
-      const upgraded = server.upgrade(req, {
-        data: { kind: "cli" as const, sessionId },
-      });
-      if (upgraded) return undefined;
-      return new Response("WebSocket upgrade failed", { status: 400 });
-    }
-
-    // ── Browser WebSocket — connects to a specific session ─────────────
-    const browserMatch = url.pathname.match(/^\/ws\/browser\/([a-f0-9-]+)$/);
-    if (browserMatch) {
-      const sessionId = browserMatch[1];
-      const upgraded = server.upgrade(req, {
-        data: { kind: "browser" as const, sessionId },
-      });
-      if (upgraded) return undefined;
-      return new Response("WebSocket upgrade failed", { status: 400 });
-    }
-
-    // ── Terminal WebSocket — embedded terminal PTY connection ─────────
-    const termMatch = url.pathname.match(/^\/ws\/terminal\/([a-f0-9-]+)$/);
-    if (termMatch) {
-      const terminalId = termMatch[1];
-      const upgraded = server.upgrade(req, {
-        data: { kind: "terminal" as const, terminalId },
-      });
+    const wsRoute = matchWebSocketRoute(url.pathname);
+    if (wsRoute) {
+      const data =
+        wsRoute.kind === "terminal"
+          ? { kind: "terminal" as const, terminalId: wsRoute.terminalId }
+          : ({ kind: wsRoute.kind, sessionId: wsRoute.sessionId } as const);
+      const upgraded = server.upgrade(req, { data });
       if (upgraded) return undefined;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }

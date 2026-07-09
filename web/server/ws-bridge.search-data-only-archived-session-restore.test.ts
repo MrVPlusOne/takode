@@ -44,6 +44,8 @@ import {
   refreshGitInfoPublic as refreshGitInfoPublicController,
   setDiffBaseBranch as setDiffBaseBranchController,
 } from "./bridge/session-git-state.js";
+import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
+import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 import { trafficStats } from "./traffic-stats.js";
 import {
   applyInitialSessionState as applyInitialSessionStateController,
@@ -719,24 +721,36 @@ describe("search-data-only archived session restore", () => {
     expect(session.searchDataOnly).toBe(true);
     expect(session.messageHistory).toHaveLength(0);
 
-    // Connect browser and subscribe
+    // Connect browser and subscribe with the same history-window fields sent by
+    // the frontend on a cold archived-session route open.
     const browser = makeBrowserSocket(sid);
     restored.handleBrowserOpen(browser, sid);
     browser.send.mockClear();
-    await restored.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    await restored.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        known_frozen_count: 0,
+        history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+      }),
+    );
 
     // Session should now have full history loaded
     expect(session.searchDataOnly).toBe(false);
     expect(session.messageHistory.length).toBeGreaterThanOrEqual(3);
 
-    // Browser should have received history_sync with the full messages
+    // Browser should have received a bounded history window with the messages.
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const historySync = calls.find((c: any) => c.type === "history_sync");
+    const historySync = calls.find((c: any) => c.type === "history_window_sync");
     expect(historySync).toBeDefined();
-    const allMessages = [...(historySync.frozen_delta || []), ...(historySync.hot_messages || [])];
+    const allMessages = historySync.messages || [];
     expect(allMessages.length).toBeGreaterThanOrEqual(3);
     expect(allMessages.some((m: any) => m.type === "user_message" && m.content === "test lazy load")).toBe(true);
     expect(allMessages.some((m: any) => m.type === "assistant")).toBe(true);
+    expect(calls.some((c: any) => c.type === "state_snapshot")).toBe(true);
   });
 
   it("search docs use searchExcerpts from restored search-data-only sessions", async () => {
