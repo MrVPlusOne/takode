@@ -777,6 +777,48 @@ describe("Questmaster refresh", () => {
     expect(mockListQuests).not.toHaveBeenCalled();
   });
 
+  it("replaceQuest preserves a server summary when the quest list is partial", () => {
+    // On migrated servers, detail fetches can insert one quest while the full
+    // corpus stays unloaded; that must not downgrade server-provided counts.
+    const summary = {
+      total: 1412,
+      active: 800,
+      counts: { all: 1412, idea: 120, refined: 240, in_progress: 440, done: 612 },
+    };
+    useStore.setState({ quests: [], questSummary: summary, questsLoadedFull: false });
+
+    useStore.getState().replaceQuest(
+      makeQuest({
+        id: "q-1592-v1",
+        questId: "q-1592",
+        status: "in_progress",
+        title: "Fetched on demand",
+      }),
+    );
+
+    expect(useStore.getState().quests.map((quest) => quest.questId)).toEqual(["q-1592"]);
+    expect(useStore.getState().questSummary).toBe(summary);
+  });
+
+  it("replaceQuest recomputes summary when the quest list is known full", () => {
+    // Full list loads are still allowed to derive badge counts locally when a
+    // known quest changes status.
+    useStore
+      .getState()
+      .setQuests([
+        makeQuest({ id: "q-1-v1", questId: "q-1", status: "in_progress" }),
+        makeQuest({ id: "q-2-v1", questId: "q-2", status: "done" }),
+      ]);
+
+    useStore.getState().replaceQuest(makeQuest({ id: "q-1-v2", questId: "q-1", status: "done", version: 2 }));
+
+    expect(useStore.getState().questSummary).toEqual({
+      total: 2,
+      active: 0,
+      counts: { all: 2, idea: 0, refined: 0, in_progress: 0, done: 2 },
+    });
+  });
+
   it("refreshQuests does not replace existing quest bodies on background refresh", async () => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,

@@ -274,11 +274,12 @@ export const useStore = create<AppState>((set, get) => ({
   expandedHerdNodes: getInitialCollapsedSet("cc-expanded-herd-nodes"),
   quests: [],
   questSummary: null,
+  questsLoadedFull: false,
   questsLoading: false,
   setQuests: (quests) =>
     set((state) => {
       const nextQuests = reconcileQuestList(state.quests, quests);
-      return nextQuests === state.quests ? {} : { quests: nextQuests, questSummary: summarizeQuestList(nextQuests) };
+      return { quests: nextQuests, questSummary: summarizeQuestList(nextQuests), questsLoadedFull: true };
     }),
   replaceQuest: (updated) => {
     set((state) => {
@@ -289,7 +290,10 @@ export const useStore = create<AppState>((set, get) => ({
           : [updated, ...state.quests]
       ).sort((a, b) => questRecencyTs(b) - questRecencyTs(a));
       const nextQuests = reconcileQuestList(state.quests, quests);
-      return nextQuests === state.quests ? {} : { quests: nextQuests, questSummary: summarizeQuestList(nextQuests) };
+      if (nextQuests === state.quests) return {};
+      return state.questsLoadedFull
+        ? { quests: nextQuests, questSummary: summarizeQuestList(nextQuests) }
+        : { quests: nextQuests };
     });
   },
   refreshQuests: async (opts) => {
@@ -320,8 +324,12 @@ export const useStore = create<AppState>((set, get) => ({
       const quests = await api.listQuests();
       set((state) => {
         const nextQuests = reconcileQuestList(state.quests, quests);
-        if (nextQuests === state.quests && !state.questsLoading) return {};
-        return { quests: nextQuests, questSummary: summarizeQuestList(nextQuests), questsLoading: false };
+        return {
+          quests: nextQuests,
+          questSummary: summarizeQuestList(nextQuests),
+          questsLoadedFull: true,
+          questsLoading: false,
+        };
       });
     } catch {
       set({ questsLoading: false });
@@ -2003,6 +2011,9 @@ export const useStore = create<AppState>((set, get) => ({
       autoExpandedTurnIds: new Map(),
       collapsibleTurnIds: new Map(),
       quests: [],
+      questSummary: null,
+      questsLoadedFull: false,
+      questsLoading: false,
       questmasterSearchQuery: "",
       questmasterSelectedTags: [],
       questmasterViewMode: null,

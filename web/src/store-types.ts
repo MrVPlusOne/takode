@@ -135,6 +135,7 @@ export interface AppState {
   expandedHerdNodes: Set<string>;
   quests: QuestmasterTask[];
   questSummary: QuestSummary | null;
+  questsLoadedFull: boolean;
   questsLoading: boolean;
   setQuests: (quests: QuestmasterTask[]) => void;
   replaceQuest: (updated: QuestmasterTask) => void;
