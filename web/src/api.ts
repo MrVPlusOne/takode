@@ -43,6 +43,7 @@ export type {
 export type {
   MemoryCatalogEntry,
   MemoryCatalogResponse,
+  MemoryCommitFileChange,
   MemoryFile,
   MemoryGitStatusEntry,
   MemoryKind,
