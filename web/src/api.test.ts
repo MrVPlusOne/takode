@@ -147,6 +147,25 @@ describe("listSessions", () => {
     expect(opts).toBeUndefined();
     expect(result).toEqual(sessions);
   });
+
+  it("can request a bounded archived session page", async () => {
+    const page = {
+      sessions: [{ sessionId: "s1", state: "exited", cwd: "/tmp", archived: true }],
+      total: 53,
+      offset: 25,
+      limit: 25,
+      hasMore: true,
+      nextOffset: 50,
+    };
+    mockFetch.mockResolvedValueOnce(mockResponse(page));
+
+    const result = await api.listArchivedSessionsPage({ offset: 25, limit: 25 });
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/sessions/archived?offset=25&limit=25");
+    expect(opts).toBeUndefined();
+    expect(result).toEqual(page);
+  });
 });
 
 describe("refreshSessionGitStatus", () => {

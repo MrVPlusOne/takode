@@ -27,6 +27,14 @@ vi.mock("../utils/pending-creation.js", () => ({
 
 const mockApi = {
   listSessions: vi.fn().mockResolvedValue([]),
+  listArchivedSessionsPage: vi.fn().mockResolvedValue({
+    sessions: [],
+    total: 0,
+    offset: 0,
+    limit: 25,
+    hasMore: false,
+    nextOffset: null,
+  }),
   searchSessions: vi.fn().mockResolvedValue({ query: "", tookMs: 0, totalMatches: 0, results: [] }),
   deleteSession: vi.fn().mockResolvedValue({}),
   archiveSession: vi.fn().mockResolvedValue({}),
@@ -57,6 +65,7 @@ const mockApi = {
 vi.mock("../api.js", () => ({
   api: {
     listSessions: (...args: unknown[]) => mockApi.listSessions(...args),
+    listArchivedSessionsPage: (...args: unknown[]) => mockApi.listArchivedSessionsPage(...args),
     searchSessions: (...args: unknown[]) => mockApi.searchSessions(...args),
     deleteSession: (...args: unknown[]) => mockApi.deleteSession(...args),
     archiveSession: (...args: unknown[]) => mockApi.archiveSession(...args),
@@ -300,6 +309,15 @@ import { Sidebar } from "./Sidebar.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockApi.listSessions.mockResolvedValue([]);
+  mockApi.listArchivedSessionsPage.mockResolvedValue({
+    sessions: [],
+    total: 0,
+    offset: 0,
+    limit: 25,
+    hasMore: false,
+    nextOffset: null,
+  });
   vi.stubGlobal("alert", mockAlert);
   scrollTargetSessionIds.length = 0;
   Element.prototype.scrollIntoView = mockScrollIntoView;
@@ -1311,68 +1329,6 @@ describe("Sidebar", { timeout: 10000 }, () => {
       expect(scroller).toHaveClass("overflow-y-auto");
       expect(scroller).toHaveStyle({ touchAction: "pan-y" });
     });
-  });
-
-  it("archived sessions section shows count", () => {
-    const sdk1 = makeSdkSession("s1", { archived: false });
-    const sdk2 = makeSdkSession("s2", { archived: true });
-    const sdk3 = makeSdkSession("s3", { archived: true });
-
-    mockState = createMockState({
-      sdkSessions: [sdk1, sdk2, sdk3],
-    });
-
-    render(<Sidebar />);
-    // The component renders "Archived (2)"
-    expect(screen.getByText(/Archived \(2\)/)).toBeInTheDocument();
-  });
-
-  it("lazy-loads archived sessions from backend ground truth when opened", async () => {
-    const active = makeSdkSession("s1", { archived: false });
-    mockState = createMockState({ sdkSessions: [active] });
-    mockApi.listSessions
-      .mockResolvedValueOnce([active])
-      .mockResolvedValueOnce([active, makeSdkSession("s2", { archived: true })]);
-    render(<Sidebar />);
-    fireEvent.click(screen.getByText("Archived"));
-    await waitFor(() => expect(mockApi.listSessions).toHaveBeenCalledWith({ includeArchived: true }));
-  });
-
-  it("hides archived delete button on mobile cards (delete via context menu)", () => {
-    const session = makeSession("s1");
-    const sdk = makeSdkSession("s1", { archived: true });
-    mockState = createMockState({
-      sessions: new Map([["s1", session]]),
-      sdkSessions: [sdk],
-    });
-
-    render(<Sidebar />);
-    fireEvent.click(screen.getByText(/Archived \(1\)/));
-
-    const deleteButton = screen.getByTitle("Delete permanently");
-    expect(deleteButton).toHaveClass("hidden");
-    expect(deleteButton).toHaveClass("sm:block");
-  });
-
-  it("toggle archived shows/hides archived sessions", () => {
-    const sdk1 = makeSdkSession("s1", { archived: false, model: "active-model" });
-    const sdk2 = makeSdkSession("s2", { archived: true, model: "archived-model" });
-
-    mockState = createMockState({
-      sdkSessions: [sdk1, sdk2],
-    });
-
-    render(<Sidebar />);
-
-    // Archived sessions should not be visible initially
-    expect(screen.queryByText("archived-model")).not.toBeInTheDocument();
-
-    // Click the archived toggle button
-    const toggleButton = screen.getByText(/Archived \(1\)/);
-    fireEvent.click(toggleButton);
-
-    // Now the archived session should be visible
-    expect(screen.getByText("archived-model")).toBeInTheDocument();
   });
 
   it("does not render settings controls directly in sidebar", () => {

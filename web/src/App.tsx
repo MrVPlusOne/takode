@@ -330,8 +330,15 @@ export default function App() {
         if (cancelled) return;
         hydrateSessionList(sessions, { preserveMissingArchived: true });
         if (sessions.some((session) => session.sessionNum === Number(route.sessionId))) return;
-        const fullSessions = await api.listSessions({ includeArchived: true });
-        if (!cancelled) hydrateSessionList(fullSessions);
+        const archivedMatches = await api.searchSessions(`#${route.sessionId}`, {
+          includeArchived: true,
+          includeReviewers: true,
+          limit: 10,
+        });
+        const archivedSession = archivedMatches.results
+          .map((result) => result.session)
+          .find((session) => session?.sessionNum === Number(route.sessionId));
+        if (!cancelled && archivedSession) hydrateSessionList([archivedSession], { preserveMissingSessions: true });
       })
       .catch((err) => {
         console.warn("[app] failed to hydrate sessions for numeric route:", err);

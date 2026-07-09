@@ -604,6 +604,36 @@ describe("GET /api/sessions", () => {
     expect(access).not.toHaveBeenCalledWith("/b");
   });
 
+  it("returns a bounded archived session page with total and next offset", async () => {
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "active", state: "running", cwd: "/active", archived: false, createdAt: 10 },
+      { sessionId: "archived-old", state: "exited", cwd: "/old", archived: true, archivedAt: 100, isWorktree: true },
+      { sessionId: "archived-new", state: "exited", cwd: "/new", archived: true, archivedAt: 300, isWorktree: true },
+      { sessionId: "archived-reviewer", state: "exited", cwd: "/review", archived: true, reviewerOf: 7 },
+      { sessionId: "archived-mid", state: "exited", cwd: "/mid", archived: true, archivedAt: 200, isWorktree: true },
+    ]);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({});
+
+    const res = await app.request("/api/sessions/archived?offset=0&limit=2", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({
+      total: 3,
+      offset: 0,
+      limit: 2,
+      hasMore: true,
+      nextOffset: 2,
+    });
+    expect(json.sessions.map((session: { sessionId: string }) => session.sessionId)).toEqual([
+      "archived-new",
+      "archived-mid",
+    ]);
+    expect(access).toHaveBeenCalledWith("/new");
+    expect(access).toHaveBeenCalledWith("/mid");
+    expect(access).not.toHaveBeenCalledWith("/old");
+  });
+
   it("includes lightweight leader open thread tabs in session snapshots", async () => {
     const defaultSettings = vi.mocked(settingsManager.getSettings).getMockImplementation()?.() as ReturnType<
       typeof settingsManager.getSettings

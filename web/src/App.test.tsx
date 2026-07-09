@@ -168,12 +168,14 @@ vi.mock("./store.js", () => {
 const mockCheckHealth = vi.fn().mockResolvedValue(true);
 const mockMarkSessionRead = vi.fn().mockResolvedValue({ ok: true });
 const mockListSessions = vi.fn().mockResolvedValue([]);
+const mockSearchSessions = vi.fn().mockResolvedValue({ query: "", tookMs: 0, totalMatches: 0, results: [] });
 const mockRefreshSessionGitStatus = vi.fn().mockResolvedValue({ ok: true });
 
 vi.mock("./api.js", () => ({
   api: {
     markSessionRead: (...args: unknown[]) => mockMarkSessionRead(...args),
     listSessions: (...args: unknown[]) => mockListSessions(...args),
+    searchSessions: (...args: unknown[]) => mockSearchSessions(...args),
     refreshSessionGitStatus: (...args: unknown[]) => mockRefreshSessionGitStatus(...args),
   },
   checkHealth: (...args: unknown[]) => mockCheckHealth(...args),
@@ -307,6 +309,7 @@ beforeEach(() => {
   vi.mocked(hydrateSessionList).mockReset();
   resetSessionGitStatusAutoRefreshForTest();
   mockListSessions.mockResolvedValue([]);
+  mockSearchSessions.mockResolvedValue({ query: "", tookMs: 0, totalMatches: 0, results: [] });
   mockRefreshSessionGitStatus.mockResolvedValue({ ok: true });
   setViewportWidth(1024);
   resetStore();
@@ -689,7 +692,7 @@ describe("App hidden panels", () => {
     expect(mockConnectSession).not.toHaveBeenCalledWith("123");
   });
 
-  it("falls back to a full backend session snapshot for archived numeric routes", async () => {
+  it("falls back to bounded archived search for archived numeric routes", async () => {
     const archivedSession = {
       sessionId: "archived-route",
       createdAt: 2,
@@ -699,7 +702,22 @@ describe("App hidden panels", () => {
       sessionNum: 123,
     };
     resetStore({ currentSessionId: null, sdkSessions: [], sessions: new Map(), messages: new Map() });
-    mockListSessions.mockResolvedValueOnce([]).mockResolvedValueOnce([archivedSession]);
+    mockListSessions.mockResolvedValueOnce([]);
+    mockSearchSessions.mockResolvedValueOnce({
+      query: "#123",
+      tookMs: 1,
+      totalMatches: 1,
+      results: [
+        {
+          sessionId: "archived-route",
+          score: 1100,
+          matchedField: "session_number",
+          matchContext: null,
+          matchedAt: 2,
+          session: archivedSession,
+        },
+      ],
+    });
     vi.mocked(hydrateSessionList).mockImplementation((sessions) => {
       mockState.sdkSessions = sessions as MockStoreState["sdkSessions"];
     });
@@ -708,9 +726,15 @@ describe("App hidden panels", () => {
     const view = render(<App />);
 
     await waitFor(() => expect(mockListSessions).toHaveBeenNthCalledWith(1, { includeArchived: false }));
-    await waitFor(() => expect(mockListSessions).toHaveBeenNthCalledWith(2, { includeArchived: true }));
+    await waitFor(() =>
+      expect(mockSearchSessions).toHaveBeenCalledWith("#123", {
+        includeArchived: true,
+        includeReviewers: true,
+        limit: 10,
+      }),
+    );
     expect(hydrateSessionList).toHaveBeenNthCalledWith(1, [], { preserveMissingArchived: true });
-    expect(hydrateSessionList).toHaveBeenNthCalledWith(2, [archivedSession]);
+    expect(hydrateSessionList).toHaveBeenNthCalledWith(2, [archivedSession], { preserveMissingSessions: true });
 
     view.rerender(<App />);
 

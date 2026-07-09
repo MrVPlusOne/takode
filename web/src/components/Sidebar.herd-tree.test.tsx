@@ -65,6 +65,14 @@ vi.mock("../utils/pending-creation.js", () => ({
 
 const mockApi = {
   listSessions: vi.fn().mockResolvedValue([]),
+  listArchivedSessionsPage: vi.fn().mockResolvedValue({
+    sessions: [],
+    total: 0,
+    offset: 0,
+    limit: 25,
+    hasMore: false,
+    nextOffset: null,
+  }),
   searchSessions: vi.fn().mockResolvedValue({ query: "", tookMs: 0, totalMatches: 0, results: [] }),
   deleteSession: vi.fn().mockResolvedValue({}),
   archiveSession: vi.fn().mockResolvedValue({}),
@@ -89,6 +97,7 @@ const mockApi = {
 vi.mock("../api.js", () => ({
   api: {
     listSessions: (...args: unknown[]) => mockApi.listSessions(...args),
+    listArchivedSessionsPage: (...args: unknown[]) => mockApi.listArchivedSessionsPage(...args),
     searchSessions: (...args: unknown[]) => mockApi.searchSessions(...args),
     deleteSession: (...args: unknown[]) => mockApi.deleteSession(...args),
     archiveSession: (...args: unknown[]) => mockApi.archiveSession(...args),

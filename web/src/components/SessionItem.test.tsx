@@ -127,6 +127,17 @@ function renderSessionItem(overrides: Partial<ComponentProps<typeof SessionItem>
   };
 }
 
+it("hides the archived delete action on mobile cards", () => {
+  renderSessionItem({
+    session: makeSession({ archived: true }),
+    isArchived: true,
+  });
+
+  const deleteButton = screen.getByTitle("Delete permanently");
+  expect(deleteButton).toHaveClass("hidden");
+  expect(deleteButton).toHaveClass("sm:block");
+});
+
 function EditingSessionItem({
   onConfirmRename = vi.fn(),
   onCancelRename = vi.fn(),

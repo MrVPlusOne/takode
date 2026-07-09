@@ -6,6 +6,14 @@ import type { SdkSessionInfo } from "../types.js";
 
 const mockApi = {
   listSessions: vi.fn().mockResolvedValue([]),
+  listArchivedSessionsPage: vi.fn().mockResolvedValue({
+    sessions: [],
+    total: 0,
+    offset: 0,
+    limit: 25,
+    hasMore: false,
+    nextOffset: null,
+  }),
   searchSessions: vi.fn().mockResolvedValue({ query: "", tookMs: 0, totalMatches: 0, results: [] }),
   getSettings: vi.fn().mockResolvedValue({ serverName: "" }),
   getTreeGroups: vi.fn().mockResolvedValue({ groups: [], assignments: {}, nodeOrder: {} }),
@@ -16,6 +24,7 @@ const mockApi = {
 vi.mock("../api.js", () => ({
   api: {
     listSessions: (...args: unknown[]) => mockApi.listSessions(...args),
+    listArchivedSessionsPage: (...args: unknown[]) => mockApi.listArchivedSessionsPage(...args),
     searchSessions: (...args: unknown[]) => mockApi.searchSessions(...args),
     getSettings: (...args: unknown[]) => mockApi.getSettings(...args),
     getTreeGroups: (...args: unknown[]) => mockApi.getTreeGroups(...args),
@@ -207,33 +216,104 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockState = createMockState();
   mockApi.listSessions.mockResolvedValue([]);
+  mockApi.listArchivedSessionsPage.mockResolvedValue({
+    sessions: [],
+    total: 0,
+    offset: 0,
+    limit: 25,
+    hasMore: false,
+    nextOffset: null,
+  });
   mockApi.retryWorktreeCleanup.mockResolvedValue({ ok: true });
   window.location.hash = "";
 });
 
-it("keeps Archived visible on all-archived cold starts and renders rows from the full backend fetch", async () => {
+it("keeps Archived visible on all-archived cold starts and renders rows from the first archived page", async () => {
   const archived = makeSdkSession("archived-1", {
     archived: true,
     name: "Archived Only",
     model: "codex",
   });
-  mockApi.listSessions.mockResolvedValueOnce([]).mockResolvedValueOnce([archived]);
+  mockApi.listSessions.mockResolvedValue([]);
+  mockApi.listArchivedSessionsPage.mockResolvedValueOnce({
+    sessions: [archived],
+    total: 1052,
+    offset: 0,
+    limit: 25,
+    hasMore: true,
+    nextOffset: 1,
+  });
 
   const view = render(<Sidebar />);
 
   expect(screen.getByText("Archived")).toBeInTheDocument();
   fireEvent.click(screen.getByText("Archived"));
 
-  await waitFor(() => expect(mockApi.listSessions).toHaveBeenCalledWith({ includeArchived: true }));
+  await waitFor(() => expect(mockApi.listArchivedSessionsPage).toHaveBeenCalledWith({ offset: 0, limit: 25 }));
+  expect(mockApi.listSessions).not.toHaveBeenCalledWith({ includeArchived: true });
   await waitFor(() =>
     expect(mockState.setSdkSessions).toHaveBeenLastCalledWith([expect.objectContaining({ archived: true })]),
   );
 
   view.rerender(<Sidebar />);
 
-  expect(screen.getByText("Archived (1)")).toBeInTheDocument();
+  expect(screen.getByText("Archived (1052)")).toBeInTheDocument();
   expect(screen.getByTestId("session-item")).toHaveAttribute("data-session-id", "archived-1");
   expect(screen.getByText("Archived Only")).toBeInTheDocument();
+  expect(screen.getByText("Load more archived sessions")).toBeInTheDocument();
+});
+
+it("does not infer the archived count from cached rows before the page loads", () => {
+  mockState.sdkSessions = [
+    makeSdkSession("active-1", { archived: false }),
+    makeSdkSession("archived-1", { archived: true }),
+    makeSdkSession("archived-2", { archived: true }),
+  ];
+
+  render(<Sidebar />);
+
+  expect(screen.getByText("Archived")).toBeInTheDocument();
+  expect(screen.queryByText("Archived (2)")).not.toBeInTheDocument();
+});
+
+it("loads additional archived pages without replacing active session rows", async () => {
+  const active = makeSdkSession("active-1", { name: "Active Session" });
+  const firstArchived = makeSdkSession("archived-1", { archived: true, name: "First Archived", model: "codex" });
+  const secondArchived = makeSdkSession("archived-2", { archived: true, name: "Second Archived", model: "codex" });
+  mockState.sdkSessions = [active];
+  mockApi.listSessions.mockResolvedValue([active]);
+  mockApi.listArchivedSessionsPage
+    .mockResolvedValueOnce({
+      sessions: [firstArchived],
+      total: 2,
+      offset: 0,
+      limit: 25,
+      hasMore: true,
+      nextOffset: 1,
+    })
+    .mockResolvedValueOnce({
+      sessions: [secondArchived],
+      total: 2,
+      offset: 1,
+      limit: 25,
+      hasMore: false,
+      nextOffset: null,
+    });
+
+  const view = render(<Sidebar />);
+  fireEvent.click(screen.getByText("Archived"));
+  await waitFor(() => expect(mockApi.listArchivedSessionsPage).toHaveBeenCalledWith({ offset: 0, limit: 25 }));
+  view.rerender(<Sidebar />);
+  fireEvent.click(screen.getByText("Load more archived sessions"));
+  await waitFor(() => expect(mockApi.listArchivedSessionsPage).toHaveBeenCalledWith({ offset: 1, limit: 25 }));
+  view.rerender(<Sidebar />);
+
+  expect(mockState.sdkSessions.map((session) => session.sessionId)).toEqual(
+    expect.arrayContaining(["active-1", "archived-1", "archived-2"]),
+  );
+  expect(screen.getByText("First Archived")).toBeInTheDocument();
+  expect(screen.getByText("Second Archived")).toBeInTheDocument();
+  expect(screen.queryByText("Load more archived sessions")).not.toBeInTheDocument();
 });
 
 it("reconciles archived worktree retry state from the retry response without reload", async () => {
@@ -268,7 +348,15 @@ it("reconciles archived worktree retry state from the retry response without rel
       ownershipReason: "takode-worktree-root",
       safety: { status: "blocked", summary: "cleanup is already pending" },
     };
-    mockApi.listSessions.mockResolvedValueOnce([]).mockResolvedValueOnce([archived]).mockResolvedValue([]);
+    mockApi.listSessions.mockResolvedValue([]);
+    mockApi.listArchivedSessionsPage.mockResolvedValueOnce({
+      sessions: [archived],
+      total: 1,
+      offset: 0,
+      limit: 25,
+      hasMore: false,
+      nextOffset: null,
+    });
     mockApi.retryWorktreeCleanup.mockResolvedValueOnce({
       ok: true,
       cleanup: { status: "pending", path: "/tmp/main-wt-1" },
@@ -277,7 +365,8 @@ it("reconciles archived worktree retry state from the retry response without rel
 
     const view = render(<Sidebar />);
     fireEvent.click(screen.getByText("Archived"));
-    await waitFor(() => expect(mockApi.listSessions).toHaveBeenCalledWith({ includeArchived: true }));
+    await waitFor(() => expect(mockApi.listArchivedSessionsPage).toHaveBeenCalledWith({ offset: 0, limit: 25 }));
+    expect(mockApi.listSessions).not.toHaveBeenCalledWith({ includeArchived: true });
     await waitFor(() =>
       expect(mockState.setSdkSessions).toHaveBeenLastCalledWith([expect.objectContaining({ archived: true })]),
     );

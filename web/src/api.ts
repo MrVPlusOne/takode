@@ -465,6 +465,15 @@ export interface SessionSearchResponse {
   results: SessionSearchResult[];
 }
 
+export interface ArchivedSessionPageResponse {
+  sessions: SdkSessionInfo[];
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+  nextOffset: number | null;
+}
+
 export interface BackendInfo {
   id: string;
   name: string;
@@ -1123,6 +1132,14 @@ export const api = {
     }
     const query = params.toString();
     return get<SdkSessionInfo[]>(`/sessions${query ? `?${query}` : ""}`);
+  },
+
+  listArchivedSessionsPage: (options?: { offset?: number; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (typeof options?.offset === "number") params.set("offset", String(options.offset));
+    if (typeof options?.limit === "number") params.set("limit", String(options.limit));
+    const query = params.toString();
+    return get<ArchivedSessionPageResponse>(`/sessions/archived${query ? `?${query}` : ""}`);
   },
 
   searchSessions: async (

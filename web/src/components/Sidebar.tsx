@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from "react";
 import {
   DndContext,
   closestCenter,
@@ -7,10 +7,8 @@ import {
   useSensors,
   type DragEndEvent,
   type Modifier,
-  type DraggableAttributes,
 } from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import {
   hydrateChatDisplaySettingsFromServer,
   hydrateShortcutSettingsFromServer,
@@ -26,7 +24,9 @@ import { cancelPendingCreation } from "../utils/pending-creation.js";
 import { getTreeGroupNewSessionDefaultsKey } from "../utils/new-session-defaults.js";
 import { bootstrapServerId, scopedGetItem } from "../utils/scoped-storage.js";
 import { TreeViewGroup } from "./TreeViewGroup.js";
+import { SortableTreeGroup } from "./SortableTreeGroup.js";
 import { SessionItem, type ArchiveConfirmationState } from "./SessionItem.js";
+import { ArchivedSessionSection, type CommonSessionItemProps } from "./ArchivedSessionSection.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { ConfigureSessionModal } from "./ConfigureSessionModal.js";
 import { buildMoveToSubmenu } from "./SidebarContextMenu.js";
@@ -60,6 +60,8 @@ import {
 } from "../utils/sidebar-group-overflow.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { getDocumentTitleAttentionCount } from "../utils/document-title-attention.js";
+import { buildSidebarItemFromSearchResult } from "../utils/sidebar-search-result.js";
+import { ARCHIVED_SESSION_PAGE_SIZE, type ArchivedSessionPageState } from "../utils/archived-session-page.js";
 
 /** Restrict drag movement to vertical axis only. */
 const restrictToVerticalAxis: Modifier = ({ transform }) => ({
@@ -67,66 +69,20 @@ const restrictToVerticalAxis: Modifier = ({ transform }) => ({
   x: 0,
 });
 
-function SortableTreeGroup({
-  id,
-  children,
-}: {
-  id: string;
-  children: (props: {
-    setNodeRef: (node: HTMLElement | null) => void;
-    style: CSSProperties;
-    listeners: Record<string, Function> | undefined;
-    attributes: DraggableAttributes;
-    isDragging: boolean;
-  }) => ReactNode;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-
-  const style: CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.75 : 1,
-  };
-
-  return <>{children({ setNodeRef, style, listeners, attributes, isDragging })}</>;
-}
-
-function buildSidebarItemFromSearchResult(result: SessionSearchResult): SidebarSessionItem | null {
-  const session = result.session;
-  if (!session) return null;
-  return {
-    id: session.sessionId,
-    model: session.model ?? "",
-    cwd: session.cwd ?? "",
-    gitBranch: session.gitBranch ?? "",
-    isContainerized: false,
-    gitAhead: 0,
-    gitBehind: 0,
-    linesAdded: 0,
-    linesRemoved: 0,
-    isConnected: false,
-    status: null,
-    sdkState: session.state ?? "exited",
-    createdAt: session.createdAt,
-    archived: session.archived ?? false,
-    archivedAt: session.archivedAt,
-    backendType: session.backendType ?? "claude",
-    repoRoot: session.repoRoot ?? "",
-    permCount: 0,
-    lastActivityAt: session.lastActivityAt,
-    lastUserMessageAt: session.lastUserMessageAt,
-    isOrchestrator: session.isOrchestrator ?? false,
-    leaderActivePhaseSummary: session.leaderActivePhaseSummary,
-    sessionNum: session.sessionNum ?? null,
-    reviewerOf: session.reviewerOf,
-  };
-}
-
 export function Sidebar() {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [showArchived, setShowArchived] = useState(false);
-  const [archivedSessionsLoaded, setArchivedSessionsLoaded] = useState(false);
+  const [archivedSessionPage, setArchivedSessionPage] = useState<ArchivedSessionPageState>({
+    loaded: false,
+    loading: false,
+    total: null,
+    hasMore: false,
+    nextOffset: 0,
+    ids: [],
+    error: null,
+  });
+  const archivedSessionPageRef = useRef(archivedSessionPage);
   const [mobileReorderHandleActive, setMobileReorderHandleActive] = useState(false);
   const [archiveConfirmation, setArchiveConfirmation] = useState<ArchiveConfirmationState | null>(null);
   const [contextMenu, setContextMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null);
@@ -200,19 +156,68 @@ export function Sidebar() {
   const isDesktopLayout = isDesktopShellLayout(zoomLevel);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
 
+  useEffect(() => {
+    archivedSessionPageRef.current = archivedSessionPage;
+  }, [archivedSessionPage]);
+
   const refreshTreeGroups = useCallback(async () => {
     await hydrateTreeGroups();
   }, []);
 
-  async function refreshSessionListNow(includeArchived = archivedSessionsLoaded) {
+  const loadArchivedSessionsPage = useCallback(async (options: { reset?: boolean } = {}) => {
+    const current = archivedSessionPageRef.current;
+    if (current.loading) return;
+    const offset = options.reset ? 0 : current.nextOffset;
+    setArchivedSessionPage((prev) => ({
+      ...prev,
+      loading: true,
+      error: null,
+      ...(options.reset ? { ids: [], nextOffset: 0, hasMore: false } : {}),
+    }));
     try {
-      const list = await api.listSessions({ includeArchived });
-      hydrateSessionList(list, { preserveMissingArchived: !includeArchived });
-      if (includeArchived) setArchivedSessionsLoaded(true);
+      const page = await api.listArchivedSessionsPage({ offset, limit: ARCHIVED_SESSION_PAGE_SIZE });
+      hydrateSessionList(page.sessions, { preserveMissingSessions: true });
+      setArchivedSessionPage((prev) => {
+        const nextIds = options.reset ? [] : [...prev.ids];
+        const seen = new Set(nextIds);
+        for (const session of page.sessions) {
+          if (seen.has(session.sessionId)) continue;
+          seen.add(session.sessionId);
+          nextIds.push(session.sessionId);
+        }
+        return {
+          loaded: true,
+          loading: false,
+          total: page.total,
+          hasMore: page.hasMore,
+          nextOffset: page.nextOffset ?? offset + page.sessions.length,
+          ids: nextIds,
+          error: null,
+        };
+      });
     } catch (err) {
-      console.warn("[sidebar] session refresh failed:", err);
+      console.warn("[sidebar] archived session page refresh failed:", err);
+      setArchivedSessionPage((prev) => ({
+        ...prev,
+        loaded: true,
+        loading: false,
+        error: "Archived sessions failed to load.",
+      }));
     }
-  }
+  }, []);
+
+  const refreshSessionListNow = useCallback(
+    async (refreshArchivedPage = false) => {
+      try {
+        const list = await api.listSessions({ includeArchived: false });
+        hydrateSessionList(list, { preserveMissingArchived: true });
+        if (refreshArchivedPage) await loadArchivedSessionsPage({ reset: true });
+      } catch (err) {
+        console.warn("[sidebar] session refresh failed:", err);
+      }
+    },
+    [loadArchivedSessionsPage],
+  );
 
   const nextAutoGroupName = useCallback(() => {
     const existing = new Set(treeGroups.map((g) => g.name));
@@ -634,7 +639,7 @@ export function Sidebar() {
     if (useStore.getState().currentSessionId === sessionId) {
       navigateToMostRecentSession({ excludeId: sessionId });
     }
-    void refreshSessionListNow();
+    void refreshSessionListNow(showArchived || archivedSessionPageRef.current.loaded);
   }
 
   const confirmArchive = useCallback(() => {
@@ -671,7 +676,7 @@ export function Sidebar() {
           navigateToMostRecentSession({ excludeId: leaderId });
         }
       }
-      void refreshSessionListNow();
+      void refreshSessionListNow(showArchived || archivedSessionPageRef.current.loaded);
     },
     [refreshSessionListNow, sdkSessions],
   );
@@ -731,9 +736,10 @@ export function Sidebar() {
   }
 
   const toggleArchivedSessions = useCallback(() => {
-    setShowArchived((current) => !current);
-    if (!showArchived && !archivedSessionsLoaded) void refreshSessionListNow(true);
-  }, [archivedSessionsLoaded, refreshSessionListNow, showArchived]);
+    const nextShowArchived = !showArchived;
+    setShowArchived(nextShowArchived);
+    if (nextShowArchived && !archivedSessionPageRef.current.loaded) void loadArchivedSessionsPage({ reset: true });
+  }, [loadArchivedSessionsPage, showArchived]);
 
   const {
     allSessionList,
@@ -799,6 +805,12 @@ export function Sidebar() {
   // Includes archived reviewers so historical review trajectories stay inspectable
   // from their parent without becoming standalone sidebar clutter.
   const reviewerByParent = useMemo(() => buildReviewerByParent(allSessionList), [allSessionList]);
+  const visibleArchivedSessions = useMemo(() => {
+    const archivedById = new Map(archivedSessions.map((session) => [session.id, session] as const));
+    return archivedSessionPage.ids
+      .map((sessionId) => archivedById.get(sessionId))
+      .filter((session): session is SidebarSessionItem => !!session);
+  }, [archivedSessionPage.ids, archivedSessions]);
   const logoSrc = "/app-logo.png";
   const [showCronSessions, setShowCronSessions] = useState(true);
   const treeGroupIds = useMemo(() => treeViewGroups.map((g) => g.id), [treeViewGroups]);
@@ -1036,7 +1048,7 @@ export function Sidebar() {
     return sessionThemes;
   }, [allSessionList]);
 
-  const sessionItemProps = {
+  const sessionItemProps: CommonSessionItemProps = {
     onSelect: handleSelectSession,
     onStartRename: handleStartRename,
     onArchive: handleArchiveSession,
@@ -1057,8 +1069,6 @@ export function Sidebar() {
     onConfirmArchive: confirmArchive,
     onConfirmArchiveHerdMembers: confirmArchiveHerdMembers,
     onCancelArchive: cancelArchive,
-    sessionAttention: sessionSetAttention,
-    herdHoverHighlights,
   };
 
   return (
@@ -1360,8 +1370,8 @@ export function Sidebar() {
         ) : treeViewGroups.length === 0 &&
           activeSessions.length === 0 &&
           cronSessions.length === 0 &&
-          archivedSessionsLoaded &&
-          archivedSessions.length === 0 ? (
+          archivedSessionPage.loaded &&
+          (archivedSessionPage.total ?? 0) === 0 ? (
           <p className="px-3 py-8 text-xs text-cc-muted text-center leading-relaxed">No sessions yet.</p>
         ) : (
           <>
@@ -1491,52 +1501,28 @@ export function Sidebar() {
               </div>
             )}
 
-            <div className="mt-2 pt-2 border-t border-cc-border">
-              {hasNoActiveSessionRows && !showArchived && (
-                <p className="px-3 pb-2 text-[11px] leading-relaxed text-cc-muted">
-                  {archivedSessionsLoaded && archivedSessions.length > 0
-                    ? "Imported history is archived. Open Archived to browse past sessions."
-                    : "No active sessions. Open Archived to load imported history."}
-                </p>
-              )}
-              <button
-                onClick={toggleArchivedSessions}
-                className="w-full px-3 py-1.5 text-[11px] font-medium text-cc-muted uppercase tracking-wider flex items-center gap-1.5 hover:text-cc-fg transition-colors cursor-pointer"
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className={`w-3 h-3 transition-transform ${showArchived ? "rotate-90" : ""}`}
-                >
-                  <path d="M6 4l4 4-4 4" />
-                </svg>
-                {archivedSessions.length > 0 || archivedSessionsLoaded
-                  ? `Archived (${archivedSessions.length})`
-                  : "Archived"}
-              </button>
-              {showArchived && (
-                <div className="space-y-2 sm:space-y-0.5 mt-1">
-                  {archivedSessions.map((s) => (
-                    <div key={s.id}>
-                      <SessionItem
-                        session={s}
-                        isActive={currentSessionId === s.id}
-                        isArchived
-                        sessionName={sessionNames.get(s.id)}
-                        sessionPreview={sessionPreviews.get(s.id)}
-                        permCount={countUserPermissions(pendingPermissions.get(s.id))}
-                        isRecentlyRenamed={recentlyRenamed.has(s.id)}
-                        herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
-                        herdHoverHighlight={herdHoverHighlights.get(s.id)}
-                        reviewerSession={s.sessionNum != null ? reviewerByParent.get(s.sessionNum) : undefined}
-                        useStatusBar
-                        {...sessionItemProps}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <ArchivedSessionSection
+              showArchived={showArchived}
+              hasNoActiveSessionRows={hasNoActiveSessionRows}
+              loaded={archivedSessionPage.loaded}
+              loading={archivedSessionPage.loading}
+              error={archivedSessionPage.error}
+              hasMore={archivedSessionPage.hasMore}
+              total={archivedSessionPage.total}
+              archivedSessions={visibleArchivedSessions}
+              currentSessionId={currentSessionId}
+              sessionNames={sessionNames}
+              sessionPreviews={sessionPreviews}
+              pendingPermissions={pendingPermissions}
+              recentlyRenamed={recentlyRenamed}
+              herdGroupBadgeThemes={herdGroupBadgeThemes}
+              herdHoverHighlights={herdHoverHighlights}
+              reviewerByParent={reviewerByParent}
+              sessionItemProps={sessionItemProps}
+              countUserPermissions={countUserPermissions}
+              onToggle={toggleArchivedSessions}
+              onLoadMore={() => void loadArchivedSessionsPage()}
+            />
           </>
         )}
       </div>

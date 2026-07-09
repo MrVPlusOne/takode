@@ -17,6 +17,7 @@ const FORCE_REFRESH_AFTER_HIDDEN_MS = 60_000;
 
 export interface HydrateSessionListOptions {
   preserveMissingArchived?: boolean;
+  preserveMissingSessions?: boolean;
 }
 
 export interface ActiveSessionMetadataRefreshOptions {
@@ -30,9 +31,11 @@ let lastActiveSessionMetadataRefreshStartedAt = 0;
 export function hydrateSessionList(list: SdkSessionInfo[], options: HydrateSessionListOptions = {}): void {
   const store = useStore.getState();
   const strippedList = list.map(stripSearchMetadata);
-  const nextSdkSessions = options.preserveMissingArchived
-    ? mergeActiveSnapshotWithExistingArchived(strippedList, store.sdkSessions)
-    : strippedList;
+  const nextSdkSessions = options.preserveMissingSessions
+    ? mergePartialSnapshotWithExistingSessions(strippedList, store.sdkSessions)
+    : options.preserveMissingArchived
+      ? mergeActiveSnapshotWithExistingArchived(strippedList, store.sdkSessions)
+      : strippedList;
   setSdkSessionsWithNotificationFreshness(nextSdkSessions);
 
   let batchedAttention: Map<string, "action" | "error" | "review" | null> | null = null;
@@ -131,6 +134,15 @@ function mergeActiveSnapshotWithExistingArchived(
   const activeIds = new Set(activeSnapshot.map((session) => session.sessionId));
   const preservedArchived = currentSessions.filter((session) => session.archived && !activeIds.has(session.sessionId));
   return [...activeSnapshot, ...preservedArchived];
+}
+
+function mergePartialSnapshotWithExistingSessions(
+  partialSnapshot: SdkSessionInfo[],
+  currentSessions: SdkSessionInfo[],
+): SdkSessionInfo[] {
+  const partialIds = new Set(partialSnapshot.map((session) => session.sessionId));
+  const preservedSessions = currentSessions.filter((session) => !partialIds.has(session.sessionId));
+  return [...partialSnapshot, ...preservedSessions];
 }
 
 function hydrateSessionDerivedMetadata(store: ReturnType<typeof useStore.getState>, session: SdkSessionInfo): void {

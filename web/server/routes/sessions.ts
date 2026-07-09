@@ -47,6 +47,7 @@ import { registerSessionsArchiveRoutes } from "./sessions-archive-routes.js";
 import { withProgressHeartbeat } from "./progress-heartbeat.js";
 import { cleanupWorktree, createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
+import { registerArchivedSessionPageRoute } from "./session-archived-page-route.js";
 import { registerSessionMessageSearchRoute } from "./session-message-search-route.js";
 import { registerSessionStarredMessagesRoute } from "./session-starred-messages-route.js";
 import { registerGlobalStarredMessageSearchRoute } from "./global-starred-message-search-route.js";
@@ -1148,11 +1149,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
   });
 
+  const sessionSnapshotDeps = { launcher, wsBridge, timerManager: ctx.timerManager, pendingWorktreeCleanups };
   const buildEnrichedSessions = (filterFn?: (s: ReturnType<CliLauncher["listSessions"]>[number]) => boolean) =>
-    buildEnrichedSessionsSnapshot(
-      { launcher, wsBridge, timerManager: ctx.timerManager, pendingWorktreeCleanups },
-      filterFn,
-    );
+    buildEnrichedSessionsSnapshot(sessionSnapshotDeps, filterFn);
 
   const backfillSessionProjectMeta = async (
     info: { cwd: string; repoRoot?: string },
@@ -1176,6 +1175,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const enriched = await buildEnrichedSessions(includeArchived ? undefined : (session) => !session.archived);
     return c.json(enriched);
   });
+  registerArchivedSessionPageRoute(api, sessionSnapshotDeps);
   registerSessionSearchRoute(api, { launcher, wsBridge });
   registerGlobalStarredMessageSearchRoute(api, { launcher, wsBridge });
   registerSessionMessageSearchRoute(api, { launcher, wsBridge, resolveId });

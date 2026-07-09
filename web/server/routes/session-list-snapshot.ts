@@ -86,8 +86,16 @@ export async function buildEnrichedSessionsSnapshot(
 ) {
   const { launcher, wsBridge, timerManager, pendingWorktreeCleanups } = deps;
   const sessions = launcher.listSessions().filter((session) => session.hidden !== true);
-  const names = sessionNames.getAllNames();
   const pool = filterFn ? sessions.filter(filterFn) : sessions;
+  return buildEnrichedSessionsSnapshotFromEntries(deps, pool);
+}
+
+export async function buildEnrichedSessionsSnapshotFromEntries(
+  deps: BuildEnrichedSessionsSnapshotDeps,
+  pool: SessionListEntry[],
+) {
+  const { launcher, wsBridge, timerManager, pendingWorktreeCleanups } = deps;
+  const names = sessionNames.getAllNames();
   const settings = getSettings();
   const heavyRepoModeEnabled = settings.heavyRepoModeEnabled;
   return Promise.all(

@@ -83,6 +83,21 @@ describe("session list hydration", () => {
     expect(useStore.getState().treeGroups.map((group) => group.name)).toEqual(["MSI"]);
   });
 
+  it("merges partial archived pages without replacing active session rows", () => {
+    const active = makeSdkSession("active", { archived: false, state: "connected" });
+    const archivedOld = makeSdkSession("archived-old", { archived: true, state: "exited", createdAt: 1 });
+    const archivedPage = makeSdkSession("archived-page", { archived: true, state: "exited", createdAt: 2 });
+    useStore.getState().setSdkSessions([active, archivedOld]);
+
+    hydrateSessionList([archivedPage], { preserveMissingSessions: true });
+
+    expect(useStore.getState().sdkSessions.map((session) => session.sessionId)).toEqual([
+      "archived-page",
+      "active",
+      "archived-old",
+    ]);
+  });
+
   it("installs page-restore hydration outside the sidebar and forces active refresh for persisted pageshow", async () => {
     mockApi.listSessions.mockResolvedValueOnce([makeSdkSession("initial")]);
     const cleanup = installActiveSessionMetadataRefreshListeners();

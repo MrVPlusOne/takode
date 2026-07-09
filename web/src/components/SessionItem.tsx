@@ -204,7 +204,7 @@ function buildGitStatusTitle(s: SessionItemType): string {
   return `Git stats ${freshness}. Last refreshed ${gitStatusAge}.${branch}`;
 }
 
-interface SessionItemProps {
+export interface SessionItemProps {
   session: SessionItemType;
   isActive: boolean;
   isArchived?: boolean;
