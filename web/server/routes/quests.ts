@@ -1,8 +1,14 @@
 import { Hono, type Context } from "hono";
+import { createHash } from "node:crypto";
 import * as questStore from "../quest-store.js";
 import type { QuestFeedbackEntry, QuestmasterTask } from "../quest-types.js";
 import { hasQuestReviewMetadata } from "../quest-types.js";
-import { applyQuestListFilters, getQuestListPageAsync, type QuestListSortColumn } from "../quest-list-filters.js";
+import {
+  buildQuestListPreview,
+  getQuestListPageAsync,
+  type QuestListPageOptions,
+  type QuestListSortColumn,
+} from "../quest-list-filters.js";
 import { SERVER_GIT_CMD } from "../constants.js";
 import {
   addTaskEntry as addTaskEntryController,
@@ -79,6 +85,43 @@ function findLatestAgentSummaryFeedbackIndex(entries: QuestFeedbackEntry[], targ
 
 function setTldrWarningHeader(c: { header: (name: string, value: string) => void }, warning: string | null): void {
   if (warning) c.header(QUEST_TLDR_WARNING_HEADER, warning);
+}
+
+function questJsonEtag(value: unknown): string {
+  return `"quest-${createHash("sha256").update(JSON.stringify(value)).digest("base64url")}"`;
+}
+
+function requestHasMatchingEtag(c: Context, etag: string): boolean {
+  const header = c.req.header("if-none-match");
+  if (!header) return false;
+  return header
+    .split(",")
+    .map((part) => part.trim())
+    .some((part) => part === etag || part === "*");
+}
+
+function cacheValidatedJson(c: Context, value: unknown) {
+  const etag = questJsonEtag(value);
+  c.header("ETag", etag);
+  c.header("Cache-Control", "private, no-cache");
+  if (requestHasMatchingEtag(c, etag)) return c.body(null, 304);
+  return c.json(value);
+}
+
+function questListPageOptions(c: Context): QuestListPageOptions {
+  return {
+    status: c.req.query("status"),
+    tags: c.req.query("tags"),
+    tag: c.req.query("tag"),
+    excludeTags: c.req.query("excludeTags"),
+    session: c.req.query("session") ?? c.req.query("sessionId"),
+    text: c.req.query("text"),
+    verification: c.req.query("verification"),
+    offset: parseIntegerQuery(c.req.query("offset")),
+    limit: parseIntegerQuery(c.req.query("limit")),
+    sortColumn: normalizeQuestListSortColumn(c.req.query("sortColumn")),
+    sortDirection: normalizeQuestListSortDirection(c.req.query("sortDirection")),
+  };
 }
 
 function isAuthenticatedCompanionCaller(
@@ -406,22 +449,15 @@ export function createQuestRoutes(ctx: RouteContext) {
 
   api.get("/quests", async (c) => {
     const parentId = c.req.query("parentId");
-    const sessionId = c.req.query("sessionId");
-    let quests = applyQuestListFilters(await questStore.listQuests(), {
-      status: c.req.query("status"),
-      verification: c.req.query("verification"),
-      tags: c.req.query("tags"),
-      tag: c.req.query("tag"),
-      text: c.req.query("text"),
+    const sourceQuests = await questStore.listQuests();
+    const scopedQuests = parentId ? sourceQuests.filter((quest) => quest.parentId === parentId) : sourceQuests;
+    const page = await getQuestListPageAsync(scopedQuests, {
+      ...questListPageOptions(c),
+      offset: parseIntegerQuery(c.req.query("offset")) ?? 0,
+      limit: parseIntegerQuery(c.req.query("limit")) ?? 50,
     });
-    if (parentId) quests = quests.filter((q) => q.parentId === parentId);
-    if (sessionId)
-      quests = quests.filter((q) => {
-        const activeOwner = "sessionId" in q ? (q as { sessionId?: string }).sessionId : undefined;
-        const previousOwners = Array.isArray(q.previousOwnerSessionIds) ? q.previousOwnerSessionIds : [];
-        return activeOwner === sessionId || previousOwners.includes(sessionId);
-      });
-    return c.json(quests);
+    c.header("X-Companion-Deprecated", "GET /api/quests now returns a bounded preview page; use /api/quests/_page");
+    return cacheValidatedJson(c, page);
   });
 
   api.get("/quests/_summary", async (c) => {
@@ -429,7 +465,7 @@ export function createQuestRoutes(ctx: RouteContext) {
       limit: 1,
     });
     const counts = page.counts;
-    return c.json({
+    return cacheValidatedJson(c, {
       total: counts.all,
       active: counts.idea + counts.refined + counts.in_progress,
       counts,
@@ -437,26 +473,14 @@ export function createQuestRoutes(ctx: RouteContext) {
   });
 
   api.get("/quests/_page", async (c) => {
-    const page = await getQuestListPageAsync(await questStore.listQuests(), {
-      status: c.req.query("status"),
-      tags: c.req.query("tags"),
-      tag: c.req.query("tag"),
-      excludeTags: c.req.query("excludeTags"),
-      session: c.req.query("session") ?? c.req.query("sessionId"),
-      text: c.req.query("text"),
-      verification: c.req.query("verification"),
-      offset: parseIntegerQuery(c.req.query("offset")),
-      limit: parseIntegerQuery(c.req.query("limit")),
-      sortColumn: normalizeQuestListSortColumn(c.req.query("sortColumn")),
-      sortDirection: normalizeQuestListSortDirection(c.req.query("sortDirection")),
-    });
-    return c.json(page);
+    const page = await getQuestListPageAsync(await questStore.listQuests(), questListPageOptions(c));
+    return cacheValidatedJson(c, page);
   });
 
   api.get("/quests/:questId", async (c) => {
     const quest = await questStore.getQuest(c.req.param("questId"));
     if (!quest) return c.json({ error: "Quest not found" }, 404);
-    return c.json(quest);
+    return cacheValidatedJson(c, quest);
   });
 
   api.get("/quests/:questId/history", async (c) => {

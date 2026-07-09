@@ -70,6 +70,10 @@ import type {
 } from "../shared/leader-profile-portraits.js";
 import type {
   QuestmasterTask,
+  QuestListPreview,
+  QuestListPreviewFeedbackSummary,
+  QuestListPreviewProgress,
+  QuestListPreviewPhaseLine,
   QuestStatus,
   QuestVerificationItem,
   QuestQuizItem,
@@ -158,6 +162,10 @@ export type {
 export { assertNever, isClaudeFamily };
 export type {
   QuestmasterTask,
+  QuestListPreview,
+  QuestListPreviewFeedbackSummary,
+  QuestListPreviewProgress,
+  QuestListPreviewPhaseLine,
   QuestStatus,
   QuestVerificationItem,
   QuestQuizItem,

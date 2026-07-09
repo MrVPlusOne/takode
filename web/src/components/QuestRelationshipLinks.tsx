@@ -1,4 +1,4 @@
-import type { QuestRelatedQuest, QuestRelatedQuestKind, QuestmasterTask } from "../types.js";
+import type { QuestListPreview, QuestRelatedQuest, QuestRelatedQuestKind, QuestmasterTask } from "../types.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 
 type DisplayedQuestRelationshipKind = Exclude<QuestRelatedQuestKind, "references">;
@@ -15,7 +15,7 @@ export function QuestRelationshipLinks({
   quest,
   variant = "detail",
 }: {
-  quest: QuestmasterTask;
+  quest: QuestmasterTask | QuestListPreview;
   variant?: "detail" | "inline";
 }) {
   const groups = groupRelatedQuests(quest.relatedQuests ?? []);

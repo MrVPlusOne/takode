@@ -20,13 +20,7 @@ import {
 } from "../utils/questmaster-view-state.js";
 import type { QuestmasterCollapsedGroup } from "../utils/questmaster-view-state.js";
 import { QUEST_STATUS_THEME, type QuestStatusTheme } from "../utils/quest-status-theme.js";
-import {
-  timeAgo,
-  verificationProgress,
-  getQuestOwnerSessionId,
-  getQuestLeaderSessionId,
-  CopyableQuestId,
-} from "../utils/quest-helpers.js";
+import { timeAgo, getQuestOwnerSessionId, getQuestLeaderSessionId, CopyableQuestId } from "../utils/quest-helpers.js";
 import { buildQuestJourneyContextByQuestId, type QuestJourneyContext } from "../utils/quest-journey-context.js";
 import { getQuestDebriefTldr } from "../utils/quest-editor-helpers.js";
 import { QuestPhaseScanLines } from "./QuestPhaseScanLines.js";
@@ -49,8 +43,13 @@ import type {
   QuestmasterCompactSortColumn,
   QuestmasterViewMode,
 } from "../api.js";
-import type { QuestmasterTask, QuestStatus, QuestFeedbackEntry } from "../types.js";
+import type { QuestListPreview, QuestmasterTask, QuestStatus } from "../types.js";
 import { multiWordMatch } from "../../shared/search-utils.js";
+import {
+  compactPhaseDocumentationGroups,
+  phaseDocumentationPreview,
+  summarizeQuestPhaseDocumentation,
+} from "../../shared/quest-phase-documentation-summary.js";
 
 // ─── Status config ──────────────────────────────────────────────────────────
 
@@ -135,8 +134,8 @@ function getQuestSearchAutocompleteMatches(query: string, allTags: string[], sel
 }
 
 function mergeUniqueQuestPage(
-  existing: QuestmasterTask[],
-  incoming: QuestmasterTask[],
+  existing: QuestListPreview[],
+  incoming: QuestListPreview[],
   direction: "append" | "prepend",
 ) {
   const merged = direction === "prepend" ? [...incoming, ...existing] : [...existing, ...incoming];
@@ -149,9 +148,75 @@ function mergeUniqueQuestPage(
   });
 }
 
-function fallbackQuestPage(quests: QuestmasterTask[]): QuestListPage {
+function questPreviewFromTask(quest: QuestmasterTask): QuestListPreview {
+  const verificationItems = "verificationItems" in quest ? (quest.verificationItems ?? []) : [];
+  const humanFeedback = (quest.feedback ?? []).filter((entry) => entry.author === "human");
+  const phasePreviewLines = compactPhaseDocumentationGroups(summarizeQuestPhaseDocumentation(quest), 2).flatMap(
+    (group) => {
+      const latestEntry = group.entries.at(-1);
+      if (!latestEntry) return [];
+      return [
+        {
+          key: group.key,
+          label: group.displayLabel,
+          ...(group.metaLabel ? { metaLabel: group.metaLabel } : {}),
+          text: phaseDocumentationPreview(latestEntry),
+        },
+      ];
+    },
+  );
   return {
-    quests,
+    preview: true,
+    id: quest.id,
+    questId: quest.questId,
+    version: quest.version,
+    title: quest.title,
+    status: quest.status,
+    ...(quest.tldr ? { tldr: quest.tldr } : {}),
+    createdAt: quest.createdAt,
+    ...(quest.updatedAt ? { updatedAt: quest.updatedAt } : {}),
+    ...(quest.statusChangedAt ? { statusChangedAt: quest.statusChangedAt } : {}),
+    ...(quest.tags ? { tags: quest.tags } : {}),
+    ...(quest.parentId ? { parentId: quest.parentId } : {}),
+    ...(quest.sessionSpaceSlug ? { sessionSpaceSlug: quest.sessionSpaceSlug } : {}),
+    ...("sessionId" in quest && quest.sessionId ? { sessionId: quest.sessionId } : {}),
+    ...("claimedAt" in quest && quest.claimedAt ? { claimedAt: quest.claimedAt } : {}),
+    ...(quest.previousOwnerSessionIds ? { previousOwnerSessionIds: quest.previousOwnerSessionIds } : {}),
+    ...(quest.leaderSessionId ? { leaderSessionId: quest.leaderSessionId } : {}),
+    ...("completedAt" in quest && quest.completedAt ? { completedAt: quest.completedAt } : {}),
+    ...("verificationInboxUnread" in quest && typeof quest.verificationInboxUnread === "boolean"
+      ? { verificationInboxUnread: quest.verificationInboxUnread }
+      : {}),
+    ...("cancelled" in quest && quest.cancelled === true ? { cancelled: true } : {}),
+    ...("debriefTldr" in quest && quest.debriefTldr ? { debriefTldr: quest.debriefTldr } : {}),
+    ...(quest.relationships ? { relationships: quest.relationships } : {}),
+    ...(quest.relatedQuests ? { relatedQuests: quest.relatedQuests } : {}),
+    ...(quest.journeyRuns ? { journeyRuns: quest.journeyRuns } : {}),
+    ...(verificationItems.length > 0
+      ? {
+          verificationProgress: {
+            checked: verificationItems.filter((item) => item.checked).length,
+            total: verificationItems.length,
+          },
+        }
+      : {}),
+    ...(humanFeedback.length > 0
+      ? {
+          feedbackSummary: {
+            humanTotal: humanFeedback.length,
+            humanUnaddressed: humanFeedback.filter((entry) => !entry.addressed).length,
+            humanAddressed: humanFeedback.filter((entry) => entry.addressed).length,
+          },
+        }
+      : {}),
+    ...(phasePreviewLines.length > 0 ? { phasePreviewLines } : {}),
+  };
+}
+
+function fallbackQuestPage(quests: QuestmasterTask[]): QuestListPage {
+  const previews = quests.map(questPreviewFromTask);
+  return {
+    quests: previews,
     total: quests.length,
     offset: 0,
     limit: QUEST_PAGE_SIZE,
@@ -176,7 +241,7 @@ function isAbortError(err: unknown): boolean {
 }
 
 function questMatchesCurrentPageCorpus(
-  quest: QuestmasterTask,
+  quest: QuestListPreview,
   selectedTags: Set<string>,
   negatedTags: Set<string>,
   searchText: string,
@@ -187,19 +252,14 @@ function questMatchesCurrentPageCorpus(
 
   const query = searchText.trim();
   if (!query) return true;
-  const doneText =
-    quest.status === "done" && quest.cancelled !== true ? `${quest.debriefTldr ?? ""}\n${quest.debrief ?? ""}` : "";
-  const feedbackText =
-    "feedback" in quest ? (quest.feedback ?? []).flatMap((entry) => [entry.tldr ?? "", entry.text]) : [];
-  const quizText = (quest.quizItems ?? []).flatMap((item) => [item.question, item.answer, item.source ?? ""]);
   return multiWordMatch(
-    `${quest.questId}\n${quest.title}\n${(quest.tags ?? []).join("\n")}\n${quest.tldr ?? ""}\n${"description" in quest ? quest.description || "" : ""}\n${doneText}\n${quizText.join("\n")}\n${feedbackText.join("\n")}`,
+    `${quest.questId}\n${quest.title}\n${(quest.tags ?? []).join("\n")}\n${quest.tldr ?? ""}\n${quest.debriefTldr ?? ""}\n${(quest.phasePreviewLines ?? []).map((line) => line.text).join("\n")}`,
     query,
   );
 }
 
 function questMatchesCurrentVisibleFilters(
-  quest: QuestmasterTask,
+  quest: QuestListPreview,
   filter: Set<QuestStatus>,
   allSelected: boolean,
   selectedTags: Set<string>,
@@ -208,6 +268,21 @@ function questMatchesCurrentVisibleFilters(
 ) {
   if (!questMatchesCurrentPageCorpus(quest, selectedTags, negatedTags, searchText)) return false;
   return allSelected || filter.has(quest.status);
+}
+
+function questPageRequestKey(options: QuestListPageOptions): string {
+  return JSON.stringify({
+    offset: options.offset ?? 0,
+    limit: options.limit ?? QUEST_PAGE_SIZE,
+    status: options.status ?? "",
+    session: options.session ?? "",
+    sessionId: options.sessionId ?? "",
+    tags: [...(options.tags ?? [])].sort(),
+    excludeTags: [...(options.excludeTags ?? [])].sort(),
+    text: options.text ?? "",
+    sortColumn: options.sortColumn ?? "",
+    sortDirection: options.sortDirection ?? "",
+  });
 }
 
 function QuestTldrMarkdown({
@@ -256,7 +331,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     () => window.location.hash,
   );
   const storeQuests = useStore((s) => s.quests);
-  const setQuests = useStore((s) => s.setQuests);
+  const upsertQuestDetail = useStore((s) => s.upsertQuestDetail);
   const questOverlayId = useStore((s) => s.questOverlayId);
   const sessionBoards = useStore((s) => s.sessionBoards);
   const sessionCompletedBoards = useStore((s) => s.sessionCompletedBoards);
@@ -279,7 +354,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const [compactSortSaving, setCompactSortSaving] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const initialPage = useMemo(() => fallbackQuestPage(storeQuests), []);
-  const [pagedQuests, setPagedQuests] = useState<QuestmasterTask[]>(initialPage.quests.slice(0, QUEST_PAGE_SIZE));
+  const [pagedQuests, setPagedQuests] = useState<QuestListPreview[]>(initialPage.quests.slice(0, QUEST_PAGE_SIZE));
   const [pageInfo, setPageInfo] = useState<QuestListPage>(initialPage);
   const [windowOffset, setWindowOffset] = useState(0);
   const [questsLoading, setQuestsLoading] = useState(false);
@@ -287,6 +362,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const [debouncedSearchText, setDebouncedSearchText] = useState("");
   const pageRequestSeqRef = useRef(0);
   const pageAbortControllerRef = useRef<AbortController | null>(null);
+  const pageEtagsRef = useRef(new Map<string, string>());
   const pageRequestInFlightRef = useRef(false);
   const visibleWindowRef = useRef({ offset: 0, count: 0 });
   const autoPagingDirectionRef = useRef<"next" | "previous" | null>(null);
@@ -404,12 +480,31 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
           sortColumn: debouncedSearchText ? undefined : viewMode === "compact" ? compactSort.column : "cards",
           sortDirection: debouncedSearchText ? undefined : viewMode === "compact" ? compactSort.direction : "asc",
         };
-        let page = await api.listQuestPage({ ...pageOptions, offset }, abortController.signal);
+        let pageRequest: QuestListPageOptions = { ...pageOptions, offset };
+        let requestKey = questPageRequestKey(pageRequest);
+        let result = await api.listQuestPageValidated(pageRequest, {
+          signal: abortController.signal,
+          etag: pageEtagsRef.current.get(requestKey) ?? null,
+        });
+        if (result.status === "not-modified") {
+          if (requestSeq !== pageRequestSeqRef.current) return;
+          return;
+        }
+        if (result.etag) pageEtagsRef.current.set(requestKey, result.etag);
+        let page = result.data;
         if (page.quests.length === 0 && page.total > 0 && offset > 0) {
-          page = await api.listQuestPage(
-            { ...pageOptions, offset: Math.max(0, page.total - pageLimit) },
-            abortController.signal,
-          );
+          pageRequest = { ...pageOptions, offset: Math.max(0, page.total - pageLimit) };
+          requestKey = questPageRequestKey(pageRequest);
+          result = await api.listQuestPageValidated(pageRequest, {
+            signal: abortController.signal,
+            etag: pageEtagsRef.current.get(requestKey) ?? null,
+          });
+          if (result.status === "not-modified") {
+            if (requestSeq !== pageRequestSeqRef.current) return;
+            return;
+          }
+          if (result.etag) pageEtagsRef.current.set(requestKey, result.etag);
+          page = result.data;
         }
         if (requestSeq !== pageRequestSeqRef.current) return;
 
@@ -605,8 +700,10 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
         .getQuest(targetQuestId)
         .then((quest) => {
           if (cancelled) return;
+          upsertQuestDetail(quest);
+          const preview = questPreviewFromTask(quest);
           setPagedQuests((current) =>
-            current.some((existing) => existing.questId === quest.questId) ? current : [quest, ...current],
+            current.some((existing) => existing.questId === quest.questId) ? current : [preview, ...current],
           );
           setCollapsedGroups((prev) => {
             if (!prev.has(quest.status)) return prev;
@@ -635,10 +732,10 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       }
     });
     return () => window.cancelAnimationFrame(scrollFrameId);
-  }, [hash, pagedQuests]);
+  }, [hash, pagedQuests, upsertQuestDetail]);
 
   const handleExpand = useCallback(
-    (quest: QuestmasterTask) => {
+    (quest: QuestListPreview | QuestmasterTask) => {
       const store = useStore.getState();
       if (store.questOverlayId === quest.questId) {
         const currentHash = window.location.hash || "#/";
@@ -658,15 +755,11 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
 
   const handleCreateQuestCreated = useCallback(
     (createdQuest: QuestmasterTask) => {
-      const currentQuests = useStore.getState().quests;
-      setQuests(
-        [createdQuest, ...currentQuests.filter((q) => q.questId !== createdQuest.questId)].sort(
-          (a, b) => questRecencyTs(b) - questRecencyTs(a),
-        ),
-      );
-      const matchesCurrentCorpus = questMatchesCurrentPageCorpus(createdQuest, selectedTags, negatedTags, searchText);
+      upsertQuestDetail(createdQuest);
+      const createdPreview = questPreviewFromTask(createdQuest);
+      const matchesCurrentCorpus = questMatchesCurrentPageCorpus(createdPreview, selectedTags, negatedTags, searchText);
       const matchesVisibleFilters = questMatchesCurrentVisibleFilters(
-        createdQuest,
+        createdPreview,
         filter,
         allSelected,
         selectedTags,
@@ -676,13 +769,16 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       const shouldInsertIntoWindow = matchesVisibleFilters && windowOffset === 0;
       if (shouldInsertIntoWindow) {
         setPagedQuests((current) =>
-          [createdQuest, ...current.filter((q) => q.questId !== createdQuest.questId)].slice(0, MAX_RENDERED_QUESTS),
+          [createdPreview, ...current.filter((q) => q.questId !== createdQuest.questId)].slice(0, MAX_RENDERED_QUESTS),
         );
       }
       setPageInfo((current) => ({
         ...current,
         quests: shouldInsertIntoWindow
-          ? [createdQuest, ...current.quests.filter((q) => q.questId !== createdQuest.questId)].slice(0, current.limit)
+          ? [createdPreview, ...current.quests.filter((q) => q.questId !== createdQuest.questId)].slice(
+              0,
+              current.limit,
+            )
           : current.quests,
         total: current.total + (matchesVisibleFilters ? 1 : 0),
         counts: matchesCurrentCorpus
@@ -699,7 +795,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       setShowCreateForm(false);
       useStore.getState().openQuestOverlay(createdQuest.questId);
     },
-    [allSelected, filter, negatedTags, searchText, selectedTags, setQuests, windowOffset],
+    [allSelected, filter, negatedTags, searchText, selectedTags, upsertQuestDetail, windowOffset],
   );
   const handleCreateQuestCancel = useCallback(() => {
     setShowCreateForm(false);
@@ -806,11 +902,11 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     label: string;
     dotClass: string;
     textClass: string;
-    quests: QuestmasterTask[];
+    quests: QuestListPreview[];
     collapseGroup?: QuestmasterCollapsedGroup;
   };
 
-  const sortByRecencyDesc = (items: QuestmasterTask[]): QuestmasterTask[] =>
+  const sortByRecencyDesc = (items: QuestListPreview[]): QuestListPreview[] =>
     [...items].sort((a, b) => questRecencyTs(b) - questRecencyTs(a));
   const journeyContextByQuestId = useMemo(
     () => buildQuestJourneyContextByQuestId(pagedQuests, sessionBoards, sessionCompletedBoards),
@@ -1447,24 +1543,20 @@ const QuestCard = memo(function QuestCard({
   searchText,
   journeyContext,
 }: {
-  quest: QuestmasterTask;
+  quest: QuestListPreview;
   isExpanded: boolean;
-  onOpenQuest: (quest: QuestmasterTask) => void;
+  onOpenQuest: (quest: QuestListPreview) => void;
   searchText: string;
   journeyContext?: QuestJourneyContext;
 }) {
   const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
   const displayStatus = getQuestmasterDisplayStatus(quest, journeyContext);
-  const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
-  const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
+  const vProgress = quest.verificationProgress ?? null;
   const questSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionId = getQuestLeaderSessionId(quest);
   const debriefTldr = getQuestDebriefTldr(quest);
-  const feedbackEntries = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
-  const unaddressedFeedbackCount =
-    feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
-  const addressedFeedbackCount =
-    feedbackEntries?.filter((entry) => entry.author === "human" && entry.addressed).length ?? 0;
+  const unaddressedFeedbackCount = quest.feedbackSummary?.humanUnaddressed ?? 0;
+  const addressedFeedbackCount = quest.feedbackSummary?.humanAddressed ?? 0;
 
   return (
     <div>

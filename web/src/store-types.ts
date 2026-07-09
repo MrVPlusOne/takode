@@ -133,11 +133,16 @@ export interface AppState {
   collapsedTreeGroups: Set<string>;
   collapsedTreeNodes: Set<string>;
   expandedHerdNodes: Set<string>;
+  questDetails: Map<string, QuestmasterTask>;
+  questDetailEtags: Map<string, string>;
   quests: QuestmasterTask[];
   questSummary: QuestSummary | null;
+  questSummaryEtag: string | null;
   questsLoadedFull: boolean;
   questsLoading: boolean;
   setQuests: (quests: QuestmasterTask[]) => void;
+  upsertQuestDetail: (updated: QuestmasterTask, opts?: { etag?: string | null }) => void;
+  removeQuestDetail: (questId: string) => void;
   replaceQuest: (updated: QuestmasterTask) => void;
   refreshQuests: (opts?: { background?: boolean; force?: boolean }) => Promise<void>;
   refreshQuestSummary: (opts?: { force?: boolean }) => Promise<void>;

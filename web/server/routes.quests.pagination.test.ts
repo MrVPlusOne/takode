@@ -77,7 +77,8 @@ describe("GET /api/quests/_page", () => {
     const res = await app.request("/api/quests/_page?limit=2&offset=0");
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toMatchObject({
+    const body = await res.json();
+    expect(body).toMatchObject({
       quests: [{ questId: "q-1" }, { questId: "q-3" }],
       total: 3,
       offset: 0,
@@ -88,6 +89,49 @@ describe("GET /api/quests/_page", () => {
       counts: { all: 3, in_progress: 1, done: 2, idea: 0, refined: 0 },
       allTags: ["archive", "work"],
     });
+    expect(body.quests[0]).toMatchObject({ preview: true, title: "Active" });
+    expect(body.quests[0]).not.toHaveProperty("description");
+    expect(body.quests[0]).not.toHaveProperty("feedback");
+  });
+
+  it("returns 304 when the page ETag matches", async () => {
+    const app = makeApp([makeQuest({ questId: "q-1", title: "Active", status: "in_progress", updatedAt: 100 })]);
+
+    const first = await app.request("/api/quests/_page?limit=2&offset=0");
+    const etag = first.headers.get("etag");
+    expect(first.status).toBe(200);
+    expect(etag).toBeTruthy();
+
+    const second = await app.request("/api/quests/_page?limit=2&offset=0", {
+      headers: { "If-None-Match": etag ?? "" },
+    });
+
+    expect(second.status).toBe(304);
+    expect(await second.text()).toBe("");
+  });
+
+  it("converts legacy GET /api/quests to a bounded preview page", async () => {
+    const quests = Array.from({ length: 75 }, (_, index) =>
+      makeQuest({
+        questId: `q-${index + 1}`,
+        title: `Quest ${index + 1}`,
+        status: index % 2 === 0 ? "in_progress" : "done",
+        description: `Large body ${index}`,
+        feedbackText: `Feedback body ${index}`,
+      }),
+    );
+    const app = makeApp(quests);
+
+    const res = await app.request("/api/quests");
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-companion-deprecated")).toContain("bounded preview page");
+    const body = await res.json();
+    expect(body.quests).toHaveLength(50);
+    expect(body.total).toBe(75);
+    expect(body.quests[0]).toMatchObject({ preview: true });
+    expect(body.quests[0]).not.toHaveProperty("description");
+    expect(body.quests[0]).not.toHaveProperty("feedback");
   });
 
   it("applies backend text search, tag filters, status filters, and pagination", async () => {

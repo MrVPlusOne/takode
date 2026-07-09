@@ -2,6 +2,7 @@
 
 const mockListQuests = vi.fn();
 const mockGetQuestSummary = vi.fn();
+const mockGetQuestSummaryValidated = vi.fn();
 const mockUpdateSettings = vi.fn();
 
 // vi.hoisted runs before any imports, ensuring browser globals are available when store.ts initializes.
@@ -57,6 +58,7 @@ vi.mock("./api.js", async (importOriginal) => {
       ...actual.api,
       listQuests: (...args: unknown[]) => mockListQuests(...args),
       getQuestSummary: (...args: unknown[]) => mockGetQuestSummary(...args),
+      getQuestSummaryValidated: (...args: unknown[]) => mockGetQuestSummaryValidated(...args),
       updateSettings: (...args: unknown[]) => mockUpdateSettings(...args),
     },
   };
@@ -156,6 +158,7 @@ beforeEach(() => {
   resetQuestRefreshStateForTests();
   mockListQuests.mockReset();
   mockGetQuestSummary.mockReset();
+  mockGetQuestSummaryValidated.mockReset();
   mockUpdateSettings.mockReset();
   mockUpdateSettings.mockResolvedValue({});
   localStorage.clear();
@@ -758,6 +761,7 @@ describe("Questmaster refresh", () => {
 
     expect(mockListQuests).not.toHaveBeenCalled();
     expect(mockGetQuestSummary).not.toHaveBeenCalled();
+    expect(mockGetQuestSummaryValidated).not.toHaveBeenCalled();
   });
 
   it("refreshQuests uses lightweight summary data for background refreshes", async () => {
@@ -768,16 +772,18 @@ describe("Questmaster refresh", () => {
 
     const previousRef = useStore.getState().quests;
     const summary = { total: 4, active: 3, counts: { all: 4, idea: 1, refined: 1, in_progress: 1, done: 1 } };
-    mockGetQuestSummary.mockResolvedValue(summary);
+    mockGetQuestSummaryValidated.mockResolvedValue({ status: "fresh", data: summary, etag: '"summary-v1"' });
 
     await useStore.getState().refreshQuests({ background: true, force: true });
 
     expect(useStore.getState().quests).toBe(previousRef);
     expect(useStore.getState().questSummary).toEqual(summary);
+    expect(useStore.getState().questSummaryEtag).toBe('"summary-v1"');
     expect(mockListQuests).not.toHaveBeenCalled();
+    expect(mockGetQuestSummaryValidated).toHaveBeenCalledWith(null);
   });
 
-  it("replaceQuest preserves a server summary when the quest list is partial", () => {
+  it("replaceQuest updates the detail cache and preserves a server summary when the quest list is partial", () => {
     // On migrated servers, detail fetches can insert one quest while the full
     // corpus stays unloaded; that must not downgrade server-provided counts.
     const summary = {
@@ -796,7 +802,8 @@ describe("Questmaster refresh", () => {
       }),
     );
 
-    expect(useStore.getState().quests.map((quest) => quest.questId)).toEqual(["q-1592"]);
+    expect(useStore.getState().quests).toEqual([]);
+    expect(useStore.getState().questDetails.get("q-1592")?.title).toBe("Fetched on demand");
     expect(useStore.getState().questSummary).toBe(summary);
   });
 
@@ -830,11 +837,8 @@ describe("Questmaster refresh", () => {
     useStore.getState().setQuests([existing, untouched]);
     const previousRef = useStore.getState().quests;
 
-    mockGetQuestSummary.mockResolvedValue({
-      total: 2,
-      active: 2,
-      counts: { all: 2, idea: 0, refined: 1, in_progress: 1, done: 0 },
-    });
+    useStore.setState({ questSummaryEtag: '"summary-v1"' });
+    mockGetQuestSummaryValidated.mockResolvedValue({ status: "not-modified", etag: '"summary-v1"' });
 
     await useStore.getState().refreshQuests({ background: true, force: true });
 
@@ -843,6 +847,7 @@ describe("Questmaster refresh", () => {
     expect(quests[0]).toBe(existing);
     expect(quests[1]).toBe(untouched);
     expect(mockListQuests).not.toHaveBeenCalled();
+    expect(mockGetQuestSummaryValidated).toHaveBeenCalledWith('"summary-v1"');
   });
 });
 

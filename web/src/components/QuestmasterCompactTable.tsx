@@ -10,7 +10,7 @@ import {
 } from "react";
 import type { QuestmasterCompactSort, QuestmasterCompactSortColumn, QuestmasterCompactSortDirection } from "../api.js";
 import { useStore } from "../store.js";
-import type { QuestFeedbackEntry, QuestmasterTask, QuestStatus } from "../types.js";
+import type { QuestListPreview, QuestmasterTask, QuestStatus } from "../types.js";
 import { getHighlightParts } from "../utils/highlight.js";
 import { markdownToPlainText, writeClipboardText } from "../utils/copy-utils.js";
 import {
@@ -74,8 +74,30 @@ export type QuestmasterDisplayStatus = {
   sortRank: number;
 };
 
-export function questRecencyTs(quest: QuestmasterTask): number {
-  return Math.max(quest.createdAt, (quest as { updatedAt?: number }).updatedAt ?? 0, quest.statusChangedAt ?? 0);
+type QuestTableQuest = QuestmasterTask | QuestListPreview;
+
+export function questRecencyTs(quest: QuestTableQuest): number {
+  return Math.max(quest.createdAt, quest.updatedAt ?? 0, quest.statusChangedAt ?? 0);
+}
+
+function questVerificationProgress(quest: QuestTableQuest): { checked: number; total: number } | null {
+  if ("verificationProgress" in quest && quest.verificationProgress) return quest.verificationProgress;
+  const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
+  return hasVerification ? verificationProgress(quest.verificationItems) : null;
+}
+
+function questFeedbackCounts(quest: QuestTableQuest): { unaddressed: number; total: number; addressed: number } {
+  if ("feedbackSummary" in quest && quest.feedbackSummary) {
+    return {
+      unaddressed: quest.feedbackSummary.humanUnaddressed,
+      total: quest.feedbackSummary.humanTotal,
+      addressed: quest.feedbackSummary.humanAddressed,
+    };
+  }
+  const entries = "feedback" in quest ? (quest.feedback ?? []) : [];
+  const humanEntries = entries.filter((entry) => entry.author === "human");
+  const unaddressed = humanEntries.filter((entry) => !entry.addressed).length;
+  return { unaddressed, total: humanEntries.length, addressed: humanEntries.length - unaddressed };
 }
 
 export function normalizeCompactSort(sort: unknown): QuestmasterCompactSort {
@@ -101,7 +123,7 @@ export function nextCompactSort(
 }
 
 export function getQuestmasterDisplayStatus(
-  quest: QuestmasterTask,
+  quest: QuestTableQuest,
   journeyContext?: QuestJourneyContext,
 ): QuestmasterDisplayStatus {
   const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
@@ -172,10 +194,10 @@ export function renderSearchHighlightText(text: string, searchText: string): Rea
 }
 
 export function sortCompactQuests(
-  quests: QuestmasterTask[],
+  quests: QuestTableQuest[],
   sort: QuestmasterCompactSort,
   context: CompactSortContext,
-): QuestmasterTask[] {
+): QuestTableQuest[] {
   return [...quests].sort((left, right) => {
     const columnResult = compareCompactSortColumn(left, right, sort.column, context);
     const directed = sort.direction === "asc" ? columnResult : -columnResult;
@@ -186,7 +208,7 @@ export function sortCompactQuests(
   });
 }
 
-export function QuestStatusHoverTarget({ quest, children }: { quest: QuestmasterTask; children: ReactNode }) {
+export function QuestStatusHoverTarget({ quest, children }: { quest: QuestTableQuest; children: ReactNode }) {
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
   const hideHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -240,8 +262,8 @@ export function CompactQuestTable({
   sortSaving,
   onSortChange,
 }: {
-  quests: QuestmasterTask[];
-  onOpenQuest: (quest: QuestmasterTask) => void;
+  quests: QuestTableQuest[];
+  onOpenQuest: (quest: QuestTableQuest) => void;
   searchText: string;
   journeyContextByQuestId: Map<string, QuestJourneyContext>;
   sort: QuestmasterCompactSort;
@@ -346,7 +368,7 @@ function compareQuestIds(left: string, right: string): number {
   return compareText(left, right);
 }
 
-function ownerSortLabel(quest: QuestmasterTask, context: CompactSortContext): string {
+function ownerSortLabel(quest: QuestTableQuest, context: CompactSortContext): string {
   const sessionId = getQuestOwnerSessionId(quest);
   if (!sessionId) return "";
   const sessionNum = context.sessionNumById.get(sessionId);
@@ -354,7 +376,7 @@ function ownerSortLabel(quest: QuestmasterTask, context: CompactSortContext): st
   return (context.sessionNameById.get(sessionId) || sessionId).trim().toLowerCase();
 }
 
-function leaderSortLabel(quest: QuestmasterTask, context: CompactSortContext): string {
+function leaderSortLabel(quest: QuestTableQuest, context: CompactSortContext): string {
   const sessionId = getQuestLeaderSessionId(quest);
   if (!sessionId) return "";
   const sessionNum = context.sessionNumById.get(sessionId);
@@ -362,19 +384,16 @@ function leaderSortLabel(quest: QuestmasterTask, context: CompactSortContext): s
   return (context.sessionNameById.get(sessionId) || sessionId).trim().toLowerCase();
 }
 
-function verificationSortTuple(quest: QuestmasterTask): [number, number, number] {
-  const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
-  if (!hasVerification) return [0, 0, 0];
-  const progress = verificationProgress(quest.verificationItems);
+function verificationSortTuple(quest: QuestTableQuest): [number, number, number] {
+  const progress = questVerificationProgress(quest);
+  if (!progress) return [0, 0, 0];
   const ratio = progress.total > 0 ? progress.checked / progress.total : 0;
   return [ratio, progress.checked, progress.total];
 }
 
-function feedbackSortTuple(quest: QuestmasterTask): [number, number] {
-  const entries = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
-  const humanEntries = entries?.filter((entry) => entry.author === "human") ?? [];
-  const openCount = humanEntries.filter((entry) => !entry.addressed).length;
-  return [openCount, humanEntries.length];
+function feedbackSortTuple(quest: QuestTableQuest): [number, number] {
+  const counts = questFeedbackCounts(quest);
+  return [counts.unaddressed, counts.total];
 }
 
 function compareNumberTuple(left: readonly number[], right: readonly number[]): number {
@@ -386,8 +405,8 @@ function compareNumberTuple(left: readonly number[], right: readonly number[]): 
 }
 
 function compareCompactSortColumn(
-  left: QuestmasterTask,
-  right: QuestmasterTask,
+  left: QuestTableQuest,
+  right: QuestTableQuest,
   column: QuestmasterCompactSortColumn,
   context: CompactSortContext,
 ): number {
@@ -488,7 +507,7 @@ function CompactSortHeader({
   );
 }
 
-function CompactQuestIdControls({ quest, searchText }: { quest: QuestmasterTask; searchText: string }) {
+function CompactQuestIdControls({ quest, searchText }: { quest: QuestTableQuest; searchText: string }) {
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
   const [copied, setCopied] = useState(false);
   const hideHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -574,8 +593,8 @@ const CompactQuestRow = memo(function CompactQuestRow({
   searchText,
   journeyContext,
 }: {
-  quest: QuestmasterTask;
-  onOpenQuest: (quest: QuestmasterTask) => void;
+  quest: QuestTableQuest;
+  onOpenQuest: (quest: QuestTableQuest) => void;
   searchText: string;
   journeyContext?: QuestJourneyContext;
 }) {
@@ -583,12 +602,8 @@ const CompactQuestRow = memo(function CompactQuestRow({
   const displayStatus = getQuestmasterDisplayStatus(quest, journeyContext);
   const questSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionId = getQuestLeaderSessionId(quest);
-  const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
-  const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
-  const feedbackEntries = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
-  const unaddressedFeedbackCount =
-    feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
-  const totalFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human").length ?? 0;
+  const vProgress = questVerificationProgress(quest);
+  const feedbackCounts = questFeedbackCounts(quest);
 
   return (
     <tr
@@ -661,11 +676,11 @@ const CompactQuestRow = memo(function CompactQuestRow({
         {vProgress ? `${vProgress.checked}/${vProgress.total}` : "\u2014"}
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle tabular-nums">
-        {totalFeedbackCount > 0 ? (
-          <span className={unaddressedFeedbackCount > 0 ? "text-cc-attention" : "text-cc-status-progress"}>
-            {unaddressedFeedbackCount > 0
-              ? `${unaddressedFeedbackCount} open / ${totalFeedbackCount}`
-              : `${totalFeedbackCount} addressed`}
+        {feedbackCounts.total > 0 ? (
+          <span className={feedbackCounts.unaddressed > 0 ? "text-cc-attention" : "text-cc-status-progress"}>
+            {feedbackCounts.unaddressed > 0
+              ? `${feedbackCounts.unaddressed} open / ${feedbackCounts.total}`
+              : `${feedbackCounts.total} addressed`}
           </span>
         ) : (
           <span className="text-cc-muted">{"\u2014"}</span>

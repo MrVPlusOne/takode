@@ -16,6 +16,11 @@ vi.mock("../api.js", () => ({
   api: {
     createQuest: (...args: unknown[]) => mockCreateQuest(...args),
     listQuestPage: (...args: unknown[]) => mockListQuestPage(...args),
+    listQuestPageValidated: async (options: unknown, request?: { signal?: AbortSignal }) => ({
+      status: "fresh",
+      data: await mockListQuestPage(options, request?.signal),
+      etag: null,
+    }),
     getQuest: (questId: string) => Promise.resolve(mockState.quests.find((quest) => quest.questId === questId)),
     getSettings: (...args: unknown[]) => mockGetSettings(...args),
     updateSettings: (...args: unknown[]) => mockUpdateSettings(...args),
@@ -55,10 +60,12 @@ vi.mock("../utils/highlight.js", () => ({
 }));
 
 type MockStoreState = {
+  questDetails: Map<string, QuestmasterTask>;
   quests: QuestmasterTask[];
   questsLoading: boolean;
   refreshQuests: ReturnType<typeof vi.fn>;
   setQuests: (quests: QuestmasterTask[]) => void;
+  upsertQuestDetail: (quest: QuestmasterTask) => void;
   questOverlayId: string | null;
   questOverlaySearchHighlight: string | null;
   questmasterSearchQuery: string;
@@ -156,10 +163,14 @@ function buildVerificationQuest(input: {
 function resetState(overrides: Partial<MockStoreState> = {}) {
   mockState = {
     quests: [],
+    questDetails: new Map(),
     questsLoading: false,
     refreshQuests: vi.fn().mockResolvedValue(undefined),
     setQuests: (quests: QuestmasterTask[]) => {
       mockState.quests = quests;
+    },
+    upsertQuestDetail: (quest: QuestmasterTask) => {
+      mockState.questDetails.set(quest.questId.toLowerCase(), quest);
     },
     questOverlayId: null,
     questOverlaySearchHighlight: null,

@@ -36,6 +36,11 @@ vi.mock("../api.js", () => ({
     editQuestFeedback: (...args: unknown[]) => mockEditQuestFeedback(...args),
     deleteQuestFeedback: (...args: unknown[]) => mockDeleteQuestFeedback(...args),
     getQuest: (...args: unknown[]) => mockGetQuest(...args),
+    getQuestValidated: async (...args: unknown[]) => ({
+      status: "fresh",
+      data: await mockGetQuest(...args),
+      etag: null,
+    }),
     getQuestHistory: (...args: unknown[]) => mockGetQuestHistory(...args),
     getQuestCommit: (...args: unknown[]) => mockGetQuestCommit(...args),
     getQuestMemoryCommit: (...args: unknown[]) => mockGetQuestMemoryCommit(...args),
@@ -470,9 +475,9 @@ describe("QuestDetailPanel", () => {
     render(<QuestDetailPanel />);
 
     expect(screen.getByText("Loading quest...")).toBeInTheDocument();
-    expect(mockGetQuest).toHaveBeenCalledWith("q-77");
+    expect(mockGetQuest).toHaveBeenCalledWith("q-77", null);
     expect(await screen.findByText("Fetched paged quest")).toBeInTheDocument();
-    expect(useStore.getState().quests.some((stored) => stored.questId === "q-77")).toBe(true);
+    expect(useStore.getState().questDetails.get("q-77")?.title).toBe("Fetched paged quest");
   });
 
   it("closes on Escape key press", () => {

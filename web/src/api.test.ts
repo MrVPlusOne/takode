@@ -9,11 +9,14 @@ import {
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-function mockResponse(data: unknown, status = 200) {
+function mockResponse(data: unknown, status = 200, headers: Record<string, string> = {}) {
   return {
     ok: status >= 200 && status < 300,
     status,
     statusText: status === 200 ? "OK" : "Error",
+    headers: {
+      get: (name: string) => headers[name.toLowerCase()] ?? null,
+    },
     json: () => Promise.resolve(data),
   };
 }
@@ -223,6 +226,36 @@ describe("listQuestPage", () => {
     expect(opts).toBeUndefined();
     expect(result).toEqual(page);
   });
+
+  it("supports validator-aware paged quest requests", async () => {
+    const page = {
+      quests: [],
+      total: 0,
+      offset: 0,
+      limit: 50,
+      hasMore: false,
+      nextOffset: null,
+      previousOffset: null,
+      counts: { all: 0, idea: 0, refined: 0, in_progress: 0, done: 0 },
+      allTags: [],
+    };
+    mockFetch.mockResolvedValueOnce(mockResponse(page, 200, { etag: '"page-v1"' }));
+
+    const result = await api.listQuestPageValidated({ limit: 50 }, { etag: '"old"' });
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/quests/_page?limit=50");
+    expect(opts.headers).toEqual({ "If-None-Match": '"old"' });
+    expect(result).toEqual({ status: "fresh", data: page, etag: '"page-v1"' });
+  });
+
+  it("represents unchanged paged quest requests without reading a JSON body", async () => {
+    mockFetch.mockResolvedValueOnce(mockResponse(null, 304, { etag: '"page-v1"' }));
+
+    const result = await api.listQuestPageValidated({ limit: 50 }, { etag: '"page-v1"' });
+
+    expect(result).toEqual({ status: "not-modified", etag: '"page-v1"' });
+  });
 });
 
 // ===========================================================================
@@ -243,6 +276,17 @@ describe("getQuestSummary", () => {
     expect(url).toBe("/api/quests/_summary");
     expect(opts).toBeUndefined();
     expect(result).toEqual(summary);
+  });
+
+  it("supports validator-aware summary requests", async () => {
+    mockFetch.mockResolvedValueOnce(mockResponse(null, 304, { etag: '"summary-v1"' }));
+
+    const result = await api.getQuestSummaryValidated('"summary-v1"');
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/quests/_summary");
+    expect(opts.headers).toEqual({ "If-None-Match": '"summary-v1"' });
+    expect(result).toEqual({ status: "not-modified", etag: '"summary-v1"' });
   });
 });
 

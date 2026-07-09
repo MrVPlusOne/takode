@@ -1,7 +1,12 @@
-import type { QuestmasterTask } from "./quest-types.js";
+import type { QuestListPreview, QuestmasterTask } from "./quest-types.js";
 import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "./quest-types.js";
 import { prepareSearchQuery, type PreparedSearchQuery, tokenizeSearchText } from "../shared/search-utils.js";
 import { questRelationshipSearchText } from "./quest-relationships.js";
+import {
+  compactPhaseDocumentationGroups,
+  phaseDocumentationPreview,
+  summarizeQuestPhaseDocumentation,
+} from "../shared/quest-phase-documentation-summary.js";
 
 export interface QuestListFilterOptions {
   status?: string;
@@ -33,7 +38,7 @@ export interface QuestListPageOptions extends QuestListFilterOptions {
 }
 
 export interface QuestListPageResult {
-  quests: QuestmasterTask[];
+  quests: QuestListPreview[];
   total: number;
   offset: number;
   limit: number;
@@ -155,7 +160,7 @@ function buildQuestListPage(
   const previousOffset = offset > 0 ? Math.max(0, offset - limit) : null;
 
   return {
-    quests: pageQuests,
+    quests: pageQuests.map((quest) => buildQuestListPreview(quest)),
     total: sorted.length,
     offset,
     limit,
@@ -164,6 +169,72 @@ function buildQuestListPage(
     previousOffset,
     counts: countByStatus(beforeStatusFilter),
     allTags: listAllTags(quests),
+  };
+}
+
+export function buildQuestListPreview(quest: QuestmasterTask): QuestListPreview {
+  const humanFeedback = (quest.feedback ?? []).filter((entry) => entry.author === "human");
+  const verificationItems = "verificationItems" in quest ? (quest.verificationItems ?? []) : [];
+  const phasePreviewLines = compactPhaseDocumentationGroups(summarizeQuestPhaseDocumentation(quest), 2).flatMap(
+    (group) => {
+      const latestEntry = group.entries.at(-1);
+      if (!latestEntry) return [];
+      return [
+        {
+          key: group.key,
+          label: group.displayLabel,
+          ...(group.metaLabel ? { metaLabel: group.metaLabel } : {}),
+          text: phaseDocumentationPreview(latestEntry),
+        },
+      ];
+    },
+  );
+
+  return {
+    preview: true,
+    id: quest.id,
+    questId: quest.questId,
+    version: quest.version,
+    title: quest.title,
+    status: quest.status,
+    ...(quest.tldr ? { tldr: quest.tldr } : {}),
+    createdAt: quest.createdAt,
+    ...(quest.updatedAt ? { updatedAt: quest.updatedAt } : {}),
+    ...(quest.statusChangedAt ? { statusChangedAt: quest.statusChangedAt } : {}),
+    ...(quest.tags ? { tags: quest.tags } : {}),
+    ...(quest.parentId ? { parentId: quest.parentId } : {}),
+    ...(quest.sessionSpaceSlug ? { sessionSpaceSlug: quest.sessionSpaceSlug } : {}),
+    ...("sessionId" in quest && quest.sessionId ? { sessionId: quest.sessionId } : {}),
+    ...("claimedAt" in quest && quest.claimedAt ? { claimedAt: quest.claimedAt } : {}),
+    ...(quest.previousOwnerSessionIds ? { previousOwnerSessionIds: quest.previousOwnerSessionIds } : {}),
+    ...(quest.leaderSessionId ? { leaderSessionId: quest.leaderSessionId } : {}),
+    ...("completedAt" in quest && quest.completedAt ? { completedAt: quest.completedAt } : {}),
+    ...("verificationInboxUnread" in quest && typeof quest.verificationInboxUnread === "boolean"
+      ? { verificationInboxUnread: quest.verificationInboxUnread }
+      : {}),
+    ...("cancelled" in quest && quest.cancelled === true ? { cancelled: true } : {}),
+    ...("debriefTldr" in quest && quest.debriefTldr ? { debriefTldr: quest.debriefTldr } : {}),
+    ...(quest.relationships ? { relationships: quest.relationships } : {}),
+    ...(quest.relatedQuests ? { relatedQuests: quest.relatedQuests } : {}),
+    ...(quest.journeyRuns ? { journeyRuns: quest.journeyRuns } : {}),
+    ...(verificationItems.length > 0
+      ? {
+          verificationProgress: {
+            checked: verificationItems.filter((item) => item.checked).length,
+            total: verificationItems.length,
+          },
+        }
+      : {}),
+    ...(humanFeedback.length > 0
+      ? {
+          feedbackSummary: {
+            humanTotal: humanFeedback.length,
+            humanUnaddressed: humanFeedback.filter((entry) => !entry.addressed).length,
+            humanAddressed: humanFeedback.filter((entry) => entry.addressed).length,
+          },
+        }
+      : {}),
+    ...(phasePreviewLines.length > 0 ? { phasePreviewLines } : {}),
   };
 }
 

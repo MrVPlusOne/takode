@@ -1,9 +1,11 @@
 import type React from "react";
-import type { QuestmasterTask, QuestVerificationItem, QuestFeedbackEntry } from "../types.js";
+import type { QuestListPreview, QuestmasterTask, QuestVerificationItem, QuestFeedbackEntry } from "../types.js";
+
+type QuestMetadata = QuestmasterTask | QuestListPreview;
 
 // ─── Quest field accessors (type-safe access to optional quest properties) ──
 
-export function isQuestCancelled(quest: QuestmasterTask): boolean {
+export function isQuestCancelled(quest: QuestMetadata): boolean {
   return "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
 }
 
@@ -11,7 +13,7 @@ export function getQuestDescription(quest: QuestmasterTask): string | undefined 
   return "description" in quest ? quest.description : undefined;
 }
 
-export function getQuestTldr(quest: QuestmasterTask): string | undefined {
+export function getQuestTldr(quest: QuestMetadata): string | undefined {
   return quest.tldr?.trim() || undefined;
 }
 
@@ -24,7 +26,7 @@ export function getQuestDebrief(quest: QuestmasterTask): string | undefined {
   return (quest as { debrief?: string }).debrief?.trim() || undefined;
 }
 
-export function getQuestDebriefTldr(quest: QuestmasterTask): string | undefined {
+export function getQuestDebriefTldr(quest: QuestMetadata): string | undefined {
   if (quest.status !== "done" || isQuestCancelled(quest)) return undefined;
   return (quest as { debriefTldr?: string }).debriefTldr?.trim() || undefined;
 }
@@ -33,7 +35,7 @@ export function getQuestFeedback(quest: QuestmasterTask): QuestFeedbackEntry[] {
   return "feedback" in quest ? ((quest as { feedback?: QuestFeedbackEntry[] }).feedback ?? []) : [];
 }
 
-export function getQuestRecencyTs(quest: QuestmasterTask): number {
+export function getQuestRecencyTs(quest: QuestMetadata): number {
   return Math.max(quest.createdAt, (quest as { updatedAt?: number }).updatedAt ?? 0, quest.statusChangedAt ?? 0);
 }
 

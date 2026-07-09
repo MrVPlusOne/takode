@@ -16,7 +16,7 @@ import {
   type MessageSearchResult,
   type MessageSearchScopeKind,
 } from "../api.js";
-import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
+import type { ChatMessage, QuestListPreview, SdkSessionInfo } from "../types.js";
 import { getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
 import { getHighlightParts } from "../utils/highlight.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
@@ -37,7 +37,7 @@ type MessageSearchSettings = {
 };
 
 type UniversalSearchResult =
-  | { kind: "quest"; id: string; quest: QuestmasterTask }
+  | { kind: "quest"; id: string; quest: QuestListPreview }
   | { kind: "session"; id: string; session: SdkSessionInfo; rank: SearchRank | null }
   | { kind: "message"; id: string; message: MessageSearchResult | GlobalStarredMessageSearchResult };
 
@@ -205,7 +205,7 @@ function localMessageScopeLabel(
   return `Searching in ${sessionLabel} ${threadLabel}`;
 }
 
-function questRecency(quest: QuestmasterTask): number {
+function questRecency(quest: QuestListPreview): number {
   return Math.max(quest.createdAt ?? 0, quest.updatedAt ?? 0, quest.statusChangedAt ?? 0);
 }
 
@@ -240,7 +240,7 @@ function sessionNumForId(sessions: SdkSessionInfo[], sessionId: string | null): 
   return sessions.find((session) => session.sessionId === sessionId)?.sessionNum ?? null;
 }
 
-function getQuestResultActions(quest: QuestmasterTask, sessions: SdkSessionInfo[]): QuestResultAction[] {
+function getQuestResultActions(quest: QuestListPreview, sessions: SdkSessionInfo[]): QuestResultAction[] {
   const leaderSessionId = getQuestLeaderSessionId(quest);
   const workerSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionNum = sessionNumForId(sessions, leaderSessionId);
@@ -668,7 +668,7 @@ export function UniversalSearchOverlay({
   }, []);
 
   const activateQuestResultAction = useCallback(
-    (quest: QuestmasterTask, action: QuestResultAction) => {
+    (quest: QuestListPreview, action: QuestResultAction) => {
       if (action.id === "copy") {
         copyQuestId(quest.questId);
         setQuestActionMenu(null);
@@ -1046,7 +1046,7 @@ function ResultRow({
   onCopyQuestId: (questId: string) => void;
   onOpenQuestActionMenu: () => void;
   onSelectQuestAction: (selectedActionIndex: number) => void;
-  onActivateQuestAction: (quest: QuestmasterTask, action: QuestResultAction) => void;
+  onActivateQuestAction: (quest: QuestListPreview, action: QuestResultAction) => void;
   onInlineNavigate: () => void;
 }) {
   if (result.kind === "quest") {
@@ -1131,7 +1131,7 @@ function QuestResultRow({
   onActivateAction,
   onInlineNavigate,
 }: {
-  quest: QuestmasterTask;
+  quest: QuestListPreview;
   sessions: SdkSessionInfo[];
   selected: boolean;
   copied: boolean;
@@ -1141,7 +1141,7 @@ function QuestResultRow({
   onCopyQuestId: (questId: string) => void;
   onOpenActionMenu: () => void;
   onSelectAction: (selectedActionIndex: number) => void;
-  onActivateAction: (quest: QuestmasterTask, action: QuestResultAction) => void;
+  onActivateAction: (quest: QuestListPreview, action: QuestResultAction) => void;
   onInlineNavigate: () => void;
 }) {
   const leaderSessionId = getQuestLeaderSessionId(quest);

@@ -30,7 +30,7 @@ export function QuestInlineLink({
   hoverCardZIndexClassName?: string;
   onNavigate?: () => void;
 }) {
-  const quest = useStore((s) => findQuestById(s.quests, questId));
+  const quest = useStore((s) => s.questDetails?.get(questId.toLowerCase()) ?? findQuestById(s.quests ?? [], questId));
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
   const hideHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

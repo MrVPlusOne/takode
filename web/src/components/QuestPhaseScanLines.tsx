@@ -1,4 +1,4 @@
-import type { QuestmasterTask } from "../types.js";
+import type { QuestListPreview, QuestmasterTask } from "../types.js";
 import {
   compactPhaseDocumentationGroups,
   phaseDocumentationPreview,
@@ -12,12 +12,31 @@ export function QuestPhaseScanLines({
   max = 2,
   className = "",
 }: {
-  quest: QuestmasterTask;
+  quest: QuestmasterTask | QuestListPreview;
   searchText: string;
   max?: number;
   className?: string;
 }) {
-  const summary = summarizeQuestPhaseDocumentation(quest);
+  if ("phasePreviewLines" in quest && quest.phasePreviewLines?.length) {
+    const lines = quest.phasePreviewLines.slice(-max);
+    return (
+      <div className={`space-y-0.5 ${className}`.trim()} data-testid="quest-phase-scan-lines">
+        {lines.map((line) => {
+          const meta = line.metaLabel ? ` ${line.metaLabel}` : "";
+          return (
+            <div key={line.key} className="truncate text-[11px] text-cc-muted">
+              <span className="text-cc-muted/70">
+                {line.label}
+                {meta}:{" "}
+              </span>
+              {highlightText(compactText(line.text), searchText)}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+  const summary = summarizeQuestPhaseDocumentation(quest as QuestmasterTask);
   const groups = compactPhaseDocumentationGroups(summary, max);
   if (groups.length === 0) return null;
 

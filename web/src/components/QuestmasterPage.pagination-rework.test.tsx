@@ -14,6 +14,11 @@ vi.mock("../api.js", () => ({
   api: {
     createQuest: (...args: unknown[]) => mockCreateQuest(...args),
     listQuestPage: (...args: unknown[]) => mockListQuestPage(...args),
+    listQuestPageValidated: async (options: unknown, request?: { signal?: AbortSignal }) => ({
+      status: "fresh",
+      data: await mockListQuestPage(options, request?.signal),
+      etag: null,
+    }),
     getQuest: (questId: string) =>
       Promise.resolve(mockState.quests.find((quest: QuestmasterTask) => quest.questId === questId)),
     getSettings: (...args: unknown[]) => mockGetSettings(...args),
@@ -90,11 +95,15 @@ function makeQuest(input: {
 
 function resetState(overrides: Record<string, unknown> = {}) {
   mockState = {
+    questDetails: new Map(),
     quests: [],
     questsLoading: false,
     refreshQuests: vi.fn().mockResolvedValue(undefined),
     setQuests: (quests: QuestmasterTask[]) => {
       mockState.quests = quests;
+    },
+    upsertQuestDetail: (quest: QuestmasterTask) => {
+      mockState.questDetails.set(quest.questId.toLowerCase(), quest);
     },
     questOverlayId: null,
     questOverlaySearchHighlight: null,

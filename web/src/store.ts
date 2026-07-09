@@ -151,6 +151,39 @@ function summarizeQuestList(quests: QuestmasterTask[]): import("./api.js").Quest
   };
 }
 
+function withQuestDetail(details: Map<string, QuestmasterTask>, quest: QuestmasterTask): Map<string, QuestmasterTask> {
+  const key = quest.questId.toLowerCase();
+  if (details.get(key) === quest) return details;
+  const next = new Map(details);
+  next.set(key, quest);
+  return next;
+}
+
+function withoutQuestDetail(details: Map<string, QuestmasterTask>, questId: string): Map<string, QuestmasterTask> {
+  const key = questId.toLowerCase();
+  if (!details.has(key)) return details;
+  const next = new Map(details);
+  next.delete(key);
+  return next;
+}
+
+function withQuestDetailEtag(etags: Map<string, string>, questId: string, etag: string | null | undefined) {
+  if (!etag) return etags;
+  const key = questId.toLowerCase();
+  if (etags.get(key) === etag) return etags;
+  const next = new Map(etags);
+  next.set(key, etag);
+  return next;
+}
+
+function withoutQuestDetailEtag(etags: Map<string, string>, questId: string): Map<string, string> {
+  const key = questId.toLowerCase();
+  if (!etags.has(key)) return etags;
+  const next = new Map(etags);
+  next.delete(key);
+  return next;
+}
+
 const QUEST_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 2_000;
 let pendingQuestBackgroundRefresh: Promise<void> | null = null;
 let lastQuestBackgroundRefreshAt = 0;
@@ -272,29 +305,60 @@ export const useStore = create<AppState>((set, get) => ({
   collapsedTreeGroups: getInitialCollapsedSet("cc-collapsed-tree-groups"),
   collapsedTreeNodes: getInitialCollapsedSet("cc-collapsed-tree-nodes"),
   expandedHerdNodes: getInitialCollapsedSet("cc-expanded-herd-nodes"),
+  questDetails: new Map(),
+  questDetailEtags: new Map(),
   quests: [],
   questSummary: null,
+  questSummaryEtag: null,
   questsLoadedFull: false,
   questsLoading: false,
   setQuests: (quests) =>
     set((state) => {
       const nextQuests = reconcileQuestList(state.quests, quests);
-      return { quests: nextQuests, questSummary: summarizeQuestList(nextQuests), questsLoadedFull: true };
+      const nextDetails = new Map(state.questDetails);
+      for (const quest of nextQuests) nextDetails.set(quest.questId.toLowerCase(), quest);
+      return {
+        quests: nextQuests,
+        questDetails: nextDetails,
+        questSummary: summarizeQuestList(nextQuests),
+        questSummaryEtag: null,
+        questsLoadedFull: true,
+      };
     }),
-  replaceQuest: (updated) => {
+  upsertQuestDetail: (updated, opts) => {
     set((state) => {
       const hasExisting = state.quests.some((q) => q.questId === updated.questId);
-      const quests = (
-        hasExisting
-          ? state.quests.map((q) => (q.questId === updated.questId ? updated : q))
-          : [updated, ...state.quests]
-      ).sort((a, b) => questRecencyTs(b) - questRecencyTs(a));
+      const quests = hasExisting
+        ? state.quests.map((q) => (q.questId === updated.questId ? updated : q))
+        : state.quests;
       const nextQuests = reconcileQuestList(state.quests, quests);
-      if (nextQuests === state.quests) return {};
-      return state.questsLoadedFull
-        ? { quests: nextQuests, questSummary: summarizeQuestList(nextQuests) }
-        : { quests: nextQuests };
+      return {
+        questDetails: withQuestDetail(state.questDetails, updated),
+        questDetailEtags: withQuestDetailEtag(state.questDetailEtags, updated.questId, opts?.etag),
+        ...(state.questsLoadedFull && nextQuests !== state.quests
+          ? { quests: nextQuests, questSummary: summarizeQuestList(nextQuests), questSummaryEtag: null }
+          : nextQuests !== state.quests
+            ? { quests: nextQuests }
+            : {}),
+      };
     });
+  },
+  removeQuestDetail: (questId) => {
+    set((state) => {
+      const nextQuests = state.quests.filter((quest) => quest.questId !== questId);
+      return {
+        questDetails: withoutQuestDetail(state.questDetails, questId),
+        questDetailEtags: withoutQuestDetailEtag(state.questDetailEtags, questId),
+        ...(nextQuests.length !== state.quests.length
+          ? state.questsLoadedFull
+            ? { quests: nextQuests, questSummary: summarizeQuestList(nextQuests), questSummaryEtag: null }
+            : { quests: nextQuests }
+          : {}),
+      };
+    });
+  },
+  replaceQuest: (updated) => {
+    useStore.getState().upsertQuestDetail(updated);
   },
   refreshQuests: async (opts) => {
     if (opts?.background) {
@@ -304,8 +368,13 @@ export const useStore = create<AppState>((set, get) => ({
       lastQuestBackgroundRefreshAt = Date.now();
       const refreshPromise = (async () => {
         try {
-          const questSummary = await api.getQuestSummary();
-          set({ questSummary });
+          const currentEtag = useStore.getState().questSummaryEtag;
+          const result = await api.getQuestSummaryValidated(currentEtag);
+          if (result.status === "fresh") {
+            set({ questSummary: result.data, questSummaryEtag: result.etag });
+          } else if (result.etag && result.etag !== currentEtag) {
+            set({ questSummaryEtag: result.etag });
+          }
         } catch {
           // Ignore background refresh failures and keep the current quest snapshot/summary.
         }
@@ -321,15 +390,16 @@ export const useStore = create<AppState>((set, get) => ({
 
     if (!opts?.background) set({ questsLoading: true });
     try {
-      const quests = await api.listQuests();
-      set((state) => {
-        const nextQuests = reconcileQuestList(state.quests, quests);
-        return {
-          quests: nextQuests,
-          questSummary: summarizeQuestList(nextQuests),
-          questsLoadedFull: true,
-          questsLoading: false,
-        };
+      const page = await api.listQuests();
+      set({
+        questSummary: {
+          total: page.counts.all,
+          active: page.counts.idea + page.counts.refined + page.counts.in_progress,
+          counts: page.counts,
+        },
+        questSummaryEtag: null,
+        questsLoadedFull: false,
+        questsLoading: false,
       });
     } catch {
       set({ questsLoading: false });
@@ -342,8 +412,13 @@ export const useStore = create<AppState>((set, get) => ({
     lastQuestBackgroundRefreshAt = Date.now();
     const refreshPromise = (async () => {
       try {
-        const questSummary = await api.getQuestSummary();
-        set({ questSummary });
+        const currentEtag = useStore.getState().questSummaryEtag;
+        const result = await api.getQuestSummaryValidated(currentEtag);
+        if (result.status === "fresh") {
+          set({ questSummary: result.data, questSummaryEtag: result.etag });
+        } else if (result.etag && result.etag !== currentEtag) {
+          set({ questSummaryEtag: result.etag });
+        }
       } catch {
         // Ignore summary refresh failures and keep the current badge state.
       }
@@ -2010,8 +2085,11 @@ export const useStore = create<AppState>((set, get) => ({
       turnActivityOverrides: new Map(),
       autoExpandedTurnIds: new Map(),
       collapsibleTurnIds: new Map(),
+      questDetails: new Map(),
+      questDetailEtags: new Map(),
       quests: [],
       questSummary: null,
+      questSummaryEtag: null,
       questsLoadedFull: false,
       questsLoading: false,
       questmasterSearchQuery: "",

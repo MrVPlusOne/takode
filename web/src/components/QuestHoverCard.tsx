@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { BoardParticipantStatus, BoardRowSessionStatus, QuestmasterTask } from "../types.js";
+import type { BoardParticipantStatus, BoardRowSessionStatus, QuestListPreview, QuestmasterTask } from "../types.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import { getQuestPhaseDotStyle } from "../utils/quest-phase-theme.js";
 import { getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
@@ -26,7 +26,7 @@ import { timeAgo } from "../utils/quest-helpers.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 
 interface QuestHoverCardProps {
-  quest: QuestmasterTask;
+  quest: QuestmasterTask | QuestListPreview;
   anchorRect: DOMRect;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -93,7 +93,19 @@ export function QuestHoverCard({
   const queuedWaitForReason = formatQueuedWaitForReason(journeyBoardRow);
   const showOwnerSession = !!ownerSessionId && workerParticipant?.sessionId !== ownerSessionId;
   const completedAt = quest.status === "done" ? quest.completedAt : null;
-  const progressTldr = useMemo(() => selectQuestPreviewProgressTldr(quest), [quest]);
+  const progressTldr = useMemo(() => {
+    if ("phasePreviewLines" in quest && quest.phasePreviewLines?.length) {
+      const latest = quest.phasePreviewLines.at(-1)!;
+      return {
+        kind: "phase" as const,
+        label: "Latest Phase" as const,
+        phaseLabel: latest.label,
+        metaLabel: latest.metaLabel ?? "",
+        text: latest.text,
+      };
+    }
+    return selectQuestPreviewProgressTldr(quest as QuestmasterTask);
+  }, [quest]);
 
   useLayoutEffect(() => {
     if (!cardRef.current) return;

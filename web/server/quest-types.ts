@@ -254,6 +254,54 @@ export type QuestDone = Omit<QuestInProgress, "status" | "sessionId" | "claimedA
 
 export type QuestmasterTask = QuestIdea | QuestRefined | QuestInProgress | QuestDone;
 
+export interface QuestListPreviewProgress {
+  checked: number;
+  total: number;
+}
+
+export interface QuestListPreviewFeedbackSummary {
+  humanTotal: number;
+  humanUnaddressed: number;
+  humanAddressed: number;
+}
+
+export interface QuestListPreviewPhaseLine {
+  key: string;
+  label: string;
+  metaLabel?: string;
+  text: string;
+}
+
+export interface QuestListPreview {
+  preview: true;
+  id: string;
+  questId: string;
+  version: number;
+  title: string;
+  status: QuestStatus;
+  tldr?: string;
+  createdAt: number;
+  updatedAt?: number;
+  statusChangedAt?: number;
+  tags?: string[];
+  parentId?: string;
+  sessionSpaceSlug?: string;
+  sessionId?: string;
+  claimedAt?: number;
+  previousOwnerSessionIds?: string[];
+  leaderSessionId?: string;
+  completedAt?: number;
+  verificationInboxUnread?: boolean;
+  cancelled?: boolean;
+  debriefTldr?: string;
+  relationships?: QuestRelationships;
+  relatedQuests?: QuestRelatedQuest[];
+  journeyRuns?: QuestJourneyRun[];
+  verificationProgress?: QuestListPreviewProgress;
+  feedbackSummary?: QuestListPreviewFeedbackSummary;
+  phasePreviewLines?: QuestListPreviewPhaseLine[];
+}
+
 export function hasQuestReviewMetadata(quest: QuestmasterTask | null | undefined): quest is QuestDone {
   return quest?.status === "done" && quest.cancelled !== true && typeof quest.verificationInboxUnread === "boolean";
 }

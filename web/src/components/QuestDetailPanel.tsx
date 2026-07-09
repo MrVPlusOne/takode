@@ -53,14 +53,12 @@ type EditorTarget = "editTitle" | "editDescription";
 const STATUS_CONFIG = QUEST_STATUS_THEME;
 const ALL_STATUSES: QuestStatus[] = ["idea", "refined", "in_progress", "done"];
 
-function sortQuestsByRecency(quests: QuestmasterTask[]): QuestmasterTask[] {
-  return [...quests].sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a));
-}
-
 export function QuestDetailPanel() {
   const questOverlayId = useStore((s) => s.questOverlayId);
   const searchHighlight = useStore((s) => s.questOverlaySearchHighlight);
   const quests = useStore((s) => s.quests);
+  const questDetails = useStore((s) => s.questDetails);
+  const questDetailEtags = useStore((s) => s.questDetailEtags);
   const sessionBoards = useStore((s) => s.sessionBoards);
   const sessionCompletedBoards = useStore((s) => s.sessionCompletedBoards);
   const sdkSessions = useStore((s) => s.sdkSessions);
@@ -74,8 +72,11 @@ export function QuestDetailPanel() {
   const askPermissionMap = useStore((s) => s.askPermission);
 
   const storeQuest = useMemo(
-    () => (questOverlayId ? (quests.find((q) => q.questId === questOverlayId) ?? null) : null),
-    [quests, questOverlayId],
+    () =>
+      questOverlayId
+        ? (questDetails.get(questOverlayId.toLowerCase()) ?? quests.find((q) => q.questId === questOverlayId) ?? null)
+        : null,
+    [questDetails, quests, questOverlayId],
   );
   const [fetchedQuest, setFetchedQuest] = useState<QuestmasterTask | null>(null);
   const [questLoading, setQuestLoading] = useState(false);
@@ -171,6 +172,11 @@ export function QuestDetailPanel() {
     useStore.getState().closeQuestOverlay();
   }, []);
 
+  const cacheUpdatedQuest = useCallback((updatedQuest: QuestmasterTask) => {
+    setFetchedQuest(updatedQuest);
+    useStore.getState().upsertQuestDetail(updatedQuest);
+  }, []);
+
   useEffect(() => {
     if (!questOverlayId) {
       setFetchedQuest(null);
@@ -187,12 +193,15 @@ export function QuestDetailPanel() {
     let cancelled = false;
     setQuestLoading(true);
     setQuestLoadError("");
+    const currentEtag = questDetailEtags.get(questOverlayId.toLowerCase()) ?? null;
     api
-      .getQuest(questOverlayId)
-      .then((nextQuest) => {
+      .getQuestValidated(questOverlayId, currentEtag)
+      .then((result) => {
         if (cancelled) return;
-        setFetchedQuest(nextQuest);
-        useStore.getState().replaceQuest(nextQuest);
+        if (result.status === "fresh") {
+          setFetchedQuest(result.data);
+          useStore.getState().upsertQuestDetail(result.data, { etag: result.etag });
+        }
       })
       .catch((e) => {
         if (cancelled) return;
@@ -204,7 +213,7 @@ export function QuestDetailPanel() {
     return () => {
       cancelled = true;
     };
-  }, [questOverlayId, storeQuest]);
+  }, [questDetailEtags, questOverlayId, storeQuest]);
 
   // Escape key: lightbox > assign picker > inline feedback actions > edit cancel > close panel
   useEffect(() => {
@@ -453,12 +462,7 @@ export function QuestDetailPanel() {
         description: nextDescription,
         tags: tags.length > 0 ? tags : undefined,
       });
-      const currentQuests = useStore.getState().quests;
-      useStore
-        .getState()
-        .setQuests(
-          sortQuestsByRecency(currentQuests.map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))),
-        );
+      cacheUpdatedQuest(updatedQuest);
       setEditingId(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -472,12 +476,7 @@ export function QuestDetailPanel() {
       const updatedQuest = verificationItems
         ? await api.markQuestDone(q.questId, { verificationItems })
         : await api.markQuestDone(q.questId);
-      const currentQuests = useStore.getState().quests;
-      useStore
-        .getState()
-        .setQuests(
-          sortQuestsByRecency(currentQuests.map((x) => (x.questId === updatedQuest.questId ? updatedQuest : x))),
-        );
+      cacheUpdatedQuest(updatedQuest);
       closePanel();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -496,14 +495,7 @@ export function QuestDetailPanel() {
         status,
         ...(sessionId ? { sessionId } : {}),
       });
-      const currentQuests = useStore.getState().quests;
-      useStore
-        .getState()
-        .setQuests(
-          currentQuests
-            .map((x) => (x.questId === updatedQuest.questId ? updatedQuest : x))
-            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
-        );
+      cacheUpdatedQuest(updatedQuest);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -513,14 +505,7 @@ export function QuestDetailPanel() {
     setError("");
     try {
       const updatedQuest = await api.markQuestDone(q.questId, { cancelled: true });
-      const currentQuests = useStore.getState().quests;
-      useStore
-        .getState()
-        .setQuests(
-          currentQuests
-            .map((x) => (x.questId === updatedQuest.questId ? updatedQuest : x))
-            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
-        );
+      cacheUpdatedQuest(updatedQuest);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -531,8 +516,7 @@ export function QuestDetailPanel() {
     try {
       await api.deleteQuest(questId);
       setConfirmDeleteId(null);
-      const currentQuests = useStore.getState().quests;
-      useStore.getState().setQuests(currentQuests.filter((q) => q.questId !== questId));
+      useStore.getState().removeQuestDetail(questId);
       closePanel();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -543,7 +527,7 @@ export function QuestDetailPanel() {
     setError("");
     try {
       const updatedQuest = await api.checkQuestVerification(questId, index, checked);
-      useStore.getState().replaceQuest(updatedQuest);
+      cacheUpdatedQuest(updatedQuest);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -641,14 +625,7 @@ export function QuestDetailPanel() {
         "human",
         feedbackImages.length > 0 ? feedbackImages : undefined,
       );
-      const currentQuests = useStore.getState().quests;
-      useStore
-        .getState()
-        .setQuests(
-          currentQuests
-            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
-        );
+      cacheUpdatedQuest(updatedQuest);
       setFeedbackDraft("");
       setFeedbackImages([]);
       if (feedbackTextareaRef.current) {
@@ -671,14 +648,7 @@ export function QuestDetailPanel() {
         text: editingFeedback.text,
         images: editingFeedback.images,
       });
-      const currentQuests = useStore.getState().quests;
-      useStore
-        .getState()
-        .setQuests(
-          currentQuests
-            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
-        );
+      cacheUpdatedQuest(updatedQuest);
       setEditingFeedback(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -692,14 +662,7 @@ export function QuestDetailPanel() {
     setError("");
     try {
       const updatedQuest = await api.deleteQuestFeedback(questId, index);
-      const currentQuests = useStore.getState().quests;
-      useStore
-        .getState()
-        .setQuests(
-          currentQuests
-            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
-        );
+      cacheUpdatedQuest(updatedQuest);
       setConfirmDeleteFeedback(null);
       setEditingFeedback((prev) => (prev?.questId === questId && prev.index === index ? null : prev));
     } catch (e: unknown) {
@@ -713,14 +676,7 @@ export function QuestDetailPanel() {
     setError("");
     try {
       const updatedQuest = await api.toggleFeedbackAddressed(questId, index);
-      const currentQuests = useStore.getState().quests;
-      useStore
-        .getState()
-        .setQuests(
-          currentQuests
-            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
-        );
+      cacheUpdatedQuest(updatedQuest);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -766,14 +722,7 @@ export function QuestDetailPanel() {
       }
     }
     if (lastUpdatedQuest) {
-      const currentQuests = useStore.getState().quests;
-      useStore
-        .getState()
-        .setQuests(
-          currentQuests
-            .map((q) => (q.questId === lastUpdatedQuest.questId ? lastUpdatedQuest : q))
-            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
-        );
+      cacheUpdatedQuest(lastUpdatedQuest);
     }
   }
 
@@ -781,14 +730,7 @@ export function QuestDetailPanel() {
     setError("");
     try {
       const updatedQuest = await api.removeQuestImage(questId, imageId);
-      const currentQuests = useStore.getState().quests;
-      useStore
-        .getState()
-        .setQuests(
-          currentQuests
-            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
-        );
+      cacheUpdatedQuest(updatedQuest);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }

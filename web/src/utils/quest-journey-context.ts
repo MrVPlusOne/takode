@@ -1,4 +1,4 @@
-import type { BoardRowSessionStatus, QuestmasterTask } from "../types.js";
+import type { BoardRowSessionStatus, QuestListPreview, QuestmasterTask } from "../types.js";
 import { getQuestJourneyPhase, type QuestJourneyPlanState } from "../../shared/quest-journey.js";
 
 export interface QuestJourneyBoardRow {
@@ -18,7 +18,7 @@ export interface QuestJourneyContext {
 }
 
 export function buildQuestJourneyContextByQuestId(
-  quests: readonly QuestmasterTask[],
+  quests: ReadonlyArray<QuestmasterTask | QuestListPreview>,
   sessionBoards: ReadonlyMap<string, readonly QuestJourneyBoardRow[]>,
   completedBoards: ReadonlyMap<string, readonly QuestJourneyBoardRow[]>,
 ): Map<string, QuestJourneyContext> {
@@ -44,7 +44,7 @@ export function buildQuestJourneyContextByQuestId(
 }
 
 export function findQuestJourneyContext(
-  quest: QuestmasterTask,
+  quest: QuestmasterTask | QuestListPreview,
   sessionBoards: ReadonlyMap<string, readonly QuestJourneyBoardRow[]>,
   completedBoards: ReadonlyMap<string, readonly QuestJourneyBoardRow[]>,
   rowStatuses: ReadonlyMap<string, Record<string, BoardRowSessionStatus>>,
@@ -65,9 +65,9 @@ export function findQuestJourneyContext(
   return questJourneyContextFromRuns(quest);
 }
 
-type QuestJourneyRun = NonNullable<QuestmasterTask["journeyRuns"]>[number];
+type QuestJourneyRun = NonNullable<(QuestmasterTask | QuestListPreview)["journeyRuns"]>[number];
 
-function questJourneyContextFromRuns(quest: QuestmasterTask): QuestJourneyContext | null {
+function questJourneyContextFromRuns(quest: QuestmasterTask | QuestListPreview): QuestJourneyContext | null {
   const run = selectQuestJourneyRun(quest.journeyRuns ?? []);
   if (!run || run.phaseIds.length === 0) return null;
 

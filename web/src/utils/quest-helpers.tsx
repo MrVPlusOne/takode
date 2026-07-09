@@ -1,6 +1,8 @@
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { writeClipboardText } from "./copy-utils.js";
-import type { QuestmasterTask, QuestVerificationItem } from "../types.js";
+import type { QuestListPreview, QuestmasterTask, QuestVerificationItem } from "../types.js";
+
+type QuestMetadata = QuestmasterTask | QuestListPreview;
 
 /** Prefix a session name with ☐/☑ based on quest status, or return it unmodified for non-quest sessions. */
 export function questLabel(
@@ -48,7 +50,7 @@ export function verificationProgress(items: QuestVerificationItem[]): { checked:
  * Get the active (or most recent previous) owner session ID for a quest.
  * Falls back to previousOwnerSessionIds if the active sessionId is empty.
  */
-export function getQuestOwnerSessionId(quest: QuestmasterTask): string | null {
+export function getQuestOwnerSessionId(quest: QuestMetadata): string | null {
   if ("sessionId" in quest && typeof quest.sessionId === "string") {
     const active = quest.sessionId.trim();
     if (active) return active;
@@ -65,7 +67,7 @@ export function getQuestOwnerSessionId(quest: QuestmasterTask): string | null {
 }
 
 /** Get the quest's orchestrating leader session ID, when it was recorded. */
-export function getQuestLeaderSessionId(quest: QuestmasterTask): string | null {
+export function getQuestLeaderSessionId(quest: QuestMetadata): string | null {
   const raw = (quest as { leaderSessionId?: unknown }).leaderSessionId;
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();

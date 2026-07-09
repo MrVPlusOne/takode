@@ -95,6 +95,25 @@ async function get<T = unknown>(path: string, signal?: AbortSignal): Promise<T> 
   return res.json();
 }
 
+export type ValidatedGetResult<T> =
+  | { status: "fresh"; data: T; etag: string | null }
+  | { status: "not-modified"; etag: string | null };
+
+async function getValidated<T = unknown>(
+  path: string,
+  options?: { signal?: AbortSignal; etag?: string | null },
+): Promise<ValidatedGetResult<T>> {
+  const headers = options?.etag ? { "If-None-Match": options.etag } : undefined;
+  const res = await fetch(`${BASE}${path}`, { ...(options?.signal ? { signal: options.signal } : {}), headers });
+  const etag = res.headers.get("etag");
+  if (res.status === 304) return { status: "not-modified", etag };
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return { status: "fresh", data: await res.json(), etag };
+}
+
 async function put<T = unknown>(path: string, body?: object): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "PUT",
@@ -668,7 +687,7 @@ export interface QuestmasterCompactSort {
 }
 
 export interface QuestListPage {
-  quests: import("./types.js").QuestmasterTask[];
+  quests: import("./types.js").QuestListPreview[];
   total: number;
   offset: number;
   limit: number;
@@ -1732,9 +1751,10 @@ export const api = {
     if (filters?.sessionId) params.set("sessionId", filters.sessionId);
     if (filters?.verification) params.set("verification", filters.verification);
     const qs = params.toString();
-    return get<import("./types.js").QuestmasterTask[]>(`/quests${qs ? `?${qs}` : ""}`);
+    return get<QuestListPage>(`/quests${qs ? `?${qs}` : ""}`);
   },
   getQuestSummary: () => get<QuestSummary>("/quests/_summary"),
+  getQuestSummaryValidated: (etag?: string | null) => getValidated<QuestSummary>("/quests/_summary", { etag }),
   listQuestPage: (options?: QuestListPageOptions, signal?: AbortSignal) => {
     const params = new URLSearchParams();
     if (typeof options?.offset === "number") params.set("offset", String(options.offset));
@@ -1750,7 +1770,27 @@ export const api = {
     const qs = params.toString();
     return get<QuestListPage>(`/quests/_page${qs ? `?${qs}` : ""}`, signal);
   },
+  listQuestPageValidated: (
+    options?: QuestListPageOptions,
+    request?: { signal?: AbortSignal; etag?: string | null },
+  ) => {
+    const params = new URLSearchParams();
+    if (typeof options?.offset === "number") params.set("offset", String(options.offset));
+    if (typeof options?.limit === "number") params.set("limit", String(options.limit));
+    if (options?.status) params.set("status", options.status);
+    if (options?.session) params.set("session", options.session);
+    if (options?.sessionId) params.set("sessionId", options.sessionId);
+    if (options?.tags?.length) params.set("tags", options.tags.join(","));
+    if (options?.excludeTags?.length) params.set("excludeTags", options.excludeTags.join(","));
+    if (options?.text) params.set("text", options.text);
+    if (options?.sortColumn) params.set("sortColumn", options.sortColumn);
+    if (options?.sortDirection) params.set("sortDirection", options.sortDirection);
+    const qs = params.toString();
+    return getValidated<QuestListPage>(`/quests/_page${qs ? `?${qs}` : ""}`, request);
+  },
   getQuest: (id: string) => get<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`),
+  getQuestValidated: (id: string, etag?: string | null) =>
+    getValidated<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`, { etag }),
   getQuestQuiz: (id: string) =>
     get<{ questId: string; quizItems: import("./types.js").QuestQuizItem[] }>(`/quests/${encodeURIComponent(id)}/quiz`),
   setQuestQuiz: (id: string, quizItems: import("./types.js").QuestQuizItem[]) =>
