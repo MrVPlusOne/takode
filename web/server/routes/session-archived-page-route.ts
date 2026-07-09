@@ -18,6 +18,10 @@ export interface ArchivedSessionPageResponse {
   nextOffset: number | null;
 }
 
+export interface ArchivedSessionSummaryResponse {
+  total: number;
+}
+
 export interface ArchivedSessionPageRouteDeps {
   launcher: CliLauncher;
   wsBridge: WsBridge;
@@ -42,14 +46,23 @@ function compareArchivedSessions(a: SessionListEntry, b: SessionListEntry): numb
   return (b.archivedAt ?? b.createdAt ?? 0) - (a.archivedAt ?? a.createdAt ?? 0);
 }
 
+function getArchivedSessionEntries(launcher: CliLauncher): SessionListEntry[] {
+  return launcher
+    .listSessions()
+    .filter((session) => session.hidden !== true && session.archived === true && session.reviewerOf === undefined)
+    .sort(compareArchivedSessions);
+}
+
 export function registerArchivedSessionPageRoute(api: Hono, deps: ArchivedSessionPageRouteDeps): void {
+  api.get("/sessions/archived/summary", (c) => {
+    const archived = getArchivedSessionEntries(deps.launcher);
+    return c.json({ total: archived.length } satisfies ArchivedSessionSummaryResponse);
+  });
+
   api.get("/sessions/archived", async (c) => {
     const offset = parseNonNegativeInteger(c.req.query("offset"), 0);
     const limit = parsePageLimit(c.req.query("limit"));
-    const archived = deps.launcher
-      .listSessions()
-      .filter((session) => session.hidden !== true && session.archived === true && session.reviewerOf === undefined)
-      .sort(compareArchivedSessions);
+    const archived = getArchivedSessionEntries(deps.launcher);
     const pageEntries = archived.slice(offset, offset + limit);
     const sessions = await buildEnrichedSessionsSnapshotFromEntries(deps, pageEntries);
     const nextOffset = offset + sessions.length;

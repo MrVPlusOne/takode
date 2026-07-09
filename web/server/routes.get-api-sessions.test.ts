@@ -634,6 +634,22 @@ describe("GET /api/sessions", () => {
     expect(access).not.toHaveBeenCalledWith("/old");
   });
 
+  it("returns archived session summary metadata without enriching archived rows", async () => {
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "active", state: "running", cwd: "/active", archived: false, createdAt: 10 },
+      { sessionId: "archived-old", state: "exited", cwd: "/old", archived: true, archivedAt: 100, isWorktree: true },
+      { sessionId: "archived-new", state: "exited", cwd: "/new", archived: true, archivedAt: 300, isWorktree: true },
+      { sessionId: "archived-reviewer", state: "exited", cwd: "/review", archived: true, reviewerOf: 7 },
+      { sessionId: "hidden-archived", state: "exited", cwd: "/hidden", archived: true, hidden: true },
+    ]);
+
+    const res = await app.request("/api/sessions/archived/summary", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ total: 2 });
+    expect(access).not.toHaveBeenCalled();
+  });
+
   it("includes lightweight leader open thread tabs in session snapshots", async () => {
     const defaultSettings = vi.mocked(settingsManager.getSettings).getMockImplementation()?.() as ReturnType<
       typeof settingsManager.getSettings

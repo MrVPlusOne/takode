@@ -35,6 +35,7 @@ const mockApi = {
     hasMore: false,
     nextOffset: null,
   }),
+  getArchivedSessionsSummary: vi.fn().mockResolvedValue({ total: 0 }),
   searchSessions: vi.fn().mockResolvedValue({ query: "", tookMs: 0, totalMatches: 0, results: [] }),
   deleteSession: vi.fn().mockResolvedValue({}),
   archiveSession: vi.fn().mockResolvedValue({}),
@@ -66,6 +67,7 @@ vi.mock("../api.js", () => ({
   api: {
     listSessions: (...args: unknown[]) => mockApi.listSessions(...args),
     listArchivedSessionsPage: (...args: unknown[]) => mockApi.listArchivedSessionsPage(...args),
+    getArchivedSessionsSummary: (...args: unknown[]) => mockApi.getArchivedSessionsSummary(...args),
     searchSessions: (...args: unknown[]) => mockApi.searchSessions(...args),
     deleteSession: (...args: unknown[]) => mockApi.deleteSession(...args),
     archiveSession: (...args: unknown[]) => mockApi.archiveSession(...args),
@@ -318,6 +320,7 @@ beforeEach(() => {
     hasMore: false,
     nextOffset: null,
   });
+  mockApi.getArchivedSessionsSummary.mockResolvedValue({ total: 0 });
   vi.stubGlobal("alert", mockAlert);
   scrollTargetSessionIds.length = 0;
   Element.prototype.scrollIntoView = mockScrollIntoView;

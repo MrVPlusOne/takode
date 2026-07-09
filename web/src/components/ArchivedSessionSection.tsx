@@ -27,6 +27,8 @@ export interface ArchivedSessionSectionProps {
   hasMore: boolean;
   total: number | null;
   archivedSessions: SidebarSessionItem[];
+  autoLoadUnsupported: boolean;
+  loadMoreSentinelRef: RefObject<HTMLDivElement | null>;
   currentSessionId: string | null;
   sessionNames: Map<string, string>;
   sessionPreviews: Map<string, string>;
@@ -51,6 +53,8 @@ export function ArchivedSessionSection({
   hasMore,
   total,
   archivedSessions,
+  autoLoadUnsupported,
+  loadMoreSentinelRef,
   currentSessionId,
   sessionNames,
   sessionPreviews,
@@ -66,11 +70,12 @@ export function ArchivedSessionSection({
 }: ArchivedSessionSectionProps) {
   const archivedCount = total ?? archivedSessions.length;
   const label = loaded || archivedCount > 0 ? `Archived (${archivedCount})` : "Archived";
+  const showLoadMoreFallback = !loading && (Boolean(error) || (hasMore && autoLoadUnsupported));
   return (
     <div className="mt-2 pt-2 border-t border-cc-border">
       {hasNoActiveSessionRows && !showArchived && (
         <p className="px-3 pb-2 text-[11px] leading-relaxed text-cc-muted">
-          {loaded && archivedCount > 0
+          {archivedCount > 0
             ? "Imported history is archived. Open Archived to browse past sessions."
             : "No active sessions. Open Archived to load imported history."}
         </p>
@@ -113,13 +118,21 @@ export function ArchivedSessionSection({
           {!loading && loaded && archivedSessions.length === 0 && (
             <div className="px-3 py-2 text-[11px] text-cc-muted">No archived sessions.</div>
           )}
-          {!loading && hasMore && (
+          {hasMore && !error && (
+            <div
+              ref={loadMoreSentinelRef}
+              data-testid="archived-session-load-sentinel"
+              aria-hidden="true"
+              className="h-px"
+            />
+          )}
+          {showLoadMoreFallback && (
             <button
               type="button"
               onClick={onLoadMore}
               className="mx-3 my-1 rounded-md border border-cc-border px-2 py-1 text-[11px] text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors"
             >
-              Load more archived sessions
+              {error ? "Retry archived sessions" : "Load more archived sessions"}
             </button>
           )}
         </div>

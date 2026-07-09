@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { MouseEvent } from "react";
 import type { SdkSessionInfo } from "../types.js";
@@ -14,6 +14,7 @@ const mockApi = {
     hasMore: false,
     nextOffset: null,
   }),
+  getArchivedSessionsSummary: vi.fn().mockResolvedValue({ total: 0 }),
   searchSessions: vi.fn().mockResolvedValue({ query: "", tookMs: 0, totalMatches: 0, results: [] }),
   getSettings: vi.fn().mockResolvedValue({ serverName: "" }),
   getTreeGroups: vi.fn().mockResolvedValue({ groups: [], assignments: {}, nodeOrder: {} }),
@@ -25,6 +26,7 @@ vi.mock("../api.js", () => ({
   api: {
     listSessions: (...args: unknown[]) => mockApi.listSessions(...args),
     listArchivedSessionsPage: (...args: unknown[]) => mockApi.listArchivedSessionsPage(...args),
+    getArchivedSessionsSummary: (...args: unknown[]) => mockApi.getArchivedSessionsSummary(...args),
     searchSessions: (...args: unknown[]) => mockApi.searchSessions(...args),
     getSettings: (...args: unknown[]) => mockApi.getSettings(...args),
     getTreeGroups: (...args: unknown[]) => mockApi.getTreeGroups(...args),
@@ -105,6 +107,35 @@ interface MockStoreState {
 }
 
 let mockState: MockStoreState;
+let intersectionObservers: MockIntersectionObserver[] = [];
+
+class MockIntersectionObserver {
+  disconnected = false;
+  observed: Element[] = [];
+
+  constructor(
+    private readonly callback: IntersectionObserverCallback,
+    public readonly options?: IntersectionObserverInit,
+  ) {
+    intersectionObservers.push(this);
+  }
+
+  observe(element: Element) {
+    this.observed.push(element);
+  }
+
+  unobserve(element: Element) {
+    this.observed = this.observed.filter((observed) => observed !== element);
+  }
+
+  disconnect() {
+    this.disconnected = true;
+  }
+
+  emit(isIntersecting: boolean) {
+    this.callback([{ isIntersecting } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+  }
+}
 
 function makeSdkSession(id: string, overrides: Partial<SdkSessionInfo> = {}): SdkSessionInfo {
   return {
@@ -214,6 +245,8 @@ import { Sidebar } from "./Sidebar.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  intersectionObservers = [];
+  vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
   mockState = createMockState();
   mockApi.listSessions.mockResolvedValue([]);
   mockApi.listArchivedSessionsPage.mockResolvedValue({
@@ -224,8 +257,24 @@ beforeEach(() => {
     hasMore: false,
     nextOffset: null,
   });
+  mockApi.getArchivedSessionsSummary.mockResolvedValue({ total: 0 });
   mockApi.retryWorktreeCleanup.mockResolvedValue({ ok: true });
   window.location.hash = "";
+});
+
+it("shows the archived count from backend summary metadata before expansion", async () => {
+  mockState.sdkSessions = [
+    makeSdkSession("active-1", { archived: false }),
+    makeSdkSession("archived-1", { archived: true }),
+    makeSdkSession("archived-2", { archived: true }),
+  ];
+  mockApi.getArchivedSessionsSummary.mockResolvedValueOnce({ total: 1052 });
+
+  render(<Sidebar />);
+
+  await waitFor(() => expect(screen.getByText("Archived (1052)")).toBeInTheDocument());
+  expect(mockApi.listArchivedSessionsPage).not.toHaveBeenCalled();
+  expect(screen.queryByText("Archived (2)")).not.toBeInTheDocument();
 });
 
 it("keeps Archived visible on all-archived cold starts and renders rows from the first archived page", async () => {
@@ -260,7 +309,8 @@ it("keeps Archived visible on all-archived cold starts and renders rows from the
   expect(screen.getByText("Archived (1052)")).toBeInTheDocument();
   expect(screen.getByTestId("session-item")).toHaveAttribute("data-session-id", "archived-1");
   expect(screen.getByText("Archived Only")).toBeInTheDocument();
-  expect(screen.getByText("Load more archived sessions")).toBeInTheDocument();
+  expect(screen.getByTestId("archived-session-load-sentinel")).toBeInTheDocument();
+  expect(screen.queryByText("Load more archived sessions")).not.toBeInTheDocument();
 });
 
 it("does not infer the archived count from cached rows before the page loads", () => {
@@ -304,7 +354,8 @@ it("loads additional archived pages without replacing active session rows", asyn
   fireEvent.click(screen.getByText("Archived"));
   await waitFor(() => expect(mockApi.listArchivedSessionsPage).toHaveBeenCalledWith({ offset: 0, limit: 25 }));
   view.rerender(<Sidebar />);
-  fireEvent.click(screen.getByText("Load more archived sessions"));
+  await waitFor(() => expect(intersectionObservers.length).toBeGreaterThan(0));
+  act(() => intersectionObservers[intersectionObservers.length - 1]?.emit(true));
   await waitFor(() => expect(mockApi.listArchivedSessionsPage).toHaveBeenCalledWith({ offset: 1, limit: 25 }));
   view.rerender(<Sidebar />);
 
@@ -314,6 +365,48 @@ it("loads additional archived pages without replacing active session rows", asyn
   expect(screen.getByText("First Archived")).toBeInTheDocument();
   expect(screen.getByText("Second Archived")).toBeInTheDocument();
   expect(screen.queryByText("Load more archived sessions")).not.toBeInTheDocument();
+});
+
+it("falls back to a manual load affordance when automatic archived loading is unavailable", async () => {
+  vi.stubGlobal("IntersectionObserver", undefined);
+  const firstArchived = makeSdkSession("archived-1", { archived: true, name: "First Archived", model: "codex" });
+  mockApi.listArchivedSessionsPage.mockResolvedValueOnce({
+    sessions: [firstArchived],
+    total: 2,
+    offset: 0,
+    limit: 25,
+    hasMore: true,
+    nextOffset: 1,
+  });
+
+  const view = render(<Sidebar />);
+  fireEvent.click(screen.getByText("Archived"));
+  await waitFor(() => expect(mockApi.listArchivedSessionsPage).toHaveBeenCalledWith({ offset: 0, limit: 25 }));
+  view.rerender(<Sidebar />);
+
+  expect(screen.getByText("Load more archived sessions")).toBeInTheDocument();
+});
+
+it("shows a retry affordance when archived page loading fails", async () => {
+  const archived = makeSdkSession("archived-1", { archived: true, name: "Recovered Archived", model: "codex" });
+  mockApi.listArchivedSessionsPage.mockRejectedValueOnce(new Error("network failed")).mockResolvedValueOnce({
+    sessions: [archived],
+    total: 1,
+    offset: 0,
+    limit: 25,
+    hasMore: false,
+    nextOffset: null,
+  });
+
+  const view = render(<Sidebar />);
+  fireEvent.click(screen.getByText("Archived"));
+  await waitFor(() => expect(screen.getByText("Archived sessions failed to load.")).toBeInTheDocument());
+  fireEvent.click(screen.getByText("Retry archived sessions"));
+  await waitFor(() => expect(mockApi.listArchivedSessionsPage).toHaveBeenCalledTimes(2));
+  view.rerender(<Sidebar />);
+
+  expect(screen.getByText("Recovered Archived")).toBeInTheDocument();
+  expect(screen.queryByText("Retry archived sessions")).not.toBeInTheDocument();
 });
 
 it("reconciles archived worktree retry state from the retry response without reload", async () => {

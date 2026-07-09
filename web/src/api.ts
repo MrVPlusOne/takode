@@ -365,6 +365,10 @@ export interface ArchivedSessionPageResponse {
   nextOffset: number | null;
 }
 
+export interface ArchivedSessionSummaryResponse {
+  total: number;
+}
+
 export interface BackendInfo {
   id: string;
   name: string;
@@ -1032,6 +1036,8 @@ export const api = {
     const query = params.toString();
     return get<ArchivedSessionPageResponse>(`/sessions/archived${query ? `?${query}` : ""}`);
   },
+
+  getArchivedSessionsSummary: () => get<ArchivedSessionSummaryResponse>("/sessions/archived/summary"),
 
   searchSessions: async (
     query: string,

@@ -166,6 +166,18 @@ describe("listSessions", () => {
     expect(opts).toBeUndefined();
     expect(result).toEqual(page);
   });
+
+  it("can request archived session summary metadata without rows", async () => {
+    const summary = { total: 1052 };
+    mockFetch.mockResolvedValueOnce(mockResponse(summary));
+
+    const result = await api.getArchivedSessionsSummary();
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/sessions/archived/summary");
+    expect(opts).toBeUndefined();
+    expect(result).toEqual(summary);
+  });
 });
 
 describe("refreshSessionGitStatus", () => {

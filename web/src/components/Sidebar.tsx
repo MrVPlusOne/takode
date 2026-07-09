@@ -61,7 +61,7 @@ import {
 import { getShortcutTitle } from "../shortcuts.js";
 import { getDocumentTitleAttentionCount } from "../utils/document-title-attention.js";
 import { buildSidebarItemFromSearchResult } from "../utils/sidebar-search-result.js";
-import { ARCHIVED_SESSION_PAGE_SIZE, type ArchivedSessionPageState } from "../utils/archived-session-page.js";
+import { useArchivedSessionPaging } from "../hooks/useArchivedSessionPaging.js";
 
 /** Restrict drag movement to vertical axis only. */
 const restrictToVerticalAxis: Modifier = ({ transform }) => ({
@@ -73,16 +73,6 @@ export function Sidebar() {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [showArchived, setShowArchived] = useState(false);
-  const [archivedSessionPage, setArchivedSessionPage] = useState<ArchivedSessionPageState>({
-    loaded: false,
-    loading: false,
-    total: null,
-    hasMore: false,
-    nextOffset: 0,
-    ids: [],
-    error: null,
-  });
-  const archivedSessionPageRef = useRef(archivedSessionPage);
   const [mobileReorderHandleActive, setMobileReorderHandleActive] = useState(false);
   const [archiveConfirmation, setArchiveConfirmation] = useState<ArchiveConfirmationState | null>(null);
   const [contextMenu, setContextMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null);
@@ -147,6 +137,12 @@ export function Sidebar() {
   const [groupVisibleLimits, setGroupVisibleLimits] = useState<Map<string, number>>(new Map());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sessionScrollerRef = useRef<HTMLDivElement>(null);
+  const {
+    archivedSessionPage,
+    autoLoadUnsupported: archivedAutoLoadUnsupported,
+    loadArchivedSessionsPage,
+    loadMoreSentinelRef: archivedLoadMoreSentinelRef,
+  } = useArchivedSessionPaging({ showArchived, scrollerRef: sessionScrollerRef });
   const route = parseHash(hash);
   const isSettingsPage = route.page === "settings";
   const isTerminalPage = route.page === "terminal";
@@ -156,54 +152,8 @@ export function Sidebar() {
   const isDesktopLayout = isDesktopShellLayout(zoomLevel);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
 
-  useEffect(() => {
-    archivedSessionPageRef.current = archivedSessionPage;
-  }, [archivedSessionPage]);
-
   const refreshTreeGroups = useCallback(async () => {
     await hydrateTreeGroups();
-  }, []);
-
-  const loadArchivedSessionsPage = useCallback(async (options: { reset?: boolean } = {}) => {
-    const current = archivedSessionPageRef.current;
-    if (current.loading) return;
-    const offset = options.reset ? 0 : current.nextOffset;
-    setArchivedSessionPage((prev) => ({
-      ...prev,
-      loading: true,
-      error: null,
-      ...(options.reset ? { ids: [], nextOffset: 0, hasMore: false } : {}),
-    }));
-    try {
-      const page = await api.listArchivedSessionsPage({ offset, limit: ARCHIVED_SESSION_PAGE_SIZE });
-      hydrateSessionList(page.sessions, { preserveMissingSessions: true });
-      setArchivedSessionPage((prev) => {
-        const nextIds = options.reset ? [] : [...prev.ids];
-        const seen = new Set(nextIds);
-        for (const session of page.sessions) {
-          if (seen.has(session.sessionId)) continue;
-          seen.add(session.sessionId);
-          nextIds.push(session.sessionId);
-        }
-        return {
-          loaded: true,
-          loading: false,
-          total: page.total,
-          hasMore: page.hasMore,
-          nextOffset: page.nextOffset ?? offset + page.sessions.length,
-          ids: nextIds,
-          error: null,
-        };
-      });
-    } catch (err) {
-      console.warn("[sidebar] archived session page refresh failed:", err);
-      setArchivedSessionPage((prev) => ({
-        ...prev,
-        loaded: true,
-        loading: false,
-        error: "Archived sessions failed to load.",
-      }));
-    }
   }, []);
 
   const refreshSessionListNow = useCallback(
@@ -639,7 +589,7 @@ export function Sidebar() {
     if (useStore.getState().currentSessionId === sessionId) {
       navigateToMostRecentSession({ excludeId: sessionId });
     }
-    void refreshSessionListNow(showArchived || archivedSessionPageRef.current.loaded);
+    void refreshSessionListNow(showArchived || archivedSessionPage.loaded);
   }
 
   const confirmArchive = useCallback(() => {
@@ -676,9 +626,9 @@ export function Sidebar() {
           navigateToMostRecentSession({ excludeId: leaderId });
         }
       }
-      void refreshSessionListNow(showArchived || archivedSessionPageRef.current.loaded);
+      void refreshSessionListNow(showArchived || archivedSessionPage.loaded);
     },
-    [refreshSessionListNow, sdkSessions],
+    [archivedSessionPage.loaded, refreshSessionListNow, sdkSessions, showArchived],
   );
 
   const confirmArchiveHerdMembers = useCallback(() => {
@@ -738,8 +688,8 @@ export function Sidebar() {
   const toggleArchivedSessions = useCallback(() => {
     const nextShowArchived = !showArchived;
     setShowArchived(nextShowArchived);
-    if (nextShowArchived && !archivedSessionPageRef.current.loaded) void loadArchivedSessionsPage({ reset: true });
-  }, [loadArchivedSessionsPage, showArchived]);
+    if (nextShowArchived && !archivedSessionPage.loaded) void loadArchivedSessionsPage({ reset: true });
+  }, [archivedSessionPage.loaded, loadArchivedSessionsPage, showArchived]);
 
   const {
     allSessionList,
@@ -1510,6 +1460,8 @@ export function Sidebar() {
               hasMore={archivedSessionPage.hasMore}
               total={archivedSessionPage.total}
               archivedSessions={visibleArchivedSessions}
+              autoLoadUnsupported={archivedAutoLoadUnsupported}
+              loadMoreSentinelRef={archivedLoadMoreSentinelRef}
               currentSessionId={currentSessionId}
               sessionNames={sessionNames}
               sessionPreviews={sessionPreviews}
