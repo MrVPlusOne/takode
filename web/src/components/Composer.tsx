@@ -734,7 +734,7 @@ export function Composer({
   const isBrowserServerConnected = sessionView.browserConnectionStatus === "connected";
   const isRecoverySuppressed =
     sessionView.backendState === "recovery_suppressed" || sessionView.backendState === "broken";
-  const canUseInput = !isRecoverySuppressed;
+  const canUseInput = !isRecoverySuppressed && !sessionView.isArchived;
   const voiceShortcutIsAvailable = useCallback(
     (actionId: ShortcutActionId) => {
       if (actionId === "voice_start") {
@@ -1754,6 +1754,17 @@ export function Composer({
       setVoiceUnsupportedInfoOpen(false);
     }
   }, [voiceSupported, isRecording, isTranscribing]);
+
+  if (sessionView.isArchived) {
+    return (
+      <div className="shrink-0 border-t border-cc-border bg-cc-card px-4 py-3" data-testid="archived-readonly-composer">
+        <div className="mx-auto flex max-w-3xl flex-col gap-1.5 rounded-[14px] border border-cc-border bg-cc-input-bg px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+          <span className="font-medium text-cc-fg">Archived session is read-only.</span>
+          <span className="text-xs text-cc-muted">Unarchive to resume live input.</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

@@ -1811,23 +1811,25 @@ export function ChatView({
     backendError?.includes("could not be resumed because its local rollout is missing or unreadable") ?? false;
   const liveConnectionStatus = !serverReachable
     ? "server-unreachable"
-    : showStartingBanner
-      ? "starting"
-      : connStatus === "connected" && !cliConnected && backendState === "broken"
-        ? "broken"
-        : connStatus === "connected" && !cliConnected && backendState === "recovery_suppressed"
-          ? "recovery-suppressed"
-          : connStatus === "connected" &&
-              !cliConnected &&
-              cliEverConnected &&
-              !recoverableConnectionPresentation &&
-              backendState !== "initializing" &&
-              backendState !== "resuming" &&
-              backendState !== "recovering"
-            ? "cli-disconnected"
-            : connStatus === "disconnected"
-              ? "websocket-disconnected"
-              : null;
+    : isArchived
+      ? null
+      : showStartingBanner
+        ? "starting"
+        : connStatus === "connected" && !cliConnected && backendState === "broken"
+          ? "broken"
+          : connStatus === "connected" && !cliConnected && backendState === "recovery_suppressed"
+            ? "recovery-suppressed"
+            : connStatus === "connected" &&
+                !cliConnected &&
+                cliEverConnected &&
+                !recoverableConnectionPresentation &&
+                backendState !== "initializing" &&
+                backendState !== "resuming" &&
+                backendState !== "recovering"
+              ? "cli-disconnected"
+              : connStatus === "disconnected"
+                ? "websocket-disconnected"
+                : null;
   return (
     <div className="relative flex flex-col h-full min-h-0">
       {preview ? (
@@ -1842,7 +1844,7 @@ export function ChatView({
       {/* Archived session banner */}
       {!preview && isArchived && (
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/25 flex items-center justify-center gap-3">
-          <span className="text-xs text-amber-300 font-medium">This session is archived.</span>
+          <span className="text-xs text-amber-300 font-medium">This session is archived. History is read-only.</span>
           <button
             onClick={() => api.unarchiveSession(sessionId).catch(console.error)}
             className="text-xs font-medium px-3 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 transition-colors cursor-pointer"

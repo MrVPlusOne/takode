@@ -10,6 +10,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   broadcastToBrowsers,
+  handleBrowserOpen,
   handleBrowserProtocolMessage,
   handleBrowserIngressMessage,
   handleSessionSubscribe,
@@ -101,6 +102,82 @@ function makeInjectDeps(overrides: Record<string, unknown> = {}) {
     ...overrides,
   } as any;
 }
+
+describe("archived session browser viewing", () => {
+  it("opens an archived session as a passive history socket without live refresh or relaunch", async () => {
+    // Archived viewing still needs a browser WebSocket so session_subscribe can
+    // lazy-load persisted history, but opening it must not perform live-session
+    // refresh work or wake an exited backend.
+    const ws = { data: {}, send: vi.fn() };
+    const requestCliRelaunch = vi.fn();
+    const deps = makeInjectDeps({
+      getLauncherSessionInfo: vi.fn(() => ({ archived: true, state: "exited", backendType: "claude" })),
+      backendAttached: vi.fn(() => false),
+      requestCliRelaunch,
+    });
+    const session = makeSession({ browserSockets: new Set(), state: { backend_state: "initializing" } as any });
+
+    handleBrowserOpen(session, ws, deps);
+    await Promise.resolve();
+
+    expect(deps.refreshGitInfoThenRecomputeDiff).not.toHaveBeenCalled();
+    expect(deps.prefillSlashCommands).not.toHaveBeenCalled();
+    expect(deps.backendAttached).not.toHaveBeenCalled();
+    expect(requestCliRelaunch).not.toHaveBeenCalled();
+    const sentTypes = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)).type);
+    expect(sentTypes).toContain("session_init");
+    expect(sentTypes).toContain("backend_disconnected");
+  });
+
+  it("serves archived history subscribe without pending-delivery recovery side effects", async () => {
+    // Search-data-only archived sessions are expected to hydrate full history on
+    // subscribe. The archived path must not also finalize terminal tools or arm
+    // Codex watchdog recovery while doing that read-only load.
+    const ws = { data: {}, send: vi.fn() };
+    const deps = makeInjectDeps({
+      getLauncherSessionInfo: vi.fn(() => ({ archived: true, state: "exited", backendType: "codex" })),
+      lazyLoadFullHistory: vi.fn(async (target: BrowserTransportSessionLike) => {
+        target.messageHistory = [{ type: "user_message", content: "archived history", id: "m1" } as any];
+        (target as any).searchDataOnly = false;
+      }),
+    });
+    const session = makeSession({ messageHistory: [] });
+    (session as any).searchDataOnly = true;
+
+    await handleSessionSubscribe(session, ws, 0, 0, undefined, undefined, undefined, undefined, deps);
+
+    expect(deps.lazyLoadFullHistory).toHaveBeenCalledWith(session);
+    expect(deps.recoverToolStartTimesFromHistory).not.toHaveBeenCalled();
+    expect(deps.finalizeRecoveredDisconnectedTerminalTools).not.toHaveBeenCalled();
+    expect(deps.scheduleCodexToolResultWatchdogs).not.toHaveBeenCalled();
+    const historySync = ws.send.mock.calls
+      .map(([raw]) => JSON.parse(String(raw)))
+      .find((msg) => msg.type === "history_sync");
+    expect(historySync?.hot_messages).toEqual([{ type: "user_message", content: "archived history", id: "m1" }]);
+  });
+
+  it("ignores model-bound browser messages for archived sessions", async () => {
+    // A stale or malicious composer payload for an archived session should be a
+    // no-op: no activity touch, no queueing, no route to backend recovery.
+    const routeBrowserMessage = vi.fn();
+    const deps = makeInjectDeps({
+      routeBrowserMessage,
+      getLauncherSessionInfo: vi.fn(() => ({ archived: true, state: "exited", backendType: "codex" })),
+    });
+    const session = makeSession();
+
+    await handleBrowserIngressMessage(
+      session,
+      { type: "user_message", content: "should not resume", client_msg_id: "archived-c1" },
+      undefined,
+      deps,
+    );
+
+    expect(routeBrowserMessage).not.toHaveBeenCalled();
+    expect(deps.touchActivity).not.toHaveBeenCalled();
+    expect(deps.persistSession).not.toHaveBeenCalled();
+  });
+});
 
 describe("tree_groups_update replay-buffer exclusion", () => {
   it("should NOT buffer tree_groups_update in eventBuffer", () => {

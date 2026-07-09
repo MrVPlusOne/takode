@@ -137,6 +137,7 @@ export interface BrowserTransportLauncherInfo {
   state?: string;
   backendType?: "claude" | "codex" | "claude-sdk";
   killedByIdleManager?: boolean;
+  archived?: boolean;
 }
 
 export interface BrowserTransportTreeGroupState {
@@ -211,6 +212,21 @@ const LOCAL_IDEMPOTENT_BROWSER_MESSAGE_TYPES: ReadonlySet<string> = new Set(["le
 
 const queuedCodexHerdRouteKeys = new WeakMap<BrowserTransportSessionLike, Set<string>>();
 
+function isArchivedReadOnlySession(session: BrowserTransportSessionLike, deps: BrowserTransportDeps): boolean {
+  return deps.getLauncherSessionInfo(session.id)?.archived === true;
+}
+
+function isArchivedReadOnlyBrowserMessage(msg: BrowserOutgoingMessage): boolean {
+  return (
+    msg.type === "session_subscribe" ||
+    msg.type === "history_window_request" ||
+    msg.type === "thread_window_request" ||
+    msg.type === "session_ack" ||
+    msg.type === "history_sync_mismatch" ||
+    (msg as { type: string }).type === "ping"
+  );
+}
+
 export function handleBrowserOpen(
   session: BrowserTransportSessionLike,
   ws: BrowserTransportSocketLike,
@@ -228,10 +244,12 @@ export function handleBrowserOpen(
     `[ws-bridge] Browser connected for session ${sessionTag(session.id)} (${session.browserSockets.size} browsers)`,
   );
 
-  deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
-  deps.prefillSlashCommands(session);
-
   const launcherInfo = deps.getLauncherSessionInfo(session.id);
+  const isArchived = launcherInfo?.archived === true;
+  if (!isArchived) {
+    deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
+    deps.prefillSlashCommands(session);
+  }
   sendToBrowser(ws, {
     type: "session_init",
     session: {
@@ -261,6 +279,11 @@ export function handleBrowserOpen(
     type: "vscode_selection_state",
     state: deps.getVsCodeSelectionState(),
   } as BrowserIncomingMessage);
+
+  if (isArchived) {
+    sendToBrowser(ws, { type: "backend_disconnected" } as BrowserIncomingMessage);
+    return;
+  }
 
   const hasBackendAttached = deps.backendAttached(session);
   if (!hasBackendAttached) {
@@ -330,6 +353,8 @@ export async function handleBrowserIngressMessage(
   ws: BrowserTransportSocketLike | undefined,
   deps: BrowserTransportDeps,
 ): Promise<void> {
+  if (isArchivedReadOnlySession(session, deps) && !isArchivedReadOnlyBrowserMessage(msg)) return;
+
   if (isSessionPaused(session)) {
     if (msg.type === "user_message" && !isComposerUserMessage(session, msg)) {
       if (!canQueuePausedUserMessage(msg)) {
@@ -488,6 +513,9 @@ export function handleBrowserProtocolMessage(
     return true;
   }
 
+  if ((msg as { type: string }).type === "ping") return true;
+  if (isArchivedReadOnlySession(session, deps)) return true;
+
   if (msg.type === "permission_user_viewing") {
     const requestId = msg.request_id;
     const perm = session.pendingPermissions.get(requestId);
@@ -542,7 +570,6 @@ export function handleBrowserProtocolMessage(
     return true;
   }
 
-  if ((msg as { type: string }).type === "ping") return true;
   return false;
 }
 
@@ -1234,9 +1261,11 @@ export async function handleSessionSubscribe(
     await deps.lazyLoadFullHistory(session);
   }
 
-  deps.recoverToolStartTimesFromHistory(session);
-  deps.finalizeRecoveredDisconnectedTerminalTools(session, "session_subscribe");
-  deps.scheduleCodexToolResultWatchdogs(session, "session_subscribe");
+  if (!isArchivedReadOnlySession(session, deps)) {
+    deps.recoverToolStartTimesFromHistory(session);
+    deps.finalizeRecoveredDisconnectedTerminalTools(session, "session_subscribe");
+    deps.scheduleCodexToolResultWatchdogs(session, "session_subscribe");
+  }
 
   const resolvedIds = new Set<string>();
   for (const msg of session.messageHistory) {

@@ -546,6 +546,18 @@ describe("Composer basic rendering", () => {
     expect(sendBtn).toBeTruthy();
   });
 
+  it("renders archived sessions as read-only instead of active input", () => {
+    // Archived session history should remain inspectable, but the composer must
+    // not expose a live textarea or send control that would imply backend input.
+    setupMockStore({ isConnected: false, sdkSessions: [{ sessionId: "s1", archived: true } as SdkSessionInfo] });
+
+    render(<Composer sessionId="s1" />);
+
+    expect(screen.getByTestId("archived-readonly-composer").textContent).toContain("Archived session is read-only.");
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+  });
+
   it("disables browser spellcheck on the composer textarea", () => {
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea");

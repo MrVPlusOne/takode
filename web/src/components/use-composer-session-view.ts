@@ -10,6 +10,7 @@ export function useComposerSessionView(sessionId: string) {
   return useStore(
     useShallow((s) => {
       const sessionData = s.sessions.get(sessionId);
+      const sdkSession = s.sdkSessions?.find((sdk) => sdk.sessionId === sessionId);
       const isConnected = s.cliConnected.get(sessionId) ?? false;
       return {
         isConnected,
@@ -17,9 +18,8 @@ export function useComposerSessionView(sessionId: string) {
         explicitAskPermission: s.askPermission.get(sessionId),
         backendType: sessionData?.backend_type,
         backendState: sessionData?.backend_state,
-        isLeaderSession:
-          sessionData?.isOrchestrator === true ||
-          s.sdkSessions?.some((sdk) => sdk.sessionId === sessionId && sdk.isOrchestrator === true) === true,
+        isLeaderSession: sessionData?.isOrchestrator === true || sdkSession?.isOrchestrator === true,
+        isArchived: sdkSession?.archived === true,
         permissionMode: sessionData?.permissionMode || "acceptEdits",
         serverUiMode: sessionData?.uiMode,
         codexReasoningEffort: sessionData?.codex_reasoning_effort || "",

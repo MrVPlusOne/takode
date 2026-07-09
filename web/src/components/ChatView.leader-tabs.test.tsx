@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { useSyncExternalStore, type ReactNode } from "react";
 import type { LeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
@@ -31,6 +31,7 @@ interface MockStoreState {
   cliEverConnected: Map<string, boolean>;
   cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
+  serverReachable: boolean;
   sdkSessions: Array<{
     sessionId: string;
     name?: string;
@@ -83,6 +84,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     cliEverConnected: new Map([["s1", true]]),
     cliDisconnectReason: new Map([["s1", null]]),
     sessionStatus: new Map([["s1", "idle"]]),
+    serverReachable: true,
     sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
     sessionNotifications: new Map(),
     sessionAttention: new Map(),
@@ -343,6 +345,26 @@ beforeEach(() => {
   window.location.hash = "#/session/s1";
   mockSendToSession.mockClear();
   mockMessageFeedRenders.mockClear();
+});
+
+describe("ChatView archived read-only state", () => {
+  it("suppresses live startup status for archived sessions", () => {
+    // Regression coverage for archived history viewing: stale backend startup
+    // metadata should not make the read-only archived view look like it is
+    // reconnecting or starting a live session.
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "initializing", backend_error: null, isOrchestrator: false }]]),
+      sdkSessions: [{ sessionId: "s1", archived: true, isOrchestrator: false }],
+      cliConnected: new Map([["s1", false]]),
+      cliEverConnected: new Map([["s1", false]]),
+    });
+
+    render(<ChatView sessionId="s1" />);
+
+    expect(screen.getByText("This session is archived. History is read-only.")).toBeTruthy();
+    expect(screen.queryByTestId("live-connection-status-banner")).toBeNull();
+    expect(screen.queryByText("Starting session...")).toBeNull();
+  });
 });
 
 describe("ChatView leader open thread tabs", () => {
