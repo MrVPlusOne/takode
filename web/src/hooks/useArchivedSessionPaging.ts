@@ -28,7 +28,17 @@ export function useArchivedSessionPaging({
     useState<ArchivedSessionPageState>(INITIAL_ARCHIVED_SESSION_PAGE);
   const [autoLoadUnsupported, setAutoLoadUnsupported] = useState(false);
   const archivedSessionPageRef = useRef(archivedSessionPage);
+  const inFlightOffsetRef = useRef<number | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+
+  const setArchivedSessionPageAndRef = useCallback(
+    (updater: (prev: ArchivedSessionPageState) => ArchivedSessionPageState) => {
+      const next = updater(archivedSessionPageRef.current);
+      archivedSessionPageRef.current = next;
+      setArchivedSessionPage(next);
+    },
+    [],
+  );
 
   useEffect(() => {
     archivedSessionPageRef.current = archivedSessionPage;
@@ -40,7 +50,7 @@ export function useArchivedSessionPaging({
       .getArchivedSessionsSummary()
       .then((summary) => {
         if (cancelled) return;
-        setArchivedSessionPage((prev) => (prev.loaded ? prev : { ...prev, total: summary.total }));
+        setArchivedSessionPageAndRef((prev) => (prev.loaded ? prev : { ...prev, total: summary.total }));
       })
       .catch((err) => {
         console.warn("[sidebar] archived session summary refresh failed:", err);
@@ -48,49 +58,55 @@ export function useArchivedSessionPaging({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [setArchivedSessionPageAndRef]);
 
-  const loadArchivedSessionsPage = useCallback(async (options: { reset?: boolean } = {}) => {
-    const current = archivedSessionPageRef.current;
-    if (current.loading) return;
-    const offset = options.reset ? 0 : current.nextOffset;
-    setArchivedSessionPage((prev) => ({
-      ...prev,
-      loading: true,
-      error: null,
-      ...(options.reset ? { ids: [], nextOffset: 0, hasMore: false } : {}),
-    }));
-    try {
-      const page = await api.listArchivedSessionsPage({ offset, limit: ARCHIVED_SESSION_PAGE_SIZE });
-      hydrateSessionList(page.sessions, { preserveMissingSessions: true });
-      setArchivedSessionPage((prev) => {
-        const nextIds = options.reset ? [] : [...prev.ids];
-        const seen = new Set(nextIds);
-        for (const session of page.sessions) {
-          if (seen.has(session.sessionId)) continue;
-          seen.add(session.sessionId);
-          nextIds.push(session.sessionId);
-        }
-        return {
+  const loadArchivedSessionsPage = useCallback(
+    async (options: { reset?: boolean } = {}) => {
+      const current = archivedSessionPageRef.current;
+      const offset = options.reset ? 0 : current.nextOffset;
+      if (current.loading || inFlightOffsetRef.current !== null) return;
+      inFlightOffsetRef.current = offset;
+      setArchivedSessionPageAndRef((prev) => ({
+        ...prev,
+        loading: true,
+        error: null,
+        ...(options.reset ? { ids: [], nextOffset: 0, hasMore: false } : {}),
+      }));
+      try {
+        const page = await api.listArchivedSessionsPage({ offset, limit: ARCHIVED_SESSION_PAGE_SIZE });
+        hydrateSessionList(page.sessions, { preserveMissingSessions: true });
+        setArchivedSessionPageAndRef((prev) => {
+          const nextIds = options.reset ? [] : [...prev.ids];
+          const seen = new Set(nextIds);
+          for (const session of page.sessions) {
+            if (seen.has(session.sessionId)) continue;
+            seen.add(session.sessionId);
+            nextIds.push(session.sessionId);
+          }
+          return {
+            loaded: true,
+            loading: false,
+            total: page.total,
+            hasMore: page.hasMore,
+            nextOffset: page.nextOffset ?? offset + page.sessions.length,
+            ids: nextIds,
+            error: null,
+          };
+        });
+      } catch (err) {
+        console.warn("[sidebar] archived session page refresh failed:", err);
+        setArchivedSessionPageAndRef((prev) => ({
+          ...prev,
           loaded: true,
           loading: false,
-          total: page.total,
-          hasMore: page.hasMore,
-          nextOffset: page.nextOffset ?? offset + page.sessions.length,
-          ids: nextIds,
-          error: null,
-        };
-      });
-    } catch (err) {
-      console.warn("[sidebar] archived session page refresh failed:", err);
-      setArchivedSessionPage((prev) => ({
-        ...prev,
-        loaded: true,
-        loading: false,
-        error: "Archived sessions failed to load.",
-      }));
-    }
-  }, []);
+          error: "Archived sessions failed to load.",
+        }));
+      } finally {
+        inFlightOffsetRef.current = null;
+      }
+    },
+    [setArchivedSessionPageAndRef],
+  );
 
   useEffect(() => {
     if (!showArchived || !archivedSessionPage.hasMore) {

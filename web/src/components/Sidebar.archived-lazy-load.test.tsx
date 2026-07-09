@@ -137,6 +137,16 @@ class MockIntersectionObserver {
   }
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 function makeSdkSession(id: string, overrides: Partial<SdkSessionInfo> = {}): SdkSessionInfo {
   return {
     sessionId: id,
@@ -365,6 +375,97 @@ it("loads additional archived pages without replacing active session rows", asyn
   expect(screen.getByText("First Archived")).toBeInTheDocument();
   expect(screen.getByText("Second Archived")).toBeInTheDocument();
   expect(screen.queryByText("Load more archived sessions")).not.toBeInTheDocument();
+});
+
+it("coalesces rapid archived load sentinel callbacks while allowing the next offset after resolution", async () => {
+  const active = makeSdkSession("active-1", { name: "Active Session" });
+  const firstArchived = makeSdkSession("archived-1", { archived: true, name: "First Archived", model: "codex" });
+  const secondArchived = makeSdkSession("archived-2", { archived: true, name: "Second Archived", model: "codex" });
+  const thirdArchived = makeSdkSession("archived-3", { archived: true, name: "Third Archived", model: "codex" });
+  const secondPage = createDeferred<{
+    sessions: SdkSessionInfo[];
+    total: number;
+    offset: number;
+    limit: number;
+    hasMore: boolean;
+    nextOffset: number | null;
+  }>();
+  const thirdPage = createDeferred<{
+    sessions: SdkSessionInfo[];
+    total: number;
+    offset: number;
+    limit: number;
+    hasMore: boolean;
+    nextOffset: number | null;
+  }>();
+  mockState.sdkSessions = [active];
+  mockApi.listSessions.mockResolvedValue([active]);
+  mockApi.listArchivedSessionsPage
+    .mockResolvedValueOnce({
+      sessions: [firstArchived],
+      total: 3,
+      offset: 0,
+      limit: 25,
+      hasMore: true,
+      nextOffset: 1,
+    })
+    .mockImplementationOnce(() => secondPage.promise)
+    .mockImplementationOnce(() => thirdPage.promise);
+
+  const view = render(<Sidebar />);
+  fireEvent.click(screen.getByText("Archived"));
+  await waitFor(() => expect(mockApi.listArchivedSessionsPage).toHaveBeenCalledWith({ offset: 0, limit: 25 }));
+  view.rerender(<Sidebar />);
+  await waitFor(() => expect(intersectionObservers.length).toBeGreaterThan(0));
+
+  const firstSentinelObserver = intersectionObservers[intersectionObservers.length - 1];
+  act(() => {
+    firstSentinelObserver?.emit(true);
+    firstSentinelObserver?.emit(true);
+  });
+
+  await waitFor(() => expect(mockApi.listArchivedSessionsPage).toHaveBeenCalledWith({ offset: 1, limit: 25 }));
+  expect(mockApi.listArchivedSessionsPage.mock.calls.filter(([options]) => options?.offset === 1)).toHaveLength(1);
+
+  await act(async () => {
+    secondPage.resolve({
+      sessions: [secondArchived],
+      total: 3,
+      offset: 1,
+      limit: 25,
+      hasMore: true,
+      nextOffset: 2,
+    });
+    await secondPage.promise;
+  });
+  view.rerender(<Sidebar />);
+  await waitFor(() => expect(screen.getByText("Second Archived")).toBeInTheDocument());
+
+  act(() => {
+    firstSentinelObserver?.emit(true);
+    firstSentinelObserver?.emit(true);
+  });
+
+  await waitFor(() => expect(mockApi.listArchivedSessionsPage).toHaveBeenCalledWith({ offset: 2, limit: 25 }));
+  expect(mockApi.listArchivedSessionsPage.mock.calls.filter(([options]) => options?.offset === 2)).toHaveLength(1);
+
+  await act(async () => {
+    thirdPage.resolve({
+      sessions: [thirdArchived],
+      total: 3,
+      offset: 2,
+      limit: 25,
+      hasMore: false,
+      nextOffset: null,
+    });
+    await thirdPage.promise;
+  });
+  view.rerender(<Sidebar />);
+
+  expect(screen.getByText("Third Archived")).toBeInTheDocument();
+  expect(mockState.sdkSessions.map((session) => session.sessionId)).toEqual(
+    expect.arrayContaining(["active-1", "archived-1", "archived-2", "archived-3"]),
+  );
 });
 
 it("falls back to a manual load affordance when automatic archived loading is unavailable", async () => {
