@@ -118,16 +118,16 @@ describe("ensureSkillSymlinks", () => {
   });
 
   it("discovers agents-only project skills and installs them only for agents", async () => {
-    // Validates startup discovery for skills like impeccable that intentionally
+    // Validates startup discovery for agent-specific skills that intentionally
     // exist only under the repo's .agents/skills directory.
     fsMocks.existsSync.mockImplementation((targetDir: string) => {
-      return targetDir === "/repo/.agents/skills" || targetDir === "/repo/.agents/skills/impeccable";
+      return targetDir === "/repo/.agents/skills" || targetDir === "/repo/.agents/skills/browser-analyst";
     });
     fsMocks.readdirSync.mockImplementation((targetDir?: string) => {
       if (targetDir === "/repo/.agents/skills") {
         return [
           {
-            name: "impeccable",
+            name: "browser-analyst",
             isDirectory: () => true,
             isSymbolicLink: () => false,
           },
@@ -139,10 +139,13 @@ describe("ensureSkillSymlinks", () => {
     await ensureSkillSymlinks([]);
 
     expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
-      "/repo/.agents/skills/impeccable",
-      "/home/tester/.agents/skills/impeccable",
+      "/repo/.agents/skills/browser-analyst",
+      "/home/tester/.agents/skills/browser-analyst",
     );
-    expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(expect.any(String), "/home/tester/.claude/skills/impeccable");
+    expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(
+      expect.any(String),
+      "/home/tester/.claude/skills/browser-analyst",
+    );
   });
 
   it("discovers Claude-only project skills and installs them for Claude and agents", async () => {
@@ -265,6 +268,34 @@ describe("ensureSkillSymlinks", () => {
       recursive: true,
     });
     expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.codex/skills/quest-journey-porting");
+  });
+
+  it("removes stale global installs for removed project skills", async () => {
+    // Removed project skills should stop being discoverable even if an earlier
+    // startup left repo-owned symlinks or copied directories in global homes.
+    fsMocks.existsSync.mockImplementation((targetDir: string) => {
+      return targetDir === "/repo/.agents/skills";
+    });
+    fsMocks.lstatSync.mockImplementation((targetDir: string) => {
+      if (targetDir === "/home/tester/.claude/skills/impeccable") {
+        return { isSymbolicLink: () => true };
+      }
+      if (targetDir === "/home/tester/.agents/skills/impeccable") {
+        return { isSymbolicLink: () => false };
+      }
+      if (targetDir === "/home/tester/.codex/skills/impeccable") {
+        return { isSymbolicLink: () => true };
+      }
+      throw missingPathError();
+    });
+
+    await ensureSkillSymlinks([]);
+
+    expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.claude/skills/impeccable");
+    expect(fsMocks.rmSync).toHaveBeenCalledWith("/home/tester/.agents/skills/impeccable", { recursive: true });
+    expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.codex/skills/impeccable");
+    expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(expect.stringContaining("impeccable"), expect.any(String));
+    expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(expect.any(String), expect.stringContaining("impeccable"));
   });
 
   it("removes stale project-owned legacy Codex skill copies instead of migrating them", async () => {

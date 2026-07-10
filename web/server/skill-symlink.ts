@@ -47,6 +47,7 @@ const QUEST_JOURNEY_PHASE_SKILL_SLUGS = [
 ];
 const DEPRECATED_PROJECT_SKILL_SLUGS = new Set([
   ...QUEST_JOURNEY_PHASE_SKILL_SLUGS,
+  "impeccable",
   "quest-journey-planning",
   "quest-journey-implementation",
   "quest-journey-skeptic-review",
