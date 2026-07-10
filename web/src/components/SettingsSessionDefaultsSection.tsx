@@ -98,7 +98,9 @@ export function SettingsSessionDefaultsSection({
     selectedCodexModelOption,
     defaults.codex.effectiveContextWindowPercent,
   );
-  const codexContextWarning = contextWindowLimitWarning(defaults.codex.maxContextLength, selectedCodexModelOption);
+  const codexContextWarning = contextWindowLimitWarning(defaults.codex.maxContextLength, selectedCodexModelOption, {
+    effectivePercent: codexEffectivePercent,
+  });
 
   async function save(nextDefaults = defaults) {
     setSaving(true);
@@ -197,7 +199,7 @@ export function SettingsSessionDefaultsSection({
             />
           </label>
           <input
-            aria-label="Default Codex max context length"
+            aria-label="Default Codex usable context capacity"
             type="number"
             min={1}
             value={numberInputValue(defaults.codex.maxContextLength)}
@@ -211,7 +213,7 @@ export function SettingsSessionDefaultsSection({
             className={inputClass}
           />
           <p className="text-xs text-cc-muted">
-            Raw requested Codex context in tokens. Empty leaves the selected model/backend default unchanged.
+            Desired usable Codex capacity in tokens. Empty leaves the selected model/backend default unchanged.
           </p>
           <label className="block space-y-1.5">
             <span className="text-xs font-medium text-cc-muted">Usable context estimate</span>

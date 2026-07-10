@@ -517,9 +517,9 @@ describe("SessionHoverCard", () => {
     }
   });
 
-  it("shows effective Codex context primary and configured raw max secondarily", () => {
-    // q-1533 feedback #31: context metrics belong in their own row, with raw
-    // configured max kept beside effective context when the values differ.
+  it("shows effective Codex context primary and configured usable target secondarily", () => {
+    // q-1612: context metrics belong in their own row, with the configured
+    // usable target kept beside effective context when the values differ.
     mockStoreState.sdkSessions = [
       {
         sessionId: "s1",
@@ -580,27 +580,27 @@ describe("SessionHoverCard", () => {
     expect(screen.getByText("7% context")).toBeInTheDocument();
     expect(screen.getByText("258 K tokens")).toHaveAttribute(
       "title",
-      "Backend reported usable context window. Raw configured max context is 600 K tokens.",
+      "Backend reported usable context window. Configured usable target is 600 K tokens.",
     );
     const configuredContext = screen.getByTitle(
-      "Raw configured max context. Codex may reserve part of it; /status reports the usable window.",
+      "Configured usable capacity target. Runtime /status updates after relaunch or backend evidence.",
     );
     expect(configuredContext).toHaveTextContent("600 K tokens");
-    expect(configuredContext).toHaveTextContent("configured");
+    expect(configuredContext).toHaveTextContent("target");
 
     const contextRow = screen.getByTestId("session-context-stats");
     const payloadRow = screen.getByTestId("session-payload-stats");
     expect(within(contextRow).getByText("7% context")).toBeInTheDocument();
     expect(within(contextRow).getByText("258 K tokens")).toBeInTheDocument();
     expect(within(contextRow).getByText("600 K tokens")).toBeInTheDocument();
-    expect(within(contextRow).getByText("configured")).toBeInTheDocument();
+    expect(within(contextRow).getByText("target")).toBeInTheDocument();
     expect(within(contextRow).queryByText("1.5 MB replay")).toBeNull();
     expect(within(payloadRow).getByText("1 turn")).toBeInTheDocument();
     expect(within(payloadRow).getByText("1.5 MB replay")).toBeInTheDocument();
     expect(within(payloadRow).getByText("2.5 MB retained")).toBeInTheDocument();
     expect(within(payloadRow).queryByText("7% context")).toBeNull();
     expect(within(payloadRow).queryByText("600 K tokens")).toBeNull();
-    expect(within(payloadRow).queryByText("configured")).toBeNull();
+    expect(within(payloadRow).queryByText("target")).toBeNull();
   });
 
   it("uses live cleared Codex max context instead of stale sdk metadata", () => {

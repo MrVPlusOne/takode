@@ -745,9 +745,9 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByText(/258 K tokens/)).toBeInTheDocument();
   });
 
-  it("shows effective Codex context primary and configured max secondarily after restore", () => {
-    // q-1533 feedback #31: restored Session Info metadata should keep the raw
-    // configured max in the context row, not mixed with non-context stats.
+  it("shows effective Codex context primary and configured usable target secondarily after restore", () => {
+    // q-1612: restored Session Info metadata should keep the configured usable
+    // target in the context row, not mixed with non-context stats.
     resetStore([]);
     storeState.sessions = new Map();
     storeState.sdkSessions = [
@@ -769,7 +769,7 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByText("7% context")).toBeInTheDocument();
     expect(screen.getByText(/258 K tokens/)).toHaveAttribute(
       "title",
-      "Backend reported usable context window. Raw configured max context is 600 K tokens.",
+      "Backend reported usable context window. Configured usable target is 600 K tokens.",
     );
     expect(screen.getByText(/600 K tokens/)).toBeInTheDocument();
 
@@ -778,14 +778,14 @@ describe("SessionInfoPopover", () => {
     expect(within(contextRow).getByText("7% context")).toBeInTheDocument();
     expect(within(contextRow).getByText("258 K tokens")).toBeInTheDocument();
     expect(within(contextRow).getByText("600 K tokens")).toBeInTheDocument();
-    expect(within(contextRow).getByText("configured")).toBeInTheDocument();
+    expect(within(contextRow).getByText("target")).toBeInTheDocument();
     expect(within(contextRow).queryByText("1.5 MB replay")).toBeNull();
     expect(within(payloadRow).getByText("12 turns")).toBeInTheDocument();
     expect(within(payloadRow).getByText("1.5 MB replay")).toBeInTheDocument();
     expect(within(payloadRow).getByText("2.5 MB retained")).toBeInTheDocument();
     expect(within(payloadRow).queryByText("7% context")).toBeNull();
     expect(within(payloadRow).queryByText("600 K tokens")).toBeNull();
-    expect(within(payloadRow).queryByText("configured")).toBeNull();
+    expect(within(payloadRow).queryByText("target")).toBeNull();
   });
 
   it("uses sdk session recycle threshold metadata for restored Codex leaders", () => {

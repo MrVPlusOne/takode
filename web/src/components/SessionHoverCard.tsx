@@ -267,9 +267,13 @@ export function SessionHoverCard({
     backendReportedContextWindow &&
     backendReportedContextWindow === contextWindow &&
     backendReportedContextWindow < configuredMaxContextLength
-      ? `Backend reported usable context window. Raw configured max context is ${formatContextWindowLabel(configuredMaxContextLength)}.`
+      ? backendType === "codex"
+        ? `Backend reported usable context window. Configured usable target is ${formatContextWindowLabel(configuredMaxContextLength)}.`
+        : `Backend reported usable context window. Raw configured max context is ${formatContextWindowLabel(configuredMaxContextLength)}.`
       : configuredMaxContextLength
-        ? "Configured max context window."
+        ? backendType === "codex"
+          ? "Configured usable context target."
+          : "Configured max context window."
         : undefined;
   const isCodexSession = effectiveBackendType === "codex";
   const messageHistoryBytes = sessionState?.message_history_bytes ?? sdkSessionMeta?.messageHistoryBytes ?? 0;
@@ -580,6 +584,7 @@ export function SessionHoverCard({
               contextWindow={contextWindow}
               contextWindowTitle={contextWindowTitle}
               configuredContextWindow={configuredMaxContextLength}
+              configuredContextWindowKind={isCodexSession ? "usable-target" : "raw-max"}
             />
             <SessionPayloadStats
               turns={turns}
@@ -587,6 +592,7 @@ export function SessionHoverCard({
               contextWindow={contextWindow}
               contextWindowTitle={contextWindowTitle}
               configuredContextWindow={configuredMaxContextLength}
+              configuredContextWindowKind={isCodexSession ? "usable-target" : "raw-max"}
               historyBytes={messageHistoryBytes}
               codexRetainedPayloadBytes={codexRetainedPayloadBytes}
               isCodexSession={isCodexSession}

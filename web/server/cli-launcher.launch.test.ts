@@ -947,22 +947,6 @@ describe("launch", () => {
     expect(cmdAndArgs).toContain("model_reasoning_effort=high");
   });
 
-  it("passes explicit Codex max context via config flag when provided", async () => {
-    mockResolveBinary.mockReturnValue("/opt/fake/codex");
-    mockSpawn.mockReturnValueOnce(createMockCodexProc());
-
-    await launcher.launch({
-      backendType: "codex",
-      cwd: "/tmp/project",
-      codexMaxContextLength: 240_000,
-      codexSandbox: "workspace-write",
-    });
-    await waitForSpawnCalls(1);
-
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    expect(codexConfigArgValue(cmdAndArgs, "model_context_window")).toBe("240000");
-  });
-
   it("logs session stderr with the human session number when available", async () => {
     // The production log viewer should show #N labels for session stream output instead of raw UUIDs.
     const stderrSpy = vi.spyOn(console, "error").mockImplementation(() => {});

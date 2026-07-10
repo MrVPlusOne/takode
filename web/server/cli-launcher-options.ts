@@ -22,6 +22,7 @@ export interface LaunchOptions {
   /** Codex app-server service tier for future turns. null/undefined means Standard. */
   codexServiceTier?: string | null;
   /** Optional Codex model context window override. */
+  /** Desired usable context capacity; raw provider/catalog values are derived during Codex launch prep. */
   codexMaxContextLength?: number;
   /** Claude reasoning effort. */
   claudeReasoningEffort?: string;

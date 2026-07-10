@@ -165,10 +165,82 @@ describe("ConfigureSessionModal", () => {
     expect(screen.getByLabelText("Session Codex internet access")).not.toBeChecked();
     expect(screen.getByLabelText("Session Codex reasoning effort")).toHaveValue("high");
     expect(screen.getByLabelText("Session Codex speed")).toHaveValue("priority");
-    expect(screen.getByLabelText("Session Codex max context length")).toHaveValue(null);
+    expect(screen.getByLabelText("Session Codex usable context capacity")).toHaveValue(null);
   });
 
-  it("previews usable context and warns without blocking when raw Codex max exceeds model metadata", async () => {
+  it("keeps dirty draft edits stable through unrelated live session updates", async () => {
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            session_id: "s1",
+            backend_type: "codex",
+            model: "gpt-5.4",
+            permissionMode: "codex-default",
+            codex_max_context_length: 500000,
+          },
+        ],
+      ]),
+    });
+    const user = userEvent.setup();
+    const { rerender } = render(<ConfigureSessionModal sessionId="s1" onClose={() => {}} />);
+
+    const input = await screen.findByLabelText("Session Codex usable context capacity");
+    await user.clear(input);
+    await user.type(input, "660000");
+
+    const current = storeState.sessions.get("s1")!;
+    storeState.sessions = new Map([
+      [
+        "s1",
+        {
+          ...current,
+          context_used_percent: 42,
+          codex_token_details: {
+            contextTokensUsed: 210000,
+            inputTokens: 300000,
+            outputTokens: 1000,
+            cachedInputTokens: 100000,
+            reasoningOutputTokens: 0,
+            modelContextWindow: 545000,
+          },
+        },
+      ],
+    ]);
+    rerender(<ConfigureSessionModal sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByLabelText("Session Codex usable context capacity")).toHaveValue(660000);
+  });
+
+  it("reinitializes pristine drafts when authoritative config fields change", async () => {
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            session_id: "s1",
+            backend_type: "codex",
+            model: "gpt-5.4",
+            permissionMode: "codex-default",
+            codex_max_context_length: 500000,
+          },
+        ],
+      ]),
+    });
+    const { rerender } = render(<ConfigureSessionModal sessionId="s1" onClose={() => {}} />);
+    expect(await screen.findByLabelText("Session Codex usable context capacity")).toHaveValue(500000);
+
+    const current = storeState.sessions.get("s1")!;
+    storeState.sessions = new Map([["s1", { ...current, codex_max_context_length: 700000 }]]);
+    rerender(<ConfigureSessionModal sessionId="s1" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Session Codex usable context capacity")).toHaveValue(700000);
+    });
+  });
+
+  it("previews derived raw context and warns without blocking when usable target exceeds model metadata", async () => {
     resetStore({
       sessions: new Map([
         [
@@ -186,7 +258,8 @@ describe("ConfigureSessionModal", () => {
 
     render(<ConfigureSessionModal sessionId="s1" onClose={() => {}} />);
 
-    expect(await screen.findByText(/Estimated \/status window: 450 K tokens usable/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Targets 500 K tokens usable capacity/i)).toBeInTheDocument();
+    expect(screen.getByText(/requests about 556 K tokens raw context at 90%/i)).toBeInTheDocument();
     expect(screen.getByText(/Selected model metadata reports 300 K tokens raw max/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Apply Changes" })).toBeDisabled();
   });

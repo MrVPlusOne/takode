@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, type BackendModelInfo, type SessionConfigPatch } from "../api.js";
 import { useStore } from "../store.js";
@@ -97,6 +97,13 @@ function liveValue<T>(
   return { present: true, value: source[key] as T | undefined };
 }
 
+function formsEqual(left: SessionConfigForm | null, right: SessionConfigForm | null): boolean {
+  if (!left || !right) return left === right;
+  return (Object.keys(left) as Array<keyof SessionConfigForm>).every(
+    (key) => (left[key] ?? null) === (right[key] ?? null),
+  );
+}
+
 function effectCopy(effect: "now" | "next-turn" | "restart" | "resume"): string {
   switch (effect) {
     case "now":
@@ -149,6 +156,42 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
+  const formRef = useRef<SessionConfigForm | null>(null);
+  const initialRef = useRef<SessionConfigForm | null>(null);
+  const initializedSessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    formRef.current = form;
+  }, [form]);
+
+  useEffect(() => {
+    initialRef.current = initial;
+  }, [initial]);
+
+  const configSourceKey = JSON.stringify({
+    sessionId,
+    backend,
+    model: session?.model || sdkSession?.model || "",
+    permissionMode: session?.permissionMode ?? sdkSession?.permissionMode ?? "",
+    codexInternetAccess: Object.prototype.hasOwnProperty.call(session ?? {}, "codex_internet_access")
+      ? (session as Record<string, unknown> | undefined)?.codex_internet_access
+      : sdkSession?.codexInternetAccess,
+    codexReasoningEffort: Object.prototype.hasOwnProperty.call(session ?? {}, "codex_reasoning_effort")
+      ? (session as Record<string, unknown> | undefined)?.codex_reasoning_effort
+      : sdkSession?.codexReasoningEffort,
+    codexServiceTier: Object.prototype.hasOwnProperty.call(session ?? {}, "codex_service_tier")
+      ? (session as Record<string, unknown> | undefined)?.codex_service_tier
+      : sdkSession?.codexServiceTier,
+    codexMaxContextLength: Object.prototype.hasOwnProperty.call(session ?? {}, "codex_max_context_length")
+      ? (session as Record<string, unknown> | undefined)?.codex_max_context_length
+      : sdkSession?.codexMaxContextLength,
+    claudeReasoningEffort: Object.prototype.hasOwnProperty.call(session ?? {}, "claude_reasoning_effort")
+      ? (session as Record<string, unknown> | undefined)?.claude_reasoning_effort
+      : sdkSession?.claudeReasoningEffort,
+    claudeMaxContextLength: Object.prototype.hasOwnProperty.call(session ?? {}, "claude_max_context_length")
+      ? (session as Record<string, unknown> | undefined)?.claude_max_context_length
+      : sdkSession?.claudeMaxContextLength,
+  });
 
   useEffect(() => {
     const live = session as Record<string, unknown> | undefined;
@@ -187,11 +230,17 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
           : (sdkSession?.claudeMaxContextLength ?? null),
       ),
     };
+    const sessionChanged = initializedSessionIdRef.current !== sessionId;
+    initializedSessionIdRef.current = sessionId;
+    const draftIsPristine = !formRef.current || formsEqual(formRef.current, initialRef.current);
+    if (!sessionChanged && !draftIsPristine) return;
+    formRef.current = next;
+    initialRef.current = next;
     setForm(next);
     setInitial(next);
     setError("");
     setSavedMessage("");
-  }, [backend, isCodex, sdkSession, session]);
+  }, [backend, configSourceKey, isCodex, sessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -233,6 +282,7 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
   );
   const selectedModelOption = form ? modelOptions.find((option) => option.value === form.model) : undefined;
   const codexEffectivePercent = effectiveContextPercentForModel(selectedModelOption, codexEffectiveContextPercent);
+  const isCodexLeader = isCodex && (session?.isOrchestrator === true || sdkSession?.isOrchestrator === true);
 
   if (!form || !initial) return null;
   const activeForm = form;
@@ -251,7 +301,12 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
         ? `Claude max context currently supports only ${CLAUDE_1M_CONTEXT_TOKENS.toLocaleString()} or empty.`
         : "";
   const codexMaxContextValue = codexMaxContext.ok ? codexMaxContext.value : null;
-  const codexContextWarning = isCodex ? contextWindowLimitWarning(codexMaxContextValue, selectedModelOption) : null;
+  const codexContextWarning = isCodex
+    ? contextWindowLimitWarning(codexMaxContextValue, selectedModelOption, {
+        leader: isCodexLeader,
+        effectivePercent: codexEffectivePercent,
+      })
+    : null;
 
   const changedFields = new Set<keyof SessionConfigForm>();
   for (const key of Object.keys(form) as Array<keyof SessionConfigForm>) {
@@ -468,9 +523,9 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
 
               {isCodex ? (
                 <div>
-                  <FieldLabel label="Max context length" effect={fieldEffect(true)} />
+                  <FieldLabel label="Usable context capacity" effect={fieldEffect(true)} />
                   <input
-                    aria-label="Session Codex max context length"
+                    aria-label="Session Codex usable context capacity"
                     type="number"
                     min={1}
                     value={form.codexMaxContextLength}
@@ -479,7 +534,7 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
                     className={inputClass}
                   />
                   <p className="mt-1.5 text-xs leading-snug text-cc-muted">
-                    Raw requested max. {contextWindowPreview(codexMaxContextValue, codexEffectivePercent)}
+                    {contextWindowPreview(codexMaxContextValue, codexEffectivePercent, { leader: isCodexLeader })}
                   </p>
                   {codexContextWarning && (
                     <p className="mt-1.5 rounded-lg border border-cc-warning/30 bg-cc-warning/10 px-3 py-2 text-xs leading-relaxed text-cc-fg">

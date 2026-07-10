@@ -1,4 +1,6 @@
-export const CODEX_LEADER_RECYCLE_BUFFER_TOKENS = 25_000;
+import { CODEX_LEADER_RECYCLE_BUFFER_TOKENS } from "../shared/session-defaults.js";
+
+export { CODEX_LEADER_RECYCLE_BUFFER_TOKENS };
 export const CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS = 260_000;
 
 export interface CodexLeaderRecycleThresholdResolution {

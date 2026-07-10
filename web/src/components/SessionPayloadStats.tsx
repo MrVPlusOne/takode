@@ -29,6 +29,7 @@ interface SessionPayloadStatsProps {
   contextWindow: number;
   contextWindowTitle?: string;
   configuredContextWindow?: number | null;
+  configuredContextWindowKind?: "usable-target" | "raw-max";
   historyBytes: number;
   codexRetainedPayloadBytes: number;
   isCodexSession: boolean;
@@ -44,6 +45,7 @@ export function SessionPayloadStats({
   contextWindow,
   contextWindowTitle,
   configuredContextWindow,
+  configuredContextWindowKind = "raw-max",
   historyBytes,
   codexRetainedPayloadBytes,
   isCodexSession,
@@ -82,10 +84,15 @@ export function SessionPayloadStats({
     configuredContextWindow > 0 &&
     configuredContextWindow !== contextWindow
   ) {
+    const configuredLabel = configuredContextWindowKind === "usable-target" ? "target" : "configured";
+    const configuredTitle =
+      configuredContextWindowKind === "usable-target"
+        ? "Configured usable capacity target. Runtime /status updates after relaunch or backend evidence."
+        : "Raw configured max context. Codex may reserve part of it; /status reports the usable window.";
     items.push({
       key: "configured-context-window",
-      text: `${formatContextWindowLabel(configuredContextWindow)} configured`,
-      title: "Raw configured max context. Codex may reserve part of it; /status reports the usable window.",
+      text: `${formatContextWindowLabel(configuredContextWindow)} ${configuredLabel}`,
+      title: configuredTitle,
     });
   }
 
@@ -141,12 +148,14 @@ export function SessionContextStats({
   contextWindow,
   contextWindowTitle,
   configuredContextWindow,
+  configuredContextWindowKind = "raw-max",
   className = "flex flex-wrap items-center gap-2 text-[11px] text-cc-muted",
 }: {
   contextPercent: number;
   contextWindow: number;
   contextWindowTitle?: string;
   configuredContextWindow?: number | null;
+  configuredContextWindowKind?: "usable-target" | "raw-max";
   className?: string;
 }) {
   const hasContext = contextPercent > 0 || contextWindow > 0 || !!configuredContextWindow;
@@ -162,9 +171,17 @@ export function SessionContextStats({
         </span>
       )}
       {!!configuredContextWindow && configuredContextWindow > 0 && configuredContextWindow !== contextWindow && (
-        <span title="Raw configured max context. Codex may reserve part of it; /status reports the usable window.">
+        <span
+          title={
+            configuredContextWindowKind === "usable-target"
+              ? "Configured usable capacity target. Runtime /status updates after relaunch or backend evidence."
+              : "Raw configured max context. Codex may reserve part of it; /status reports the usable window."
+          }
+        >
           {formatContextWindowLabel(configuredContextWindow)}
-          <span className="ml-1 text-cc-muted/70">configured</span>
+          <span className="ml-1 text-cc-muted/70">
+            {configuredContextWindowKind === "usable-target" ? "target" : "configured"}
+          </span>
         </span>
       )}
     </div>

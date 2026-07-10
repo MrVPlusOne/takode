@@ -581,6 +581,7 @@ export function SessionInfoPopover({
               contextWindow={contextWindow}
               contextWindowTitle={contextWindowTitle}
               configuredContextWindow={configuredContextWindow}
+              configuredContextWindowKind={isCodexSession ? "usable-target" : "raw-max"}
             />
             <SessionPayloadStats
               turns={turns}
@@ -588,6 +589,7 @@ export function SessionInfoPopover({
               contextWindow={contextWindow}
               contextWindowTitle={contextWindowTitle}
               configuredContextWindow={configuredContextWindow}
+              configuredContextWindowKind={isCodexSession ? "usable-target" : "raw-max"}
               historyBytes={historyBytes}
               codexRetainedPayloadBytes={codexRetainedPayloadBytes}
               isCodexSession={isCodexSession}
@@ -736,15 +738,21 @@ function getContextWindowTitle(
       ? (session?.codex_token_details?.modelContextWindow ?? sdkSession?.codexTokenDetails?.modelContextWindow)
       : (session?.claude_token_details?.modelContextWindow ?? sdkSession?.claudeTokenDetails?.modelContextWindow);
   if (contextWindow !== configuredMaxContextLength && backendReportedContextWindow === contextWindow) {
-    return `Backend reported usable context window. Raw configured max context is ${formatContextWindowLabel(
-      configuredMaxContextLength,
-    )}.`;
+    return (session?.backend_type ?? sdkSession?.backendType) === "codex"
+      ? `Backend reported usable context window. Configured usable target is ${formatContextWindowLabel(
+          configuredMaxContextLength,
+        )}.`
+      : `Backend reported usable context window. Raw configured max context is ${formatContextWindowLabel(
+          configuredMaxContextLength,
+        )}.`;
   }
   if (contextWindow !== configuredMaxContextLength) return undefined;
   if (backendReportedContextWindow && backendReportedContextWindow < configuredMaxContextLength) {
     return `Configured max context window. Backend token metadata currently reports ${formatContextWindowLabel(backendReportedContextWindow)}.`;
   }
-  return "Configured max context window.";
+  return (session?.backend_type ?? sdkSession?.backendType) === "codex"
+    ? "Configured usable context target."
+    : "Configured max context window.";
 }
 
 function LifecycleEventRow({ event }: { event: SessionLifecycleEvent }) {

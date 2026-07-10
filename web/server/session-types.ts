@@ -1309,7 +1309,7 @@ export interface SessionState {
   model: string;
   /** Server-owned configured Codex web access for the next launch/resume. */
   codex_internet_access?: boolean | null;
-  /** Server-owned configured Codex context-window override for the next launch/resume. */
+  /** Server-owned configured Codex usable context capacity target for the next launch/resume. */
   codex_max_context_length?: number | null;
   /** Server-owned configured Claude reasoning effort for the next launch/resume. */
   claude_reasoning_effort?: string | null;

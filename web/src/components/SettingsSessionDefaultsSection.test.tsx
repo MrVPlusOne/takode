@@ -59,12 +59,16 @@ describe("SettingsSessionDefaultsSection", () => {
     expect(await screen.findByRole("heading", { name: "Session Defaults" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText("Default Codex speed")).toHaveValue("priority"));
     expect(screen.getByLabelText("Default Claude reasoning effort")).toHaveValue("max");
-    expect(screen.getByLabelText("Default Codex max context length")).toHaveAttribute("placeholder", "No override");
+    expect(screen.getByLabelText("Default Codex usable context capacity")).toHaveAttribute(
+      "placeholder",
+      "No override",
+    );
     expect(screen.getByLabelText("Default Codex usable context percent")).toHaveValue(95);
     expect(screen.getByLabelText("Default Claude max context length")).toHaveAttribute("placeholder", "No override");
-    expect(screen.getByText(/Raw requested Codex context in tokens/i)).toBeInTheDocument();
+    expect(screen.getByText(/Desired usable Codex capacity in tokens/i)).toBeInTheDocument();
     expect(screen.getByText(/Empty leaves the selected model\/backend default unchanged/i)).toBeInTheDocument();
-    expect(screen.getByText(/Estimated \/status window: 216 K tokens usable/i)).toBeInTheDocument();
+    expect(screen.getByText(/Targets 240 K tokens usable capacity/i)).toBeInTheDocument();
+    expect(screen.getByText(/requests about 267 K tokens raw context at 90%/i)).toBeInTheDocument();
     expect(screen.getByText(/Optional Claude context window in tokens/i)).toBeInTheDocument();
     expect(screen.getByText(/currently supported value: 1,000,000/i)).toBeInTheDocument();
 

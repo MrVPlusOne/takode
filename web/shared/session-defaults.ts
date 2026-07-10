@@ -1,6 +1,7 @@
 export const CODEX_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 export const CLAUDE_REASONING_EFFORTS = ["low", "medium", "high", "max"] as const;
 export const CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
+export const CODEX_LEADER_RECYCLE_BUFFER_TOKENS = 25_000;
 export const CLAUDE_1M_CONTEXT_TOKENS = 1_000_000;
 export const CLAUDE_1M_CONTEXT_BETA = "context-1m-2025-08-07";
 

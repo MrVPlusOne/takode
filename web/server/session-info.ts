@@ -87,7 +87,7 @@ export interface SdkSessionInfo {
   codexReasoningEffort?: string;
   /** Codex app-server service tier selected for future turns. null/undefined means Standard. */
   codexServiceTier?: string | null;
-  /** Optional per-session Codex context-window override. */
+  /** Optional per-session Codex usable context capacity target. */
   codexMaxContextLength?: number;
   /** Claude reasoning effort selected at launch. */
   claudeReasoningEffort?: string;

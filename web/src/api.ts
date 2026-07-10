@@ -256,6 +256,7 @@ export interface SessionConfigPatch {
   codexInternetAccess?: boolean;
   codexReasoningEffort?: string | null;
   codexServiceTier?: string | null;
+  /** Desired Codex usable context capacity; server derives raw provider context at launch. */
   codexMaxContextLength?: number | null;
   claudeReasoningEffort?: string | null;
   claudeMaxContextLength?: number | null;

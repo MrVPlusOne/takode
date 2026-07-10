@@ -109,6 +109,46 @@ describe("Codex session catalog hardening", () => {
     });
   });
 
+  it("uses configured usable capacity as the leader display budget while preserving the hidden provider envelope", async () => {
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const catalogPath = join(codexHome, "takode-leader-model-catalog.json");
+    const model = "takode-test-leader-configured";
+    await writeFile(configPath, `model = "${model}"\n`, "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: model,
+            context_window: 600_000,
+            max_context_window: 600_000,
+            effective_context_window_percent: 95,
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    const result = await _ensureCodexSessionConfigForTest(codexHome, [], {
+      model,
+      codexContextCapacityTokens: 660_000,
+    });
+
+    expect(result.leaderRecycleThresholdTokens).toBe(660_000);
+    const config = await readFile(configPath, "utf-8");
+    expect(config).toContain("model_context_window = 3666667");
+    expect(config).toContain("model_auto_compact_token_limit = 3300000");
+
+    const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
+    expect(catalog.models[0]).toMatchObject({
+      context_window: 3_666_667,
+      max_context_window: 3_666_667,
+      effective_context_window_percent: 95,
+      auto_compact_token_limit: 3_300_000,
+    });
+  });
+
   it("does not derive relaunch thresholds from Takode's generated leader catalog", async () => {
     const codexHome = await makeCodexHome();
     const configPath = join(codexHome, "config.toml");
@@ -211,6 +251,73 @@ describe("Codex session catalog hardening", () => {
 
     const config = await readFile(configPath, "utf-8");
     expect(config).toContain(`model_catalog_json = ${JSON.stringify(customCatalogPath)}`);
+  });
+
+  it("writes a non-leader selected-model catalog override from desired usable capacity", async () => {
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const catalogPath = join(codexHome, "takode-model-catalog.json");
+    const model = "takode-test-worker-usable";
+    await writeFile(configPath, `model = "${model}"\n`, "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: model,
+            context_window: 300_000,
+            max_context_window: 300_000,
+            effective_context_window_percent: 80,
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    const result = await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+      codexContextCapacityTokens: 400_000,
+    });
+
+    const config = await readFile(configPath, "utf-8");
+    expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+    expect(config).toContain("model_context_window = 500000");
+    expect(result.contextLaunchConfig).toEqual({
+      modelContextWindow: 500_000,
+      modelCatalogConfigPath: catalogPath,
+    });
+
+    const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
+    expectParserSafeEntry(catalog.models[0], model);
+    expect(catalog.models[0]).toMatchObject({
+      context_window: 500_000,
+      max_context_window: 500_000,
+      effective_context_window_percent: 80,
+    });
+  });
+
+  it("clears Takode-owned non-leader context override without removing unrelated context settings", async () => {
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const catalogPath = join(codexHome, "takode-model-catalog.json");
+    const model = "takode-test-worker-clear";
+    await writeFile(configPath, `model = "${model}"\n`, "utf-8");
+    await writeFile(join(codexHome, "models_cache.json"), JSON.stringify({ models: [{ slug: model }] }), "utf-8");
+
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+      codexContextCapacityTokens: 400_000,
+    });
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+    });
+
+    const config = await readFile(configPath, "utf-8");
+    expect(config).not.toContain("model_catalog_json");
+    expect(config).not.toContain("model_context_window");
   });
 
   it("adds a missing selected model to an otherwise valid catalog", async () => {
