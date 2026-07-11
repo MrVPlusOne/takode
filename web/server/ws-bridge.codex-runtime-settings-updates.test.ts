@@ -670,13 +670,13 @@ describe("Codex runtime settings updates", () => {
       browser,
       JSON.stringify({
         type: "set_codex_reasoning_effort",
-        effort: "high",
+        effort: "ultra",
       }),
     );
 
     const session = bridge.getSession(sid)!;
-    expect(session.state.codex_reasoning_effort).toBe("high");
-    expect(launcherInfo.codexReasoningEffort).toBe("high");
+    expect(session.state.codex_reasoning_effort).toBe("ultra");
+    expect(launcherInfo.codexReasoningEffort).toBe("ultra");
     expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
     expect(relaunchCb).toHaveBeenCalledWith(sid);
   });

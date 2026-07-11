@@ -712,6 +712,8 @@ function ensureCodexModelEntrySchemaDefaults(modelEntry: Record<string, any>, mo
       { effort: "medium", description: "Balances speed and reasoning depth for everyday tasks" },
       { effort: "high", description: "Greater reasoning depth for complex problems" },
       { effort: "xhigh", description: "Extra high reasoning depth for complex problems" },
+      { effort: "max", description: "Maximum reasoning depth for the hardest problems" },
+      { effort: "ultra", description: "Maximum reasoning with automatic task delegation" },
     ],
     Array.isArray,
   );

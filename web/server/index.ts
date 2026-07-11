@@ -88,6 +88,7 @@ import {
 import { initNewSessionDefaultsStoreForServer } from "./new-session-defaults-store.js";
 import { normalizeMemorySessionSpaceSlug } from "./memory-session-space.js";
 import { planSessionMemorySpaceBackfill } from "./session-memory-space.js";
+import { refreshCodexModelCatalogOnStartup } from "./codex-model-catalog.js";
 
 const defaultPort = process.env.NODE_ENV === "production" ? DEFAULT_PORT_PROD : DEFAULT_PORT_DEV;
 const port = Number(process.env.PORT) || defaultPort;
@@ -124,6 +125,22 @@ perfTracer.startLagMonitor();
 perfTracer.startSummaryLogging();
 wsBridge.perfTracer = perfTracer;
 serverLog.info(`UV_THREADPOOL_SIZE=${process.env.UV_THREADPOOL_SIZE || "4 (default)"}`);
+void refreshCodexModelCatalogOnStartup()
+  .then((result) => {
+    if (!result) {
+      serverLog.warn("Codex model catalog startup refresh did not produce models; existing fallbacks remain active");
+      return;
+    }
+    serverLog.info(
+      `Codex model catalog startup refresh loaded ${result.models.length} model(s) from ${result.source}` +
+        (result.version ? ` (${result.version})` : ""),
+    );
+  })
+  .catch((error) => {
+    serverLog.warn("Codex model catalog startup refresh failed; existing fallbacks remain active", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
 
 const pushoverNotifier = new PushoverNotifier({
   getSettings: () => {

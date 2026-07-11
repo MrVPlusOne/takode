@@ -389,6 +389,11 @@ export interface BackendModelInfo {
     name: string;
     description?: string;
   }>;
+  supportedReasoningLevels?: Array<{
+    effort: string;
+    description?: string;
+  }>;
+  defaultReasoningLevel?: string;
 }
 
 export interface ActiveTimerSession {

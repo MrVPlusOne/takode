@@ -1,4 +1,4 @@
-export const CODEX_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+export const CODEX_REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max", "ultra"] as const;
 export const CLAUDE_REASONING_EFFORTS = ["low", "medium", "high", "max"] as const;
 export const CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
 export const CODEX_LEADER_RECYCLE_BUFFER_TOKENS = 25_000;
@@ -11,7 +11,7 @@ export type ClaudeReasoningEffort = (typeof CLAUDE_REASONING_EFFORTS)[number];
 export interface CodexSessionDefaults {
   model: string;
   serviceTier: string | null;
-  reasoningEffort: CodexReasoningEffort | "";
+  reasoningEffort: CodexReasoningEffort | string;
   internetAccess: boolean;
   maxContextLength: number | null;
   effectiveContextWindowPercent: number;
@@ -50,6 +50,10 @@ function stringOrEmpty(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+export function isSafeCodexReasoningEffort(value: string): boolean {
+  return /^[a-z][a-z0-9_-]{0,63}$/.test(value);
+}
+
 function normalizePositiveIntegerOrNull(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const numeric = typeof value === "number" ? value : Number(value);
@@ -62,11 +66,9 @@ function normalizePercent(value: unknown, fallback: number): number {
   return Number.isSafeInteger(numeric) && numeric >= 1 && numeric <= 100 ? numeric : fallback;
 }
 
-function normalizeCodexReasoningEffort(value: unknown): CodexReasoningEffort | "" {
+function normalizeCodexReasoningEffort(value: unknown): CodexReasoningEffort | string {
   const normalized = stringOrEmpty(value).toLowerCase();
-  return CODEX_REASONING_EFFORTS.includes(normalized as CodexReasoningEffort)
-    ? (normalized as CodexReasoningEffort)
-    : "";
+  return normalized && isSafeCodexReasoningEffort(normalized) ? normalized : "";
 }
 
 function normalizeClaudeReasoningEffort(value: unknown): ClaudeReasoningEffort | "" {

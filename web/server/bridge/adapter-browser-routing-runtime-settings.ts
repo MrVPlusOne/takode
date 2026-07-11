@@ -14,7 +14,7 @@ import {
   normalizeCodexPermissionProfile,
 } from "../../shared/permission-modes.js";
 
-const VALID_CODEX_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
+const VALID_CODEX_REASONING_EFFORTS = new Set("none minimal low medium high xhigh max ultra".split(" "));
 
 function shouldSendClassicClaudeControlRequest(session: AdapterBrowserRoutingSessionLike): boolean {
   return session.backendType === "claude" && !!session.backendSocket;

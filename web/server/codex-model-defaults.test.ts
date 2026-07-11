@@ -3,6 +3,7 @@ import { Hono } from "hono";
 
 const mockReadFile = vi.hoisted(() => vi.fn());
 const mockGetLegacyCodexHome = vi.hoisted(() => vi.fn(() => "/tmp/codex-home"));
+const mockResolveBinary = vi.hoisted(() => vi.fn(() => null as string | null));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -16,7 +17,13 @@ vi.mock("./codex-home.js", () => ({
   getLegacyCodexHome: mockGetLegacyCodexHome,
 }));
 
+vi.mock("./path-resolver.js", () => ({
+  resolveBinary: mockResolveBinary,
+  captureUserShellEnv: vi.fn(() => ({})),
+}));
+
 import * as settingsManager from "./settings-manager.js";
+import { _resetCodexModelCatalogCacheForTest } from "./codex-model-catalog.js";
 import { createSettingsRoutes } from "./routes/settings.js";
 import { createSystemRoutes, _resetModelCache } from "./routes/system.js";
 
@@ -27,6 +34,7 @@ describe("codex model defaults", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     _resetModelCache();
+    _resetCodexModelCatalogCacheForTest();
     pathExists = vi.fn(async () => false);
     vi.stubGlobal(
       "fetch",

@@ -5,6 +5,7 @@ import {
   getModesForBackend,
   getDefaultModel,
   getDefaultMode,
+  getCodexReasoningEffortOptions,
   resolveClaudeCliMode,
   resolveClaudePermissionCliMode,
   resolvePostPlanMode,
@@ -19,6 +20,7 @@ import {
   CODEX_MODELS,
   CLAUDE_MODES,
   CODEX_MODES,
+  CODEX_REASONING_EFFORTS,
   CLAUDE_PERMISSION_MODES,
 } from "./backends.js";
 
@@ -134,6 +136,29 @@ describe("static model/mode lists", () => {
   it("codex modes expose backend-native permission profiles", () => {
     const values = CODEX_MODES.map((m) => m.value);
     expect(values).toEqual(["default", "auto-review", "full-access", "custom"]);
+  });
+
+  it("codex reasoning options include current catalog and unknown values", () => {
+    expect(CODEX_REASONING_EFFORTS.map((option) => option.value)).toContain("ultra");
+
+    const options = getCodexReasoningEffortOptions({
+      modelOptions: [
+        {
+          value: "gpt-5.6-sol",
+          label: "GPT-5.6-Sol",
+          icon: "",
+          supportedReasoningLevels: [
+            { effort: "low", description: "Fast responses" },
+            { effort: "ultra", description: "Maximum reasoning with delegation" },
+          ],
+        },
+      ],
+      model: "gpt-5.6-sol",
+      currentEffort: "future_effort",
+    });
+
+    expect(options.map((option) => option.value)).toEqual(["", "low", "ultra", "future_effort"]);
+    expect(options.find((option) => option.value === "future_effort")?.label).toBe("Future Effort");
   });
 
   it("claude modes expose backend-native permission modes", () => {

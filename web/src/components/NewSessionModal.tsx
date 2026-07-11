@@ -13,8 +13,8 @@ import { getRecentDirs } from "../utils/recent-dirs.js";
 import { queuePendingSession } from "../utils/pending-creation.js";
 import {
   CLAUDE_PERMISSION_MODES,
-  CODEX_REASONING_EFFORTS,
   CODEX_PERMISSION_MODES,
+  getCodexReasoningEffortOptions,
   getModelsForBackend,
   getDefaultModel,
   getDefaultMode,
@@ -150,7 +150,11 @@ export function NewSessionModal({
   const [selectedCliSession, setSelectedCliSession] = useState<string>("");
   const [manualSessionId, setManualSessionId] = useState("");
 
-  const MODELS = dynamicModels || getModelsForBackend(backend);
+  const baseModels = dynamicModels || getModelsForBackend(backend);
+  const MODELS =
+    model && !baseModels.some((option) => option.value === model)
+      ? [{ value: model, label: model, icon: "" }, ...baseModels]
+      : baseModels;
 
   // Environment state
   const [envs, setEnvs] = useState<CompanionEnv[]>([]);
@@ -406,10 +410,6 @@ export function NewSessionModal({
           const defaultOpt = staticModels.find((m) => m.value === "");
           const withDefault = defaultOpt ? [defaultOpt, ...options.filter((m) => m.value !== "")] : options;
           setDynamicModels(withDefault);
-          if (!withDefault.some((m) => m.value === model)) {
-            setModel(withDefault[0].value);
-            persistGlobalDefault(`cc-model-${backend}`, withDefault[0].value);
-          }
         }
       })
       .catch(() => {});
@@ -530,6 +530,11 @@ export function NewSessionModal({
     CLAUDE_PERMISSION_MODES[0];
   const selectedCodexPermission =
     CODEX_PERMISSION_MODES.find((option) => option.value === codexPermissionMode) || CODEX_PERMISSION_MODES[0];
+  const codexReasoningOptions = getCodexReasoningEffortOptions({
+    modelOptions: MODELS,
+    model,
+    currentEffort: codexReasoningEffort,
+  });
 
   const dirLabel = cwd ? cwd.split("/").pop() || cwd : "Select folder";
 
@@ -1132,8 +1137,7 @@ export function NewSessionModal({
                             title="Codex reasoning effort"
                           >
                             <span>
-                              {CODEX_REASONING_EFFORTS.find((x) => x.value === codexReasoningEffort)?.label ||
-                                "Default"}
+                              {codexReasoningOptions.find((x) => x.value === codexReasoningEffort)?.label || "Default"}
                             </span>
                             <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50">
                               <path d="M4 6l4 4 4-4" />
@@ -1141,7 +1145,7 @@ export function NewSessionModal({
                           </button>
                           {showReasoningDropdown && (
                             <div className="absolute left-0 top-full mt-1 w-40 bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 py-1 overflow-hidden">
-                              {CODEX_REASONING_EFFORTS.map((effort) => (
+                              {codexReasoningOptions.map((effort) => (
                                 <button
                                   key={effort.value || "default"}
                                   onClick={() => {

@@ -15,7 +15,6 @@ import { getSettings } from "../settings-manager.js";
 import { getLogPath } from "../server-logger.js";
 import { getUsageLimits } from "../usage-limits.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
-import { getLegacyCodexHome } from "../codex-home.js";
 import {
   getTranscriptionLogIndex,
   getTranscriptionLogEntry,
@@ -36,6 +35,7 @@ import {
 } from "../bridge/browser-transport-controller.js";
 import type { VsCodeSelectionState, VsCodeWindowState } from "../session-types.js";
 import { trafficStats } from "../traffic-stats.js";
+import { loadCodexModelCatalog } from "../codex-model-catalog.js";
 
 function getCodexModelVariantRank(slug: string): number {
   if (slug.includes("-codex-spark")) return 2;
@@ -57,44 +57,6 @@ function compareCodexModelSlugs(a: string, b: string): number {
   const variantDelta = getCodexModelVariantRank(a) - getCodexModelVariantRank(b);
   if (variantDelta !== 0) return variantDelta;
   return a.localeCompare(b);
-}
-
-function normalizeCodexServiceTiers(model: {
-  service_tiers?: unknown;
-  serviceTiers?: unknown;
-}): Array<{ id: string; name: string; description?: string }> | undefined {
-  const raw = Array.isArray(model.service_tiers)
-    ? model.service_tiers
-    : Array.isArray(model.serviceTiers)
-      ? model.serviceTiers
-      : [];
-  const tiers = raw
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") return null;
-      const item = entry as Record<string, unknown>;
-      const id = typeof item.id === "string" ? item.id.trim() : "";
-      const name = typeof item.name === "string" ? item.name.trim() : "";
-      if (!id || !name) return null;
-      const description =
-        typeof item.description === "string" && item.description.trim() ? item.description : undefined;
-      return { id, name, ...(description ? { description } : {}) };
-    })
-    .filter((entry): entry is { id: string; name: string; description?: string } => !!entry);
-  return tiers.length > 0 ? tiers : undefined;
-}
-
-function positiveInteger(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
-}
-
-function positivePercent(value: unknown): number | undefined {
-  const numeric = positiveInteger(value);
-  return numeric !== undefined && numeric <= 100 ? numeric : undefined;
-}
-
-function nullablePositiveInteger(value: unknown): number | null | undefined {
-  if (value === null) return null;
-  return positiveInteger(value);
 }
 
 // ─── LiteLLM proxy model discovery ──────────────────────────────────────────
@@ -593,47 +555,13 @@ export function createSystemRoutes(ctx: RouteContext) {
     const backendId = c.req.param("id");
 
     if (backendId === "codex") {
-      // Prefer Codex CLI's local models cache. It reflects the actual models
-      // the installed Codex client knows about, which may diverge from any
-      // ambient LiteLLM proxy running elsewhere on the machine.
-      const cachePath = join(getLegacyCodexHome(), "models_cache.json");
-      if (await pathExists(cachePath)) {
-        try {
-          const raw = await readFile(cachePath, "utf-8");
-          const cache = JSON.parse(raw) as {
-            models: Array<{
-              slug: string;
-              display_name?: string;
-              description?: string;
-              visibility?: string;
-              priority?: number;
-              context_window?: unknown;
-              max_context_window?: unknown;
-              effective_context_window_percent?: unknown;
-              auto_compact_token_limit?: unknown;
-              service_tiers?: unknown;
-              serviceTiers?: unknown;
-            }>;
-          };
-          const models = cache.models
-            .filter((m) => m.visibility === "list")
-            .filter((m) => !m.slug.startsWith("gpt-5.2") && !m.slug.startsWith("gpt-5.1"))
-            .sort((a, b) => compareCodexModelSlugs(a.slug, b.slug))
-            .map((m) => ({
-              value: m.slug,
-              label: m.display_name || m.slug,
-              description: m.description || "",
-              contextWindow: positiveInteger(m.context_window),
-              maxContextWindow: positiveInteger(m.max_context_window),
-              effectiveContextWindowPercent: positivePercent(m.effective_context_window_percent),
-              autoCompactTokenLimit: nullablePositiveInteger(m.auto_compact_token_limit),
-              serviceTiers: normalizeCodexServiceTiers(m),
-            }));
-          if (models.length > 0) return c.json(models);
-        } catch {
-          return c.json({ error: "Failed to parse Codex models cache" }, 500);
-        }
+      let catalog;
+      try {
+        catalog = await loadCodexModelCatalog({ pathExists });
+      } catch {
+        return c.json({ error: "Failed to parse Codex models cache" }, 500);
       }
+      if (catalog?.models.length) return c.json(catalog.models);
 
       const proxyModels = await fetchLitellmModels();
       if (proxyModels) {

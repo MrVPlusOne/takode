@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { api, type CronJobInfo } from "../api.js";
 import {
-  CODEX_REASONING_EFFORTS,
+  getCodexReasoningEffortOptions,
   getModelsForBackend,
   getDefaultModel,
   toModelOptions,
@@ -110,6 +110,23 @@ interface JobFormData {
 
 function getDefaultCodexReasoningEffort(): string {
   return scopedGetItem("cc-codex-reasoning-effort") ?? "";
+}
+
+function mergeCronModelOptions(
+  backendType: "claude" | "codex",
+  dynamicModels: ModelOption[] | null,
+  currentModel: string,
+) {
+  const merged = [...(dynamicModels ?? []), ...getModelsForBackend(backendType)].filter((option) => option.value);
+  if (currentModel && !merged.some((option) => option.value === currentModel)) {
+    merged.unshift({ value: currentModel, label: currentModel, icon: "" });
+  }
+  const seen = new Set<string>();
+  return merged.filter((option) => {
+    if (seen.has(option.value)) return false;
+    seen.add(option.value);
+    return true;
+  });
 }
 
 function makeEmptyForm(): JobFormData {
@@ -562,8 +579,13 @@ function JobForm({ form, onChange }: { form: JobFormData; onChange: (form: JobFo
   const reasoningDropdownRef = useRef<HTMLDivElement>(null);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
 
-  const models = dynamicModels || getModelsForBackend(form.backendType);
+  const models = mergeCronModelOptions(form.backendType, dynamicModels, form.model);
   const selectedModel = models.find((m) => m.value === form.model) || models[0];
+  const codexReasoningOptions = getCodexReasoningEffortOptions({
+    modelOptions: models,
+    model: form.model,
+    currentEffort: form.codexReasoningEffort,
+  });
 
   // Fetch dynamic models when backend changes (LiteLLM proxy discovery)
   useEffect(() => {
@@ -574,9 +596,6 @@ function JobForm({ form, onChange }: { form: JobFormData; onChange: (form: JobFo
         if (fetched.length > 0) {
           const options = toModelOptions(fetched);
           setDynamicModels(options);
-          if (!options.some((m) => m.value === form.model)) {
-            update({ model: options[0].value });
-          }
         }
       })
       .catch(() => {
@@ -753,7 +772,7 @@ function JobForm({ form, onChange }: { form: JobFormData; onChange: (form: JobFo
             >
               <span>
                 reasoning:
-                {CODEX_REASONING_EFFORTS.find((x) => x.value === form.codexReasoningEffort)?.label.toLowerCase() ||
+                {codexReasoningOptions.find((x) => x.value === form.codexReasoningEffort)?.label.toLowerCase() ||
                   "default"}
               </span>
               <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50">
@@ -762,7 +781,7 @@ function JobForm({ form, onChange }: { form: JobFormData; onChange: (form: JobFo
             </button>
             {showReasoningDropdown && (
               <div className="absolute left-0 bottom-full mb-1 w-40 bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 py-1">
-                {CODEX_REASONING_EFFORTS.map((effort) => (
+                {codexReasoningOptions.map((effort) => (
                   <button
                     key={effort.value || "default"}
                     onClick={() => {

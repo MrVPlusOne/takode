@@ -679,7 +679,7 @@ describe("Composer permission mode selector", () => {
     });
   });
 
-  it("codex reasoning dropdown includes XHigh and sends xhigh", async () => {
+  it("codex reasoning dropdown includes Extra high and sends xhigh", async () => {
     // Verifies the extra-high reasoning level is available in the composer menu.
     setupMockStore({
       session: {
@@ -692,7 +692,7 @@ describe("Composer permission mode selector", () => {
 
     const trigger = screen.getByTitle("Reasoning effort (relaunch required)");
     await userEvent.click(trigger);
-    await userEvent.click(screen.getByText("XHigh"));
+    await userEvent.click(screen.getByText("Extra high"));
 
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
       type: "set_codex_reasoning_effort",

@@ -169,7 +169,7 @@ describe("session config routes", () => {
     const res = await app.request("/sessions/s1/config", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ codexReasoningEffort: "high", codexMaxContextLength: 240000 }),
+      body: JSON.stringify({ codexReasoningEffort: "ultra", codexMaxContextLength: 240000 }),
     });
 
     expect(res.status).toBe(200);
@@ -177,16 +177,16 @@ describe("session config routes", () => {
       ok: true,
       restartRequired: true,
       restartRequiredFields: ["codexReasoningEffort", "codexMaxContextLength"],
-      sessionState: { codex_reasoning_effort: "high", codex_max_context_length: 240000 },
+      sessionState: { codex_reasoning_effort: "ultra", codex_max_context_length: 240000 },
     });
     expect(launcher.updateSessionLaunchConfig).toHaveBeenCalledWith("s1", {
-      codexReasoningEffort: "high",
+      codexReasoningEffort: "ultra",
       codexMaxContextLength: 240000,
     });
     expect(wsBridge.setCodexServiceTier).not.toHaveBeenCalled();
     expect(wsBridge.broadcastToSession).toHaveBeenCalledWith("s1", {
       type: "session_update",
-      session: { codex_reasoning_effort: "high", codex_max_context_length: 240000 },
+      session: { codex_reasoning_effort: "ultra", codex_max_context_length: 240000 },
     });
     expect(wsBridge.persistSessionById).toHaveBeenCalledWith("s1");
     expect((session.state as Record<string, unknown>).codex_max_context_length).toBe(240000);

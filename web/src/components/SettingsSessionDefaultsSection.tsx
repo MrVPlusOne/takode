@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type BackendModelInfo } from "../api.js";
 import {
   CLAUDE_PERMISSION_MODES,
-  CODEX_REASONING_EFFORTS,
+  getCodexReasoningEffortOptions,
   getModelsForBackend,
   toModelOptions,
   type ModelOption,
@@ -24,11 +24,15 @@ import {
 const inputClass =
   "w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60";
 
-function modelOptions(backend: "claude" | "codex", models: BackendModelInfo[]): ModelOption[] {
+function modelOptions(backend: "claude" | "codex", models: BackendModelInfo[], currentModel: string): ModelOption[] {
   const dynamic = models.length ? toModelOptions(models) : [];
   const fallback = getModelsForBackend(backend);
   const defaultOption = fallback.find((option) => option.value === "");
-  return defaultOption ? [defaultOption, ...dynamic.filter((option) => option.value !== "")] : dynamic;
+  const merged = defaultOption ? [defaultOption, ...dynamic.filter((option) => option.value !== "")] : dynamic;
+  if (currentModel && !merged.some((option) => option.value === currentModel)) {
+    merged.push({ value: currentModel, label: currentModel, icon: "" });
+  }
+  return merged;
 }
 
 function numberInputValue(value: number | null): string {
@@ -89,11 +93,23 @@ export function SettingsSessionDefaultsSection({
     };
   }, [isActive]);
 
-  const codexModelOptions = useMemo(() => modelOptions("codex", codexModels), [codexModels]);
-  const claudeModelOptions = useMemo(() => modelOptions("claude", claudeModels), [claudeModels]);
+  const codexModelOptions = useMemo(
+    () => modelOptions("codex", codexModels, defaults.codex.model),
+    [codexModels, defaults.codex.model],
+  );
+  const claudeModelOptions = useMemo(
+    () => modelOptions("claude", claudeModels, defaults.claude.model),
+    [claudeModels, defaults.claude.model],
+  );
   const selectedCodexModel = codexModels.find((model) => model.value === defaults.codex.model);
   const codexServiceTiers = selectedCodexModel?.serviceTiers ?? [];
   const selectedCodexModelOption = codexModelOptions.find((option) => option.value === defaults.codex.model);
+  const codexReasoningOptions = getCodexReasoningEffortOptions({
+    modelOptions: codexModelOptions,
+    model: defaults.codex.model,
+    currentEffort: defaults.codex.reasoningEffort,
+    includeDefault: false,
+  });
   const codexEffectivePercent = effectiveContextPercentForModel(
     selectedCodexModelOption,
     defaults.codex.effectiveContextWindowPercent,
@@ -179,7 +195,7 @@ export function SettingsSessionDefaultsSection({
             className={inputClass}
           >
             <option value="">Backend default</option>
-            {CODEX_REASONING_EFFORTS.map((option) => (
+            {codexReasoningOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>

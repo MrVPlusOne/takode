@@ -47,6 +47,15 @@ describe("SettingsSessionDefaultsSection", () => {
               effectiveContextWindowPercent: 90,
               serviceTiers: [{ id: "priority", name: "Fast" }],
             },
+            {
+              value: "gpt-5.6-sol",
+              label: "GPT-5.6-Sol",
+              description: "",
+              supportedReasoningLevels: [
+                { effort: "low", description: "Fast responses" },
+                { effort: "ultra", description: "Maximum reasoning with delegation" },
+              ],
+            },
           ]
         : [{ value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5", description: "" }],
     );
@@ -102,5 +111,37 @@ describe("SettingsSessionDefaultsSection", () => {
 
     expect(await screen.findByText(/Selected model metadata reports 300 K tokens raw max/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save Defaults" })).toBeEnabled();
+  });
+
+  it("shows catalog Codex models and reasoning levels", async () => {
+    render(
+      <SettingsSessionDefaultsSection
+        sessionDefaults={{
+          ...loadedDefaults,
+          codex: { ...loadedDefaults.codex, model: "gpt-5.6-sol", reasoningEffort: "ultra" },
+        }}
+      />,
+    );
+
+    expect(await screen.findByRole("option", { name: "GPT-5.6-Sol" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Default Codex model")).toHaveValue("gpt-5.6-sol");
+    expect(screen.getByRole("option", { name: "Ultra" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Default Codex reasoning effort")).toHaveValue("ultra");
+  });
+
+  it("preserves unknown saved Codex model and reasoning strings in the selects", async () => {
+    render(
+      <SettingsSessionDefaultsSection
+        sessionDefaults={{
+          ...loadedDefaults,
+          codex: { ...loadedDefaults.codex, model: "gpt-future", reasoningEffort: "future_effort" },
+        }}
+      />,
+    );
+
+    expect(await screen.findByRole("option", { name: "gpt-future" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Default Codex model")).toHaveValue("gpt-future");
+    expect(screen.getByRole("option", { name: "Future Effort" })).toHaveValue("future_effort");
+    expect(screen.getByLabelText("Default Codex reasoning effort")).toHaveValue("future_effort");
   });
 });

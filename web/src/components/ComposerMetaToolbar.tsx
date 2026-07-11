@@ -1,5 +1,10 @@
 import type { RefObject, ReactNode } from "react";
-import { CODEX_REASONING_EFFORTS, formatModel, type PermissionOption, type ModelOption } from "../utils/backends.js";
+import {
+  formatModel,
+  getCodexReasoningEffortOptions,
+  type PermissionOption,
+  type ModelOption,
+} from "../utils/backends.js";
 import { CatPawAvatar } from "./CatIcons.js";
 
 function PaperPlaneIcon({ className = "w-4 h-4" }: { className?: string }) {
@@ -132,6 +137,11 @@ export function ComposerMetaToolbar({
   const fastSelected = !!codexFastServiceTier && codexServiceTier === codexFastServiceTier.id;
   const selectedSpeedLabel = fastSelected ? codexFastServiceTier.name : "Standard";
   const fastDescription = codexFastServiceTier?.description || "Use increased-priority Codex service tier.";
+  const codexReasoningOptions = getCodexReasoningEffortOptions({
+    modelOptions: codexModelOptions,
+    model: sessionView.model,
+    currentEffort: codexReasoningEffort,
+  });
   const settingsDisabled = !canEditLaunchSettings;
   const quietSettingsDisabledClass = settingsDisabled
     ? "opacity-30 cursor-not-allowed text-cc-muted"
@@ -401,7 +411,7 @@ export function ComposerMetaToolbar({
                         title={reasoningTitle}
                       >
                         <span>
-                          {CODEX_REASONING_EFFORTS.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() ||
+                          {codexReasoningOptions.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() ||
                             "default"}
                         </span>
                         <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
@@ -413,7 +423,7 @@ export function ComposerMetaToolbar({
                           data-testid="composer-reasoning-menu"
                           className="absolute left-0 bottom-full z-10 mb-1 w-40 overflow-hidden rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg"
                         >
-                          {CODEX_REASONING_EFFORTS.map((effort) => (
+                          {codexReasoningOptions.map((effort) => (
                             <button
                               key={effort.value || "default"}
                               onClick={() => {

@@ -5,7 +5,6 @@ import { sendToSession } from "../ws.js";
 import {
   CLAUDE_PERMISSION_MODES,
   CODEX_PERMISSION_MODES,
-  CODEX_REASONING_EFFORTS,
   deriveUiMode,
   deriveCodexPermissionMode,
   formatModel,

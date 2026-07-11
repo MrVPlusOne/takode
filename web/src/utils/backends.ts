@@ -27,11 +27,17 @@ export interface ModelOption {
     name: string;
     description?: string;
   }>;
+  supportedReasoningLevels?: Array<{
+    effort: string;
+    description?: string;
+  }>;
+  defaultReasoningLevel?: string;
 }
 
 export interface ModeOption {
   value: string;
   label: string;
+  description?: string;
 }
 
 export interface PermissionOption<T extends string = string> {
@@ -71,6 +77,8 @@ export function toModelOptions(models: BackendModelInfo[]): ModelOption[] {
     effectiveContextWindowPercent: m.effectiveContextWindowPercent,
     autoCompactTokenLimit: m.autoCompactTokenLimit,
     serviceTiers: m.serviceTiers,
+    supportedReasoningLevels: m.supportedReasoningLevels,
+    defaultReasoningLevel: m.defaultReasoningLevel,
   }));
 }
 
@@ -110,8 +118,50 @@ export const CODEX_REASONING_EFFORTS: ModeOption[] = [
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
-  { value: "xhigh", label: "XHigh" },
+  { value: "xhigh", label: "Extra high" },
+  { value: "max", label: "Max" },
+  { value: "ultra", label: "Ultra" },
 ];
+
+function labelForReasoningEffort(effort: string): string {
+  const known = CODEX_REASONING_EFFORTS.find((option) => option.value === effort);
+  if (known) return known.label;
+  return effort
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => (part.length <= 4 ? part[0]?.toUpperCase() + part.slice(1) : part[0]?.toUpperCase() + part.slice(1)))
+    .join(" ");
+}
+
+export function getCodexReasoningEffortOptions(options?: {
+  modelOptions?: ModelOption[];
+  model?: string;
+  currentEffort?: string | null;
+  includeDefault?: boolean;
+}): ModeOption[] {
+  const includeDefault = options?.includeDefault !== false;
+  const selectedModel = options?.modelOptions?.find((model) => model.value === options.model);
+  const catalogLevels = selectedModel?.supportedReasoningLevels;
+  const base =
+    catalogLevels && catalogLevels.length > 0
+      ? catalogLevels.map((level) => ({
+          value: level.effort,
+          label: labelForReasoningEffort(level.effort),
+          description: level.description,
+        }))
+      : CODEX_REASONING_EFFORTS.filter((option) => option.value);
+  const next = includeDefault ? [CODEX_REASONING_EFFORTS[0], ...base] : [...base];
+  const currentEffort = options?.currentEffort?.trim().toLowerCase();
+  if (currentEffort && !next.some((option) => option.value === currentEffort)) {
+    next.push({ value: currentEffort, label: labelForReasoningEffort(currentEffort) });
+  }
+  const seen = new Set<string>();
+  return next.filter((option) => {
+    if (seen.has(option.value)) return false;
+    seen.add(option.value);
+    return true;
+  });
+}
 
 export const CLAUDE_PERMISSION_MODES: ClaudePermissionOption[] = [
   {

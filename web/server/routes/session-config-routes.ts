@@ -2,7 +2,7 @@ import type { Hono } from "hono";
 import {
   CLAUDE_1M_CONTEXT_TOKENS,
   CLAUDE_REASONING_EFFORTS,
-  CODEX_REASONING_EFFORTS,
+  isSafeCodexReasoningEffort,
 } from "../../shared/session-defaults.js";
 import {
   deriveAskPermissionForMode,
@@ -68,6 +68,17 @@ function normalizeNullableEffort<T extends readonly string[]>(
   if (value === null || value === "") return { ok: true, value: undefined };
   const normalized = value.toLowerCase();
   if (!valid.includes(normalized)) return { ok: false, error: `${key} is not supported: ${value}` };
+  return { ok: true, value: normalized };
+}
+
+function normalizeNullableCodexEffort(
+  value: string | null | undefined,
+  key: ConfigField,
+): { ok: true; value: string | undefined } | { ok: false; error: string } {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (value === null || value === "") return { ok: true, value: undefined };
+  const normalized = value.toLowerCase();
+  if (!isSafeCodexReasoningEffort(normalized)) return { ok: false, error: `${key} is not supported: ${value}` };
   return { ok: true, value: normalized };
 }
 
@@ -185,9 +196,8 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
     }
 
     if (backendType === "codex") {
-      const effort = normalizeNullableEffort(
+      const effort = normalizeNullableCodexEffort(
         parseNullableString(body, "codexReasoningEffort"),
-        CODEX_REASONING_EFFORTS,
         "codexReasoningEffort",
       );
       if (!effort.ok) return c.json({ error: effort.error }, 400);

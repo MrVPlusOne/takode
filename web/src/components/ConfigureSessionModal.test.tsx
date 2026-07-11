@@ -77,6 +77,15 @@ describe("ConfigureSessionModal", () => {
               effectiveContextWindowPercent: 90,
               serviceTiers: [{ id: "priority", name: "Fast", description: "Fast tier" }],
             },
+            {
+              value: "gpt-5.6-terra",
+              label: "GPT-5.6-Terra",
+              supportedReasoningLevels: [
+                { effort: "low", description: "Fast responses" },
+                { effort: "max", description: "Maximum reasoning" },
+                { effort: "ultra", description: "Maximum reasoning with delegation" },
+              ],
+            },
           ]
         : [{ value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5" }],
     );
@@ -326,6 +335,52 @@ describe("ConfigureSessionModal", () => {
       expect(mockUpdateSessionConfig).toHaveBeenCalledWith("s1", { codexReasoningEffort: "high" });
     });
     expect(mockRelaunchSession).toHaveBeenCalledWith("s1");
+  });
+
+  it("shows catalog-backed Codex model and reasoning options", async () => {
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            session_id: "s1",
+            backend_type: "codex",
+            model: "gpt-5.6-terra",
+            permissionMode: "codex-default",
+            codex_reasoning_effort: "ultra",
+          },
+        ],
+      ]),
+    });
+    render(<ConfigureSessionModal sessionId="s1" onClose={() => {}} />);
+
+    expect(await screen.findByRole("option", { name: "GPT-5.6-Terra" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Session model")).toHaveValue("gpt-5.6-terra");
+    expect(screen.getByRole("option", { name: "Ultra" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Session Codex reasoning effort")).toHaveValue("ultra");
+  });
+
+  it("preserves unknown current Codex model and reasoning strings", async () => {
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            session_id: "s1",
+            backend_type: "codex",
+            model: "gpt-future",
+            permissionMode: "codex-default",
+            codex_reasoning_effort: "future_effort",
+          },
+        ],
+      ]),
+    });
+    render(<ConfigureSessionModal sessionId="s1" onClose={() => {}} />);
+
+    expect(await screen.findByRole("option", { name: "gpt-future" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Session model")).toHaveValue("gpt-future");
+    expect(screen.getByRole("option", { name: "Future Effort" })).toHaveValue("future_effort");
+    expect(screen.getByLabelText("Session Codex reasoning effort")).toHaveValue("future_effort");
   });
 
   it("uses server backendConnected response instead of stale local connectivity for relaunch", async () => {

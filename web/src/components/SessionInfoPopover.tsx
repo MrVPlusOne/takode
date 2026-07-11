@@ -9,7 +9,13 @@ import {
   SystemPromptCollapsible,
   usePersistedCollapse,
 } from "./TaskPanel.js";
-import { formatModel, getModelsForBackend, CODEX_REASONING_EFFORTS } from "../utils/backends.js";
+import {
+  formatModel,
+  getCodexReasoningEffortOptions,
+  getModelsForBackend,
+  toModelOptions,
+  type ModelOption,
+} from "../utils/backends.js";
 import { coalesceSessionViewModel, type SessionViewModel } from "../utils/session-view-model.js";
 import { navigateTo } from "../utils/navigation.js";
 import { sendToSession } from "../ws.js";
@@ -26,6 +32,19 @@ const POPOVER_MARGIN = 12;
 const POPOVER_GAP = 8;
 const POPOVER_WIDTH = 390;
 const POPOVER_MIN_HEIGHT = 180;
+
+function mergeModelOptions(backendType: "claude" | "codex", dynamicModels: ModelOption[], currentModel: string) {
+  const merged = [...dynamicModels, ...getModelsForBackend(backendType)].filter((option) => option.value);
+  if (currentModel && !merged.some((option) => option.value === currentModel)) {
+    merged.unshift({ value: currentModel, label: currentModel, icon: "" });
+  }
+  const seen = new Set<string>();
+  return merged.filter((option) => {
+    if (seen.has(option.value)) return false;
+    seen.add(option.value);
+    return true;
+  });
+}
 
 export function SessionInfoPopover({
   sessionId,
@@ -118,6 +137,7 @@ export function SessionInfoPopover({
         ? `Model: ${model} (relaunch required)`
         : `Model: ${model} (click to change)`
       : "Applies on resume";
+  const modelBackend = backendType === "codex" ? "codex" : "claude";
   const reasoningTitle = !isConnected
     ? "Reconnect to Takode to change reasoning"
     : cliConnected
@@ -128,9 +148,37 @@ export function SessionInfoPopover({
   const [openDirectoryError, setOpenDirectoryError] = useState("");
   const [openingDirectoryTarget, setOpeningDirectoryTarget] = useState<SessionDirectoryOpenTarget | null>(null);
   const [sdkSessionsFallback, setSdkSessionsFallback] = useState<SdkSessionInfo[] | null>(null);
+  const [dynamicModelOptions, setDynamicModelOptions] = useState<ModelOption[]>([]);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const reasoningDropdownRef = useRef<HTMLDivElement>(null);
-  const modelOptions = useMemo(() => getModelsForBackend(backendType as "claude" | "codex"), [backendType]);
+  const modelOptions = useMemo(
+    () => mergeModelOptions(modelBackend, dynamicModelOptions, model),
+    [modelBackend, dynamicModelOptions, model],
+  );
+  const codexReasoningOptions = getCodexReasoningEffortOptions({
+    modelOptions,
+    model,
+    currentEffort: codexReasoningEffort,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    const getBackendModels = (api as { getBackendModels?: typeof api.getBackendModels }).getBackendModels;
+    if (!getBackendModels) {
+      setDynamicModelOptions([]);
+      return;
+    }
+    getBackendModels(backendType)
+      .then((models) => {
+        if (!cancelled) setDynamicModelOptions(toModelOptions(models));
+      })
+      .catch(() => {
+        if (!cancelled) setDynamicModelOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backendType]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -391,7 +439,7 @@ export function SessionInfoPopover({
                   title={reasoningTitle}
                 >
                   <span>
-                    {CODEX_REASONING_EFFORTS.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() ||
+                    {codexReasoningOptions.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() ||
                       "default"}
                   </span>
                   <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
@@ -400,7 +448,7 @@ export function SessionInfoPopover({
                 </button>
                 {showReasoningDropdown && (
                   <div className="absolute left-0 top-full z-10 mt-1 w-40 overflow-hidden rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg">
-                    {CODEX_REASONING_EFFORTS.map((effort) => (
+                    {codexReasoningOptions.map((effort) => (
                       <button
                         key={effort.value || "default"}
                         onClick={() => {

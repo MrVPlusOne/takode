@@ -66,7 +66,7 @@ describe("settings routes", () => {
         ...DEFAULT_SESSION_DEFAULTS.codex,
         model: "gpt-5.4",
         serviceTier: "priority",
-        reasoningEffort: "high",
+        reasoningEffort: "ultra",
         internetAccess: true,
         maxContextLength: 240_000,
       },

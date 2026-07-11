@@ -255,7 +255,7 @@ export class CodexAdapter
       secondary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;
     }
   >();
-  private static readonly VALID_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
+  private static readonly VALID_REASONING_EFFORTS = new Set("none minimal low medium high xhigh max ultra".split(" "));
 
   constructor(proc: Subprocess, sessionId: string, options: CodexAdapterOptions = {}) {
     this.proc = proc;

@@ -17,7 +17,11 @@ export function useCodexModelOptions(options: {
 } {
   const { isCodex, model, codexServiceTier, sessionId, loadPersistedSettings } = options;
   const [dynamicCodexModels, setDynamicCodexModels] = useState<ModelOption[] | null>(null);
-  const codexModelOptions = dynamicCodexModels || getModelsForBackend("codex");
+  const baseCodexModelOptions = dynamicCodexModels || getModelsForBackend("codex");
+  const codexModelOptions =
+    model && !baseCodexModelOptions.some((option) => option.value === model)
+      ? [{ value: model, label: model, icon: "" }, ...baseCodexModelOptions]
+      : baseCodexModelOptions;
   const selectedCodexModelOption = codexModelOptions.find((option) => option.value === model);
   const selectedCodexServiceTiers = selectedCodexModelOption?.serviceTiers ?? EMPTY_SERVICE_TIERS;
   const codexFastServiceTier =

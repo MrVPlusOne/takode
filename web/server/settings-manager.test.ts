@@ -116,6 +116,21 @@ describe("settings-manager", () => {
     expect(saved.pushoverEventFilters).toEqual({ needsInput: false, review: true, error: false });
   });
 
+  it("preserves safe future Codex reasoning defaults instead of dropping them", async () => {
+    const updated = updateSettings({
+      sessionDefaults: {
+        ...DEFAULT_SESSION_DEFAULTS,
+        codex: { ...DEFAULT_SESSION_DEFAULTS.codex, reasoningEffort: "future_effort" },
+      },
+    });
+
+    expect(updated.sessionDefaults!.codex.reasoningEffort).toBe("future_effort");
+
+    await _flushForTest();
+    _resetForTest(settingsPath);
+    expect(getSettings().sessionDefaults!.codex.reasoningEffort).toBe("future_effort");
+  });
+
   it("normalizes and persists enabled leader profile pools", async () => {
     const updated = updateSettings({ leaderProfilePools: { tako: false, shmi: true } });
     expect(updated.leaderProfilePools).toEqual({ tako: false, shmi: true });

@@ -5,7 +5,7 @@ import { useStore } from "../store.js";
 import {
   CLAUDE_PERMISSION_MODES,
   CODEX_PERMISSION_MODES,
-  CODEX_REASONING_EFFORTS,
+  getCodexReasoningEffortOptions,
   getModelsForBackend,
   toModelOptions,
   type CodexPermissionMode,
@@ -281,6 +281,11 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
     [form, modelOptions],
   );
   const selectedModelOption = form ? modelOptions.find((option) => option.value === form.model) : undefined;
+  const codexReasoningOptions = getCodexReasoningEffortOptions({
+    modelOptions,
+    model: form?.model,
+    currentEffort: form?.codexReasoningEffort,
+  });
   const codexEffectivePercent = effectiveContextPercentForModel(selectedModelOption, codexEffectiveContextPercent);
   const isCodexLeader = isCodex && (session?.isOrchestrator === true || sdkSession?.isOrchestrator === true);
 
@@ -458,7 +463,7 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
                       onChange={(event) => update("codexReasoningEffort", event.target.value)}
                       className={inputClass}
                     >
-                      {CODEX_REASONING_EFFORTS.map((option) => (
+                      {codexReasoningOptions.map((option) => (
                         <option key={option.value || "default"} value={option.value}>
                           {option.label}
                         </option>
