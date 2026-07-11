@@ -1,5 +1,6 @@
 import type { CodexAppReference, CodexSkillReference } from "./session-types.js";
 import type { JsonRpcPendingRequestSummary, JsonRpcTransportCloseDiagnostics } from "./codex-jsonrpc-transport.js";
+import { isSafeCodexReasoningEffort } from "../shared/session-defaults.js";
 
 export interface CodexResumeTurnSnapshot {
   id: string;
@@ -199,7 +200,7 @@ export function normalizeCodexReasoningEffort(effort: string | undefined, validE
   if (!effort) return null;
   const normalized = effort.trim().toLowerCase();
   if (!normalized) return null;
-  return validEfforts.has(normalized) ? normalized : null;
+  return validEfforts.has(normalized) || isSafeCodexReasoningEffort(normalized) ? normalized : null;
 }
 
 export function isCodexCollaborationModeUnsupportedError(err: unknown): boolean {

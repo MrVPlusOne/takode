@@ -430,6 +430,42 @@ describe("CodexAdapter", () => {
     expect(turnStart.params.collaborationMode.mode).toBe("default");
   });
 
+  it("preserves safe future reasoning effort in turn/start collaborationMode", async () => {
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "gpt-5.3-codex",
+      reasoningEffort: "future_effort",
+    });
+
+    await initializeAdapter(stdout);
+
+    stdin.chunks = [];
+    adapter.sendBrowserMessage({ type: "user_message", content: "future reasoning" });
+    await tick();
+
+    const lines = parseWrittenJsonLines(stdin.chunks);
+    const turnStart = lines.find((line) => line.method === "turn/start");
+    expect(turnStart).toBeDefined();
+    expect(turnStart.params.collaborationMode.settings.reasoning_effort).toBe("future_effort");
+  });
+
+  it("serializes malformed reasoning effort as null in turn/start collaborationMode", async () => {
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "gpt-5.3-codex",
+      reasoningEffort: "not safe!",
+    });
+
+    await initializeAdapter(stdout);
+
+    stdin.chunks = [];
+    adapter.sendBrowserMessage({ type: "user_message", content: "malformed reasoning" });
+    await tick();
+
+    const lines = parseWrittenJsonLines(stdin.chunks);
+    const turnStart = lines.find((line) => line.method === "turn/start");
+    expect(turnStart).toBeDefined();
+    expect(turnStart.params.collaborationMode.settings.reasoning_effort).toBeNull();
+  });
+
   it("keeps approvalMode=suggest in collaborationMode=default", async () => {
     const adapter = new CodexAdapter(proc as never, "test-session", {
       model: "gpt-5.3-codex",
