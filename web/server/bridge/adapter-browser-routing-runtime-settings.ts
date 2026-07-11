@@ -13,8 +13,7 @@ import {
   normalizeClaudePermissionMode,
   normalizeCodexPermissionProfile,
 } from "../../shared/permission-modes.js";
-
-const VALID_CODEX_REASONING_EFFORTS = new Set("none minimal low medium high xhigh max ultra".split(" "));
+import { isSafeCodexReasoningEffort } from "../../shared/session-defaults.js";
 
 function shouldSendClassicClaudeControlRequest(session: AdapterBrowserRoutingSessionLike): boolean {
   return session.backendType === "claude" && !!session.backendSocket;
@@ -259,7 +258,7 @@ export function handleCodexSetReasoningEffort(
 ): void {
   const normalized = effort.trim().toLowerCase();
   const next = normalized || undefined;
-  if (next && !VALID_CODEX_REASONING_EFFORTS.has(next)) return;
+  if (next && !isSafeCodexReasoningEffort(next)) return;
   if (session.state.codex_reasoning_effort === next) return;
   session.state.codex_reasoning_effort = next;
   const launchInfo = deps.getLauncherSessionInfo(session.id);

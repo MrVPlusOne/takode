@@ -649,7 +649,7 @@ describe("Codex runtime settings updates", () => {
     expect(relaunchCb).toHaveBeenCalledWith(sid);
   });
 
-  it("set_codex_reasoning_effort updates session state and requests relaunch", async () => {
+  it("set_codex_reasoning_effort accepts safe future values and requests relaunch", async () => {
     const sid = "s2";
     const browser = makeBrowserSocket(sid);
     const adapter = makeCodexAdapterMock();
@@ -670,13 +670,13 @@ describe("Codex runtime settings updates", () => {
       browser,
       JSON.stringify({
         type: "set_codex_reasoning_effort",
-        effort: "ultra",
+        effort: "future_effort",
       }),
     );
 
     const session = bridge.getSession(sid)!;
-    expect(session.state.codex_reasoning_effort).toBe("ultra");
-    expect(launcherInfo.codexReasoningEffort).toBe("ultra");
+    expect(session.state.codex_reasoning_effort).toBe("future_effort");
+    expect(launcherInfo.codexReasoningEffort).toBe("future_effort");
     expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
     expect(relaunchCb).toHaveBeenCalledWith(sid);
   });
@@ -702,7 +702,7 @@ describe("Codex runtime settings updates", () => {
       browser,
       JSON.stringify({
         type: "set_codex_reasoning_effort",
-        effort: "very-high",
+        effort: "not safe!",
       }),
     );
 

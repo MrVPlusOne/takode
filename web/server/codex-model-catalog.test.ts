@@ -112,23 +112,30 @@ describe("Codex model catalog loading", () => {
     });
   });
 
-  it("caches installed CLI catalog by binary stat and invalidates when the binary changes", async () => {
+  it("caches installed CLI catalog by binary stat and version", async () => {
     const binary = "/tmp/fake-codex";
+    let version = "codex-cli 0.144.1\n";
+    let slug = "gpt-5.6-sol";
     const runCodexCommand = vi.fn(async (_binary: string, args: string[]) => ({
-      stdout: args.includes("--version")
-        ? "codex-cli 0.144.1\n"
-        : catalog({ slug: "gpt-5.6-sol", display_name: "GPT-5.6-Sol", visibility: "list" }),
+      stdout: args.includes("--version") ? version : catalog({ slug, display_name: "GPT-5.6-Sol", visibility: "list" }),
     }));
     let mtimeMs = 1;
     const statImpl = vi.fn(async () => ({ mtimeMs, size: 10 }) as never);
 
-    await loadCodexModelCatalog({ codexBinary: binary, runCodexCommand, statImpl });
-    await loadCodexModelCatalog({ codexBinary: binary, runCodexCommand, statImpl });
-    expect(runCodexCommand).toHaveBeenCalledTimes(2);
+    const first = await loadCodexModelCatalog({ codexBinary: binary, runCodexCommand, statImpl });
+    const second = await loadCodexModelCatalog({ codexBinary: binary, runCodexCommand, statImpl });
+    expect(second).toBe(first);
+    expect(runCodexCommand).toHaveBeenCalledTimes(3);
+
+    version = "codex-cli 0.145.0\n";
+    slug = "gpt-5.7-sol";
+    const versionChanged = await loadCodexModelCatalog({ codexBinary: binary, runCodexCommand, statImpl });
+    expect(versionChanged?.models[0]?.value).toBe("gpt-5.7-sol");
+    expect(runCodexCommand).toHaveBeenCalledTimes(5);
 
     mtimeMs = 2;
     await loadCodexModelCatalog({ codexBinary: binary, runCodexCommand, statImpl });
-    expect(runCodexCommand).toHaveBeenCalledTimes(4);
+    expect(runCodexCommand).toHaveBeenCalledTimes(7);
   });
 
   it("coalesces startup refreshes through the same installed CLI cache", async () => {

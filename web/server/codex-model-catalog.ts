@@ -191,19 +191,20 @@ async function readInstalledCliCatalog(
 ): Promise<CodexCatalogResult | null> {
   const statImpl = options.statImpl ?? stat;
   const cacheKey = await getBinaryCacheKey(binaryPath, statImpl);
-  if (installedCatalogCache?.cacheKey === cacheKey) return installedCatalogCache;
-
   const run = options.runCodexCommand ?? defaultRunCodexCommand;
-  const [versionResult, catalogResult] = await Promise.all([
-    run(binaryPath, ["--version"], {
-      timeout: CODEX_MODEL_CATALOG_TIMEOUT_MS,
-      maxBuffer: 128 * 1024,
-    }).catch(() => ({ stdout: "" })),
-    run(binaryPath, ["debug", "models", "--bundled"], {
-      timeout: CODEX_MODEL_CATALOG_TIMEOUT_MS,
-      maxBuffer: CODEX_MODEL_CATALOG_MAX_BUFFER,
-    }),
-  ]);
+  const versionResult = await run(binaryPath, ["--version"], {
+    timeout: CODEX_MODEL_CATALOG_TIMEOUT_MS,
+    maxBuffer: 128 * 1024,
+  }).catch(() => ({ stdout: "" }));
+  const version = versionResult.stdout.trim() || undefined;
+  if (installedCatalogCache?.cacheKey === cacheKey && installedCatalogCache.version === version) {
+    return installedCatalogCache;
+  }
+
+  const catalogResult = await run(binaryPath, ["debug", "models", "--bundled"], {
+    timeout: CODEX_MODEL_CATALOG_TIMEOUT_MS,
+    maxBuffer: CODEX_MODEL_CATALOG_MAX_BUFFER,
+  });
   const parsed = JSON.parse(catalogResult.stdout);
   const models = mapCodexCatalogModels(parsed);
   if (models.length === 0) return null;
@@ -212,7 +213,7 @@ async function readInstalledCliCatalog(
     models,
     source: "installed-cli",
     cacheKey,
-    version: versionResult.stdout.trim() || undefined,
+    version,
   };
   return installedCatalogCache;
 }
