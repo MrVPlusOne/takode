@@ -545,6 +545,58 @@ describe("session notification status metadata", () => {
     });
   });
 
+  it("persists active Codex model-switch compaction guards and drops expired guards on restore", async () => {
+    const now = Date.now();
+    const persisted = buildPersistedSessionPayload(
+      makeSession({
+        state: { backend_type: "codex" },
+        codexModelSwitchCompactionGuard: {
+          previousModel: "gpt-5.5",
+          nextModel: "gpt-5.6-sol",
+          createdAt: now,
+          expiresAt: now + 60_000,
+        },
+      }),
+    );
+    expect(persisted.codexModelSwitchCompactionGuard).toMatchObject({
+      previousModel: "gpt-5.5",
+      nextModel: "gpt-5.6-sol",
+    });
+
+    const sessions = new Map<string, any>();
+    await restorePersistedSessions(sessions, [persisted], {
+      recoverToolStartTimesFromHistory: vi.fn(),
+      finalizeRecoveredDisconnectedTerminalTools: vi.fn(),
+      scheduleCodexToolResultWatchdogs: vi.fn(),
+      reconcileRestoredBoardState: vi.fn(async () => {}),
+    });
+
+    expect(sessions.get("s1")?.codexModelSwitchCompactionGuard).toMatchObject({
+      previousModel: "gpt-5.5",
+      nextModel: "gpt-5.6-sol",
+    });
+
+    const expired = {
+      ...persisted,
+      id: "expired",
+      codexModelSwitchCompactionGuard: {
+        previousModel: "gpt-5.5",
+        nextModel: "gpt-5.6-sol",
+        createdAt: now - 120_000,
+        expiresAt: now - 60_000,
+      },
+    };
+    const expiredSessions = new Map<string, any>();
+    await restorePersistedSessions(expiredSessions, [expired], {
+      recoverToolStartTimesFromHistory: vi.fn(),
+      finalizeRecoveredDisconnectedTerminalTools: vi.fn(),
+      scheduleCodexToolResultWatchdogs: vi.fn(),
+      reconcileRestoredBoardState: vi.fn(async () => {}),
+    });
+
+    expect(expiredSessions.get("expired")?.codexModelSwitchCompactionGuard).toBeNull();
+  });
+
   it("persists and restores the leader thread outcome cursor without revalidating old history", async () => {
     const persisted = buildPersistedSessionPayload(
       makeSession({

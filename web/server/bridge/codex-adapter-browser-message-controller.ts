@@ -182,11 +182,13 @@ function updateActiveTurnRouteFromLeaderAssistant(
 
 type CodexLeaderRecycleLauncherInfo = {
   isOrchestrator?: boolean;
+  cliSessionId?: string | null;
   codexServiceTier?: string | null;
   codexLeaderRecycleThresholdTokens?: number;
   codexLeaderRecycleLineage?: {
     recycleEvents?: Array<{
       trigger?: CodexLeaderRecycleTrigger;
+      nextCliSessionId?: string;
       tokenUsage?: {
         contextTokensUsed?: number;
         modelContextWindow?: number;
@@ -278,7 +280,7 @@ function preserveExistingTurnMetrics(
 
 function getLatestThresholdRecycleWatermark(
   launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
-): { contextTokensUsed: number; recycleThresholdTokens?: number } | null {
+): { contextTokensUsed: number; recycleThresholdTokens?: number; nextCliSessionId?: string } | null {
   const recycleEvents = launcherInfo?.codexLeaderRecycleLineage?.recycleEvents;
   if (!Array.isArray(recycleEvents) || recycleEvents.length === 0) return null;
   for (let index = recycleEvents.length - 1; index >= 0; index -= 1) {
@@ -287,6 +289,9 @@ function getLatestThresholdRecycleWatermark(
     if (recycleEvent?.trigger !== "threshold" || typeof watermark !== "number") continue;
     return {
       contextTokensUsed: watermark,
+      ...(typeof recycleEvent.nextCliSessionId === "string" && recycleEvent.nextCliSessionId.trim()
+        ? { nextCliSessionId: recycleEvent.nextCliSessionId }
+        : {}),
       ...(typeof recycleEvent.tokenUsage?.modelContextWindow === "number"
         ? { recycleThresholdTokens: recycleEvent.tokenUsage.modelContextWindow }
         : {}),
@@ -304,9 +309,12 @@ function shouldTriggerCodexLeaderThresholdRecycle(
   if (typeof contextTokensUsed !== "number") return false;
   if (recycleThresholdTokens <= 0 || contextTokensUsed < recycleThresholdTokens) return false;
   const latestThresholdWatermark = getLatestThresholdRecycleWatermark(launcherInfo);
+  const currentCliSessionId = typeof launcherInfo.cliSessionId === "string" ? launcherInfo.cliSessionId : null;
   if (
     latestThresholdWatermark !== null &&
-    (latestThresholdWatermark.recycleThresholdTokens === undefined ||
+    (latestThresholdWatermark.nextCliSessionId === currentCliSessionId ||
+      latestThresholdWatermark.contextTokensUsed === contextTokensUsed ||
+      latestThresholdWatermark.recycleThresholdTokens === undefined ||
       latestThresholdWatermark.recycleThresholdTokens === recycleThresholdTokens) &&
     contextTokensUsed <= latestThresholdWatermark.contextTokensUsed
   ) {
