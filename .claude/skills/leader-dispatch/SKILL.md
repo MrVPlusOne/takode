@@ -28,9 +28,9 @@ Keep the top-level checklist open for routine dispatch. Load references only whe
 
 - **Leaders do not implement non-trivial changes.** Leaders create quests, dispatch, steer, review, and coordinate. Investigation and research are also worker work.
 - **Never run `quest claim` for worker work.** Workers claim quests when dispatched; leaders do not become owners of worker quests.
-- **Use `/quest-design` before quest creation or refinement.** Before creating a quest or refining an `idea` quest, get user confirmation. When the user wants creation plus dispatch, combine that confirmation with this dispatch approval.
-- **Get explicit Journey and Scheduling approval before dispatch.** The user-facing approval must include the initial phase list and the scheduling/orchestration approach, even when the plan is simply "spawn fresh and dispatch immediately if approved."
-- **Write approved Journey state to the board before or with dispatch.** Do not rely on chat transcript prose as the durable Journey record.
+- **Use `/quest-design` before quest creation or refinement.** Before creating a quest or refining an `idea` quest, use that skill to decide whether the quest text needs user confirmation or qualifies for the direct-dispatch path below.
+- **Use the three-path dispatch rubric.** Direct create/dispatch is allowed only for clear, low-risk, reversible repo-local work. Pre-dispatch approval is mandatory for risky, ambiguous, externally consequential, shared-resource, security/privacy, product/policy, or user-visible tradeoff work. Use a planned User Checkpoint when early phases are safe but a later decision or Execute phase needs user confirmation.
+- **Write authorized Journey state to the board before or with dispatch.** Do not rely on chat transcript prose as the durable Journey record.
 - **Initial dispatch authorizes Alignment only.** The first worker message sends the Alignment brief and asks for a read-in; it does not authorize Implement, Explore, review, Port, or completion.
 - **Fresh worker by default.** Reuse only when there is a real context advantage. A disconnected or idle worker is not automatically a good reuse target.
 - **User waits are scoped.** A `needs-input` prompt blocks only its owning thread, quest, or board row unless the visible prompt explicitly concerns safety, global orchestration, worker-slot scheduling, shared resources, or cross-quest dependency.
@@ -40,7 +40,7 @@ Keep the top-level checklist open for routine dispatch. Load references only whe
 
 ## Approval Packet
 
-For creation plus dispatch, one confirmation can approve the quest text, Journey, and scheduling plan. Keep chat concise and decision-oriented; put detailed evidence and worker grounding into the quest record.
+For creation plus dispatch that needs approval, one confirmation can approve the quest text, Journey, and scheduling plan. Keep chat concise and decision-oriented; put detailed evidence and worker grounding into the quest record.
 
 Use this shape as a menu, not a form:
 
@@ -52,13 +52,42 @@ Use this shape as a menu, not a form:
 - **Journey**: phase list, with short notes only for non-standard phases or unusual handling.
 - **Scheduling**: worker choice or fresh-spawn intent; immediate dispatch vs explicit queueing.
 
-Do not repeat the same scope as a separate quest description, `Scope`, `The worker should`, or default expected-output section. `quest-design` owns the full confirmation shape; this skill adds the dispatch pieces: Journey, Scheduling, board recording, and Alignment-only first dispatch.
+Do not repeat the same scope as a separate quest description, `Scope`, `The worker should`, or default expected-output section. `quest-design` owns quest text discipline; this skill owns the dispatch decision: direct dispatch, pre-dispatch approval, or delayed approval via User Checkpoint.
+
+## Dispatch Approval Rubric
+
+Direct create/dispatch is allowed only when all of these are true:
+
+- The user's intent is clear enough to write a narrow quest without a material assumption or product-choice guess.
+- The work is reversible and confined to tracked repo/code/docs/prompt/config/test changes or local investigation artifacts.
+- There is no destructive operation, irreversible data mutation, external side effect, deployment, expensive run, credential/security/privacy decision, global/shared-resource contention, cross-quest scheduling tradeoff, or user-visible product/policy choice.
+- Validation can stay cheap/local inside Implement, Code Review, Port, and Memory; any later non-cheap or external run is gated by Execute or User Checkpoint.
+- Worker selection is routine: fresh worker or clearly safe reuse with no user-level worker-slot, capacity, archive/replacement, or queueing tradeoff.
+
+Even on direct dispatch:
+
+- Quests remain the unit of work; create/refine the quest with enough worker context.
+- Initial new-worker dispatch remains Alignment-only.
+- Write the Journey to the board before or with dispatch.
+- Code Review, Port when tracked changes exist, phase documentation, and final Memory still apply.
+- Add a compact rationale only when the direct choice is non-obvious, for example: `direct dispatch: low-risk reversible docs/tests change; no external side effects`.
+
+Pre-dispatch approval is mandatory when any of these apply:
+
+- The scope is ambiguous, underspecified, or requires a material assumption the user has not already accepted.
+- The work is destructive, irreversible, hard to roll back, externally consequential, deployment-like, expensive/long-running, or likely to mutate external/shared state.
+- The work touches security, privacy, credentials, permissions, user data, billing, production operations, global/shared resources, cluster/browser/server leases beyond normal worker-owned acquisition, or broad orchestration policy.
+- The leader must choose among user-visible product/policy directions, UI/UX behavior changes with meaningful tradeoffs, compatibility commitments, or acceptance criteria not implied by the request.
+- Scheduling is a user-level tradeoff: reclaiming/archiving a risky worktree worker, queueing behind a specific busy worker for context, delaying another active quest, or using scarce shared resources in a way that may affect other work.
+- The proposed path would skip Code Review, Port, final Memory, phase docs, or another standard safety requirement.
+
+Use delayed approval via User Checkpoint when safe early phases can gather evidence but a later Execute, product-choice Implement, expensive/external run, security/privacy decision, or policy choice needs user confirmation. Put `user-checkpoint` before the risky phase, publish the self-contained checkpoint packet, call `takode notify needs-input`, link the board row with `--wait-for-input`, then continue only after the user answers and the remaining Journey is revised.
 
 Before the first worker message:
 
-1. The quest exists and is refined or otherwise approved for dispatch.
-2. The user approved the Journey and Scheduling plan.
-3. The approved Journey is on the board with `takode board set ... --phases ...` or by promoting an approved proposed row.
+1. The quest exists and is refined, approved, or qualifies for direct low-risk creation/dispatch under the rubric above.
+2. The Journey and Scheduling plan are either directly authorized by the rubric or explicitly approved by the user.
+3. The authorized Journey is on the board with `takode board set ... --phases ...` or by promoting an approved proposed row.
 4. The selected worker/reviewer state matches the board row.
 
 ## Worker Selection

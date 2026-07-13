@@ -409,6 +409,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("`~/.companion/quest-journey-phases/alignment/leader.md`");
     expect(guardrails).toContain("`~/.companion/quest-journey-phases/alignment/assignee.md`");
     expect(guardrails).toContain("one confirmation can approve quest text, Journey, and dispatch plan");
+    expect(guardrails).toContain(
+      "Direct create/dispatch is allowed only for clear, low-risk, reversible repo-local work",
+    );
+    expect(guardrails).toContain("Pre-dispatch approval remains mandatory for ambiguous");
+    expect(guardrails).toContain("Use delayed approval via User Checkpoint");
     expect(guardrails).toContain("visible chat approval surface is for the user's decision, not worker grounding");
     expect(guardrails).toContain("make it read like a TLDR for approval");
     expect(guardrails).toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");
@@ -436,7 +441,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("User Checkpoint is an intermediate user-participation stop");
     expect(guardrails).toContain("self-contained packet with findings, named options, key tradeoffs");
     expect(guardrails).toContain("exact requested answer");
-    expect(guardrails).toContain("write the approved Journey to the board before or with dispatch");
+    expect(guardrails).toContain("write the authorized Journey to the board before or with dispatch");
     expect(guardrails).toContain("Do not use sleep-based waits");
     expect(guardrails).toContain("repeated `takode peek` / `takode scan` checks");
     expect(guardrails).toContain("wait for the next herd event");
@@ -456,10 +461,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Repo-relative links remain appropriate after Port/main-repo sync");
     expect(guardrails).toContain("Make every worker instruction phase-explicit");
     expect(guardrails).toContain("Initial dispatch authorizes **alignment only**");
-    expect(guardrails).toContain("Initial Journey approval comes before dispatch");
-    expect(guardrails).toContain("write the approved Journey to the board before or with dispatch");
+    expect(guardrails).toContain("Initial Journey authorization comes before dispatch");
+    expect(guardrails).toContain("write the authorized Journey to the board before or with dispatch");
     expect(guardrails).toContain(
-      "The worker alignment phase then returns a lightweight read-in inside that approved Journey",
+      "The worker alignment phase then returns a lightweight read-in inside that authorized Journey",
     );
     expect(guardrails).toContain("not a routine second user-approval gate");
     expect(guardrails).toContain("Alignment approval is leader-owned by default");
@@ -470,7 +475,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("do not let stale old-scope completions advance the quest");
     expect(guardrails).toContain("Zero-tracked-change quests still use explicit Journey phases");
     expect(guardrails).toContain("zero git-tracked changes");
-    expect(guardrails).toContain("Initial pre-dispatch approval is a combined contract");
+    expect(guardrails).toContain("Pre-dispatch approval is conditional");
     expect(guardrails).toContain(
       "approval surface concise and decision-oriented rather than pasting the full quest body",
     );
@@ -596,8 +601,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("wait for the next herd event");
     expect(guardrails).toContain("Make every worker instruction phase-explicit");
     expect(guardrails).toContain("Initial dispatch authorizes **alignment only**");
-    expect(guardrails).toContain("Initial Journey approval comes before dispatch");
-    expect(guardrails).toContain("write the approved Journey to the board before or with dispatch");
+    expect(guardrails).toContain("Initial Journey authorization comes before dispatch");
+    expect(guardrails).toContain("write the authorized Journey to the board before or with dispatch");
     expect(guardrails).toContain("Follow the board-approved Quest Journey");
     expect(guardrails).toContain("ask what it contributes over merging that work into a later phase");
     expect(guardrails).toContain("USER_CHECKPOINTING");
@@ -607,7 +612,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Escalate alignment back to the user only");
     expect(guardrails).toContain("board-owned draft-or-active state for the quest");
     expect(guardrails).toContain("point the worker at the exact prior messages, quests, or discussions");
-    expect(guardrails).toContain("Initial pre-dispatch approval is a combined contract");
+    expect(guardrails).toContain("Pre-dispatch approval is conditional");
+    expect(guardrails).toContain(
+      "Direct create/dispatch is allowed only for clear, low-risk, reversible repo-local work",
+    );
+    expect(guardrails).toContain("Use delayed approval via User Checkpoint");
     expect(guardrails).toContain(
       "approval surface concise and decision-oriented rather than pasting the full quest body",
     );

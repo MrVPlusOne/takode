@@ -157,6 +157,10 @@ describe("index startup skill registration", () => {
     expect(source).toContain("references/edge-cases.md");
     expect(source).toContain("memory-specific handoff/completion deltas");
     expect(source).toContain("references/phase-handoff-examples.md");
+    expect(source).toContain("Dispatch Approval Rubric");
+    expect(source).toContain("Direct create/dispatch is allowed only when");
+    expect(source).toContain("Pre-dispatch approval is mandatory when");
+    expect(source).toContain("Use delayed approval via User Checkpoint");
     expect(source).toContain("Read this phase brief first:");
     expect(source).toContain("Provide only deltas the assignee cannot infer");
     expect(source).not.toContain("Memory command mechanics live in the relevant phase briefs");

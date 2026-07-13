@@ -234,8 +234,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Do not ask for a `q-N`-specific destination, filename, job label");
     expect(result).toContain("commit message, or PR description");
     expect(result).toContain("source, date range, scope, or purpose");
-    expect(result).toContain("initial Journey proposal-and-approval contract");
+    expect(result).toContain("direct-dispatch versus approval decision");
     expect(result).toContain("durable board recording");
+    expect(result).toContain("Direct create/dispatch is allowed only for clear, low-risk, reversible repo-local work");
+    expect(result).toContain("Pre-dispatch approval remains mandatory for ambiguous");
+    expect(result).toContain("Use delayed approval via User Checkpoint");
     expect(result).toContain("visible chat approval surface is for the user's decision, not worker grounding");
     expect(result).toContain("make it read like a TLDR for approval");
     expect(result).toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");
@@ -316,8 +319,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("keep quest IDs out of the Takode-external durable names");
     expect(result).toContain("Do not ask for a `q-N`-specific destination, filename, job label");
     expect(result).toContain("commit message, or PR description");
-    expect(result).toContain("initial Journey proposal-and-approval");
-    expect(result).toContain("write the approved Journey to the board before or with dispatch");
+    expect(result).toContain("direct-dispatch versus approval decision");
+    expect(result).toContain("write the authorized Journey to the board before or with dispatch");
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Escalate alignment back to the user only");
     expect(result).toContain("send the changed worktree back to Code Review only after that checkpoint exists");
@@ -361,6 +364,10 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("explicitly check whether the quest is a true follow-up to earlier work");
     expect(result).toContain("Relationship: follow-up of [q-N](quest:q-N)");
     expect(result).toContain("Use `/leader-dispatch` before dispatching a fresh or newly refined quest");
+    expect(result).toContain("choose direct dispatch, pre-dispatch approval, or delayed approval via User Checkpoint");
+    expect(result).toContain("Direct create/dispatch is allowed only for clear, low-risk, reversible repo-local work");
+    expect(result).toContain("Pre-dispatch approval remains mandatory for ambiguous");
+    expect(result).toContain("Use delayed approval via User Checkpoint");
     expect(result).toContain("Use `Goal / Acceptance` as the source of truth for the requested work");
     expect(result).toContain("make it read like a TLDR for approval");
     expect(result).toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");
@@ -390,8 +397,8 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("User Checkpoint");
     expect(result).toContain("Do not use it as terminal closure, generic TBD, or optional leader-only indecision");
     expect(result).toContain("Omit notes for standard phases by default");
-    expect(result).toContain("write the approved Journey to the board before or with dispatch");
-    expect(result).toContain("Initial Journey approval comes before dispatch");
+    expect(result).toContain("write the authorized Journey to the board before or with dispatch");
+    expect(result).toContain("Initial Journey authorization comes before dispatch");
     expect(result).toContain("not a routine second user-approval gate");
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Every active phase needs durable quest documentation");

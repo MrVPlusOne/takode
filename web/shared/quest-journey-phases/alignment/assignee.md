@@ -1,6 +1,6 @@
 # Alignment -- Assignee Brief
 
-You are doing a lightweight read-in on a leader-approved Journey before deeper work starts.
+You are doing a lightweight read-in on a leader-authorized Journey before deeper work starts.
 
 Boundary:
 - Inspect only the minimum context needed to confirm what the quest is asking for, what constraints matter, and whether anything blocks the leader-owned Journey.

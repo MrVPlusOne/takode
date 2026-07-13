@@ -171,6 +171,9 @@ describe("Quest Journey phase directory loading", () => {
     const alignmentPhase = phases.find((phase) => phase.id === "alignment");
     const explorePhase = phases.find((phase) => phase.id === "explore");
 
+    expect(alignmentPhase?.leaderBrief).toContain("direct-dispatch rubric or explicit user approval");
+    expect(alignmentPhase?.leaderBrief).toContain("authorized Journey");
+    expect(alignmentPhase?.assigneeBrief).toContain("leader-authorized Journey");
     expect(alignmentPhase?.leaderBrief).toContain("exact prior messages, quests, or discussions");
     expect(alignmentPhase?.leaderBrief).toContain("run `memory catalog show` for orientation");
     expect(alignmentPhase?.leaderBrief).toContain("inspect with direct file tools");

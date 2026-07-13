@@ -7,8 +7,8 @@ description: "Confirm quest intent before creating a new quest or refining an id
 
 Use this skill before creating a quest or refining an `idea` quest into a worker-ready quest.
 
-The goal is to give the user one concise chance to correct the agent's understanding before quest text is written.
-When the user clearly wants a quest created and dispatched, combine this with `/leader-dispatch`: use the compact proposal shape below so one confirmation can approve quest text, Journey, and dispatch plan. After approval, the leader must write the approved Journey to the board before or with dispatch.
+The goal is to preserve quest text discipline: either give the user one concise chance to correct the agent's understanding before quest text is written, or explicitly identify that the work qualifies for direct low-risk create/dispatch under `/leader-dispatch`.
+When the user clearly wants a quest created and dispatched, combine this with `/leader-dispatch`. If the request is clear, low-risk, reversible, repo-local, and has no material ambiguity, external side effect, security/privacy/global/shared-resource risk, product/policy choice, or user-level scheduling tradeoff, the leader may create the quest and dispatch without a user wait. Otherwise use the compact proposal shape below so one confirmation can approve quest text, Journey, and dispatch plan. In either case, the leader must write the authorized Journey to the board before or with dispatch.
 After successful quest creation or refinement, include a lightweight non-blocking thread reminder when prior discussion may belong to the new quest thread: Thread reminder: attach any prior messages that clearly belong to this quest to [q-N](quest:q-N) with `takode thread attach`.
 
 Before proposing quest text, explicitly check whether the new or refined quest is a true follow-up to earlier work. Use explicit follow-up relationships for true follow-ups, bug fixes, successors, redesigns, or user-approved next quests that came from prior findings. Leave incidental mentions, loose background context, copied examples, and broad references to auto-detected backlinks instead.
@@ -34,7 +34,9 @@ Do not use `/quest-design` for routine quest operations:
 
 ## Required Response
 
-Do not write the quest yet. First respond with the narrowest confirmation surface that can safely move the request forward. Treat the visible chat proposal like a TLDR for approval: it should give the user what they need to approve, correct, or choose, not make them read the worker-facing quest body. Include concise goal/Journey/scheduling information and add detail only when it resolves ambiguity, states a user-visible tradeoff, asks for confirmation of a risky assumption, or changes the approval decision. Put detailed grounding, evidence, acceptance bullets, non-goals, fallback mechanics, and worker-facing context in the quest record instead. When the confirmation asks the user to choose, include the complete decision context in the thread before any `needs-input` notification; notification summaries, notification UI options, and `--suggest` choices are only attention/reply affordances.
+Default to the narrowest confirmation surface that can safely move the request forward. Treat the visible chat proposal like a TLDR for approval: it should give the user what they need to approve, correct, or choose, not make them read the worker-facing quest body. Include concise goal/Journey/scheduling information and add detail only when it resolves ambiguity, states a user-visible tradeoff, asks for confirmation of a risky assumption, or changes the approval decision. Put detailed grounding, evidence, acceptance bullets, non-goals, fallback mechanics, and worker-facing context in the quest record instead. When the confirmation asks the user to choose, include the complete decision context in the thread before any `needs-input` notification; notification summaries, notification UI options, and `--suggest` choices are only attention/reply affordances.
+
+Direct low-risk case: if `/leader-dispatch`'s rubric clearly allows direct create/dispatch, do not stop for confirmation. Create or refine the quest narrowly, keep any rationale compact when non-obvious, write the authorized Journey to the board, and dispatch the Alignment-only worker instruction. Do not use this shortcut for ambiguous quest text, uncertain follow-up relationships, product/user-choice decisions, user-visible tradeoffs, or risky/external/shared-resource work.
 
 Best case: if the user clearly wants quest creation plus immediate dispatch and the request is already understood, include both:
 - the proposed quest draft: title, `Goal / Acceptance`, tags when useful, and only optional sections that add non-overlapping approval value
@@ -105,5 +107,5 @@ If you are creating another approval surface while an older prompt is still unre
 
 If the user corrects the understanding and ambiguity remains, repeat the same structure with the updated understanding. If the user clarifies enough to remove the ambiguity, draft the quest and Journey/scheduling plan together instead of sending a separate restated-understanding-only round.
 
-Only after the user confirms should you create or refine the quest.
+Only after the user confirms, or when the direct low-risk case above clearly applies, should you create or refine the quest.
 When you create or refine the quest, keep subsequent quest-specific activity in `[thread:q-N]` and attach clearly quest-specific prior discussion with `takode thread attach`.

@@ -1,6 +1,6 @@
 # Work Board
 
-The work board (`takode board show`) is your primary coordination tool. It tracks proposed Quest Journeys before dispatch, active Quest Journey phases during execution, and what action is required next.
+The work board (`takode board show`) is your primary coordination tool. It tracks proposed approval-hold Quest Journeys, active Quest Journey phases during execution, and what action is required next.
 
 While a quest is on the board, the current planned Journey shown there is board-owned draft-or-active state for that quest. Quest creation or refinement defines the quest text, but the board carries the live Journey the leader is currently drafting or running.
 
@@ -18,9 +18,9 @@ Display full board-owned context for one row: full Journey path, indexed phase n
 
 ### `takode board propose <quest-id> (--phases phase-a,phase-b | --spec-file proposal.json) [--preset preset-id] [--wait-for-input 3,4 | --clear-wait-for-input] [--full|--verbose]`
 
-Draft or revise a proposed pre-dispatch Journey row. Proposed rows:
+Draft or revise a proposed pre-dispatch Journey row when a quest needs an approval hold or durable draft before active dispatch. Proposed rows:
 
-- keep the Journey on the board before dispatch
+- keep the Journey on the board before approval/dispatch
 - can explicitly wait on same-session approval/input
 - do not pretend to be generic `QUEUED` worker-capacity rows
 - do not assign a worker yet
@@ -48,7 +48,7 @@ Do not propose adjacent `explore -> implement`. Use `implement` directly for nor
 
 ### `takode board present <quest-id> [--summary "proposal summary"] [--wait-for-input 3,4 | --clear-wait-for-input]`
 
-Present the current proposed Journey draft as an optional user-facing approval artifact. Use this only when the rendered board proposal is helpful; natural prose approval plus a durable board update is the normal lightweight path. If you revise phases, notes, or presentation metadata after presenting, the presentation becomes stale, but promotion can still use the latest approved board-owned Journey.
+Present the current proposed Journey draft as an optional user-facing approval artifact. Use this only when the rendered board proposal is helpful; natural prose approval plus a durable board update is the normal lightweight path for approval-required work. If you revise phases, notes, or presentation metadata after presenting, the presentation becomes stale, but promotion can still use the latest approved board-owned Journey.
 
 ### `takode board promote <quest-id> [--worker N] [--status STATE] [--active-phase-position N] [--wait-for q-X,#Y,free-worker] [--wait-for-input 3,4 | --clear-wait-for-input] [--full|--verbose]`
 
@@ -129,9 +129,9 @@ Remove row(s) manually.
 
 - Routine mutation commands output a compact delta by default: what changed plus the affected quest row's state, worker/reviewer, wait-for state, and next action. Use `--full` or `--verbose` on mutations when you need the full board after the operation.
 - Routine `takode board show` is compact. Use `takode board show --full` for full-board Journey paths and notes, or `takode board detail q-N` for one quest's full Journey, notes, timing history, and revision metadata.
-- Use natural prose as the normal initial approval surface, then write the approved Journey to the board before or with dispatch.
-- Use `takode board set --worker ... --phases ...` after approval when you want to create the active durable row in one step.
-- Use `takode board propose` when an existing quest benefits from a pre-dispatch draft row.
+- Use natural prose as the normal initial approval surface when approval is required, then write the approved Journey to the board before or with dispatch.
+- Use `takode board set --worker ... --phases ...` when you want to create the active durable row in one step after approval or direct-dispatch authorization.
+- Use `takode board propose` when an existing quest benefits from a pre-dispatch draft or approval-hold row.
 - Use `takode board present` only when a rendered approval artifact is helpful.
 - Use `takode board promote` to reuse a proposed Journey object after approval.
 - Set `--worker N` when dispatching active work, but proposed rows intentionally have no worker.
