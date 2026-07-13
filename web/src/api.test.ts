@@ -322,6 +322,32 @@ describe("getQuestSummary", () => {
 });
 
 // ===========================================================================
+// getQuestValidated
+// ===========================================================================
+describe("getQuestValidated", () => {
+  it("uses the bounded by-id quest detail route with validators", async () => {
+    // Hover preview fetches must stay on the by-id detail route, not the full Questmaster list route.
+    const detail = {
+      id: "q-1615-v1",
+      questId: "q-1615",
+      version: 1,
+      status: "done",
+      title: "Fix linked hover previews",
+      createdAt: 1,
+      verificationItems: [],
+    };
+    mockFetch.mockResolvedValueOnce(mockResponse(detail, 200, { etag: '"detail-v1"' }));
+
+    const result = await api.getQuestValidated("q-1615", '"old-detail"');
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/quests/q-1615");
+    expect(opts.headers).toEqual({ "If-None-Match": '"old-detail"' });
+    expect(result).toEqual({ status: "fresh", data: detail, etag: '"detail-v1"' });
+  });
+});
+
+// ===========================================================================
 // killSession
 // ===========================================================================
 describe("killSession", () => {

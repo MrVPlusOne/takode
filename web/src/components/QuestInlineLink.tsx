@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect, type MouseEvent, type ReactNode } from "react";
+import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import { withQuestIdInHash } from "../utils/routing.js";
 
 const questIndexCache = new WeakMap<QuestmasterTask[], Map<string, QuestmasterTask>>();
+const questHoverFetches = new Map<string, Promise<void>>();
 
 function findQuestById(quests: QuestmasterTask[], questId: string): QuestmasterTask | null {
   let index = questIndexCache.get(quests);
@@ -13,6 +15,33 @@ function findQuestById(quests: QuestmasterTask[], questId: string): QuestmasterT
     questIndexCache.set(quests, index);
   }
   return index.get(questId.toLowerCase()) ?? null;
+}
+
+function fetchQuestDetailForHover(questId: string): Promise<void> {
+  const key = questId.toLowerCase();
+  const state = useStore.getState();
+  if (state.questDetails.has(key) || findQuestById(state.quests ?? [], questId)) {
+    return Promise.resolve();
+  }
+
+  const existing = questHoverFetches.get(key);
+  if (existing) return existing;
+
+  const fetchPromise = api
+    .getQuestValidated(questId, null)
+    .then((result) => {
+      if (result.status === "fresh") {
+        useStore.getState().upsertQuestDetail(result.data, { etag: result.etag });
+      }
+    })
+    .finally(() => {
+      if (questHoverFetches.get(key) === fetchPromise) {
+        questHoverFetches.delete(key);
+      }
+    });
+
+  questHoverFetches.set(key, fetchPromise);
+  return fetchPromise;
 }
 
 export function QuestInlineLink({
@@ -32,21 +61,43 @@ export function QuestInlineLink({
 }) {
   const quest = useStore((s) => s.questDetails?.get(questId.toLowerCase()) ?? findQuestById(s.quests ?? [], questId));
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
+  const [hoverFetchState, setHoverFetchState] = useState<"idle" | "loading" | "error">("idle");
   const hideHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
       if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
-    },
-    [],
-  );
+    };
+  }, []);
+
+  useEffect(() => {
+    if (quest && hoverFetchState !== "idle") setHoverFetchState("idle");
+  }, [quest, hoverFetchState]);
 
   const questHash = withQuestIdInHash(window.location.hash, questId);
+  const title =
+    hoverFetchState === "loading"
+      ? `Loading ${questId} preview`
+      : hoverFetchState === "error"
+        ? `Preview unavailable for ${questId}`
+        : `Open ${questId}`;
 
   function handleLinkMouseEnter(e: MouseEvent<HTMLAnchorElement>) {
-    if (!quest) return;
     if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
     setHoverRect(e.currentTarget.getBoundingClientRect());
+    if (!quest) {
+      setHoverFetchState("loading");
+      void fetchQuestDetailForHover(questId)
+        .then(() => {
+          if (mountedRef.current) setHoverFetchState("idle");
+        })
+        .catch(() => {
+          if (mountedRef.current) setHoverFetchState("error");
+        });
+    }
   }
 
   function handleLinkMouseLeave() {
@@ -75,7 +126,7 @@ export function QuestInlineLink({
         onMouseEnter={handleLinkMouseEnter}
         onMouseLeave={handleLinkMouseLeave}
         className={className}
-        title={`Open ${questId}`}
+        title={title}
       >
         {children ?? questId}
       </a>
