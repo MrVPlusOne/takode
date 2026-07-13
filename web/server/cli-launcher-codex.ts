@@ -1885,6 +1885,9 @@ export async function prepareCodexSpawn(
         : null;
     const args: string[] = [];
     args.push("-c", `tools.webSearch=${options.codexInternetAccess === true ? "true" : "false"}`);
+    if (options.model) {
+      args.push("-c", `model=${options.model}`);
+    }
     if (options.codexReasoningEffort) {
       args.push("-c", `model_reasoning_effort=${options.codexReasoningEffort}`);
     }

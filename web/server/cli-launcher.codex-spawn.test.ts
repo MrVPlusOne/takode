@@ -264,6 +264,7 @@ describe("Codex spawn preparation", () => {
 
     const [cmdAndArgs] = mockSpawn.mock.calls[0];
     expect(cmdAndArgs).toContain("-c");
+    expect(cmdAndArgs).toContain("model=gpt-5.6-sol");
     expect(cmdAndArgs).toContain("model_context_window=684211");
     expect(cmdAndArgs).toContain("model_auto_compact_token_limit=585000");
   });
