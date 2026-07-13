@@ -1902,7 +1902,10 @@ export function clearStaleCodexCompactionState(
   session.state.is_compacting = false;
   deps.broadcastToBrowsers(session, { type: "status_change", status: null });
   deps.emitTakodeEvent(session.id, "compaction_finished", {});
-  if (session.messageHistory.some((entry) => entry.type === "compact_marker")) {
+  const shouldInjectRecovery =
+    reason !== "codex_turn_completed_stale_compaction" &&
+    session.messageHistory.some((entry) => entry.type === "compact_marker");
+  if (shouldInjectRecovery) {
     deps.injectCompactionRecovery(session);
   }
   deps.persistSession(session);

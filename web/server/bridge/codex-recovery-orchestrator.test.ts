@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   addPendingCodexInput,
+  clearStaleCodexCompactionState,
   commitPendingCodexInputs,
   handleCodexAdapterInitError,
   hydrateCodexResumedHistory,
@@ -183,6 +184,51 @@ function makePendingTurn(): CodexOutboundTurn {
     resumeConfirmedAt: null,
   };
 }
+
+describe("clearStaleCodexCompactionState", () => {
+  it("does not inject compaction recovery after a failed Codex compaction turn", () => {
+    const session = makeSession([]);
+    session.state.is_compacting = true;
+    session.messageHistory.push({
+      type: "compact_marker",
+      id: "compact-boundary-1",
+      timestamp: 1,
+    });
+    session.codexAdapter = {
+      isConnected: () => true,
+      getCurrentTurnId: () => null,
+    } as any;
+    const deps = makeLifecycleDeps();
+
+    const cleared = clearStaleCodexCompactionState(session, "codex_turn_completed_stale_compaction", deps);
+
+    expect(cleared).toBe(true);
+    expect(session.state.is_compacting).toBe(false);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, { type: "status_change", status: null });
+    expect(deps.injectCompactionRecovery).not.toHaveBeenCalled();
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+  });
+
+  it("keeps injecting compaction recovery when clearing stale non-error compaction state", () => {
+    const session = makeSession([]);
+    session.state.is_compacting = true;
+    session.messageHistory.push({
+      type: "compact_marker",
+      id: "compact-boundary-1",
+      timestamp: 1,
+    });
+    session.codexAdapter = {
+      isConnected: () => true,
+      getCurrentTurnId: () => null,
+    } as any;
+    const deps = makeLifecycleDeps();
+
+    const cleared = clearStaleCodexCompactionState(session, "session_meta_stale_compaction", deps);
+
+    expect(cleared).toBe(true);
+    expect(deps.injectCompactionRecovery).toHaveBeenCalledWith(session);
+  });
+});
 
 describe("commitPendingCodexInputs", () => {
   it("touches lastUserMessageAt with the pending timestamp for direct human input", () => {
