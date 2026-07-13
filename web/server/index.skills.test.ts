@@ -161,6 +161,8 @@ describe("index startup skill registration", () => {
     expect(source).toContain("Direct create/dispatch is allowed only when");
     expect(source).toContain("Pre-dispatch approval is mandatory when");
     expect(source).toContain("Use delayed approval via User Checkpoint");
+    expect(source).toContain("Send this only after authorization and board recording:");
+    expect(source).not.toContain("Send this only after approval and board recording:");
     expect(source).toContain("Read this phase brief first:");
     expect(source).toContain("Provide only deltas the assignee cannot infer");
     expect(source).not.toContain("Memory command mechanics live in the relevant phase briefs");

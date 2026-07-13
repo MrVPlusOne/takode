@@ -156,7 +156,7 @@ Default to your own backend type unless the user specifies otherwise.
 
 ## Alignment Dispatch
 
-Send this only after approval and board recording:
+Send this only after authorization and board recording:
 
 ```text
 Work on [q-XX](quest:q-XX). Load the quest skill first, then read the quest and claim it: `quest show q-XX && quest claim q-XX`.
