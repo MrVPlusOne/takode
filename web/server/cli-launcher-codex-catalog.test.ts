@@ -109,6 +109,42 @@ describe("Codex session catalog hardening", () => {
     });
   });
 
+  it("disables Responses Lite for MAI LiteLLM leader catalog overrides", async () => {
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const catalogPath = join(codexHome, "takode-leader-model-catalog.json");
+    const model = "gpt-5.6-sol";
+    await writeFile(configPath, [`model_provider = "mai-litellm"`, `model = "${model}"`, ""].join("\n"), "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: model,
+            context_window: 372_000,
+            max_context_window: 372_000,
+            effective_context_window_percent: 95,
+            use_responses_lite: true,
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    await _ensureCodexSessionConfigForTest(codexHome, [], { model });
+
+    const config = await readFile(configPath, "utf-8");
+    expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+    const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
+    expect(catalog.models[0]).toMatchObject({
+      slug: model,
+      use_responses_lite: false,
+      context_window: 1_824_445,
+      max_context_window: 1_824_445,
+      auto_compact_token_limit: 1_642_000,
+    });
+  });
+
   it("uses configured usable capacity as the leader display budget while preserving the hidden provider envelope", async () => {
     const codexHome = await makeCodexHome();
     const configPath = join(codexHome, "config.toml");
@@ -294,6 +330,46 @@ describe("Codex session catalog hardening", () => {
       context_window: 500_000,
       max_context_window: 500_000,
       effective_context_window_percent: 80,
+    });
+  });
+
+  it("writes a MAI LiteLLM compatibility catalog override for non-leader Responses Lite models", async () => {
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const catalogPath = join(codexHome, "takode-model-catalog.json");
+    const model = "gpt-5.6-sol";
+    await writeFile(configPath, [`model_provider = "mai-litellm"`, `model = "${model}"`, ""].join("\n"), "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: model,
+            context_window: 372_000,
+            max_context_window: 372_000,
+            effective_context_window_percent: 95,
+            use_responses_lite: true,
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    const result = await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+    });
+
+    const config = await readFile(configPath, "utf-8");
+    expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+    expect(result.modelCatalogJson).toBeDefined();
+    expect(result.contextLaunchConfig).toBeUndefined();
+    const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
+    expect(catalog.models[0]).toMatchObject({
+      slug: model,
+      context_window: 372_000,
+      max_context_window: 372_000,
+      use_responses_lite: false,
     });
   });
 

@@ -739,6 +739,12 @@ function ensureCodexModelEntrySchemaDefaults(modelEntry: Record<string, any>, mo
   return changed;
 }
 
+function disableResponsesLiteForMaiLitellm(modelEntry: Record<string, any>): boolean {
+  if (modelEntry.use_responses_lite !== true) return false;
+  modelEntry.use_responses_lite = false;
+  return true;
+}
+
 interface CodexLeaderLaunchGuard {
   displayContextWindow: number;
   providerRawContextWindow: number;
@@ -892,7 +898,8 @@ async function ensureCodexLeaderModelCatalogOverride(
       modelEntry.context_window = launchGuard.providerRawContextWindow;
       modelEntry.max_context_window = launchGuard.providerRawContextWindow;
       modelEntry.auto_compact_token_limit = launchGuard.providerAutoCompactTokenLimit;
-      return changed;
+      const compatibilityChanged = usesMaiLitellmProvider(configToml) && disableResponsesLiteForMaiLitellm(modelEntry);
+      return changed || compatibilityChanged;
     },
   });
   return { ...override, launchGuard };
@@ -1013,7 +1020,8 @@ async function ensureCodexNonLeaderContextCapacityOverride(
       modelEntry.context_window = rawContextWindow;
       modelEntry.max_context_window = rawContextWindow;
       modelEntry.effective_context_window_percent = effectivePercent;
-      return changed;
+      const compatibilityChanged = usesMaiLitellmProvider(configToml) && disableResponsesLiteForMaiLitellm(modelEntry);
+      return changed || compatibilityChanged;
     },
   });
 
@@ -1031,6 +1039,20 @@ async function ensureCodexNonLeaderContextCapacityOverride(
       ...(modelCatalogConfigPath ? { modelCatalogConfigPath } : {}),
     },
   };
+}
+
+async function ensureCodexMaiLitellmCatalogCompatibilityOverride(
+  codexHome: string,
+  configToml: string,
+  options?: { model?: string; modelCatalogConfigPath?: string },
+): Promise<{ configToml: string; modelCatalogJson?: string }> {
+  const override = await ensureCodexModelCatalogOverride(codexHome, configToml, {
+    model: options?.model,
+    modelCatalogConfigPath: options?.modelCatalogConfigPath,
+    catalogFilename: takodeNonLeaderModelCatalogFilename,
+    mutateModelEntry: disableResponsesLiteForMaiLitellm,
+  });
+  return { configToml: override.configToml, modelCatalogJson: override.catalogJson };
 }
 
 async function readFilePrefix(path: string, maxBytes = 4096): Promise<string> {
@@ -1594,6 +1616,14 @@ async function ensureCodexSessionConfig(
     modelCatalogJson = override.modelCatalogJson;
     contextLaunchConfig = override.launchConfig;
     await options?.timing?.yieldIfDue("prepare Codex usable context override");
+  } else if (usesMaiLitellmProvider(next)) {
+    const override = await ensureCodexMaiLitellmCatalogCompatibilityOverride(codexHome, next, {
+      model: modelId,
+      modelCatalogConfigPath: options?.modelCatalogConfigPath,
+    });
+    next = override.configToml;
+    modelCatalogJson = override.modelCatalogJson;
+    await options?.timing?.yieldIfDue("prepare Codex MAI LiteLLM catalog compatibility override");
   } else {
     next = await scrubTakodeNonLeaderContextOverride(codexHome, next);
   }
