@@ -288,6 +288,101 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     );
   });
 
+  it("does not let an older higher-budget threshold recycle suppress a lower-budget model-switch recycle", async () => {
+    // Repro shape from a GPT-5.5 -> GPT-5.6 leader switch:
+    // the previous threshold recycle happened at ~555K under a 545K leader
+    // budget, but the new model's leader budget is 328.4K. A 415K resumed
+    // context must recycle even though it is below the old watermark.
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = {
+      ...makeDeps(broadcasts),
+      getLauncherSessionInfo: vi.fn(() => ({
+        isOrchestrator: true,
+        codexLeaderRecycleThresholdTokens: 328_400,
+        codexLeaderRecycleLineage: {
+          recycleEvents: [
+            {
+              trigger: "threshold" as const,
+              tokenUsage: {
+                contextTokensUsed: 554_916,
+                modelContextWindow: 545_000,
+              },
+            },
+          ],
+        },
+      })),
+    };
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "session_update",
+        session: {
+          codex_token_details: {
+            contextTokensUsed: 415_409,
+            inputTokens: 68_455_353,
+            outputTokens: 91_418,
+            cachedInputTokens: 63_792_128,
+            reasoningOutputTokens: 19_634,
+            modelContextWindow: 2_876_389,
+          },
+        },
+      },
+      deps,
+    );
+
+    expect(deps.requestCodexLeaderRecycle).toHaveBeenCalledWith(session, "threshold");
+    expect(session.state.context_used_percent).toBe(100);
+    expect(session.state.codex_token_details).toMatchObject({
+      contextTokensUsed: 415_409,
+      modelContextWindow: 328_400,
+    });
+  });
+
+  it("keeps suppressing repeated threshold recycles for the same leader budget", async () => {
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = {
+      ...makeDeps(broadcasts),
+      getLauncherSessionInfo: vi.fn(() => ({
+        isOrchestrator: true,
+        codexLeaderRecycleThresholdTokens: 545_000,
+        codexLeaderRecycleLineage: {
+          recycleEvents: [
+            {
+              trigger: "threshold" as const,
+              tokenUsage: {
+                contextTokensUsed: 554_916,
+                modelContextWindow: 545_000,
+              },
+            },
+          ],
+        },
+      })),
+    };
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "session_update",
+        session: {
+          codex_token_details: {
+            contextTokensUsed: 550_000,
+            inputTokens: 68_455_353,
+            outputTokens: 91_418,
+            cachedInputTokens: 63_792_128,
+            reasoningOutputTokens: 19_634,
+            modelContextWindow: 2_876_389,
+          },
+        },
+      },
+      deps,
+    );
+
+    expect(deps.requestCodexLeaderRecycle).not.toHaveBeenCalled();
+  });
+
   it("does not rewrite non-leader Codex context stats", async () => {
     const session = makeSession();
     session.state.isOrchestrator = false;

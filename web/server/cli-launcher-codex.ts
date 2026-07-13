@@ -104,6 +104,15 @@ interface CodexLaunchInfo {
   cwd: string;
   cliSessionId?: string;
   isOrchestrator?: boolean;
+  codexLeaderRecycleThresholdTokens?: number;
+  codexLeaderRecycleLineage?: {
+    recycleEvents?: Array<{
+      trigger?: string;
+      tokenUsage?: {
+        modelContextWindow?: number;
+      };
+    }>;
+  };
 }
 
 interface CodexLaunchOptions {
@@ -865,6 +874,25 @@ function deriveCodexLeaderLaunchGuard(
   };
 }
 
+function latestThresholdRecycleBudget(info: CodexLaunchInfo): number | undefined {
+  const recycleEvents = info.codexLeaderRecycleLineage?.recycleEvents;
+  if (!Array.isArray(recycleEvents)) return undefined;
+  for (let index = recycleEvents.length - 1; index >= 0; index -= 1) {
+    const event = recycleEvents[index];
+    if (event?.trigger !== "threshold") continue;
+    const budget = coercePositiveNumber(event.tokenUsage?.modelContextWindow);
+    if (budget) return budget;
+  }
+  return undefined;
+}
+
+function existingLeaderRecycleBudget(info: CodexLaunchInfo): number | undefined {
+  const current = coercePositiveNumber(info.codexLeaderRecycleThresholdTokens) ?? 0;
+  const latestRecycleBudget = latestThresholdRecycleBudget(info) ?? 0;
+  const budget = Math.max(current, latestRecycleBudget);
+  return budget > 0 ? budget : undefined;
+}
+
 function appendCodexLeaderLaunchGuardArgs(args: string[], leaderConfig?: CodexLeaderLaunchConfig): void {
   if (!leaderConfig) return;
   if (leaderConfig.modelCatalogConfigPath) {
@@ -1560,6 +1588,7 @@ async function ensureCodexSessionConfig(
     /** Deprecated compatibility setting; ignored so non-leader compaction follows Codex defaults. */
     nonLeaderAutoCompactThresholdPercent?: number;
     codexContextCapacityTokens?: number;
+    existingLeaderRecycleThresholdTokens?: number;
     model?: string;
     modelCatalogConfigPath?: string;
     timing?: CooperativeTiming;
@@ -1595,12 +1624,19 @@ async function ensureCodexSessionConfig(
   const modelId = options?.model || readTopLevelStringSetting(next, "model");
   const leaderLaunch = options?.leaderLaunch ?? !options?.nonLeaderAutoCompactThresholdPercent;
   const desiredContextCapacity = coercePositiveNumber(options?.codexContextCapacityTokens);
+  const existingLeaderRecycleThresholdTokens = coercePositiveNumber(options?.existingLeaderRecycleThresholdTokens);
   const leaderRecycleThreshold =
     leaderLaunch && desiredContextCapacity
       ? leaderRecycleThresholdForUsableCapacity(desiredContextCapacity)
-      : leaderLaunch
-        ? await resolveCodexLeaderRecycleThresholdForConfig(codexHome, next, modelId)
-        : undefined;
+      : leaderLaunch && existingLeaderRecycleThresholdTokens
+        ? {
+            recycleThresholdTokens: existingLeaderRecycleThresholdTokens,
+            source: "existing leader recycle budget",
+            usedFallback: false,
+          }
+        : leaderLaunch
+          ? await resolveCodexLeaderRecycleThresholdForConfig(codexHome, next, modelId)
+          : undefined;
   const leaderRecycleThresholdTokens = leaderRecycleThreshold?.recycleThresholdTokens;
   let modelCatalogJson: string | undefined;
   let leaderLaunchConfig: CodexLeaderLaunchConfig | undefined;
@@ -1812,6 +1848,7 @@ export async function prepareCodexSpawn(
         ensureCodexSessionConfig(codexHome, shellEnvVars, {
           leaderLaunch,
           codexContextCapacityTokens: options.codexMaxContextLength,
+          existingLeaderRecycleThresholdTokens: existingLeaderRecycleBudget(info),
           model: options.model,
           timing,
         }),
@@ -1827,6 +1864,7 @@ export async function prepareCodexSpawn(
         ensureCodexSessionConfig(codexHome, shellEnvVars, {
           leaderLaunch,
           codexContextCapacityTokens: options.codexMaxContextLength,
+          existingLeaderRecycleThresholdTokens: existingLeaderRecycleBudget(info),
           model: options.model,
           modelCatalogConfigPath: containerModelCatalogPath,
           timing,
@@ -2023,6 +2061,7 @@ export function _ensureCodexSessionConfigForTest(
     /** Deprecated compatibility setting; ignored so non-leader compaction follows Codex defaults. */
     nonLeaderAutoCompactThresholdPercent?: number;
     codexContextCapacityTokens?: number;
+    existingLeaderRecycleThresholdTokens?: number;
     model?: string;
     modelCatalogConfigPath?: string;
     timing?: CooperativeTiming;

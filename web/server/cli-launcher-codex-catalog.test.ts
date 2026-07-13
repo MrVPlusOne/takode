@@ -185,6 +185,50 @@ describe("Codex session catalog hardening", () => {
     });
   });
 
+  it("preserves an existing leader display budget across model-only relaunch", async () => {
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const catalogPath = join(codexHome, "takode-leader-model-catalog.json");
+    const model = "gpt-5.6-sol";
+    await writeFile(configPath, ['model_provider = "mai-litellm"', 'model = "' + model + '"', ""].join("\n"), "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: model,
+            context_window: 372_000,
+            max_context_window: 372_000,
+            effective_context_window_percent: 95,
+            use_responses_lite: true,
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    const result = await _ensureCodexSessionConfigForTest(codexHome, [], {
+      model,
+      existingLeaderRecycleThresholdTokens: 545_000,
+    });
+
+    expect(result.leaderRecycleThresholdTokens).toBe(545_000);
+    const config = await readFile(configPath, "utf-8");
+    expect(config).toContain("model_catalog_json = " + JSON.stringify(catalogPath));
+    expect(config).toContain("model_context_window = 3027778");
+    expect(config).toContain("model_auto_compact_token_limit = 2725000");
+
+    const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
+    expect(catalog.models[0]).toMatchObject({
+      slug: model,
+      context_window: 3_027_778,
+      max_context_window: 3_027_778,
+      effective_context_window_percent: 95,
+      auto_compact_token_limit: 2_725_000,
+      use_responses_lite: false,
+    });
+  });
+
   it("does not derive relaunch thresholds from Takode's generated leader catalog", async () => {
     const codexHome = await makeCodexHome();
     const configPath = join(codexHome, "config.toml");

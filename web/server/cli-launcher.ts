@@ -1244,6 +1244,8 @@ export class CliLauncher {
           cwd: info.cwd,
           cliSessionId: info.cliSessionId,
           isOrchestrator: info.isOrchestrator,
+          codexLeaderRecycleThresholdTokens: info.codexLeaderRecycleThresholdTokens,
+          codexLeaderRecycleLineage: info.codexLeaderRecycleLineage,
         },
         codexOptions,
       );

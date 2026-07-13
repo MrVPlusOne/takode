@@ -188,6 +188,7 @@ type CodexLeaderRecycleLauncherInfo = {
       trigger?: CodexLeaderRecycleTrigger;
       tokenUsage?: {
         contextTokensUsed?: number;
+        modelContextWindow?: number;
       };
     }>;
   };
@@ -276,14 +277,19 @@ function preserveExistingTurnMetrics(
 
 function getLatestThresholdRecycleWatermark(
   launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
-): number | null {
+): { contextTokensUsed: number; recycleThresholdTokens?: number } | null {
   const recycleEvents = launcherInfo?.codexLeaderRecycleLineage?.recycleEvents;
   if (!Array.isArray(recycleEvents) || recycleEvents.length === 0) return null;
   for (let index = recycleEvents.length - 1; index >= 0; index -= 1) {
     const recycleEvent = recycleEvents[index];
     const watermark = recycleEvent?.tokenUsage?.contextTokensUsed;
     if (recycleEvent?.trigger !== "threshold" || typeof watermark !== "number") continue;
-    return watermark;
+    return {
+      contextTokensUsed: watermark,
+      ...(typeof recycleEvent.tokenUsage?.modelContextWindow === "number"
+        ? { recycleThresholdTokens: recycleEvent.tokenUsage.modelContextWindow }
+        : {}),
+    };
   }
   return null;
 }
@@ -297,7 +303,14 @@ function shouldTriggerCodexLeaderThresholdRecycle(
   if (typeof contextTokensUsed !== "number") return false;
   if (recycleThresholdTokens <= 0 || contextTokensUsed < recycleThresholdTokens) return false;
   const latestThresholdWatermark = getLatestThresholdRecycleWatermark(launcherInfo);
-  if (latestThresholdWatermark !== null && contextTokensUsed <= latestThresholdWatermark) return false;
+  if (
+    latestThresholdWatermark !== null &&
+    (latestThresholdWatermark.recycleThresholdTokens === undefined ||
+      latestThresholdWatermark.recycleThresholdTokens === recycleThresholdTokens) &&
+    contextTokensUsed <= latestThresholdWatermark.contextTokensUsed
+  ) {
+    return false;
+  }
   return true;
 }
 

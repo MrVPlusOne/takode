@@ -1128,6 +1128,87 @@ describe("launch", () => {
     }
   });
 
+  it("preserves the latest leader recycle budget when a model-only relaunch would derive a smaller catalog budget", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const catalogPath = join(sessionHome, "takode-leader-model-catalog.json");
+    const {
+      mkdirSync: realMkdirSync,
+      writeFileSync: realWriteFileSync,
+      readFileSync: realReadFileSync,
+    } = require("node:fs");
+
+    try {
+      realMkdirSync(sessionHome, { recursive: true });
+      realWriteFileSync(
+        configPath,
+        ['model_provider = "mai-litellm"', 'model = "gpt-5.6-sol"', ""].join("\n"),
+        "utf-8",
+      );
+      realWriteFileSync(
+        join(sessionHome, "models_cache.json"),
+        JSON.stringify({
+          models: [
+            {
+              slug: "gpt-5.6-sol",
+              context_window: 372000,
+              max_context_window: 372000,
+              effective_context_window_percent: 95,
+              use_responses_lite: true,
+            },
+          ],
+        }),
+        "utf-8",
+      );
+
+      mockSpawn.mockReturnValueOnce(createMockCodexProc());
+      const workerInfo = await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexHome: customHome,
+        model: "gpt-5.6-sol",
+      });
+      await waitForSpawnCalls(1);
+
+      const session = launcher.getSession(workerInfo.sessionId) as any;
+      session.isOrchestrator = true;
+      session.codexLeaderRecycleThresholdTokens = 328400;
+      session.codexLeaderRecycleLineage = {
+        recycleEvents: [
+          {
+            trigger: "threshold",
+            tokenUsage: {
+              contextTokensUsed: 554916,
+              modelContextWindow: 545000,
+            },
+          },
+        ],
+      };
+      launcher.setSettingsGetter(() => ({
+        claudeBinary: "",
+        codexBinary: "/opt/fake/codex",
+      }));
+
+      mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
+      const relaunch = await launcher.relaunch(workerInfo.sessionId);
+      expect(relaunch.ok).toBe(true);
+      await waitForSpawnCalls(2);
+
+      const [cmdAndArgs] = mockSpawn.mock.calls[1]!;
+      const config = realReadFileSync(configPath, "utf-8");
+      expect(config).toContain("model_catalog_json = " + JSON.stringify(catalogPath));
+      expect(config).toContain("model_context_window = 3027778");
+      expect(config).toContain("model_auto_compact_token_limit = 2725000");
+      expect(codexConfigArgValue(cmdAndArgs, "model_context_window")).toBe("3027778");
+      expect(codexConfigArgValue(cmdAndArgs, "model_auto_compact_token_limit")).toBe("2725000");
+    } finally {
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
   it("omits Takode auto-compact catalog overrides for non-leader Codex sessions", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
