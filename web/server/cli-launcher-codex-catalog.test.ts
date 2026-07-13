@@ -319,8 +319,10 @@ describe("Codex session catalog hardening", () => {
     const config = await readFile(configPath, "utf-8");
     expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
     expect(config).toContain("model_context_window = 500000");
+    expect(config).toContain("model_auto_compact_token_limit = 360000");
     expect(result.contextLaunchConfig).toEqual({
       modelContextWindow: 500_000,
+      modelAutoCompactTokenLimit: 360_000,
       modelCatalogConfigPath: catalogPath,
     });
 
@@ -330,6 +332,7 @@ describe("Codex session catalog hardening", () => {
       context_window: 500_000,
       max_context_window: 500_000,
       effective_context_window_percent: 80,
+      auto_compact_token_limit: 360_000,
     });
   });
 
@@ -394,6 +397,7 @@ describe("Codex session catalog hardening", () => {
     const config = await readFile(configPath, "utf-8");
     expect(config).not.toContain("model_catalog_json");
     expect(config).not.toContain("model_context_window");
+    expect(config).not.toContain("model_auto_compact_token_limit");
   });
 
   it("adds a missing selected model to an otherwise valid catalog", async () => {

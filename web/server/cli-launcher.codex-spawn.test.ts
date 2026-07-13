@@ -253,6 +253,21 @@ describe("Codex spawn preparation", () => {
     expect(updatedConfig).not.toContain("old Takode session guardrails");
   });
 
+  it("passes non-leader usable context capacity with a matching auto-compact limit", async () => {
+    // Model-switch relaunches need both values on the Codex command line.
+    // Otherwise Codex may keep the larger context window while falling back to
+    // a much lower built-in pre-sampling compaction threshold.
+    await launchCodex({
+      model: "gpt-5.6-sol",
+      codexMaxContextLength: 650_000,
+    });
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    expect(cmdAndArgs).toContain("-c");
+    expect(cmdAndArgs).toContain("model_context_window=684211");
+    expect(cmdAndArgs).toContain("model_auto_compact_token_limit=585000");
+  });
+
   it("builds host Codex PATH from enriched startup data without hot-path shell capture", async () => {
     // Spawn prep should reuse startup-warmed shell data; re-capturing a shell in
     // this path is slow and can stall session startup.

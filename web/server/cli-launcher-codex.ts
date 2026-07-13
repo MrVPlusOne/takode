@@ -762,6 +762,7 @@ interface CodexLeaderLaunchConfig {
 
 interface CodexContextLaunchConfig {
   modelContextWindow: number;
+  modelAutoCompactTokenLimit: number;
   modelCatalogConfigPath?: string;
 }
 
@@ -777,6 +778,10 @@ function effectiveContextWindowFromModelEntry(modelEntry: Record<string, any>): 
     coercePositiveNumber(modelEntry.effective_context_window_percent) || defaultCodexEffectiveContextWindowPercent;
   const effectiveContextWindow = Math.floor((rawContextWindow * effectivePercent) / 100);
   return effectiveContextWindow >= 1 ? effectiveContextWindow : undefined;
+}
+
+function nonLeaderAutoCompactTokenLimitForUsableCapacity(usableContextWindow: number): number {
+  return Math.max(1, Math.floor(usableContextWindow * 0.9));
 }
 
 async function readModelCatalogEntry(catalogPath: string, modelSlug: string): Promise<Record<string, any> | undefined> {
@@ -975,17 +980,24 @@ async function scrubTakodeNonLeaderContextOverride(codexHome: string, configToml
 
   const modelSlug = readTopLevelStringSetting(configToml, "model");
   const topLevelContextWindow = readTopLevelNumberSetting(configToml, "model_context_window");
+  const topLevelAutoCompactLimit = readTopLevelNumberSetting(configToml, "model_auto_compact_token_limit");
   let shouldRemoveTopLevelContext = false;
+  let shouldRemoveTopLevelAutoCompact = false;
   if (modelSlug && topLevelContextWindow) {
     const catalogPath = resolveConfigPathValue(codexHome, rawCatalogPath);
     const modelEntry = await readModelCatalogEntry(catalogPath, modelSlug);
     const catalogContextWindow =
       coercePositiveNumber(modelEntry?.context_window) || coercePositiveNumber(modelEntry?.max_context_window);
     shouldRemoveTopLevelContext = catalogContextWindow === topLevelContextWindow;
+    shouldRemoveTopLevelAutoCompact =
+      shouldRemoveTopLevelContext &&
+      !!topLevelAutoCompactLimit &&
+      coercePositiveNumber(modelEntry?.auto_compact_token_limit) === topLevelAutoCompactLimit;
   }
 
   const keys = new Set(["model_catalog_json"]);
   if (shouldRemoveTopLevelContext) keys.add("model_context_window");
+  if (shouldRemoveTopLevelAutoCompact) keys.add("model_auto_compact_token_limit");
   return removeTopLevelTomlSettings(configToml, keys);
 }
 
@@ -999,6 +1011,7 @@ async function ensureCodexNonLeaderContextCapacityOverride(
     desiredUsableContextWindow,
     defaultCodexEffectiveContextWindowPercent,
   );
+  const modelAutoCompactTokenLimit = nonLeaderAutoCompactTokenLimitForUsableCapacity(desiredUsableContextWindow);
   let effectivePercent = defaultCodexEffectiveContextWindowPercent;
   const override = await ensureCodexModelCatalogOverride(codexHome, configToml, {
     model: options?.model,
@@ -1009,6 +1022,7 @@ async function ensureCodexNonLeaderContextCapacityOverride(
       context_window: rawContextWindow,
       max_context_window: rawContextWindow,
       effective_context_window_percent: effectivePercent,
+      auto_compact_token_limit: modelAutoCompactTokenLimit,
     }),
     mutateModelEntry: (modelEntry) => {
       effectivePercent = effectiveContextPercentFromModelEntry(modelEntry);
@@ -1016,19 +1030,26 @@ async function ensureCodexNonLeaderContextCapacityOverride(
       const changed =
         modelEntry.context_window !== rawContextWindow ||
         modelEntry.max_context_window !== rawContextWindow ||
-        modelEntry.effective_context_window_percent !== effectivePercent;
+        modelEntry.effective_context_window_percent !== effectivePercent ||
+        modelEntry.auto_compact_token_limit !== modelAutoCompactTokenLimit;
       modelEntry.context_window = rawContextWindow;
       modelEntry.max_context_window = rawContextWindow;
       modelEntry.effective_context_window_percent = effectivePercent;
+      modelEntry.auto_compact_token_limit = modelAutoCompactTokenLimit;
       const compatibilityChanged = usesMaiLitellmProvider(configToml) && disableResponsesLiteForMaiLitellm(modelEntry);
       return changed || compatibilityChanged;
     },
   });
 
-  const configTomlWithContext = upsertTopLevelNumberSetting(
+  let configTomlWithContext = upsertTopLevelNumberSetting(
     override.configToml,
     "model_context_window",
     rawContextWindow,
+  );
+  configTomlWithContext = upsertTopLevelNumberSetting(
+    configTomlWithContext,
+    "model_auto_compact_token_limit",
+    modelAutoCompactTokenLimit,
   );
   const modelCatalogConfigPath = readTopLevelStringSetting(configTomlWithContext, "model_catalog_json");
   return {
@@ -1036,6 +1057,7 @@ async function ensureCodexNonLeaderContextCapacityOverride(
     modelCatalogJson: override.catalogJson,
     launchConfig: {
       modelContextWindow: rawContextWindow,
+      modelAutoCompactTokenLimit,
       ...(modelCatalogConfigPath ? { modelCatalogConfigPath } : {}),
     },
   };
@@ -1833,6 +1855,9 @@ export async function prepareCodexSpawn(
     }
     if (contextLaunchConfig?.modelContextWindow) {
       args.push("-c", `model_context_window=${contextLaunchConfig.modelContextWindow}`);
+    }
+    if (contextLaunchConfig?.modelAutoCompactTokenLimit) {
+      args.push("-c", `model_auto_compact_token_limit=${contextLaunchConfig.modelAutoCompactTokenLimit}`);
     }
     if (options.permissionMode === "codex-auto-review") {
       args.push("-c", "approvals_reviewer=auto_review");
