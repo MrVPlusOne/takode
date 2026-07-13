@@ -37,6 +37,15 @@ const LEADER_DISPATCH_PHASE_HANDOFF_EXAMPLES_PATH = join(
   "references",
   "phase-handoff-examples.md",
 );
+const TAKODE_ORCHESTRATION_QUEST_JOURNEY_PATH = join(
+  SERVER_DIR,
+  "..",
+  "..",
+  ".claude",
+  "skills",
+  "takode-orchestration",
+  "quest-journey.md",
+);
 const QUEST_SKILL_TEMPLATE_PATH = join(SERVER_DIR, "templates", "quest-skill-docs.md");
 const REPO_ROOT = join(SERVER_DIR, "..", "..");
 const QUEST_JOURNEY_SKILL_SLUGS = [
@@ -142,6 +151,21 @@ describe("index startup skill registration", () => {
     await expect(
       access(join(REPO_ROOT, ".codex", "skills", "takode-orchestration-design", "SKILL.md")),
     ).rejects.toThrow();
+  });
+
+  it("keeps the loaded Quest Journey phase table aligned with optional Outcome Review routing", async () => {
+    const source = await readFile(TAKODE_ORCHESTRATION_QUEST_JOURNEY_PATH, "utf-8");
+
+    expect(source).toContain(
+      "| Execute | `EXECUTING` | `~/.companion/quest-journey-phases/execute/leader.md` | `~/.companion/quest-journey-phases/execute/assignee.md` | Run approved expensive, risky, long-running, externally consequential, or approval-gated operations | read the execute leader brief, track monitor and stop conditions, then wait for the execution report and decide whether direct leader acceptance, lightweight inspection, outcome review, more execute work, or a Journey revision is needed |",
+    );
+    expect(source).toContain(
+      "| Outcome Review | `OUTCOME_REVIEWING` | `~/.companion/quest-journey-phases/outcome-review/leader.md` | `~/.companion/quest-journey-phases/outcome-review/assignee.md` | Reviewer-owned acceptance judgment for external or non-code outcomes where independent judgment materially reduces risk | read the outcome-review leader brief, then wait for the reviewer judgment and route to implement, execute, alignment, or conclusion |",
+    );
+    expect(source).not.toContain("decide whether outcome review, more execute work, or a Journey revision is needed");
+    expect(source).not.toContain(
+      "Reviewer-owned acceptance judgment over external or non-code outcomes such as metrics, logs, artifacts, prompt behavior, or UX trial notes",
+    );
   });
 
   it("keeps leader dispatch hot path compact while preserving handoff references", async () => {
