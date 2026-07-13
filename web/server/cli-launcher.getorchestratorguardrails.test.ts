@@ -642,11 +642,17 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Reviewers should judge phase documentation quality, not just presence");
     expect(guardrails).toContain("no routine raw commit/hash bookkeeping in the human scan layer");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
+    expect(guardrails).toContain("After `execute`, leaders may accept evidence directly");
+    expect(guardrails).toContain("Lightweight leader inspection is enough");
+    expect(guardrails).toContain("independent review would not materially reduce risk");
     expect(guardrails).toContain("Use `outcome-review` when a reviewer should make an acceptance judgment");
+    expect(guardrails).toContain("independent judgment materially reduces risk");
     expect(guardrails).toContain("small bounded reruns or repros");
     expect(guardrails).toContain("approval-gated runs rather than a reviewer acceptance pass");
     expect(guardrails).toContain("address code-review findings");
     expect(guardrails).toContain("Leaders may revise the remaining Journey");
+    expect(guardrails).toContain("Optional future phases are explicit Journey guidance");
+    expect(guardrails).toContain("do not invent or rely on a generic optional-phase skip command");
     expect(guardrails).toContain("what artifact to produce and to stop afterward");
     expect(guardrails).toContain("send an explicit **port now** instruction");
     expect(guardrails).toContain("Every time you ask the user a question");

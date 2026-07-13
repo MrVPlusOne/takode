@@ -4,7 +4,7 @@
   "color": { "name": "cyan", "accent": "#22d3ee" },
   "boardState": "OUTCOME_REVIEWING",
   "assigneeRole": "reviewer",
-  "contract": "Reviewer-owned acceptance judgment over external or non-code outcomes such as metrics, logs, artifacts, prompt behavior, or UX trial notes.",
+  "contract": "Reviewer-owned acceptance judgment for external or non-code outcomes where independent judgment materially reduces risk.",
   "nextLeaderAction": "read the outcome-review leader brief, then wait for the reviewer judgment and route to implement, execute, alignment, or conclusion",
   "aliases": []
 }

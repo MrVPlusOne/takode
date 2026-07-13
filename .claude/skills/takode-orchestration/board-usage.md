@@ -16,7 +16,7 @@ Use `takode board show --full` or `takode board show --verbose` when you need fu
 
 Display full board-owned context for one row: full Journey path, indexed phase notes, phase timing history, revision metadata, wait-for state, worker/reviewer status, and timestamps.
 
-### `takode board propose <quest-id> (--phases phase-a,phase-b | --spec-file proposal.json) [--preset preset-id] [--wait-for-input 3,4 | --clear-wait-for-input] [--full|--verbose]`
+### `takode board propose <quest-id> (--phases phase-a,phase-b | --spec-file proposal.json) [--preset preset-id] [--revise-reason "reason"] [--wait-for-input 3,4 | --clear-wait-for-input] [--full|--verbose]`
 
 Draft or revise a proposed pre-dispatch Journey row when a quest needs an approval hold or durable draft before active dispatch. Proposed rows:
 
@@ -44,7 +44,7 @@ Use `--spec-file` when composing a full proposal with phase notes and presentati
 }
 ```
 
-Do not propose adjacent `explore -> implement`. Use `implement` directly for normal bug fixes, docs changes, config changes, prompt changes, and artifact changes; Implement includes ordinary investigation, reproduction, root-cause analysis, code/design reading, and test planning. Use `explore -> user-checkpoint -> implement` only when Explore findings may need user steering before implementation. A User Checkpoint is mandatory by default; mark it optional only with an approved phase note that says it may be skipped and gives the concrete skip condition. After Explore, skip an optional User Checkpoint only when the condition has been evaluated as satisfied and the skip reason is recorded, for example with `takode board advance q-N --skip-optional-checkpoint "Explore found no user-facing tradeoff"`.
+Do not propose adjacent `explore -> implement`. Use `implement` directly for normal bug fixes, docs changes, config changes, prompt changes, and artifact changes; Implement includes ordinary investigation, reproduction, root-cause analysis, code/design reading, and test planning. Use `explore -> user-checkpoint -> implement` only when Explore findings may need user steering before implementation. A User Checkpoint is mandatory by default; mark it optional only with an approved phase note that says it may be skipped and gives the concrete skip condition. After Explore, skip an optional User Checkpoint only when the condition has been evaluated as satisfied and the skip reason is recorded, for example with `takode board advance q-N --skip-optional-checkpoint "Explore found no user-facing tradeoff"`. For other future phases whose need depends on later evidence, leaders may mark the phase note optional when the user did not explicitly require it. The note should name when the phase is needed and/or can be skipped. Remove or add non-checkpoint optional phases with explicit Journey revision and `--revise-reason`; there is no generic optional-phase skip command.
 
 ### `takode board present <quest-id> [--summary "proposal summary"] [--wait-for-input 3,4 | --clear-wait-for-input]`
 
@@ -62,7 +62,7 @@ When promoting into `QUEUED`, `--wait-for` accepts one comma-separated value con
 
 Add or clear one lightweight free-form note for a specific phase occurrence. Phase positions are 1-based in the CLI, so repeated phases can carry different notes.
 
-### `takode board set <quest-id> [--worker N] [--status STATE] [--active-phase-position N] [--wait-for q-X,#Y,free-worker] [--wait-for-input 3,4 | --clear-wait-for-input] [--phases phase-a,phase-b] [--preset preset-id] [--full|--verbose]`
+### `takode board set <quest-id> [--worker N] [--status STATE] [--active-phase-position N] [--wait-for q-X,#Y,free-worker] [--wait-for-input 3,4 | --clear-wait-for-input] [--phases phase-a,phase-b] [--preset preset-id] [--revise-reason "reason"] [--full|--verbose]`
 
 Add or update a row.
 
@@ -76,6 +76,7 @@ Add or update a row.
 - `--clear-wait-for-input` removes that intentional human-input hold and resolves the linked notification(s)
 - `--phases` assembles the row's Journey from built-in phase IDs; repeated phases are allowed
 - `--preset` labels the planned phase sequence
+- `--revise-reason` records why an explicit `--phases` Journey revision is needed
 - `--active-phase-position` pins the active occurrence for repeated phases using a 1-based position when `--status` alone would be ambiguous
 - phase notes rebase by phase occurrence during revisions; when a revision removes the target occurrence, the CLI warns so the leader can reattach the dropped reminder explicitly
 
@@ -99,8 +100,10 @@ Examples:
   `takode board promote q-12 --worker 5`
 - Explore with user steering before implementation:
   `takode board set q-12 --worker 5 --phases alignment,explore,user-checkpoint,implement,code-review,port,memory --preset explore-checkpoint`
-- Expensive or approval-gated run:
+- Expensive or approval-gated run that needs independent outcome judgment:
   `takode board set q-12 --worker 5 --phases alignment,explore,execute,outcome-review,memory --preset ops-investigation`
+- Bounded Execute where leader acceptance may be enough:
+  `takode board set q-12 --worker 5 --phases alignment,explore,execute,memory --preset bounded-run`
 - Zero-tracked-change evidence review:
   `takode board set q-12 --worker 5 --phases alignment,explore,outcome-review,memory --preset investigation`
 - Scenario/design replay:
@@ -146,5 +149,6 @@ Remove row(s) manually.
 - Update the board immediately when herd events change quest state.
 - Do not restate current board rows in chat after updating the board; the UI already shows them live.
 - Treat quest threads as the shared quest-scoped context surface: Main is the staging area for unthreaded/global work, quest-backed threads carry quest-specific activity, and All Threads/global inspection preserves the append-only audit stream. Chat should carry the next decision, reasoning, and facts that are not yet modeled structurally.
+- Optional non-checkpoint phases are leader-owned Journey planning notes, not a separate skip mechanic. Use `takode board set --phases ... --revise-reason "..."` to remove an unnecessary future optional phase or add one that later evidence proves necessary, while preserving explicit user-required phases, required User Checkpoints, Code Review, Port for tracked changes, and final Memory.
 - At quest create/refine/dispatch setup points, include a lightweight non-blocking reminder to attach clearly quest-specific prior Main discussion with `takode thread attach`.
 - For leader sessions, user-visible Markdown is a normal leader response with a mandatory first-line thread marker: `[thread:main]` or `[thread:q-N]`. Use `takode notify needs-input` afterward only when notification state or suggested answers are needed. `takode user-message` is deprecated compatibility, not the new publishing path.

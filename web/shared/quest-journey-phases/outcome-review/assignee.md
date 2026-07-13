@@ -1,6 +1,6 @@
 # Outcome Review -- Assignee Brief
 
-You are performing reviewer-owned acceptance over external or non-code results.
+You are performing reviewer-owned acceptance over external or non-code results that need dedicated independent judgment.
 
 Setup:
 - Load the essential skills and context for the outcome target before judging it.

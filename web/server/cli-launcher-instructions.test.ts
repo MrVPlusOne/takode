@@ -329,7 +329,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("work elsewhere");
     expect(result).toContain("Any user wait, including approvals, confirmations");
     expect(result).toContain("never represent a user wait only with `Thread Waiting`");
+    expect(result).toContain("After `execute`, leaders may accept evidence directly");
+    expect(result).toContain("Lightweight leader inspection is enough");
+    expect(result).toContain("independent review would not materially reduce risk");
     expect(result).toContain("Use `outcome-review` when a reviewer should make an acceptance judgment");
+    expect(result).toContain("independent judgment materially reduces risk");
     expect(result).toContain("small bounded reruns or repros");
     expect(result).toContain("approval-gated runs");
     expect(result).toContain("System-interrupted worker `turn_end` herd events are actionable but not always terminal");
@@ -396,6 +400,8 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("USER_CHECKPOINTING");
     expect(result).toContain("User Checkpoint");
     expect(result).toContain("Do not use it as terminal closure, generic TBD, or optional leader-only indecision");
+    expect(result).toContain("Optional future phases are explicit Journey guidance");
+    expect(result).toContain("do not invent or rely on a generic optional-phase skip command");
     expect(result).toContain("Omit notes for standard phases by default");
     expect(result).toContain("write the authorized Journey to the board before or with dispatch");
     expect(result).toContain("Initial Journey authorization comes before dispatch");

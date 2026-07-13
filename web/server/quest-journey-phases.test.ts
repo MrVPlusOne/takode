@@ -151,12 +151,20 @@ describe("Quest Journey phase directory loading", () => {
     expect(implementPhase?.assigneeBrief).toContain("Phase documentation");
     expect(implementPhase?.assigneeBrief).toContain("behavior or artifact change");
     expect(executePhase?.leaderBrief).toContain("Use `EXECUTING` instead of `IMPLEMENTING`");
+    expect(executePhase?.leaderBrief).toContain("Accept the Execute evidence directly");
+    expect(executePhase?.leaderBrief).toContain("lightweight leader inspection");
+    expect(executePhase?.leaderBrief).toContain("independent reviewer judgment would not materially reduce risk");
+    expect(executePhase?.leaderBrief).toContain("dedicated independent judgment is materially risk-reducing");
     expect(executePhase?.assigneeBrief).toContain(
       "Do not turn this phase into the main implementation or debugging loop",
     );
+    expect(executePhase?.nextLeaderAction).toContain("direct leader acceptance");
+    expect(outcomeReviewPhase?.contract).toContain("independent judgment materially reduces risk");
     expect(outcomeReviewPhase?.leaderBrief).toContain("reviewer-owned acceptance phase");
+    expect(outcomeReviewPhase?.leaderBrief).toContain("only when independent judgment materially reduces risk");
     expect(outcomeReviewPhase?.leaderBrief).toContain("route back to `IMPLEMENTING`");
     expect(outcomeReviewPhase?.assigneeBrief).toContain("small bounded checks or repros");
+    expect(outcomeReviewPhase?.assigneeBrief).toContain("dedicated independent judgment");
     expect(outcomeReviewPhase?.assigneeBrief).toContain("do not become the primary experiment owner");
     expect(outcomeReviewPhase?.leaderBrief).toContain("context-specific memory deltas");
     expect(outcomeReviewPhase?.leaderBrief).toContain("assignee brief owns the standard catalog");

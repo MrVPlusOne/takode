@@ -109,7 +109,7 @@ The recommended built-in tracked-code Journey is:
 
 This preserves a small normal path for common repo work while allowing leaders to choose richer review or operations paths when the quest needs them. It is a default, not a mandate: user overrides win. If the user asks to skip `code-review`, `port`, or another standard phase, follow that instruction or briefly confirm the tradeoff instead of refusing because the phase is standard.
 
-Omit notes for standard phases by default: `alignment`, `implement`, `code-review`, `port`, and final `memory` are self-explanatory unless the user or quest adds unusual phase-specific work. Add concise notes for non-standard phases such as `explore`, `user-checkpoint`, `execute`, `outcome-review`, `mental-simulation`, or compatibility `bookkeeping`; state why the phase is needed and what evidence, user decision, scenario, outcome, or durable state it covers. For every extra phase, ask what it contributes over merging the same work into a later phase. User Checkpoints are mandatory by default; mark one optional only with an approved phase note that says it may be skipped and gives the concrete skip condition. After Explore, skip it only when that condition has been evaluated as satisfied and the skip reason is recorded.
+Omit notes for standard phases by default: `alignment`, `implement`, `code-review`, `port`, and final `memory` are self-explanatory unless the user or quest adds unusual phase-specific work. Add concise notes for non-standard phases such as `explore`, `user-checkpoint`, `execute`, `outcome-review`, `mental-simulation`, or compatibility `bookkeeping`; state why the phase is needed and what evidence, user decision, scenario, outcome, or durable state it covers. For every extra phase, ask what it contributes over merging the same work into a later phase. User Checkpoints are mandatory by default; mark one optional only with an approved phase note that says it may be skipped and gives the concrete skip condition. After Explore, skip it only when that condition has been evaluated as satisfied and the skip reason is recorded. Leaders may also mark other future phases optional when the need depends on later evidence and the user did not explicitly require the phase; the phase note should name when the phase is needed and/or can be skipped. Non-checkpoint optional phases are removed or added by explicit Journey revision with `--revise-reason`, not by a generic skip command. Do not use optionality to bypass Code Review, Port for tracked changes, final Memory, required User Checkpoints, or explicit user-required phases.
 
 ## Approval and Board Workflow
 
@@ -130,7 +130,8 @@ takode board set q-12 --worker 5 --phases alignment,implement,code-review,port,m
 Examples:
 
 - Straight tracked-code work: `alignment -> implement -> code-review -> port -> memory`
-- Expensive or approval-gated run: `alignment -> explore -> execute -> outcome-review -> memory`
+- Expensive or approval-gated run that needs independent outcome judgment: `alignment -> explore -> execute -> outcome-review -> memory`
+- Bounded Execute where leader acceptance may be enough: `alignment -> explore -> execute -> memory`
 - Findings that require user steering: `alignment -> explore -> user-checkpoint -> implement -> code-review -> port -> memory`
 - Design or workflow validation: `alignment -> implement -> mental-simulation -> code-review -> port -> memory`
 - Cheap local evidence followed by acceptance review: `alignment -> implement -> outcome-review -> code-review -> port -> memory`
@@ -158,6 +159,7 @@ Rules:
 - Repeated active phases are tracked by occurrence index, not just by `currentPhaseId`. When a repeated phase is active and `--status` alone would be ambiguous, set `--active-phase-position` so the board row and UI point at the correct occurrence.
 - If the active boundary itself changes, set an explicit `--status` that matches the revised phase plan.
 - `takode board advance` always follows the row's planned phases, not a hard-coded global order.
+- For optional non-checkpoint phases, revise the remaining Journey with `--revise-reason` when later evidence shows the phase is unnecessary or newly necessary. Preserve completed phase occurrences, respect explicit user-required phases, and use User Checkpoint first when the revision changes user-owned scope, safety, product choice, or explicit requirements.
 
 ## Phase-Explicit Worker Steering
 
@@ -185,13 +187,14 @@ Use the review phase that matches the evidence you need:
 
 - **`code-review`** for tracked code/artifact quality and landing risk.
 - **`mental-simulation`** for scenario-driven workflow, design, or responsibility-split replay.
-- **`outcome-review`** for reviewer-owned acceptance over external behavior, metrics, artifacts, prompt behavior, or operational outcomes that already exist.
+- **Leader acceptance after `execute`** when the run was authorized, bounded, completed within monitor and stop conditions, the Execute note is self-contained, criteria are clear, consequences are low-risk or reversible, and independent reviewer judgment would not materially reduce risk. Lightweight leader inspection is enough when the needed check is small and bounded over existing evidence, such as cited logs, screenshots, artifacts, pass/fail output, or simple local cleanup/retention facts.
+- **`outcome-review`** for reviewer-owned acceptance over external behavior, metrics, artifacts, prompt behavior, or operational outcomes that already exist when independent judgment materially reduces risk.
 - **`execute`** when more evidence requires expensive, risky, long-running, externally consequential, or approval-gated runs rather than a reviewer acceptance pass.
 
 Guidance:
 
 - Use **`mental-simulation`** when the question is whether a design or workflow makes sense under replayed scenarios. This is about plausibility and failure modes, not externally executed sufficiency.
-- Use **`outcome-review`** when the worker has usually already produced the evidence and a reviewer should decide whether that evidence is sufficient. The reviewer may do only small bounded reruns or repros needed for acceptance.
+- Use **`outcome-review`** when the worker has usually already produced the evidence and a reviewer should decide whether that evidence is sufficient because the case is high-risk, externally consequential, hard-to-reverse, security/privacy-sensitive, meaningfully user-visible, complex, noisy, subjective, low-context, missing-artifact, contradictory, insufficient, or otherwise materially risk-reducing. The reviewer may do only small bounded reruns or repros needed for acceptance.
 - Use **`execute`** when the worker needs more than cheap local evidence gathering and the next step is an approved run with monitors, stop conditions, risk controls, or external consequences.
 - If outcome evidence is insufficient, route back deliberately: **`implement`** when behavior or code must change, **`execute`** when more approved runs are needed, and **`alignment`** when success criteria, scope, or experiment design changed.
 

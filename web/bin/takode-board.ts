@@ -73,26 +73,27 @@ export const BOARD_DETAIL_HELP = `Usage: takode board detail <quest-id> [--json]
 Show full board-owned Quest Journey details, notes, timings, and revision metadata for one quest row.
 `;
 
-export const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--full|--verbose] [--json]
-       takode board add <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--full|--verbose] [--json]
+export const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--full|--verbose] [--json]
+       takode board add <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--full|--verbose] [--json]
 
 Add or update a board row for a quest.
 
 Quest Journey phases:
   --phases planning,explore,user-checkpoint,implement,code-review,mental-simulation,execute,outcome-review,port,memory,bookkeeping
   --preset <id> labels the planned phase sequence; use with --phases
+  --revise-reason <text> records why an explicit --phases revision is needed
   --active-phase-position <n> pins the active occurrence for repeated phases using a 1-based phase position
   --wait-for-input links active rows to same-session needs-input notifications by ID (for example 3 or n-3)
   --clear-wait-for-input removes any existing linked needs-input wait state
 
-Do not use adjacent \`explore -> implement\`; use \`implement\` directly for normal fixes, or \`explore -> user-checkpoint -> implement\` when Explore may need user steering. User Checkpoints are mandatory by default; optional checkpoints still require an approved phase note and a recorded skip reason after the condition is satisfied.
+Do not use adjacent \`explore -> implement\`; use \`implement\` directly for normal fixes, or \`explore -> user-checkpoint -> implement\` when Explore may need user steering. User Checkpoints are mandatory by default; optional checkpoints still require an approved phase note and a recorded skip reason after the condition is satisfied. Optional non-checkpoint phases are removed or added through explicit --phases Journey revision with --revise-reason, not a generic skip command.
 
 Zero-tracked-change work uses the same board model: choose explicit phases that omit \`port\` but still end in \`memory\` instead of using a special no-code board flag.
 `;
 
-export const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] (--phases <ids> | --spec-file <path|->) [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]
+export const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] (--phases <ids> | --spec-file <path|->) [--preset <id>] [--revise-reason <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]
 
-Draft or revise a proposed pre-dispatch Journey row. Proposed rows stay board-owned and can wait on user approval without pretending they are generic queue rows. Use --spec-file for batch phase and note updates; omit standard-phase notes unless unusual phase-specific handling is needed. Optional User Checkpoints require a user-checkpoint phase note with a concrete skip condition; skipping one later requires recording why the condition is satisfied.
+Draft or revise a proposed pre-dispatch Journey row. Proposed rows stay board-owned and can wait on user approval without pretending they are generic queue rows. Use --spec-file for batch phase and note updates; omit standard-phase notes unless unusual phase-specific handling is needed. Use --revise-reason with --phases to record why a Journey revision is needed. Optional User Checkpoints require a user-checkpoint phase note with a concrete skip condition; skipping one later requires recording why the condition is satisfied.
 `;
 
 export const BOARD_PRESENT_HELP = `Usage: takode board present <quest-id> [--summary <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]

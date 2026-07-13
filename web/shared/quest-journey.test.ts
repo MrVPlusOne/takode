@@ -312,13 +312,19 @@ describe("Quest Journey phases", () => {
       expect.objectContaining({
         assigneeRole: "worker",
         contract: expect.stringContaining("approval-gated operations"),
-        nextLeaderAction: expect.stringContaining("more execute work"),
+        nextLeaderAction: expect.stringContaining("direct leader acceptance"),
       }),
     );
     expect(getQuestJourneyPhase("outcome-review")).toEqual(
       expect.objectContaining({
         assigneeRole: "reviewer",
         contract: expect.stringContaining("Reviewer-owned acceptance judgment"),
+        nextLeaderAction: expect.stringContaining("route to implement, execute, alignment"),
+      }),
+    );
+    expect(getQuestJourneyPhase("outcome-review")).toEqual(
+      expect.objectContaining({
+        contract: expect.stringContaining("independent judgment materially reduces risk"),
         nextLeaderAction: expect.stringContaining("route to implement, execute, alignment"),
       }),
     );

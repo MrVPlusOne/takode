@@ -1,11 +1,11 @@
 # Outcome Review -- Leader Brief
 
-Use this phase when the right evidence lives in outcomes rather than source diffs.
+Use this phase when outcome evidence needs dedicated independent reviewer judgment rather than direct leader acceptance or lightweight leader inspection.
 
 Leader actions:
 - Keep the board row in `OUTCOME_REVIEWING`.
 - Include the exact assignee brief path in the instruction: `~/.companion/quest-journey-phases/outcome-review/assignee.md`.
-- Use this as a reviewer-owned acceptance phase after the worker has usually produced the outcome evidence first.
+- Use this as a reviewer-owned acceptance phase after the worker has usually produced the outcome evidence first, and only when independent judgment materially reduces risk.
 - Tell fresh reviewers to load the essential skills/context for the target first: `quest` when reviewing quest state or feedback, and `takode-orchestration` when inspecting prior sessions or cross-session history.
 - Point the reviewer to the exact logs, metrics, artifacts, behaviors, or UX evidence to judge.
 - When memory matters to final handoff, debrief accuracy, durable decisions, or memory-writing choices, provide context-specific memory deltas such as relevant files or decisions already inspected, accepted evidence that changes durable facts, and known freshness concerns. The assignee brief owns the standard catalog and freshness-check mechanics.
