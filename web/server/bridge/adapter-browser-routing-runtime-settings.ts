@@ -14,6 +14,7 @@ import {
   normalizeCodexPermissionProfile,
 } from "../../shared/permission-modes.js";
 import { isSafeCodexReasoningEffort } from "../../shared/session-defaults.js";
+import { markCodexModelSwitchCompactionGuard } from "./codex-model-switch-compaction.js";
 
 function shouldSendClassicClaudeControlRequest(session: AdapterBrowserRoutingSessionLike): boolean {
   return session.backendType === "claude" && !!session.backendSocket;
@@ -237,8 +238,15 @@ export function handleCodexSetModel(
 ): void {
   const nextModel = model.trim();
   if (!nextModel || session.state.model === nextModel) return;
-  session.state.model = nextModel;
   const launchInfo = deps.getLauncherSessionInfo(session.id);
+  const previousModel =
+    typeof session.state.model === "string"
+      ? session.state.model
+      : typeof launchInfo?.model === "string"
+        ? launchInfo.model
+        : undefined;
+  session.state.model = nextModel;
+  markCodexModelSwitchCompactionGuard(session, { previousModel, nextModel });
   if (launchInfo) launchInfo.model = nextModel;
   deps.broadcastToBrowsers(session, {
     type: "session_update",

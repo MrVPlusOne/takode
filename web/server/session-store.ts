@@ -89,6 +89,8 @@ export interface PersistedSession {
   codexLeaderRecycleContinuation?: import("./session-types.js").CodexLeaderRecycleContinuation | null;
   /** Codex-only: active turn id that must finish before follow-up input may start a fresh turn. */
   codexFreshTurnRequiredUntilTurnId?: string | null;
+  /** One-shot guard for suppressing expected low/normal-usage Codex model-switch migration recovery. */
+  codexModelSwitchCompactionGuard?: import("./session-types.js").CodexModelSwitchCompactionGuard | null;
   /** Bounded, payload-free breadcrumbs for pending-delivery blockage diagnostics. */
   codexPendingDeliveryProofSignals?: CodexPendingDeliveryProofSignal[];
   /** Bounded, payload-free reported context usage samples for diagnostics. */

@@ -107,6 +107,7 @@ type SessionRuntimeOptions = {
   pendingCodexRollbackError?: string | null;
   codexLeaderRecycleContinuation?: CodexLeaderRecycleContinuation | null;
   codexFreshTurnRequiredUntilTurnId?: string | null;
+  codexModelSwitchCompactionGuard?: import("../session-types.js").CodexModelSwitchCompactionGuard | null;
   codexPendingDeliveryProofSignals?: import("../session-types.js").CodexPendingDeliveryProofSignal[];
   contextUsageHistory?: ContextUsageHistoryEntry[];
   nextEventSeq?: number;
@@ -161,6 +162,8 @@ function createSessionRuntime(
     pendingCodexRollbackError: options.pendingCodexRollbackError ?? null,
     codexLeaderRecycleContinuation: options.codexLeaderRecycleContinuation ?? null,
     codexFreshTurnRequiredUntilTurnId: options.codexFreshTurnRequiredUntilTurnId ?? null,
+    codexModelSwitchCompactionGuard: options.codexModelSwitchCompactionGuard ?? null,
+    codexSuppressRecoveryForCurrentCompaction: false,
     codexPendingDeliveryProofSignals: options.codexPendingDeliveryProofSignals ?? [],
     contextUsageHistory: options.contextUsageHistory ?? [],
     pendingCodexRollbackWaiter: null,
@@ -507,6 +510,23 @@ function normalizePersistedCodexLeaderRecycleContinuation(value: unknown): Codex
   };
 }
 
+function normalizePersistedCodexModelSwitchCompactionGuard(
+  value: unknown,
+): import("../session-types.js").CodexModelSwitchCompactionGuard | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.nextModel !== "string" || !record.nextModel.trim()) return null;
+  if (typeof record.expiresAt !== "number" || record.expiresAt <= Date.now()) return null;
+  return {
+    ...(typeof record.previousModel === "string" && record.previousModel.trim()
+      ? { previousModel: record.previousModel }
+      : {}),
+    nextModel: record.nextModel,
+    createdAt: typeof record.createdAt === "number" ? record.createdAt : Date.now(),
+    expiresAt: record.expiresAt,
+  };
+}
+
 export async function restorePersistedSessions(
   sessions: Map<string, SessionLike>,
   persisted: any[],
@@ -606,6 +626,9 @@ export async function restorePersistedSessions(
       ),
       codexFreshTurnRequiredUntilTurnId:
         typeof p.codexFreshTurnRequiredUntilTurnId === "string" ? p.codexFreshTurnRequiredUntilTurnId : null,
+      codexModelSwitchCompactionGuard: normalizePersistedCodexModelSwitchCompactionGuard(
+        p.codexModelSwitchCompactionGuard,
+      ),
       codexPendingDeliveryProofSignals: Array.isArray(p.codexPendingDeliveryProofSignals)
         ? p.codexPendingDeliveryProofSignals
         : [],
@@ -743,6 +766,7 @@ export function buildPersistedSessionPayload(session: SessionLike): PersistedSes
     pendingCodexRollbackError: session.pendingCodexRollbackError,
     codexLeaderRecycleContinuation: session.codexLeaderRecycleContinuation,
     codexFreshTurnRequiredUntilTurnId: session.codexFreshTurnRequiredUntilTurnId,
+    codexModelSwitchCompactionGuard: session.codexModelSwitchCompactionGuard,
     codexPendingDeliveryProofSignals: session.codexPendingDeliveryProofSignals,
     contextUsageHistory: session.contextUsageHistory,
     pendingPermissions: Array.from(session.pendingPermissions.entries()),

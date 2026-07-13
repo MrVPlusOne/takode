@@ -1550,6 +1550,13 @@ export interface CodexLeaderRecycleContinuation {
   questId?: string;
 }
 
+export interface CodexModelSwitchCompactionGuard {
+  previousModel?: string;
+  nextModel: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
 export interface SessionContextLengthSnapshot {
   /** Known context length in tokens. Omitted when only percentage/window data is known. */
   contextTokensUsed?: number;

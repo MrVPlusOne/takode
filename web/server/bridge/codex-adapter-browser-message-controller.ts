@@ -21,6 +21,7 @@ import {
 import { recordThreadReadyUnreadNotifications } from "./session-notification-controller.js";
 import { queueQuestThreadRemindersForCompletedTurn } from "./quest-thread-reminder.js";
 import { recordCompactionFinished, recordCompactionStarted } from "./session-lifecycle-events.js";
+import { shouldSuppressCodexModelSwitchCompaction } from "./codex-model-switch-compaction.js";
 import { shouldTrackCodexToolResultRecovery } from "./tool-result-recovery-controller.js";
 import { recordContextUsageHistory } from "./context-usage.js";
 import {
@@ -496,43 +497,55 @@ export async function handleCodexAdapterBrowserMessage(
     const wasCompacting = session.state.is_compacting;
     session.state.is_compacting = msg.status === "compacting";
     if (msg.status === "compacting" && !wasCompacting) {
-      session.compactedDuringTurn = true;
-      deps.emitTakodeEvent(session.id, "compaction_started", {
-        ...(typeof session.state.context_used_percent === "number"
-          ? { context_used_percent: session.state.context_used_percent }
-          : {}),
-      });
-      const ts = Date.now();
-      const markerId = `compact-boundary-${ts}`;
-      session.messageHistory.push({
-        type: "compact_marker",
-        timestamp: ts,
-        id: markerId,
-      });
-      recordCompactionStarted(session, { id: markerId, timestamp: ts });
-      deps.freezeHistoryThroughCurrentTail(session);
-      deps.broadcastToBrowsers(session, {
-        type: "compact_boundary",
-        id: markerId,
-        timestamp: ts,
-      } as BrowserIncomingMessage);
-      deps.broadcastToBrowsers(session, {
-        type: "session_update",
-        session: { lifecycle_events: session.state.lifecycle_events },
-      } as BrowserIncomingMessage);
+      if (shouldSuppressCodexModelSwitchCompaction(session)) {
+        outgoing = null;
+        console.log(
+          `[ws-bridge] Suppressing Codex model-switch migration compaction recovery for session ${sessionTag(session.id)}`,
+        );
+      } else {
+        session.compactedDuringTurn = true;
+        deps.emitTakodeEvent(session.id, "compaction_started", {
+          ...(typeof session.state.context_used_percent === "number"
+            ? { context_used_percent: session.state.context_used_percent }
+            : {}),
+        });
+        const ts = Date.now();
+        const markerId = `compact-boundary-${ts}`;
+        session.messageHistory.push({
+          type: "compact_marker",
+          timestamp: ts,
+          id: markerId,
+        });
+        recordCompactionStarted(session, { id: markerId, timestamp: ts });
+        deps.freezeHistoryThroughCurrentTail(session);
+        deps.broadcastToBrowsers(session, {
+          type: "compact_boundary",
+          id: markerId,
+          timestamp: ts,
+        } as BrowserIncomingMessage);
+        deps.broadcastToBrowsers(session, {
+          type: "session_update",
+          session: { lifecycle_events: session.state.lifecycle_events },
+        } as BrowserIncomingMessage);
+      }
     }
     if (wasCompacting && msg.status !== "compacting") {
-      recordCompactionFinished(session);
-      deps.broadcastToBrowsers(session, {
-        type: "session_update",
-        session: { lifecycle_events: session.state.lifecycle_events },
-      } as BrowserIncomingMessage);
-      deps.emitTakodeEvent(session.id, "compaction_finished", {
-        ...(typeof session.state.context_used_percent === "number"
-          ? { context_used_percent: session.state.context_used_percent }
-          : {}),
-      });
-      deps.injectCompactionRecovery(session);
+      if (session.codexSuppressRecoveryForCurrentCompaction) {
+        session.codexSuppressRecoveryForCurrentCompaction = false;
+        outgoing = null;
+      } else {
+        recordCompactionFinished(session);
+        deps.broadcastToBrowsers(session, {
+          type: "session_update",
+          session: { lifecycle_events: session.state.lifecycle_events },
+        } as BrowserIncomingMessage);
+        deps.emitTakodeEvent(session.id, "compaction_finished", {
+          ...(typeof session.state.context_used_percent === "number"
+            ? { context_used_percent: session.state.context_used_percent }
+            : {}),
+        });
+        deps.injectCompactionRecovery(session);
+      }
     }
     deps.persistSession(session);
   } else if (msg.type === "assistant") {

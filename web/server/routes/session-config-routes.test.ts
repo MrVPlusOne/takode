@@ -192,6 +192,30 @@ describe("session config routes", () => {
     expect((session.state as Record<string, unknown>).codex_max_context_length).toBe(240000);
   });
 
+  it("arms Codex model-switch compaction guard for restart-required model changes", async () => {
+    const { app, session } = createApp();
+
+    const res = await app.request("/sessions/s1/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "gpt-5.6-sol" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      restartRequired: true,
+      restartRequiredFields: ["model"],
+      sessionState: { model: "gpt-5.6-sol" },
+    });
+    expect((session as any).codexModelSwitchCompactionGuard).toEqual(
+      expect.objectContaining({
+        previousModel: "gpt-5.4",
+        nextModel: "gpt-5.6-sol",
+      }),
+    );
+  });
+
   it("rejects unsupported Claude max context values", async () => {
     const { app } = createApp({ info: { backendType: "claude", permissionMode: "default" } });
 

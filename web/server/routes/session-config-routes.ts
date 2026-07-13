@@ -12,6 +12,7 @@ import {
 } from "../../shared/permission-modes.js";
 import type { RouteContext } from "./context.js";
 import { resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
+import { markCodexModelSwitchCompactionGuard } from "../bridge/codex-model-switch-compaction.js";
 
 type ConfigField =
   | "model"
@@ -150,6 +151,9 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
       const current = liveStateValue<string>(liveState, "model", info.model) || "";
       if (changed(current, rawModel)) {
         launchPatch.model = rawModel;
+        if (backendType === "codex") {
+          markCodexModelSwitchCompactionGuard(session, { previousModel: current, nextModel: rawModel });
+        }
         record("model", "model", rawModel);
       }
     }

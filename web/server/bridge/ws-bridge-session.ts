@@ -205,6 +205,10 @@ export interface Session {
   /** Codex-only: active turn id that must end before a follow-up can start a fresh turn.
    *  Used for denied ExitPlanMode so new input does not get steered into the old plan turn. */
   codexFreshTurnRequiredUntilTurnId: string | null;
+  /** One-shot guard for Codex's model-switch resume migration compaction. */
+  codexModelSwitchCompactionGuard: import("../session-types.js").CodexModelSwitchCompactionGuard | null;
+  /** True while a model-switch migration compaction should not inject Takode recovery. */
+  codexSuppressRecoveryForCurrentCompaction: boolean;
   /** Bounded, payload-free breadcrumbs for diagnosing pending-delivery blockage. */
   codexPendingDeliveryProofSignals: CodexPendingDeliveryProofSignal[];
   /** Bounded reported-token/context usage samples for opt-in diagnostics. */

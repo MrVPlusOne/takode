@@ -19,6 +19,14 @@ type TestCodexSession = {
   notificationCounter: number;
   attentionReason: "action" | "error" | "review" | null;
   lastCliMessageAt?: number;
+  compactedDuringTurn?: boolean;
+  codexModelSwitchCompactionGuard?: {
+    previousModel?: string;
+    nextModel: string;
+    createdAt: number;
+    expiresAt: number;
+  } | null;
+  codexSuppressRecoveryForCurrentCompaction?: boolean;
 };
 
 function makeSession(): TestCodexSession {
@@ -558,6 +566,84 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
         source: "codex_token_details",
       },
     });
+  });
+
+  it("suppresses Takode recovery for low-usage Codex model-switch migration compaction", async () => {
+    // Codex can emit a real contextCompaction immediately after changing the
+    // resumed thread model, even when reported usage is far below the normal
+    // auto-compact envelope. That migration compaction should not create a
+    // user-visible compact marker or inject Takode's generic recovery prompt.
+    const session = makeSession();
+    session.state = {
+      backend_type: "codex",
+      context_used_percent: 61,
+      codex_token_details: {
+        contextTokensUsed: 399_423,
+        inputTokens: 100,
+        outputTokens: 10,
+        cachedInputTokens: 0,
+        reasoningOutputTokens: 0,
+        modelContextWindow: 650_000,
+      },
+    };
+    session.codexModelSwitchCompactionGuard = {
+      previousModel: "gpt-5.5",
+      nextModel: "gpt-5.6-sol",
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(session, { type: "status_change", status: "compacting" }, deps);
+    await handleCodexAdapterBrowserMessage(session, { type: "status_change", status: null }, deps);
+
+    expect(session.codexModelSwitchCompactionGuard).toBeNull();
+    expect(session.codexSuppressRecoveryForCurrentCompaction).toBe(false);
+    expect(session.compactedDuringTurn).not.toBe(true);
+    expect(session.messageHistory.some((entry) => entry.type === "compact_marker")).toBe(false);
+    expect(session.state.lifecycle_events).toBeUndefined();
+    expect(deps.injectCompactionRecovery).not.toHaveBeenCalled();
+    expect(broadcasts).not.toContainEqual(expect.objectContaining({ type: "compact_boundary" }));
+    expect(broadcasts).not.toContainEqual(expect.objectContaining({ type: "status_change", status: "compacting" }));
+  });
+
+  it("keeps normal compaction recovery for high-usage compaction after model switch", async () => {
+    // The model-switch guard is only for migration compactions below the normal
+    // auto-compact envelope. Real context-pressure compaction still needs the
+    // standard marker and recovery handling.
+    const session = makeSession();
+    session.state = {
+      backend_type: "codex",
+      context_used_percent: 95,
+      codex_token_details: {
+        contextTokensUsed: 617_500,
+        inputTokens: 100,
+        outputTokens: 10,
+        cachedInputTokens: 0,
+        reasoningOutputTokens: 0,
+        modelContextWindow: 650_000,
+      },
+    };
+    session.codexModelSwitchCompactionGuard = {
+      previousModel: "gpt-5.5",
+      nextModel: "gpt-5.6-sol",
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(session, { type: "status_change", status: "compacting" }, deps);
+    await handleCodexAdapterBrowserMessage(session, { type: "status_change", status: null }, deps);
+
+    expect(session.codexModelSwitchCompactionGuard).toBeNull();
+    expect(session.compactedDuringTurn).toBe(true);
+    expect(session.messageHistory.some((entry) => entry.type === "compact_marker")).toBe(true);
+    expect(session.state.lifecycle_events?.[0]).toEqual(expect.objectContaining({ type: "compaction" }));
+    expect(deps.injectCompactionRecovery).toHaveBeenCalledWith(session);
+    expect(broadcasts).toContainEqual(expect.objectContaining({ type: "compact_boundary" }));
+    expect(broadcasts).toContainEqual(expect.objectContaining({ type: "status_change", status: "compacting" }));
   });
 
   it("strips leader thread text prefixes and persists quest thread metadata", async () => {

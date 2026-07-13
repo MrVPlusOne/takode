@@ -604,6 +604,11 @@ describe("Codex runtime settings updates", () => {
     const session = bridge.getSession(sid)!;
     expect(session.state.model).toBe("gpt-5.3-codex");
     expect(launcherInfo.model).toBe("gpt-5.3-codex");
+    expect(session.codexModelSwitchCompactionGuard).toEqual(
+      expect.objectContaining({
+        nextModel: "gpt-5.3-codex",
+      }),
+    );
     expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
     expect(relaunchCb).toHaveBeenCalledWith(sid);
 
