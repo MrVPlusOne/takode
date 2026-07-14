@@ -1,16 +1,134 @@
 # Takode Changelog
 
+## 2026-07-14
+
+### Added
+
+- **Leader skill preloading** -- Leader sessions preload required orchestration skills during startup and recovery so recycled or resumed leaders regain Journey guidance more reliably
+
+### Changed
+
+- **Needs-input suggestions** -- Needs-input prompts can carry more short suggested answers, with guidance updated to keep choices useful without an arbitrary cap
+- **Checkpoint approval guidance** -- Leader and checkpoint instructions distinguish actual user decisions from corrections more explicitly before continuing work
+
+### Fixed
+
+- **Leader preload recovery reminders** -- Recovery reminders avoid false compaction signals during resume replay and point leaders back to preload state more accurately
+
+## 2026-07-13
+
+### Changed
+
+- **Quest Journey routing** -- Leaders can use lighter direct dispatch for low-risk tasks, and Outcome Review is optional when the approved Journey does not need a separate acceptance pass
+- **Codex launch defaults** -- Codex catalog handling disables unsupported Responses Lite options for MAI LiteLLM catalogs and gives non-leader sessions a safer auto-compact default
+
+### Fixed
+
+- **Quest link previews** -- Quest links show hover previews more reliably
+- **Codex model switching** -- Model changes, relaunches, leader context preservation, failed compaction recovery, and recycle watermarks recover more reliably without duplicate migration loops
+- **Archived session recovery** -- Archived-session relaunch and partial archive-group failures reconcile UI and server state more consistently
+
+## 2026-07-11
+
+### Changed
+
+- **Codex model catalog** -- Model pickers include refreshed Codex options and runtime-setting updates, with future reasoning parameters preserved for compatible models
+
+## 2026-07-09
+
+### Changed
+
+- **Archived session browsing** -- Archived sessions load in pages and open in read-only views so large archives are lighter and safer to browse
+
+### Fixed
+
+- **Configure Session context capacity** -- Configure Session and session info surfaces show context capacity more accurately for Codex sessions
+
+## 2026-07-08
+
+### Added
+
+- **Notification row actions** -- Notification rows expose per-session actions from notification chip surfaces
+- **Devbox migration packaging** -- Operators can package migrated Devbox session history for browser-friendly browsing
+- **Questmaster preview loading** -- Quest lists, hover cards, and detail panels can load compact previews before hydrating full quest records
+
+### Fixed
+
+- **Leader tool routing** -- Unthreaded or mixed leader tool/result rows route to the most recent relevant thread more consistently
+- **Mixed tool result previews** -- Assistant messages can render mixed tool-result previews without losing surrounding context
+- **Quest detail caching** -- Partial quest detail loads preserve summaries and avoid stale detail-cache state
+
+## 2026-07-07
+
+### Added
+
+- **Session directory opening** -- Session info surfaces can open session directories in the local file browser
+
+### Fixed
+
+- **Archived worktree cleanup** -- Archived worktree cleanup retries and retry rows reconcile branch deletion failures more reliably
+
+## 2026-07-06
+
+### Fixed
+
+- **Archive reconciliation** -- Sidebar archive mutations and reviewer archive markers roll back or reconcile more safely when archive operations fail
+
+## 2026-07-02
+
+### Changed
+
+- **Quest Quiz guidance** -- Completion guidance makes quiz questions more useful and better grounded in agent-discovered outcomes
+
+### Fixed
+
+- **Thread route splitting** -- Post-quiz routes, split thread routes, and ready-thread unread views avoid cumulative append and stale read-state issues
+
+## 2026-07-01
+
+### Changed
+
+- **Pushover prompts** -- Pushover input prompts use a clearer title
+
+### Fixed
+
+- **Reviewer sidebar chips** -- Reviewer labels fit and render consistently in sidebar chips
+- **Diff syntax highlighting** -- Unified diff panels highlight syntax more reliably
+- **Leader thread tabs** -- Completed leader thread tabs, active Work Board tab ordering, and ready-thread unread markers persist more predictably
+
+## 2026-06-30
+
+### Changed
+
+- **Leader dispatch guidance** -- Dispatch references and generated instructions are shorter and clearer for leader workers
+- **Session info context stats** -- Session hover cards and info popovers group context statistics more clearly
+
+### Fixed
+
+- **Quest Quiz links** -- Quest IDs in inline quiz cards link to their quest detail previews
+- **Message navigation controls** -- Feed navigation controls sit higher and avoid covering surrounding controls
+- **Thread-scoped pending delivery** -- Pending-delivery state stays scoped to the relevant thread tabs
+- **Leader worktree port metadata** -- Spawn and port metadata carries worktree context more reliably for leader-managed ports
+
 ## 2026-06-29
 
 ### Added
 
-- **Starred messages** -- Chat messages can be starred from message actions, found in search, and shown with compact feed-rail markers for easier follow-up
+- **Session configuration** -- Existing sessions can be reconfigured from session menus and info surfaces, with live backend updates when supported
+- **Starred messages** -- Chat messages can be starred from message actions, searched globally, and shown with compact feed-rail markers for easier follow-up
+
+### Changed
+
+- **Context diagnostics CLI** -- Context diagnostics focus on `takode scan --context` and `takode peek --context`, with misleading standalone command references removed
+- **Codex context display** -- Codex context window displays use clearer capacity wording across configuration, hover, info, and settings surfaces
 
 ### Fixed
 
 - **Message link navigation** -- Links to specific chat messages load the targeted feed window, preserve main-thread routes, and highlight the jump target after navigation
+- **Configure Session state** -- Reconfiguration state, live update detection, and modal placement stay consistent across sidebar, top-bar, and session-info entry points
 - **Session status indicators** -- Session status dots stay visible on hover, and hover cards match the sidebar marker state more consistently
 - **Starred message controls** -- Star actions avoid temporary fallback message IDs, and starred markers stay out of the main message content area
+- **Unread session attention** -- Session attention indicators avoid stale unread state after notification updates
 
 ## 2026-06-28
 
