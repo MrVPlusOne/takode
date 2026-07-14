@@ -180,8 +180,12 @@ describe("index startup skill registration", () => {
     );
     expect(source).toContain("publish a revised exact packet");
     expect(source).toContain('"LGTM", "approved", "run it"');
+    expect(source).toContain("Harmless typo-only corrections can be recorded");
     expect(topLevelSource).toContain("Externally consequential User Checkpoints require fresh explicit approval");
-    expect(topLevelSource).toContain("Parameter edits, corrections, or approval-impacting questions are not approval");
+    expect(topLevelSource).toContain(
+      "Material parameter edits, approval-impacting corrections, or approval-impacting questions",
+    );
+    expect(topLevelSource).toContain("Harmless typo-only corrections can be recorded");
   });
 
   it("keeps leader dispatch hot path compact while preserving handoff references", async () => {
@@ -202,7 +206,8 @@ describe("index startup skill registration", () => {
     expect(source).toContain("Pre-dispatch approval is mandatory when");
     expect(source).toContain("Use delayed approval via User Checkpoint");
     expect(source).toContain("Externally consequential User Checkpoints need fresh explicit approval");
-    expect(source).toContain("parameter edits alone do not approve execution");
+    expect(source).toContain("material parameter edits alone do not approve execution");
+    expect(source).toContain("Harmless typo-only corrections can be recorded");
     expect(source).toContain("Send this only after authorization and board recording:");
     expect(source).not.toContain("Send this only after approval and board recording:");
     expect(source).toContain("Read this phase brief first:");

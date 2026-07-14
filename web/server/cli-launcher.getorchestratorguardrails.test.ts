@@ -441,8 +441,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("User Checkpoint is an intermediate user-participation stop");
     expect(guardrails).toContain("self-contained packet with findings, named options, key tradeoffs");
     expect(guardrails).toContain("exact requested answer");
-    expect(guardrails).toContain("parameter edits, corrections, or approval-impacting questions are not approval");
+    expect(guardrails).toContain(
+      "material parameter edits, approval-impacting corrections, or approval-impacting questions",
+    );
     expect(guardrails).toContain("publish a revised exact packet");
+    expect(guardrails).toContain("Harmless typo-only corrections can be recorded");
     expect(guardrails).toContain('"LGTM", "approved", "run it"');
     expect(guardrails).toContain("write the authorized Journey to the board before or with dispatch");
     expect(guardrails).toContain("Do not use sleep-based waits");
@@ -620,8 +623,11 @@ describe("getOrchestratorGuardrails", () => {
       "Direct create/dispatch is allowed only for clear, low-risk, reversible repo-local work",
     );
     expect(guardrails).toContain("Use delayed approval via User Checkpoint");
-    expect(guardrails).toContain("parameter edits, corrections, or approval-impacting questions are not approval");
+    expect(guardrails).toContain(
+      "material parameter edits, approval-impacting corrections, or approval-impacting questions",
+    );
     expect(guardrails).toContain("advance only after explicit approval of that revised packet");
+    expect(guardrails).toContain("exact action and no approval ambiguity remains");
     expect(guardrails).toContain(
       "approval surface concise and decision-oriented rather than pasting the full quest body",
     );

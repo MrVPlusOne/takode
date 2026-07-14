@@ -219,7 +219,10 @@ describe("Quest Journey phase directory loading", () => {
     );
     expect(userCheckpointPhase?.leaderBrief).toContain("takode notify needs-input");
     expect(userCheckpointPhase?.leaderBrief).toContain("wait for explicit approval of that revised packet");
-    expect(userCheckpointPhase?.leaderBrief).toContain("parameter edits, corrections, or approval-impacting questions");
+    expect(userCheckpointPhase?.leaderBrief).toContain(
+      "material parameter edits, approval-impacting corrections, or approval-impacting questions",
+    );
+    expect(userCheckpointPhase?.leaderBrief).toContain("Harmless typo-only corrections can be recorded");
     expect(userCheckpointPhase?.leaderBrief).toContain('"LGTM", "approved", "run it"');
     expect(userCheckpointPhase?.leaderBrief).toContain("explicitly approved the exact packet");
     expect(userCheckpointPhase?.leaderBrief).toContain("revise the remaining Journey");
@@ -227,6 +230,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(userCheckpointPhase?.assigneeBrief).toContain("self-contained decision packet");
     expect(userCheckpointPhase?.assigneeBrief).toContain("Use internally consistent, human-readable option labels");
     expect(userCheckpointPhase?.assigneeBrief).toContain("make the exact packet being approved unambiguous");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("harmless typo-only corrections");
     expect(userCheckpointPhase?.assigneeBrief).toContain("required user answer");
     expect(userCheckpointPhase?.assigneeBrief).toContain("Journey-revision implications");
   });

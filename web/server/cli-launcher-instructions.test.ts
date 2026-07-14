@@ -252,8 +252,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("User Checkpoint is an intermediate user-participation stop");
     expect(result).toContain("self-contained packet with findings, named options, key tradeoffs");
     expect(result).toContain("exact requested answer");
-    expect(result).toContain("parameter edits, corrections, or approval-impacting questions are not approval");
+    expect(result).toContain(
+      "material parameter edits, approval-impacting corrections, or approval-impacting questions",
+    );
     expect(result).toContain("publish a revised exact packet");
+    expect(result).toContain("Harmless typo-only corrections can be recorded");
     expect(result).toContain('"LGTM", "approved", "run it"');
     expect(result).toContain("User Checkpoints are mandatory by default");
     expect(result).toContain(
@@ -376,8 +379,11 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Direct create/dispatch is allowed only for clear, low-risk, reversible repo-local work");
     expect(result).toContain("Pre-dispatch approval remains mandatory for ambiguous");
     expect(result).toContain("Use delayed approval via User Checkpoint");
-    expect(result).toContain("parameter edits, corrections, or approval-impacting questions are not approval");
+    expect(result).toContain(
+      "material parameter edits, approval-impacting corrections, or approval-impacting questions",
+    );
     expect(result).toContain("advance only after explicit approval of that revised packet");
+    expect(result).toContain("exact action and no approval ambiguity remains");
     expect(result).toContain("Use `Goal / Acceptance` as the source of truth for the requested work");
     expect(result).toContain("make it read like a TLDR for approval");
     expect(result).toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");
