@@ -43,12 +43,13 @@ export function compactPendingCodexInputsForBrowser(inputs: PendingCodexInput[])
 }
 
 function compactPendingCodexInputForBrowser(input: PendingCodexInput, maxPreviewBytes: number): PendingCodexInput {
+  const { historyFollowUps: _historyFollowUps, ...browserInput } = input;
   const content = compactText(input.content, maxPreviewBytes);
   const deliveryContent =
     typeof input.deliveryContent === "string" ? compactText(input.deliveryContent, maxPreviewBytes) : undefined;
-  if (!content.truncated && (!deliveryContent || !deliveryContent.truncated)) return input;
+  if (!content.truncated && (!deliveryContent || !deliveryContent.truncated)) return browserInput;
   return {
-    ...input,
+    ...browserInput,
     content: content.text,
     ...(deliveryContent ? { deliveryContent: deliveryContent.text } : {}),
     contentBytes: content.bytes,

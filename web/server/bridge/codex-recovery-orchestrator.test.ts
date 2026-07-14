@@ -309,6 +309,46 @@ describe("commitPendingCodexInputs", () => {
     expect(broadcastedMsg.type).toBe("user_message");
     expect(broadcastedMsg.client_msg_id).toBeUndefined();
   });
+
+  it("commits programmatic history follow-ups after the model-bound pending input", () => {
+    const input: PendingCodexInput = {
+      id: "leader-kickoff",
+      content: "Leader kickoff",
+      deliveryContent: "Leader kickoff\n\nRequired leader skill preloaded: quest\nquest skill body",
+      timestamp: 12345,
+      cancelable: false,
+      agentSource: { sessionId: "system:leader-kickoff", sessionLabel: "Leader Kickoff" },
+      historyFollowUps: [
+        {
+          content: "Required leader skill preloaded: quest\nquest skill body",
+          agentSource: { sessionId: "system:leader-skill-preload:quest", sessionLabel: "Required quest" },
+          threadKey: "main",
+        },
+      ],
+    };
+    const session = makeSession([input]);
+    const deps = makeDeps();
+
+    const indexes = commitPendingCodexInputs(session, ["leader-kickoff"], deps);
+
+    expect(indexes).toEqual([0]);
+    expect(session.messageHistory).toHaveLength(2);
+    expect(session.messageHistory[0]).toMatchObject({
+      type: "user_message",
+      id: "leader-kickoff",
+      content: "Leader kickoff",
+      agentSource: { sessionId: "system:leader-kickoff" },
+    });
+    expect(session.messageHistory[1]).toMatchObject({
+      type: "user_message",
+      id: "leader-kickoff-followup-0",
+      content: expect.stringContaining("Required leader skill preloaded: quest"),
+      agentSource: { sessionId: "system:leader-skill-preload:quest" },
+      threadKey: "main",
+    });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledTimes(2);
+    expect(deps.touchUserMessage).not.toHaveBeenCalled();
+  });
 });
 
 describe("addPendingCodexInput", () => {

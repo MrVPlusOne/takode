@@ -4,6 +4,8 @@ import { render, screen } from "@testing-library/react";
 import {
   COMPACTION_RECOVERY_SOURCE_ID,
   COMPACTION_RECOVERY_SOURCE_LABEL,
+  leaderSkillPreloadSourceId,
+  leaderSkillPreloadSourceLabel,
 } from "../../shared/injected-event-message.js";
 import type { ChatMessage } from "../types.js";
 
@@ -90,5 +92,36 @@ describe("MessageBubble injected event search highlighting", () => {
     } finally {
       useStore.setState({ sessionSearch: prevSessionSearch });
     }
+  });
+
+  it("renders leader skill preload injections as collapsed event chips by default", () => {
+    const skillName = "quest";
+    const msg = makeMessage({
+      id: "leader-skill-preload-msg",
+      role: "user",
+      content: [
+        `Required leader skill preloaded: ${skillName}`,
+        "",
+        "Provenance:",
+        `- Skill: ${skillName}`,
+        "- Bundle hash: sha256:abc123",
+        "",
+        "----- BEGIN FILE web/server/templates/quest-skill-docs.md -----",
+        "Questmaster docs body",
+        "----- END FILE web/server/templates/quest-skill-docs.md -----",
+      ].join("\n"),
+      agentSource: {
+        sessionId: leaderSkillPreloadSourceId(skillName),
+        sessionLabel: leaderSkillPreloadSourceLabel(skillName),
+      },
+    });
+
+    render(<MessageBubble message={msg} sessionId="leader-skill-preload-session" showTimestamp={false} />);
+
+    const chip = screen.getByRole("button", { name: `Expand Required leader skill preloaded: ${skillName}` });
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(chip.textContent).toContain("Required leader skill preloaded: quest");
+    expect(chip.textContent).toContain("event");
+    expect(screen.queryByText("Questmaster docs body")).toBeNull();
   });
 });

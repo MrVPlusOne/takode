@@ -499,6 +499,14 @@ export interface PendingCodexInputImageDraft {
   mediaType: string;
 }
 
+export interface ProgrammaticHistoryFollowUp {
+  content: string;
+  agentSource?: { sessionId: string; sessionLabel?: string };
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
+}
+
 export interface PendingCodexInput {
   id: string;
   clientMsgId?: string;
@@ -512,6 +520,8 @@ export interface PendingCodexInput {
   deliveryContent?: string;
   /** Original UTF-8 byte length when deliveryContent is compacted for browser sync. */
   deliveryContentBytes?: number;
+  /** Server-only visible/history entries committed after this model-bound input. */
+  historyFollowUps?: ProgrammaticHistoryFollowUp[];
   /** True only for browser-facing compact snapshots, never for model delivery state. */
   payloadTruncated?: boolean;
   replyContext?: ReplyContext;
@@ -545,6 +555,8 @@ export type BrowserOutgoingMessage =
       images?: { media_type: string; data: string }[];
       imageRefs?: import("./image-store.js").ImageRef[];
       deliveryContent?: string;
+      /** Server-only visible/history entries committed after this model-bound input. */
+      historyFollowUps?: ProgrammaticHistoryFollowUp[];
       replyContext?: ReplyContext;
       vscodeSelection?: VsCodeSelectionMetadata;
       client_msg_id?: string;

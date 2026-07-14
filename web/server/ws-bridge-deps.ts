@@ -5,6 +5,7 @@ import { compactPendingCodexInputsForBrowser } from "./codex-pending-input-safet
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
 import { isSystemSourceTag } from "./bridge/adapter-browser-routing-source-tags.js";
+import { buildLeaderSkillPreloadBundles } from "./leader-skill-preload.js";
 import type { PushoverNotifier } from "./pushover.js";
 import type { TrafficStatsSnapshot } from "./traffic-stats.js";
 import type {
@@ -29,6 +30,7 @@ import type {
   CodexOutboundTurn,
   PendingCodexInput,
   PendingCodexInputImageDraft,
+  ProgrammaticHistoryFollowUp,
   VsCodeSelectionState,
   VsCodeWindowState,
   VsCodeOpenFileCommand,
@@ -519,7 +521,10 @@ export function getCompactionRecoveryRuntimeDeps(host: any) {
       sessionId: string,
       content: string,
       agentSource?: { sessionId: string; sessionLabel?: string },
-    ) => host.injectUserMessage(sessionId, content, agentSource),
+      threadRoute?: { threadKey: string; questId?: string },
+      options?: { deliveryContent?: string; historyFollowUps?: ProgrammaticHistoryFollowUp[] },
+    ) => host.injectUserMessage(sessionId, content, agentSource, undefined, threadRoute, options),
+    buildLeaderSkillPreloadBundles,
   };
 }
 

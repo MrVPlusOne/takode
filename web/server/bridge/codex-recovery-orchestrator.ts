@@ -1291,10 +1291,34 @@ function commitPendingCodexInput(
     deps.touchUserMessage(session.id, pending.timestamp);
   }
   deps.broadcastToBrowsers(session, userHistoryEntry);
+  appendPendingInputHistoryFollowUps(session, pending, userHistoryEntry, deps);
   deps.broadcastPendingCodexInputs(session);
   deps.onUserMessage?.(session.id, [...session.messageHistory], session.state.cwd, session.isGenerating);
   deps.persistSession(session);
   return userMsgHistoryIdx;
+}
+
+function appendPendingInputHistoryFollowUps(
+  session: CodexRecoveryOrchestratorSessionLike,
+  pending: PendingCodexInput,
+  baseEntry: Extract<BrowserIncomingMessage, { type: "user_message" }>,
+  deps: CodexRecoveryOrchestratorDeps,
+): void {
+  if (!pending.historyFollowUps?.length) return;
+  pending.historyFollowUps.forEach((followUp, index) => {
+    const entry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
+      type: "user_message",
+      content: followUp.content,
+      timestamp: pending.timestamp,
+      id: `${pending.id}-followup-${index}`,
+      ...(followUp.agentSource ? { agentSource: followUp.agentSource } : {}),
+      ...((followUp.threadKey ?? baseEntry.threadKey) ? { threadKey: followUp.threadKey ?? baseEntry.threadKey } : {}),
+      ...((followUp.questId ?? baseEntry.questId) ? { questId: followUp.questId ?? baseEntry.questId } : {}),
+      ...(followUp.threadRefs?.length ? { threadRefs: followUp.threadRefs } : {}),
+    };
+    session.messageHistory.push(entry);
+    deps.broadcastToBrowsers(session, entry);
+  });
 }
 export function removePendingCodexInput(
   session: CodexRecoveryOrchestratorSessionLike,

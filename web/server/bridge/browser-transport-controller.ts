@@ -50,6 +50,7 @@ import type {
   CodexAutoPauseInputSourceKind,
   CodexOutboundTurn,
   PendingCodexInput,
+  ProgrammaticHistoryFollowUp,
   PermissionRequest,
   ReplayableBrowserIncomingMessage,
   SessionAttentionRecord,
@@ -68,6 +69,7 @@ type ProgrammaticUserMessage = Extract<BrowserOutgoingMessage, { type: "user_mes
 
 export interface ProgrammaticUserMessageOptions {
   deliveryContent?: ProgrammaticUserMessage["deliveryContent"];
+  historyFollowUps?: ProgrammaticHistoryFollowUp[];
   replyContext?: ProgrammaticUserMessage["replyContext"];
   sessionId?: string;
   vscodeSelection?: ProgrammaticUserMessage["vscodeSelection"];
@@ -652,6 +654,7 @@ export function injectUserMessage(
     type: "user_message",
     content,
     ...(options?.deliveryContent ? { deliveryContent: options.deliveryContent } : {}),
+    ...(options?.historyFollowUps?.length ? { historyFollowUps: options.historyFollowUps } : {}),
     ...(options?.replyContext ? { replyContext: options.replyContext } : {}),
     ...(options?.sessionId ? { session_id: options.sessionId } : {}),
     ...(options?.vscodeSelection ? { vscodeSelection: options.vscodeSelection } : {}),

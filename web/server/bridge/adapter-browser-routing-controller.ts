@@ -46,6 +46,7 @@ import type {
   McpServerConfig,
   McpServerDetail,
   PermissionRequest,
+  ProgrammaticHistoryFollowUp,
   ThreadRef,
 } from "../session-types.js";
 import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
@@ -1210,6 +1211,7 @@ export function ingestUserMessage(
         deps.touchUserMessage(session.id, ts);
       }
       deps.broadcastToBrowsers(session, userHistoryEntry);
+      appendProgrammaticHistoryFollowUps(session, msg.historyFollowUps, userHistoryEntry, ts, deps);
       emitStoredUserMessageTakodeEvent(deps, session.id, userHistoryEntry, {
         historyIndex: userMsgHistoryIdx,
         turnTarget: wasGenerating ? "queued" : "current",
@@ -1266,6 +1268,31 @@ function emitUserMessageTakodeEvent(
     turnId,
   });
 }
+
+function appendProgrammaticHistoryFollowUps(
+  session: AdapterBrowserRoutingSessionLike,
+  followUps: readonly ProgrammaticHistoryFollowUp[] | undefined,
+  baseEntry: Extract<BrowserIncomingMessage, { type: "user_message" }>,
+  timestamp: number,
+  deps: Pick<AdapterBrowserRoutingDeps, "broadcastToBrowsers" | "nextUserMessageId">,
+): void {
+  if (!followUps?.length) return;
+  for (const followUp of followUps) {
+    const entry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
+      type: "user_message",
+      content: followUp.content,
+      timestamp,
+      id: deps.nextUserMessageId(timestamp),
+      ...(followUp.agentSource ? { agentSource: followUp.agentSource } : {}),
+      ...((followUp.threadKey ?? baseEntry.threadKey) ? { threadKey: followUp.threadKey ?? baseEntry.threadKey } : {}),
+      ...((followUp.questId ?? baseEntry.questId) ? { questId: followUp.questId ?? baseEntry.questId } : {}),
+      ...(followUp.threadRefs?.length ? { threadRefs: followUp.threadRefs } : {}),
+    };
+    session.messageHistory.push(entry);
+    deps.broadcastToBrowsers(session, entry);
+  }
+}
+
 export async function handleUserMessage(
   session: AdapterBrowserRoutingSessionLike,
   msg: BrowserUserMessage,
@@ -1485,6 +1512,7 @@ function normalizeAdapterUserMessage(
   if (typeof msg.deliveryContent === "string") {
     const delivered = { ...adapterMsg, content: msg.deliveryContent } as BrowserOutgoingMessage;
     delete (delivered as { deliveryContent?: unknown }).deliveryContent;
+    delete (delivered as { historyFollowUps?: unknown }).historyFollowUps;
     delete (delivered as { draftImages?: unknown }).draftImages;
     delete (delivered as { imageRefs?: unknown }).imageRefs;
     delete (delivered as { images?: unknown }).images;
@@ -1494,6 +1522,7 @@ function normalizeAdapterUserMessage(
   const resolvedImageRefs = userImageRefs ?? msg.imageRefs;
   if (!resolvedImageRefs?.length) {
     const stripped = { ...adapterMsg } as BrowserOutgoingMessage;
+    delete (stripped as { historyFollowUps?: unknown }).historyFollowUps;
     delete (stripped as { autoPauseSourceKind?: unknown }).autoPauseSourceKind;
     return stripped;
   }
@@ -1505,6 +1534,7 @@ function normalizeAdapterUserMessage(
   adapterMsg = { ...msg, content: annotatedContent } as BrowserOutgoingMessage;
   const stripped = { ...adapterMsg, content: annotatedContent } as BrowserOutgoingMessage;
   delete (stripped as { deliveryContent?: unknown }).deliveryContent;
+  delete (stripped as { historyFollowUps?: unknown }).historyFollowUps;
   delete (stripped as { draftImages?: unknown }).draftImages;
   delete (stripped as { imageRefs?: unknown }).imageRefs;
   delete (stripped as { images?: unknown }).images;
@@ -1670,6 +1700,7 @@ export function routeAdapterBrowserMessage(
           cancelable: true,
           ...(userImageRefs?.length ? { imageRefs: userImageRefs } : {}),
           ...(deliveryContent ? { deliveryContent } : {}),
+          ...(msg.historyFollowUps?.length ? { historyFollowUps: msg.historyFollowUps } : {}),
           ...(msg.replyContext ? { replyContext: msg.replyContext } : {}),
           ...(ingested.needsInputReminderText ? { needsInputReminderText: ingested.needsInputReminderText } : {}),
           ...(ingested.needsInputResolutionNoticeText

@@ -22,6 +22,7 @@ export interface ProgrammaticPauseMessageInput {
   threadRoute?: { threadKey: string; questId?: string; threadRefs?: ThreadRef[] };
   options?: {
     deliveryContent?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["deliveryContent"];
+    historyFollowUps?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["historyFollowUps"];
     replyContext?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["replyContext"];
     sessionId?: string;
     vscodeSelection?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["vscodeSelection"];
@@ -109,6 +110,7 @@ export function buildProgrammaticUserMessage(
     type: "user_message",
     content: input.content,
     ...(input.options?.deliveryContent ? { deliveryContent: input.options.deliveryContent } : {}),
+    ...(input.options?.historyFollowUps?.length ? { historyFollowUps: input.options.historyFollowUps } : {}),
     ...(input.options?.replyContext ? { replyContext: input.options.replyContext } : {}),
     ...(input.options?.sessionId ? { session_id: input.options.sessionId } : {}),
     ...(input.options?.vscodeSelection ? { vscodeSelection: input.options.vscodeSelection } : {}),

@@ -69,6 +69,11 @@ import { LEADER_KICKOFF_SOURCE_ID, LEADER_KICKOFF_SOURCE_LABEL } from "../../sha
 import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "../memory-session-space.js";
 import { registerSessionSideChatRoutes } from "./session-side-chat-routes.js";
 import { applySessionDefaultsToCreateBody, SessionDefaultValidationError } from "../session-defaults-application.js";
+import {
+  buildLeaderPreloadDeliveryContent,
+  buildLeaderSkillPreloadBundles,
+  buildLeaderSkillPreloadHistoryFollowUps,
+} from "../leader-skill-preload.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -134,10 +139,28 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
   // ─── SDK Sessions (--sdk-url) ─────────────────────────────────────
   const markOrchestratorSession = (sessionId: string, backend: SessionBackend) =>
-    markOrchestratorSessionAfterConnect({ launcher, wsBridge }, sessionId, buildOrchestratorSystemPrompt(backend), {
-      sessionId: LEADER_KICKOFF_SOURCE_ID,
-      sessionLabel: LEADER_KICKOFF_SOURCE_LABEL,
-    });
+    markOrchestratorSessionAfterConnect(
+      { launcher, wsBridge },
+      sessionId,
+      async () => {
+        const content = buildOrchestratorSystemPrompt(backend);
+        try {
+          const preloads = await buildLeaderSkillPreloadBundles();
+          return {
+            content,
+            deliveryContent: buildLeaderPreloadDeliveryContent(content, preloads),
+            historyFollowUps: buildLeaderSkillPreloadHistoryFollowUps(preloads),
+          };
+        } catch (err) {
+          console.error("[routes] Failed to build leader skill preload startup context:", err);
+          return { content };
+        }
+      },
+      {
+        sessionId: LEADER_KICKOFF_SOURCE_ID,
+        sessionLabel: LEADER_KICKOFF_SOURCE_LABEL,
+      },
+    );
 
   /** Helper: broadcast current tree group state to all browsers. */
   async function broadcastTreeGroups() {

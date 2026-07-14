@@ -559,7 +559,11 @@ describe("buildOrchestratorSystemPrompt", () => {
     const prompt = buildOrchestratorSystemPrompt("claude");
     expect(prompt).toContain("[System] You are a leader session");
     expect(prompt).toContain("takode-orchestration");
+    expect(prompt).toContain("leader-dispatch");
+    expect(prompt).toContain("confirm");
     expect(prompt).toContain("quest");
+    expect(prompt).toContain("included immediately after this kickoff message");
+    expect(prompt).toContain("via tool calls");
     expect(prompt).toContain("wait for the user's instructions");
     expect(prompt).toContain("ask the user in a marked leader response");
     expect(prompt).toContain("then call `takode notify needs-input` after that user-visible text exists");
@@ -600,9 +604,24 @@ describe("buildOrchestratorSystemPrompt", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(bridge.injectUserMessage).toHaveBeenCalledWith("session-1", buildOrchestratorSystemPrompt("codex"), {
-      sessionId: LEADER_KICKOFF_SOURCE_ID,
-      sessionLabel: LEADER_KICKOFF_SOURCE_LABEL,
-    });
+    await vi.waitFor(() => expect(bridge.injectUserMessage).toHaveBeenCalled());
+    expect(bridge.injectUserMessage).toHaveBeenCalledWith(
+      "session-1",
+      buildOrchestratorSystemPrompt("codex"),
+      {
+        sessionId: LEADER_KICKOFF_SOURCE_ID,
+        sessionLabel: LEADER_KICKOFF_SOURCE_LABEL,
+      },
+      undefined,
+      undefined,
+      expect.objectContaining({
+        deliveryContent: expect.stringContaining("Required leader skill preloaded: takode-orchestration"),
+        historyFollowUps: expect.arrayContaining([
+          expect.objectContaining({
+            content: expect.stringContaining("Required leader skill preloaded: quest"),
+          }),
+        ]),
+      }),
+    );
   });
 });

@@ -31,7 +31,7 @@ export const LEGACY_STANDARD_COMPACTION_RECOVERY_PROMPT = `${STANDARD_COMPACTION
 5. Keep your current role. If you are a worker or reviewer, continue the assigned task and do not switch into leader/orchestration behavior`;
 
 export function getLeaderContextRecoveryInstructions(sessionRef: string): string {
-  return `1. Load skills: /takode-orchestration, /leader-dispatch, and /quest
+  return `1. The required leader skill contents are included immediately after this recovery message. Use that preloaded context as your source of truth; do not reread mandatory leader skills via tool calls unless checking freshness or debugging.
 2. Run the preferred leader recovery summary: \`takode leader-context-resume ${sessionRef}\`
 3. Run the default recent-turn scan: \`takode scan ${sessionRef}\`
 4. Key rules:
@@ -54,9 +54,10 @@ export function getLeaderContextRecoveryInstructions(sessionRef: string): string
 export function getLeaderRecycleRecoveryInstructions(sessionRef: string): string {
   return `You are a replacement leader continuing the same Takode session after an intentional Codex leader recycle. Recover context with tools before acting; do not rely on any embedded transcript excerpt.
 
-Start by loading the core orchestration context:
-- Load /takode-orchestration and /quest.
-- Load /leader-dispatch only before choosing workers or dispatching work.
+Start from the preloaded core orchestration context:
+- The required leader skill contents are included immediately after this recovery message. Use that preloaded context as your source of truth.
+- Do not reread mandatory leader skills via tool calls unless checking freshness or debugging.
+- Invoke /leader-dispatch only before choosing workers or dispatching work.
 
 Recover the interrupted session state:
 1. Run \`takode leader-context-resume ${sessionRef}\` for the preferred recovery summary.

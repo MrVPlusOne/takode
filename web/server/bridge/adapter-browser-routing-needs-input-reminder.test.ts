@@ -786,6 +786,51 @@ describe("direct user needs-input reminders", () => {
     expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
   });
 
+  it("queues leader skill preloads as one model-bound Codex turn with visible history follow-ups", () => {
+    const session = makeSession();
+    session.backendType = "codex";
+    session.codexAdapter = {
+      getCurrentTurnId: () => null,
+      isConnected: () => true,
+      sendBrowserMessage: vi.fn(() => true),
+    } as any;
+    const deps = makeDeps({ isOrchestrator: true });
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+
+    const routed = routeAdapterBrowserMessage(
+      session,
+      userMessage({
+        content: "Leader kickoff",
+        deliveryContent: "Leader kickoff\n\nRequired leader skill preloaded: quest\nquest skill body",
+        historyFollowUps: [
+          {
+            content: "Required leader skill preloaded: quest\nquest skill body",
+            agentSource: { sessionId: "system:leader-skill-preload:quest", sessionLabel: "Required quest" },
+          },
+        ],
+        agentSource: { sessionId: "system:leader-kickoff", sessionLabel: "Leader Kickoff" },
+      }),
+      null,
+      deps,
+    );
+
+    expect(routed).toBe(true);
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(session.pendingCodexInputs[0]).toMatchObject({
+      content: "Leader kickoff",
+      deliveryContent: expect.stringContaining("Required leader skill preloaded: quest"),
+      historyFollowUps: [
+        expect.objectContaining({
+          content: expect.stringContaining("Required leader skill preloaded: quest"),
+        }),
+      ],
+    });
+    expect(deps.queueCodexPendingStartBatch).toHaveBeenCalledTimes(1);
+    expect(deps.queueCodexPendingStartBatch).toHaveBeenCalledWith(session, "browser_user_message");
+  });
+
   it("queues Codex herd inputs as a fresh pending batch instead of steering into an active turn", () => {
     // Herd events are delivered when the leader is idle, or force-delivered by
     // recovery when the active turn is stale. They should wake the leader with

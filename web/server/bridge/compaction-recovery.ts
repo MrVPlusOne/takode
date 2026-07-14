@@ -3,6 +3,11 @@ import { sessionTag } from "../session-tag.js";
 import { getKnownSessionNum } from "../cli-launcher.js";
 import { getCompactionRecoveryPrompt, isCompactionRecoveryPrompt } from "../compaction-recovery-prompts.js";
 import {
+  buildLeaderPreloadDeliveryContent,
+  buildLeaderSkillPreloadHistoryFollowUps,
+  type LeaderSkillPreloadBundle,
+} from "../leader-skill-preload.js";
+import {
   COMPACTION_RECOVERY_SOURCE_ID,
   COMPACTION_RECOVERY_SOURCE_LABEL,
 } from "../../shared/injected-event-message.js";
@@ -85,21 +90,23 @@ export function injectCompactionRecovery(
       content: string,
       agentSource?: { sessionId: string; sessionLabel?: string },
       threadRoute?: { threadKey: string; questId?: string },
+      options?: {
+        deliveryContent?: string;
+        historyFollowUps?: import("../session-types.js").ProgrammaticHistoryFollowUp[];
+      },
     ) => void;
+    buildLeaderSkillPreloadBundles?: () => LeaderSkillPreloadBundle[] | Promise<LeaderSkillPreloadBundle[]>;
   },
 ): void {
   const recycleContinuation = session.codexLeaderRecycleContinuation;
   if (recycleContinuation?.content) {
     session.codexLeaderRecycleContinuation = null;
     console.log(`[ws-bridge] Injecting leader recycle continuation for session ${sessionTag(session.id)}`);
-    deps.injectUserMessage(
+    injectWithOptionalLeaderSkillPreloads(
       session.id,
       recycleContinuation.content,
-      {
-        sessionId: COMPACTION_RECOVERY_SOURCE_ID,
-        sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
-      },
       buildRecycleContinuationThreadRoute(recycleContinuation),
+      deps,
     );
     return;
   }
@@ -108,10 +115,72 @@ export function injectCompactionRecovery(
   const sessionRef = String(getKnownSessionNum(session.id) ?? session.sessionNum ?? session.id);
   const prompt = getCompactionRecoveryPrompt(role, sessionRef);
   console.log(`[ws-bridge] Injecting ${role} compaction recovery for session ${sessionTag(session.id)}`);
-  deps.injectUserMessage(session.id, prompt, {
+  if (role === "leader") {
+    injectWithOptionalLeaderSkillPreloads(session.id, prompt, undefined, deps);
+  } else {
+    deps.injectUserMessage(session.id, prompt, {
+      sessionId: COMPACTION_RECOVERY_SOURCE_ID,
+      sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
+    });
+  }
+}
+
+function injectWithOptionalLeaderSkillPreloads(
+  sessionId: string,
+  content: string,
+  threadRoute:
+    | {
+        threadKey: string;
+        questId?: string;
+      }
+    | undefined,
+  deps: {
+    injectUserMessage: (
+      sessionId: string,
+      content: string,
+      agentSource?: { sessionId: string; sessionLabel?: string },
+      threadRoute?: { threadKey: string; questId?: string },
+      options?: {
+        deliveryContent?: string;
+        historyFollowUps?: import("../session-types.js").ProgrammaticHistoryFollowUp[];
+      },
+    ) => void;
+    buildLeaderSkillPreloadBundles?: () => LeaderSkillPreloadBundle[] | Promise<LeaderSkillPreloadBundle[]>;
+  },
+): void {
+  const source = {
     sessionId: COMPACTION_RECOVERY_SOURCE_ID,
     sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
-  });
+  };
+  const build = deps.buildLeaderSkillPreloadBundles;
+  if (!build) {
+    deps.injectUserMessage(sessionId, content, source, threadRoute);
+    return;
+  }
+  const inject = (bundles: LeaderSkillPreloadBundle[]) => {
+    deps.injectUserMessage(sessionId, content, source, threadRoute, {
+      deliveryContent: buildLeaderPreloadDeliveryContent(content, bundles),
+      historyFollowUps: buildLeaderSkillPreloadHistoryFollowUps(bundles),
+    });
+  };
+  try {
+    const result = build();
+    if (isThenable(result)) {
+      void result.then(inject).catch((err) => {
+        console.error(`[ws-bridge] Failed to build leader skill preload recovery context:`, err);
+        deps.injectUserMessage(sessionId, content, source, threadRoute);
+      });
+    } else {
+      inject(result);
+    }
+  } catch (err) {
+    console.error(`[ws-bridge] Failed to build leader skill preload recovery context:`, err);
+    deps.injectUserMessage(sessionId, content, source, threadRoute);
+  }
+}
+
+function isThenable<T>(value: T | Promise<T>): value is Promise<T> {
+  return typeof (value as { then?: unknown }).then === "function";
 }
 
 function buildRecycleContinuationThreadRoute(

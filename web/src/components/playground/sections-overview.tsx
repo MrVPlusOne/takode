@@ -106,6 +106,7 @@ import {
   PlaygroundNeedsInputResolutionNoticeMessage,
   PlaygroundCompactionRecoveryEventMessage,
   PlaygroundLeaderKickoffEventMessage,
+  PlaygroundLeaderSkillPreloadEventMessage,
   PlaygroundLongSleepGuardMessage,
   PlaygroundQuestThreadReminderMessage,
   PlaygroundResourceLeaseMessage,
@@ -809,6 +810,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Leader kickoff event (collapsed chip)">
             <PlaygroundLeaderKickoffEventMessage />
+          </Card>
+          <Card label="Leader skill preload event (collapsed chip)">
+            <PlaygroundLeaderSkillPreloadEventMessage />
           </Card>
           <Card label="Assistant message (markdown)">
             <MessageBubble message={MSG_ASSISTANT} />

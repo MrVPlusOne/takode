@@ -145,9 +145,12 @@ describe("Codex leader recycle continuation", () => {
     expect(session.codexLeaderRecycleContinuation?.content).toContain(
       "You are a replacement leader continuing the same Takode session",
     );
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("Load /takode-orchestration and /quest.");
     expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "Load /leader-dispatch only before choosing workers or dispatching work.",
+      "required leader skill contents are included immediately after this recovery message",
+    );
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("via tool calls");
+    expect(session.codexLeaderRecycleContinuation?.content).toContain(
+      "Invoke /leader-dispatch only before choosing workers or dispatching work.",
     );
     expect(session.codexLeaderRecycleContinuation?.content).toContain("takode leader-context-resume 42");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("takode scan 42");
@@ -232,8 +235,9 @@ describe("Codex leader recycle continuation", () => {
     expect(content).toContain("Use it only as historical evidence if Takode inspection shows it matters.");
     expect(content).toContain("continue the interrupted workflow only if it is safe");
     expect(content).toContain("You are a replacement leader continuing the same Takode session");
-    expect(content).toContain("Load /takode-orchestration and /quest.");
-    expect(content).toContain("Load /leader-dispatch only before choosing workers or dispatching work.");
+    expect(content).toContain("required leader skill contents are included immediately after this recovery message");
+    expect(content).toContain("via tool calls");
+    expect(content).toContain("Invoke /leader-dispatch only before choosing workers or dispatching work.");
     expect(content).toContain("takode leader-context-resume 42");
     expect(content).toContain("takode scan 42");
     expect(content).toContain("Run the default recent-turn scan");

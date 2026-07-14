@@ -4,7 +4,10 @@ const mockExecSync = vi.hoisted(() => vi.fn());
 const mockExec = vi.hoisted(() => vi.fn());
 const mockShouldSettingsRuleApprove = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
-vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
+vi.mock("node:crypto", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:crypto")>();
+  return { ...actual, randomUUID: () => "test-uuid" };
+});
 // Mock settings rule loading so real user ~/.claude/settings.json rules don't
 // interfere with tests. Tests that need specific rules override this per-call.
 vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
@@ -58,6 +61,26 @@ import {
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
+
+type InjectUserMessageSpy = {
+  mock: {
+    calls: Array<[string, string, ({ sessionId?: string; sessionLabel?: string } | undefined)?, ...unknown[]]>;
+  };
+};
+
+function recoveryInjectionCalls(spy: InjectUserMessageSpy, sessionId?: string) {
+  return spy.mock.calls.filter(
+    ([targetSid, , source]) =>
+      (sessionId === undefined || targetSid === sessionId) &&
+      source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
+      source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
+  );
+}
+
+async function waitForRecoveryInjection(spy: InjectUserMessageSpy, sessionId?: string) {
+  await vi.waitFor(() => expect(recoveryInjectionCalls(spy, sessionId)).toHaveLength(1));
+  return recoveryInjectionCalls(spy, sessionId);
+}
 
 function createMockSocket(data: SocketData) {
   return {
@@ -581,7 +604,7 @@ describe("Compaction recovery prompts", () => {
   // reminding them to recover enough self-history before resuming. Leaders get
   // orchestration-specific guidance; non-leaders get a general recovery prompt.
 
-  it("injects recovery message for leader sessions after SDK compaction finishes", () => {
+  it("injects recovery message for leader sessions after SDK compaction finishes", async () => {
     // Leader sessions lose skill context after compaction. The recovery
     // message reminds them to reload /takode-orchestration and /quest.
     const adapter = makeClaudeSdkAdapterMock();
@@ -612,13 +635,21 @@ describe("Compaction recovery prompts", () => {
     adapter.emitBrowserMessage({ type: "status_change", status: null });
 
     // Recovery message should have been injected with system source tag
-    const recoveryCalls = spy.mock.calls.filter(
-      ([, , source]) =>
-        source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
-        source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
+    const recoveryCalls = await waitForRecoveryInjection(spy);
+    expect(recoveryCalls[0][1]).toContain(
+      "required leader skill contents are included immediately after this recovery message",
     );
-    expect(recoveryCalls).toHaveLength(1);
-    expect(recoveryCalls[0][1]).toContain("/takode-orchestration");
+    expect(recoveryCalls[0][1]).toContain("via tool calls");
+    expect(recoveryCalls[0][5]).toEqual(
+      expect.objectContaining({
+        deliveryContent: expect.stringContaining("Required leader skill preloaded: takode-orchestration"),
+        historyFollowUps: expect.arrayContaining([
+          expect.objectContaining({
+            content: expect.stringContaining("Required leader skill preloaded: quest"),
+          }),
+        ]),
+      }),
+    );
     expect(recoveryCalls[0][1]).toContain("takode leader-context-resume 42");
     expect(recoveryCalls[0][1]).toContain("takode board show");
     expect(recoveryCalls[0][1]).toContain("takode scan 42");
@@ -663,7 +694,7 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).toContain("port only when explicitly told");
   });
 
-  it("clears stale Codex compaction on reconnect and injects recovery once", () => {
+  it("clears stale Codex compaction on reconnect and injects recovery once", async () => {
     const sid = "s-codex-stale-compaction";
     const adapter1 = makeCodexAdapterMock();
     bridge.attachCodexAdapter(sid, adapter1 as any);
@@ -691,14 +722,16 @@ describe("Compaction recovery prompts", () => {
     const session = bridge.getSession(sid)!;
     expect(session.state.is_compacting).toBe(false);
 
-    const recoveryCalls = spy.mock.calls.filter(
-      ([targetSid, , source]) =>
-        targetSid === sid &&
-        source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
-        source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
+    const recoveryCalls = await waitForRecoveryInjection(spy, sid);
+    expect(recoveryCalls[0][1]).toContain(
+      "required leader skill contents are included immediately after this recovery message",
     );
-    expect(recoveryCalls).toHaveLength(1);
-    expect(recoveryCalls[0][1]).toContain("/takode-orchestration");
+    expect(recoveryCalls[0][1]).toContain("via tool calls");
+    expect(recoveryCalls[0][5]).toEqual(
+      expect.objectContaining({
+        deliveryContent: expect.stringContaining("Required leader skill preloaded: takode-orchestration"),
+      }),
+    );
   });
 
   it("does not inject recovery for Claude WebSocket leaders when compact_boundary never arrived", () => {
@@ -728,7 +761,7 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls).toHaveLength(0);
   });
 
-  it("deduplicates replayed websocket recovery but still injects again for a later real compaction", () => {
+  it("deduplicates replayed websocket recovery but still injects again for a later real compaction", async () => {
     // Regression for q-317: replayed compacting/null pairs in Claude WebSocket
     // sessions can arrive after a completed compaction and must not re-inject
     // the leader recovery prompt unless a new compact_boundary was recorded.
@@ -771,18 +804,20 @@ describe("Compaction recovery prompts", () => {
     bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
     bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: null }));
 
-    const sessionAfterReplay = bridge.getSession("s1")!;
-    const replayRecoveries = sessionAfterReplay.messageHistory.filter(
-      (entry: any) =>
-        entry.type === "user_message" &&
-        typeof entry.content === "string" &&
-        entry.content.includes(
-          "Context was compacted. Before continuing, recover enough context to safely resume orchestration:",
-        ) &&
-        entry.agentSource?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
-        entry.agentSource?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
-    );
-    expect(replayRecoveries).toHaveLength(1);
+    await vi.waitFor(() => {
+      const sessionAfterReplay = bridge.getSession("s1")!;
+      const replayRecoveries = sessionAfterReplay.messageHistory.filter(
+        (entry: any) =>
+          entry.type === "user_message" &&
+          typeof entry.content === "string" &&
+          entry.content.includes(
+            "Context was compacted. Before continuing, recover enough context to safely resume orchestration:",
+          ) &&
+          entry.agentSource?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
+          entry.agentSource?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
+      );
+      expect(replayRecoveries).toHaveLength(1);
+    });
 
     // Second real compaction with a NEW boundary must inject a NEW recovery.
     bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
@@ -808,18 +843,20 @@ describe("Compaction recovery prompts", () => {
     );
     bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: null }));
 
-    const finalSession = bridge.getSession("s1")!;
-    const recoveries = finalSession.messageHistory.filter(
-      (entry: any) =>
-        entry.type === "user_message" &&
-        typeof entry.content === "string" &&
-        entry.content.includes(
-          "Context was compacted. Before continuing, recover enough context to safely resume orchestration:",
-        ) &&
-        entry.agentSource?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
-        entry.agentSource?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
-    );
-    expect(recoveries).toHaveLength(2);
+    await vi.waitFor(() => {
+      const finalSession = bridge.getSession("s1")!;
+      const recoveries = finalSession.messageHistory.filter(
+        (entry: any) =>
+          entry.type === "user_message" &&
+          typeof entry.content === "string" &&
+          entry.content.includes(
+            "Context was compacted. Before continuing, recover enough context to safely resume orchestration:",
+          ) &&
+          entry.agentSource?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
+          entry.agentSource?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
+      );
+      expect(recoveries).toHaveLength(2);
+    });
   });
 
   it("injects standard recovery message for non-leader sessions", () => {

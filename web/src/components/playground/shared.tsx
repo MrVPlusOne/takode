@@ -34,6 +34,8 @@ import {
   COMPACTION_RECOVERY_SOURCE_LABEL,
   LEADER_KICKOFF_SOURCE_ID,
   LEADER_KICKOFF_SOURCE_LABEL,
+  leaderSkillPreloadSourceId,
+  leaderSkillPreloadSourceLabel,
 } from "../../../shared/injected-event-message.js";
 
 const PlaygroundSectionGroupContext = createContext<PlaygroundSectionGroupId | null>(null);
@@ -1114,7 +1116,7 @@ export function PlaygroundLeaderKickoffEventMessage() {
     content: [
       "[System] You are a leader session. Your job is to coordinate worker sessions through the phase-based Quest Journey lifecycle.",
       "",
-      "**On startup**: Load the `takode-orchestration` and `quest` skills for full CLI references.",
+      "**On startup**: The required leader skill contents are included immediately after this kickoff message. Do not reread those mandatory leader skills via tool calls unless checking freshness or debugging.",
     ].join("\n"),
     timestamp: Date.now() - 12_000,
     agentSource: {
@@ -1124,6 +1126,35 @@ export function PlaygroundLeaderKickoffEventMessage() {
   };
 
   return <MessageBubble message={message} sessionId="playground-leader-kickoff-event" showTimestamp={false} />;
+}
+
+export function PlaygroundLeaderSkillPreloadEventMessage() {
+  const skillName = "takode-orchestration";
+  const message: ChatMessage = {
+    id: "playground-leader-skill-preload-event-msg",
+    role: "user",
+    content: [
+      `Required leader skill preloaded: ${skillName}`,
+      "",
+      "Provenance:",
+      `- Skill: ${skillName}`,
+      "- Source: repo:.claude/skills/takode-orchestration",
+      "- Bundle hash: sha256:abc123",
+      "- Files:",
+      "  - .claude/skills/takode-orchestration/SKILL.md (sha256:def456, 12000 bytes)",
+      "",
+      "Startup guidance:",
+      "- Use this content as already-loaded leader context.",
+      "- Do not reread this mandatory skill via tool calls unless checking freshness or debugging.",
+    ].join("\n"),
+    timestamp: Date.now() - 11_000,
+    agentSource: {
+      sessionId: leaderSkillPreloadSourceId(skillName),
+      sessionLabel: leaderSkillPreloadSourceLabel(skillName),
+    },
+  };
+
+  return <MessageBubble message={message} sessionId="playground-leader-skill-preload-event" showTimestamp={false} />;
 }
 
 // ─── Inline MCP Server Row (static preview, no WebSocket) ──────────────────

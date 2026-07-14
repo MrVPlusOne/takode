@@ -1,5 +1,5 @@
 import { getSettings } from "../settings-manager.js";
-import type { CreationStepId } from "../session-types.js";
+import type { CreationStepId, ProgrammaticHistoryFollowUp } from "../session-types.js";
 import type { OptionalAuthResult } from "./context.js";
 
 export type SessionBackend = "claude" | "codex" | "claude-sdk";
@@ -41,6 +41,12 @@ export function throwPreparationError(message: string, status: SessionPreparatio
   throw new SessionPreparationError(message, status, step);
 }
 
+export interface OrchestratorStartupInjection {
+  content: string;
+  deliveryContent?: string;
+  historyFollowUps?: ProgrammaticHistoryFollowUp[];
+}
+
 export function markOrchestratorSessionAfterConnect(
   deps: {
     launcher: { getSession(sessionId: string): { state?: string } | undefined };
@@ -49,11 +55,14 @@ export function markOrchestratorSessionAfterConnect(
         sessionId: string,
         prompt: string,
         agentSource?: { sessionId: string; sessionLabel?: string },
+        takodeHerdBatch?: undefined,
+        threadRoute?: undefined,
+        options?: { deliveryContent?: string; historyFollowUps?: ProgrammaticHistoryFollowUp[] },
       ): void;
     };
   },
   sessionId: string,
-  prompt: string,
+  prompt: string | (() => OrchestratorStartupInjection | Promise<OrchestratorStartupInjection>),
   agentSource?: { sessionId: string; sessionLabel?: string },
 ): void {
   (async () => {
@@ -63,7 +72,11 @@ export function markOrchestratorSessionAfterConnect(
     while (Date.now() - start < maxWait) {
       const info = deps.launcher.getSession(sessionId);
       if (info && (info.state === "connected" || info.state === "running")) {
-        deps.wsBridge.injectUserMessage(sessionId, prompt, agentSource);
+        const injection = typeof prompt === "function" ? await prompt() : { content: prompt };
+        deps.wsBridge.injectUserMessage(sessionId, injection.content, agentSource, undefined, undefined, {
+          ...(injection.deliveryContent ? { deliveryContent: injection.deliveryContent } : {}),
+          ...(injection.historyFollowUps?.length ? { historyFollowUps: injection.historyFollowUps } : {}),
+        });
         return;
       }
       if (info?.state === "exited") return;
