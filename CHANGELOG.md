@@ -49,7 +49,6 @@
 ### Added
 
 - **Notification row actions** -- Notification rows expose per-session actions from notification chip surfaces
-- **Devbox migration packaging** -- Operators can package migrated Devbox session history for browser-friendly browsing
 - **Questmaster preview loading** -- Quest lists, hover cards, and detail panels can load compact previews before hydrating full quest records
 
 ### Fixed
