@@ -250,7 +250,7 @@ describe("MessageBubble notification markers", () => {
     }
   });
 
-  it("fills inline answers and sends without mutating the composer draft", async () => {
+  it("fills inline answers from more than three suggestions without mutating the composer draft", async () => {
     const prevNotifications = useStore.getState().sessionNotifications;
     const prevDrafts = useStore.getState().composerDrafts;
     const prevReplyContexts = useStore.getState().replyContexts;
@@ -261,7 +261,7 @@ describe("MessageBubble notification markers", () => {
         id: "n-17",
         category: "needs-input",
         summary: "Deploy now?",
-        suggestedAnswers: ["yes", "no"],
+        suggestedAnswers: ["yes", "no", "revise", "later"],
         timestamp: Date.now(),
         messageId: "asst-notify",
         done: false,
@@ -287,6 +287,9 @@ describe("MessageBubble notification markers", () => {
 
       const actionRow = screen.getByTestId("notification-answer-actions");
       expect(actionRow.contains(screen.getByRole("button", { name: "Use suggested answer: yes" }))).toBe(true);
+      expect(actionRow.contains(screen.getByRole("button", { name: "Use suggested answer: no" }))).toBe(true);
+      expect(actionRow.contains(screen.getByRole("button", { name: "Use suggested answer: revise" }))).toBe(true);
+      expect(actionRow.contains(screen.getByRole("button", { name: "Use suggested answer: later" }))).toBe(true);
       expect(screen.queryByRole("button", { name: "Custom answer" })).toBeNull();
       const input = screen.getByLabelText("Answer for Deploy now?") as HTMLInputElement;
       const reply = screen.getByRole("button", { name: "Reply" }) as HTMLButtonElement;

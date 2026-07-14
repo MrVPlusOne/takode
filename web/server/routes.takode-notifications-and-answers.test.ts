@@ -815,20 +815,20 @@ describe("Takode server-authoritative auth", () => {
       body: JSON.stringify({
         category: "needs-input",
         summary: "Need deployment approval",
-        suggestedAnswers: ["  yes  ", "not  yet"],
+        suggestedAnswers: ["  yes  ", "not  yet", "after smoke", "rollback"],
       }),
     });
 
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
       ok: true,
-      suggestedAnswers: ["yes", "not yet"],
+      suggestedAnswers: ["yes", "not yet", "after smoke", "rollback"],
     });
     expect(bridge._sessions["orch-1"].notifications).toMatchObject([
       {
         category: "needs-input",
         summary: "Need deployment approval",
-        suggestedAnswers: ["yes", "not yet"],
+        suggestedAnswers: ["yes", "not yet", "after smoke", "rollback"],
         done: false,
       },
     ]);
@@ -836,7 +836,7 @@ describe("Takode server-authoritative auth", () => {
       id: "n-1",
       category: "needs-input",
       summary: "Need deployment approval",
-      suggestedAnswers: ["yes", "not yet"],
+      suggestedAnswers: ["yes", "not yet", "after smoke", "rollback"],
     });
     expect(bridge.broadcastToSession).toHaveBeenCalledWith(
       "orch-1",
@@ -845,7 +845,7 @@ describe("Takode server-authoritative auth", () => {
         messageId: "asst-1",
         notification: expect.objectContaining({
           id: "n-1",
-          suggestedAnswers: ["yes", "not yet"],
+          suggestedAnswers: ["yes", "not yet", "after smoke", "rollback"],
         }),
       }),
     );
@@ -866,7 +866,7 @@ describe("Takode server-authoritative auth", () => {
         category: "needs-input",
         summary: "Need deployment choices",
         questions: [
-          { prompt: " Which rollout? ", suggestedAnswers: [" staged ", "full"] },
+          { prompt: " Which rollout? ", suggestedAnswers: [" staged ", "full", "pause", "rollback"] },
           { prompt: "When should it start?", suggestedAnswers: ["now", "after  review"] },
         ],
       }),
@@ -874,7 +874,7 @@ describe("Takode server-authoritative auth", () => {
 
     expect(res.status).toBe(200);
     const expectedQuestions = [
-      { prompt: "Which rollout?", suggestedAnswers: ["staged", "full"] },
+      { prompt: "Which rollout?", suggestedAnswers: ["staged", "full", "pause", "rollback"] },
       { prompt: "When should it start?", suggestedAnswers: ["now", "after review"] },
     ];
     expect(await res.json()).toMatchObject({
@@ -969,17 +969,6 @@ describe("Takode server-authoritative auth", () => {
   it("rejects invalid suggested answer sets", async () => {
     setupTakodeSessions();
 
-    const tooMany = await app.request("/api/sessions/orch-1/notify", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        category: "needs-input",
-        summary: "Need approval",
-        suggestedAnswers: ["one", "two", "three", "four"],
-      }),
-    });
-    expect(tooMany.status).toBe(400);
-
     const duplicate = await app.request("/api/sessions/orch-1/notify", {
       method: "POST",
       headers: authHeaders("orch-1", "tok-1"),
@@ -991,6 +980,54 @@ describe("Takode server-authoritative auth", () => {
     });
     expect(duplicate.status).toBe(400);
     expect((await duplicate.json()).error).toBe("suggestedAnswers entries must be unique");
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
+  it("retains protective validation for oversized needs-input quick replies and question batches", async () => {
+    setupTakodeSessions();
+
+    const longAnswer = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need approval",
+        suggestedAnswers: ["this answer is longer than thirty two characters"],
+      }),
+    });
+    expect(longAnswer.status).toBe(400);
+    expect((await longAnswer.json()).error).toBe("suggestedAnswers entries must be 32 characters or less");
+
+    const tooManyQuestions = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need several decisions",
+        questions: [
+          { prompt: "Question 1?" },
+          { prompt: "Question 2?" },
+          { prompt: "Question 3?" },
+          { prompt: "Question 4?" },
+          { prompt: "Question 5?" },
+          { prompt: "Question 6?" },
+        ],
+      }),
+    });
+    expect(tooManyQuestions.status).toBe(400);
+    expect((await tooManyQuestions.json()).error).toBe("questions may include at most 5 prompts");
+
+    const longPrompt = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need approval",
+        questions: [{ prompt: "x".repeat(241) }],
+      }),
+    });
+    expect(longPrompt.status).toBe(400);
+    expect((await longPrompt.json()).error).toBe("questions prompts must be 240 characters or less");
     expect(bridge._sessions["orch-1"].notifications).toEqual([]);
   });
 

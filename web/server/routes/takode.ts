@@ -502,7 +502,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (value === undefined || value === null) return { ok: true, answers: [] };
     if (!Array.isArray(value)) return { ok: false, error: `${label} must be an array of strings` };
     if (value.length === 0) return { ok: true, answers: [] };
-    if (value.length > 3) return { ok: false, error: `${label} may include at most 3 options` };
 
     const seen = new Set<string>();
     const answers: string[] = [];

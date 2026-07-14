@@ -218,7 +218,7 @@ Categories:
   waiting      Transient non-user wait marker; not listed or resolved
 
 Options:
-  --suggest <answer>  Suggested answer for needs-input notifications (repeat up to 3 times)
+  --suggest <answer>  Suggested answer for needs-input notifications (repeat for each quick reply)
   --question <prompt> Add a separate needs-input question; following --suggest flags apply to that question
 `;
 

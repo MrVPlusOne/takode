@@ -182,7 +182,8 @@ describe("buildCompanionInstructions", () => {
       "existing unresolved prompts in the same thread or quest do not cover a separate approval or decision",
     );
     expect(result).toContain("Link the affected active board row with `--wait-for-input` when applicable");
-    expect(result).toContain("one to three `--suggest <answer>` options");
+    expect(result).toContain("you may add `--suggest <answer>` options");
+    expect(result).not.toContain("one to three `--suggest <answer>` options");
     expect(result).toContain("never use suggestions instead of writing the full context in chat");
     expect(result).toContain("use scoped waits for `needs-input`");
     expect(result).toContain("blocks only its own thread, quest, or board row");

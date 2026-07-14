@@ -243,9 +243,24 @@ describe("takode notify self-resolution workflow", () => {
     expect(requestBodies[0]).toEqual({ category: "waiting", summary: "Waiting on reviewer" });
   });
 
-  it("passes repeated suggested answers for needs-input notifications", async () => {
+  it("passes repeated suggested answers for needs-input notifications without a three-option cap", async () => {
     const result = await runTakode(
-      ["notify", "needs-input", "Need", "approval", "--suggest", "yes", "--suggest", "no", "--port", String(port)],
+      [
+        "notify",
+        "needs-input",
+        "Need",
+        "approval",
+        "--suggest",
+        "yes",
+        "--suggest",
+        "no",
+        "--suggest",
+        "revise",
+        "--suggest",
+        "later",
+        "--port",
+        String(port),
+      ],
       {
         ...process.env,
         COMPANION_SESSION_ID: "worker-7",
@@ -257,7 +272,7 @@ describe("takode notify self-resolution workflow", () => {
     expect(requestBodies[0]).toEqual({
       category: "needs-input",
       summary: "Need approval",
-      suggestedAnswers: ["yes", "no"],
+      suggestedAnswers: ["yes", "no", "revise", "later"],
     });
   });
 
@@ -293,6 +308,10 @@ describe("takode notify self-resolution workflow", () => {
         "staged",
         "--suggest",
         "full",
+        "--suggest",
+        "pause",
+        "--suggest",
+        "rollback",
         "--question",
         "When?",
         "--suggest",
@@ -312,7 +331,7 @@ describe("takode notify self-resolution workflow", () => {
       category: "needs-input",
       summary: "Need choices",
       questions: [
-        { prompt: "Which rollout?", suggestedAnswers: ["staged", "full"] },
+        { prompt: "Which rollout?", suggestedAnswers: ["staged", "full", "pause", "rollback"] },
         { prompt: "When?", suggestedAnswers: ["now"] },
       ],
     });

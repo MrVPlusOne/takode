@@ -930,7 +930,7 @@ describe("NotificationChip", () => {
         category: "needs-input",
         summary: "Need rollout choices",
         questions: [
-          { prompt: "Which rollout?", suggestedAnswers: ["staged", "full"] },
+          { prompt: "Which rollout?", suggestedAnswers: ["staged", "full", "pause", "rollback"] },
           { prompt: "When should it start?", suggestedAnswers: ["now", "after review"] },
         ],
         timestamp: Date.now(),
@@ -943,6 +943,12 @@ describe("NotificationChip", () => {
     fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
 
     expect(screen.getAllByTestId("notification-question-block")).toHaveLength(2);
+    const firstQuestion = screen.getAllByTestId("notification-question-block")[0]!;
+    expect(within(firstQuestion).getByRole("button", { name: "staged" })).toBeInTheDocument();
+    expect(within(firstQuestion).getByRole("button", { name: "full" })).toBeInTheDocument();
+    expect(within(firstQuestion).getByRole("button", { name: "pause" })).toBeInTheDocument();
+    expect(within(firstQuestion).getByRole("button", { name: "rollback" })).toBeInTheDocument();
+    expect(within(firstQuestion).getByLabelText("Answer for Which rollout?")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "staged" }));
     expect(screen.getByLabelText("Answer for Which rollout?")).toHaveValue("staged");
     expect(screen.getByLabelText("Answer for When should it start?")).toHaveValue("");
