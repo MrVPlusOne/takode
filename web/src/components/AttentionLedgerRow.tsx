@@ -92,6 +92,8 @@ export function AttentionLedgerRow({
   const stateLabel = STATE_LABELS[record.state];
   const summary = record.summary.trim();
   const showSummary = summary.length > 0 && summary !== record.title.trim();
+  const isJourneyStarted = record.type === "quest_journey_started";
+  const questTldr = isJourneyStarted ? (record.questTldr ?? "").trim() : "";
   const shellClasses = isReview ? "rounded-md px-3 py-2" : "rounded-lg px-3 py-2.5";
   const showThreadLink = targetThread !== MAIN_THREAD_KEY;
   const threadAttachmentSummary = record.threadAttachmentSummary;
@@ -143,7 +145,16 @@ export function AttentionLedgerRow({
               </button>
             )}
           </div>
-          {showSummary && <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-cc-muted">{summary}</p>}
+          {isJourneyStarted ? (
+            <>
+              {showSummary && (
+                <p className="mt-1 line-clamp-2 text-sm font-medium leading-relaxed text-cc-fg">{summary}</p>
+              )}
+              {questTldr && <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-cc-muted">{questTldr}</p>}
+            </>
+          ) : (
+            showSummary && <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-cc-muted">{summary}</p>
+          )}
           {movementSummary && (
             <div
               className="mt-1 text-xs leading-relaxed text-cc-muted font-mono-code"

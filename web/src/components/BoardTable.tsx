@@ -33,6 +33,7 @@ import { getQuestPhaseTextStyle } from "../utils/quest-phase-theme.js";
 export interface BoardRowData {
   questId: string;
   title?: string;
+  questTldr?: string;
   worker?: string;
   workerNum?: number;
   journey?: QuestJourneyPlanState;

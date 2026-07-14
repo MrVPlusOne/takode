@@ -1132,6 +1132,12 @@ describe("Takode server-authoritative auth", () => {
 
   it("stores lightweight planned phases on board rows", async () => {
     setupTakodeSessions();
+    vi.mocked(questStore.getQuest).mockResolvedValueOnce({
+      id: "q-9",
+      title: "Improve Journey Started chip",
+      status: "refined",
+      tldr: "Make Journey Started chips easier to scan.",
+    } as any);
 
     const res = await app.request("/api/sessions/orch-1/board", {
       method: "POST",
@@ -1149,6 +1155,8 @@ describe("Takode server-authoritative auth", () => {
       board: [
         {
           questId: "q-9",
+          title: "Improve Journey Started chip",
+          questTldr: "Make Journey Started chips easier to scan.",
           status: "PLANNING",
           journey: {
             presetId: "lightweight",

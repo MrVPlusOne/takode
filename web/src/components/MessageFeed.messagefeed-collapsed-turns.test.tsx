@@ -1154,6 +1154,7 @@ describe("MessageFeed - collapsed turns", () => {
         threadKey: "q-1033",
         title: "Journey started",
         summary: "Show lifecycle chips",
+        questTldr: "Lifecycle chips now include concise quest context.",
         actionLabel: "Open",
         priority: "created",
         state: "resolved",
@@ -1174,6 +1175,8 @@ describe("MessageFeed - collapsed turns", () => {
     expect(row.getAttribute("data-attention-event")).toBe("true");
     expect(row.className).toContain("border-fuchsia-400/25");
     expect(row.textContent).toContain("Journey started");
+    expect(row.textContent).toContain("Show lifecycle chips");
+    expect(row.textContent).toContain("Lifecycle chips now include concise quest context.");
     expect(within(row).getByRole("link", { name: "q-1033" })).toBeTruthy();
     fireEvent.click(within(row).getByRole("button", { name: "Open thread:q-1033" }));
     expect(onSelectThread).toHaveBeenCalledWith("q-1033");

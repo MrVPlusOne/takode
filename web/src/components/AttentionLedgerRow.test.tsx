@@ -30,23 +30,48 @@ function journeyRecord(overrides: Partial<SessionAttentionRecord>): SessionAtten
 }
 
 describe("AttentionLedgerRow Journey lifecycle presentation", () => {
-  it("keeps active Journey starts prominent", () => {
+  it("renders Journey start quest titles prominently with optional TLDR context", () => {
+    render(
+      <AttentionLedgerRow
+        record={journeyRecord({
+          journeyLifecycleStatus: "active",
+          summary: "Improve Journey Started chip",
+          questTldr: "Make Journey Started chips easier to scan.",
+        })}
+        sessionId="s1"
+      />,
+    );
+
+    const row = screen.getByTestId("attention-ledger-row");
+    const questTitle = screen.getByText("Improve Journey Started chip");
+    const questTldr = screen.getByText("Make Journey Started chips easier to scan.");
+    expect(row.getAttribute("data-journey-lifecycle-status")).toBe("active");
+    expect(row.className).toContain("border-fuchsia-400/25");
+    expect(questTitle.className).toContain("text-cc-fg");
+    expect(questTitle.className).toContain("font-medium");
+    expect(questTitle.className).not.toContain("text-cc-muted");
+    expect(questTldr.className).toContain("text-cc-muted");
+  });
+
+  it("omits Journey start TLDR text cleanly when it is missing", () => {
     render(<AttentionLedgerRow record={journeyRecord({ journeyLifecycleStatus: "active" })} sessionId="s1" />);
 
     const row = screen.getByTestId("attention-ledger-row");
-    expect(row.getAttribute("data-journey-lifecycle-status")).toBe("active");
-    expect(row.className).toContain("border-fuchsia-400/25");
+    expect(row.textContent).toContain("Lifecycle card");
+    expect(row.textContent).not.toContain("undefined");
   });
 
-  it("keeps completed Journey starts quiet", () => {
+  it("keeps completed Journey starts quiet while preserving prominent quest titles", () => {
     render(<AttentionLedgerRow record={journeyRecord({ journeyLifecycleStatus: "completed" })} sessionId="s1" />);
 
     const row = screen.getByTestId("attention-ledger-row");
+    const questTitle = screen.getByText("Lifecycle card");
     expect(row.getAttribute("data-journey-lifecycle-status")).toBe("completed");
     expect(row.className).toContain("border-cc-border/70");
     expect(row.className).toContain("bg-cc-card/35");
     expect(row.className).not.toContain("border-fuchsia-400/25");
     expect(row.className).not.toContain("bg-emerald-500/10");
+    expect(questTitle.className).toContain("text-cc-fg");
   });
 
   it("renders Journey finished rows with completed-success treatment", () => {

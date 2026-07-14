@@ -908,6 +908,9 @@ function leaderProjectionCacheKey(
       record.state,
       record.threadKey,
       record.questId,
+      record.title,
+      record.summary,
+      record.questTldr,
     ]),
   });
 }
@@ -916,6 +919,7 @@ function boardRowProjectionKey(row: BoardRow): unknown[] {
   return [
     row.questId,
     row.title,
+    row.questTldr,
     row.status,
     row.createdAt,
     row.updatedAt,

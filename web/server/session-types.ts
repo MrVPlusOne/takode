@@ -746,6 +746,8 @@ export interface BoardRow {
   questId: string;
   /** Short title of the quest (cached for display). */
   title?: string;
+  /** Human-readable quest description TLDR (cached for display). */
+  questTldr?: string;
   /** Session ID of the assigned worker (optional). */
   worker?: string;
   /** Session number of the assigned worker (optional, cached for display). */
@@ -1508,6 +1510,8 @@ export interface SessionAttentionRecord {
   threadKey: string;
   title: string;
   summary: string;
+  /** Optional quest description TLDR used by quest lifecycle presentation rows. */
+  questTldr?: string;
   actionLabel: "Answer" | "Review" | "Unblock" | "Open" | "Jump";
   priority: SessionAttentionRecordPriority;
   state: SessionAttentionRecordState;

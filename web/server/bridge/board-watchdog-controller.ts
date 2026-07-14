@@ -544,6 +544,7 @@ function upsertJourneyLifecycleAttentionRecord(
     threadKey,
     title: kind === "started" ? "Journey started" : "Journey finished",
     summary: row.title ?? "",
+    ...(kind === "started" && row.questTldr ? { questTldr: row.questTldr } : {}),
     actionLabel: "Open",
     priority: kind === "started" ? "created" : "review",
     state: kind === "started" ? "resolved" : "unresolved",
@@ -769,6 +770,7 @@ export function upsertBoardRow(
   const merged: BoardRow = {
     questId: row.questId,
     title: mergeStr(row.title, existing?.title),
+    questTldr: mergeStr(row.questTldr, existing?.questTldr),
     worker: mergeStr(row.worker, existing?.worker),
     workerNum: clearingWorker || workerChanged ? undefined : (row.workerNum ?? existing?.workerNum),
     noCode,

@@ -286,15 +286,17 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       );
     }
 
-    // Auto-populate title from quest store if not explicitly provided
+    // Auto-populate quest metadata from the quest store for compact board and lifecycle displays.
     let title: string | undefined = typeof body.title === "string" ? body.title : undefined;
-    if (title === undefined) {
-      try {
-        const quest = await questStore.getQuest(questId);
-        if (quest) title = quest.title;
-      } catch (e) {
-        console.warn(`[routes] Failed to fetch quest title for ${questId}:`, e);
+    let questTldr: string | undefined;
+    try {
+      const quest = await questStore.getQuest(questId);
+      if (quest) {
+        if (title === undefined) title = quest.title;
+        questTldr = quest.tldr ?? "";
       }
+    } catch (e) {
+      console.warn(`[routes] Failed to fetch quest metadata for ${questId}:`, e);
     }
 
     // Validate and normalize waitFor entries
@@ -399,6 +401,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
         {
           questId,
           title,
+          questTldr,
           journey: {
             ...normalizedDraft,
             mode: "proposed",
@@ -802,6 +805,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
           {
             questId,
             title,
+            questTldr,
             worker: workerForUpsert,
             workerNum: workerNumForUpsert,
             journey,

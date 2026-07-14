@@ -426,6 +426,7 @@ describe("Quest Journey board phase timing", () => {
       {
         questId: "q-1033",
         title: "Show Journey lifecycle chips",
+        questTldr: "Lifecycle chips should show the quest TLDR.",
         status: "PLANNING",
         journey: { phaseIds: ["alignment", "implement"] },
       },
@@ -448,6 +449,7 @@ describe("Quest Journey board phase timing", () => {
       threadKey: "q-1033",
       title: "Journey started",
       summary: "Show Journey lifecycle chips",
+      questTldr: "Lifecycle chips should show the quest TLDR.",
       state: "resolved",
       createdAt: 1_000,
       route: { threadKey: "q-1033", questId: "q-1033" },
