@@ -316,6 +316,7 @@ describe("result-message-controller", () => {
     );
     session.userMessageIdsThisTurn = [0];
     const deps = makeDeps();
+    deps.getCurrentTurnTriggerSource.mockReturnValue("leader");
 
     handleResultMessage(session, makeResult(), deps);
 
@@ -339,6 +340,60 @@ describe("result-message-controller", () => {
     );
     expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("on visible leader text");
     expect(deps.injectUserMessage.mock.calls[0]?.[1]).not.toContain("previous leader response");
+  });
+
+  it("does not inject thread-routing reminders for system-triggered leader startup output", () => {
+    const session = makeSession();
+    session.messageHistory.push(
+      {
+        type: "user_message",
+        id: "leader-kickoff",
+        content: "Leader kickoff",
+        timestamp: 1,
+        threadKey: "main",
+        agentSource: { sessionId: "system:leader-kickoff", sessionLabel: "Leader Kickoff" },
+      } as BrowserIncomingMessage,
+      {
+        type: "assistant",
+        message: {
+          id: "assistant-missing-thread-after-system-kickoff",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [{ type: "text", text: "Ready to coordinate." }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: 2,
+        threadRoutingError: {
+          reason: "missing",
+          expected: "Start with [thread:main] or [thread:q-N].",
+          source: "visible_text",
+          rawContent: "Ready to coordinate.",
+        },
+      } as BrowserIncomingMessage,
+    );
+    session.userMessageIdsThisTurn = [0];
+    const deps = makeDeps();
+    deps.getCurrentTurnTriggerSource.mockReturnValue("system");
+
+    handleResultMessage(session, makeResult({ uuid: "system-kickoff-result" }), deps);
+
+    expect(deps.injectUserMessage).not.toHaveBeenCalledWith(
+      "s1",
+      expect.stringContaining("[Thread routing reminder]"),
+      expect.anything(),
+      undefined,
+      expect.anything(),
+    );
+    expect(deps.injectUserMessage).not.toHaveBeenCalled();
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "system");
+    expect(deps.onResultAttentionAndNotifications).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ uuid: "system-kickoff-result" }),
+      "system",
+    );
   });
 
   it("injects shell-command-specific thread-routing reminders after unrouted leader commands", () => {

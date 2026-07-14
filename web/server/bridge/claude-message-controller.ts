@@ -826,12 +826,13 @@ export function handleResultMessage(
     deps.markTurnInterrupted(session, session.queuedTurnInterruptSources[0] ?? "user");
   }
   const turnWasInterrupted = session.interruptedDuringTurn || resultInterrupted || resultIsUserControlDiagnostic;
-  const threadRoutingReminder = turnWasInterrupted ? null : buildThreadRoutingReminderForCompletedTurn(session);
+  const turnTriggerSource = deps.getCurrentTurnTriggerSource(session);
+  const threadRoutingReminder =
+    turnWasInterrupted || turnTriggerSource === "system" ? null : buildThreadRoutingReminderForCompletedTurn(session);
   const questThreadReminders = consumeQuestThreadRemindersForCompletedTurn(session);
   const deliverQuestThreadReminders = turnWasInterrupted ? [] : questThreadReminders;
   deps.drainInlineQueuedClaudeTurns(session, "result");
 
-  const turnTriggerSource = deps.getCurrentTurnTriggerSource(session);
   deps.reconcileTerminalResultState(session);
   deps.finalizeOrphanedTerminalToolsOnResult(session, msg);
   session.toolStartTimes.clear();

@@ -4,7 +4,10 @@ const mockExecSync = vi.hoisted(() => vi.fn());
 const mockExec = vi.hoisted(() => vi.fn());
 const mockShouldSettingsRuleApprove = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
-vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
+vi.mock("node:crypto", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:crypto")>();
+  return { ...actual, randomUUID: () => "test-uuid" };
+});
 // Mock settings rule loading so real user ~/.claude/settings.json rules don't
 // interfere with tests. Tests that need specific rules override this per-call.
 vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
@@ -58,6 +61,22 @@ import {
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
+
+function recoveryInjectionCalls(spy: { mock: { calls: unknown[][] } }, sessionId?: string) {
+  return spy.mock.calls.filter((call) => {
+    const [targetSid, , source] = call as [
+      string,
+      string,
+      { sessionId?: string; sessionLabel?: string } | undefined,
+      ...unknown[],
+    ];
+    return (
+      (sessionId === undefined || targetSid === sessionId) &&
+      source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
+      source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL
+    );
+  });
+}
 
 function createMockSocket(data: SocketData) {
   return {
@@ -764,7 +783,7 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
     vi.useRealTimers();
   });
 
-  it("replayed Claude WebSocket compaction during resume is ignored, then the first real compaction after debounce produces one live sequence", () => {
+  it("replayed Claude WebSocket compaction during resume is ignored, then the first real compaction after debounce produces one live sequence", async () => {
     // q-317: the WebSocket path now mirrors the SDK replay guard. Replayed
     // compaction noise during cliResuming must be ignored, then once the
     // debounce clears, the first real compact_boundary + summary should produce
@@ -859,12 +878,13 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
     expect((markers[0] as any).summary).toBe("New compaction summary");
     expect((markers[0] as any).cliUuid).toBe("new-compact-uuid");
 
-    const recoveryCalls = injectSpy.mock.calls.filter(
-      ([, , source]) =>
-        source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
-        source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
+    await vi.waitFor(() => expect(recoveryInjectionCalls(injectSpy, "s1")).toHaveLength(1));
+    const recoveryCalls = recoveryInjectionCalls(injectSpy, "s1");
+    expect(recoveryCalls[0]?.[5]).toEqual(
+      expect.objectContaining({
+        deliveryContent: expect.stringContaining("Required leader skill preloaded: takode-orchestration"),
+      }),
     );
-    expect(recoveryCalls).toHaveLength(1);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls.filter((m: any) => m.type === "compact_boundary")).toHaveLength(1);
