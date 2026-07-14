@@ -16,3 +16,10 @@ export function archiveGroupSuccessfulIds(
   }
   return new Set(result.results.filter((entry) => entry.ok).map((entry) => entry.sessionId));
 }
+
+export function archiveGroupNavigationExcludedIds(
+  leaderId: string,
+  workers: ReadonlyArray<ArchiveGroupMember>,
+): Set<string> {
+  return new Set(archiveGroupRequestIds(leaderId, workers));
+}

@@ -62,7 +62,7 @@ import { getShortcutTitle } from "../shortcuts.js";
 import { getDocumentTitleAttentionCount } from "../utils/document-title-attention.js";
 import { buildSidebarItemFromSearchResult } from "../utils/sidebar-search-result.js";
 import { useArchivedSessionPaging } from "../hooks/useArchivedSessionPaging.js";
-import { archiveGroupRequestIds, archiveGroupSuccessfulIds } from "../utils/archive-group-reconciliation.js";
+import { archiveGroupNavigationExcludedIds, archiveGroupSuccessfulIds } from "../utils/archive-group-reconciliation.js";
 
 /** Restrict drag movement to vertical axis only. */
 const restrictToVerticalAxis: Modifier = ({ transform }) => ({
@@ -607,7 +607,7 @@ export function Sidebar() {
   const doArchiveGroup = useCallback(
     async (leaderId: string) => {
       const workers = sdkSessions.filter((s) => s.herdedBy === leaderId && !s.archived);
-      const groupIds = archiveGroupRequestIds(leaderId, workers);
+      const navigationExcludedIds = archiveGroupNavigationExcludedIds(leaderId, workers);
       let archivedIds = new Set<string>();
       try {
         for (const w of workers) {
@@ -630,9 +630,8 @@ export function Sidebar() {
       // Navigate away if the current session is part of the archived group
       const currentId = useStore.getState().currentSessionId;
       if (currentId) {
-        const archivedOrRequestedIds = archivedIds.size > 0 ? archivedIds : new Set(groupIds);
-        if (archivedOrRequestedIds.has(currentId)) {
-          navigateToMostRecentSession({ excludeIds: archivedOrRequestedIds });
+        if (navigationExcludedIds.has(currentId)) {
+          navigateToMostRecentSession({ excludeIds: navigationExcludedIds });
         }
       }
       void refreshSessionListNow(showArchived || archivedSessionPage.loaded);
