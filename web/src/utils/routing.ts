@@ -394,10 +394,14 @@ export function navigateHome(replace = false): void {
  * Falls back to navigateHome() if no sessions are available.
  * Returns true if navigated to a session, false if fell back to home.
  */
-export function navigateToMostRecentSession(options: { excludeId?: string; replace?: boolean } = {}): boolean {
+export function navigateToMostRecentSession(
+  options: { excludeId?: string; excludeIds?: Iterable<string>; replace?: boolean } = {},
+): boolean {
   const { excludeId, replace = false } = options;
+  const excludedIds = new Set(options.excludeIds ?? []);
+  if (excludeId) excludedIds.add(excludeId);
   const candidates = (useStore.getState().sdkSessions as SdkSessionInfo[])
-    .filter((s) => !s.archived && !s.cronJobId && s.sessionId !== excludeId)
+    .filter((s) => !s.archived && !s.cronJobId && !excludedIds.has(s.sessionId))
     .sort((a, b) => b.createdAt - a.createdAt);
 
   if (candidates.length > 0) {

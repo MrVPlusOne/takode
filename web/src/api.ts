@@ -370,6 +370,13 @@ export interface ArchivedSessionSummaryResponse {
   total: number;
 }
 
+export interface ArchiveGroupResponse {
+  ok: boolean;
+  archived: number;
+  failed: number;
+  results?: Array<{ sessionId: string; ok: boolean; error?: string }>;
+}
+
 export interface BackendInfo {
   id: string;
   name: string;
@@ -1157,7 +1164,7 @@ export const api = {
     post(`/sessions/${encodeURIComponent(sessionId)}/archive`, opts),
 
   archiveGroup: (sessionId: string) =>
-    post<{ ok: boolean; archived: number; failed: number }>(`/sessions/${encodeURIComponent(sessionId)}/archive-group`),
+    post<ArchiveGroupResponse>(`/sessions/${encodeURIComponent(sessionId)}/archive-group`),
 
   unarchiveSession: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/unarchive`),
 

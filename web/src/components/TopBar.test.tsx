@@ -428,6 +428,30 @@ describe("TopBar", () => {
     expect(screen.queryByText("Reconnect")).not.toBeInTheDocument();
   });
 
+  it("does not expose reconnect for archived selected sessions", () => {
+    resetStore({
+      currentSessionId: "s1",
+      sessions: new Map([["s1", { cwd: "/repo" }]]),
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          createdAt: 40,
+          archived: true,
+          cliConnected: false,
+          state: "exited",
+          name: "Archived Leader",
+          isOrchestrator: true,
+        },
+      ],
+      cliConnected: new Map([["s1", false]]),
+    });
+
+    render(<TopBar />);
+
+    expect(screen.getByText("Archived Leader")).toBeInTheDocument();
+    expect(screen.queryByText("Reconnect")).not.toBeInTheDocument();
+  });
+
   it("opens an aggregated needs-input menu across sessions", () => {
     resetStore({
       sessionNotifications: new Map([

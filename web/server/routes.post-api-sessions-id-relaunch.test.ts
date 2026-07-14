@@ -547,6 +547,22 @@ describe("POST /api/sessions/:id/relaunch", () => {
     expect(launcher.relaunch).toHaveBeenCalledWith("s1");
   });
 
+  it("rejects archived sessions so reconnect cannot bypass explicit unarchive", async () => {
+    // Archived sessions are passive history until the user explicitly unarchives
+    // them; relaunch must not become a second archived-to-live transition.
+    launcher.getSession.mockReturnValue({ sessionId: "s1", state: "exited", cwd: "/test", archived: true });
+
+    const res = await app.request("/api/sessions/s1/relaunch", { method: "POST" });
+
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json).toEqual({
+      error: "Session is archived; unarchive before relaunching",
+      code: "SESSION_ARCHIVED",
+    });
+    expect(launcher.relaunch).not.toHaveBeenCalled();
+  });
+
   it("backfills missing repoRoot from bridge state before relaunch", async () => {
     const info = { sessionId: "s1", state: "exited", cwd: "/repo/web", repoRoot: undefined };
     launcher.getSession.mockReturnValue(info);

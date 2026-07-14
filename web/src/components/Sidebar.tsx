@@ -62,6 +62,7 @@ import { getShortcutTitle } from "../shortcuts.js";
 import { getDocumentTitleAttentionCount } from "../utils/document-title-attention.js";
 import { buildSidebarItemFromSearchResult } from "../utils/sidebar-search-result.js";
 import { useArchivedSessionPaging } from "../hooks/useArchivedSessionPaging.js";
+import { archiveGroupRequestIds, archiveGroupSuccessfulIds } from "../utils/archive-group-reconciliation.js";
 
 /** Restrict drag movement to vertical axis only. */
 const restrictToVerticalAxis: Modifier = ({ transform }) => ({
@@ -606,6 +607,8 @@ export function Sidebar() {
   const doArchiveGroup = useCallback(
     async (leaderId: string) => {
       const workers = sdkSessions.filter((s) => s.herdedBy === leaderId && !s.archived);
+      const groupIds = archiveGroupRequestIds(leaderId, workers);
+      let archivedIds = new Set<string>();
       try {
         for (const w of workers) {
           disconnectSession(w.sessionId);
@@ -614,16 +617,22 @@ export function Sidebar() {
         disconnectSession(leaderId);
         useStore.getState().clearSessionAttention(leaderId);
 
-        await api.archiveGroup(leaderId);
+        const result = await api.archiveGroup(leaderId);
+        archivedIds = archiveGroupSuccessfulIds(leaderId, workers, result);
+        const archivedAt = Date.now();
+        for (const archivedId of archivedIds) {
+          useStore.getState().updateSdkSession(archivedId, { archived: true, archivedAt });
+          useStore.getState().clearSessionAttention(archivedId);
+        }
       } catch {
         // best-effort
       }
       // Navigate away if the current session is part of the archived group
       const currentId = useStore.getState().currentSessionId;
       if (currentId) {
-        const allIds = [leaderId, ...workers.map((w) => w.sessionId)];
-        if (allIds.includes(currentId)) {
-          navigateToMostRecentSession({ excludeId: leaderId });
+        const archivedOrRequestedIds = archivedIds.size > 0 ? archivedIds : new Set(groupIds);
+        if (archivedOrRequestedIds.has(currentId)) {
+          navigateToMostRecentSession({ excludeIds: archivedOrRequestedIds });
         }
       }
       void refreshSessionListNow(showArchived || archivedSessionPage.loaded);

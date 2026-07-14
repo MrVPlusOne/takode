@@ -57,6 +57,7 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
       status: null,
       currentPermCount: 0,
       currentSdkState: null,
+      isArchived: false,
       currentHasUnread: false,
       sessionName: null,
       sessionNum: null,
@@ -80,6 +81,7 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
     status: state.sessionStatus.get(currentSessionId) ?? null,
     currentPermCount: countUserPermissions(state.pendingPermissions.get(currentSessionId)),
     currentSdkState: currentSessionVm?.state ?? null,
+    isArchived: currentSdkSession?.archived === true,
     currentHasUnread: !!state.sessionAttention.get(currentSessionId),
     sessionName:
       state.sessionNames.get(currentSessionId) || currentSessionVm?.name || `Session ${currentSessionId.slice(0, 8)}`,
@@ -161,6 +163,7 @@ export function TopBar({
     status,
     currentPermCount,
     currentSdkState,
+    isArchived,
     currentHasUnread,
     sessionName,
     sessionNum,
@@ -379,7 +382,7 @@ export function TopBar({
                 </span>
               )}
             </button>
-            {!isConnected && !isPaused && (
+            {!isConnected && !isPaused && !isArchived && (
               <button
                 onClick={() => currentSessionId && api.relaunchSession(currentSessionId).catch(console.error)}
                 className="text-[11px] text-cc-warning hover:text-cc-warning/80 font-medium cursor-pointer hidden sm:inline"

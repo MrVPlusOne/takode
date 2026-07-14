@@ -510,6 +510,21 @@ describe("navigateToMostRecentSession", () => {
     expect(window.location.hash).toBe("#/session/keep");
   });
 
+  it("excludes a set of session IDs", () => {
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "keep", createdAt: 1000, archived: false } as any,
+        { sessionId: "archived-leader", createdAt: 3000, archived: false } as any,
+        { sessionId: "archived-worker", createdAt: 2000, archived: false } as any,
+      ],
+    });
+
+    const result = navigateToMostRecentSession({ excludeIds: new Set(["archived-leader", "archived-worker"]) });
+
+    expect(result).toBe(true);
+    expect(window.location.hash).toBe("#/session/keep");
+  });
+
   it("falls back to home when no sessions exist", () => {
     useStore.setState({ sdkSessions: [] });
 

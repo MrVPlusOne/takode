@@ -1543,6 +1543,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (!id) return c.json({ error: "Session not found" }, 404);
     const info = launcher.getSession(id);
     if (!info) return c.json({ error: "Session not found" }, 404);
+    if (info.archived === true) {
+      return c.json({ error: "Session is archived; unarchive before relaunching", code: "SESSION_ARCHIVED" }, 409);
+    }
     if (isSessionPaused(wsBridge.getSession(id))) {
       return c.json({ error: "Session is paused; unpause before relaunching", code: "SESSION_PAUSED" }, 409);
     }
