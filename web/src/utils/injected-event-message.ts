@@ -48,7 +48,7 @@ export function buildInjectedEventMessageViewModel(message: EventCandidate): Inj
       title: firstLine?.startsWith(LEADER_SKILL_PRELOAD_SOURCE_LABEL_PREFIX)
         ? firstLine
         : "Required leader skill preloaded",
-      description: "System-injected mandatory leader skill content, with provenance and file manifest.",
+      description: "System-injected mandatory leader skill content.",
       rawContent: message.content,
     };
   }

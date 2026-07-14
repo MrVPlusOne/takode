@@ -102,13 +102,9 @@ describe("MessageBubble injected event search highlighting", () => {
       content: [
         `Required leader skill preloaded: ${skillName}`,
         "",
-        "Provenance:",
-        `- Skill: ${skillName}`,
-        "- Bundle hash: sha256:abc123",
+        "Use this content as already-loaded leader context. Do not reread this mandatory skill via tool calls unless checking freshness or debugging.",
         "",
-        "----- BEGIN FILE web/server/templates/quest-skill-docs.md -----",
         "Questmaster docs body",
-        "----- END FILE web/server/templates/quest-skill-docs.md -----",
       ].join("\n"),
       agentSource: {
         sessionId: leaderSkillPreloadSourceId(skillName),
@@ -123,5 +119,6 @@ describe("MessageBubble injected event search highlighting", () => {
     expect(chip.textContent).toContain("Required leader skill preloaded: quest");
     expect(chip.textContent).toContain("event");
     expect(screen.queryByText("Questmaster docs body")).toBeNull();
+    expect(screen.queryByText("Provenance:")).toBeNull();
   });
 });

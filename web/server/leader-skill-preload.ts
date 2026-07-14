@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,15 +8,12 @@ export interface LeaderSkillPreloadFile {
   repoPath: string;
   sourcePath: string;
   content: string;
-  bytes: number;
-  sha256: string;
 }
 
 export interface LeaderSkillPreloadBundle {
   skillName: string;
   source: string;
   files: LeaderSkillPreloadFile[];
-  bundleSha256: string;
   content: string;
   agentSource: { sessionId: string; sessionLabel: string };
 }
@@ -39,11 +35,7 @@ export const LEADER_SKILL_PRELOAD_MANIFEST: readonly LeaderSkillPreloadManifestE
   {
     skillName: "takode-orchestration",
     source: "repo:.claude/skills/takode-orchestration",
-    files: [
-      ".claude/skills/takode-orchestration/SKILL.md",
-      ".claude/skills/takode-orchestration/quest-journey.md",
-      ".claude/skills/takode-orchestration/board-usage.md",
-    ],
+    files: [".claude/skills/takode-orchestration/SKILL.md"],
   },
   {
     skillName: "leader-dispatch",
@@ -77,18 +69,14 @@ export async function buildLeaderSkillPreloadBundles(
             repoPath,
             sourcePath,
             content,
-            bytes: Buffer.byteLength(content, "utf8"),
-            sha256: sha256(content),
           };
         }),
       );
-      const bundleSha256 = sha256(files.map((file) => `${file.repoPath}\0${file.sha256}`).join("\0"));
       return {
         skillName: entry.skillName,
         source: entry.source,
         files,
-        bundleSha256,
-        content: renderLeaderSkillPreloadBundle(entry.skillName, entry.source, files, bundleSha256),
+        content: renderLeaderSkillPreloadBundle(entry.skillName, files),
         agentSource: {
           sessionId: leaderSkillPreloadSourceId(entry.skillName),
           sessionLabel: leaderSkillPreloadSourceLabel(entry.skillName),
@@ -119,37 +107,14 @@ export function buildLeaderSkillPreloadHistoryFollowUps(
   }));
 }
 
-function renderLeaderSkillPreloadBundle(
-  skillName: string,
-  source: string,
-  files: readonly LeaderSkillPreloadFile[],
-  bundleSha256: string,
-): string {
+function renderLeaderSkillPreloadBundle(skillName: string, files: readonly LeaderSkillPreloadFile[]): string {
   return [
     `Required leader skill preloaded: ${skillName}`,
     "",
-    "Provenance:",
-    `- Skill: ${skillName}`,
-    `- Source: ${source}`,
-    `- Bundle hash: sha256:${bundleSha256}`,
-    "- Files:",
-    ...files.map((file) => `  - ${file.repoPath} (sha256:${file.sha256}, ${file.bytes} bytes)`),
+    "Use this content as already-loaded leader context. Do not reread this mandatory skill via tool calls unless checking freshness or debugging.",
     "",
-    "Startup guidance:",
-    "- Use this content as already-loaded leader context.",
-    "- Do not reread this mandatory skill via tool calls unless checking freshness or debugging.",
-    "",
-    ...files.flatMap((file) => [
-      `----- BEGIN FILE ${file.repoPath} -----`,
-      file.content.trimEnd(),
-      `----- END FILE ${file.repoPath} -----`,
-      "",
-    ]),
+    ...files.map((file) => file.content.trimEnd()),
   ]
     .join("\n")
     .trimEnd();
-}
-
-function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
 }

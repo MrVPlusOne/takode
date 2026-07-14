@@ -24,19 +24,23 @@ describe("leader skill preload builder", () => {
     ]);
     expect(LEADER_SKILL_PRELOAD_MANIFEST.find((entry) => entry.skillName === "takode-orchestration")?.files).toEqual([
       ".claude/skills/takode-orchestration/SKILL.md",
-      ".claude/skills/takode-orchestration/quest-journey.md",
-      ".claude/skills/takode-orchestration/board-usage.md",
     ]);
     expect(LEADER_SKILL_PRELOAD_MANIFEST.find((entry) => entry.skillName === "quest")?.files).toEqual([
       "web/server/templates/quest-skill-docs.md",
     ]);
-    expect(readFile).toHaveBeenCalledTimes(6);
+    expect(readFile).toHaveBeenCalledTimes(4);
 
     const orchestration = bundles[0]!;
     expect(orchestration.content).toContain("Required leader skill preloaded: takode-orchestration");
-    expect(orchestration.content).toContain("Bundle hash: sha256:");
-    expect(orchestration.content).toContain(".claude/skills/takode-orchestration/quest-journey.md");
+    expect(orchestration.content).toContain("content for /repo/.claude/skills/takode-orchestration/SKILL.md");
     expect(orchestration.content).toContain("Do not reread this mandatory skill via tool calls");
+    expect(orchestration.content).not.toContain("Provenance:");
+    expect(orchestration.content).not.toContain("Bundle hash");
+    expect(orchestration.content).not.toContain("Files:");
+    expect(orchestration.content).not.toContain("bytes");
+    expect(orchestration.content).not.toContain("BEGIN FILE");
+    expect(orchestration.content).not.toContain("quest-journey.md");
+    expect(orchestration.content).not.toContain("board-usage.md");
     expect(orchestration.agentSource.sessionId).toBe(`${LEADER_SKILL_PRELOAD_SOURCE_ID_PREFIX}takode-orchestration`);
     expect(isLeaderSkillPreloadSourceId(orchestration.agentSource.sessionId)).toBe(true);
   });
