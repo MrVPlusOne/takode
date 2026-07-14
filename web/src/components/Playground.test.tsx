@@ -59,6 +59,7 @@ vi.mock("remark-gfm", () => ({
 import { Playground } from "./Playground.js";
 import { PlaygroundSideChatStates } from "./playground/SideChatPlaygroundStates.js";
 import { PlaygroundOverviewSections } from "./playground/sections-overview.js";
+import { PlaygroundHerdSummaryBar } from "./playground/shared.js";
 import { useStore } from "../store.js";
 
 describe("Playground", () => {
@@ -248,8 +249,11 @@ describe("Playground", () => {
     ).toBeTruthy();
   });
 
-  it("documents waiting counts in herd summary previews", () => {
-    render(<Playground />);
+  it("documents waiting counts in the lightweight herd summary mock", () => {
+    // This covers the Playground mock state without rendering the full
+    // Playground page, which is intentionally heavy and can make a tiny
+    // count-cluster assertion too slow in the full suite.
+    render(<PlaygroundHerdSummaryBar isExpanded={false} />);
 
     expect(screen.getAllByLabelText("1 waiting session with scheduled timer").length).toBeGreaterThan(0);
   });
