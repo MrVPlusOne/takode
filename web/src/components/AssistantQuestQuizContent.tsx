@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -8,6 +9,9 @@ const QUEST_QUIZ_DIRECTIVE_RE = /^\s*\{\[\(Quest Quiz:\s*(q-\d+)\)\]\}\s*$/i;
 const FENCE_RE = /^\s*(`{3,}|~{3,})/;
 
 export type AssistantQuestQuizSegment = { kind: "text"; text: string } | { kind: "quiz"; questId: string };
+
+const questQuizDetailFetches = new Map<string, Promise<void>>();
+const resolvedEmptyQuestQuizDetailKeys = new Set<string>();
 
 interface AssistantQuestQuizContentProps {
   text: string;
@@ -90,7 +94,72 @@ export function parseQuestQuizContentSegments(text: string): AssistantQuestQuizS
 }
 
 function findQuest(quests: QuestmasterTask[], questId: string): QuestmasterTask | null {
-  return quests.find((quest) => quest.questId.toLowerCase() === questId.toLowerCase()) ?? null;
+  const normalizedQuestId = questId.toLowerCase();
+  return quests.find((quest) => quest.questId.toLowerCase() === normalizedQuestId) ?? null;
+}
+
+function quizItemsCount(quest: QuestmasterTask | null | undefined): number {
+  return quest?.quizItems?.length ?? 0;
+}
+
+function questDetailFetchKey(questId: string, etag: string | null | undefined): string {
+  return questId.toLowerCase() + ":" + (etag ?? "no-etag");
+}
+
+function fetchQuestDetailForQuizDirective(questId: string): Promise<void> {
+  const normalizedQuestId = questId.toLowerCase();
+  const state = useStore.getState();
+  const currentEtag = state.questDetailEtags.get(normalizedQuestId) ?? null;
+  const fetchKey = questDetailFetchKey(normalizedQuestId, currentEtag);
+  if (resolvedEmptyQuestQuizDetailKeys.has(fetchKey)) return Promise.resolve();
+
+  const existing = questQuizDetailFetches.get(fetchKey);
+  if (existing) return existing;
+
+  const fetchPromise = api
+    .getQuestValidated(normalizedQuestId, currentEtag)
+    .then((result) => {
+      if (result.status === "fresh") {
+        useStore.getState().upsertQuestDetail(result.data, { etag: result.etag });
+        if (quizItemsCount(result.data) === 0) {
+          resolvedEmptyQuestQuizDetailKeys.add(questDetailFetchKey(normalizedQuestId, result.etag));
+        }
+        return;
+      }
+
+      resolvedEmptyQuestQuizDetailKeys.add(fetchKey);
+    })
+    .catch(() => {
+      resolvedEmptyQuestQuizDetailKeys.add(fetchKey);
+    })
+    .finally(() => {
+      if (questQuizDetailFetches.get(fetchKey) === fetchPromise) {
+        questQuizDetailFetches.delete(fetchKey);
+      }
+    });
+
+  questQuizDetailFetches.set(fetchKey, fetchPromise);
+  return fetchPromise;
+}
+
+function findRenderableQuest(
+  questDetails: Map<string, QuestmasterTask>,
+  quests: QuestmasterTask[],
+  questId: string,
+): QuestmasterTask | null {
+  const normalizedQuestId = questId.toLowerCase();
+  return questDetails.get(normalizedQuestId) ?? findQuest(quests, normalizedQuestId);
+}
+
+function uniqueQuestQuizIds(segments: AssistantQuestQuizSegment[]): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const segment of segments) {
+    if (segment.kind !== "quiz" || seen.has(segment.questId)) continue;
+    seen.add(segment.questId);
+    ids.push(segment.questId);
+  }
+  return ids;
 }
 
 export function AssistantQuestQuizContent({
@@ -101,6 +170,21 @@ export function AssistantQuestQuizContent({
 }: AssistantQuestQuizContentProps) {
   const segments = useMemo(() => parseQuestQuizContentSegments(text), [text]);
   const quests = useStore((state) => state.quests);
+  const questDetails = useStore((state) => state.questDetails);
+  const questDetailEtags = useStore((state) => state.questDetailEtags);
+  const quizQuestIds = useMemo(() => uniqueQuestQuizIds(segments), [segments]);
+
+  useEffect(() => {
+    for (const questId of quizQuestIds) {
+      const quest = findRenderableQuest(questDetails, quests, questId);
+      if (quizItemsCount(quest) > 0) continue;
+
+      const fetchKey = questDetailFetchKey(questId, questDetailEtags.get(questId.toLowerCase()) ?? null);
+      if (resolvedEmptyQuestQuizDetailKeys.has(fetchKey) || questQuizDetailFetches.has(fetchKey)) continue;
+
+      void fetchQuestDetailForQuizDirective(questId);
+    }
+  }, [questDetailEtags, questDetails, quizQuestIds, quests]);
 
   return (
     <>
@@ -117,7 +201,7 @@ export function AssistantQuestQuizContent({
           );
         }
 
-        const quest = findQuest(quests, segment.questId);
+        const quest = findRenderableQuest(questDetails, quests, segment.questId);
         if (!quest || (quest.quizItems?.length ?? 0) === 0) return null;
         return (
           <QuestQuizSection

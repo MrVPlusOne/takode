@@ -26,7 +26,7 @@ beforeAll(() => {
   });
 });
 
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import type { ChatMessage, SessionAttentionRecord, ThreadTransitionMarker } from "../types.js";
 
 vi.mock("react-markdown", () => ({
@@ -53,6 +53,13 @@ const mockRequestScrollToMessage = vi.fn();
 const mockSetExpandAllInTurn = vi.fn();
 const mockSendToSession: any = vi.fn(() => true);
 const mockOpenQuestOverlay = vi.fn();
+const mockGetQuestValidated = vi.hoisted(() => vi.fn());
+
+vi.mock("../api.js", () => ({
+  api: {
+    getQuestValidated: mockGetQuestValidated,
+  },
+}));
 
 vi.mock("../ws.js", () => ({
   sendToSession: (sessionId: string, msg: any) => mockSendToSession(sessionId, msg),
@@ -104,10 +111,28 @@ vi.mock("../store.js", () => {
       sessionCompletedBoards: mockStoreValues.sessionCompletedBoards ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
       quests: mockStoreValues.quests ?? [],
+      questDetails: mockStoreValues.questDetails ?? new Map(),
+      questDetailEtags: mockStoreValues.questDetailEtags ?? new Map(),
+      threadWindows: mockStoreValues.threadWindows ?? new Map(),
+      threadWindowMessages: mockStoreValues.threadWindowMessages ?? new Map(),
+      threadWindowRefreshRevisions: mockStoreValues.threadWindowRefreshRevisions ?? new Map(),
+      threadWindowAppliedRevisions: mockStoreValues.threadWindowAppliedRevisions ?? new Map(),
     };
     return selector(state);
   };
   useStore.getState = () => ({
+    questDetails: mockStoreValues.questDetails ?? new Map(),
+    questDetailEtags: mockStoreValues.questDetailEtags ?? new Map(),
+    upsertQuestDetail: (quest: any, opts?: { etag?: string | null }) => {
+      const questDetails = new Map((mockStoreValues.questDetails as Map<string, any> | undefined) ?? []);
+      questDetails.set(String(quest.questId).toLowerCase(), quest);
+      mockStoreValues.questDetails = questDetails;
+      if (opts?.etag) {
+        const questDetailEtags = new Map((mockStoreValues.questDetailEtags as Map<string, string> | undefined) ?? []);
+        questDetailEtags.set(String(quest.questId).toLowerCase(), opts.etag);
+        mockStoreValues.questDetailEtags = questDetailEtags;
+      }
+    },
     feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
     setFeedScrollPosition: mockSetFeedScrollPosition,
     collapseAllTurnActivity: mockCollapseAllTurnActivity,
@@ -227,9 +252,14 @@ function resetStore() {
   mockOpenQuestOverlay.mockReset();
   mockSendToSession.mockReset();
   mockSendToSession.mockReturnValue(true);
+  mockGetQuestValidated.mockReset();
   mockStoreValues.messages = new Map();
   mockStoreValues.messageFrozenCounts = new Map();
   mockStoreValues.messageFrozenRevisions = new Map();
+  mockStoreValues.threadWindows = new Map();
+  mockStoreValues.threadWindowMessages = new Map();
+  mockStoreValues.threadWindowRefreshRevisions = new Map();
+  mockStoreValues.threadWindowAppliedRevisions = new Map();
   mockStoreValues.historyWindows = new Map();
   mockStoreValues.streaming = new Map();
   mockStoreValues.streamingByParentToolUseId = new Map();
@@ -258,6 +288,8 @@ function resetStore() {
   mockStoreValues.activeTaskTurnId = new Map();
   mockStoreValues.sdkSessions = [];
   mockStoreValues.quests = [];
+  mockStoreValues.questDetails = new Map();
+  mockStoreValues.questDetailEtags = new Map();
 }
 
 beforeEach(() => {
@@ -451,5 +483,112 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.getByText("approve q-1268 latency instrumentation rework plan")).toBeTruthy();
     expect(screen.getByText("approve q-1210 thread-title voice context rework plan")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Answer" })).toHaveLength(2);
+  });
+
+  it("renders an asynchronously resolved quest quiz inside a selected thread window", async () => {
+    // Regression coverage for quest tabs: selected thread windows can contain
+    // the completion message before the frontend has full quest quiz metadata.
+    // The hidden directive should fetch detail and then render the inline quiz.
+    const sid = "test-thread-window-quest-quiz";
+    const threadWindow = {
+      thread_key: "q-1652",
+      from_item: 0,
+      item_count: 1,
+      total_items: 1,
+      source_history_length: 1,
+      section_item_count: 30,
+      visible_item_count: 10,
+    };
+    mockGetQuestValidated.mockResolvedValueOnce({
+      status: "fresh",
+      etag: '"q-1652-detail"',
+      data: {
+        id: "q-1652-v3",
+        questId: "q-1652",
+        version: 3,
+        title: "Investigate spurious turn-end events",
+        status: "done",
+        createdAt: 1,
+        quizItems: [
+          {
+            id: "codex-retry-boundary",
+            question: "What boundary caused the misleading turn_end?",
+            answer: "The internal Codex retry boundary.",
+          },
+        ],
+      },
+    });
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
+    mockStoreValues.quests = [
+      {
+        preview: true,
+        id: "q-1652-v3",
+        questId: "q-1652",
+        version: 3,
+        title: "Investigate spurious turn-end events",
+        status: "done",
+        createdAt: 1,
+      },
+    ];
+    const completionContent = "[q-1652](quest:q-1652) is complete.\n\n{[(Quest Quiz: q-1652)]}";
+    mockStoreValues.threadWindows = new Map([[sid, new Map([["q-1652", threadWindow]])]]);
+    mockStoreValues.threadWindowMessages = new Map([
+      [
+        sid,
+        new Map([
+          [
+            "q-1652",
+            [
+              makeMessage({
+                id: "assistant-q-1652-complete",
+                role: "assistant",
+                content: completionContent,
+                metadata: {
+                  threadKey: "q-1652",
+                  questId: "q-1652",
+                  threadRefs: [{ threadKey: "q-1652", questId: "q-1652", source: "explicit" }],
+                },
+              }),
+            ],
+          ],
+        ]),
+      ],
+    ]);
+
+    const view = render(<MessageFeed sessionId={sid} threadKey="q-1652" />);
+
+    expect(screen.queryByText(/Quest Quiz:/i)).toBeNull();
+    await waitFor(() => expect(mockGetQuestValidated).toHaveBeenCalledWith("q-1652", null));
+    await waitFor(() =>
+      expect((mockStoreValues.questDetails as Map<string, unknown> | undefined)?.has("q-1652")).toBe(true),
+    );
+    mockStoreValues.threadWindowMessages = new Map([
+      [
+        sid,
+        new Map([
+          [
+            "q-1652",
+            [
+              makeMessage({
+                id: "assistant-q-1652-complete-refreshed",
+                role: "assistant",
+                content: completionContent,
+                metadata: {
+                  threadKey: "q-1652",
+                  questId: "q-1652",
+                  threadRefs: [{ threadKey: "q-1652", questId: "q-1652", source: "explicit" }],
+                },
+              }),
+            ],
+          ],
+        ]),
+      ],
+    ]);
+
+    view.rerender(<MessageFeed sessionId={sid} threadKey="q-1652" />);
+
+    expect((await screen.findByTestId("quest-quiz-inline")).textContent).toContain("q-1652");
+    expect(screen.getByText("What boundary caused the misleading turn_end?")).toBeTruthy();
   });
 });

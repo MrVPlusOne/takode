@@ -62,7 +62,7 @@ beforeEach(() => {
   writeClipboardTextMock.mockClear();
   starMessageMock.mockClear();
   unstarMessageMock.mockClear();
-  useStore.setState({ quests: [] });
+  useStore.setState({ quests: [], questDetails: new Map(), questDetailEtags: new Map() });
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
     value: {
@@ -1276,73 +1276,6 @@ describe("MessageBubble - assistant messages", () => {
     const markdownBlocks = screen.getAllByTestId("markdown");
     expect(markdownBlocks[0].textContent).toBe("First note.");
     expect(markdownBlocks[1].textContent).toBe("Final status for user @to(user)");
-  });
-
-  it("renders a quest quiz directive inline after assistant completion text", () => {
-    // Completion summaries can include this hidden directive so the feed shows active-recall Q/A in place.
-    useStore.setState({
-      quests: [
-        {
-          questId: "q-8",
-          title: "Add Quest Quiz Metadata",
-          quizItems: [
-            {
-              id: "q8-purpose",
-              question: "What is the core purpose of Quest Quiz metadata?",
-              answer: "To attach active-recall Q/A to quests after agent work.",
-              source: "q-8 scope",
-            },
-          ],
-        } as any,
-      ],
-    });
-    const msg = makeMessage({
-      role: "assistant",
-      content: "Status changed to done.\n\n{[(Quest Quiz: q-8)]}",
-    });
-
-    const { container } = render(<MessageBubble message={msg} />);
-
-    expect(screen.getAllByTestId("markdown")[0]?.textContent).toBe("Status changed to done.");
-    expect(screen.queryByText(/Quest Quiz:/i)).toBeNull();
-    expect(screen.getByTestId("quest-quiz-inline").textContent).toContain("q-8");
-    expect(screen.getByText("What is the core purpose of Quest Quiz metadata?")).toBeTruthy();
-    expect(screen.getByText("To attach active-recall Q/A to quests after agent work.")).toBeTruthy();
-
-    const answerDetails = container.querySelector("details") as HTMLDetailsElement | null;
-    expect(answerDetails?.open).toBe(false);
-    fireEvent.click(screen.getByText("Show answer"));
-    expect(answerDetails?.open).toBe(true);
-    expect(screen.getByText("To attach active-recall Q/A to quests after agent work.")).toBeTruthy();
-  });
-
-  it("renders quest quiz directives from assistant text content blocks", () => {
-    useStore.setState({
-      quests: [
-        {
-          questId: "q-42",
-          title: "Finished quest",
-          quizItems: [
-            {
-              id: "one",
-              question: "Where should the quiz appear?",
-              answer: "Inline after the completion summary.",
-            },
-          ],
-        } as any,
-      ],
-    });
-    const msg = makeMessage({
-      role: "assistant",
-      content: "",
-      contentBlocks: [{ type: "text", text: "Final summary.\n\n{[(Quest Quiz: q-42)]}" }],
-    });
-
-    render(<MessageBubble message={msg} />);
-
-    expect(screen.getAllByTestId("markdown")[0]?.textContent).toBe("Final summary.");
-    expect(screen.getByTestId("quest-quiz-inline").textContent).toContain("q-42");
-    expect(screen.getByText("Where should the quiz appear?")).toBeTruthy();
   });
 
   it("renders a timestamp for assistant messages", () => {
