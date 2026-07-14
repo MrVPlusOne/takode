@@ -153,7 +153,7 @@ export function useLeaderThreadAutoSwitch({
       if (!shouldPersistOpenThreadTab(targetThreadKey)) continue;
       const transitionedAt = marker.transitionedAt || marker.timestamp;
       const wasOpen = openThreadTabKeys.includes(targetThreadKey);
-      const targetCompleted = leaderThreadTargetIsCompleted({
+      const targetCompleted = leaderThreadTargetHasExplicitCompletion({
         threadKey: targetThreadKey,
         questStatusByKey,
         rows: navigationThreadRows,
@@ -414,6 +414,21 @@ function leaderThreadTargetIsCompleted({
   const normalized = normalizeThreadKey(threadKey);
   if (isCompletedJourneyPresentationStatus(questStatusByKey.get(normalized))) return true;
   return leaderThreadRowIsCompleted(rows.find((row) => row.threadKey === normalized));
+}
+
+function leaderThreadTargetHasExplicitCompletion({
+  threadKey,
+  questStatusByKey,
+  rows,
+}: {
+  threadKey: string;
+  questStatusByKey: ReadonlyMap<string, string | undefined>;
+  rows: ReadonlyArray<LeaderThreadAutoSwitchRow>;
+}): boolean {
+  const normalized = normalizeThreadKey(threadKey);
+  if (isCompletedJourneyPresentationStatus(questStatusByKey.get(normalized))) return true;
+  const row = rows.find((candidate) => candidate.threadKey === normalized);
+  return !!row && questOrBoardRowIsCompleted(row.status, row.boardStatus, row.boardRow?.completedAt);
 }
 
 function leaderThreadRowIsCompleted(row?: LeaderThreadAutoSwitchRow): boolean {
