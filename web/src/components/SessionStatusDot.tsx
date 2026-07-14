@@ -80,14 +80,28 @@ export function scheduledTimerStatusLabel(timerCount: number): string {
   return `${timerCount} timer${timerCount === 1 ? "" : "s"}`;
 }
 
-export function ScheduledTimerStatusIcon({ timerCount, className }: { timerCount: number; className?: string }) {
+export function ScheduledTimerStatusIcon({
+  timerCount,
+  className,
+  title,
+  ariaLabel,
+  decorative = false,
+}: {
+  timerCount: number;
+  className?: string;
+  title?: string;
+  ariaLabel?: string;
+  decorative?: boolean;
+}) {
+  const defaultLabel = `${timerCount} scheduled timer${timerCount === 1 ? "" : "s"}`;
   return (
     <span
       data-testid="session-status-timer-icon"
       data-status="scheduled_timer"
       data-count={String(timerCount)}
-      title={`${timerCount} scheduled timer${timerCount === 1 ? "" : "s"}`}
-      aria-label={`${timerCount} scheduled timer${timerCount === 1 ? "" : "s"}`}
+      title={decorative ? undefined : (title ?? defaultLabel)}
+      aria-label={decorative ? undefined : (ariaLabel ?? defaultLabel)}
+      aria-hidden={decorative ? "true" : undefined}
       className={`inline-flex h-3 w-3 shrink-0 self-center items-center justify-center leading-none text-emerald-500 ${
         className ?? ""
       }`}

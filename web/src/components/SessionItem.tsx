@@ -43,6 +43,7 @@ export interface StatusCounts {
   running: number;
   permission: number;
   unread: number;
+  waiting?: number;
 }
 
 const STATUS_COUNT_STYLES = [
@@ -51,20 +52,36 @@ const STATUS_COUNT_STYLES = [
   { key: "unread" as const, text: "text-blue-500", bg: "bg-blue-500" },
 ];
 
-/** Renders colored dot+count indicators for running/permission/unread statuses. */
+function waitingSessionStatusLabel(count: number): string {
+  return `${count} waiting session${count === 1 ? "" : "s"} with scheduled timer${count === 1 ? "" : "s"}`;
+}
+
+/** Renders colored dot/icon+count indicators for running/permission/unread/waiting statuses. */
 export function StatusCountDots({ counts }: { counts: StatusCounts }) {
-  const hasAny = counts.running > 0 || counts.permission > 0 || counts.unread > 0;
+  const waiting = counts.waiting ?? 0;
+  const hasAny = counts.running > 0 || counts.permission > 0 || counts.unread > 0 || waiting > 0;
   if (!hasAny) return null;
   return (
     <span className="flex items-center gap-1 shrink-0 text-[10px] font-medium">
       {STATUS_COUNT_STYLES.map(
         ({ key, text, bg }) =>
           counts[key] > 0 && (
-            <span key={key} className={`${text} flex items-center gap-0.5`}>
+            <span key={key} data-testid={`status-count-${key}`} className={`${text} flex items-center gap-0.5`}>
               {counts[key]}
               <span className={`inline-block w-1.5 h-1.5 rounded-full ${bg}`} />
             </span>
           ),
+      )}
+      {waiting > 0 && (
+        <span
+          data-testid="status-count-waiting"
+          className="text-emerald-500 flex items-center gap-0.5"
+          title={waitingSessionStatusLabel(waiting)}
+          aria-label={waitingSessionStatusLabel(waiting)}
+        >
+          {waiting}
+          <ScheduledTimerStatusIcon timerCount={waiting} decorative />
+        </span>
       )}
     </span>
   );

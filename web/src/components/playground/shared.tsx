@@ -61,7 +61,7 @@ export function PlaygroundSectionGroup({
 export function PlaygroundHerdSummaryBar({ isExpanded }: { isExpanded: boolean }) {
   return (
     <div className="w-full flex items-center gap-1.5 px-3 py-1 border-t border-cc-border/30 text-[10px] text-cc-muted">
-      <StatusCountDots counts={{ running: 2, permission: 1, unread: 0 }} />
+      <StatusCountDots counts={{ running: 2, permission: 1, unread: 0, waiting: 1 }} />
       <span className="flex items-center gap-0.5 text-cc-muted/50">
         1
         <span className="inline-block w-1.5 h-1.5 rounded-full bg-cc-muted/30" />

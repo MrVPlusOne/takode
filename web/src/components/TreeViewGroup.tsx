@@ -191,6 +191,7 @@ export function TreeViewGroup({
   const sessionSortMode = useStore((s) => s.sessionSortMode);
   const expandedHerdNodes = useStore((s) => s.expandedHerdNodes);
   const toggleHerdNodeExpand = useStore((s) => s.toggleHerdNodeExpand);
+  const sessionTimers = useStore((s) => s.sessionTimers);
   const touchDevice = isTouchDevice();
   const isDraggable = sessionSortMode !== "activity" && !bulkSelectionActive;
 
@@ -298,6 +299,10 @@ export function TreeViewGroup({
     if (livePermissions) return countUserPermissions(livePermissions);
     return session.permCount;
   };
+  const getTreeTimerCount = (session: SessionItemType) => {
+    if (session.id === currentSessionId) return sessionTimers?.get(session.id)?.length ?? 0;
+    return session.pendingTimerCount ?? 0;
+  };
 
   function renderSessionItem(s: SessionItemType, opts?: { compact?: boolean; reviewerSession?: SessionItemType }) {
     const permCount = getTreePermissionCount(s);
@@ -327,9 +332,11 @@ export function TreeViewGroup({
     let running = 0;
     let permission = 0;
     let unread = 0;
+    let waiting = 0;
     const countSession = (s: SessionItemType) => {
       const sPermCount = getTreePermissionCount(s);
       const sAttention = sessionAttention?.get(s.id) ?? null;
+      const timerCount = getTreeTimerCount(s);
       const status = deriveSessionStatus({
         archived: s.archived,
         permCount: sPermCount,
@@ -339,12 +346,15 @@ export function TreeViewGroup({
         hasUnread: !!sAttention,
         idleKilled: s.idleKilled,
       });
-      if (status === "running" || status === "compacting") running++;
+      const showsTimerWaitingStatus =
+        !s.pause?.pausedAt && status === "idle" && !sAttention && sPermCount === 0 && timerCount > 0;
+      if (showsTimerWaitingStatus) waiting++;
+      else if (status === "running" || status === "compacting") running++;
       else if (status === "permission") permission++;
       else if (status === "completed_unread") unread++;
     };
     for (const session of sessions) countSession(session);
-    return { running, permission, unread };
+    return { running, permission, unread, waiting };
   }
 
   function renderTreeNode(node: TreeNode) {
@@ -387,7 +397,9 @@ export function TreeViewGroup({
     if (hasWorkers) {
       const isExpanded = expandedHerdNodes.has(node.leader.id);
       const totalMembers = childSessions.length;
-      const idleCount = totalMembers - (childSummary!.running + childSummary!.permission + childSummary!.unread);
+      const idleCount =
+        totalMembers -
+        (childSummary!.running + childSummary!.permission + childSummary!.unread + (childSummary!.waiting ?? 0));
       const leaderReviewer = node.reviewers.find((r) => r.reviewerOf === node.leader.sessionNum);
       const reviewerCount = node.reviewers.length;
       const memberLabel =

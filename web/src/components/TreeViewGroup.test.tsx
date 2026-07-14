@@ -111,10 +111,12 @@ describe("TreeViewGroup leader herd summary", () => {
   beforeEach(() => {
     mockStoreState.expandedHerdNodes.clear();
     mockStoreState.sessionAttention.clear();
+    mockStoreState.sessionTimers.clear();
     mockStoreState.sessionBoards.clear();
     mockStoreState.sessionCompletedBoards.clear();
     mockStoreState.sessionBoardRowStatuses.clear();
     mockStoreState.quests = [];
+    mockStoreState.currentSessionId = null;
     mockNavigateToSession.mockReset();
   });
 
@@ -143,6 +145,65 @@ describe("TreeViewGroup leader herd summary", () => {
     );
     expect(runningIndicator).toBeTruthy();
     expect(runningIndicator?.querySelector(".bg-cc-success.rounded-full")).toBeInTheDocument();
+  });
+
+  it("shows timer-backed waiting child sessions without counting them as idle", () => {
+    // Waiting in the leader preview means the same timer-backed clock state as
+    // child rows: otherwise-idle workers/reviewers with scheduled timers.
+    const leader = makeSession("leader-1", { isOrchestrator: true, sessionNum: 10 });
+    const waitingWorker = makeSession("worker-1", {
+      herdedBy: "leader-1",
+      sessionNum: 11,
+      pendingTimerCount: 1,
+    });
+    const idleReviewer = makeSession("reviewer-1", { reviewerOf: 11, sessionNum: 12 });
+    const group: TreeViewGroupData = {
+      id: "team-alpha",
+      name: "Takode",
+      nodes: [{ leader, workers: [waitingWorker], reviewers: [idleReviewer] }],
+      runningCount: 0,
+      permCount: 0,
+      unreadCount: 0,
+    };
+
+    renderTreeViewGroup(group);
+
+    const summary = screen.getByTestId("herd-summary-leader-1");
+    const waitingIndicator = within(summary).getByTestId("status-count-waiting");
+    expect(waitingIndicator).toHaveTextContent("1");
+    expect(waitingIndicator).toHaveAccessibleName("1 waiting session with scheduled timer");
+    expect(within(waitingIndicator).getByTestId("session-status-timer-icon")).toHaveAttribute(
+      "data-status",
+      "scheduled_timer",
+    );
+
+    const idleIndicator = Array.from(summary.querySelectorAll(".text-cc-muted\\/50")).find(
+      (el) => el.textContent?.trim() === "1" && el.querySelector(".bg-cc-muted\\/30"),
+    );
+    expect(idleIndicator).toBeTruthy();
+  });
+
+  it("uses live timer state for the selected child session in the herd summary", () => {
+    // Match SessionItem behavior: the active row uses the live timer store
+    // instead of potentially stale polled snapshot timer counts.
+    mockStoreState.currentSessionId = "worker-1";
+    mockStoreState.sessionTimers.set("worker-1", [{ id: "timer-1" }]);
+    const leader = makeSession("leader-1", { isOrchestrator: true, sessionNum: 10 });
+    const worker = makeSession("worker-1", { herdedBy: "leader-1", sessionNum: 11 });
+    const group: TreeViewGroupData = {
+      id: "team-alpha",
+      name: "Takode",
+      nodes: [{ leader, workers: [worker], reviewers: [] }],
+      runningCount: 0,
+      permCount: 0,
+      unreadCount: 0,
+    };
+
+    renderTreeViewGroup(group, { currentSessionId: "worker-1" });
+
+    const summary = screen.getByTestId("herd-summary-leader-1");
+    expect(within(summary).getByTestId("status-count-waiting")).toHaveTextContent("1");
+    expect(summary.querySelector(".bg-cc-muted\\/30")).toBeNull();
   });
 
   it("renders compact reviewer session chips inside quest worker rows", () => {

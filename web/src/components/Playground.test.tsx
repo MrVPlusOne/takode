@@ -248,6 +248,12 @@ describe("Playground", () => {
     ).toBeTruthy();
   });
 
+  it("documents waiting counts in herd summary previews", () => {
+    render(<Playground />);
+
+    expect(screen.getAllByLabelText("1 waiting session with scheduled timer").length).toBeGreaterThan(0);
+  });
+
   it("documents Journey finished as green while completed Journey starts stay quiet", () => {
     render(<Playground />);
 
