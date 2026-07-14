@@ -653,7 +653,16 @@ function useLeaderThreadModel(sessionId: string, deferMessageDerivedRows = false
   );
   const activeRows = useMemo(() => rows.filter((row) => row.section === "active"), [rows]);
   const doneRows = useMemo(() => rows.filter((row) => row.section === "done"), [rows]);
-  return { activeBoard, completedBoard, leaderProjection, messages, rows, activeRows, doneRows };
+  return {
+    activeBoard,
+    completedBoard,
+    leaderProjection,
+    messages,
+    rawMessages: storedMessages,
+    rows,
+    activeRows,
+    doneRows,
+  };
 }
 
 function threadLabelForKey(threadKey: string, rows: LeaderThreadRow[]): string {
@@ -1133,6 +1142,7 @@ export function ChatView({
     completedBoard,
     leaderProjection,
     messages: allMessages,
+    rawMessages: allRawMessages,
     rows: threadRows,
   } = useLeaderThreadModel(sessionId, historyLoading);
   const sessionNotifications = useStore((s) => s.sessionNotifications.get(sessionId));
@@ -1560,6 +1570,7 @@ export function ChatView({
 
   useLeaderThreadAutoSwitch({
     allMessages,
+    transitionMessages: allRawMessages,
     authoritativeLeaderOpenThreadTabs,
     hasThreadRoute,
     historyLoading,

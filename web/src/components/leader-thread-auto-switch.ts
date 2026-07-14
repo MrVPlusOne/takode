@@ -32,6 +32,7 @@ type LeaderThreadAutoSwitchRow = {
 
 export function useLeaderThreadAutoSwitch({
   allMessages,
+  transitionMessages = allMessages,
   authoritativeLeaderOpenThreadTabs,
   hasThreadRoute,
   historyLoading,
@@ -48,6 +49,7 @@ export function useLeaderThreadAutoSwitch({
   setSelectedThreadKey,
 }: {
   allMessages: ChatMessage[];
+  transitionMessages?: ChatMessage[];
   authoritativeLeaderOpenThreadTabs: LeaderOpenThreadTabsState | undefined;
   hasThreadRoute?: boolean;
   historyLoading: boolean;
@@ -84,7 +86,7 @@ export function useLeaderThreadAutoSwitch({
   useEffect(() => {
     if (!isLeaderSession || preview) return;
     if (historyLoading) {
-      for (const message of allMessages) {
+      for (const message of transitionMessages) {
         if (!isThreadTransitionMarkerMessage(message)) continue;
         if (typeof message.historyIndex === "number" && message.historyIndex >= 0) continue;
         const markerKey = threadTransitionMarkerKey(message);
@@ -97,7 +99,7 @@ export function useLeaderThreadAutoSwitch({
     const currentMarkerKeys = new Set<string>();
     const markerMessages: ChatMessage[] = [];
     const unseenMarkers: ChatMessage[] = [];
-    for (const message of allMessages) {
+    for (const message of transitionMessages) {
       if (!isThreadTransitionMarkerMessage(message)) continue;
       const markerKey = threadTransitionMarkerKey(message);
       if (!markerKey) continue;
@@ -199,6 +201,7 @@ export function useLeaderThreadAutoSwitch({
     selectedThreadKey,
     sessionId,
     setSelectedThreadKey,
+    transitionMessages,
   ]);
 
   useEffect(() => {

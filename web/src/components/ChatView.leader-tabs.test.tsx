@@ -1378,6 +1378,14 @@ describe("ChatView leader open thread tabs", () => {
 
   it("auto-selects a live Main transition marker that arrives before history loading finishes", async () => {
     const transitionedAt = 100;
+    const liveMarker = {
+      ...transitionMarker("q-1648", transitionedAt),
+      historyIndex: -1,
+    };
+    const persistedMarker = {
+      ...liveMarker,
+      historyIndex: 5,
+    };
     resetStore({
       sessions: leaderSession(leaderTabs([])),
       historyLoading: new Map([["s1", true]]),
@@ -1389,24 +1397,17 @@ describe("ChatView leader open thread tabs", () => {
     const scope = within(view.container);
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
 
-    mockState.messages = new Map([
-      [
-        "s1",
-        [
-          {
-            ...transitionMarker("q-1648", transitionedAt),
-            historyIndex: -1,
-          },
-        ],
-      ],
-    ]);
+    mockState.messages = new Map([["s1", [liveMarker]]]);
     view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
+    expect(mockSendToSession).not.toHaveBeenCalled();
 
+    mockState.messages = new Map([["s1", [persistedMarker]]]);
     mockState.historyLoading = new Map([["s1", false]]);
     view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
 
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1648"));
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1648");
     expect(readLeaderSelectedThreadKey("s1")).toBe("q-1648");
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
       type: "leader_thread_tabs_update",
