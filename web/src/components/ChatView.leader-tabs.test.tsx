@@ -1376,6 +1376,64 @@ describe("ChatView leader open thread tabs", () => {
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1648"));
   });
 
+  it("does not auto-select a Main transition marker for an existing quest target", async () => {
+    const transitionedAt = 100;
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-1648"])),
+      messages: new Map([["s1", [threadMessage("q-1648", transitionedAt - 10)]]]),
+      quests: [{ questId: "q-1648", title: "Existing quest thread", status: "in_progress" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+    const scope = within(view.container);
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    mockSendToSession.mockClear();
+
+    mockState.messages = new Map([
+      [
+        "s1",
+        [
+          threadMessage("q-1648", transitionedAt - 10),
+          transitionMarker("q-1648", transitionedAt, { targetThreadFreshness: "existing_quest_thread" }),
+        ],
+      ],
+    ]);
+    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    expect(readLeaderSelectedThreadKey("s1")).not.toBe("q-1648");
+    expect(mockSendToSession).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-select an already-open completed transition target", async () => {
+    const transitionedAt = 100;
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-1648"])),
+      messages: new Map([["s1", [threadMessage("q-1648", transitionedAt - 10)]]]),
+      quests: [{ questId: "q-1648", title: "Completed quest thread", status: "done" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+    const scope = within(view.container);
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    mockSendToSession.mockClear();
+
+    mockState.messages = new Map([
+      [
+        "s1",
+        [
+          threadMessage("q-1648", transitionedAt - 10),
+          transitionMarker("q-1648", transitionedAt, { targetThreadFreshness: "new_quest_thread" }),
+        ],
+      ],
+    ]);
+    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    expect(readLeaderSelectedThreadKey("s1")).not.toBe("q-1648");
+    expect(mockSendToSession).not.toHaveBeenCalled();
+  });
+
   it("does not auto-select a Main transition marker after manual navigation away from Main", async () => {
     const transitionedAt = 1;
     resetStore({
@@ -1862,6 +1920,7 @@ function transitionMarker(
         transitionedAt,
         reason: "route_switch",
         sourceMessageIndex: 1,
+        targetThreadFreshness: "new_quest_thread",
         ...overrides,
       },
     },

@@ -229,6 +229,7 @@ export function appendThreadTransitionMarkerForRouteSwitch(
     transitionedAt: timestamp,
     reason: "route_switch",
     sourceMessageIndex: source.index,
+    targetThreadFreshness: classifyTransitionTargetFreshness(history, destinationRoute),
   };
   history.push(marker);
   return marker;
@@ -302,6 +303,15 @@ function isCompletedTurnBoundary(entry: BrowserIncomingMessage): boolean {
 
 function hasThreadTransitionMarker(history: BrowserIncomingMessage[], markerKey: string): boolean {
   return history.some((entry) => entry.type === "thread_transition_marker" && entry.markerKey === markerKey);
+}
+
+function classifyTransitionTargetFreshness(
+  history: BrowserIncomingMessage[],
+  destinationRoute: ThreadRouteMetadata,
+): ThreadTransitionMarker["targetThreadFreshness"] {
+  return history.some((entry) => sameThreadRoute(routeFromHistoryEntry(entry), destinationRoute))
+    ? "existing_quest_thread"
+    : "new_quest_thread";
 }
 
 function formatRange(start: number, end: number): string {

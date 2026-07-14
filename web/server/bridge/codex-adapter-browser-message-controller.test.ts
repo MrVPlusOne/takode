@@ -1079,6 +1079,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       questId: "q-948",
       reason: "route_switch",
       sourceMessageIndex: 0,
+      targetThreadFreshness: "new_quest_thread",
     });
     expect(broadcasts[0]).not.toHaveProperty("sourceQuestId");
     expect(broadcasts[1]).toMatchObject({ type: "assistant", threadKey: "q-948", questId: "q-948" });

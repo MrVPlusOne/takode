@@ -352,6 +352,7 @@ export interface ThreadTransitionMarker {
   transitionedAt: number;
   reason: "route_switch";
   sourceMessageIndex?: number;
+  targetThreadFreshness?: "new_quest_thread" | "existing_quest_thread";
 }
 
 export interface ActiveTurnRoute {

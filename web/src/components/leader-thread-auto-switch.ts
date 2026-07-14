@@ -121,6 +121,7 @@ export function useLeaderThreadAutoSwitch({
     for (const message of unseenMarkers) {
       const marker = message.metadata?.threadTransitionMarker;
       if (!marker) continue;
+      if (marker.targetThreadFreshness !== "new_quest_thread") continue;
       const sourceThreadKey = normalizeThreadKey(marker.sourceThreadKey || marker.sourceQuestId || "");
       if (sourceThreadKey !== MAIN_THREAD_KEY) continue;
       const targetThreadKey = normalizeThreadKey(marker.threadKey || marker.questId || "");
@@ -144,7 +145,7 @@ export function useLeaderThreadAutoSwitch({
         !nextSelectedThreadKey &&
         selectedThread === MAIN_THREAD_KEY &&
         routeAllowsAutoSelect &&
-        (wasOpen || canOpenCandidate) &&
+        canOpenCandidate &&
         !manualNavigationAfterTransition
       ) {
         nextSelectedThreadKey = targetThreadKey;

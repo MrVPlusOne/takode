@@ -698,10 +698,45 @@ describe("assistant-message-controller", () => {
       questId: "q-948",
       reason: "route_switch",
       sourceMessageIndex: 0,
+      targetThreadFreshness: "new_quest_thread",
     });
     expect(broadcasts[0]).not.toHaveProperty("sourceQuestId");
     expect(broadcasts[1]).toMatchObject({ type: "assistant", threadKey: "q-948", questId: "q-948" });
     expect(session.messageHistory[3]).toMatchObject({ type: "thread_transition_marker", sourceThreadKey: "main" });
+  });
+
+  it("marks Main-origin transition markers to prior quest targets as existing", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    session.messageHistory.push({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: { id: "previous-q948", content: [] } as any,
+      threadKey: "q-948",
+      questId: "q-948",
+      threadRefs: [{ threadKey: "q-948", questId: "q-948", source: "explicit" }],
+    });
+    session.messageHistory.push({
+      type: "user_message",
+      id: "main-request",
+      content: "Please continue the existing quest",
+      timestamp: 1,
+    });
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-948]\nContinuing there" }]), {
+      hasAssistantReplay: () => false,
+      broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+      persistSession: () => {},
+    });
+
+    expect(broadcasts[0]).toMatchObject({
+      type: "thread_transition_marker",
+      sourceThreadKey: "main",
+      threadKey: "q-948",
+      targetThreadFreshness: "existing_quest_thread",
+    });
+    expect(broadcasts[1]).toMatchObject({ type: "assistant", threadKey: "q-948", questId: "q-948" });
   });
 
   it("does not infer source-thread transition markers across Main assistant boundaries", () => {
