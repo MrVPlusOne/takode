@@ -17,6 +17,15 @@ const ORCHESTRATION_DESIGN_SKILL_PATH = join(
 const SKEPTIC_REVIEW_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "skeptic-review", "SKILL.md");
 const WORKTREE_RULES_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "worktree-rules", "SKILL.md");
 const LEADER_DISPATCH_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "leader-dispatch", "SKILL.md");
+const TAKODE_ORCHESTRATION_SKILL_PATH = join(
+  SERVER_DIR,
+  "..",
+  "..",
+  ".claude",
+  "skills",
+  "takode-orchestration",
+  "SKILL.md",
+);
 const LEADER_DISPATCH_EDGE_CASES_PATH = join(
   SERVER_DIR,
   "..",
@@ -154,7 +163,10 @@ describe("index startup skill registration", () => {
   });
 
   it("keeps the loaded Quest Journey phase table aligned with optional Outcome Review routing", async () => {
-    const source = await readFile(TAKODE_ORCHESTRATION_QUEST_JOURNEY_PATH, "utf-8");
+    const [source, topLevelSource] = await Promise.all([
+      readFile(TAKODE_ORCHESTRATION_QUEST_JOURNEY_PATH, "utf-8"),
+      readFile(TAKODE_ORCHESTRATION_SKILL_PATH, "utf-8"),
+    ]);
 
     expect(source).toContain(
       "| Execute | `EXECUTING` | `~/.companion/quest-journey-phases/execute/leader.md` | `~/.companion/quest-journey-phases/execute/assignee.md` | Run approved expensive, risky, long-running, externally consequential, or approval-gated operations | read the execute leader brief, track monitor and stop conditions, then wait for the execution report and decide whether direct leader acceptance, lightweight inspection, outcome review, more execute work, or a Journey revision is needed |",
@@ -166,6 +178,10 @@ describe("index startup skill registration", () => {
     expect(source).not.toContain(
       "Reviewer-owned acceptance judgment over external or non-code outcomes such as metrics, logs, artifacts, prompt behavior, or UX trial notes",
     );
+    expect(source).toContain("publish a revised exact packet");
+    expect(source).toContain('"LGTM", "approved", "run it"');
+    expect(topLevelSource).toContain("Externally consequential User Checkpoints require fresh explicit approval");
+    expect(topLevelSource).toContain("Parameter edits, corrections, or approval-impacting questions are not approval");
   });
 
   it("keeps leader dispatch hot path compact while preserving handoff references", async () => {
@@ -185,6 +201,8 @@ describe("index startup skill registration", () => {
     expect(source).toContain("Direct create/dispatch is allowed only when");
     expect(source).toContain("Pre-dispatch approval is mandatory when");
     expect(source).toContain("Use delayed approval via User Checkpoint");
+    expect(source).toContain("Externally consequential User Checkpoints need fresh explicit approval");
+    expect(source).toContain("parameter edits alone do not approve execution");
     expect(source).toContain("Send this only after authorization and board recording:");
     expect(source).not.toContain("Send this only after approval and board recording:");
     expect(source).toContain("Read this phase brief first:");

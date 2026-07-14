@@ -6,6 +6,7 @@ Boundary:
 - Present a self-contained decision packet needed for a user decision: findings, each named option, key tradeoffs, a recommendation, and the exact requested answer.
 - Use internally consistent, human-readable option labels; do not map labels in confusing ways such as making one option mean approval of another option.
 - State what user answer would unblock the next Journey revision. Notification summaries, notification UI options, and `--suggest` choices are only attention/reply affordances and must not be the only place options or tradeoffs appear.
+- For a checkpoint that gates Execute or another externally consequential phase, make the exact packet being approved unambiguous: action, material parameters, monitor or stop conditions, and the approval phrase requested from the user. This lets the leader distinguish explicit approval from parameter edits, corrections, or approval-impacting questions.
 - Treat this as a mid-Journey decision point, not final `User review checks`. Record the user's decision in checkpoint documentation and let final Memory decide later whether any post-completion user action remains.
 - Do not implement, review, port, complete the quest, or change quest status.
 - Do not treat this as terminal closure, a generic TBD handoff, or optional leader-only indecision.

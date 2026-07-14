@@ -218,11 +218,15 @@ describe("Quest Journey phase directory loading", () => {
       "notification summaries, notification UI options, and `--suggest` choices",
     );
     expect(userCheckpointPhase?.leaderBrief).toContain("takode notify needs-input");
-    expect(userCheckpointPhase?.leaderBrief).toContain("wait for the user answer");
+    expect(userCheckpointPhase?.leaderBrief).toContain("wait for explicit approval of that revised packet");
+    expect(userCheckpointPhase?.leaderBrief).toContain("parameter edits, corrections, or approval-impacting questions");
+    expect(userCheckpointPhase?.leaderBrief).toContain('"LGTM", "approved", "run it"');
+    expect(userCheckpointPhase?.leaderBrief).toContain("explicitly approved the exact packet");
     expect(userCheckpointPhase?.leaderBrief).toContain("revise the remaining Journey");
     expect(userCheckpointPhase?.leaderBrief).toContain("Do not use this phase as a terminal phase");
     expect(userCheckpointPhase?.assigneeBrief).toContain("self-contained decision packet");
     expect(userCheckpointPhase?.assigneeBrief).toContain("Use internally consistent, human-readable option labels");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("make the exact packet being approved unambiguous");
     expect(userCheckpointPhase?.assigneeBrief).toContain("required user answer");
     expect(userCheckpointPhase?.assigneeBrief).toContain("Journey-revision implications");
   });
