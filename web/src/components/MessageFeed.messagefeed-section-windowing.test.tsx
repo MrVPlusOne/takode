@@ -1598,6 +1598,59 @@ describe("MessageFeed section windowing", () => {
     );
   });
 
+  it("requests selected-thread navigator jumps by stable message id, not display position", async () => {
+    const sid = "test-selected-thread-global-user-navigation-target-id";
+    const threadKey = "main";
+    const globalMessages = Array.from({ length: 163 }, (_, index) => {
+      const messageNumber = index + 1;
+      return makeMessage({
+        id: "u" + messageNumber,
+        role: "user",
+        content: "Long prompt " + messageNumber,
+        timestamp: messageNumber,
+        historyIndex: index * 2,
+      });
+    });
+    mockSearchSessionMessages.mockImplementation((calledSessionId: string, options = {}) =>
+      Promise.resolve(
+        buildMessageSearchResponse(
+          calledSessionId,
+          options as { scope?: string; threadKey?: string | null },
+          globalMessages,
+        ),
+      ),
+    );
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 14,
+      itemCount: 12,
+      totalItems: 163,
+      sectionItemCount: 4,
+      visibleItemCount: 3,
+      messages: [globalMessages[14]!],
+    });
+
+    render(<MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={4} />);
+
+    const trigger = await screen.findByRole("button", { name: "Message navigator, 15 of 163" });
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "User message selector" });
+
+    mockSendToSession.mockClear();
+    fireEvent.click(within(dialog).getByText("Long prompt 160"));
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({
+        type: "thread_window_request",
+        thread_key: threadKey,
+        target_message_id: "u160",
+      }),
+    );
+  });
+
   it("loads older selected-thread content from the boundary button when the viewport cannot scroll upward", () => {
     const sid = "test-selected-thread-short-viewport-button-load";
     const threadKey = "q-1027";

@@ -120,7 +120,7 @@ interface UseUserMessageNavigationInput {
   visibleWindowSignature: string;
   autoFollowEnabledRef: ElementRef<boolean>;
   markSectionLoadPending: (direction: "older" | "newer", key: string) => boolean;
-  requestThreadWindow: (fromItem: number, requestedItemCount?: number) => void;
+  requestThreadWindow: (fromItem: number, requestedItemCount?: number, targetMessageId?: string) => void;
   requestHistoryWindow: (
     fromTurn: number,
     turnCount: number,
@@ -184,10 +184,11 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
 
   const requestWindowForUserNavigationTarget = useCallback(
     (target: UserNavigationTarget) => {
-      const targetIndex = target.navigationIndex;
-      if (typeof targetIndex !== "number" || !Number.isFinite(targetIndex)) return false;
-
       if (activeThreadWindow) {
+        const targetIndex =
+          typeof target.navigationIndex === "number" && Number.isFinite(target.navigationIndex)
+            ? target.navigationIndex
+            : activeThreadWindow.from_item;
         const itemCount = Math.max(
           1,
           activeThreadWindow.item_count,
@@ -200,9 +201,12 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
         if (!markSectionLoadPending(direction, requestKey)) return true;
         autoFollowEnabledRef.current = false;
         pendingSpecificTargetRef.current = target;
-        requestThreadWindow(fromItem, itemCount);
+        requestThreadWindow(fromItem, itemCount, target.messageId);
         return true;
       }
+
+      const targetIndex = target.navigationIndex;
+      if (typeof targetIndex !== "number" || !Number.isFinite(targetIndex)) return false;
 
       if (activeHistoryWindow) {
         const turnCount = Math.max(
