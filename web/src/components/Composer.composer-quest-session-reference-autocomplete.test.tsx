@@ -298,7 +298,7 @@ function setupMockStore(
     quests = [],
     questDetails = new Map(),
     questAutocompleteCandidates = [],
-    questAutocompleteLoaded = true,
+    questAutocompleteLoaded = false,
     questAutocompleteLoading = false,
     questAutocompleteEtag = null,
     sessionNames = new Map(),
@@ -635,6 +635,39 @@ describe("Composer quest/session reference autocomplete", () => {
     expect(screen.getByText("Build 300-example eval variants")).toBeTruthy();
     expect(screen.queryByText("q-1468")).toBeNull();
     expect(mockListQuestAutocompleteCandidatesValidated).toHaveBeenCalledWith(null);
+  });
+
+  it("treats a loaded all-known quest source as authoritative over stale local caches", async () => {
+    setupMockStore({
+      quests: [
+        makeQuest({ questId: "q-1517", title: "Stale list title" }),
+        makeQuest({ questId: "q-1518", title: "Deleted stale quest" }),
+      ],
+      questDetails: new Map([
+        ["q-1513", makeQuest({ questId: "q-1513", title: "Stale detail title" })],
+        ["q-1519", makeQuest({ questId: "q-1519", title: "Deleted stale detail" })],
+      ]),
+      questAutocompleteLoaded: true,
+      questAutocompleteCandidates: [
+        { questId: "q-1517", title: "Fresh edited list title" },
+        { questId: "q-1513", title: "Fresh edited detail title" },
+      ],
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, {
+      target: { value: "Please check q-151", selectionStart: "Please check q-151".length },
+    });
+
+    expect(screen.getByText("q-1517")).toBeTruthy();
+    expect(screen.getByText("Fresh edited list title")).toBeTruthy();
+    expect(screen.getByText("q-1513")).toBeTruthy();
+    expect(screen.getByText("Fresh edited detail title")).toBeTruthy();
+    expect(screen.queryByText("Stale list title")).toBeNull();
+    expect(screen.queryByText("Stale detail title")).toBeNull();
+    expect(screen.queryByText("q-1518")).toBeNull();
+    expect(screen.queryByText("q-1519")).toBeNull();
   });
 
   it("shows session label previews and inserts plain session references", () => {

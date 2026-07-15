@@ -114,6 +114,7 @@ function mergeQuestAutocompleteCandidates(
   autocompleteCandidates: readonly QuestAutocompleteCandidate[],
   quests: readonly QuestmasterTask[],
   questDetails: ReadonlyMap<string, QuestmasterTask>,
+  autocompleteLoaded: boolean,
 ): QuestAutocompleteCandidate[] {
   const byId = new Map<string, QuestAutocompleteCandidate>();
   const upsert = (candidate: QuestAutocompleteCandidate | QuestmasterTask) => {
@@ -126,6 +127,8 @@ function mergeQuestAutocompleteCandidates(
   };
 
   for (const candidate of autocompleteCandidates) upsert(candidate);
+  if (autocompleteLoaded) return Array.from(byId.values());
+
   for (const quest of quests) upsert(quest);
   for (const quest of questDetails.values()) upsert(quest);
   return Array.from(byId.values());
@@ -191,7 +194,7 @@ export function useComposerAutocomplete({
       }
       return {
         candidates: s.questAutocompleteCandidates ?? EMPTY_QUEST_AUTOCOMPLETE_CANDIDATES,
-        loaded: s.questAutocompleteLoaded ?? true,
+        loaded: s.questAutocompleteLoaded === true,
         loading: s.questAutocompleteLoading ?? false,
         refresh,
       };
@@ -468,7 +471,12 @@ export function useComposerAutocomplete({
     if (!referenceMenuOpen || referenceKind == null) return [];
     const startedAt = nowMs();
     if (referenceKind === "quest") {
-      const questCandidates = mergeQuestAutocompleteCandidates(questAutocompleteData.candidates, quests, questDetails);
+      const questCandidates = mergeQuestAutocompleteCandidates(
+        questAutocompleteData.candidates,
+        quests,
+        questDetails,
+        questAutocompleteData.loaded,
+      );
       const result = buildQuestReferenceSuggestions(
         questCandidates,
         referenceQuery,
@@ -539,6 +547,7 @@ export function useComposerAutocomplete({
     return suggestions;
   }, [
     questAutocompleteData.candidates,
+    questAutocompleteData.loaded,
     questDetails,
     quests,
     recentAutocompleteBoosts,
