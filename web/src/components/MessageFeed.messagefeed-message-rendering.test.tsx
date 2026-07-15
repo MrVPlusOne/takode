@@ -1074,6 +1074,51 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.getByLabelText("Thread Waiting for thread:q-1262: rework Implement queued to worker")).toBeTruthy();
   });
 
+  it("hides Thread Ready review attention rows while preserving the current status footer", () => {
+    const sid = "test-thread-ready-review-row-hidden";
+    const status = {
+      kind: "ready" as const,
+      label: "Thread Ready" as const,
+      threadKey: "q-1661",
+      questId: "q-1661",
+      summary: "thread-ready noise explained",
+      messageId: "ready-message",
+      timestamp: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    };
+    const notification: SessionNotification = {
+      id: "n-ready",
+      category: "review",
+      summary: "Thread ready: q-1661 | thread-ready noise explained",
+      timestamp: 1_700_000_000_000,
+      messageId: "ready-message",
+      threadKey: "q-1661",
+      questId: "q-1661",
+      done: false,
+    };
+    setStoreSessionState(sid, { leaderThreadStatuses: { "q-1661": status } });
+    setStoreNotifications(sid, [notification]);
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "ready-message",
+        role: "assistant",
+        content: "",
+        timestamp: 1_700_000_000_000,
+        metadata: {
+          threadStatusMarkers: [status],
+          threadRefs: [{ threadKey: "q-1661", questId: "q-1661", source: "explicit" }],
+        },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1661" />);
+
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Review" })).toBeNull();
+    expect(screen.queryByText("Thread ready: q-1661 | thread-ready noise explained")).toBeNull();
+    expect(screen.getByLabelText("Thread Ready for thread:q-1661: thread-ready noise explained")).toBeTruthy();
+  });
+
   it("renders system messages in the feed", () => {
     const sid = "test-system-msg";
     setStoreMessages(sid, [

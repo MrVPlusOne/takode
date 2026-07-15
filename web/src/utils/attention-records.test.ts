@@ -138,6 +138,72 @@ describe("attention records", () => {
     expect(selectAttentionChipRecords(records)).toHaveLength(0);
   });
 
+  it("keeps Thread Ready review notifications available for unread chips but out of feed ledger rows", () => {
+    const records = buildAttentionRecords({
+      leaderSessionId: "leader-1",
+      notifications: [
+        notification({
+          id: "n-ready",
+          category: "review",
+          summary: "Thread ready: q-941 | implementation complete",
+          threadKey: "q-941",
+          questId: "q-941",
+          messageId: "ready-message",
+        }),
+        notification({
+          id: "n-resolved-ready",
+          category: "review",
+          summary: "Thread ready: q-941 | earlier pass complete",
+          threadKey: "q-941",
+          questId: "q-941",
+          messageId: "resolved-ready-message",
+          done: true,
+          timestamp: 90,
+        }),
+      ],
+    });
+
+    expect(records).toEqual([
+      expect.objectContaining({
+        type: "review_ready",
+        priority: "review",
+        state: "resolved",
+        title: "Thread ready: q-941 | earlier pass complete",
+      }),
+      expect.objectContaining({
+        type: "review_ready",
+        priority: "review",
+        state: "unresolved",
+        title: "Thread ready: q-941 | implementation complete",
+      }),
+    ]);
+    expect(selectMainLedgerRecords(records)).toHaveLength(0);
+    expect(buildAttentionLedgerMessages(records, "main")).toHaveLength(0);
+    expect(buildAttentionLedgerMessages(records, "q-941")).toHaveLength(0);
+    expect(selectAttentionChipRecords(records)).toEqual([
+      expect.objectContaining({ id: "notification:n-ready", type: "review_ready" }),
+    ]);
+  });
+
+  it("continues rendering non-Thread Ready review attention rows in Main", () => {
+    const records = buildAttentionRecords({
+      leaderSessionId: "leader-1",
+      notifications: [
+        notification({
+          id: "n-review",
+          category: "review",
+          summary: "Review q-941 implementation details",
+          threadKey: "q-941",
+          questId: "q-941",
+        }),
+      ],
+    });
+
+    expect(records[0]).toMatchObject({ type: "review_ready", title: "Review q-941 implementation details" });
+    expect(selectMainLedgerRecords(records)).toHaveLength(1);
+    expect(buildAttentionLedgerMessages(records, "main")).toHaveLength(1);
+  });
+
   it("keeps active needs-input notifications out of the Main ledger", () => {
     const records = buildAttentionRecords({
       leaderSessionId: "leader-1",

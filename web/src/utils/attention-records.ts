@@ -102,6 +102,7 @@ export function selectMainLedgerRecords(
       (record) =>
         record.ledgerEligible &&
         record.type !== "quest_thread_created" &&
+        !isThreadReadyReviewRecord(record) &&
         !isRedundantActiveNotification(record, options.availableMessageIds),
     )
     .sort(compareAttentionRecordsChronologically);
@@ -189,6 +190,7 @@ function shouldRenderOwnerThreadNotificationRecord(
   availableMessageIds?: ReadonlySet<string>,
 ): boolean {
   if (!record.ledgerEligible) return false;
+  if (isThreadReadyReviewRecord(record)) return false;
   if (record.source.kind !== "notification") return false;
   if (record.type !== "needs_input" || record.priority !== "needs_input") return false;
   if (!isAttentionRecordActive(record)) return false;
@@ -198,6 +200,11 @@ function shouldRenderOwnerThreadNotificationRecord(
 
   const anchoredMessageId = record.route.messageId || record.source.messageId || null;
   return !anchoredMessageId || !availableMessageIds?.has(anchoredMessageId);
+}
+
+function isThreadReadyReviewRecord(record: AttentionRecord): boolean {
+  if (record.type !== "review_ready" || record.source.kind !== "notification") return false;
+  return /^thread ready\s*:/i.test(record.title.trim()) || /^thread ready\s*:/i.test(record.summary.trim());
 }
 
 export function mergeChronologicalMessages(messages: ChatMessage[], insertedMessages: ChatMessage[]): ChatMessage[] {
