@@ -302,6 +302,11 @@ export interface QuestListPreview {
   phasePreviewLines?: QuestListPreviewPhaseLine[];
 }
 
+export interface QuestAutocompleteCandidate {
+  questId: string;
+  title: string;
+}
+
 export function hasQuestReviewMetadata(quest: QuestmasterTask | null | undefined): quest is QuestDone {
   return quest?.status === "done" && quest.cancelled !== true && typeof quest.verificationInboxUnread === "boolean";
 }

@@ -11,7 +11,14 @@ import {
 import { useShallow } from "zustand/react/shallow";
 import { api } from "../api.js";
 import { CODEX_LOCAL_SLASH_COMMANDS } from "../../shared/codex-slash-commands.js";
-import type { ChatMessage, CodexAppReference, CodexSkillReference, QuestmasterTask, SdkSessionInfo } from "../types.js";
+import type {
+  ChatMessage,
+  CodexAppReference,
+  CodexSkillReference,
+  QuestAutocompleteCandidate,
+  QuestmasterTask,
+  SdkSessionInfo,
+} from "../types.js";
 import { useStore } from "../store.js";
 import { recordFrontendPerfEntry } from "../utils/frontend-perf-recorder.js";
 import {
@@ -57,10 +64,13 @@ interface UseComposerAutocompleteArgs {
 }
 
 const EMPTY_QUESTS: QuestmasterTask[] = [];
+const EMPTY_QUEST_AUTOCOMPLETE_CANDIDATES: QuestAutocompleteCandidate[] = [];
+const EMPTY_QUEST_DETAILS = new Map<string, QuestmasterTask>();
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = [];
 const EMPTY_AUTOCOMPLETE_CONTENTS: string[] = [];
 const EMPTY_SDK_SESSIONS: SdkSessionInfo[] = [];
 const EMPTY_SESSION_NAMES = new Map<string, string>();
+const NOOP_REFRESH_QUEST_AUTOCOMPLETE = async () => {};
 
 function nowMs(): number {
   return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
@@ -98,6 +108,27 @@ function sortAutocompleteCommands(
       return left.index - right.index;
     })
     .map((entry) => entry.command);
+}
+
+function mergeQuestAutocompleteCandidates(
+  autocompleteCandidates: readonly QuestAutocompleteCandidate[],
+  quests: readonly QuestmasterTask[],
+  questDetails: ReadonlyMap<string, QuestmasterTask>,
+): QuestAutocompleteCandidate[] {
+  const byId = new Map<string, QuestAutocompleteCandidate>();
+  const upsert = (candidate: QuestAutocompleteCandidate | QuestmasterTask) => {
+    const questId = candidate.questId?.trim();
+    if (!questId) return;
+    byId.set(questId.toLowerCase(), {
+      questId,
+      title: candidate.title?.trim() || questId,
+    });
+  };
+
+  for (const candidate of autocompleteCandidates) upsert(candidate);
+  for (const quest of quests) upsert(quest);
+  for (const quest of questDetails.values()) upsert(quest);
+  return Array.from(byId.values());
 }
 
 export function useComposerAutocomplete({
@@ -140,6 +171,31 @@ export function useComposerAutocomplete({
   const mentionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const quests = useStore((s) =>
     referenceMenuOpen && referenceKind === "quest" ? (s.quests ?? EMPTY_QUESTS) : EMPTY_QUESTS,
+  );
+  const questDetails = useStore((s) =>
+    referenceMenuOpen && referenceKind === "quest" ? (s.questDetails ?? EMPTY_QUEST_DETAILS) : EMPTY_QUEST_DETAILS,
+  );
+  const questAutocompleteData = useStore(
+    useShallow((s) => {
+      const refresh =
+        typeof s.refreshQuestAutocompleteCandidates === "function"
+          ? s.refreshQuestAutocompleteCandidates
+          : NOOP_REFRESH_QUEST_AUTOCOMPLETE;
+      if (!referenceMenuOpen || referenceKind !== "quest") {
+        return {
+          candidates: EMPTY_QUEST_AUTOCOMPLETE_CANDIDATES,
+          loaded: true,
+          loading: false,
+          refresh,
+        };
+      }
+      return {
+        candidates: s.questAutocompleteCandidates ?? EMPTY_QUEST_AUTOCOMPLETE_CANDIDATES,
+        loaded: s.questAutocompleteLoaded ?? true,
+        loading: s.questAutocompleteLoading ?? false,
+        refresh,
+      };
+    }),
   );
   const sessionReferenceData = useStore(
     useShallow((s) => {
@@ -412,7 +468,12 @@ export function useComposerAutocomplete({
     if (!referenceMenuOpen || referenceKind == null) return [];
     const startedAt = nowMs();
     if (referenceKind === "quest") {
-      const result = buildQuestReferenceSuggestions(quests, referenceQuery, recentAutocompleteBoosts.questBoosts);
+      const questCandidates = mergeQuestAutocompleteCandidates(questAutocompleteData.candidates, quests, questDetails);
+      const result = buildQuestReferenceSuggestions(
+        questCandidates,
+        referenceQuery,
+        recentAutocompleteBoosts.questBoosts,
+      );
       recordFrontendPerfEntry({
         kind: "composer_autocomplete",
         timestamp: Date.now(),
@@ -477,6 +538,8 @@ export function useComposerAutocomplete({
     });
     return suggestions;
   }, [
+    questAutocompleteData.candidates,
+    questDetails,
     quests,
     recentAutocompleteBoosts,
     referenceKind,
@@ -486,6 +549,23 @@ export function useComposerAutocomplete({
     sessionId,
     sessionNames,
     threadKey,
+  ]);
+
+  const referenceLoading =
+    referenceKind === "quest" &&
+    filteredReferenceSuggestions.length === 0 &&
+    (questAutocompleteData.loading || !questAutocompleteData.loaded);
+
+  useEffect(() => {
+    if (!referenceMenuOpen || referenceKind !== "quest") return;
+    if (questAutocompleteData.loaded || questAutocompleteData.loading) return;
+    void questAutocompleteData.refresh();
+  }, [
+    questAutocompleteData.loaded,
+    questAutocompleteData.loading,
+    questAutocompleteData.refresh,
+    referenceKind,
+    referenceMenuOpen,
   ]);
 
   const detectReferenceQuery = useCallback(
@@ -975,6 +1055,7 @@ export function useComposerAutocomplete({
     referenceMenuIndex,
     referenceKind,
     referenceQuery,
+    referenceLoading,
     selectReference,
     mentionMenuOpen,
     mentionResults,

@@ -322,6 +322,26 @@ describe("getQuestSummary", () => {
 });
 
 // ===========================================================================
+// listQuestAutocompleteCandidatesValidated
+// ===========================================================================
+describe("listQuestAutocompleteCandidatesValidated", () => {
+  it("uses the minimal autocomplete route with validators", async () => {
+    const candidates = [
+      { questId: "q-1517", title: "Fix 1P NLL prefix" },
+      { questId: "q-1513", title: "Build 300-example eval variants" },
+    ];
+    mockFetch.mockResolvedValueOnce(mockResponse(candidates, 200, { etag: '"autocomplete-v1"' }));
+
+    const result = await api.listQuestAutocompleteCandidatesValidated('"old-autocomplete"');
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/quests/_autocomplete");
+    expect(opts.headers).toEqual({ "If-None-Match": '"old-autocomplete"' });
+    expect(result).toEqual({ status: "fresh", data: candidates, etag: '"autocomplete-v1"' });
+  });
+});
+
+// ===========================================================================
 // getQuestValidated
 // ===========================================================================
 describe("getQuestValidated", () => {

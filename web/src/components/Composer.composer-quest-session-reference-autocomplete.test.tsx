@@ -41,6 +41,7 @@ const mockUpdateSettings = vi.fn().mockResolvedValue({});
 const mockRefreshSessionSkills = vi.fn().mockResolvedValue({ ok: true, skills: [] });
 const mockPrepareUserMessageImages = vi.fn();
 const mockDeletePreparedUserMessageImage = vi.fn().mockResolvedValue({ ok: true });
+const mockListQuestAutocompleteCandidatesValidated = vi.fn();
 
 // Build a controllable mock store state
 let mockStoreState: Record<string, unknown> = {};
@@ -58,6 +59,8 @@ vi.mock("../api.js", () => ({
     refreshSessionSkills: (...args: unknown[]) => mockRefreshSessionSkills(...args),
     prepareUserMessageImages: (...args: unknown[]) => mockPrepareUserMessageImages(...args),
     deletePreparedUserMessageImage: (...args: unknown[]) => mockDeletePreparedUserMessageImage(...args),
+    listQuestAutocompleteCandidatesValidated: (...args: unknown[]) =>
+      mockListQuestAutocompleteCandidatesValidated(...args),
     transcribe: (...args: unknown[]) => mockTranscribe(...args),
   },
 }));
@@ -262,6 +265,11 @@ function setupMockStore(
     sdkSessionTotals?: { added: number; removed: number };
     sdkSessions?: SdkSessionInfo[];
     quests?: QuestmasterTask[];
+    questDetails?: Map<string, QuestmasterTask>;
+    questAutocompleteCandidates?: Array<{ questId: string; title: string }>;
+    questAutocompleteLoaded?: boolean;
+    questAutocompleteLoading?: boolean;
+    questAutocompleteEtag?: string | null;
     sessionNames?: Map<string, string>;
     messages?: ChatMessage[];
     vscodeSelectionContext?: {
@@ -288,6 +296,11 @@ function setupMockStore(
     sdkSessionTotals,
     sdkSessions = [],
     quests = [],
+    questDetails = new Map(),
+    questAutocompleteCandidates = [],
+    questAutocompleteLoaded = true,
+    questAutocompleteLoading = false,
+    questAutocompleteEtag = null,
     sessionNames = new Map(),
     messages = [],
     vscodeSelectionContext = null,
@@ -346,6 +359,11 @@ function setupMockStore(
             ]
           : [],
     quests,
+    questDetails,
+    questAutocompleteCandidates,
+    questAutocompleteLoaded,
+    questAutocompleteLoading,
+    questAutocompleteEtag,
     sessionNames,
     messages: new Map(messages.length > 0 ? [["s1", messages]] : []),
     setComposerDraft: vi.fn((sessionId: string, draft: { text: string; images: unknown[] }) => {
@@ -425,6 +443,26 @@ function setupMockStore(
     removePermission: vi.fn(),
     diffFileStats: new Map(),
     focusComposer: vi.fn(),
+    refreshQuestAutocompleteCandidates: vi.fn(async () => {
+      mockStoreState.questAutocompleteLoading = true;
+      notifyMockStore();
+      try {
+        const result = await mockListQuestAutocompleteCandidatesValidated(mockStoreState.questAutocompleteEtag ?? null);
+        if (result?.status === "fresh") {
+          mockStoreState.questAutocompleteCandidates = result.data;
+          mockStoreState.questAutocompleteEtag = result.etag;
+        }
+        mockStoreState.questAutocompleteLoaded = true;
+      } finally {
+        mockStoreState.questAutocompleteLoading = false;
+        notifyMockStore();
+      }
+    }),
+    invalidateQuestAutocompleteCandidates: vi.fn(() => {
+      mockStoreState.questAutocompleteLoaded = false;
+      mockStoreState.questAutocompleteEtag = null;
+      notifyMockStore();
+    }),
   };
 }
 
@@ -490,6 +528,8 @@ beforeEach(() => {
   mockGetSettings.mockResolvedValue({ claudeDefaultModel: "" });
   mockUpdateSettings.mockResolvedValue({});
   mockRefreshSessionSkills.mockResolvedValue({ ok: true, skills: [] });
+  mockListQuestAutocompleteCandidatesValidated.mockReset();
+  mockListQuestAutocompleteCandidatesValidated.mockResolvedValue({ status: "fresh", data: [], etag: '"empty"' });
   mockPrepareUserMessageImages.mockReset();
   mockDeletePreparedUserMessageImage.mockReset();
   mockDeletePreparedUserMessageImage.mockResolvedValue({ ok: true });
@@ -552,6 +592,49 @@ describe("Composer quest/session reference autocomplete", () => {
     fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
 
     expect(textarea.value).toBe("Please check q-41 ");
+  });
+
+  it("fetches all-known quest candidates for partial ID autocomplete when the local quest cache is empty", async () => {
+    const autocompleteCandidates = deferred<{
+      status: "fresh";
+      data: Array<{ questId: string; title: string }>;
+      etag: string;
+    }>();
+    mockListQuestAutocompleteCandidatesValidated.mockReturnValueOnce(autocompleteCandidates.promise);
+    setupMockStore({
+      quests: [],
+      questAutocompleteLoaded: false,
+      questAutocompleteCandidates: [],
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, {
+      target: { value: "Please check q-15", selectionStart: "Please check q-15".length },
+    });
+
+    expect(screen.getByText("Loading quests...")).toBeTruthy();
+    expect(screen.queryByText(/No quests found/)).toBeNull();
+
+    await act(async () => {
+      autocompleteCandidates.resolve({
+        status: "fresh",
+        data: [
+          { questId: "q-1517", title: "Fix 1P NLL prefix" },
+          { questId: "q-1513", title: "Build 300-example eval variants" },
+          { questId: "q-1468", title: "Prepare 35B AI-judge eval PR branch" },
+        ],
+        etag: '"autocomplete-v1"',
+      });
+      await autocompleteCandidates.promise;
+    });
+
+    await waitFor(() => expect(screen.getByText("q-1517")).toBeTruthy());
+    expect(screen.getByText("Fix 1P NLL prefix")).toBeTruthy();
+    expect(screen.getByText("q-1513")).toBeTruthy();
+    expect(screen.getByText("Build 300-example eval variants")).toBeTruthy();
+    expect(screen.queryByText("q-1468")).toBeNull();
+    expect(mockListQuestAutocompleteCandidatesValidated).toHaveBeenCalledWith(null);
   });
 
   it("shows session label previews and inserts plain session references", () => {

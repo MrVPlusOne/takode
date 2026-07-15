@@ -835,6 +835,7 @@ export function Composer({
     referenceMenuIndex,
     referenceKind,
     referenceQuery,
+    referenceLoading,
     selectReference,
     mentionMenuOpen,
     mentionResults,
@@ -1835,6 +1836,7 @@ export function Composer({
                 referenceMenuIndex={referenceMenuIndex}
                 referenceKind={referenceKind}
                 referenceQuery={referenceQuery}
+                referenceLoading={referenceLoading}
                 selectReference={selectReference}
                 mentionMenuOpen={mentionMenuOpen}
                 mentionResults={mentionResults}

@@ -13,6 +13,7 @@ import type {
   PendingCodexInput,
   PendingUserUpload,
   PermissionRequest,
+  QuestAutocompleteCandidate,
   QuestmasterTask,
   SdkSessionInfo,
   SessionTaskEntry,
@@ -136,6 +137,10 @@ export interface AppState {
   questDetails: Map<string, QuestmasterTask>;
   questDetailEtags: Map<string, string>;
   quests: QuestmasterTask[];
+  questAutocompleteCandidates: QuestAutocompleteCandidate[];
+  questAutocompleteEtag: string | null;
+  questAutocompleteLoaded: boolean;
+  questAutocompleteLoading: boolean;
   questSummary: QuestSummary | null;
   questSummaryEtag: string | null;
   questsLoadedFull: boolean;
@@ -146,6 +151,8 @@ export interface AppState {
   replaceQuest: (updated: QuestmasterTask) => void;
   refreshQuests: (opts?: { background?: boolean; force?: boolean }) => Promise<void>;
   refreshQuestSummary: (opts?: { force?: boolean }) => Promise<void>;
+  refreshQuestAutocompleteCandidates: (opts?: { force?: boolean; background?: boolean }) => Promise<void>;
+  invalidateQuestAutocompleteCandidates: () => void;
   pendingSessions: Map<string, PendingSession>;
   addPendingSession: (session: PendingSession) => void;
   updatePendingSession: (id: string, updates: Partial<PendingSession>) => void;

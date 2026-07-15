@@ -621,6 +621,8 @@ export interface QuestSummary {
   counts: Record<import("./types.js").QuestStatus | "all", number>;
 }
 
+export type QuestAutocompleteCandidate = import("./types.js").QuestAutocompleteCandidate;
+
 export interface QuestListPageOptions {
   offset?: number;
   limit?: number;
@@ -1694,6 +1696,8 @@ export const api = {
     const qs = params.toString();
     return getValidated<QuestListPage>(`/quests/_page${qs ? `?${qs}` : ""}`, request);
   },
+  listQuestAutocompleteCandidatesValidated: (etag?: string | null) =>
+    getValidated<QuestAutocompleteCandidate[]>("/quests/_autocomplete", { etag }),
   getQuest: (id: string) => get<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`),
   getQuestValidated: (id: string, etag?: string | null) =>
     getValidated<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`, { etag }),

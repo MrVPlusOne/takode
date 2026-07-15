@@ -1,4 +1,10 @@
-import type { ChatMessage, CodexAppReference, CodexSkillReference, QuestmasterTask, SdkSessionInfo } from "../types.js";
+import type {
+  ChatMessage,
+  CodexAppReference,
+  CodexSkillReference,
+  QuestAutocompleteCandidate,
+  SdkSessionInfo,
+} from "../types.js";
 import type { CodexPermissionMode } from "../utils/backends.js";
 
 export const AUTOCOMPLETE_RECENCY_MAX_RECENT_TURNS = 24;
@@ -362,7 +368,7 @@ function compareReferenceSuggestions(left: ReferenceSuggestion, right: Reference
 }
 
 export function buildQuestReferenceSuggestions(
-  quests: readonly QuestmasterTask[],
+  quests: readonly QuestAutocompleteCandidate[],
   referenceQuery: string,
   questBoosts: ReadonlyMap<string, number>,
   limit = REFERENCE_MENU_LIMIT,

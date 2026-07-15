@@ -3,6 +3,7 @@
 const mockListQuests = vi.fn();
 const mockGetQuestSummary = vi.fn();
 const mockGetQuestSummaryValidated = vi.fn();
+const mockListQuestAutocompleteCandidatesValidated = vi.fn();
 const mockUpdateSettings = vi.fn();
 
 // vi.hoisted runs before any imports, ensuring browser globals are available when store.ts initializes.
@@ -59,6 +60,8 @@ vi.mock("./api.js", async (importOriginal) => {
       listQuests: (...args: unknown[]) => mockListQuests(...args),
       getQuestSummary: (...args: unknown[]) => mockGetQuestSummary(...args),
       getQuestSummaryValidated: (...args: unknown[]) => mockGetQuestSummaryValidated(...args),
+      listQuestAutocompleteCandidatesValidated: (...args: unknown[]) =>
+        mockListQuestAutocompleteCandidatesValidated(...args),
       updateSettings: (...args: unknown[]) => mockUpdateSettings(...args),
     },
   };
@@ -159,6 +162,7 @@ beforeEach(() => {
   mockListQuests.mockReset();
   mockGetQuestSummary.mockReset();
   mockGetQuestSummaryValidated.mockReset();
+  mockListQuestAutocompleteCandidatesValidated.mockReset();
   mockUpdateSettings.mockReset();
   mockUpdateSettings.mockResolvedValue({});
   localStorage.clear();
@@ -848,6 +852,49 @@ describe("Questmaster refresh", () => {
     expect(quests[1]).toBe(untouched);
     expect(mockListQuests).not.toHaveBeenCalled();
     expect(mockGetQuestSummaryValidated).toHaveBeenCalledWith('"summary-v1"');
+  });
+
+  it("caches minimal quest autocomplete candidates until invalidated", async () => {
+    mockListQuestAutocompleteCandidatesValidated.mockResolvedValueOnce({
+      status: "fresh",
+      data: [
+        { questId: "q-1517", title: "Fix 1P NLL prefix" },
+        { questId: "q-1513", title: "Build 300-example eval variants" },
+      ],
+      etag: '"autocomplete-v1"',
+    });
+
+    await useStore.getState().refreshQuestAutocompleteCandidates();
+
+    expect(useStore.getState().questAutocompleteCandidates).toEqual([
+      { questId: "q-1517", title: "Fix 1P NLL prefix" },
+      { questId: "q-1513", title: "Build 300-example eval variants" },
+    ]);
+    expect(useStore.getState().questAutocompleteLoaded).toBe(true);
+    expect(useStore.getState().questAutocompleteEtag).toBe('"autocomplete-v1"');
+    expect(mockListQuestAutocompleteCandidatesValidated).toHaveBeenCalledTimes(1);
+    expect(mockListQuestAutocompleteCandidatesValidated).toHaveBeenCalledWith(null);
+
+    await useStore.getState().refreshQuestAutocompleteCandidates();
+    expect(mockListQuestAutocompleteCandidatesValidated).toHaveBeenCalledTimes(1);
+
+    useStore.getState().invalidateQuestAutocompleteCandidates();
+    expect(useStore.getState().questAutocompleteLoaded).toBe(false);
+    expect(useStore.getState().questAutocompleteCandidates).toHaveLength(2);
+
+    mockListQuestAutocompleteCandidatesValidated.mockResolvedValueOnce({
+      status: "fresh",
+      data: [{ questId: "q-1518", title: "Fresh autocomplete quest" }],
+      etag: '"autocomplete-v2"',
+    });
+
+    await useStore.getState().refreshQuestAutocompleteCandidates();
+
+    expect(useStore.getState().questAutocompleteCandidates).toEqual([
+      { questId: "q-1518", title: "Fresh autocomplete quest" },
+    ]);
+    expect(mockListQuestAutocompleteCandidatesValidated).toHaveBeenCalledTimes(2);
+    expect(mockListQuestAutocompleteCandidatesValidated).toHaveBeenLastCalledWith(null);
   });
 });
 

@@ -1750,7 +1750,9 @@ function handleParsedMessage(
     }
 
     case "quest_list_updated": {
-      store.refreshQuestSummary({ force: true });
+      store.invalidateQuestAutocompleteCandidates();
+      void store.refreshQuestAutocompleteCandidates({ force: true, background: true });
+      void store.refreshQuestSummary({ force: true });
       break;
     }
 

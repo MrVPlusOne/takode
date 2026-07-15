@@ -199,3 +199,28 @@ describe("GET /api/quests/_page", () => {
     });
   });
 });
+
+describe("GET /api/quests/_autocomplete", () => {
+  it("returns minimal quest id/title candidates with validators", async () => {
+    const app = makeApp([
+      makeQuest({ questId: "q-1517", title: "Fix 1P NLL prefix", status: "in_progress", updatedAt: 100 }),
+      makeQuest({ questId: "q-1513", title: "Build 300-example eval variants", status: "in_progress", updatedAt: 90 }),
+    ]);
+
+    const first = await app.request("/api/quests/_autocomplete");
+
+    expect(first.status).toBe(200);
+    const etag = first.headers.get("etag");
+    expect(etag).toBeTruthy();
+    await expect(first.json()).resolves.toEqual([
+      { questId: "q-1517", title: "Fix 1P NLL prefix" },
+      { questId: "q-1513", title: "Build 300-example eval variants" },
+    ]);
+
+    const second = await app.request("/api/quests/_autocomplete", {
+      headers: { "if-none-match": etag ?? "" },
+    });
+
+    expect(second.status).toBe(304);
+  });
+});

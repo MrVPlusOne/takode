@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { createHash } from "node:crypto";
 import * as questStore from "../quest-store.js";
-import type { QuestFeedbackEntry, QuestmasterTask } from "../quest-types.js";
+import type { QuestAutocompleteCandidate, QuestFeedbackEntry, QuestmasterTask } from "../quest-types.js";
 import { hasQuestReviewMetadata } from "../quest-types.js";
 import {
   buildQuestListPreview,
@@ -475,6 +475,14 @@ export function createQuestRoutes(ctx: RouteContext) {
   api.get("/quests/_page", async (c) => {
     const page = await getQuestListPageAsync(await questStore.listQuests(), questListPageOptions(c));
     return cacheValidatedJson(c, page);
+  });
+
+  api.get("/quests/_autocomplete", async (c) => {
+    const candidates: QuestAutocompleteCandidate[] = (await questStore.listQuests()).map((quest) => ({
+      questId: quest.questId,
+      title: quest.title,
+    }));
+    return cacheValidatedJson(c, candidates);
   });
 
   api.get("/quests/:questId", async (c) => {

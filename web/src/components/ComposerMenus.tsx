@@ -19,6 +19,7 @@ export function ComposerMenus({
   referenceMenuIndex,
   referenceKind,
   referenceQuery,
+  referenceLoading,
   selectReference,
   mentionMenuOpen,
   mentionResults,
@@ -43,6 +44,7 @@ export function ComposerMenus({
   referenceMenuIndex: number;
   referenceKind: "quest" | "session" | null;
   referenceQuery: string;
+  referenceLoading: boolean;
   selectReference: (suggestion: ReferenceSuggestion) => void;
   mentionMenuOpen: boolean;
   mentionResults: MentionResult[];
@@ -145,7 +147,9 @@ export function ComposerMenus({
           ref={referenceMenuRef}
           className="absolute left-2 right-2 bottom-full mb-1 max-h-[240px] overflow-y-auto bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-20 py-1"
         >
-          {filteredReferenceSuggestions.length === 0 ? (
+          {referenceLoading ? (
+            <div className="px-3 py-2.5 text-[12px] text-cc-muted">Loading quests...</div>
+          ) : filteredReferenceSuggestions.length === 0 ? (
             <div className="px-3 py-2.5 text-[12px] text-cc-muted">
               No {referenceKind === "quest" ? "quests" : "sessions"} found for "
               {referenceKind === "quest" ? `q-${referenceQuery}` : `#${referenceQuery}`}"

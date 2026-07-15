@@ -2,7 +2,7 @@ import type { StateCreator } from "zustand";
 import { api } from "./api.js";
 import { reconcileQuestList } from "./store-equality.js";
 import type { AppState } from "./store-types.js";
-import type { QuestmasterTask } from "./types.js";
+import type { QuestAutocompleteCandidate, QuestmasterTask } from "./types.js";
 
 type StoreSet = Parameters<StateCreator<AppState>>[0];
 type QuestStoreSlice = Pick<
@@ -10,6 +10,10 @@ type QuestStoreSlice = Pick<
   | "questDetails"
   | "questDetailEtags"
   | "quests"
+  | "questAutocompleteCandidates"
+  | "questAutocompleteEtag"
+  | "questAutocompleteLoaded"
+  | "questAutocompleteLoading"
   | "questSummary"
   | "questSummaryEtag"
   | "questsLoadedFull"
@@ -20,6 +24,8 @@ type QuestStoreSlice = Pick<
   | "replaceQuest"
   | "refreshQuests"
   | "refreshQuestSummary"
+  | "refreshQuestAutocompleteCandidates"
+  | "invalidateQuestAutocompleteCandidates"
 >;
 
 function shouldPauseQuestBackgroundRefresh(): boolean {
@@ -80,10 +86,40 @@ function withoutQuestDetailEtag(etags: Map<string, string>, questId: string): Ma
 const QUEST_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 2_000;
 let pendingQuestBackgroundRefresh: Promise<void> | null = null;
 let lastQuestBackgroundRefreshAt = 0;
+let pendingQuestAutocompleteRefresh: Promise<void> | null = null;
 
 export function resetQuestRefreshStateForTests(): void {
   pendingQuestBackgroundRefresh = null;
   lastQuestBackgroundRefreshAt = 0;
+  pendingQuestAutocompleteRefresh = null;
+}
+
+function reconcileQuestAutocompleteCandidates(
+  current: QuestAutocompleteCandidate[],
+  incoming: QuestAutocompleteCandidate[],
+): QuestAutocompleteCandidate[] {
+  const deduped = new Map<string, QuestAutocompleteCandidate>();
+  for (const candidate of incoming) {
+    const questId = candidate.questId?.trim();
+    if (!questId) continue;
+    const key = questId.toLowerCase();
+    if (deduped.has(key)) continue;
+    deduped.set(key, {
+      questId,
+      title: candidate.title?.trim() || questId,
+    });
+  }
+  const next = Array.from(deduped.values());
+  if (
+    current.length === next.length &&
+    current.every((candidate, index) => {
+      const nextCandidate = next[index];
+      return candidate.questId === nextCandidate?.questId && candidate.title === nextCandidate.title;
+    })
+  ) {
+    return current;
+  }
+  return next;
 }
 
 export function createQuestStoreSlice(set: StoreSet, getState: () => AppState): QuestStoreSlice {
@@ -91,6 +127,10 @@ export function createQuestStoreSlice(set: StoreSet, getState: () => AppState): 
     questDetails: new Map(),
     questDetailEtags: new Map(),
     quests: [],
+    questAutocompleteCandidates: [],
+    questAutocompleteEtag: null,
+    questAutocompleteLoaded: false,
+    questAutocompleteLoading: false,
     questSummary: null,
     questSummaryEtag: null,
     questsLoadedFull: false,
@@ -180,6 +220,20 @@ export function createQuestStoreSlice(set: StoreSet, getState: () => AppState): 
       pendingQuestBackgroundRefresh = trackQuestRefresh(refreshPromise);
       return pendingQuestBackgroundRefresh;
     },
+    refreshQuestAutocompleteCandidates: async (opts) => {
+      const state = getState();
+      if (!opts?.force && state.questAutocompleteLoaded) return;
+      if (!opts?.force && pendingQuestAutocompleteRefresh) return pendingQuestAutocompleteRefresh;
+      const refreshPromise = refreshQuestAutocompleteCandidatesFromServer(set, getState);
+      pendingQuestAutocompleteRefresh = trackQuestAutocompleteRefresh(refreshPromise);
+      return pendingQuestAutocompleteRefresh;
+    },
+    invalidateQuestAutocompleteCandidates: () => {
+      set({
+        questAutocompleteLoaded: false,
+        questAutocompleteEtag: null,
+      });
+    },
   };
 }
 
@@ -206,6 +260,43 @@ function trackQuestRefresh(refreshPromise: Promise<void>): Promise<void> {
   const trackedRefresh = refreshPromise.finally(() => {
     if (pendingQuestBackgroundRefresh === trackedRefresh) {
       pendingQuestBackgroundRefresh = null;
+    }
+  });
+  return trackedRefresh;
+}
+
+async function refreshQuestAutocompleteCandidatesFromServer(set: StoreSet, getState: () => AppState): Promise<void> {
+  set({ questAutocompleteLoading: true });
+  try {
+    const currentEtag = getState().questAutocompleteEtag;
+    const result = await api.listQuestAutocompleteCandidatesValidated(currentEtag);
+    if (result.status === "fresh") {
+      set((state) => ({
+        questAutocompleteCandidates: reconcileQuestAutocompleteCandidates(
+          state.questAutocompleteCandidates,
+          result.data,
+        ),
+        questAutocompleteEtag: result.etag,
+        questAutocompleteLoaded: true,
+        questAutocompleteLoading: false,
+      }));
+      return;
+    }
+    set({
+      questAutocompleteLoaded: true,
+      questAutocompleteLoading: false,
+      ...(result.etag ? { questAutocompleteEtag: result.etag } : {}),
+    });
+  } catch {
+    // Preserve any stale candidates for autocomplete and avoid a perpetual loading state.
+    set({ questAutocompleteLoaded: true, questAutocompleteLoading: false });
+  }
+}
+
+function trackQuestAutocompleteRefresh(refreshPromise: Promise<void>): Promise<void> {
+  const trackedRefresh = refreshPromise.finally(() => {
+    if (pendingQuestAutocompleteRefresh === trackedRefresh) {
+      pendingQuestAutocompleteRefresh = null;
     }
   });
   return trackedRefresh;
