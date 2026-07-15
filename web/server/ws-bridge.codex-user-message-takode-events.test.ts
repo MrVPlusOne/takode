@@ -1101,6 +1101,141 @@ describe("Codex user_message takode events", () => {
     }
   });
 
+  it("does not deliver a herd turn_end for an internal Codex retry-boundary restart", async () => {
+    vi.useFakeTimers();
+    const leaderId = "orch-user-only-retry";
+    const workerId = "worker-user-only-retry";
+    const launcherSessions = new Map<string, any>([
+      [leaderId, { sessionId: leaderId, isOrchestrator: true, backendType: "claude", cwd: "/test" }],
+      [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "codex", cwd: "/test" }],
+    ]);
+
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn((id: string) => launcherSessions.get(id)),
+      getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
+      getSessionNum: vi.fn((id: string) => (id === leaderId ? 1 : 2)),
+    };
+    bridge.setLauncher(launcherMock as any);
+
+    const dispatcher = new HerdEventDispatcher(bridge as any, launcherMock as any);
+    bridge.setHerdEventDispatcher(dispatcher);
+    dispatcher.setupForOrchestrator(leaderId);
+
+    const leaderCli = makeCliSocket(leaderId);
+    bridge.handleCLIOpen(leaderCli, leaderId);
+    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-user-only-retry" }));
+
+    const workerBrowser = makeBrowserSocket(workerId);
+    const workerAdapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(workerId, workerAdapter1 as any);
+    emitCodexSessionReady(workerAdapter1, { cliSessionId: "thread-worker-user-only-retry" });
+    bridge.handleBrowserOpen(workerBrowser, workerId);
+
+    const eventSpy = vi.spyOn(bridge, "emitTakodeEvent");
+    const herdInjectSpy = vi.spyOn(bridge, "injectUserMessage");
+
+    try {
+      bridge.handleBrowserMessage(
+        workerBrowser,
+        JSON.stringify({
+          type: "user_message",
+          content: "continue after reconnect",
+          agentSource: { sessionId: leaderId, sessionLabel: "#1 leader" },
+        }),
+      );
+      await Promise.resolve();
+      workerAdapter1.emitTurnStarted("turn-worker-user-only-retry-1");
+      workerAdapter1.emitDisconnect("turn-worker-user-only-retry-1");
+      await Promise.resolve();
+
+      const workerAdapter2 = makeCodexAdapterMock();
+      bridge.attachCodexAdapter(workerId, workerAdapter2 as any);
+      workerAdapter2.emitSessionMeta({
+        cliSessionId: "thread-worker-user-only-retry",
+        model: "gpt-5.4",
+        cwd: "/test",
+        resumeSnapshot: {
+          threadId: "thread-worker-user-only-retry",
+          turnCount: 1,
+          threadStatus: "idle",
+          lastTurn: {
+            id: "turn-worker-user-only-retry-1",
+            status: "interrupted",
+            error: null,
+            items: [{ type: "userMessage", content: [{ type: "text", text: "continue after reconnect" }] }],
+          },
+        },
+      });
+
+      const retryBoundaryTurnEnds = eventSpy.mock.calls.filter(
+        ([sid, eventType, data]) =>
+          sid === workerId &&
+          eventType === "turn_end" &&
+          (data as { reason?: string } | undefined)?.reason === "codex_retry_pending_turn_restart",
+      );
+      expect(retryBoundaryTurnEnds).toHaveLength(0);
+      expect(
+        herdInjectSpy.mock.calls.some(
+          ([sid, content, source]) =>
+            sid === leaderId &&
+            source?.sessionId === "herd-events" &&
+            typeof content === "string" &&
+            content.includes("codex_retry_pending_turn_restart"),
+        ),
+      ).toBe(false);
+
+      workerAdapter2.emitTurnStarted("turn-worker-user-only-retry-2");
+      workerAdapter2.emitBrowserMessage({
+        type: "result",
+        data: {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "completed after retry",
+          duration_ms: 450,
+          duration_api_ms: 450,
+          num_turns: 1,
+          total_cost_usd: 0,
+          stop_reason: "completed",
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+          codex_turn_id: "turn-worker-user-only-retry-2",
+          uuid: "worker-user-only-retry-result",
+          session_id: workerId,
+        },
+      });
+      await Promise.resolve();
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+
+      const workerTurnEndCalls = eventSpy.mock.calls.filter(
+        ([sid, eventType]) => sid === workerId && eventType === "turn_end",
+      );
+      expect(workerTurnEndCalls).toHaveLength(1);
+      expect(workerTurnEndCalls[0]?.[2]).toEqual(expect.objectContaining({ reason: "result" }));
+
+      const turnEndHerdDeliveries = herdInjectSpy.mock.calls.filter(
+        ([sid, content, source]) =>
+          sid === leaderId &&
+          source?.sessionId === "herd-events" &&
+          typeof content === "string" &&
+          content.includes("turn_end"),
+      );
+      expect(turnEndHerdDeliveries).toHaveLength(1);
+    } finally {
+      dispatcher.destroy();
+      eventSpy.mockRestore();
+      herdInjectSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps a recoverable Codex planning turn resumable while auto-recovery is still in flight", async () => {
     vi.useFakeTimers();
     try {

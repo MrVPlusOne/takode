@@ -13,6 +13,11 @@ export const RECOVERY_REASONS = new Set([
   "user_message_timeout",
 ]);
 
+/** Reasons that are internal lifecycle bookkeeping boundaries, not
+ * leader-actionable turn completions. State cleanup and local callbacks still
+ * run, but no external turn_end herd event should be emitted. */
+export const SUPPRESSED_TAKODE_TURN_END_REASONS = new Set(["codex_retry_pending_turn_restart"]);
+
 export type InterruptSource = "user" | "leader" | "system";
 
 export interface ProvisionalStuckRecovery {
@@ -396,20 +401,22 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.compactedDuringTurn = false;
     session.provisionalStuckRecovery = null;
     session.activeTurnRoute = null;
-    deps.emitTakodeEvent(session.id, "turn_end", {
-      reason,
-      duration_ms: elapsed,
-      ...(interrupted ? { interrupted: true, interrupt_source: interruptSource } : {}),
-      ...(interruptOrigin ? { interrupt_origin: interruptOrigin } : {}),
-      ...(restartPrepOperationId ? { restart_prep_operation_id: restartPrepOperationId } : {}),
-      ...(compacted ? { compacted: true } : {}),
-      ...toolSummary,
-      turn_source: turnSource,
-      ...(activeTurnRoute?.threadKey ? { threadKey: activeTurnRoute.threadKey } : {}),
-      ...(activeTurnRoute?.questId ? { questId: activeTurnRoute.questId } : {}),
-    });
+    if (!SUPPRESSED_TAKODE_TURN_END_REASONS.has(reason)) {
+      deps.emitTakodeEvent(session.id, "turn_end", {
+        reason,
+        duration_ms: elapsed,
+        ...(interrupted ? { interrupted: true, interrupt_source: interruptSource } : {}),
+        ...(interruptOrigin ? { interrupt_origin: interruptOrigin } : {}),
+        ...(restartPrepOperationId ? { restart_prep_operation_id: restartPrepOperationId } : {}),
+        ...(compacted ? { compacted: true } : {}),
+        ...toolSummary,
+        turn_source: turnSource,
+        ...(activeTurnRoute?.threadKey ? { threadKey: activeTurnRoute.threadKey } : {}),
+        ...(activeTurnRoute?.questId ? { questId: activeTurnRoute.questId } : {}),
+      });
 
-    deps.onOrchestratorTurnEnd?.(session.id, reason);
+      deps.onOrchestratorTurnEnd?.(session.id, reason);
+    }
 
     // On normal result: promote the next queued turn (the CLI is ready for more).
     // On recovery/error: drain ALL queued turns -- the CLI that would process them

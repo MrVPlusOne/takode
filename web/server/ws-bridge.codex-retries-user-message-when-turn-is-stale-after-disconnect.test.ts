@@ -638,47 +638,89 @@ describe("Codex retries user message when turn is stale after disconnect", () =>
 
   it("keeps a user-only interrupted resume running after server-owned retry dispatch", async () => {
     const sid = "s-user-only-retry";
-    const adapter1 = makeCodexAdapterMock();
-    bridge.attachCodexAdapter(sid, adapter1 as any);
-    emitCodexSessionReady(adapter1, { cliSessionId: "thread-1" });
+    const eventSpy = vi.spyOn(bridge, "emitTakodeEvent");
+    try {
+      const adapter1 = makeCodexAdapterMock();
+      bridge.attachCodexAdapter(sid, adapter1 as any);
+      emitCodexSessionReady(adapter1, { cliSessionId: "thread-1" });
 
-    const browser = makeBrowserSocket(sid);
-    bridge.handleBrowserOpen(browser, sid);
+      const browser = makeBrowserSocket(sid);
+      bridge.handleBrowserOpen(browser, sid);
 
-    await bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({
-        type: "user_message",
-        content: "continue the implementation",
-      }),
-    );
+      await bridge.handleBrowserMessage(
+        browser,
+        JSON.stringify({
+          type: "user_message",
+          content: "continue the implementation",
+        }),
+      );
 
-    adapter1.emitDisconnect("turn-user-only");
+      adapter1.emitDisconnect("turn-user-only");
 
-    const adapter2 = makeCodexAdapterMock();
-    bridge.attachCodexAdapter(sid, adapter2 as any);
-    emitCodexSessionReady(adapter2, {
-      cliSessionId: "thread-user-only",
-      resumeSnapshot: {
-        threadId: "thread-user-only",
-        turnCount: 1,
-        threadStatus: "idle",
-        lastTurn: {
-          id: "turn-user-only",
-          status: "interrupted",
-          error: null,
-          items: [{ type: "userMessage", content: [{ type: "text", text: "continue the implementation" }] }],
+      const adapter2 = makeCodexAdapterMock();
+      bridge.attachCodexAdapter(sid, adapter2 as any);
+      emitCodexSessionReady(adapter2, {
+        cliSessionId: "thread-user-only",
+        resumeSnapshot: {
+          threadId: "thread-user-only",
+          turnCount: 1,
+          threadStatus: "idle",
+          lastTurn: {
+            id: "turn-user-only",
+            status: "interrupted",
+            error: null,
+            items: [{ type: "userMessage", content: [{ type: "text", text: "continue the implementation" }] }],
+          },
         },
-      },
-    });
+      });
 
-    const retried = adapter2.sendBrowserMessage.mock.calls[0]?.[0] as any;
-    expect(getCodexStartPendingInputs(retried)[0]?.content).toBe("continue the implementation");
-    expect(bridge.getSession(sid)?.isGenerating).toBe(true);
-    expect(getPendingCodexTurn(bridge.getSession(sid)!)).toMatchObject({
-      status: "dispatched",
-      turnTarget: "current",
-    });
+      const retried = adapter2.sendBrowserMessage.mock.calls[0]?.[0] as any;
+      expect(getCodexStartPendingInputs(retried)[0]?.content).toBe("continue the implementation");
+      expect(bridge.getSession(sid)?.isGenerating).toBe(true);
+      expect(getPendingCodexTurn(bridge.getSession(sid)!)).toMatchObject({
+        status: "dispatched",
+        turnTarget: "current",
+      });
+
+      const retryBoundaryTurnEnds = eventSpy.mock.calls.filter(
+        ([eventSid, eventType, data]) =>
+          eventSid === sid &&
+          eventType === "turn_end" &&
+          (data as { reason?: string } | undefined)?.reason === "codex_retry_pending_turn_restart",
+      );
+      expect(retryBoundaryTurnEnds).toHaveLength(0);
+
+      adapter2.emitTurnStarted("turn-user-only-retry-2");
+      adapter2.emitBrowserMessage({
+        type: "result",
+        data: {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "completed after retry",
+          duration_ms: 250,
+          duration_api_ms: 250,
+          num_turns: 1,
+          total_cost_usd: 0,
+          stop_reason: "completed",
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          codex_turn_id: "turn-user-only-retry-2",
+          uuid: "user-only-retry-result",
+          session_id: sid,
+        },
+      });
+      await Promise.resolve();
+
+      const resultTurnEnds = eventSpy.mock.calls.filter(
+        ([eventSid, eventType, data]) =>
+          eventSid === sid &&
+          eventType === "turn_end" &&
+          (data as { reason?: string } | undefined)?.reason === "result",
+      );
+      expect(resultTurnEnds).toHaveLength(1);
+    } finally {
+      eventSpy.mockRestore();
+    }
   });
 
   it("retries a stale acknowledged head turn so post-relaunch user input can drain", async () => {

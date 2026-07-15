@@ -315,6 +315,38 @@ describe("setGenerating(false) — queued turn handling", () => {
     expect(onGenerationStopped).toHaveBeenCalledWith(session, "result");
   });
 
+  it("suppresses external turn_end for Codex retry-boundary cleanup while preserving local teardown", () => {
+    const onGenerationStopped = vi.fn();
+    const onOrchestratorTurnEnd = vi.fn();
+    const recordGenerationEnded = vi.fn();
+    deps = makeDeps({
+      onGenerationStopped,
+      onOrchestratorTurnEnd,
+      recordGenerationEnded,
+      buildTurnToolSummary: vi.fn(() => ({ msgRange: { from: 0, to: 4 }, tools: { Bash: 1 } })),
+    });
+    deps.sessions.set(session.id, session);
+
+    markRunningFromUserDispatch(deps, session, "leader_message", null, 0, {
+      threadKey: "q-1659",
+      questId: "q-1659",
+    });
+    session.compactedDuringTurn = true;
+
+    setGenerating(deps, session, false, "codex_retry_pending_turn_restart");
+
+    const turnEndCalls = vi.mocked(deps.emitTakodeEvent).mock.calls.filter(([, eventType]) => eventType === "turn_end");
+    expect(turnEndCalls).toHaveLength(0);
+    expect(onOrchestratorTurnEnd).not.toHaveBeenCalled();
+    expect(recordGenerationEnded).toHaveBeenCalledWith(session, "codex_retry_pending_turn_restart", expect.any(Number));
+    expect(onGenerationStopped).toHaveBeenCalledWith(session, "codex_retry_pending_turn_restart");
+    expect(session.isGenerating).toBe(false);
+    expect(session.generationStartedAt).toBeNull();
+    expect(session.activeTurnRoute).toBeNull();
+    expect(session.compactedDuringTurn).toBe(false);
+    expect(session.userMessageIdsThisTurn).toEqual([0]);
+  });
+
   it("preserves explicit leader interrupt source when later system cleanup ends the turn", () => {
     setGenerating(deps, session, true, "initial");
 
