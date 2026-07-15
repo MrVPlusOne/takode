@@ -1531,16 +1531,7 @@ describe("ChatView leader open thread tabs", () => {
 
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
     expect(readLeaderSelectedThreadKey("s1")).toBe("q-941");
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-1648",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: transitionedAt,
-      },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("does not auto-select or reopen duplicate, replayed, non-Main, or tombstoned transition markers", async () => {

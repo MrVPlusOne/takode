@@ -3,6 +3,7 @@ import { canServerCandidateOpenThread, type LeaderOpenThreadTabsState } from "..
 import type { ChatMessage } from "../types.js";
 import { navigateToSessionThread } from "../utils/routing.js";
 import {
+  ALL_THREADS_KEY,
   MAIN_THREAD_KEY,
   isThreadAttachmentMarkerMessage,
   isThreadTransitionMarkerMessage,
@@ -148,7 +149,9 @@ export function useLeaderThreadAutoSwitch({
       if (!marker) continue;
       if (marker.targetThreadFreshness !== "new_quest_thread") continue;
       const sourceThreadKey = normalizeThreadKey(marker.sourceThreadKey || marker.sourceQuestId || "");
-      if (sourceThreadKey !== MAIN_THREAD_KEY) continue;
+      if (!transitionSourceCanAutoSwitch(sourceThreadKey)) continue;
+      const sourceStillSelected = sourceThreadKey === selectedThread;
+      if (!sourceStillSelected) continue;
       const targetThreadKey = normalizeThreadKey(marker.threadKey || marker.questId || "");
       if (!shouldPersistOpenThreadTab(targetThreadKey)) continue;
       const transitionedAt = marker.transitionedAt || marker.timestamp;
@@ -166,13 +169,7 @@ export function useLeaderThreadAutoSwitch({
       }
 
       const manualNavigationAfterTransition = lastManualThreadSelectionAtRef.current > transitionedAt;
-      if (
-        !nextSelectedThreadKey &&
-        selectedThread === MAIN_THREAD_KEY &&
-        routeAllowsAutoSelect &&
-        canOpenCandidate &&
-        !manualNavigationAfterTransition
-      ) {
+      if (!nextSelectedThreadKey && routeAllowsAutoSelect && canOpenCandidate && !manualNavigationAfterTransition) {
         nextSelectedThreadKey = targetThreadKey;
       }
     }
@@ -347,6 +344,12 @@ function routeAllowsAutoSelectFromSelectedSource({
   const hasSpecificRouteThread =
     hasThreadRoute === true && routeThreadKey !== null && routeThreadKey !== undefined && routeThreadKey !== "";
   return !hasSpecificRouteThread || normalizeThreadKey(routeThreadKey ?? "") === selectedThread;
+}
+
+function transitionSourceCanAutoSwitch(sourceThreadKey: string): boolean {
+  const normalized = normalizeThreadKey(sourceThreadKey);
+  if (!normalized || normalized === ALL_THREADS_KEY) return false;
+  return normalized === MAIN_THREAD_KEY || shouldPersistOpenThreadTab(normalized);
 }
 
 function threadTransitionMarkerKey(message: ChatMessage): string | null {
