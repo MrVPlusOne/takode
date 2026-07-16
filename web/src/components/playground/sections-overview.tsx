@@ -78,7 +78,6 @@ import {
   PLAYGROUND_BROKEN_SESSION_ID,
   PLAYGROUND_CODEX_PENDING_SESSION_ID,
   PLAYGROUND_CODEX_TERMINAL_SESSION_ID,
-  PLAYGROUND_CODEX_UPSTREAM_PROGRESS_SESSION_ID,
   PLAYGROUND_DISCONNECTED_SESSION_ID,
   PLAYGROUND_HERD_GROUP_THEMES,
   PLAYGROUND_LOADING_SESSION_ID,
@@ -653,15 +652,6 @@ export function PlaygroundOverviewSections() {
       >
         <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[320px]">
           <MessageFeed sessionId={PLAYGROUND_CODEX_PENDING_SESSION_ID} />
-        </div>
-      </Section>
-
-      <Section
-        title="Codex Copilot Backend Progress"
-        description="Copilot/MAI LiteLLM sessions can show sanitized upstream metadata progress, and render backend-provided safe summary content when present."
-      >
-        <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[320px]">
-          <MessageFeed sessionId={PLAYGROUND_CODEX_UPSTREAM_PROGRESS_SESSION_ID} />
         </div>
       </Section>
 

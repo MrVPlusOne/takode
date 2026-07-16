@@ -10,7 +10,6 @@ export const PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID = "playground-sparse-thr
 export const PLAYGROUND_LOADING_SESSION_ID = "playground-loading-feed";
 export const PLAYGROUND_CODEX_TERMINAL_SESSION_ID = "playground-codex-terminal-feed";
 export const PLAYGROUND_CODEX_PENDING_SESSION_ID = "playground-codex-pending-feed";
-export const PLAYGROUND_CODEX_UPSTREAM_PROGRESS_SESSION_ID = "playground-codex-upstream-progress-feed";
 export const PLAYGROUND_REPEATED_ERROR_SESSION_ID = "playground-repeated-error-feed";
 export const PLAYGROUND_STARTING_SESSION_ID = "playground-chat-starting";
 export const PLAYGROUND_RESUMING_SESSION_ID = "playground-chat-resuming";

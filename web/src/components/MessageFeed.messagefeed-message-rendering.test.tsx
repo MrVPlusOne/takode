@@ -1279,35 +1279,6 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.queryByText("Model responding")).toBeNull();
   });
 
-  it("renders Copilot upstream progress separately from Codex thinking text", () => {
-    const sid = "test-copilot-upstream-progress";
-    setStoreSessionState(sid, {
-      backend_type: "codex",
-      codex_upstream_progress: {
-        source: "copilot",
-        phase: "safe_content_delta",
-        active: true,
-        event_type: "response.reasoning_summary_text.delta",
-        event_count: 4,
-        request_id: "test-request",
-        timestamp: Date.now(),
-        elapsed_ms: 1200,
-        has_safe_content: true,
-        item_type: "reasoning",
-        safe_content: "Backend-provided safe summary.",
-      },
-    });
-    setStoreStatus(sid, "running");
-    setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Start the Copilot-backed turn." })]);
-
-    render(<MessageFeed sessionId={sid} />);
-
-    expect(screen.getByTestId("codex-upstream-progress")).toBeTruthy();
-    expect(screen.getByText("Copilot backend progress")).toBeTruthy();
-    expect(screen.getByText("Backend-provided safe summary.")).toBeTruthy();
-    expect(screen.queryByText("Thinking")).toBeNull();
-  });
-
   it("shows only a date marker for same-day messages, no minute marks", () => {
     // Same-day minute marks were removed (q-249) -- only date-change markers remain.
     // The first message in a session always gets a date marker.

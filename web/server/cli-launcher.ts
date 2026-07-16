@@ -24,8 +24,6 @@ import {
   getOrchestratorGuardrails as renderOrchestratorGuardrails,
 } from "./cli-launcher-instructions.js";
 import { MissingCodexBinaryError, prepareCodexSpawn } from "./cli-launcher-codex.js";
-import type { CodexUpstreamProgressProxyRegistry } from "./codex-upstream-progress-proxy.js";
-import { configureCodexUpstreamProgressProxy } from "./codex-upstream-progress-config.js";
 import { stripInheritedTelemetryEnv, withNonInteractiveGitEditorEnv } from "./cli-launcher-env.js";
 import { prepareWorktreeSessionArtifacts } from "./cli-launcher-worktree.js";
 import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
@@ -158,7 +156,6 @@ export class CliLauncher {
     | null = null;
   /** Callback to resolve env profile variables by slug (set by server bootstrap). */
   private envResolver: ((slug: string) => Promise<Record<string, string> | null>) | null = null;
-  private codexUpstreamProgressProxy: CodexUpstreamProgressProxyRegistry | null = null;
 
   /** Callback for herd relationship changes (set by server bootstrap). */
   onHerdChange: ((event: HerdChangeEvent) => void) | null = null;
@@ -170,19 +167,10 @@ export class CliLauncher {
   /** Integer session number → UUID */
   private sessionByNum = new Map<number, string>();
 
-  constructor(
-    port: number,
-    options?: {
-      serverId?: string;
-      serverSlug?: string;
-      memorySessionSpaceSlug?: string;
-      codexUpstreamProgressProxy?: CodexUpstreamProgressProxyRegistry | null;
-    },
-  ) {
+  constructor(port: number, options?: { serverId?: string; serverSlug?: string; memorySessionSpaceSlug?: string }) {
     this.port = port;
     this.serverId = options?.serverId?.trim() || "unknown-server";
     this.serverSlug = options?.serverSlug?.trim() || "local";
-    this.codexUpstreamProgressProxy = options?.codexUpstreamProgressProxy ?? null;
     this.memorySessionSpaceSlug = normalizeMemorySessionSpaceSlug(
       options?.memorySessionSpaceSlug ?? process.env[COMPANION_MEMORY_SPACE_SLUG_ENV],
     );
@@ -1265,13 +1253,6 @@ export class CliLauncher {
       spawnEnv = spawnSpec.spawnEnv;
       spawnCwd = spawnSpec.spawnCwd;
       sandboxMode = spawnSpec.sandboxMode;
-      await configureCodexUpstreamProgressProxy({
-        sessionId,
-        registry: this.codexUpstreamProgressProxy,
-        spawnCmd,
-        spawnEnv,
-        containerized: !!options.containerId,
-      });
       if (typeof spawnSpec.codexLeaderRecycleThresholdTokens === "number") {
         info.codexLeaderRecycleThresholdTokens = spawnSpec.codexLeaderRecycleThresholdTokens;
       } else {

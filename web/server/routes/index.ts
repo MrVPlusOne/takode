@@ -25,7 +25,6 @@ import { createRecordingsRoutes } from "./recordings.js";
 import { createSystemRoutes } from "./system.js";
 import { createTimerRoutes } from "./timers.js";
 import { createResourceLeaseRoutes } from "./resource-leases.js";
-import { createCodexUpstreamProgressProxyRoutes } from "./codex-upstream-progress-proxy.js";
 import { createStreamRoutes } from "./streams.js";
 import { createMemoryRoutes } from "./memory.js";
 import { createLogsRoutes } from "./logs.js";
@@ -159,7 +158,6 @@ export function createRoutes(
   perfTracer?: PerfTracer,
   sleepInhibitor?: import("../sleep-inhibitor.js").SleepInhibitor,
   resourceLeaseManager?: import("../resource-lease-manager.js").ResourceLeaseManager,
-  codexUpstreamProgressProxy?: import("../codex-upstream-progress-proxy.js").CodexUpstreamProgressProxy,
 ) {
   const api = new Hono();
 
@@ -208,7 +206,6 @@ export function createRoutes(
     imageStore,
     pushoverNotifier,
     sleepInhibitor,
-    codexUpstreamProgressProxy,
     options,
     perfTracer,
     resolveId,
@@ -237,7 +234,6 @@ export function createRoutes(
   api.route("/", createQuestRoutes(ctx));
   api.route("/", createTimerRoutes(ctx));
   api.route("/", createResourceLeaseRoutes(ctx));
-  api.route("/", createCodexUpstreamProgressProxyRoutes(ctx));
   api.route("/", createStreamRoutes(ctx));
   api.route("/", createMemoryRoutes(ctx));
 
