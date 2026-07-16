@@ -37,11 +37,15 @@ function leaderTabs(keys: string[] = []): LeaderOpenThreadTabsState {
 function transitionMarker({
   sourceThreadKey,
   targetThreadKey,
+  markerKey = `thread-transition:${sourceThreadKey}->${targetThreadKey}:1`,
+  sourceMessageIndex = 1,
   transitionedAt = 100,
   targetThreadFreshness = "new_quest_thread",
 }: {
   sourceThreadKey: string;
   targetThreadKey: string;
+  markerKey?: string;
+  sourceMessageIndex?: number;
   transitionedAt?: number;
   targetThreadFreshness?: ThreadTransitionMarker["targetThreadFreshness"];
 }): ChatMessage {
@@ -56,14 +60,14 @@ function transitionMarker({
         type: "thread_transition_marker",
         id: `transition-${sourceThreadKey}-${targetThreadKey}`,
         timestamp: transitionedAt,
-        markerKey: `thread-transition:${sourceThreadKey}->${targetThreadKey}:1`,
+        markerKey,
         sourceThreadKey,
         ...(sourceThreadKey.startsWith("q-") ? { sourceQuestId: sourceThreadKey } : {}),
         threadKey: targetThreadKey,
         questId: targetThreadKey,
         transitionedAt,
         reason: "route_switch",
-        sourceMessageIndex: 1,
+        sourceMessageIndex,
         targetThreadFreshness,
       },
     },
@@ -74,27 +78,33 @@ function AutoSwitchHarness({
   messages,
   selectedThreadKey,
   routeThreadKey = selectedThreadKey,
+  lastManualThreadSelectionAt = 0,
   openThreadTab = () => {},
+  openThreadTabKeys,
   setSelectedThreadKey = () => {},
 }: {
   messages: ChatMessage[];
   selectedThreadKey: string;
   routeThreadKey?: string | null;
+  lastManualThreadSelectionAt?: number;
   openThreadTab?: AutoSwitchProps["openThreadTab"];
+  openThreadTabKeys?: ReadonlyArray<string>;
   setSelectedThreadKey?: AutoSwitchProps["setSelectedThreadKey"];
 }) {
   const lastManualThreadSelectionAtRef = useRef(0);
+  lastManualThreadSelectionAtRef.current = lastManualThreadSelectionAt;
+  const effectiveOpenThreadTabKeys = openThreadTabKeys ?? [selectedThreadKey].filter((key) => key.startsWith("q-"));
   useLeaderThreadAutoSwitch({
     allMessages: messages,
     transitionMessages: messages,
-    authoritativeLeaderOpenThreadTabs: leaderTabs([selectedThreadKey].filter((key) => key.startsWith("q-"))),
+    authoritativeLeaderOpenThreadTabs: leaderTabs([...effectiveOpenThreadTabKeys]),
     hasThreadRoute: true,
     historyLoading: false,
     isLeaderSession: true,
     lastManualThreadSelectionAtRef,
     navigationThreadRows: [],
     openThreadTab,
-    openThreadTabKeys: [selectedThreadKey].filter((key) => key.startsWith("q-")),
+    openThreadTabKeys: effectiveOpenThreadTabKeys,
     preview: false,
     questStatusByKey: new Map(),
     routeThreadKey,
@@ -131,6 +141,57 @@ describe("useLeaderThreadAutoSwitch transition markers", () => {
       placement: "first",
     });
     expect(routingMocks.navigateToSessionThread).toHaveBeenCalledWith("s1", "q-1002");
+  });
+
+  it("does not reselect the same target after the user manually returns to Main", async () => {
+    const openThreadTab = vi.fn<AutoSwitchProps["openThreadTab"]>();
+    const setSelectedThreadKey = vi.fn<AutoSwitchProps["setSelectedThreadKey"]>();
+    const firstMarker = transitionMarker({
+      sourceThreadKey: "q-1670",
+      targetThreadKey: "q-1671",
+      transitionedAt: 100,
+    });
+    const laterFreshLookingMarker = transitionMarker({
+      sourceThreadKey: "main",
+      targetThreadKey: "q-1671",
+      markerKey: "thread-transition:main->q-1671:99",
+      sourceMessageIndex: 99,
+      transitionedAt: 200,
+    });
+    const { rerender } = render(
+      <AutoSwitchHarness
+        messages={[firstMarker]}
+        openThreadTab={openThreadTab}
+        selectedThreadKey="q-1670"
+        setSelectedThreadKey={setSelectedThreadKey}
+      />,
+    );
+
+    await waitFor(() => expect(setSelectedThreadKey).toHaveBeenCalledWith("q-1671"));
+    expect(routingMocks.navigateToSessionThread).toHaveBeenCalledWith("s1", "q-1671");
+
+    openThreadTab.mockClear();
+    setSelectedThreadKey.mockClear();
+    routingMocks.navigateToSessionThread.mockClear();
+    viewportMocks.persistLeaderSelectedThreadKey.mockClear();
+    viewportMocks.requestThreadViewportSnapshot.mockClear();
+
+    rerender(
+      <AutoSwitchHarness
+        lastManualThreadSelectionAt={150}
+        messages={[firstMarker, laterFreshLookingMarker]}
+        openThreadTab={openThreadTab}
+        openThreadTabKeys={["q-1671"]}
+        routeThreadKey="main"
+        selectedThreadKey="main"
+        setSelectedThreadKey={setSelectedThreadKey}
+      />,
+    );
+
+    await waitFor(() => expect(openThreadTab).not.toHaveBeenCalled());
+    expect(setSelectedThreadKey).not.toHaveBeenCalled();
+    expect(routingMocks.navigateToSessionThread).not.toHaveBeenCalled();
+    expect(viewportMocks.persistLeaderSelectedThreadKey).not.toHaveBeenCalled();
   });
 
   it("does not steal focus when the transition source is not the selected thread", async () => {

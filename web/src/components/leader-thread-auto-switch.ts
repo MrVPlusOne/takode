@@ -72,6 +72,7 @@ export function useLeaderThreadAutoSwitch({
   const initializedTransitionMarkerKeysRef = useRef(false);
   const baselineTransitionMarkersAfterHistoryLoadRef = useRef(false);
   const observedTransitionMarkerKeysRef = useRef<Set<string>>(new Set());
+  const observedTransitionTargetKeysRef = useRef<Set<string>>(new Set());
   const liveTransitionMarkerKeysDuringHistoryLoadRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -81,6 +82,7 @@ export function useLeaderThreadAutoSwitch({
     initializedTransitionMarkerKeysRef.current = false;
     baselineTransitionMarkersAfterHistoryLoadRef.current = false;
     observedTransitionMarkerKeysRef.current = new Set();
+    observedTransitionTargetKeysRef.current = new Set();
     liveTransitionMarkerKeysDuringHistoryLoadRef.current = new Set();
   }, [sessionId]);
 
@@ -125,17 +127,26 @@ export function useLeaderThreadAutoSwitch({
       initializedTransitionMarkerKeysRef.current = true;
       baselineTransitionMarkersAfterHistoryLoadRef.current = false;
       observedTransitionMarkerKeysRef.current = currentMarkerKeys;
+      observedTransitionTargetKeysRef.current = unionTransitionTargetKeys(
+        observedTransitionTargetKeysRef.current,
+        markerMessages,
+      );
       liveTransitionMarkerKeysDuringHistoryLoadRef.current = new Set();
       return;
     }
 
     if (unseenMarkers.length === 0 && carriedLiveMarkers.length === 0) {
       observedTransitionMarkerKeysRef.current = currentMarkerKeys;
+      observedTransitionTargetKeysRef.current = unionTransitionTargetKeys(
+        observedTransitionTargetKeysRef.current,
+        markerMessages,
+      );
       liveTransitionMarkerKeysDuringHistoryLoadRef.current = new Set();
       return;
     }
 
     const transitionMarkersToProcess = carriedLiveMarkers.length > 0 ? carriedLiveMarkers : unseenMarkers;
+    const seenTransitionTargetKeys = new Set(observedTransitionTargetKeysRef.current);
     let nextSelectedThreadKey: string | null = null;
     const selectedThread = normalizeThreadKey(selectedThreadKey || MAIN_THREAD_KEY);
     const routeAllowsAutoSelect = routeAllowsAutoSelectFromSelectedSource({
@@ -147,13 +158,15 @@ export function useLeaderThreadAutoSwitch({
     for (const message of transitionMarkersToProcess) {
       const marker = message.metadata?.threadTransitionMarker;
       if (!marker) continue;
+      const targetThreadKey = normalizeThreadKey(marker.threadKey || marker.questId || "");
+      if (!shouldPersistOpenThreadTab(targetThreadKey)) continue;
+      if (seenTransitionTargetKeys.has(targetThreadKey)) continue;
+      seenTransitionTargetKeys.add(targetThreadKey);
       if (marker.targetThreadFreshness !== "new_quest_thread") continue;
       const sourceThreadKey = normalizeThreadKey(marker.sourceThreadKey || marker.sourceQuestId || "");
       if (!transitionSourceCanAutoSwitch(sourceThreadKey)) continue;
       const sourceStillSelected = sourceThreadKey === selectedThread;
       if (!sourceStillSelected) continue;
-      const targetThreadKey = normalizeThreadKey(marker.threadKey || marker.questId || "");
-      if (!shouldPersistOpenThreadTab(targetThreadKey)) continue;
       const transitionedAt = marker.transitionedAt || marker.timestamp;
       const wasOpen = openThreadTabKeys.includes(targetThreadKey);
       const targetCompleted = leaderThreadTargetHasExplicitCompletion({
@@ -175,6 +188,7 @@ export function useLeaderThreadAutoSwitch({
     }
 
     observedTransitionMarkerKeysRef.current = currentMarkerKeys;
+    observedTransitionTargetKeysRef.current = seenTransitionTargetKeys;
     initializedTransitionMarkerKeysRef.current = true;
     baselineTransitionMarkersAfterHistoryLoadRef.current = false;
     liveTransitionMarkerKeysDuringHistoryLoadRef.current = new Set();
@@ -356,6 +370,25 @@ function threadTransitionMarkerKey(message: ChatMessage): string | null {
   const marker = message.metadata?.threadTransitionMarker;
   if (!marker) return null;
   return marker.markerKey || marker.id || message.id;
+}
+
+function threadTransitionTargetKey(message: ChatMessage): string | null {
+  const marker = message.metadata?.threadTransitionMarker;
+  if (!marker) return null;
+  const targetThreadKey = normalizeThreadKey(marker.threadKey || marker.questId || "");
+  return shouldPersistOpenThreadTab(targetThreadKey) ? targetThreadKey : null;
+}
+
+function unionTransitionTargetKeys(
+  previousTargetKeys: ReadonlySet<string>,
+  messages: ReadonlyArray<ChatMessage>,
+): Set<string> {
+  const nextTargetKeys = new Set(previousTargetKeys);
+  for (const message of messages) {
+    const targetThreadKey = threadTransitionTargetKey(message);
+    if (targetThreadKey) nextTargetKeys.add(targetThreadKey);
+  }
+  return nextTargetKeys;
 }
 
 function threadAttachmentMarkerKey(message: ChatMessage): string | null {
