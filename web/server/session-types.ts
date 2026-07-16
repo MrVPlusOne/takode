@@ -1249,6 +1249,38 @@ export interface BufferedBrowserEvent {
 
 export type BackendType = "claude" | "codex" | "claude-sdk";
 
+export interface CodexUpstreamProgressState {
+  source: "copilot";
+  phase:
+    | "stream_start"
+    | "stream_event"
+    | "response_created"
+    | "response_in_progress"
+    | "reasoning_started"
+    | "reasoning_done"
+    | "output_item_started"
+    | "output_item_done"
+    | "content_part_started"
+    | "content_part_done"
+    | "safe_content_delta"
+    | "safe_content_done"
+    | "response_completed"
+    | "response_failed"
+    | "response_incomplete"
+    | "stream_done";
+  active: boolean;
+  event_type: string;
+  event_count: number;
+  request_id: string;
+  timestamp: number;
+  elapsed_ms: number;
+  has_safe_content: boolean;
+  item_type?: string;
+  part_type?: string;
+  status?: string;
+  safe_content?: string;
+}
+
 /** Exhaustive check — TypeScript errors if a switch doesn't cover all cases. */
 export function assertNever(x: never, msg?: string): never {
   throw new Error(msg ?? `Unexpected value: ${JSON.stringify(x)}`);
@@ -1444,6 +1476,8 @@ export interface SessionState {
   claimedQuestLeaderSessionId?: string;
   /** Codex-only visual stage for image-attached user sends. */
   codex_image_send_stage?: "uploading" | "processing" | "responding" | null;
+  /** Copilot/MAI LiteLLM upstream stream progress, sanitized and UI-only. */
+  codex_upstream_progress?: CodexUpstreamProgressState | null;
   /** Per-session notification inbox entries (server-only, never from CLI) */
   notifications?: SessionNotification[];
   /** Server-authoritative attention records for Main ledger rows and top chips. */

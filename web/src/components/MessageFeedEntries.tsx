@@ -45,6 +45,7 @@ import {
 } from "../utils/thread-projection.js";
 import { AttentionLedgerRow } from "./AttentionLedgerRow.js";
 import { isAttentionLedgerMessage } from "../utils/attention-records.js";
+import { CodexUpstreamProgressIndicator } from "./CodexUpstreamProgressIndicator.js";
 
 function useExpandForScrollTarget(
   sessionId: string,
@@ -1713,6 +1714,7 @@ export const FeedFooter = memo(function FeedFooter({
   const rawThinkingText = useStore((s) => s.streamingThinking.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
+  const codexUpstreamProgress = useStore((s) => s.sessions.get(sessionId)?.codex_upstream_progress);
   const streamingText = useMemo(
     () => (isCodexSession ? getCommittedCodexStreamingText(rawStreamingText || "") : rawStreamingText || ""),
     [isCodexSession, rawStreamingText],
@@ -1767,6 +1769,14 @@ export const FeedFooter = memo(function FeedFooter({
           </div>
         </div>
       )}
+
+      {isCodexSession &&
+        !rawStreamingText &&
+        !rawThinkingText &&
+        sessionStatus === "running" &&
+        codexUpstreamProgress?.active && (
+          <CodexUpstreamProgressIndicator progress={codexUpstreamProgress} sessionId={sessionId} />
+        )}
 
       {rawStreamingText && (
         <div

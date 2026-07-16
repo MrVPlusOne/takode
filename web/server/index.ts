@@ -42,6 +42,7 @@ import { matchWebSocketRoute } from "./websocket-routes.js";
 import { TimerManager } from "./timer-manager.js";
 import { ResourceLeaseManager } from "./resource-lease-manager.js";
 import { ResourceLeaseStore } from "./resource-lease-store.js";
+import { CodexUpstreamProgressProxy } from "./codex-upstream-progress-proxy.js";
 import { ImageStore } from "./image-store.js";
 import { IdleManager } from "./idle-manager.js";
 import { SleepInhibitor } from "./sleep-inhibitor.js";
@@ -107,7 +108,12 @@ initTreeGroupStoreForServer({ serverId, port });
 initNewSessionDefaultsStoreForServer({ serverId });
 const sessionStore = new SessionStore(undefined, port);
 const wsBridge = new WsBridge();
-const launcher = new CliLauncher(port, { serverId, serverSlug });
+const codexUpstreamProgressProxy = new CodexUpstreamProgressProxy({
+  port,
+  emitProgress: (sessionId, progress) =>
+    wsBridge.broadcastToSession(sessionId, { type: "session_update", session: { codex_upstream_progress: progress } }),
+});
+const launcher = new CliLauncher(port, { serverId, serverSlug, codexUpstreamProgressProxy });
 const worktreeTracker = new WorktreeTracker();
 const CONTAINER_STATE_PATH = join(homedir(), ".companion", "containers.json");
 const terminalManager = new TerminalManager();
@@ -819,6 +825,7 @@ app.route(
     perfTracer,
     sleepInhibitor,
     resourceLeaseManager,
+    codexUpstreamProgressProxy,
   ),
 );
 

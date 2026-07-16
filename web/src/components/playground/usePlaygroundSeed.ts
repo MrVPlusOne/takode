@@ -11,6 +11,7 @@ import {
   PLAYGROUND_BROKEN_SESSION_ID,
   PLAYGROUND_CODEX_PENDING_SESSION_ID,
   PLAYGROUND_CODEX_TERMINAL_SESSION_ID,
+  PLAYGROUND_CODEX_UPSTREAM_PROGRESS_SESSION_ID,
   PLAYGROUND_DISCONNECTED_SESSION_ID,
   PLAYGROUND_LOADING_SESSION_ID,
   PLAYGROUND_RECOVERING_SESSION_ID,
@@ -52,6 +53,7 @@ export function usePlaygroundSeed() {
       PLAYGROUND_LOADING_SESSION_ID,
       PLAYGROUND_CODEX_TERMINAL_SESSION_ID,
       PLAYGROUND_CODEX_PENDING_SESSION_ID,
+      PLAYGROUND_CODEX_UPSTREAM_PROGRESS_SESSION_ID,
       PLAYGROUND_REPEATED_ERROR_SESSION_ID,
       PLAYGROUND_STARTING_SESSION_ID,
       PLAYGROUND_RESUMING_SESSION_ID,
@@ -990,6 +992,42 @@ export function usePlaygroundSeed() {
         cancelable: false,
         draftImages: [],
       },
+    ]);
+
+    store.addSession({
+      ...session,
+      session_id: PLAYGROUND_CODEX_UPSTREAM_PROGRESS_SESSION_ID,
+      backend_type: "codex",
+      backend_state: "connected",
+      backend_error: null,
+      model: "gpt-5.3-codex",
+      cwd: "/Users/stan/Dev/project/copilot-progress",
+      is_containerized: false,
+      codex_upstream_progress: {
+        source: "copilot",
+        phase: "safe_content_delta",
+        active: true,
+        event_type: "response.reasoning_summary_text.delta",
+        event_count: 6,
+        request_id: "playground-upstream-progress-request",
+        timestamp: Date.now() - 1_000,
+        elapsed_ms: 8_400,
+        has_safe_content: true,
+        item_type: "reasoning",
+        safe_content: "Checking repository state and waiting for the backend response stream to produce final text.",
+      },
+    });
+    store.setConnectionStatus(PLAYGROUND_CODEX_UPSTREAM_PROGRESS_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_CODEX_UPSTREAM_PROGRESS_SESSION_ID, true);
+    store.setSessionStatus(PLAYGROUND_CODEX_UPSTREAM_PROGRESS_SESSION_ID, "running");
+    store.setStreamingStats(PLAYGROUND_CODEX_UPSTREAM_PROGRESS_SESSION_ID, { startedAt: Date.now() - 8_400 });
+    store.setMessages(PLAYGROUND_CODEX_UPSTREAM_PROGRESS_SESSION_ID, [
+      makePlaygroundMessage({
+        id: "playground-codex-progress-user",
+        role: "user",
+        content: "Investigate why the Copilot-backed turn appears idle before final text arrives.",
+        timestamp: Date.now() - 12_000,
+      }),
     ]);
 
     const repeatedBackendError =

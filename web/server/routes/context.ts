@@ -4,6 +4,7 @@ import type { SessionStore } from "../session-store.js";
 import type { WorktreeTracker } from "../worktree-tracker.js";
 import type { TerminalManager } from "../terminal-manager.js";
 import type { PerfTracer } from "../perf-tracer.js";
+import type { CodexUpstreamProgressProxy } from "../codex-upstream-progress-proxy.js";
 
 export type ResolvedSession = NonNullable<ReturnType<CliLauncher["getSession"]>>;
 
@@ -34,6 +35,7 @@ export interface RouteContext {
   sleepInhibitor?: import("../sleep-inhibitor.js").SleepInhibitor;
   timerManager?: import("../timer-manager.js").TimerManager;
   resourceLeaseManager?: import("../resource-lease-manager.js").ResourceLeaseManager;
+  codexUpstreamProgressProxy?: CodexUpstreamProgressProxy;
   options?: { requestRestart?: () => void };
   perfTracer?: PerfTracer;
 
