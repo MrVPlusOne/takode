@@ -25,7 +25,7 @@ import {
 } from "./cli-launcher-instructions.js";
 import { MissingCodexBinaryError, prepareCodexSpawn } from "./cli-launcher-codex.js";
 import type { CodexUpstreamProgressProxyRegistry } from "./codex-upstream-progress-proxy.js";
-import { ensureCodexUpstreamProgressProxyConfig } from "./codex-upstream-progress-config.js";
+import { configureCodexUpstreamProgressProxy } from "./codex-upstream-progress-config.js";
 import { stripInheritedTelemetryEnv, withNonInteractiveGitEditorEnv } from "./cli-launcher-env.js";
 import { prepareWorktreeSessionArtifacts } from "./cli-launcher-worktree.js";
 import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
@@ -1265,12 +1265,13 @@ export class CliLauncher {
       spawnEnv = spawnSpec.spawnEnv;
       spawnCwd = spawnSpec.spawnCwd;
       sandboxMode = spawnSpec.sandboxMode;
-      if (!options.containerId && this.codexUpstreamProgressProxy && spawnEnv.CODEX_HOME) {
-        await ensureCodexUpstreamProgressProxyConfig(spawnEnv.CODEX_HOME, {
-          sessionId,
-          registry: this.codexUpstreamProgressProxy,
-        });
-      }
+      await configureCodexUpstreamProgressProxy({
+        sessionId,
+        registry: this.codexUpstreamProgressProxy,
+        spawnCmd,
+        spawnEnv,
+        containerized: !!options.containerId,
+      });
       if (typeof spawnSpec.codexLeaderRecycleThresholdTokens === "number") {
         info.codexLeaderRecycleThresholdTokens = spawnSpec.codexLeaderRecycleThresholdTokens;
       } else {
