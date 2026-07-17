@@ -966,7 +966,7 @@ describe("MessageFeed - message rendering", () => {
     expect(mockScrollTo).toHaveBeenLastCalledWith({ top: 232, behavior: "smooth" });
   });
 
-  it("shows current status chips for all threads only in the All Threads scope", () => {
+  it("hides current status chips in All Threads while preserving Main and quest tabs", () => {
     const sid = "test-thread-status-all-threads-scope";
     const mainStatus = {
       kind: "ready" as const,
@@ -1014,9 +1014,15 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.queryByLabelText("Thread Waiting for thread:q-1306: waiting on reviewer")).toBeNull();
     mainRender.unmount();
 
-    render(<MessageFeed sessionId={sid} threadKey="all" />);
-    expect(screen.getByLabelText("Thread Ready for Main: main clear")).toBeTruthy();
+    const questRender = render(<MessageFeed sessionId={sid} threadKey="q-1306" />);
+    expect(screen.queryByLabelText("Thread Ready for Main: main clear")).toBeNull();
     expect(screen.getByLabelText("Thread Waiting for thread:q-1306: waiting on reviewer")).toBeTruthy();
+    questRender.unmount();
+
+    render(<MessageFeed sessionId={sid} threadKey="all" />);
+    expect(screen.queryByLabelText("Thread Ready for Main: main clear")).toBeNull();
+    expect(screen.queryByLabelText("Thread Waiting for thread:q-1306: waiting on reviewer")).toBeNull();
+    expect(screen.queryByTestId("turn-thread-status-footer")).toBeNull();
   });
 
   it("keeps Main needs-input UI on the source message while projecting cross-thread status only", () => {

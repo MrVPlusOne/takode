@@ -60,7 +60,13 @@ import { Playground } from "./Playground.js";
 import { PlaygroundSideChatStates } from "./playground/SideChatPlaygroundStates.js";
 import { PlaygroundOverviewSections } from "./playground/sections-overview.js";
 import { PlaygroundHerdSummaryBar } from "./playground/shared.js";
+import { usePlaygroundSeed } from "./playground/usePlaygroundSeed.js";
 import { useStore } from "../store.js";
+
+function PlaygroundOverviewOnly() {
+  usePlaygroundSeed();
+  return <PlaygroundOverviewSections />;
+}
 
 describe("Playground", () => {
   it("renders the real chat stack section with integrated chat components", () => {
@@ -226,7 +232,7 @@ describe("Playground", () => {
   });
 
   it("documents additive source projection without source attachment markers", () => {
-    render(<Playground />);
+    render(<PlaygroundOverviewOnly />);
 
     expect(screen.queryByText("Thread opened")).toBeNull();
     expect(
@@ -243,10 +249,11 @@ describe("Playground", () => {
     expect(within(marker).queryByText("Jump")).toBeNull();
     expect(within(marker).getByRole("button", { name: "thread:q-962" })).toBeTruthy();
     expect(
-      screen.getByText(
-        "waiting for q-961 to finish before mobile status chip wrapping can be visually checked on the narrow add-to-home-screen layout",
+      screen.queryByLabelText(
+        "Thread Waiting for thread:q-962: waiting for q-961 to finish before mobile status chip wrapping can be visually checked on the narrow add-to-home-screen layout",
       ),
-    ).toBeTruthy();
+    ).toBeNull();
+    expect(screen.getByLabelText("Thread Ready for thread:q-963: dispatch plan is ready")).toBeTruthy();
   });
 
   it("documents waiting counts in the lightweight herd summary mock", () => {

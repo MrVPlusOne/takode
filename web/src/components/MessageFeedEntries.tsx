@@ -320,10 +320,10 @@ function visibleCurrentThreadStatuses(
 ): LeaderThreadStatus[] {
   if (!currentStatuses) return [];
   const normalizedCurrentThread = normalizeThreadKey(currentThreadKey || "main");
-  const allThreads = isAllThreadsKey(normalizedCurrentThread);
+  if (isAllThreadsKey(normalizedCurrentThread)) return [];
   const visible = Object.entries(currentStatuses).flatMap(([entryKey, status]) => {
     const key = threadStatusKey(status.threadKey || entryKey);
-    if (!allThreads && key !== normalizedCurrentThread) return [];
+    if (key !== normalizedCurrentThread) return [];
     return [status];
   });
   return visible.sort(

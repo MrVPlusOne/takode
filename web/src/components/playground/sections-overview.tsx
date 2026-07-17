@@ -568,7 +568,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Thread Projections"
-        description="Main keeps attached source context visible without source attachment markers; All Threads preserves the global view; quest projections keep attached context plus routed notification and thread-status footer metadata."
+        description="Main keeps attached source context visible without source attachment markers; All Threads preserves the global message view without current status footers; quest projections keep attached context plus routed notification and thread-status footer metadata."
       >
         <div className="grid gap-4 xl:grid-cols-4">
           <Card label="Main">
