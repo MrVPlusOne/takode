@@ -375,6 +375,10 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("explicitly check whether the quest is a true follow-up to earlier work");
     expect(result).toContain("Relationship: follow-up of [q-N](quest:q-N)");
     expect(result).toContain("Use `/leader-dispatch` before dispatching a fresh or newly refined quest");
+    expect(result).toContain("After you say you will create, refine, dispatch, or advance a quest");
+    expect(result).toContain("complete and verify the durable record in that same turn");
+    expect(result).toContain("do not mark the thread Ready; mark it Waiting or incomplete");
+    expect(result).toContain("Avoid broad mixed context dumps as the final step before setup");
     expect(result).toContain("choose direct dispatch, pre-dispatch approval, or delayed approval via User Checkpoint");
     expect(result).toContain("Direct create/dispatch is allowed only for clear, low-risk, reversible repo-local work");
     expect(result).toContain("Pre-dispatch approval remains mandatory for ambiguous");

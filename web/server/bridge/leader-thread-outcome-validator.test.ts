@@ -282,6 +282,34 @@ describe("validateLeaderThreadOutcomes", () => {
     expect(result).toEqual({ checked: true, missing: ["main"], injected: true });
   });
 
+  it("warns leaders to verify promised durable actions before marking Ready", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [
+        assistantMessage({
+          id: "a1",
+          text: "I'll create and dispatch a follow-up quest for this thread.",
+          timestamp: 20,
+          threadKey: "q-1661",
+        }),
+      ],
+      notifications: [],
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    const result = validateLeaderThreadOutcomes(session, deps);
+
+    expect(result).toEqual({ checked: true, missing: ["q-1661"], injected: true });
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain(
+      "Before marking a thread Ready, verify any promised durable action is actually complete",
+    );
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain(
+      "quest creation/refinement, board rows, needs-input notifications, worker sends, phase dispatches, Port/push",
+    );
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("mark the thread Waiting or incomplete instead");
+  });
+
   it("accepts a fresh inline Thread Waiting marker from server status state", () => {
     const session = {
       id: "leader",

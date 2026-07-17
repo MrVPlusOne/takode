@@ -224,6 +224,7 @@ function buildReminderContent(missing: TouchedThread[]): string {
     "Thread outcome reminder: mark every touched leader thread with a fresh outcome before idling.",
     `Missing outcome marker for: ${labels}.`,
     "This is about outcome status for already routed leader output; it is not diagnosing missing `[thread:...]` visible-text markers or `# thread:...` shell-command markers.",
+    "Before marking a thread Ready, verify any promised durable action is actually complete: quest creation/refinement, board rows, needs-input notifications, worker sends, phase dispatches, Port/push, or other external records. If not, mark the thread Waiting or incomplete instead.",
     'Use `takode notify needs-input "..."` only for user-blocking prompts. For non-blocking thread status, add a standalone `{[(Thread Waiting: thread | summary)]}` or `{[(Thread Ready: thread | summary)]}` line to your assistant response.',
   ].join("\n");
 }
