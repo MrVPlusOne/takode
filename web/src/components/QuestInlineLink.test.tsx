@@ -34,18 +34,24 @@ describe("QuestInlineLink", () => {
     window.location.hash = "#/session/s1";
   });
 
-  it("keeps hover metadata lookup working with many quest links", () => {
+  it("keeps hover metadata lookup working with many quest links after bounded revalidation", async () => {
+    // Cached list data is useful lookup input, but hover status/title metadata must still be validated by id.
+    const cached = quest({ questId: "q-240", title: "Quest 240", status: "refined" });
+    const fresh = quest({ questId: "q-240", title: "Quest 240", status: "done", completedAt: Date.now() });
     useStore.setState({
       quests: Array.from({ length: 300 }, (_, index) =>
-        quest({ questId: `q-${index + 1}`, title: `Quest ${index + 1}` }),
+        index + 1 === 240 ? cached : quest({ questId: `q-${index + 1}`, title: `Quest ${index + 1}` }),
       ),
     });
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "fresh", data: fresh, etag: '"detail-v2"' });
 
     render(<QuestInlineLink questId="q-240" />);
     fireEvent.mouseEnter(screen.getByText("q-240"));
 
-    expect(screen.getByTestId("quest-hover-title").textContent).toBe("Quest 240");
-    expect(mockGetQuestValidated).not.toHaveBeenCalled();
+    expect(mockGetQuestValidated).toHaveBeenCalledWith("q-240", null);
+    expect(screen.queryByTestId("quest-hover-card")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("quest-hover-title").textContent).toBe("Quest 240"));
+    expect(screen.getByTestId("quest-hover-status-chip").textContent).toContain("Completed");
   });
 
   it("fetches an uncached quest by id on hover and renders the rich preview", async () => {
@@ -100,9 +106,15 @@ describe("QuestInlineLink", () => {
     expect(screen.queryByTestId("quest-hover-card")).toBeNull();
   });
 
-  it("reuses cached detail data without refetching", () => {
-    // Cached detail records are already sufficient for the hover card and should not trigger redundant fetches.
-    const cached = quest({ questId: "q-77", title: "Cached hover preview" });
+  it("revalidates cached detail with its ETag and preserves it on 304", async () => {
+    // Cached detail can render after the cheap freshness check confirms the backend has not changed.
+    const cached = quest({ questId: "q-77", title: "Cached hover preview", status: "refined" });
+    let resolveFetch: (result: Awaited<ReturnType<typeof api.getQuestValidated>>) => void = () => {};
+    mockGetQuestValidated.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
     useStore.setState({
       questDetails: new Map([["q-77", cached]]),
       questDetailEtags: new Map([["q-77", '"cached-v1"']]),
@@ -111,19 +123,61 @@ describe("QuestInlineLink", () => {
     render(<QuestInlineLink questId="q-77" />);
     fireEvent.mouseEnter(screen.getByText("q-77"));
 
-    expect(screen.getByTestId("quest-hover-title").textContent).toBe("Cached hover preview");
-    expect(mockGetQuestValidated).not.toHaveBeenCalled();
+    expect(mockGetQuestValidated).toHaveBeenCalledWith("q-77", '"cached-v1"');
+    expect(screen.queryByTestId("quest-hover-card")).toBeNull();
+    resolveFetch({ status: "not-modified", etag: '"cached-v1"' });
+
+    await waitFor(() => expect(screen.getByTestId("quest-hover-title").textContent).toBe("Cached hover preview"));
+    expect(screen.getByTestId("quest-hover-status-chip").textContent).toContain("Refined");
+    expect(useStore.getState().questDetails.get("q-77")).toBe(cached);
+    expect(useStore.getState().questDetailEtags.get("q-77")).toBe('"cached-v1"');
   });
 
-  it("coalesces duplicate uncached hover fetches for the same quest", async () => {
-    // Multiple rendered links can point at the same quest; only one by-id request should be in flight.
-    const fetched = quest({ questId: "q-88", title: "Shared hover fetch" });
+  it("replaces stale cached hover status after fresh by-id revalidation", async () => {
+    // Regression coverage: a quest completed elsewhere must not leave the hover preview showing the old lifecycle state.
+    const stale = quest({ questId: "q-77", title: "Cached hover preview", status: "refined" });
+    const fresh = quest({
+      questId: "q-77",
+      title: "Cached hover preview",
+      status: "done",
+      completedAt: Date.now(),
+    });
     let resolveFetch: (result: Awaited<ReturnType<typeof api.getQuestValidated>>) => void = () => {};
     mockGetQuestValidated.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveFetch = resolve;
       }),
     );
+    useStore.setState({
+      questDetails: new Map([["q-77", stale]]),
+      questDetailEtags: new Map([["q-77", '"detail-v1"']]),
+    });
+
+    render(<QuestInlineLink questId="q-77" />);
+    fireEvent.mouseEnter(screen.getByText("q-77"));
+
+    expect(mockGetQuestValidated).toHaveBeenCalledWith("q-77", '"detail-v1"');
+    expect(screen.queryByTestId("quest-hover-card")).toBeNull();
+    resolveFetch({ status: "fresh", data: fresh, etag: '"detail-v2"' });
+
+    await waitFor(() => expect(screen.getByTestId("quest-hover-status-chip").textContent).toContain("Completed"));
+    expect(useStore.getState().questDetails.get("q-77")).toBe(fresh);
+    expect(useStore.getState().questDetailEtags.get("q-77")).toBe('"detail-v2"');
+  });
+
+  it("coalesces duplicate hover revalidations for the same quest and ETag", async () => {
+    // Multiple rendered links can point at the same cached quest; only one validator request should be in flight.
+    const cached = quest({ questId: "q-88", title: "Shared cached hover", status: "refined" });
+    let resolveFetch: (result: Awaited<ReturnType<typeof api.getQuestValidated>>) => void = () => {};
+    mockGetQuestValidated.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+    useStore.setState({
+      questDetails: new Map([["q-88", cached]]),
+      questDetailEtags: new Map([["q-88", '"shared-v1"']]),
+    });
 
     render(
       <div>
@@ -136,7 +190,8 @@ describe("QuestInlineLink", () => {
     fireEvent.mouseEnter(screen.getByText("second link"));
 
     expect(mockGetQuestValidated).toHaveBeenCalledTimes(1);
-    resolveFetch({ status: "fresh", data: fetched, etag: null });
-    await waitFor(() => expect(useStore.getState().questDetails.get("q-88")).toBe(fetched));
+    expect(mockGetQuestValidated).toHaveBeenCalledWith("q-88", '"shared-v1"');
+    resolveFetch({ status: "not-modified", etag: '"shared-v1"' });
+    await waitFor(() => expect(screen.getAllByTestId("quest-hover-title")[0]?.textContent).toBe("Shared cached hover"));
   });
 });

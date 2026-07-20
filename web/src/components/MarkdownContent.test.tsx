@@ -6,6 +6,7 @@ const mockGetSettings = vi.fn();
 const mockOpenVsCodeRemoteFile = vi.fn();
 const mockReadFile = vi.fn();
 const mockFetchMessagePreview = vi.fn();
+const mockGetQuestValidated = vi.fn();
 const mockResolveFileLinkAction = vi.fn();
 const mockRevealFileLinkInFinder = vi.fn();
 
@@ -15,6 +16,7 @@ vi.mock("../api.js", () => ({
     openVsCodeRemoteFile: (...args: unknown[]) => mockOpenVsCodeRemoteFile(...args),
     readFile: (...args: unknown[]) => mockReadFile(...args),
     fetchMessagePreview: (...args: unknown[]) => mockFetchMessagePreview(...args),
+    getQuestValidated: (...args: unknown[]) => mockGetQuestValidated(...args),
   },
 }));
 
@@ -216,10 +218,18 @@ describe("MarkdownContent quest links", () => {
     mockOpenVsCodeRemoteFile.mockReset();
     mockReadFile.mockReset();
     mockFetchMessagePreview.mockReset();
+    mockGetQuestValidated.mockReset();
     mockResolveFileLinkAction.mockReset();
     mockRevealFileLinkInFinder.mockReset();
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
     mockReadFile.mockResolvedValue({ path: "/tmp/file", content: "" });
+    mockGetQuestValidated.mockImplementation(async (questId: string, etag?: string | null) => {
+      const key = questId.toLowerCase();
+      const state = useStore.getState();
+      const quest = state.questDetails.get(key) ?? state.quests.find((item) => item.questId.toLowerCase() === key);
+      if (!quest) throw new Error("Quest not found");
+      return etag ? { status: "not-modified", etag } : { status: "fresh", data: quest, etag: '"test-detail"' };
+    });
     mockResolveFileLinkAction.mockResolvedValue({
       absolutePath: "/tmp/project/app.ts",
       requestedPath: "/tmp/project/app.ts",

@@ -6,6 +6,7 @@ import type { ComponentProps } from "react";
 const mockListQuestPage = vi.fn();
 const mockSearchSessionMessages = vi.fn();
 const mockSearchGlobalStarredMessages = vi.fn();
+const mockGetQuestValidated = vi.fn();
 const mockClipboardWriteText = vi.fn();
 
 vi.mock("../api.js", () => ({
@@ -13,6 +14,7 @@ vi.mock("../api.js", () => ({
     listQuestPage: (...args: unknown[]) => mockListQuestPage(...args),
     searchSessionMessages: (...args: unknown[]) => mockSearchSessionMessages(...args),
     searchGlobalStarredMessages: (...args: unknown[]) => mockSearchGlobalStarredMessages(...args),
+    getQuestValidated: (...args: unknown[]) => mockGetQuestValidated(...args),
   },
 }));
 
@@ -270,6 +272,7 @@ describe("UniversalSearchOverlay", () => {
     mockListQuestPage.mockClear();
     mockSearchSessionMessages.mockClear();
     mockSearchGlobalStarredMessages.mockClear();
+    mockGetQuestValidated.mockReset();
     mockClipboardWriteText.mockReset();
     mockClipboardWriteText.mockResolvedValue(undefined);
     Object.defineProperty(window.navigator, "clipboard", {
@@ -278,6 +281,13 @@ describe("UniversalSearchOverlay", () => {
     });
     useStore.getState().setQuests([]);
     useStore.getState().setSdkSessions(sessions);
+    mockGetQuestValidated.mockImplementation(async (questId: string, etag?: string | null) => {
+      const key = questId.toLowerCase();
+      const state = useStore.getState();
+      const quest = state.questDetails.get(key) ?? state.quests.find((item) => item.questId.toLowerCase() === key);
+      if (!quest) throw new Error("Quest not found");
+      return etag ? { status: "not-modified", etag } : { status: "fresh", data: quest, etag: '"test-detail"' };
+    });
     mockListQuestPage.mockResolvedValue({
       quests: [],
       total: 0,
@@ -795,7 +805,7 @@ describe("UniversalSearchOverlay", () => {
     expect(workerLink.getAttribute("href")).toBe("#/session/12");
 
     fireEvent.mouseEnter(questLink);
-    expect(screen.getByTestId("quest-hover-card")).toHaveClass("z-[90]");
+    expect(await screen.findByTestId("quest-hover-card")).toHaveClass("z-[90]");
     fireEvent.click(questLink);
     expect(callbacks.onClose).toHaveBeenCalledTimes(1);
 

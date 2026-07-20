@@ -365,6 +365,18 @@ describe("getQuestValidated", () => {
     expect(opts.headers).toEqual({ "If-None-Match": '"old-detail"' });
     expect(result).toEqual({ status: "fresh", data: detail, etag: '"detail-v1"' });
   });
+
+  it("represents unchanged by-id quest detail requests without reading a JSON body", async () => {
+    // Cached hover revalidation should use the same bounded by-id validator path and preserve cache on 304.
+    mockFetch.mockResolvedValueOnce(mockResponse(null, 304, { etag: '"detail-v1"' }));
+
+    const result = await api.getQuestValidated("q-1615", '"detail-v1"');
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/quests/q-1615");
+    expect(opts.headers).toEqual({ "If-None-Match": '"detail-v1"' });
+    expect(result).toEqual({ status: "not-modified", etag: '"detail-v1"' });
+  });
 });
 
 // ===========================================================================

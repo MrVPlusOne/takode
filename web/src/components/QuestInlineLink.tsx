@@ -20,27 +20,26 @@ function findQuestById(quests: QuestmasterTask[], questId: string): QuestmasterT
 function fetchQuestDetailForHover(questId: string): Promise<void> {
   const key = questId.toLowerCase();
   const state = useStore.getState();
-  if (state.questDetails.has(key) || findQuestById(state.quests ?? [], questId)) {
-    return Promise.resolve();
-  }
+  const currentEtag = state.questDetailEtags.get(key) ?? null;
+  const fetchKey = `${key}\0${currentEtag ?? ""}`;
 
-  const existing = questHoverFetches.get(key);
+  const existing = questHoverFetches.get(fetchKey);
   if (existing) return existing;
 
   const fetchPromise = api
-    .getQuestValidated(questId, null)
+    .getQuestValidated(questId, currentEtag)
     .then((result) => {
       if (result.status === "fresh") {
         useStore.getState().upsertQuestDetail(result.data, { etag: result.etag });
       }
     })
     .finally(() => {
-      if (questHoverFetches.get(key) === fetchPromise) {
-        questHoverFetches.delete(key);
+      if (questHoverFetches.get(fetchKey) === fetchPromise) {
+        questHoverFetches.delete(fetchKey);
       }
     });
 
-  questHoverFetches.set(key, fetchPromise);
+  questHoverFetches.set(fetchKey, fetchPromise);
   return fetchPromise;
 }
 
@@ -73,10 +72,6 @@ export function QuestInlineLink({
     };
   }, []);
 
-  useEffect(() => {
-    if (quest && hoverFetchState !== "idle") setHoverFetchState("idle");
-  }, [quest, hoverFetchState]);
-
   const questHash = withQuestIdInHash(window.location.hash, questId);
   const title =
     hoverFetchState === "loading"
@@ -88,16 +83,14 @@ export function QuestInlineLink({
   function handleLinkMouseEnter(e: MouseEvent<HTMLAnchorElement>) {
     if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
     setHoverRect(e.currentTarget.getBoundingClientRect());
-    if (!quest) {
-      setHoverFetchState("loading");
-      void fetchQuestDetailForHover(questId)
-        .then(() => {
-          if (mountedRef.current) setHoverFetchState("idle");
-        })
-        .catch(() => {
-          if (mountedRef.current) setHoverFetchState("error");
-        });
-    }
+    setHoverFetchState("loading");
+    void fetchQuestDetailForHover(questId)
+      .then(() => {
+        if (mountedRef.current) setHoverFetchState("idle");
+      })
+      .catch(() => {
+        if (mountedRef.current) setHoverFetchState("error");
+      });
   }
 
   function handleLinkMouseLeave() {
@@ -130,7 +123,7 @@ export function QuestInlineLink({
       >
         {children ?? questId}
       </a>
-      {quest && hoverRect && (
+      {quest && hoverRect && hoverFetchState === "idle" && (
         <QuestHoverCard
           quest={quest}
           anchorRect={hoverRect}
