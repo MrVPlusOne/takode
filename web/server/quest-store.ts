@@ -50,6 +50,7 @@ import { applyQuestPatch } from "./quest-store-patch.js";
 import { appendOwnershipEvent, archivedOwnerTakeoverEvent } from "./quest-ownership.js";
 import { normalizeQuestSessionSpaceSlug } from "./quest-session-space.js";
 import { normalizeLiveQuest } from "./quest-store-normalize.js";
+import { assertSafeQuestmasterTestRoot, recordQuestStoreMutationBackup } from "./quest-backup-store.js";
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
 
@@ -437,6 +438,7 @@ async function mutateLiveQuestStore<T>(
   return withLiveStoreWriteLock(async () => {
     const current = (await readLiveQuestStore()) ?? emptyLiveQuestStore();
     const { store, result } = await fn(current);
+    await recordQuestStoreMutationBackup(current, store);
     await writeLiveQuestStore(store);
     return result;
   });
@@ -1973,6 +1975,7 @@ export async function readQuestImageFile(imageId: string): Promise<{ data: Buffe
 
 /** Reset the store directory. Only for tests. */
 export async function _resetForTests(): Promise<void> {
+  assertSafeQuestmasterTestRoot(COMPANION_DIR);
   for (const dir of [QUESTMASTER_DIR, LIVE_QUESTMASTER_DIR]) {
     await mkdir(dir, { recursive: true });
     try {

@@ -8,6 +8,7 @@ import {
   optimizeImageBufferForStore,
   wasImageBufferProcessed,
 } from "./image-optimizer.js";
+import { backupQuestImageFile } from "./quest-backup-store.js";
 import type { QuestImage, QuestmasterTask } from "./quest-types.js";
 
 type QuestImageStoreDeps<TStore> = {
@@ -46,7 +47,11 @@ export async function saveQuestImageFile(args: {
   });
   const diskPath = join(args.liveImagesDir, diskName);
   await writeFile(diskPath, optimized.data);
-  return { id, filename: args.filename, mimeType: optimized.mediaType, path: diskPath };
+  const image = { id, filename: args.filename, mimeType: optimized.mediaType, path: diskPath };
+  await backupQuestImageFile(image).catch((error) => {
+    console.warn("[quest-backup] Failed to back up quest image:", error);
+  });
+  return image;
 }
 
 export async function addQuestImagesToStore<TStore>(
@@ -106,6 +111,11 @@ export async function removeQuestImageFromStore<TStore>(
     });
 
     if (result.imagePath && isManagedLiveQuestPath(result.imagePath, deps.liveQuestmasterDir)) {
+      await backupQuestImageFile({
+        filename: imageId,
+        mimeType: "application/octet-stream",
+        path: result.imagePath,
+      }).catch(() => {});
       await unlink(result.imagePath).catch(() => {});
     }
     return result.quest;
@@ -121,6 +131,7 @@ export async function removeQuestImageFromStore<TStore>(
   await deps.writeQuest(current);
 
   if (image?.path && isManagedLiveQuestPath(image.path, deps.liveQuestmasterDir)) {
+    await backupQuestImageFile(image).catch(() => {});
     await unlink(image.path).catch(() => {});
   }
 
