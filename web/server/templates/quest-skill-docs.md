@@ -24,6 +24,10 @@ These are completely different systems. Do NOT confuse them.
 
 **Rule of thumb**: Users often say "tasks", "todos", or "quests" interchangeably when referring to quests. If the user says "check my tasks", "what are my todos", or "what should I work on", they mean **quests** — check them with `quest list`. Only use **TodoWrite** for your own internal progress tracking on the current task.
 
+## Questmaster Data Safety
+
+Questmaster records are durable shared user data. Do not run quest-store reset/delete/migration helpers or destructive Questmaster tests unless the store path is verified as isolated temporary/disposable state, or you have an explicit backup, snapshot, or recovery plan and approval. If isolation or recovery status is uncertain, stop and ask before proceeding.
+
 ## CRITICAL: Quest ID Rules
 
 **NEVER guess or fabricate a quest ID.** Quest IDs (e.g. `q-42`) are auto-assigned by the system.

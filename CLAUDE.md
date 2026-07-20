@@ -13,6 +13,12 @@ Use Questmaster to track project progress for this repository. Treat project tas
 
 Questmaster tags should follow the generated quest skill's small generic two-axis taxonomy: refined-and-later quests generally use one area tag plus one work-type tag, while specific project/component nouns belong in title/TLDR/description/search instead of tags. Keep public tag-guidance examples mocked rather than using real project, repo, component, feature, or product names.
 
+## Durable User Data Safety
+
+Before any action that could delete, reset, overwrite, migrate, or bulk-mutate durable user data, verify the target, isolation, and recovery path. Durable user data includes Questmaster records, sessions, memory, settings, worktrees, images/artifacts, and other user-owned state.
+
+Treat destructive tests and helpers as dangerous until their data paths are proven isolated to temporary or disposable state. Before destructive operations against durable user data, have a backup, snapshot, or explicit recovery plan; if isolation or recovery status is uncertain, stop and route for approval. Standard approved workflows may proceed when their documented steps provide verified isolation or recovery.
+
 ## Skills (Auto-Installed)
 
 The Takode server symlinks project skills into global skill directories at startup (see `web/server/skill-symlink.ts` and `web/server/index.ts`). Claude-facing skills are installed into `~/.claude/skills/`; Codex/new-agent skills are installed into `~/.agents/skills/`. The canonical Claude-facing project source remains `.claude/skills/` in the repo, while `.agents/skills/` is the single non-Claude project skill source. Legacy `.codex/skills/` content is compatibility-only and may be migrated into `.agents`; do not add new project skills there.

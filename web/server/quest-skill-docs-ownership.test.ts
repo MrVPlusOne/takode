@@ -27,6 +27,16 @@ describe("quest skill ownership docs", () => {
     expect(docs).toContain("archived_owner_takeover");
   });
 
+  it("documents Questmaster data safety for destructive helpers", () => {
+    const docs = readTemplate("quest-skill-docs.md");
+
+    expect(docs).toContain("## Questmaster Data Safety");
+    expect(docs).toContain("Questmaster records are durable shared user data");
+    expect(docs).toContain("reset/delete/migration helpers");
+    expect(docs).toContain("isolated temporary/disposable state");
+    expect(docs).toContain("backup, snapshot, or recovery plan and approval");
+  });
+
   it("documents User review checks as optional Memory-settled user-owned checks", () => {
     const docs = readTemplate("quest-skill-docs.md");
     const memoryCompletion = readTemplate("quest-memory-completion.md");
