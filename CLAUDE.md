@@ -11,6 +11,8 @@ It began as a Companion fork and now provides a multi-session workspace with cro
 
 Use Questmaster to track project progress for this repository. Treat project tasks/todos as quests and keep status current via the `quest` CLI and Questmaster workflow.
 
+Questmaster tags should follow the generated quest skill's small generic two-axis taxonomy: refined-and-later quests generally use one area tag plus one work-type tag, while specific project/component nouns belong in title/TLDR/description/search instead of tags. Keep public tag-guidance examples mocked rather than using real project, repo, component, feature, or product names.
+
 ## Skills (Auto-Installed)
 
 The Takode server symlinks project skills into global skill directories at startup (see `web/server/skill-symlink.ts` and `web/server/index.ts`). Claude-facing skills are installed into `~/.claude/skills/`; Codex/new-agent skills are installed into `~/.agents/skills/`. The canonical Claude-facing project source remains `.claude/skills/` in the repo, while `.agents/skills/` is the single non-Claude project skill source. Legacy `.codex/skills/` content is compatibility-only and may be migrated into `.agents`; do not add new project skills there.

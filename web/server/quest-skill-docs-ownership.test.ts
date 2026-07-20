@@ -9,6 +9,16 @@ describe("quest skill ownership docs", () => {
     return readFileSync(join(dirname(fileURLToPath(import.meta.url)), "templates", name), "utf-8");
   }
 
+  function sectionBetween(source: string, start: string, end: string): string {
+    const startIndex = source.indexOf(start);
+    const endIndex = source.indexOf(end, startIndex + start.length);
+
+    expect(startIndex).toBeGreaterThanOrEqual(0);
+    expect(endIndex).toBeGreaterThan(startIndex);
+
+    return source.slice(startIndex, endIndex);
+  }
+
   it("documents force claim, leader reassign, and archived-owner audit compatibility", () => {
     const docs = readTemplate("quest-skill-docs.md");
 
@@ -56,5 +66,62 @@ describe("quest skill ownership docs", () => {
     expect(docs).toContain("quest show q-12 --sections phases");
     expect(docs).toContain("quest show q-12 --sections phase:7");
     expect(docs).toContain("Prefer targeted `--sections` reveals first.");
+  });
+
+  it("documents the generic two-axis tag taxonomy with mocked non-examples", () => {
+    const docs = readTemplate("quest-skill-docs.md");
+    const tagsSection = sectionBetween(docs, "## Tags", "## Images");
+
+    expect(tagsSection).toContain("Use a small generic two-axis taxonomy by default");
+    expect(tagsSection).toContain(
+      "Default area tags: `ui`, `backend`, `cli`, `orchestration`, `data`, `ml`, `infra`, `security`.",
+    );
+    expect(tagsSection).toContain(
+      "Default work-type tags: `bugfix`, `feature`, `improvement`, `investigation`, `validation`, `refactor`, `docs`, `cleanup`, `ops`.",
+    );
+    expect(tagsSection).toContain("project-alpha");
+    expect(tagsSection).toContain("pipeline-widget");
+    expect(tagsSection).toContain("status-panel");
+    expect(tagsSection).toContain("bridge-adapter");
+    expect(tagsSection).toContain("public instruction examples");
+    expect(tagsSection).not.toContain("Common patterns: component/area");
+  });
+
+  it("keeps public tag examples aligned with the taxonomy guidance", () => {
+    const docs = readTemplate("quest-skill-docs.md");
+
+    // Guard stale copyable examples outside the main Tags section too. These
+    // examples are intentionally narrow so public docs do not teach old
+    // component/project-tag or third-tag patterns by accident.
+    expect(docs).not.toContain('--tags "questmaster,cli"');
+    expect(docs).not.toContain('--tags "ui,bugfix,mobile"');
+    expect(docs).not.toContain("Common patterns: component/area");
+    expect(docs).not.toContain("Reuse existing tags. Only create new tags when no existing tag fits.");
+
+    const areaTags = new Set(["ui", "backend", "cli", "orchestration", "data", "ml", "infra", "security"]);
+    const workTypeTags = new Set([
+      "bugfix",
+      "feature",
+      "improvement",
+      "investigation",
+      "validation",
+      "refactor",
+      "docs",
+      "cleanup",
+      "ops",
+    ]);
+    const concreteTagExamples = [...docs.matchAll(/--tags "([^"]+)"/g)]
+      .map((match) => match[1])
+      .filter((tags) => tags !== "t1,t2");
+
+    expect(concreteTagExamples.length).toBeGreaterThan(0);
+
+    for (const tagExample of concreteTagExamples) {
+      const [areaTag, workTypeTag, extraTag] = tagExample.split(",");
+
+      expect(extraTag, `${tagExample} should use only an area tag and a work-type tag`).toBeUndefined();
+      expect(areaTags.has(areaTag ?? ""), `${tagExample} should start with a default area tag`).toBe(true);
+      expect(workTypeTags.has(workTypeTag ?? ""), `${tagExample} should end with a default work-type tag`).toBe(true);
+    }
   });
 });

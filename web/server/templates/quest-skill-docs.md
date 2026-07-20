@@ -245,7 +245,7 @@ cat >/tmp/quest-tldr.md <<'EOF'
 Preserve each major topic from the full quest description in concise scan text.
 EOF
 
-quest create --title-file /tmp/quest-title.txt --desc-file /tmp/quest-description.md --tldr-file /tmp/quest-tldr.md --tags "questmaster,cli"
+quest create --title-file /tmp/quest-title.txt --desc-file /tmp/quest-description.md --tldr-file /tmp/quest-tldr.md --tags "cli,docs"
 
 printf '%s\n' 'Copied `$(snippet)` stays literal' | \
   quest create "Quest title" --desc-file -
@@ -434,11 +434,11 @@ These commands accept only `--json` for JSON output.
 ## Usage Examples
 
 ```bash
-# Create a quest with description and tags
-quest create "Fix mobile sidebar" --desc "Sidebar overflows on screens <400px" --tags "ui,bugfix,mobile"
+# Create a quest with description and taxonomy-compliant tags
+quest create "Fix layout overflow" --desc "Panel overflows on narrow screens" --tags "ui,bugfix"
 
 # Create a quest from files when the text includes shell-sensitive content
-quest create --title-file /tmp/quest-title.txt --desc-file /tmp/quest-description.md --tldr-file /tmp/quest-tldr.md --tags "questmaster,cli"
+quest create --title-file /tmp/quest-title.txt --desc-file /tmp/quest-description.md --tldr-file /tmp/quest-tldr.md --tags "cli,docs"
 
 # Create a refined quest directly after approval; copy the exact printed quest ID for follow-up commands
 quest create --title-file /tmp/quest-title.txt --desc-file /tmp/quest-description.md --status refined
@@ -526,22 +526,35 @@ When the user asks you to work on a quest — whether via the Companion "Assign"
    - Always do a quick metadata pass, even if it already looks good.
    - Ask the user clarifying questions if the quest is ambiguous or underspecified.
    - If the quest is in `refined` or any later state (`in_progress`, `done`), enforce a short title before proceeding.
-   - Run `quest tags` to reuse existing tags.
+   - Run `quest tags` for awareness, but do not treat the current long tail as precedent. For `refined` and later quests, follow the two-axis tag taxonomy below.
    - If metadata changes are part of creating or refining the quest, invoke `/quest-design` before applying them unless the user's approved plan already covered those exact updates.
    - If the quest is a true follow-up to earlier work, persist that with `quest edit q-N --follow-up-of q-M` after approval; if a follow-up relationship was recorded by mistake, clear it with `quest edit q-N --clear-follow-up-of`.
    - Apply confirmed updates with `quest edit q-N --title "..." --desc "..." --tags "t1,t2"`.
    - Immediately re-run `quest show q-N` and verify the final title/description/tags are clean.
    - Title rule: concise, **less than 10 words**. Move details to description.
-   - Reuse existing tags. Only create new tags when no existing tag fits.
+   - Prefer the two-axis taxonomy over long-tail precedent. Use new tags only for rare, justified durable categories not covered by the default sets.
 4. **Work**: Implement the changes. Use TodoWrite for sub-step tracking if needed. If you need additional code changes after a reviewer or human review pass, commit the current worktree state, make the follow-up fixes in a separate commit, and send the changed worktree back to Code Review only after that checkpoint exists so the reviewer can inspect a clean incremental diff of only the new work. This does not require reviewers to commit and does not apply to purely read-only follow-up review discussion. **If there is human feedback**, inspect it with `quest feedback list q-N --author human --unaddressed`, address each entry, explain what you did in an agent feedback entry, then mark it with `quest address q-N <index>`. Prefer one consolidated feedback entry when the same update can both summarize the work and explain how human feedback was addressed, for example `quest feedback q-N --text "Summary: fixed the layout issue and addressed feedback #0 by adding flex-wrap"` for short replies, or `quest feedback q-N --text-file -` / `--text-file <path>` when your response includes copied logs or shell-like text. Add separate feedback entries only when the updates are materially different or separation makes the quest easier to read. Run `quest feedback list q-N --author human --unaddressed` to confirm no unaddressed entries remain.
 5. **Self-check**: Before submitting, verify everything you can yourself. For tracked code/test changes, the current full automated gate is `cd web && bun --no-install run typecheck`, `cd web && bun --no-install run test`, and `cd web && bun --no-install run format:check`. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, document the exception explicitly in your summary or handoff before submitting. Do not turn self-verifiable agent evidence into User review checks. **Verify all human feedback entries are marked addressed** by running `quest feedback list q-N --author human --unaddressed` and checking that it returns no entries.
 6. **Submit or hand off completion**: For Quest Journey work, implementation, Execute, Code Review, and Port actors document evidence in phase docs, review verdicts, artifacts, Port notes, commit metadata, and final debrief drafts, then stop at the phase boundary. Final Memory is mandatory for non-cancelled quests and normally completes the quest after accepted evidence is synced when applicable, final debrief metadata is ready, User review checks are settled, and memory/metadata closure is complete. Do not invent final User review checks; complete with no `--items` when no user action remains. Worktree sessions must not run `quest complete` until changes are synced to the main repo checkout and pushed. Read `memory-completion.md` for the detailed completion, final Memory, debrief, commit metadata, and User review check mechanics.
 
 ## Tags
 
-**Always reuse existing tags.** Before creating or editing a quest, run `quest tags` to see what tags already exist. Only introduce a new tag when no existing tag fits.
+Use a small generic two-axis taxonomy by default. For `refined` and later quests, tags should generally be ordered as:
 
-Every quest should have at least one tag. Common patterns: component/area (e.g. "questmaster", "ws-bridge", "ui"), type (e.g. "bugfix", "feature", "refactor"), or concern (e.g. "mobile", "performance").
+1. one **area** tag, then
+2. one **work-type** tag.
+
+Default area tags: `ui`, `backend`, `cli`, `orchestration`, `data`, `ml`, `infra`, `security`.
+
+Default work-type tags: `bugfix`, `feature`, `improvement`, `investigation`, `validation`, `refactor`, `docs`, `cleanup`, `ops`.
+
+Most quests should use only these sets, for example `ui,bugfix`, `backend,validation`, or `cli,docs`. If a quest spans several areas or work types, choose the primary pair unless an additional generic tag materially improves retrieval.
+
+Only extend either set when the new tag represents a genuinely durable category not covered by the existing vocabulary. Do not create project-specific, component-specific, feature-name-specific, relationship-specific, priority-specific, or implementation-detail tags.
+
+Specific nouns belong in the title, TLDR, description, and search text rather than tags. In public instruction examples, use mocked names rather than real project, repo, component, feature, or product names. For example, `project-alpha`, `pipeline-widget`, `status-panel`, and `bridge-adapter` are non-example tag shapes: keep those names in quest prose, not in tags.
+
+Run `quest tags` before creating or editing quest metadata to understand current inventory and avoid accidental near-duplicates, but prefer the default taxonomy over long-tail precedent.
 
 ## Images
 
@@ -600,7 +613,7 @@ Use `quest complete` for the final completion handoff to `done` with review meta
 - If this is a true follow-up, bug fix, successor, redesign, or user-approved next quest from earlier findings, include `Relationship: follow-up of [q-M](quest:q-M)` in the draft and persist it with `quest edit <id> --follow-up-of q-M` after approval. Leave incidental mentions to auto-detected backlinks instead.
 - Title: concise, less than 10 words. Move detail to description.
 - Description: clear, actionable. Define what "done" looks like.
-- Tags: run `quest tags`, reuse existing tags. Every quest needs at least one tag.
+- Tags: run `quest tags` for awareness, then prefer the two-axis taxonomy in the Tags section. For `refined` and later quests, generally use one area tag followed by one work-type tag.
 - Apply confirmed updates via `quest edit <id> --title "..." --desc "..." --tags "t1,t2"` and add `--follow-up-of q-M` only when the relationship was confirmed.
 
 ### refined → in_progress
