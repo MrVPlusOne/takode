@@ -357,4 +357,47 @@ describe("tool-result-recovery-controller", () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("resume_snapshot_fallback"));
     warnSpy.mockRestore();
   });
+
+  it("does not partially match unquoted multi-word notify summaries", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(12_500);
+    const session = makeSession();
+    session.messageHistory = [];
+    session.toolStartTimes.clear();
+    session.toolStartTimes.set("notify-tool", 9_500);
+    session.notifications = [
+      {
+        id: "n-241",
+        category: "needs-input",
+        summary: "Need",
+        timestamp: 10_500,
+        messageId: "first-word-plan",
+        done: false,
+      },
+    ];
+    addPersistedToolUse(session, "notify-tool", "Bash", 9_500, {
+      command: "takode notify needs-input Need approval",
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const synthesized = synthesizeCodexToolResultsFromResumedTurn(
+      session,
+      { id: "turn_interrupted", status: "interrupted", error: null, items: [] },
+      {
+        disconnectedAt: 10_000,
+        resumeConfirmedAt: 12_000,
+      } as never,
+      makeDeps(),
+    );
+
+    expect(synthesized).toBe(1);
+    const previewMsg = session.messageHistory.find((msg) => msg.type === "tool_result_preview");
+    expect(previewMsg?.type).toBe("tool_result_preview");
+    if (previewMsg?.type === "tool_result_preview") {
+      expect(previewMsg.previews[0]?.content).not.toContain("Observed matching takode notify side effect");
+      expect(previewMsg.previews[0]?.content).not.toContain("n-241");
+    }
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("resume_snapshot_fallback"));
+    warnSpy.mockRestore();
+  });
 });

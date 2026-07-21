@@ -108,8 +108,22 @@ function extractTakodeNotifySummary(command: string, category: "needs-input" | "
   if (!rest || rest.startsWith("--")) return null;
   const quoted = rest.match(/^(["'])([\s\S]*?)\1(?:\s|$)/);
   if (quoted?.[2]?.trim()) return quoted[2].trim();
-  const bare = rest.match(/^(\S+)/);
-  return bare?.[1]?.trim() || null;
+  return extractBareTakodeNotifySummary(rest);
+}
+function extractBareTakodeNotifySummary(rest: string): string | null {
+  const summaryParts: string[] = [];
+  const tokens = rest.split(/\s+/).filter(Boolean);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    if (token === "--json") continue;
+    if (token === "--suggest" || token === "--question" || token === "--thread" || token === "--quest") {
+      index += 1;
+      continue;
+    }
+    if (token.startsWith("--")) return null;
+    summaryParts.push(token);
+  }
+  return summaryParts.length > 0 ? summaryParts.join(" ") : null;
 }
 export function shouldTrackCodexToolResultRecovery(block: Extract<ContentBlock, { type: "tool_use" }>): boolean {
   return !isCodexPlanningStateToolUse(block);
