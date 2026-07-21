@@ -84,15 +84,32 @@ function buildRecoveredNotifySideEffectDiagnostic(
   const categoryMatch = command.match(/\btakode\s+notify\s+(needs-input|review)\b/);
   const category = categoryMatch?.[1] as SessionNotification["category"] | undefined;
   if (category !== "needs-input" && category !== "review") return null;
+  const commandSummary = extractTakodeNotifySummary(command, category);
 
   const notification = (session.notifications ?? [])
-    .filter((candidate) => candidate.category === category && candidate.timestamp >= startedAt)
+    .filter((candidate) => {
+      if (candidate.category !== category || candidate.timestamp < startedAt) return false;
+      if (commandSummary && candidate.summary !== commandSummary) return false;
+      return true;
+    })
     .sort((left, right) => right.timestamp - left.timestamp)[0];
   if (!notification) return null;
 
   const state = notification.done ? "resolved" : notification.muted ? "muted unresolved" : "unresolved";
   const summary = notification.summary ? ` (${notification.summary})` : "";
-  return `Recovered takode notify side effect: ${category} notification ${notification.id}${summary} is ${state}. Use takode notify list to inspect current same-session notifications.`;
+  const prefix = commandSummary
+    ? `Observed matching takode notify side effect: ${category} notification`
+    : `Observed later same-session ${category} notification after orphaned takode notify:`;
+  return `${prefix} ${notification.id}${summary} is ${state}. Use takode notify list to inspect current same-session notifications.`;
+}
+function extractTakodeNotifySummary(command: string, category: "needs-input" | "review"): string | null {
+  const match = command.match(new RegExp(`\\btakode\\s+notify\\s+${category}\\s+([\\s\\S]+)$`));
+  const rest = match?.[1]?.trim();
+  if (!rest || rest.startsWith("--")) return null;
+  const quoted = rest.match(/^(["'])([\s\S]*?)\1(?:\s|$)/);
+  if (quoted?.[2]?.trim()) return quoted[2].trim();
+  const bare = rest.match(/^(\S+)/);
+  return bare?.[1]?.trim() || null;
 }
 export function shouldTrackCodexToolResultRecovery(block: Extract<ContentBlock, { type: "tool_use" }>): boolean {
   return !isCodexPlanningStateToolUse(block);

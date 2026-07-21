@@ -896,6 +896,53 @@ describe("Takode server-authoritative auth", () => {
     ]);
   });
 
+  it("does not reuse a muted parked needs-input prompt for an exact retry", async () => {
+    setupTakodeSessions();
+    const questions = [{ prompt: "Ship now?", suggestedAnswers: ["yes", "no"] }];
+    bridge._sessions["orch-1"].notificationCounter = 1;
+    bridge._sessions["orch-1"].notifications = [
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "Approve ship",
+        questions,
+        timestamp: Date.now(),
+        messageId: "muted-prompt",
+        threadKey: "q-1616",
+        questId: "q-1616",
+        done: false,
+        muted: true,
+      },
+    ];
+    bridge._sessions["orch-1"].messageHistory.push({
+      type: "assistant",
+      message: { id: "fresh-prompt", content: [{ type: "text", text: "Decision needed: ship now?" }] },
+      parent_tool_use_id: null,
+      timestamp: 1000,
+      threadKey: "q-1616",
+      questId: "q-1616",
+      threadRefs: [{ threadKey: "q-1616", questId: "q-1616", source: "explicit" }],
+    });
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Approve ship", threadKey: "q-1616", questions }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ rawNotificationId: "n-2" });
+    expect(bridge._sessions["orch-1"].notifications).toHaveLength(2);
+    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({ id: "n-1", muted: true, done: false });
+    expect(bridge._sessions["orch-1"].notifications[1]).toMatchObject({
+      id: "n-2",
+      summary: "Approve ship",
+      questions,
+      done: false,
+    });
+    expect(bridge._sessions["orch-1"].notifications[1].muted).toBeUndefined();
+  });
+
   it("preserves the standard notify response delivery path", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].messageHistory.push({
