@@ -269,4 +269,49 @@ describe("tool-result-recovery-controller", () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("codexRolloutRepaired=no"));
     warnSpy.mockRestore();
   });
+
+  it("surfaces notification id state when an orphaned takode notify tool side effect succeeded", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(12_500);
+    const session = makeSession();
+    session.messageHistory = [];
+    session.toolStartTimes.clear();
+    session.toolStartTimes.set("notify-tool", 9_500);
+    session.notifications = [
+      {
+        id: "n-239",
+        category: "needs-input",
+        summary: "Approve focused fix",
+        timestamp: 10_500,
+        messageId: "approval-plan",
+        done: false,
+      },
+    ];
+    addPersistedToolUse(session, "notify-tool", "Bash", 9_500, {
+      command: "takode notify needs-input 'Approve focused fix'",
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const synthesized = synthesizeCodexToolResultsFromResumedTurn(
+      session,
+      { id: "turn_interrupted", status: "interrupted", error: null, items: [] },
+      {
+        disconnectedAt: 10_000,
+        resumeConfirmedAt: 12_000,
+      } as never,
+      makeDeps(),
+    );
+
+    expect(synthesized).toBe(1);
+    const previewMsg = session.messageHistory.find((msg) => msg.type === "tool_result_preview");
+    expect(previewMsg?.type).toBe("tool_result_preview");
+    if (previewMsg?.type === "tool_result_preview") {
+      expect(previewMsg.previews[0]?.content).toContain(
+        "Recovered takode notify side effect: needs-input notification n-239 (Approve focused fix) is unresolved.",
+      );
+      expect(previewMsg.previews[0]?.content).toContain("takode notify list");
+    }
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("resume_snapshot_fallback"));
+    warnSpy.mockRestore();
+  });
 });

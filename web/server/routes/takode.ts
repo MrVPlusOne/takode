@@ -1935,6 +1935,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       anchoredMessageId: result.anchoredMessageId,
       notificationId: parseNotificationNumericId(result.notificationId),
       rawNotificationId: result.notificationId,
+      ...(result.reused ? { reused: true } : {}),
       ...(suggestedAnswersResult.answers.length ? { suggestedAnswers: suggestedAnswersResult.answers } : {}),
       ...(questionsResult.questions.length ? { questions: questionsResult.questions } : {}),
     });

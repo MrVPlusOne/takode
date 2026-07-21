@@ -4,6 +4,7 @@ import type {
   CLIResultMessage,
   CodexOutboundTurn,
   ContentBlock,
+  SessionNotification,
   ToolResultPreview,
 } from "../session-types.js";
 import type { CodexResumeTurnSnapshot } from "../codex-adapter.js";
@@ -15,6 +16,7 @@ export interface ToolResultRecoverySessionLike {
   toolResults: Map<string, { content: string; is_error: boolean; timestamp: number }>;
   toolStartTimes: Map<string, number>;
   toolProgressOutput: Map<string, string>;
+  notifications?: SessionNotification[];
   codexToolResultWatchdogs: Map<string, ReturnType<typeof setTimeout>>;
   codexAdapter: { isConnected(): boolean } | null;
 }
@@ -71,6 +73,27 @@ export function findToolUseBlockInHistory(
 export function getToolUseNameInHistory(session: ToolResultRecoverySessionLike, toolUseId: string): string | null {
   return findToolUseBlockInHistory(session, toolUseId)?.name ?? null;
 }
+function buildRecoveredNotifySideEffectDiagnostic(
+  session: ToolResultRecoverySessionLike,
+  toolUseBlock: Extract<ContentBlock, { type: "tool_use" }> | null,
+  startedAt: number | undefined,
+): string | null {
+  if (!toolUseBlock || toolUseBlock.name !== "Bash") return null;
+  if (typeof startedAt !== "number" || !Number.isFinite(startedAt)) return null;
+  const command = typeof toolUseBlock.input?.command === "string" ? toolUseBlock.input.command : "";
+  const categoryMatch = command.match(/\btakode\s+notify\s+(needs-input|review)\b/);
+  const category = categoryMatch?.[1] as SessionNotification["category"] | undefined;
+  if (category !== "needs-input" && category !== "review") return null;
+
+  const notification = (session.notifications ?? [])
+    .filter((candidate) => candidate.category === category && candidate.timestamp >= startedAt)
+    .sort((left, right) => right.timestamp - left.timestamp)[0];
+  if (!notification) return null;
+
+  const state = notification.done ? "resolved" : notification.muted ? "muted unresolved" : "unresolved";
+  const summary = notification.summary ? ` (${notification.summary})` : "";
+  return `Recovered takode notify side effect: ${category} notification ${notification.id}${summary} is ${state}. Use takode notify list to inspect current same-session notifications.`;
+}
 export function shouldTrackCodexToolResultRecovery(block: Extract<ContentBlock, { type: "tool_use" }>): boolean {
   return !isCodexPlanningStateToolUse(block);
 }
@@ -109,14 +132,18 @@ export function emitSyntheticToolResultPreview(
     content = retainedOutput;
   }
 
-  const previewLimit = getToolResultPreviewLimit(session, toolUseId, deps);
-  const totalSize = Buffer.byteLength(content, "utf-8");
-  const isTruncated = content.length > previewLimit;
   const startedAt = session.toolStartTimes.get(toolUseId);
   const ageMs = startedAt != null ? Math.max(0, Date.now() - startedAt) : undefined;
   const durationSeconds = startedAt != null ? Math.round((Date.now() - startedAt) / 100) / 10 : undefined;
   const toolUseBlock = deps.getToolUseBlockInHistory(session, toolUseId);
   const toolName = toolUseBlock?.name ?? null;
+  const sideEffectDiagnostic = buildRecoveredNotifySideEffectDiagnostic(session, toolUseBlock, startedAt);
+  if (sideEffectDiagnostic) {
+    content = `${content}\n${sideEffectDiagnostic}`;
+  }
+  const previewLimit = getToolResultPreviewLimit(session, toolUseId, deps);
+  const totalSize = Buffer.byteLength(content, "utf-8");
+  const isTruncated = content.length > previewLimit;
   session.toolStartTimes.delete(toolUseId);
   session.toolProgressOutput.delete(toolUseId);
   session.toolResults.set(toolUseId, {

@@ -56,6 +56,13 @@ type NotifyUserOptions = {
   threadRoute?: ThreadRouteMetadata;
 };
 
+type NotifyUserResult = {
+  ok: true;
+  anchoredMessageId: string | null;
+  notificationId: string;
+  reused?: boolean;
+};
+
 type NotificationDoneDeps = PersistNotificationDeps & {
   broadcastBoard?: (session: SessionLike, board: BoardRow[], completedBoard: BoardRow[]) => void;
   cancelScheduledNotification?: (sessionId: string, notificationId: string) => void;
@@ -80,6 +87,8 @@ type ThreadReadyUnreadDeps = PersistNotificationDeps & {
 type ClearAttentionAndMarkReadOptions = {
   mode?: "all" | "session-view";
 };
+
+const EXACT_NEEDS_INPUT_RETRY_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
 
 export function setAttention(
   session: SessionLike,
@@ -243,21 +252,58 @@ export function notifyUser(
   summary: string,
   deps: NotifyUserDeps,
   options: NotifyUserOptions = {},
-): { ok: true; anchoredMessageId: string | null; notificationId: string } {
+): NotifyUserResult {
   const timestamp = Date.now();
   const preferredThreadRoute = options.threadRoute ?? activeNotificationThreadRoute(session);
-  let anchorIndex = findLastNotificationAnchorIndex(session);
-  let anchor = anchorIndex !== undefined ? getNotificationAnchor(session.messageHistory[anchorIndex]) : undefined;
-  if (
-    anchorIndex !== undefined &&
-    preferredThreadRoute &&
-    !anchorMatchesThreadRoute(session, anchorIndex, preferredThreadRoute)
-  ) {
-    anchorIndex = undefined;
-    anchor = undefined;
-  }
-  let createdFallbackMessage: BrowserIncomingMessage | null = null;
   const isLeaderSession = deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator === true;
+  const preferVisibleTextAnchor =
+    isLeaderSession && category === "needs-input" && !deps.isHerdedWorkerSession?.(session);
+  let anchorIndex = findLastNotificationAnchorIndex(session, { preferredThreadRoute, preferVisibleTextAnchor });
+  let anchor = anchorIndex !== undefined ? getNotificationAnchor(session.messageHistory[anchorIndex]) : undefined;
+  const candidateThreadRoute =
+    preferredThreadRoute ?? resolveConsistentNotificationThreadRoute(session.messageHistory, anchorIndex, "pending");
+  const suggestedAnswers =
+    category === "needs-input" && options.suggestedAnswers?.length ? options.suggestedAnswers : undefined;
+  const questions = category === "needs-input" && options.questions?.length ? options.questions : undefined;
+
+  const existingNeedsInput =
+    category === "needs-input"
+      ? findExactActiveNeedsInputNotification(
+          session,
+          summary,
+          suggestedAnswers,
+          questions,
+          candidateThreadRoute,
+          timestamp,
+        )
+      : null;
+  if (existingNeedsInput) {
+    if (anchor) {
+      maybeReanchorReusedNotification(existingNeedsInput, anchor, candidateThreadRoute);
+      (anchor.message as Record<string, unknown>).notification = withThreadRoute(
+        buildAnchoredNotification(existingNeedsInput),
+        candidateThreadRoute,
+      );
+      markSatisfiedThreadOutcomeReminders(session, existingNeedsInput, anchorIndex);
+      deps.broadcastToBrowsers?.(session, {
+        type: "notification_anchored",
+        messageId: anchor.id,
+        notification: withThreadRoute(buildAnchoredNotification(existingNeedsInput), candidateThreadRoute),
+      } as BrowserIncomingMessage);
+    }
+    touchNotificationStatus(session);
+    deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
+    broadcastNotificationStatus(session, deps);
+    deps.persistSession(session);
+    return {
+      ok: true,
+      anchoredMessageId: existingNeedsInput.messageId ?? null,
+      notificationId: existingNeedsInput.id,
+      reused: true,
+    };
+  }
+
+  let createdFallbackMessage: BrowserIncomingMessage | null = null;
 
   if (!anchor && isLeaderSession && category === "needs-input" && !deps.isHerdedWorkerSession?.(session)) {
     createdFallbackMessage = {
@@ -272,9 +318,6 @@ export function notifyUser(
   }
 
   const anchoredMessageId = anchor?.id ?? null;
-  const suggestedAnswers =
-    category === "needs-input" && options.suggestedAnswers?.length ? options.suggestedAnswers : undefined;
-  const questions = category === "needs-input" && options.questions?.length ? options.questions : undefined;
   const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
   session.notificationCounter = nextNotificationCounter;
   const notificationId = `n-${nextNotificationCounter}`;
@@ -376,7 +419,7 @@ export function notifyUserBySessionId(
   summary: string,
   deps: NotifyUserDeps,
   options: NotifyUserOptions = {},
-): { ok: true; anchoredMessageId: string | null; notificationId: string } | { ok: false; error: string } {
+): NotifyUserResult | { ok: false; error: string } {
   const session = sessions.get(sessionId);
   if (!session) return { ok: false, error: "Session not found" };
   return notifyUser(session, category, summary, deps, options);
@@ -673,11 +716,112 @@ export function clearActionAttentionIfNoNotifications(session: SessionLike, deps
   }
 }
 
-function findLastNotificationAnchorIndex(session: SessionLike): number | undefined {
+function findLastNotificationAnchorIndex(
+  session: SessionLike,
+  options: {
+    preferredThreadRoute?: ThreadRouteMetadata | null;
+    preferVisibleTextAnchor?: boolean;
+  } = {},
+): number | undefined {
+  if (options.preferVisibleTextAnchor) {
+    for (let i = session.messageHistory.length - 1; i >= 0; i--) {
+      if (!isVisibleNotificationAnchor(session.messageHistory[i])) continue;
+      if (options.preferredThreadRoute && !anchorMatchesThreadRoute(session, i, options.preferredThreadRoute)) {
+        continue;
+      }
+      return i;
+    }
+  }
   for (let i = session.messageHistory.length - 1; i >= 0; i--) {
-    if (getNotificationAnchor(session.messageHistory[i])) return i;
+    if (!getNotificationAnchor(session.messageHistory[i])) continue;
+    if (options.preferredThreadRoute && !anchorMatchesThreadRoute(session, i, options.preferredThreadRoute)) {
+      continue;
+    }
+    return i;
   }
   return undefined;
+}
+
+function isVisibleNotificationAnchor(entry: BrowserIncomingMessage | undefined): boolean {
+  const anchor = getNotificationAnchor(entry);
+  if (!anchor) return false;
+  if (anchor.message.type === "leader_user_message") return hasNonEmptyText(anchor.message.content);
+  return anchor.message.message.content.some((block) => block.type === "text" && hasNonEmptyText(block.text));
+}
+
+function hasNonEmptyText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function findExactActiveNeedsInputNotification(
+  session: SessionLike,
+  summary: string,
+  suggestedAnswers: string[] | undefined,
+  questions: NeedsInputNotificationQuestion[] | undefined,
+  threadRoute: ThreadRouteMetadata,
+  timestamp: number,
+): SessionNotification | null {
+  return (
+    (session.notifications ?? []).find((notification: SessionNotification) => {
+      if (notification.category !== "needs-input" || notification.done || notification.muted) return false;
+      if (timestamp - notification.timestamp > EXACT_NEEDS_INPUT_RETRY_DEDUPE_WINDOW_MS) return false;
+      if (notification.summary !== summary) return false;
+      const notificationRoute = normalizeThreadRoute(notification.threadKey, notification.questId) ?? {
+        threadKey: "main",
+      };
+      if (!sameThreadRoute(notificationRoute, threadRoute)) return false;
+      return (
+        stringArraysEqual(notification.suggestedAnswers, suggestedAnswers) &&
+        questionsEqual(notification.questions, questions)
+      );
+    }) ?? null
+  );
+}
+
+function stringArraysEqual(left: string[] | undefined, right: string[] | undefined): boolean {
+  const normalizedLeft = left ?? [];
+  const normalizedRight = right ?? [];
+  if (normalizedLeft.length !== normalizedRight.length) return false;
+  return normalizedLeft.every((value, index) => value === normalizedRight[index]);
+}
+
+function questionsEqual(
+  left: NeedsInputNotificationQuestion[] | undefined,
+  right: NeedsInputNotificationQuestion[] | undefined,
+): boolean {
+  const normalizedLeft = left ?? [];
+  const normalizedRight = right ?? [];
+  if (normalizedLeft.length !== normalizedRight.length) return false;
+  return normalizedLeft.every((leftQuestion, index) => {
+    const rightQuestion = normalizedRight[index];
+    if (!rightQuestion || leftQuestion.prompt !== rightQuestion.prompt) return false;
+    return stringArraysEqual(leftQuestion.suggestedAnswers, rightQuestion.suggestedAnswers);
+  });
+}
+
+function buildAnchoredNotification(notification: SessionNotification): Omit<SessionNotification, "messageId" | "done"> {
+  return {
+    id: notification.id,
+    category: notification.category,
+    timestamp: notification.timestamp,
+    ...(notification.summary ? { summary: notification.summary } : {}),
+    ...(notification.suggestedAnswers ? { suggestedAnswers: notification.suggestedAnswers } : {}),
+    ...(notification.questions ? { questions: notification.questions } : {}),
+  };
+}
+
+function maybeReanchorReusedNotification(
+  notification: SessionNotification,
+  anchor: { id: string; message: Extract<BrowserIncomingMessage, { type: "assistant" | "leader_user_message" }> },
+  threadRoute: ThreadRouteMetadata,
+): void {
+  if (notification.messageId === anchor.id) return;
+  notification.messageId = anchor.id;
+  notification.threadKey = threadRoute.threadKey;
+  if (threadRoute.questId) notification.questId = threadRoute.questId;
+  else delete notification.questId;
+  if (threadRoute.threadRefs?.length) notification.threadRefs = threadRoute.threadRefs;
+  else delete notification.threadRefs;
 }
 
 function getNotificationAnchor(entry: BrowserIncomingMessage | undefined):

@@ -778,6 +778,165 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it("prefers the visible leader prompt over a later notify tool-use retry anchor", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory.push(
+      {
+        type: "assistant",
+        message: {
+          id: "approval-plan",
+          content: [{ type: "text", text: "Proposed quest:\n\nPlease confirm or correct." }],
+        },
+        parent_tool_use_id: null,
+        timestamp: 1000,
+        threadKey: "q-1616",
+        questId: "q-1616",
+        threadRefs: [{ threadKey: "q-1616", questId: "q-1616", source: "explicit" }],
+      },
+      {
+        type: "user_message",
+        id: "thread-outcome-reminder",
+        content: "Thread outcome reminder",
+        timestamp: 1500,
+        agentSource: {
+          sessionId: THREAD_OUTCOME_REMINDER_SOURCE_ID,
+          sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+        },
+        threadKey: "q-1616",
+        questId: "q-1616",
+        threadRefs: [{ threadKey: "q-1616", questId: "q-1616", source: "explicit" }],
+      },
+      {
+        type: "assistant",
+        message: {
+          id: "notify-retry-tool-only",
+          content: [
+            {
+              type: "tool_use",
+              id: "tool-notify",
+              name: "Bash",
+              input: { command: "takode notify needs-input 'Approve q-1616'" },
+            },
+          ],
+        },
+        parent_tool_use_id: null,
+        timestamp: 2000,
+        threadKey: "q-1616",
+        questId: "q-1616",
+        threadRefs: [{ threadKey: "q-1616", questId: "q-1616", source: "explicit" }],
+      },
+    );
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Approve q-1616", threadKey: "q-1616" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, rawNotificationId: "n-1", anchoredMessageId: "approval-plan" });
+    expect(bridge._sessions["orch-1"].notifications).toHaveLength(1);
+    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({
+      id: "n-1",
+      messageId: "approval-plan",
+      threadKey: "q-1616",
+    });
+    expect(bridge._sessions["orch-1"].messageHistory[0].notification).toMatchObject({ id: "n-1" });
+    expect(bridge._sessions["orch-1"].messageHistory[2].notification).toBeUndefined();
+    expect(bridge._sessions["orch-1"].messageHistory[1].threadOutcomeReminder).toMatchObject({
+      status: "satisfied",
+      notificationId: "n-1",
+    });
+  });
+
+  it("reuses exact duplicate unresolved needs-input retries while preserving distinct prompts", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory.push({
+      type: "assistant",
+      message: { id: "approval-plan", content: [{ type: "text", text: "Decision needed: ship?" }] },
+      parent_tool_use_id: null,
+      timestamp: 1000,
+      threadKey: "main",
+    });
+
+    const first = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Approve ship", suggestedAnswers: ["yes", "no"] }),
+    });
+    const duplicate = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Approve ship", suggestedAnswers: ["yes", "no"] }),
+    });
+    const distinct = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Approve rollback", suggestedAnswers: ["yes", "no"] }),
+    });
+    bridge._sessions["orch-1"].notifications[0].timestamp = Date.now() - 6 * 60 * 1000;
+    const laterSameWording = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Approve ship", suggestedAnswers: ["yes", "no"] }),
+    });
+
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ rawNotificationId: "n-1" });
+    expect(duplicate.status).toBe(200);
+    expect(await duplicate.json()).toMatchObject({ rawNotificationId: "n-1", reused: true });
+    expect(distinct.status).toBe(200);
+    expect(await distinct.json()).toMatchObject({ rawNotificationId: "n-2" });
+    expect(laterSameWording.status).toBe(200);
+    expect(await laterSameWording.json()).toMatchObject({ rawNotificationId: "n-3" });
+    expect(bridge._sessions["orch-1"].notifications.map((notification: any) => notification.id)).toEqual([
+      "n-1",
+      "n-2",
+      "n-3",
+    ]);
+  });
+
+  it("preserves the standard notify response delivery path", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory.push({
+      type: "assistant",
+      message: { id: "visible-prompt", content: [{ type: "text", text: "Please answer this prompt." }] },
+      parent_tool_use_id: null,
+      timestamp: 1000,
+      threadKey: "main",
+    });
+
+    const notifyRes = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Need answer", suggestedAnswers: ["received"] }),
+    });
+    expect(notifyRes.status).toBe(200);
+    expect(await notifyRes.json()).toMatchObject({ rawNotificationId: "n-1", anchoredMessageId: "visible-prompt" });
+
+    const responseRes = await app.request("/api/sessions/orch-1/notifications/n-1/response", {
+      method: "POST",
+      body: JSON.stringify({ content: "received" }),
+    });
+
+    expect(responseRes.status).toBe(200);
+    expect(await responseRes.json()).toMatchObject({ ok: true, delivery: "sent", changed: true });
+    expect(bridge.injectUserMessage).toHaveBeenCalledWith(
+      "orch-1",
+      "received",
+      undefined,
+      undefined,
+      { threadKey: "main" },
+      expect.objectContaining({
+        deliveryContent: "[reply] Need answer\n\nreceived",
+        replyContext: { messageId: "visible-prompt", notificationId: "n-1", previewText: "Need answer" },
+        sessionId: "orch-1",
+        bypassPause: true,
+      }),
+    );
+    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({ id: "n-1", done: true });
+  });
+
   it("accepts waiting as a transient status marker without creating a persistent notification", async () => {
     setupTakodeSessions();
 

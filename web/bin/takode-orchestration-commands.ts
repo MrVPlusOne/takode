@@ -1788,6 +1788,7 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
     anchoredMessageId: string | null;
     notificationId: number | null;
     rawNotificationId: string | null;
+    reused?: boolean;
     suggestedAnswers?: string[];
     questions?: Array<{ prompt: string; suggestedAnswers?: string[] }>;
   };
@@ -1803,6 +1804,10 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
     typeof result.notificationId === "number"
       ? String(result.notificationId)
       : formatInlineText(result.rawNotificationId ?? "(none)");
+  if (result.reused) {
+    console.log(`Notification already active (${category}, id ${notificationLabel})`);
+    return;
+  }
   console.log(`Notification sent (${category}, id ${notificationLabel})`);
 }
 
