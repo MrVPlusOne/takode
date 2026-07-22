@@ -31,11 +31,12 @@ takode lease renew agent-browser
 Release promptly:
 
 ```bash
+agent-browser close
 takode lease release agent-browser
 takode lease release dev-server:companion
 ```
 
-If a lease is held by another session, queue, wait for the Resource Lease promotion message, or choose a documented non-conflicting path. Do not start a competing browser or dev server.
+Close Agent Browser before releasing the browser lease when you opened it during the run. If a lease is held by another session, queue, wait for the Resource Lease promotion message, or choose a documented non-conflicting path. Do not start a competing browser or dev server.
 
 ## State Strategy
 
@@ -136,6 +137,25 @@ agent-browser screenshot /tmp/takode-q-N/mobile-playground.png
 
 Prefer semantic interactions and visible UI checks. Use DOM probes only when they answer an objective question that screenshots or visible interaction cannot, such as bounding boxes, aria state, or exact row counts.
 
+## Agent Browser Cleanup And Display Sleep
+
+At the end of browser validation, close Agent Browser/browser resources you opened before releasing the `agent-browser` lease:
+
+```bash
+agent-browser close
+takode lease release agent-browser
+```
+
+Clean up only resources you own. Do not kill unrelated Chrome, browser, server, or validation-profile processes, and never touch live `:3456` as part of browser cleanup.
+
+On macOS, screenshot or capture work can leave a stale `Google Chrome for Testing` process holding a display-sleep assertion. The observed symptom is a `NoDisplaySleepAssertion` named `Capturing` / `PreventUserIdleDisplaySleep`, which can keep an external display awake even though headless/browser automation itself does not inherently require the display to stay on. When practical after screenshot/capture-heavy validation, check that no stale Chrome-for-testing display assertion remains:
+
+```bash
+pmset -g assertions | rg -i 'PreventUserIdleDisplaySleep|NoDisplaySleepAssertion|Google Chrome for Testing|Capturing'
+```
+
+If a stale assertion remains, first try `agent-browser close` while holding the `agent-browser` lease, then re-check. Escalate rather than force-killing processes unless you can prove the Chrome-for-testing process belongs to your validation run.
+
 ## Theme And Viewports
 
 Dark theme is Takode's primary validation theme. If the app persists a different theme, switch to dark before taking acceptance screenshots.
@@ -223,7 +243,8 @@ At the end of testing, decide what happens to new state:
 - Retain representative scenarios that are likely to help future UI validation, and document the label, provenance, and reason for retention. This is the default for useful conversations, sessions, quests, and scenarios created during shared-state validation.
 - Remove or mark throwaway state when it is noisy, misleading, sensitive, or created only to exercise a destructive path.
 - Leave pre-existing shared profile state alone unless cleanup is authorized and you understand the ownership.
-- Release leases and stop only the resources you started or are explicitly responsible for. Never kill a server just because it is on a familiar port.
+- Close Agent Browser/browser resources, release leases, and stop only the resources you started or are explicitly responsible for. Never kill a server just because it is on a familiar port.
+- After screenshot/capture runs on macOS, when practical, verify no stale `Google Chrome for Testing` display-sleep assertion remains; if one remains, close only your owned browser resources and document any residual.
 
 ## Phase Note Template
 
@@ -238,6 +259,7 @@ Scenarios: reused <labels/session IDs/quest IDs/routes>; created <new sessions/q
 Coverage: <workflow steps and expected result>.
 Evidence: <optimized screenshot paths or artifact inventory>.
 Cleanup/retention: <what was removed>; <what was retained and why>; <state handoff for the next tester>.
+Agent Browser cleanup: <browser closed/released>; <macOS display-sleep assertion check if screenshot/capture made it practical>.
 Skipped: <checks not run and why>.
 Risk: <remaining uncertainty, stale-state caveats, or guidance gaps>.
 ```

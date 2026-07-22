@@ -20,6 +20,7 @@ Validate Takode UI changes with `agent-browser`, scoped leases, an explicit stat
   - Server-only work needs `dev-server:companion`.
   - Browser-only inspection of an already-authorized server needs `agent-browser`.
 - Release leases promptly when validation is finished.
+- Close Agent Browser/browser resources you opened before releasing the lease, especially after screenshots or capture work. On macOS, when practical, verify stale `Google Chrome for Testing` capture state is not still holding a display-sleep assertion such as `PreventUserIdleDisplaySleep` / `NoDisplaySleepAssertion`.
 - Validate in dark theme. Use a mobile viewport at least `430x932` when checking mobile behavior.
 
 ## Workflow
@@ -35,7 +36,7 @@ Validate Takode UI changes with `agent-browser`, scoped leases, an explicit stat
 4. If starting a server, use authorized profile ports or alternate isolated ports only. Keep `:3456` untouched.
 5. Open and operate the UI with `agent-browser`.
 6. Capture screenshots for important visual states and optimized evidence paths.
-7. End by deciding what state to retain or remove. Retain useful new scenarios by default; clean up only state that is clearly harmful, misleading, sensitive, destructive, or not useful. Clean up only resources you own.
+7. End by deciding what state to retain or remove. Retain useful new scenarios by default; clean up only state that is clearly harmful, misleading, sensitive, destructive, or not useful. Close Agent Browser/browser resources and clean up only resources you own.
 8. Record what was validated, what passed or failed, state provenance, screenshots/artifacts, retained/removed state, and residual risk in the quest phase notes or final report.
 
 If a lease command queues you behind another session, wait for the Resource Lease message that says you now hold the resource. The queued output includes the current owner and queue details; do not poll unless you need a manual status refresh.
@@ -79,7 +80,7 @@ For Quest Journey Execute or Implement notes, include:
 - Lease/resource decisions.
 - Concrete workflow steps and result.
 - Screenshot/artifact inventory, with optimized `.takode-agent.` paths when available.
-- New state created and the cleanup/retention decision: what was removed, what was intentionally retained, and why retained state is useful for future validation. Retention is the default for useful scenarios.
+- New state created and the cleanup/retention decision: what was removed, what was intentionally retained, whether Agent Browser/browser resources were closed, and why retained state is useful for future validation. Retention is the default for useful scenarios.
 - Any skipped checks and why they were not proportional or safe.
 
 For future generalized lessons, update this skill or its reference files during the quest and mention that in phase notes. For major new workflow coverage, create a separate quest proposal instead of expanding this skill opportunistically.
