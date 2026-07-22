@@ -24,6 +24,7 @@ import {
   QUEST_JOURNEY_PHASES,
   DEFAULT_QUEST_JOURNEY_PHASE_IDS,
   QUEST_JOURNEY_HINTS,
+  reviseQuestJourneySuffix,
   validateQuestJourneyCompletedPrefixRevision,
   validateQuestJourneyPhaseSequence,
   validateQuestJourneyUserCheckpointNotes,
@@ -681,6 +682,20 @@ describe("Quest Journey phases", () => {
       phaseNotes: {
         "5": "Inspect only the follow-up diff",
       },
+      warnings: [],
+    });
+  });
+
+  it("fails closed when suffix revision expected phase does not match the current plan", () => {
+    expect(
+      reviseQuestJourneySuffix({
+        existingPhaseIds: ["alignment", "implement", "code-review", "port"],
+        fromIndex: 2,
+        expectedPhaseId: "memory",
+        replacementPhaseIds: ["outcome-review", "code-review", "port"],
+      }),
+    ).toMatchObject({
+      error: expect.stringContaining("expected phase Memory at position 3"),
       warnings: [],
     });
   });

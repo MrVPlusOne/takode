@@ -13,6 +13,7 @@ import {
 
 import {
   FREE_WORKER_WAIT_FOR_TOKEN,
+  canonicalizeQuestJourneyPhaseId,
   formatWaitForRefLabel,
   type BoardQueueWarning,
   getInvalidQuestJourneyPhaseIds,
@@ -32,7 +33,7 @@ import {
   validateQuestJourneyUserCheckpointNotes,
 } from "../shared/quest-journey.ts";
 
-export const BOARD_HELP = `Usage: takode board [show|detail|set|propose|present|promote|note|advance|rm] ...
+export const BOARD_HELP = `Usage: takode board [show|detail|set|revise|propose|present|promote|note|advance|rm] ...
 
 Quest Journey work board for the current leader session.
 
@@ -40,7 +41,8 @@ Subcommands:
   show                    Show the board (default)
   detail <quest-id>       Show full Journey details for one board row
   set <quest-id>          Add or update a board row
-  propose <quest-id>      Draft or revise a proposed Journey row
+  revise <quest-id>       Replace an existing Journey suffix
+  propose <quest-id>      Create a proposed Journey row
   present <quest-id>      Present a proposed Journey draft for approval
   promote <quest-id>      Promote a proposed Journey row into execution
   note <quest-id>         Add or clear a per-phase Journey note
@@ -55,6 +57,7 @@ Examples:
   takode board set q-12 --phases planning,implement,code-review,port,memory --preset full-code
   takode board set q-12 --phases planning,explore,outcome-review,memory --preset investigation
   takode board set q-12 --phases planning,implement,outcome-review,code-review,port,memory --preset cli-rollout
+  takode board revise q-12 --from-position 5 --expect-phase memory --phases user-checkpoint,memory
   takode board set q-12 --status MENTAL_SIMULATING --active-phase-position 5
   takode board propose q-12 --phases alignment,implement,code-review,port,memory --preset full-code --wait-for-input 3
   takode board promote q-12 --worker 5
@@ -73,27 +76,35 @@ export const BOARD_DETAIL_HELP = `Usage: takode board detail <quest-id> [--json]
 Show full board-owned Quest Journey details, notes, timings, and revision metadata for one quest row.
 `;
 
-export const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--full|--verbose] [--json]
-       takode board add <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--full|--verbose] [--json]
+export const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--full|--verbose] [--json]
+       takode board add <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--full|--verbose] [--json]
 
-Add or update a board row for a quest.
+Add or update a board row for a quest. Use this to create the initial Journey; once a row already has a Journey, use takode board revise for phase-plan changes.
 
 Quest Journey phases:
   --phases planning,explore,user-checkpoint,implement,code-review,mental-simulation,execute,outcome-review,port,memory,bookkeeping
+  --journey-file <path|-> reads { phases: [{ id, note? }] } JSON for initial Journey creation
   --preset <id> labels the planned phase sequence; use with --phases
-  --revise-reason <text> records why an explicit --phases revision is needed
   --active-phase-position <n> pins the active occurrence for repeated phases using a 1-based phase position
   --wait-for-input links active rows to same-session needs-input notifications by ID (for example 3 or n-3)
   --clear-wait-for-input removes any existing linked needs-input wait state
 
-Do not use adjacent \`explore -> implement\`; use \`implement\` directly for normal fixes, or \`explore -> user-checkpoint -> implement\` when Explore may need user steering. User Checkpoints are mandatory by default; optional checkpoints still require an approved phase note and a recorded skip reason after the condition is satisfied. Optional non-checkpoint phases are removed or added through explicit --phases Journey revision with --revise-reason, not a generic skip command.
+Do not use adjacent \`explore -> implement\`; use \`implement\` directly for normal fixes, or \`explore -> user-checkpoint -> implement\` when Explore may need user steering. User Checkpoints are mandatory by default; optional checkpoints still require an approved phase note and a recorded skip reason after the condition is satisfied. Optional non-checkpoint phases are removed or added through takode board revise, not a generic skip command.
 
 Zero-tracked-change work uses the same board model: choose explicit phases that omit \`port\` but still end in \`memory\` instead of using a special no-code board flag.
 `;
 
-export const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] (--phases <ids> | --spec-file <path|->) [--preset <id>] [--revise-reason <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]
+export const BOARD_REVISE_HELP = `Usage: takode board revise <quest-id> --from-position <n> --expect-phase <id> (--phases <ids> | --journey-file <path|->) [--preset <id>] [--full|--verbose] [--json]
 
-Draft or revise a proposed pre-dispatch Journey row. Proposed rows stay board-owned and can wait on user approval without pretending they are generic queue rows. Use --spec-file for batch phase and note updates; omit standard-phase notes unless unusual phase-specific handling is needed. Use --revise-reason with --phases to record why a Journey revision is needed. Optional User Checkpoints require a user-checkpoint phase note with a concrete skip condition; skipping one later requires recording why the condition is satisfied.
+Replace an existing Journey suffix. Phase positions are 1-based in CLI usage. The existing phase at --from-position must match --expect-phase, so repeated phases and stale position references fail closed.
+
+Use --journey-file when the replacement suffix needs notes:
+  { "phases": [{ "id": "user-checkpoint", "note": "Approve the design before Memory." }, { "id": "memory" }] }
+`;
+
+export const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] (--phases <ids> | --journey-file <path|->) [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]
+
+Create a proposed pre-dispatch Journey row. Proposed rows stay board-owned and can wait on user approval without pretending they are generic queue rows. Existing proposed Journey changes should use takode board revise. Use --journey-file for batch phase and note setup; omit standard-phase notes unless unusual phase-specific handling is needed. Optional User Checkpoints require a user-checkpoint phase note with a concrete skip condition; skipping one later requires recording why the condition is satisfied.
 `;
 
 export const BOARD_PRESENT_HELP = `Usage: takode board present <quest-id> [--summary <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]
@@ -159,15 +170,15 @@ interface BoardProposalReviewPayload {
   scheduling?: Record<string, unknown>;
 }
 
-interface BoardProposalSpecPhase {
+interface BoardJourneySpecPhase {
   id: string;
   note?: string;
 }
 
-interface BoardProposalSpec {
+interface BoardJourneySpec {
   title?: string;
   presetId?: string;
-  phases: BoardProposalSpecPhase[];
+  phases: BoardJourneySpecPhase[];
   revisionReason?: string;
   presentation?: {
     summary?: string;
@@ -197,27 +208,27 @@ function formatBoardWaitForInputNotificationList(notificationIds: string[]): str
   return notificationIds.map((notificationId) => formatBoardWaitForInputNotificationLabel(notificationId)).join(", ");
 }
 
-function normalizeBoardProposalSpec(raw: unknown): BoardProposalSpec {
+function normalizeBoardJourneySpec(raw: unknown): BoardJourneySpec {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    err("Proposal spec must be a JSON object.");
+    err("Journey file must be a JSON object.");
   }
   const spec = raw as Record<string, unknown>;
   const rawPhases = spec.phases ?? spec.phaseIds;
   if (!Array.isArray(rawPhases) || rawPhases.length === 0) {
-    err("Proposal spec requires a non-empty phases array.");
+    err("Journey file requires a non-empty phases array.");
   }
 
-  const phases = rawPhases.map((entry, index): BoardProposalSpecPhase => {
+  const phases = rawPhases.map((entry, index): BoardJourneySpecPhase => {
     if (typeof entry === "string") return { id: entry };
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      err(`Proposal spec phase ${index + 1} must be a string phase id or an object with id/note.`);
+      err(`Journey file phase ${index + 1} must be a string phase id or an object with id/note.`);
     }
     const phase = entry as Record<string, unknown>;
     if (typeof phase.id !== "string" || !phase.id.trim()) {
-      err(`Proposal spec phase ${index + 1} requires a non-empty id.`);
+      err(`Journey file phase ${index + 1} requires a non-empty id.`);
     }
     if (phase.note !== undefined && typeof phase.note !== "string") {
-      err(`Proposal spec phase ${index + 1} note must be a string when provided.`);
+      err(`Journey file phase ${index + 1} note must be a string when provided.`);
     }
     return {
       id: phase.id.trim(),
@@ -227,7 +238,7 @@ function normalizeBoardProposalSpec(raw: unknown): BoardProposalSpec {
 
   const invalid = getInvalidQuestJourneyPhaseIds(phases.map((phase) => phase.id));
   if (invalid.length > 0) {
-    err(`Invalid Quest Journey phase(s) in proposal spec: ${invalid.join(", ")}`);
+    err(`Invalid Quest Journey phase(s) in journey file: ${invalid.join(", ")}`);
   }
   const normalizedPhaseIds = normalizeQuestJourneyPhaseIds(phases.map((phase) => phase.id));
   const sequenceError = validateQuestJourneyPhaseSequence(normalizedPhaseIds);
@@ -270,13 +281,13 @@ function normalizeBoardProposalSpec(raw: unknown): BoardProposalSpec {
   };
 }
 
-async function readBoardProposalSpec(pathOrDash: string): Promise<BoardProposalSpec> {
-  const raw = await readOptionTextFile(pathOrDash, "--spec-file");
+async function readBoardJourneySpec(pathOrDash: string, flagName = "--journey-file"): Promise<BoardJourneySpec> {
+  const raw = await readOptionTextFile(pathOrDash, flagName);
   try {
-    return normalizeBoardProposalSpec(JSON.parse(raw));
+    return normalizeBoardJourneySpec(JSON.parse(raw));
   } catch (error) {
     if (error instanceof SyntaxError) {
-      err(`Cannot parse --spec-file JSON: ${error.message}`);
+      err(`Cannot parse ${flagName} JSON: ${error.message}`);
     }
     throw error;
   }
@@ -806,14 +817,90 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     return;
   }
 
+  if (sub === "revise") {
+    const questId = args[1];
+    const usage =
+      "Usage: takode board revise <quest-id> --from-position <n> --expect-phase <id> (--phases <ids> | --journey-file <path|->) [--preset <id>] [--full|--verbose] [--json]";
+    if (!questId) err(usage);
+    if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
+    const flags = parseFlags(args.slice(2));
+    if (flags["dry-run"] !== undefined) err("--dry-run is not supported for board revise.");
+    if (flags.reason !== undefined || flags["revise-reason"] !== undefined) {
+      err("Journey revision reasons are no longer required; omit --reason and --revise-reason.");
+    }
+    if (flags["spec-file"] !== undefined) err("Use --journey-file with takode board revise.");
+    const fromPosition = parseIntegerFlag(flags, "from-position", "from position");
+    if (fromPosition === undefined) err("--from-position is required.");
+    if (fromPosition <= 0) err("--from-position must be a positive integer.");
+    const expectedPhaseId =
+      typeof flags["expect-phase"] === "string" ? canonicalizeQuestJourneyPhaseId(flags["expect-phase"]) : null;
+    if (!expectedPhaseId) err("--expect-phase must name a valid Journey phase.");
+    if (typeof flags.phases === "string" && typeof flags["journey-file"] === "string") {
+      err("Use either --phases or --journey-file, not both.");
+    }
+    if (flags["journey-file"] === true) err("--journey-file requires a path or '-' for stdin.");
+
+    const body: Record<string, unknown> = {
+      fromIndex: fromPosition - 1,
+      expectedPhaseId,
+    };
+    if (typeof flags["journey-file"] === "string") {
+      const spec = await readBoardJourneySpec(flags["journey-file"], "--journey-file");
+      body.phases = normalizeQuestJourneyPhaseIds(spec.phases.map((phase) => phase.id));
+      body.phaseNoteEdits = spec.phases.map((phase, index) => ({ index, note: phase.note ?? null }));
+      if (typeof flags.preset === "string" && flags.preset.trim()) body.presetId = flags.preset.trim();
+      else if (spec.presetId) body.presetId = spec.presetId;
+    } else if (typeof flags.phases === "string") {
+      const phases = flags.phases
+        .split(",")
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+      if (phases.length === 0) err("Invalid replacement Journey phases: provide at least one phase ID.");
+      const invalid = getInvalidQuestJourneyPhaseIds(phases);
+      if (invalid.length > 0) {
+        err(
+          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- use planning, explore, user-checkpoint, implement, code-review, mental-simulation, execute, outcome-review, port, memory, or bookkeeping`,
+        );
+      }
+      body.phases = normalizeQuestJourneyPhaseIds(phases);
+      if (typeof flags.preset === "string" && flags.preset.trim()) body.presetId = flags.preset.trim();
+    } else {
+      err("Use --phases or --journey-file with takode board revise.");
+    }
+
+    const result = (await apiPost(
+      base,
+      `/sessions/${encodeURIComponent(selfId)}/board/${encodeURIComponent(questId)}/revise`,
+      body,
+    )) as {
+      board: BoardRow[];
+      resolvedSessionDeps?: string[];
+      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
+      queueWarnings?: BoardQueueWarning[];
+      phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
+      workerSlotUsage?: { used: number; limit: number };
+    };
+    outputBoardMutation(result.board, flags.json === true, {
+      affectedQuestIds: [questId],
+      operation: `revise ${questId}: updated`,
+      fullOutput: wantsFullBoardOutput(flags),
+      resolvedSessionDeps: new Set(result.resolvedSessionDeps ?? []),
+      rowSessionStatuses: result.rowSessionStatuses,
+      queueWarnings: result.queueWarnings,
+      phaseNoteRebaseWarnings: result.phaseNoteRebaseWarnings,
+      workerSlotUsage: result.workerSlotUsage,
+    });
+    return;
+  }
+
   if (sub === "add" || sub === "set" || sub === "propose" || sub === "promote") {
     const questId = args[1];
     const usageBySub =
       sub === "propose"
-        ? `Usage: takode board propose <quest-id> [--title "..."] [--phases <ids> | --spec-file <path|->] [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
+        ? `Usage: takode board propose <quest-id> [--title "..."] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
         : sub === "promote"
           ? `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
-          : `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--active-phase-position <n>] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--full|--verbose] [--json]`;
+          : `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--active-phase-position <n>] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--full|--verbose] [--json]`;
     if (!questId) err(usageBySub);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
@@ -841,24 +928,29 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     }
     if (typeof flags.status === "string") body.status = flags.status;
     if (typeof flags.title === "string") body.title = flags.title;
+    const journeyFileFlag =
+      typeof flags["journey-file"] === "string"
+        ? "journey-file"
+        : typeof flags["spec-file"] === "string"
+          ? "spec-file"
+          : undefined;
+    if (flags["journey-file"] === true) err("--journey-file requires a path or '-' for stdin.");
     if (flags["spec-file"] === true) err("--spec-file requires a path or '-' for stdin.");
-    if (typeof flags["spec-file"] === "string") {
-      if (!isProposalCommand) err("Use --spec-file only with `takode board propose`.");
-      if (typeof flags.phases === "string") err("Use either --spec-file or --phases, not both.");
-      const spec = await readBoardProposalSpec(flags["spec-file"]);
+    if (journeyFileFlag) {
+      if (isPromoteCommand) err("takode board promote reuses the existing Journey. Use takode board revise first.");
+      if (journeyFileFlag === "spec-file" && !isProposalCommand) err("Use --journey-file with takode board set.");
+      if (typeof flags.phases === "string") err("Use either --journey-file or --phases, not both.");
+      const spec = await readBoardJourneySpec(flags[journeyFileFlag] as string, `--${journeyFileFlag}`);
       body.phases = normalizeQuestJourneyPhaseIds(spec.phases.map((phase) => phase.id));
       body.phaseNoteEdits = spec.phases.map((phase, index) => ({ index, note: phase.note ?? null }));
       if (spec.title && !("title" in body)) body.title = spec.title;
       if (typeof flags.preset === "string" && flags.preset.trim()) body.presetId = flags.preset.trim();
       else if (spec.presetId) body.presetId = spec.presetId;
       else body.presetId = "custom";
-      if (spec.revisionReason) body.revisionReason = spec.revisionReason;
       if (spec.presentation) body.presentation = spec.presentation;
     } else if (typeof flags.phases === "string") {
       if (isPromoteCommand) {
-        err(
-          "`takode board promote` reuses the existing Journey. Revise it first with `takode board propose` or `takode board set`.",
-        );
+        err("takode board promote reuses the existing Journey. Revise it first with takode board revise.");
       }
       const phases = flags.phases
         .split(",")
@@ -880,15 +972,12 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
         body.presetId = flags.preset.trim();
       }
     } else if (typeof flags.preset === "string") {
-      err("Use --preset only with --phases so the planned Quest Journey is explicit.");
+      err("Use --preset only with --phases or --journey-file so the planned Quest Journey is explicit.");
     } else if (isProposalCommand) {
-      err("Use --phases or --spec-file with `takode board propose` so the proposed Journey is explicit.");
+      err("Use --phases or --journey-file with takode board propose so the proposed Journey is explicit.");
     }
-    if (typeof flags["revise-reason"] === "string") {
-      if (!("phases" in body)) {
-        err("Use --revise-reason only with --phases so the Journey revision is explicit.");
-      }
-      body.revisionReason = flags["revise-reason"];
+    if (flags["revise-reason"] !== undefined || flags.reason !== undefined) {
+      err("Journey revision reasons are no longer required; use takode board revise for existing Journey changes.");
     }
     if (typeof flags["wait-for"] === "string") {
       if (isProposalCommand) {
@@ -1203,6 +1292,6 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
   }
 
   err(
-    `Unknown board subcommand: ${sub}\nUsage: takode board [show|detail|set|propose|present|promote|note|advance|rm] ...`,
+    `Unknown board subcommand: ${sub}\nUsage: takode board [show|detail|set|revise|propose|present|promote|note|advance|rm] ...`,
   );
 }

@@ -268,6 +268,22 @@ export interface QuestJourneyPhaseNoteRebaseResult {
   warnings: QuestJourneyPhaseNoteRebaseWarning[];
 }
 
+export interface QuestJourneySuffixRevision {
+  existingPhaseIds: readonly QuestJourneyPhaseId[];
+  fromIndex: number;
+  expectedPhaseId: QuestJourneyPhaseId;
+  replacementPhaseIds: readonly QuestJourneyPhaseId[];
+  existingPhaseNotes?: Record<string, string>;
+  replacementPhaseNotes?: Record<string, string>;
+}
+
+export interface QuestJourneySuffixRevisionResult {
+  phaseIds?: QuestJourneyPhaseId[];
+  phaseNotes?: Record<string, string>;
+  warnings: QuestJourneyPhaseNoteRebaseWarning[];
+  error?: string;
+}
+
 export interface QuestJourneyCompletedPrefixResult {
   ok: boolean;
   prefixLength?: number;
@@ -524,6 +540,65 @@ export function rebaseQuestJourneyPhaseNotes(
         }
       : {}),
     warnings,
+  };
+}
+
+export function reviseQuestJourneySuffix(revision: QuestJourneySuffixRevision): QuestJourneySuffixRevisionResult {
+  const existingPhaseIds = normalizeQuestJourneyPhaseIds(revision.existingPhaseIds);
+  const replacementPhaseIds = normalizeQuestJourneyPhaseIds(revision.replacementPhaseIds);
+  const fromIndex = revision.fromIndex;
+
+  if (!Number.isInteger(fromIndex) || fromIndex < 0) {
+    return { error: "Revision start position must be a positive integer.", warnings: [] };
+  }
+  if (fromIndex >= existingPhaseIds.length) {
+    return {
+      error: "Revision start position " + (fromIndex + 1) + " is out of range for the current Journey.",
+      warnings: [],
+    };
+  }
+  if (replacementPhaseIds.length === 0) {
+    return { error: "Journey revision requires at least one replacement phase.", warnings: [] };
+  }
+
+  const actualPhaseId = existingPhaseIds[fromIndex];
+  if (actualPhaseId !== revision.expectedPhaseId) {
+    const actualLabel = getQuestJourneyPhase(actualPhaseId)?.label ?? actualPhaseId;
+    const expectedLabel = getQuestJourneyPhase(revision.expectedPhaseId)?.label ?? revision.expectedPhaseId;
+    return {
+      error:
+        "Revision expected phase " +
+        expectedLabel +
+        " at position " +
+        (fromIndex + 1) +
+        ", but the current Journey has " +
+        actualLabel +
+        ". Re-run board detail and revise from the correct phase position.",
+      warnings: [],
+    };
+  }
+
+  const phaseIds = [...existingPhaseIds.slice(0, fromIndex), ...replacementPhaseIds];
+  const rebaseResult = rebaseQuestJourneyPhaseNotes(revision.existingPhaseNotes, existingPhaseIds, phaseIds);
+  const nextNotes = new Map<string, string>(Object.entries(rebaseResult.phaseNotes ?? {}));
+
+  for (const [rawIndex, rawNote] of Object.entries(revision.replacementPhaseNotes ?? {})) {
+    const relativeIndex = Number.parseInt(rawIndex, 10);
+    if (!Number.isInteger(relativeIndex) || relativeIndex < 0 || relativeIndex >= replacementPhaseIds.length) continue;
+    const note = rawNote.trim();
+    if (!note) continue;
+    nextNotes.set(String(fromIndex + relativeIndex), note);
+  }
+
+  return {
+    phaseIds,
+    phaseNotes:
+      nextNotes.size > 0
+        ? Object.fromEntries(
+            [...nextNotes.entries()].sort((a, b) => Number.parseInt(a[0], 10) - Number.parseInt(b[0], 10)),
+          )
+        : undefined,
+    warnings: rebaseResult.warnings,
   };
 }
 

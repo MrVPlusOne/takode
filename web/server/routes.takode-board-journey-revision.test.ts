@@ -598,6 +598,14 @@ describe("Takode server-authoritative auth", () => {
     return sessions;
   }
 
+  function postBoardRevise(questId: string, body: Record<string, unknown>) {
+    return app.request(`/api/sessions/orch-1/board/${questId}/revise`, {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify(body),
+    });
+  }
+
   function installLegacyRepeatedExecuteRow() {
     bridge._sessions["orch-1"].notifications = [{ id: "n-16", category: "needs-input", done: false }];
     bridge._sessions["orch-1"].board = new Map([
@@ -764,14 +772,11 @@ describe("Takode server-authoritative auth", () => {
       ],
     ]);
 
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        phases: ["alignment", "implement", "user-checkpoint", "port"],
-        presetId: "remove-first-checkpoint",
-      }),
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 1,
+      expectedPhaseId: "user-checkpoint",
+      phases: ["implement", "user-checkpoint", "port"],
+      presetId: "remove-first-checkpoint",
     });
 
     expect(res.status).toBe(400);
@@ -841,14 +846,11 @@ describe("Takode server-authoritative auth", () => {
       ],
     ]);
 
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        phases: ["alignment", "implement", "outcome-review", "code-review", "port"],
-        presetId: "cli-rollout",
-      }),
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 2,
+      expectedPhaseId: "code-review",
+      phases: ["outcome-review", "code-review", "port"],
+      presetId: "cli-rollout",
     });
 
     expect(res.status).toBe(200);
@@ -866,6 +868,108 @@ describe("Takode server-authoritative auth", () => {
           },
         },
       ],
+    });
+  });
+
+  it("rejects Journey revision when expected phase does not match the revision point", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "IMPLEMENTING",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "full-code",
+            phaseIds: ["alignment", "implement", "code-review", "port"],
+            activePhaseIndex: 1,
+            currentPhaseId: "implement",
+          },
+        },
+      ],
+    ]);
+
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 2,
+      expectedPhaseId: "memory",
+      phases: ["outcome-review", "code-review", "port"],
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("expected phase Memory at position 3"),
+    });
+  });
+
+  it("rejects Journey revision from the active current phase", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "IMPLEMENTING",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "full-code",
+            phaseIds: ["alignment", "implement", "code-review", "port"],
+            activePhaseIndex: 1,
+            currentPhaseId: "implement",
+          },
+        },
+      ],
+    ]);
+
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 1,
+      expectedPhaseId: "implement",
+      phases: ["outcome-review", "code-review", "port"],
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("must start after the current phase"),
+    });
+  });
+
+  it("rejects set --phases against an existing Journey row", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "IMPLEMENTING",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "full-code",
+            phaseIds: ["alignment", "implement", "code-review", "port"],
+            activePhaseIndex: 1,
+            currentPhaseId: "implement",
+          },
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        phases: ["alignment", "implement", "outcome-review", "port"],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("Use takode board revise"),
     });
   });
 
@@ -891,14 +995,11 @@ describe("Takode server-authoritative auth", () => {
       ],
     ]);
 
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        phases: ["implement", "code-review", "port"],
-        presetId: "rewritten-history",
-      }),
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 0,
+      expectedPhaseId: "alignment",
+      phases: ["implement", "code-review", "port"],
+      presetId: "rewritten-history",
     });
 
     expect(res.status).toBe(400);
@@ -1003,14 +1104,11 @@ describe("Takode server-authoritative auth", () => {
       ],
     ]);
 
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        phases: ["alignment", "implement", "code-review", "implement", "mental-simulation", "port"],
-        presetId: "legacy-rework-loop",
-      }),
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 4,
+      expectedPhaseId: "port",
+      phases: ["mental-simulation", "port"],
+      presetId: "legacy-rework-loop",
     });
 
     expect(res.status).toBe(400);
@@ -1226,7 +1324,7 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
-  it("keeps existing proposed rows freely revisable before execution", async () => {
+  it("keeps existing proposed rows revisable through board revise before execution", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].board = new Map([
       [
@@ -1249,20 +1347,15 @@ describe("Takode server-authoritative auth", () => {
       ],
     ]);
 
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        journeyMode: "proposed",
-        status: "PROPOSED",
-        phases: ["alignment", "explore", "user-checkpoint", "implement", "port"],
-        presetId: "revised-draft",
-        phaseNoteEdits: [
-          { index: 1, note: "Explore the draft before implementation" },
-          { index: 2, note: "Present findings before implementation." },
-        ],
-      }),
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 0,
+      expectedPhaseId: "alignment",
+      phases: ["alignment", "explore", "user-checkpoint", "implement", "port"],
+      presetId: "revised-draft",
+      phaseNoteEdits: [
+        { index: 1, note: "Explore the draft before implementation" },
+        { index: 2, note: "Present findings before implementation." },
+      ],
     });
 
     expect(res.status).toBe(200);
@@ -1305,15 +1398,11 @@ describe("Takode server-authoritative auth", () => {
       ],
     ]);
 
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        phases: ["alignment", "implement", "code-review", "implement", "code-review", "mental-simulation", "port"],
-        presetId: "rework-loop",
-        revisionReason: "Add scenario replay before port",
-      }),
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 4,
+      expectedPhaseId: "code-review",
+      phases: ["code-review", "mental-simulation", "port"],
+      presetId: "rework-loop",
     });
 
     expect(res.status).toBe(200);

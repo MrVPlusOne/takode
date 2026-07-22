@@ -275,7 +275,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(capturedBodies).toHaveLength(0);
   });
 
-  it("posts proposed Journey spec files as one batch phase and note update", async () => {
+  it("posts proposed Journey files as one batch phase and note update", async () => {
     const dir = mkdtempSync(join(tmpdir(), "takode-board-spec-"));
     const specPath = join(dir, "proposal.json");
     writeFileSync(
@@ -298,14 +298,11 @@ describe("takode board set --worker auto-clears waitFor", () => {
       }),
     );
 
-    const result = await runTakode(
-      ["board", "propose", "q-1", "--spec-file", specPath, "--revise-reason", "Batch draft", "--port", String(port)],
-      {
-        ...process.env,
-        COMPANION_SESSION_ID: "leader-1",
-        COMPANION_AUTH_TOKEN: "auth-1",
-      },
-    );
+    const result = await runTakode(["board", "propose", "q-1", "--journey-file", specPath, "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
 
     expect(result.status).toBe(0);
     expect(capturedBodies[0]).toMatchObject({
@@ -315,7 +312,6 @@ describe("takode board set --worker auto-clears waitFor", () => {
       status: "PROPOSED",
       phases: ["alignment", "explore", "user-checkpoint", "implement", "code-review", "port"],
       presetId: "proposal-flow",
-      revisionReason: "Batch draft",
       phaseNoteEdits: [
         { index: 0, note: null },
         { index: 1, note: "Classify the noisy log source before implementation." },
@@ -348,7 +344,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
       }),
     );
 
-    const result = await runTakode(["board", "propose", "q-1", "--spec-file", specPath, "--port", String(port)], {
+    const result = await runTakode(["board", "propose", "q-1", "--journey-file", specPath, "--port", String(port)], {
       ...process.env,
       COMPANION_SESSION_ID: "leader-1",
       COMPANION_AUTH_TOKEN: "auth-1",
@@ -575,12 +571,14 @@ describe("takode board set --worker auto-clears waitFor", () => {
     const result = await runTakode(
       [
         "board",
-        "set",
+        "revise",
         "q-1",
+        "--from-position",
+        "5",
+        "--expect-phase",
+        "mental-simulation",
         "--phases",
-        "alignment,implement,code-review,implement,port",
-        "--revise-reason",
-        "Simulation is no longer needed after the narrowed fix",
+        "port",
         "--port",
         String(port),
       ],
@@ -592,8 +590,90 @@ describe("takode board set --worker auto-clears waitFor", () => {
     );
 
     expect(result.status).toBe(0);
+    expect(capturedBodies[0]).toMatchObject({
+      fromIndex: 4,
+      expectedPhaseId: "mental-simulation",
+      phases: ["port"],
+    });
     expect(result.stdout).toContain("Mental Simulation occurrence 1 was dropped during revision");
     expect(result.stdout).toContain("Replay turns 116/120/121/122-123 before dispatching this phase");
+  });
+
+  it.each([
+    ["--dry-run", "--dry-run is not supported"],
+    ["--reason", "Journey revision reasons are no longer required"],
+    ["--revise-reason", "Journey revision reasons are no longer required"],
+  ])("rejects board revise %s before posting", async (flag, expectedError) => {
+    const result = await runTakode(
+      [
+        "board",
+        "revise",
+        "q-1",
+        "--from-position",
+        "5",
+        "--expect-phase",
+        "memory",
+        "--phases",
+        "user-checkpoint,memory",
+        flag,
+        flag === "--dry-run" ? "--port" : "old reason",
+        ...(flag === "--dry-run" ? [String(port)] : ["--port", String(port)]),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(expectedError);
+    expect(capturedBodies).toHaveLength(0);
+  });
+
+  it("posts board revise journey files as replacement suffix phase-note edits", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "takode-board-revise-file-"));
+    const journeyPath = join(dir, "suffix.json");
+    writeFileSync(
+      journeyPath,
+      JSON.stringify({
+        presetId: "checkpoint-before-memory",
+        phases: [{ id: "user-checkpoint", note: "Approve the recommended design before Memory." }, { id: "memory" }],
+      }),
+    );
+
+    const result = await runTakode(
+      [
+        "board",
+        "revise",
+        "q-1",
+        "--from-position",
+        "5",
+        "--expect-phase",
+        "memory",
+        "--journey-file",
+        journeyPath,
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies[0]).toMatchObject({
+      fromIndex: 4,
+      expectedPhaseId: "memory",
+      phases: ["user-checkpoint", "memory"],
+      presetId: "checkpoint-before-memory",
+      phaseNoteEdits: [
+        { index: 0, note: "Approve the recommended design before Memory." },
+        { index: 1, note: null },
+      ],
+    });
   });
 
   it("rejects unknown planned Quest Journey phase IDs before posting", async () => {

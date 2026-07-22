@@ -91,6 +91,13 @@ async function postBoard(body: Record<string, unknown>): Promise<Response> {
   });
 }
 
+async function postBoardRevise(questId: string, body: Record<string, unknown>): Promise<Response> {
+  return app.request(`/sessions/orch-1/board/${questId}/revise`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 describe("Takode board Journey metadata route", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -224,11 +231,11 @@ describe("Takode board Journey metadata route", () => {
       ],
     ]);
 
-    const res = await postBoard({
-      questId: "q-9",
-      phases: ["alignment", "implement", "code-review", "implement", "code-review", "mental-simulation", "port"],
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 4,
+      expectedPhaseId: "mental-simulation",
+      phases: ["code-review", "mental-simulation", "port"],
       presetId: "rework-loop",
-      revisionReason: "Add a second review pass before simulation",
     });
 
     expect(res.status).toBe(200);
@@ -281,13 +288,13 @@ describe("Takode board Journey metadata route", () => {
       ],
     ]);
 
-    const reviseRes = await postBoard({
-      questId: "q-9",
+    const reviseRes = await postBoardRevise("q-9", {
+      fromIndex: 0,
+      expectedPhaseId: "alignment",
       phases: ["alignment", "implement", "code-review", "port"],
       presetId: "proposal-flow",
-      revisionReason: "Replace noisy draft notes with concise approval notes",
-      // This is the server payload emitted by takode board propose --spec-file:
-      // every phase occurrence is authoritative, and null/empty notes clear old text.
+      // This is the server payload emitted by takode board revise --journey-file:
+      // every replacement suffix phase occurrence can carry or clear concise notes.
       phaseNoteEdits: [
         { index: 0, note: "Confirm the approval surface and scope." },
         { index: 1, note: "" },
@@ -359,11 +366,11 @@ describe("Takode board Journey metadata route", () => {
       ],
     ]);
 
-    const res = await postBoard({
-      questId: "q-9",
-      phases: ["alignment", "implement", "code-review", "implement", "port"],
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 4,
+      expectedPhaseId: "mental-simulation",
+      phases: ["port"],
       presetId: "rework-loop",
-      revisionReason: "Simulation is no longer needed after the narrowed fix",
     });
 
     expect(res.status).toBe(200);

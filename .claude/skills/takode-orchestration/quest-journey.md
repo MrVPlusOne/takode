@@ -109,7 +109,7 @@ The recommended built-in tracked-code Journey is:
 
 This preserves a small normal path for common repo work while allowing leaders to choose richer review or operations paths when the quest needs them. It is a default, not a mandate: user overrides win. If the user asks to skip `code-review`, `port`, or another standard phase, follow that instruction or briefly confirm the tradeoff instead of refusing because the phase is standard.
 
-Omit notes for standard phases by default: `alignment`, `implement`, `code-review`, `port`, and final `memory` are self-explanatory unless the user or quest adds unusual phase-specific work. Add concise notes for non-standard phases such as `explore`, `user-checkpoint`, `execute`, `outcome-review`, `mental-simulation`, or compatibility `bookkeeping`; state why the phase is needed and what evidence, user decision, scenario, outcome, or durable state it covers. For every extra phase, ask what it contributes over merging the same work into a later phase. User Checkpoints are mandatory by default; mark one optional only with an approved phase note that says it may be skipped and gives the concrete skip condition. After Explore, skip it only when that condition has been evaluated as satisfied and the skip reason is recorded. Leaders may also mark other future phases optional when the need depends on later evidence and the user did not explicitly require the phase; the phase note should name when the phase is needed and/or can be skipped. Non-checkpoint optional phases are removed or added by explicit Journey revision with `--revise-reason`, not by a generic skip command. Do not use optionality to bypass Code Review, Port for tracked changes, final Memory, required User Checkpoints, or explicit user-required phases.
+Omit notes for standard phases by default: `alignment`, `implement`, `code-review`, `port`, and final `memory` are self-explanatory unless the user or quest adds unusual phase-specific work. Add concise notes for non-standard phases such as `explore`, `user-checkpoint`, `execute`, `outcome-review`, `mental-simulation`, or compatibility `bookkeeping`; state why the phase is needed and what evidence, user decision, scenario, outcome, or durable state it covers. For every extra phase, ask what it contributes over merging the same work into a later phase. User Checkpoints are mandatory by default; mark one optional only with an approved phase note that says it may be skipped and gives the concrete skip condition. After Explore, skip it only when that condition has been evaluated as satisfied and the skip reason is recorded. Leaders may also mark other future phases optional when the need depends on later evidence and the user did not explicitly require the phase; the phase note should name when the phase is needed and/or can be skipped. Non-checkpoint optional phases are removed or added by explicit `takode board revise`, not by a generic skip command. Do not use optionality to bypass Code Review, Port for tracked changes, final Memory, required User Checkpoints, or explicit user-required phases.
 
 ## Approval and Board Workflow
 
@@ -119,9 +119,10 @@ Use natural prose as the normal approval surface. Once the user approves, make t
 takode board set q-12 --worker 5 --phases alignment,implement,code-review,port,memory --preset full-code
 ```
 
-- `takode board set --worker ... --phases ...` creates the active board row in one step after prose approval
-- `takode board propose` remains available to create or revise a board-owned draft when the quest already exists and a draft row helps coordination
-- prefer `takode board propose --spec-file` for complete proposal drafts with phases, concise non-standard notes, and scheduling metadata
+- `takode board set --worker ... --phases ...` creates the active board row and initial Journey in one step after prose approval
+- `takode board revise` changes an existing active or proposed Journey suffix by 1-based position plus expected phase
+- `takode board propose` remains available to create a board-owned draft when an approval-hold row helps coordination
+- prefer `takode board propose --journey-file` for complete proposal drafts with phases, concise non-standard notes, and scheduling metadata
 - `takode board note` remains available for targeted note edits, but each draft mutation makes any previous presentation stale
 - `takode board present` creates an optional user-facing approval artifact from the current draft
 - `takode board promote` reuses a proposed Journey object for execution after approval; a separate presentation step is no longer required
@@ -143,23 +144,23 @@ Leaders may revise the remaining Journey when risk, evidence needs, external-sta
 Use:
 
 ```bash
-takode board set q-12 --phases implement,outcome-review,code-review,port \
-  --preset cli-rollout
+takode board revise q-12 --from-position 3 --expect-phase code-review \
+  --phases outcome-review,code-review,port --preset cli-rollout
 ```
 
 Rules:
 
 - Already completed phase occurrences are historical and cannot be revised in place.
 - Keep completed prefix positions unchanged; append a later repeated phase when requirements change after a phase has run.
-- Proposed rows with no executed phases can be revised freely.
-- When revising an active row without changing `--status`, include the current phase in `--phases`.
+- Proposed rows with no executed phases can be revised from position 1.
+- Active rows revise only future suffixes; completed and current occurrences are not rewritten in place.
 - Repeated phases are first-class. Insert or append them directly instead of pretending the Journey reset to an earlier abstract state.
 - Indexed phase notes rebase by phase occurrence, not raw index. If the same occurrence still exists after a phase-list revision, the note follows it even when its position shifts.
-- If a revision removes the intended occurrence, `takode board set` / `takode board propose` warns about the dropped note so the leader can reattach or rewrite it deliberately.
+- If a revision removes the intended occurrence, `takode board revise` warns about the dropped note so the leader can reattach or rewrite it deliberately.
 - Repeated active phases are tracked by occurrence index, not just by `currentPhaseId`. When a repeated phase is active and `--status` alone would be ambiguous, set `--active-phase-position` so the board row and UI point at the correct occurrence.
 - If the active boundary itself changes, set an explicit `--status` that matches the revised phase plan.
 - `takode board advance` always follows the row's planned phases, not a hard-coded global order.
-- For optional non-checkpoint phases, revise the remaining Journey with `--revise-reason` when later evidence shows the phase is unnecessary or newly necessary. Preserve completed phase occurrences, respect explicit user-required phases, and use User Checkpoint first when the revision changes user-owned scope, safety, product choice, or explicit requirements.
+- For optional non-checkpoint phases, revise the remaining Journey with `takode board revise` when later evidence shows the phase is unnecessary or newly necessary. Preserve completed/current phase occurrences, respect explicit user-required phases, and use User Checkpoint first when the revision changes user-owned scope, safety, product choice, or explicit requirements.
 
 ## Phase-Explicit Worker Steering
 

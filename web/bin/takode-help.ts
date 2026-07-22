@@ -16,6 +16,7 @@ import {
   BOARD_PRESENT_HELP,
   BOARD_PROMOTE_HELP,
   BOARD_PROPOSE_HELP,
+  BOARD_REVISE_HELP,
   BOARD_RM_HELP,
   BOARD_SET_HELP,
 } from "./takode-board.js";
@@ -391,6 +392,8 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
         console.log(BOARD_DETAIL_HELP);
       } else if (sub === "set" || sub === "add") {
         console.log(BOARD_SET_HELP);
+      } else if (sub === "revise") {
+        console.log(BOARD_REVISE_HELP);
       } else if (sub === "propose") {
         console.log(BOARD_PROPOSE_HELP);
       } else if (sub === "present") {

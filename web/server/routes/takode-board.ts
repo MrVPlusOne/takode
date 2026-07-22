@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import * as questStore from "../quest-store.js";
 import {
+  canonicalizeQuestJourneyPhaseId,
   FREE_WORKER_WAIT_FOR_TOKEN,
   getQuestJourneyCurrentPhaseIndex,
   getQuestJourneyPhase,
@@ -14,6 +15,7 @@ import {
   normalizeQuestJourneyPhaseIds,
   normalizeQuestJourneyPlan,
   rebaseQuestJourneyPhaseNotes,
+  reviseQuestJourneySuffix,
   validateQuestJourneyCompletedPrefixRevision,
   validateQuestJourneyPhaseSequence,
   validateQuestJourneyUserCheckpointNotes,
@@ -451,9 +453,6 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     if (typeof body.revisionReason === "string" && !revisionReason) {
       return c.json({ error: "Journey revision reason must not be empty" }, 400);
     }
-    if (revisionReason && !Array.isArray(body.phases)) {
-      return c.json({ error: "Journey revision reason requires --phases / phases so the revision is explicit" }, 400);
-    }
     const phaseNoteEdits = normalizePhaseNoteEdits(body.phaseNoteEdits);
     if (body.phaseNoteEdits !== undefined && phaseNoteEdits === null) {
       return c.json({ error: "phaseNoteEdits must be an array of { index, note } edits when provided" }, 400);
@@ -474,6 +473,15 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
 
     let typedPhaseIds: QuestJourneyPhaseId[] | undefined;
     const existingPhaseIds = normalizeQuestJourneyPhaseIds(existingJourney?.phaseIds ?? []);
+    if (existingJourney && Array.isArray(body.phases)) {
+      return c.json(
+        {
+          error:
+            "Existing Journey rows cannot be revised with board set or board propose. Use takode board revise for Journey changes.",
+        },
+        400,
+      );
+    }
     if (Array.isArray(body.phases)) {
       const phaseIds = body.phases
         .filter((s: unknown) => typeof s === "string" && s.trim())
@@ -529,7 +537,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       return c.json(
         {
           error:
-            "Promoting a Journey requires an existing proposed Journey row. Create or revise it first with `takode board propose`.",
+            "Promoting a Journey requires an existing proposed Journey row. Create it with `takode board propose` or revise an existing proposed row with `takode board revise`.",
         },
         400,
       );
@@ -861,6 +869,189 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       queueWarnings: bridgeSession ? getBoardQueueWarningsController(bridgeSession, boardWatchdogDeps) : [],
       workerSlotUsage: getBoardWorkerSlotUsageController(id, boardWatchdogDeps),
       resolvedSessionDeps: resolveSessionDeps(board),
+    });
+  });
+
+  api.post("/sessions/:id/board/:questId/revise", async (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    if (id !== auth.callerId) {
+      return c.json({ error: "Can only modify your own board" }, 403);
+    }
+
+    const questId = c.req.param("questId").trim();
+    if (!questId) return c.json({ error: "questId is required" }, 400);
+    if (!isValidQuestId(questId)) {
+      return c.json({ error: 'Invalid quest ID "' + questId + '": must match q-NNN format (e.g., q-1, q-42)' }, 400);
+    }
+
+    const bridgeSession = wsBridge.getSession(id);
+    if (!bridgeSession) return c.json({ error: "Session not found in bridge" }, 404);
+
+    const existingRow = bridgeSession.board.get(questId) ?? null;
+    if (!existingRow?.journey) {
+      return c.json(
+        {
+          error:
+            "Cannot revise " +
+            questId +
+            ": no existing Journey row found. Use takode board set to create the initial Journey.",
+        },
+        404,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const fromIndex =
+      typeof body.fromIndex === "number" && Number.isInteger(body.fromIndex) ? body.fromIndex : undefined;
+    if (fromIndex === undefined || fromIndex < 0) {
+      return c.json({ error: "fromIndex must be a non-negative integer." }, 400);
+    }
+
+    const expectedPhaseId =
+      typeof body.expectedPhaseId === "string" ? canonicalizeQuestJourneyPhaseId(body.expectedPhaseId) : null;
+    if (!expectedPhaseId) {
+      return c.json({ error: "expectedPhaseId must name a valid Journey phase." }, 400);
+    }
+
+    if (!Array.isArray(body.phases)) {
+      return c.json({ error: "phases must be an array of replacement Journey phase IDs." }, 400);
+    }
+    const rawReplacementPhases = body.phases
+      .filter((value: unknown) => typeof value === "string" && value.trim())
+      .map((value: string) => value.trim());
+    if (rawReplacementPhases.length === 0) {
+      return c.json({ error: "Journey revision requires at least one replacement phase." }, 400);
+    }
+    const invalid = getInvalidQuestJourneyPhaseIds(rawReplacementPhases);
+    if (invalid.length > 0) {
+      return c.json({ error: "Invalid Quest Journey phase(s): " + invalid.join(", ") }, 400);
+    }
+    const replacementPhaseIds = normalizeQuestJourneyPhaseIds(rawReplacementPhases);
+
+    const phaseNoteEdits = normalizePhaseNoteEdits(body.phaseNoteEdits);
+    if (body.phaseNoteEdits !== undefined && phaseNoteEdits === null) {
+      return c.json({ error: "phaseNoteEdits must be an array of { index, note } edits when provided" }, 400);
+    }
+    const outOfRangeNote = phaseNoteEdits?.find((edit) => edit.index >= replacementPhaseIds.length);
+    if (outOfRangeNote) {
+      return c.json(
+        {
+          error: "Phase note index " + (outOfRangeNote.index + 1) + " is out of range for the replacement suffix.",
+        },
+        400,
+      );
+    }
+    const replacementPhaseNotes =
+      phaseNoteEdits && phaseNoteEdits.length > 0
+        ? Object.fromEntries(phaseNoteEdits.flatMap((edit) => (edit.note ? [[String(edit.index), edit.note]] : [])))
+        : undefined;
+
+    const existingJourney = existingRow.journey;
+    const existingPhaseIds = normalizeQuestJourneyPhaseIds(existingJourney.phaseIds ?? []);
+    const existingMode: QuestJourneyLifecycleMode =
+      normalizeJourneyMode(existingJourney.mode) ??
+      ((existingRow.status || "").trim().toUpperCase() === "PROPOSED" ? "proposed" : "active");
+
+    const currentPhaseIndex = getQuestJourneyCurrentPhaseIndex(existingJourney, existingRow.status);
+    const nextPhaseCandidate = [...existingPhaseIds.slice(0, fromIndex), ...replacementPhaseIds];
+    const historyError = validateQuestJourneyCompletedPrefixRevision({
+      existingPlan: existingJourney,
+      existingStatus: existingRow.status,
+      nextPhaseIds: nextPhaseCandidate,
+    });
+    if (historyError) return c.json({ error: historyError }, 400);
+
+    if (existingMode === "active" && currentPhaseIndex !== undefined && fromIndex <= currentPhaseIndex) {
+      return c.json(
+        {
+          error:
+            "Active Journey revisions must start after the current phase. Completed and current phase occurrences are not revised in place.",
+        },
+        400,
+      );
+    }
+
+    const revision = reviseQuestJourneySuffix({
+      existingPhaseIds,
+      fromIndex,
+      expectedPhaseId,
+      replacementPhaseIds,
+      existingPhaseNotes: existingJourney.phaseNotes,
+      replacementPhaseNotes,
+    });
+    if (revision.error) return c.json({ error: revision.error }, 400);
+    const nextPhaseIds = revision.phaseIds ?? [];
+    let revisedPhaseNotes = revision.phaseNotes;
+    if (phaseNoteEdits) {
+      const nextNotes = new Map<string, string>(Object.entries(revisedPhaseNotes ?? {}));
+      for (const edit of phaseNoteEdits) {
+        const key = String(fromIndex + edit.index);
+        if (edit.note) nextNotes.set(key, edit.note);
+        else nextNotes.delete(key);
+      }
+      revisedPhaseNotes = nextNotes.size > 0 ? Object.fromEntries([...nextNotes.entries()]) : undefined;
+    }
+
+    const sequenceError = validateQuestJourneyPhaseSequence(nextPhaseIds);
+    if (sequenceError) return c.json({ error: sequenceError }, 400);
+    if (existingMode === "active") {
+      const removalError = validateQuestJourneyUserCheckpointRemoval(
+        existingPhaseIds,
+        nextPhaseIds,
+        existingJourney.phaseNotes,
+      );
+      if (removalError) return c.json({ error: removalError }, 400);
+    }
+    const checkpointNoteError = validateQuestJourneyUserCheckpointNotes(nextPhaseIds, revisedPhaseNotes);
+    if (checkpointNoteError) return c.json({ error: checkpointNoteError }, 400);
+
+    const presentation =
+      existingMode === "proposed"
+        ? {
+            ...(existingJourney.presentation ?? {}),
+            state: "draft" as const,
+            signature: undefined,
+            presentedAt: undefined,
+          }
+        : undefined;
+    const revisionReason =
+      typeof body.revisionReason === "string" && body.revisionReason.trim() ? body.revisionReason.trim() : undefined;
+    const journey: QuestJourneyPlanState = {
+      phaseIds: nextPhaseIds,
+      presetId:
+        typeof body.presetId === "string" && body.presetId.trim()
+          ? body.presetId.trim()
+          : (existingJourney.presetId ?? "custom"),
+      mode: existingMode,
+      ...(existingMode === "active" && currentPhaseIndex !== undefined ? { activePhaseIndex: currentPhaseIndex } : {}),
+      ...(revisedPhaseNotes ? { phaseNotes: revisedPhaseNotes } : {}),
+      ...(existingMode === "proposed" ? { presentation } : { presentation: undefined }),
+      ...(revisionReason ? { revisionReason } : {}),
+    };
+
+    const board = upsertBoardRowController(
+      bridgeSession,
+      {
+        questId,
+        title: existingRow.title,
+        questTldr: existingRow.questTldr,
+        journey,
+        status: existingRow.status,
+      },
+      workBoardStateDeps,
+    );
+
+    return c.json({
+      board,
+      rowSessionStatuses: await buildBoardRowSessionStatuses(board),
+      queueWarnings: getBoardQueueWarningsController(bridgeSession, boardWatchdogDeps),
+      workerSlotUsage: getBoardWorkerSlotUsageController(id, boardWatchdogDeps),
+      resolvedSessionDeps: resolveSessionDeps(board),
+      ...(revision.warnings.length > 0 ? { phaseNoteRebaseWarnings: revision.warnings } : {}),
     });
   });
 
