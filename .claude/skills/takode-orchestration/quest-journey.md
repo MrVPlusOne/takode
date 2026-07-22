@@ -113,7 +113,7 @@ Omit notes for standard phases by default: `alignment`, `implement`, `code-revie
 
 ## Approval and Board Workflow
 
-Use natural prose as the normal approval surface. Once the user approves, make the Journey durable on the board before or with dispatch:
+Use natural prose as the normal lightweight approval surface when not using a proposed row. When a quest benefits from a durable proposed row, use `takode board propose --summary` as the approval surface: move the Goal / Acceptance, key tradeoff, scheduling context, dependencies, and approval question into the summary, and do not repeat that same packet separately in chat. Once the user approves, make the Journey durable on the board before or with dispatch:
 
 ```bash
 takode board set q-12 --worker 5 --phases alignment,implement,code-review,port,memory --preset full-code
@@ -122,9 +122,8 @@ takode board set q-12 --worker 5 --phases alignment,implement,code-review,port,m
 - `takode board set --worker ... --phases ...` creates the active board row and initial Journey in one step after prose approval
 - `takode board revise` changes an existing active or proposed Journey suffix by 1-based position plus expected phase
 - `takode board propose` remains available to create a board-owned draft when an approval-hold row helps coordination
-- prefer `takode board propose --journey-file` for complete proposal drafts with phases, concise non-standard notes, and scheduling metadata
+- prefer `takode board propose --journey-file ... --summary "..."` for complete proposal drafts with phases, concise non-standard notes, and a full approval summary
 - `takode board note` remains available for targeted note edits, but each draft mutation makes any previous presentation stale
-- `takode board present` creates an optional user-facing approval artifact from the current draft
 - `takode board promote` reuses a proposed Journey object for execution after approval; a separate presentation step is no longer required
 - approval-hold rows should use `PROPOSED` plus `--wait-for-input`, not a fake generic queue dependency
 

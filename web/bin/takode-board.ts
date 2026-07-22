@@ -33,7 +33,7 @@ import {
   validateQuestJourneyUserCheckpointNotes,
 } from "../shared/quest-journey.ts";
 
-export const BOARD_HELP = `Usage: takode board [show|detail|set|revise|propose|present|promote|note|advance|rm] ...
+export const BOARD_HELP = `Usage: takode board [show|detail|set|revise|propose|promote|note|advance|rm] ...
 
 Quest Journey work board for the current leader session.
 
@@ -43,7 +43,6 @@ Subcommands:
   set <quest-id>          Add or update a board row
   revise <quest-id>       Replace an existing Journey suffix
   propose <quest-id>      Create a proposed Journey row
-  present <quest-id>      Present a proposed Journey draft for approval
   promote <quest-id>      Promote a proposed Journey row into execution
   note <quest-id>         Add or clear a per-phase Journey note
   advance <quest-id>      Move a quest to the next Journey state
@@ -59,7 +58,7 @@ Examples:
   takode board set q-12 --phases planning,implement,outcome-review,code-review,port,memory --preset cli-rollout
   takode board revise q-12 --from-position 5 --expect-phase memory --phases user-checkpoint,memory
   takode board set q-12 --status MENTAL_SIMULATING --active-phase-position 5
-  takode board propose q-12 --phases alignment,implement,code-review,port,memory --preset full-code --wait-for-input 3
+  takode board propose q-12 --phases alignment,implement,code-review,port,memory --summary "Approve the goal, constraints, and scheduling for this proposed Journey." --preset full-code --wait-for-input 3
   takode board promote q-12 --worker 5
   takode board note q-12 3 --text "Inspect only the follow-up diff"
   takode board set q-12 --status QUEUED --wait-for ${FREE_WORKER_WAIT_FOR_TOKEN}
@@ -102,14 +101,13 @@ Use --journey-file when the replacement suffix needs notes:
   { "phases": [{ "id": "user-checkpoint", "note": "Approve the design before Memory." }, { "id": "memory" }] }
 `;
 
-export const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] (--phases <ids> | --journey-file <path|->) [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]
+export const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] --summary <text> (--phases <ids> | --journey-file <path|->) [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]
 
-Create a proposed pre-dispatch Journey row. Proposed rows stay board-owned and can wait on user approval without pretending they are generic queue rows. Existing proposed Journey changes should use takode board revise. Use --journey-file for batch phase and note setup; omit standard-phase notes unless unusual phase-specific handling is needed. Optional User Checkpoints require a user-checkpoint phase note with a concrete skip condition; skipping one later requires recording why the condition is satisfied.
+Create and render a proposed pre-dispatch Journey row. The mandatory --summary is the approval packet that used to be sent as separate leader chat text: include the goal/acceptance context, key tradeoff, dependencies, and scheduling/approval question that the user needs, but do not restate the Journey because the proposal UI already renders it. Existing proposed Journey changes should use takode board revise. Use --journey-file for batch phase and note setup; omit standard-phase notes unless unusual phase-specific handling is needed. Optional User Checkpoints require a user-checkpoint phase note with a concrete skip condition; skipping one later requires recording why the condition is satisfied.
 `;
 
-export const BOARD_PRESENT_HELP = `Usage: takode board present <quest-id> [--summary <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]
+export const BOARD_PRESENT_HELP = `takode board present was removed. Use takode board propose <quest-id> --summary <text> ... so the proposal preview renders directly from the propose result.
 
-Present the current proposed Journey draft as an optional user-facing approval artifact.
 `;
 
 export const BOARD_PROMOTE_HELP = `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]
@@ -699,6 +697,7 @@ function outputBoardMutation(
     rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
     queueWarnings?: BoardQueueWarning[];
     phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
+    proposalReview?: BoardProposalReviewPayload;
     workerSlotUsage?: { used: number; limit: number };
   },
 ): void {
@@ -710,6 +709,7 @@ function outputBoardMutation(
       rowSessionStatuses: opts.rowSessionStatuses,
       queueWarnings: opts.queueWarnings,
       phaseNoteRebaseWarnings: opts.phaseNoteRebaseWarnings,
+      proposalReview: opts.proposalReview,
       workerSlotUsage: opts.workerSlotUsage,
       includeDetails: true,
     });
@@ -897,7 +897,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     const questId = args[1];
     const usageBySub =
       sub === "propose"
-        ? `Usage: takode board propose <quest-id> [--title "..."] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
+        ? `Usage: takode board propose <quest-id> [--title "..."] --summary <text> [--phases <ids> | --journey-file <path|->] [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
         : sub === "promote"
           ? `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
           : `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--active-phase-position <n>] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--full|--verbose] [--json]`;
@@ -928,6 +928,14 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     }
     if (typeof flags.status === "string") body.status = flags.status;
     if (typeof flags.title === "string") body.title = flags.title;
+    if (isProposalCommand) {
+      if (flags.summary === true || typeof flags.summary !== "string" || !flags.summary.trim()) {
+        err("takode board propose requires --summary with the full approval context.");
+      }
+      body.presentation = { summary: flags.summary.trim() };
+    } else if (flags.summary !== undefined) {
+      err("Use --summary only with takode board propose.");
+    }
     const journeyFileFlag =
       typeof flags["journey-file"] === "string"
         ? "journey-file"
@@ -947,7 +955,13 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       if (typeof flags.preset === "string" && flags.preset.trim()) body.presetId = flags.preset.trim();
       else if (spec.presetId) body.presetId = spec.presetId;
       else body.presetId = "custom";
-      if (spec.presentation) body.presentation = spec.presentation;
+      if (spec.presentation) {
+        body.presentation = {
+          ...(body.presentation && typeof body.presentation === "object" ? body.presentation : {}),
+          ...spec.presentation,
+          ...(isProposalCommand ? { summary: (body.presentation as { summary: string }).summary } : {}),
+        };
+      }
     } else if (typeof flags.phases === "string") {
       if (isPromoteCommand) {
         err("takode board promote reuses the existing Journey. Revise it first with takode board revise.");
@@ -1075,9 +1089,22 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
       queueWarnings?: BoardQueueWarning[];
       phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
+      proposalReview?: BoardProposalReviewPayload;
       workerSlotUsage?: { used: number; limit: number };
     };
     const resolved = new Set(result.resolvedSessionDeps ?? []);
+    if (isProposalCommand && result.proposalReview && flags.json !== true && !wantsFullBoardOutput(flags)) {
+      outputBoard(result.board, true, {
+        operation: `${sub} ${questId}: updated`,
+        resolvedSessionDeps: resolved,
+        rowSessionStatuses: result.rowSessionStatuses,
+        queueWarnings: result.queueWarnings,
+        phaseNoteRebaseWarnings: result.phaseNoteRebaseWarnings,
+        proposalReview: result.proposalReview,
+        workerSlotUsage: result.workerSlotUsage,
+      });
+      return;
+    }
     outputBoardMutation(result.board, flags.json === true, {
       affectedQuestIds: [questId],
       operation: `${sub} ${questId}: updated`,
@@ -1086,68 +1113,14 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       rowSessionStatuses: result.rowSessionStatuses,
       queueWarnings: result.queueWarnings,
       phaseNoteRebaseWarnings: result.phaseNoteRebaseWarnings,
+      proposalReview: result.proposalReview,
       workerSlotUsage: result.workerSlotUsage,
     });
     return;
   }
 
   if (sub === "present") {
-    const questId = args[1];
-    const usage =
-      "Usage: takode board present <quest-id> [--summary <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]";
-    if (!questId) err(usage);
-    if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
-    const flags = parseFlags(args.slice(2));
-    if (flags["clear-wait-for-input"] === true && typeof flags["wait-for-input"] === "string") {
-      err("Use either --wait-for-input or --clear-wait-for-input, not both.");
-    }
-    const body: Record<string, unknown> = {
-      questId,
-      presentProposal: true,
-    };
-    if (typeof flags.summary === "string" && flags.summary.trim()) {
-      body.presentation = { summary: flags.summary.trim() };
-    }
-    if (typeof flags["wait-for-input"] === "string") {
-      const rawIds = flags["wait-for-input"]
-        .split(",")
-        .map((s: string) => s.trim())
-        .filter(Boolean);
-      if (rawIds.length === 0) {
-        err("Invalid wait-for-input value: provide one or more notification IDs like 3 or n-3.");
-      }
-      const normalizedIds = rawIds.map((notificationId) => ({
-        notificationId,
-        normalized: normalizeBoardWaitForInputNotificationId(notificationId),
-      }));
-      const invalid = normalizedIds.filter((entry) => entry.normalized === null).map((entry) => entry.notificationId);
-      if (invalid.length > 0) {
-        err(`Invalid wait-for-input value(s): ${invalid.join(", ")} -- use needs-input notification IDs like 3 or n-3`);
-      }
-      body.waitForInput = [...new Set(normalizedIds.map((entry) => entry.normalized!))];
-    }
-    if (flags["clear-wait-for-input"] === true) {
-      body.clearWaitForInput = true;
-    }
-
-    const result = (await apiPost(base, `/sessions/${encodeURIComponent(selfId)}/board`, body)) as {
-      board: BoardRow[];
-      resolvedSessionDeps?: string[];
-      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
-      queueWarnings?: BoardQueueWarning[];
-      proposalReview?: BoardProposalReviewPayload;
-      workerSlotUsage?: { used: number; limit: number };
-    };
-    const resolved = new Set(result.resolvedSessionDeps ?? []);
-    outputBoard(result.board, true, {
-      operation: `present ${questId}`,
-      resolvedSessionDeps: resolved,
-      rowSessionStatuses: result.rowSessionStatuses,
-      queueWarnings: result.queueWarnings,
-      proposalReview: result.proposalReview,
-      workerSlotUsage: result.workerSlotUsage,
-    });
-    return;
+    err("takode board present was removed. Use takode board propose <quest-id> --summary <text> ...");
   }
 
   if (sub === "note") {
@@ -1292,6 +1265,6 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
   }
 
   err(
-    `Unknown board subcommand: ${sub}\nUsage: takode board [show|detail|set|revise|propose|present|promote|note|advance|rm] ...`,
+    `Unknown board subcommand: ${sub}\nUsage: takode board [show|detail|set|revise|propose|promote|note|advance|rm] ...`,
   );
 }

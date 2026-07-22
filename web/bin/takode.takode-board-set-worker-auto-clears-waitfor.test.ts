@@ -228,6 +228,20 @@ describe("takode board set --worker auto-clears waitFor", () => {
   });
 
   it("posts proposed Journey rows with explicit proposal mode and approval hold", async () => {
+    nextBoardResponse = {
+      proposalReview: {
+        questId: "q-1",
+        title: "Draft proposal workflow",
+        status: "PROPOSED",
+        presentedAt: 123,
+        summary: "Approve the proposal goal, tradeoff, and scheduling.",
+        journey: {
+          mode: "proposed",
+          phaseIds: ["alignment", "implement", "code-review", "port", "memory"],
+        },
+      },
+    };
+
     const result = await runTakode(
       [
         "board",
@@ -237,6 +251,8 @@ describe("takode board set --worker auto-clears waitFor", () => {
         "alignment,implement,code-review,port,memory",
         "--preset",
         "full-code",
+        "--summary",
+        "Approve the proposal goal, tradeoff, and scheduling.",
         "--wait-for-input",
         "3",
         "--port",
@@ -257,7 +273,35 @@ describe("takode board set --worker auto-clears waitFor", () => {
       phases: ["alignment", "implement", "code-review", "port", "memory"],
       presetId: "full-code",
       waitForInput: ["n-3"],
+      presentation: {
+        summary: "Approve the proposal goal, tradeoff, and scheduling.",
+      },
     });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      __takode_board__: true,
+      operation: "propose q-1: updated",
+      proposalReview: {
+        questId: "q-1",
+        summary: "Approve the proposal goal, tradeoff, and scheduling.",
+      },
+    });
+  });
+
+  it("rejects proposed Journey rows without the mandatory approval summary before posting", async () => {
+    // The summary is the user-facing approval packet; fail client-side so leaders cannot create a
+    // proposal UI that only shows the Journey without the non-Journey approval context.
+    const result = await runTakode(
+      ["board", "propose", "q-1", "--phases", "alignment,implement,code-review,port,memory", "--port", String(port)],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("takode board propose requires --summary");
+    expect(capturedBodies).toHaveLength(0);
   });
 
   it("rejects adjacent Explore to Implement before posting board phases", async () => {
@@ -298,11 +342,24 @@ describe("takode board set --worker auto-clears waitFor", () => {
       }),
     );
 
-    const result = await runTakode(["board", "propose", "q-1", "--journey-file", specPath, "--port", String(port)], {
-      ...process.env,
-      COMPANION_SESSION_ID: "leader-1",
-      COMPANION_AUTH_TOKEN: "auth-1",
-    });
+    const result = await runTakode(
+      [
+        "board",
+        "propose",
+        "q-1",
+        "--journey-file",
+        specPath,
+        "--summary",
+        "Approve the proposed goal and scheduling.",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
 
     expect(result.status).toBe(0);
     expect(capturedBodies[0]).toMatchObject({
@@ -321,7 +378,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
         { index: 5, note: null },
       ],
       presentation: {
-        summary: "Proposed Journey for approval",
+        summary: "Approve the proposed goal and scheduling.",
         scheduling: { intent: "dispatch-after-approval" },
       },
     });
@@ -344,11 +401,24 @@ describe("takode board set --worker auto-clears waitFor", () => {
       }),
     );
 
-    const result = await runTakode(["board", "propose", "q-1", "--journey-file", specPath, "--port", String(port)], {
-      ...process.env,
-      COMPANION_SESSION_ID: "leader-1",
-      COMPANION_AUTH_TOKEN: "auth-1",
-    });
+    const result = await runTakode(
+      [
+        "board",
+        "propose",
+        "q-1",
+        "--journey-file",
+        specPath,
+        "--summary",
+        "Approve this optional checkpoint proposal.",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Optional User Checkpoints require");
@@ -393,57 +463,17 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(capturedBodies).toHaveLength(0);
   });
 
-  it("presents proposed Journey drafts as explicit proposal review output", async () => {
-    nextBoardResponse = {
-      proposalReview: {
-        questId: "q-1",
-        title: "Draft proposal workflow",
-        status: "PROPOSED",
-        presentedAt: 123,
-        summary: "Proposed Journey for approval",
-        journey: {
-          mode: "proposed",
-          phaseIds: ["alignment", "implement"],
-        },
-      },
-    };
-
-    const result = await runTakode(
-      [
-        "board",
-        "present",
-        "q-1",
-        "--summary",
-        "Proposed Journey for approval",
-        "--wait-for-input",
-        "3",
-        "--port",
-        String(port),
-      ],
-      {
-        ...process.env,
-        COMPANION_SESSION_ID: "leader-1",
-        COMPANION_AUTH_TOKEN: "auth-1",
-      },
-    );
-
-    expect(result.status).toBe(0);
-    expect(capturedBodies[0]).toMatchObject({
-      questId: "q-1",
-      presentProposal: true,
-      waitForInput: ["n-3"],
-      presentation: {
-        summary: "Proposed Journey for approval",
-      },
+  it("rejects board present with propose migration guidance", async () => {
+    const result = await runTakode(["board", "present", "q-1", "--summary", "old path", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
     });
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      __takode_board__: true,
-      operation: "present q-1",
-      proposalReview: {
-        questId: "q-1",
-        summary: "Proposed Journey for approval",
-      },
-    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("takode board present was removed");
+    expect(result.stderr).toContain("takode board propose");
+    expect(capturedBodies).toHaveLength(0);
   });
 
   it("promotes proposed rows into active mode and clears approval hold by default", async () => {

@@ -481,12 +481,12 @@ describe("ToolBlock", () => {
       "takode board propose q-412 --preset full-code",
       "takode board promote q-412 --worker 5",
       "takode board note q-412 2 --text done",
-      "takode board present q-412",
       "quest show q-412 && takode board promote q-412",
       "takode board --full",
     ]) {
       expect(parseTakodeBoardCommand(command)?.canUseLiveBoardFallback).toBe(true);
     }
+    expect(parseTakodeBoardCommand("takode board present q-412")?.canUseLiveBoardFallback).toBe(false);
   });
 
   it("does not render a board card for failed plain-text board commands", async () => {

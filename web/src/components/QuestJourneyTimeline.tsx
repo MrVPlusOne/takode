@@ -537,10 +537,10 @@ export function QuestJourneyProposalReview({
     >
       <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">
-            Presented Journey Proposal
-          </div>
-          {proposal.summary && <div className="mt-0.5 truncate text-xs text-cc-fg">{proposal.summary}</div>}
+          <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">Journey Proposal</div>
+          {proposal.summary && (
+            <div className="mt-0.5 whitespace-pre-wrap text-xs leading-snug text-cc-fg">{proposal.summary}</div>
+          )}
         </div>
         {proposal.presentedAt && (
           <div className="shrink-0 text-[10px] text-cc-muted">

@@ -361,6 +361,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
         originalToolName={name}
         originalInput={input}
         originalCommand={String(input.command || "")}
+        defaultOpen={!!parsedBoard.proposalReview}
       />
     );
   }
@@ -495,7 +496,6 @@ const INLINE_BOARD_FALLBACK_SUBCOMMANDS = new Set([
   "propose",
   "promote",
   "note",
-  "present",
 ]);
 
 interface TakodeBoardCommandMatch {

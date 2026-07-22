@@ -16,9 +16,9 @@ Use `takode board show --full` or `takode board show --verbose` when you need fu
 
 Display full board-owned context for one row: full Journey path, indexed phase notes, phase timing history, revision metadata, wait-for state, worker/reviewer status, and timestamps.
 
-### `takode board propose <quest-id> (--phases phase-a,phase-b | --journey-file proposal.json) [--preset preset-id] [--wait-for-input 3,4 | --clear-wait-for-input] [--full|--verbose]`
+### `takode board propose <quest-id> --summary "approval packet" (--phases phase-a,phase-b | --journey-file proposal.json) [--preset preset-id] [--wait-for-input 3,4 | --clear-wait-for-input] [--full|--verbose]`
 
-Create a proposed pre-dispatch Journey row when a quest needs an approval hold or durable draft before active dispatch. Existing proposed Journey changes use `takode board revise`. Proposed rows:
+Create a proposed pre-dispatch Journey row when a quest needs an approval hold or durable draft before active dispatch. `--summary` is mandatory and is the user-visible approval packet: put the Goal / Acceptance, key tradeoffs, dependencies, scheduling context, and exact approval question there. Do not repeat the same packet as separate leader chat text after running the command; the tool result renders the full summary and Journey. Existing proposed Journey changes use `takode board revise`. Proposed rows:
 
 - keep the Journey on the board before approval/dispatch
 - can explicitly wait on same-session approval/input
@@ -46,15 +46,11 @@ Use `--journey-file` when composing a full proposal with phase notes and present
 
 Do not propose adjacent `explore -> implement`. Use `implement` directly for normal bug fixes, docs changes, config changes, prompt changes, and artifact changes; Implement includes ordinary investigation, reproduction, root-cause analysis, code/design reading, and test planning. Use `explore -> user-checkpoint -> implement` only when Explore findings may need user steering before implementation. A User Checkpoint is mandatory by default; mark it optional only with an approved phase note that says it may be skipped and gives the concrete skip condition. After Explore, skip an optional User Checkpoint only when the condition has been evaluated as satisfied and the skip reason is recorded, for example with `takode board advance q-N --skip-optional-checkpoint "Explore found no user-facing tradeoff"`. For other future phases whose need depends on later evidence, leaders may mark the phase note optional when the user did not explicitly require it. The note should name when the phase is needed and/or can be skipped. Remove or add non-checkpoint optional phases with `takode board revise`; there is no generic optional-phase skip command.
 
-### `takode board present <quest-id> [--summary "proposal summary"] [--wait-for-input 3,4 | --clear-wait-for-input]`
-
-Present the current proposed Journey draft as an optional user-facing approval artifact. Use this only when the rendered board proposal is helpful; natural prose approval plus a durable board update is the normal lightweight path for approval-required work. If you revise phases, notes, or presentation metadata after presenting, the presentation becomes stale, but promotion can still use the latest approved board-owned Journey.
-
 ### `takode board promote <quest-id> [--worker N] [--status STATE] [--active-phase-position N] [--wait-for q-X,#Y,free-worker] [--wait-for-input 3,4 | --clear-wait-for-input] [--full|--verbose]`
 
 Promote an existing proposed Journey into active execution without redefining its phase sequence. Use this after approval.
 
-Promotion does not require a separate `takode board present` step; the leader may approve the Journey in prose, then promote the board-owned row before dispatch.
+Promotion does not require a separate presentation step; the proposal card is rendered by `takode board propose --summary`, then the leader promotes the approved board-owned row before dispatch.
 
 When promoting into `QUEUED`, `--wait-for` accepts one comma-separated value containing every blocker, for example `--wait-for q-1143,q-1139` or `--wait-for q-1143,#12,free-worker`.
 
@@ -94,7 +90,7 @@ Examples:
 - Default tracked-code Journey:
   `takode board set q-12 --worker 5 --phases alignment,implement,code-review,port,memory --preset full-code`
 - Draft the initial board-owned proposal before dispatch:
-  `takode board propose q-12 --journey-file /tmp/q-12-proposal.json`
+  `takode board propose q-12 --journey-file /tmp/q-12-proposal.json --summary "Goal / Acceptance and scheduling context for approval."`
 - Promote that same proposal after approval:
   `takode board promote q-12 --worker 5`
 - Explore with user steering before implementation:
@@ -131,10 +127,9 @@ Remove row(s) manually.
 
 - Routine mutation commands output a compact delta by default: what changed plus the affected quest row's state, worker/reviewer, wait-for state, and next action. Use `--full` or `--verbose` on mutations when you need the full board after the operation.
 - Routine `takode board show` is compact. Use `takode board show --full` for full-board Journey paths and notes, or `takode board detail q-N` for one quest's full Journey, notes, timing history, and revision metadata.
-- Use natural prose as the normal initial approval surface when approval is required, then write the approved Journey to the board before or with dispatch.
+- Use natural prose as the normal lightweight approval surface when not using a proposed row. When using a proposed row, put the approval packet in `takode board propose --summary` and keep surrounding chat minimal.
 - Use `takode board set --worker ... --phases ...` when you want to create the active durable row in one step after approval or direct-dispatch authorization.
 - Use `takode board propose` when an existing quest benefits from a pre-dispatch draft or approval-hold row.
-- Use `takode board present` only when a rendered approval artifact is helpful.
 - Use `takode board promote` to reuse a proposed Journey object after approval.
 - Set `--worker N` when dispatching active work, but proposed rows intentionally have no worker.
 - Use `takode board advance` for normal phase transitions.

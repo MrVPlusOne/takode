@@ -678,21 +678,45 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
 
     const presentationMetadata = normalizeProposalMetadata(body.presentation);
     const hasPresentationMetadata = Object.keys(presentationMetadata).length > 0;
+    const shouldPresentProposedJourney = targetMode === "proposed" && !!typedPhaseIds;
+    if (shouldPresentProposedJourney && !presentationMetadata.summary) {
+      return c.json(
+        {
+          error: "Proposed Journey rows require a non-empty summary. CLI: use takode board propose --summary <text>.",
+        },
+        400,
+      );
+    }
     const draftMutation =
       targetMode === "proposed" && (typedPhaseIds || phaseNoteEdits || revisionReason || hasPresentationMetadata);
+    const resolvedPresetId =
+      typedPhaseIds && typeof body.presetId === "string" && body.presetId.trim()
+        ? body.presetId.trim()
+        : (existingJourney?.presetId ?? (typedPhaseIds ? "custom" : undefined));
     const presentation =
       targetMode === "proposed"
         ? {
             ...(existingJourney?.presentation ?? {}),
             ...presentationMetadata,
-            state: existingJourney?.presentation?.state ?? ("draft" as const),
-            ...(draftMutation
+            state: shouldPresentProposedJourney
+              ? ("presented" as const)
+              : (existingJourney?.presentation?.state ?? ("draft" as const)),
+            ...(shouldPresentProposedJourney
               ? {
-                  state: "draft" as const,
-                  signature: undefined,
-                  presentedAt: undefined,
+                  signature: getQuestJourneyProposalSignature({
+                    presetId: resolvedPresetId,
+                    phaseIds: resolvedPhaseIds,
+                    ...(phaseNotes ? { phaseNotes } : {}),
+                  }),
+                  presentedAt: Date.now(),
                 }
-              : {}),
+              : draftMutation
+                ? {
+                    state: "draft" as const,
+                    signature: undefined,
+                    presentedAt: undefined,
+                  }
+                : {}),
           }
         : undefined;
 
@@ -706,10 +730,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     ) {
       journey = {
         phaseIds: resolvedPhaseIds.length > 0 ? resolvedPhaseIds : [],
-        presetId:
-          typedPhaseIds && typeof body.presetId === "string" && body.presetId.trim()
-            ? body.presetId.trim()
-            : (existingJourney?.presetId ?? (typedPhaseIds ? "custom" : undefined)),
+        presetId: resolvedPresetId,
         mode: targetMode,
         ...(targetMode === "active" && activePhaseIndex !== undefined ? { activePhaseIndex } : {}),
         ...(phaseNotes ? { phaseNotes } : {}),
@@ -825,12 +846,15 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
         )
       : null;
     if (!board) return c.json({ error: "Session not found in bridge" }, 404);
+    const changedRow = board.find((row) => row.questId === questId);
+    const proposalReview = changedRow ? buildProposalReviewPayload(changedRow) : undefined;
     return c.json({
       board,
       rowSessionStatuses: await buildBoardRowSessionStatuses(board),
       queueWarnings: bridgeSession ? getBoardQueueWarningsController(bridgeSession, boardWatchdogDeps) : [],
       workerSlotUsage: getBoardWorkerSlotUsageController(id, boardWatchdogDeps),
       resolvedSessionDeps: resolveSessionDeps(board),
+      ...(proposalReview ? { proposalReview } : {}),
       ...(phaseNoteRebaseWarnings.length > 0 ? { phaseNoteRebaseWarnings } : {}),
     });
   });

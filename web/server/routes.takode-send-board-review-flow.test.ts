@@ -920,6 +920,9 @@ describe("Takode server-authoritative auth", () => {
         journeyMode: "proposed",
         phases: ["alignment", "implement", "code-review", "port"],
         presetId: "full-code",
+        presentation: {
+          summary: "Approve the proposed goal, constraints, and scheduling.",
+        },
         waitForInput: ["3"],
       }),
     });
@@ -934,11 +937,43 @@ describe("Takode server-authoritative auth", () => {
           journey: {
             mode: "proposed",
             phaseIds: ["alignment", "implement", "code-review", "port"],
+            presentation: {
+              state: "presented",
+              summary: "Approve the proposed goal, constraints, and scheduling.",
+            },
           },
         },
       ],
+      proposalReview: {
+        questId: "q-9",
+        summary: "Approve the proposed goal, constraints, and scheduling.",
+      },
     });
     expect(bridge._sessions["orch-1"].board.get("q-9")?.journey).not.toHaveProperty("currentPhaseId");
+  });
+
+  it("rejects proposed Journey rows without a non-empty approval summary", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        journeyMode: "proposed",
+        phases: ["alignment", "implement", "code-review", "port"],
+        presentation: {
+          summary: "   ",
+        },
+      }),
+    });
+
+    // Server-side validation protects non-CLI callers from creating a proposal card without the
+    // full approval packet that leaders are no longer supposed to repeat as separate chat text.
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("Proposed Journey rows require a non-empty summary"),
+    });
   });
 
   it("rejects wait-for dependencies on explicit active rows", async () => {

@@ -1116,13 +1116,14 @@ export function PlaygroundInteractiveSections() {
           <Card label="Optional Journey proposal">
             <BoardBlock
               defaultOpen
-              operation="present q-942"
+              operation="propose q-942"
               proposalReview={{
                 questId: "q-942",
                 title: "Make proposed Journey drafting intentional",
                 status: "PROPOSED",
                 presentedAt: Date.now() - 30000,
-                summary: "Proposed Journey with non-standard exploration",
+                summary:
+                  "Goal / Acceptance: approve a proposal flow with non-standard exploration before implementation. Scheduling: wait for the current approval prompt, then promote the proposed row.",
                 journey: {
                   mode: "proposed",
                   presetId: "proposal-flow",
@@ -1142,6 +1143,7 @@ export function PlaygroundInteractiveSections() {
                   questId: "q-942",
                   title: "Make proposed Journey drafting intentional",
                   status: "PROPOSED",
+                  waitForInput: ["n-3"],
                   journey: {
                     mode: "proposed",
                     presetId: "proposal-flow",

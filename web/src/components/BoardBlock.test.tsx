@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { BoardBlock } from "./BoardBlock.js";
 import type { BoardRowData } from "./BoardTable.js";
@@ -31,6 +31,7 @@ vi.mock("./BoardTable.js", () => ({
       {board.length} rows
     </div>
   ),
+  QuestLink: ({ questId }: { questId: string }) => <a href={"#quest-" + questId}>{questId}</a>,
 }));
 
 vi.mock("./CollapseFooter.js", () => ({
@@ -126,20 +127,23 @@ describe("BoardBlock", () => {
     expect(screen.getByText(/Next: Dispatch it now\./i)).toBeInTheDocument();
   });
 
-  it("renders an explicit proposal review artifact above the board table", () => {
-    const board: BoardRowData[] = [{ questId: "q-942", title: "Draft workflow", updatedAt: 1 }];
+  it("renders an expanded proposal review artifact instead of the full board table", () => {
+    const board: BoardRowData[] = [
+      { questId: "q-942", title: "Draft workflow", waitFor: ["q-12", "#5"], waitForInput: ["n-3"], updatedAt: 1 },
+    ];
+    const longSummary =
+      "Goal / Acceptance: approve the workflow change.\nScheduling: wait for the current reviewer before dispatch.";
 
     render(
       <BoardBlock
         board={board}
-        defaultOpen
-        operation="present q-942"
+        operation="propose q-942"
         proposalReview={{
           questId: "q-942",
           title: "Draft workflow",
           status: "PROPOSED",
           presentedAt: 123,
-          summary: "Proposed Journey for approval",
+          summary: longSummary,
           journey: {
             mode: "proposed",
             phaseIds: ["alignment", "implement", "code-review"],
@@ -152,9 +156,18 @@ describe("BoardBlock", () => {
     );
 
     expect(screen.getByTestId("quest-journey-proposal-review")).toBeInTheDocument();
-    expect(screen.getByText("Presented Journey Proposal")).toBeInTheDocument();
-    expect(screen.getByText("Proposed Journey for approval")).toBeInTheDocument();
+    expect(screen.getByText("Journey Proposal")).toBeInTheDocument();
+    const summary = screen.getByText((_content, element) => element?.textContent === longSummary, {
+      selector: "[data-testid='quest-journey-proposal-review'] div",
+    });
+    expect(summary).toBeInTheDocument();
+    expect(summary).not.toHaveClass("truncate");
     expect(screen.getByText("Build the draft and present paths.")).toHaveAttribute("data-purpose-kind", "authored");
     expect(screen.getByText("Build the draft and present paths.")).toHaveClass("ml-[1.375rem]");
+    expect(screen.queryByTestId("board-table")).toBeNull();
+    const dependencyRow = within(screen.getByTestId("proposal-dependency-row"));
+    expect(dependencyRow.getByText("q-12")).toHaveAttribute("href", "#quest-q-12");
+    expect(dependencyRow.getByText("#5")).toBeInTheDocument();
+    expect(dependencyRow.getByText("3")).toBeInTheDocument();
   });
 });

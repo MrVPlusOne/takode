@@ -1,9 +1,14 @@
 import { useState, useRef, useCallback, memo } from "react";
 import { CollapseFooter } from "./CollapseFooter.js";
 import { useStore } from "../store.js";
-import { BoardTable } from "./BoardTable.js";
+import { BoardTable, QuestLink } from "./BoardTable.js";
 import { ToolBlock } from "./ToolBlock.js";
-import { formatQuestJourneyText, type BoardQueueWarning } from "../../shared/quest-journey.js";
+import {
+  formatQuestJourneyText,
+  formatWaitForRefLabel,
+  getWaitForRefKind,
+  type BoardQueueWarning,
+} from "../../shared/quest-journey.js";
 import { QuestJourneyProposalReview } from "./QuestJourneyTimeline.js";
 import type { BoardRowSessionStatus } from "../types.js";
 import type { QuestJourneyPlanState } from "../../shared/quest-journey.js";
@@ -37,6 +42,39 @@ export interface BoardProposalReviewPayload {
   scheduling?: Record<string, unknown>;
 }
 
+function notificationLabel(notificationId: string): string {
+  const match = /^n-(\d+)$/i.exec(notificationId.trim());
+  return match ? match[1] : notificationId;
+}
+
+function ProposalDependencyRow({ row }: { row?: BoardRowData }) {
+  const waitFor = row?.waitFor ?? [];
+  const waitForInput = row?.waitForInput ?? [];
+  if (waitFor.length === 0 && waitForInput.length === 0) return null;
+
+  return (
+    <div className="border-t border-cc-border bg-cc-bg/20 px-3 py-2" data-testid="proposal-dependency-row">
+      <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">Waiting on</div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-cc-muted">
+        {waitFor.map((ref, index) => {
+          const kind = getWaitForRefKind(ref);
+          return (
+            <span key={["wait", ref, index].join(":")} className="inline-flex items-center gap-1">
+              {kind === "quest" ? <QuestLink questId={ref} /> : <span>{formatWaitForRefLabel(ref)}</span>}
+            </span>
+          );
+        })}
+        {waitForInput.length > 0 && (
+          <span className="inline-flex items-center gap-1">
+            <span>input</span>
+            <span className="font-mono-code">{waitForInput.map(notificationLabel).join(", ")}</span>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Collapsible card that renders the leader's work board inline in the chat feed.
  * Displayed when a `takode board` CLI command yields explicit board JSON or
@@ -59,7 +97,7 @@ export const BoardBlock = memo(function BoardBlock({
   const liveRowSessionStatuses = useStore((s) => (sessionId ? s.sessionBoardRowStatuses.get(sessionId) : undefined));
   const effectiveRowSessionStatuses = rowSessionStatuses ?? liveRowSessionStatuses;
 
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(defaultOpen || !!proposalReview);
   const [showOriginalCommand, setShowOriginalCommand] = useState(defaultShowOriginalCommand);
   const canShowOriginalCommand = !!originalToolName && !!originalInput && !!toolUseId && !!sessionId;
 
@@ -73,6 +111,9 @@ export const BoardBlock = memo(function BoardBlock({
 
   const headerRef = useRef<HTMLDivElement>(null);
   const formattedOperation = operation ? formatQuestJourneyText(operation) : undefined;
+  const proposalRow = proposalReview
+    ? board.find((row) => row.questId.toLowerCase() === proposalReview.questId.toLowerCase())
+    : undefined;
   const commandPreview = originalCommand
     ? originalCommand.length > 60
       ? `${originalCommand.slice(0, 60)}...`
@@ -173,7 +214,11 @@ export const BoardBlock = memo(function BoardBlock({
               onQuestClick={() => useStore.getState().openQuestOverlay(proposalReview.questId)}
             />
           )}
-          <BoardTable board={board} rowSessionStatuses={effectiveRowSessionStatuses} />
+          {proposalReview ? (
+            <ProposalDependencyRow row={proposalRow} />
+          ) : (
+            <BoardTable board={board} rowSessionStatuses={effectiveRowSessionStatuses} />
+          )}
           <CollapseFooter headerRef={headerRef} onCollapse={() => setOpen(false)} />
         </div>
       )}
