@@ -160,6 +160,7 @@ describe("Codex launch env", () => {
     expect(updatedConfig).toContain("[features]");
     expect(updatedConfig).toContain("multi_agent = true");
     expect(updatedConfig).toContain("[shell_environment_policy]");
+    expect(updatedConfig).toContain('"HOME"');
     expect(updatedConfig).toContain('"PATH"');
   });
 

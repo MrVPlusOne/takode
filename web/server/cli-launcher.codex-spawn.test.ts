@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { homedir, tmpdir } from "node:os";
+import { homedir, hostname, tmpdir } from "node:os";
 
 vi.mock("node:crypto", async (importOriginal) => {
   const actual = (await importOriginal()) as any;
@@ -70,6 +70,34 @@ function createMockCodexProc(pid = 12345) {
     stdout: new ReadableStream<Uint8Array>(),
     stderr: new ReadableStream<Uint8Array>(),
   };
+}
+
+function normalizeMaiHostname(input: string): string {
+  let normalized = input.replace(/[^A-Za-z0-9._-]/g, "-");
+  while (normalized.length > 0 && /^[._-]/.test(normalized)) normalized = normalized.slice(1);
+  while (normalized.length > 0 && /[._-]$/.test(normalized)) normalized = normalized.slice(0, -1);
+  if (normalized.length > 64) {
+    normalized = normalized.slice(0, 64);
+    while (normalized.length > 0 && /[._-]$/.test(normalized)) normalized = normalized.slice(0, -1);
+  }
+  return normalized || "host";
+}
+
+function writeMaiWrapperHostEnv(wrapperRoot: string, hostCodexHome: string): void {
+  mkdirSync(join(wrapperRoot, ".run"), { recursive: true });
+  const hostNames = new Set([hostname(), hostname().split(".")[0] || hostname()]);
+  for (const hostName of hostNames) {
+    writeFileSync(
+      join(wrapperRoot, ".run", `.env-${normalizeMaiHostname(hostName)}`),
+      [
+        'LITELLM_API_KEY="sk-wrapper123"',
+        'LITELLM_PROXY_URL="http://localhost:4000"',
+        `CODEX_HOME="${hostCodexHome}"`,
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+  }
 }
 
 async function tick(): Promise<void> {
@@ -194,6 +222,62 @@ describe("Codex spawn preparation", () => {
     expect(updatedConfig).toContain('"COMPANION_PORT"');
     expect(updatedConfig).toContain('"TAKODE_ROLE"');
     expect(updatedConfig).toContain('"TAKODE_API_PORT"');
+  });
+
+  it("allow-lists HOME for MAI-wrapper-backed Codex shell commands", async () => {
+    // MAI-wrapper launches start with a session-local HOME/CODEX_HOME, but
+    // Codex still filters tool shell env through config.toml. HOME must be in
+    // that allow-list so HOME-based CLIs such as quest cannot fall back to the
+    // live user home when model-driven shell tools run.
+    const wrapperRoot = mkdtempSync(join(tmpdir(), "mai-wrapper-test-"));
+    const hostCodexHome = join(wrapperRoot, "host-codex-home");
+    const wrapperPath = join(wrapperRoot, "codex.sh");
+    const sessionHome = join(codexHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+
+    try {
+      mkdirSync(hostCodexHome, { recursive: true });
+      writeFileSync(join(wrapperRoot, ".mai-agents-root"), "", "utf-8");
+      writeFileSync(
+        join(hostCodexHome, "config.toml"),
+        ['model_provider = "mai-litellm"', "", "[model_providers.mai-litellm]", 'env_key = "LITELLM_API_KEY"', ""].join(
+          "\n",
+        ),
+        "utf-8",
+      );
+      writeFileSync(wrapperPath, "#!/usr/bin/env bash\necho wrapper placeholder\n", "utf-8");
+      writeMaiWrapperHostEnv(wrapperRoot, hostCodexHome);
+      mockResolveBinary.mockImplementation((name: string): string | null =>
+        name === wrapperPath ? wrapperPath : "/opt/fake/codex",
+      );
+
+      await launchCodex({
+        codexBinary: wrapperPath,
+        env: {
+          COMPANION_PORT: "3468",
+          TAKODE_ROLE: "orchestrator",
+          TAKODE_API_PORT: "3468",
+        },
+      });
+
+      const [, options] = mockSpawn.mock.calls[0];
+      expect(options.env.CODEX_HOME).toBe(sessionHome);
+      expect(options.env.PATH.split(":")[0]).toBe(join(sessionHome, ".mai-wrapper-bin"));
+
+      const wrapperEnv = await Bun.file(
+        join(wrapperRoot, ".run", `.env-${normalizeMaiHostname("companion-codex-home-test-session-id")}`),
+      ).text();
+      expect(wrapperEnv).toContain(`CODEX_HOME='${sessionHome}'`);
+
+      const updatedConfig = await Bun.file(configPath).text();
+      expect(updatedConfig).toContain("[shell_environment_policy]");
+      expect(updatedConfig).toContain('"HOME"');
+      expect(updatedConfig).toContain('"PATH"');
+      expect(updatedConfig).toContain('"COMPANION_PORT"');
+      expect(updatedConfig).toContain('"TAKODE_API_PORT"');
+    } finally {
+      rmSync(wrapperRoot, { recursive: true, force: true });
+    }
   });
 
   it("scrubs session-scoped developer instructions from an existing session config", async () => {
