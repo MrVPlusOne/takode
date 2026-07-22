@@ -1,4 +1,8 @@
-import type { BrowserIncomingMessage, CodexLeaderRecycleContinuation } from "../session-types.js";
+import type {
+  BrowserIncomingMessage,
+  CodexLeaderRecycleContinuation,
+  ProgrammaticHistoryFollowUp,
+} from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
 import { getKnownSessionNum } from "../cli-launcher.js";
 import { getCompactionRecoveryPrompt, isCompactionRecoveryPrompt } from "../compaction-recovery-prompts.js";
@@ -11,6 +15,11 @@ import {
   COMPACTION_RECOVERY_SOURCE_ID,
   COMPACTION_RECOVERY_SOURCE_LABEL,
 } from "../../shared/injected-event-message.js";
+import {
+  buildMemoryCatalogDeliveryContent,
+  buildMemoryCatalogHistoryFollowUp,
+  type MemoryCatalogInjectionBundle,
+} from "../memory-catalog-injection-utils.js";
 
 export {
   LEGACY_LEADER_COMPACTION_RECOVERY_PROMPT,
@@ -45,9 +54,14 @@ export function extractAskUserAnswers(
 type CompactionRecoverySessionLike = {
   id: string;
   sessionNum?: number | null;
+  state?: { memorySessionSpaceSlug?: string };
   messageHistory: BrowserIncomingMessage[];
   codexLeaderRecycleContinuation?: CodexLeaderRecycleContinuation | null;
 };
+
+type MemoryCatalogBuilder = (
+  session: CompactionRecoverySessionLike,
+) => MemoryCatalogInjectionBundle | null | undefined | Promise<MemoryCatalogInjectionBundle | null | undefined>;
 
 export function hasCompactionRecoveryAfterLatestMarker(
   session: CompactionRecoverySessionLike,
@@ -92,10 +106,11 @@ export function injectCompactionRecovery(
       threadRoute?: { threadKey: string; questId?: string },
       options?: {
         deliveryContent?: string;
-        historyFollowUps?: import("../session-types.js").ProgrammaticHistoryFollowUp[];
+        historyFollowUps?: ProgrammaticHistoryFollowUp[];
       },
     ) => void;
     buildLeaderSkillPreloadBundles?: () => LeaderSkillPreloadBundle[] | Promise<LeaderSkillPreloadBundle[]>;
+    buildMemoryCatalogInjectionBundle?: MemoryCatalogBuilder;
   },
 ): void {
   const recycleContinuation = session.codexLeaderRecycleContinuation;
@@ -103,7 +118,7 @@ export function injectCompactionRecovery(
     session.codexLeaderRecycleContinuation = null;
     console.log(`[ws-bridge] Injecting leader recycle continuation for session ${sessionTag(session.id)}`);
     injectWithOptionalLeaderSkillPreloads(
-      session.id,
+      session,
       recycleContinuation.content,
       buildRecycleContinuationThreadRoute(recycleContinuation),
       deps,
@@ -116,17 +131,14 @@ export function injectCompactionRecovery(
   const prompt = getCompactionRecoveryPrompt(role, sessionRef);
   console.log(`[ws-bridge] Injecting ${role} compaction recovery for session ${sessionTag(session.id)}`);
   if (role === "leader") {
-    injectWithOptionalLeaderSkillPreloads(session.id, prompt, undefined, deps);
+    injectWithOptionalLeaderSkillPreloads(session, prompt, undefined, deps);
   } else {
-    deps.injectUserMessage(session.id, prompt, {
-      sessionId: COMPACTION_RECOVERY_SOURCE_ID,
-      sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
-    });
+    injectWithOptionalMemoryCatalog(session, prompt, undefined, deps);
   }
 }
 
 function injectWithOptionalLeaderSkillPreloads(
-  sessionId: string,
+  session: CompactionRecoverySessionLike,
   content: string,
   threadRoute:
     | {
@@ -142,41 +154,100 @@ function injectWithOptionalLeaderSkillPreloads(
       threadRoute?: { threadKey: string; questId?: string },
       options?: {
         deliveryContent?: string;
-        historyFollowUps?: import("../session-types.js").ProgrammaticHistoryFollowUp[];
+        historyFollowUps?: ProgrammaticHistoryFollowUp[];
       },
     ) => void;
     buildLeaderSkillPreloadBundles?: () => LeaderSkillPreloadBundle[] | Promise<LeaderSkillPreloadBundle[]>;
+    buildMemoryCatalogInjectionBundle?: MemoryCatalogBuilder;
   },
 ): void {
   const source = {
     sessionId: COMPACTION_RECOVERY_SOURCE_ID,
     sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
   };
-  const build = deps.buildLeaderSkillPreloadBundles;
-  if (!build) {
-    deps.injectUserMessage(sessionId, content, source, threadRoute);
-    return;
-  }
-  const inject = (bundles: LeaderSkillPreloadBundle[]) => {
-    deps.injectUserMessage(sessionId, content, source, threadRoute, {
-      deliveryContent: buildLeaderPreloadDeliveryContent(content, bundles),
-      historyFollowUps: buildLeaderSkillPreloadHistoryFollowUps(bundles),
+  const inject = (bundles: LeaderSkillPreloadBundle[], memoryCatalog?: MemoryCatalogInjectionBundle | null) => {
+    const deliveryWithLeaderPreloads = buildLeaderPreloadDeliveryContent(content, bundles);
+    deps.injectUserMessage(session.id, content, source, threadRoute, {
+      deliveryContent: buildMemoryCatalogDeliveryContent(deliveryWithLeaderPreloads, memoryCatalog),
+      historyFollowUps: [
+        ...buildLeaderSkillPreloadHistoryFollowUps(bundles),
+        ...buildMemoryCatalogHistoryFollowUp(memoryCatalog),
+      ],
     });
   };
   try {
-    const result = build();
-    if (isThenable(result)) {
-      void result.then(inject).catch((err) => {
-        console.error(`[ws-bridge] Failed to build leader skill preload recovery context:`, err);
-        deps.injectUserMessage(sessionId, content, source, threadRoute);
-      });
+    const leaderBundles = deps.buildLeaderSkillPreloadBundles?.() ?? [];
+    const memoryCatalog = buildOptionalMemoryCatalog(session, deps);
+    if (isThenable(leaderBundles) || isThenable(memoryCatalog)) {
+      void Promise.all([Promise.resolve(leaderBundles), Promise.resolve(memoryCatalog)])
+        .then(([bundles, catalog]) => inject(bundles, catalog))
+        .catch((err) => {
+          console.error(`[ws-bridge] Failed to build leader skill preload recovery context:`, err);
+          inject([], null);
+        });
     } else {
-      inject(result);
+      inject(leaderBundles, memoryCatalog);
     }
   } catch (err) {
     console.error(`[ws-bridge] Failed to build leader skill preload recovery context:`, err);
-    deps.injectUserMessage(sessionId, content, source, threadRoute);
+    inject([], null);
   }
+}
+
+function injectWithOptionalMemoryCatalog(
+  session: CompactionRecoverySessionLike,
+  content: string,
+  threadRoute:
+    | {
+        threadKey: string;
+        questId?: string;
+      }
+    | undefined,
+  deps: {
+    injectUserMessage: (
+      sessionId: string,
+      content: string,
+      agentSource?: { sessionId: string; sessionLabel?: string },
+      threadRoute?: { threadKey: string; questId?: string },
+      options?: {
+        deliveryContent?: string;
+        historyFollowUps?: ProgrammaticHistoryFollowUp[];
+      },
+    ) => void;
+    buildMemoryCatalogInjectionBundle?: MemoryCatalogBuilder;
+  },
+): void {
+  const source = {
+    sessionId: COMPACTION_RECOVERY_SOURCE_ID,
+    sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
+  };
+  const inject = (memoryCatalog?: MemoryCatalogInjectionBundle | null) => {
+    deps.injectUserMessage(session.id, content, source, threadRoute, {
+      deliveryContent: buildMemoryCatalogDeliveryContent(content, memoryCatalog),
+      historyFollowUps: buildMemoryCatalogHistoryFollowUp(memoryCatalog),
+    });
+  };
+  try {
+    const memoryCatalog = buildOptionalMemoryCatalog(session, deps);
+    if (isThenable(memoryCatalog)) {
+      void memoryCatalog.then(inject).catch((err) => {
+        console.error(`[ws-bridge] Failed to build memory catalog recovery context:`, err);
+        inject(null);
+      });
+    } else {
+      inject(memoryCatalog);
+    }
+  } catch (err) {
+    console.error(`[ws-bridge] Failed to build memory catalog recovery context:`, err);
+    inject(null);
+  }
+}
+
+function buildOptionalMemoryCatalog(
+  session: CompactionRecoverySessionLike,
+  deps: { buildMemoryCatalogInjectionBundle?: MemoryCatalogBuilder },
+): MemoryCatalogInjectionBundle | null | undefined | Promise<MemoryCatalogInjectionBundle | null | undefined> {
+  return deps.buildMemoryCatalogInjectionBundle?.(session);
 }
 
 function isThenable<T>(value: T | Promise<T>): value is Promise<T> {

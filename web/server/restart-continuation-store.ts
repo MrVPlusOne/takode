@@ -1,5 +1,11 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import {
+  buildMemoryCatalogDeliveryContent,
+  buildMemoryCatalogHistoryFollowUp,
+  type MemoryCatalogInjectionBundle,
+} from "./memory-catalog-injection-utils.js";
+import type { ProgrammaticHistoryFollowUp } from "./session-types.js";
 
 export const RESTART_CONTINUE_MESSAGE = "Continue.";
 
@@ -31,6 +37,9 @@ interface RestartContinuationBridge {
     sessionId: string,
     content: string,
     agentSource?: { sessionId: string; sessionLabel?: string },
+    takodeHerdBatch?: undefined,
+    threadRoute?: undefined,
+    options?: { deliveryContent?: string; historyFollowUps?: ProgrammaticHistoryFollowUp[] },
   ) => "sent" | "queued" | "paused_queued" | "dropped" | "no_session";
 }
 
@@ -69,6 +78,11 @@ export async function drainRestartContinuationPlan(directory: string): Promise<R
 export async function resumeRestartContinuations(
   directory: string,
   bridge: RestartContinuationBridge,
+  options: {
+    buildMemoryCatalogInjectionBundle?: (
+      target: RestartContinuationTarget,
+    ) => MemoryCatalogInjectionBundle | Promise<MemoryCatalogInjectionBundle>;
+  } = {},
 ): Promise<RestartContinuationResumeResult> {
   const result: RestartContinuationResumeResult = {
     plan: null,
@@ -86,7 +100,18 @@ export async function resumeRestartContinuations(
     sessionLabel: "System",
   };
   for (const target of plan.sessions) {
-    const status = bridge.injectUserMessage(target.sessionId, plan.message, agentSource);
+    let memoryCatalog: MemoryCatalogInjectionBundle | null = null;
+    if (options.buildMemoryCatalogInjectionBundle) {
+      try {
+        memoryCatalog = await options.buildMemoryCatalogInjectionBundle(target);
+      } catch (error) {
+        console.error("[restart-continuation] Failed to build memory catalog context:", error);
+      }
+    }
+    const status = bridge.injectUserMessage(target.sessionId, plan.message, agentSource, undefined, undefined, {
+      deliveryContent: buildMemoryCatalogDeliveryContent(plan.message, memoryCatalog),
+      historyFollowUps: buildMemoryCatalogHistoryFollowUp(memoryCatalog),
+    });
     if (status === "sent") result.sent += 1;
     else if (status === "queued" || status === "paused_queued") result.queued += 1;
     else if (status === "dropped") result.dropped += 1;

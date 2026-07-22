@@ -34,6 +34,10 @@ import {
   COMPACTION_RECOVERY_SOURCE_LABEL,
   LEADER_KICKOFF_SOURCE_ID,
   LEADER_KICKOFF_SOURCE_LABEL,
+  MEMORY_CATALOG_SOURCE_ID,
+  MEMORY_CATALOG_SOURCE_LABEL,
+  MEMORY_CATALOG_TITLE,
+  MEMORY_CATALOG_TRUNCATED_PREFIX,
   leaderSkillPreloadSourceId,
   leaderSkillPreloadSourceLabel,
 } from "../../../shared/injected-event-message.js";
@@ -1153,6 +1157,37 @@ export function PlaygroundLeaderSkillPreloadEventMessage() {
   };
 
   return <MessageBubble message={message} sessionId="playground-leader-skill-preload-event" showTimestamp={false} />;
+}
+
+export function PlaygroundMemoryCatalogEventMessage({ truncated = false }: { truncated?: boolean }) {
+  const message: ChatMessage = {
+    id: truncated ? "playground-memory-catalog-truncated-event-msg" : "playground-memory-catalog-event-msg",
+    role: "user",
+    content: [
+      MEMORY_CATALOG_TITLE,
+      "",
+      ...(truncated
+        ? [
+            MEMORY_CATALOG_TRUNCATED_PREFIX + " the catalog hit Takode's 100,000 character injected-context limit.",
+            "Run `memory catalog show` manually and inspect relevant Markdown files directly for the full catalog before relying on memory facts.",
+            "",
+          ]
+        : []),
+      "This automatically injected catalog is an orientation map, not the source of truth.",
+      "Before relying on memory facts, inspect the actual Markdown files directly with normal tools such as `memory repo path`, `sed`, `rg`, and `cat`.",
+      "",
+      "Memory repo: /Users/example/.companion/memory/prod/Takode",
+      "decisions/memory-repo-native-design.md: Takode memory is a Git-tracked Markdown repo whose files are the source of truth.",
+      "procedures/memory-agent-workflow.md: Discover memory with the catalog, inspect Markdown directly, and write memory with locks.",
+    ].join("\n"),
+    timestamp: Date.now() - 10_000,
+    agentSource: {
+      sessionId: MEMORY_CATALOG_SOURCE_ID,
+      sessionLabel: MEMORY_CATALOG_SOURCE_LABEL,
+    },
+  };
+
+  return <MessageBubble message={message} sessionId="playground-memory-catalog-event" showTimestamp={false} />;
 }
 
 // ─── Inline MCP Server Row (static preview, no WebSocket) ──────────────────

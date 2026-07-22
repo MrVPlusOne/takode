@@ -169,6 +169,33 @@ vi.mock("./usage-limits.js", () => ({
   getUsageLimits: mockGetUsageLimits,
 }));
 
+vi.mock("./memory-catalog-injection.js", () => {
+  const buildMemoryCatalogInjectionBundle = vi.fn(async () => ({
+    content: [
+      "Memory catalog preloaded",
+      "",
+      "This automatically injected catalog is an orientation map, not the source of truth.",
+      "Memory repo: /tmp/test-memory",
+      "decisions/example.md: Example memory decision.",
+    ].join("\n"),
+    agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
+    truncated: false,
+    unavailable: false,
+  }));
+  return {
+    buildMemoryCatalogInjectionBundle,
+    buildMemoryCatalogDeliveryContent: (primary: string, bundle: { content: string } | null | undefined) =>
+      bundle
+        ? [primary, "The following memory catalog is included as startup/recovery context.", bundle.content].join(
+            "\n\n",
+          )
+        : primary,
+    buildMemoryCatalogHistoryFollowUp: (
+      bundle: { content: string; agentSource: { sessionId: string; sessionLabel?: string } } | null | undefined,
+    ) => (bundle ? [{ content: bundle.content, agentSource: bundle.agentSource }] : []),
+  };
+});
+
 import { Hono } from "hono";
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -176,7 +203,11 @@ import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
-import { LEADER_KICKOFF_SOURCE_ID, LEADER_KICKOFF_SOURCE_LABEL } from "../shared/injected-event-message.js";
+import {
+  LEADER_KICKOFF_SOURCE_ID,
+  LEADER_KICKOFF_SOURCE_LABEL,
+  MEMORY_CATALOG_SOURCE_ID,
+} from "../shared/injected-event-message.js";
 import { _resetModelCache } from "./routes/system.js";
 import { trafficStats } from "./traffic-stats.js";
 import { _resetServerLoggerForTest, createLogger, initServerLogger } from "./server-logger.js";
@@ -615,13 +646,30 @@ describe("buildOrchestratorSystemPrompt", () => {
       undefined,
       undefined,
       expect.objectContaining({
-        deliveryContent: expect.stringContaining("Required leader skill preloaded: takode-orchestration"),
+        deliveryContent: expect.stringMatching(
+          /Required leader skill preloaded: takode-orchestration[\s\S]*Memory catalog preloaded/,
+        ),
         historyFollowUps: expect.arrayContaining([
           expect.objectContaining({
             content: expect.stringContaining("Required leader skill preloaded: quest"),
           }),
+          expect.objectContaining({
+            content: expect.stringContaining("Memory catalog preloaded"),
+            agentSource: expect.objectContaining({ sessionId: MEMORY_CATALOG_SOURCE_ID }),
+          }),
         ]),
       }),
     );
+  });
+
+  it("does not inject a standalone startup memory catalog turn for non-leader sessions", async () => {
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test", backend: "codex" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
   });
 });

@@ -106,6 +106,7 @@ type SessionRuntimeOptions = {
   pendingCodexRollback?: { numTurns: number; truncateIdx: number; clearCodexState: boolean } | null;
   pendingCodexRollbackError?: string | null;
   codexLeaderRecycleContinuation?: CodexLeaderRecycleContinuation | null;
+  pendingStartupMemoryCatalogInjection?: boolean;
   codexFreshTurnRequiredUntilTurnId?: string | null;
   codexModelSwitchCompactionGuard?: import("../session-types.js").CodexModelSwitchCompactionGuard | null;
   codexPendingDeliveryProofSignals?: import("../session-types.js").CodexPendingDeliveryProofSignal[];
@@ -161,6 +162,7 @@ function createSessionRuntime(
     pendingCodexRollback: options.pendingCodexRollback ?? null,
     pendingCodexRollbackError: options.pendingCodexRollbackError ?? null,
     codexLeaderRecycleContinuation: options.codexLeaderRecycleContinuation ?? null,
+    pendingStartupMemoryCatalogInjection: options.pendingStartupMemoryCatalogInjection === true,
     codexFreshTurnRequiredUntilTurnId: options.codexFreshTurnRequiredUntilTurnId ?? null,
     codexModelSwitchCompactionGuard: options.codexModelSwitchCompactionGuard ?? null,
     codexSuppressRecoveryForCurrentCompaction: false,
@@ -624,6 +626,7 @@ export async function restorePersistedSessions(
       codexLeaderRecycleContinuation: normalizePersistedCodexLeaderRecycleContinuation(
         p.codexLeaderRecycleContinuation,
       ),
+      pendingStartupMemoryCatalogInjection: p.pendingStartupMemoryCatalogInjection === true,
       codexFreshTurnRequiredUntilTurnId:
         typeof p.codexFreshTurnRequiredUntilTurnId === "string" ? p.codexFreshTurnRequiredUntilTurnId : null,
       codexModelSwitchCompactionGuard: normalizePersistedCodexModelSwitchCompactionGuard(

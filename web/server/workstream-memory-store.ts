@@ -190,21 +190,22 @@ export async function scanMemoryCatalog(options: MemoryRepoOptions = {}): Promis
   };
 }
 
-export async function markMemoryCatalogSeen(catalog: MemoryCatalog): Promise<void> {
-  await writeCatalogSeen(catalog);
+export async function markMemoryCatalogSeen(catalog: MemoryCatalog, options: MemoryRepoOptions = {}): Promise<void> {
+  await writeCatalogSeen(catalog, undefined, options.catalogSessionKey);
 }
 
 export async function diffMemoryCatalog(options: MemoryRepoOptions = {}): Promise<MemoryCatalogDiff> {
   const catalog = await scanMemoryCatalog(options);
-  const previous = await readCatalogSeen(catalog.repo.root);
+  const sessionKey = catalogSessionKey(options.catalogSessionKey);
+  const previous = await readCatalogSeen(catalog.repo.root, sessionKey);
   const seenAt = new Date().toISOString();
   const changes = diffCatalogEntries(previous?.entries ?? [], catalog.entries);
-  await writeCatalogSeen(catalog, seenAt);
+  await writeCatalogSeen(catalog, seenAt, sessionKey);
   return {
     repo: catalog.repo,
     changes,
     issues: catalog.issues,
-    sessionKey: catalogSessionKey(),
+    sessionKey,
     ...(previous?.seenAt ? { previousSeenAt: previous.seenAt } : {}),
     seenAt,
   };
@@ -645,9 +646,9 @@ interface CatalogSeenSnapshot {
   entries: MemoryCatalogEntry[];
 }
 
-async function readCatalogSeen(root: string): Promise<CatalogSeenSnapshot | null> {
+async function readCatalogSeen(root: string, sessionKey = catalogSessionKey()): Promise<CatalogSeenSnapshot | null> {
   try {
-    const raw = await readFile(catalogSeenPath(root), "utf-8");
+    const raw = await readFile(catalogSeenPath(root, sessionKey), "utf-8");
     const parsed = JSON.parse(raw) as Partial<CatalogSeenSnapshot>;
     if (typeof parsed.seenAt !== "string" || !Array.isArray(parsed.entries)) return null;
     return {
@@ -659,8 +660,12 @@ async function readCatalogSeen(root: string): Promise<CatalogSeenSnapshot | null
   }
 }
 
-async function writeCatalogSeen(catalog: MemoryCatalog, seenAt = new Date().toISOString()): Promise<void> {
-  const path = catalogSeenPath(catalog.repo.root);
+async function writeCatalogSeen(
+  catalog: MemoryCatalog,
+  seenAt = new Date().toISOString(),
+  sessionKey = catalogSessionKey(),
+): Promise<void> {
+  const path = catalogSeenPath(catalog.repo.root, sessionKey);
   await mkdir(dirname(path), { recursive: true });
   const snapshot: CatalogSeenSnapshot = {
     seenAt,
@@ -724,12 +729,13 @@ function isMemoryCatalogEntry(value: unknown): value is MemoryCatalogEntry {
   );
 }
 
-function catalogSeenPath(root: string): string {
-  return join(root, ".git", CATALOG_SEEN_DIR_NAME, `${sanitizeSlugForPath(catalogSessionKey())}.json`);
+function catalogSeenPath(root: string, sessionKey = catalogSessionKey()): string {
+  return join(root, ".git", CATALOG_SEEN_DIR_NAME, `${sanitizeSlugForPath(sessionKey)}.json`);
 }
 
-function catalogSessionKey(): string {
+function catalogSessionKey(override?: string): string {
   return (
+    override?.trim() ||
     process.env.COMPANION_SESSION_ID?.trim() ||
     process.env.COMPANION_SESSION_NUM?.trim() ||
     process.env.TAKODE_SESSION_ID?.trim() ||

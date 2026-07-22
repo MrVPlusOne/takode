@@ -18,6 +18,8 @@ export interface MemoryRepoOptions {
   sessionSpaceSlug?: string;
   expectedSessionSpaceSlugs?: string[];
   readOnly?: boolean;
+  /** Optional session-specific catalog-seen key for server-mediated catalog reads. */
+  catalogSessionKey?: string;
 }
 
 export interface MemoryRepoInfo {

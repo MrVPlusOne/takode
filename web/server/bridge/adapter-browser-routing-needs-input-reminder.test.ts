@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   handleUserMessage,
+  routeBrowserMessage,
   routeAdapterBrowserMessage,
   type AdapterBrowserRoutingDeps,
   type AdapterBrowserRoutingSessionLike,
@@ -829,6 +830,42 @@ describe("direct user needs-input reminders", () => {
     });
     expect(deps.queueCodexPendingStartBatch).toHaveBeenCalledTimes(1);
     expect(deps.queueCodexPendingStartBatch).toHaveBeenCalledWith(session, "browser_user_message");
+  });
+
+  it("consumes non-leader startup memory catalog prelude on the first real user message", async () => {
+    const session = makeSession();
+    session.pendingStartupMemoryCatalogInjection = true;
+    const deps = makeDeps();
+    deps.buildMemoryCatalogInjectionBundle = vi.fn(async () => ({
+      content: [
+        "Memory catalog preloaded",
+        "",
+        "This automatically injected catalog is an orientation map, not the source of truth.",
+        "Memory repo: /tmp/takode-memory",
+        "decisions/example.md: Example memory decision.",
+      ].join("\n"),
+      agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
+      truncated: false,
+      unavailable: false,
+    }));
+
+    await routeBrowserMessage(session as any, userMessage({ content: "Do the assigned work" }), undefined, deps);
+
+    expect(session.pendingStartupMemoryCatalogInjection).toBe(false);
+    expect(deps.buildMemoryCatalogInjectionBundle).toHaveBeenCalledWith(session);
+    expect(deps.sendToCLI).toHaveBeenCalledTimes(1);
+    const ndjson = String((deps.sendToCLI as any).mock.calls[0]?.[1] ?? "");
+    expect(ndjson).toContain("Do the assigned work");
+    expect(ndjson).toContain("Memory catalog preloaded");
+    expect(ndjson).toContain("inspect actual memory Markdown files directly");
+    expect(session.messageHistory).toEqual([
+      expect.objectContaining({ type: "user_message", content: "Do the assigned work" }),
+      expect.objectContaining({
+        type: "user_message",
+        content: expect.stringContaining("Memory catalog preloaded"),
+        agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
+      }),
+    ]);
   });
 
   it("queues Codex herd inputs as a fresh pending batch instead of steering into an active turn", () => {

@@ -32,7 +32,18 @@ describe("restart-continuation-store", () => {
     await saveRestartContinuationPlan(tempDir, plan);
 
     const injectUserMessage = vi.fn((sessionId: string) => (sessionId === "worker-1" ? "queued" : "sent"));
-    const result = await resumeRestartContinuations(tempDir, { injectUserMessage });
+    const result = await resumeRestartContinuations(
+      tempDir,
+      { injectUserMessage },
+      {
+        buildMemoryCatalogInjectionBundle: async () => ({
+          content: "Memory catalog preloaded\nMemory repo: /tmp/test-memory",
+          agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
+          truncated: false,
+          unavailable: false,
+        }),
+      },
+    );
 
     expect(result).toMatchObject({
       plan: {
@@ -48,14 +59,38 @@ describe("restart-continuation-store", () => {
       dropped: 0,
       noSession: 0,
     });
-    expect(injectUserMessage).toHaveBeenCalledWith("worker-1", "Continue.", {
-      sessionId: "system:restart-continuation:prep-1",
-      sessionLabel: "System",
-    });
-    expect(injectUserMessage).toHaveBeenCalledWith("worker-2", "Continue.", {
-      sessionId: "system:restart-continuation:prep-1",
-      sessionLabel: "System",
-    });
+    expect(injectUserMessage).toHaveBeenCalledWith(
+      "worker-1",
+      "Continue.",
+      {
+        sessionId: "system:restart-continuation:prep-1",
+        sessionLabel: "System",
+      },
+      undefined,
+      undefined,
+      expect.objectContaining({
+        deliveryContent: expect.stringContaining("Memory catalog preloaded"),
+        historyFollowUps: [
+          expect.objectContaining({
+            content: expect.stringContaining("Memory catalog preloaded"),
+            agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
+          }),
+        ],
+      }),
+    );
+    expect(injectUserMessage).toHaveBeenCalledWith(
+      "worker-2",
+      "Continue.",
+      {
+        sessionId: "system:restart-continuation:prep-1",
+        sessionLabel: "System",
+      },
+      undefined,
+      undefined,
+      expect.objectContaining({
+        deliveryContent: expect.stringContaining("Memory catalog preloaded"),
+      }),
+    );
     await expect(access(join(tempDir, "restart-continuations.json"))).rejects.toMatchObject({ code: "ENOENT" });
 
     const secondResult = await resumeRestartContinuations(tempDir, { injectUserMessage });

@@ -53,6 +53,13 @@ export function InjectedEventMessageView({
   ) : (
     event.title
   );
+  const warningTone = event.tone === "warning";
+  const chipClassName = warningTone
+    ? "inline-flex max-w-full items-center gap-2 rounded-md border border-red-400/45 bg-red-500/10 px-2 py-1 text-left text-[11px] leading-snug text-red-200/90 transition-colors hover:border-red-300/60 hover:bg-red-500/15 hover:text-red-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-300/70"
+    : "inline-flex max-w-full items-center gap-2 rounded-md border border-cc-border/30 bg-cc-hover/15 px-2 py-1 text-left text-[11px] leading-snug text-cc-muted/85 transition-colors hover:border-cc-border/50 hover:bg-cc-hover/30 hover:text-cc-fg/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cc-primary/60";
+  const expandedClassName = warningTone
+    ? "mt-1.5 rounded-md border border-red-400/25 bg-red-500/10 px-2.5 py-2 text-left"
+    : "mt-1.5 rounded-md border border-cc-border/20 bg-cc-card/35 px-2.5 py-2 text-left";
 
   return (
     <div className="pl-9 py-0.5 animate-[fadeSlideIn_0.2s_ease-out]">
@@ -64,13 +71,13 @@ export function InjectedEventMessageView({
               onClick={() => setExpanded((value) => !value)}
               aria-expanded={expanded}
               aria-label={`${expanded ? "Collapse" : "Expand"} ${event.title}`}
-              className="inline-flex max-w-full items-center gap-2 rounded-md border border-cc-border/30 bg-cc-hover/15 px-2 py-1 text-left text-[11px] leading-snug text-cc-muted/85 transition-colors hover:border-cc-border/50 hover:bg-cc-hover/30 hover:text-cc-fg/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cc-primary/60"
+              className={chipClassName}
               data-testid="injected-event-message-chip"
             >
               <svg
                 viewBox="0 0 16 16"
                 fill="currentColor"
-                className={`h-3 w-3 shrink-0 text-cc-muted/55 transition-transform ${expanded ? "rotate-90" : ""}`}
+                className={`h-3 w-3 shrink-0 transition-transform ${warningTone ? "text-red-200/75" : "text-cc-muted/55"} ${expanded ? "rotate-90" : ""}`}
               >
                 <path d="M6 4l4 4-4 4" />
               </svg>
@@ -79,7 +86,7 @@ export function InjectedEventMessageView({
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.4"
-                className="h-3.5 w-3.5 shrink-0 text-cc-muted/65"
+                className={`h-3.5 w-3.5 shrink-0 ${warningTone ? "text-red-200/80" : "text-cc-muted/65"}`}
                 aria-hidden="true"
               >
                 <path d="M8 2.5v4.25" strokeLinecap="round" />
@@ -89,13 +96,17 @@ export function InjectedEventMessageView({
                 <circle cx="8" cy="8" r="1.35" />
               </svg>
               <span className="min-w-0 truncate font-mono-code">{renderedTitle}</span>
-              <span className="shrink-0 rounded-full border border-cc-border/35 px-1.5 py-0.5 font-mono-code text-[9px] leading-none text-cc-muted/60">
-                event
+              <span
+                className={`shrink-0 rounded-full border px-1.5 py-0.5 font-mono-code text-[9px] leading-none ${warningTone ? "border-red-300/40 text-red-100/80" : "border-cc-border/35 text-cc-muted/60"}`}
+              >
+                {warningTone ? "warning" : "event"}
               </span>
             </button>
             {expanded && (
-              <div className="mt-1.5 rounded-md border border-cc-border/20 bg-cc-card/35 px-2.5 py-2 text-left">
-                <p className="mb-1.5 text-[11px] leading-snug text-cc-muted">{event.description}</p>
+              <div className={expandedClassName}>
+                <p className={`mb-1.5 text-[11px] leading-snug ${warningTone ? "text-red-100/85" : "text-cc-muted"}`}>
+                  {event.description}
+                </p>
                 <MarkdownContent
                   text={event.rawContent}
                   variant="conservative"

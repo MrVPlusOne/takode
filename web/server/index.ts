@@ -988,7 +988,20 @@ async function captureStartupInjectedRelaunches<T>(operation: () => Promise<T>):
 
 const restartContinuationSessionIds: string[] = [];
 await captureStartupInjectedRelaunches(async () => {
-  const resumed = await resumeRestartContinuations(sessionStore.directory, wsBridge);
+  const resumed = await resumeRestartContinuations(sessionStore.directory, wsBridge, {
+    buildMemoryCatalogInjectionBundle: (target) => {
+      const session = wsBridge.getSession(target.sessionId);
+      const launcherSession = launcher.getSession(target.sessionId);
+      return import("./memory-catalog-injection.js").then(({ buildMemoryCatalogInjectionBundle }) =>
+        buildMemoryCatalogInjectionBundle({
+          sessionId: target.sessionId,
+          repoOptions: {
+            sessionSpaceSlug: session?.state.memorySessionSpaceSlug ?? launcherSession?.memorySessionSpaceSlug,
+          },
+        }),
+      );
+    },
+  });
   if (resumed.plan) {
     restartContinuationSessionIds.push(...resumed.plan.sessions.map((session) => session.sessionId));
     serverLog.info("Resumed restart-interrupted sessions", {

@@ -9,6 +9,7 @@ import type {
   SessionNotification,
   SessionState,
 } from "../session-types.js";
+import type { MemoryCatalogInjectionBundle } from "../memory-catalog-injection-utils.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
 
 export type InterruptSource = "user" | "leader" | "system";
@@ -51,6 +52,7 @@ export interface AdapterBrowserRoutingSessionLike {
     | "context_used_percent"
     | "cwd"
     | "is_compacting"
+    | "memorySessionSpaceSlug"
     | "model"
     | "num_turns"
     | "permissionMode"
@@ -67,6 +69,7 @@ export interface AdapterBrowserRoutingSessionLike {
   pendingCodexTurns: CodexOutboundTurn[];
   pendingCodexInputs: PendingCodexInput[];
   forceCompactPending: boolean;
+  pendingStartupMemoryCatalogInjection?: boolean;
   isGenerating: boolean;
   backendSocket?: unknown;
   lastUserMessage?: string;
@@ -188,6 +191,9 @@ export interface AdapterBrowserRoutingDeps {
     trigger: CodexLeaderRecycleTrigger,
   ) => Promise<{ ok: boolean; error?: string }>;
   requestCliRelaunch?: (sessionId: string) => void;
+  buildMemoryCatalogInjectionBundle?: (
+    session: AdapterBrowserRoutingSessionLike,
+  ) => MemoryCatalogInjectionBundle | Promise<MemoryCatalogInjectionBundle>;
   injectUserMessage: (
     sessionId: string,
     content: string,

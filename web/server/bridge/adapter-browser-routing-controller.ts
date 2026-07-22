@@ -67,6 +67,10 @@ import {
 } from "../thread-routing-metadata.js";
 import { isActualHumanUserMessage } from "../user-message-classification.js";
 import { determineUserMessageSourceKind } from "../codex-result-error-auto-pause.js";
+import {
+  appendMemoryCatalogToUserMessage,
+  hasMemoryCatalogHistoryFollowUp,
+} from "../memory-catalog-injection-utils.js";
 import type {
   BrowserUserMessage,
   ControlResponseHandler,
@@ -267,6 +271,30 @@ function maybeAutoAnswerPendingQuestionForUserMessage(
   }
   handlePermissionResponse(session, approval, deps, actorSessionId);
   return true;
+}
+
+async function maybeAttachStartupMemoryCatalogPrelude(
+  session: AdapterBrowserRoutingSessionLike,
+  msg: BrowserUserMessage,
+  deps: AdapterBrowserRoutingDeps,
+): Promise<BrowserUserMessage> {
+  if (!session.pendingStartupMemoryCatalogInjection) return msg;
+  if (hasMemoryCatalogHistoryFollowUp(msg)) {
+    session.pendingStartupMemoryCatalogInjection = false;
+    deps.persistSession(session);
+    return msg;
+  }
+  const build = deps.buildMemoryCatalogInjectionBundle;
+  if (!build) return msg;
+  try {
+    const bundle = await build(session);
+    session.pendingStartupMemoryCatalogInjection = false;
+    deps.persistSession(session);
+    return appendMemoryCatalogToUserMessage(msg, bundle);
+  } catch (err) {
+    console.error(`[ws-bridge] Failed to build startup memory catalog context:`, err);
+    return msg;
+  }
 }
 
 function localDateKey(ts: number): string {
@@ -565,15 +593,19 @@ export async function routeBrowserMessage(
     return;
   }
 
-  const maybeAdapterRouted = routeAdapterBrowserMessage(session, msg, ws, deps);
+  let routedMsg = msg;
+  if (msg.type === "user_message" && session.pendingStartupMemoryCatalogInjection) {
+    routedMsg = await maybeAttachStartupMemoryCatalogPrelude(session, msg, deps);
+  }
+  const maybeAdapterRouted = routeAdapterBrowserMessage(session, routedMsg, ws, deps);
   const adapterRouted = maybeAdapterRouted instanceof Promise ? await maybeAdapterRouted : maybeAdapterRouted;
   if (adapterRouted) return;
 
-  if (msg.type === "user_message") {
+  if (routedMsg.type === "user_message") {
     try {
-      await handleUserMessage(session, msg, deps);
+      await handleUserMessage(session, routedMsg, deps);
     } catch (err) {
-      if (msg.imageRefs?.length) {
+      if (routedMsg.imageRefs?.length) {
         deps.notifyImageSendFailure(session, err);
         return;
       }
@@ -582,32 +614,32 @@ export async function routeBrowserMessage(
     return;
   }
 
-  switch (msg.type) {
+  switch (routedMsg.type) {
     case "permission_response":
-      handlePermissionResponse(session, msg, deps, msg.actorSessionId);
+      handlePermissionResponse(session, routedMsg, deps, routedMsg.actorSessionId);
       break;
 
     case "interrupt":
-      handleInterrupt(session, msg.interruptSource ?? "user", deps);
+      handleInterrupt(session, routedMsg.interruptSource ?? "user", deps);
       break;
 
     case "set_model":
-      deps.handleSetModel(session, msg.model);
+      deps.handleSetModel(session, routedMsg.model);
       break;
 
     case "set_codex_reasoning_effort":
       break;
 
     case "set_codex_service_tier":
-      if (session.backendType === "codex") deps.handleCodexSetServiceTier(session, msg.serviceTier);
+      if (session.backendType === "codex") deps.handleCodexSetServiceTier(session, routedMsg.serviceTier);
       break;
 
     case "set_permission_mode":
-      handleSetPermissionMode(session, msg.mode, deps);
+      handleSetPermissionMode(session, routedMsg.mode, deps);
       break;
 
     case "set_codex_ui_mode":
-      if (session.backendType === "codex") deps.handleCodexSetUiMode(session, msg.uiMode);
+      if (session.backendType === "codex") deps.handleCodexSetUiMode(session, routedMsg.uiMode);
       break;
 
     case "mcp_get_status":
@@ -615,19 +647,19 @@ export async function routeBrowserMessage(
       break;
 
     case "mcp_toggle":
-      handleMcpToggle(session, msg.serverName, msg.enabled, deps);
+      handleMcpToggle(session, routedMsg.serverName, routedMsg.enabled, deps);
       break;
 
     case "mcp_reconnect":
-      handleMcpReconnect(session, msg.serverName, deps);
+      handleMcpReconnect(session, routedMsg.serverName, deps);
       break;
 
     case "mcp_set_servers":
-      handleMcpSetServers(session, msg.servers, deps);
+      handleMcpSetServers(session, routedMsg.servers, deps);
       break;
 
     case "set_ask_permission":
-      handleSetAskPermission(session, msg.askPermission, deps);
+      handleSetAskPermission(session, routedMsg.askPermission, deps);
       break;
   }
 }

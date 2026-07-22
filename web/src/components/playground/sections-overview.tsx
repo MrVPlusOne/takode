@@ -107,6 +107,7 @@ import {
   PlaygroundCompactionRecoveryEventMessage,
   PlaygroundLeaderKickoffEventMessage,
   PlaygroundLeaderSkillPreloadEventMessage,
+  PlaygroundMemoryCatalogEventMessage,
   PlaygroundLongSleepGuardMessage,
   PlaygroundQuestThreadReminderMessage,
   PlaygroundResourceLeaseMessage,
@@ -815,6 +816,12 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Leader skill preload event (collapsed chip)">
             <PlaygroundLeaderSkillPreloadEventMessage />
+          </Card>
+          <Card label="Memory catalog event (collapsed chip)">
+            <PlaygroundMemoryCatalogEventMessage />
+          </Card>
+          <Card label="Memory catalog truncated warning">
+            <PlaygroundMemoryCatalogEventMessage truncated />
           </Card>
           <Card label="Assistant message (markdown)">
             <MessageBubble message={MSG_ASSISTANT} />

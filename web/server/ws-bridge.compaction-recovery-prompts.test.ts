@@ -17,11 +17,41 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
     shouldSettingsRuleApprove: mockShouldSettingsRuleApprove,
   };
 });
+vi.mock("./memory-catalog-injection.js", () => {
+  const buildMemoryCatalogInjectionBundle = vi.fn(async () => ({
+    content: [
+      "Memory catalog preloaded",
+      "",
+      "This automatically injected catalog is an orientation map, not the source of truth.",
+      "Memory repo: /tmp/test-memory",
+      "decisions/example.md: Example memory decision.",
+    ].join("\n"),
+    agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
+    truncated: false,
+    unavailable: false,
+  }));
+  return {
+    buildMemoryCatalogInjectionBundle,
+    buildMemoryCatalogDeliveryContent: (primary: string, bundle: { content: string } | null | undefined) =>
+      bundle
+        ? [primary, "The following memory catalog is included as startup/recovery context.", bundle.content].join(
+            "\n\n",
+          )
+        : primary,
+    buildMemoryCatalogHistoryFollowUp: (
+      bundle: { content: string; agentSource: { sessionId: string; sessionLabel?: string } } | null | undefined,
+    ) => (bundle ? [{ content: bundle.content, agentSource: bundle.agentSource }] : []),
+  };
+});
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
-import { COMPACTION_RECOVERY_SOURCE_ID, COMPACTION_RECOVERY_SOURCE_LABEL } from "../shared/injected-event-message.js";
+import {
+  COMPACTION_RECOVERY_SOURCE_ID,
+  COMPACTION_RECOVERY_SOURCE_LABEL,
+  MEMORY_CATALOG_SOURCE_ID,
+} from "../shared/injected-event-message.js";
 import {
   advanceBoardRow as advanceBoardRowController,
   advanceBoardRowNoGroom as advanceBoardRowNoGroomController,
@@ -642,10 +672,16 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).toContain("via tool calls");
     expect(recoveryCalls[0][5]).toEqual(
       expect.objectContaining({
-        deliveryContent: expect.stringContaining("Required leader skill preloaded: takode-orchestration"),
+        deliveryContent: expect.stringMatching(
+          /Required leader skill preloaded: takode-orchestration[\s\S]*Memory catalog preloaded/,
+        ),
         historyFollowUps: expect.arrayContaining([
           expect.objectContaining({
             content: expect.stringContaining("Required leader skill preloaded: quest"),
+          }),
+          expect.objectContaining({
+            content: expect.stringContaining("Memory catalog preloaded"),
+            agentSource: expect.objectContaining({ sessionId: MEMORY_CATALOG_SOURCE_ID }),
           }),
         ]),
       }),
@@ -729,7 +765,15 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).toContain("via tool calls");
     expect(recoveryCalls[0][5]).toEqual(
       expect.objectContaining({
-        deliveryContent: expect.stringContaining("Required leader skill preloaded: takode-orchestration"),
+        deliveryContent: expect.stringMatching(
+          /Required leader skill preloaded: takode-orchestration[\s\S]*Memory catalog preloaded/,
+        ),
+        historyFollowUps: expect.arrayContaining([
+          expect.objectContaining({
+            content: expect.stringContaining("Memory catalog preloaded"),
+            agentSource: expect.objectContaining({ sessionId: MEMORY_CATALOG_SOURCE_ID }),
+          }),
+        ]),
       }),
     );
   });
@@ -859,7 +903,7 @@ describe("Compaction recovery prompts", () => {
     });
   });
 
-  it("injects standard recovery message for non-leader sessions", () => {
+  it("injects standard recovery message for non-leader sessions", async () => {
     // Regular standalone sessions should still recover their own session
     // history after compaction, but they should not receive leader guidance.
     const adapter = makeClaudeSdkAdapterMock();
@@ -888,11 +932,7 @@ describe("Compaction recovery prompts", () => {
     adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
     adapter.emitBrowserMessage({ type: "status_change", status: null });
 
-    const recoveryCalls = spy.mock.calls.filter(
-      ([, , source]) =>
-        source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
-        source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
-    );
+    const recoveryCalls = await waitForRecoveryInjection(spy);
     expect(recoveryCalls).toHaveLength(1);
     expect(recoveryCalls[0][1]).toContain("recover enough context from your own session history");
     expect(recoveryCalls[0][1]).toContain("takode scan 42");
@@ -906,9 +946,22 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).not.toContain("<your-session-number>");
     expect(recoveryCalls[0][1]).toContain("Keep your current role");
     expect(recoveryCalls[0][1]).not.toContain("/takode-orchestration");
+    expect(recoveryCalls[0][5]).toEqual(
+      expect.objectContaining({
+        deliveryContent: expect.stringMatching(
+          /recover enough context from your own session history[\s\S]*Memory catalog preloaded/,
+        ),
+        historyFollowUps: expect.arrayContaining([
+          expect.objectContaining({
+            content: expect.stringContaining("Memory catalog preloaded"),
+            agentSource: expect.objectContaining({ sessionId: MEMORY_CATALOG_SOURCE_ID }),
+          }),
+        ]),
+      }),
+    );
   });
 
-  it("injects standard recovery for herded worker sessions without leader instructions", () => {
+  it("injects standard recovery for herded worker sessions without leader instructions", async () => {
     // Herded workers should recover their own history after compaction while
     // staying in worker mode instead of switching into orchestration behavior.
     const adapter = makeClaudeSdkAdapterMock();
@@ -936,11 +989,7 @@ describe("Compaction recovery prompts", () => {
     adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
     adapter.emitBrowserMessage({ type: "status_change", status: null });
 
-    const recoveryCalls = spy.mock.calls.filter(
-      ([, , source]) =>
-        source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
-        source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
-    );
+    const recoveryCalls = await waitForRecoveryInjection(spy);
     expect(recoveryCalls).toHaveLength(1);
     expect(recoveryCalls[0][1]).toContain("recover enough context from your own session history");
     expect(recoveryCalls[0][1]).toContain("do not switch into leader/orchestration behavior");

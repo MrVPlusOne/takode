@@ -39,7 +39,6 @@ import {
   computeCodexRevertPlan,
   getActorSessionId,
   getArchiveSource,
-  markOrchestratorSessionAfterConnect,
   resolveBackend,
   throwPreparationError,
 } from "./sessions-helpers.js";
@@ -65,15 +64,10 @@ import { prepareWorktreeForSessionCreate, type WorktreeSessionInfo } from "./ses
 import type { CreationProgressStatus, EmitCreationProgress, SessionConfig } from "./session-create-config.js";
 import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignments.js";
 import { isSessionPaused } from "../session-pause.js";
-import { LEADER_KICKOFF_SOURCE_ID, LEADER_KICKOFF_SOURCE_LABEL } from "../../shared/injected-event-message.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "../memory-session-space.js";
 import { registerSessionSideChatRoutes } from "./session-side-chat-routes.js";
 import { applySessionDefaultsToCreateBody, SessionDefaultValidationError } from "../session-defaults-application.js";
-import {
-  buildLeaderPreloadDeliveryContent,
-  buildLeaderSkillPreloadBundles,
-  buildLeaderSkillPreloadHistoryFollowUps,
-} from "../leader-skill-preload.js";
+import { markOrchestratorSessionWithStartupContext } from "./orchestrator-startup-injection.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -137,29 +131,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
     worktreeTracker,
   });
 
-  // ─── SDK Sessions (--sdk-url) ─────────────────────────────────────
   const markOrchestratorSession = (sessionId: string, backend: SessionBackend) =>
-    markOrchestratorSessionAfterConnect(
-      { launcher, wsBridge },
+    markOrchestratorSessionWithStartupContext(
+      { launcher, wsBridge, buildOrchestratorSystemPrompt },
       sessionId,
-      async () => {
-        const content = buildOrchestratorSystemPrompt(backend);
-        try {
-          const preloads = await buildLeaderSkillPreloadBundles();
-          return {
-            content,
-            deliveryContent: buildLeaderPreloadDeliveryContent(content, preloads),
-            historyFollowUps: buildLeaderSkillPreloadHistoryFollowUps(preloads),
-          };
-        } catch (err) {
-          console.error("[routes] Failed to build leader skill preload startup context:", err);
-          return { content };
-        }
-      },
-      {
-        sessionId: LEADER_KICKOFF_SOURCE_ID,
-        sessionLabel: LEADER_KICKOFF_SOURCE_LABEL,
-      },
+      backend,
     );
 
   /** Helper: broadcast current tree group state to all browsers. */
@@ -393,6 +369,10 @@ export function createSessionsRoutes(ctx: RouteContext) {
       session.leaderProfilePortraitId = chooseRandomLeaderProfilePortraitId(getSettings().leaderProfilePools);
       session.noAutoName = true; // Leaders handle multiple quests; autonamer would pick a misleading name
       markOrchestratorSession(session.sessionId, sessionConfig.launchOptions.backendType || "claude");
+    } else {
+      const bridgeSession = wsBridge.getSession(session.sessionId);
+      if (bridgeSession) bridgeSession.pendingStartupMemoryCatalogInjection = true;
+      wsBridge.persistSessionById(session.sessionId);
     }
     if (sessionConfig.envSlug) session.envSlug = sessionConfig.envSlug;
     if (sessionConfig.noAutoName) session.noAutoName = true;

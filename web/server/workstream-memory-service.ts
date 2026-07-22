@@ -46,8 +46,8 @@ export class WorkstreamMemoryService {
     return diffMemoryCatalog(options);
   }
 
-  markCatalogSeen(catalog: Awaited<ReturnType<typeof scanMemoryCatalog>>) {
-    return markMemoryCatalogSeen(catalog);
+  markCatalogSeen(catalog: Awaited<ReturnType<typeof scanMemoryCatalog>>, options?: MemoryRepoOptions) {
+    return markMemoryCatalogSeen(catalog, options);
   }
 
   recall(query?: MemoryRecallQuery, options?: MemoryRepoOptions) {

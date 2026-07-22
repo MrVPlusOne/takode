@@ -1,9 +1,13 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import {
   COMPACTION_RECOVERY_SOURCE_ID,
   COMPACTION_RECOVERY_SOURCE_LABEL,
+  MEMORY_CATALOG_SOURCE_ID,
+  MEMORY_CATALOG_SOURCE_LABEL,
+  MEMORY_CATALOG_TITLE,
+  MEMORY_CATALOG_TRUNCATED_PREFIX,
   leaderSkillPreloadSourceId,
   leaderSkillPreloadSourceLabel,
 } from "../../shared/injected-event-message.js";
@@ -120,5 +124,36 @@ describe("MessageBubble injected event search highlighting", () => {
     expect(chip.textContent).toContain("event");
     expect(screen.queryByText("Questmaster docs body")).toBeNull();
     expect(screen.queryByText("Provenance:")).toBeNull();
+  });
+
+  it("renders truncated memory catalog injections as warning event chips", () => {
+    const msg = makeMessage({
+      role: "user",
+      content: [
+        MEMORY_CATALOG_TITLE,
+        "",
+        MEMORY_CATALOG_TRUNCATED_PREFIX + " the catalog hit Takode's 100,000 character injected-context limit.",
+        "Run `memory catalog show` manually and inspect relevant Markdown files directly for the full catalog before relying on memory facts.",
+        "",
+        "Memory repo: /tmp/test-memory",
+      ].join("\n"),
+      agentSource: {
+        sessionId: MEMORY_CATALOG_SOURCE_ID,
+        sessionLabel: MEMORY_CATALOG_SOURCE_LABEL,
+      },
+    });
+
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByRole("button", { name: `Expand ${MEMORY_CATALOG_TITLE}` });
+    expect(chip.textContent).toContain("warning");
+    expect(chip.className).toContain("red");
+    expect(screen.queryByText(/Memory repo:/)).toBeNull();
+
+    fireEvent.click(chip);
+
+    expect(screen.getByRole("button", { name: `Collapse ${MEMORY_CATALOG_TITLE}` })).toBeTruthy();
+    expect(screen.getByText(/needs attention/)).toBeTruthy();
+    expect(screen.getByText(/Run `memory catalog show` manually/)).toBeTruthy();
   });
 });

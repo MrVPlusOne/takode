@@ -525,6 +525,13 @@ export function getCompactionRecoveryRuntimeDeps(host: any) {
       options?: { deliveryContent?: string; historyFollowUps?: ProgrammaticHistoryFollowUp[] },
     ) => host.injectUserMessage(sessionId, content, agentSource, undefined, threadRoute, options),
     buildLeaderSkillPreloadBundles,
+    buildMemoryCatalogInjectionBundle: async (session: Session) => {
+      const { buildMemoryCatalogInjectionBundle } = await import("./memory-catalog-injection.js");
+      return buildMemoryCatalogInjectionBundle({
+        sessionId: session.id,
+        repoOptions: { sessionSpaceSlug: session.state.memorySessionSpaceSlug },
+      });
+    },
   };
 }
 
@@ -1241,6 +1248,15 @@ export function getBrowserRoutingDeps(host: any) {
     requestCodexLeaderRecycle: async (targetSession: unknown, trigger: CodexLeaderRecycleTrigger) =>
       host.recycleCodexLeaderSession((targetSession as Session).id, trigger),
     requestCliRelaunch: requestCliRelaunchIfUnpaused(host),
+    buildMemoryCatalogInjectionBundle: (targetSession: unknown) => {
+      const session = targetSession as Session;
+      return import("./memory-catalog-injection.js").then(({ buildMemoryCatalogInjectionBundle }) =>
+        buildMemoryCatalogInjectionBundle({
+          sessionId: session.id,
+          repoOptions: { sessionSpaceSlug: session.state.memorySessionSpaceSlug },
+        }),
+      );
+    },
     injectUserMessage: (
       sessionId: string,
       content: string,

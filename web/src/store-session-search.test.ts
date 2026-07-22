@@ -4,7 +4,11 @@ import {
   getSessionSearchState,
   sessionSearchMessageMatchesCategory,
 } from "./store-session-search.js";
-import { COMPACTION_RECOVERY_SOURCE_ID, LEADER_KICKOFF_SOURCE_ID } from "../shared/injected-event-message.js";
+import {
+  COMPACTION_RECOVERY_SOURCE_ID,
+  LEADER_KICKOFF_SOURCE_ID,
+  MEMORY_CATALOG_SOURCE_ID,
+} from "../shared/injected-event-message.js";
 
 describe("store session search helpers", () => {
   it("returns default state for sessions without local search state", () => {
@@ -108,6 +112,12 @@ describe("store session search helpers", () => {
         role: "user" as const,
         content: "[System] You are a leader session. Historical kickoff context without metadata.",
       },
+      {
+        id: "m5",
+        role: "user" as const,
+        content: "Memory catalog preloaded\nMemory repo: /tmp/test-memory\ncontext memory",
+        agentSource: { sessionId: MEMORY_CATALOG_SOURCE_ID },
+      },
       { id: "m4", role: "user" as const, content: "real user context" },
     ];
 
@@ -117,10 +127,12 @@ describe("store session search helpers", () => {
     expect(computeSessionSearchMatches(messages, "context", "strict", "event", "leader-1")).toEqual([
       { messageId: "m1" },
       { messageId: "m3" },
+      { messageId: "m5" },
     ]);
     expect(computeSessionSearchMatches(messages, "context", "strict", "all", "leader-1")).toEqual([
       { messageId: "m1" },
       { messageId: "m3" },
+      { messageId: "m5" },
       { messageId: "m4" },
     ]);
   });

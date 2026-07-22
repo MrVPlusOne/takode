@@ -207,6 +207,10 @@ describe("Codex leader recycle continuation", () => {
         content: string,
         agentSource?: { sessionId: string; sessionLabel?: string | undefined },
         threadRoute?: { threadKey: string; questId?: string },
+        options?: {
+          deliveryContent?: string;
+          historyFollowUps?: Array<{ content: string; agentSource?: { sessionId: string; sessionLabel?: string } }>;
+        },
       ) => {
         session.messageHistory.push({
           type: "user_message",
@@ -217,79 +221,122 @@ describe("Codex leader recycle continuation", () => {
           ...(threadRoute ? { threadKey: threadRoute.threadKey } : {}),
           ...(threadRoute?.questId ? { questId: threadRoute.questId } : {}),
         });
+        for (const followUp of options?.historyFollowUps ?? []) {
+          session.messageHistory.push({
+            type: "user_message",
+            id: "recycle-continuation-followup",
+            timestamp: Date.now(),
+            content: followUp.content,
+            ...(followUp.agentSource ? { agentSource: followUp.agentSource } : {}),
+          });
+        }
       },
     );
     injectCompactionRecovery(session, {
       isLeaderSession: () => true,
       isSystemSourceTag: (agentSource) => agentSource?.sessionId === "system:compaction-recovery",
       injectUserMessage,
+      buildMemoryCatalogInjectionBundle: async () => ({
+        content: [
+          "Memory catalog preloaded",
+          "",
+          "This automatically injected catalog is an orientation map, not the source of truth.",
+          "Memory repo: /tmp/test-memory",
+          "decisions/example.md: Example memory decision.",
+        ].join("\n"),
+        agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
+        truncated: false,
+        unavailable: false,
+      }),
     });
 
     expect(session.codexLeaderRecycleContinuation).toBeNull();
-    expect(injectUserMessage).toHaveBeenCalledTimes(1);
-    const [, content, source, threadRoute] = injectUserMessage.mock.calls[0]!;
-    expect(threadRoute).toEqual({ threadKey: "q-1489", questId: "q-1489" });
-    expect(content).toContain(
-      "Do not treat assistant text immediately before this recovery message as a completed response or finished orchestration action.",
-    );
-    expect(content).toContain("Use it only as historical evidence if Takode inspection shows it matters.");
-    expect(content).toContain("continue the interrupted workflow only if it is safe");
-    expect(content).toContain("You are a replacement leader continuing the same Takode session");
-    expect(content).toContain("required leader skill contents are included immediately after this recovery message");
-    expect(content).toContain("via tool calls");
-    expect(content).toContain("Invoke /leader-dispatch only before choosing workers or dispatching work.");
-    expect(content).toContain("takode leader-context-resume 42");
-    expect(content).toContain("takode scan 42");
-    expect(content).toContain("Run the default recent-turn scan");
-    expect(content).toContain("Do not conclude recovery is complete until the recent scan turns have been checked");
-    expect(content).toContain("unanswered user requests");
-    expect(content).toContain("interrupted actions");
-    expect(content).toContain("unmodeled quest setup");
-    expect(content).not.toContain("only if you need more session history");
-    expect(content).toContain("takode peek 42");
-    expect(content).toContain("takode read 42 <msg-id>");
-    expect(content).toContain("quest show");
-    expect(content).toContain("quest status");
-    expect(content).toContain("memory catalog show");
-    expect(content).toContain("takode board show");
-    expect(content).toContain("scan plus board/quest/notification state show no active work");
-    expect(content).toContain("report recovery complete instead of digging through old review inbox items");
-    expect(content).toContain("Interrupted direct user work");
-    expect(content).toContain("handle each direct request independently from unrelated quest-scoped waits");
-    expect(content).not.toContain("Active thread before recycle:");
-    expect(content).not.toContain("Recycle trigger:");
-    expect(content).not.toContain("manual_compact");
-    expect(content).not.toContain("leader-session");
-    expect(content).not.toContain("Recent visible context before recycle");
-    expect(content).not.toContain("This looks separate from q-1491");
-    expect(content).not.toContain("tool:Bash");
-    expect(content).not.toContain("quest show q-1489");
-    expect(content).not.toContain("Fix Codex active-turn");
-    expect(content).not.toContain("system-interrupted worker herd events");
-    expect(content).not.toContain("Use `takode spawn`");
-    expect(content).not.toContain("Invoke /leader-dispatch before every dispatch");
-    expect(content).not.toContain("Follow quest-journey.md");
-    expect(content).not.toContain("Never implement non-trivial changes yourself");
-    expect(source).toEqual({
-      sessionId: "system:compaction-recovery",
-      sessionLabel: "Compaction Recovery",
-    });
-    const markerIndex = session.messageHistory.indexOf(recycleMarker);
-    const continuationIndex = session.messageHistory.findIndex(
-      (entry: { id?: string }) => entry.id === "recycle-continuation",
-    );
-    expect(continuationIndex).toBe(markerIndex + 1);
-    expect(session.messageHistory[continuationIndex]).toMatchObject({
-      threadKey: "q-1489",
-      questId: "q-1489",
-    });
+    return vi
+      .waitFor(() => expect(injectUserMessage).toHaveBeenCalledTimes(1))
+      .then(() => {
+        const [, content, source, threadRoute, options] = injectUserMessage.mock.calls[0]!;
+        expect(threadRoute).toEqual({ threadKey: "q-1489", questId: "q-1489" });
+        expect(content).toContain(
+          "Do not treat assistant text immediately before this recovery message as a completed response or finished orchestration action.",
+        );
+        expect(content).toContain("Use it only as historical evidence if Takode inspection shows it matters.");
+        expect(content).toContain("continue the interrupted workflow only if it is safe");
+        expect(content).toContain("You are a replacement leader continuing the same Takode session");
+        expect(content).toContain(
+          "required leader skill contents are included immediately after this recovery message",
+        );
+        expect(content).toContain("via tool calls");
+        expect(content).toContain("Invoke /leader-dispatch only before choosing workers or dispatching work.");
+        expect(content).toContain("takode leader-context-resume 42");
+        expect(content).toContain("takode scan 42");
+        expect(content).toContain("Run the default recent-turn scan");
+        expect(content).toContain("Do not conclude recovery is complete until the recent scan turns have been checked");
+        expect(content).toContain("unanswered user requests");
+        expect(content).toContain("interrupted actions");
+        expect(content).toContain("unmodeled quest setup");
+        expect(content).not.toContain("only if you need more session history");
+        expect(content).toContain("takode peek 42");
+        expect(content).toContain("takode read 42 <msg-id>");
+        expect(content).toContain("quest show");
+        expect(content).toContain("quest status");
+        expect(content).toContain("memory catalog show");
+        expect(content).toContain("takode board show");
+        expect(content).toContain("scan plus board/quest/notification state show no active work");
+        expect(content).toContain("report recovery complete instead of digging through old review inbox items");
+        expect(content).toContain("Interrupted direct user work");
+        expect(content).toContain("handle each direct request independently from unrelated quest-scoped waits");
+        expect(content).not.toContain("Active thread before recycle:");
+        expect(content).not.toContain("Recycle trigger:");
+        expect(content).not.toContain("manual_compact");
+        expect(content).not.toContain("leader-session");
+        expect(content).not.toContain("Recent visible context before recycle");
+        expect(content).not.toContain("This looks separate from q-1491");
+        expect(content).not.toContain("tool:Bash");
+        expect(content).not.toContain("quest show q-1489");
+        expect(content).not.toContain("Fix Codex active-turn");
+        expect(content).not.toContain("system-interrupted worker herd events");
+        expect(content).not.toContain("Use `takode spawn`");
+        expect(content).not.toContain("Invoke /leader-dispatch before every dispatch");
+        expect(content).not.toContain("Follow quest-journey.md");
+        expect(content).not.toContain("Never implement non-trivial changes yourself");
+        expect(source).toEqual({
+          sessionId: "system:compaction-recovery",
+          sessionLabel: "Compaction Recovery",
+        });
+        expect(options).toEqual(
+          expect.objectContaining({
+            deliveryContent: expect.stringMatching(
+              /Do not treat assistant text immediately before this recovery message[\s\S]*Memory catalog preloaded/,
+            ),
+            historyFollowUps: expect.arrayContaining([
+              expect.objectContaining({
+                content: expect.stringContaining("Memory catalog preloaded"),
+                agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
+              }),
+            ]),
+          }),
+        );
+        const markerIndex = session.messageHistory.indexOf(recycleMarker);
+        const continuationIndex = session.messageHistory.findIndex(
+          (entry: { id?: string }) => entry.id === "recycle-continuation",
+        );
+        expect(continuationIndex).toBe(markerIndex + 1);
+        expect(session.messageHistory[continuationIndex]).toMatchObject({
+          threadKey: "q-1489",
+          questId: "q-1489",
+        });
+        const memoryCatalogIndex = session.messageHistory.findIndex(
+          (entry: { id?: string }) => entry.id === "recycle-continuation-followup",
+        );
+        expect(memoryCatalogIndex).toBe(continuationIndex + 1);
 
-    injectCompactionRecovery(session, {
-      isLeaderSession: () => true,
-      isSystemSourceTag: (agentSource) => agentSource?.sessionId === "system:compaction-recovery",
-      injectUserMessage,
-    });
-    expect(injectUserMessage).toHaveBeenCalledTimes(1);
+        injectCompactionRecovery(session, {
+          isLeaderSession: () => true,
+          isSystemSourceTag: (agentSource) => agentSource?.sessionId === "system:compaction-recovery",
+          injectUserMessage,
+        });
+        expect(injectUserMessage).toHaveBeenCalledTimes(1);
+      });
   });
 
   it("uses the known session number when recycle session state lacks sessionNum", () => {

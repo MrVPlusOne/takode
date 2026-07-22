@@ -87,6 +87,7 @@ export interface PersistedSession {
   pendingCodexRollback?: { numTurns: number; truncateIdx: number; clearCodexState: boolean } | null;
   pendingCodexRollbackError?: string | null;
   codexLeaderRecycleContinuation?: import("./session-types.js").CodexLeaderRecycleContinuation | null;
+  pendingStartupMemoryCatalogInjection?: boolean;
   /** Codex-only: active turn id that must finish before follow-up input may start a fresh turn. */
   codexFreshTurnRequiredUntilTurnId?: string | null;
   /** One-shot guard for suppressing expected low/normal-usage Codex model-switch migration recovery. */

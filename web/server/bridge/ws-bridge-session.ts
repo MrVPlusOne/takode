@@ -185,6 +185,8 @@ export interface Session {
   provisionalStuckRecovery: import("./generation-lifecycle.js").ProvisionalStuckRecovery | null;
   /** One-shot continuation prompt injected after an intentional Codex leader recycle. */
   codexLeaderRecycleContinuation: CodexLeaderRecycleContinuation | null;
+  /** Non-leader startup memory catalog prelude waiting for the first real model-bound input. */
+  pendingStartupMemoryCatalogInjection?: boolean;
   /** Message history indices of user messages received during the current turn (for turn_end herd events) */
   userMessageIdsThisTurn: number[];
   /** Synthetic quest-thread attachment reminders queued from leader assistant output for delivery after result. */
