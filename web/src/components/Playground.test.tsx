@@ -247,7 +247,10 @@ describe("Playground", () => {
     expect(marker).toHaveTextContent("Work continued from Main to thread:q-962");
     expect(marker).not.toHaveTextContent("activities in thread:");
     expect(within(marker).queryByText("Jump")).toBeNull();
+    expect(within(marker).getByRole("button", { name: "Main" })).toBeTruthy();
     expect(within(marker).getByRole("button", { name: "thread:q-962" })).toBeTruthy();
+    fireEvent.click(within(marker).getByRole("button", { name: "Details" }));
+    expect(marker).toHaveTextContent("1 message moved to thread:q-961");
     expect(
       screen.queryByLabelText(
         "Thread Waiting for thread:q-962: waiting for q-961 to finish before mobile status chip wrapping can be visually checked on the narrow add-to-home-screen layout",

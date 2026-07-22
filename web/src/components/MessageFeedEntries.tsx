@@ -658,7 +658,9 @@ function TransitionSummaryLine({
       {summary.transitions.map((transition, index) => (
         <span key={transition.markerId}>
           {index > 0 && <span className="text-cc-muted">, </span>}
-          <span>Work continued from {transition.sourceLabel} to </span>
+          <span>Work continued from </span>
+          <ThreadMarkerDestinationButton destination={transition.source} onSelectThread={onSelectThread} />
+          <span> to </span>
           <ThreadMarkerDestinationButton destination={transition.destination} onSelectThread={onSelectThread} />
         </span>
       ))}
@@ -740,7 +742,7 @@ function summarizeThreadAttachmentMarkers(messages: ChatMessage[]): {
 
 type ThreadTransitionDestinationSummary = {
   markerId: string;
-  sourceLabel: string;
+  source: ThreadMarkerDestinationSummary;
   destination: ThreadMarkerDestinationSummary;
 };
 
@@ -752,12 +754,18 @@ function summarizeThreadTransitionMarkers(messages: ChatMessage[]): {
   for (const message of messages) {
     const marker = message.metadata?.threadTransitionMarker;
     if (!marker) continue;
+    const source = marker.sourceQuestId ?? marker.sourceThreadKey;
+    const destination = marker.questId ?? marker.threadKey;
     transitions.push({
       markerId: marker.id,
-      sourceLabel: formatThreadLabel(marker.sourceQuestId ?? marker.sourceThreadKey),
+      source: {
+        threadKey: marker.sourceThreadKey,
+        label: formatThreadLabel(source),
+        count: 1,
+      },
       destination: {
         threadKey: marker.threadKey,
-        label: formatThreadLabel(marker.questId ?? marker.threadKey),
+        label: formatThreadLabel(destination),
         count: 1,
       },
     });
@@ -776,7 +784,10 @@ function buildThreadMarkerClusterDetails(messages: ChatMessage[]): string[] {
     }
     const transition = message.metadata?.threadTransitionMarker;
     if (transition) {
-      details.push(formatThreadTransitionDetail(transition));
+      // Thread transition markers currently have no detail fields beyond the
+      // summary itself. Omitting them here prevents a Details toggle whose body
+      // only repeats "Work continued from ... to ...", while preserving detail
+      // rows for attachment/activity markers that carry distinct audit data.
       continue;
     }
     const activity = message.metadata?.crossThreadActivityMarker;
@@ -791,12 +802,6 @@ function buildThreadMarkerClusterDetails(messages: ChatMessage[]): string[] {
 
 function formatThreadAttachmentDetail(marker: ThreadAttachmentMarker): string {
   return formatThreadAttachmentMarkerDetail(marker);
-}
-
-function formatThreadTransitionDetail(marker: ThreadTransitionMarker): string {
-  return `Work continued from ${formatThreadLabel(marker.sourceQuestId ?? marker.sourceThreadKey)} to ${formatThreadLabel(
-    marker.questId ?? marker.threadKey,
-  )}`;
 }
 
 function formatThreadLabel(threadKey: string): string {
