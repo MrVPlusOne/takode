@@ -1024,6 +1024,14 @@ export function PlaygroundOverviewSections() {
           <ToolBlock
             name="Bash"
             input={{
+              command: "quest status q-1696\ntakode board show\ntakode list",
+            }}
+            toolUseId="tb-multiline-bash-preview"
+            sessionId={MOCK_SESSION_ID}
+          />
+          <ToolBlock
+            name="Bash"
+            input={{
               command: "sed -n '1,160p' /Users/stan/Dev/takode/.claude/skills/reviewer-groom/SKILL.md",
             }}
             toolUseId="tb-read-command"

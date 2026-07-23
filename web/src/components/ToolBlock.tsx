@@ -1675,7 +1675,7 @@ export function getPreview(name: string, input: Record<string, unknown>): string
     if (input.description && typeof input.description === "string" && input.description.length <= 60) {
       return input.description;
     }
-    return input.command.length > 60 ? input.command.slice(0, 60) + "..." : input.command;
+    return formatBashCommandPreview(input.command);
   }
   if ((name === "Read" || name === "Write" || name === "Edit") && input.file_path) {
     return String(input.file_path);
@@ -1742,6 +1742,38 @@ export function getPreview(name: string, input: Record<string, unknown>): string
     return "Question";
   }
   return "";
+}
+
+const TOOL_PREVIEW_MAX_LENGTH = 60;
+const BASH_NEWLINE_PREVIEW_MARKER = " \\n ";
+
+function formatBashCommandPreview(command: string): string {
+  let preview = "";
+  let truncated = false;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    const newlineLength = char === "\r" && command[index + 1] === "\n" ? 2 : char === "\r" || char === "\n" ? 1 : 0;
+
+    if (newlineLength > 0) {
+      const maxBeforeMarker = TOOL_PREVIEW_MAX_LENGTH - BASH_NEWLINE_PREVIEW_MARKER.length;
+      if (preview.length > maxBeforeMarker) {
+        preview = preview.slice(0, maxBeforeMarker);
+        truncated = true;
+      }
+      preview += BASH_NEWLINE_PREVIEW_MARKER;
+      index += newlineLength - 1;
+      continue;
+    }
+
+    if (preview.length >= TOOL_PREVIEW_MAX_LENGTH) {
+      truncated = true;
+      break;
+    }
+    preview += char;
+  }
+
+  return truncated ? `${preview}...` : preview;
 }
 
 // ─── Icons ──────────────────────────────────────────────────────────────────
