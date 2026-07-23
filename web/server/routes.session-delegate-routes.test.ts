@@ -252,7 +252,7 @@ describe("delegate command routes", () => {
     expect(childAdapter.sendBrowserMessage).not.toHaveBeenCalled();
   });
 
-  it("returns a bounded parent-visible error when the child turn ends without handoff", async () => {
+  it("does not resolve early when the child emits interim text before end_delegation", async () => {
     vi.useFakeTimers();
     const childSession = {
       id: "child",
@@ -264,8 +264,103 @@ describe("delegate command routes", () => {
           childSession.isGenerating = false;
           childSession.messageHistory.push({
             type: "assistant",
-            message: { content: [{ type: "text", text: "I will run it." }] },
+            message: {
+              content: [{ type: "text", text: "Running the delegated command now, then I’ll report back." }],
+            },
           });
+          return true;
+        }),
+      },
+      isGenerating: false,
+      messageHistory: [] as unknown[],
+    };
+    const sessions = new Map<string, any>();
+    sessions.set("parent", {
+      id: "parent",
+      state: makeState({ session_id: "parent", backend_type: "codex", isOrchestrator: true }),
+      codexAdapter: {
+        isConnected: () => true,
+        forkThread: vi.fn(async () => "forked-thread"),
+      },
+    });
+    sessions.set("child", childSession);
+    const launcher = {
+      getSession: vi.fn((id: string) =>
+        id === "parent"
+          ? {
+              sessionId: "parent",
+              backendType: "codex",
+              cwd: "/repo",
+              model: "gpt-5.5",
+              permissionMode: "codex-default",
+              askPermission: true,
+              uiMode: "agent",
+              isOrchestrator: true,
+            }
+          : id === "child"
+            ? {
+                sessionId: "child",
+                backendType: "codex",
+                cwd: "/repo",
+                model: "gpt-5.5",
+                hidden: true,
+                isOrchestrator: true,
+              }
+            : null,
+      ),
+      getPort: vi.fn(() => 3456),
+      getOrchestratorGuardrails: vi.fn(() => "leader guardrails"),
+      launch: vi.fn(async () => ({ sessionId: "child", hidden: true, parentSessionId: "parent", noAutoName: false })),
+      getSessionNum: vi.fn((id: string) => (id === "parent" ? 2220 : id === "child" ? 2266 : undefined)),
+    };
+    const wsBridge = {
+      getSession: vi.fn((id: string) => sessions.get(id)),
+      getOrCreateSession: vi.fn((id: string) => sessions.get(id)),
+      persistSessionById: vi.fn(),
+    };
+    const app = new Hono();
+    registerSessionDelegateRoutes(app, {
+      launcher: launcher as any,
+      wsBridge: wsBridge as any,
+      resolveId: (id) => id,
+      authenticateTakodeCaller: (c) => ({ callerId: c.req.path.includes("/child/") ? "child" : "parent" }),
+    });
+
+    const parentRequest = app.request("/sessions/parent/delegates/command", {
+      method: "POST",
+      body: JSON.stringify({ command: "printf ok" }),
+      headers: { "content-type": "application/json" },
+    });
+    await vi.waitFor(() => {
+      expect(childSession.codexAdapter.sendBrowserMessage).toHaveBeenCalled();
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    const delegateId = (sessions.get("child").state as any).delegateChild.delegateId;
+    const endResponse = await app.request("/sessions/child/delegates/end", {
+      method: "POST",
+      body: JSON.stringify({ delegateId, summary: "The command completed after interim text." }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(endResponse.status).toBe(200);
+
+    const parentResponse = await parentRequest;
+    const parentJson = (await parentResponse.json()) as { text: string; isError?: boolean };
+    expect(parentResponse.status).toBe(200);
+    expect(parentJson.isError).toBeUndefined();
+    expect(parentJson.text).toContain("Delegate command completed.");
+    expect(parentJson.text).toContain("The command completed after interim text.");
+  });
+
+  it("returns a bounded parent-visible timeout when the child never calls end_delegation", async () => {
+    vi.useFakeTimers();
+    const childSession = {
+      id: "child",
+      state: makeState({ session_id: "child", backend_type: "codex" }),
+      codexAdapter: {
+        isConnected: () => true,
+        waitForMcpToolAvailability: vi.fn(async () => true),
+        sendBrowserMessage: vi.fn(() => {
           return true;
         }),
       },
@@ -329,14 +424,14 @@ describe("delegate command routes", () => {
       body: JSON.stringify({ command: "printf ok" }),
       headers: { "content-type": "application/json" },
     });
-    await vi.runOnlyPendingTimersAsync();
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
 
     const parentResponse = await parentRequest;
     const parentJson = (await parentResponse.json()) as { text: string; isError: boolean };
     expect(parentResponse.status).toBe(200);
     expect(parentJson.isError).toBe(true);
     expect(parentJson.text).toContain("Delegate command failed.");
-    expect(parentJson.text).toContain("ended before calling end_delegation");
+    expect(parentJson.text).toContain("timed out before calling end_delegation");
   });
 
   it("rejects nested delegate_command calls from hidden delegate children even when the tool is visible", async () => {

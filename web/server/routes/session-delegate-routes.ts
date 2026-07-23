@@ -94,11 +94,6 @@ function formatParentResult(args: {
   ].join("\n");
 }
 
-function messageHistoryLength(session: NonNullable<ReturnType<WsBridge["getSession"]>> | undefined): number {
-  const history = (session as unknown as { messageHistory?: unknown[] } | undefined)?.messageHistory;
-  return Array.isArray(history) ? history.length : 0;
-}
-
 function resolvePendingDelegate(delegateId: string, result: DelegateResolution): void {
   const pending = pendingDelegates.get(delegateId);
   if (!pending) return;
@@ -112,9 +107,7 @@ function startDelegateChildCompletionMonitor(args: {
   wsBridge: WsBridge;
   delegateId: string;
   childSessionId: string;
-  initialMessageHistoryLength: number;
 }): () => void {
-  let sawChildTurnActivity = false;
   const interval = setInterval(() => {
     if (!pendingDelegates.has(args.delegateId)) {
       clearInterval(interval);
@@ -127,15 +120,6 @@ function startDelegateChildCompletionMonitor(args: {
         isError: true,
       });
       return;
-    }
-    const historyGrew = messageHistoryLength(childSession) > args.initialMessageHistoryLength;
-    sawChildTurnActivity = sawChildTurnActivity || childSession.isGenerating || historyGrew;
-    if (sawChildTurnActivity && !childSession.isGenerating) {
-      resolvePendingDelegate(args.delegateId, {
-        summary:
-          "Delegate child turn ended before calling end_delegation. Inspect the delegate transcript for any partial response.",
-        isError: true,
-      });
     }
   }, DELEGATE_CHILD_MONITOR_INTERVAL_MS);
   return () => clearInterval(interval);
@@ -236,7 +220,6 @@ export function registerSessionDelegateRoutes(
       );
     }
 
-    const initialChildMessageHistoryLength = messageHistoryLength(wsBridge.getSession(child.sessionId));
     const summaryPromise = new Promise<DelegateResolution>((resolve) => {
       const timer = setTimeout(() => {
         resolvePendingDelegate(delegateId, {
@@ -260,7 +243,6 @@ export function registerSessionDelegateRoutes(
         wsBridge,
         delegateId,
         childSessionId: child.sessionId,
-        initialMessageHistoryLength: initialChildMessageHistoryLength,
       });
     }
 
