@@ -668,6 +668,56 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.getByLabelText("Thread Ready for thread:q-941: review accepted")).toBeTruthy();
   });
 
+  it("replaces stale Thread Ready status with a current Thread Waiting status", () => {
+    const sid = "test-thread-ready-replaced-by-waiting";
+    const oldStatus = {
+      kind: "ready" as const,
+      label: "Thread Ready" as const,
+      threadKey: "q-1702",
+      questId: "q-1702",
+      summary: "implementation complete",
+      messageId: "status-ready-old",
+      timestamp: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    };
+    const currentStatus = {
+      kind: "waiting" as const,
+      label: "Thread Waiting" as const,
+      threadKey: "q-1702",
+      questId: "q-1702",
+      summary: "waiting on browser validation",
+      messageId: "status-waiting-new",
+      timestamp: 1_700_000_010_000,
+      updatedAt: 1_700_000_010_000,
+    };
+    setStoreSessionState(sid, { leaderThreadStatuses: { "q-1702": currentStatus } });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "status-ready-old",
+        role: "assistant",
+        content: "Implementation is ready.",
+        metadata: {
+          threadStatusMarkers: [oldStatus],
+          threadRefs: [{ threadKey: "q-1702", questId: "q-1702", source: "explicit" }],
+        },
+      }),
+      makeMessage({
+        id: "status-waiting-new",
+        role: "assistant",
+        content: "Waiting on browser validation.",
+        metadata: {
+          threadStatusMarkers: [currentStatus],
+          threadRefs: [{ threadKey: "q-1702", questId: "q-1702", source: "explicit" }],
+        },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1702" />);
+
+    expect(screen.queryByLabelText("Thread Ready for thread:q-1702: implementation complete")).toBeNull();
+    expect(screen.getByLabelText("Thread Waiting for thread:q-1702: waiting on browser validation")).toBeTruthy();
+  });
+
   it("attaches the current thread status to the latest model turn footer", () => {
     const sid = "test-thread-status-latest-turn-footer";
     const base = 1_700_000_000_000;
@@ -1123,6 +1173,104 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.queryByRole("button", { name: "Review" })).toBeNull();
     expect(screen.queryByText("Thread ready: q-1661 | thread-ready noise explained")).toBeNull();
     expect(screen.getByLabelText("Thread Ready for thread:q-1661: thread-ready noise explained")).toBeTruthy();
+  });
+
+  it("hides resolved Thread Ready notification markers while preserving the current status footer", () => {
+    const sid = "test-thread-ready-resolved-marker-hidden";
+    const readyAt = 1_700_000_000_000;
+    const staleStatus = {
+      kind: "ready" as const,
+      label: "Thread Ready" as const,
+      threadKey: "q-1702",
+      questId: "q-1702",
+      summary: "earlier implementation complete",
+      messageId: "stale-ready-message",
+      timestamp: readyAt,
+      updatedAt: readyAt,
+    };
+    const currentStatus = {
+      kind: "ready" as const,
+      label: "Thread Ready" as const,
+      threadKey: "q-1702",
+      questId: "q-1702",
+      summary: "latest implementation complete",
+      messageId: "current-ready-message",
+      timestamp: readyAt + 10_000,
+      updatedAt: readyAt + 10_000,
+    };
+    const staleNotification: SessionNotification = {
+      id: "n-stale-ready",
+      category: "review",
+      summary: "Thread ready: q-1702 | earlier implementation complete",
+      timestamp: readyAt,
+      messageId: "stale-ready-message",
+      threadKey: "q-1702",
+      questId: "q-1702",
+      done: true,
+    };
+    setStoreSessionState(sid, { leaderThreadStatuses: { "q-1702": currentStatus } });
+    setStoreNotifications(sid, [staleNotification]);
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "stale-ready-message",
+        role: "assistant",
+        content: "Earlier implementation complete.",
+        timestamp: readyAt,
+        metadata: {
+          threadStatusMarkers: [staleStatus],
+          threadRefs: [{ threadKey: "q-1702", questId: "q-1702", source: "explicit" }],
+        },
+      }),
+      makeMessage({
+        id: "current-ready-message",
+        role: "assistant",
+        content: "Latest implementation complete.",
+        timestamp: readyAt + 10_000,
+        metadata: {
+          threadStatusMarkers: [currentStatus],
+          threadRefs: [{ threadKey: "q-1702", questId: "q-1702", source: "explicit" }],
+        },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1702" />);
+
+    expect(screen.getByText("Earlier implementation complete.")).toBeTruthy();
+    expect(screen.queryByText("Thread ready: q-1702 | earlier implementation complete")).toBeNull();
+    expect(screen.queryByLabelText("Mark as not reviewed")).toBeNull();
+    expect(screen.getByLabelText("Thread Ready for thread:q-1702: latest implementation complete")).toBeTruthy();
+  });
+
+  it("preserves visible resolved needs-input notification markers", () => {
+    const sid = "test-resolved-needs-input-marker-visible";
+    const notification: SessionNotification = {
+      id: "n-resolved-input",
+      category: "needs-input",
+      summary: "Confirm deployment?",
+      timestamp: 1_700_000_000_000,
+      messageId: "resolved-needs-input-message",
+      threadKey: "q-1702",
+      questId: "q-1702",
+      done: true,
+    };
+    setStoreNotifications(sid, [notification]);
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "resolved-needs-input-message",
+        role: "assistant",
+        content: "Please confirm deployment.",
+        timestamp: 1_700_000_000_000,
+        metadata: {
+          threadRefs: [{ threadKey: "q-1702", questId: "q-1702", source: "explicit" }],
+        },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1702" />);
+
+    expect(screen.getByText("Please confirm deployment.")).toBeTruthy();
+    expect(screen.getByText("Confirm deployment?")).toBeTruthy();
+    expect(screen.getByLabelText("Mark unhandled")).toBeTruthy();
   });
 
   it("renders system messages in the feed", () => {

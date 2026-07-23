@@ -9,11 +9,19 @@ export function getSingleAnchoredNotification(
   let match: SessionNotification | null = null;
   for (const notification of notifications) {
     if (notification.messageId !== messageId) continue;
+    if (isThreadReadyReviewNotification(notification)) continue;
     if (match) return null;
     match = notification;
   }
 
   return match;
+}
+
+export function isThreadReadyReviewNotification(
+  notification: Pick<SessionNotification, "category" | "summary">,
+): boolean {
+  if (notification.category !== "review") return false;
+  return /^\s*thread ready\s*:/i.test((notification.summary ?? "").trim());
 }
 
 export function collectAnchoredNotificationMessageIds(

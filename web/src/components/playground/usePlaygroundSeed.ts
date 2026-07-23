@@ -633,11 +633,28 @@ export function usePlaygroundSeed() {
         },
       }),
       makePlaygroundMessage({
+        id: "playground-thread-q961-resolved-input",
+        role: "assistant",
+        content: "The scope confirmation was answered and should keep its resolved needs-input marker visible.",
+        timestamp: Date.now() - 52_000,
+        historyIndex: 9,
+        metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
+      }),
+      makePlaygroundMessage({
+        id: "playground-thread-q963-stale-ready",
+        role: "assistant",
+        content:
+          "Older Thread Ready output remains in history, but its resolved notification marker should not render as a crossed-out stale chip.",
+        timestamp: Date.now() - 44_000,
+        historyIndex: 10,
+        metadata: { threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }] },
+      }),
+      makePlaygroundMessage({
         id: "playground-thread-q964",
         role: "assistant",
         content: "Completed Journey is ready for review without active phase cues.",
         timestamp: Date.now() - 30_000,
-        historyIndex: 9,
+        historyIndex: 11,
         metadata: { threadRefs: [{ threadKey: "q-964", questId: "q-964", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -646,7 +663,7 @@ export function usePlaygroundSeed() {
         content:
           "Approval plan for q-965: run the focused worker, then hold at Code Review for the thumbnail evidence.",
         timestamp: Date.now() - 20_000,
-        historyIndex: 10,
+        historyIndex: 12,
       }),
     ]);
     store.setSessionNotifications(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
@@ -679,6 +696,26 @@ export function usePlaygroundSeed() {
         threadKey: "q-965",
         questId: "q-965",
         done: false,
+      },
+      {
+        id: "playground-resolved-scope-input",
+        category: "needs-input",
+        summary: "Scope confirmation answered",
+        timestamp: Date.now() - 52_000,
+        messageId: "playground-thread-q961-resolved-input",
+        threadKey: "q-961",
+        questId: "q-961",
+        done: true,
+      },
+      {
+        id: "playground-stale-thread-ready",
+        category: "review",
+        summary: "Thread ready: q-963 | older dispatch pass complete",
+        timestamp: Date.now() - 44_000,
+        messageId: "playground-thread-q963-stale-ready",
+        threadKey: "q-963",
+        questId: "q-963",
+        done: true,
       },
       {
         id: "playground-attention-reviewed",
