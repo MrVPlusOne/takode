@@ -20,7 +20,7 @@ import {
   type SessionState,
   type CLIResultMessage,
 } from "./session-types.js";
-import type { RecorderManager } from "./recorder.js";
+import type { CodexAdapterOptions, CodexSessionMeta } from "./codex-adapter-types.js";
 import {
   buildCodexResumeSnapshot,
   buildCodexCollabMode,
@@ -70,9 +70,10 @@ import type {
 const TURN_START_ACK_TIMEOUT_MS = 60_000;
 const STDERR_ROUTER_LINE_BUFFER_MAX = 64 * 1024;
 const INITIAL_SKILL_METADATA_REFRESH_TIMEOUT_MS = 5_000;
-const INITIAL_MCP_STATUS_REFRESH_TIMEOUT_MS = 5_000;
+const INITIAL_MCP_TOOL_AVAILABILITY_REFRESH_TIMEOUT_MS = 5_000;
 
 export type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "./codex-adapter-utils.js";
+export type { CodexSessionMeta } from "./codex-adapter-types.js";
 
 type RouterFailureToolName = "write_stdin";
 
@@ -82,33 +83,8 @@ function hasSkillChangeCauseMetadata(payload: Record<string, unknown>): boolean 
   );
 }
 
-// ─── Adapter Options ──────────────────────────────────────────────────────────
-
-export interface CodexAdapterOptions {
-  model?: string;
-  cwd?: string;
-  approvalMode?: string;
-  askPermission?: boolean;
-  uiMode?: "plan" | "agent";
-  sandbox?: "read-only" | "workspace-write" | "danger-full-access";
-  reasoningEffort?: string;
-  /** Codex app-server service tier for future turns. null/undefined means Standard. */
-  serviceTier?: string | null;
-  /** If provided, resume an existing thread instead of starting a new one. */
-  threadId?: string;
-  /** Optional recorder for raw message capture. */
-  recorder?: RecorderManager;
-  /** Companion instructions injected via session-scoped Codex config before thread start/resume. */
-  instructions?: string;
-  /** Optional stderr/context captured by the launcher for early startup failures. */
-  failureContextProvider?: () => string | null;
-}
-
-export interface CodexSessionMeta {
-  cliSessionId?: string;
-  model?: string;
-  cwd?: string;
-  resumeSnapshot?: CodexResumeSnapshot | null;
+function isTakodeDelegateStartupReady(params: Record<string, unknown>): boolean {
+  return toSafeText(params.name).trim() === "takode_delegate" && toSafeText(params.status).trim() === "ready";
 }
 
 // ─── JSON-RPC Transport ───────────────────────────────────────────────────────
@@ -167,8 +143,10 @@ export class CodexAdapter
   private _skillRefreshRetryCount = 0;
   private _initialSkillMetadataRefreshPending = false;
   private _initialSkillMetadataRefreshQueued = false;
-  private _initialMcpStatusRefreshPending = false;
-  private _initialMcpStatusRefreshQueued = false;
+  private _initialMcpToolAvailabilityRefreshPending = false;
+  private _initialMcpToolAvailabilityRefreshQueued = false;
+  private _initialMcpToolAvailabilityRefreshInFlight = false;
+  private _initialMcpToolAvailabilityRefreshCompleted = false;
   skillRefreshStats: CodexSkillRefreshStats = { coalesced: 0, deferred: 0, executed: 0, failed: 0, suppressed: 0 };
 
   private itemEventManager: CodexItemEventManager;
@@ -455,9 +433,9 @@ export class CodexAdapter
     this.queueInitialSkillMetadataRefresh();
   }
 
-  private drainPendingInitialMcpStatusRefresh(): void {
-    if (!this._initialMcpStatusRefreshPending) return;
-    this.queueInitialMcpStatusRefresh();
+  private drainPendingInitialMcpToolAvailabilityRefresh(): void {
+    if (!this._initialMcpToolAvailabilityRefreshPending) return;
+    this.queueInitialMcpToolAvailabilityRefresh();
   }
 
   _clearSkillRefreshTimer(): void {
@@ -484,40 +462,58 @@ export class CodexAdapter
     this.queueInitialSkillMetadataRefresh();
   }
 
-  private scheduleInitialMcpStatusRefresh(): void {
-    this._initialMcpStatusRefreshPending = true;
-    this.queueInitialMcpStatusRefresh();
+  private scheduleInitialMcpToolAvailabilityRefresh(): void {
+    if (this._initialMcpToolAvailabilityRefreshCompleted || this._initialMcpToolAvailabilityRefreshInFlight) {
+      return;
+    }
+    this._initialMcpToolAvailabilityRefreshPending = true;
+    this.queueInitialMcpToolAvailabilityRefresh();
   }
 
-  private queueInitialMcpStatusRefresh(): void {
-    if (this._initialMcpStatusRefreshQueued) return;
-    this._initialMcpStatusRefreshQueued = true;
-    this.enqueueOutgoingDispatch("initial_mcp_status_refresh", async () => {
-      this._initialMcpStatusRefreshQueued = false;
-      if (!this._initialMcpStatusRefreshPending) return;
-      if (!this.connected || this.initFailed) {
-        this._initialMcpStatusRefreshPending = false;
-        return;
-      }
+  private async runInitialMcpToolAvailabilityRefreshIfIdle(cause: string): Promise<boolean> {
+    if (!this._initialMcpToolAvailabilityRefreshPending) return false;
+    if (!this.connected || this.initFailed) {
+      this._initialMcpToolAvailabilityRefreshPending = false;
+      return false;
+    }
+    if (this.currentTurnId) {
+      console.log(
+        `[codex-adapter] Deferring initial MCP tool availability refresh for session ${this.sessionId}; turn ${this.currentTurnId} is active (cause=${cause})`,
+      );
+      return false;
+    }
+
+    this._initialMcpToolAvailabilityRefreshPending = false;
+    this._initialMcpToolAvailabilityRefreshInFlight = true;
+    try {
+      console.log(
+        `[codex-adapter] Reloading MCP servers for initial tool availability in session ${this.sessionId} (cause=${cause})`,
+      );
+      await this.mcpManager.handleReloadAndGetStatus(INITIAL_MCP_TOOL_AVAILABILITY_REFRESH_TIMEOUT_MS);
+      this._initialMcpToolAvailabilityRefreshCompleted = true;
+      return true;
+    } catch (err) {
+      if (!this.connected) return false;
+      console.warn(`[codex-adapter] Initial MCP tool availability refresh failed for session ${this.sessionId}:`, err);
+      return false;
+    } finally {
+      this._initialMcpToolAvailabilityRefreshInFlight = false;
+    }
+  }
+
+  private queueInitialMcpToolAvailabilityRefresh(): void {
+    if (this._initialMcpToolAvailabilityRefreshQueued) return;
+    this._initialMcpToolAvailabilityRefreshQueued = true;
+    this.enqueueOutgoingDispatch("initial_mcp_tool_availability_refresh", async () => {
+      this._initialMcpToolAvailabilityRefreshQueued = false;
+      if (!this._initialMcpToolAvailabilityRefreshPending) return;
       if (this.pendingOutgoing.length > 0) {
         console.log(
-          `[codex-adapter] Deferring initial MCP tool status refresh for session ${this.sessionId}; ${this.pendingOutgoing.length} outgoing message(s) are queued`,
+          `[codex-adapter] Deferring initial MCP tool availability refresh for session ${this.sessionId}; ${this.pendingOutgoing.length} outgoing message(s) are queued`,
         );
         return;
       }
-      if (this.currentTurnId) {
-        console.log(
-          `[codex-adapter] Deferring initial MCP tool status refresh for session ${this.sessionId}; turn ${this.currentTurnId} is active`,
-        );
-        return;
-      }
-      this._initialMcpStatusRefreshPending = false;
-      try {
-        await this.mcpManager.handleGetStatus(INITIAL_MCP_STATUS_REFRESH_TIMEOUT_MS);
-      } catch (err) {
-        if (!this.connected) return;
-        console.warn(`[codex-adapter] Initial MCP tool status refresh failed for session ${this.sessionId}:`, err);
-      }
+      await this.runInitialMcpToolAvailabilityRefreshIfIdle("startup");
     });
   }
 
@@ -981,7 +977,7 @@ export class CodexAdapter
         for (const msg of queued) {
           this.dispatchOutgoing(msg);
         }
-        this.drainPendingInitialMcpStatusRefresh();
+        this.drainPendingInitialMcpToolAvailabilityRefresh();
       }
 
       this.scheduleInitialSkillMetadataRefresh();
@@ -1027,6 +1023,8 @@ export class CodexAdapter
       );
       await this.interruptAndWaitForTurnEnd();
     }
+
+    await this.runInitialMcpToolAvailabilityRefreshIfIdle("before_user_turn");
 
     // VS Code selection metadata is ambient UI context, not explicit user
     // content. A plain /compact must still reach Codex's compaction endpoint
@@ -1319,7 +1317,7 @@ export class CodexAdapter
       this.currentTurnId = null;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
       this.drainPendingInitialSkillMetadataRefresh();
-      this.drainPendingInitialMcpStatusRefresh();
+      this.drainPendingInitialMcpToolAvailabilityRefresh();
       if (this.emitCompletedResultForHandledWriteStdinRouterError(expectedTurnId)) {
         return true;
       }
@@ -1391,7 +1389,7 @@ export class CodexAdapter
           );
           this.currentTurnId = null;
           this.drainPendingInitialSkillMetadataRefresh();
-          this.drainPendingInitialMcpStatusRefresh();
+          this.drainPendingInitialMcpToolAvailabilityRefresh();
         }
         resolve();
       }, TIMEOUT_MS);
@@ -1507,7 +1505,9 @@ export class CodexAdapter
           break;
         case "mcpServer/startupStatus/updated":
           this.mcpManager.handleStartupStatusUpdated(params);
-          this.scheduleInitialMcpStatusRefresh();
+          if (isTakodeDelegateStartupReady(params)) {
+            this.scheduleInitialMcpToolAvailabilityRefresh();
+          }
           break;
         case "codex/event/stream_error": {
           const msg = params.msg as { message?: string } | undefined;
@@ -1585,7 +1585,7 @@ export class CodexAdapter
       this.currentTurnId = null;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
       this.drainPendingInitialSkillMetadataRefresh();
-      this.drainPendingInitialMcpStatusRefresh();
+      this.drainPendingInitialMcpToolAvailabilityRefresh();
       if (this.emitCompletedResultForHandledWriteStdinRouterError(staleTurnId)) {
         return;
       }
@@ -1617,7 +1617,7 @@ export class CodexAdapter
     // Wake any callers waiting for the turn to end (e.g. interruptAndWaitForTurnEnd)
     for (const resolve of this.turnEndResolvers.splice(0)) resolve();
     this.drainPendingInitialSkillMetadataRefresh();
-    this.drainPendingInitialMcpStatusRefresh();
+    this.drainPendingInitialMcpToolAvailabilityRefresh();
 
     if (turnId && this.suppressedTurnResultIds.delete(turnId)) {
       this.handledWriteStdinRouterErrorByTurnId.delete(turnId);

@@ -273,10 +273,16 @@ describe("CodexAdapter skill change suppression", () => {
     );
   });
 
-  it("refreshes MCP tool status after startup readiness so connected servers expose their tools", async () => {
+  it("reloads MCP tools after startup readiness so connected servers become model-callable", async () => {
     stdin.chunks = [];
     messages.length = 0;
 
+    emitMcpStartupReady(stdout);
+    await tick();
+
+    const reloadReq = parseWrittenJsonLines(stdin.chunks).find((l) => l.method === "config/mcpServer/reload");
+    expect(reloadReq).toBeDefined();
+    stdout.push(JSON.stringify({ id: reloadReq.id, result: {} }) + "\n");
     emitMcpStartupReady(stdout);
     await tick();
 
@@ -320,7 +326,10 @@ describe("CodexAdapter skill change suppression", () => {
     );
     await tick();
 
-    expect(parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "config/mcpServer/reload")).toHaveLength(0);
+    emitMcpStartupReady(stdout);
+    await tick();
+    expect(parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "config/mcpServer/reload")).toHaveLength(1);
+
     const status = messages.filter((msg) => msg.type === "mcp_status").at(-1) as
       | Extract<BrowserIncomingMessage, { type: "mcp_status" }>
       | undefined;
@@ -338,12 +347,13 @@ describe("CodexAdapter skill change suppression", () => {
     ]);
   });
 
-  it("defers startup MCP tool status refresh while a turn is active", async () => {
+  it("defers startup MCP tool availability refresh while a turn is active", async () => {
     await startActiveTurn(adapter, stdin, stdout, "turn_mcp_active");
     stdin.chunks = [];
 
     emitMcpStartupReady(stdout);
     await tick();
+    expect(parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "config/mcpServer/reload")).toHaveLength(0);
     expect(parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "mcpServerStatus/list")).toHaveLength(0);
 
     stdout.push(
@@ -355,7 +365,55 @@ describe("CodexAdapter skill change suppression", () => {
     );
     await tick();
 
-    expect(parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "mcpServerStatus/list")).toHaveLength(1);
+    expect(parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "config/mcpServer/reload")).toHaveLength(1);
+  });
+
+  it("runs pending startup MCP reload before the next user turn starts", async () => {
+    stdin.chunks = [];
+    messages.length = 0;
+
+    emitMcpStartupReady(stdout);
+    adapter.sendBrowserMessage({ type: "user_message", content: "use delegate_command" } as BrowserOutgoingMessage);
+    await tick();
+
+    const firstReload = parseWrittenJsonLines(stdin.chunks).find((l) => l.method === "config/mcpServer/reload");
+    expect(firstReload).toBeDefined();
+    expect(parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "turn/start")).toHaveLength(0);
+
+    stdout.push(JSON.stringify({ id: firstReload.id, result: {} }) + "\n");
+    await tick();
+
+    const statusReq = parseWrittenJsonLines(stdin.chunks).find((l) => l.method === "mcpServerStatus/list");
+    expect(statusReq).toBeDefined();
+    expect(parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "turn/start")).toHaveLength(0);
+    stdout.push(
+      JSON.stringify({
+        id: statusReq.id,
+        result: {
+          data: [
+            {
+              name: "takode_delegate",
+              authStatus: "loggedIn",
+              tools: { delegate_command: { name: "delegate_command" } },
+            },
+          ],
+          nextCursor: null,
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const configReq = parseWrittenJsonLines(stdin.chunks).find((l) => l.method === "config/read");
+    expect(configReq).toBeDefined();
+    stdout.push(
+      JSON.stringify({
+        id: configReq.id,
+        result: { config: { mcp_servers: { takode_delegate: { command: "bun", enabled: true } } } },
+      }) + "\n",
+    );
+    await tick();
+
+    expect(parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "turn/start")).toHaveLength(1);
   });
 });
 

@@ -202,6 +202,11 @@ export class CodexMcpManager {
     }
   }
 
+  async handleReloadAndGetStatus(timeoutMs?: number): Promise<void> {
+    await this.reloadMcpServers(timeoutMs);
+    await this.handleGetStatus(timeoutMs);
+  }
+
   async handleSetServers(servers: Record<string, McpServerConfig>): Promise<void> {
     try {
       const edits: Array<{ keyPath: string; value: Record<string, unknown>; mergeStrategy: "upsert" }> = [];
@@ -258,7 +263,7 @@ export class CodexMcpManager {
     return asRecord(config.mcp_servers) || {};
   }
 
-  private async reloadMcpServers(): Promise<void> {
-    await this.transport.call("config/mcpServer/reload", {});
+  private async reloadMcpServers(timeoutMs?: number): Promise<void> {
+    await this.transport.call("config/mcpServer/reload", {}, timeoutMs);
   }
 }
