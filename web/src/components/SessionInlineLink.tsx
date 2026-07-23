@@ -1,16 +1,30 @@
 import { useRef, useMemo, useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { api } from "../api.js";
 import { useStore, countUserPermissions } from "../store.js";
 import {
   navigateToSession,
   navigateToSessionMessage,
+  navigateToSessionMessageId,
   navigateToSessionThread,
   routeSessionRefForId,
   sessionHash,
   sessionThreadHash,
 } from "../utils/routing.js";
+import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { MessageLinkHoverCard } from "./MessageLinkHoverCard.js";
+import type { ChatMessage } from "../types.js";
+
+function threadKeyForMessageLinkTarget(message: ChatMessage | null): string | undefined {
+  const metadata = message?.metadata;
+  if (!metadata) return undefined;
+  if (metadata.threadKey) return normalizeThreadKey(metadata.threadKey);
+  const refs = metadata.threadRefs ?? [];
+  const explicit = refs.find((ref) => ref.source !== "backfill" && ref.threadKey);
+  const fallback = explicit ?? refs.find((ref) => ref.threadKey);
+  return fallback?.threadKey ? normalizeThreadKey(fallback.threadKey) : undefined;
+}
 
 export function SessionInlineLink({
   sessionId,
@@ -166,6 +180,24 @@ export function SessionInlineLink({
         : `Open session ${sessionLabel}`
     : `${sessionLabel} not found`;
 
+  async function navigateToResolvedMessageTarget() {
+    if (!resolvedSessionId || messageIndex == null) return;
+    try {
+      const message = await api.fetchMessagePreview(resolvedSessionId, messageIndex);
+      if (message?.id) {
+        const targetThreadKey = threadKeyForMessageLinkTarget(message);
+        navigateToSessionMessageId(resolvedSessionId, message.id, {
+          routeSessionId: routeSessionRef ?? resolvedSessionId,
+          ...(targetThreadKey ? { threadKey: targetThreadKey, preserveMainThreadRoute: true } : {}),
+        });
+        return;
+      }
+    } catch {
+      // Fall back to legacy index navigation below.
+    }
+    navigateToSessionMessage(resolvedSessionId, messageIndex);
+  }
+
   return (
     <>
       <a
@@ -175,7 +207,7 @@ export function SessionInlineLink({
           if (stopPropagation) e.stopPropagation();
           if (!resolvedSessionId) return;
           if (messageIndex != null) {
-            navigateToSessionMessage(resolvedSessionId, messageIndex);
+            void navigateToResolvedMessageTarget();
           } else if (threadKey) {
             navigateToSessionThread(resolvedSessionId, threadKey, false, routeSessionRef ?? resolvedSessionId);
           } else {

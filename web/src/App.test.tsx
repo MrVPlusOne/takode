@@ -72,6 +72,7 @@ interface MockStoreState {
   requestScrollToMessage: ReturnType<typeof vi.fn>;
   setExpandAllInTurn: ReturnType<typeof vi.fn>;
   setPendingScrollToMessageIndex: ReturnType<typeof vi.fn>;
+  setPendingScrollToMessageId: ReturnType<typeof vi.fn>;
   closeNewSessionModal: ReturnType<typeof vi.fn>;
   setSidebarOpen: ReturnType<typeof vi.fn>;
   setActiveTab: ReturnType<typeof vi.fn>;
@@ -136,6 +137,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     requestScrollToMessage: vi.fn(),
     setExpandAllInTurn: vi.fn(),
     setPendingScrollToMessageIndex: vi.fn(),
+    setPendingScrollToMessageId: vi.fn(),
     closeNewSessionModal: vi.fn(),
     setSidebarOpen: vi.fn(),
     setActiveTab: vi.fn(),
@@ -207,8 +209,21 @@ vi.mock("./components/TopBar.js", () => ({
 }));
 
 vi.mock("./components/ChatView.js", () => ({
-  ChatView: ({ sessionId, preview }: { sessionId: string; preview?: boolean }) => (
-    <div data-testid="chat-view" data-session-id={sessionId} data-preview={preview ? "true" : "false"} />
+  ChatView: ({
+    sessionId,
+    preview,
+    routeThreadKey,
+  }: {
+    sessionId: string;
+    preview?: boolean;
+    routeThreadKey?: string | null;
+  }) => (
+    <div
+      data-testid="chat-view"
+      data-session-id={sessionId}
+      data-preview={preview ? "true" : "false"}
+      data-route-thread-key={routeThreadKey ?? ""}
+    />
   ),
 }));
 
@@ -654,6 +669,37 @@ describe("App hidden panels", () => {
       expect(mockState.setExpandAllInTurn).toHaveBeenCalledWith("s1", "m2");
     });
     expect(screen.getByTestId("chat-view")).toHaveAttribute("data-session-id", "s1");
+    expect(mockConnectSession).not.toHaveBeenCalledWith("123");
+  });
+
+  it("resolves stable message-id routes and preserves leader thread context", async () => {
+    resetStore({
+      currentSessionId: null,
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          createdAt: 1,
+          archived: false,
+          cwd: "/repo/s1",
+          backendType: "codex",
+          sessionNum: 123,
+          isOrchestrator: true,
+        },
+      ],
+      sessions: new Map([["s1", { backend_type: "codex", isOrchestrator: true } as any]]),
+    });
+    window.location.hash = "#/session/123/msg/stable-thread-message?thread=q-1622";
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mockState.setCurrentSession).toHaveBeenCalledWith("s1");
+      expect(mockConnectSession).toHaveBeenCalledWith("s1");
+      expect(mockState.setPendingScrollToMessageId).toHaveBeenCalledWith("s1", "stable-thread-message");
+      expect(mockState.requestScrollToMessage).toHaveBeenCalledWith("s1", "stable-thread-message");
+      expect(mockState.setExpandAllInTurn).toHaveBeenCalledWith("s1", "stable-thread-message");
+    });
+    expect(screen.getByTestId("chat-view")).toHaveAttribute("data-route-thread-key", "q-1622");
     expect(mockConnectSession).not.toHaveBeenCalledWith("123");
   });
 

@@ -8,6 +8,7 @@ import {
   parseHash,
   navigateToSession,
   navigateToSessionMessageId,
+  messageIdFromHash,
   navigateToMostRecentSession,
   messageIndexFromHash,
   threadRouteFromHash,
@@ -560,7 +561,13 @@ export default function App() {
         store.setCurrentSession(resolvedSessionId);
       }
 
-      // Handle /msg/N and legacy ?msg=N message-level deep links.
+      // Handle stable /msg/<id>, /msg/N, and legacy ?msg=N message-level deep links.
+      const msgId = messageIdFromHash(hash);
+      if (msgId) {
+        store.setPendingScrollToMessageId(resolvedSessionId, msgId);
+        store.requestScrollToMessage(resolvedSessionId, msgId);
+        store.setExpandAllInTurn(resolvedSessionId, msgId);
+      }
       const msgIdx = messageIndexFromHash(hash);
       if (msgIdx != null) {
         scrollToMessageIndex(resolvedSessionId, msgIdx);
