@@ -168,6 +168,7 @@ describe("buildCompanionInstructions", () => {
     // the notification chip; otherwise the user sees an alert without context.
     expect(result).toContain("first send the detailed question, decision options, or confirmation text");
     expect(result).toContain("`[thread:main]` or `[thread:q-N]`");
+    expect(result).toContain("standalone `---` line immediately before each later `[thread:main]` or `[thread:q-N]`");
     expect(result).toContain("normal worker and reviewer sessions use ordinary assistant text");
     expect(result).toContain("After that text is visible, call `takode notify needs-input`");
     expect(result).toContain("Do not fire the notification before the detailed text is visible");

@@ -3,6 +3,7 @@ import {
   inferThreadTargetFromTextContent,
   parseCommandThreadComment,
   parseThreadTextPrefix,
+  parseThreadTextLineStartMarker,
   stripCommandThreadComment,
 } from "./thread-routing.js";
 
@@ -78,6 +79,29 @@ describe("thread-routing", () => {
       marker: "[thread:q-941]",
     });
     expect(parseThreadTextPrefix("Prose before [thread:q-941] No route")).toMatchObject({
+      ok: false,
+      reason: "missing",
+    });
+  });
+
+  it("parses mid-message split markers at physical line start without requiring a separator", () => {
+    // Mid-message route switches are gated by a preceding standalone divider,
+    // so the marker parser only requires the marker to begin the physical line.
+    // The ordinary first-line prefix parser remains stricter.
+    expect(parseThreadTextPrefix("[thread:q-941]No separator")).toMatchObject({
+      ok: false,
+      reason: "invalid",
+    });
+    expect(parseThreadTextLineStartMarker("[thread:q-941]No separator")).toEqual({
+      ok: true,
+      target: { threadKey: "q-941", questId: "q-941" },
+      body: "No separator",
+    });
+    expect(parseThreadTextLineStartMarker("> [thread:q-941] quoted")).toMatchObject({
+      ok: false,
+      reason: "missing",
+    });
+    expect(parseThreadTextLineStartMarker("  [thread:q-941] indented")).toMatchObject({
       ok: false,
       reason: "missing",
     });

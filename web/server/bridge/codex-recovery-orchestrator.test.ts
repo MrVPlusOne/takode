@@ -581,6 +581,51 @@ describe("hydrateCodexResumedHistory", () => {
     const assistant = session.messageHistory[0] as Extract<BrowserIncomingMessage, { type: "assistant" }>;
     expect(assistant.message.content).toEqual([{ type: "text", text: "Created quest notes" }]);
   });
+
+  it("splits mid-message leader thread routes when hydrating recovered assistant messages", () => {
+    const session = makeSession([]);
+    session.state.isOrchestrator = true;
+    const deps = makeDeps();
+
+    const hydrated = hydrateCodexResumedHistory(
+      session,
+      {
+        threadId: "thread-history",
+        turnCount: 1,
+        turns: [
+          {
+            id: "turn-1",
+            status: "completed",
+            error: null,
+            items: [
+              {
+                type: "agentMessage",
+                id: "agent-1",
+                text: [
+                  "[thread:q-1695]",
+                  "Approved Option A is recorded.",
+                  "---",
+                  "[thread:q-1693]No separator still routes after recovery.",
+                ].join("\n"),
+              },
+            ],
+          },
+        ],
+        lastTurn: null,
+      },
+      deps,
+    );
+
+    expect(hydrated).toBe(2);
+    expect(session.messageHistory[0]).toMatchObject({ type: "assistant", threadKey: "q-1695", questId: "q-1695" });
+    expect(session.messageHistory[1]).toMatchObject({ type: "assistant", threadKey: "q-1693", questId: "q-1693" });
+    const first = session.messageHistory[0] as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    const second = session.messageHistory[1] as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    expect(first.message.id).toBe("codex-agent-agent-1");
+    expect(second.message.id).toBe("codex-agent-agent-1:route-1");
+    expect(first.message.content).toEqual([{ type: "text", text: "Approved Option A is recorded." }]);
+    expect(second.message.content).toEqual([{ type: "text", text: "No separator still routes after recovery." }]);
+  });
 });
 
 describe("reconcileCodexResumedTurn", () => {

@@ -25,6 +25,7 @@ export function buildThreadRoutingReminderContent(input: ThreadRoutingReminderIn
       THREAD_ROUTING_REMINDER_HEADER,
       `${reason} on visible leader text. The previous visible leader message was not assigned to a thread.`,
       "Resend user-visible leader text with `[thread:main]` or `[thread:q-N]` as the first line.",
+      "When one leader response intentionally needs multiple thread tabs, keep the first-line marker for the first tab, then put a standalone `---` line immediately before the next `[thread:main]` or `[thread:q-N]` marker.",
       "For leader shell commands, use `# thread:main` or `# thread:q-N` as the first non-empty command line.",
     ].join("\n");
   }
@@ -35,6 +36,7 @@ export function buildThreadRoutingReminderContent(input: ThreadRoutingReminderIn
       `${reason} on leader shell command. The previous leader shell command was not assigned to a thread.`,
       "Rerun leader shell commands with `# thread:main` or `# thread:q-N` as the first non-empty command line.",
       "For user-visible leader text, use `[thread:main]` or `[thread:q-N]` as the first line.",
+      "If one visible leader response intentionally covers multiple thread tabs, put a standalone `---` line immediately before each later `[thread:main]` or `[thread:q-N]` marker.",
     ].join("\n");
   }
 
@@ -42,6 +44,7 @@ export function buildThreadRoutingReminderContent(input: ThreadRoutingReminderIn
     THREAD_ROUTING_REMINDER_HEADER,
     `${reason}. The previous leader output was not assigned to a thread, but the output type is unavailable.`,
     "If it was user-visible leader text, resend it with `[thread:main]` or `[thread:q-N]` as the first line.",
+    "If one visible leader response intentionally covers multiple thread tabs, use a standalone `---` line immediately before each later `[thread:main]` or `[thread:q-N]` marker.",
     "If it was a leader shell command, rerun it with `# thread:main` or `# thread:q-N` as the first non-empty command line.",
   ].join("\n");
 }

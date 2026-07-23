@@ -1172,6 +1172,51 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
   });
 
+  it("splits mid-message leader thread routes on a standalone divider and line-start marker", async () => {
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      makeAssistant(
+        [
+          {
+            type: "text",
+            text: [
+              "[thread:q-1695]",
+              "Approved Option A is recorded.",
+              "---",
+              "[thread:q-1693]No separator still routes after the split divider.",
+            ].join("\n"),
+          },
+        ],
+        "codex-mid-message-route",
+      ),
+      makeDeps(broadcasts),
+    );
+
+    const assistantBroadcasts = broadcasts.filter((msg) => msg.type === "assistant");
+    expect(assistantBroadcasts).toHaveLength(2);
+    expect(assistantBroadcasts[0]).toMatchObject({
+      type: "assistant",
+      threadKey: "q-1695",
+      questId: "q-1695",
+    });
+    expect(assistantBroadcasts[0]?.type === "assistant" ? assistantBroadcasts[0].message.content : []).toEqual([
+      { type: "text", text: "Approved Option A is recorded." },
+    ]);
+    expect(assistantBroadcasts[1]).toMatchObject({
+      type: "assistant",
+      threadKey: "q-1693",
+      questId: "q-1693",
+    });
+    expect(assistantBroadcasts[1]?.type === "assistant" ? assistantBroadcasts[1].message.content : []).toEqual([
+      { type: "text", text: "No separator still routes after the split divider." },
+    ]);
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1693]");
+    expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
+  });
+
   it("routes leader text when launcher info says orchestrator and session state has not caught up", async () => {
     const session = makeSession();
     delete session.state.isOrchestrator;

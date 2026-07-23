@@ -5,8 +5,10 @@ import {
   THREAD_ROUTING_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-routing-reminder.js";
 import {
+  formatThreadMarker,
   parseCommandThreadComment,
   parseThreadTextPrefix,
+  parseThreadTextLineStartMarker,
   stripCommandThreadComment,
 } from "../../shared/thread-routing.js";
 import {
@@ -112,7 +114,21 @@ function isValidThreadRouteLineAfterQuiz(line: string): boolean {
   return parseThreadTextPrefix(line).ok;
 }
 
-export function splitLeaderAssistantContentAtPostQuizThreadRoutes(
+function isTripleBacktickFenceLine(line: string): boolean {
+  return line.startsWith("```");
+}
+
+function isMidMessageRouteDividerLine(line: string): boolean {
+  return line === "---";
+}
+
+function normalizedMidMessageRouteMarkerLine(line: string): string | null {
+  const parsed = parseThreadTextLineStartMarker(line);
+  if (!parsed.ok) return null;
+  return formatThreadMarker(parsed.target.threadKey) + (parsed.body ? " " + parsed.body : "");
+}
+
+export function splitLeaderAssistantContentAtThreadRouteBoundaries(
   isLeaderSession: boolean,
   content: ContentBlock[],
   parentToolUseId: string | null | undefined,
@@ -123,8 +139,14 @@ export function splitLeaderAssistantContentAtPostQuizThreadRoutes(
   let currentBlocks: ContentBlock[] = [];
   let currentTextLines: string[] = [];
   let canSplitAfterQuiz = false;
+  let pendingMidMessageDividerLine: string | null = null;
+  let insideTripleBacktickFence = false;
 
   const flushText = () => {
+    if (pendingMidMessageDividerLine !== null) {
+      currentTextLines.push(pendingMidMessageDividerLine);
+      pendingMidMessageDividerLine = null;
+    }
     if (currentTextLines.length === 0) return;
     currentBlocks.push({ type: "text", text: currentTextLines.join("\n") });
     currentTextLines = [];
@@ -142,10 +164,37 @@ export function splitLeaderAssistantContentAtPostQuizThreadRoutes(
       flushText();
       currentBlocks.push(block);
       canSplitAfterQuiz = false;
+      pendingMidMessageDividerLine = null;
       continue;
     }
 
     for (const line of block.text.split(/\r?\n/)) {
+      if (pendingMidMessageDividerLine !== null) {
+        const normalizedRouteLine = insideTripleBacktickFence ? null : normalizedMidMessageRouteMarkerLine(line);
+        if (normalizedRouteLine !== null) {
+          pendingMidMessageDividerLine = null;
+          flushSegment();
+          currentTextLines.push(normalizedRouteLine);
+          canSplitAfterQuiz = false;
+          continue;
+        }
+        currentTextLines.push(pendingMidMessageDividerLine);
+        pendingMidMessageDividerLine = null;
+      }
+
+      if (isTripleBacktickFenceLine(line)) {
+        currentTextLines.push(line);
+        insideTripleBacktickFence = !insideTripleBacktickFence;
+        canSplitAfterQuiz = false;
+        continue;
+      }
+
+      if (!insideTripleBacktickFence && isMidMessageRouteDividerLine(line)) {
+        pendingMidMessageDividerLine = line;
+        canSplitAfterQuiz = false;
+        continue;
+      }
+
       if (canSplitAfterQuiz && isValidThreadRouteLineAfterQuiz(line)) {
         flushSegment();
         currentTextLines.push(line);
@@ -165,6 +214,8 @@ export function splitLeaderAssistantContentAtPostQuizThreadRoutes(
   flushSegment();
   return segments.length > 0 ? segments : [content];
 }
+
+export const splitLeaderAssistantContentAtPostQuizThreadRoutes = splitLeaderAssistantContentAtThreadRouteBoundaries;
 
 function threadRoutingErrorForText(
   parsed: Extract<ReturnType<typeof parseThreadTextPrefix>, { ok: false }>,

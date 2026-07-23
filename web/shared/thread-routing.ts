@@ -8,6 +8,7 @@ export type ThreadRouteParseResult =
   | { ok: false; reason: "missing" | "invalid"; marker?: string; body: string };
 
 const TEXT_THREAD_MARKER_RE = /^\[thread:(main|q-\d+)\](?=$|[ \t]|\r?\n)/;
+const TEXT_THREAD_MARKER_AT_LINE_START_RE = /^\[thread:(main|q-\d+)\]/;
 const COMMAND_THREAD_COMMENT_RE = /^#\s*thread:(main|q-\d+)\s*$/;
 const QUEST_MENTION_RE = /\bq-\d+\b/gi;
 const LEADING_QUEST_TARGET_RE = /^(?:work on|advance|review|reopen)\b/i;
@@ -56,6 +57,19 @@ export function parseThreadTextPrefix(text: string): ThreadRouteParseResult {
   const marker = match[0];
   if (!target) return { ok: false, reason: "invalid", marker, body: text };
   return { ok: true, target, body: removeSingleThreadMarkerSeparator(candidate.slice(marker.length)) };
+}
+
+export function parseThreadTextLineStartMarker(text: string): ThreadRouteParseResult {
+  const match = TEXT_THREAD_MARKER_AT_LINE_START_RE.exec(text);
+  if (!match) {
+    const markerLike = text.toLowerCase().startsWith("[thread:") ? extractThreadMarkerLike(text) : undefined;
+    return { ok: false, reason: markerLike ? "invalid" : "missing", marker: markerLike, body: text };
+  }
+
+  const target = normalizeThreadTarget(match[1]);
+  const marker = match[0];
+  if (!target) return { ok: false, reason: "invalid", marker, body: text };
+  return { ok: true, target, body: removeSingleThreadMarkerSeparator(text.slice(marker.length)) };
 }
 
 export function parseCommandThreadComment(command: string): ThreadRouteTarget | null {

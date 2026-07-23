@@ -48,7 +48,7 @@ import {
   hasRouteableNonBashToolActivity,
   hasLeaderVisibleTextContent,
   normalizeLeaderAssistantRouting,
-  splitLeaderAssistantContentAtPostQuizThreadRoutes,
+  splitLeaderAssistantContentAtThreadRouteBoundaries,
   updateLeaderThreadStatusesForAssistantOutput,
 } from "./thread-routing-reminder.js";
 import { recordThreadReadyUnreadNotifications } from "./session-notification-controller.js";
@@ -474,7 +474,7 @@ export function handleAssistantMessage(
     }
     const timestamp = Date.now();
     const resolvedMessageId = msg.message.id ?? msg.uuid ?? `assistant-${timestamp}-${session.messageHistory.length}`;
-    const contentSegments = splitLeaderAssistantContentAtPostQuizThreadRoutes(
+    const contentSegments = splitLeaderAssistantContentAtThreadRouteBoundaries(
       isLeaderSession,
       msg.message.content,
       msg.parent_tool_use_id,
@@ -553,7 +553,7 @@ export function handleAssistantMessage(
     const contentBlockIds = new Set<string>();
     const now = Date.now();
     const timestamp = Date.now();
-    const contentSegments = splitLeaderAssistantContentAtPostQuizThreadRoutes(
+    const contentSegments = splitLeaderAssistantContentAtThreadRouteBoundaries(
       isLeaderSession,
       msg.message.content,
       msg.parent_tool_use_id,

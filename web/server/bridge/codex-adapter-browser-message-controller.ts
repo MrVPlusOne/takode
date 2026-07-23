@@ -15,7 +15,7 @@ import {
   applyRecentThreadFallbackToLeaderAssistantRouting,
   hasLeaderVisibleTextContent,
   normalizeLeaderAssistantRouting,
-  splitLeaderAssistantContentAtPostQuizThreadRoutes,
+  splitLeaderAssistantContentAtThreadRouteBoundaries,
   updateLeaderThreadStatusesForAssistantOutput,
 } from "./thread-routing-reminder.js";
 import { recordThreadReadyUnreadNotifications } from "./session-notification-controller.js";
@@ -559,7 +559,7 @@ export async function handleCodexAdapterBrowserMessage(
   } else if (msg.type === "assistant") {
     const launcherInfo = deps.getLauncherSessionInfo(session.id);
     const isLeaderSession = isLeaderSessionForAssistantRouting(session, launcherInfo);
-    const contentSegments = splitLeaderAssistantContentAtPostQuizThreadRoutes(
+    const contentSegments = splitLeaderAssistantContentAtThreadRouteBoundaries(
       isLeaderSession,
       msg.message.content || [],
       msg.parent_tool_use_id,

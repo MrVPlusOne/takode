@@ -1,4 +1,3 @@
-import { getDefaultModelForBackend } from "../../shared/backend-defaults.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "../codex-adapter.js";
 import type { TurnStartFailureInfo } from "./adapter-interface.js";
@@ -7,7 +6,6 @@ import type {
   CLIResultMessage,
   ActiveTurnRoute,
   BrowserOutgoingMessage,
-  ContentBlock,
   CodexOutboundTurn,
   PendingCodexInput,
   SessionNotification,
@@ -31,13 +29,17 @@ import {
   dispatchQueuedCodexTurns as dispatchQueuedCodexTurnsState,
 } from "./codex-turn-queue.js";
 import { requestCodexAutoRecovery as requestCodexAutoRecoveryController } from "./session-registry-controller.js";
-import { normalizeLeaderAssistantRouting } from "./thread-routing-reminder.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import { isSessionPaused } from "../session-pause.js";
 import {
   appendCodexLeaderRecoveryDiagnostic,
   leaderRouteFromRecoveredAssistant,
 } from "./codex-leader-recovery-diagnostic.js";
+import {
+  buildCodexRecoveredAssistantRouteSegments,
+  codexRecoveredAssistantModel,
+  hasMatchingRecoveredCodexAssistantReplay,
+} from "./codex-recovered-assistant-routing.js";
 import { consumeCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 import { handleTerminalTurnStartFailure } from "./codex-terminal-turn-start-failure.js";
 import {
@@ -317,33 +319,34 @@ export function hydrateCodexResumedHistory(
       );
       if (alreadyExists) continue;
 
-      const routed = buildCodexRecoveredAssistantMessageFields(session, text);
-      const assistant: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
-        type: "assistant",
-        message: {
-          id: assistantId,
-          type: "message",
-          role: "assistant",
-          model: session.state.model || getDefaultModelForBackend("codex"),
-          content: routed.content,
-          stop_reason: null,
-          usage: {
-            input_tokens: 0,
-            output_tokens: 0,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
+      for (const [segmentIndex, routed] of buildCodexRecoveredAssistantRouteSegments(session, text).entries()) {
+        const assistant: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
+          type: "assistant",
+          message: {
+            id: segmentIndex === 0 ? assistantId : `${assistantId}:route-${segmentIndex}`,
+            type: "message",
+            role: "assistant",
+            model: codexRecoveredAssistantModel(session),
+            content: routed.content,
+            stop_reason: null,
+            usage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
           },
-        },
-        parent_tool_use_id: null,
-        timestamp: ++syntheticTimestamp,
-        ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
-        ...(routed.questId ? { questId: routed.questId } : {}),
-        ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
-        ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
-      };
-      session.messageHistory.push(assistant);
-      deps.broadcastToBrowsers(session, assistant);
-      hydrated += 1;
+          parent_tool_use_id: null,
+          timestamp: ++syntheticTimestamp,
+          ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
+          ...(routed.questId ? { questId: routed.questId } : {}),
+          ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
+          ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
+        };
+        session.messageHistory.push(assistant);
+        deps.broadcastToBrowsers(session, assistant);
+        hydrated += 1;
+      }
     }
   }
 
@@ -1530,10 +1533,6 @@ export function extractUserTextFromResumedTurn(turn: CodexResumeTurnSnapshot): s
 export function normalizeResumedUserText(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
-function normalizeCodexRecoveredAssistantText(text: string): string {
-  return text.trim().replace(/\s+/g, " ");
-}
-
 function clearGeneratingAfterRecoveredCompletedTurnIfIdle(
   session: CodexRecoveryOrchestratorSessionLike,
   reason: string,
@@ -1631,60 +1630,6 @@ function isCodexResumeTerminalEvidenceItem(item: Record<string, unknown>): boole
   );
 }
 
-type CodexRecoveredAssistantRouteFields = Pick<
-  Extract<BrowserIncomingMessage, { type: "assistant" }>,
-  "threadKey" | "questId" | "threadRefs" | "threadRoutingError"
-> & { content: ContentBlock[] };
-
-function isLeaderSessionForRecoveredAssistantRouting(session: CodexRecoveryOrchestratorSessionLike): boolean {
-  return session.state.isOrchestrator === true;
-}
-
-function buildCodexRecoveredAssistantMessageFields(
-  session: CodexRecoveryOrchestratorSessionLike,
-  text: string,
-): CodexRecoveredAssistantRouteFields {
-  return normalizeLeaderAssistantRouting(
-    isLeaderSessionForRecoveredAssistantRouting(session),
-    [{ type: "text", text }],
-    null,
-  );
-}
-
-function canonicalRouteKeyForRecoveredAssistant(
-  entry: Pick<
-    Extract<BrowserIncomingMessage, { type: "assistant" }>,
-    "threadKey" | "questId" | "threadRefs" | "threadRoutingError"
-  >,
-  routed: CodexRecoveredAssistantRouteFields,
-): string {
-  const routedKey = routed.threadKey || routed.questId;
-  if (routedKey) return routedKey.trim().toLowerCase() || "main";
-  if (entry.threadKey) return entry.threadKey.trim().toLowerCase() || "main";
-  if (entry.questId) return entry.questId.trim().toLowerCase() || "main";
-  const explicitRef = (entry.threadRefs ?? []).find((ref) => ref.source !== "backfill" && ref.threadKey);
-  return explicitRef?.threadKey.trim().toLowerCase() || "main";
-}
-
-function canonicalRecoveredAssistant(
-  session: CodexRecoveryOrchestratorSessionLike,
-  text: string,
-  entry: Pick<
-    Extract<BrowserIncomingMessage, { type: "assistant" }>,
-    "threadKey" | "questId" | "threadRefs" | "threadRoutingError"
-  > = {},
-): { text: string; routeKey: string } | null {
-  const routed = buildCodexRecoveredAssistantMessageFields(session, text);
-  const textBlocks = routed.content.filter((block) => block.type === "text");
-  if (textBlocks.length !== 1) return null;
-  const normalizedText = normalizeCodexRecoveredAssistantText(textBlocks[0].text || "");
-  if (!normalizedText) return null;
-  return {
-    text: normalizedText,
-    routeKey: canonicalRouteKeyForRecoveredAssistant(entry, routed),
-  };
-}
-
 function recoverAgentMessagesFromResumedTurn(
   session: CodexRecoveryOrchestratorSessionLike,
   turn: CodexResumeTurnSnapshot,
@@ -1693,7 +1638,7 @@ function recoverAgentMessagesFromResumedTurn(
 ): { count: number; latestLeaderRoute: ThreadRouteMetadata | null } {
   let matchedOrRecovered = 0;
   let latestLeaderRoute: ThreadRouteMetadata | null = null;
-  const isLeaderSession = isLeaderSessionForRecoveredAssistantRouting(session);
+  const isLeaderSession = session.state.isOrchestrator === true;
   const baseTs = pending.disconnectedAt ?? Date.now();
   for (let i = 0; i < turn.items.length; i++) {
     const item = turn.items[i];
@@ -1710,39 +1655,41 @@ function recoverAgentMessagesFromResumedTurn(
     }
     if (
       /^item-\d+$/.test(itemId) &&
-      findMatchingRecoveredCodexAssistant(session, text, deps.codexAssistantReplayScanLimit)
+      hasMatchingRecoveredCodexAssistantReplay(session, text, deps.codexAssistantReplayScanLimit)
     ) {
       matchedOrRecovered++;
       continue;
     }
-    const routed = buildCodexRecoveredAssistantMessageFields(session, text);
-    const assistant: BrowserIncomingMessage = {
-      type: "assistant",
-      message: {
-        id: assistantId,
-        type: "message",
-        role: "assistant",
-        model: session.state.model || getDefaultModelForBackend("codex"),
-        content: routed.content,
-        stop_reason: null,
-        usage: {
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
+    for (const [segmentIndex, routed] of buildCodexRecoveredAssistantRouteSegments(session, text).entries()) {
+      const segmentAssistantId = segmentIndex === 0 ? assistantId : `${assistantId}:route-${segmentIndex}`;
+      const assistant: BrowserIncomingMessage = {
+        type: "assistant",
+        message: {
+          id: segmentAssistantId,
+          type: "message",
+          role: "assistant",
+          model: codexRecoveredAssistantModel(session),
+          content: routed.content,
+          stop_reason: null,
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
         },
-      },
-      parent_tool_use_id: null,
-      timestamp: baseTs + i + 1,
-      ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
-      ...(routed.questId ? { questId: routed.questId } : {}),
-      ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
-      ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
-    };
-    session.messageHistory.push(assistant);
-    deps.broadcastToBrowsers(session, assistant);
-    latestLeaderRoute = leaderRouteFromRecoveredAssistant(isLeaderSession, assistant) ?? latestLeaderRoute;
-    matchedOrRecovered++;
+        parent_tool_use_id: null,
+        timestamp: baseTs + i + 1 + segmentIndex / 1000,
+        ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
+        ...(routed.questId ? { questId: routed.questId } : {}),
+        ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
+        ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
+      };
+      session.messageHistory.push(assistant);
+      deps.broadcastToBrowsers(session, assistant);
+      latestLeaderRoute = leaderRouteFromRecoveredAssistant(isLeaderSession, assistant) ?? latestLeaderRoute;
+      matchedOrRecovered++;
+    }
   }
   return { count: matchedOrRecovered, latestLeaderRoute };
 }
@@ -1942,29 +1889,6 @@ function hasOnlyRetrySafeCodexResumedItems(items: Array<Record<string, unknown>>
     const itemType = typeof item.type === "string" ? item.type : "";
     return CODEX_RETRY_SAFE_RESUME_ITEM_TYPES.has(itemType);
   });
-}
-function findMatchingRecoveredCodexAssistant(
-  session: CodexRecoveryOrchestratorSessionLike,
-  text: string,
-  limit: number,
-): Extract<BrowserIncomingMessage, { type: "assistant" }> | null {
-  const incoming = canonicalRecoveredAssistant(session, text);
-  if (!incoming) return null;
-  let scannedAssistants = 0;
-  for (let i = session.messageHistory.length - 1; i >= 0; i--) {
-    const entry = session.messageHistory[i];
-    if (entry.type !== "assistant") continue;
-    scannedAssistants += 1;
-    if (scannedAssistants > limit) break;
-    const existing = entry as Extract<BrowserIncomingMessage, { type: "assistant" }>;
-    if (existing.parent_tool_use_id !== null) continue;
-    const textBlocks = existing.message.content.filter((block) => block.type === "text");
-    if (textBlocks.length !== 1) continue;
-    const existingCanonical = canonicalRecoveredAssistant(session, textBlocks[0].text || "", existing);
-    if (!existingCanonical) continue;
-    if (existingCanonical.text === incoming.text && existingCanonical.routeKey === incoming.routeKey) return existing;
-  }
-  return null;
 }
 type QueuedTurnLifecycleEntry = {
   reason: string;

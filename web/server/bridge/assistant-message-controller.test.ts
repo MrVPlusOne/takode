@@ -830,6 +830,99 @@ describe("assistant-message-controller", () => {
     expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
   });
 
+  it("splits mid-message leader thread routes on a standalone divider and line-start marker", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(
+      session,
+      makeAssistant(
+        [
+          {
+            type: "text",
+            text: [
+              "[thread:q-1695]",
+              "Approved Option A is recorded.",
+              "---",
+              "[thread:q-1693]No separator still routes after the split divider.",
+            ].join("\n"),
+          },
+        ],
+        "mid-message-route",
+      ),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    const assistantBroadcasts = broadcasts.filter((msg) => msg.type === "assistant");
+    expect(assistantBroadcasts).toHaveLength(2);
+    expect(assistantBroadcasts[0]).toMatchObject({ type: "assistant", threadKey: "q-1695", questId: "q-1695" });
+    expect(assistantBroadcasts[0]?.type === "assistant" ? assistantBroadcasts[0].message.content : []).toEqual([
+      { type: "text", text: "Approved Option A is recorded." },
+    ]);
+    expect(assistantBroadcasts[1]).toMatchObject({ type: "assistant", threadKey: "q-1693", questId: "q-1693" });
+    expect(assistantBroadcasts[1]?.type === "assistant" ? assistantBroadcasts[1].message.content : []).toEqual([
+      { type: "text", text: "No separator still routes after the split divider." },
+    ]);
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1693]");
+    expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
+  });
+
+  it("does not split mid-message route syntax inside triple-backtick fences", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(
+      session,
+      makeAssistant(
+        [
+          {
+            type: "text",
+            text: [
+              "[thread:q-1695]",
+              "Example:",
+              "```text",
+              "---",
+              "[thread:q-1693] literal example",
+              "```",
+              "---",
+              "> [thread:q-1694] quoted marker stays in the original segment",
+            ].join("\n"),
+          },
+        ],
+        "mid-message-route-fence",
+      ),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    const assistantBroadcasts = broadcasts.filter((msg) => msg.type === "assistant");
+    expect(assistantBroadcasts).toHaveLength(1);
+    expect(assistantBroadcasts[0]).toMatchObject({ type: "assistant", threadKey: "q-1695", questId: "q-1695" });
+    expect(assistantBroadcasts[0]?.type === "assistant" ? assistantBroadcasts[0].message.content : []).toEqual([
+      {
+        type: "text",
+        text: [
+          "Example:",
+          "```text",
+          "---",
+          "[thread:q-1693] literal example",
+          "```",
+          "---",
+          "> [thread:q-1694] quoted marker stays in the original segment",
+        ].join("\n"),
+      },
+    ]);
+  });
+
   it("does not append raw split-route content from same-id cumulative snapshots", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;

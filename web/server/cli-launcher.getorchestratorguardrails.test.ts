@@ -555,6 +555,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Every time you ask the user a question");
     expect(guardrails).toContain("First send the detailed question or decision text");
     expect(guardrails).toContain("`[thread:main]` or `[thread:q-N]`");
+    expect(guardrails).toContain(
+      "standalone `---` line immediately before each later `[thread:main]` or `[thread:q-N]`",
+    );
     expect(guardrails).toContain("then call `takode notify needs-input`");
     expect(guardrails).toContain("The marked response must be self-contained enough to answer");
     expect(guardrails).toContain("New blocking prompt -> new `needs-input` notification");
@@ -669,6 +672,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Every time you ask the user a question");
     expect(guardrails).toContain("First send the detailed question or decision text");
     expect(guardrails).toContain("`[thread:main]` or `[thread:q-N]`");
+    expect(guardrails).toContain(
+      "standalone `---` line immediately before each later `[thread:main]` or `[thread:q-N]`",
+    );
     expect(guardrails).toContain("then call `takode notify needs-input`");
     expect(guardrails).toContain("never as the only place options or tradeoffs appear");
     expect(guardrails).toContain("so the user never misses it");
