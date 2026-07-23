@@ -77,6 +77,7 @@ export type CodexBridgeAdapter = BackendAdapter<CodexSessionMeta> &
   RateLimitsAwareAdapter & {
     rollbackTurns: (numTurns: number) => Promise<void>;
     forkThread?: (options?: { rollbackTurns?: number }) => Promise<string>;
+    waitForInitialMcpToolAvailability?: (timeoutMs?: number) => Promise<boolean>;
   } & Partial<{
     refreshSkills: (
       forceReload?: boolean,

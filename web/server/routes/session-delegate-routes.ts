@@ -163,6 +163,17 @@ export function registerSessionDelegateRoutes(
     });
     const childAdapter = await waitForCodexAdapter(wsBridge, child.sessionId);
     if (!childAdapter) return c.json({ error: "Delegate session did not connect", delegateId }, 504);
+    const childMcpReady = await childAdapter.waitForInitialMcpToolAvailability?.(10_000);
+    if (!childMcpReady) {
+      return c.json(
+        {
+          error: "Delegate end_delegation tool did not become available before the command prompt",
+          delegateId,
+          childSessionId: child.sessionId,
+        },
+        504,
+      );
+    }
 
     const summaryPromise = new Promise<string>((resolve) => {
       const timer = setTimeout(() => {

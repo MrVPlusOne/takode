@@ -34,13 +34,19 @@ function makeState(overrides: Partial<SessionState> = {}): SessionState {
 describe("delegate command routes", () => {
   it("forks a Codex leader into a hidden child and returns compact summary plus session link", async () => {
     const sentToChild: unknown[] = [];
+    const childOrder: string[] = [];
     const parentAdapter = {
       isConnected: () => true,
       forkThread: vi.fn(async () => "forked-thread"),
     };
     const childAdapter = {
       isConnected: () => true,
+      waitForInitialMcpToolAvailability: vi.fn(async () => {
+        childOrder.push("wait");
+        return true;
+      }),
       sendBrowserMessage: vi.fn((msg: unknown) => {
+        childOrder.push("send");
         sentToChild.push(msg);
         return true;
       }),
@@ -123,6 +129,8 @@ describe("delegate command routes", () => {
       expect(sentToChild.length).toBe(1);
     });
     const childPrompt = sentToChild[0] as { content: string };
+    expect(childOrder).toEqual(["wait", "send"]);
+    expect(childAdapter.waitForInitialMcpToolAvailability).toHaveBeenCalledWith(10_000);
     expect(childPrompt.content).toContain("forked command-delegate copy");
     expect(childPrompt.content).toContain("rg -n large-output web");
 
@@ -142,5 +150,80 @@ describe("delegate command routes", () => {
     expect(parentJson.text).not.toContain("raw stdout");
     expect(parentJson.childSessionNum).toBe(2266);
     expect(parentJson.delegateId).toBe(delegateId);
+  });
+
+  it("fails closed instead of prompting the child before end_delegation is available", async () => {
+    const parentAdapter = {
+      isConnected: () => true,
+      forkThread: vi.fn(async () => "forked-thread"),
+    };
+    const childAdapter = {
+      isConnected: () => true,
+      waitForInitialMcpToolAvailability: vi.fn(async () => false),
+      sendBrowserMessage: vi.fn(),
+    };
+    const sessions = new Map<string, any>();
+    sessions.set("parent", {
+      id: "parent",
+      state: makeState({
+        session_id: "parent",
+        backend_type: "codex",
+        cwd: "/repo",
+        model: "gpt-5.5",
+        isOrchestrator: true,
+      }),
+      codexAdapter: parentAdapter,
+    });
+    sessions.set("child", {
+      id: "child",
+      state: makeState({ session_id: "child", backend_type: "codex" }),
+      codexAdapter: childAdapter,
+    });
+
+    const launcher = {
+      getSession: vi.fn((id: string) =>
+        id === "parent"
+          ? {
+              sessionId: "parent",
+              backendType: "codex",
+              cwd: "/repo",
+              model: "gpt-5.5",
+              permissionMode: "codex-default",
+              askPermission: true,
+              uiMode: "agent",
+              isOrchestrator: true,
+            }
+          : id === "child"
+            ? { sessionId: "child", backendType: "codex", cwd: "/repo", model: "gpt-5.5", hidden: true }
+            : null,
+      ),
+      launch: vi.fn(async () => ({ sessionId: "child", hidden: true, parentSessionId: "parent", noAutoName: false })),
+      getSessionNum: vi.fn((id: string) => (id === "parent" ? 2220 : id === "child" ? 2266 : undefined)),
+    };
+    const wsBridge = {
+      getSession: vi.fn((id: string) => sessions.get(id)),
+      getOrCreateSession: vi.fn((id: string) => sessions.get(id)),
+      persistSessionById: vi.fn(),
+    };
+    const app = new Hono();
+    registerSessionDelegateRoutes(app, {
+      launcher: launcher as any,
+      wsBridge: wsBridge as any,
+      resolveId: (id) => id,
+      authenticateTakodeCaller: () => ({ callerId: "parent" }),
+    });
+
+    const res = await app.request("/sessions/parent/delegates/command", {
+      method: "POST",
+      body: JSON.stringify({ command: "sed -n '1,3p' sample.txt" }),
+      headers: { "content-type": "application/json" },
+    });
+    const json = (await res.json()) as { error: string; delegateId: string; childSessionId: string };
+    expect(res.status).toBe(504);
+    expect(json.error).toContain("end_delegation tool did not become available");
+    expect(json.delegateId).toEqual(expect.stringMatching(/^del_/));
+    expect(json.childSessionId).toBe("child");
+    expect(childAdapter.waitForInitialMcpToolAvailability).toHaveBeenCalledWith(10_000);
+    expect(childAdapter.sendBrowserMessage).not.toHaveBeenCalled();
   });
 });

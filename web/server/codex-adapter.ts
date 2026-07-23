@@ -50,6 +50,7 @@ import type {
   CodexAdapterDisconnectDiagnostics,
   CodexSkillChangeDiagnostics,
 } from "./codex-adapter-diagnostics-types.js";
+import { hasSkillChangeCauseMetadata, isTakodeDelegateStartupReady } from "./codex-adapter-startup-utils.js";
 import type {
   BackendAdapter,
   CurrentTurnIdAwareAdapter,
@@ -76,16 +77,6 @@ export type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "./codex-adapt
 export type { CodexSessionMeta } from "./codex-adapter-types.js";
 
 type RouterFailureToolName = "write_stdin";
-
-function hasSkillChangeCauseMetadata(payload: Record<string, unknown>): boolean {
-  return ["cause", "source", "path", "paths", "root", "roots"].some((key) =>
-    Object.prototype.hasOwnProperty.call(payload, key),
-  );
-}
-
-function isTakodeDelegateStartupReady(params: Record<string, unknown>): boolean {
-  return toSafeText(params.name).trim() === "takode_delegate" && toSafeText(params.status).trim() === "ready";
-}
 
 // ─── JSON-RPC Transport ───────────────────────────────────────────────────────
 
@@ -515,6 +506,18 @@ export class CodexAdapter
       }
       await this.runInitialMcpToolAvailabilityRefreshIfIdle("startup");
     });
+  }
+
+  async waitForInitialMcpToolAvailability(
+    timeoutMs = INITIAL_MCP_TOOL_AVAILABILITY_REFRESH_TIMEOUT_MS,
+  ): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (this._initialMcpToolAvailabilityRefreshCompleted) return true;
+      if (!this.connected || this.initFailed) return false;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return this._initialMcpToolAvailabilityRefreshCompleted;
   }
 
   private queueInitialSkillMetadataRefresh(): void {
