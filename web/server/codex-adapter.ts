@@ -44,13 +44,12 @@ import {
 } from "./codex-adapter-utils.js";
 import { CodexApprovalManager } from "./codex-approval-manager.js";
 import { CodexItemEventManager } from "./codex-item-event-manager.js";
-import {
-  JsonRpcTransport,
-  isPidAlive,
-  type JsonRpcPendingRequestSummary,
-  type JsonRpcTransportCloseDiagnostics,
-} from "./codex-jsonrpc-transport.js";
+import { JsonRpcTransport, isPidAlive } from "./codex-jsonrpc-transport.js";
 import { CodexMcpManager } from "./codex-mcp-manager.js";
+import type {
+  CodexAdapterDisconnectDiagnostics,
+  CodexSkillChangeDiagnostics,
+} from "./codex-adapter-diagnostics-types.js";
 import type {
   BackendAdapter,
   CurrentTurnIdAwareAdapter,
@@ -71,70 +70,16 @@ import type {
 const TURN_START_ACK_TIMEOUT_MS = 60_000;
 const STDERR_ROUTER_LINE_BUFFER_MAX = 64 * 1024;
 const INITIAL_SKILL_METADATA_REFRESH_TIMEOUT_MS = 5_000;
+const INITIAL_MCP_STATUS_REFRESH_TIMEOUT_MS = 5_000;
 
 export type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "./codex-adapter-utils.js";
 
 type RouterFailureToolName = "write_stdin";
 
-interface CodexSkillChangeDiagnostics {
-  changeId: string;
-  receivedAt: number;
-  sessionId: string;
-  cwd: string | null;
-  currentTurnId: string | null;
-  connected: boolean;
-  initialized: boolean;
-  payloadKeys: string[];
-  payloadHasCauseMetadata: boolean;
-  staleSince: number;
-  action: "marked_stale_without_auto_refresh";
-}
-
 function hasSkillChangeCauseMetadata(payload: Record<string, unknown>): boolean {
   return ["cause", "source", "path", "paths", "root", "roots"].some((key) =>
     Object.prototype.hasOwnProperty.call(payload, key),
   );
-}
-
-export interface CodexAdapterDisconnectDiagnostics {
-  closeId: string;
-  reason: "transport_close" | "process_exit";
-  sessionId: string;
-  capturedAt: number;
-  process: {
-    pid: number;
-    pidAlive: boolean;
-    exitCode: number | null;
-    eofToExitMs: number | null;
-  };
-  adapter: {
-    threadId: string | null;
-    currentTurnId: string | null;
-    model: string | null;
-    cwd: string | null;
-    approvalMode: string | null;
-    sandbox: string | null;
-    connected: boolean;
-    initialized: boolean;
-  };
-  transport: JsonRpcTransportCloseDiagnostics | null;
-  pendingRpcRequests: JsonRpcPendingRequestSummary[];
-  skillRefresh: {
-    inFlightCount: number;
-    inFlight: CodexSkillRefreshDiagnostics[];
-    last: CodexSkillRefreshDiagnostics | null;
-    lastChange: CodexSkillChangeDiagnostics | null;
-    stats: CodexSkillRefreshStats;
-    stale: boolean;
-    staleSince: number | null;
-    retryCount: number;
-  };
-  stderrTail: string | null;
-  resource: {
-    rssMb: number;
-    heapUsedMb: number;
-  };
-  recording: ReturnType<NonNullable<RecorderManager["getActiveRecorderStats"]>> | null;
 }
 
 // ─── Adapter Options ──────────────────────────────────────────────────────────
@@ -222,6 +167,8 @@ export class CodexAdapter
   private _skillRefreshRetryCount = 0;
   private _initialSkillMetadataRefreshPending = false;
   private _initialSkillMetadataRefreshQueued = false;
+  private _initialMcpStatusRefreshPending = false;
+  private _initialMcpStatusRefreshQueued = false;
   skillRefreshStats: CodexSkillRefreshStats = { coalesced: 0, deferred: 0, executed: 0, failed: 0, suppressed: 0 };
 
   private itemEventManager: CodexItemEventManager;
@@ -508,6 +455,11 @@ export class CodexAdapter
     this.queueInitialSkillMetadataRefresh();
   }
 
+  private drainPendingInitialMcpStatusRefresh(): void {
+    if (!this._initialMcpStatusRefreshPending) return;
+    this.queueInitialMcpStatusRefresh();
+  }
+
   _clearSkillRefreshTimer(): void {
     // Retained for disconnect cleanup/test compatibility after removing the
     // coalesced automatic refresh timer.
@@ -530,6 +482,43 @@ export class CodexAdapter
   private scheduleInitialSkillMetadataRefresh(): void {
     this._initialSkillMetadataRefreshPending = true;
     this.queueInitialSkillMetadataRefresh();
+  }
+
+  private scheduleInitialMcpStatusRefresh(): void {
+    this._initialMcpStatusRefreshPending = true;
+    this.queueInitialMcpStatusRefresh();
+  }
+
+  private queueInitialMcpStatusRefresh(): void {
+    if (this._initialMcpStatusRefreshQueued) return;
+    this._initialMcpStatusRefreshQueued = true;
+    this.enqueueOutgoingDispatch("initial_mcp_status_refresh", async () => {
+      this._initialMcpStatusRefreshQueued = false;
+      if (!this._initialMcpStatusRefreshPending) return;
+      if (!this.connected || this.initFailed) {
+        this._initialMcpStatusRefreshPending = false;
+        return;
+      }
+      if (this.pendingOutgoing.length > 0) {
+        console.log(
+          `[codex-adapter] Deferring initial MCP tool status refresh for session ${this.sessionId}; ${this.pendingOutgoing.length} outgoing message(s) are queued`,
+        );
+        return;
+      }
+      if (this.currentTurnId) {
+        console.log(
+          `[codex-adapter] Deferring initial MCP tool status refresh for session ${this.sessionId}; turn ${this.currentTurnId} is active`,
+        );
+        return;
+      }
+      this._initialMcpStatusRefreshPending = false;
+      try {
+        await this.mcpManager.handleGetStatus(INITIAL_MCP_STATUS_REFRESH_TIMEOUT_MS);
+      } catch (err) {
+        if (!this.connected) return;
+        console.warn(`[codex-adapter] Initial MCP tool status refresh failed for session ${this.sessionId}:`, err);
+      }
+    });
   }
 
   private queueInitialSkillMetadataRefresh(): void {
@@ -992,6 +981,7 @@ export class CodexAdapter
         for (const msg of queued) {
           this.dispatchOutgoing(msg);
         }
+        this.drainPendingInitialMcpStatusRefresh();
       }
 
       this.scheduleInitialSkillMetadataRefresh();
@@ -1329,6 +1319,7 @@ export class CodexAdapter
       this.currentTurnId = null;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
       this.drainPendingInitialSkillMetadataRefresh();
+      this.drainPendingInitialMcpStatusRefresh();
       if (this.emitCompletedResultForHandledWriteStdinRouterError(expectedTurnId)) {
         return true;
       }
@@ -1400,6 +1391,7 @@ export class CodexAdapter
           );
           this.currentTurnId = null;
           this.drainPendingInitialSkillMetadataRefresh();
+          this.drainPendingInitialMcpStatusRefresh();
         }
         resolve();
       }, TIMEOUT_MS);
@@ -1515,6 +1507,7 @@ export class CodexAdapter
           break;
         case "mcpServer/startupStatus/updated":
           this.mcpManager.handleStartupStatusUpdated(params);
+          this.scheduleInitialMcpStatusRefresh();
           break;
         case "codex/event/stream_error": {
           const msg = params.msg as { message?: string } | undefined;
@@ -1592,6 +1585,7 @@ export class CodexAdapter
       this.currentTurnId = null;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
       this.drainPendingInitialSkillMetadataRefresh();
+      this.drainPendingInitialMcpStatusRefresh();
       if (this.emitCompletedResultForHandledWriteStdinRouterError(staleTurnId)) {
         return;
       }
@@ -1623,6 +1617,7 @@ export class CodexAdapter
     // Wake any callers waiting for the turn to end (e.g. interruptAndWaitForTurnEnd)
     for (const resolve of this.turnEndResolvers.splice(0)) resolve();
     this.drainPendingInitialSkillMetadataRefresh();
+    this.drainPendingInitialMcpStatusRefresh();
 
     if (turnId && this.suppressedTurnResultIds.delete(turnId)) {
       this.handledWriteStdinRouterErrorByTurnId.delete(turnId);

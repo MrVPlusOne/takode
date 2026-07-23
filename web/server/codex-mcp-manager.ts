@@ -121,10 +121,10 @@ export class CodexMcpManager {
     }
   }
 
-  async handleGetStatus(): Promise<void> {
+  async handleGetStatus(timeoutMs?: number): Promise<void> {
     try {
-      const statusEntries = await this.listAllMcpServerStatuses();
-      const configMap = await this.readMcpServersConfig();
+      const statusEntries = await this.listAllMcpServerStatuses(timeoutMs);
+      const configMap = await this.readMcpServersConfig(timeoutMs);
 
       const names = new Set<string>([
         ...statusEntries.map((s) => s.name),
@@ -225,16 +225,20 @@ export class CodexMcpManager {
     }
   }
 
-  private async listAllMcpServerStatuses(): Promise<CodexMcpServerStatus[]> {
+  private async listAllMcpServerStatuses(timeoutMs?: number): Promise<CodexMcpServerStatus[]> {
     const out: CodexMcpServerStatus[] = [];
     let cursor: string | null = null;
     let page = 0;
 
     while (page < 50) {
-      const response = (await this.transport.call("mcpServerStatus/list", {
-        cursor,
-        limit: 100,
-      })) as CodexMcpStatusListResponse;
+      const response = (await this.transport.call(
+        "mcpServerStatus/list",
+        {
+          cursor,
+          limit: 100,
+        },
+        timeoutMs,
+      )) as CodexMcpStatusListResponse;
       if (Array.isArray(response.data)) {
         out.push(...response.data);
       }
@@ -246,8 +250,8 @@ export class CodexMcpManager {
     return out;
   }
 
-  private async readMcpServersConfig(): Promise<Record<string, unknown>> {
-    const response = (await this.transport.call("config/read", {})) as {
+  private async readMcpServersConfig(timeoutMs?: number): Promise<Record<string, unknown>> {
+    const response = (await this.transport.call("config/read", {}, timeoutMs)) as {
       config?: Record<string, unknown>;
     };
     const config = asRecord(response?.config) || {};

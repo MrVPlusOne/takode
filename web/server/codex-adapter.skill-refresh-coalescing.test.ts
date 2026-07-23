@@ -102,6 +102,16 @@ function emitSkillsChanged(stdout: MockReadableStream) {
   );
 }
 
+function emitMcpStartupReady(stdout: MockReadableStream, name = "takode_delegate") {
+  stdout.push(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      method: "mcpServer/startupStatus/updated",
+      params: { name, status: "ready", error: null },
+    }) + "\n",
+  );
+}
+
 describe("CodexAdapter skill change suppression", () => {
   let proc: ReturnType<typeof createMockProcess>["proc"];
   let stdin: MockWritableStream;
@@ -261,6 +271,91 @@ describe("CodexAdapter skill change suppression", () => {
         skills_change_count: 1,
       }),
     );
+  });
+
+  it("refreshes MCP tool status after startup readiness so connected servers expose their tools", async () => {
+    stdin.chunks = [];
+    messages.length = 0;
+
+    emitMcpStartupReady(stdout);
+    await tick();
+
+    const statusReq = parseWrittenJsonLines(stdin.chunks).find((l) => l.method === "mcpServerStatus/list");
+    expect(statusReq).toBeDefined();
+    stdout.push(
+      JSON.stringify({
+        id: statusReq.id,
+        result: {
+          data: [
+            {
+              name: "takode_delegate",
+              authStatus: "loggedIn",
+              tools: {
+                delegate_command: {
+                  name: "delegate_command",
+                  annotations: { destructiveHint: true, openWorldHint: false },
+                },
+              },
+            },
+          ],
+          nextCursor: null,
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const configReq = parseWrittenJsonLines(stdin.chunks).find((l) => l.method === "config/read");
+    expect(configReq).toBeDefined();
+    stdout.push(
+      JSON.stringify({
+        id: configReq.id,
+        result: {
+          config: {
+            mcp_servers: {
+              takode_delegate: { command: "bun", args: ["takode-delegate-mcp.ts"], enabled: true },
+            },
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    expect(parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "config/mcpServer/reload")).toHaveLength(0);
+    const status = messages.filter((msg) => msg.type === "mcp_status").at(-1) as
+      | Extract<BrowserIncomingMessage, { type: "mcp_status" }>
+      | undefined;
+    expect(status?.servers).toEqual([
+      expect.objectContaining({
+        name: "takode_delegate",
+        status: "connected",
+        tools: [
+          {
+            name: "delegate_command",
+            annotations: { destructive: true, openWorld: false, readOnly: false },
+          },
+        ],
+      }),
+    ]);
+  });
+
+  it("defers startup MCP tool status refresh while a turn is active", async () => {
+    await startActiveTurn(adapter, stdin, stdout, "turn_mcp_active");
+    stdin.chunks = [];
+
+    emitMcpStartupReady(stdout);
+    await tick();
+    expect(parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "mcpServerStatus/list")).toHaveLength(0);
+
+    stdout.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/completed",
+        params: { turn: { id: "turn_mcp_active", status: "completed" }, thread: { id: "thr_123" } },
+      }) + "\n",
+    );
+    await tick();
+
+    expect(parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "mcpServerStatus/list")).toHaveLength(1);
   });
 });
 
