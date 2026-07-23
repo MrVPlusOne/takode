@@ -1566,7 +1566,6 @@ describe("ChatView leader open thread tabs", () => {
 
     await waitFor(() => expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1648"));
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
-    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1648");
     expect(mockSendToSession).toHaveBeenCalledTimes(1);
 
     fireEvent.click(scope.getByTestId("mock-workboard-main"));
