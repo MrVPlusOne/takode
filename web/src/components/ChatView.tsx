@@ -54,7 +54,7 @@ import {
   mergeLeaderThreadSummaries,
 } from "../../shared/leader-projection.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
-import { useLeaderThreadAutoSwitch } from "./leader-thread-auto-switch.js";
+import { useLeaderThreadTabSurfacing } from "./leader-thread-tab-surfacing.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 import {
   persistLeaderSelectedThreadKey,
@@ -1284,7 +1284,6 @@ export function ChatView({
     },
     [authoritativeLeaderOpenThreadTabs, sendLeaderThreadTabUpdate],
   );
-  const lastManualThreadSelectionAtRef = useRef(0);
   const locallySelectedRouteThreadKeyRef = useRef<string | null>(null);
   const lastProcessedRouteThreadKeyRef = useRef<string | null>(null);
   const promotedNeedsInputTabEventsRef = useRef<Map<string, number>>(new Map());
@@ -1293,7 +1292,6 @@ export function ChatView({
   const handleSelectThread = useCallback(
     (threadKey: string) => {
       const nextThreadKey = normalizeThreadKey(threadKey || MAIN_THREAD_KEY);
-      lastManualThreadSelectionAtRef.current = Date.now();
       openThreadTab(nextThreadKey);
       if (isLeaderSession && !preview) {
         persistLeaderSelectedThreadKey(sessionId, nextThreadKey);
@@ -1338,7 +1336,6 @@ export function ChatView({
     promotedNeedsInputTabEventsRef.current.clear();
     initializedActiveBoardThreadKeysRef.current = false;
     observedActiveBoardThreadKeysRef.current = new Set();
-    lastManualThreadSelectionAtRef.current = 0;
   }, [sessionId]);
 
   useEffect(() => {
@@ -1568,23 +1565,19 @@ export function ChatView({
     openThreadTab,
   ]);
 
-  useLeaderThreadAutoSwitch({
+  useLeaderThreadTabSurfacing({
     allMessages,
     transitionMessages: allRawMessages,
     authoritativeLeaderOpenThreadTabs,
-    hasThreadRoute,
     historyLoading,
     isLeaderSession,
-    lastManualThreadSelectionAtRef,
     navigationThreadRows,
     openThreadTab,
     openThreadTabKeys,
     preview,
     questStatusByKey,
-    routeThreadKey,
     selectedThreadKey,
     sessionId,
-    setSelectedThreadKey,
   });
 
   // Within-session search

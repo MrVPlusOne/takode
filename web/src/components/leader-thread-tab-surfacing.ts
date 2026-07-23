@@ -1,7 +1,6 @@
-import { useEffect, useRef, type MutableRefObject } from "react";
+import { useEffect, useRef } from "react";
 import { canServerCandidateOpenThread, type LeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
 import type { ChatMessage } from "../types.js";
-import { navigateToSessionThread } from "../utils/routing.js";
 import {
   ALL_THREADS_KEY,
   MAIN_THREAD_KEY,
@@ -9,7 +8,6 @@ import {
   isThreadTransitionMarkerMessage,
   normalizeThreadKey,
 } from "../utils/thread-projection.js";
-import { persistLeaderSelectedThreadKey, requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
 import { shouldPersistOpenThreadTab } from "../utils/leader-open-thread-tabs.js";
 import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js";
 
@@ -23,7 +21,7 @@ type OpenThreadTab = (
   },
 ) => void;
 
-type LeaderThreadAutoSwitchRow = {
+type LeaderThreadTabSurfacingRow = {
   threadKey: string;
   status?: string;
   boardStatus?: string;
@@ -31,40 +29,32 @@ type LeaderThreadAutoSwitchRow = {
   section?: string;
 };
 
-export function useLeaderThreadAutoSwitch({
+export function useLeaderThreadTabSurfacing({
   allMessages,
   transitionMessages = allMessages,
   authoritativeLeaderOpenThreadTabs,
-  hasThreadRoute,
   historyLoading,
   isLeaderSession,
-  lastManualThreadSelectionAtRef,
   navigationThreadRows,
   openThreadTab,
   openThreadTabKeys,
   preview,
   questStatusByKey,
-  routeThreadKey,
   selectedThreadKey,
   sessionId,
-  setSelectedThreadKey,
 }: {
   allMessages: ChatMessage[];
   transitionMessages?: ChatMessage[];
   authoritativeLeaderOpenThreadTabs: LeaderOpenThreadTabsState | undefined;
-  hasThreadRoute?: boolean;
   historyLoading: boolean;
   isLeaderSession: boolean;
-  lastManualThreadSelectionAtRef: MutableRefObject<number>;
-  navigationThreadRows: ReadonlyArray<LeaderThreadAutoSwitchRow>;
+  navigationThreadRows: ReadonlyArray<LeaderThreadTabSurfacingRow>;
   openThreadTab: OpenThreadTab;
   openThreadTabKeys: ReadonlyArray<string>;
   preview: boolean;
   questStatusByKey: ReadonlyMap<string, string | undefined>;
-  routeThreadKey?: string | null;
   selectedThreadKey: string;
   sessionId: string;
-  setSelectedThreadKey: (threadKey: string) => void;
 }) {
   const initializedAttachmentMarkerKeysRef = useRef(false);
   const baselineAttachmentMarkersAfterHistoryLoadRef = useRef(false);
@@ -147,13 +137,7 @@ export function useLeaderThreadAutoSwitch({
 
     const transitionMarkersToProcess = carriedLiveMarkers.length > 0 ? carriedLiveMarkers : unseenMarkers;
     const seenTransitionTargetKeys = new Set(observedTransitionTargetKeysRef.current);
-    let nextSelectedThreadKey: string | null = null;
     const selectedThread = normalizeThreadKey(selectedThreadKey || MAIN_THREAD_KEY);
-    const routeAllowsAutoSelect = routeAllowsAutoSelectFromSelectedSource({
-      hasThreadRoute,
-      routeThreadKey,
-      selectedThread,
-    });
 
     for (const message of transitionMarkersToProcess) {
       const marker = message.metadata?.threadTransitionMarker;
@@ -164,7 +148,7 @@ export function useLeaderThreadAutoSwitch({
       seenTransitionTargetKeys.add(targetThreadKey);
       if (marker.targetThreadFreshness !== "new_quest_thread") continue;
       const sourceThreadKey = normalizeThreadKey(marker.sourceThreadKey || marker.sourceQuestId || "");
-      if (!transitionSourceCanAutoSwitch(sourceThreadKey)) continue;
+      if (!transitionSourceCanSurfaceTab(sourceThreadKey)) continue;
       const sourceStillSelected = sourceThreadKey === selectedThread;
       if (!sourceStillSelected) continue;
       const transitionedAt = marker.transitionedAt || marker.timestamp;
@@ -180,11 +164,6 @@ export function useLeaderThreadAutoSwitch({
       if (!wasOpen && canOpenCandidate) {
         openThreadTab(targetThreadKey, { intent: "server_candidate", eventAt: transitionedAt, placement: "first" });
       }
-
-      const manualNavigationAfterTransition = lastManualThreadSelectionAtRef.current > transitionedAt;
-      if (!nextSelectedThreadKey && routeAllowsAutoSelect && canOpenCandidate && !manualNavigationAfterTransition) {
-        nextSelectedThreadKey = targetThreadKey;
-      }
     }
 
     observedTransitionMarkerKeysRef.current = currentMarkerKeys;
@@ -192,26 +171,18 @@ export function useLeaderThreadAutoSwitch({
     initializedTransitionMarkerKeysRef.current = true;
     baselineTransitionMarkersAfterHistoryLoadRef.current = false;
     liveTransitionMarkerKeysDuringHistoryLoadRef.current = new Set();
-
-    if (nextSelectedThreadKey && nextSelectedThreadKey !== selectedThread) {
-      selectThreadFromMarker({ sessionId, preview, setSelectedThreadKey, threadKey: nextSelectedThreadKey });
-    }
   }, [
     allMessages,
     authoritativeLeaderOpenThreadTabs,
-    hasThreadRoute,
     historyLoading,
     isLeaderSession,
-    lastManualThreadSelectionAtRef,
     navigationThreadRows,
     openThreadTab,
     openThreadTabKeys,
     preview,
     questStatusByKey,
-    routeThreadKey,
     selectedThreadKey,
     sessionId,
-    setSelectedThreadKey,
     transitionMessages,
   ]);
 
@@ -246,14 +217,6 @@ export function useLeaderThreadAutoSwitch({
       return;
     }
 
-    let nextSelectedThreadKey: string | null = null;
-    const selectedThread = normalizeThreadKey(selectedThreadKey || MAIN_THREAD_KEY);
-    const routeAllowsAutoSelect = routeAllowsAutoSelectFromSelectedSource({
-      hasThreadRoute,
-      routeThreadKey,
-      selectedThread,
-    });
-
     for (const message of unseenMarkers) {
       const marker = message.metadata?.threadAttachmentMarker;
       if (!marker) continue;
@@ -285,82 +248,24 @@ export function useLeaderThreadAutoSwitch({
           repositionExisting: true,
         });
       }
-
-      const manualNavigationAfterAttachment = lastManualThreadSelectionAtRef.current > marker.attachedAt;
-      const sourceStillSelected = markerSourceMatchesSelectedThread(marker, selectedThread);
-      const targetAvailableForAutoSelect = wasOpen || canOpenCandidate;
-      if (
-        !nextSelectedThreadKey &&
-        sourceStillSelected &&
-        routeAllowsAutoSelect &&
-        targetAvailableForAutoSelect &&
-        !manualNavigationAfterAttachment &&
-        markerMovesNewestUserMessage(marker, allMessages)
-      ) {
-        nextSelectedThreadKey = targetThreadKey;
-      }
     }
 
     observedAttachmentMarkerKeysRef.current = currentMarkerKeys;
-
-    if (nextSelectedThreadKey && nextSelectedThreadKey !== selectedThread) {
-      selectThreadFromMarker({ sessionId, preview, setSelectedThreadKey, threadKey: nextSelectedThreadKey });
-    }
   }, [
     allMessages,
     authoritativeLeaderOpenThreadTabs,
-    hasThreadRoute,
     historyLoading,
     isLeaderSession,
-    lastManualThreadSelectionAtRef,
     navigationThreadRows,
     openThreadTab,
     openThreadTabKeys,
     preview,
     questStatusByKey,
-    routeThreadKey,
-    selectedThreadKey,
     sessionId,
-    setSelectedThreadKey,
   ]);
 }
 
-function selectThreadFromMarker({
-  preview,
-  sessionId,
-  setSelectedThreadKey,
-  threadKey,
-}: {
-  preview: boolean;
-  sessionId: string;
-  setSelectedThreadKey: (threadKey: string) => void;
-  threadKey: string;
-}) {
-  requestThreadViewportSnapshot(sessionId);
-  if (!preview) {
-    persistLeaderSelectedThreadKey(sessionId, threadKey);
-  }
-  setSelectedThreadKey(threadKey);
-  if (!preview) {
-    navigateToSessionThread(sessionId, threadKey);
-  }
-}
-
-function routeAllowsAutoSelectFromSelectedSource({
-  hasThreadRoute,
-  routeThreadKey,
-  selectedThread,
-}: {
-  hasThreadRoute?: boolean;
-  routeThreadKey?: string | null;
-  selectedThread: string;
-}): boolean {
-  const hasSpecificRouteThread =
-    hasThreadRoute === true && routeThreadKey !== null && routeThreadKey !== undefined && routeThreadKey !== "";
-  return !hasSpecificRouteThread || normalizeThreadKey(routeThreadKey ?? "") === selectedThread;
-}
-
-function transitionSourceCanAutoSwitch(sourceThreadKey: string): boolean {
+function transitionSourceCanSurfaceTab(sourceThreadKey: string): boolean {
   const normalized = normalizeThreadKey(sourceThreadKey);
   if (!normalized || normalized === ALL_THREADS_KEY) return false;
   return normalized === MAIN_THREAD_KEY || shouldPersistOpenThreadTab(normalized);
@@ -397,47 +302,6 @@ function threadAttachmentMarkerKey(message: ChatMessage): string | null {
   return marker.markerKey || marker.id || message.id;
 }
 
-function markerIncludesMessage(
-  marker: NonNullable<ChatMessage["metadata"]>["threadAttachmentMarker"],
-  message: ChatMessage,
-): boolean {
-  if (!marker) return false;
-  if (marker.messageIds.includes(message.id)) return true;
-  return typeof message.historyIndex === "number" && marker.messageIndices.includes(message.historyIndex);
-}
-
-function newestUserAuthoredMessage(messages: ChatMessage[]): ChatMessage | null {
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index];
-    if (message?.role === "user") return message;
-  }
-  return null;
-}
-
-function markerMovesNewestUserMessage(
-  marker: NonNullable<ChatMessage["metadata"]>["threadAttachmentMarker"],
-  messages: ChatMessage[],
-): boolean {
-  const newestUserMessage = newestUserAuthoredMessage(messages);
-  return !!newestUserMessage && markerIncludesMessage(marker, newestUserMessage);
-}
-
-function markerSourceThreadKey(marker: NonNullable<ChatMessage["metadata"]>["threadAttachmentMarker"]): string | null {
-  if (!marker) return null;
-  const sourceThreadKey = normalizeThreadKey(marker.sourceThreadKey || marker.sourceQuestId || "");
-  return sourceThreadKey || null;
-}
-
-function markerSourceMatchesSelectedThread(
-  marker: NonNullable<ChatMessage["metadata"]>["threadAttachmentMarker"],
-  selectedThreadKey: string,
-): boolean {
-  const selectedThread = normalizeThreadKey(selectedThreadKey || MAIN_THREAD_KEY);
-  const sourceThreadKey = markerSourceThreadKey(marker);
-  if (sourceThreadKey) return sourceThreadKey === selectedThread;
-  return selectedThread === MAIN_THREAD_KEY;
-}
-
 function leaderThreadTargetIsCompleted({
   threadKey,
   questStatusByKey,
@@ -445,7 +309,7 @@ function leaderThreadTargetIsCompleted({
 }: {
   threadKey: string;
   questStatusByKey: ReadonlyMap<string, string | undefined>;
-  rows: ReadonlyArray<LeaderThreadAutoSwitchRow>;
+  rows: ReadonlyArray<LeaderThreadTabSurfacingRow>;
 }): boolean {
   const normalized = normalizeThreadKey(threadKey);
   if (isCompletedJourneyPresentationStatus(questStatusByKey.get(normalized))) return true;
@@ -459,7 +323,7 @@ function leaderThreadTargetHasExplicitCompletion({
 }: {
   threadKey: string;
   questStatusByKey: ReadonlyMap<string, string | undefined>;
-  rows: ReadonlyArray<LeaderThreadAutoSwitchRow>;
+  rows: ReadonlyArray<LeaderThreadTabSurfacingRow>;
 }): boolean {
   const normalized = normalizeThreadKey(threadKey);
   if (isCompletedJourneyPresentationStatus(questStatusByKey.get(normalized))) return true;
@@ -467,7 +331,7 @@ function leaderThreadTargetHasExplicitCompletion({
   return !!row && questOrBoardRowIsCompleted(row.status, row.boardStatus, row.boardRow?.completedAt);
 }
 
-function leaderThreadRowIsCompleted(row?: LeaderThreadAutoSwitchRow): boolean {
+function leaderThreadRowIsCompleted(row?: LeaderThreadTabSurfacingRow): boolean {
   if (!row) return false;
   if (questOrBoardRowIsCompleted(row.status, row.boardStatus, row.boardRow?.completedAt)) return true;
   const hasExplicitStatus =
