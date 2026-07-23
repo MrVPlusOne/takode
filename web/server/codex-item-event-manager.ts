@@ -63,6 +63,9 @@ export class CodexItemEventManager {
   private terminalInteractionByProcessId = new Map<string, TerminalInteractionToolUse>();
   private failedTerminalRouterErrorKeys = new Set<string>();
   private patchChangesByCallId = new Map<string, ToolFileChange[]>();
+  private rawExecCommandByCallId = new Map<string, string>();
+  private rawExecOutputByCallId = new Map<string, string>();
+  private rawExecOutputsByCommand = new Map<string, string[]>();
   private parentToolUseIdByThreadId = new Map<string, string>();
   private parentToolUseIdByItemId = new Map<string, string | null>();
   private pendingSubagentToolUsesByCallId = new Map<string, PendingSubagentToolUse>();
@@ -88,6 +91,9 @@ export class CodexItemEventManager {
     this.terminalInteractionByProcessId.clear();
     this.failedTerminalRouterErrorKeys.clear();
     this.patchChangesByCallId.clear();
+    this.rawExecCommandByCallId.clear();
+    this.rawExecOutputByCallId.clear();
+    this.rawExecOutputsByCommand.clear();
     this.parentToolUseIdByThreadId.clear();
     this.parentToolUseIdByItemId.clear();
     this.pendingSubagentToolUsesByCallId.clear();
@@ -351,6 +357,10 @@ export class CodexItemEventManager {
     if (!item) return;
 
     const itemType = toSafeText(item.type).trim().toLowerCase();
+    if (this.handleRawExecItemCompleted(item, itemType)) {
+      return;
+    }
+
     if (itemType === "web_search_call") {
       this.handleRawWebSearchCompleted(params, item);
       return;
@@ -470,6 +480,7 @@ export class CodexItemEventManager {
         } else if (exitCode !== 0) {
           resultText = `${resultText}\nExit code: ${exitCode}`;
         }
+        resultText = this.takeFullerRawExecOutput(commandStr, resultText) ?? resultText;
         if (durationMs !== undefined && durationMs >= 100) {
           const durationStr = durationMs >= 1000 ? `${(durationMs / 1000).toFixed(1)}s` : `${durationMs}ms`;
           resultText = `${resultText}\n(${durationStr})`;
@@ -1125,6 +1136,71 @@ export class CodexItemEventManager {
     this.emitToolResult(toolUseId, content, isError, parentToolUseId);
   }
 
+  private handleRawExecItemCompleted(item: Record<string, unknown>, itemType: string): boolean {
+    if (itemType === "custom_tool_call") {
+      const toolName = toSafeText(item.name).trim();
+      if (toolName !== "exec") return false;
+
+      const callId = toSafeText(item.call_id ?? item.callId).trim();
+      const command = extractRawExecCommand(item.input ?? item.arguments);
+      if (!callId || !command) return true;
+
+      this.rawExecCommandByCallId.set(callId, command);
+      pruneOldestMapEntries(this.rawExecCommandByCallId, 50);
+      const existingOutput = this.rawExecOutputByCallId.get(callId);
+      if (existingOutput) {
+        this.queueRawExecOutput(command, existingOutput);
+        this.rawExecOutputByCallId.delete(callId);
+      }
+      return true;
+    }
+
+    if (itemType !== "custom_tool_call_output" && itemType !== "function_call_output") return false;
+
+    const callId = toSafeText(item.call_id ?? item.callId).trim();
+    const output = stripCodexScriptCompletedPreamble(
+      extractRawToolOutputText(item.output ?? item.content ?? item.result),
+    );
+    if (!callId || !output.trim()) return true;
+
+    const command = this.rawExecCommandByCallId.get(callId);
+    if (command) {
+      this.queueRawExecOutput(command, output);
+      this.rawExecOutputByCallId.delete(callId);
+    } else {
+      this.rawExecOutputByCallId.set(callId, output);
+      pruneOldestMapEntries(this.rawExecOutputByCallId, 50);
+    }
+    return true;
+  }
+
+  private queueRawExecOutput(command: string, output: string): void {
+    const normalizedCommand = normalizeRawExecCommand(command);
+    if (!normalizedCommand || !output.trim()) return;
+
+    const existing = this.rawExecOutputsByCommand.get(normalizedCommand) ?? [];
+    existing.push(output.trimEnd());
+    this.rawExecOutputsByCommand.set(normalizedCommand, existing.slice(-5));
+  }
+
+  private takeFullerRawExecOutput(command: string, currentOutput: string): string | null {
+    const normalizedCommand = normalizeRawExecCommand(command);
+    const candidates = this.rawExecOutputsByCommand.get(normalizedCommand);
+    if (!candidates || candidates.length === 0) return null;
+
+    const current = currentOutput.trim();
+    const index = candidates.findIndex((candidate) => shouldPreferRawExecOutput(candidate, current));
+    if (index < 0) return null;
+
+    const [fuller] = candidates.splice(index, 1);
+    if (candidates.length === 0) {
+      this.rawExecOutputsByCommand.delete(normalizedCommand);
+    } else {
+      this.rawExecOutputsByCommand.set(normalizedCommand, candidates);
+    }
+    return fuller ?? null;
+  }
+
   private mergeToolUseInput(
     previous: Record<string, unknown>,
     incoming: Record<string, unknown>,
@@ -1250,5 +1326,68 @@ export class CodexItemEventManager {
     }
 
     return collected.join("");
+  }
+}
+
+function extractRawExecCommand(input: unknown): string {
+  if (input && typeof input === "object") {
+    const obj = input as Record<string, unknown>;
+    const cmd = obj.cmd ?? obj.command;
+    if (typeof cmd === "string") return normalizeRawExecCommand(cmd);
+  }
+
+  if (typeof input !== "string") return "";
+  const match = input.match(/\bcmd\s*:\s*("(?:(?:\\.)|[^"\\])*")/s);
+  if (!match?.[1]) return "";
+
+  try {
+    return normalizeRawExecCommand(JSON.parse(match[1]));
+  } catch {
+    return "";
+  }
+}
+
+function normalizeRawExecCommand(command: string): string {
+  return command
+    .trim()
+    .replace(/^#\s*thread:(?:main|q-\d+)\s*\n\s*/i, "")
+    .trim();
+}
+
+function extractRawToolOutputText(output: unknown): string {
+  if (typeof output === "string") return output;
+  if (Array.isArray(output)) {
+    return output
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (!part || typeof part !== "object") return "";
+        const obj = part as Record<string, unknown>;
+        return toSafeText(obj.text ?? obj.content ?? obj.output);
+      })
+      .join("");
+  }
+  if (output && typeof output === "object") {
+    const obj = output as Record<string, unknown>;
+    return toSafeText(obj.text ?? obj.content ?? obj.output);
+  }
+  return "";
+}
+
+function stripCodexScriptCompletedPreamble(output: string): string {
+  return output.replace(/^Script completed\nWall time [^\n]*\nOutput:\n?/i, "");
+}
+
+function shouldPreferRawExecOutput(candidate: string, currentOutput: string): boolean {
+  const full = candidate.trim();
+  if (!full || full.length <= currentOutput.length) return false;
+  if (!currentOutput) return true;
+  return full.includes(currentOutput);
+}
+
+function pruneOldestMapEntries<K, V>(map: Map<K, V>, maxSize: number): void {
+  while (map.size > maxSize) {
+    const oldest = map.keys().next();
+    if (oldest.done) return;
+    map.delete(oldest.value);
   }
 }

@@ -291,6 +291,94 @@ describe("CodexAdapter", () => {
     expect(toolResultMsg).toBeDefined();
   });
 
+  it("prefers fuller raw exec output over trailing commandExecution output for multiline Bash", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await initializeAdapter(stdout);
+
+    const command = "takode peek 2177 --turn 68\ntakode info 2177";
+    const rawCommand = `// thread:q-1632
+const out = await tools.exec_command({
+  cmd: ${JSON.stringify(`# thread:q-1632\n\n${command}`)},
+  workdir: "/Users/jiayiwei/.companion/worktrees/yolo/main-wt-5892",
+  max_output_tokens: 40000
+});
+text(out.output);`;
+
+    stdout.push(
+      JSON.stringify({
+        method: "rawResponseItem/completed",
+        params: {
+          item: {
+            type: "custom_tool_call",
+            name: "exec",
+            call_id: "call_multiline_exec",
+            input: rawCommand,
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    stdout.push(
+      JSON.stringify({
+        method: "rawResponseItem/completed",
+        params: {
+          item: {
+            type: "custom_tool_call_output",
+            call_id: "call_multiline_exec",
+            output: [
+              {
+                type: "input_text",
+                text:
+                  "Script completed\nWall time 0.3 seconds\nOutput:\n" +
+                  'Session #2177 "Prepare QA source/cache bridge" -- idle\n' +
+                  "Messages [5832]-[5897] of [0]-[5897]\n" +
+                  "peek output from the first command\n" +
+                  "#2177 Prepare QA source/cache bridge -- connected\n" +
+                  "info output from the trailing command",
+              },
+            ],
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    stdout.push(
+      JSON.stringify({
+        method: "item/completed",
+        params: {
+          item: {
+            type: "commandExecution",
+            id: "exec-multiline",
+            command,
+            status: "completed",
+            exitCode: 0,
+            stdout: "#2177 Prepare QA source/cache bridge -- connected\n" + "info output from the trailing command",
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const resultBlocks = messages.flatMap((message) => {
+      if (message.type !== "assistant") return [];
+      return message.message.content.filter(
+        (block): block is Extract<(typeof message.message.content)[number], { type: "tool_result" }> =>
+          block.type === "tool_result" && block.tool_use_id === "exec-multiline",
+      );
+    });
+
+    expect(resultBlocks).toHaveLength(1);
+    expect(resultBlocks[0].content).toContain("Messages [5832]-[5897]");
+    expect(resultBlocks[0].content).toContain("peek output from the first command");
+    expect(resultBlocks[0].content).toContain("info output from the trailing command");
+    expect(resultBlocks[0].content).not.toContain("Script completed");
+  });
+
   it("handles string command in approval request (Codex format)", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
