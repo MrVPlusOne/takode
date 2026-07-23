@@ -472,6 +472,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         permissionMode: initialModeState.permissionMode,
         askPermission: initialModeState.askPermission,
         memorySessionSpaceSlug,
+        isOrchestrator,
       };
       return {
         launchOptions,
@@ -802,6 +803,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       worktreeInfo,
       extraInstructions: orchestratorGuardrails,
       memorySessionSpaceSlug,
+      isOrchestrator,
     };
 
     return {

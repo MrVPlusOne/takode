@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerSessionDelegateRoutes } from "./routes/session-delegate-routes.js";
 import type { SessionState } from "./session-types.js";
 
@@ -32,6 +32,10 @@ function makeState(overrides: Partial<SessionState> = {}): SessionState {
 }
 
 describe("delegate command routes", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("forks a Codex leader into a hidden child and returns compact summary plus session link", async () => {
     const sentToChild: unknown[] = [];
     const childOrder: string[] = [];
@@ -69,8 +73,11 @@ describe("delegate command routes", () => {
       id: "child",
       state: makeState({ session_id: "child", backend_type: "codex" }),
       codexAdapter: childAdapter,
+      isGenerating: false,
+      messageHistory: [],
     });
 
+    const guardrails = "leader guardrails";
     const launcher = {
       getSession: vi.fn((id: string) =>
         id === "parent"
@@ -89,16 +96,29 @@ describe("delegate command routes", () => {
               isOrchestrator: true,
             }
           : id === "child"
-            ? { sessionId: "child", backendType: "codex", cwd: "/repo", model: "gpt-5.5", hidden: true }
+            ? {
+                sessionId: "child",
+                backendType: "codex",
+                cwd: "/repo",
+                model: "gpt-5.5",
+                hidden: true,
+                isOrchestrator: true,
+              }
             : null,
       ),
+      getPort: vi.fn(() => 3456),
+      getOrchestratorGuardrails: vi.fn(() => guardrails),
       launch: vi.fn(async (options: Record<string, unknown>) => {
         expect(options).toMatchObject({
           backendType: "codex",
           resumeCliSessionId: "forked-thread",
           hidden: true,
           parentSessionId: "parent",
+          extraInstructions: guardrails,
+          isOrchestrator: true,
           env: {
+            TAKODE_ROLE: "orchestrator",
+            TAKODE_API_PORT: "3456",
             TAKODE_DELEGATE_ROLE: "child",
             TAKODE_DELEGATE_PARENT_SESSION_ID: "parent",
           },
@@ -132,6 +152,7 @@ describe("delegate command routes", () => {
     expect(childOrder).toEqual(["wait", "send"]);
     expect(childAdapter.waitForMcpToolAvailability).toHaveBeenCalledWith("takode_delegate", "end_delegation", 10_000);
     expect(childPrompt.content).toContain("forked command-delegate copy");
+    expect(childPrompt.content).toContain("You may see delegate_command and end_delegation");
     expect(childPrompt.content).toContain("rg -n large-output web");
 
     const delegateId = (sessions.get("child").state as any).delegateChild.delegateId;
@@ -178,6 +199,8 @@ describe("delegate command routes", () => {
       id: "child",
       state: makeState({ session_id: "child", backend_type: "codex" }),
       codexAdapter: childAdapter,
+      isGenerating: false,
+      messageHistory: [],
     });
 
     const launcher = {
@@ -197,6 +220,8 @@ describe("delegate command routes", () => {
             ? { sessionId: "child", backendType: "codex", cwd: "/repo", model: "gpt-5.5", hidden: true }
             : null,
       ),
+      getPort: vi.fn(() => 3456),
+      getOrchestratorGuardrails: vi.fn(() => "leader guardrails"),
       launch: vi.fn(async () => ({ sessionId: "child", hidden: true, parentSessionId: "parent", noAutoName: false })),
       getSessionNum: vi.fn((id: string) => (id === "parent" ? 2220 : id === "child" ? 2266 : undefined)),
     };
@@ -225,5 +250,145 @@ describe("delegate command routes", () => {
     expect(json.childSessionId).toBe("child");
     expect(childAdapter.waitForMcpToolAvailability).toHaveBeenCalledWith("takode_delegate", "end_delegation", 10_000);
     expect(childAdapter.sendBrowserMessage).not.toHaveBeenCalled();
+  });
+
+  it("returns a bounded parent-visible error when the child turn ends without handoff", async () => {
+    vi.useFakeTimers();
+    const childSession = {
+      id: "child",
+      state: makeState({ session_id: "child", backend_type: "codex" }),
+      codexAdapter: {
+        isConnected: () => true,
+        waitForMcpToolAvailability: vi.fn(async () => true),
+        sendBrowserMessage: vi.fn(() => {
+          childSession.isGenerating = false;
+          childSession.messageHistory.push({
+            type: "assistant",
+            message: { content: [{ type: "text", text: "I will run it." }] },
+          });
+          return true;
+        }),
+      },
+      isGenerating: false,
+      messageHistory: [] as unknown[],
+    };
+    const sessions = new Map<string, any>();
+    sessions.set("parent", {
+      id: "parent",
+      state: makeState({ session_id: "parent", backend_type: "codex", isOrchestrator: true }),
+      codexAdapter: {
+        isConnected: () => true,
+        forkThread: vi.fn(async () => "forked-thread"),
+      },
+    });
+    sessions.set("child", childSession);
+    const launcher = {
+      getSession: vi.fn((id: string) =>
+        id === "parent"
+          ? {
+              sessionId: "parent",
+              backendType: "codex",
+              cwd: "/repo",
+              model: "gpt-5.5",
+              permissionMode: "codex-default",
+              askPermission: true,
+              uiMode: "agent",
+              isOrchestrator: true,
+            }
+          : id === "child"
+            ? {
+                sessionId: "child",
+                backendType: "codex",
+                cwd: "/repo",
+                model: "gpt-5.5",
+                hidden: true,
+                isOrchestrator: true,
+              }
+            : null,
+      ),
+      getPort: vi.fn(() => 3456),
+      getOrchestratorGuardrails: vi.fn(() => "leader guardrails"),
+      launch: vi.fn(async () => ({ sessionId: "child", hidden: true, parentSessionId: "parent", noAutoName: false })),
+      getSessionNum: vi.fn((id: string) => (id === "parent" ? 2220 : id === "child" ? 2266 : undefined)),
+    };
+    const wsBridge = {
+      getSession: vi.fn((id: string) => sessions.get(id)),
+      getOrCreateSession: vi.fn((id: string) => sessions.get(id)),
+      persistSessionById: vi.fn(),
+    };
+    const app = new Hono();
+    registerSessionDelegateRoutes(app, {
+      launcher: launcher as any,
+      wsBridge: wsBridge as any,
+      resolveId: (id) => id,
+      authenticateTakodeCaller: () => ({ callerId: "parent" }),
+    });
+
+    const parentRequest = app.request("/sessions/parent/delegates/command", {
+      method: "POST",
+      body: JSON.stringify({ command: "printf ok" }),
+      headers: { "content-type": "application/json" },
+    });
+    await vi.runOnlyPendingTimersAsync();
+
+    const parentResponse = await parentRequest;
+    const parentJson = (await parentResponse.json()) as { text: string; isError: boolean };
+    expect(parentResponse.status).toBe(200);
+    expect(parentJson.isError).toBe(true);
+    expect(parentJson.text).toContain("Delegate command failed.");
+    expect(parentJson.text).toContain("ended before calling end_delegation");
+  });
+
+  it("rejects nested delegate_command calls from hidden delegate children even when the tool is visible", async () => {
+    const sessions = new Map<string, any>();
+    sessions.set("child", {
+      id: "child",
+      state: makeState({ session_id: "child", backend_type: "codex", hidden: true }),
+      codexAdapter: { isConnected: () => true, forkThread: vi.fn() },
+    });
+    const app = new Hono();
+    registerSessionDelegateRoutes(app, {
+      launcher: {
+        getSession: vi.fn(() => ({ sessionId: "child", backendType: "codex", hidden: true, isOrchestrator: true })),
+      } as any,
+      wsBridge: { getSession: vi.fn((id: string) => sessions.get(id)) } as any,
+      resolveId: (id) => id,
+      authenticateTakodeCaller: () => ({ callerId: "child", caller: { isOrchestrator: true } }),
+    });
+
+    const response = await app.request("/sessions/child/delegates/command", {
+      method: "POST",
+      body: JSON.stringify({ command: "printf nested" }),
+      headers: { "content-type": "application/json" },
+    });
+    const json = (await response.json()) as { error: string };
+    expect(response.status).toBe(400);
+    expect(json.error).toContain("hidden delegate sessions");
+  });
+
+  it("rejects end_delegation from non-delegate sessions even when the tool is visible", async () => {
+    const sessions = new Map<string, any>();
+    sessions.set("parent", {
+      id: "parent",
+      state: makeState({ session_id: "parent", backend_type: "codex", hidden: false }),
+    });
+    const app = new Hono();
+    registerSessionDelegateRoutes(app, {
+      launcher: {
+        getSession: vi.fn(() => ({ sessionId: "parent", backendType: "codex", hidden: false, isOrchestrator: true })),
+      } as any,
+      wsBridge: { getSession: vi.fn((id: string) => sessions.get(id)) } as any,
+      resolveId: (id) => id,
+      authenticateTakodeCaller: () => ({ callerId: "parent", caller: { isOrchestrator: true } }),
+    });
+
+    const response = await app.request("/sessions/parent/delegates/end", {
+      method: "POST",
+      body: JSON.stringify({ delegateId: "del_123", summary: "done" }),
+      headers: { "content-type": "application/json" },
+    });
+    const json = (await response.json()) as { error: string };
+    expect(response.status).toBe(400);
+    expect(json.error).toContain("active hidden delegate child");
   });
 });

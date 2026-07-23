@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { COMPANION_AUTH_TOKEN_HEADER, COMPANION_SESSION_ID_HEADER } from "../server/routes/auth.js";
-import { callTakode } from "./takode-delegate-mcp.js";
+import { callTakode, registerTakodeDelegateTools } from "./takode-delegate-mcp.js";
 
 describe("takode delegate MCP bridge", () => {
   const originalEnv = { ...process.env };
@@ -35,6 +35,19 @@ describe("takode delegate MCP bridge", () => {
       [COMPANION_SESSION_ID_HEADER]: "session-abc",
       [COMPANION_AUTH_TOKEN_HEADER]: "token-secret",
     });
+  });
+
+  it("registers the same delegate tool set for parent and forked child sessions", () => {
+    const tools: string[] = [];
+    const server = {
+      registerTool: vi.fn((name: string) => {
+        tools.push(name);
+      }),
+    };
+
+    registerTakodeDelegateTools(server as any, "session-abc");
+
+    expect(tools).toEqual(["delegate_command", "end_delegation"]);
   });
 
   it("falls back to the session Codex config env when the MCP subprocess env is incomplete", async () => {

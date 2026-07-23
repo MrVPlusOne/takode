@@ -4,17 +4,24 @@ import type { CliLauncher } from "../cli-launcher.js";
 import type { WsBridge } from "../ws-bridge.js";
 
 const DELEGATE_TIMEOUT_MS = 5 * 60 * 1000;
+const DELEGATE_CHILD_MONITOR_INTERVAL_MS = 250;
 
 type PendingDelegate = {
   delegateId: string;
   parentSessionId: string;
   childSessionId?: string;
   command: string;
-  resolve: (summary: string) => void;
+  resolve: (result: DelegateResolution) => void;
   timer: ReturnType<typeof setTimeout>;
+  stopMonitor?: () => void;
 };
 
 const pendingDelegates = new Map<string, PendingDelegate>();
+
+type DelegateResolution = {
+  summary: string;
+  isError?: boolean;
+};
 
 function createDelegateId(): string {
   return "del_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
@@ -41,6 +48,7 @@ function buildDelegatePrompt(args: { parentSessionNum?: number | null; delegateI
     "- Do not ask the user.",
     "- Do not continue unrelated work.",
     "- Do not paste huge raw output into end_delegation.",
+    "- You may see delegate_command and end_delegation. Do not call delegate_command from this hidden delegate; Takode will reject nested delegation.",
     "- If the command has obvious side effects, mention them.",
     "- If the command fails or cannot be safely summarized, explain that.",
     "- Use your judgment to summarize what the parent leader needs next.",
@@ -67,12 +75,13 @@ function formatParentResult(args: {
   childSessionNum?: number | null;
   command: string;
   summary: string;
+  isError?: boolean;
 }): string {
   const link = args.childSessionNum
     ? "[#" + args.childSessionNum + "](session:" + args.childSessionNum + ")"
     : "delegate session";
   return [
-    "Delegate command completed.",
+    args.isError ? "Delegate command failed." : "Delegate command completed.",
     "",
     "Delegate: " + args.delegateId + " (" + link + ")",
     "Command: " + args.command,
@@ -83,6 +92,53 @@ function formatParentResult(args: {
     "Inspect:",
     "- Delegate transcript/raw output: " + link,
   ].join("\n");
+}
+
+function messageHistoryLength(session: NonNullable<ReturnType<WsBridge["getSession"]>> | undefined): number {
+  const history = (session as unknown as { messageHistory?: unknown[] } | undefined)?.messageHistory;
+  return Array.isArray(history) ? history.length : 0;
+}
+
+function resolvePendingDelegate(delegateId: string, result: DelegateResolution): void {
+  const pending = pendingDelegates.get(delegateId);
+  if (!pending) return;
+  pendingDelegates.delete(delegateId);
+  clearTimeout(pending.timer);
+  pending.stopMonitor?.();
+  pending.resolve(result);
+}
+
+function startDelegateChildCompletionMonitor(args: {
+  wsBridge: WsBridge;
+  delegateId: string;
+  childSessionId: string;
+  initialMessageHistoryLength: number;
+}): () => void {
+  let sawChildTurnActivity = false;
+  const interval = setInterval(() => {
+    if (!pendingDelegates.has(args.delegateId)) {
+      clearInterval(interval);
+      return;
+    }
+    const childSession = args.wsBridge.getSession(args.childSessionId);
+    if (!childSession) {
+      resolvePendingDelegate(args.delegateId, {
+        summary: "Delegate child session disappeared before calling end_delegation.",
+        isError: true,
+      });
+      return;
+    }
+    const historyGrew = messageHistoryLength(childSession) > args.initialMessageHistoryLength;
+    sawChildTurnActivity = sawChildTurnActivity || childSession.isGenerating || historyGrew;
+    if (sawChildTurnActivity && !childSession.isGenerating) {
+      resolvePendingDelegate(args.delegateId, {
+        summary:
+          "Delegate child turn ended before calling end_delegation. Inspect the delegate transcript for any partial response.",
+        isError: true,
+      });
+    }
+  }, DELEGATE_CHILD_MONITOR_INTERVAL_MS);
+  return () => clearInterval(interval);
 }
 
 export function registerSessionDelegateRoutes(
@@ -110,7 +166,7 @@ export function registerSessionDelegateRoutes(
       return c.json({ error: "delegate_command is only available for Codex sessions" }, 400);
     }
     if (parent.state.hidden || parentInfo.hidden) {
-      return c.json({ error: "delegate_command is not available in hidden delegate sessions" }, 400);
+      return c.json({ error: "delegate_command is not available from hidden delegate sessions" }, 400);
     }
     const adapter = parent.codexAdapter;
     if (!adapter?.forkThread) return c.json({ error: "Codex native fork is unavailable" }, 409);
@@ -135,10 +191,15 @@ export function registerSessionDelegateRoutes(
       codexServiceTier: parentInfo.codexServiceTier ?? null,
       envSlug: parentInfo.envSlug,
       env: {
+        ...(parentInfo.isOrchestrator
+          ? { TAKODE_ROLE: "orchestrator", TAKODE_API_PORT: String(launcher.getPort()) }
+          : {}),
         TAKODE_DELEGATE_ROLE: "child",
         TAKODE_DELEGATE_ID: delegateId,
         TAKODE_DELEGATE_PARENT_SESSION_ID: parentSessionId,
       },
+      extraInstructions: parentInfo.isOrchestrator ? launcher.getOrchestratorGuardrails("codex") : undefined,
+      isOrchestrator: parentInfo.isOrchestrator === true,
       resumeCliSessionId: forkedThreadId,
       hidden: true,
       parentSessionId,
@@ -175,12 +236,14 @@ export function registerSessionDelegateRoutes(
       );
     }
 
-    const summaryPromise = new Promise<string>((resolve) => {
+    const initialChildMessageHistoryLength = messageHistoryLength(wsBridge.getSession(child.sessionId));
+    const summaryPromise = new Promise<DelegateResolution>((resolve) => {
       const timer = setTimeout(() => {
-        pendingDelegates.delete(delegateId);
-        resolve(
-          "Delegate timed out before calling end_delegation. Inspect the delegate session transcript for partial output.",
-        );
+        resolvePendingDelegate(delegateId, {
+          summary:
+            "Delegate timed out before calling end_delegation. Inspect the delegate session transcript for partial output.",
+          isError: true,
+        });
       }, DELEGATE_TIMEOUT_MS);
       pendingDelegates.set(delegateId, {
         delegateId,
@@ -191,18 +254,39 @@ export function registerSessionDelegateRoutes(
         timer,
       });
     });
+    const pending = pendingDelegates.get(delegateId);
+    if (pending) {
+      pending.stopMonitor = startDelegateChildCompletionMonitor({
+        wsBridge,
+        delegateId,
+        childSessionId: child.sessionId,
+        initialMessageHistoryLength: initialChildMessageHistoryLength,
+      });
+    }
 
-    childAdapter.sendBrowserMessage({
+    const sent = childAdapter.sendBrowserMessage({
       type: "user_message",
       content: prompt,
       inputSource: "programmatic",
       autoPauseSourceKind: "system",
     } as any);
+    if (sent === false) {
+      resolvePendingDelegate(delegateId, {
+        summary: "Delegate prompt could not be sent to the hidden child session.",
+        isError: true,
+      });
+    }
 
-    const summary = await summaryPromise;
+    const result = await summaryPromise;
     const childSessionNum = launcher.getSessionNum(child.sessionId);
-    const text = formatParentResult({ delegateId, childSessionNum, command, summary });
-    return c.json({ text, delegateId, childSessionId: child.sessionId, childSessionNum });
+    const text = formatParentResult({
+      delegateId,
+      childSessionNum,
+      command,
+      summary: result.summary,
+      isError: result.isError,
+    });
+    return c.json({ text, delegateId, childSessionId: child.sessionId, childSessionNum, isError: result.isError });
   });
 
   api.post("/sessions/:id/delegates/end", async (c) => {
@@ -211,18 +295,26 @@ export function registerSessionDelegateRoutes(
     const childSessionId = resolveId(c.req.param("id"));
     if (!childSessionId) return c.json({ error: "Session not found" }, 404);
     if (auth.callerId !== childSessionId) return c.json({ error: "callerSessionId does not match path session" }, 403);
+    const childInfo = launcher.getSession(childSessionId);
+    const childSession = wsBridge.getSession(childSessionId);
+    const delegateChild = (childSession?.state as any)?.delegateChild as
+      | { parentSessionId?: string; delegateId?: string; command?: string }
+      | undefined;
+    if (!childInfo?.hidden || !childSession?.state.hidden || !delegateChild?.delegateId) {
+      return c.json({ error: "end_delegation is only available from an active hidden delegate child" }, 400);
+    }
     const body = await c.req.json().catch(() => ({}));
     const delegateId = typeof body.delegateId === "string" ? body.delegateId.trim() : "";
     const summary = typeof body.summary === "string" ? body.summary.trim() : "";
     if (!delegateId) return c.json({ error: "delegateId is required" }, 400);
     if (!summary) return c.json({ error: "summary is required" }, 400);
+    if (delegateChild.delegateId !== delegateId)
+      return c.json({ error: "delegateId does not match child session" }, 403);
     const pending = pendingDelegates.get(delegateId);
-    if (!pending) return c.json({ text: "Delegation was already resolved or is no longer pending." });
+    if (!pending) return c.json({ error: "Delegation was already resolved or is no longer pending." }, 409);
     if (pending.childSessionId !== childSessionId)
       return c.json({ error: "delegateId does not match child session" }, 403);
-    pendingDelegates.delete(delegateId);
-    clearTimeout(pending.timer);
-    pending.resolve(summary);
+    resolvePendingDelegate(delegateId, { summary });
     return c.json({ text: "Delegation summary delivered to parent." });
   });
 }

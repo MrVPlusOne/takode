@@ -569,6 +569,7 @@ export class CliLauncher {
       blockedEnvKeys: options.blockedEnvKeys?.length ? Array.from(new Set(options.blockedEnvKeys)) : undefined,
       hidden: options.hidden === true,
       parentSessionId: options.parentSessionId,
+      isOrchestrator: options.isOrchestrator === true,
       slackThreadId: options.sideChatId ?? options.slackThreadId,
       slackThreadAnchorMessageId: options.sideChatAnchorMessageId ?? options.slackThreadAnchorMessageId,
       slackThreadAnchorHistoryIndex: options.sideChatAnchorHistoryIndex ?? options.slackThreadAnchorHistoryIndex,
@@ -644,19 +645,20 @@ export class CliLauncher {
       const profileVars = await this.envResolver(options.envSlug);
       if (profileVars) launchEnv = { ...profileVars, ...launchEnv };
     }
-    const envWithSessionId = this.composeSessionEnv(
-      launchEnv,
-      {
-        COMPANION_PORT: String(this.port),
-        COMPANION_SERVER_ID: this.serverId,
-        COMPANION_SERVER_SLUG: this.serverSlug,
-        [COMPANION_MEMORY_SPACE_SLUG_ENV]: memorySessionSpaceSlug,
-        COMPANION_SESSION_ID: sessionId,
-        COMPANION_SESSION_NUMBER: String(info.sessionNum),
-        COMPANION_AUTH_TOKEN: sessionAuthToken,
-      },
-      options.blockedEnvKeys,
-    );
+    const identityEnv: Record<string, string> = {
+      COMPANION_PORT: String(this.port),
+      COMPANION_SERVER_ID: this.serverId,
+      COMPANION_SERVER_SLUG: this.serverSlug,
+      [COMPANION_MEMORY_SPACE_SLUG_ENV]: memorySessionSpaceSlug,
+      COMPANION_SESSION_ID: sessionId,
+      COMPANION_SESSION_NUMBER: String(info.sessionNum),
+      COMPANION_AUTH_TOKEN: sessionAuthToken,
+    };
+    if (info.isOrchestrator) {
+      identityEnv.TAKODE_ROLE = "orchestrator";
+      identityEnv.TAKODE_API_PORT = String(this.port);
+    }
+    const envWithSessionId = this.composeSessionEnv(launchEnv, identityEnv, options.blockedEnvKeys);
     this.sessionEnvs.set(sessionId, envWithSessionId);
     options = { ...options, env: envWithSessionId };
 

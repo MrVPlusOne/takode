@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
+import * as z from "zod";
 import { COMPANION_AUTH_TOKEN_HEADER, COMPANION_SESSION_ID_HEADER } from "../server/routes/auth.js";
 
 type ToolResponse = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
@@ -89,55 +89,56 @@ export async function callTakode(path: string, body: Record<string, unknown>): P
 }
 
 export async function runTakodeDelegateMcpServer(): Promise<void> {
-  const role = (await envValue("TAKODE_DELEGATE_ROLE")) === "child" ? "child" : "parent";
   const sessionId = await requiredEnv("COMPANION_SESSION_ID");
   const server = new McpServer({
     name: "takode_delegate",
     version: "1.0.0",
   });
 
-  if (role === "parent") {
-    server.registerTool(
-      "delegate_command",
-      {
-        title: "Delegate command",
-        description:
-          "Run one shell command in a forked command-delegate copy of this leader session and return a concise summary instead of raw output.",
-        inputSchema: {
-          command: z.string().min(1),
-        },
-        annotations: {
-          destructiveHint: true,
-          openWorldHint: false,
-        },
-      },
-      async ({ command }) =>
-        callTakode(`/api/sessions/${encodeURIComponent(sessionId)}/delegates/command`, { command }),
-    );
-  } else {
-    server.registerTool(
-      "end_delegation",
-      {
-        title: "End delegation",
-        description: "Finish this delegated command and return a concise summary to the parent leader.",
-        inputSchema: {
-          summary: z.string().min(1),
-        },
-        annotations: {
-          readOnlyHint: true,
-          openWorldHint: false,
-        },
-      },
-      async ({ summary }) =>
-        callTakode(`/api/sessions/${encodeURIComponent(sessionId)}/delegates/end`, {
-          delegateId: await envValue("TAKODE_DELEGATE_ID"),
-          parentSessionId: await envValue("TAKODE_DELEGATE_PARENT_SESSION_ID"),
-          summary,
-        }),
-    );
-  }
+  registerTakodeDelegateTools(server, sessionId);
 
   await server.connect(new StdioServerTransport());
+}
+
+export function registerTakodeDelegateTools(server: Pick<McpServer, "registerTool">, sessionId: string): void {
+  server.registerTool(
+    "delegate_command",
+    {
+      title: "Delegate command",
+      description:
+        "Run one shell command in a forked command-delegate copy of this leader session and return a concise summary instead of raw output. Hidden delegate children must not call this tool; Takode will reject nested delegation.",
+      inputSchema: {
+        command: z.string().min(1),
+      },
+      annotations: {
+        destructiveHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ command }) => callTakode(`/api/sessions/${encodeURIComponent(sessionId)}/delegates/command`, { command }),
+  );
+
+  server.registerTool(
+    "end_delegation",
+    {
+      title: "End delegation",
+      description:
+        "Finish an active delegated command and return a concise summary to the parent leader. This only succeeds from the active hidden delegate child.",
+      inputSchema: {
+        summary: z.string().min(1),
+      },
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ summary }) =>
+      callTakode(`/api/sessions/${encodeURIComponent(sessionId)}/delegates/end`, {
+        delegateId: await envValue("TAKODE_DELEGATE_ID"),
+        parentSessionId: await envValue("TAKODE_DELEGATE_PARENT_SESSION_ID"),
+        summary,
+      }),
+  );
 }
 
 if (import.meta.main) {
