@@ -470,8 +470,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Initial Journey authorization comes before dispatch");
     expect(guardrails).toContain("write the authorized Journey to the board before or with dispatch");
     expect(guardrails).toContain(
-      "The worker alignment phase then returns a lightweight read-in inside that authorized Journey",
+      "The worker alignment phase then returns a concise leader-verification read-in inside that authorized Journey",
     );
+    expect(guardrails).toContain("not a broad planning report");
+    expect(guardrails).toContain("broad implementation plans, exhaustive evidence inventories");
     expect(guardrails).toContain("not a routine second user-approval gate");
     expect(guardrails).toContain("Alignment approval is leader-owned by default");
     expect(guardrails).toContain("Escalate alignment back to the user only");

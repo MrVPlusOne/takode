@@ -353,13 +353,14 @@ describe("Quest Journey phases", () => {
     expect(getQuestJourneyPhase("code-review")?.color).toEqual({ name: "violet", accent: "#a78bfa" });
   });
 
-  it("defines alignment as a lightweight read-in phase and explore as the deeper investigation phase", () => {
+  it("defines alignment as a concise verification read-in phase and explore as the deeper investigation phase", () => {
     expect(getQuestJourneyPhase("alignment")).toEqual(
       expect.objectContaining({
-        contract: expect.stringContaining("lightweight read-in"),
+        contract: expect.stringContaining("concise leader-verification read-in"),
         nextLeaderAction: expect.stringContaining("worker read-in"),
       }),
     );
+    expect(getQuestJourneyPhase("alignment")?.contract).toContain("key constraints");
     expect(getQuestJourneyPhase("explore")).toEqual(
       expect.objectContaining({
         contract: expect.stringContaining("routing is genuinely unknown"),

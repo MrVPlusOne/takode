@@ -171,7 +171,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(outcomeReviewPhase?.assigneeBrief).toContain("memory catalog diff");
   });
 
-  it("seeds alignment and explore briefs with the lightweight read-in contract", async () => {
+  it("seeds alignment and explore briefs with the concise read-in contract", async () => {
     const companionHome = await makeCompanionHome();
     await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
 
@@ -181,6 +181,8 @@ describe("Quest Journey phase directory loading", () => {
 
     expect(alignmentPhase?.leaderBrief).toContain("direct-dispatch rubric or explicit user approval");
     expect(alignmentPhase?.leaderBrief).toContain("authorized Journey");
+    expect(alignmentPhase?.contract).toContain("concise leader-verification read-in");
+    expect(alignmentPhase?.contract).toContain("key constraints");
     expect(alignmentPhase?.assigneeBrief).toContain("leader-authorized Journey");
     expect(alignmentPhase?.leaderBrief).toContain("exact prior messages, quests, or discussions");
     expect(alignmentPhase?.leaderBrief).toContain("run `memory catalog show` for orientation");
@@ -190,6 +192,11 @@ describe("Quest Journey phase directory loading", () => {
     expect(alignmentPhase?.assigneeBrief).toContain("run `memory catalog show` visibly for orientation");
     expect(alignmentPhase?.assigneeBrief).toContain("inspect relevant memory files directly");
     expect(alignmentPhase?.assigneeBrief).toContain("memory files that materially affected the read-in");
+    expect(alignmentPhase?.leaderBrief).toContain("concise alignment read-in optimized for leader verification");
+    expect(alignmentPhase?.leaderBrief).toContain("broad implementation plans, exhaustive evidence inventories");
+    expect(alignmentPhase?.assigneeBrief).toContain("leader-verification packet, not a planning report");
+    expect(alignmentPhase?.assigneeBrief).toContain("broad implementation plans, exhaustive evidence inventories");
+    expect(alignmentPhase?.assigneeBrief).toContain("Write the phase note in the same concise shape as the read-in");
     expect(alignmentPhase?.assigneeBrief).toContain("Concrete understanding:");
     expect(alignmentPhase?.assigneeBrief).toContain("Clarification questions:");
     expect(explorePhase?.leaderBrief).toContain("major findings, newly discovered ambiguities or blockers");
@@ -342,9 +349,15 @@ describe("Quest Journey phase directory loading", () => {
       expect(phase.assigneeBrief).toContain("Phase documentation");
       expect(phase.assigneeBrief).toContain("quest feedback add q-N --text-file");
       expect(phase.assigneeBrief).toContain("--tldr-file");
-      expect(phase.assigneeBrief).toContain("preserve conclusions, decisions, evidence, blockers, risks");
-      expect(phase.assigneeBrief).toContain("Use value-based compression instead of hard length caps");
-      expect(phase.assigneeBrief).toContain("file-by-file diff narration");
+      if (phase.id === "alignment") {
+        expect(phase.assigneeBrief).toContain("same concise shape as the read-in");
+        expect(phase.assigneeBrief).toContain("preserve the major Alignment conclusions and risks");
+        expect(phase.assigneeBrief).toContain("omit generic investigation narration");
+      } else {
+        expect(phase.assigneeBrief).toContain("preserve conclusions, decisions, evidence, blockers, risks");
+        expect(phase.assigneeBrief).toContain("Use value-based compression instead of hard length caps");
+        expect(phase.assigneeBrief).toContain("file-by-file diff narration");
+      }
       expect(phase.assigneeBrief).toContain("Keep the memory boundary explicit");
       if (phase.id !== "memory" && phase.id !== "bookkeeping" && phase.id !== "port") {
         expect(phase.assigneeBrief).toContain(
@@ -363,7 +376,12 @@ describe("Quest Journey phase directory loading", () => {
       expect(phase.assigneeBrief).toContain("standard Markdown file links are best-effort fallback only");
       expect(phase.assigneeBrief).toContain(phaseSpecificExpectations.get(phase.id));
       expect(phase.leaderBrief).toContain("phase documentation");
-      expect(phase.leaderBrief).toContain("full agent-oriented detail plus TLDR metadata");
+      if (phase.id === "alignment") {
+        expect(phase.leaderBrief).toContain("concise phase documentation");
+        expect(phase.leaderBrief).toContain("enough future-agent detail plus TLDR metadata");
+      } else {
+        expect(phase.leaderBrief).toContain("full agent-oriented detail plus TLDR metadata");
+      }
       expect(phase.leaderBrief).toContain("Provide only deltas the assignee is unlikely to infer");
     }
 

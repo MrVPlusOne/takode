@@ -167,7 +167,7 @@ Work on [q-XX](quest:q-XX). Load the quest skill first, then read the quest and 
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/alignment/assignee.md`
 
-Return an alignment read-in for approval covering your concrete understanding, ambiguities, clarification questions, blockers, surprises, and any evidence that may justify leader-owned Journey revision. After you send it, stop and wait for approval.
+Return a concise Alignment read-in for approval: concrete understanding, key constraints, real ambiguities/questions, blockers/surprises, and any evidence that may justify leader-owned Journey revision. Avoid broad implementation plans, exhaustive evidence inventories, routine file lists, long command/test details, and repeated quest history unless needed to explain a blocker or misunderstanding risk. After you send it, stop and wait for approval.
 ```
 
 If the quest has unaddressed human feedback, add one sentence after the claim instruction:
@@ -182,7 +182,7 @@ If prior memory may matter, use visible memory reads. Either inspect the relevan
 
 ## Phase Handoffs
 
-After Alignment, leaders own advancement. Escalate to the user only for significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another real blocker. Otherwise advance to the next approved phase yourself.
+After Alignment, leaders own advancement. Treat the worker response as a compact leader-verification packet, not a planning document. Escalate to the user only for significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another real blocker. Otherwise advance to the next approved phase yourself.
 
 Every phase instruction must be phase-explicit:
 

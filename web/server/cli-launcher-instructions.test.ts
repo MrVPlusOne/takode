@@ -424,6 +424,9 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Omit notes for standard phases by default");
     expect(result).toContain("write the authorized Journey to the board before or with dispatch");
     expect(result).toContain("Initial Journey authorization comes before dispatch");
+    expect(result).toContain("concise leader-verification read-in");
+    expect(result).toContain("not a broad planning report");
+    expect(result).toContain("broad implementation plans, exhaustive evidence inventories");
     expect(result).toContain("not a routine second user-approval gate");
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Every active phase needs durable quest documentation");
