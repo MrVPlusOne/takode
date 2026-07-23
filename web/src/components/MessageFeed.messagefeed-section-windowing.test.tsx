@@ -48,6 +48,7 @@ const mockToggleTurnActivity = vi.fn();
 const mockFocusTurn = vi.fn();
 const mockClearScrollToTurn = vi.fn();
 const mockClearScrollToMessage = vi.fn();
+const mockClearPendingScrollToMessageId = vi.fn();
 const mockSetActiveTaskTurnId = vi.fn();
 const mockKeepTurnExpanded = vi.fn();
 const mockSetCollapsibleTurnIds = vi.fn();
@@ -104,6 +105,7 @@ vi.mock("../store.js", () => {
       clearScrollToTurn: mockClearScrollToTurn,
       scrollToMessageId: mockStoreValues.scrollToMessageId ?? new Map(),
       clearScrollToMessage: mockClearScrollToMessage,
+      clearPendingScrollToMessageId: mockClearPendingScrollToMessageId,
       expandAllInTurn: mockStoreValues.expandAllInTurn ?? new Map(),
       clearExpandAllInTurn: vi.fn(),
       bottomAlignNextUserMessage: mockStoreValues.bottomAlignNextUserMessage ?? new Set(),
@@ -508,6 +510,7 @@ function resetStore() {
   mockFocusTurn.mockReset();
   mockClearScrollToTurn.mockReset();
   mockClearScrollToMessage.mockReset();
+  mockClearPendingScrollToMessageId.mockReset();
   mockSetActiveTaskTurnId.mockReset();
   mockKeepTurnExpanded.mockReset();
   mockSetCollapsibleTurnIds.mockReset();
@@ -1210,6 +1213,7 @@ describe("MessageFeed section windowing", () => {
     await flushFeedObservers();
     expect(screen.getByText("Starred target outside the current window")).toBeTruthy();
     expect(mockClearScrollToMessage).toHaveBeenCalledWith(sid);
+    expect(mockClearPendingScrollToMessageId).toHaveBeenCalledWith(sid);
     const scrollTarget = mockScrollIntoView.mock.contexts.at(-1) as HTMLElement | undefined;
     expect(scrollTarget?.getAttribute("data-message-id")).toBe(target.id);
   });

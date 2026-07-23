@@ -1580,6 +1580,7 @@ export function MessageFeed({
   const scrollToMessageId = useStore((s) => s.scrollToMessageId.get(sessionId));
   const expandAllInTurnTarget = useStore((s) => s.expandAllInTurn.get(sessionId));
   const clearScrollToMessage = useStore((s) => s.clearScrollToMessage);
+  const clearPendingScrollToMessageId = useStore((s) => s.clearPendingScrollToMessageId);
   const clearExpandAllInTurn = useStore((s) => s.clearExpandAllInTurn);
   useEffect(() => {
     if (!scrollToMessageId) return;
@@ -1614,6 +1615,7 @@ export function MessageFeed({
         pendingTargetWindowRequestRef.current = null;
       }
       clearScrollToMessage(sessionId);
+      clearPendingScrollToMessageId(sessionId);
       // Target message genuinely not in turns (e.g. compacted out of history).
       // Fall back to scrolling to the most recent content rather than doing nothing.
       const lastTurn = turns[turns.length - 1];
@@ -1629,6 +1631,7 @@ export function MessageFeed({
     }
     pendingTargetWindowRequestRef.current = null;
     clearScrollToMessage(sessionId);
+    clearPendingScrollToMessageId(sessionId);
 
     // Focus: expand target turn, all others revert to defaults (last expanded, rest collapsed)
     useStore.getState().focusTurn(sessionId, targetTurn.id);
@@ -1659,6 +1662,7 @@ export function MessageFeed({
     scheduleScroll();
   }, [
     clearExpandAllInTurn,
+    clearPendingScrollToMessageId,
     clearScrollToMessage,
     ensureSectionForTurnVisible,
     normalizedThreadKey,

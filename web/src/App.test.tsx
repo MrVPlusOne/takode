@@ -703,6 +703,41 @@ describe("App hidden panels", () => {
     expect(mockConnectSession).not.toHaveBeenCalledWith("123");
   });
 
+  it("arms stable message-id route scrolling only once for the same hash", async () => {
+    const sdkSession = {
+      sessionId: "s1",
+      createdAt: 1,
+      archived: false,
+      cwd: "/repo/s1",
+      backendType: "codex" as const,
+      sessionNum: 123,
+      isOrchestrator: true,
+    };
+    resetStore({
+      currentSessionId: null,
+      sdkSessions: [sdkSession],
+      sessions: new Map([["s1", { backend_type: "codex", isOrchestrator: true } as any]]),
+    });
+    window.location.hash = "#/session/123/msg/stable-thread-message?thread=q-1622";
+
+    const view = render(<App />);
+
+    await waitFor(() => {
+      expect(mockState.requestScrollToMessage).toHaveBeenCalledWith("s1", "stable-thread-message");
+    });
+    expect(mockState.requestScrollToMessage).toHaveBeenCalledTimes(1);
+    expect(mockState.setPendingScrollToMessageId).toHaveBeenCalledTimes(1);
+    expect(mockState.setExpandAllInTurn).toHaveBeenCalledTimes(1);
+
+    mockState.sdkSessions = [{ ...sdkSession, lastActivityAt: 2 }];
+    view.rerender(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("chat-view")).toHaveAttribute("data-route-thread-key", "q-1622"));
+    expect(mockState.requestScrollToMessage).toHaveBeenCalledTimes(1);
+    expect(mockState.setPendingScrollToMessageId).toHaveBeenCalledTimes(1);
+    expect(mockState.setExpandAllInTurn).toHaveBeenCalledTimes(1);
+  });
+
   it("starts a cheap git status refresh when switching to a worktree session", async () => {
     resetStore({
       currentSessionId: "s1",

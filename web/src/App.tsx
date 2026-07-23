@@ -532,6 +532,7 @@ export default function App() {
   const connectedSessionIdRef = useRef<string | null>(null);
   const previewConnectedSessionIdRef = useRef<string | null>(null);
   const selectedGitRefreshSessionIdRef = useRef<string | null>(null);
+  const consumedStableMessageRouteRef = useRef<string | null>(null);
 
   // Sync hash → store. On mount, restore a localStorage session into the URL first.
   useEffect(() => {
@@ -564,9 +565,15 @@ export default function App() {
       // Handle stable /msg/<id>, /msg/N, and legacy ?msg=N message-level deep links.
       const msgId = messageIdFromHash(hash);
       if (msgId) {
-        store.setPendingScrollToMessageId(resolvedSessionId, msgId);
-        store.requestScrollToMessage(resolvedSessionId, msgId);
-        store.setExpandAllInTurn(resolvedSessionId, msgId);
+        const stableMessageRouteKey = `${resolvedSessionId}:${hash}`;
+        if (consumedStableMessageRouteRef.current !== stableMessageRouteKey) {
+          consumedStableMessageRouteRef.current = stableMessageRouteKey;
+          store.setPendingScrollToMessageId(resolvedSessionId, msgId);
+          store.requestScrollToMessage(resolvedSessionId, msgId);
+          store.setExpandAllInTurn(resolvedSessionId, msgId);
+        }
+      } else {
+        consumedStableMessageRouteRef.current = null;
       }
       const msgIdx = messageIndexFromHash(hash);
       if (msgIdx != null) {
@@ -600,6 +607,7 @@ export default function App() {
         }
       }
     } else if (route.page === "home") {
+      consumedStableMessageRouteRef.current = null;
       const store = useStore.getState();
       if (store.currentSessionId !== null) {
         store.setCurrentSession(null);
@@ -611,6 +619,7 @@ export default function App() {
       // Auto-navigate to the most recent session if available
       navigateToMostRecentSession({ replace: true });
     } else {
+      consumedStableMessageRouteRef.current = null;
       if (connectedSessionIdRef.current) {
         disconnectSession(connectedSessionIdRef.current);
         connectedSessionIdRef.current = null;
