@@ -33,6 +33,10 @@ type ToolEmitOptions = {
 
 type RouterFailureToolName = "write_stdin";
 
+const RAW_EXEC_CALL_CACHE_LIMIT = 50;
+const RAW_EXEC_OUTPUT_COMMAND_CACHE_LIMIT = 50;
+const RAW_EXEC_OUTPUTS_PER_COMMAND_LIMIT = 5;
+
 type TerminalInteractionToolUse = {
   toolUseId: string;
   commandToolUseId: string;
@@ -1146,7 +1150,7 @@ export class CodexItemEventManager {
       if (!callId || !command) return true;
 
       this.rawExecCommandByCallId.set(callId, command);
-      pruneOldestMapEntries(this.rawExecCommandByCallId, 50);
+      pruneOldestMapEntries(this.rawExecCommandByCallId, RAW_EXEC_CALL_CACHE_LIMIT);
       const existingOutput = this.rawExecOutputByCallId.get(callId);
       if (existingOutput) {
         this.queueRawExecOutput(command, existingOutput);
@@ -1169,7 +1173,7 @@ export class CodexItemEventManager {
       this.rawExecOutputByCallId.delete(callId);
     } else {
       this.rawExecOutputByCallId.set(callId, output);
-      pruneOldestMapEntries(this.rawExecOutputByCallId, 50);
+      pruneOldestMapEntries(this.rawExecOutputByCallId, RAW_EXEC_CALL_CACHE_LIMIT);
     }
     return true;
   }
@@ -1180,7 +1184,8 @@ export class CodexItemEventManager {
 
     const existing = this.rawExecOutputsByCommand.get(normalizedCommand) ?? [];
     existing.push(output.trimEnd());
-    this.rawExecOutputsByCommand.set(normalizedCommand, existing.slice(-5));
+    this.rawExecOutputsByCommand.set(normalizedCommand, existing.slice(-RAW_EXEC_OUTPUTS_PER_COMMAND_LIMIT));
+    pruneOldestMapEntries(this.rawExecOutputsByCommand, RAW_EXEC_OUTPUT_COMMAND_CACHE_LIMIT);
   }
 
   private takeFullerRawExecOutput(command: string, currentOutput: string): string | null {

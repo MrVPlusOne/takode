@@ -379,6 +379,102 @@ text(out.output);`;
     expect(resultBlocks[0].content).not.toContain("Script completed");
   });
 
+  it("globally bounds unmatched raw exec outputs across distinct commands", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await initializeAdapter(stdout);
+
+    const commands: string[] = [];
+    for (let i = 0; i < 60; i++) {
+      const command = `echo first-${i}\necho tail-${i}`;
+      commands.push(command);
+      const rawCommand = `const out = await tools.exec_command({
+  cmd: ${JSON.stringify(command)},
+});
+text(out.output);`;
+
+      stdout.push(
+        JSON.stringify({
+          method: "rawResponseItem/completed",
+          params: {
+            item: {
+              type: "custom_tool_call",
+              name: "exec",
+              call_id: `call_unmatched_${i}`,
+              input: rawCommand,
+            },
+          },
+        }) + "\n",
+      );
+      await tick();
+
+      stdout.push(
+        JSON.stringify({
+          method: "rawResponseItem/completed",
+          params: {
+            item: {
+              type: "custom_tool_call_output",
+              call_id: `call_unmatched_${i}`,
+              output: `first output ${i}\ntail output ${i}`,
+            },
+          },
+        }) + "\n",
+      );
+      await tick();
+    }
+
+    stdout.push(
+      JSON.stringify({
+        method: "item/completed",
+        params: {
+          item: {
+            type: "commandExecution",
+            id: "exec-old-evicted",
+            command: commands[0],
+            status: "completed",
+            exitCode: 0,
+            stdout: "tail output 0",
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    stdout.push(
+      JSON.stringify({
+        method: "item/completed",
+        params: {
+          item: {
+            type: "commandExecution",
+            id: "exec-new-retained",
+            command: commands[59],
+            status: "completed",
+            exitCode: 0,
+            stdout: "tail output 59",
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const resultContentById = new Map<string, string>();
+    for (const message of messages) {
+      if (message.type !== "assistant") continue;
+      for (const block of message.message.content) {
+        if (block.type === "tool_result") {
+          resultContentById.set(block.tool_use_id, String(block.content));
+        }
+      }
+    }
+
+    expect(resultContentById.get("exec-old-evicted")).toBe("tail output 0");
+    expect(resultContentById.get("exec-old-evicted")).not.toContain("first output 0");
+    expect(resultContentById.get("exec-new-retained")).toContain("first output 59");
+    expect(resultContentById.get("exec-new-retained")).toContain("tail output 59");
+  });
+
   it("handles string command in approval request (Codex format)", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
