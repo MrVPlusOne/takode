@@ -204,7 +204,7 @@ export class CodexItemEventManager {
 
       case "mcpToolCall": {
         const mcp = item as CodexMcpToolCallItem;
-        this.emitToolUseStart(item.id, `mcp:${mcp.server}:${mcp.tool}`, mcp.arguments || {}, { parentToolUseId });
+        this.emitToolUseStart(item.id, this.displayNameForMcpTool(mcp), this.inputForMcpTool(mcp), { parentToolUseId });
         break;
       }
 
@@ -517,7 +517,9 @@ export class CodexItemEventManager {
 
       case "mcpToolCall": {
         const mcp = item as CodexMcpToolCallItem;
-        this.ensureToolUseEmitted(item.id, `mcp:${mcp.server}:${mcp.tool}`, mcp.arguments || {}, { parentToolUseId });
+        this.ensureToolUseEmitted(item.id, this.displayNameForMcpTool(mcp), this.inputForMcpTool(mcp), {
+          parentToolUseId,
+        });
         this.emitToolResult(
           item.id,
           mcp.result || mcp.error || "MCP tool call completed",
@@ -920,6 +922,27 @@ export class CodexItemEventManager {
         ]) !== ""
       );
     });
+  }
+
+  private isTakodeDelegateCommandTool(item: CodexMcpToolCallItem): boolean {
+    return item.server === "takode_delegate" && item.tool === "delegate_command";
+  }
+
+  private displayNameForMcpTool(item: CodexMcpToolCallItem): string {
+    return this.isTakodeDelegateCommandTool(item) ? "Agent" : "mcp:" + item.server + ":" + item.tool;
+  }
+
+  private inputForMcpTool(item: CodexMcpToolCallItem): Record<string, unknown> {
+    const args = item.arguments || {};
+    if (!this.isTakodeDelegateCommandTool(item)) return args;
+    const command = typeof args.command === "string" ? args.command : "";
+    return {
+      ...args,
+      description: "Delegated command",
+      subagent_type: "delegate_command",
+      command,
+      prompt: command,
+    };
   }
 
   private getThreadIdFromRecord(record: Record<string, unknown> | undefined): string | null {

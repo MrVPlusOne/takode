@@ -647,6 +647,7 @@ export class CliLauncher {
     const envWithSessionId = this.composeSessionEnv(
       launchEnv,
       {
+        COMPANION_PORT: String(this.port),
         COMPANION_SERVER_ID: this.serverId,
         COMPANION_SERVER_SLUG: this.serverSlug,
         [COMPANION_MEMORY_SPACE_SLUG_ENV]: memorySessionSpaceSlug,

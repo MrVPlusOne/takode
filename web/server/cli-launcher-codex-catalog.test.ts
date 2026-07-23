@@ -68,6 +68,108 @@ describe("Codex session catalog hardening", () => {
     });
   });
 
+  it("registers a Takode-owned delegate MCP server in leader session config", async () => {
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    await writeFile(configPath, 'model = "takode-test-leader"\n', "utf-8");
+    await writeFile(join(codexHome, "models_cache.json"), JSON.stringify({ models: [] }), "utf-8");
+
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: true,
+      model: "takode-test-leader",
+      takodeDelegateMcp: {
+        enabled: true,
+        command: process.execPath,
+        args: ["/repo/web/bin/takode-delegate-mcp.ts"],
+        env: {
+          COMPANION_AUTH_TOKEN: "secret-token",
+          COMPANION_PORT: "3456",
+          COMPANION_SESSION_ID: "session-1",
+          COMPANION_SESSION_NUMBER: "2220",
+          TAKODE_ROLE: "orchestrator",
+        },
+      },
+    });
+
+    const config = await readFile(configPath, "utf-8");
+    expect(config).toContain("[mcp_servers.takode_delegate]");
+    expect(config).toContain(`command = ${JSON.stringify(process.execPath)}`);
+    expect(config).toContain('args = ["/repo/web/bin/takode-delegate-mcp.ts"]');
+    expect(config).toContain("enabled = true");
+    expect(config).toContain("[mcp_servers.takode_delegate.env]");
+    expect(config).toContain('COMPANION_AUTH_TOKEN = "secret-token"');
+    expect(config).toContain('COMPANION_PORT = "3456"');
+    expect(config).toContain('COMPANION_SESSION_ID = "session-1"');
+    expect(config).toContain('COMPANION_SESSION_NUMBER = "2220"');
+    expect(config).toContain('TAKODE_ROLE = "orchestrator"');
+  });
+
+  it("registers the delegate MCP server for delegate child sessions", async () => {
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    await writeFile(configPath, 'model = "takode-test-child"\n', "utf-8");
+
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model: "takode-test-child",
+      takodeDelegateMcp: {
+        enabled: true,
+        command: process.execPath,
+        args: ["/repo/web/bin/takode-delegate-mcp.ts"],
+        env: {
+          COMPANION_AUTH_TOKEN: "child-token",
+          COMPANION_PORT: "3456",
+          COMPANION_SESSION_ID: "child-session",
+          TAKODE_DELEGATE_ID: "del_123",
+          TAKODE_DELEGATE_PARENT_SESSION_ID: "parent-session",
+          TAKODE_DELEGATE_ROLE: "child",
+        },
+      },
+    });
+
+    const config = await readFile(configPath, "utf-8");
+    expect(config).toContain("[mcp_servers.takode_delegate]");
+    expect(config).toContain('TAKODE_DELEGATE_ROLE = "child"');
+    expect(config).toContain('TAKODE_DELEGATE_ID = "del_123"');
+    expect(config).toContain('TAKODE_DELEGATE_PARENT_SESSION_ID = "parent-session"');
+  });
+
+  it("removes the Takode delegate MCP server when a launch is not a leader", async () => {
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    await writeFile(
+      configPath,
+      [
+        'model = "takode-test-worker"',
+        "",
+        "[mcp_servers.takode_delegate]",
+        'command = "/old/bun"',
+        'args = ["/old/server.ts"]',
+        "enabled = true",
+        "[mcp_servers.takode_delegate.env]",
+        'COMPANION_SESSION_ID = "old"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model: "takode-test-worker",
+      takodeDelegateMcp: {
+        enabled: false,
+        command: process.execPath,
+        args: ["/repo/web/bin/takode-delegate-mcp.ts"],
+        env: {},
+      },
+    });
+
+    const config = await readFile(configPath, "utf-8");
+    expect(config).not.toContain("[mcp_servers.takode_delegate]");
+    expect(config).not.toContain("[mcp_servers.takode_delegate.env]");
+    expect(config).not.toContain("/old/server.ts");
+  });
+
   it("derives the leader display budget from source effective context and inflates the provider envelope", async () => {
     const codexHome = await makeCodexHome();
     const configPath = join(codexHome, "config.toml");

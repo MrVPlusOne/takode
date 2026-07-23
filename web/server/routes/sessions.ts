@@ -53,7 +53,6 @@ import { registerGlobalStarredMessageSearchRoute } from "./global-starred-messag
 import { parseIncludeArchived, registerSessionSearchRoute } from "./session-search-route.js";
 import { registerSessionPermissionModeRoute, resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
 import { registerSessionPauseRoutes } from "./session-pause-routes.js";
-import { registerSessionConfigRoutes } from "./session-config-routes.js";
 import { registerSessionLeaderProfileRoute } from "./session-leader-profile-route.js";
 import { registerSessionReplacementRoutes } from "./session-replacement-routes.js";
 import { registerSessionNotificationContextRoute } from "./session-notification-context.js";
@@ -65,7 +64,7 @@ import type { CreationProgressStatus, EmitCreationProgress, SessionConfig } from
 import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignments.js";
 import { isSessionPaused } from "../session-pause.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "../memory-session-space.js";
-import { registerSessionSideChatRoutes } from "./session-side-chat-routes.js";
+import { registerSessionExtraRoutes } from "./session-extra-routes.js";
 import { applySessionDefaultsToCreateBody, SessionDefaultValidationError } from "../session-defaults-application.js";
 import { markOrchestratorSessionWithStartupContext } from "./orchestrator-startup-injection.js";
 
@@ -874,8 +873,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
   });
 
-  registerSessionSideChatRoutes(api, { launcher, wsBridge, resolveId });
-  registerSessionConfigRoutes(api, { launcher, wsBridge, resolveId });
+  registerSessionExtraRoutes(api, { launcher, wsBridge, resolveId, authenticateTakodeCaller });
   registerSessionReplacementRoutes(api, {
     resolveId,
     authenticateTakodeCaller,

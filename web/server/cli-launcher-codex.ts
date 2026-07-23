@@ -26,6 +26,7 @@ import {
 } from "./cli-launcher-env.js";
 import { removeTopLevelTomlSettings, upsertShellEnvironmentIncludeOnly } from "./cli-launcher-codex-config-utils.js";
 import { CooperativeTiming } from "./cooperative-timing.js";
+import { buildTakodeDelegateMcpConfig, upsertTakodeDelegateMcpServer } from "./codex-delegate-mcp-config.js";
 import { resolveBinary, getEnrichedPath, captureUserShellEnv } from "./path-resolver.js";
 import { sessionTag } from "./session-tag.js";
 import { isDeprecatedProjectSkillSlug } from "./skill-symlink.js";
@@ -1471,6 +1472,12 @@ async function ensureCodexSessionConfig(
     existingLeaderRecycleThresholdTokens?: number;
     model?: string;
     modelCatalogConfigPath?: string;
+    takodeDelegateMcp?: {
+      enabled: boolean;
+      command: string;
+      args: string[];
+      env: Record<string, string>;
+    };
     timing?: CooperativeTiming;
   },
 ): Promise<{
@@ -1565,6 +1572,9 @@ async function ensureCodexSessionConfig(
     await options?.timing?.yieldIfDue("prepare Codex MAI LiteLLM catalog compatibility override");
   } else {
     next = await scrubTakodeNonLeaderContextOverride(codexHome, next);
+  }
+  if (options?.takodeDelegateMcp) {
+    next = upsertTakodeDelegateMcpServer(next, options.takodeDelegateMcp);
   }
   if (next !== current) {
     await writeFile(configPath, next, "utf-8");
@@ -1731,6 +1741,10 @@ export async function prepareCodexSpawn(
           codexContextCapacityTokens: options.codexMaxContextLength,
           existingLeaderRecycleThresholdTokens: existingLeaderRecycleBudget(info),
           model: options.model,
+          takodeDelegateMcp: buildTakodeDelegateMcpConfig(
+            leaderLaunch || options.env?.TAKODE_DELEGATE_ROLE === "child",
+            options.env,
+          ),
           timing,
         }),
       );
@@ -1748,6 +1762,10 @@ export async function prepareCodexSpawn(
           existingLeaderRecycleThresholdTokens: existingLeaderRecycleBudget(info),
           model: options.model,
           modelCatalogConfigPath: containerModelCatalogPath,
+          takodeDelegateMcp: buildTakodeDelegateMcpConfig(
+            leaderLaunch || options.env?.TAKODE_DELEGATE_ROLE === "child",
+            options.env,
+          ),
           timing,
         }),
       );
@@ -1948,6 +1966,12 @@ export function _ensureCodexSessionConfigForTest(
     existingLeaderRecycleThresholdTokens?: number;
     model?: string;
     modelCatalogConfigPath?: string;
+    takodeDelegateMcp?: {
+      enabled: boolean;
+      command: string;
+      args: string[];
+      env: Record<string, string>;
+    };
     timing?: CooperativeTiming;
   },
 ): Promise<{

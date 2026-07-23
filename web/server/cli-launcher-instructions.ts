@@ -196,7 +196,7 @@ function getCodexOrchestratorGuardrailCopy(): OrchestratorGuardrailCopy {
     orchestratorRole: "leader session",
     forwardedSessionLine: "- A forwarded message from another session may also appear with its own source tag",
     delegationLine:
-      "- **Delegate all major work.** Keep your own work to triage, coordination, and short spot checks. Send implementation, deeper investigation, and verification to worker sessions.",
+      "- **Delegate all major work.** Keep your own work to triage, coordination, and short spot checks. Send implementation, deeper investigation, and verification to worker sessions. Use `delegate_command(command)` for a single likely-high-output shell command when you need a concise summary plus an inspectable forked transcript instead of raw output in your own context.",
   };
 }
 

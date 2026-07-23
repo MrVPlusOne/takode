@@ -587,6 +587,8 @@ describe("getOrchestratorGuardrails", () => {
     const guardrails = launcher.getOrchestratorGuardrails("codex");
     expect(guardrails).toContain("leader session");
     expect(guardrails).toContain("Delegate all major work");
+    expect(guardrails).toContain("delegate_command(command)");
+    expect(guardrails).toContain("inspectable forked transcript");
     expect(guardrails).toContain("## Durable Names in Handoffs");
     expect(guardrails).toContain("keep quest IDs out of the Takode-external durable names");
     expect(guardrails).toContain("Do not ask for a `q-N`-specific destination, filename, job label");

@@ -333,6 +333,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Escalate alignment back to the user only");
     expect(result).toContain("send the changed worktree back to Code Review only after that checkpoint exists");
     expect(result).toContain("does not apply to purely read-only follow-up review discussion");
+    expect(result).toContain("delegate_command(command)");
+    expect(result).toContain("inspectable forked transcript");
     expect(result).toContain("Apply the scoped-wait rule for `needs-input`");
     expect(result).toContain("work elsewhere");
     expect(result).toContain("Any user wait, including approvals, confirmations");

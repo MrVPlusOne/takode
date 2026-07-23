@@ -224,6 +224,41 @@ describe("Codex spawn preparation", () => {
     expect(updatedConfig).toContain('"TAKODE_API_PORT"');
   });
 
+  it("injects the Companion port for direct delegate child Codex launches", async () => {
+    // Hidden delegate children are launched directly from the delegate route,
+    // not through the session-create route that previously supplied
+    // COMPANION_PORT. The launcher itself must inject the server port so the
+    // child-only takode_delegate MCP can call end_delegation.
+    const sessionHome = join(codexHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+
+    await launchCodex({
+      resumeCliSessionId: "forked-thread",
+      hidden: true,
+      parentSessionId: "parent-session",
+      env: {
+        TAKODE_DELEGATE_ROLE: "child",
+        TAKODE_DELEGATE_ID: "del_123",
+        TAKODE_DELEGATE_PARENT_SESSION_ID: "parent-session",
+      },
+    });
+
+    const [, options] = mockSpawn.mock.calls[0];
+    expect(options.env.COMPANION_PORT).toBe("3456");
+    expect(options.env.COMPANION_SESSION_ID).toBe("test-session-id");
+    expect(options.env.COMPANION_AUTH_TOKEN).toBeDefined();
+    expect(options.env.TAKODE_DELEGATE_ROLE).toBe("child");
+
+    const updatedConfig = await Bun.file(configPath).text();
+    expect(updatedConfig).toContain("[mcp_servers.takode_delegate]");
+    expect(updatedConfig).toContain("[mcp_servers.takode_delegate.env]");
+    expect(updatedConfig).toContain('COMPANION_PORT = "3456"');
+    expect(updatedConfig).toContain('COMPANION_SESSION_ID = "test-session-id"');
+    expect(updatedConfig).toContain('TAKODE_DELEGATE_ROLE = "child"');
+    expect(updatedConfig).toContain('"COMPANION_PORT"');
+    expect(updatedConfig).toContain('"TAKODE_DELEGATE_ROLE"');
+  });
+
   it("allow-lists HOME for MAI-wrapper-backed Codex shell commands", async () => {
     // MAI-wrapper launches start with a session-local HOME/CODEX_HOME, but
     // Codex still filters tool shell env through config.toml. HOME must be in
