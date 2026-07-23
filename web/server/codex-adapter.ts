@@ -46,6 +46,8 @@ import { CodexApprovalManager } from "./codex-approval-manager.js";
 import { CodexItemEventManager } from "./codex-item-event-manager.js";
 import { JsonRpcTransport, isPidAlive } from "./codex-jsonrpc-transport.js";
 import { CodexMcpManager } from "./codex-mcp-manager.js";
+import { CodexMcpToolAvailability } from "./codex-mcp-tool-availability.js";
+import { getRouterFailureToolName, isToolRouterFailureMessage } from "./codex-router-failure-utils.js";
 import type {
   CodexAdapterDisconnectDiagnostics,
   CodexSkillChangeDiagnostics,
@@ -75,8 +77,6 @@ const INITIAL_MCP_TOOL_AVAILABILITY_REFRESH_TIMEOUT_MS = 5_000;
 
 export type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "./codex-adapter-utils.js";
 export type { CodexSessionMeta } from "./codex-adapter-types.js";
-
-type RouterFailureToolName = "write_stdin";
 
 // ─── JSON-RPC Transport ───────────────────────────────────────────────────────
 
@@ -138,6 +138,7 @@ export class CodexAdapter
   private _initialMcpToolAvailabilityRefreshQueued = false;
   private _initialMcpToolAvailabilityRefreshInFlight = false;
   private _initialMcpToolAvailabilityRefreshCompleted = false;
+  private mcpToolAvailability = new CodexMcpToolAvailability();
   skillRefreshStats: CodexSkillRefreshStats = { coalesced: 0, deferred: 0, executed: 0, failed: 0, suppressed: 0 };
 
   private itemEventManager: CodexItemEventManager;
@@ -480,7 +481,8 @@ export class CodexAdapter
       console.log(
         `[codex-adapter] Reloading MCP servers for initial tool availability in session ${this.sessionId} (cause=${cause})`,
       );
-      await this.mcpManager.handleReloadAndGetStatus(INITIAL_MCP_TOOL_AVAILABILITY_REFRESH_TIMEOUT_MS);
+      const servers = await this.mcpManager.handleReloadAndGetStatus(INITIAL_MCP_TOOL_AVAILABILITY_REFRESH_TIMEOUT_MS);
+      this.mcpToolAvailability.record(servers);
       this._initialMcpToolAvailabilityRefreshCompleted = true;
       return true;
     } catch (err) {
@@ -518,6 +520,20 @@ export class CodexAdapter
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     return this._initialMcpToolAvailabilityRefreshCompleted;
+  }
+
+  async waitForMcpToolAvailability(serverName: string, toolName: string, timeoutMs = 10_000): Promise<boolean> {
+    return this.mcpToolAvailability.waitFor(
+      serverName,
+      toolName,
+      timeoutMs,
+      () => this.connected && !this.initFailed,
+      async () => {
+        if (this._initialMcpToolAvailabilityRefreshPending || this._initialMcpToolAvailabilityRefreshInFlight) {
+          await this.runInitialMcpToolAvailabilityRefreshIfIdle(`wait_for_${serverName}_${toolName}`);
+        }
+      },
+    );
   }
 
   private queueInitialSkillMetadataRefresh(): void {
@@ -709,7 +725,9 @@ export class CodexAdapter
         console.warn("[codex-adapter] Runtime permission mode switching not supported by Codex");
         return false;
       case "mcp_get_status":
-        this.enqueueOutgoingDispatch("mcp_get_status", () => this.mcpManager.handleGetStatus());
+        this.enqueueOutgoingDispatch("mcp_get_status", async () => {
+          await this.mcpManager.handleGetStatus();
+        });
         return true;
       case "mcp_toggle":
         this.enqueueOutgoingDispatch("mcp_toggle", () => this.mcpManager.handleToggle(msg.serverName, msg.enabled));
@@ -1708,22 +1726,9 @@ export class CodexAdapter
     this.emit({ type: "result", data: result });
   }
 
-  private isToolRouterFailureMessage(message: string): boolean {
-    return [
-      /\bapply_patch verification failed\b/i,
-      /\b(?:exec_command|write_stdin|view_image|spawn_agent|send_input|resume_agent|wait_agent|close_agent)\s+failed\b/i,
-      /\btool(?:\s+call)?\s+failed\b/i,
-    ].some((pattern) => pattern.test(message));
-  }
-
-  private getRouterFailureToolName(message: string): RouterFailureToolName | null {
-    if (/\bwrite_stdin\s+failed\b/i.test(message)) return "write_stdin";
-    return null;
-  }
-
   private handleToolRouterFailureMessage(message: string): void {
-    const isToolRouterFailure = this.isToolRouterFailureMessage(message);
-    const routerFailureToolName = this.getRouterFailureToolName(message);
+    const isToolRouterFailure = isToolRouterFailureMessage(message);
+    const routerFailureToolName = getRouterFailureToolName(message);
     const renderedAsToolResult = isToolRouterFailure
       ? this.itemEventManager.handleToolRouterError(
           message,

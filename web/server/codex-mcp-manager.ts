@@ -121,7 +121,7 @@ export class CodexMcpManager {
     }
   }
 
-  async handleGetStatus(timeoutMs?: number): Promise<void> {
+  async handleGetStatus(timeoutMs?: number): Promise<McpServerDetail[]> {
     try {
       const statusEntries = await this.listAllMcpServerStatuses(timeoutMs);
       const configMap = await this.readMcpServersConfig(timeoutMs);
@@ -158,8 +158,10 @@ export class CodexMcpManager {
 
       this.mcpServersByName = new Map(servers.map((server) => [server.name, server]));
       this.emit({ type: "mcp_status", servers });
+      return servers;
     } catch (err) {
       this.emit({ type: "error", message: `Failed to get MCP status: ${err}` });
+      return [];
     }
   }
 
@@ -202,9 +204,9 @@ export class CodexMcpManager {
     }
   }
 
-  async handleReloadAndGetStatus(timeoutMs?: number): Promise<void> {
+  async handleReloadAndGetStatus(timeoutMs?: number): Promise<McpServerDetail[]> {
     await this.reloadMcpServers(timeoutMs);
-    await this.handleGetStatus(timeoutMs);
+    return this.handleGetStatus(timeoutMs);
   }
 
   async handleSetServers(servers: Record<string, McpServerConfig>): Promise<void> {

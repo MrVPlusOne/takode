@@ -416,11 +416,11 @@ describe("CodexAdapter skill change suppression", () => {
     expect(parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "turn/start")).toHaveLength(1);
   });
 
-  it("allows direct delegate launch code to wait for startup MCP tool availability", async () => {
+  it("allows direct delegate launch code to wait for a specific startup MCP tool", async () => {
     stdin.chunks = [];
     messages.length = 0;
 
-    const availability = adapter.waitForInitialMcpToolAvailability(1_000);
+    const availability = adapter.waitForMcpToolAvailability("takode_delegate", "end_delegation", 1_000);
     await tick();
     expect(parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "config/mcpServer/reload")).toHaveLength(0);
 
@@ -457,6 +457,50 @@ describe("CodexAdapter skill change suppression", () => {
     );
 
     await expect(availability).resolves.toBe(true);
+  });
+
+  it("does not treat a completed startup MCP refresh as tool availability when the specific tool is absent", async () => {
+    stdin.chunks = [];
+    messages.length = 0;
+
+    const availability = adapter.waitForMcpToolAvailability("takode_delegate", "end_delegation", 100);
+    emitMcpStartupReady(stdout);
+    await tick();
+
+    const reloadReq = parseWrittenJsonLines(stdin.chunks).find((l) => l.method === "config/mcpServer/reload");
+    expect(reloadReq).toBeDefined();
+    stdout.push(JSON.stringify({ id: reloadReq.id, result: {} }) + "\n");
+    await tick();
+
+    const statusReq = parseWrittenJsonLines(stdin.chunks).find((l) => l.method === "mcpServerStatus/list");
+    expect(statusReq).toBeDefined();
+    stdout.push(
+      JSON.stringify({
+        id: statusReq.id,
+        result: {
+          data: [
+            {
+              name: "takode_delegate",
+              authStatus: "loggedIn",
+              tools: { delegate_command: { name: "delegate_command" } },
+            },
+          ],
+          nextCursor: null,
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const configReq = parseWrittenJsonLines(stdin.chunks).find((l) => l.method === "config/read");
+    expect(configReq).toBeDefined();
+    stdout.push(
+      JSON.stringify({
+        id: configReq.id,
+        result: { config: { mcp_servers: { takode_delegate: { command: "bun", enabled: true } } } },
+      }) + "\n",
+    );
+
+    await expect(availability).resolves.toBe(false);
   });
 });
 

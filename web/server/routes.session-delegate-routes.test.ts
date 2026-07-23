@@ -41,7 +41,7 @@ describe("delegate command routes", () => {
     };
     const childAdapter = {
       isConnected: () => true,
-      waitForInitialMcpToolAvailability: vi.fn(async () => {
+      waitForMcpToolAvailability: vi.fn(async () => {
         childOrder.push("wait");
         return true;
       }),
@@ -130,7 +130,7 @@ describe("delegate command routes", () => {
     });
     const childPrompt = sentToChild[0] as { content: string };
     expect(childOrder).toEqual(["wait", "send"]);
-    expect(childAdapter.waitForInitialMcpToolAvailability).toHaveBeenCalledWith(10_000);
+    expect(childAdapter.waitForMcpToolAvailability).toHaveBeenCalledWith("takode_delegate", "end_delegation", 10_000);
     expect(childPrompt.content).toContain("forked command-delegate copy");
     expect(childPrompt.content).toContain("rg -n large-output web");
 
@@ -159,7 +159,7 @@ describe("delegate command routes", () => {
     };
     const childAdapter = {
       isConnected: () => true,
-      waitForInitialMcpToolAvailability: vi.fn(async () => false),
+      waitForMcpToolAvailability: vi.fn(async () => false),
       sendBrowserMessage: vi.fn(),
     };
     const sessions = new Map<string, any>();
@@ -223,7 +223,7 @@ describe("delegate command routes", () => {
     expect(json.error).toContain("end_delegation tool did not become available");
     expect(json.delegateId).toEqual(expect.stringMatching(/^del_/));
     expect(json.childSessionId).toBe("child");
-    expect(childAdapter.waitForInitialMcpToolAvailability).toHaveBeenCalledWith(10_000);
+    expect(childAdapter.waitForMcpToolAvailability).toHaveBeenCalledWith("takode_delegate", "end_delegation", 10_000);
     expect(childAdapter.sendBrowserMessage).not.toHaveBeenCalled();
   });
 });
