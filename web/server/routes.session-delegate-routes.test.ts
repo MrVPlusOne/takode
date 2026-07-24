@@ -113,6 +113,7 @@ describe("delegate command routes", () => {
           backendType: "codex",
           resumeCliSessionId: "forked-thread",
           hidden: true,
+          publicSessionNumber: false,
           parentSessionId: "parent",
           extraInstructions: guardrails,
           isOrchestrator: true,
@@ -123,9 +124,19 @@ describe("delegate command routes", () => {
             TAKODE_DELEGATE_PARENT_SESSION_ID: "parent",
           },
         });
-        return { sessionId: "child", hidden: true, parentSessionId: "parent", noAutoName: false };
+        return {
+          sessionId: "child",
+          hidden: true,
+          parentSessionId: "parent",
+          noAutoName: false,
+          publicSessionNumber: false,
+        };
       }),
-      getSessionNum: vi.fn((id: string) => (id === "parent" ? 2220 : id === "child" ? 2266 : undefined)),
+      getSessionNum: vi.fn((id: string) => (id === "parent" ? 2220 : undefined)),
+      listSessions: vi.fn(() => [
+        { sessionId: "parent", createdAt: 1, sessionNum: 2220 },
+        { sessionId: "child", createdAt: 2, hidden: true, publicSessionNumber: false },
+      ]),
     };
     const wsBridge = {
       getSession: vi.fn((id: string) => sessions.get(id)),
@@ -168,13 +179,52 @@ describe("delegate command routes", () => {
     expect(endResponse.status).toBe(200);
 
     const parentResponse = await parentRequest;
-    const parentJson = (await parentResponse.json()) as { text: string; childSessionNum: number; delegateId: string };
+    const parentJson = (await parentResponse.json()) as {
+      text: string;
+      childSessionNum: number | null;
+      delegateId: string;
+    };
     expect(parentJson.text).toContain("Delegate command completed.");
     expect(parentJson.text).toContain("Found 12 large output call sites.");
-    expect(parentJson.text).toContain("[#2266](session:2266)");
+    expect(parentJson.text).toContain("Delegate: " + delegateId);
+    expect(parentJson.text).not.toContain("[#");
     expect(parentJson.text).not.toContain("raw stdout");
-    expect(parentJson.childSessionNum).toBe(2266);
+    expect(parentJson.childSessionNum).toBeNull();
     expect(parentJson.delegateId).toBe(delegateId);
+
+    sessions.get("child").messageHistory.push({
+      type: "assistant",
+      timestamp: 10,
+      message: {
+        content: [{ type: "tool_use", id: "bash-1", name: "Bash", input: { command: "rg -n large-output web" } }],
+      },
+    });
+    sessions.get("child").messageHistory.push({
+      type: "assistant",
+      timestamp: 11,
+      message: {
+        content: [{ type: "tool_result", tool_use_id: "bash-1", content: "Found 12", is_error: false }],
+      },
+    });
+    const traceResponse = await app.request(
+      "/sessions/parent/delegates/trace?delegateId=" + encodeURIComponent(delegateId),
+    );
+    const traceJson = (await traceResponse.json()) as {
+      delegateId: string;
+      childSessionNum: number | null;
+      rawOutputLink: { kind: string; label: string };
+      trace: Array<{ label: string; text?: string; status?: string }>;
+    };
+    expect(traceResponse.status).toBe(200);
+    expect(traceJson.delegateId).toBe(delegateId);
+    expect(traceJson.childSessionNum).toBeNull();
+    expect(traceJson.rawOutputLink).toMatchObject({ kind: "delegate", label: delegateId });
+    expect(traceJson.trace).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Bash", text: "rg -n large-output web", status: "running" }),
+        expect.objectContaining({ label: "Result", text: "Found 12", status: "completed" }),
+      ]),
+    );
   });
 
   it("fails closed instead of prompting the child before end_delegation is available", async () => {

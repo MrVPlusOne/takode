@@ -348,6 +348,7 @@ export function PlaygroundSubagentGroup({
   items,
   resultText,
   prompt,
+  commandPreview,
   durationSeconds,
   liveStartedAt,
   interrupted,
@@ -357,6 +358,7 @@ export function PlaygroundSubagentGroup({
   items: ToolItem[];
   resultText?: string;
   prompt?: string;
+  commandPreview?: string;
   durationSeconds?: number;
   liveStartedAt?: number;
   interrupted?: boolean;
@@ -381,6 +383,8 @@ export function PlaygroundSubagentGroup({
   }, [liveStartedAt, durationSeconds]);
 
   const displayDurationSeconds = durationSeconds ?? liveSeconds;
+  const isDelegateCommand = agentType === "delegate_command";
+  const delegateCommand = commandPreview || (isDelegateCommand ? prompt : "");
 
   return (
     <div className="flex items-start gap-3">
@@ -399,9 +403,17 @@ export function PlaygroundSubagentGroup({
             >
               <path d="M6 4l4 4-4 4" />
             </svg>
-            <ToolIcon type="agent" />
+            <ToolIcon type={isDelegateCommand ? "terminal" : "agent"} />
             <span className="text-xs font-medium text-cc-fg truncate">{description}</span>
-            {agentType && (
+            {isDelegateCommand && delegateCommand && (
+              <span
+                className="min-w-0 flex-1 truncate rounded-md bg-cc-code-bg/70 px-2 py-1 font-mono-code text-[11px] text-cc-code-fg"
+                title={delegateCommand}
+              >
+                {delegateCommand}
+              </span>
+            )}
+            {agentType && !isDelegateCommand && (
               <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 shrink-0">
                 {agentType}
               </span>
@@ -519,6 +531,33 @@ export function PlaygroundSubagentGroup({
         </div>
       </div>
     </div>
+  );
+}
+
+export function PlaygroundDelegateCommandGroup() {
+  return (
+    <PlaygroundSubagentGroup
+      description="Delegated command"
+      agentType="delegate_command"
+      commandPreview="sed -n '1,3p' delegate-sample.txt"
+      prompt="sed -n '1,3p' delegate-sample.txt"
+      items={[
+        {
+          id: "delegate-bash",
+          name: "Bash",
+          input: { command: "sed -n '1,3p' delegate-sample.txt" },
+        },
+        {
+          id: "delegate-end",
+          name: "mcp:takode_delegate:end_delegation",
+          input: { summary: "Read the first three sample lines." },
+        },
+      ]}
+      durationSeconds={2.4}
+      resultText={
+        "Delegate command completed.\n\nDelegate: del_playground123\nCommand: sed -n '1,3p' delegate-sample.txt\n\nSummary:\nRead the first three sample lines.\n\nInspect:\n- Expand the Delegate command card to inspect the delegate trace/raw-output link for delegate del_playground123."
+      }
+    />
   );
 }
 

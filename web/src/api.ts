@@ -274,6 +274,30 @@ export interface SessionConfigUpdateResponse {
   sessionState: Partial<SessionState>;
 }
 
+export interface DelegateTraceEvent {
+  kind: "assistant" | "tool";
+  label: string;
+  text?: string;
+  status?: "running" | "completed" | "failed";
+  isError?: boolean;
+  isTruncated?: boolean;
+  totalSize?: number;
+  timestamp?: number;
+}
+
+export interface DelegateTraceResponse {
+  delegateId: string;
+  command: string;
+  childSessionId: string | null;
+  childSessionNum: number | null;
+  pending: boolean;
+  trace: DelegateTraceEvent[];
+  rawOutputLink:
+    | null
+    | { kind: "session"; label: string; sessionNum: number }
+    | { kind: "delegate"; label: string; sessionId: string };
+}
+
 export interface ServerNewSessionDefaults {
   backend: "claude" | "codex";
   model: string;
@@ -1042,6 +1066,16 @@ export const api = {
     }
     const query = params.toString();
     return get<SdkSessionInfo[]>(`/sessions${query ? `?${query}` : ""}`);
+  },
+
+  getDelegateTrace: (sessionId: string, opts: { delegateId?: string | null; command?: string | null }) => {
+    const params = new URLSearchParams();
+    if (opts.delegateId) params.set("delegateId", opts.delegateId);
+    if (opts.command) params.set("command", opts.command);
+    const query = params.toString();
+    return get<DelegateTraceResponse>(
+      "/sessions/" + encodeURIComponent(sessionId) + "/delegates/trace" + (query ? "?" + query : ""),
+    );
   },
 
   listArchivedSessionsPage: (options?: { offset?: number; limit?: number }) => {

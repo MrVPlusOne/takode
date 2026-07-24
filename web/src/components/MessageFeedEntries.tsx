@@ -45,6 +45,8 @@ import {
 } from "../utils/thread-projection.js";
 import { AttentionLedgerRow } from "./AttentionLedgerRow.js";
 import { isAttentionLedgerMessage } from "../utils/attention-records.js";
+import { DelegateTrace, extractDelegateId, useDelegateCommandTrace } from "./DelegateCommandTrace.js";
+import { parseSubagentResultText, SubagentResult } from "./SubagentResult.js";
 
 function useExpandForScrollTarget(
   sessionId: string,
@@ -1303,23 +1305,6 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   );
 });
 
-function parseSubagentResultText(raw: string): string {
-  try {
-    const blocks = JSON.parse(raw);
-    if (!Array.isArray(blocks)) return raw;
-    const texts: string[] = [];
-    for (const b of blocks) {
-      if (b?.type === "text" && typeof b.text === "string") {
-        if (/^agentId:|^<usage>/i.test(b.text.trim())) continue;
-        texts.push(b.text);
-      }
-    }
-    return texts.length > 0 ? texts.join("\n") : raw;
-  } catch {
-    return raw;
-  }
-}
-
 function getCommittedCodexStreamingText(raw: string): string {
   if (!raw) return "";
   const lastNewline = raw.lastIndexOf("\n");
@@ -1417,6 +1402,13 @@ function SubagentContainer({
   const headerRef = useRef<HTMLButtonElement>(null);
   const label = group.description || "Subagent";
   const agentType = group.agentType;
+  const isDelegateCommand = agentType === "delegate_command";
+  const delegateCommand =
+    typeof group.taskInput?.command === "string"
+      ? group.taskInput.command
+      : typeof group.taskInput?.prompt === "string"
+        ? group.taskInput.prompt
+        : "";
   const childCount = group.children.length;
   const hasPrompt = !!group.taskInput?.prompt;
 
@@ -1466,8 +1458,13 @@ function SubagentContainer({
     if (!resultPreview?.content) return null;
     return parseSubagentResultText(resultPreview.content);
   }, [resultPreview]);
+  const delegateId = useMemo(
+    () => extractDelegateId(parsedResultPreview ?? resultPreview?.content),
+    [parsedResultPreview, resultPreview?.content],
+  );
 
   const collapsedPreview = useMemo(() => {
+    if (isDelegateCommand && delegateCommand) return "";
     if (parsedResultPreview) {
       const text = parsedResultPreview.trim();
       return text.length > 120 ? text.slice(0, 120) + "..." : text;
@@ -1481,7 +1478,19 @@ function SubagentContainer({
       return text.length > 120 ? text.slice(0, 120) + "..." : text;
     }
     return lastPreview;
-  }, [lastPreview, parsedResultPreview, rawThinkingText, streamingText]);
+  }, [delegateCommand, isDelegateCommand, lastPreview, parsedResultPreview, rawThinkingText, streamingText]);
+
+  const {
+    trace: delegateTrace,
+    error: delegateTraceError,
+    count: delegateTraceCount,
+  } = useDelegateCommandTrace({
+    sessionId,
+    isDelegateCommand,
+    delegateCommand,
+    delegateId,
+    resultComplete: !!resultPreview,
+  });
 
   const card = (
     <div
@@ -1500,9 +1509,17 @@ function SubagentContainer({
         >
           <path d="M6 4l4 4-4 4" />
         </svg>
-        <ToolIcon type="agent" />
+        <ToolIcon type={isDelegateCommand ? "terminal" : "agent"} />
         <span className="text-xs font-medium text-cc-fg truncate">{label}</span>
-        {agentType && (
+        {isDelegateCommand && delegateCommand && (
+          <span
+            className="min-w-0 flex-1 truncate rounded-md bg-cc-code-bg/70 px-2 py-1 font-mono-code text-[11px] text-cc-code-fg"
+            title={delegateCommand}
+          >
+            {delegateCommand}
+          </span>
+        )}
+        {agentType && !isDelegateCommand && (
           <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 shrink-0">{agentType}</span>
         )}
         {!open && collapsedPreview && (
@@ -1521,8 +1538,8 @@ function SubagentContainer({
           isComplete={isEffectivelyComplete || isAbandoned}
         />
         <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 tabular-nums shrink-0 ml-auto">
-          {childCount > 0
-            ? childCount
+          {childCount + delegateTraceCount > 0
+            ? childCount + delegateTraceCount
             : isEffectivelyComplete
               ? "✓"
               : isAbandoned
@@ -1548,7 +1565,7 @@ function SubagentContainer({
             </div>
           )}
 
-          {(childCount > 0 || rawStreamingText || rawThinkingText) && (
+          {(childCount > 0 || delegateTraceCount > 0 || rawStreamingText || rawThinkingText || delegateTraceError) && (
             <div className="border-b border-cc-border/50">
               <SubagentSectionHeader
                 label="Activities"
@@ -1566,6 +1583,12 @@ function SubagentContainer({
                       activeCodexTerminalIds={activeCodexTerminalIds}
                       onOpenCodexTerminal={onOpenCodexTerminal}
                     />
+                  )}
+                  {delegateTraceCount > 0 && <DelegateTrace trace={delegateTrace!} sessionId={sessionId} />}
+                  {delegateTraceError && delegateTraceCount === 0 && (
+                    <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2 text-[11px] text-cc-muted">
+                      Delegate trace unavailable: {delegateTraceError}
+                    </div>
                   )}
                   {rawThinkingText && (
                     <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2">
@@ -1618,12 +1641,17 @@ function SubagentContainer({
             </div>
           )}
 
-          {childCount === 0 && !rawStreamingText && !rawThinkingText && !isEffectivelyComplete && !isAbandoned && (
-            <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-cc-muted">
-              <YarnBallSpinner className="w-3.5 h-3.5" />
-              <span>{group.isBackground ? "Running in background..." : "Agent starting..."}</span>
-            </div>
-          )}
+          {childCount === 0 &&
+            delegateTraceCount === 0 &&
+            !rawStreamingText &&
+            !rawThinkingText &&
+            !isEffectivelyComplete &&
+            !isAbandoned && (
+              <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-cc-muted">
+                <YarnBallSpinner className="w-3.5 h-3.5" />
+                <span>{group.isBackground ? "Running in background..." : "Agent starting..."}</span>
+              </div>
+            )}
 
           {childCount === 0 && isAbandoned && (
             <div className="px-3 py-2 text-[11px] text-cc-muted">Agent interrupted</div>
@@ -1656,51 +1684,6 @@ function SubagentContainer({
       <div className="flex items-start gap-3">
         <PawTrailAvatar />
         <div className="flex-1 min-w-0">{card}</div>
-      </div>
-    </div>
-  );
-}
-
-function SubagentResult({
-  preview,
-  parsedText,
-  sessionId,
-  toolUseId,
-}: {
-  preview: { content: string; is_truncated: boolean };
-  parsedText: string | null;
-  sessionId: string;
-  toolUseId: string;
-}) {
-  const [fullContent, setFullContent] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (preview.is_truncated && !fullContent && !loading) {
-      setLoading(true);
-      api
-        .getToolResult(sessionId, toolUseId)
-        .then((result: { content: string }) => setFullContent(result.content))
-        .catch(() => setFullContent("[Failed to load full result]"))
-        .finally(() => setLoading(false));
-    }
-  }, [preview.is_truncated, fullContent, loading, sessionId, toolUseId]);
-
-  const displayText = fullContent ? parseSubagentResultText(fullContent) : (parsedText ?? preview.content);
-
-  return (
-    <div className="px-3 pb-2">
-      {loading && (
-        <div className="flex items-center gap-1.5 mb-1.5 text-[11px] text-cc-muted">
-          <svg className="w-3 h-3 animate-spin text-cc-muted" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <span>Loading full result...</span>
-        </div>
-      )}
-      <div className="text-sm max-h-96 overflow-y-auto">
-        <MarkdownContent text={displayText} sessionId={sessionId} />
       </div>
     </div>
   );

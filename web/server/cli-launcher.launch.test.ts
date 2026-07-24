@@ -494,6 +494,27 @@ describe("launch", () => {
     expect(launcher.verifySessionAuthToken("test-session-id", options.env.COMPANION_AUTH_TOKEN)).toBe(true);
   });
 
+  it("can launch hidden delegate children without consuming a public session number", async () => {
+    const info = await launcher.launch({
+      cwd: "/tmp/project",
+      hidden: true,
+      parentSessionId: "parent-session",
+      publicSessionNumber: false,
+    });
+
+    const [, options] = mockSpawn.mock.calls[0];
+    expect(info.sessionId).toBe("test-session-id");
+    expect(info.hidden).toBe(true);
+    expect(info.parentSessionId).toBe("parent-session");
+    expect(info.publicSessionNumber).toBe(false);
+    expect(info.sessionNum).toBeUndefined();
+    expect(launcher.getSessionNum("test-session-id")).toBeUndefined();
+    expect(launcher.resolveSessionId("0")).toBeNull();
+    expect(options.env.COMPANION_SESSION_ID).toBe("test-session-id");
+    expect(options.env.COMPANION_SESSION_NUMBER).toBe("");
+    expect(typeof options.env.COMPANION_AUTH_TOKEN).toBe("string");
+  });
+
   it("keeps stale memory env vars from overriding the launcher default", async () => {
     const info = await launcher.launch({
       cwd: "/tmp/project",

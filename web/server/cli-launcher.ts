@@ -486,8 +486,11 @@ export class CliLauncher {
     }
     this.nextSessionNum = maxNum + 1;
 
-    // Phase 2: Assign new numbers to sessions that don't have one yet (legacy/pre-migration)
+    // Phase 2: Assign new numbers to sessions that don't have one yet (legacy/pre-migration).
+    // Hidden delegate children can intentionally opt out so they keep UUID/Codex runtime identity
+    // without consuming user-facing #N numbers.
     const sorted = allSessions
+      .filter((s) => s.publicSessionNumber !== false)
       .filter((s) => s.sessionNum === undefined || s.sessionNum === null)
       .sort((a, b) => a.createdAt - b.createdAt);
     for (const info of sorted) {
@@ -568,6 +571,7 @@ export class CliLauncher {
       envSlug: options.envSlug,
       blockedEnvKeys: options.blockedEnvKeys?.length ? Array.from(new Set(options.blockedEnvKeys)) : undefined,
       hidden: options.hidden === true,
+      publicSessionNumber: options.publicSessionNumber !== false,
       parentSessionId: options.parentSessionId,
       isOrchestrator: options.isOrchestrator === true,
       slackThreadId: options.sideChatId ?? options.slackThreadId,
@@ -633,8 +637,10 @@ export class CliLauncher {
 
     this.sessions.set(sessionId, info);
 
-    // Assign monotonic integer session number
-    info.sessionNum = this.assignSessionNum(sessionId);
+    // Assign monotonic integer session number only for user-facing sessions.
+    if (info.publicSessionNumber !== false) {
+      info.sessionNum = this.assignSessionNum(sessionId);
+    }
 
     // Server-issued token for authenticating privileged REST requests.
     const sessionAuthToken = this.ensureSessionAuthToken(info);
@@ -651,9 +657,13 @@ export class CliLauncher {
       COMPANION_SERVER_SLUG: this.serverSlug,
       [COMPANION_MEMORY_SPACE_SLUG_ENV]: memorySessionSpaceSlug,
       COMPANION_SESSION_ID: sessionId,
-      COMPANION_SESSION_NUMBER: String(info.sessionNum),
       COMPANION_AUTH_TOKEN: sessionAuthToken,
     };
+    if (info.sessionNum !== undefined) {
+      identityEnv.COMPANION_SESSION_NUMBER = String(info.sessionNum);
+    } else {
+      identityEnv.COMPANION_SESSION_NUMBER = "";
+    }
     if (info.isOrchestrator) {
       identityEnv.TAKODE_ROLE = "orchestrator";
       identityEnv.TAKODE_API_PORT = String(this.port);

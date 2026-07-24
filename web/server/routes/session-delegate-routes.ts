@@ -16,6 +16,17 @@ type PendingDelegate = {
   stopMonitor?: () => void;
 };
 
+type DelegateTraceEvent = {
+  kind: "assistant" | "tool";
+  label: string;
+  text?: string;
+  status?: "running" | "completed" | "failed";
+  isError?: boolean;
+  isTruncated?: boolean;
+  totalSize?: number;
+  timestamp?: number;
+};
+
 const pendingDelegates = new Map<string, PendingDelegate>();
 
 type DelegateResolution = {
@@ -82,19 +93,148 @@ function formatParentResult(args: {
 }): string {
   const link = args.childSessionNum
     ? "[#" + args.childSessionNum + "](session:" + args.childSessionNum + ")"
-    : "delegate session";
+    : "delegate " + args.delegateId;
   return [
     args.isError ? "Delegate command failed." : "Delegate command completed.",
     "",
-    "Delegate: " + args.delegateId + " (" + link + ")",
+    args.childSessionNum ? "Delegate: " + args.delegateId + " (" + link + ")" : "Delegate: " + args.delegateId,
     "Command: " + args.command,
     "",
     "Summary:",
     args.summary.trim(),
     "",
     "Inspect:",
-    "- Delegate transcript/raw output: " + link,
+    args.childSessionNum
+      ? "- Delegate transcript/raw output: " + link
+      : "- Expand the Delegate command card to inspect the delegate trace/raw-output link for " + link + ".",
   ].join("\n");
+}
+
+function textFromContent(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => {
+      if (!block || typeof block !== "object") return "";
+      const rec = block as Record<string, unknown>;
+      if (rec.type === "text" && typeof rec.text === "string") return rec.text;
+      if (rec.type === "tool_result" && typeof rec.content === "string") return rec.content;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function summarizeToolInput(toolName: string, input: unknown): string {
+  if (!input || typeof input !== "object") return "";
+  const rec = input as Record<string, unknown>;
+  if (toolName === "Bash" && typeof rec.command === "string") return rec.command;
+  if (typeof rec.summary === "string") return rec.summary;
+  if (typeof rec.command === "string") return rec.command;
+  return "";
+}
+
+function boundTraceText(text: string, maxChars = 800): Pick<DelegateTraceEvent, "text" | "isTruncated" | "totalSize"> {
+  const totalSize = text.length;
+  if (totalSize <= maxChars) return { text, totalSize };
+  return { text: text.slice(0, maxChars) + "…", totalSize, isTruncated: true };
+}
+
+function traceEventsFromChildSession(childSession: any): DelegateTraceEvent[] {
+  const events: DelegateTraceEvent[] = [];
+  const history = Array.isArray(childSession?.messageHistory) ? childSession.messageHistory : [];
+  for (const entry of history) {
+    if (entry?.type !== "assistant") continue;
+    const content = entry.message?.content;
+    if (!Array.isArray(content)) continue;
+    const timestamp = typeof entry.timestamp === "number" ? entry.timestamp : undefined;
+    for (const block of content) {
+      if (!block || typeof block !== "object") continue;
+      const rec = block as Record<string, unknown>;
+      if (rec.type === "text") {
+        const text = textFromContent([rec]);
+        if (text) events.push({ kind: "assistant", label: "Assistant", ...boundTraceText(text), timestamp });
+      } else if (rec.type === "tool_use") {
+        const name = typeof rec.name === "string" ? rec.name : "tool";
+        events.push({
+          kind: "tool",
+          label: name,
+          ...boundTraceText(summarizeToolInput(name, rec.input), 400),
+          status: "running",
+          timestamp,
+        });
+      } else if (rec.type === "tool_result") {
+        const resultText = textFromContent([rec]);
+        events.push({
+          kind: "tool",
+          label: "Result",
+          ...boundTraceText(resultText),
+          status: rec.is_error ? "failed" : "completed",
+          isError: rec.is_error === true,
+          timestamp,
+        });
+      }
+    }
+  }
+  return events;
+}
+
+function findDelegateChildById(wsBridge: WsBridge, launcher: CliLauncher, parentSessionId: string, delegateId: string) {
+  for (const info of launcher.listSessions?.() ?? []) {
+    const session = wsBridge.getSession(info.sessionId);
+    const delegateChild = (session?.state as any)?.delegateChild as
+      | { parentSessionId?: string; delegateId?: string; command?: string }
+      | undefined;
+    if (delegateChild?.parentSessionId === parentSessionId && delegateChild.delegateId === delegateId) {
+      return { info, session, delegateChild };
+    }
+  }
+  return null;
+}
+
+function findLatestDelegateChildByCommand(
+  wsBridge: WsBridge,
+  launcher: CliLauncher,
+  parentSessionId: string,
+  command: string,
+) {
+  const matches: Array<NonNullable<ReturnType<typeof findDelegateChildById>>> = [];
+  for (const info of launcher.listSessions?.() ?? []) {
+    const session = wsBridge.getSession(info.sessionId);
+    const delegateChild = (session?.state as any)?.delegateChild as
+      | { parentSessionId?: string; delegateId?: string; command?: string }
+      | undefined;
+    if (delegateChild?.parentSessionId === parentSessionId && delegateChild.command === command) {
+      matches.push({ info, session, delegateChild });
+    }
+  }
+  matches.sort((a, b) => (b.info.createdAt ?? 0) - (a.info.createdAt ?? 0));
+  return matches[0] ?? null;
+}
+
+function delegateTraceResponse(args: {
+  delegateId: string;
+  command: string;
+  childSessionId?: string;
+  childSessionNum?: number | null;
+  childSession: any;
+  pending: boolean;
+}) {
+  const rawOutputLink = args.childSessionNum
+    ? { kind: "session" as const, label: "#" + args.childSessionNum, sessionNum: args.childSessionNum }
+    : args.childSessionId
+      ? { kind: "delegate" as const, label: args.delegateId, sessionId: args.childSessionId }
+      : null;
+  return {
+    delegateId: args.delegateId,
+    command: args.command,
+    childSessionId: args.childSessionId ?? null,
+    childSessionNum: args.childSessionNum ?? null,
+    pending: args.pending,
+    trace: traceEventsFromChildSession(args.childSession),
+    rawOutputLink,
+  };
 }
 
 function resolvePendingDelegate(delegateId: string, result: DelegateResolution): void {
@@ -189,6 +329,7 @@ export function registerSessionDelegateRoutes(
       isOrchestrator: parentInfo.isOrchestrator === true,
       resumeCliSessionId: forkedThreadId,
       hidden: true,
+      publicSessionNumber: false,
       parentSessionId,
     });
     child.hidden = true;
@@ -271,7 +412,35 @@ export function registerSessionDelegateRoutes(
       summary: result.summary,
       isError: result.isError,
     });
-    return c.json({ text, delegateId, childSessionId: child.sessionId, childSessionNum, isError: result.isError });
+    return c.json({
+      text,
+      delegateId,
+      childSessionId: child.sessionId,
+      childSessionNum: childSessionNum ?? null,
+      isError: result.isError,
+    });
+  });
+
+  api.get("/sessions/:id/delegates/trace", (c) => {
+    const parentSessionId = resolveId(c.req.param("id"));
+    if (!parentSessionId) return c.json({ error: "Session not found" }, 404);
+    const delegateId = typeof c.req.query("delegateId") === "string" ? c.req.query("delegateId")!.trim() : "";
+    const command = typeof c.req.query("command") === "string" ? c.req.query("command")!.trim() : "";
+    let resolved: ReturnType<typeof findDelegateChildById> | ReturnType<typeof findLatestDelegateChildByCommand> = null;
+    if (delegateId) resolved = findDelegateChildById(wsBridge, launcher, parentSessionId, delegateId);
+    if (!resolved && command) resolved = findLatestDelegateChildByCommand(wsBridge, launcher, parentSessionId, command);
+    if (!resolved) return c.json({ error: "Delegate trace not found" }, 404);
+    const pending = pendingDelegates.has(resolved.delegateChild.delegateId ?? "");
+    return c.json(
+      delegateTraceResponse({
+        delegateId: resolved.delegateChild.delegateId ?? delegateId,
+        command: resolved.delegateChild.command ?? command,
+        childSessionId: resolved.info.sessionId,
+        childSessionNum: launcher.getSessionNum(resolved.info.sessionId) ?? null,
+        childSession: resolved.session,
+        pending,
+      }),
+    );
   });
 
   api.post("/sessions/:id/delegates/end", async (c) => {

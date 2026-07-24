@@ -82,6 +82,8 @@ export interface LaunchOptions {
   slackThreadReadOnly?: boolean;
   /** Hidden implementation session omitted from normal session lists. */
   hidden?: boolean;
+  /** Whether this session should consume a normal public #N session number. Defaults to true. */
+  publicSessionNumber?: boolean;
   parentSessionId?: string;
   /** True when this is an orchestrator session (gets TAKODE_ROLE env). */
   isOrchestrator?: boolean;

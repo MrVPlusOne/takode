@@ -38,6 +38,7 @@ import {
   PlaygroundHerdEventDemo,
   PlaygroundSectionGroup,
   PlaygroundSelectionContextMenu,
+  PlaygroundDelegateCommandGroup,
   PlaygroundSubagentGroup,
   PlaygroundToolGroup,
   Section,
@@ -1122,6 +1123,9 @@ export function PlaygroundStateSections() {
               durationSeconds={4.2}
               interrupted
             />
+          </Card>
+          <Card label="Delegate command with command preview, trace, and friendly result">
+            <PlaygroundDelegateCommandGroup />
           </Card>
         </div>
       </Section>

@@ -522,7 +522,7 @@ export class CodexItemEventManager {
         });
         this.emitToolResult(
           item.id,
-          mcp.result || mcp.error || "MCP tool call completed",
+          this.resultForMcpTool(mcp) || mcp.error || "MCP tool call completed",
           mcp.status === "failed",
           parentToolUseId,
         );
@@ -926,6 +926,28 @@ export class CodexItemEventManager {
 
   private isTakodeDelegateCommandTool(item: CodexMcpToolCallItem): boolean {
     return item.server === "takode_delegate" && item.tool === "delegate_command";
+  }
+
+  private extractMcpResultText(result: unknown): string | null {
+    if (typeof result === "string") return result;
+    if (!result || typeof result !== "object") return null;
+    const content = (result as Record<string, unknown>).content;
+    if (!Array.isArray(content)) return null;
+    const texts = content
+      .map((block) => {
+        if (!block || typeof block !== "object") return "";
+        const rec = block as Record<string, unknown>;
+        return rec.type === "text" && typeof rec.text === "string" ? rec.text : "";
+      })
+      .filter(Boolean);
+    return texts.length > 0 ? texts.join("\n") : null;
+  }
+
+  private resultForMcpTool(item: CodexMcpToolCallItem): unknown {
+    if (this.isTakodeDelegateCommandTool(item)) {
+      return this.extractMcpResultText(item.result) ?? item.result;
+    }
+    return item.result;
   }
 
   private displayNameForMcpTool(item: CodexMcpToolCallItem): string {

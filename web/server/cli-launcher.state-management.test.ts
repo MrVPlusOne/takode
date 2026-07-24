@@ -387,6 +387,19 @@ describe("state management", () => {
     expect(launcher.resolveSessionId(`#${sessionNum}`)).toBe("test-session-id");
   });
 
+  it("keeps delegate children out of the public numeric session namespace", async () => {
+    await launcher.launch({ cwd: "/tmp", hidden: true, parentSessionId: "parent", publicSessionNumber: false });
+
+    const session = launcher.getSession("test-session-id");
+    expect(session?.sessionId).toBe("test-session-id");
+    expect(session?.hidden).toBe(true);
+    expect(session?.publicSessionNumber).toBe(false);
+    expect(launcher.getSessionNum("test-session-id")).toBeUndefined();
+    expect(launcher.resolveSessionId("0")).toBeNull();
+    expect(launcher.resolveSessionId("#0")).toBeNull();
+    expect(launcher.resolveSessionId("test-session-id")).toBe("test-session-id");
+  });
+
   describe("markConnected", () => {
     it("sets state to connected", async () => {
       await launcher.launch({ cwd: "/tmp" });

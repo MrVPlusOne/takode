@@ -9,8 +9,10 @@ import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-ph
 
 export interface SdkSessionInfo {
   sessionId: string;
-  /** Monotonic integer ID assigned at runtime (not persisted, regenerated on restart) */
+  /** Monotonic public integer ID. Delegate children can intentionally omit this. */
   sessionNum?: number;
+  /** False for hidden delegate children that keep UUID/Codex identity but do not consume public #N numbers. */
+  publicSessionNumber?: boolean;
   pid?: number;
   state: "starting" | "connected" | "running" | "exited";
   exitCode?: number | null;

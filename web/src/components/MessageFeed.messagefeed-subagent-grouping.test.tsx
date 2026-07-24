@@ -28,7 +28,7 @@ beforeAll(() => {
   });
 });
 
-import { render, screen, fireEvent, act, within } from "@testing-library/react";
+import { render, screen, fireEvent, act, within, waitFor } from "@testing-library/react";
 import type { ChatMessage } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 
@@ -55,9 +55,17 @@ const mockCollapseAllTurnActivity = vi.fn();
 const mockClearBottomAlignOnNextUserMessage = vi.fn();
 const mockSetComposerDraft = vi.fn();
 const mockSendToSession: any = vi.fn(() => true);
+const mockGetDelegateTrace = vi.fn();
 
 vi.mock("../ws.js", () => ({
   sendToSession: (sessionId: string, msg: any) => mockSendToSession(sessionId, msg),
+}));
+
+vi.mock("../api.js", () => ({
+  api: {
+    getDelegateTrace: (...args: unknown[]) => mockGetDelegateTrace(...args),
+    getToolResult: vi.fn(),
+  },
 }));
 
 vi.mock("../store.js", () => {
@@ -400,6 +408,8 @@ function resetStore() {
   mockSetComposerDraft.mockReset();
   mockSendToSession.mockReset();
   mockSendToSession.mockReturnValue(true);
+  mockGetDelegateTrace.mockReset();
+  mockGetDelegateTrace.mockRejectedValue(new Error("not found"));
   mockStoreValues.messages = new Map();
   mockStoreValues.messageFrozenCounts = new Map();
   mockStoreValues.messageFrozenRevisions = new Map();
@@ -611,6 +621,72 @@ describe("MessageFeed - subagent grouping", () => {
     // Since there are no children and no result, the "Agent starting..." indicator
     // should be visible when expanded
     expect(screen.getByText("Agent starting...")).toBeTruthy();
+  });
+
+  it("renders delegate command cards with command preview, compact trace, and unwrapped MCP result text", async () => {
+    const sid = "test-delegate-card";
+    const mcpEnvelope = JSON.stringify({
+      content: [
+        {
+          type: "text",
+          text: "Delegate command completed.\n\nDelegate: del_abc123\nCommand: sed -n '1,3p' sample.txt\n\nSummary:\nRead three lines.",
+        },
+      ],
+      structuredContent: null,
+      _meta: null,
+    });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "delegate-tool-1",
+            name: "Agent",
+            input: {
+              description: "Delegated command",
+              subagent_type: "delegate_command",
+              command: "sed -n '1,3p' sample.txt",
+              prompt: "sed -n '1,3p' sample.txt",
+            },
+          },
+        ],
+      }),
+    ]);
+    setStoreToolResults(sid, {
+      "delegate-tool-1": { content: mcpEnvelope, is_truncated: false, duration_seconds: 1.2 },
+    });
+    mockGetDelegateTrace.mockResolvedValue({
+      delegateId: "del_abc123",
+      command: "sed -n '1,3p' sample.txt",
+      childSessionId: "hidden-child",
+      childSessionNum: null,
+      pending: false,
+      rawOutputLink: { kind: "delegate", label: "del_abc123", sessionId: "hidden-child" },
+      trace: [
+        { kind: "tool", label: "Bash", text: "sed -n '1,3p' sample.txt", status: "running" },
+        { kind: "tool", label: "Result", text: "alpha\nbeta\ngamma", status: "completed", isTruncated: true },
+      ],
+    });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Delegated command")).toBeTruthy();
+    expect(screen.getAllByText("sed -n '1,3p' sample.txt").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByText("Delegated command"));
+    await waitFor(() => expect(mockGetDelegateTrace).toHaveBeenCalled());
+    fireEvent.click(screen.getByText("Activities"));
+    expect(screen.getByText("Bash")).toBeTruthy();
+    expect(screen.getAllByText("Result").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("truncated")).toBeTruthy();
+    expect(screen.getByText(/Raw transcript: delegate del_abc123/)).toBeTruthy();
+    fireEvent.click(screen.getAllByText("Result").at(-1)!);
+    const resultMarkdown = screen.getAllByTestId("markdown").at(-1)!;
+    expect(resultMarkdown.textContent).toContain("Delegate command completed.");
+    expect(resultMarkdown.textContent).not.toContain("structuredContent");
+    expect(resultMarkdown.textContent).not.toContain("_meta");
   });
 
   it("renders live parented streaming inside the subagent card instead of the top-level streaming bubble", () => {
