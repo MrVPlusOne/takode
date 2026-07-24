@@ -203,6 +203,16 @@ describe("phase alias compatibility", () => {
       validateQuestJourneyUserCheckpointRemoval(
         ["alignment", "explore", "user-checkpoint", "implement"],
         ["alignment", "explore", "implement"],
+        {
+          "2": "User explicitly requested this checkpoint before implementation.",
+        },
+        { allowedRemovedUserCheckpointIndex: 2 },
+      ),
+    ).toContain("explicitly user-requested or required");
+    expect(
+      validateQuestJourneyUserCheckpointRemoval(
+        ["alignment", "explore", "user-checkpoint", "implement"],
+        ["alignment", "explore", "implement"],
         undefined,
         { allowedRemovedUserCheckpointIndex: 1 },
       ),

@@ -312,6 +312,9 @@ export const EXPLORE_TO_IMPLEMENT_JOURNEY_ERROR =
 export const OPTIONAL_USER_CHECKPOINT_NOTE_ERROR =
   "Optional User Checkpoints require an explicit phase note with a concrete skip condition. User Checkpoints are mandatory by default; if the user explicitly asked for a User Checkpoint, do not mark it optional.";
 
+export const REQUIRED_USER_CHECKPOINT_REMOVAL_ERROR =
+  "Cannot remove a User Checkpoint marked as explicitly user-requested or required. User-requested or required checkpoints must stay in the Journey until the user decision is recorded.";
+
 export const QUEST_JOURNEY_PHASE_BY_ID: Record<QuestJourneyPhaseId, QuestJourneyPhase> = Object.fromEntries(
   QUEST_JOURNEY_PHASES.map((phase) => [phase.id, phase]),
 ) as Record<QuestJourneyPhaseId, QuestJourneyPhase>;
@@ -393,9 +396,13 @@ export function validateQuestJourneyUserCheckpointRemoval(
   for (const [index, phaseId] of existingPhaseIds.entries()) {
     if (phaseId !== "user-checkpoint") continue;
     if (preservedIndices.has(index)) continue;
-    if (options.allowedRemovedUserCheckpointIndex === index) continue;
 
     const note = existingPhaseNotes?.[String(index)];
+    if (options.allowedRemovedUserCheckpointIndex === index) {
+      if (isUserCheckpointRequiredNote(note)) return REQUIRED_USER_CHECKPOINT_REMOVAL_ERROR;
+      continue;
+    }
+
     const validation = validateOptionalUserCheckpointNote(note, { requireOptional: true });
     if (validation) return validation;
   }
@@ -455,13 +462,20 @@ function validateOptionalUserCheckpointNote(
   const mentionsOptionalSkip = /\b(optional|skips?|skipped|skipping|skippable)\b/i.test(normalized);
   if (!options.requireOptional && !mentionsOptionalSkip) return undefined;
   if (!normalized || !mentionsOptionalSkip) return OPTIONAL_USER_CHECKPOINT_NOTE_ERROR;
-  if (/\buser\b.{0,40}\b(explicitly\s+)?(asked|requested|required|mandated)\b/i.test(normalized)) {
-    return OPTIONAL_USER_CHECKPOINT_NOTE_ERROR;
-  }
+  if (isUserCheckpointRequiredNote(normalized)) return OPTIONAL_USER_CHECKPOINT_NOTE_ERROR;
   if (!/\b(if|when|unless|provided|only if|as long as)\b/i.test(normalized)) {
     return OPTIONAL_USER_CHECKPOINT_NOTE_ERROR;
   }
   return undefined;
+}
+
+function isUserCheckpointRequiredNote(note: string | undefined): boolean {
+  const normalized = note?.trim() ?? "";
+  return (
+    /\buser\b.{0,40}\b(explicitly\s+)?(asked|requested|required|mandated)\b/i.test(normalized) ||
+    /\b(explicitly\s+)?(required|mandatory|mandated)\b.{0,40}\b(user\s+)?checkpoint\b/i.test(normalized) ||
+    /\b(user\s+)?checkpoint\b.{0,40}\b(required|mandatory|mandated)\b/i.test(normalized)
+  );
 }
 
 export function getQuestJourneyPhase(phaseId?: string | null): QuestJourneyPhase | null {

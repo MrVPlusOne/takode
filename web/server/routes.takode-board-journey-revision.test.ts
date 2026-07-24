@@ -749,6 +749,44 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it("rejects completed Explore revisions that remove an explicitly required immediate User Checkpoint", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "EXPLORING",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "explore-checkpoint",
+            mode: "active",
+            phaseIds: ["alignment", "explore", "user-checkpoint", "implement", "code-review", "port"],
+            activePhaseIndex: 1,
+            currentPhaseId: "explore",
+            phaseNotes: {
+              "2": "User explicitly requested this checkpoint before implementation.",
+            },
+          },
+        },
+      ],
+    ]);
+
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 2,
+      expectedPhaseId: "user-checkpoint",
+      phases: ["implement", "code-review", "port"],
+      presetId: "post-explore-implement",
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("explicitly user-requested or required"),
+    });
+  });
+
   it("rejects completed Explore revisions that also remove unrelated mandatory User Checkpoints", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].board = new Map([
