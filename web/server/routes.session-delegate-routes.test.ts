@@ -153,6 +153,10 @@ describe("delegate command routes", () => {
     expect(childAdapter.waitForMcpToolAvailability).toHaveBeenCalledWith("takode_delegate", "end_delegation", 10_000);
     expect(childPrompt.content).toContain("forked command-delegate copy");
     expect(childPrompt.content).toContain("You may see delegate_command and end_delegation");
+    expect(childPrompt.content).toContain("call the actual MCP tool mcp:takode_delegate:end_delegation");
+    expect(childPrompt.content).toContain("Do not write textual function-call prose");
+    expect(childPrompt.content).toContain("Text shaped like a function call does not notify the parent");
+    expect(childPrompt.content).toContain("Do not finish with a normal final answer");
     expect(childPrompt.content).toContain("rg -n large-output web");
 
     const delegateId = (sessions.get("child").state as any).delegateChild.delegateId;

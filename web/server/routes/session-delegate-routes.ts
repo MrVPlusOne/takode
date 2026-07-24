@@ -32,7 +32,7 @@ function buildDelegatePrompt(args: { parentSessionNum?: number | null; delegateI
   return [
     "You are a forked command-delegate copy of the parent leader session.",
     "",
-    "You have the parent leader's prior context, but your role is now narrow: run the delegated command below, summarize what the parent needs to know, call end_delegation, and stop.",
+    "You have the parent leader's prior context, but your role is now narrow: run the delegated command below, summarize what the parent needs to know, call the MCP tool named end_delegation, and stop.",
     "",
     "Delegated command:",
     args.command,
@@ -49,11 +49,14 @@ function buildDelegatePrompt(args: { parentSessionNum?: number | null; delegateI
     "- Do not continue unrelated work.",
     "- Do not paste huge raw output into end_delegation.",
     "- You may see delegate_command and end_delegation. Do not call delegate_command from this hidden delegate; Takode will reject nested delegation.",
+    "- When you are ready to hand off, call the actual MCP tool mcp:takode_delegate:end_delegation with a summary argument.",
+    '- Do not write textual function-call prose such as end_delegation("..."). Text shaped like a function call does not notify the parent.',
+    "- Do not finish with a normal final answer. The parent only receives completion through the MCP tool result.",
     "- If the command has obvious side effects, mention them.",
     "- If the command fails or cannot be safely summarized, explain that.",
     "- Use your judgment to summarize what the parent leader needs next.",
     "",
-    "Your final action must be end_delegation(summary).",
+    'Your final action must be the actual MCP tool call: mcp:takode_delegate:end_delegation({ summary: "..." }).',
   ].join("\n");
 }
 
