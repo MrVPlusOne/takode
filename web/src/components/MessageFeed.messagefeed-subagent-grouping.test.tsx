@@ -681,7 +681,8 @@ describe("MessageFeed - subagent grouping", () => {
     expect(screen.getByText("Bash")).toBeTruthy();
     expect(screen.getAllByText("Result").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("truncated")).toBeTruthy();
-    expect(screen.getByText(/Raw transcript: delegate del_abc123/)).toBeTruthy();
+    const rawLink = screen.getByRole("link", { name: "Open raw delegate transcript: del_abc123" });
+    expect(rawLink.getAttribute("href")).toBe("#/session/hidden-child");
     fireEvent.click(screen.getAllByText("Result").at(-1)!);
     const resultMarkdown = screen.getAllByTestId("markdown").at(-1)!;
     expect(resultMarkdown.textContent).toContain("Delegate command completed.");

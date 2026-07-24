@@ -200,11 +200,16 @@ describe("delegate command routes", () => {
       },
     });
     sessions.get("child").messageHistory.push({
-      type: "assistant",
-      timestamp: 11,
-      message: {
-        content: [{ type: "tool_result", tool_use_id: "bash-1", content: "Found 12", is_error: false }],
-      },
+      type: "tool_result_preview",
+      previews: [
+        {
+          tool_use_id: "bash-1",
+          content: "Found 12",
+          is_error: false,
+          total_size: 5000,
+          is_truncated: true,
+        },
+      ],
     });
     const traceResponse = await app.request(
       "/sessions/parent/delegates/trace?delegateId=" + encodeURIComponent(delegateId),
@@ -213,7 +218,7 @@ describe("delegate command routes", () => {
       delegateId: string;
       childSessionNum: number | null;
       rawOutputLink: { kind: string; label: string };
-      trace: Array<{ label: string; text?: string; status?: string }>;
+      trace: Array<{ label: string; text?: string; status?: string; isTruncated?: boolean; totalSize?: number }>;
     };
     expect(traceResponse.status).toBe(200);
     expect(traceJson.delegateId).toBe(delegateId);
@@ -222,7 +227,13 @@ describe("delegate command routes", () => {
     expect(traceJson.trace).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ label: "Bash", text: "rg -n large-output web", status: "running" }),
-        expect.objectContaining({ label: "Result", text: "Found 12", status: "completed" }),
+        expect.objectContaining({
+          label: "Bash result",
+          text: "Found 12",
+          status: "completed",
+          isTruncated: true,
+          totalSize: 5000,
+        }),
       ]),
     );
   });

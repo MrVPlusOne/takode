@@ -81,7 +81,16 @@ export function DelegateTrace({ trace, sessionId }: { trace: DelegateTraceRespon
       ))}
       {rawLink && (
         <div className="text-[11px] text-cc-muted">
-          <MarkdownContent text={rawLink} sessionId={sessionId} />
+          {trace.rawOutputLink?.kind === "delegate" ? (
+            <a
+              className="text-cc-primary hover:underline"
+              href={"#/session/" + encodeURIComponent(trace.rawOutputLink.sessionId)}
+            >
+              Open raw delegate transcript: {trace.rawOutputLink.label}
+            </a>
+          ) : (
+            <MarkdownContent text={rawLink} sessionId={sessionId} />
+          )}
         </div>
       )}
     </div>

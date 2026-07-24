@@ -277,6 +277,7 @@ export interface SessionConfigUpdateResponse {
 export interface DelegateTraceEvent {
   kind: "assistant" | "tool";
   label: string;
+  toolUseId?: string;
   text?: string;
   status?: "running" | "completed" | "failed";
   isError?: boolean;

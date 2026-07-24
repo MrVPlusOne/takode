@@ -19,6 +19,7 @@ type PendingDelegate = {
 type DelegateTraceEvent = {
   kind: "assistant" | "tool";
   label: string;
+  toolUseId?: string;
   text?: string;
   status?: "running" | "completed" | "failed";
   isError?: boolean;
@@ -144,11 +145,33 @@ function boundTraceText(text: string, maxChars = 800): Pick<DelegateTraceEvent, 
 function traceEventsFromChildSession(childSession: any): DelegateTraceEvent[] {
   const events: DelegateTraceEvent[] = [];
   const history = Array.isArray(childSession?.messageHistory) ? childSession.messageHistory : [];
+  const toolNameById = new Map<string, string>();
   for (const entry of history) {
+    const timestamp = typeof entry.timestamp === "number" ? entry.timestamp : undefined;
+    if (entry?.type === "tool_result_preview" && Array.isArray(entry.previews)) {
+      for (const preview of entry.previews) {
+        if (!preview || typeof preview !== "object") continue;
+        const rec = preview as Record<string, unknown>;
+        const toolUseId = typeof rec.tool_use_id === "string" ? rec.tool_use_id : undefined;
+        const toolName = toolUseId ? toolNameById.get(toolUseId) : undefined;
+        const content = typeof rec.content === "string" ? rec.content : "";
+        events.push({
+          kind: "tool",
+          label: toolName ? toolName + " result" : "Result",
+          toolUseId,
+          ...boundTraceText(content, 800),
+          status: rec.is_error ? "failed" : "completed",
+          isError: rec.is_error === true,
+          isTruncated: rec.is_truncated === true,
+          totalSize: typeof rec.total_size === "number" ? rec.total_size : content.length,
+          timestamp,
+        });
+      }
+      continue;
+    }
     if (entry?.type !== "assistant") continue;
     const content = entry.message?.content;
     if (!Array.isArray(content)) continue;
-    const timestamp = typeof entry.timestamp === "number" ? entry.timestamp : undefined;
     for (const block of content) {
       if (!block || typeof block !== "object") continue;
       const rec = block as Record<string, unknown>;
@@ -157,9 +180,12 @@ function traceEventsFromChildSession(childSession: any): DelegateTraceEvent[] {
         if (text) events.push({ kind: "assistant", label: "Assistant", ...boundTraceText(text), timestamp });
       } else if (rec.type === "tool_use") {
         const name = typeof rec.name === "string" ? rec.name : "tool";
+        const toolUseId = typeof rec.id === "string" ? rec.id : undefined;
+        if (toolUseId) toolNameById.set(toolUseId, name);
         events.push({
           kind: "tool",
           label: name,
+          toolUseId,
           ...boundTraceText(summarizeToolInput(name, rec.input), 400),
           status: "running",
           timestamp,
@@ -169,6 +195,7 @@ function traceEventsFromChildSession(childSession: any): DelegateTraceEvent[] {
         events.push({
           kind: "tool",
           label: "Result",
+          toolUseId: typeof rec.tool_use_id === "string" ? rec.tool_use_id : undefined,
           ...boundTraceText(resultText),
           status: rec.is_error ? "failed" : "completed",
           isError: rec.is_error === true,
