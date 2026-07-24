@@ -88,7 +88,7 @@ Quest Journey phases:
   --wait-for-input links active rows to same-session needs-input notifications by ID (for example 3 or n-3)
   --clear-wait-for-input removes any existing linked needs-input wait state
 
-Do not use adjacent \`explore -> implement\`; use \`implement\` directly for normal fixes, or \`explore -> user-checkpoint -> implement\` when Explore may need user steering. User Checkpoints are mandatory by default; optional checkpoints still require an approved phase note and a recorded skip reason after the condition is satisfied. Optional non-checkpoint phases are removed or added through takode board revise, not a generic skip command.
+Do not create an initial adjacent \`explore -> implement\` Journey; use \`implement\` directly for normal fixes, or \`explore -> user-checkpoint -> implement\` when Explore may need user steering. After a legitimate Explore completes, takode board revise may route the remaining active Journey directly to \`implement\` when findings reveal a clear low-risk repo-local fix that needs no user choice. User Checkpoints remain required when explicitly requested or when the decision truly needs input. Optional non-checkpoint phases are removed or added through takode board revise, not a generic skip command.
 
 Zero-tracked-change work uses the same board model: choose explicit phases that omit \`port\` but still end in \`memory\` instead of using a special no-code board flag.
 `;
@@ -96,6 +96,8 @@ Zero-tracked-change work uses the same board model: choose explicit phases that 
 export const BOARD_REVISE_HELP = `Usage: takode board revise <quest-id> --from-position <n> --expect-phase <id> (--phases <ids> | --journey-file <path|->) [--preset <id>] [--full|--verbose] [--json]
 
 Replace an existing Journey suffix. Phase positions are 1-based in CLI usage. The existing phase at --from-position must match --expect-phase, so repeated phases and stale position references fail closed.
+
+After a legitimate Explore completes, revising the immediate post-Explore suffix to start with implement is allowed when findings reveal a clear low-risk repo-local fix within existing intent and no user choice is needed. Before dropping the immediate post-Explore User Checkpoint, consider whether the Explore was genuinely needed, the fix is clear and in scope, and no product/policy/user-visible tradeoff, risky external effect, or scope expansion needs user choice.
 
 Use --journey-file when the replacement suffix needs notes:
   { "phases": [{ "id": "user-checkpoint", "note": "Approve the design before Memory." }, { "id": "memory" }] }

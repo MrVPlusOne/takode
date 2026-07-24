@@ -250,6 +250,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Explore is for investigation deliverables or unknown routing");
     expect(result).toContain("Never propose adjacent `explore -> implement`");
     expect(result).toContain("`explore -> user-checkpoint -> implement`");
+    expect(result).toContain("After a legitimate Explore has completed");
     expect(result).toContain("User Checkpoint is an intermediate user-participation stop");
     expect(result).toContain("self-contained packet with findings, named options, key tradeoffs");
     expect(result).toContain("exact requested answer");
@@ -261,8 +262,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain('"LGTM", "approved", "run it"');
     expect(result).toContain("User Checkpoints are mandatory by default");
     expect(result).toContain(
-      "skip it only when that condition has been evaluated as satisfied and the skip reason is recorded",
+      "A completed-Explore `takode board revise` may drop the immediate post-Explore checkpoint",
     );
+    expect(result).toContain("If the user explicitly asked for the User Checkpoint or the decision truly needs input");
     expect(result).toContain("notify the user and wait");
     expect(result).toContain("Omit notes for standard phases by default");
     expect(result).toContain("Phase documentation should be useful, not ritual");

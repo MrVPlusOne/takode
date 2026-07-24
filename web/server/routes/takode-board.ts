@@ -146,6 +146,25 @@ function findPreservedPhaseIndex(
   return matches.find((index) => index >= previousIndex) ?? matches[matches.length - 1];
 }
 
+function getCompletedExploreImplementRevisionAllowance(
+  existingMode: QuestJourneyLifecycleMode,
+  existingPhaseIds: readonly QuestJourneyPhaseId[],
+  currentPhaseIndex: number | undefined,
+  fromIndex: number,
+  replacementPhaseIds: readonly QuestJourneyPhaseId[],
+): { adjacentExploreImplementIndex: number; removedCheckpointIndex?: number } | undefined {
+  if (existingMode !== "active") return undefined;
+  if (currentPhaseIndex === undefined) return undefined;
+  if (fromIndex !== currentPhaseIndex + 1) return undefined;
+  if (existingPhaseIds[currentPhaseIndex] !== "explore") return undefined;
+  if (replacementPhaseIds[0] !== "implement") return undefined;
+
+  return {
+    adjacentExploreImplementIndex: currentPhaseIndex,
+    ...(existingPhaseIds[fromIndex] === "user-checkpoint" ? { removedCheckpointIndex: fromIndex } : {}),
+  };
+}
+
 function validateExplicitUserCheckpointSkips(
   phaseIds: readonly QuestJourneyPhaseId[],
   phaseNotes: Record<string, string> | undefined,
@@ -981,6 +1000,13 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       ((existingRow.status || "").trim().toUpperCase() === "PROPOSED" ? "proposed" : "active");
 
     const currentPhaseIndex = getQuestJourneyCurrentPhaseIndex(existingJourney, existingRow.status);
+    const exploreImplementAllowance = getCompletedExploreImplementRevisionAllowance(
+      existingMode,
+      existingPhaseIds,
+      currentPhaseIndex,
+      fromIndex,
+      replacementPhaseIds,
+    );
     const nextPhaseCandidate = [...existingPhaseIds.slice(0, fromIndex), ...replacementPhaseIds];
     const historyError = validateQuestJourneyCompletedPrefixRevision({
       existingPlan: existingJourney,
@@ -1020,13 +1046,16 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       revisedPhaseNotes = nextNotes.size > 0 ? Object.fromEntries([...nextNotes.entries()]) : undefined;
     }
 
-    const sequenceError = validateQuestJourneyPhaseSequence(nextPhaseIds);
+    const sequenceError = validateQuestJourneyPhaseSequence(nextPhaseIds, {
+      allowedAdjacentExploreImplementIndex: exploreImplementAllowance?.adjacentExploreImplementIndex,
+    });
     if (sequenceError) return c.json({ error: sequenceError }, 400);
     if (existingMode === "active") {
       const removalError = validateQuestJourneyUserCheckpointRemoval(
         existingPhaseIds,
         nextPhaseIds,
         existingJourney.phaseNotes,
+        { allowedRemovedUserCheckpointIndex: exploreImplementAllowance?.removedCheckpointIndex },
       );
       if (removalError) return c.json({ error: removalError }, 400);
     }

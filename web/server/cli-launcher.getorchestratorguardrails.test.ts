@@ -438,6 +438,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Never propose adjacent `explore -> implement`");
     expect(guardrails).toContain("Use `implement` directly for normal bug fixes");
     expect(guardrails).toContain("`explore -> user-checkpoint -> implement`");
+    expect(guardrails).toContain("After a legitimate Explore has completed");
     expect(guardrails).toContain("User Checkpoint is an intermediate user-participation stop");
     expect(guardrails).toContain("self-contained packet with findings, named options, key tradeoffs");
     expect(guardrails).toContain("exact requested answer");

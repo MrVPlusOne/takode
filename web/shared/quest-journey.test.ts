@@ -133,6 +133,16 @@ describe("phase alias compatibility", () => {
     expect(validateQuestJourneyPhaseSequence(["alignment", "explore", "implement"])).toContain(
       "adjacent `explore -> implement`",
     );
+    expect(
+      validateQuestJourneyPhaseSequence(["alignment", "explore", "implement"], {
+        allowedAdjacentExploreImplementIndex: 1,
+      }),
+    ).toBeUndefined();
+    expect(
+      validateQuestJourneyPhaseSequence(["alignment", "explore", "implement"], {
+        allowedAdjacentExploreImplementIndex: 0,
+      }),
+    ).toContain("adjacent `explore -> implement`");
     expect(validateQuestJourneyPhaseSequence(["alignment", "implement", "code-review"])).toBeUndefined();
     expect(validateQuestJourneyPhaseSequence(["explore", "user-checkpoint", "implement"])).toBeUndefined();
     expect(validateQuestJourneyPhaseSequence(["explore", "execute", "outcome-review"])).toBeUndefined();
@@ -179,6 +189,22 @@ describe("phase alias compatibility", () => {
         ["alignment", "explore", "user-checkpoint", "implement"],
         ["alignment", "explore", "implement"],
         undefined,
+      ),
+    ).toContain("Optional User Checkpoints require");
+    expect(
+      validateQuestJourneyUserCheckpointRemoval(
+        ["alignment", "explore", "user-checkpoint", "implement"],
+        ["alignment", "explore", "implement"],
+        undefined,
+        { allowedRemovedUserCheckpointIndex: 2 },
+      ),
+    ).toBeUndefined();
+    expect(
+      validateQuestJourneyUserCheckpointRemoval(
+        ["alignment", "explore", "user-checkpoint", "implement"],
+        ["alignment", "explore", "implement"],
+        undefined,
+        { allowedRemovedUserCheckpointIndex: 1 },
       ),
     ).toContain("Optional User Checkpoints require");
     expect(

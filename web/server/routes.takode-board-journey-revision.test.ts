@@ -697,6 +697,97 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it("allows completed Explore revisions to route directly to Implement", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "EXPLORING",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "explore-checkpoint",
+            mode: "active",
+            phaseIds: ["alignment", "explore", "user-checkpoint", "implement", "code-review", "port"],
+            activePhaseIndex: 1,
+            currentPhaseId: "explore",
+            phaseNotes: {
+              "2": "Present findings if Explore reveals a user decision.",
+            },
+          },
+        },
+      ],
+    ]);
+
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 2,
+      expectedPhaseId: "user-checkpoint",
+      phases: ["implement", "code-review", "port"],
+      presetId: "post-explore-implement",
+      revisionReason: "Explore found a clear repo-local fix within existing scope; no user choice is needed.",
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          status: "EXPLORING",
+          journey: {
+            presetId: "post-explore-implement",
+            phaseIds: ["alignment", "explore", "implement", "code-review", "port"],
+            activePhaseIndex: 1,
+            currentPhaseId: "explore",
+            revisionReason: "Explore found a clear repo-local fix within existing scope; no user choice is needed.",
+            revisionCount: 1,
+          },
+        },
+      ],
+    });
+  });
+
+  it("rejects completed Explore revisions that also remove unrelated mandatory User Checkpoints", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "EXPLORING",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "explore-checkpoint",
+            mode: "active",
+            phaseIds: ["alignment", "explore", "user-checkpoint", "implement", "user-checkpoint", "port"],
+            activePhaseIndex: 1,
+            currentPhaseId: "explore",
+            phaseNotes: {
+              "2": "Present findings if Explore reveals a user decision.",
+              "4": "Required approval before porting the external artifact.",
+            },
+          },
+        },
+      ],
+    ]);
+
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 2,
+      expectedPhaseId: "user-checkpoint",
+      phases: ["implement", "port"],
+      presetId: "post-explore-implement",
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("Optional User Checkpoints require"),
+    });
+  });
+
   it("rejects optional User Checkpoints without a concrete skip-condition note", async () => {
     setupTakodeSessions();
 

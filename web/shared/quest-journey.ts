@@ -298,6 +298,14 @@ export interface QuestJourneyCompletedPrefixRevision {
   nextActivePhaseIndex?: number;
 }
 
+export interface QuestJourneyPhaseSequenceValidationOptions {
+  allowedAdjacentExploreImplementIndex?: number;
+}
+
+export interface QuestJourneyUserCheckpointRemovalOptions {
+  allowedRemovedUserCheckpointIndex?: number;
+}
+
 export const EXPLORE_TO_IMPLEMENT_JOURNEY_ERROR =
   "Quest Journey phases cannot contain adjacent `explore -> implement`. Implement already includes ordinary investigation, reproduction, root-cause analysis, code/design reading, and test planning. Use `implement` directly for normal fixes, or `explore -> user-checkpoint -> implement` when Explore may need user steering.";
 
@@ -348,10 +356,14 @@ export function getInvalidQuestJourneyPhaseIds(values: readonly string[]): strin
   return values.filter((value) => canonicalizeQuestJourneyPhaseId(value) === null);
 }
 
-export function validateQuestJourneyPhaseSequence(values: readonly string[]): string | undefined {
+export function validateQuestJourneyPhaseSequence(
+  values: readonly string[],
+  options: QuestJourneyPhaseSequenceValidationOptions = {},
+): string | undefined {
   const phaseIds = normalizeQuestJourneyPhaseIds(values);
   for (let index = 0; index < phaseIds.length - 1; index += 1) {
     if (phaseIds[index] === "explore" && phaseIds[index + 1] === "implement") {
+      if (options.allowedAdjacentExploreImplementIndex === index) continue;
       return EXPLORE_TO_IMPLEMENT_JOURNEY_ERROR;
     }
   }
@@ -375,11 +387,13 @@ export function validateQuestJourneyUserCheckpointRemoval(
   existingPhaseIds: readonly QuestJourneyPhaseId[],
   nextPhaseIds: readonly QuestJourneyPhaseId[],
   existingPhaseNotes: Record<string, string> | undefined,
+  options: QuestJourneyUserCheckpointRemovalOptions = {},
 ): string | undefined {
   const preservedIndices = mapQuestJourneyPreservedPhaseIndices(existingPhaseIds, nextPhaseIds);
   for (const [index, phaseId] of existingPhaseIds.entries()) {
     if (phaseId !== "user-checkpoint") continue;
     if (preservedIndices.has(index)) continue;
+    if (options.allowedRemovedUserCheckpointIndex === index) continue;
 
     const note = existingPhaseNotes?.[String(index)];
     const validation = validateOptionalUserCheckpointNote(note, { requireOptional: true });
