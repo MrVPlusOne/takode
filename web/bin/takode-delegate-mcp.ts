@@ -106,7 +106,7 @@ export function registerTakodeDelegateTools(server: Pick<McpServer, "registerToo
     {
       title: "Delegate command",
       description:
-        "Run one shell command in a forked command-delegate copy of this leader session and return a concise summary instead of raw output. Hidden delegate children must not call this tool; Takode will reject nested delegation.",
+        "Run one shell command in a forked command-delegate copy of this leader session and return a concise summary instead of raw output. If the user asks you to use delegate_command, call this actual MCP tool instead of replying in prose or running the command directly. Hidden delegate children must not call this tool; Takode will reject nested delegation.",
       inputSchema: {
         command: z.string().min(1),
       },

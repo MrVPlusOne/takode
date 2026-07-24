@@ -39,15 +39,22 @@ describe("takode delegate MCP bridge", () => {
 
   it("registers the same delegate tool set for parent and forked child sessions", () => {
     const tools: string[] = [];
+    const descriptions = new Map<string, string>();
     const server = {
-      registerTool: vi.fn((name: string) => {
+      registerTool: vi.fn((name: string, config: { description?: string }) => {
         tools.push(name);
+        descriptions.set(name, config.description ?? "");
       }),
     };
 
     registerTakodeDelegateTools(server as any, "session-abc");
 
     expect(tools).toEqual(["delegate_command", "end_delegation"]);
+    expect(descriptions.get("delegate_command")).toContain("If the user asks you to use delegate_command");
+    expect(descriptions.get("delegate_command")).toContain("actual MCP tool");
+    expect(descriptions.get("delegate_command")).toContain(
+      "instead of replying in prose or running the command directly",
+    );
   });
 
   it("falls back to the session Codex config env when the MCP subprocess env is incomplete", async () => {
