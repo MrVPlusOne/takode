@@ -174,7 +174,7 @@ vi.mock("./memory-catalog-injection.js", () => {
     content: [
       "Memory catalog preloaded",
       "",
-      "This automatically injected catalog is an orientation map, not the source of truth.",
+      "This automatically injected catalog is the result of `memory catalog show` at injection time. Treat it as an orientation snapshot, not the source of truth.",
       "Memory repo: /tmp/test-memory",
       "decisions/example.md: Example memory decision.",
     ].join("\n"),
@@ -186,9 +186,11 @@ vi.mock("./memory-catalog-injection.js", () => {
     buildMemoryCatalogInjectionBundle,
     buildMemoryCatalogDeliveryContent: (primary: string, bundle: { content: string } | null | undefined) =>
       bundle
-        ? [primary, "The following memory catalog is included as startup/recovery context.", bundle.content].join(
-            "\n\n",
-          )
+        ? [
+            primary,
+            "The following memory catalog is a `memory catalog show` snapshot captured at startup/recovery injection time.",
+            bundle.content,
+          ].join("\n\n")
         : primary,
     buildMemoryCatalogHistoryFollowUp: (
       bundle: { content: string; agentSource: { sessionId: string; sessionLabel?: string } } | null | undefined,

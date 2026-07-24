@@ -29,6 +29,10 @@ function EventTimestamp({ timestamp }: { timestamp: number }) {
   );
 }
 
+function formatCharacterCount(count: number): string {
+  return count.toLocaleString() + " " + (count === 1 ? "character" : "characters");
+}
+
 export function InjectedEventMessageView({
   event,
   message,
@@ -106,6 +110,11 @@ export function InjectedEventMessageView({
               <div className={expandedClassName}>
                 <p className={`mb-1.5 text-[11px] leading-snug ${warningTone ? "text-red-100/85" : "text-cc-muted"}`}>
                   {event.description}
+                </p>
+                <p
+                  className={`mb-1.5 font-mono-code text-[10px] leading-snug ${warningTone ? "text-red-100/70" : "text-cc-muted/75"}`}
+                >
+                  Message size: {formatCharacterCount(event.messageSizeChars)}
                 </p>
                 <MarkdownContent
                   text={event.rawContent}

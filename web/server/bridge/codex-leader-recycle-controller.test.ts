@@ -240,7 +240,7 @@ describe("Codex leader recycle continuation", () => {
         content: [
           "Memory catalog preloaded",
           "",
-          "This automatically injected catalog is an orientation map, not the source of truth.",
+          "This automatically injected catalog is the result of `memory catalog show` at injection time. Treat it as an orientation snapshot, not the source of truth.",
           "Memory repo: /tmp/test-memory",
           "decisions/example.md: Example memory decision.",
         ].join("\n"),

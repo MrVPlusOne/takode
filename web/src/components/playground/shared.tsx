@@ -1169,12 +1169,12 @@ export function PlaygroundMemoryCatalogEventMessage({ truncated = false }: { tru
       ...(truncated
         ? [
             MEMORY_CATALOG_TRUNCATED_PREFIX + " the catalog hit Takode's 100,000 character injected-context limit.",
-            "Run `memory catalog show` manually and inspect relevant Markdown files directly for the full catalog before relying on memory facts.",
+            "The preloaded content is truncated. If you need the full current catalog, run `memory catalog show`; for freshness since this injection, use `memory catalog diff`. Inspect relevant Markdown files directly before relying on memory facts.",
             "",
           ]
         : []),
-      "This automatically injected catalog is an orientation map, not the source of truth.",
-      "Before relying on memory facts, inspect the actual Markdown files directly with normal tools such as `memory repo path`, `sed`, `rg`, and `cat`.",
+      "This automatically injected catalog is the result of `memory catalog show` at injection time. Treat it as an orientation snapshot, not the source of truth.",
+      "For freshness after injection, prefer `memory catalog diff` or inspect the actual Markdown files directly with normal tools such as `memory repo path`, `sed`, `rg`, and `cat` instead of reflexively rerunning `memory catalog show`.",
       "",
       "Memory repo: /Users/example/.companion/memory/prod/Takode",
       "decisions/memory-repo-native-design.md: Takode memory is a Git-tracked Markdown repo whose files are the source of truth.",

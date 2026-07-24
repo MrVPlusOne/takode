@@ -45,7 +45,7 @@ export function buildAvailableMemoryCatalogBundle(
       " the catalog hit Takode's " +
       limit.toLocaleString() +
       " character injected-context limit.",
-    "Run `memory catalog show` manually and inspect relevant Markdown files directly for the full catalog before relying on memory facts.",
+    "The preloaded content is truncated. If you need the full current catalog, run `memory catalog show`; for freshness since this injection, use `memory catalog diff`. Inspect relevant Markdown files directly before relying on memory facts.",
   ].join("\n");
   const prefix = [MEMORY_CATALOG_TITLE, "", warning, "", guidance, ""].join("\n");
   const suffix = "\n\n[Memory catalog output truncated.]";
@@ -70,7 +70,7 @@ export function buildUnavailableMemoryCatalogBundle(
       " Takode could not auto-inject the catalog (" +
       (message || "unknown error") +
       ").",
-    "This does not block startup or recovery. If durable memory may affect the task, run `memory catalog show` manually and inspect relevant Markdown files directly before relying on memory facts.",
+    "This does not block startup or recovery. Takode attempted to create a `memory catalog show` snapshot but could not provide one. If durable memory may affect the task, run `memory catalog show` manually, use `memory catalog diff` for later freshness checks, and inspect relevant Markdown files directly before relying on memory facts.",
   ]
     .join("\n")
     .trimEnd()
@@ -90,7 +90,7 @@ export function buildMemoryCatalogDeliveryContent(
   if (!bundle) return primaryMessage;
   return [
     primaryMessage,
-    "The following memory catalog is included as startup/recovery context. Use it for orientation only; inspect actual memory Markdown files directly before relying on memory facts.",
+    "The following memory catalog is a `memory catalog show` snapshot captured at startup/recovery injection time. Use it for orientation only; for freshness, use `memory catalog diff` or inspect actual memory Markdown files directly before relying on memory facts.",
     bundle.content,
   ].join("\n\n");
 }
@@ -151,8 +151,8 @@ export function renderMemoryCatalogShow(catalog: MemoryCatalog): string {
 
 function renderMemoryCatalogGuidance(): string {
   return [
-    "This automatically injected catalog is an orientation map, not the source of truth.",
-    "Before relying on memory facts, inspect the actual Markdown files directly with normal tools such as `memory repo path`, `sed`, `rg`, and `cat`.",
+    "This automatically injected catalog is the result of `memory catalog show` at injection time. Treat it as an orientation snapshot, not the source of truth.",
+    "For freshness after injection, prefer `memory catalog diff` or inspect the actual Markdown files directly with normal tools such as `memory repo path`, `sed`, `rg`, and `cat` instead of reflexively rerunning `memory catalog show`.",
   ].join("\n");
 }
 

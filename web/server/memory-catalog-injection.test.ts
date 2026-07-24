@@ -57,6 +57,9 @@ describe("memory catalog injection", () => {
     expect(bundle.content).toContain("Memory catalog preloaded");
     expect(bundle.content).toContain("Memory repo: " + root);
     expect(bundle.content).toContain("decisions/memory-test.md: Test memory record");
+    expect(bundle.content).toContain("result of `memory catalog show` at injection time");
+    expect(bundle.content).toContain("prefer `memory catalog diff`");
+    expect(bundle.content).toContain("instead of reflexively rerunning `memory catalog show`");
     expect(bundle.content).toContain("inspect the actual Markdown files directly");
 
     const seen = JSON.parse(
@@ -74,7 +77,8 @@ describe("memory catalog injection", () => {
     expect(bundle.unavailable).toBe(false);
     expect(bundle.content.length).toBeLessThanOrEqual(420);
     expect(bundle.content).toContain(MEMORY_CATALOG_TRUNCATED_PREFIX);
-    expect(bundle.content).toContain("Run `memory catalog show` manually");
+    expect(bundle.content).toContain("The preloaded content is truncated");
+    expect(bundle.content).toContain("for freshness since this injection, use `memory catalog diff`");
   });
 
   it("returns a fail-open warning bundle when catalog generation fails", async () => {
@@ -89,6 +93,7 @@ describe("memory catalog injection", () => {
     expect(bundle.truncated).toBe(false);
     expect(bundle.content).toContain(MEMORY_CATALOG_UNAVAILABLE_PREFIX);
     expect(bundle.content).toContain("memory repo unavailable");
+    expect(bundle.content).toContain("attempted to create a `memory catalog show` snapshot");
   });
 
   it("can build an unavailable warning directly for recovery fallback paths", () => {

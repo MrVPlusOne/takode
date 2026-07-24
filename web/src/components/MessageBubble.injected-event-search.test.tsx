@@ -44,6 +44,7 @@ vi.mock("remark-gfm", () => ({
 
 import { MessageBubble } from "./MessageBubble.js";
 import { useStore } from "../store.js";
+import { buildInjectedEventMessageViewModel } from "../utils/injected-event-message.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -55,6 +56,42 @@ function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role
 }
 
 describe("MessageBubble injected event search highlighting", () => {
+  it("builds injected event view models with raw character sizes and memory catalog source guidance", () => {
+    const skillName = "quest";
+    const skillContent = [
+      `Required leader skill preloaded: ${skillName}`,
+      "",
+      "Use this content as already-loaded leader context.",
+    ].join("\n");
+    const skillEvent = buildInjectedEventMessageViewModel({
+      content: skillContent,
+      agentSource: {
+        sessionId: leaderSkillPreloadSourceId(skillName),
+        sessionLabel: leaderSkillPreloadSourceLabel(skillName),
+      },
+    });
+
+    expect(skillEvent?.messageSizeChars).toBe(skillContent.length);
+
+    const memoryContent = [
+      MEMORY_CATALOG_TITLE,
+      "",
+      "This automatically injected catalog is the result of `memory catalog show` at injection time.",
+      "Memory repo: /tmp/test-memory",
+    ].join("\n");
+    const memoryEvent = buildInjectedEventMessageViewModel({
+      content: memoryContent,
+      agentSource: {
+        sessionId: MEMORY_CATALOG_SOURCE_ID,
+        sessionLabel: MEMORY_CATALOG_SOURCE_LABEL,
+      },
+    });
+
+    expect(memoryEvent?.messageSizeChars).toBe(memoryContent.length);
+    expect(memoryEvent?.description).toContain("`memory catalog show` snapshot from injection time");
+    expect(memoryEvent?.description).toContain("`memory catalog diff`");
+  });
+
   it("highlights injected event chips when search is filtered to events", () => {
     const prevSessionSearch = useStore.getState().sessionSearch;
     const msg = makeMessage({
@@ -122,8 +159,14 @@ describe("MessageBubble injected event search highlighting", () => {
     expect(chip.getAttribute("aria-expanded")).toBe("false");
     expect(chip.textContent).toContain("Required leader skill preloaded: quest");
     expect(chip.textContent).toContain("event");
+    expect(chip.textContent).not.toContain("characters");
     expect(screen.queryByText("Questmaster docs body")).toBeNull();
     expect(screen.queryByText("Provenance:")).toBeNull();
+
+    fireEvent.click(chip);
+
+    expect(screen.getByText(`Message size: ${msg.content.length.toLocaleString()} characters`)).toBeTruthy();
+    expect(screen.getByText(/Questmaster docs body/)).toBeTruthy();
   });
 
   it("renders truncated memory catalog injections as warning event chips", () => {
@@ -133,7 +176,7 @@ describe("MessageBubble injected event search highlighting", () => {
         MEMORY_CATALOG_TITLE,
         "",
         MEMORY_CATALOG_TRUNCATED_PREFIX + " the catalog hit Takode's 100,000 character injected-context limit.",
-        "Run `memory catalog show` manually and inspect relevant Markdown files directly for the full catalog before relying on memory facts.",
+        "The preloaded content is truncated. If you need the full current catalog, run `memory catalog show`; for freshness since this injection, use `memory catalog diff`. Inspect relevant Markdown files directly before relying on memory facts.",
         "",
         "Memory repo: /tmp/test-memory",
       ].join("\n"),
@@ -153,7 +196,8 @@ describe("MessageBubble injected event search highlighting", () => {
     fireEvent.click(chip);
 
     expect(screen.getByRole("button", { name: `Collapse ${MEMORY_CATALOG_TITLE}` })).toBeTruthy();
-    expect(screen.getByText(/needs attention/)).toBeTruthy();
-    expect(screen.getByText(/Run `memory catalog show` manually/)).toBeTruthy();
+    expect(screen.getByText(/memory catalog snapshot needs attention/)).toBeTruthy();
+    expect(screen.getByText(`Message size: ${msg.content.length.toLocaleString()} characters`)).toBeTruthy();
+    expect(screen.getByText(/The preloaded content is truncated/)).toBeTruthy();
   });
 });
