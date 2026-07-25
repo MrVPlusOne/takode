@@ -451,6 +451,10 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Worker-stream checkpoints are optional early visibility");
     expect(result).toContain("takode worker-stream");
     expect(result).toContain("do not let it replace phase documentation");
+    expect(result).toContain("Final chat handoffs are compact pointers, not second phase notes");
+    expect(result).toContain("Detailed phase results, recommended next action, blockers, evidence, findings");
+    expect(result).toContain("Port's selected target plus ordered `Synced SHAs:`");
+    expect(result).toContain("final Memory's required memory statement");
     expect(result).toContain("If the actor's context was compacted during the phase");
     expect(result).toContain("Provide only deltas the actor is unlikely to infer");
     expect(result).toContain("without spending scan space on incidental raw details");

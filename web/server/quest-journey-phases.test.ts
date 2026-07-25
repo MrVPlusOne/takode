@@ -73,6 +73,19 @@ describe("Quest Journey phase directory loading", () => {
     expect(refreshed).toBe(canonical);
   });
 
+  it("seeds assignee briefs with compact final chat handoff guidance", async () => {
+    const companionHome = await makeCompanionHome();
+    await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
+
+    const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
+
+    for (const phase of phases) {
+      expect(phase.assigneeBrief).toContain("Final chat handoff");
+      expect(phase.assigneeBrief).toContain("phase feedback index");
+      expect(phase.assigneeBrief).toContain("much shorter than the phase note");
+    }
+  });
+
   it("seeds User Checkpoint leader guidance for resolving worker worktree file links", async () => {
     const companionHome = await makeCompanionHome();
     await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });

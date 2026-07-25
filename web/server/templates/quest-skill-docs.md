@@ -140,6 +140,8 @@ If your context was compacted during the phase, or if memory confidence is low, 
 
 For valuable nontrivial phase outcomes, a worker or reviewer may run `takode worker-stream` after the substantive result is ready so the leader can start reading while required paperwork finishes. This is optional, creates an internal herd checkpoint, and does not replace phase documentation, final debrief metadata, or leader-owned phase transitions.
 
+Keep final chat handoffs much shorter than the phase note. Treat the Questmaster phase feedback as the source of truth for detailed results, recommended next action, blockers, evidence, findings, and handoff facts. In chat, name the phase feedback index and include only the concise outcome or verdict plus urgent blockers, safety facts, or deltas the leader must see immediately. Narrow exceptions still belong in chat when they are the handoff itself: User Checkpoint packets for the leader to publish, Port's selected target plus ordered `Synced SHAs:` and target sync status, final Memory's required memory statement and completion status, urgent blockers or safety facts, and concise verdicts needed for routing.
+
 Prefer current-phase inference:
 
 ```bash

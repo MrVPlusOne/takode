@@ -167,7 +167,7 @@ Work on [q-XX](quest:q-XX). Load the quest skill first, then read the quest and 
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/alignment/assignee.md`
 
-Return a concise Alignment read-in for approval: concrete understanding, key constraints, real ambiguities/questions, blockers/surprises, and any evidence that may justify leader-owned Journey revision. Avoid broad implementation plans, exhaustive evidence inventories, routine file lists, long command/test details, and repeated quest history unless needed to explain a blocker or misunderstanding risk. After you send it, stop and wait for approval.
+Add or refresh the Alignment phase note with the concise read-in details. In final chat, point to that feedback index and include only blockers, surprises, or Journey-revision evidence that need immediate leader routing. Avoid broad implementation plans, exhaustive evidence inventories, routine file lists, long command/test details, and repeated quest history unless needed to explain a blocker or misunderstanding risk. After you send it, stop and wait for approval.
 ```
 
 If the quest has unaddressed human feedback, add one sentence after the claim instruction:
@@ -191,7 +191,8 @@ Every phase instruction must be phase-explicit:
 - Authorize only the current phase.
 - Provide only deltas the assignee cannot infer from the phase brief, quest record, current artifacts, or its own context: accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, exact prior messages, files or memory decisions already inspected, or explicit memory-writing assignment.
 - Require phase documentation before reporting back.
-- Tell the assignee to stop after reporting back.
+- Tell the assignee to keep the final chat handoff compact: point to the phase feedback index and include only the concise outcome/verdict plus urgent blockers, safety facts, or narrow phase-required exceptions.
+- Tell the assignee to stop after the compact handoff.
 
 Do not imply the worker can self-review, run `/self-groom`, self-port, change quest status, complete the quest, or continue into later phases. Review, Port, Execute, Outcome Review, Mental Simulation, User Checkpoint, and final Memory each need explicit leader routing.
 

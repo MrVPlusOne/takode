@@ -78,6 +78,17 @@ describe("quest skill ownership docs", () => {
     expect(docs).toContain("Prefer targeted `--sections` reveals first.");
   });
 
+  it("documents compact phase handoffs without weakening durable phase notes", () => {
+    const docs = readTemplate("quest-skill-docs.md");
+
+    expect(docs).toContain("Keep final chat handoffs much shorter than the phase note");
+    expect(docs).toContain("Questmaster phase feedback as the source of truth for detailed results");
+    expect(docs).toContain("name the phase feedback index");
+    expect(docs).toContain("User Checkpoint packets");
+    expect(docs).toContain("Port's selected target plus ordered `Synced SHAs:`");
+    expect(docs).toContain("final Memory's required memory statement");
+  });
+
   it("documents the generic two-axis tag taxonomy with mocked non-examples", () => {
     const docs = readTemplate("quest-skill-docs.md");
     const tagsSection = sectionBetween(docs, "## Tags", "## Images");
