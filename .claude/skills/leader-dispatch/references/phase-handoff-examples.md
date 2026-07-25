@@ -89,7 +89,7 @@ Continue [q-XX](quest:q-XX) with Port now.
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/port/assignee.md`
 
-Port the accepted tracked changes, run the required post-port verification, add or refresh Port phase documentation, and report back compactly. Include the selected target, target sync status, feedback index, and a dedicated `Synced SHAs: sha1,sha2` line with ordered synced SHAs from the target repo so final Memory can attach structured commit metadata; keep detailed verification in the phase note.
+Port the accepted tracked changes, run the required post-port verification, add or refresh Port phase documentation, and report back compactly. Include the selected target, target sync status, and feedback index. Include a dedicated `Synced SHAs: sha1,sha2` line with ordered synced SHAs from the target repo so final Memory can attach structured commit metadata; keep detailed verification in the phase note.
 
 Leader-specific deltas: <accepted refs, target branch/worktree, extra verification, port risks, memory-specific accepted-state context>.
 ```
