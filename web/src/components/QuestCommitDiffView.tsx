@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type QuestCommitLookup } from "../api.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
@@ -12,6 +12,7 @@ import {
 } from "./QuestCommitEvidence.js";
 
 const EMPTY_CODE_COMMIT_SHAS: string[] = [];
+const BACKGROUND_COMMIT_METADATA_CONCURRENCY = 2;
 const questCodeCommitDetailFetches = new Map<string, Promise<QuestmasterTask | null>>();
 
 export function buildCodeCommitEntries(commitShas: readonly string[] | undefined): QuestCommitEntry[] {
@@ -132,8 +133,14 @@ export function useQuestCommitDiffState({
   const [commitLookupByKey, setCommitLookupByKey] = useState<Record<string, QuestCommitLookup>>({});
   const [commitLookupLoadingKey, setCommitLookupLoadingKey] = useState<string | null>(null);
   const [commitLookupError, setCommitLookupError] = useState("");
+  const lookupGenerationRef = useRef(0);
+  const metadataLookupInFlightKeysRef = useRef(new Set<string>());
+  const fullDiffLookupInFlightKeysRef = useRef(new Set<string>());
 
   useEffect(() => {
+    lookupGenerationRef.current += 1;
+    metadataLookupInFlightKeysRef.current.clear();
+    fullDiffLookupInFlightKeysRef.current.clear();
     setActiveCommitKey(null);
     setCommitLookupByKey({});
     setCommitLookupLoadingKey(null);
@@ -165,33 +172,6 @@ export function useQuestCommitDiffState({
     setCommitLookupError("");
   }, []);
 
-  useEffect(() => {
-    if (!questId || storedEntries.length === 0) return;
-    let cancelled = false;
-    for (const entry of storedEntries) {
-      const key = commitLookupKey(entry.kind, entry.sha);
-      if (commitLookupByKey[key]) continue;
-      const lookup =
-        entry.kind === "memory"
-          ? api.getQuestMemoryCommit(questId, entry.sha, { includeDiff: false })
-          : api.getQuestCommit(questId, entry.sha, { includeDiff: false });
-      lookup
-        .then((details) => {
-          if (cancelled) return;
-          setCommitLookupByKey((prev) => (prev[key] ? prev : { ...prev, [key]: details }));
-        })
-        .catch(() => {
-          if (cancelled) return;
-          setCommitLookupByKey((prev) =>
-            prev[key] ? prev : { ...prev, [key]: { sha: entry.sha, available: false, reason: "commit_not_available" } },
-          );
-        });
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [questId, storedEntries, commitLookupByKey]);
-
   const activeCommitIndex = activeCommitKey
     ? commitEntries.findIndex((entry) => commitLookupKey(entry.kind, entry.sha) === activeCommitKey)
     : -1;
@@ -204,8 +184,10 @@ export function useQuestCommitDiffState({
     if (!activeEntry) return;
     const cached = commitLookupByKey[activeCommitKey];
     if (cached && (!cached.available || cached.diff)) return;
+    if (fullDiffLookupInFlightKeysRef.current.has(activeCommitKey)) return;
 
-    let cancelled = false;
+    const lookupGeneration = lookupGenerationRef.current;
+    fullDiffLookupInFlightKeysRef.current.add(activeCommitKey);
     setCommitLookupLoadingKey(activeCommitKey);
     setCommitLookupError("");
     const lookup =
@@ -214,22 +196,61 @@ export function useQuestCommitDiffState({
         : api.getQuestCommit(questId, activeEntry.sha);
     lookup
       .then((details) => {
-        if (cancelled) return;
+        if (lookupGeneration !== lookupGenerationRef.current) return;
         setCommitLookupByKey((prev) => ({ ...prev, [activeCommitKey]: details }));
       })
       .catch((e) => {
-        if (cancelled) return;
+        if (lookupGeneration !== lookupGenerationRef.current) return;
         setCommitLookupError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
-        if (cancelled) return;
+        fullDiffLookupInFlightKeysRef.current.delete(activeCommitKey);
+        if (lookupGeneration !== lookupGenerationRef.current) return;
         setCommitLookupLoadingKey((prev) => (prev === activeCommitKey ? null : prev));
       });
-
-    return () => {
-      cancelled = true;
-    };
   }, [questId, activeCommitKey, commitEntries, commitLookupByKey]);
+
+  useEffect(() => {
+    if (!questId || storedEntries.length === 0) return;
+    if (autoOpenFirst && !activeCommitKey) return;
+    const availableSlots = BACKGROUND_COMMIT_METADATA_CONCURRENCY - metadataLookupInFlightKeysRef.current.size;
+    if (availableSlots <= 0) return;
+
+    const metadataEntries = storedEntries
+      .filter((entry) => {
+        const key = commitLookupKey(entry.kind, entry.sha);
+        if (key === activeCommitKey) return false;
+        if (commitLookupByKey[key]) return false;
+        if (metadataLookupInFlightKeysRef.current.has(key)) return false;
+        if (fullDiffLookupInFlightKeysRef.current.has(key)) return false;
+        return true;
+      })
+      .slice(0, availableSlots);
+    if (metadataEntries.length === 0) return;
+
+    const lookupGeneration = lookupGenerationRef.current;
+    for (const entry of metadataEntries) {
+      const key = commitLookupKey(entry.kind, entry.sha);
+      metadataLookupInFlightKeysRef.current.add(key);
+      const lookup =
+        entry.kind === "memory"
+          ? api.getQuestMemoryCommit(questId, entry.sha, { includeDiff: false })
+          : api.getQuestCommit(questId, entry.sha, { includeDiff: false });
+      lookup
+        .then((details) => {
+          metadataLookupInFlightKeysRef.current.delete(key);
+          if (lookupGeneration !== lookupGenerationRef.current) return;
+          setCommitLookupByKey((prev) => (prev[key] ? prev : { ...prev, [key]: details }));
+        })
+        .catch(() => {
+          metadataLookupInFlightKeysRef.current.delete(key);
+          if (lookupGeneration !== lookupGenerationRef.current) return;
+          setCommitLookupByKey((prev) =>
+            prev[key] ? prev : { ...prev, [key]: { sha: entry.sha, available: false, reason: "commit_not_available" } },
+          );
+        });
+    }
+  }, [questId, autoOpenFirst, activeCommitKey, storedEntries, commitLookupByKey]);
 
   return {
     commitEntries,

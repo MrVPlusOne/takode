@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -34,6 +34,16 @@ function questFixture(overrides: Record<string, unknown> = {}) {
     statusChangedAt: 2,
     ...overrides,
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
 }
 
 describe("QuestCodeCommitDiffPanel", () => {
@@ -80,5 +90,61 @@ describe("QuestCodeCommitDiffPanel", () => {
     await waitFor(() => expect(mockGetQuest).toHaveBeenCalledWith("q-42"));
     expect(await screen.findByText("No recorded commits yet")).toBeInTheDocument();
     expect(mockGetQuestCommit).not.toHaveBeenCalled();
+  });
+
+  it("starts the selected commit diff before lazy metadata and skips duplicate active metadata", async () => {
+    const shas = ["aaa1111", "bbb2222", "ccc3333", "ddd4444"];
+    useStore.setState({
+      questDetails: new Map([["q-42", questFixture({ commitShas: shas }) as never]]),
+    });
+    const pending = new Map<string, ReturnType<typeof deferred<Record<string, unknown>>>>();
+    const calls: Array<{ sha: string; includeDiff: boolean }> = [];
+    mockGetQuestCommit.mockImplementation((_questId: string, sha: string, options?: { includeDiff?: boolean }) => {
+      const includeDiff = options?.includeDiff !== false;
+      const key = sha + ":" + (includeDiff ? "diff" : "metadata");
+      const request = deferred<Record<string, unknown>>();
+      pending.set(key, request);
+      calls.push({ sha, includeDiff });
+      return request.promise;
+    });
+
+    render(<QuestCodeCommitDiffPanel questId="q-42" />);
+
+    await waitFor(() => expect(calls.length).toBe(3));
+    expect(calls[0]).toEqual({ sha: shas[0], includeDiff: true });
+    expect(calls.slice(1)).toEqual([
+      { sha: shas[1], includeDiff: false },
+      { sha: shas[2], includeDiff: false },
+    ]);
+    expect(calls).not.toContainEqual({ sha: shas[0], includeDiff: false });
+    expect(calls).not.toContainEqual({ sha: shas[3], includeDiff: false });
+
+    await act(async () => {
+      pending.get(shas[0] + ":diff")?.resolve({
+        sha: shas[0],
+        shortSha: shas[0],
+        message: "Selected commit",
+        timestamp: 3,
+        available: true,
+        additions: 1,
+        deletions: 0,
+        diff: "@@ -1 +1 @@\n-old\n+selected\n",
+      });
+    });
+
+    expect(await screen.findByTestId("diff-viewer")).toHaveTextContent("+selected");
+    expect(calls).not.toContainEqual({ sha: shas[0], includeDiff: false });
+
+    await act(async () => {
+      pending.get(shas[1] + ":metadata")?.resolve({
+        sha: shas[1],
+        shortSha: shas[1],
+        message: "Second metadata",
+        timestamp: 1,
+        available: true,
+      });
+    });
+
+    await waitFor(() => expect(calls).toContainEqual({ sha: shas[3], includeDiff: false }));
   });
 });
