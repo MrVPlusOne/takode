@@ -231,6 +231,13 @@ export function usePlaygroundSeed() {
     store.setCliConnected(sessionId, true);
     store.setSessionStatus(sessionId, "running");
     store.setMessages(sessionId, [
+      makePlaygroundMessage({
+        id: "playground-older-timestamp-fixture",
+        role: "assistant",
+        content: "Older transcript checkpoint with a date-aware timestamp.",
+        timestamp: Date.now() - 3 * 86_400_000,
+        turnDurationMs: 32_000,
+      }),
       MSG_USER,
       makePlaygroundMessage({
         id: "playground-thread-routing-reminder",
