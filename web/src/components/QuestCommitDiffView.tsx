@@ -134,8 +134,10 @@ export function useQuestCommitDiffState({
   const [commitLookupLoadingKey, setCommitLookupLoadingKey] = useState<string | null>(null);
   const [commitLookupError, setCommitLookupError] = useState("");
   const lookupGenerationRef = useRef(0);
+  const activeCommitKeyRef = useRef<string | null>(null);
   const metadataLookupInFlightKeysRef = useRef(new Set<string>());
   const fullDiffLookupInFlightKeysRef = useRef(new Set<string>());
+  activeCommitKeyRef.current = activeCommitKey;
 
   useEffect(() => {
     lookupGenerationRef.current += 1;
@@ -180,6 +182,7 @@ export function useQuestCommitDiffState({
 
   useEffect(() => {
     if (!questId || !activeCommitKey) return;
+    const requestCommitKey = activeCommitKey;
     const activeEntry = commitEntries.find((entry) => commitLookupKey(entry.kind, entry.sha) === activeCommitKey);
     if (!activeEntry) return;
     const cached = commitLookupByKey[activeCommitKey];
@@ -194,19 +197,21 @@ export function useQuestCommitDiffState({
       activeEntry.kind === "memory"
         ? api.getQuestMemoryCommit(questId, activeEntry.sha)
         : api.getQuestCommit(questId, activeEntry.sha);
+    const isCurrentRequest = () =>
+      lookupGeneration === lookupGenerationRef.current && activeCommitKeyRef.current === requestCommitKey;
     lookup
       .then((details) => {
-        if (lookupGeneration !== lookupGenerationRef.current) return;
-        setCommitLookupByKey((prev) => ({ ...prev, [activeCommitKey]: details }));
+        if (!isCurrentRequest()) return;
+        setCommitLookupByKey((prev) => ({ ...prev, [requestCommitKey]: details }));
       })
       .catch((e) => {
-        if (lookupGeneration !== lookupGenerationRef.current) return;
+        if (!isCurrentRequest()) return;
         setCommitLookupError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
-        fullDiffLookupInFlightKeysRef.current.delete(activeCommitKey);
-        if (lookupGeneration !== lookupGenerationRef.current) return;
-        setCommitLookupLoadingKey((prev) => (prev === activeCommitKey ? null : prev));
+        fullDiffLookupInFlightKeysRef.current.delete(requestCommitKey);
+        if (!isCurrentRequest()) return;
+        setCommitLookupLoadingKey((prev) => (prev === requestCommitKey ? null : prev));
       });
   }, [questId, activeCommitKey, commitEntries, commitLookupByKey]);
 

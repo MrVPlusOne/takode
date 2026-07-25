@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -146,5 +146,46 @@ describe("QuestCodeCommitDiffPanel", () => {
     });
 
     await waitFor(() => expect(calls).toContainEqual({ sha: shas[3], includeDiff: false }));
+  });
+
+  it("ignores a stale selected diff failure after switching commits", async () => {
+    const shas = ["aaa1111", "bbb2222", "ccc3333"];
+    useStore.setState({
+      questDetails: new Map([["q-42", questFixture({ commitShas: shas }) as never]]),
+    });
+    const pending = new Map<string, ReturnType<typeof deferred<Record<string, unknown>>>>();
+    const calls: Array<{ sha: string; includeDiff: boolean }> = [];
+    mockGetQuestCommit.mockImplementation((_questId: string, sha: string, options?: { includeDiff?: boolean }) => {
+      const includeDiff = options?.includeDiff !== false;
+      const key = sha + ":" + (includeDiff ? "diff" : "metadata");
+      const request = deferred<Record<string, unknown>>();
+      pending.set(key, request);
+      calls.push({ sha, includeDiff });
+      return request.promise;
+    });
+
+    render(<QuestCodeCommitDiffPanel questId="q-42" />);
+
+    await waitFor(() => expect(calls[0]).toEqual({ sha: shas[0], includeDiff: true }));
+
+    fireEvent.click(screen.getByTitle(shas[1]));
+    await waitFor(() => expect(calls).toContainEqual({ sha: shas[1], includeDiff: true }));
+
+    await act(async () => {
+      pending.get(shas[0] + ":diff")?.reject(new Error("Commit A exploded"));
+      pending.get(shas[1] + ":diff")?.resolve({
+        sha: shas[1],
+        shortSha: shas[1],
+        message: "Second selected commit",
+        timestamp: 4,
+        available: true,
+        additions: 2,
+        deletions: 1,
+        diff: "@@ -1 +1 @@\n-old\n+second\n",
+      });
+    });
+
+    expect(await screen.findByTestId("diff-viewer")).toHaveTextContent("+second");
+    expect(screen.queryByText("Commit A exploded")).not.toBeInTheDocument();
   });
 });
