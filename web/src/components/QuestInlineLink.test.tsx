@@ -34,6 +34,16 @@ describe("QuestInlineLink", () => {
     window.location.hash = "#/session/s1";
   });
 
+  it("uses the theme-readable quest link color by default", () => {
+    // Quest links appear in light and dark chrome, so the default must be a
+    // theme token instead of a hard-coded bright Tailwind blue.
+    render(<QuestInlineLink questId="q-12" />);
+
+    const link = screen.getByRole("link", { name: "q-12" });
+    expect(link.className).toContain("cc-quest-link");
+    expect(link.className).not.toContain("text-blue-300");
+  });
+
   it("keeps hover metadata lookup working with many quest links after bounded revalidation", async () => {
     // Cached list data is useful lookup input, but hover status/title metadata must still be validated by id.
     const cached = quest({ questId: "q-240", title: "Quest 240", status: "refined" });

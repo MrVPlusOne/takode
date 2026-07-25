@@ -46,7 +46,7 @@ describe("AttentionLedgerRow Journey lifecycle presentation", () => {
     const questTitle = screen.getByText("Improve Journey Started chip");
     const questTldr = screen.getByText("Make Journey Started chips easier to scan.");
     expect(row.getAttribute("data-journey-lifecycle-status")).toBe("active");
-    expect(row.className).toContain("border-fuchsia-400/25");
+    expect(row.className).toContain("cc-attention-row-journey-started");
     expect(questTitle.className).toContain("text-cc-fg");
     expect(questTitle.className).toContain("font-medium");
     expect(questTitle.className).not.toContain("text-cc-muted");
@@ -69,7 +69,7 @@ describe("AttentionLedgerRow Journey lifecycle presentation", () => {
     expect(row.getAttribute("data-journey-lifecycle-status")).toBe("completed");
     expect(row.className).toContain("border-cc-border/70");
     expect(row.className).toContain("bg-cc-card/35");
-    expect(row.className).not.toContain("border-fuchsia-400/25");
+    expect(row.className).not.toContain("cc-attention-row-journey-started");
     expect(row.className).not.toContain("bg-emerald-500/10");
     expect(questTitle.className).toContain("text-cc-fg");
   });

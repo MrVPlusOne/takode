@@ -68,9 +68,9 @@ export function AttentionLedgerRow({
     : isCompletedJourneyStart
       ? "border-cc-border/70 bg-cc-card/35 text-cc-muted"
       : isThreadCreated
-        ? "border-sky-400/25 bg-sky-400/10 text-sky-50 shadow-[inset_0_1px_0_rgba(125,211,252,0.08)]"
+        ? "cc-attention-row-thread-created"
         : record.type === "quest_journey_started"
-          ? "border-fuchsia-400/25 bg-fuchsia-400/10 text-fuchsia-50 shadow-[inset_0_1px_0_rgba(240,171,252,0.08)]"
+          ? "cc-attention-row-journey-started"
           : isActive
             ? isReview
               ? "border-emerald-500/25 bg-emerald-500/5 text-emerald-100"
@@ -81,9 +81,9 @@ export function AttentionLedgerRow({
     : isCompletedJourneyStart
       ? "text-cc-muted/80"
       : isThreadCreated
-        ? "text-sky-300"
+        ? "cc-attention-icon-thread-created"
         : record.type === "quest_journey_started"
-          ? "text-fuchsia-300"
+          ? "cc-attention-icon-journey-started"
           : isActive
             ? isReview
               ? "text-emerald-300"
@@ -131,14 +131,14 @@ export function AttentionLedgerRow({
               <QuestInlineLink
                 questId={record.questId}
                 stopPropagation
-                className="font-mono-code text-[11px] text-blue-300/85 hover:text-blue-200 hover:underline"
+                className="cc-quest-link font-mono-code text-[11px] hover:underline"
               />
             )}
             {showThreadLink && (
               <button
                 type="button"
                 onClick={openRoute}
-                className="font-mono-code text-[11px] text-sky-300/80 transition-colors cursor-pointer hover:text-sky-200 hover:underline"
+                className="cc-thread-link font-mono-code text-[11px] transition-colors cursor-pointer hover:underline"
                 aria-label={`Open thread:${targetThread}`}
               >
                 thread:{targetThread}

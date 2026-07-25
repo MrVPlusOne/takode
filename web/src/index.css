@@ -49,6 +49,16 @@ html, body {
 }
 
 :root {
+  --color-cc-quest-link: #075985;
+  --color-cc-quest-link-hover: #0c4a6e;
+  --color-cc-thread-link: #0369a1;
+  --color-cc-thread-link-hover: #075985;
+  --color-cc-attention-thread-created-bg: rgba(3,105,161,0.08);
+  --color-cc-attention-thread-created-border: rgba(3,105,161,0.24);
+  --color-cc-attention-thread-created-icon: #0369a1;
+  --color-cc-attention-journey-started-bg: rgba(162,28,175,0.07);
+  --color-cc-attention-journey-started-border: rgba(162,28,175,0.24);
+  --color-cc-attention-journey-started-icon: #a21caf;
   --color-cc-phase-thread-tab-title-amber: #8a4b00;
   --color-cc-phase-thread-tab-title-blue: #1d4ed8;
   --color-cc-phase-thread-tab-title-cyan: #0e7490;
@@ -61,6 +71,42 @@ html, body {
   --color-cc-phase-thread-tab-title-yellow: #854d0e;
   --color-cc-muted-readable: var(--color-cc-muted);
   --color-cc-participant-muted-readable: var(--color-cc-muted-readable);
+}
+
+.cc-quest-link {
+  color: var(--color-cc-quest-link);
+}
+
+.cc-quest-link:hover {
+  color: var(--color-cc-quest-link-hover);
+}
+
+.cc-thread-link {
+  color: var(--color-cc-thread-link);
+}
+
+.cc-thread-link:hover {
+  color: var(--color-cc-thread-link-hover);
+}
+
+.cc-attention-row-thread-created {
+  border-color: var(--color-cc-attention-thread-created-border);
+  background-color: var(--color-cc-attention-thread-created-bg);
+  box-shadow: inset 0 1px 0 rgba(3,105,161,0.06);
+}
+
+.cc-attention-icon-thread-created {
+  color: var(--color-cc-attention-thread-created-icon);
+}
+
+.cc-attention-row-journey-started {
+  border-color: var(--color-cc-attention-journey-started-border);
+  background-color: var(--color-cc-attention-journey-started-bg);
+  box-shadow: inset 0 1px 0 rgba(162,28,175,0.06);
+}
+
+.cc-attention-icon-journey-started {
+  color: var(--color-cc-attention-journey-started-icon);
 }
 
 .cc-muted-readable {
@@ -409,6 +455,16 @@ html, body {
   --color-cc-status-refined: #fbbf24;
   --color-cc-status-progress: #4ade80;
   --color-cc-status-done: #c084fc;
+  --color-cc-quest-link: #93c5fd;
+  --color-cc-quest-link-hover: #bfdbfe;
+  --color-cc-thread-link: #7dd3fc;
+  --color-cc-thread-link-hover: #bae6fd;
+  --color-cc-attention-thread-created-bg: rgba(56,189,248,0.10);
+  --color-cc-attention-thread-created-border: rgba(56,189,248,0.25);
+  --color-cc-attention-thread-created-icon: #7dd3fc;
+  --color-cc-attention-journey-started-bg: rgba(232,121,249,0.10);
+  --color-cc-attention-journey-started-border: rgba(232,121,249,0.25);
+  --color-cc-attention-journey-started-icon: #f0abfc;
   --color-cc-phase-amber: #fbbf24;
   --color-cc-phase-blue: #60a5fa;
   --color-cc-phase-cyan: #22d3ee;

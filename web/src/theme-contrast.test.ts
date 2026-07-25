@@ -24,6 +24,12 @@ const PHASE_THREAD_TAB_TITLE_TOKENS = [
   "--color-cc-phase-thread-tab-title-violet",
   "--color-cc-phase-thread-tab-title-yellow",
 ] as const;
+const LIGHT_LINK_TOKENS = [
+  "--color-cc-quest-link",
+  "--color-cc-quest-link-hover",
+  "--color-cc-thread-link",
+  "--color-cc-thread-link-hover",
+] as const;
 
 const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.css"), "utf8");
 
@@ -181,5 +187,23 @@ describe("theme contrast tokens", () => {
       expect(contrastRatio(titleColor, nonSelectedTabOnCard)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
       expect(contrastRatio(titleColor, nonSelectedTabOnApp)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
     }
+  });
+
+  it("keeps light quest/thread links readable on common light surfaces", () => {
+    for (const token of LIGHT_LINK_TOKENS) {
+      const linkColor = cssVariable(token);
+      expect(contrastRatio(linkColor, LIGHT_CARD)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
+      expect(contrastRatio(linkColor, LIGHT_BG)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
+      expect(contrastRatio(linkColor, LIGHT_SIDEBAR)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
+    }
+  });
+
+  it("keeps the light User Checkpoint phase sky token readable where phase labels are rendered", () => {
+    // User Checkpoint is the sky Journey phase. Its light-theme token must be
+    // a readable foreground, not the raw bright dark-theme metadata accent.
+    const userCheckpointSky = cssVariable("--color-cc-phase-sky");
+    expect(contrastRatio(userCheckpointSky, LIGHT_CARD)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
+    expect(contrastRatio(userCheckpointSky, LIGHT_BG)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
+    expect(contrastRatio(userCheckpointSky, LIGHT_SIDEBAR)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
   });
 });

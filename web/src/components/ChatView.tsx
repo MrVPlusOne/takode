@@ -884,7 +884,7 @@ export function QuestThreadBanner({
           )}
           <QuestInlineLink
             questId={questId}
-            className="shrink-0 font-mono-code font-medium text-blue-300 hover:text-blue-200 hover:underline"
+            className="cc-quest-link shrink-0 font-mono-code font-medium hover:underline"
           >
             {questId}
           </QuestInlineLink>

@@ -1218,7 +1218,7 @@ export function PlaygroundStateSections() {
               <div className="px-2 pt-2 text-[10px] font-semibold uppercase tracking-wide text-cc-muted/70">Active</div>
               <div className="mt-1 rounded-md px-2 py-1.5 text-cc-muted">
                 <div className="flex items-start gap-1.5">
-                  <span className="shrink-0 text-xs font-medium font-mono-code text-blue-300">q-43</span>
+                  <span className="cc-quest-link shrink-0 text-xs font-medium font-mono-code">q-43</span>
                   <span className="min-w-0 truncate text-xs font-medium text-cc-fg">Resize images at store time</span>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -1249,7 +1249,7 @@ export function PlaygroundStateSections() {
               </div>
               <div className="px-2 pt-2 text-[10px] font-semibold uppercase tracking-wide text-cc-muted/70">Done</div>
               <div className="mt-1 rounded-md px-2 py-1.5 text-cc-muted">
-                <div className="truncate text-xs text-blue-300">
+                <div className="cc-quest-link truncate text-xs">
                   <span className="font-mono-code">q-41</span>
                   <span className="text-cc-muted"> · </span>
                   <span>Finalize quest handoff</span>

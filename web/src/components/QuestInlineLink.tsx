@@ -46,7 +46,7 @@ function fetchQuestDetailForHover(questId: string): Promise<void> {
 export function QuestInlineLink({
   questId,
   children,
-  className = "text-cc-primary hover:underline",
+  className = "cc-quest-link hover:underline",
   stopPropagation = false,
   hoverCardZIndexClassName,
   onNavigate,

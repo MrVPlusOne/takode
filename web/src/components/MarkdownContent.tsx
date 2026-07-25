@@ -855,7 +855,7 @@ function QuestMarkdownLink({
   wrapLongContent: boolean;
   stopPropagation: boolean;
 }) {
-  const className = `text-cc-primary hover:underline ${wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""}`;
+  const className = `cc-quest-link hover:underline ${wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""}`;
   return (
     <QuestInlineLink questId={questId} className={className} stopPropagation={stopPropagation}>
       {children}

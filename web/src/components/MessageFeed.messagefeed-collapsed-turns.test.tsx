@@ -1178,7 +1178,7 @@ describe("MessageFeed - collapsed turns", () => {
     const row = screen.getByTestId("attention-ledger-row");
     expect(row.getAttribute("data-attention-type")).toBe("quest_journey_started");
     expect(row.getAttribute("data-attention-event")).toBe("true");
-    expect(row.className).toContain("border-fuchsia-400/25");
+    expect(row.className).toContain("cc-attention-row-journey-started");
     expect(row.textContent).toContain("Journey started");
     expect(row.textContent).toContain("Show lifecycle chips");
     expect(row.textContent).toContain("Lifecycle chips now include concise quest context.");
