@@ -55,6 +55,7 @@ describe("delegate command routes", () => {
         return true;
       }),
     };
+    const parentHistory = [{ type: "user_message", content: "parent-only history marker" }];
     const sessions = new Map<string, any>();
     sessions.set("parent", {
       id: "parent",
@@ -68,6 +69,7 @@ describe("delegate command routes", () => {
         isOrchestrator: true,
       }),
       codexAdapter: parentAdapter,
+      messageHistory: parentHistory,
     });
     sessions.set("child", {
       id: "child",
@@ -133,6 +135,8 @@ describe("delegate command routes", () => {
         };
       }),
       getSessionNum: vi.fn((id: string) => (id === "parent" ? 2220 : undefined)),
+      setArchived: vi.fn(),
+      kill: vi.fn(async () => true),
       listSessions: vi.fn(() => [
         { sessionId: "parent", createdAt: 1, sessionNum: 2220 },
         { sessionId: "child", createdAt: 2, hidden: true, publicSessionNumber: false },
@@ -191,6 +195,10 @@ describe("delegate command routes", () => {
     expect(parentJson.text).not.toContain("raw stdout");
     expect(parentJson.childSessionNum).toBeNull();
     expect(parentJson.delegateId).toBe(delegateId);
+    expect(launcher.setArchived).toHaveBeenCalledWith("child", true);
+    expect(launcher.kill).toHaveBeenCalledWith("child");
+    expect(wsBridge.persistSessionById).toHaveBeenCalledWith("child");
+    expect(JSON.stringify(sessions.get("child").messageHistory)).not.toContain("parent-only history marker");
 
     sessions.get("child").messageHistory.push({
       type: "assistant",
@@ -289,6 +297,8 @@ describe("delegate command routes", () => {
       getOrchestratorGuardrails: vi.fn(() => "leader guardrails"),
       launch: vi.fn(async () => ({ sessionId: "child", hidden: true, parentSessionId: "parent", noAutoName: false })),
       getSessionNum: vi.fn((id: string) => (id === "parent" ? 2220 : id === "child" ? 2266 : undefined)),
+      setArchived: vi.fn(),
+      kill: vi.fn(async () => true),
     };
     const wsBridge = {
       getSession: vi.fn((id: string) => sessions.get(id)),
@@ -315,6 +325,9 @@ describe("delegate command routes", () => {
     expect(json.childSessionId).toBe("child");
     expect(childAdapter.waitForMcpToolAvailability).toHaveBeenCalledWith("takode_delegate", "end_delegation", 10_000);
     expect(childAdapter.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(launcher.setArchived).toHaveBeenCalledWith("child", true);
+    expect(launcher.kill).toHaveBeenCalledWith("child");
+    expect(wsBridge.persistSessionById).toHaveBeenCalledWith("child");
   });
 
   it("does not resolve early when the child emits interim text before end_delegation", async () => {
@@ -377,6 +390,8 @@ describe("delegate command routes", () => {
       getOrchestratorGuardrails: vi.fn(() => "leader guardrails"),
       launch: vi.fn(async () => ({ sessionId: "child", hidden: true, parentSessionId: "parent", noAutoName: false })),
       getSessionNum: vi.fn((id: string) => (id === "parent" ? 2220 : id === "child" ? 2266 : undefined)),
+      setArchived: vi.fn(),
+      kill: vi.fn(async () => true),
     };
     const wsBridge = {
       getSession: vi.fn((id: string) => sessions.get(id)),
@@ -415,6 +430,8 @@ describe("delegate command routes", () => {
     expect(parentJson.isError).toBeUndefined();
     expect(parentJson.text).toContain("Delegate command completed.");
     expect(parentJson.text).toContain("The command completed after interim text.");
+    expect(launcher.setArchived).toHaveBeenCalledWith("child", true);
+    expect(launcher.kill).toHaveBeenCalledWith("child");
   });
 
   it("returns a bounded parent-visible timeout when the child never calls end_delegation", async () => {
@@ -470,6 +487,8 @@ describe("delegate command routes", () => {
       getOrchestratorGuardrails: vi.fn(() => "leader guardrails"),
       launch: vi.fn(async () => ({ sessionId: "child", hidden: true, parentSessionId: "parent", noAutoName: false })),
       getSessionNum: vi.fn((id: string) => (id === "parent" ? 2220 : id === "child" ? 2266 : undefined)),
+      setArchived: vi.fn(),
+      kill: vi.fn(async () => true),
     };
     const wsBridge = {
       getSession: vi.fn((id: string) => sessions.get(id)),
@@ -497,6 +516,8 @@ describe("delegate command routes", () => {
     expect(parentJson.isError).toBe(true);
     expect(parentJson.text).toContain("Delegate command failed.");
     expect(parentJson.text).toContain("timed out before calling end_delegation");
+    expect(launcher.setArchived).toHaveBeenCalledWith("child", true);
+    expect(launcher.kill).toHaveBeenCalledWith("child");
   });
 
   it("rejects nested delegate_command calls from hidden delegate children even when the tool is visible", async () => {

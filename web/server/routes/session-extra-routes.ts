@@ -9,12 +9,13 @@ export function registerSessionExtraRoutes(
   deps: {
     launcher: RouteContext["launcher"];
     wsBridge: RouteContext["wsBridge"];
+    sessionStore: RouteContext["sessionStore"];
     resolveId: (id: string) => string | null;
     authenticateTakodeCaller: RouteContext["authenticateTakodeCaller"];
   },
 ): void {
-  const { launcher, wsBridge, resolveId, authenticateTakodeCaller } = deps;
+  const { launcher, wsBridge, sessionStore, resolveId, authenticateTakodeCaller } = deps;
   registerSessionSideChatRoutes(api, { launcher, wsBridge, resolveId });
-  registerSessionDelegateRoutes(api, { launcher, wsBridge, resolveId, authenticateTakodeCaller });
+  registerSessionDelegateRoutes(api, { launcher, wsBridge, sessionStore, resolveId, authenticateTakodeCaller });
   registerSessionConfigRoutes(api, { launcher, wsBridge, resolveId });
 }

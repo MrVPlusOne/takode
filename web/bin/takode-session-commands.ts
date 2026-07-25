@@ -52,7 +52,7 @@ export async function handleList(base: string, args: string[]): Promise<void> {
 
   const sessions = (await apiGet(base, "/takode/sessions")) as Array<{
     sessionId: string;
-    sessionNum?: number;
+    sessionNum?: number | null;
     name?: string;
     state: string;
     archived?: boolean;
@@ -146,7 +146,7 @@ export async function handleList(base: string, args: string[]): Promise<void> {
   // Build sessionNum → projectKey lookup so reviewers can join their parent's group
   const sessionProjectKey = new Map<number, string>();
   for (const s of filtered) {
-    if (!s.archived && s.sessionNum !== undefined && s.reviewerOf === undefined) {
+    if (!s.archived && typeof s.sessionNum === "number" && s.reviewerOf === undefined) {
       sessionProjectKey.set(s.sessionNum, (s.repoRoot || s.cwd || "").replace(/\/+$/, "") || "/");
     }
   }
@@ -220,7 +220,7 @@ export async function handleList(base: string, args: string[]): Promise<void> {
 
 export function printSessionLine(
   s: {
-    sessionNum?: number;
+    sessionNum?: number | null;
     name?: string;
     state: string;
     cliConnected?: boolean;
@@ -260,7 +260,7 @@ export function printSessionLine(
   },
 ): void {
   const prefix = opts?.indent ? "        ↳ " : "  ";
-  const num = s.sessionNum !== undefined ? `#${s.sessionNum}` : "  ";
+  const num = typeof s.sessionNum === "number" ? `#${s.sessionNum}` : "  ";
   const name = formatInlineText(s.name || "(unnamed)");
   const role = s.isOrchestrator ? " [leader]" : s.reviewerOf !== undefined ? " [reviewer]" : "";
   const herd = s.herdedBy ? " [herd]" : "";
@@ -293,7 +293,7 @@ export function printSessionLine(
       : reviewer.archived
         ? "archived"
         : "disconnected";
-    const reviewerNum = reviewer.sessionNum !== undefined ? `#${reviewer.sessionNum}` : "#?";
+    const reviewerNum = typeof reviewer.sessionNum === "number" ? `#${reviewer.sessionNum}` : "#?";
     reviewerSummary = ` 👀 ${reviewerNum} ${reviewerStatus}`;
   }
 
@@ -331,7 +331,7 @@ export function printSessionLine(
  */
 function printNestedSessions(
   sessions: Parameters<typeof printSessionLine>[0] &
-    { sessionNum?: number; reviewerOf?: number; taskHistory?: Array<{ title: string; timestamp: number }> }[],
+    { sessionNum?: number | null; reviewerOf?: number; taskHistory?: Array<{ title: string; timestamp: number }> }[],
   showTasks: boolean,
 ): number {
   const reviewersByParent = new Map<number, typeof sessions>();
@@ -347,7 +347,7 @@ function printNestedSessions(
 
   let count = 0;
   for (const s of topLevel) {
-    const reviewers = s.sessionNum !== undefined ? reviewersByParent.get(s.sessionNum) : undefined;
+    const reviewers = typeof s.sessionNum === "number" ? reviewersByParent.get(s.sessionNum) : undefined;
     printSessionLine(s, { attachedReviewer: reviewers?.[0] ?? null });
     if (showTasks) printSessionTasks(s.taskHistory);
     count++;
@@ -357,7 +357,7 @@ function printNestedSessions(
         if (showTasks) printSessionTasks(r.taskHistory);
         count++;
       }
-      reviewersByParent.delete(s.sessionNum!);
+      reviewersByParent.delete(s.sessionNum as number);
     }
   }
   // Orphaned reviewers (parent filtered out or archived). Shown with ↳ indent

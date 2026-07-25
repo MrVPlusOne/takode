@@ -1015,6 +1015,33 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it("excludes hidden no-public-number delegate children from takode session snapshots", async () => {
+    setupTakodeSessions();
+    const visible = launcher.listSessions();
+    launcher.listSessions.mockReturnValue([
+      ...visible,
+      {
+        sessionId: "delegate-hidden",
+        state: "exited",
+        cwd: "/repo/w1",
+        createdAt: Date.now(),
+        hidden: true,
+        publicSessionNumber: false,
+        parentSessionId: "orch-1",
+      },
+    ]);
+
+    const res = await app.request("/api/takode/sessions", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.find((s: any) => s.sessionId === "delegate-hidden")).toBeUndefined();
+    expect(JSON.stringify(json)).not.toContain("#null");
+  });
+
   it("enforces authenticated orchestrator identity for herd and unherd", async () => {
     setupTakodeSessions();
     launcher.herdSessions.mockReturnValue({ herded: ["worker-1"], notFound: [], conflicts: [], leaders: [] });

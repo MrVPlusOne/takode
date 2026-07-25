@@ -675,7 +675,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
   api.get("/takode/sessions", async (c) => {
     const auth = authenticateTakodeCaller(c);
     if ("response" in auth) return auth.response;
-    const enriched = await buildEnrichedSessions();
+    const enriched = await buildEnrichedSessions((session) => session.hidden !== true);
     return c.json(enriched);
   });
 

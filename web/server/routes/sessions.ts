@@ -875,7 +875,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
   });
 
-  registerSessionExtraRoutes(api, { launcher, wsBridge, resolveId, authenticateTakodeCaller });
+  registerSessionExtraRoutes(api, { launcher, wsBridge, sessionStore, resolveId, authenticateTakodeCaller });
   registerSessionReplacementRoutes(api, {
     resolveId,
     authenticateTakodeCaller,

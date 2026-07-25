@@ -323,4 +323,58 @@ describe("takode list reviewer nesting", () => {
       server.close();
     }
   });
+
+  it("does not render null session numbers as #null", async () => {
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-null", isOrchestrator: false }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/takode/sessions") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify([
+            {
+              sessionId: "delegate-null",
+              sessionNum: null,
+              name: "Hidden Delegate Leak",
+              state: "idle",
+              archived: false,
+              cwd: "/repo/companion",
+              createdAt: Date.now() - 20_000,
+              lastActivityAt: Date.now() - 5_000,
+              cliConnected: false,
+            },
+          ]),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["list", "--active", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-null",
+        COMPANION_AUTH_TOKEN: "auth-null",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Hidden Delegate Leak");
+      expect(result.stdout).not.toContain("#null");
+    } finally {
+      server.close();
+    }
+  });
 });

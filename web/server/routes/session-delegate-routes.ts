@@ -2,6 +2,7 @@ import type { Context, Hono } from "hono";
 import { getSettings } from "../settings-manager.js";
 import type { CliLauncher } from "../cli-launcher.js";
 import type { WsBridge } from "../ws-bridge.js";
+import type { SessionStore } from "../session-store.js";
 
 const DELEGATE_TIMEOUT_MS = 5 * 60 * 1000;
 const DELEGATE_CHILD_MONITOR_INTERVAL_MS = 250;
@@ -273,6 +274,50 @@ function resolvePendingDelegate(delegateId: string, result: DelegateResolution):
   pending.resolve(result);
 }
 
+async function archiveCompletedDelegateChild(args: {
+  launcher: CliLauncher;
+  wsBridge: WsBridge;
+  sessionStore?: SessionStore;
+  childSessionId?: string;
+}): Promise<void> {
+  if (!args.childSessionId) return;
+  const childInfo = args.launcher.getSession(args.childSessionId);
+  const childSession = args.wsBridge.getSession(args.childSessionId);
+  const delegateChild = (childSession?.state as any)?.delegateChild as
+    | { parentSessionId?: string; delegateId?: string; command?: string }
+    | undefined;
+  if (!childInfo?.hidden || !delegateChild?.delegateId) return;
+
+  const wasArchived = childInfo.archived === true;
+  if (!wasArchived) {
+    args.launcher.setArchived(args.childSessionId, true);
+  }
+  try {
+    await args.launcher.kill(args.childSessionId);
+  } catch (error) {
+    console.warn(
+      `[delegate] Failed to stop completed delegate child ${args.childSessionId.slice(0, 8)} during archival:`,
+      error,
+    );
+  }
+  args.wsBridge.persistSessionById(args.childSessionId);
+  try {
+    await args.sessionStore?.setArchived(args.childSessionId, true);
+  } catch (error) {
+    console.warn(
+      `[delegate] Failed to persist archived state for delegate child ${args.childSessionId.slice(0, 8)}:`,
+      error,
+    );
+  }
+  if (!wasArchived) {
+    (args.wsBridge as any).broadcastGlobal?.({
+      type: "session_archived",
+      session_id: args.childSessionId,
+      archivedAt: args.launcher.getSession(args.childSessionId)?.archivedAt,
+    });
+  }
+}
+
 function startDelegateChildCompletionMonitor(args: {
   wsBridge: WsBridge;
   delegateId: string;
@@ -300,11 +345,12 @@ export function registerSessionDelegateRoutes(
   deps: {
     launcher: CliLauncher;
     wsBridge: WsBridge;
+    sessionStore?: SessionStore;
     resolveId: (id: string) => string | null;
     authenticateTakodeCaller: (c: Context, opts?: { requireOrchestrator?: boolean }) => any;
   },
 ): void {
-  const { launcher, wsBridge, resolveId, authenticateTakodeCaller } = deps;
+  const { launcher, wsBridge, sessionStore, resolveId, authenticateTakodeCaller } = deps;
 
   api.post("/sessions/:id/delegates/command", async (c) => {
     const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
@@ -378,9 +424,13 @@ export function registerSessionDelegateRoutes(
       command,
     });
     const childAdapter = await waitForCodexAdapter(wsBridge, child.sessionId);
-    if (!childAdapter) return c.json({ error: "Delegate session did not connect", delegateId }, 504);
+    if (!childAdapter) {
+      await archiveCompletedDelegateChild({ launcher, wsBridge, sessionStore, childSessionId: child.sessionId });
+      return c.json({ error: "Delegate session did not connect", delegateId }, 504);
+    }
     const childMcpReady = await childAdapter.waitForMcpToolAvailability?.("takode_delegate", "end_delegation", 10_000);
     if (!childMcpReady) {
+      await archiveCompletedDelegateChild({ launcher, wsBridge, sessionStore, childSessionId: child.sessionId });
       return c.json(
         {
           error: "Delegate end_delegation tool did not become available before the command prompt",
@@ -431,6 +481,12 @@ export function registerSessionDelegateRoutes(
     }
 
     const result = await summaryPromise;
+    await archiveCompletedDelegateChild({
+      launcher,
+      wsBridge,
+      sessionStore,
+      childSessionId: child.sessionId,
+    });
     const childSessionNum = launcher.getSessionNum(child.sessionId);
     const text = formatParentResult({
       delegateId,
