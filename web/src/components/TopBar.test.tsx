@@ -538,7 +538,7 @@ describe("TopBar", () => {
     expect(screen.getByText("Main Session")).toBeInTheDocument();
   });
 
-  it("uses the selected quest worker as the diff button target in leader quest routes", () => {
+  it("uses selected quest recorded commits as the diff button target in leader quest routes", () => {
     window.location.hash = "#/session/s1?thread=q-42";
     resetStore({
       currentSessionId: "s1",
@@ -551,6 +551,20 @@ describe("TopBar", () => {
         { sessionId: "worker", createdAt: 2, sessionNum: 222, name: "Worker Session", cwd: "/repo/worker" },
       ],
       sessionBoards: new Map([["s1", [{ questId: "q-42", status: "IMPLEMENTING", updatedAt: 1, worker: "worker" }]]]),
+      quests: [
+        {
+          id: "q-42-v1",
+          questId: "q-42",
+          version: 1,
+          title: "Recorded commits",
+          status: "in_progress",
+          description: "Recorded commit fixture.",
+          createdAt: 1,
+          sessionId: "worker",
+          claimedAt: 1,
+          commitShas: ["abc1234", "def5678"],
+        } as any,
+      ],
       changedFiles: new Map([
         ["s1", new Set(["/repo/leader/leader.ts"])],
         ["worker", new Set(["/repo/worker/changed.ts", "/repo/worker/other.ts"])],
@@ -559,8 +573,8 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    const diffButton = screen.getByRole("button", { name: "Show q-42 worker diff" });
-    expect(diffButton).toHaveAttribute("title", "Show q-42 worker diff");
+    const diffButton = screen.getByRole("button", { name: "Show q-42 recorded commits" });
+    expect(diffButton).toHaveAttribute("title", "Show q-42 recorded commits");
     expect(diffButton).toHaveTextContent("2");
   });
 

@@ -185,10 +185,12 @@ export function TopBar({
           ? (s.sdkSessions.find((session) => session.sessionId === targetSessionId) ?? null)
           : null;
       const targetSessionVm = coalesceSessionViewModel(targetSession, targetSdkSession);
+      const questCommitCount = target?.kind === "quest-commits" ? target.commitShas.length : null;
       return {
         diffButtonTitle: activeTab === "diff" ? "Back to chat" : (target?.title ?? "Show diffs"),
         changedFilesCount:
-          targetSessionId && targetSessionVm ? countScopedChangedFiles(s, targetSessionId, targetSessionVm) : 0,
+          questCommitCount ??
+          (targetSessionId && targetSessionVm ? countScopedChangedFiles(s, targetSessionId, targetSessionVm) : 0),
       };
     }),
   );

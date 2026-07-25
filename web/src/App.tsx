@@ -23,6 +23,7 @@ import { EmptyState } from "./components/EmptyState.js";
 import { hydrateSessionList, installActiveSessionMetadataRefreshListeners } from "./session-list-hydration.js";
 import { TaskPanel } from "./components/TaskPanel.js";
 import { DiffPanel } from "./components/DiffPanel.js";
+import { QuestCodeCommitDiffPanel } from "./components/QuestCommitDiffView.js";
 import { Playground } from "./components/Playground.js";
 import { SettingsPage } from "./components/SettingsPage.js";
 import { ChangelogPage } from "./components/ChangelogPage.js";
@@ -42,7 +43,7 @@ import { installAppViewportSizing } from "./utils/app-viewport.js";
 import { getLastSessionCreationContext } from "./utils/new-session-defaults.js";
 import { buildSidebarVisibleSessions } from "./utils/sidebar-visible-sessions.js";
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
-import { resolveDiffTarget, type DiffTargetResolution } from "./utils/diff-target.js";
+import { resolveDiffTarget } from "./utils/diff-target.js";
 import { requestAutoSessionGitStatusRefresh } from "./utils/session-git-status-auto-refresh.js";
 import {
   announceVsCodeReady,
@@ -70,31 +71,6 @@ type TakodeDebugWindow = Window &
   };
 
 const EMPTY_MESSAGES: [] = [];
-
-function DiffTargetBanner({ target }: { target: Extract<DiffTargetResolution, { kind: "session" }> }) {
-  if (target.source !== "quest-worker") return null;
-  return (
-    <div
-      className="shrink-0 border-b border-cc-border bg-cc-card/80 px-3 py-2 text-xs text-cc-text-secondary"
-      data-testid="diff-target-banner"
-    >
-      <span className="font-medium text-cc-fg">{target.label}</span>
-      {target.warning && <span className="ml-2 text-cc-warning">{target.warning}</span>}
-    </div>
-  );
-}
-
-function DiffUnavailableState({ target }: { target: Extract<DiffTargetResolution, { kind: "unavailable" }> }) {
-  return (
-    <div
-      className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center"
-      data-testid="diff-target-unavailable"
-    >
-      <p className="text-sm font-medium text-cc-fg">{target.label}</p>
-      <p className="max-w-md text-xs text-cc-muted">{target.message}</p>
-    </div>
-  );
-}
 
 function useHash() {
   return useSyncExternalStore(
@@ -797,15 +773,12 @@ export default function App() {
               {/* Diff tab */}
               {currentSessionId && !isPendingId(currentSessionId) && activeTab === "diff" && (
                 <div className="absolute inset-0 flex min-h-0 flex-col">
-                  {diffTarget?.kind === "session" ? (
-                    <>
-                      <DiffTargetBanner target={diffTarget} />
-                      <div className="min-h-0 flex-1">
-                        <DiffPanel sessionId={diffTarget.sessionId} />
-                      </div>
-                    </>
-                  ) : diffTarget?.kind === "unavailable" ? (
-                    <DiffUnavailableState target={diffTarget} />
+                  {diffTarget?.kind === "quest-commits" ? (
+                    <QuestCodeCommitDiffPanel questId={diffTarget.questId} commitShas={diffTarget.commitShas} />
+                  ) : diffTarget?.kind === "session" ? (
+                    <div className="min-h-0 flex-1">
+                      <DiffPanel sessionId={diffTarget.sessionId} />
+                    </div>
                   ) : (
                     <DiffPanel sessionId={currentSessionId} />
                   )}

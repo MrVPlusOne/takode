@@ -44,6 +44,13 @@ vi.mock("./components/TaskPanel.js", () => ({
 vi.mock("./components/DiffPanel.js", () => ({
   DiffPanel: ({ sessionId }: { sessionId: string }) => <div data-testid="diff-panel" data-session-id={sessionId} />,
 }));
+vi.mock("./components/QuestCommitDiffView.js", () => ({
+  QuestCodeCommitDiffPanel: ({ questId, commitShas }: { questId: string; commitShas: string[] }) => (
+    <div data-testid="quest-code-commit-diff-panel" data-quest-id={questId} data-commit-count={commitShas.length}>
+      {commitShas.length > 0 ? commitShas.length + " recorded commits" : "No recorded commits yet"}
+    </div>
+  ),
+}));
 vi.mock("./components/EmptyState.js", () => ({
   EmptyState: () => <div data-testid="empty-state" />,
 }));
@@ -243,6 +250,7 @@ function seedLeaderRouteFixture({ sdkLeaderSession = true }: { sdkLeaderSession?
         title: "Fix mobile sidebar overflow",
         status: "in_progress",
         description: "Keep narrow mobile layouts from clipping the primary shell.",
+        commitShas: ["abc1234", "def5678"],
         createdAt: now - 60_000,
         sessionId: "playground-worker",
         claimedAt: now - 30_000,
@@ -320,16 +328,19 @@ it("targets the leader diff from the Main thread in a leader session", async () 
   await waitFor(() => expect(screen.getByTestId("diff-panel")).toHaveAttribute("data-session-id", SESSION_ID));
 });
 
-it("targets the quest worker diff from a leader quest thread", async () => {
+it("opens quest recorded code commits from a leader quest thread", async () => {
   useStore.setState({ activeTab: "diff" });
 
   render(<App />);
 
-  await waitFor(() => expect(screen.getByTestId("diff-panel")).toHaveAttribute("data-session-id", "playground-worker"));
-  expect(screen.getByTestId("diff-target-banner")).toHaveTextContent("q-42 worker diff");
+  await waitFor(() =>
+    expect(screen.getByTestId("quest-code-commit-diff-panel")).toHaveAttribute("data-quest-id", "q-42"),
+  );
+  expect(screen.getByTestId("quest-code-commit-diff-panel")).toHaveAttribute("data-commit-count", "2");
+  expect(screen.queryByTestId("diff-panel")).not.toBeInTheDocument();
 });
 
-it("shows an explicit unavailable state for quest threads without workers", async () => {
+it("shows an explicit no-recorded-commits state for quest threads without code commits", async () => {
   useStore.setState({
     activeTab: "diff",
     sessionBoards: new Map([
@@ -339,12 +350,24 @@ it("shows an explicit unavailable state for quest threads without workers", asyn
       ],
     ]),
     sessionBoardRowStatuses: new Map(),
-    quests: [],
+    quests: [
+      {
+        id: "q-42-v1",
+        questId: "q-42",
+        version: 1,
+        title: "Fix mobile sidebar overflow",
+        status: "in_progress",
+        description: "No recorded commits yet.",
+        createdAt: Date.now(),
+        sessionId: "playground-worker",
+        claimedAt: Date.now(),
+      },
+    ],
   });
 
   render(<App />);
 
-  await waitFor(() => expect(screen.getByTestId("diff-target-unavailable")).toBeInTheDocument());
-  expect(screen.getByText("No worker session is assigned to q-42.")).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByTestId("quest-code-commit-diff-panel")).toBeInTheDocument());
+  expect(screen.getByText("No recorded commits yet")).toBeInTheDocument();
   expect(screen.queryByTestId("diff-panel")).not.toBeInTheDocument();
 });

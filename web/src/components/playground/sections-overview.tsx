@@ -288,6 +288,7 @@ export function PlaygroundOverviewSections() {
         questId: "q-961",
         title: "Finish data-flow cleanup",
         boardStatus: "IMPLEMENTING",
+        commitShas: ["abc1234def5678", "def5678abc1234"],
         section: "active" as const,
         journey: {
           mode: "active" as const,
@@ -309,6 +310,7 @@ export function PlaygroundOverviewSections() {
         questId: "q-968",
         title: "Show wait target in thread banner",
         boardStatus: "QUEUED",
+        commitShas: [],
         section: "active" as const,
         journey: {
           mode: "active" as const,

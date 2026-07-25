@@ -51,146 +51,66 @@ describe("resolveDiffTarget", () => {
     });
   });
 
-  it("targets the quest worker session for a leader quest thread", () => {
+  it("targets recorded quest code commits for a leader quest thread", () => {
     const target = resolveDiffTarget(
       makeState({
-        sessions: new Map([
-          ["leader", { session_id: "leader", cwd: "/repo/leader", isOrchestrator: true } as any],
-          ["worker", { session_id: "worker", cwd: "/repo/worker" } as any],
-        ]),
-        sdkSessions: [
+        quests: [
           {
-            sessionId: "leader",
-            createdAt: 1,
-            cwd: "/repo/leader",
-            isOrchestrator: true,
-            sessionNum: 1,
-            state: "connected",
-          },
-          { sessionId: "worker", createdAt: 2, cwd: "/repo/worker", sessionNum: 2, state: "connected" },
+            questId: "q-42",
+            title: "Recorded commits",
+            status: "done",
+            commitShas: ["abc1234", "def5678"],
+          } as any,
         ],
-        sessionBoards: new Map([["leader", [{ questId: "q-42", worker: "worker", updatedAt: 1 }]]]),
       }),
       "leader",
       "q-42",
     );
-    expect(target).toMatchObject({ kind: "session", source: "quest-worker", sessionId: "worker", questId: "q-42" });
+    expect(target).toMatchObject({
+      kind: "quest-commits",
+      source: "quest-commits",
+      questId: "q-42",
+      title: "Show q-42 recorded commits",
+      commitShas: ["abc1234", "def5678"],
+    });
   });
 
-  it("uses live board row worker status and reports disconnected workers explicitly", () => {
-    const target = resolveDiffTarget(
-      makeState({
-        sessions: new Map([
-          ["leader", { session_id: "leader", cwd: "/repo/leader", isOrchestrator: true } as any],
-          ["worker", { session_id: "worker", cwd: "/repo/worker" } as any],
-        ]),
-        sdkSessions: [
-          {
-            sessionId: "leader",
-            createdAt: 1,
-            cwd: "/repo/leader",
-            isOrchestrator: true,
-            sessionNum: 1,
-            state: "connected",
-          },
-          { sessionId: "worker", createdAt: 2, cwd: "/repo/worker", sessionNum: 2, state: "connected" },
-        ],
-        sessionBoardRowStatuses: new Map([
-          ["leader", { "q-42": { worker: { sessionId: "worker", sessionNum: 2, status: "disconnected" } } }],
-        ]),
-      }),
-      "leader",
-      "q-42",
-    );
-    expect(target).toMatchObject({ kind: "session", sessionId: "worker", warning: "Worker session is disconnected." });
-  });
-
-  it("reports archived workers explicitly while still targeting their available diff state", () => {
-    const target = resolveDiffTarget(
-      makeState({
-        sessions: new Map([
-          ["leader", { session_id: "leader", cwd: "/repo/leader", isOrchestrator: true } as any],
-          ["worker", { session_id: "worker", cwd: "/repo/worker" } as any],
-        ]),
-        sdkSessions: [
-          {
-            sessionId: "leader",
-            createdAt: 1,
-            cwd: "/repo/leader",
-            isOrchestrator: true,
-            sessionNum: 1,
-            state: "connected",
-          },
-          {
-            sessionId: "worker",
-            createdAt: 2,
-            cwd: "/repo/worker",
-            sessionNum: 2,
-            state: "connected",
-            archived: true,
-          },
-        ],
-        sessionBoards: new Map([["leader", [{ questId: "q-42", worker: "worker", updatedAt: 1 }]]]),
-      }),
-      "leader",
-      "q-42",
-    );
-    expect(target).toMatchObject({ kind: "session", sessionId: "worker", warning: "Worker session is archived." });
-  });
-
-  it("does not fall back to the leader diff when a quest thread has no worker", () => {
+  it("does not fall back to worker or leader raw diffs when a quest has no recorded commits", () => {
     const target = resolveDiffTarget(makeState(), "leader", "q-42");
     expect(target).toMatchObject({
-      kind: "unavailable",
-      source: "quest-worker",
+      kind: "quest-commits",
+      source: "quest-commits",
       questId: "q-42",
-      message: "No worker session is assigned to q-42.",
+      commitShas: [],
     });
   });
 
-  it("reports a missing named worker session without targeting the leader diff", () => {
+  it("prefers loaded quest detail commit evidence over the summary list", () => {
     const target = resolveDiffTarget(
       makeState({
-        sessionBoards: new Map([["leader", [{ questId: "q-42", worker: "missing-worker", updatedAt: 1 }]]]),
-      }),
-      "leader",
-      "q-42",
-    );
-    expect(target).toMatchObject({
-      kind: "unavailable",
-      source: "quest-worker",
-      questId: "q-42",
-      message: "The worker session for q-42 is not available in this browser state.",
-    });
-  });
-
-  it("reports an unavailable worker session without cwd before rendering a diff panel", () => {
-    const target = resolveDiffTarget(
-      makeState({
-        sessions: new Map([
-          ["leader", { session_id: "leader", cwd: "/repo/leader", isOrchestrator: true } as any],
-          ["worker", { session_id: "worker" } as any],
+        questDetails: new Map([
+          [
+            "q-42",
+            {
+              questId: "q-42",
+              title: "Detailed commits",
+              status: "done",
+              commitShas: ["detail123"],
+            } as any,
+          ],
         ]),
-        sdkSessions: [
+        quests: [
           {
-            sessionId: "leader",
-            createdAt: 1,
-            cwd: "/repo/leader",
-            isOrchestrator: true,
-            sessionNum: 1,
-            state: "connected",
-          },
+            questId: "q-42",
+            title: "Summary commits",
+            status: "done",
+            commitShas: ["summary123"],
+          } as any,
         ],
-        sessionBoards: new Map([["leader", [{ questId: "q-42", worker: "worker", workerNum: 2, updatedAt: 1 }]]]),
       }),
       "leader",
       "q-42",
     );
-    expect(target).toMatchObject({
-      kind: "unavailable",
-      source: "quest-worker",
-      questId: "q-42",
-      message: "#2 does not have a working directory available for diff inspection.",
-    });
+    expect(target).toMatchObject({ kind: "quest-commits", commitShas: ["detail123"] });
   });
 });

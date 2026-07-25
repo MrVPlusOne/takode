@@ -48,6 +48,7 @@ import {
   QUEST_PARTICIPANT_ROLE_CLASS,
   QUEST_PARTICIPANT_SESSION_CLASS,
 } from "./quest-participant-chip-style.js";
+import { commitCountLabel } from "./QuestCommitEvidence.js";
 import {
   buildLeaderThreadRowsFromSummaries,
   collectLeaderThreadSummaries,
@@ -104,6 +105,7 @@ export interface QuestThreadBannerRow {
   rowStatus?: BoardRowSessionStatus;
   leaderSessionId?: string | null;
   leaderSessionNum?: number | null;
+  commitShas?: string[];
   section?: "active" | "done";
 }
 
@@ -116,6 +118,7 @@ const EMPTY_BOARD_ROWS: BoardRowData[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 const EMPTY_SIDE_CHATS: Record<string, SideChatRecord> = {};
+const EMPTY_COMMIT_SHAS: string[] = [];
 
 export function reviewNotificationIdsForSelectedThread(
   notifications: ReadonlyArray<SessionNotification> | undefined,
@@ -420,6 +423,7 @@ function QuestBannerParticipantChip({
   fallbackSessionNum,
   currentSessionId,
   threadKey,
+  showDisplayName = true,
 }: {
   role: QuestBannerParticipantRole;
   participant?: BoardRowSessionStatus["worker"] | BoardRowSessionStatus["reviewer"] | null;
@@ -428,6 +432,7 @@ function QuestBannerParticipantChip({
   fallbackSessionNum?: number;
   currentSessionId?: string;
   threadKey?: string | null;
+  showDisplayName?: boolean;
 }) {
   const candidateSessionId = participant?.sessionId ?? explicitSessionId ?? fallbackSessionId ?? null;
   const candidateSessionNum = participant?.sessionNum ?? fallbackSessionNum ?? undefined;
@@ -450,7 +455,7 @@ function QuestBannerParticipantChip({
       {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
       <span className={QUEST_PARTICIPANT_ROLE_CLASS}>{role}</span>
       <span className={QUEST_PARTICIPANT_SESSION_CLASS}>{`#${sessionNum ?? "?"}`}</span>
-      {displayName && <span className={QUEST_PARTICIPANT_NAME_CLASS}>{displayName}</span>}
+      {showDisplayName && displayName && <span className={QUEST_PARTICIPANT_NAME_CLASS}>{displayName}</span>}
     </>
   );
 
@@ -491,6 +496,26 @@ function QuestStatusFallbackPill({ status }: { status?: string }) {
       <span className={`h-1.5 w-1.5 rounded-full ${statusTheme.dot}`} />
       {statusTheme.label}
     </span>
+  );
+}
+
+function QuestBannerCommitButton({ questId, count }: { questId: string; count: number }) {
+  const label = commitCountLabel(count);
+  const setActiveTab = useStore((s) => s.setActiveTab);
+  return (
+    <button
+      type="button"
+      onClick={() => setActiveTab("diff")}
+      className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-cc-border/60 bg-cc-hover/35 px-1.5 text-[10px] leading-none text-cc-muted transition-colors hover:border-cc-primary/35 hover:text-cc-primary"
+      data-testid="quest-thread-commit-button"
+      aria-label={`Open ${questId} recorded commit diffs, ${label}`}
+      title={`Open ${questId} recorded commit diffs`}
+    >
+      <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3" aria-hidden="true">
+        <path d="M2.5 1A1.5 1.5 0 001 2.5v11A1.5 1.5 0 002.5 15h11a1.5 1.5 0 001.5-1.5v-11A1.5 1.5 0 0013.5 1h-11zM2 2.5a.5.5 0 01.5-.5h11a.5.5 0 01.5.5V5H2V2.5zM2 6h12v7.5a.5.5 0 01-.5.5h-11a.5.5 0 01-.5-.5V6zm3 1.5a.5.5 0 000 1h6a.5.5 0 000-1H5zm0 2.5a.5.5 0 000 1h4a.5.5 0 000-1H5z" />
+      </svg>
+      <span className="tabular-nums">{label}</span>
+    </button>
   );
 }
 
@@ -845,6 +870,7 @@ function buildSessionQuestBannerRow({
     ...(boardRow ? { boardRow } : {}),
     ...(rowStatus ? { rowStatus } : {}),
     ...(resolvedLeaderSessionId ? { leaderSessionId: resolvedLeaderSessionId } : {}),
+    ...(quest?.commitShas ? { commitShas: [...quest.commitShas] } : {}),
     section: status === "done" || boardRow?.completedAt ? "done" : "active",
   };
 }
@@ -863,13 +889,19 @@ export function QuestThreadBanner({
   const questId = row?.questId ?? threadKey.toLowerCase();
   const title = row?.title;
   const isSessionBanner = variant === "session";
+  const codeCommitShas = useStore((s) => {
+    if (row?.commitShas) return row.commitShas;
+    const quest = s.questDetails?.get(questId.toLowerCase()) ?? findQuestById(s.quests, questId);
+    return quest?.commitShas ?? EMPTY_COMMIT_SHAS;
+  });
+  const showCommitAffordance = !isSessionBanner;
   const waitCondition = waitConditionForBoardRow(row?.boardRow);
   const queuedWaitCondition = waitCondition?.kind === "queued" ? waitCondition : null;
   const inputWaitCondition = waitCondition?.kind === "user-input" ? waitCondition : null;
   const hasParticipantContext = isSessionBanner
     ? !!(row?.leaderSessionId || row?.rowStatus?.reviewer)
     : !!(row?.rowStatus?.worker || row?.boardRow?.worker || row?.rowStatus?.reviewer);
-  const hasMeta = !!waitCondition || !!row?.journey || !!row?.status || hasParticipantContext;
+  const hasMeta = !!waitCondition || !!row?.journey || !!row?.status || hasParticipantContext || showCommitAffordance;
   return (
     <div
       className="shrink-0 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 py-1 sm:px-3"
@@ -916,6 +948,7 @@ export function QuestThreadBanner({
             ) : null}
             {!queuedWaitCondition && !row?.journey && <QuestStatusFallbackPill status={row?.status} />}
             {inputWaitCondition && <QuestBannerWaitPill condition={inputWaitCondition} />}
+            {showCommitAffordance && <QuestBannerCommitButton questId={questId} count={codeCommitShas.length} />}
             {hasParticipantContext && (
               <div className="inline-flex min-w-0 items-center gap-1.5" data-testid="quest-thread-participant-strip">
                 {isSessionBanner ? (
@@ -940,8 +973,13 @@ export function QuestThreadBanner({
                       participant={boardWorkerParticipantForRow(row)}
                       fallbackSessionId={row?.boardRow?.worker}
                       fallbackSessionNum={row?.boardRow?.workerNum}
+                      showDisplayName={false}
                     />
-                    <QuestBannerParticipantChip role="Reviewer" participant={row?.rowStatus?.reviewer} />
+                    <QuestBannerParticipantChip
+                      role="Reviewer"
+                      participant={row?.rowStatus?.reviewer}
+                      showDisplayName={false}
+                    />
                   </>
                 )}
               </div>
