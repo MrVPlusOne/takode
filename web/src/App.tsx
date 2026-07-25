@@ -774,7 +774,7 @@ export default function App() {
               {currentSessionId && !isPendingId(currentSessionId) && activeTab === "diff" && (
                 <div className="absolute inset-0 flex min-h-0 flex-col">
                   {diffTarget?.kind === "quest-commits" ? (
-                    <QuestCodeCommitDiffPanel questId={diffTarget.questId} commitShas={diffTarget.commitShas} />
+                    <QuestCodeCommitDiffPanel questId={diffTarget.questId} />
                   ) : diffTarget?.kind === "session" ? (
                     <div className="min-h-0 flex-1">
                       <DiffPanel sessionId={diffTarget.sessionId} />

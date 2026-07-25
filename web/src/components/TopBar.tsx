@@ -14,6 +14,7 @@ import { getShortcutTitle } from "../shortcuts.js";
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
 import { activeBoardSummarySegments } from "./leader-board-summary.js";
 import { LeaderWorkboardControlButton, SummarySegments } from "./leader-workboard-controls.js";
+import { useQuestCodeCommitShas } from "./QuestCommitDiffView.js";
 import type { BoardRowData } from "./BoardTable.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 
@@ -185,15 +186,20 @@ export function TopBar({
           ? (s.sdkSessions.find((session) => session.sessionId === targetSessionId) ?? null)
           : null;
       const targetSessionVm = coalesceSessionViewModel(targetSession, targetSdkSession);
-      const questCommitCount = target?.kind === "quest-commits" ? target.commitShas.length : null;
       return {
+        diffTargetKind: target?.kind ?? null,
+        diffTargetQuestId: target?.kind === "quest-commits" ? target.questId : null,
         diffButtonTitle: activeTab === "diff" ? "Back to chat" : (target?.title ?? "Show diffs"),
         changedFilesCount:
-          questCommitCount ??
-          (targetSessionId && targetSessionVm ? countScopedChangedFiles(s, targetSessionId, targetSessionVm) : 0),
+          targetSessionId && targetSessionVm ? countScopedChangedFiles(s, targetSessionId, targetSessionVm) : 0,
       };
     }),
   );
+  const questDiffCommitState = useQuestCodeCommitShas(diffChrome.diffTargetQuestId);
+  const diffBadgeCount =
+    diffChrome.diffTargetKind === "quest-commits"
+      ? questDiffCommitState.commitShas.length
+      : diffChrome.changedFilesCount;
   const [infoOpen, setInfoOpen] = useState(false);
   const [configureSessionId, setConfigureSessionId] = useState<string | null>(null);
   const sessionInfoAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -456,9 +462,9 @@ export function TopBar({
               <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
                 <path d="M2.5 1A1.5 1.5 0 001 2.5v11A1.5 1.5 0 002.5 15h3a.5.5 0 000-1h-3a.5.5 0 01-.5-.5v-11a.5.5 0 01.5-.5h3a.5.5 0 000-1h-3zM10.5 1a.5.5 0 000 1h3a.5.5 0 01.5.5v11a.5.5 0 01-.5.5h-3a.5.5 0 000 1h3A1.5 1.5 0 0015 13.5v-11A1.5 1.5 0 0013.5 1h-3zM8 3.5a.5.5 0 01.5.5v8a.5.5 0 01-1 0V4a.5.5 0 01.5-.5zM5.5 6a.5.5 0 000 1h1a.5.5 0 000-1h-1zm4 0a.5.5 0 000 1h1a.5.5 0 000-1h-1zM5.5 9a.5.5 0 000 1h1a.5.5 0 000-1h-1zm4 0a.5.5 0 000 1h1a.5.5 0 000-1h-1z" />
               </svg>
-              {diffChrome.changedFilesCount > 0 && (
+              {diffBadgeCount > 0 && (
                 <span className="absolute -top-1 -right-1 text-[8px] bg-cc-primary text-white rounded-full min-w-[14px] h-[14px] flex items-center justify-center font-semibold leading-none px-0.5">
-                  {diffChrome.changedFilesCount}
+                  {diffBadgeCount}
                 </span>
               )}
             </button>

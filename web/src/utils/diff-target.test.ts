@@ -51,28 +51,15 @@ describe("resolveDiffTarget", () => {
     });
   });
 
-  it("targets recorded quest code commits for a leader quest thread", () => {
-    const target = resolveDiffTarget(
-      makeState({
-        quests: [
-          {
-            questId: "q-42",
-            title: "Recorded commits",
-            status: "done",
-            commitShas: ["abc1234", "def5678"],
-          } as any,
-        ],
-      }),
-      "leader",
-      "q-42",
-    );
+  it("targets the quest commit surface for a leader quest thread", () => {
+    const target = resolveDiffTarget(makeState(), "leader", "q-42");
     expect(target).toMatchObject({
       kind: "quest-commits",
       source: "quest-commits",
       questId: "q-42",
       title: "Show q-42 recorded commits",
-      commitShas: ["abc1234", "def5678"],
     });
+    expect(target).not.toHaveProperty("commitShas");
   });
 
   it("does not fall back to worker or leader raw diffs when a quest has no recorded commits", () => {
@@ -81,36 +68,7 @@ describe("resolveDiffTarget", () => {
       kind: "quest-commits",
       source: "quest-commits",
       questId: "q-42",
-      commitShas: [],
     });
-  });
-
-  it("prefers loaded quest detail commit evidence over the summary list", () => {
-    const target = resolveDiffTarget(
-      makeState({
-        questDetails: new Map([
-          [
-            "q-42",
-            {
-              questId: "q-42",
-              title: "Detailed commits",
-              status: "done",
-              commitShas: ["detail123"],
-            } as any,
-          ],
-        ]),
-        quests: [
-          {
-            questId: "q-42",
-            title: "Summary commits",
-            status: "done",
-            commitShas: ["summary123"],
-          } as any,
-        ],
-      }),
-      "leader",
-      "q-42",
-    );
-    expect(target).toMatchObject({ kind: "quest-commits", commitShas: ["detail123"] });
+    expect(target).not.toHaveProperty("commitShas");
   });
 });

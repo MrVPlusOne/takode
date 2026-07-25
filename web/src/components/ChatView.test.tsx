@@ -55,8 +55,6 @@ interface MockStoreState {
   historyLoading: Map<string, boolean>;
   quests: Array<Record<string, unknown> & { questId: string; title: string; status: string }>;
   zoomLevel: number;
-  activeTab: "chat" | "diff";
-  setActiveTab: (tab: "chat" | "diff") => void;
   openQuestOverlay: (questId: string) => void;
 }
 
@@ -89,10 +87,6 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     historyLoading: new Map(),
     quests: [],
     zoomLevel: 1,
-    activeTab: "chat",
-    setActiveTab: (tab) => {
-      mockState.activeTab = tab;
-    },
     openQuestOverlay: mockOpenQuestOverlay,
     ...overrides,
   };
@@ -1499,14 +1493,7 @@ describe("ChatView backend banners", () => {
           },
         ],
       ]),
-      quests: [
-        {
-          questId: "q-968",
-          title: "Thread navigation rework",
-          status: "in_progress",
-          commitShas: ["abc1234", "def5678"],
-        },
-      ],
+      quests: [{ questId: "q-968", title: "Thread navigation rework", status: "in_progress" }],
     });
 
     const view = render(<ChatView sessionId="s1" />);
@@ -1522,15 +1509,10 @@ describe("ChatView backend banners", () => {
     expect(scope.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
     expect(scope.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("data-testid", "quest-thread-participant");
     expect(scope.getByLabelText("Reviewer #1306")).toHaveAttribute("href", "#session-1306");
-    expect(scope.getByTestId("quest-thread-banner")).not.toHaveTextContent("Clear Mesa");
-    expect(scope.getByTestId("quest-thread-commit-button")).toHaveTextContent("2 commits");
     expect(scope.queryByTestId("quest-thread-banner-return-main")).not.toBeInTheDocument();
 
     fireEvent.mouseEnter(scope.getByTestId("quest-thread-journey-hover-target"));
     expect(document.body.querySelector('[data-testid="quest-thread-journey-hover-card"]')).toBeInTheDocument();
-
-    fireEvent.click(scope.getByTestId("quest-thread-commit-button"));
-    expect(mockState.activeTab).toBe("diff");
   });
 
   it("shows queued Work Board wait reasons in the quest-thread banner", () => {
@@ -1640,7 +1622,7 @@ describe("ChatView backend banners", () => {
           },
         ],
       ]),
-      quests: [{ questId: "q-970", title: "Completed banner polish", status: "done", commitShas: ["abc1234"] }],
+      quests: [{ questId: "q-970", title: "Completed banner polish", status: "done" }],
     });
 
     const view = render(<ChatView sessionId="s1" />);
@@ -1655,8 +1637,6 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("quest-journey-compact-summary")).not.toHaveTextContent("1 note");
     expect(scope.getByLabelText("Worker #1321 Clear Mesa")).toBeInTheDocument();
     expect(scope.getByLabelText("Reviewer #1323")).toBeInTheDocument();
-    expect(scope.getByTestId("quest-thread-banner")).not.toHaveTextContent("Clear Mesa");
-    expect(scope.getByTestId("quest-thread-commit-button")).toHaveTextContent("1 commit");
 
     fireEvent.click(scope.getByTestId("quest-thread-journey-hover-target"));
     expect(document.body.querySelector('[data-testid="quest-thread-journey-hover-card"]')).toBeInTheDocument();

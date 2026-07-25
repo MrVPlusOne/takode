@@ -1,8 +1,5 @@
 import type { AppState } from "../store-types.js";
-import type { QuestmasterTask } from "../types.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
-
-const EMPTY_COMMIT_SHAS: string[] = [];
 
 export type DiffTargetResolution =
   | {
@@ -18,7 +15,6 @@ export type DiffTargetResolution =
       questId: string;
       label: string;
       title: string;
-      commitShas: string[];
     };
 
 export function resolveDiffTarget(
@@ -35,7 +31,7 @@ export function resolveDiffTarget(
   }
   if (!isQuestThreadKey(normalizedThreadKey)) return leaderDiffTarget(currentSessionId);
 
-  return resolveQuestCommitDiffTarget(state, normalizedThreadKey);
+  return resolveQuestCommitDiffTarget(normalizedThreadKey);
 }
 
 export function diffTargetSessionId(target: DiffTargetResolution | null): string | null {
@@ -62,15 +58,13 @@ function leaderDiffTarget(sessionId: string): DiffTargetResolution {
   };
 }
 
-function resolveQuestCommitDiffTarget(state: AppState, questId: string): DiffTargetResolution {
-  const quest = findQuestEvidenceById(state, questId);
+function resolveQuestCommitDiffTarget(questId: string): DiffTargetResolution {
   return {
     kind: "quest-commits",
     source: "quest-commits",
     questId,
     label: `${questId} recorded commits`,
     title: `Show ${questId} recorded commits`,
-    commitShas: quest?.commitShas ?? EMPTY_COMMIT_SHAS,
   };
 }
 
@@ -83,14 +77,4 @@ function isLeaderSession(state: AppState, sessionId: string): boolean {
     state.sessions.get(sessionId)?.isOrchestrator === true ||
     state.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator === true)
   );
-}
-
-function findQuestById(quests: QuestmasterTask[], questId: string): QuestmasterTask | undefined {
-  const normalizedQuestId = questId.toLowerCase();
-  return quests.find((quest) => quest.questId.toLowerCase() === normalizedQuestId);
-}
-
-function findQuestEvidenceById(state: AppState, questId: string): QuestmasterTask | undefined {
-  const normalizedQuestId = questId.toLowerCase();
-  return state.questDetails?.get(normalizedQuestId) ?? findQuestById(state.quests, questId);
 }

@@ -7,6 +7,7 @@ import type { SessionState } from "./types.js";
 const mockConnectSession = vi.fn();
 const mockDisconnectSession = vi.fn();
 const mockRefreshSessionGitStatus = vi.fn().mockResolvedValue({ ok: true });
+const mockQuestCommitCounts = vi.hoisted(() => new Map<string, number>());
 
 vi.mock("./api.js", () => ({
   api: {
@@ -45,11 +46,18 @@ vi.mock("./components/DiffPanel.js", () => ({
   DiffPanel: ({ sessionId }: { sessionId: string }) => <div data-testid="diff-panel" data-session-id={sessionId} />,
 }));
 vi.mock("./components/QuestCommitDiffView.js", () => ({
-  QuestCodeCommitDiffPanel: ({ questId, commitShas }: { questId: string; commitShas: string[] }) => (
-    <div data-testid="quest-code-commit-diff-panel" data-quest-id={questId} data-commit-count={commitShas.length}>
-      {commitShas.length > 0 ? commitShas.length + " recorded commits" : "No recorded commits yet"}
-    </div>
-  ),
+  useQuestCodeCommitShas: (questId?: string | null) => {
+    const count = questId ? (mockQuestCommitCounts.get(questId) ?? 0) : 0;
+    return { commitShas: Array.from({ length: count }, (_, index) => "commit-" + index), loading: false };
+  },
+  QuestCodeCommitDiffPanel: ({ questId }: { questId: string }) => {
+    const count = mockQuestCommitCounts.get(questId) ?? 0;
+    return (
+      <div data-testid="quest-code-commit-diff-panel" data-quest-id={questId} data-commit-count={count}>
+        {count > 0 ? count + " recorded commits" : "No recorded commits yet"}
+      </div>
+    );
+  },
 }));
 vi.mock("./components/EmptyState.js", () => ({
   EmptyState: () => <div data-testid="empty-state" />,
@@ -262,6 +270,8 @@ function seedLeaderRouteFixture({ sdkLeaderSession = true }: { sdkLeaderSession?
 beforeEach(() => {
   vi.clearAllMocks();
   resetSessionGitStatusAutoRefreshForTest();
+  mockQuestCommitCounts.clear();
+  mockQuestCommitCounts.set("q-42", 2);
   localStorage.clear();
   localStorage.setItem("cc-server-id", "test-server");
   useStore.getState().reset();
@@ -341,6 +351,7 @@ it("opens quest recorded code commits from a leader quest thread", async () => {
 });
 
 it("shows an explicit no-recorded-commits state for quest threads without code commits", async () => {
+  mockQuestCommitCounts.set("q-42", 0);
   useStore.setState({
     activeTab: "diff",
     sessionBoards: new Map([

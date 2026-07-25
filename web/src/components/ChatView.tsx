@@ -49,6 +49,7 @@ import {
   QUEST_PARTICIPANT_SESSION_CLASS,
 } from "./quest-participant-chip-style.js";
 import { commitCountLabel } from "./QuestCommitEvidence.js";
+import { useQuestCodeCommitShas } from "./QuestCommitDiffView.js";
 import {
   buildLeaderThreadRowsFromSummaries,
   collectLeaderThreadSummaries,
@@ -118,7 +119,6 @@ const EMPTY_BOARD_ROWS: BoardRowData[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 const EMPTY_SIDE_CHATS: Record<string, SideChatRecord> = {};
-const EMPTY_COMMIT_SHAS: string[] = [];
 
 export function reviewNotificationIdsForSelectedThread(
   notifications: ReadonlyArray<SessionNotification> | undefined,
@@ -870,7 +870,6 @@ function buildSessionQuestBannerRow({
     ...(boardRow ? { boardRow } : {}),
     ...(rowStatus ? { rowStatus } : {}),
     ...(resolvedLeaderSessionId ? { leaderSessionId: resolvedLeaderSessionId } : {}),
-    ...(quest?.commitShas ? { commitShas: [...quest.commitShas] } : {}),
     section: status === "done" || boardRow?.completedAt ? "done" : "active",
   };
 }
@@ -889,11 +888,7 @@ export function QuestThreadBanner({
   const questId = row?.questId ?? threadKey.toLowerCase();
   const title = row?.title;
   const isSessionBanner = variant === "session";
-  const codeCommitShas = useStore((s) => {
-    if (row?.commitShas) return row.commitShas;
-    const quest = s.questDetails?.get(questId.toLowerCase()) ?? findQuestById(s.quests, questId);
-    return quest?.commitShas ?? EMPTY_COMMIT_SHAS;
-  });
+  const codeCommitState = useQuestCodeCommitShas(isSessionBanner ? null : questId, row?.commitShas);
   const showCommitAffordance = !isSessionBanner;
   const waitCondition = waitConditionForBoardRow(row?.boardRow);
   const queuedWaitCondition = waitCondition?.kind === "queued" ? waitCondition : null;
@@ -948,7 +943,9 @@ export function QuestThreadBanner({
             ) : null}
             {!queuedWaitCondition && !row?.journey && <QuestStatusFallbackPill status={row?.status} />}
             {inputWaitCondition && <QuestBannerWaitPill condition={inputWaitCondition} />}
-            {showCommitAffordance && <QuestBannerCommitButton questId={questId} count={codeCommitShas.length} />}
+            {showCommitAffordance && (
+              <QuestBannerCommitButton questId={questId} count={codeCommitState.commitShas.length} />
+            )}
             {hasParticipantContext && (
               <div className="inline-flex min-w-0 items-center gap-1.5" data-testid="quest-thread-participant-strip">
                 {isSessionBanner ? (

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type QuestCommitLookup } from "../api.js";
+import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { DiffViewer } from "./DiffViewer.js";
 import {
@@ -9,6 +10,9 @@ import {
   sortedCommitEntries,
   type QuestCommitEntry,
 } from "./QuestCommitEvidence.js";
+
+const EMPTY_CODE_COMMIT_SHAS: string[] = [];
+const questCodeCommitDetailFetches = new Map<string, Promise<QuestmasterTask | null>>();
 
 export function buildCodeCommitEntries(commitShas: readonly string[] | undefined): QuestCommitEntry[] {
   return (commitShas ?? []).map((sha, storedIndex) => ({
@@ -30,6 +34,75 @@ export function buildQuestCommitEntries(
     storedIndex: memoryOffset + index,
   }));
   return [...codeEntries, ...memoryEntries];
+}
+
+function findQuestById(quests: QuestmasterTask[], questId: string): QuestmasterTask | undefined {
+  const normalizedQuestId = questId.toLowerCase();
+  return quests.find((quest) => quest.questId.toLowerCase() === normalizedQuestId);
+}
+
+function getQuestCommitShasFromState(
+  state: ReturnType<typeof useStore.getState> | null,
+  questId: string | null | undefined,
+): readonly string[] | null {
+  if (!questId) return EMPTY_CODE_COMMIT_SHAS;
+  const quest =
+    state?.questDetails?.get(questId.toLowerCase()) ??
+    (state?.quests ? findQuestById(state.quests, questId) : undefined);
+  return Array.isArray(quest?.commitShas) ? quest.commitShas : null;
+}
+
+function fetchQuestCommitEvidence(questId: string): Promise<QuestmasterTask | null> {
+  const key = questId.toLowerCase();
+  const existing = questCodeCommitDetailFetches.get(key);
+  if (existing) return existing;
+
+  if (typeof api.getQuest !== "function") return Promise.resolve(null);
+
+  const fetchPromise = api
+    .getQuest(questId)
+    .then((quest) => {
+      if (typeof useStore.getState === "function") {
+        useStore.getState().upsertQuestDetail(quest);
+      }
+      return quest;
+    })
+    .catch(() => null)
+    .finally(() => {
+      if (questCodeCommitDetailFetches.get(key) === fetchPromise) {
+        questCodeCommitDetailFetches.delete(key);
+      }
+    });
+
+  questCodeCommitDetailFetches.set(key, fetchPromise);
+  return fetchPromise;
+}
+
+export function useQuestCodeCommitShas(
+  questId: string | null | undefined,
+  initialCommitShas?: readonly string[],
+): { commitShas: readonly string[]; loading: boolean } {
+  const storeCommitShas = useStore((state) => initialCommitShas ?? getQuestCommitShasFromState(state, questId));
+  const [resolvedMissingQuestId, setResolvedMissingQuestId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setResolvedMissingQuestId(null);
+  }, [questId]);
+
+  useEffect(() => {
+    if (!questId || storeCommitShas !== null || resolvedMissingQuestId === questId.toLowerCase()) return;
+    let cancelled = false;
+    void fetchQuestCommitEvidence(questId).then((quest) => {
+      if (cancelled) return;
+      if (!Array.isArray(quest?.commitShas)) setResolvedMissingQuestId(questId.toLowerCase());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [questId, resolvedMissingQuestId, storeCommitShas]);
+
+  const loading = !!questId && storeCommitShas === null && resolvedMissingQuestId !== questId.toLowerCase();
+  return { commitShas: storeCommitShas ?? EMPTY_CODE_COMMIT_SHAS, loading };
 }
 
 export interface QuestCommitDiffState {
@@ -357,9 +430,17 @@ export function QuestCommitDiffView({
   );
 }
 
-export function QuestCodeCommitDiffPanel({ questId, commitShas }: { questId: string; commitShas: readonly string[] }) {
+export function QuestCodeCommitDiffPanel({ questId }: { questId: string }) {
+  const { commitShas, loading } = useQuestCodeCommitShas(questId);
   const storedEntries = useMemo(() => buildCodeCommitEntries(commitShas), [commitShas]);
   const state = useQuestCommitDiffState({ questId, storedEntries, autoOpenFirst: true });
+  if (loading) {
+    return (
+      <div className="flex h-full min-h-48 items-center justify-center px-6 text-center text-sm text-cc-muted">
+        Loading recorded commits...
+      </div>
+    );
+  }
   return (
     <QuestCommitDiffView
       state={state}
