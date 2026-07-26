@@ -9,7 +9,7 @@ import { QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import { QuestPhaseDocumentationTimeline } from "./QuestPhaseDocumentationTimeline.js";
 import { QuestTextImagePreviews } from "./QuestPhaseNoteImages.js";
 import { QuestRelationshipLinks } from "./QuestRelationshipLinks.js";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { QuestmasterTask } from "../types.js";
 import type { QuestPhaseDocumentationSummary } from "../../shared/quest-phase-documentation-summary.js";
 import type { QuestJourneyPlanState } from "../../shared/quest-journey.js";
@@ -40,6 +40,7 @@ export function QuestDetailTextSections({
   const questDebrief = getQuestDebrief(quest);
   const questDebriefTldr = getQuestDebriefTldr(quest);
   const hasFinalDebrief = Boolean(questDebrief);
+  const [journeyDetailsExpanded, setJourneyDetailsExpanded] = useState(true);
   const detailSearchHighlight = searchHighlight
     ? { query: searchHighlight, mode: "fuzzy" as const, isCurrent: false }
     : null;
@@ -174,21 +175,28 @@ export function QuestDetailTextSections({
         </>
       )}
       {phaseDocumentationSummary.hasPhaseDocumentation && (
-        <div className="min-w-0 max-w-full space-y-2 overflow-x-hidden">
-          <QuestDetailSectionLabel>Journey Details</QuestDetailSectionLabel>
+        <QuestDetailToggleSection
+          title="Journey Details"
+          expanded={journeyDetailsExpanded}
+          onToggle={() => setJourneyDetailsExpanded((expanded) => !expanded)}
+        >
           <QuestPhaseDocumentationTimeline
             summary={phaseDocumentationSummary}
             searchHighlight={searchHighlight}
             sessionId={sessionId}
             onSessionNavigate={onSessionNavigate}
           />
-        </div>
+        </QuestDetailToggleSection>
       )}
       {quest.status === "done" && !phaseDocumentationSummary.hasPhaseDocumentation && journey && (
-        <div className="min-w-0 max-w-full space-y-2 overflow-x-hidden" data-testid="quest-detail-journey-section">
-          <QuestDetailSectionLabel>Journey Details</QuestDetailSectionLabel>
+        <QuestDetailToggleSection
+          title="Journey Details"
+          expanded={journeyDetailsExpanded}
+          onToggle={() => setJourneyDetailsExpanded((expanded) => !expanded)}
+          testId="quest-detail-journey-section"
+        >
           <QuestJourneyTimeline journey={journey} status={journeyStatus} variant="vertical" />
-        </div>
+        </QuestDetailToggleSection>
       )}
     </div>
   );
@@ -196,6 +204,38 @@ export function QuestDetailTextSections({
 
 function QuestDetailSectionLabel({ children }: { children: string }) {
   return <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/60">{children}</div>;
+}
+
+function QuestDetailToggleSection({
+  title,
+  expanded,
+  onToggle,
+  testId,
+  children,
+}: {
+  title: string;
+  expanded: boolean;
+  onToggle: () => void;
+  testId?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-w-0 max-w-full space-y-2 overflow-x-hidden" data-testid={testId}>
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center justify-between gap-3 text-left text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/60 transition-colors hover:text-cc-muted"
+        aria-expanded={expanded}
+        onClick={onToggle}
+        data-testid="quest-journey-details-toggle"
+      >
+        <span>{title}</span>
+        <span className={`text-xs transition-transform ${expanded ? "rotate-90" : ""}`} aria-hidden="true">
+          ▸
+        </span>
+      </button>
+      {expanded && children}
+    </div>
+  );
 }
 
 function QuestDetailTldrCard({ label, children }: { label: string; children: ReactNode }) {

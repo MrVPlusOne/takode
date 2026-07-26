@@ -28,6 +28,8 @@ export function PlaygroundQuestDetailModalSection() {
 }
 
 function openPlaygroundQuestDetail() {
+  const now = Date.now();
+  const journeyRuns = buildPlaygroundJourneyRuns(now);
   useStore.setState({
     quests: [
       {
@@ -38,13 +40,13 @@ function openPlaygroundQuestDetail() {
         status: "done" as const,
         description:
           "The sidebar overflows on screens narrower than 375px. Need to add `overflow-hidden` and a scrollable wrapper.\n\n## Steps\n1. Add wrapper div\n2. Set max-height\n3. Test on iPhone SE",
-        createdAt: Date.now() - 86400000,
-        updatedAt: Date.now() - 3600000,
+        createdAt: now - 86400000,
+        updatedAt: now - 3600000,
         sessionId: "playground-worker",
         leaderSessionId: "playground-leader",
         previousOwnerSessionIds: ["abc-123"],
-        claimedAt: Date.now() - 43200000,
-        completedAt: Date.now() - 3600000,
+        claimedAt: now - 43200000,
+        completedAt: now - 3600000,
         commitShas: ["82a3f2b71d4c9000", "7d2c332e9b5a1000"],
         memoryCommitShas: ["eedb2db46f8a7000"],
         tags: ["ui", "mobile", "bug"],
@@ -69,72 +71,26 @@ function openPlaygroundQuestDetail() {
             source: "Verification items",
           },
         ],
-        journeyRuns: [
-          {
-            runId: "playground-run-1",
-            source: "board" as const,
-            phaseIds: ["alignment", "implement", "code-review"],
-            status: "completed" as const,
-            createdAt: Date.now() - 7200000,
-            updatedAt: Date.now() - 3600000,
-            phaseOccurrences: [
-              {
-                occurrenceId: "playground-run-1:p1",
-                phaseId: "alignment" as const,
-                phaseIndex: 0,
-                phasePosition: 1,
-                phaseOccurrence: 1,
-                status: "completed" as const,
-              },
-              {
-                occurrenceId: "playground-run-1:p2",
-                phaseId: "implement" as const,
-                phaseIndex: 1,
-                phasePosition: 2,
-                phaseOccurrence: 1,
-                status: "completed" as const,
-              },
-              {
-                occurrenceId: "playground-run-1:p3",
-                phaseId: "code-review" as const,
-                phaseIndex: 2,
-                phasePosition: 3,
-                phaseOccurrence: 1,
-                status: "completed" as const,
-              },
-            ],
-          },
-        ],
+        journeyRuns,
         feedback: [
-          {
-            author: "agent" as const,
-            kind: "phase_summary" as const,
-            text: "Implemented the responsive wrapper in [QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42) and verified that the sidebar content scrolls independently on narrow screens.",
-            tldr: "Implemented the narrow-screen wrapper in [QuestDetailPanel](web/src/components/QuestDetailPanel.tsx#L42).",
-            ts: Date.now() - 5400000,
-            authorSessionId: "abc-123",
-            journeyRunId: "playground-run-1",
-            phaseOccurrenceId: "playground-run-1:p2",
-            phaseId: "implement" as const,
-            phasePosition: 2,
-          },
+          ...buildPlaygroundPhaseFeedback(journeyRuns, now),
           {
             author: "human" as const,
             text: "Please also check iPad mini",
-            ts: Date.now() - 7200000,
+            ts: now - 7200000,
             addressed: true,
             authorSessionId: "abc-123",
           },
           {
             author: "agent" as const,
             text: "Checked on iPad mini -- works correctly with the new wrapper.",
-            ts: Date.now() - 3600000,
+            ts: now - 3600000,
             authorSessionId: "abc-123",
           },
           {
             author: "human" as const,
             text: "Looks good! One more: the close button is hard to tap.",
-            ts: Date.now() - 1800000,
+            ts: now - 1800000,
             addressed: false,
           },
         ],
@@ -146,7 +102,7 @@ function openPlaygroundQuestDetail() {
         sessionNum: 142,
         state: "connected",
         cwd: "/repo/takode",
-        createdAt: Date.now() - 43200000,
+        createdAt: now - 43200000,
         backendType: "codex",
       },
       {
@@ -154,7 +110,7 @@ function openPlaygroundQuestDetail() {
         sessionNum: 141,
         state: "connected",
         cwd: "/repo/takode",
-        createdAt: Date.now() - 7200000,
+        createdAt: now - 7200000,
         backendType: "codex",
         isOrchestrator: true,
       },
@@ -165,4 +121,64 @@ function openPlaygroundQuestDetail() {
     ]),
   });
   useStore.getState().openQuestOverlay("q-42");
+}
+
+const PLAYGROUND_PHASE_CYCLE = [
+  "alignment",
+  "explore",
+  "implement",
+  "code-review",
+  "user-checkpoint",
+  "port",
+  "execute",
+  "outcome-review",
+] as const;
+
+function buildPlaygroundJourneyRuns(now: number) {
+  return [
+    buildPlaygroundJourneyRun("playground-run-1", 1, 6, now - 9000000),
+    buildPlaygroundJourneyRun("playground-run-2", 2, 20, now - 5400000),
+  ];
+}
+
+function buildPlaygroundJourneyRun(runId: string, runOrdinal: number, phaseCount: number, createdAt: number) {
+  const phaseIds = Array.from(
+    { length: phaseCount },
+    (_, index) => PLAYGROUND_PHASE_CYCLE[index % PLAYGROUND_PHASE_CYCLE.length],
+  );
+  const activeIndex = runOrdinal === 2 ? 9 : phaseCount - 1;
+  return {
+    runId,
+    source: "board" as const,
+    phaseIds,
+    status: "active" as const,
+    createdAt,
+    updatedAt: createdAt + phaseCount * 60000,
+    phaseOccurrences: phaseIds.map((phaseId, phaseIndex) => ({
+      occurrenceId: `${runId}:p${phaseIndex + 1}`,
+      phaseId,
+      phaseIndex,
+      phasePosition: phaseIndex + 1,
+      phaseOccurrence: phaseIds.slice(0, phaseIndex + 1).filter((candidate) => candidate === phaseId).length,
+      status: phaseIndex === activeIndex ? ("active" as const) : ("completed" as const),
+    })),
+  };
+}
+
+function buildPlaygroundPhaseFeedback(journeyRuns: ReturnType<typeof buildPlaygroundJourneyRuns>, now: number) {
+  return journeyRuns.flatMap((run, runIndex) =>
+    run.phaseOccurrences.map((occurrence, occurrenceIndex) => ({
+      author: "agent" as const,
+      kind: "phase_summary" as const,
+      text: `Playground long Journey detail for run ${runIndex + 1}, phase ${occurrence.phasePosition}.`,
+      tldr: `Run ${runIndex + 1} phase ${occurrence.phasePosition} TLDR for collapsed Journey testing.`,
+      ts: now - 5400000 + runIndex * 120000 + occurrenceIndex * 1000,
+      authorSessionId: "abc-123",
+      journeyRunId: run.runId,
+      phaseOccurrenceId: occurrence.occurrenceId,
+      phaseId: occurrence.phaseId,
+      phasePosition: occurrence.phasePosition,
+      phaseOccurrence: occurrence.phaseOccurrence,
+    })),
+  );
 }
