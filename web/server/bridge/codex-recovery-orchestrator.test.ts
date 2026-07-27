@@ -626,6 +626,60 @@ describe("hydrateCodexResumedHistory", () => {
     expect(first.message.content).toEqual([{ type: "text", text: "Approved Option A is recorded." }]);
     expect(second.message.content).toEqual([{ type: "text", text: "No separator still routes after recovery." }]);
   });
+
+  it("splits post-quiz recovered assistant routes when markdown spacing leaves a blank line after the divider", () => {
+    const session = makeSession([]);
+    session.state.isOrchestrator = true;
+    const deps = makeDeps();
+
+    // Recovery/replay must not reintroduce the q-1718/q-1721 leak: recovered
+    // Codex assistant text with post-quiz markdown spacing is split before it
+    // becomes durable browser history.
+    const hydrated = hydrateCodexResumedHistory(
+      session,
+      {
+        threadId: "thread-history",
+        turnCount: 1,
+        turns: [
+          {
+            id: "turn-1",
+            status: "completed",
+            error: null,
+            items: [
+              {
+                type: "agentMessage",
+                id: "agent-1",
+                text: [
+                  "[thread:q-1718]",
+                  "[q-1718](quest:q-1718) is complete.",
+                  "",
+                  "{[(Quest Quiz: q-1718)]}",
+                  "",
+                  "---",
+                  "",
+                  "[thread:q-1721] [q-1721](quest:q-1721) is now dispatched.",
+                ].join("\n"),
+              },
+            ],
+          },
+        ],
+        lastTurn: null,
+      },
+      deps,
+    );
+
+    expect(hydrated).toBe(2);
+    expect(session.messageHistory[0]).toMatchObject({ type: "assistant", threadKey: "q-1718", questId: "q-1718" });
+    expect(session.messageHistory[1]).toMatchObject({ type: "assistant", threadKey: "q-1721", questId: "q-1721" });
+    const first = session.messageHistory[0] as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    const second = session.messageHistory[1] as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    expect(first.message.content).toEqual([
+      { type: "text", text: "[q-1718](quest:q-1718) is complete.\n\n{[(Quest Quiz: q-1718)]}" },
+    ]);
+    expect(second.message.content).toEqual([{ type: "text", text: "[q-1721](quest:q-1721) is now dispatched." }]);
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1721]");
+    expect(JSON.stringify(session.messageHistory)).not.toContain("\n---\n");
+  });
 });
 
 describe("reconcileCodexResumedTurn", () => {

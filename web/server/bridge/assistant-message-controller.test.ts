@@ -872,6 +872,56 @@ describe("assistant-message-controller", () => {
     expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
   });
 
+  it("splits post-quiz leader routes when markdown spacing leaves a blank line after the divider", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    // Regression for the q-1718/q-1721 leak: markdown-style spacing around a
+    // post-quiz divider must still treat the divider and route marker as
+    // server-owned split metadata, not visible prose in the source thread.
+    handleAssistantMessage(
+      session,
+      makeAssistant(
+        [
+          {
+            type: "text",
+            text: [
+              "[thread:q-1718]",
+              "[q-1718](quest:q-1718) is complete.",
+              "",
+              "{[(Quest Quiz: q-1718)]}",
+              "",
+              "---",
+              "",
+              "[thread:q-1721] [q-1721](quest:q-1721) is now dispatched.",
+            ].join("\n"),
+          },
+        ],
+        "post-quiz-route-with-markdown-spacing",
+      ),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    const assistantBroadcasts = broadcasts.filter((msg) => msg.type === "assistant");
+    expect(assistantBroadcasts).toHaveLength(2);
+    expect(assistantBroadcasts[0]).toMatchObject({ type: "assistant", threadKey: "q-1718", questId: "q-1718" });
+    expect(assistantBroadcasts[0]?.type === "assistant" ? assistantBroadcasts[0].message.content : []).toEqual([
+      { type: "text", text: "[q-1718](quest:q-1718) is complete.\n\n{[(Quest Quiz: q-1718)]}" },
+    ]);
+    expect(assistantBroadcasts[1]).toMatchObject({ type: "assistant", threadKey: "q-1721", questId: "q-1721" });
+    expect(assistantBroadcasts[1]?.type === "assistant" ? assistantBroadcasts[1].message.content : []).toEqual([
+      { type: "text", text: "[q-1721](quest:q-1721) is now dispatched." },
+    ]);
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1721]");
+    expect(JSON.stringify(session.messageHistory)).not.toContain("\n---\n");
+    expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
+  });
+
   it("does not split mid-message route syntax inside triple-backtick fences", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;

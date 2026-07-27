@@ -1257,6 +1257,59 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
   });
 
+  it("splits post-quiz leader routes when markdown spacing leaves a blank line after the divider", async () => {
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    // Regression for the q-1718/q-1721 leak: Codex live assistant messages use
+    // the same server-owned split boundary even when the model leaves a blank
+    // markdown-spacing line between the divider and the next route marker.
+    await handleCodexAdapterBrowserMessage(
+      session,
+      makeAssistant(
+        [
+          {
+            type: "text",
+            text: [
+              "[thread:q-1718]",
+              "[q-1718](quest:q-1718) is complete.",
+              "",
+              "{[(Quest Quiz: q-1718)]}",
+              "",
+              "---",
+              "",
+              "[thread:q-1721] [q-1721](quest:q-1721) is now dispatched.",
+            ].join("\n"),
+          },
+        ],
+        "codex-post-quiz-route-with-markdown-spacing",
+      ),
+      makeDeps(broadcasts),
+    );
+
+    const assistantBroadcasts = broadcasts.filter((msg) => msg.type === "assistant");
+    expect(assistantBroadcasts).toHaveLength(2);
+    expect(assistantBroadcasts[0]).toMatchObject({
+      type: "assistant",
+      threadKey: "q-1718",
+      questId: "q-1718",
+    });
+    expect(assistantBroadcasts[0]?.type === "assistant" ? assistantBroadcasts[0].message.content : []).toEqual([
+      { type: "text", text: "[q-1718](quest:q-1718) is complete.\n\n{[(Quest Quiz: q-1718)]}" },
+    ]);
+    expect(assistantBroadcasts[1]).toMatchObject({
+      type: "assistant",
+      threadKey: "q-1721",
+      questId: "q-1721",
+    });
+    expect(assistantBroadcasts[1]?.type === "assistant" ? assistantBroadcasts[1].message.content : []).toEqual([
+      { type: "text", text: "[q-1721](quest:q-1721) is now dispatched." },
+    ]);
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1721]");
+    expect(JSON.stringify(session.messageHistory)).not.toContain("\n---\n");
+    expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
+  });
+
   it("routes leader text when launcher info says orchestrator and session state has not caught up", async () => {
     const session = makeSession();
     delete session.state.isOrchestrator;

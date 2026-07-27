@@ -140,12 +140,15 @@ export function splitLeaderAssistantContentAtThreadRouteBoundaries(
   let currentTextLines: string[] = [];
   let canSplitAfterQuiz = false;
   let pendingMidMessageDividerLine: string | null = null;
+  let pendingMidMessageDividerBlankLines: string[] = [];
   let insideTripleBacktickFence = false;
 
   const flushText = () => {
     if (pendingMidMessageDividerLine !== null) {
       currentTextLines.push(pendingMidMessageDividerLine);
+      currentTextLines.push(...pendingMidMessageDividerBlankLines);
       pendingMidMessageDividerLine = null;
+      pendingMidMessageDividerBlankLines = [];
     }
     if (currentTextLines.length === 0) return;
     currentBlocks.push({ type: "text", text: currentTextLines.join("\n") });
@@ -173,13 +176,21 @@ export function splitLeaderAssistantContentAtThreadRouteBoundaries(
         const normalizedRouteLine = insideTripleBacktickFence ? null : normalizedMidMessageRouteMarkerLine(line);
         if (normalizedRouteLine !== null) {
           pendingMidMessageDividerLine = null;
+          pendingMidMessageDividerBlankLines = [];
           flushSegment();
           currentTextLines.push(normalizedRouteLine);
           canSplitAfterQuiz = false;
           continue;
         }
+        if (!insideTripleBacktickFence && line.trim() === "") {
+          pendingMidMessageDividerBlankLines.push(line);
+          canSplitAfterQuiz = false;
+          continue;
+        }
         currentTextLines.push(pendingMidMessageDividerLine);
+        currentTextLines.push(...pendingMidMessageDividerBlankLines);
         pendingMidMessageDividerLine = null;
+        pendingMidMessageDividerBlankLines = [];
       }
 
       if (isTripleBacktickFenceLine(line)) {
@@ -191,6 +202,7 @@ export function splitLeaderAssistantContentAtThreadRouteBoundaries(
 
       if (!insideTripleBacktickFence && isMidMessageRouteDividerLine(line)) {
         pendingMidMessageDividerLine = line;
+        pendingMidMessageDividerBlankLines = [];
         canSplitAfterQuiz = false;
         continue;
       }
