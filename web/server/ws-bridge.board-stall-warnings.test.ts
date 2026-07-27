@@ -18,6 +18,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
+import { createUnavailableOrchestratorRecoveryWake } from "./unavailable-orchestrator-recovery.js";
 import {
   advanceBoardRow as advanceBoardRowController,
   advanceBoardRowNoGroom as advanceBoardRowNoGroomController,
@@ -739,7 +740,7 @@ describe("board stall warnings", () => {
     });
   }
 
-  function setupCodexLeaderBoardStallHarness(opts: { status?: string } = {}) {
+  function setupCodexLeaderBoardStallHarness(opts: { status?: string; leaderAdapter?: "startup" | "missing" } = {}) {
     const leaderId = "orch-board-stall-codex";
     const workerId = "worker-board-stall-codex";
     const now = Date.now();
@@ -779,14 +780,27 @@ describe("board stall warnings", () => {
     };
     bridge.setLauncher(launcherMock as any);
     bridge.setTimerManager({ listTimers: vi.fn(() => []) } as any);
+    (bridge as any).wakeUnavailableOrchestratorForPendingEvents = createUnavailableOrchestratorRecoveryWake({
+      getSession: (sessionId: string) => bridge.getSession(sessionId),
+      getLauncherSessionInfo: (sessionId: string) => launcherMock.getSession(sessionId),
+      isSessionPaused: (sessionId: string) => bridge.isSessionPaused(sessionId),
+      requestCodexAutoRecovery: (session: any, reason: string) =>
+        (bridge as any).requestCodexAutoRecovery(session, reason),
+      requestCliRelaunch: (sessionId: string) => (bridge as any).onCLIRelaunchNeeded?.(sessionId),
+    });
 
     const dispatcher = new HerdEventDispatcher(bridge as any, launcherMock as any);
     bridge.setHerdEventDispatcher(dispatcher);
     dispatcher.setupForOrchestrator(leaderId);
 
-    const adapter = makeCodexAdapterMock();
-    vi.mocked(adapter.isConnected).mockReturnValue(false);
-    bridge.attachCodexAdapter(leaderId, adapter as any);
+    const adapter: any = opts.leaderAdapter === "missing" ? null : makeCodexAdapterMock();
+    if (adapter) {
+      vi.mocked(adapter.isConnected).mockReturnValue(false);
+      bridge.attachCodexAdapter(leaderId, adapter as any);
+    } else {
+      const leaderSession = bridge.getOrCreateSession(leaderId, "codex");
+      leaderSession.state.backend_state = "disconnected";
+    }
 
     bridge.getOrCreateSession(workerId);
     bridge.upsertBoardRow(leaderId, {
@@ -883,7 +897,7 @@ describe("board stall warnings", () => {
 
     expect(
       adapter.sendBrowserMessage.mock.calls.some(
-        ([msg]) => msg?.type === "codex_start_pending" && msg.inputs?.[0]?.content?.includes("board_stalled"),
+        ([msg]: [any]) => msg?.type === "codex_start_pending" && msg.inputs?.[0]?.content?.includes("board_stalled"),
       ),
     ).toBe(false);
 
@@ -922,12 +936,13 @@ describe("board stall warnings", () => {
     dispatcher.destroy();
   });
 
-  it("requests recovery when a disconnected Codex leader queues a worker turn_end herd event", async () => {
-    const { leaderId, workerId, dispatcher } = setupCodexLeaderBoardStallHarness();
+  it("queues a worker turn_end herd event while a Codex leader awaits startup readiness", async () => {
+    const { leaderId, workerId, dispatcher, adapter } = setupCodexLeaderBoardStallHarness();
     const relaunchSpy = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchSpy);
-    // Worker completion and board-stall fallback share the same herd injection path;
-    // this completion event must wake a disconnected Codex leader after it is queued.
+    // An attached Codex app-server that has not emitted session_meta yet is in
+    // startup readiness, not dead-backend recovery. Herd input should queue and
+    // dispatch once session_meta arrives instead of relaunching immediately.
     const turnEnd = {
       id: 1,
       event: "turn_end",
@@ -959,12 +974,28 @@ describe("board stall warnings", () => {
     await Promise.resolve();
 
     expect(delivery).toBe("queued");
-    expect(relaunchSpy).toHaveBeenCalledWith(leaderId);
+    expect(relaunchSpy).not.toHaveBeenCalled();
     const leaderSession = bridge.getSession(leaderId)!;
-    expect(leaderSession.state.backend_state).toBe("recovering");
+    expect(leaderSession.state.backend_state).toBe("initializing");
     expect(leaderSession.pendingCodexInputs[0]?.content).toContain("turn_end");
     expect(leaderSession.pendingCodexTurns[0]).toMatchObject({
       status: "queued",
+      userContent: expect.stringContaining("turn_end"),
+    });
+
+    vi.mocked(adapter!.isConnected).mockReturnValue(true);
+    emitCodexSessionReady(adapter!, { cliSessionId: "thread-board-stall-codex-turn-end" });
+    await Promise.resolve();
+
+    expect(adapter!.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "codex_start_pending",
+        inputs: [expect.objectContaining({ content: expect.stringContaining("turn_end") })],
+      }),
+    );
+    expect(leaderSession.state.backend_state).toBe("connected");
+    expect(leaderSession.pendingCodexTurns[0]).toMatchObject({
+      status: "dispatched",
       userContent: expect.stringContaining("turn_end"),
     });
 
@@ -972,7 +1003,10 @@ describe("board stall warnings", () => {
   });
 
   it("wakes a disconnected Codex leader for a stalled PLANNING board row", async () => {
-    const { leaderId, dispatcher } = setupCodexLeaderBoardStallHarness({ status: "PLANNING" });
+    const { leaderId, dispatcher } = setupCodexLeaderBoardStallHarness({
+      status: "PLANNING",
+      leaderAdapter: "missing",
+    });
     const relaunchSpy = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchSpy);
 
@@ -985,12 +1019,12 @@ describe("board stall warnings", () => {
     expect(relaunchSpy).toHaveBeenCalledWith(leaderId);
     const leaderSession = bridge.getSession(leaderId)!;
     expect(leaderSession.state.backend_state).toBe("recovering");
-    expect(leaderSession.pendingCodexInputs).toHaveLength(1);
-    expect(leaderSession.pendingCodexInputs[0]?.content).toContain("board_stalled");
-    expect(leaderSession.pendingCodexInputs[0]?.content).toContain("PLANNING");
-    expect(leaderSession.pendingCodexTurns[0]).toMatchObject({
-      status: "queued",
-      userContent: expect.stringContaining("board_stalled"),
+    expect(leaderSession.pendingCodexInputs).toHaveLength(0);
+    expect(leaderSession.pendingCodexTurns).toHaveLength(0);
+    expect(dispatcher.getDiagnostics(leaderId)).toMatchObject({
+      hasInbox: true,
+      pendingEventCount: 1,
+      pendingEventTypes: ["board_stalled"],
     });
 
     dispatcher.destroy();
@@ -1058,7 +1092,9 @@ describe("board stall warnings", () => {
     );
     await Promise.resolve();
 
-    expect(adapter.sendBrowserMessage.mock.calls.some(([msg]) => msg?.type === "codex_steer_pending")).toBe(false);
+    expect(adapter.sendBrowserMessage.mock.calls.some(([msg]: [any]) => msg?.type === "codex_steer_pending")).toBe(
+      false,
+    );
 
     const sessionAfterInject = bridge.getSession(leaderId)!;
     expect(sessionAfterInject.pendingCodexInputs).toHaveLength(0);
