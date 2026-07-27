@@ -308,11 +308,19 @@ describe("Quest Journey phase directory loading", () => {
     expect(codeReviewPhase?.contract).toContain("comprehensive landing risk");
     expect(codeReviewPhase?.contract).toContain("implementation completeness");
     expect(codeReviewPhase?.leaderBrief).toContain("comprehensive landing-risk review");
+    expect(codeReviewPhase?.leaderBrief).toContain("start from the worker's tracked diff");
+    expect(codeReviewPhase?.leaderBrief).toContain("Do not ask for exact duplicate automated reruns");
+    expect(codeReviewPhase?.leaderBrief).toContain("independent probe materially reduces landing risk");
     expect(codeReviewPhase?.leaderBrief).toContain(
       "send the changed worktree back to Code Review only after that checkpoint exists",
     );
     expect(codeReviewPhase?.leaderBrief).toContain("purely read-only follow-up review discussion");
     expect(codeReviewPhase?.assigneeBrief).toContain("Start from the tracked diff");
+    expect(codeReviewPhase?.assigneeBrief).toContain(
+      "Treat automated verification as evidence to review before rerunning",
+    );
+    expect(codeReviewPhase?.assigneeBrief).toContain("tied to the unchanged reviewed commit or diff");
+    expect(codeReviewPhase?.assigneeBrief).toContain("tests or test fixtures are the change");
     expect(codeReviewPhase?.assigneeBrief).toContain("meaningful evidence review");
     expect(codeReviewPhase?.assigneeBrief).toContain("implementation completeness");
     expect(codeReviewPhase?.assigneeBrief).toContain("Do not become the implementer, porter, or redesign owner");
