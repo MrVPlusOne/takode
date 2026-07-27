@@ -11,7 +11,7 @@ type PendingDelegate = {
   delegateId: string;
   parentSessionId: string;
   childSessionId?: string;
-  command: string;
+  task: string;
   resolve: (result: DelegateResolution) => void;
   timer: ReturnType<typeof setTimeout>;
   stopMonitor?: () => void;
@@ -40,33 +40,33 @@ function createDelegateId(): string {
   return "del_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 }
 
-function buildDelegatePrompt(args: { parentSessionNum?: number | null; delegateId: string; command: string }): string {
+function buildDelegatePrompt(args: { parentSessionNum?: number | null; delegateId: string; task: string }): string {
   const parentLabel = args.parentSessionNum ? "#" + args.parentSessionNum : "the parent leader session";
   return [
-    "You are a forked command-delegate copy of the parent leader session.",
+    "You are a forked task-delegate copy of the parent leader session.",
     "",
-    "You have the parent leader's prior context, but your role is now narrow: run the delegated command below, summarize what the parent needs to know, call the MCP tool named end_delegation, and stop.",
+    "You have the parent leader's prior context, but your role is now narrow: complete the delegated task below, summarize what the parent needs to know, call the MCP tool named end_delegation, and stop.",
     "",
-    "Delegated command:",
-    args.command,
+    "Delegated task:",
+    args.task,
     "",
     "Context:",
     "- Parent session: " + parentLabel,
     "- Delegate id: " + args.delegateId,
-    "- Full delegate transcript and raw command output will remain inspectable by the parent.",
+    "- Full delegate transcript and raw task evidence will remain inspectable by the parent.",
     "",
     "Rules:",
-    "- Run the delegated command exactly once.",
+    "- Work only on the delegated task.",
     "- Do not fork/delegate again.",
     "- Do not ask the user.",
     "- Do not continue unrelated work.",
     "- Do not paste huge raw output into end_delegation.",
-    "- You may see delegate_command and end_delegation. Do not call delegate_command from this hidden delegate; Takode will reject nested delegation.",
+    "- You may see delegate_task and end_delegation. Do not call delegate_task from this hidden delegate; Takode will reject nested delegation.",
     "- When you are ready to hand off, call the actual MCP tool mcp:takode_delegate:end_delegation with a summary argument.",
     '- Do not write textual function-call prose such as end_delegation("..."). Text shaped like a function call does not notify the parent.',
     "- Do not finish with a normal final answer. The parent only receives completion through the MCP tool result.",
-    "- If the command has obvious side effects, mention them.",
-    "- If the command fails or cannot be safely summarized, explain that.",
+    "- If any action has obvious side effects, mention them.",
+    "- If the task fails or cannot be safely summarized, explain that.",
     "- Use your judgment to summarize what the parent leader needs next.",
     "",
     'Your final action must be the actual MCP tool call: mcp:takode_delegate:end_delegation({ summary: "..." }).',
@@ -89,7 +89,7 @@ async function waitForCodexAdapter(
 function formatParentResult(args: {
   delegateId: string;
   childSessionNum?: number | null;
-  command: string;
+  task: string;
   summary: string;
   isError?: boolean;
 }): string {
@@ -97,10 +97,10 @@ function formatParentResult(args: {
     ? "[#" + args.childSessionNum + "](session:" + args.childSessionNum + ")"
     : "delegate " + args.delegateId;
   return [
-    args.isError ? "Delegate command failed." : "Delegate command completed.",
+    args.isError ? "Delegate task failed." : "Delegate task completed.",
     "",
     args.childSessionNum ? "Delegate: " + args.delegateId + " (" + link + ")" : "Delegate: " + args.delegateId,
-    "Command: " + args.command,
+    "Task: " + args.task,
     "",
     "Summary:",
     args.summary.trim(),
@@ -108,7 +108,7 @@ function formatParentResult(args: {
     "Inspect:",
     args.childSessionNum
       ? "- Delegate transcript/raw output: " + link
-      : "- Expand the Delegate command card to inspect the delegate trace/raw-output link for " + link + ".",
+      : "- Expand the Delegate task card to inspect the delegate trace/raw-output link for " + link + ".",
   ].join("\n");
 }
 
@@ -212,7 +212,7 @@ function findDelegateChildById(wsBridge: WsBridge, launcher: CliLauncher, parent
   for (const info of launcher.listSessions?.() ?? []) {
     const session = wsBridge.getSession(info.sessionId);
     const delegateChild = (session?.state as any)?.delegateChild as
-      | { parentSessionId?: string; delegateId?: string; command?: string }
+      | { parentSessionId?: string; delegateId?: string; task?: string; command?: string }
       | undefined;
     if (delegateChild?.parentSessionId === parentSessionId && delegateChild.delegateId === delegateId) {
       return { info, session, delegateChild };
@@ -221,19 +221,22 @@ function findDelegateChildById(wsBridge: WsBridge, launcher: CliLauncher, parent
   return null;
 }
 
-function findLatestDelegateChildByCommand(
+function findLatestDelegateChildByTask(
   wsBridge: WsBridge,
   launcher: CliLauncher,
   parentSessionId: string,
-  command: string,
+  task: string,
 ) {
   const matches: Array<NonNullable<ReturnType<typeof findDelegateChildById>>> = [];
   for (const info of launcher.listSessions?.() ?? []) {
     const session = wsBridge.getSession(info.sessionId);
     const delegateChild = (session?.state as any)?.delegateChild as
-      | { parentSessionId?: string; delegateId?: string; command?: string }
+      | { parentSessionId?: string; delegateId?: string; task?: string; command?: string }
       | undefined;
-    if (delegateChild?.parentSessionId === parentSessionId && delegateChild.command === command) {
+    if (
+      delegateChild?.parentSessionId === parentSessionId &&
+      (delegateChild.task === task || delegateChild.command === task)
+    ) {
       matches.push({ info, session, delegateChild });
     }
   }
@@ -243,7 +246,8 @@ function findLatestDelegateChildByCommand(
 
 function delegateTraceResponse(args: {
   delegateId: string;
-  command: string;
+  task: string;
+  command?: string;
   childSessionId?: string;
   childSessionNum?: number | null;
   childSession: any;
@@ -256,7 +260,8 @@ function delegateTraceResponse(args: {
       : null;
   return {
     delegateId: args.delegateId,
-    command: args.command,
+    task: args.task,
+    ...(args.command ? { command: args.command } : {}),
     childSessionId: args.childSessionId ?? null,
     childSessionNum: args.childSessionNum ?? null,
     pending: args.pending,
@@ -284,7 +289,7 @@ async function archiveCompletedDelegateChild(args: {
   const childInfo = args.launcher.getSession(args.childSessionId);
   const childSession = args.wsBridge.getSession(args.childSessionId);
   const delegateChild = (childSession?.state as any)?.delegateChild as
-    | { parentSessionId?: string; delegateId?: string; command?: string }
+    | { parentSessionId?: string; delegateId?: string; task?: string; command?: string }
     | undefined;
   if (!childInfo?.hidden || !delegateChild?.delegateId) return;
 
@@ -352,7 +357,7 @@ export function registerSessionDelegateRoutes(
 ): void {
   const { launcher, wsBridge, sessionStore, resolveId, authenticateTakodeCaller } = deps;
 
-  api.post("/sessions/:id/delegates/command", async (c) => {
+  api.post("/sessions/:id/delegates/task", async (c) => {
     const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
     if ("response" in auth) return auth.response;
     const parentSessionId = resolveId(c.req.param("id"));
@@ -363,16 +368,16 @@ export function registerSessionDelegateRoutes(
     const parentInfo = launcher.getSession(parentSessionId);
     if (!parent || !parentInfo) return c.json({ error: "Session not found" }, 404);
     if (parentInfo.backendType !== "codex" && parent.state.backend_type !== "codex") {
-      return c.json({ error: "delegate_command is only available for Codex sessions" }, 400);
+      return c.json({ error: "delegate_task is only available for Codex sessions" }, 400);
     }
     if (parent.state.hidden || parentInfo.hidden) {
-      return c.json({ error: "delegate_command is not available from hidden delegate sessions" }, 400);
+      return c.json({ error: "delegate_task is not available from hidden delegate sessions" }, 400);
     }
     const adapter = parent.codexAdapter;
     if (!adapter?.forkThread) return c.json({ error: "Codex native fork is unavailable" }, 409);
     const body = await c.req.json().catch(() => ({}));
-    const command = typeof body.command === "string" ? body.command.trim() : "";
-    if (!command) return c.json({ error: "command is required" }, 400);
+    const task = typeof body.task === "string" ? body.task.trim() : "";
+    if (!task) return c.json({ error: "task is required" }, 400);
 
     const delegateId = createDelegateId();
     const forkedThreadId = await adapter.forkThread();
@@ -415,13 +420,13 @@ export function registerSessionDelegateRoutes(
     childSession.state.model = parent.state.model || parentInfo.model || "";
     childSession.state.treeGroupId = parent.state.treeGroupId ?? "default";
     childSession.state.memorySessionSpaceSlug = parent.state.memorySessionSpaceSlug;
-    (childSession.state as any).delegateChild = { parentSessionId, delegateId, command };
+    (childSession.state as any).delegateChild = { parentSessionId, delegateId, task };
     wsBridge.persistSessionById(child.sessionId);
 
     const prompt = buildDelegatePrompt({
       parentSessionNum: launcher.getSessionNum(parentSessionId),
       delegateId,
-      command,
+      task,
     });
     const childAdapter = await waitForCodexAdapter(wsBridge, child.sessionId);
     if (!childAdapter) {
@@ -433,7 +438,7 @@ export function registerSessionDelegateRoutes(
       await archiveCompletedDelegateChild({ launcher, wsBridge, sessionStore, childSessionId: child.sessionId });
       return c.json(
         {
-          error: "Delegate end_delegation tool did not become available before the command prompt",
+          error: "Delegate end_delegation tool did not become available before the task prompt",
           delegateId,
           childSessionId: child.sessionId,
         },
@@ -453,7 +458,7 @@ export function registerSessionDelegateRoutes(
         delegateId,
         parentSessionId,
         childSessionId: child.sessionId,
-        command,
+        task,
         resolve,
         timer,
       });
@@ -491,7 +496,7 @@ export function registerSessionDelegateRoutes(
     const text = formatParentResult({
       delegateId,
       childSessionNum,
-      command,
+      task,
       summary: result.summary,
       isError: result.isError,
     });
@@ -508,16 +513,20 @@ export function registerSessionDelegateRoutes(
     const parentSessionId = resolveId(c.req.param("id"));
     if (!parentSessionId) return c.json({ error: "Session not found" }, 404);
     const delegateId = typeof c.req.query("delegateId") === "string" ? c.req.query("delegateId")!.trim() : "";
-    const command = typeof c.req.query("command") === "string" ? c.req.query("command")!.trim() : "";
-    let resolved: ReturnType<typeof findDelegateChildById> | ReturnType<typeof findLatestDelegateChildByCommand> = null;
+    const task = typeof c.req.query("task") === "string" ? c.req.query("task")!.trim() : "";
+    const legacyCommand = typeof c.req.query("command") === "string" ? c.req.query("command")!.trim() : "";
+    const taskOrLegacyCommand = task || legacyCommand;
+    let resolved: ReturnType<typeof findDelegateChildById> | ReturnType<typeof findLatestDelegateChildByTask> = null;
     if (delegateId) resolved = findDelegateChildById(wsBridge, launcher, parentSessionId, delegateId);
-    if (!resolved && command) resolved = findLatestDelegateChildByCommand(wsBridge, launcher, parentSessionId, command);
+    if (!resolved && taskOrLegacyCommand)
+      resolved = findLatestDelegateChildByTask(wsBridge, launcher, parentSessionId, taskOrLegacyCommand);
     if (!resolved) return c.json({ error: "Delegate trace not found" }, 404);
     const pending = pendingDelegates.has(resolved.delegateChild.delegateId ?? "");
     return c.json(
       delegateTraceResponse({
         delegateId: resolved.delegateChild.delegateId ?? delegateId,
-        command: resolved.delegateChild.command ?? command,
+        task: resolved.delegateChild.task ?? resolved.delegateChild.command ?? taskOrLegacyCommand,
+        command: resolved.delegateChild.command,
         childSessionId: resolved.info.sessionId,
         childSessionNum: launcher.getSessionNum(resolved.info.sessionId) ?? null,
         childSession: resolved.session,
@@ -535,7 +544,7 @@ export function registerSessionDelegateRoutes(
     const childInfo = launcher.getSession(childSessionId);
     const childSession = wsBridge.getSession(childSessionId);
     const delegateChild = (childSession?.state as any)?.delegateChild as
-      | { parentSessionId?: string; delegateId?: string; command?: string }
+      | { parentSessionId?: string; delegateId?: string; task?: string; command?: string }
       | undefined;
     if (!childInfo?.hidden || !childSession?.state.hidden || !delegateChild?.delegateId) {
       return c.json({ error: "end_delegation is only available from an active hidden delegate child" }, 400);

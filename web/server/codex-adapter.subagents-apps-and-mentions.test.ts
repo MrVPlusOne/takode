@@ -337,7 +337,7 @@ describe("CodexAdapter", () => {
     expect(resultCountAfterChildTurn).toBe(resultCountBeforeChildTurn);
   });
 
-  it("renders Takode delegate_command MCP calls as Agent-shaped subagent cards", async () => {
+  it("renders Takode delegate_task MCP calls as Agent-shaped subagent cards", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
@@ -354,8 +354,8 @@ describe("CodexAdapter", () => {
             type: "mcpToolCall",
             id: "delegate_call_1",
             server: "takode_delegate",
-            tool: "delegate_command",
-            arguments: { command: "rg -n large-output web" },
+            tool: "delegate_task",
+            arguments: { task: "Search for large-output call sites under web and summarize the count." },
             status: "inProgress",
           },
         },
@@ -376,6 +376,54 @@ describe("CodexAdapter", () => {
     expect(agentToolUse).toBeDefined();
     const block = agentToolUse!.message.content.find(
       (item) => item.type === "tool_use" && item.id === "delegate_call_1",
+    );
+    expect(block?.input).toMatchObject({
+      description: "Delegated task",
+      subagent_type: "delegate_task",
+      task: "Search for large-output call sites under web and summarize the count.",
+      prompt: "Search for large-output call sites under web and summarize the count.",
+    });
+  });
+
+  it("preserves legacy delegate_command MCP rows as Agent-shaped subagent cards", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await tick();
+    await initializeAdapter(stdout);
+
+    stdout.push(
+      JSON.stringify({
+        method: "item/started",
+        params: {
+          threadId: "thr_123",
+          item: {
+            type: "mcpToolCall",
+            id: "delegate_call_legacy",
+            server: "takode_delegate",
+            tool: "delegate_command",
+            arguments: { command: "rg -n large-output web" },
+            status: "inProgress",
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const agentToolUse = messages.find((msg) => {
+      if (msg.type !== "assistant") return false;
+      return msg.message.content.some(
+        (block) => block.type === "tool_use" && block.id === "delegate_call_legacy" && block.name === "Agent",
+      );
+    }) as
+      | {
+          message: { content: Array<{ type: string; id?: string; name?: string; input?: Record<string, unknown> }> };
+        }
+      | undefined;
+    expect(agentToolUse).toBeDefined();
+    const block = agentToolUse!.message.content.find(
+      (item) => item.type === "tool_use" && item.id === "delegate_call_legacy",
     );
     expect(block?.input).toMatchObject({
       description: "Delegated command",

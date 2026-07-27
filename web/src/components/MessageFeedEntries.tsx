@@ -1402,13 +1402,17 @@ function SubagentContainer({
   const headerRef = useRef<HTMLButtonElement>(null);
   const label = group.description || "Subagent";
   const agentType = group.agentType;
-  const isDelegateCommand = agentType === "delegate_command";
-  const delegateCommand =
-    typeof group.taskInput?.command === "string"
-      ? group.taskInput.command
-      : typeof group.taskInput?.prompt === "string"
-        ? group.taskInput.prompt
-        : "";
+  const isDelegateTask = agentType === "delegate_task";
+  const isLegacyDelegateCommand = agentType === "delegate_command";
+  const isDelegate = isDelegateTask || isLegacyDelegateCommand;
+  const delegatePrompt =
+    typeof group.taskInput?.task === "string"
+      ? group.taskInput.task
+      : typeof group.taskInput?.command === "string"
+        ? group.taskInput.command
+        : typeof group.taskInput?.prompt === "string"
+          ? group.taskInput.prompt
+          : "";
   const childCount = group.children.length;
   const hasPrompt = !!group.taskInput?.prompt;
 
@@ -1464,7 +1468,7 @@ function SubagentContainer({
   );
 
   const collapsedPreview = useMemo(() => {
-    if (isDelegateCommand && delegateCommand) return "";
+    if (isDelegate && delegatePrompt) return "";
     if (parsedResultPreview) {
       const text = parsedResultPreview.trim();
       return text.length > 120 ? text.slice(0, 120) + "..." : text;
@@ -1478,7 +1482,7 @@ function SubagentContainer({
       return text.length > 120 ? text.slice(0, 120) + "..." : text;
     }
     return lastPreview;
-  }, [delegateCommand, isDelegateCommand, lastPreview, parsedResultPreview, rawThinkingText, streamingText]);
+  }, [delegatePrompt, isDelegate, lastPreview, parsedResultPreview, rawThinkingText, streamingText]);
 
   const {
     trace: delegateTrace,
@@ -1486,8 +1490,9 @@ function SubagentContainer({
     count: delegateTraceCount,
   } = useDelegateCommandTrace({
     sessionId,
-    isDelegateCommand,
-    delegateCommand,
+    isDelegate,
+    delegatePrompt,
+    isLegacyCommand: isLegacyDelegateCommand,
     delegateId,
     resultComplete: !!resultPreview,
   });
@@ -1509,17 +1514,17 @@ function SubagentContainer({
         >
           <path d="M6 4l4 4-4 4" />
         </svg>
-        <ToolIcon type={isDelegateCommand ? "terminal" : "agent"} />
+        <ToolIcon type={isLegacyDelegateCommand ? "terminal" : "agent"} />
         <span className="text-xs font-medium text-cc-fg truncate">{label}</span>
-        {isDelegateCommand && delegateCommand && (
+        {isDelegate && delegatePrompt && (
           <span
             className="min-w-0 flex-1 truncate rounded-md bg-cc-code-bg/70 px-2 py-1 font-mono-code text-[11px] text-cc-code-fg"
-            title={delegateCommand}
+            title={delegatePrompt}
           >
-            {delegateCommand}
+            {delegatePrompt}
           </span>
         )}
-        {agentType && !isDelegateCommand && (
+        {agentType && !isDelegate && (
           <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 shrink-0">{agentType}</span>
         )}
         {!open && collapsedPreview && (

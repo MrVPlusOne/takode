@@ -25,7 +25,9 @@ describe("takode delegate MCP bridge", () => {
     process.env.COMPANION_SESSION_ID = "session-abc";
     process.env.COMPANION_AUTH_TOKEN = "token-secret";
 
-    const result = await callTakode("/api/sessions/session-abc/delegates/command", { command: "rg foo" });
+    const result = await callTakode("/api/sessions/session-abc/delegates/task", {
+      task: "Search for foo and summarize it.",
+    });
 
     expect(result).toEqual({ content: [{ type: "text", text: "ok" }], isError: false });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -49,12 +51,11 @@ describe("takode delegate MCP bridge", () => {
 
     registerTakodeDelegateTools(server as any, "session-abc");
 
-    expect(tools).toEqual(["delegate_command", "end_delegation"]);
-    expect(descriptions.get("delegate_command")).toContain("If the user asks you to use delegate_command");
-    expect(descriptions.get("delegate_command")).toContain("actual MCP tool");
-    expect(descriptions.get("delegate_command")).toContain(
-      "instead of replying in prose or running the command directly",
-    );
+    expect(tools).toEqual(["delegate_task", "end_delegation"]);
+    expect(descriptions.get("delegate_task")).toContain("If the user asks you to use delegate_task");
+    expect(descriptions.get("delegate_task")).toContain("actual MCP tool");
+    expect(descriptions.get("delegate_task")).toContain("instead of replying in prose or doing the task directly");
+    expect(tools).not.toContain("delegate_command");
   });
 
   it("falls back to the session Codex config env when the MCP subprocess env is incomplete", async () => {

@@ -102,20 +102,20 @@ export async function runTakodeDelegateMcpServer(): Promise<void> {
 
 export function registerTakodeDelegateTools(server: Pick<McpServer, "registerTool">, sessionId: string): void {
   server.registerTool(
-    "delegate_command",
+    "delegate_task",
     {
-      title: "Delegate command",
+      title: "Delegate task",
       description:
-        "Run one shell command in a forked command-delegate copy of this leader session and return a concise summary instead of raw output. If the user asks you to use delegate_command, call this actual MCP tool instead of replying in prose or running the command directly. Hidden delegate children must not call this tool; Takode will reject nested delegation.",
+        "Work on one bounded task in a same-context forked delegate copy of this leader session and return a concise summary plus an inspectable hidden transcript. If the user asks you to use delegate_task, call this actual MCP tool instead of replying in prose or doing the task directly. Hidden delegate children must not call this tool; Takode will reject nested delegation.",
       inputSchema: {
-        command: z.string().min(1),
+        task: z.string().min(1),
       },
       annotations: {
         destructiveHint: true,
         openWorldHint: false,
       },
     },
-    async ({ command }) => callTakode(`/api/sessions/${encodeURIComponent(sessionId)}/delegates/command`, { command }),
+    async ({ task }) => callTakode(`/api/sessions/${encodeURIComponent(sessionId)}/delegates/task`, { task }),
   );
 
   server.registerTool(
@@ -123,7 +123,7 @@ export function registerTakodeDelegateTools(server: Pick<McpServer, "registerToo
     {
       title: "End delegation",
       description:
-        "Finish an active delegated command and return a concise summary to the parent leader. This only succeeds from the active hidden delegate child.",
+        "Finish an active delegated task and return a concise summary to the parent leader. This only succeeds from the active hidden delegate child.",
       inputSchema: {
         summary: z.string().min(1),
       },

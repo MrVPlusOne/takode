@@ -10,17 +10,18 @@ export function extractDelegateId(text: string | null | undefined): string | nul
 
 export function useDelegateCommandTrace(args: {
   sessionId: string;
-  isDelegateCommand: boolean;
-  delegateCommand: string;
+  isDelegate: boolean;
+  delegatePrompt: string;
+  isLegacyCommand: boolean;
   delegateId: string | null;
   resultComplete: boolean;
 }): { trace: DelegateTraceResponse | null; error: string | null; count: number } {
-  const { sessionId, isDelegateCommand, delegateCommand, delegateId, resultComplete } = args;
+  const { sessionId, isDelegate, delegatePrompt, isLegacyCommand, delegateId, resultComplete } = args;
   const [trace, setTrace] = useState<DelegateTraceResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isDelegateCommand || (!delegateId && !delegateCommand)) {
+    if (!isDelegate || (!delegateId && !delegatePrompt)) {
       setTrace(null);
       setError(null);
       return;
@@ -29,7 +30,10 @@ export function useDelegateCommandTrace(args: {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const load = async () => {
       try {
-        const next = await api.getDelegateTrace(sessionId, { delegateId, command: delegateCommand });
+        const next = await api.getDelegateTrace(sessionId, {
+          delegateId,
+          ...(isLegacyCommand ? { command: delegatePrompt } : { task: delegatePrompt }),
+        });
         if (cancelled) return;
         setTrace(next);
         setError(null);
@@ -45,7 +49,7 @@ export function useDelegateCommandTrace(args: {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [delegateCommand, delegateId, isDelegateCommand, resultComplete, sessionId]);
+  }, [delegateId, delegatePrompt, isDelegate, isLegacyCommand, resultComplete, sessionId]);
 
   return { trace, error, count: trace?.trace.length ?? 0 };
 }

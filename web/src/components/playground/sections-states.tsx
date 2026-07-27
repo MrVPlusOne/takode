@@ -38,7 +38,7 @@ import {
   PlaygroundHerdEventDemo,
   PlaygroundSectionGroup,
   PlaygroundSelectionContextMenu,
-  PlaygroundDelegateCommandGroup,
+  PlaygroundDelegateTaskGroup,
   PlaygroundSubagentGroup,
   PlaygroundToolGroup,
   Section,
@@ -1124,8 +1124,8 @@ export function PlaygroundStateSections() {
               interrupted
             />
           </Card>
-          <Card label="Delegate command with command preview, trace, and friendly result">
-            <PlaygroundDelegateCommandGroup />
+          <Card label="Delegate task with task preview, trace, and friendly result">
+            <PlaygroundDelegateTaskGroup />
           </Card>
         </div>
       </Section>

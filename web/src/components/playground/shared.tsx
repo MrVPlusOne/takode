@@ -383,8 +383,10 @@ export function PlaygroundSubagentGroup({
   }, [liveStartedAt, durationSeconds]);
 
   const displayDurationSeconds = durationSeconds ?? liveSeconds;
-  const isDelegateCommand = agentType === "delegate_command";
-  const delegateCommand = commandPreview || (isDelegateCommand ? prompt : "");
+  const isDelegateTask = agentType === "delegate_task";
+  const isLegacyDelegateCommand = agentType === "delegate_command";
+  const isDelegate = isDelegateTask || isLegacyDelegateCommand;
+  const delegatePreview = commandPreview || (isDelegate ? prompt : "");
 
   return (
     <div className="flex items-start gap-3">
@@ -403,17 +405,17 @@ export function PlaygroundSubagentGroup({
             >
               <path d="M6 4l4 4-4 4" />
             </svg>
-            <ToolIcon type={isDelegateCommand ? "terminal" : "agent"} />
+            <ToolIcon type={isLegacyDelegateCommand ? "terminal" : "agent"} />
             <span className="text-xs font-medium text-cc-fg truncate">{description}</span>
-            {isDelegateCommand && delegateCommand && (
+            {isDelegate && delegatePreview && (
               <span
                 className="min-w-0 flex-1 truncate rounded-md bg-cc-code-bg/70 px-2 py-1 font-mono-code text-[11px] text-cc-code-fg"
-                title={delegateCommand}
+                title={delegatePreview}
               >
-                {delegateCommand}
+                {delegatePreview}
               </span>
             )}
-            {agentType && !isDelegateCommand && (
+            {agentType && !isDelegate && (
               <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 shrink-0">
                 {agentType}
               </span>
@@ -534,13 +536,13 @@ export function PlaygroundSubagentGroup({
   );
 }
 
-export function PlaygroundDelegateCommandGroup() {
+export function PlaygroundDelegateTaskGroup() {
   return (
     <PlaygroundSubagentGroup
-      description="Delegated command"
-      agentType="delegate_command"
-      commandPreview="sed -n '1,3p' delegate-sample.txt"
-      prompt="sed -n '1,3p' delegate-sample.txt"
+      description="Delegated task"
+      agentType="delegate_task"
+      commandPreview="Inspect delegate-sample.txt and summarize the first three sample lines."
+      prompt="Inspect delegate-sample.txt and summarize the first three sample lines."
       items={[
         {
           id: "delegate-bash",
@@ -555,7 +557,7 @@ export function PlaygroundDelegateCommandGroup() {
       ]}
       durationSeconds={2.4}
       resultText={
-        "Delegate command completed.\n\nDelegate: del_playground123\nCommand: sed -n '1,3p' delegate-sample.txt\n\nSummary:\nRead the first three sample lines.\n\nInspect:\n- Expand the Delegate command card to inspect the delegate trace/raw-output link for delegate del_playground123."
+        "Delegate task completed.\n\nDelegate: del_playground123\nTask: Inspect delegate-sample.txt and summarize the first three sample lines.\n\nSummary:\nRead the first three sample lines.\n\nInspect:\n- Expand the Delegate task card to inspect the delegate trace/raw-output link for delegate del_playground123."
       }
     />
   );

@@ -288,7 +288,8 @@ export interface DelegateTraceEvent {
 
 export interface DelegateTraceResponse {
   delegateId: string;
-  command: string;
+  task: string;
+  command?: string;
   childSessionId: string | null;
   childSessionNum: number | null;
   pending: boolean;
@@ -1069,9 +1070,13 @@ export const api = {
     return get<SdkSessionInfo[]>(`/sessions${query ? `?${query}` : ""}`);
   },
 
-  getDelegateTrace: (sessionId: string, opts: { delegateId?: string | null; command?: string | null }) => {
+  getDelegateTrace: (
+    sessionId: string,
+    opts: { delegateId?: string | null; task?: string | null; command?: string | null },
+  ) => {
     const params = new URLSearchParams();
     if (opts.delegateId) params.set("delegateId", opts.delegateId);
+    if (opts.task) params.set("task", opts.task);
     if (opts.command) params.set("command", opts.command);
     const query = params.toString();
     return get<DelegateTraceResponse>(

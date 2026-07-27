@@ -924,8 +924,8 @@ export class CodexItemEventManager {
     });
   }
 
-  private isTakodeDelegateCommandTool(item: CodexMcpToolCallItem): boolean {
-    return item.server === "takode_delegate" && item.tool === "delegate_command";
+  private isTakodeDelegateTool(item: CodexMcpToolCallItem): boolean {
+    return item.server === "takode_delegate" && (item.tool === "delegate_task" || item.tool === "delegate_command");
   }
 
   private extractMcpResultText(result: unknown): string | null {
@@ -944,26 +944,36 @@ export class CodexItemEventManager {
   }
 
   private resultForMcpTool(item: CodexMcpToolCallItem): unknown {
-    if (this.isTakodeDelegateCommandTool(item)) {
+    if (this.isTakodeDelegateTool(item)) {
       return this.extractMcpResultText(item.result) ?? item.result;
     }
     return item.result;
   }
 
   private displayNameForMcpTool(item: CodexMcpToolCallItem): string {
-    return this.isTakodeDelegateCommandTool(item) ? "Agent" : "mcp:" + item.server + ":" + item.tool;
+    return this.isTakodeDelegateTool(item) ? "Agent" : "mcp:" + item.server + ":" + item.tool;
   }
 
   private inputForMcpTool(item: CodexMcpToolCallItem): Record<string, unknown> {
     const args = item.arguments || {};
-    if (!this.isTakodeDelegateCommandTool(item)) return args;
-    const command = typeof args.command === "string" ? args.command : "";
+    if (!this.isTakodeDelegateTool(item)) return args;
+    if (item.tool === "delegate_command") {
+      const command = typeof args.command === "string" ? args.command : "";
+      return {
+        ...args,
+        description: "Delegated command",
+        subagent_type: "delegate_command",
+        command,
+        prompt: command,
+      };
+    }
+    const task = typeof args.task === "string" ? args.task : "";
     return {
       ...args,
-      description: "Delegated command",
-      subagent_type: "delegate_command",
-      command,
-      prompt: command,
+      description: "Delegated task",
+      subagent_type: "delegate_task",
+      task,
+      prompt: task,
     };
   }
 

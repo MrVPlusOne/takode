@@ -31,7 +31,7 @@ function makeState(overrides: Partial<SessionState> = {}): SessionState {
   };
 }
 
-describe("delegate command routes", () => {
+describe("delegate task routes", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -155,9 +155,9 @@ describe("delegate command routes", () => {
       authenticateTakodeCaller: (c) => ({ callerId: c.req.path.includes("/child/") ? "child" : "parent" }),
     });
 
-    const parentRequest = app.request("/sessions/parent/delegates/command", {
+    const parentRequest = app.request("/sessions/parent/delegates/task", {
       method: "POST",
-      body: JSON.stringify({ command: "rg -n large-output web" }),
+      body: JSON.stringify({ task: "Search for large-output call sites under web and summarize the count." }),
       headers: { "content-type": "application/json" },
     });
     await vi.waitFor(() => {
@@ -166,13 +166,14 @@ describe("delegate command routes", () => {
     const childPrompt = sentToChild[0] as { content: string };
     expect(childOrder).toEqual(["wait", "send"]);
     expect(childAdapter.waitForMcpToolAvailability).toHaveBeenCalledWith("takode_delegate", "end_delegation", 10_000);
-    expect(childPrompt.content).toContain("forked command-delegate copy");
-    expect(childPrompt.content).toContain("You may see delegate_command and end_delegation");
+    expect(childPrompt.content).toContain("forked task-delegate copy");
+    expect(childPrompt.content).toContain("Delegated task:");
+    expect(childPrompt.content).toContain("You may see delegate_task and end_delegation");
     expect(childPrompt.content).toContain("call the actual MCP tool mcp:takode_delegate:end_delegation");
     expect(childPrompt.content).toContain("Do not write textual function-call prose");
     expect(childPrompt.content).toContain("Text shaped like a function call does not notify the parent");
     expect(childPrompt.content).toContain("Do not finish with a normal final answer");
-    expect(childPrompt.content).toContain("rg -n large-output web");
+    expect(childPrompt.content).toContain("Search for large-output call sites under web and summarize the count.");
 
     const delegateId = (sessions.get("child").state as any).delegateChild.delegateId;
     const endResponse = await app.request("/sessions/child/delegates/end", {
@@ -188,7 +189,8 @@ describe("delegate command routes", () => {
       childSessionNum: number | null;
       delegateId: string;
     };
-    expect(parentJson.text).toContain("Delegate command completed.");
+    expect(parentJson.text).toContain("Delegate task completed.");
+    expect(parentJson.text).toContain("Task: Search for large-output call sites under web and summarize the count.");
     expect(parentJson.text).toContain("Found 12 large output call sites.");
     expect(parentJson.text).toContain("Delegate: " + delegateId);
     expect(parentJson.text).not.toContain("[#");
@@ -313,9 +315,9 @@ describe("delegate command routes", () => {
       authenticateTakodeCaller: () => ({ callerId: "parent" }),
     });
 
-    const res = await app.request("/sessions/parent/delegates/command", {
+    const res = await app.request("/sessions/parent/delegates/task", {
       method: "POST",
-      body: JSON.stringify({ command: "sed -n '1,3p' sample.txt" }),
+      body: JSON.stringify({ task: "Read the first three lines of sample.txt and summarize them." }),
       headers: { "content-type": "application/json" },
     });
     const json = (await res.json()) as { error: string; delegateId: string; childSessionId: string };
@@ -343,7 +345,7 @@ describe("delegate command routes", () => {
           childSession.messageHistory.push({
             type: "assistant",
             message: {
-              content: [{ type: "text", text: "Running the delegated command now, then I’ll report back." }],
+              content: [{ type: "text", text: "Working on the delegated task now, then I’ll report back." }],
             },
           });
           return true;
@@ -406,9 +408,9 @@ describe("delegate command routes", () => {
       authenticateTakodeCaller: (c) => ({ callerId: c.req.path.includes("/child/") ? "child" : "parent" }),
     });
 
-    const parentRequest = app.request("/sessions/parent/delegates/command", {
+    const parentRequest = app.request("/sessions/parent/delegates/task", {
       method: "POST",
-      body: JSON.stringify({ command: "printf ok" }),
+      body: JSON.stringify({ task: "Run a small check and summarize whether it prints ok." }),
       headers: { "content-type": "application/json" },
     });
     await vi.waitFor(() => {
@@ -428,7 +430,7 @@ describe("delegate command routes", () => {
     const parentJson = (await parentResponse.json()) as { text: string; isError?: boolean };
     expect(parentResponse.status).toBe(200);
     expect(parentJson.isError).toBeUndefined();
-    expect(parentJson.text).toContain("Delegate command completed.");
+    expect(parentJson.text).toContain("Delegate task completed.");
     expect(parentJson.text).toContain("The command completed after interim text.");
     expect(launcher.setArchived).toHaveBeenCalledWith("child", true);
     expect(launcher.kill).toHaveBeenCalledWith("child");
@@ -503,9 +505,9 @@ describe("delegate command routes", () => {
       authenticateTakodeCaller: () => ({ callerId: "parent" }),
     });
 
-    const parentRequest = app.request("/sessions/parent/delegates/command", {
+    const parentRequest = app.request("/sessions/parent/delegates/task", {
       method: "POST",
-      body: JSON.stringify({ command: "printf ok" }),
+      body: JSON.stringify({ task: "Run a small check and summarize whether it prints ok." }),
       headers: { "content-type": "application/json" },
     });
     await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
@@ -514,13 +516,13 @@ describe("delegate command routes", () => {
     const parentJson = (await parentResponse.json()) as { text: string; isError: boolean };
     expect(parentResponse.status).toBe(200);
     expect(parentJson.isError).toBe(true);
-    expect(parentJson.text).toContain("Delegate command failed.");
+    expect(parentJson.text).toContain("Delegate task failed.");
     expect(parentJson.text).toContain("timed out before calling end_delegation");
     expect(launcher.setArchived).toHaveBeenCalledWith("child", true);
     expect(launcher.kill).toHaveBeenCalledWith("child");
   });
 
-  it("rejects nested delegate_command calls from hidden delegate children even when the tool is visible", async () => {
+  it("rejects nested delegate_task calls from hidden delegate children even when the tool is visible", async () => {
     const sessions = new Map<string, any>();
     sessions.set("child", {
       id: "child",
@@ -537,9 +539,9 @@ describe("delegate command routes", () => {
       authenticateTakodeCaller: () => ({ callerId: "child", caller: { isOrchestrator: true } }),
     });
 
-    const response = await app.request("/sessions/child/delegates/command", {
+    const response = await app.request("/sessions/child/delegates/task", {
       method: "POST",
-      body: JSON.stringify({ command: "printf nested" }),
+      body: JSON.stringify({ task: "Do nested work." }),
       headers: { "content-type": "application/json" },
     });
     const json = (await response.json()) as { error: string };

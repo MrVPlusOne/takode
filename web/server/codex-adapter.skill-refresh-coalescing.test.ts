@@ -297,8 +297,8 @@ describe("CodexAdapter skill change suppression", () => {
               name: "takode_delegate",
               authStatus: "loggedIn",
               tools: {
-                delegate_command: {
-                  name: "delegate_command",
+                delegate_task: {
+                  name: "delegate_task",
                   annotations: { destructiveHint: true, openWorldHint: false },
                 },
               },
@@ -339,7 +339,7 @@ describe("CodexAdapter skill change suppression", () => {
         status: "connected",
         tools: [
           {
-            name: "delegate_command",
+            name: "delegate_task",
             annotations: { destructive: true, openWorld: false, readOnly: false },
           },
         ],
@@ -373,7 +373,7 @@ describe("CodexAdapter skill change suppression", () => {
     messages.length = 0;
 
     emitMcpStartupReady(stdout);
-    adapter.sendBrowserMessage({ type: "user_message", content: "use delegate_command" } as BrowserOutgoingMessage);
+    adapter.sendBrowserMessage({ type: "user_message", content: "use delegate_task" } as BrowserOutgoingMessage);
     await tick();
 
     const firstReload = parseWrittenJsonLines(stdin.chunks).find((l) => l.method === "config/mcpServer/reload");
@@ -394,7 +394,7 @@ describe("CodexAdapter skill change suppression", () => {
             {
               name: "takode_delegate",
               authStatus: "loggedIn",
-              tools: { delegate_command: { name: "delegate_command" } },
+              tools: { delegate_task: { name: "delegate_task" } },
             },
           ],
           nextCursor: null,
@@ -482,7 +482,7 @@ describe("CodexAdapter skill change suppression", () => {
             {
               name: "takode_delegate",
               authStatus: "loggedIn",
-              tools: { delegate_command: { name: "delegate_command" } },
+              tools: { delegate_task: { name: "delegate_task" } },
             },
           ],
           nextCursor: null,

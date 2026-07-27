@@ -623,13 +623,13 @@ describe("MessageFeed - subagent grouping", () => {
     expect(screen.getByText("Agent starting...")).toBeTruthy();
   });
 
-  it("renders delegate command cards with command preview, compact trace, and unwrapped MCP result text", async () => {
+  it("renders delegate task cards with task preview, compact trace, and unwrapped MCP result text", async () => {
     const sid = "test-delegate-card";
     const mcpEnvelope = JSON.stringify({
       content: [
         {
           type: "text",
-          text: "Delegate command completed.\n\nDelegate: del_abc123\nCommand: sed -n '1,3p' sample.txt\n\nSummary:\nRead three lines.",
+          text: "Delegate task completed.\n\nDelegate: del_abc123\nTask: Read the first three lines of sample.txt and summarize them.\n\nSummary:\nRead three lines.",
         },
       ],
       structuredContent: null,
@@ -646,10 +646,10 @@ describe("MessageFeed - subagent grouping", () => {
             id: "delegate-tool-1",
             name: "Agent",
             input: {
-              description: "Delegated command",
-              subagent_type: "delegate_command",
-              command: "sed -n '1,3p' sample.txt",
-              prompt: "sed -n '1,3p' sample.txt",
+              description: "Delegated task",
+              subagent_type: "delegate_task",
+              task: "Read the first three lines of sample.txt and summarize them.",
+              prompt: "Read the first three lines of sample.txt and summarize them.",
             },
           },
         ],
@@ -660,7 +660,7 @@ describe("MessageFeed - subagent grouping", () => {
     });
     mockGetDelegateTrace.mockResolvedValue({
       delegateId: "del_abc123",
-      command: "sed -n '1,3p' sample.txt",
+      task: "Read the first three lines of sample.txt and summarize them.",
       childSessionId: "hidden-child",
       childSessionNum: null,
       pending: false,
@@ -673,9 +673,11 @@ describe("MessageFeed - subagent grouping", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("Delegated command")).toBeTruthy();
-    expect(screen.getAllByText("sed -n '1,3p' sample.txt").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByText("Delegated command"));
+    expect(screen.getByText("Delegated task")).toBeTruthy();
+    expect(screen.getAllByText("Read the first three lines of sample.txt and summarize them.").length).toBeGreaterThan(
+      0,
+    );
+    fireEvent.click(screen.getByText("Delegated task"));
     await waitFor(() => expect(mockGetDelegateTrace).toHaveBeenCalled());
     fireEvent.click(screen.getByText("Activities"));
     expect(screen.getByText("Bash")).toBeTruthy();
@@ -685,7 +687,7 @@ describe("MessageFeed - subagent grouping", () => {
     expect(rawLink.getAttribute("href")).toBe("#/session/hidden-child");
     fireEvent.click(screen.getAllByText("Result").at(-1)!);
     const resultMarkdown = screen.getAllByTestId("markdown").at(-1)!;
-    expect(resultMarkdown.textContent).toContain("Delegate command completed.");
+    expect(resultMarkdown.textContent).toContain("Delegate task completed.");
     expect(resultMarkdown.textContent).not.toContain("structuredContent");
     expect(resultMarkdown.textContent).not.toContain("_meta");
   });
