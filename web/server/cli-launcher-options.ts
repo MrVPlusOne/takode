@@ -60,6 +60,10 @@ export interface LaunchOptions {
   };
   /** CLI session ID to resume (from an external CLI session, e.g. VS Code or terminal) */
   resumeCliSessionId?: string;
+  /** Session whose Codex home may contain the rollout file for resumeCliSessionId. */
+  codexResumeSourceSessionId?: string;
+  /** Fail startup instead of falling back to a fresh Codex thread when resumeCliSessionId cannot be resumed. */
+  requireResumeCliSessionId?: boolean;
   /** Plugin directories to load for SDK sessions (maps to --plugin-dir CLI flags). */
   pluginDirs?: string[];
   /** Extra instructions appended to the system prompt (e.g., orchestrator guardrails). */

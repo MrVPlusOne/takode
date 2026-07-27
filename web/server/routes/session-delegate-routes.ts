@@ -416,6 +416,9 @@ export function registerSessionDelegateRoutes(
       codexInternetAccess: parentInfo.codexInternetAccess === true,
       codexReasoningEffort: parentInfo.codexReasoningEffort,
       codexServiceTier: parentInfo.codexServiceTier ?? null,
+      codexHome: parentInfo.codexHome,
+      codexResumeSourceSessionId: parentSessionId,
+      requireResumeCliSessionId: true,
       envSlug: parentInfo.envSlug,
       env: {
         ...(parentInfo.isOrchestrator
@@ -454,6 +457,21 @@ export function registerSessionDelegateRoutes(
     if (!childAdapter) {
       await archiveCompletedDelegateChild({ launcher, wsBridge, sessionStore, childSessionId: child.sessionId });
       return c.json({ error: "Delegate session did not connect", delegateId }, 504);
+    }
+    const childThreadId =
+      typeof (childAdapter as any).getThreadId === "function" ? (childAdapter as any).getThreadId() : null;
+    if (childThreadId !== forkedThreadId) {
+      await archiveCompletedDelegateChild({ launcher, wsBridge, sessionStore, childSessionId: child.sessionId });
+      return c.json(
+        {
+          error: "Delegate child did not resume the expected forked Codex thread before the task prompt",
+          delegateId,
+          childSessionId: child.sessionId,
+          expectedThreadId: forkedThreadId,
+          actualThreadId: childThreadId,
+        },
+        504,
+      );
     }
     const childMcpReady = await childAdapter.waitForMcpToolAvailability?.("takode_delegate", "end_delegation", 10_000);
     if (!childMcpReady) {

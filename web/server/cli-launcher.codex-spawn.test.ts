@@ -259,6 +259,31 @@ describe("Codex spawn preparation", () => {
     expect(updatedConfig).toContain('"TAKODE_DELEGATE_ROLE"');
   });
 
+  it("seeds forked Codex rollouts from the parent session home into hidden children", async () => {
+    // Forked threads are written into the parent session-scoped Codex home.
+    // Hidden native-fork children must copy that rollout before starting, or
+    // Codex resumes will silently degrade into a fresh thread.
+    const parentSessionId = "parent-session-id";
+    const parentDay = join(codexHome, parentSessionId, "sessions", "2026", "07", "27");
+    const rolloutName = "rollout-2026-07-27T13-07-22-forked-thread.jsonl";
+    const childRollout = join(codexHome, "test-session-id", "sessions", "2026", "07", "27", rolloutName);
+    mkdirSync(parentDay, { recursive: true });
+    writeFileSync(join(parentDay, rolloutName), "parent fork rollout\n", "utf-8");
+
+    await launchCodex({
+      resumeCliSessionId: "forked-thread",
+      codexResumeSourceSessionId: parentSessionId,
+      requireResumeCliSessionId: true,
+      hidden: true,
+      parentSessionId,
+      publicSessionNumber: false,
+    });
+
+    expect(await Bun.file(childRollout).text()).toBe("parent fork rollout\n");
+    const [, options] = mockSpawn.mock.calls[0];
+    expect(options.env.COMPANION_SESSION_ID).toBe("test-session-id");
+  });
+
   it("allow-lists HOME for MAI-wrapper-backed Codex shell commands", async () => {
     // MAI-wrapper launches start with a session-local HOME/CODEX_HOME, but
     // Codex still filters tool shell env through config.toml. HOME must be in

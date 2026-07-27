@@ -19,6 +19,7 @@ import {
 import { join, resolve, relative, dirname, basename } from "node:path";
 import { homedir, hostname } from "node:os";
 import { getLegacyCodexHome, resolveCompanionCodexHome, resolveCompanionCodexSessionHome } from "./codex-home.js";
+import { seedCodexResumeRollout } from "./codex-resume-rollout.js";
 import {
   NON_INTERACTIVE_GIT_EDITOR_ENV_KEYS,
   stripInheritedTelemetryEnv,
@@ -130,6 +131,8 @@ interface CodexLaunchOptions {
   containerId?: string;
   env?: Record<string, string>;
   resumeCliSessionId?: string;
+  codexResumeSourceSessionId?: string;
+  requireResumeCliSessionId?: boolean;
   /** Legacy compatibility only; leader thresholds are derived from model effective context. */
   codexLeaderRecycleThresholdTokens?: number;
   /** Deprecated compatibility setting; ignored so non-leader compaction follows Codex defaults. */
@@ -1083,52 +1086,6 @@ async function prepareDotslashCache(dotslashCache: string, timing?: CooperativeT
   }
 }
 
-async function findLegacyCodexRolloutPath(threadId: string): Promise<string | null> {
-  const sessionsRoot = join(getLegacyCodexHome(), "sessions");
-  const years = await readdir(sessionsRoot).catch(() => []);
-
-  let newest: { path: string; mtimeMs: number } | null = null;
-  for (const year of years) {
-    const yearPath = join(sessionsRoot, year);
-    const months = await readdir(yearPath).catch(() => []);
-    for (const month of months) {
-      const monthPath = join(yearPath, month);
-      const days = await readdir(monthPath).catch(() => []);
-      for (const day of days) {
-        const dayPath = join(monthPath, day);
-        const entries = await readdir(dayPath).catch(() => []);
-        for (const entry of entries) {
-          if (!entry.endsWith(`${threadId}.jsonl`)) continue;
-          const fullPath = join(dayPath, entry);
-          const entryStat = await stat(fullPath).catch(() => null);
-          if (!entryStat?.isFile()) continue;
-          if (!newest || entryStat.mtimeMs > newest.mtimeMs) {
-            newest = { path: fullPath, mtimeMs: entryStat.mtimeMs };
-          }
-        }
-      }
-    }
-  }
-
-  return newest?.path ?? null;
-}
-
-async function seedCodexResumeRollout(codexHome: string, threadId?: string, timing?: CooperativeTiming): Promise<void> {
-  if (!threadId) return;
-  const rolloutPath = await findLegacyCodexRolloutPath(threadId);
-  if (!rolloutPath) return;
-
-  const sessionsRoot = join(getLegacyCodexHome(), "sessions");
-  const relativeRolloutPath = relative(sessionsRoot, rolloutPath);
-  if (!relativeRolloutPath || relativeRolloutPath.startsWith("..")) return;
-
-  const destPath = join(codexHome, "sessions", relativeRolloutPath);
-  await mkdir(dirname(destPath), { recursive: true });
-  await timing?.yieldIfDue("prepare resume rollout directory");
-  await copyFile(rolloutPath, destPath);
-  await timing?.yieldIfDue("copy resume rollout");
-}
-
 function resolveSymlinkTargetPath(linkPath: string, targetPath: string): string {
   return resolve(dirname(linkPath), targetPath);
 }
@@ -1357,7 +1314,12 @@ async function prepareCodexHome(
   codexHome: string,
   resumeCliSessionId?: string,
   seedSourceHome?: string,
-  options?: { filterImagegenSkill?: boolean; allowLegacyAuthFallback?: boolean; timing?: CooperativeTiming },
+  options?: {
+    filterImagegenSkill?: boolean;
+    allowLegacyAuthFallback?: boolean;
+    resumeRolloutSourceHomes?: string[];
+    timing?: CooperativeTiming;
+  },
 ): Promise<void> {
   await mkdir(codexHome, { recursive: true });
   await options?.timing?.yieldIfDue("prepare Codex home directory");
@@ -1440,7 +1402,12 @@ async function prepareCodexHome(
   }
 
   try {
-    await seedCodexResumeRollout(codexHome, resumeCliSessionId, options?.timing);
+    await seedCodexResumeRollout(
+      codexHome,
+      resumeCliSessionId,
+      [...(options?.resumeRolloutSourceHomes ?? []), sourceHome],
+      options?.timing,
+    );
   } catch (error) {
     console.warn(`[cli-launcher] Failed to seed resume rollout for ${resumeCliSessionId}:`, error);
   }
@@ -1705,6 +1672,9 @@ export async function prepareCodexSpawn(
     const sandboxMode = resolveCodexSandbox(options.permissionMode, options.codexSandbox);
 
     const codexHome = resolveCompanionCodexSessionHome(sessionId, codexHomeRoot);
+    const resumeRolloutSourceHomes = options.codexResumeSourceSessionId
+      ? [resolveCompanionCodexSessionHome(options.codexResumeSourceSessionId, codexHomeRoot)]
+      : [];
     const maiWrapperHostSpec = !isContainerized
       ? await timing.step("resolve MAI wrapper host", () => resolveMaiWrapperHostSpec(binary))
       : null;
@@ -1731,6 +1701,7 @@ export async function prepareCodexSpawn(
           {
             allowLegacyAuthFallback: !maiWrapperHostSpec,
             filterImagegenSkill: !!maiWrapperHostSpec,
+            resumeRolloutSourceHomes,
             timing,
           },
         ),
@@ -1753,7 +1724,10 @@ export async function prepareCodexSpawn(
       contextLaunchConfig = sessionConfig.contextLaunchConfig;
     } else {
       await timing.step("prepare container Codex home", () =>
-        prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId, undefined, { timing }),
+        prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId, undefined, {
+          resumeRolloutSourceHomes,
+          timing,
+        }),
       );
       const containerConfig = await timing.step("ensure container Codex session config", () =>
         ensureCodexSessionConfig(codexHome, shellEnvVars, {

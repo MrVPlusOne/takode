@@ -13,6 +13,8 @@ export interface CodexAdapterOptions {
   serviceTier?: string | null;
   /** If provided, resume an existing thread instead of starting a new one. */
   threadId?: string;
+  /** If provided, initialization must resume this exact thread and must not fall back to a fresh thread. */
+  requireResumeThreadId?: string;
   /** Optional recorder for raw message capture. */
   recorder?: RecorderManager;
   /** Companion instructions injected via session-scoped Codex config before thread start/resume. */

@@ -45,6 +45,7 @@ describe("delegate task routes", () => {
     };
     const childAdapter = {
       isConnected: () => true,
+      getThreadId: () => "forked-thread",
       waitForMcpToolAvailability: vi.fn(async () => {
         childOrder.push("wait");
         return true;
@@ -114,6 +115,8 @@ describe("delegate task routes", () => {
         expect(options).toMatchObject({
           backendType: "codex",
           resumeCliSessionId: "forked-thread",
+          codexResumeSourceSessionId: "parent",
+          requireResumeCliSessionId: true,
           hidden: true,
           publicSessionNumber: false,
           parentSessionId: "parent",
@@ -261,6 +264,7 @@ describe("delegate task routes", () => {
     };
     const childAdapter = {
       isConnected: () => true,
+      getThreadId: () => "forked-thread",
       waitForMcpToolAvailability: vi.fn(async () => false),
       sendBrowserMessage: vi.fn(),
     };
@@ -338,6 +342,85 @@ describe("delegate task routes", () => {
     expect(wsBridge.persistSessionById).toHaveBeenCalledWith("child");
   });
 
+  it("fails closed before prompting when the child resumes a different Codex thread", async () => {
+    const parentAdapter = {
+      isConnected: () => true,
+      forkThread: vi.fn(async () => "forked-thread"),
+    };
+    const childAdapter = {
+      isConnected: () => true,
+      getThreadId: () => "fresh-thread",
+      waitForMcpToolAvailability: vi.fn(async () => true),
+      sendBrowserMessage: vi.fn(),
+    };
+    const sessions = new Map<string, any>();
+    sessions.set("parent", {
+      id: "parent",
+      state: makeState({ session_id: "parent", backend_type: "codex", cwd: "/repo", model: "gpt-5.5" }),
+      codexAdapter: parentAdapter,
+    });
+    sessions.set("child", {
+      id: "child",
+      state: makeState({ session_id: "child", backend_type: "codex" }),
+      codexAdapter: childAdapter,
+      isGenerating: false,
+      messageHistory: [],
+    });
+
+    const launcher = {
+      getSession: vi.fn((id: string) =>
+        id === "parent"
+          ? {
+              sessionId: "parent",
+              backendType: "codex",
+              cwd: "/repo",
+              model: "gpt-5.5",
+              permissionMode: "codex-default",
+              askPermission: true,
+              uiMode: "agent",
+              isOrchestrator: true,
+            }
+          : id === "child"
+            ? { sessionId: "child", backendType: "codex", cwd: "/repo", model: "gpt-5.5", hidden: true }
+            : null,
+      ),
+      getPort: vi.fn(() => 3456),
+      getOrchestratorGuardrails: vi.fn(() => "leader guardrails"),
+      launch: vi.fn(async () => ({ sessionId: "child", hidden: true, parentSessionId: "parent", noAutoName: false })),
+      getSessionNum: vi.fn((id: string) => (id === "parent" ? 2220 : id === "child" ? 2266 : undefined)),
+      setArchived: vi.fn(),
+      kill: vi.fn(async () => true),
+    };
+    const wsBridge = {
+      getSession: vi.fn((id: string) => sessions.get(id)),
+      getOrCreateSession: vi.fn((id: string) => sessions.get(id)),
+      persistSessionById: vi.fn(),
+    };
+    const app = new Hono();
+    registerSessionDelegateRoutes(app, {
+      launcher: launcher as any,
+      wsBridge: wsBridge as any,
+      resolveId: (id) => id,
+      authenticateTakodeCaller: () => ({ callerId: "parent" }),
+    });
+
+    const res = await app.request("/sessions/parent/delegates/task", {
+      method: "POST",
+      body: JSON.stringify({ task: "Answer from inherited fork context only." }),
+      headers: { "content-type": "application/json" },
+    });
+    const json = (await res.json()) as { error: string; expectedThreadId: string; actualThreadId: string };
+
+    expect(res.status).toBe(504);
+    expect(json.error).toContain("expected forked Codex thread");
+    expect(json.expectedThreadId).toBe("forked-thread");
+    expect(json.actualThreadId).toBe("fresh-thread");
+    expect(childAdapter.waitForMcpToolAvailability).not.toHaveBeenCalled();
+    expect(childAdapter.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(launcher.setArchived).toHaveBeenCalledWith("child", true);
+    expect(launcher.kill).toHaveBeenCalledWith("child");
+  });
+
   it("returns pending delegate trace status with latest live child activity", async () => {
     const parentAdapter = {
       isConnected: () => true,
@@ -345,6 +428,7 @@ describe("delegate task routes", () => {
     };
     const childAdapter = {
       isConnected: () => true,
+      getThreadId: () => "forked-thread",
       waitForMcpToolAvailability: vi.fn(async () => true),
       sendBrowserMessage: vi.fn(() => true),
     };
@@ -452,6 +536,7 @@ describe("delegate task routes", () => {
       state: makeState({ session_id: "child", backend_type: "codex" }),
       codexAdapter: {
         isConnected: () => true,
+        getThreadId: () => "forked-thread",
         waitForMcpToolAvailability: vi.fn(async () => true),
         sendBrowserMessage: vi.fn(() => {
           childSession.isGenerating = false;
@@ -556,6 +641,7 @@ describe("delegate task routes", () => {
       state: makeState({ session_id: "child", backend_type: "codex" }),
       codexAdapter: {
         isConnected: () => true,
+        getThreadId: () => "forked-thread",
         waitForMcpToolAvailability: vi.fn(async () => true),
         sendBrowserMessage: vi.fn(() => {
           return true;

@@ -902,6 +902,11 @@ export class CodexAdapter
           )) as { thread: Record<string, unknown> & { id: string } };
           this.threadId = resumeResult.thread.id;
           resumeSnapshot = buildCodexResumeSnapshot(resumeResult.thread);
+          if (this.options.requireResumeThreadId && this.threadId !== this.options.requireResumeThreadId) {
+            throw new Error(
+              `thread/resume returned ${this.threadId} but ${this.options.requireResumeThreadId} was required`,
+            );
+          }
           // Only set currentTurnId if the turn is truly in-progress AND the
           // thread itself isn't idle. After a CLI restart, the thread reports
           // idle but the last turn's status may still say "inProgress" — that
@@ -912,7 +917,7 @@ export class CodexAdapter
         } catch (err) {
           // Fresh or partially-initialized Codex threads may fail resume with
           // "no rollout found". Fall back to a fresh thread to avoid a stuck session.
-          if (!this.isMissingRolloutError(err)) throw err;
+          if (!this.isMissingRolloutError(err) || this.options.requireResumeThreadId) throw err;
           console.warn(
             `[codex-adapter] thread/resume failed for ${this.options.threadId}: ${err}. Starting a fresh thread.`,
           );

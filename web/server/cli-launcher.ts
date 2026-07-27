@@ -1340,6 +1340,7 @@ export class CliLauncher {
       askPermission: options.askPermission,
       uiMode: options.uiMode,
       threadId: info.cliSessionId,
+      requireResumeThreadId: options.requireResumeCliSessionId ? info.cliSessionId : undefined,
       sandbox: sandboxMode,
       reasoningEffort: options.codexReasoningEffort,
       serviceTier: options.codexServiceTier ?? null,

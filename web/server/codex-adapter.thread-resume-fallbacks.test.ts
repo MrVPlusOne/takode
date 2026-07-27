@@ -335,6 +335,41 @@ describe("CodexAdapter", () => {
     expect(messages.some((m) => m.type === "session_init")).toBe(true);
   });
 
+  it("does not fall back to thread/start when an exact native fork resume is required", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const errors: string[] = [];
+    const mock = createMockProcess();
+
+    const adapter = new CodexAdapter(mock.proc as never, "test-session", {
+      model: "gpt-5.3-codex",
+      cwd: "/workspace",
+      threadId: "thr_forked_123",
+      requireResumeThreadId: "thr_forked_123",
+    });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+    adapter.onInitError((err) => errors.push(err));
+
+    await tick();
+
+    mock.stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+
+    mock.stdout.push(
+      JSON.stringify({
+        id: 2,
+        error: { code: -1, message: "no rollout found for thread id thr_forked_123" },
+      }) + "\n",
+    );
+    await tick();
+
+    const allWritten = mock.stdin.chunks.join("");
+    expect(allWritten).toContain('"method":"thread/resume"');
+    expect(allWritten).toContain('"threadId":"thr_forked_123"');
+    expect(allWritten).not.toContain('"method":"thread/start"');
+    expect(errors[0]).toContain("no rollout found");
+    expect(messages.some((m) => m.type === "session_init")).toBe(false);
+  });
+
   it("falls back to thread/start when thread/resume fails with empty session file", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const errors: string[] = [];
