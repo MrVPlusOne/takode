@@ -347,6 +347,69 @@ describe("setGenerating(false) — queued turn handling", () => {
     expect(session.userMessageIdsThisTurn).toEqual([0]);
   });
 
+  it.each([
+    ["codex_init_error", "transient init failure cleanup"],
+    ["codex_recovery_suppressed", "exhausted init recovery cleanup"],
+  ])("suppresses external turn_end for %s while preserving local teardown", (reason, _label) => {
+    const onGenerationStopped = vi.fn();
+    const onOrchestratorTurnEnd = vi.fn();
+    const recordGenerationEnded = vi.fn();
+    deps = makeDeps({
+      onGenerationStopped,
+      onOrchestratorTurnEnd,
+      recordGenerationEnded,
+      buildTurnToolSummary: vi.fn(() => ({})),
+    });
+    deps.sessions.set(session.id, session);
+
+    markRunningFromUserDispatch(deps, session, "leader_message", null, 0, {
+      threadKey: "q-1718",
+      questId: "q-1718",
+    });
+
+    setGenerating(deps, session, false, reason);
+
+    const turnEndCalls = vi.mocked(deps.emitTakodeEvent).mock.calls.filter(([, eventType]) => eventType === "turn_end");
+    expect(turnEndCalls).toHaveLength(0);
+    expect(onOrchestratorTurnEnd).not.toHaveBeenCalled();
+    expect(recordGenerationEnded).toHaveBeenCalledWith(session, reason, expect.any(Number));
+    expect(onGenerationStopped).toHaveBeenCalledWith(session, reason);
+    expect(session.isGenerating).toBe(false);
+    expect(session.generationStartedAt).toBeNull();
+    expect(session.activeTurnRoute).toBeNull();
+  });
+
+  it("preserves normal result turn_end events with activity metadata", () => {
+    deps = makeDeps({
+      buildTurnToolSummary: vi.fn(() => ({
+        msgRange: { from: 2, to: 30 },
+        tools: { Bash: 7, view_image: 4 },
+        resultPreview: "Alignment read-in ready",
+      })),
+    });
+    deps.sessions.set(session.id, session);
+
+    markRunningFromUserDispatch(deps, session, "leader_message", null, 0, {
+      threadKey: "q-1717",
+      questId: "q-1717",
+    });
+    setGenerating(deps, session, false, "result");
+
+    expect(deps.emitTakodeEvent).toHaveBeenLastCalledWith(
+      session.id,
+      "turn_end",
+      expect.objectContaining({
+        reason: "result",
+        msgRange: { from: 2, to: 30 },
+        tools: { Bash: 7, view_image: 4 },
+        resultPreview: "Alignment read-in ready",
+        turn_source: "unknown",
+        threadKey: "q-1717",
+        questId: "q-1717",
+      }),
+    );
+  });
+
   it("preserves explicit leader interrupt source when later system cleanup ends the turn", () => {
     setGenerating(deps, session, true, "initial");
 

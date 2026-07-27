@@ -1338,6 +1338,11 @@ describe("handleCodexAdapterInitError", () => {
     expect(pending.status).toBe("queued");
     expect(deps.setAttentionError).not.toHaveBeenCalled();
     expect(deps.setGenerating).not.toHaveBeenCalled();
+    expect(deps.emitTakodeEvent).not.toHaveBeenCalledWith(
+      session.id,
+      "session_error",
+      expect.objectContaining({ error: expect.any(String) }),
+    );
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, { type: "backend_disconnected" });
     expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(session, expect.objectContaining({ type: "error" }));
 
@@ -1377,6 +1382,9 @@ describe("handleCodexAdapterInitError", () => {
     expect(pending.status).toBe("queued");
     expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
     expect(deps.setAttentionError).not.toHaveBeenCalled();
+    expect(deps.emitTakodeEvent).toHaveBeenCalledWith(session.id, "session_error", {
+      error: "Codex automatic recovery is paused after 3 failed attempts. Use Resume to retry manually.",
+    });
     expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_recovery_suppressed");
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "backend_disconnected",
@@ -1406,6 +1414,10 @@ describe("handleCodexAdapterInitError", () => {
     expect(result).toBe("broken");
     expect(session.state.backend_state).toBe("broken");
     expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
+    expect(deps.emitTakodeEvent).toHaveBeenCalledWith(session.id, "session_error", {
+      error: "Codex initialization failed: no rollout found",
+    });
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_init_error");
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "error",
       message: "Codex initialization failed: no rollout found",

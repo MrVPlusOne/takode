@@ -12,7 +12,7 @@ import {
   type WsBridgeHandle,
   type LauncherHandle,
 } from "./herd-event-dispatcher.js";
-import type { TakodeEvent, TakodeEventType } from "./session-types.js";
+import type { BrowserIncomingMessage, TakodeEvent, TakodeEventType } from "./session-types.js";
 
 // ─── Mock helpers ───────────────────────────────────────────────────────────────
 
@@ -1058,6 +1058,9 @@ describe("HerdEventDispatcher", () => {
 
     vi.advanceTimersByTime(600);
     expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    const committedHerdMessage = leaderHistory[0] as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    expect(committedHerdMessage.takodeHerdEventKeys).toEqual([expect.stringContaining("turn_end|worker-1")]);
+    expect(committedHerdMessage.takodeHerdEventKeys?.[0]).toContain("|178|200|");
 
     dispatcher.onOrchestratorTurnEnd("orch-1");
     vi.advanceTimersByTime(2100);

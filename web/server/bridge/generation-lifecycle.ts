@@ -16,7 +16,11 @@ export const RECOVERY_REASONS = new Set([
 /** Reasons that are internal lifecycle bookkeeping boundaries, not
  * leader-actionable turn completions. State cleanup and local callbacks still
  * run, but no external turn_end herd event should be emitted. */
-export const SUPPRESSED_TAKODE_TURN_END_REASONS = new Set(["codex_retry_pending_turn_restart"]);
+export const SUPPRESSED_TAKODE_TURN_END_REASONS = new Set([
+  "codex_retry_pending_turn_restart",
+  "codex_init_error",
+  "codex_recovery_suppressed",
+]);
 
 export type InterruptSource = "user" | "leader" | "system";
 

@@ -886,6 +886,7 @@ export function handleCodexAdapterInitError(
     deps.rebuildQueuedCodexPendingStartBatch(session);
     const diagnostic = `Codex automatic recovery is paused after ${failures} failed attempts. Use Resume to retry manually.`;
     deps.setBackendState(session, "recovery_suppressed", diagnostic);
+    deps.emitTakodeEvent(session.id, "session_error", { error: diagnostic });
     deps.setGenerating(session, false, "codex_recovery_suppressed");
     deps.broadcastToBrowsers(session, { type: "backend_disconnected", reason: "recovery_suppressed" });
     deps.broadcastToBrowsers(session, { type: "error", message: diagnostic });
@@ -908,6 +909,7 @@ export function handleCodexAdapterInitError(
   }
   deps.setBackendState(session, "broken", error);
   deps.setAttentionError(session);
+  deps.emitTakodeEvent(session.id, "session_error", { error });
   deps.setGenerating(session, false, "codex_init_error");
   deps.broadcastToBrowsers(session, { type: "backend_disconnected", reason: "broken" });
   deps.broadcastToBrowsers(session, { type: "error", message: error });
