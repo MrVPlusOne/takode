@@ -293,6 +293,7 @@ export interface DelegateTraceResponse {
   childSessionId: string | null;
   childSessionNum: number | null;
   pending: boolean;
+  childStatus?: "running" | "stopped" | "complete";
   trace: DelegateTraceEvent[];
   rawOutputLink:
     | null

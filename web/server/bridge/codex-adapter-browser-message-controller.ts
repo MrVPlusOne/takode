@@ -32,6 +32,7 @@ import {
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
+const DELEGATE_LIVE_ACTIVITY_LIMIT = 800;
 
 type CodexBrowserMessageSessionLike = any;
 type CodexBrowserMessageAdapterLike = {
@@ -39,6 +40,75 @@ type CodexBrowserMessageAdapterLike = {
 };
 type AssistantBrowserMessage = Extract<BrowserIncomingMessage, { type: "assistant" }>;
 type ToolUseContentBlock = Extract<ContentBlock, { type: "tool_use" }>;
+
+function truncateDelegateLiveActivity(text: string): string {
+  return text.length > DELEGATE_LIVE_ACTIVITY_LIMIT ? text.slice(-DELEGATE_LIVE_ACTIVITY_LIMIT) : text;
+}
+
+function textFromContentBlocks(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => {
+      if (!block || typeof block !== "object") return "";
+      const rec = block as Record<string, unknown>;
+      if (rec.type === "text" && typeof rec.text === "string") return rec.text;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function maybeRecordDelegateLiveActivity(session: CodexBrowserMessageSessionLike, msg: BrowserIncomingMessage): void {
+  if (!session.state?.delegateChild?.delegateId) return;
+  const timestamp = Date.now();
+  if (msg.type === "stream_event") {
+    const event = msg.event as { type?: unknown; delta?: { type?: unknown; text?: unknown; thinking?: unknown } };
+    if (event?.type !== "content_block_delta") return;
+    const text =
+      event.delta?.type === "text_delta" && typeof event.delta.text === "string"
+        ? event.delta.text
+        : event.delta?.type === "thinking_delta" && typeof event.delta.thinking === "string"
+          ? event.delta.thinking
+          : "";
+    if (!text) return;
+    const previous =
+      session.delegateLiveActivity?.kind === "assistant" && typeof session.delegateLiveActivity.text === "string"
+        ? session.delegateLiveActivity.text
+        : "";
+    session.delegateLiveActivity = {
+      kind: "assistant",
+      label: event.delta?.type === "thinking_delta" ? "Assistant thinking" : "Assistant",
+      text: truncateDelegateLiveActivity(previous + text),
+      status: "running",
+      timestamp,
+    };
+  } else if (msg.type === "assistant") {
+    const text = textFromContentBlocks(msg.message?.content);
+    if (!text) return;
+    session.delegateLiveActivity = {
+      kind: "assistant",
+      label: "Assistant",
+      text: truncateDelegateLiveActivity(text),
+      status: "completed",
+      timestamp,
+    };
+  } else if (msg.type === "tool_progress") {
+    const previous =
+      session.delegateLiveActivity?.kind === "tool" && session.delegateLiveActivity.toolUseId === msg.tool_use_id
+        ? session.delegateLiveActivity.text || ""
+        : "";
+    if (!previous && !msg.output_delta) return;
+    session.delegateLiveActivity = {
+      kind: "tool",
+      label: msg.tool_name,
+      toolUseId: msg.tool_use_id,
+      text: truncateDelegateLiveActivity(previous + (msg.output_delta || "")),
+      status: "running",
+      timestamp,
+    };
+  }
+}
 
 function isLeaderSessionForAssistantRouting(
   session: CodexBrowserMessageSessionLike,
@@ -449,6 +519,7 @@ export async function handleCodexAdapterBrowserMessage(
   deps.touchActivity(session.id);
   session.lastCliMessageAt = Date.now();
   deps.clearOptimisticRunningTimer(session, `codex_output:${msg.type}`);
+  maybeRecordDelegateLiveActivity(session, msg);
   if (session.state.codex_image_send_stage && (msg.type === "stream_event" || msg.type === "assistant")) {
     deps.setCodexImageSendStage(session, "responding", { persist: false });
   }

@@ -36,7 +36,7 @@ describe("delegate task routes", () => {
     vi.useRealTimers();
   });
 
-  it("forks a Codex leader into a hidden child and returns compact summary plus session link", async () => {
+  it("forks a Codex leader and requires end_delegation even when the task forbids tools", async () => {
     const sentToChild: unknown[] = [];
     const childOrder: string[] = [];
     const parentAdapter = {
@@ -155,9 +155,11 @@ describe("delegate task routes", () => {
       authenticateTakodeCaller: (c) => ({ callerId: c.req.path.includes("/child/") ? "child" : "parent" }),
     });
 
+    const delegatedTask =
+      "Fork-memory probe. Do not use tools, do not run shell commands, and do not inspect quest/session/history records. Answer only from inherited context.";
     const parentRequest = app.request("/sessions/parent/delegates/task", {
       method: "POST",
-      body: JSON.stringify({ task: "Search for large-output call sites under web and summarize the count." }),
+      body: JSON.stringify({ task: delegatedTask }),
       headers: { "content-type": "application/json" },
     });
     await vi.waitFor(() => {
@@ -167,13 +169,17 @@ describe("delegate task routes", () => {
     expect(childOrder).toEqual(["wait", "send"]);
     expect(childAdapter.waitForMcpToolAvailability).toHaveBeenCalledWith("takode_delegate", "end_delegation", 10_000);
     expect(childPrompt.content).toContain("forked task-delegate copy");
+    expect(childPrompt.content).toContain("Takode handoff contract:");
+    expect(childPrompt.content).toContain("mandatory control-plane handoff");
+    expect(childPrompt.content).toContain("Those limits do not forbid the required end_delegation handoff");
+    expect(childPrompt.content).toContain("you must always call the actual mcp:takode_delegate:end_delegation tool");
     expect(childPrompt.content).toContain("Delegated task:");
     expect(childPrompt.content).toContain("You may see delegate_task and end_delegation");
     expect(childPrompt.content).toContain("call the actual MCP tool mcp:takode_delegate:end_delegation");
     expect(childPrompt.content).toContain("Do not write textual function-call prose");
     expect(childPrompt.content).toContain("Text shaped like a function call does not notify the parent");
     expect(childPrompt.content).toContain("Do not finish with a normal final answer");
-    expect(childPrompt.content).toContain("Search for large-output call sites under web and summarize the count.");
+    expect(childPrompt.content).toContain(delegatedTask);
 
     const delegateId = (sessions.get("child").state as any).delegateChild.delegateId;
     const endResponse = await app.request("/sessions/child/delegates/end", {
@@ -190,7 +196,7 @@ describe("delegate task routes", () => {
       delegateId: string;
     };
     expect(parentJson.text).toContain("Delegate task completed.");
-    expect(parentJson.text).toContain("Task: Search for large-output call sites under web and summarize the count.");
+    expect(parentJson.text).toContain("Task: " + delegatedTask);
     expect(parentJson.text).toContain("Found 12 large output call sites.");
     expect(parentJson.text).toContain("Delegate: " + delegateId);
     expect(parentJson.text).not.toContain("[#");
@@ -330,6 +336,113 @@ describe("delegate task routes", () => {
     expect(launcher.setArchived).toHaveBeenCalledWith("child", true);
     expect(launcher.kill).toHaveBeenCalledWith("child");
     expect(wsBridge.persistSessionById).toHaveBeenCalledWith("child");
+  });
+
+  it("returns pending delegate trace status with latest live child activity", async () => {
+    const parentAdapter = {
+      isConnected: () => true,
+      forkThread: vi.fn(async () => "forked-thread"),
+    };
+    const childAdapter = {
+      isConnected: () => true,
+      waitForMcpToolAvailability: vi.fn(async () => true),
+      sendBrowserMessage: vi.fn(() => true),
+    };
+    const sessions = new Map<string, any>();
+    sessions.set("parent", {
+      id: "parent",
+      state: makeState({ session_id: "parent", backend_type: "codex", isOrchestrator: true }),
+      codexAdapter: parentAdapter,
+    });
+    sessions.set("child", {
+      id: "child",
+      state: makeState({ session_id: "child", backend_type: "codex" }),
+      codexAdapter: childAdapter,
+      isGenerating: true,
+      messageHistory: [],
+    });
+    const launcher = {
+      getSession: vi.fn((id: string) =>
+        id === "parent"
+          ? {
+              sessionId: "parent",
+              backendType: "codex",
+              cwd: "/repo",
+              model: "gpt-5.5",
+              permissionMode: "codex-default",
+              askPermission: true,
+              uiMode: "agent",
+              isOrchestrator: true,
+            }
+          : id === "child"
+            ? { sessionId: "child", backendType: "codex", cwd: "/repo", model: "gpt-5.5", hidden: true }
+            : null,
+      ),
+      getPort: vi.fn(() => 3456),
+      getOrchestratorGuardrails: vi.fn(() => "leader guardrails"),
+      launch: vi.fn(async () => ({ sessionId: "child", hidden: true, parentSessionId: "parent", noAutoName: false })),
+      listSessions: vi.fn(() => [
+        { sessionId: "parent", createdAt: 1, sessionNum: 2220 },
+        { sessionId: "child", createdAt: 2, hidden: true, publicSessionNumber: false },
+      ]),
+      getSessionNum: vi.fn(() => undefined),
+      setArchived: vi.fn(),
+      kill: vi.fn(async () => true),
+    };
+    const app = new Hono();
+    registerSessionDelegateRoutes(app, {
+      launcher: launcher as any,
+      wsBridge: {
+        getSession: vi.fn((id: string) => sessions.get(id)),
+        getOrCreateSession: vi.fn((id: string) => sessions.get(id)),
+        persistSessionById: vi.fn(),
+      } as any,
+      resolveId: (id) => id,
+      authenticateTakodeCaller: (c) => ({ callerId: c.req.path.includes("/child/") ? "child" : "parent" }),
+    });
+
+    const parentRequest = app.request("/sessions/parent/delegates/task", {
+      method: "POST",
+      body: JSON.stringify({ task: "Fork-memory probe. Do not use tools." }),
+      headers: { "content-type": "application/json" },
+    });
+    await vi.waitFor(() => expect(childAdapter.sendBrowserMessage).toHaveBeenCalled());
+    const delegateId = (sessions.get("child").state as any).delegateChild.delegateId;
+    sessions.get("child").delegateLiveActivity = {
+      kind: "assistant",
+      label: "Assistant",
+      text: "I cannot know the exact fork-memory sentinel. I used no tools.",
+      status: "running",
+      timestamp: 123,
+    };
+
+    const response = await app.request("/sessions/parent/delegates/trace?delegateId=" + encodeURIComponent(delegateId));
+    const json = (await response.json()) as {
+      pending: boolean;
+      childStatus: string;
+      trace: Array<{ label: string; text?: string; status?: string }>;
+      rawOutputLink: { kind: string; label: string; sessionId: string };
+    };
+
+    expect(response.status).toBe(200);
+    expect(json.pending).toBe(true);
+    expect(json.childStatus).toBe("running");
+    expect(json.rawOutputLink).toMatchObject({ kind: "delegate", label: delegateId, sessionId: "child" });
+    expect(json.trace).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "Assistant",
+          text: "I cannot know the exact fork-memory sentinel. I used no tools.",
+          status: "running",
+        }),
+      ]),
+    );
+    await app.request("/sessions/child/delegates/end", {
+      method: "POST",
+      body: JSON.stringify({ delegateId, summary: "Delivered after live activity." }),
+      headers: { "content-type": "application/json" },
+    });
+    await parentRequest;
   });
 
   it("does not resolve early when the child emits interim text before end_delegation", async () => {

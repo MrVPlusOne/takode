@@ -59,7 +59,11 @@ vi.mock("remark-gfm", () => ({
 import { Playground } from "./Playground.js";
 import { PlaygroundSideChatStates } from "./playground/SideChatPlaygroundStates.js";
 import { PlaygroundOverviewSections } from "./playground/sections-overview.js";
-import { PlaygroundHerdSummaryBar } from "./playground/shared.js";
+import {
+  PlaygroundDelegateTaskPendingLiveActivityGroup,
+  PlaygroundDelegateTaskPendingNoHandoffGroup,
+  PlaygroundHerdSummaryBar,
+} from "./playground/shared.js";
 import { usePlaygroundSeed } from "./playground/usePlaygroundSeed.js";
 import { useStore } from "../store.js";
 
@@ -125,6 +129,36 @@ describe("Playground", () => {
     expect(screen.getByText(/Native fork unavailable: Codex native fork skipped/)).toBeTruthy();
     expect(screen.getByText("Replay Side Chat")).toBeTruthy();
     expect(screen.getByText("Confirm replay Side Chat")).toBeTruthy();
+  });
+
+  it("documents pending delegate trace states in Playground fixtures", () => {
+    render(
+      <>
+        <PlaygroundDelegateTaskPendingNoHandoffGroup />
+        <PlaygroundDelegateTaskPendingLiveActivityGroup />
+      </>,
+    );
+
+    expect(screen.queryByText("Agent starting...")).toBeNull();
+    for (const activitiesButton of screen.getAllByText("Activities")) {
+      fireEvent.click(activitiesButton);
+    }
+
+    expect(
+      screen.getByText(
+        "Waiting for delegate handoff through end_delegation. No delegate activity has been recorded yet.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Delegate child is stopped or idle without an end_delegation handoff. Takode is keeping the trace inspectable while the parent waits for the bounded no-handoff path.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("I cannot know the exact fork-memory sentinel from inherited context. I used no tools."),
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open raw delegate transcript: del_waiting123" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open raw delegate transcript: del_live123" })).toBeTruthy();
   });
 
   it("keeps the missing Side Chat child-message snapshot stable across unrelated store updates", () => {

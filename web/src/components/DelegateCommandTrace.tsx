@@ -51,7 +51,7 @@ export function useDelegateCommandTrace(args: {
     };
   }, [delegateId, delegatePrompt, isDelegate, isLegacyCommand, resultComplete, sessionId]);
 
-  return { trace, error, count: trace?.trace.length ?? 0 };
+  return { trace, error, count: trace ? Math.max(trace.trace.length, trace.pending ? 1 : 0) : 0 };
 }
 
 type DelegateTraceRow =
@@ -176,6 +176,17 @@ export function DelegateTrace({ trace, sessionId }: { trace: DelegateTraceRespon
         : "";
   return (
     <div className="space-y-2">
+      {trace.trace.length === 0 && trace.pending && (
+        <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2 text-[11px] text-cc-muted">
+          Waiting for delegate handoff through end_delegation. No delegate activity has been recorded yet.
+        </div>
+      )}
+      {trace.pending && trace.childStatus === "stopped" && (
+        <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2 text-[11px] text-cc-muted">
+          Delegate child is stopped or idle without an end_delegation handoff. Takode is keeping the trace inspectable
+          while the parent waits for the bounded no-handoff path.
+        </div>
+      )}
       {groupDelegateTraceEvents(trace.trace).map((row) =>
         row.kind === "bash" ? (
           <DelegateBashTraceCard key={"bash-" + row.index} command={row.command} result={row.result} />

@@ -47,6 +47,12 @@ function buildDelegatePrompt(args: { parentSessionNum?: number | null; delegateI
     "",
     "You have the parent leader's prior context, but your role is now narrow: complete the delegated task below, summarize what the parent needs to know, call the MCP tool named end_delegation, and stop.",
     "",
+    "Takode handoff contract:",
+    "- The actual MCP tool mcp:takode_delegate:end_delegation is a mandatory control-plane handoff, not optional task work.",
+    '- If the delegated task says "do not use tools", "do not run shell commands", or gives similar tool-use limits, apply that only to doing the task. Those limits do not forbid the required end_delegation handoff.',
+    "- Once the delegated task is done or you know it cannot be completed, you must always call the actual mcp:takode_delegate:end_delegation tool with the summary.",
+    "- Do not finish with a normal final answer. The parent only receives completion through the MCP tool result.",
+    "",
     "Delegated task:",
     args.task,
     "",
@@ -64,7 +70,6 @@ function buildDelegatePrompt(args: { parentSessionNum?: number | null; delegateI
     "- You may see delegate_task and end_delegation. Do not call delegate_task from this hidden delegate; Takode will reject nested delegation.",
     "- When you are ready to hand off, call the actual MCP tool mcp:takode_delegate:end_delegation with a summary argument.",
     '- Do not write textual function-call prose such as end_delegation("..."). Text shaped like a function call does not notify the parent.',
-    "- Do not finish with a normal final answer. The parent only receives completion through the MCP tool result.",
     "- If any action has obvious side effects, mention them.",
     "- If the task fails or cannot be safely summarized, explain that.",
     "- Use your judgment to summarize what the parent leader needs next.",
@@ -258,6 +263,22 @@ function delegateTraceResponse(args: {
     : args.childSessionId
       ? { kind: "delegate" as const, label: args.delegateId, sessionId: args.childSessionId }
       : null;
+  const baseTrace = traceEventsFromChildSession(args.childSession);
+  const liveActivity = args.pending ? args.childSession?.delegateLiveActivity : null;
+  const hasLiveActivityInTrace =
+    liveActivity &&
+    typeof liveActivity === "object" &&
+    baseTrace.some((event) => event.kind === liveActivity.kind && event.text === liveActivity.text);
+  const trace =
+    liveActivity && typeof liveActivity === "object" && !hasLiveActivityInTrace
+      ? [
+          ...baseTrace,
+          {
+            ...(liveActivity as DelegateTraceEvent),
+            status: args.childSession?.isGenerating ? "running" : "completed",
+          },
+        ]
+      : baseTrace;
   return {
     delegateId: args.delegateId,
     task: args.task,
@@ -265,7 +286,8 @@ function delegateTraceResponse(args: {
     childSessionId: args.childSessionId ?? null,
     childSessionNum: args.childSessionNum ?? null,
     pending: args.pending,
-    trace: traceEventsFromChildSession(args.childSession),
+    childStatus: args.pending ? (args.childSession?.isGenerating ? "running" : "stopped") : "complete",
+    trace,
     rawOutputLink,
   };
 }

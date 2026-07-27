@@ -152,6 +152,46 @@ async function routeAssistantMessage(
 }
 
 describe("codex-adapter-browser-message-controller thread routing", () => {
+  it("records live streamed activity breadcrumbs for hidden delegate children", async () => {
+    const session = makeSession() as TestCodexSession & {
+      delegateLiveActivity?: { kind: string; label: string; text: string; status: string };
+    };
+    session.state.delegateChild = {
+      parentSessionId: "parent",
+      delegateId: "del_live123",
+      task: "Probe inherited context",
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: "I cannot know the sentinel" } },
+        parent_tool_use_id: null,
+      },
+      deps,
+    );
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: " without inherited context." } },
+        parent_tool_use_id: null,
+      },
+      deps,
+    );
+
+    expect(session.delegateLiveActivity).toMatchObject({
+      kind: "assistant",
+      label: "Assistant",
+      text: "I cannot know the sentinel without inherited context.",
+      status: "running",
+    });
+    expect(broadcasts.filter((msg) => msg.type === "stream_event")).toHaveLength(2);
+  });
+
   it("clears launcher service tier when adapter fallback updates Codex service tier to Standard", async () => {
     // A rejected Fast tier is cleared by the adapter through session_update.
     // The bridge must also clear launcher state, or a later Codex relaunch can

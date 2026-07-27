@@ -249,6 +249,15 @@ export interface ToolItem {
   input: Record<string, unknown>;
 }
 
+interface DelegateTraceItem {
+  kind: "assistant" | "tool";
+  label: string;
+  text?: string;
+  status?: "running" | "completed" | "failed";
+  isError?: boolean;
+  isTruncated?: boolean;
+}
+
 export function PlaygroundToolGroup({ toolName, items }: { toolName: string; items: ToolItem[] }) {
   const [open, setOpen] = useState(false);
   const iconType = getToolIcon(toolName);
@@ -346,6 +355,9 @@ export function PlaygroundSubagentGroup({
   description,
   agentType,
   items,
+  delegateTrace,
+  delegatePendingState,
+  rawDelegateLabel,
   resultText,
   prompt,
   commandPreview,
@@ -356,6 +368,9 @@ export function PlaygroundSubagentGroup({
   description: string;
   agentType: string;
   items: ToolItem[];
+  delegateTrace?: DelegateTraceItem[];
+  delegatePendingState?: "waiting" | "stopped";
+  rawDelegateLabel?: string;
   resultText?: string;
   prompt?: string;
   commandPreview?: string;
@@ -392,6 +407,7 @@ export function PlaygroundSubagentGroup({
   const delegateResultSummary = isDelegate
     ? resultText?.match(/(?:^|\n)Summary:\s*\n?([\s\S]*?)(?=\n\nInspect:|$)/i)?.[1]?.trim()
     : null;
+  const activityCount = items.length + (delegateTrace?.length ?? 0) + (delegatePendingState ? 1 : 0);
 
   return (
     <div className="flex items-start gap-3">
@@ -438,7 +454,7 @@ export function PlaygroundSubagentGroup({
               </span>
             )}
             <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 tabular-nums shrink-0 ml-auto">
-              {items.length > 0 ? items.length : interrupted ? "—" : "0"}
+              {activityCount > 0 ? activityCount : interrupted ? "—" : "0"}
             </span>
           </button>
 
@@ -472,7 +488,7 @@ export function PlaygroundSubagentGroup({
               )}
 
               {/* Child activities */}
-              {items.length > 0 && (
+              {activityCount > 0 && (
                 <div className="border-b border-cc-border/50">
                   <button
                     onClick={() => setActivitiesOpen(!activitiesOpen)}
@@ -489,6 +505,40 @@ export function PlaygroundSubagentGroup({
                   </button>
                   {activitiesOpen && (
                     <div className="px-3 pb-2 space-y-3">
+                      {delegatePendingState === "waiting" && (
+                        <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2 text-[11px] text-cc-muted">
+                          Waiting for delegate handoff through end_delegation. No delegate activity has been recorded
+                          yet.
+                        </div>
+                      )}
+                      {delegatePendingState === "stopped" && (
+                        <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2 text-[11px] text-cc-muted">
+                          Delegate child is stopped or idle without an end_delegation handoff. Takode is keeping the
+                          trace inspectable while the parent waits for the bounded no-handoff path.
+                        </div>
+                      )}
+                      {delegateTrace?.map((event, index) => (
+                        <div
+                          key={event.label + "-" + index}
+                          className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2"
+                        >
+                          <div className="flex items-center gap-2 text-[11px] text-cc-muted">
+                            <ToolIcon type={event.kind === "tool" ? "terminal" : "agent"} />
+                            <span className="font-medium">{event.label}</span>
+                            {event.status && (
+                              <span className={event.isError ? "text-cc-error" : "text-cc-muted/80"}>
+                                {event.status}
+                              </span>
+                            )}
+                            {event.isTruncated && <span className="text-cc-muted/70">truncated</span>}
+                          </div>
+                          {event.text && (
+                            <pre className="mt-1 whitespace-pre-wrap break-words font-mono-code text-[11px] leading-relaxed text-cc-fg/90">
+                              {event.text}
+                            </pre>
+                          )}
+                        </div>
+                      ))}
                       {isDelegateTask && bashItem ? (
                         <>
                           <div className="overflow-hidden rounded-[10px] border border-cc-border bg-cc-card">
@@ -520,7 +570,14 @@ export function PlaygroundSubagentGroup({
                           )}
                         </>
                       ) : (
-                        <PlaygroundToolGroup toolName={items[0]?.name || "Grep"} items={items} />
+                        items.length > 0 && <PlaygroundToolGroup toolName={items[0]?.name || "Grep"} items={items} />
+                      )}
+                      {rawDelegateLabel && (
+                        <div className="text-[11px] text-cc-muted">
+                          <a className="text-cc-primary hover:underline" href={"#/session/" + rawDelegateLabel}>
+                            Open raw delegate transcript: {rawDelegateLabel}
+                          </a>
+                        </div>
                       )}
                     </div>
                   )}
@@ -528,7 +585,7 @@ export function PlaygroundSubagentGroup({
               )}
 
               {/* No children yet indicator */}
-              {items.length === 0 && !resultText && !interrupted && (
+              {activityCount === 0 && !resultText && !interrupted && (
                 <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-cc-muted">
                   <YarnBallSpinner className="w-3.5 h-3.5" />
                   <span>Agent starting...</span>
@@ -536,7 +593,7 @@ export function PlaygroundSubagentGroup({
               )}
 
               {/* Interrupted subagent — session ended without completion */}
-              {items.length === 0 && interrupted && (
+              {activityCount === 0 && interrupted && (
                 <div className="px-3 py-2 text-[11px] text-cc-muted">Agent interrupted</div>
               )}
 
@@ -610,6 +667,44 @@ export function PlaygroundDelegateTaskGroup() {
       resultText={
         "Delegate task completed.\n\nDelegate: del_playground123\nTask: Inspect delegate-sample.txt and summarize the first three sample lines.\n\nSummary:\nRead the first three sample lines.\n\nInspect:\n- Expand the Delegate task card to inspect the delegate trace/raw-output link for delegate del_playground123."
       }
+    />
+  );
+}
+
+export function PlaygroundDelegateTaskPendingNoHandoffGroup() {
+  return (
+    <PlaygroundSubagentGroup
+      description="Delegated task"
+      agentType="delegate_task"
+      commandPreview="Fork-memory probe. Do not use tools or inspect history; answer only from inherited context."
+      prompt="Fork-memory probe. Do not use tools or inspect history; answer only from inherited context."
+      items={[]}
+      delegatePendingState="waiting"
+      rawDelegateLabel="del_waiting123"
+      liveStartedAt={Date.now() - 93_000}
+    />
+  );
+}
+
+export function PlaygroundDelegateTaskPendingLiveActivityGroup() {
+  return (
+    <PlaygroundSubagentGroup
+      description="Delegated task"
+      agentType="delegate_task"
+      commandPreview="Fork-memory probe. Do not use tools or inspect history; answer only from inherited context."
+      prompt="Fork-memory probe. Do not use tools or inspect history; answer only from inherited context."
+      items={[]}
+      delegatePendingState="stopped"
+      rawDelegateLabel="del_live123"
+      liveStartedAt={Date.now() - 183_000}
+      delegateTrace={[
+        {
+          kind: "assistant",
+          label: "Assistant",
+          text: "I cannot know the exact fork-memory sentinel from inherited context. I used no tools.",
+          status: "completed",
+        },
+      ]}
     />
   );
 }

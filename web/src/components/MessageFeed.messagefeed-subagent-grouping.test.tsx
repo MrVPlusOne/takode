@@ -710,6 +710,122 @@ describe("MessageFeed - subagent grouping", () => {
     expect(metadata.textContent).not.toContain("_meta");
   });
 
+  it("renders pending empty delegate traces as waiting for handoff instead of startup", async () => {
+    // Regression coverage for delegate children that have launched but have not emitted
+    // assistant/tool rows yet: the card should expose the pending handoff state and raw
+    // transcript link instead of staying in the empty "Agent starting..." state.
+    const sid = "test-pending-empty-delegate-trace";
+    const task = "Fork-memory probe. Do not use tools; answer only from inherited context.";
+    setStoreStatus(sid, "running");
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "delegate-tool-pending",
+            name: "Agent",
+            input: {
+              description: "Delegated task",
+              subagent_type: "delegate_task",
+              task,
+              prompt: task,
+            },
+          },
+        ],
+      }),
+    ]);
+    mockGetDelegateTrace.mockResolvedValue({
+      delegateId: "del_waiting123",
+      task,
+      childSessionId: "hidden-child-pending",
+      childSessionNum: null,
+      pending: true,
+      childStatus: "stopped",
+      rawOutputLink: { kind: "delegate", label: "del_waiting123", sessionId: "hidden-child-pending" },
+      trace: [],
+    });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    fireEvent.click(screen.getByText("Delegated task"));
+    await waitFor(() => expect(screen.getByText("Activities")).toBeTruthy());
+    expect(screen.queryByText("Agent starting...")).toBeNull();
+    fireEvent.click(screen.getByText("Activities"));
+    expect(
+      screen.getByText(
+        "Waiting for delegate handoff through end_delegation. No delegate activity has been recorded yet.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Delegate child is stopped or idle without an end_delegation handoff. Takode is keeping the trace inspectable while the parent waits for the bounded no-handoff path.",
+      ),
+    ).toBeTruthy();
+    const rawLink = screen.getByRole("link", { name: "Open raw delegate transcript: del_waiting123" });
+    expect(rawLink.getAttribute("href")).toBe("#/session/hidden-child-pending");
+  });
+
+  it("renders pending live delegate assistant activity while the handoff is still waiting", async () => {
+    // A hidden delegate can stream assistant text before calling end_delegation.
+    // The parent card should show that latest activity while preserving the pending handoff state.
+    const sid = "test-pending-live-delegate-trace";
+    const task = "Fork-memory probe. Do not use tools; answer only from inherited context.";
+    setStoreStatus(sid, "running");
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "delegate-tool-live",
+            name: "Agent",
+            input: {
+              description: "Delegated task",
+              subagent_type: "delegate_task",
+              task,
+              prompt: task,
+            },
+          },
+        ],
+      }),
+    ]);
+    mockGetDelegateTrace.mockResolvedValue({
+      delegateId: "del_live123",
+      task,
+      childSessionId: "hidden-child-live",
+      childSessionNum: null,
+      pending: true,
+      childStatus: "running",
+      rawOutputLink: { kind: "delegate", label: "del_live123", sessionId: "hidden-child-live" },
+      trace: [
+        {
+          kind: "assistant",
+          label: "Assistant",
+          text: "I cannot know the exact fork-memory sentinel from inherited context. I used no tools.",
+          status: "running",
+        },
+      ],
+    });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    fireEvent.click(screen.getByText("Delegated task"));
+    await waitFor(() => expect(screen.getByText("Activities")).toBeTruthy());
+    expect(screen.queryByText("Agent starting...")).toBeNull();
+    fireEvent.click(screen.getByText("Activities"));
+    expect(screen.getByText("Assistant")).toBeTruthy();
+    expect(
+      screen.getByText("I cannot know the exact fork-memory sentinel from inherited context. I used no tools."),
+    ).toBeTruthy();
+    const rawLink = screen.getByRole("link", { name: "Open raw delegate transcript: del_live123" });
+    expect(rawLink.getAttribute("href")).toBe("#/session/hidden-child-live");
+  });
+
   it("renders live parented streaming inside the subagent card instead of the top-level streaming bubble", () => {
     const sid = "test-subagent-streaming";
     setStoreMessages(sid, [

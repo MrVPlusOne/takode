@@ -39,6 +39,8 @@ import {
   PlaygroundSectionGroup,
   PlaygroundSelectionContextMenu,
   PlaygroundDelegateTaskGroup,
+  PlaygroundDelegateTaskPendingLiveActivityGroup,
+  PlaygroundDelegateTaskPendingNoHandoffGroup,
   PlaygroundSubagentGroup,
   PlaygroundToolGroup,
   Section,
@@ -1126,6 +1128,12 @@ export function PlaygroundStateSections() {
           </Card>
           <Card label="Delegate task with task preview, trace, and friendly result">
             <PlaygroundDelegateTaskGroup />
+          </Card>
+          <Card label="Delegate task pending handoff (empty trace)">
+            <PlaygroundDelegateTaskPendingNoHandoffGroup />
+          </Card>
+          <Card label="Delegate task pending handoff (live activity, no handoff)">
+            <PlaygroundDelegateTaskPendingLiveActivityGroup />
           </Card>
         </div>
       </Section>
