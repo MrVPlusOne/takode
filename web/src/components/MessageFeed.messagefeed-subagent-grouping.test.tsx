@@ -623,13 +623,13 @@ describe("MessageFeed - subagent grouping", () => {
     expect(screen.getByText("Agent starting...")).toBeTruthy();
   });
 
-  it("renders delegate task cards with task preview, compact trace, and unwrapped MCP result text", async () => {
+  it("renders delegate task cards with grouped Bash trace and summary-first result metadata", async () => {
     const sid = "test-delegate-card";
     const mcpEnvelope = JSON.stringify({
       content: [
         {
           type: "text",
-          text: "Delegate task completed.\n\nDelegate: del_abc123\nTask: Read the first three lines of sample.txt and summarize them.\n\nSummary:\nRead three lines.",
+          text: "Delegate task completed.\n\nDelegate: del_abc123\nTask: Read the first three lines of sample.txt and summarize them.\n\nSummary:\nRead three lines.\n\nInspect:\n- Expand the Delegate task card to inspect the delegate trace/raw-output link for delegate del_abc123.",
         },
       ],
       structuredContent: null,
@@ -666,8 +666,15 @@ describe("MessageFeed - subagent grouping", () => {
       pending: false,
       rawOutputLink: { kind: "delegate", label: "del_abc123", sessionId: "hidden-child" },
       trace: [
-        { kind: "tool", label: "Bash", text: "sed -n '1,3p' sample.txt", status: "running" },
-        { kind: "tool", label: "Result", text: "alpha\nbeta\ngamma", status: "completed", isTruncated: true },
+        { kind: "tool", label: "Bash", toolUseId: "bash-1", text: "sed -n '1,3p' sample.txt", status: "running" },
+        {
+          kind: "tool",
+          label: "Bash result",
+          toolUseId: "bash-1",
+          text: "alpha\nbeta\ngamma",
+          status: "completed",
+          isTruncated: true,
+        },
       ],
     });
 
@@ -680,16 +687,27 @@ describe("MessageFeed - subagent grouping", () => {
     fireEvent.click(screen.getByText("Delegated task"));
     await waitFor(() => expect(mockGetDelegateTrace).toHaveBeenCalled());
     fireEvent.click(screen.getByText("Activities"));
-    expect(screen.getByText("Bash")).toBeTruthy();
-    expect(screen.getAllByText("Result").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText("truncated")).toBeTruthy();
+    const bashGroups = screen.getAllByTestId("delegate-bash-trace-group");
+    expect(bashGroups).toHaveLength(1);
+    expect(within(bashGroups[0]).getByText("sed -n '1,3p' sample.txt")).toBeTruthy();
+    expect(within(bashGroups[0]).getByText(/alpha/)).toBeTruthy();
+    expect(within(bashGroups[0]).getByText("truncated")).toBeTruthy();
     const rawLink = screen.getByRole("link", { name: "Open raw delegate transcript: del_abc123" });
     expect(rawLink.getAttribute("href")).toBe("#/session/hidden-child");
     fireEvent.click(screen.getAllByText("Result").at(-1)!);
-    const resultMarkdown = screen.getAllByTestId("markdown").at(-1)!;
-    expect(resultMarkdown.textContent).toContain("Delegate task completed.");
-    expect(resultMarkdown.textContent).not.toContain("structuredContent");
-    expect(resultMarkdown.textContent).not.toContain("_meta");
+    const resultSummary = screen.getByTestId("delegate-result-summary");
+    expect(resultSummary.textContent).toContain("Read three lines.");
+    expect(resultSummary.textContent).not.toContain("Delegate task completed.");
+    expect(resultSummary.textContent).not.toContain("Read the first three lines of sample.txt and summarize them.");
+    const metadata = screen.getByTestId("delegate-result-metadata");
+    expect(metadata.textContent).toContain("Delegate");
+    expect(metadata.textContent).toContain("del_abc123");
+    expect(metadata.textContent).toContain("Task");
+    expect(metadata.textContent).toContain("Read the first three lines of sample.txt and summarize them.");
+    expect(metadata.textContent).toContain("Inspect");
+    expect(metadata.textContent).toContain("delegate del_abc123");
+    expect(metadata.textContent).not.toContain("structuredContent");
+    expect(metadata.textContent).not.toContain("_meta");
   });
 
   it("renders live parented streaming inside the subagent card instead of the top-level streaming bubble", () => {

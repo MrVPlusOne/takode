@@ -1671,6 +1671,13 @@ function SubagentContainer({
                   parsedText={parsedResultPreview}
                   sessionId={sessionId}
                   toolUseId={group.taskToolUseId}
+                  delegate={{
+                    isDelegate,
+                    isLegacyCommand: isLegacyDelegateCommand,
+                    delegateId,
+                    prompt: delegatePrompt,
+                    trace: delegateTrace,
+                  }}
                 />
               )}
             </div>

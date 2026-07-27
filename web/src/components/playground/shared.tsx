@@ -387,6 +387,11 @@ export function PlaygroundSubagentGroup({
   const isLegacyDelegateCommand = agentType === "delegate_command";
   const isDelegate = isDelegateTask || isLegacyDelegateCommand;
   const delegatePreview = commandPreview || (isDelegate ? prompt : "");
+  const bashItem = items.find((item) => item.name === "Bash");
+  const remainingDelegateItems = isDelegateTask ? items.filter((item) => item !== bashItem) : items;
+  const delegateResultSummary = isDelegate
+    ? resultText?.match(/(?:^|\n)Summary:\s*\n?([\s\S]*?)(?=\n\nInspect:|$)/i)?.[1]?.trim()
+    : null;
 
   return (
     <div className="flex items-start gap-3">
@@ -484,7 +489,39 @@ export function PlaygroundSubagentGroup({
                   </button>
                   {activitiesOpen && (
                     <div className="px-3 pb-2 space-y-3">
-                      <PlaygroundToolGroup toolName={items[0]?.name || "Grep"} items={items} />
+                      {isDelegateTask && bashItem ? (
+                        <>
+                          <div className="overflow-hidden rounded-[10px] border border-cc-border bg-cc-card">
+                            <div className="flex items-center gap-2.5 px-3 py-2">
+                              <svg
+                                viewBox="0 0 16 16"
+                                fill="currentColor"
+                                className="h-3 w-3 shrink-0 rotate-90 text-cc-muted"
+                              >
+                                <path d="M6 4l4 4-4 4" />
+                              </svg>
+                              <ToolIcon type="terminal" />
+                              <span className="min-w-0 flex-1 truncate font-mono-code text-xs text-cc-fg/90">
+                                {String(bashItem.input.command || "")}
+                              </span>
+                              <span className="shrink-0 text-[10px] text-cc-muted">completed</span>
+                            </div>
+                            <div className="border-t border-cc-border px-3 pb-3 pt-2">
+                              <pre className="max-h-40 overflow-x-auto overflow-y-auto whitespace-pre-wrap rounded-lg bg-cc-code-bg px-2.5 py-2 font-mono-code text-[11px] leading-relaxed text-cc-muted">
+                                {String(bashItem.input.result || "Read the first three sample lines.")}
+                              </pre>
+                            </div>
+                          </div>
+                          {remainingDelegateItems.length > 0 && (
+                            <PlaygroundToolGroup
+                              toolName={remainingDelegateItems[0]?.name || "Grep"}
+                              items={remainingDelegateItems}
+                            />
+                          )}
+                        </>
+                      ) : (
+                        <PlaygroundToolGroup toolName={items[0]?.name || "Grep"} items={items} />
+                      )}
                     </div>
                   )}
                 </div>
@@ -522,7 +559,21 @@ export function PlaygroundSubagentGroup({
                   {resultOpen && (
                     <div className="px-3 pb-2">
                       <div className="text-sm max-h-96 overflow-y-auto">
-                        <MarkdownContent text={resultText} />
+                        {isDelegate && delegateResultSummary ? (
+                          <>
+                            <MarkdownContent text={delegateResultSummary} />
+                            <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 border-t border-cc-border/50 pt-2 text-[11px]">
+                              <dt className="text-cc-muted">Delegate</dt>
+                              <dd className="min-w-0 break-words text-cc-fg/85">del_playground123</dd>
+                              <dt className="text-cc-muted">{isLegacyDelegateCommand ? "Command" : "Task"}</dt>
+                              <dd className="min-w-0 break-words text-cc-fg/85">{delegatePreview}</dd>
+                              <dt className="text-cc-muted">Inspect</dt>
+                              <dd className="min-w-0 break-words text-cc-fg/85">delegate del_playground123</dd>
+                            </dl>
+                          </>
+                        ) : (
+                          <MarkdownContent text={resultText} />
+                        )}
                       </div>
                     </div>
                   )}
@@ -547,7 +598,7 @@ export function PlaygroundDelegateTaskGroup() {
         {
           id: "delegate-bash",
           name: "Bash",
-          input: { command: "sed -n '1,3p' delegate-sample.txt" },
+          input: { command: "sed -n '1,3p' delegate-sample.txt", result: "alpha\nbeta\ngamma" },
         },
         {
           id: "delegate-end",
