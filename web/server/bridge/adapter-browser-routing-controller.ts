@@ -1591,7 +1591,42 @@ function shouldWakeCodexForQueuedModelInput(
   if (session.state.backend_state === "recovering") return false;
   if (session.state.backend_state === "broken") return false;
   if (session.state.backend_state === "recovery_suppressed") return false;
+  if (isWaitingForCodexStartupReadiness(session, pendingInputId)) return false;
   return session.codexAdapter?.isConnected?.() === false;
+}
+
+const CODEX_STARTUP_READINESS_WATCHDOG_MS = 30_000;
+
+function isWaitingForCodexStartupReadiness(
+  session: AdapterBrowserRoutingSessionLike,
+  pendingInputId: string | undefined,
+): boolean {
+  if (!pendingInputId) return false;
+  if (!session.codexAdapter) return false;
+  if (session.codexAdapter.isConnected?.() !== false) return false;
+  return session.state.backend_state === "initializing" || session.state.backend_state === "resuming";
+}
+
+function scheduleCodexStartupReadinessWatchdog(
+  session: AdapterBrowserRoutingSessionLike,
+  pendingInputId: string | undefined,
+  deps: AdapterBrowserRoutingDeps,
+): void {
+  if (!isWaitingForCodexStartupReadiness(session, pendingInputId)) return;
+  const timerKey = "codexStartupReadinessWatchdog";
+  const anySession = session as unknown as { [timerKey]?: ReturnType<typeof setTimeout> | null };
+  if (anySession[timerKey]) return;
+  anySession[timerKey] = setTimeout(() => {
+    anySession[timerKey] = null;
+    if (!isWaitingForCodexStartupReadiness(session, pendingInputId)) return;
+    const hasQueuedModelInput =
+      session.pendingCodexInputs.some((input) => input.id === pendingInputId) || session.pendingCodexTurns.length > 0;
+    if (!hasQueuedModelInput) return;
+    console.warn(
+      `[ws-bridge] Codex startup readiness timed out for session ${sessionTag(session.id)}; requesting recovery`,
+    );
+    deps.requestCodexAutoRecovery(session, "startup_readiness_timeout");
+  }, CODEX_STARTUP_READINESS_WATCHDOG_MS);
 }
 
 export function routeAdapterBrowserMessage(
@@ -1830,6 +1865,11 @@ export function routeAdapterBrowserMessage(
           `[ws-bridge] Codex adapter not yet attached for session ${sessionTag(session.id)}, queued user_message`,
         );
         maybeRequestAdapterRelaunchForUserMessage(session, deps);
+      } else if (msg.type === "user_message" && isWaitingForCodexStartupReadiness(session, queuedModelInputId)) {
+        console.log(
+          `[ws-bridge] Codex model-bound pending input queued while session ${sessionTag(session.id)} awaits startup readiness`,
+        );
+        scheduleCodexStartupReadinessWatchdog(session, queuedModelInputId, deps);
       } else if (msg.type === "user_message" && shouldWakeCodexForQueuedModelInput(session, queuedModelInputId)) {
         console.log(
           `[ws-bridge] Codex model-bound pending input queued during reconnect window for session ${sessionTag(session.id)}`,

@@ -1331,6 +1331,123 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     recoverySpy.mockRestore();
   });
 
+  it.each([
+    "initializing",
+    "resuming",
+  ] as const)("waits for Codex session_meta before relaunching an attached %s adapter", async (backendState) => {
+    // An attached Codex app-server is not dead just because it has not
+    // emitted session_meta yet. Queue model-bound input and let session_meta
+    // dispatch it, preserving metadata refresh ordering.
+    const sid = `s-codex-startup-readiness-${backendState}`;
+    const relaunchCb = vi.fn();
+    const recoverySpy = vi.spyOn(bridge as any, "requestCodexAutoRecovery");
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({
+        backendType: "codex",
+        state: "connected",
+        killedByIdleManager: false,
+        ...(backendState === "resuming" ? { cliSessionId: "thread-existing" } : {}),
+      })),
+    } as any);
+
+    const session = bridge.getOrCreateSession(sid, "codex");
+    const adapter = makeCodexAdapterMock();
+    adapter.isConnected.mockReturnValue(false);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    session.state.backend_state = backendState;
+
+    const delivery = bridge.injectUserMessage(sid, `queued while ${backendState}`);
+    await Promise.resolve();
+
+    expect(delivery).toBe("queued");
+    expect(recoverySpy).not.toHaveBeenCalled();
+    expect(relaunchCb).not.toHaveBeenCalled();
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(session.pendingCodexInputs.map((input: any) => input.content)).toContain(`queued while ${backendState}`);
+    expectCodexStartPendingTurnLike(getPendingCodexTurn(session), {
+      firstContent: `queued while ${backendState}`,
+      status: "queued",
+      dispatchCount: 0,
+    });
+
+    adapter.isConnected.mockReturnValue(true);
+    emitCodexSessionReady(adapter, { cliSessionId: `thread-ready-${backendState}` });
+
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "codex_start_pending" }));
+    expectCodexStartPendingTurnLike(getPendingCodexTurn(session), {
+      firstContent: `queued while ${backendState}`,
+      status: "dispatched",
+      dispatchCount: 1,
+    });
+    recoverySpy.mockRestore();
+  });
+
+  it("requests recovery if Codex startup readiness never arrives for queued input", async () => {
+    vi.useFakeTimers();
+    const recoverySpy = vi.spyOn(bridge as any, "requestCodexAutoRecovery");
+    try {
+      const sid = "s-codex-startup-readiness-timeout";
+      const relaunchCb = vi.fn();
+      bridge.onCLIRelaunchNeededCallback(relaunchCb);
+      bridge.setLauncher({
+        touchActivity: vi.fn(),
+        touchUserMessage: vi.fn(),
+        getSession: vi.fn(() => ({ backendType: "codex", state: "connected", killedByIdleManager: false })),
+      } as any);
+
+      const session = bridge.getOrCreateSession(sid, "codex");
+      const adapter = makeCodexAdapterMock();
+      adapter.isConnected.mockReturnValue(false);
+      bridge.attachCodexAdapter(sid, adapter as any);
+      session.state.backend_state = "initializing";
+
+      const delivery = bridge.injectUserMessage(sid, "queued before readiness timeout");
+
+      expect(delivery).toBe("queued");
+      expect(recoverySpy).not.toHaveBeenCalled();
+      expect(relaunchCb).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(recoverySpy).toHaveBeenCalledWith(session, "startup_readiness_timeout");
+      expect(relaunchCb).toHaveBeenCalledWith(sid);
+      expect(session.state.backend_state).toBe("recovering");
+    } finally {
+      recoverySpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("still requests recovery when queued input targets an attached but disconnected Codex adapter", async () => {
+    const sid = "s-codex-disconnected-adapter";
+    const relaunchCb = vi.fn();
+    const recoverySpy = vi.spyOn(bridge as any, "requestCodexAutoRecovery");
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ backendType: "codex", state: "connected", killedByIdleManager: false })),
+    } as any);
+
+    const session = bridge.getOrCreateSession(sid, "codex");
+    const adapter = makeCodexAdapterMock();
+    adapter.isConnected.mockReturnValue(false);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    session.state.backend_state = "disconnected";
+
+    const delivery = bridge.injectUserMessage(sid, "wake disconnected adapter");
+    await Promise.resolve();
+
+    expect(delivery).toBe("queued");
+    expect(recoverySpy).toHaveBeenCalledWith(session, "queued_user_message_adapter_missing");
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    expect(session.state.backend_state).toBe("recovering");
+    recoverySpy.mockRestore();
+  });
+
   it("requests only one relaunch when injecting into an exited SDK session with no adapter", async () => {
     // SDK missing-adapter routing already requests relaunch. The shared
     // injectUserMessage fallback must not add a second request, because
