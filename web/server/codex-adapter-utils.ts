@@ -50,6 +50,17 @@ export function isRecoverableCodexInitError(error: string): boolean {
   return !hasActionableCodexInitFailure(error);
 }
 
+export function isMissingCodexRolloutError(err: unknown): boolean {
+  const message = String(err).toLowerCase();
+  return message.includes("no rollout found") || message.includes("empty session file");
+}
+
+export function assertRequiredCodexResumeThread(actualThreadId: string, requiredThreadId?: string): void {
+  if (requiredThreadId && actualThreadId !== requiredThreadId) {
+    throw new Error(`thread/resume returned ${actualThreadId} but ${requiredThreadId} was required`);
+  }
+}
+
 export function formatPendingRpcRequests(pending: JsonRpcPendingRequestSummary[]): string {
   return `[${pending.map((entry) => `${entry.id}:${entry.method}:${entry.ageMs}ms`).join(",")}]`;
 }

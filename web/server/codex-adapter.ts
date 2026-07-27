@@ -24,6 +24,7 @@ import type { CodexAdapterOptions, CodexSessionMeta } from "./codex-adapter-type
 import {
   buildCodexResumeSnapshot,
   buildCodexCollabMode,
+  assertRequiredCodexResumeThread,
   extractCodexAppsPage,
   extractCodexMentionInputs,
   extractCodexSkillReferences,
@@ -32,6 +33,7 @@ import {
   isCodexCollaborationModeUnsupportedError,
   isCodexServiceTierRejection,
   isCodexTransportClosedError,
+  isMissingCodexRolloutError,
   isCompactSlashCommand,
   isRecoverableCodexTurnStartError,
   mapCodexApprovalPolicy,
@@ -863,11 +865,6 @@ export class CodexAdapter
     return threadId;
   }
 
-  private isMissingRolloutError(err: unknown): boolean {
-    const message = String(err).toLowerCase();
-    return message.includes("no rollout found") || message.includes("empty session file");
-  }
-
   // ── Initialization ──────────────────────────────────────────────────────
 
   private async initialize(): Promise<void> {
@@ -902,11 +899,7 @@ export class CodexAdapter
           )) as { thread: Record<string, unknown> & { id: string } };
           this.threadId = resumeResult.thread.id;
           resumeSnapshot = buildCodexResumeSnapshot(resumeResult.thread);
-          if (this.options.requireResumeThreadId && this.threadId !== this.options.requireResumeThreadId) {
-            throw new Error(
-              `thread/resume returned ${this.threadId} but ${this.options.requireResumeThreadId} was required`,
-            );
-          }
+          assertRequiredCodexResumeThread(this.threadId, this.options.requireResumeThreadId);
           // Only set currentTurnId if the turn is truly in-progress AND the
           // thread itself isn't idle. After a CLI restart, the thread reports
           // idle but the last turn's status may still say "inProgress" — that
@@ -917,7 +910,7 @@ export class CodexAdapter
         } catch (err) {
           // Fresh or partially-initialized Codex threads may fail resume with
           // "no rollout found". Fall back to a fresh thread to avoid a stuck session.
-          if (!this.isMissingRolloutError(err) || this.options.requireResumeThreadId) throw err;
+          if (!isMissingCodexRolloutError(err) || this.options.requireResumeThreadId) throw err;
           console.warn(
             `[codex-adapter] thread/resume failed for ${this.options.threadId}: ${err}. Starting a fresh thread.`,
           );
