@@ -37,6 +37,22 @@ export function applyDefaultClaudeBackend(backend: SessionBackend): SessionBacke
   return configured === "claude-sdk" ? "claude-sdk" : "claude";
 }
 
+export function getBackendLaunchDisplayName(backend: SessionBackend): string {
+  switch (backend) {
+    case "claude":
+      return "Claude Code";
+    case "claude-sdk":
+      return "Claude SDK";
+    case "codex":
+      return "Codex";
+  }
+}
+
+export function getLaunchingCliLabel(options: { backend: SessionBackend; resumeCliSessionId?: string }): string {
+  if (options.resumeCliSessionId) return "Resuming CLI session...";
+  return `Launching ${getBackendLaunchDisplayName(options.backend)}...`;
+}
+
 export function throwPreparationError(message: string, status: SessionPreparationStatus, step?: CreationStepId): never {
   throw new SessionPreparationError(message, status, step);
 }

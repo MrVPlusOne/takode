@@ -566,6 +566,38 @@ describe("POST /api/sessions/create-stream", () => {
     expect(doneData.cwd).toBe("/test");
   });
 
+  it.each([
+    { backend: "claude", expectedLabel: "Launching Claude Code..." },
+    { backend: "claude-sdk", expectedLabel: "Launching Claude SDK..." },
+    { backend: "codex", expectedLabel: "Launching Codex..." },
+  ] as const)("uses a backend-specific launch progress label for $backend sessions", async ({
+    backend,
+    expectedLabel,
+  }) => {
+    // The startup progress stream is user-visible before the backend connects,
+    // so it must describe the resolved backend without changing launch behavior.
+    const res = await app.request("/api/sessions/create-stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ backend, cwd: "/test" }),
+    });
+
+    expect(res.status).toBe(200);
+    const events = await parseSSE(res);
+    const launchProgressEvents = events
+      .filter((e) => e.event === "progress")
+      .map((e) => JSON.parse(e.data))
+      .filter((event) => event.step === "launching_cli");
+
+    expect(launchProgressEvents[0]).toEqual(
+      expect.objectContaining({
+        label: expectedLabel,
+        status: "in_progress",
+      }),
+    );
+    expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ backendType: backend }));
+  });
+
   it("injects COMPANION_PORT when resuming via create-stream", async () => {
     const res = await app.request("/api/sessions/create-stream", {
       method: "POST",

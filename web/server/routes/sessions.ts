@@ -37,6 +37,7 @@ import {
   SessionPreparationStatus,
   applyDefaultClaudeBackend,
   computeCodexRevertPlan,
+  getLaunchingCliLabel,
   getActorSessionId,
   getArchiveSource,
   resolveBackend,
@@ -920,19 +921,18 @@ export function createSessionsRoutes(ctx: RouteContext) {
           applyDefaultClaudeBackend(backend),
           (step, label, status, detail) => emitProgress(stream, step, label, status, detail),
         );
+        const launchingCliLabel = getLaunchingCliLabel({
+          backend: sessionConfig.launchOptions.backendType ?? "claude",
+          resumeCliSessionId: sessionConfig.resumeCliSessionId,
+        });
 
-        await emitProgress(
-          stream,
-          "launching_cli",
-          sessionConfig.resumeCliSessionId ? "Resuming CLI session..." : "Launching Claude Code...",
-          "in_progress",
-        );
+        await emitProgress(stream, "launching_cli", launchingCliLabel, "in_progress");
 
         const session = await withProgressHeartbeat(
           (step, label, status, detail) => emitProgress(stream, step, label, status, detail),
           {
             step: "launching_cli",
-            label: sessionConfig.resumeCliSessionId ? "Resuming CLI session..." : "Launching Claude Code...",
+            label: launchingCliLabel,
             detail: sessionConfig.worktreeInfo ? "Finishing worktree setup..." : "Still launching CLI...",
           },
           () => launcher.launch(sessionConfig.launchOptions),
