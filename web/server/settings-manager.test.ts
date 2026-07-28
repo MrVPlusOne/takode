@@ -65,7 +65,8 @@ describe("settings-manager", () => {
         enhancementEnabled: true,
         enhancementMode: "default",
         enhancementModel: "gpt-5-mini",
-        sttModel: "gpt-4o-mini-transcribe",
+        sttModel: "gpt-transcribe",
+        sttLanguageHints: [],
       },
       editorConfig: { editor: "none" },
       defaultClaudeBackend: "claude",
@@ -266,7 +267,8 @@ describe("settings-manager", () => {
       enhancementMode: "default",
       enhancementModel: "gpt-5-mini",
       customVocabulary: "Takode, WsBridge, Questmaster",
-      sttModel: "gpt-4o-mini-transcribe",
+      sttModel: "gpt-transcribe",
+      sttLanguageHints: [],
     });
   });
 
@@ -479,7 +481,8 @@ describe("settings-manager", () => {
       enhancementEnabled: false,
       enhancementMode: "default",
       enhancementModel: "gpt-4o-mini",
-      sttModel: "gpt-4o-mini-transcribe",
+      sttModel: "gpt-transcribe",
+      sttLanguageHints: [],
     });
 
     await _flushForTest();
@@ -536,7 +539,8 @@ describe("settings-manager", () => {
         enhancementEnabled: true,
         enhancementMode: "default",
         enhancementModel: "gpt-5-mini",
-        sttModel: "gpt-4o-mini-transcribe",
+        sttModel: "gpt-transcribe",
+        sttLanguageHints: [],
       },
       editorConfig: { editor: "none" },
       defaultClaudeBackend: "claude",

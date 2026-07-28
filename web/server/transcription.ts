@@ -7,6 +7,20 @@
 
 import { getSettings } from "./settings-manager.js";
 
+export interface SanitizedTranscriptionKeywords {
+  keywords: string[];
+  droppedKeywordCount: number;
+}
+
+export interface OpenaiTranscriptionOptions {
+  sttPrompt?: string;
+  fileName?: string;
+  sttModel?: string;
+  baseUrl?: string;
+  keywords?: string[];
+  languageHints?: string[];
+}
+
 type AudioUploadFormat = {
   mimeType: string;
   extension: string;
@@ -176,24 +190,35 @@ export async function transcribeWithOpenai(
   audioBuffer: Buffer,
   mimeType: string,
   apiKey: string,
-  sttPrompt?: string,
+  optionsOrPrompt?: OpenaiTranscriptionOptions | string,
   fileName?: string,
-  sttModel: string = "gpt-4o-mini-transcribe",
+  sttModel?: string,
 ): Promise<string> {
-  const format = resolveAudioUploadFormat(audioBuffer, mimeType, fileName);
+  const options: OpenaiTranscriptionOptions =
+    typeof optionsOrPrompt === "object" && optionsOrPrompt !== null
+      ? optionsOrPrompt
+      : { sttPrompt: optionsOrPrompt, fileName, sttModel };
+  const resolvedModel = options.sttModel || getSettings().transcriptionConfig.sttModel || "gpt-transcribe";
+  const format = resolveAudioUploadFormat(audioBuffer, mimeType, options.fileName);
 
   const form = new FormData();
-  form.append("model", sttModel);
+  form.append("model", resolvedModel);
   form.append(
     "file",
     new Blob([new Uint8Array(audioBuffer)], { type: format.mimeType }),
     `recording.${format.extension}`,
   );
-  if (sttPrompt) {
-    form.append("prompt", sttPrompt);
+  if (options.sttPrompt) {
+    form.append("prompt", options.sttPrompt);
+  }
+  for (const keyword of options.keywords ?? []) {
+    form.append("keywords[]", keyword);
+  }
+  for (const languageHint of options.languageHints ?? []) {
+    form.append("languages[]", languageHint);
   }
 
-  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+  const response = await fetch(buildOpenaiTranscriptionUrl(options.baseUrl), {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}` },
     body: form,
@@ -210,6 +235,33 @@ export async function transcribeWithOpenai(
   }
 
   return data.text.trim();
+}
+
+export function sanitizeTranscriptionKeywords(
+  customVocabulary: string | null | undefined,
+): SanitizedTranscriptionKeywords {
+  if (!customVocabulary?.trim()) return { keywords: [], droppedKeywordCount: 0 };
+  const seen = new Set<string>();
+  const keywords: string[] = [];
+  let droppedKeywordCount = 0;
+  for (const rawTerm of customVocabulary.split(",")) {
+    const keyword = rawTerm.trim();
+    const dedupeKey = keyword.toLocaleLowerCase();
+    if (!keyword || /[<>\r\n]/.test(keyword) || seen.has(dedupeKey)) {
+      droppedKeywordCount++;
+      continue;
+    }
+    seen.add(dedupeKey);
+    keywords.push(keyword);
+  }
+  return { keywords, droppedKeywordCount };
+}
+
+export function buildOpenaiTranscriptionUrl(baseUrl: string | null | undefined): string {
+  const configuredBaseUrl = baseUrl?.trim() || getSettings().transcriptionConfig.baseUrl || "https://api.openai.com/v1";
+  const withoutTrailingSlash = configuredBaseUrl.replace(/\/+$/, "");
+  if (withoutTrailingSlash.endsWith("/audio/transcriptions")) return withoutTrailingSlash;
+  return `${withoutTrailingSlash}/audio/transcriptions`;
 }
 
 /**

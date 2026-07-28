@@ -17,6 +17,7 @@ import {
   normalizeSessionDefaults,
   type SessionDefaultsSettings,
 } from "../shared/session-defaults.js";
+import { normalizeGptTranscribeLanguageHints } from "../shared/transcription-language-hints.js";
 
 export interface CompanionSettings {
   /** Display name for this server instance */
@@ -129,8 +130,14 @@ export const DEFAULT_QUESTMASTER_COMPACT_SORT: QuestmasterCompactSort = { column
 export type EnhancementMode = "default" | "bullet";
 
 /** Available OpenAI STT models. */
-export const STT_MODELS = ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "gpt-4o-mini-transcribe-2025-12-15"] as const;
-const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
+export const GPT_TRANSCRIBE_STT_MODEL = "gpt-transcribe";
+export const STT_MODELS = [
+  GPT_TRANSCRIBE_STT_MODEL,
+  "gpt-4o-mini-transcribe",
+  "gpt-4o-transcribe",
+  "gpt-4o-mini-transcribe-2025-12-15",
+] as const;
+export const DEFAULT_STT_MODEL = GPT_TRANSCRIBE_STT_MODEL;
 export type BuiltInSttModel = (typeof STT_MODELS)[number];
 export type SttModel = string;
 
@@ -150,6 +157,8 @@ export interface TranscriptionConfig {
   enhancementMode?: EnhancementMode;
   /** OpenAI STT model to use for speech-to-text. */
   sttModel?: SttModel;
+  /** Expected input-language hints for gpt-transcribe. */
+  sttLanguageHints?: string[];
   /** Preferred voice capture mode when composer has text: "edit" (interpret as instructions) or "append" (add text). */
   voiceCaptureMode?: "edit" | "append";
 }
@@ -223,6 +232,7 @@ let settings: CompanionSettings = {
     customVocabulary: "",
     enhancementMode: "default",
     sttModel: DEFAULT_STT_MODEL,
+    sttLanguageHints: [],
   },
   editorConfig: { editor: "none" },
   sleepInhibitorEnabled: false,
@@ -351,6 +361,7 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
       enhancementModel: typeof c.enhancementModel === "string" ? c.enhancementModel : "gpt-5-mini",
       customVocabulary: typeof c.customVocabulary === "string" ? c.customVocabulary : "",
       sttModel,
+      sttLanguageHints: normalizeGptTranscribeLanguageHints(c.sttLanguageHints),
       enhancementMode,
       voiceCaptureMode,
     };
@@ -362,6 +373,7 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
     enhancementModel: "gpt-5-mini",
     customVocabulary: "",
     sttModel: DEFAULT_STT_MODEL,
+    sttLanguageHints: [],
     enhancementMode: "default",
   };
 }

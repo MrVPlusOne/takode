@@ -1,12 +1,14 @@
-import type { ComponentProps, Dispatch, SetStateAction } from "react";
+import { useMemo, useState, type ComponentProps, type Dispatch, type SetStateAction } from "react";
 import { api, type TranscriptionConfig } from "../api.js";
+import { GPT_TRANSCRIBE_LANGUAGE_HINTS } from "../../shared/transcription-language-hints.js";
 import { CollapsibleSection } from "./CollapsibleSection.js";
 import { EnhancementTester } from "./EnhancementTester.js";
 import { TranscriptionDebugPanel } from "./TranscriptionDebugPanel.js";
 
-export const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
+export const DEFAULT_STT_MODEL = "gpt-transcribe";
 export const CUSTOM_STT_MODEL_VALUE = "__custom__";
 export const BUILT_IN_STT_MODELS = [
+  "gpt-transcribe",
   "gpt-4o-mini-transcribe",
   "gpt-4o-transcribe",
   "gpt-4o-mini-transcribe-2025-12-15",
@@ -27,6 +29,8 @@ interface SettingsVoiceTranscriptionSectionProps {
   setSttModel: Dispatch<SetStateAction<string>>;
   customSttModel: string;
   setCustomSttModel: Dispatch<SetStateAction<string>>;
+  sttLanguageHints: string[];
+  setSttLanguageHints: Dispatch<SetStateAction<string[]>>;
   transcriptionEnhancement: boolean;
   setTranscriptionEnhancement: Dispatch<SetStateAction<boolean>>;
   enhancementMode: "default" | "bullet";
@@ -54,6 +58,8 @@ export function SettingsVoiceTranscriptionSection({
   setSttModel,
   customSttModel,
   setCustomSttModel,
+  sttLanguageHints,
+  setSttLanguageHints,
   transcriptionEnhancement,
   setTranscriptionEnhancement,
   enhancementMode,
@@ -67,6 +73,23 @@ export function SettingsVoiceTranscriptionSection({
   transcriptionError,
   setTranscriptionError,
 }: SettingsVoiceTranscriptionSectionProps) {
+  const [languageSearch, setLanguageSearch] = useState("");
+  const isGptTranscribeSelected = sttModel === DEFAULT_STT_MODEL;
+  const selectedLanguageHintSet = useMemo(() => new Set(sttLanguageHints), [sttLanguageHints]);
+  const filteredLanguageHints = useMemo(() => {
+    const query = languageSearch.trim().toLowerCase();
+    if (!query) return GPT_TRANSCRIBE_LANGUAGE_HINTS;
+    return GPT_TRANSCRIBE_LANGUAGE_HINTS.filter(
+      (hint) => hint.code.includes(query) || hint.name.toLowerCase().includes(query),
+    );
+  }, [languageSearch]);
+
+  function toggleLanguageHint(code: string) {
+    setSttLanguageHints((current) =>
+      current.includes(code) ? current.filter((hint) => hint !== code) : [...current, code],
+    );
+  }
+
   async function saveTranscriptionSettings() {
     setTranscriptionError("");
     setTranscriptionSaved(false);
@@ -85,6 +108,7 @@ export function SettingsVoiceTranscriptionSection({
         customVocabulary: transcriptionVocabulary,
         enhancementMode,
         sttModel: resolvedSttModel,
+        sttLanguageHints,
       };
       await api.updateSettings({ transcriptionConfig: config });
       if (sttModel === CUSTOM_STT_MODEL_VALUE) setCustomSttModel(resolvedSttModel);
@@ -168,6 +192,65 @@ export function SettingsVoiceTranscriptionSection({
               placeholder="whisper-large-v3"
               className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
             />
+          </div>
+        )}
+        {isGptTranscribeSelected && (
+          <div>
+            <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="stt-language-search">
+              Expected Languages
+            </label>
+            <div className="space-y-2 rounded-lg border border-cc-border bg-cc-input-bg/40 p-2">
+              {sttLanguageHints.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {sttLanguageHints.map((code) => {
+                    const hint = GPT_TRANSCRIBE_LANGUAGE_HINTS.find((candidate) => candidate.code === code);
+                    return (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => toggleLanguageHint(code)}
+                        className="rounded-full border border-cc-border bg-cc-hover px-2 py-1 text-xs text-cc-fg"
+                        aria-label={`Remove ${hint?.name ?? code} (${code})`}
+                      >
+                        {hint?.name ?? code} <span className="font-mono">{code}</span> ×
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <input
+                id="stt-language-search"
+                type="search"
+                value={languageSearch}
+                onChange={(e) => setLanguageSearch(e.target.value)}
+                placeholder="Search language name or code…"
+                className="w-full px-3 py-2 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
+              />
+              <div role="listbox" aria-label="Expected language options" className="max-h-40 overflow-y-auto space-y-1">
+                {filteredLanguageHints.map((hint) => {
+                  const selected = selectedLanguageHintSet.has(hint.code);
+                  return (
+                    <button
+                      key={hint.code}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      onClick={() => toggleLanguageHint(hint.code)}
+                      className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs ${
+                        selected ? "bg-cc-primary/15 text-cc-fg" : "text-cc-muted hover:bg-cc-hover"
+                      }`}
+                    >
+                      <span>{hint.name}</span>
+                      <span className="font-mono text-[11px]">{hint.code}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-cc-muted">
+              Optional gpt-transcribe input-language hints. This is a conservative static list based on documented
+              OpenAI-supported code formats, not live-provider validation.
+            </p>
           </div>
         )}
         <div>

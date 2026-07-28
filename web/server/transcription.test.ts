@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveAudioUploadFormat } from "./transcription.js";
+import {
+  buildOpenaiTranscriptionUrl,
+  resolveAudioUploadFormat,
+  sanitizeTranscriptionKeywords,
+} from "./transcription.js";
 
 describe("resolveAudioUploadFormat", () => {
   it("normalizes browser codec suffixes for mp4 recordings", () => {
@@ -36,5 +40,27 @@ describe("resolveAudioUploadFormat", () => {
       mimeType: "audio/ogg",
       extension: "ogg",
     });
+  });
+});
+
+describe("sanitizeTranscriptionKeywords", () => {
+  it("trims, deduplicates, and drops keyword values rejected by gpt-transcribe", () => {
+    // gpt-transcribe rejects keywords containing angle brackets or line breaks,
+    // so invalid terms are dropped instead of silently rewritten.
+    expect(sanitizeTranscriptionKeywords(" Takode, WsBridge, takode, bad<term>, multi\nline, , AC-42 ")).toEqual({
+      keywords: ["Takode", "WsBridge", "AC-42"],
+      droppedKeywordCount: 4,
+    });
+  });
+});
+
+describe("buildOpenaiTranscriptionUrl", () => {
+  it("routes OpenAI-compatible transcription through the configured base URL", () => {
+    expect(buildOpenaiTranscriptionUrl("https://provider.example/v1/")).toBe(
+      "https://provider.example/v1/audio/transcriptions",
+    );
+    expect(buildOpenaiTranscriptionUrl("https://provider.example/v1/audio/transcriptions")).toBe(
+      "https://provider.example/v1/audio/transcriptions",
+    );
   });
 });

@@ -170,6 +170,7 @@ vi.mock("./settings-manager.js", () => ({
   setServerName: vi.fn(),
   getServerId: vi.fn(() => "test-server-id"),
   getClaudeUserDefaultModel: vi.fn(async () => ""),
+  GPT_TRANSCRIBE_STT_MODEL: "gpt-transcribe",
 }));
 
 const mockGetUsageLimits = vi.hoisted(() => vi.fn());
@@ -711,6 +712,96 @@ describe("POST /api/transcribe", () => {
     const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
     const outboundForm = init.body as FormData;
     expect(outboundForm.get("model")).toBe("whisper-large-v3");
+  });
+
+  it("sends gpt-transcribe prompt, sanitized keywords, language hints, and configured base URL", async () => {
+    mockVoiceSettings({
+      baseUrl: "https://provider.example/v1/",
+      enhancementEnabled: false,
+      sttModel: "gpt-transcribe",
+      customVocabulary: "Takode, WsBridge, takode, bad<term>, multi\nline, AC-42",
+      sttLanguageHints: ["en", "fr"],
+    });
+    vi.mocked(sessionNames.getName).mockReturnValue("GPT Transcribe context session");
+    ensureBridgeSession(bridge, "session-1", {
+      taskHistory: [{ title: "Route transcription context" }],
+      messageHistory: [],
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ text: "transcribed text" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const form = new FormData();
+    form.append("audio", new File([new Uint8Array([0x52, 0x49, 0x46, 0x46])], "recording.wav", { type: "audio/wav" }));
+    form.append("backend", "openai");
+    form.append("sessionId", "session-1");
+
+    const res = await app.request("/api/transcribe", { method: "POST", body: form });
+
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(fetch).toHaveBeenCalledOnce();
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://provider.example/v1/audio/transcriptions");
+    const outboundForm = init.body as FormData;
+    const sttPrompt = String(outboundForm.get("prompt"));
+    expect(outboundForm.get("model")).toBe("gpt-transcribe");
+    expect(sttPrompt).toContain("Session: GPT Transcribe context session");
+    expect(sttPrompt).not.toContain("Custom vocabulary:");
+    expect(outboundForm.getAll("keywords[]")).toEqual(["Takode", "WsBridge", "AC-42"]);
+    expect(outboundForm.getAll("languages[]")).toEqual(["en", "fr"]);
+    expect(outboundForm.has("language")).toBe(false);
+    expect(transcriptionEnhancer.getTranscriptionLogIndex()[0]).toEqual(
+      expect.objectContaining({
+        sttContext: {
+          promptLength: sttPrompt.length,
+          keywordCount: 3,
+          droppedKeywordCount: 3,
+          languageHints: ["en", "fr"],
+        },
+      }),
+    );
+  });
+
+  it("keeps custom vocabulary in the prompt for older STT models without gpt-transcribe fields", async () => {
+    mockVoiceSettings({
+      enhancementEnabled: false,
+      sttModel: "gpt-4o-mini-transcribe",
+      customVocabulary: "Takode, WsBridge",
+      sttLanguageHints: ["en", "fr"],
+    });
+    vi.mocked(sessionNames.getName).mockReturnValue("Legacy STT context session");
+    ensureBridgeSession(bridge, "session-1", {
+      taskHistory: [{ title: "Preserve legacy prompt context" }],
+      messageHistory: [],
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ text: "transcribed text" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const form = new FormData();
+    form.append("audio", new File([new Uint8Array([0x52, 0x49, 0x46, 0x46])], "recording.wav", { type: "audio/wav" }));
+    form.append("backend", "openai");
+    form.append("sessionId", "session-1");
+
+    const res = await app.request("/api/transcribe", { method: "POST", body: form });
+
+    expect(res.status).toBe(200);
+    await res.text();
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const outboundForm = init.body as FormData;
+    const sttPrompt = String(outboundForm.get("prompt"));
+    expect(outboundForm.get("model")).toBe("gpt-4o-mini-transcribe");
+    expect(sttPrompt).toContain("Custom vocabulary: Takode, WsBridge");
+    expect(outboundForm.getAll("keywords[]")).toEqual([]);
+    expect(outboundForm.getAll("languages[]")).toEqual([]);
   });
 
   it("records pre-stream upload time separately from STT timing for raw dictation uploads", async () => {
@@ -1372,7 +1463,7 @@ describe("POST /api/transcribe", () => {
   });
 
   it("uses selected quest-thread conversation context for STT and dictation enhancement", async () => {
-    mockVoiceSettings({ customVocabulary: "Takode, WsBridge, SelectedCustomTerm" });
+    mockVoiceSettings({ sttModel: "gpt-4o-mini-transcribe", customVocabulary: "Takode, WsBridge, SelectedCustomTerm" });
     vi.mocked(sessionNames.getName).mockReturnValue("Leader voice session");
     ensureBridgeSession(bridge, "session-1", {
       taskHistory: [{ title: "Route voice context" }],

@@ -7,6 +7,7 @@ import {
   getTranscriptionStatus,
   resolveAudioUploadFormat,
   resolveOpenAIKey,
+  sanitizeTranscriptionKeywords,
 } from "../transcription.js";
 import {
   enhanceTranscript,
@@ -23,7 +24,7 @@ import {
   type TranscriptionUiTiming,
 } from "../transcription-enhancer.js";
 import * as sessionNames from "../session-names.js";
-import { getSettings } from "../settings-manager.js";
+import { GPT_TRANSCRIBE_STT_MODEL, getSettings } from "../settings-manager.js";
 import type { RouteContext } from "./context.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import { buildProjectedThreadEntries } from "../../shared/thread-window.js";
@@ -636,7 +637,17 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     const recordFailedUpload = async (
       message: string,
       phase: string,
-      details?: { sttModel?: string; sttPrompt?: string; rawTranscript?: string },
+      details?: {
+        sttModel?: string;
+        sttPrompt?: string;
+        sttContext?: {
+          promptLength: number;
+          keywordCount: number;
+          droppedKeywordCount: number;
+          languageHints: string[];
+        };
+        rawTranscript?: string;
+      },
     ) => {
       await addTranscriptionLogEntry({
         status: "error",
@@ -648,6 +659,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         sttModel: details?.sttModel ?? backend ?? "unavailable",
         sttDurationMs: 0,
         sttPrompt: details?.sttPrompt ?? "",
+        sttContext: details?.sttContext,
         rawTranscript: details?.rawTranscript ?? "",
         audioSizeBytes: buf.length,
         audioMimeType: audioMimeType ?? uploadFormat.mimeType,
@@ -709,6 +721,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     let debugSttPrompt = "";
     let debugSttModel = backend;
     let debugRawTranscript = "";
+    let debugSttContext = { promptLength: 0, keywordCount: 0, droppedKeywordCount: 0, languageHints: [] as string[] };
     return streamSSE(c, async (stream: SSEStreamingApi) => {
       try {
         // Send an immediate body chunk so the client can leave its pre-STT
@@ -734,6 +747,14 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         // Build context-aware STT prompt (guides vocabulary recognition)
         // Get recent non-archived session names sorted by activity (most recent first)
         const contextBuildStart = Date.now();
+        const settings = getSettings();
+        const transcriptionConfig = settings.transcriptionConfig;
+        const configuredSttModel = transcriptionConfig.sttModel || GPT_TRANSCRIBE_STT_MODEL;
+        const usesGptTranscribeContext = backend === "openai" && configuredSttModel === GPT_TRANSCRIBE_STT_MODEL;
+        const sanitizedKeywords = usesGptTranscribeContext
+          ? sanitizeTranscriptionKeywords(transcriptionConfig.customVocabulary)
+          : { keywords: [], droppedKeywordCount: 0 };
+        const sttLanguageHints = usesGptTranscribeContext ? transcriptionConfig.sttLanguageHints || [] : [];
         const sessionContext = getTranscriptionSessionContext(sessionId, threadKey, threadTitle);
         let sttPrompt = "";
         if (sessionId) {
@@ -746,10 +767,17 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             activeSessionNames: sessionContext.activeSessionNames?.slice(0, 10),
             composerText: mode === "edit" || mode === "append" ? composerText : undefined,
             messageHistory: sessionContext.messageHistory,
-            customVocabulary: getSettings().transcriptionConfig.customVocabulary || undefined,
+            customVocabulary: usesGptTranscribeContext ? undefined : transcriptionConfig.customVocabulary || undefined,
           });
         }
+        const sttContext = {
+          promptLength: sttPrompt.length,
+          keywordCount: sanitizedKeywords.keywords.length,
+          droppedKeywordCount: sanitizedKeywords.droppedKeywordCount,
+          languageHints: sttLanguageHints,
+        };
         debugSttPrompt = sttPrompt;
+        debugSttContext = sttContext;
         serverTiming.contextBuildDurationMs = Date.now() - contextBuildStart;
 
         const sttStart = Date.now();
@@ -768,26 +796,25 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           rawText = await transcribeWithGemini(buf, uploadFormat.mimeType, apiKey);
           sttModel = "gemini";
         } else if (backend === "openai") {
-          const configuredSttModel = getSettings().transcriptionConfig.sttModel || "gpt-4o-mini-transcribe";
           const apiKey = resolveOpenAIKey();
           if (!apiKey) {
             const message =
               "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY in your environment.";
-            await recordFailedUpload(message, "transcribe", { sttModel: configuredSttModel, sttPrompt });
+            await recordFailedUpload(message, "transcribe", { sttModel: configuredSttModel, sttPrompt, sttContext });
             await stream.writeSSE({
               event: "error",
               data: JSON.stringify({ error: message }),
             });
             return;
           }
-          rawText = await transcribeWithOpenai(
-            buf,
-            uploadFormat.mimeType,
-            apiKey,
-            sttPrompt || undefined,
-            audioFileName,
-            configuredSttModel,
-          );
+          rawText = await transcribeWithOpenai(buf, uploadFormat.mimeType, apiKey, {
+            sttPrompt: sttPrompt || undefined,
+            fileName: audioFileName,
+            sttModel: configuredSttModel,
+            baseUrl: transcriptionConfig.baseUrl,
+            keywords: sanitizedKeywords.keywords,
+            languageHints: sttLanguageHints,
+          });
           sttModel = configuredSttModel;
         } else {
           await recordFailedUpload(`Unknown backend: ${backend}`, "validation", { sttModel: backend, sttPrompt });
@@ -799,7 +826,6 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         debugSttModel = sttModel;
         debugRawTranscript = rawText;
 
-        const settings = getSettings();
         const enhancementKey = resolveOpenAIKey();
         const willEnhanceDictation = !!(
           sessionId &&
@@ -887,6 +913,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             sttModel,
             sttDurationMs,
             sttPrompt,
+            sttContext,
             rawTranscript: rawText,
             audioSizeBytes: buf.length,
             audioMimeType: audioMimeType ?? uploadFormat.mimeType,
@@ -965,6 +992,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             sttModel,
             sttDurationMs,
             sttPrompt,
+            sttContext,
             rawTranscript: rawText,
             audioSizeBytes: buf.length,
             audioMimeType: audioMimeType ?? uploadFormat.mimeType,
@@ -1041,6 +1069,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             sttModel,
             sttDurationMs,
             sttPrompt,
+            sttContext,
             rawTranscript: rawText,
             audioSizeBytes: buf.length,
             audioMimeType: audioMimeType ?? uploadFormat.mimeType,
@@ -1099,6 +1128,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           sttModel,
           sttDurationMs,
           sttPrompt,
+          sttContext,
           rawTranscript: rawText,
           audioSizeBytes: buf.length,
           audioMimeType: audioMimeType ?? uploadFormat.mimeType,
@@ -1131,6 +1161,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           sttModel: debugSttModel,
           sttDurationMs: 0,
           sttPrompt: debugSttPrompt,
+          sttContext: debugSttContext,
           rawTranscript: debugRawTranscript,
           audioSizeBytes: buf.length,
           audioMimeType: audioMimeType ?? uploadFormat.mimeType,

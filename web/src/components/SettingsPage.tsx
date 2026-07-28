@@ -214,6 +214,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [transcriptionModel, setTranscriptionModel] = useState("");
   const [sttModel, setSttModel] = useState(DEFAULT_STT_MODEL);
   const [customSttModel, setCustomSttModel] = useState("");
+  const [sttLanguageHints, setSttLanguageHints] = useState<string[]>([]);
   const [transcriptionEnhancement, setTranscriptionEnhancement] = useState(false);
   const [enhancementMode, setEnhancementMode] = useState<"default" | "bullet">("default");
   const [transcriptionVocabulary, setTranscriptionVocabulary] = useState("");
@@ -305,6 +306,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
           setTranscriptionEnhancement(s.transcriptionConfig.enhancementEnabled ?? false);
           setEnhancementMode(s.transcriptionConfig.enhancementMode ?? "default");
           setTranscriptionVocabulary(s.transcriptionConfig.customVocabulary || "");
+          setSttLanguageHints(s.transcriptionConfig.sttLanguageHints || []);
         }
         setEditorChoice(s.editorConfig?.editor ?? "none");
       })
@@ -1736,6 +1738,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               setSttModel={setSttModel}
               customSttModel={customSttModel}
               setCustomSttModel={setCustomSttModel}
+              sttLanguageHints={sttLanguageHints}
+              setSttLanguageHints={setSttLanguageHints}
               transcriptionEnhancement={transcriptionEnhancement}
               setTranscriptionEnhancement={setTranscriptionEnhancement}
               enhancementMode={enhancementMode}

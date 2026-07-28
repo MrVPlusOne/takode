@@ -508,6 +508,61 @@ describe("SettingsPage", () => {
     });
   });
 
+  it("shows and saves searchable language hints only for gpt-transcribe", async () => {
+    mockApi.getSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      serverSlug: "prod",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      editorConfig: { editor: "none" },
+      transcriptionConfig: {
+        apiKey: "***",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+        sttModel: "gpt-transcribe",
+        sttLanguageHints: ["en"],
+      },
+    });
+
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    const voiceSection = settingsSection("Voice Transcription");
+    const languageSearch = within(voiceSection).getByLabelText("Expected Languages");
+    expect(languageSearch).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(voiceSection).getByRole("button", { name: "Remove English (en)" })).toBeInTheDocument();
+    });
+
+    fireEvent.change(languageSearch, { target: { value: "French" } });
+    fireEvent.click(within(voiceSection).getByRole("option", { name: /French.*fr/ }));
+    fireEvent.click(within(voiceSection).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(mockApi.updateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transcriptionConfig: expect.objectContaining({
+            sttModel: "gpt-transcribe",
+            sttLanguageHints: ["en", "fr"],
+          }),
+        }),
+      );
+    });
+
+    fireEvent.change(within(voiceSection).getByLabelText("STT Model"), { target: { value: "gpt-4o-transcribe" } });
+    expect(within(voiceSection).queryByLabelText("Expected Languages")).not.toBeInTheDocument();
+  });
+
   it("requires a model name before saving Custom Model transcription settings", async () => {
     render(<SettingsPage />);
     await waitForSettingsPage();

@@ -677,6 +677,7 @@ export interface TranscriptionConfig {
   customVocabulary?: string;
   enhancementMode?: "default" | "bullet";
   sttModel?: string;
+  sttLanguageHints?: string[];
   /** Preferred voice capture mode when composer has text: "edit" or "append". */
   voiceCaptureMode?: "edit" | "append";
 }
@@ -812,6 +813,12 @@ export interface TranscriptionLogIndexEntry {
   uploadDurationMs: number;
   sttModel: string;
   sttDurationMs: number;
+  sttContext?: {
+    promptLength: number;
+    keywordCount: number;
+    droppedKeywordCount: number;
+    languageHints: string[];
+  };
   rawTranscript: string;
   audioSizeBytes: number;
   audioMimeType?: string | null;

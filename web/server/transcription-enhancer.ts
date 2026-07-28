@@ -1243,6 +1243,13 @@ export interface TranscriptionLogEntry {
   audioSizeBytes: number;
   /** Prompt sent to the STT model to guide vocabulary recognition. */
   sttPrompt: string;
+  /** Metadata-only STT context summary safe for lightweight debug indexes. */
+  sttContext?: {
+    promptLength: number;
+    keywordCount: number;
+    droppedKeywordCount: number;
+    languageHints: string[];
+  };
   /** Source audio metadata for replaying/debugging the original transcription input. */
   audioMimeType: string | null;
   audioFileName: string | null;
@@ -1350,6 +1357,7 @@ export async function addTranscriptionLogEntry(
     sttModel: full.sttModel,
     sttDurationMs: full.sttDurationMs,
     sttPrompt: full.sttPrompt,
+    sttContext: full.sttContext,
     rawTranscript: full.rawTranscript,
     audioBytes: full.audioBytes,
     audioMimeType: full.audioMimeType,

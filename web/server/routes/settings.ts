@@ -30,6 +30,7 @@ import {
   type QuestmasterCompactSortColumn,
   type ShortcutSettings,
 } from "../settings-manager.js";
+import { normalizeGptTranscribeLanguageHints } from "../../shared/transcription-language-hints.js";
 import { DEFAULT_PUSHOVER_EVENT_FILTERS, type PushoverEventFilters } from "../pushover.js";
 import { getLogPath } from "../server-logger.js";
 import type { RouteContext } from "./context.js";
@@ -675,6 +676,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
         typeof tc.customVocabulary === "string" ? tc.customVocabulary.trim() : current.customVocabulary || "",
       sttModel:
         typeof tc.sttModel === "string" && tc.sttModel.trim() ? (tc.sttModel.trim() as SttModel) : current.sttModel,
+      sttLanguageHints: Array.isArray(tc.sttLanguageHints)
+        ? normalizeGptTranscribeLanguageHints(tc.sttLanguageHints)
+        : current.sttLanguageHints || [],
       enhancementMode:
         typeof tc.enhancementMode === "string" && (tc.enhancementMode === "default" || tc.enhancementMode === "bullet")
           ? (tc.enhancementMode as EnhancementMode)

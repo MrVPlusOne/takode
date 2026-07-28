@@ -1385,13 +1385,14 @@ describe("PUT /api/settings", () => {
     expect(res.status).toBe(200);
     expect(settingsManager.updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({
-        transcriptionConfig: {
+        transcriptionConfig: expect.objectContaining({
           apiKey: "persisted-transcription-secret",
           baseUrl: "https://api.openai.com/v1",
           enhancementEnabled: false,
           enhancementModel: "gpt-4.1-mini",
           customVocabulary: "Takode, WsBridge, Questmaster",
-        },
+          sttLanguageHints: [],
+        }),
       }),
     );
 
@@ -1717,13 +1718,14 @@ describe("PUT /api/settings", () => {
           baseUrl: "https://api.openai.com/v1",
           model: "gpt-4o-mini",
         },
-        transcriptionConfig: {
+        transcriptionConfig: expect.objectContaining({
           apiKey: "persisted-transcription-secret",
           baseUrl: "https://api.openai.com/v1",
           enhancementEnabled: false,
           enhancementModel: "gpt-4.1-mini",
           customVocabulary: "",
-        },
+          sttLanguageHints: [],
+        }),
       }),
     );
 

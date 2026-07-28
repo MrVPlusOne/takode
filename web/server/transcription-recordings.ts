@@ -24,6 +24,12 @@ export interface TranscriptionRecordingInput {
   sttModel: string;
   sttDurationMs: number;
   sttPrompt: string;
+  sttContext?: {
+    promptLength: number;
+    keywordCount: number;
+    droppedKeywordCount: number;
+    languageHints: string[];
+  };
   rawTranscript: string;
   audioBytes: Buffer;
   audioMimeType: string | null;
@@ -120,6 +126,7 @@ export async function writeTranscriptionRecording(
       sttModel: input.sttModel,
       uploadDurationMs: input.uploadDurationMs,
       sttDurationMs: input.sttDurationMs,
+      sttContext: input.sttContext,
       audio: {
         originalFileName: input.audioFileName,
         mimeType: input.audioMimeType,
