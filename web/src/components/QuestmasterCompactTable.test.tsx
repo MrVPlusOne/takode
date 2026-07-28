@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { QuestmasterTask } from "../types.js";
-import { CompactQuestTable } from "./QuestmasterCompactTable.js";
+import { CompactQuestTable, normalizeCompactSort } from "./QuestmasterCompactTable.js";
 
 const mockStore = vi.hoisted(() => ({
   openQuestOverlay: vi.fn(),
@@ -99,7 +99,7 @@ describe("CompactQuestTable", () => {
     expect(within(row).getByText("#101")).toBeInTheDocument();
     expect(within(row).getByText("#202")).toBeInTheDocument();
     expect(within(row).getByText("Completed")).toBeInTheDocument();
-    expect(within(row).getByText("1/2")).toBeInTheDocument();
+    expect(within(row).queryByText("1/2")).not.toBeInTheDocument();
     expect(within(row).getByText("1 open / 2")).toBeInTheDocument();
 
     expect(within(row).queryByText("Follow-up of")).not.toBeInTheDocument();
@@ -113,6 +113,29 @@ describe("CompactQuestTable", () => {
     expect(onOpenQuest).toHaveBeenCalledWith(quest);
     fireEvent.keyDown(row, { key: "Enter" });
     expect(onOpenQuest).toHaveBeenCalledTimes(2);
+  });
+
+  it("omits the User review checks column and normalizes stale saved verify sorts", () => {
+    const quest = buildQuest();
+
+    render(
+      <CompactQuestTable
+        quests={[quest]}
+        onOpenQuest={vi.fn()}
+        searchText=""
+        journeyContextByQuestId={new Map()}
+        sort={{ column: "updated", direction: "desc" }}
+        sortSaving={false}
+        onSortChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("columnheader", { name: "User review checks" })).not.toBeInTheDocument();
+    expect(screen.queryByText("1/2")).not.toBeInTheDocument();
+    expect(normalizeCompactSort({ column: "verify", direction: "desc" })).toEqual({
+      column: "updated",
+      direction: "desc",
+    });
   });
 
   it("keeps copy controls in a stable compact quest-id mini-column", () => {

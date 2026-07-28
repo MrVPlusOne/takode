@@ -680,7 +680,6 @@ describe("Composer basic rendering", () => {
     // commit the active Composer subtree at all.
     const baselineCommits = composerCommits;
     expect(baselineCommits).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("main")).toBeTruthy();
     expect(screen.getByText("sonnet-4.5")).toBeTruthy();
 
     // Regression coverage for q-352: unrelated session-list polling churn
@@ -703,12 +702,11 @@ describe("Composer basic rendering", () => {
     });
 
     expect(composerCommits).toBe(baselineCommits);
-    expect(screen.getByText("main")).toBeTruthy();
     expect(screen.getByText("sonnet-4.5")).toBeTruthy();
     expect(screen.queryByText("+99")).toBeNull();
   });
 
-  it("uses explicit zero diff stats from bridge state instead of stale sdk fallback", () => {
+  it("omits composer diff totals even when sdk fallback has values", () => {
     setupMockStore({
       session: { total_lines_added: 0, total_lines_removed: 0 },
       sdkSessionTotals: { added: 34, removed: 8 },
@@ -719,7 +717,7 @@ describe("Composer basic rendering", () => {
     expect(screen.queryByText("-8")).toBeNull();
   });
 
-  it("renders the composer footer after the textarea and keeps session metadata there", () => {
+  it("renders the composer footer after the textarea with a model-only metadata chip", () => {
     setupMockStore({
       session: {
         backend_type: "codex",
@@ -741,9 +739,9 @@ describe("Composer basic rendering", () => {
     expect(Boolean(textarea && textarea.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(sendButton.closest('[data-testid="composer-footer-toolbar"]')).toBe(footer);
     expect(permissionSelector.closest('[data-testid="composer-footer-toolbar"]')).toBe(footer);
-    expect(within(meta).getByText("feature/composer-footer")).toBeTruthy();
     expect(within(meta).getByText("gpt-5.4")).toBeTruthy();
-    expect(within(meta).getByText("high")).toBeTruthy();
+    expect(within(meta).queryByText("feature/composer-footer")).toBeNull();
+    expect(within(meta).queryByText("High")).toBeNull();
   });
 
   it("places pause controls in the composer footer and exposes held input state", async () => {
@@ -808,7 +806,7 @@ describe("Composer basic rendering", () => {
     render(<Composer sessionId="s1" />);
 
     const footer = screen.getByTestId("composer-footer-toolbar");
-    await userEvent.click(screen.getByTitle("Reasoning effort (relaunch required)"));
+    await userEvent.click(screen.getByTitle(/Model: gpt-5.4; speed:/));
     expectNoOverflowHiddenAncestorWithin(screen.getByTestId("composer-reasoning-menu"), footer);
   });
 
@@ -833,7 +831,7 @@ describe("Composer basic rendering", () => {
     render(<Composer sessionId="s1" />);
 
     await waitFor(() => expect(mockGetBackendModels).toHaveBeenCalledWith("codex"));
-    await userEvent.click(screen.getByTitle("Speed: Standard (applies next turn)"));
+    await userEvent.click(screen.getByTitle(/Model: gpt-5.4; speed:/));
     const menu = screen.getByTestId("composer-speed-menu");
     expect(within(menu).getByText("Standard")).toBeTruthy();
     expect(within(menu).getByText("Fast")).toBeTruthy();

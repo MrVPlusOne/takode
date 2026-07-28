@@ -191,8 +191,6 @@ export function Composer({
   );
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
-  const [showCodexReasoningDropdown, setShowCodexReasoningDropdown] = useState(false);
-  const [showCodexServiceTierDropdown, setShowCodexServiceTierDropdown] = useState(false);
   const [showPermissionDropdown, setShowPermissionDropdown] = useState(false);
   const [pendingPermissionMode, setPendingPermissionMode] = useState<string | null>(null);
   const [dynamicClaudeModels, setDynamicClaudeModels] = useState<ModelOption[] | null>(null);
@@ -208,8 +206,6 @@ export function Composer({
   const startedImageUploadsRef = useRef(new Set<string>());
   const draftImageSourceFilesRef = useRef(new Map<string, File>());
   const modelDropdownRef = useRef<HTMLDivElement>(null);
-  const codexReasoningDropdownRef = useRef<HTMLDivElement>(null);
-  const codexServiceTierDropdownRef = useRef<HTMLDivElement>(null);
   const permissionDropdownRef = useRef<HTMLDivElement>(null);
   const voiceCaptureModeRef = useRef<"dictation" | "edit" | "append">("dictation");
   const voiceEditBaseTextRef = useRef("");
@@ -710,15 +706,6 @@ export function Composer({
 
   const sessionView = useComposerSessionView(sessionId);
   const [pauseBusy, setPauseBusy] = useState(false);
-  const sdkDiffTotals = useStore(
-    useShallow((s) => {
-      const sdkSession = s.sdkSessions?.find((x) => x.sessionId === sessionId);
-      return {
-        totalLinesAdded: sdkSession?.totalLinesAdded ?? 0,
-        totalLinesRemoved: sdkSession?.totalLinesRemoved ?? 0,
-      };
-    }),
-  );
   const vscodeSelectionState = useStore((s) => s.vscodeSelectionContext);
   const previewQuestIds = useStore(useShallow((s) => s.quests.map((quest) => quest.questId.toLowerCase())));
   const previewSessionNums = useStore(
@@ -768,8 +755,6 @@ export function Composer({
 
   const currentMode = sessionView.permissionMode;
   const isCodex = sessionView.backendType === "codex";
-  const diffLinesAdded = sessionView.totalLinesAdded ?? sdkDiffTotals.totalLinesAdded;
-  const diffLinesRemoved = sessionView.totalLinesRemoved ?? sdkDiffTotals.totalLinesRemoved;
   // Prefer the server-provided UI mode when available. permissionMode can be
   // stale during backend transitions (e.g., SDK init/status replay) while uiMode
   // is the authoritative virtual mode for the composer toggle.
@@ -890,12 +875,6 @@ export function Composer({
     function handleClick(e: MouseEvent) {
       if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
         setShowModelDropdown(false);
-      }
-      if (codexReasoningDropdownRef.current && !codexReasoningDropdownRef.current.contains(e.target as Node)) {
-        setShowCodexReasoningDropdown(false);
-      }
-      if (codexServiceTierDropdownRef.current && !codexServiceTierDropdownRef.current.contains(e.target as Node)) {
-        setShowCodexServiceTierDropdown(false);
       }
       if (permissionDropdownRef.current && !permissionDropdownRef.current.contains(e.target as Node)) {
         setShowPermissionDropdown(false);
@@ -1906,8 +1885,6 @@ export function Composer({
               <ComposerMetaToolbar
                 sessionId={sessionId}
                 sessionView={sessionView}
-                diffLinesAdded={diffLinesAdded}
-                diffLinesRemoved={diffLinesRemoved}
                 isCodex={isCodex}
                 isConnected={isConnected}
                 canEditLaunchSettings={isBrowserServerConnected}
@@ -1919,16 +1896,10 @@ export function Composer({
                 claudeModelOptions={claudeModelOptions}
                 codexModelOptions={codexModelOptions}
                 onSelectModel={(model) => sendToSession(sessionId, { type: "set_model", model })}
-                showCodexReasoningDropdown={showCodexReasoningDropdown}
-                setShowCodexReasoningDropdown={setShowCodexReasoningDropdown}
-                codexReasoningDropdownRef={codexReasoningDropdownRef}
                 codexReasoningEffort={codexReasoningEffort}
                 onSelectCodexReasoning={(effort) =>
                   sendToSession(sessionId, { type: "set_codex_reasoning_effort", effort })
                 }
-                showCodexServiceTierDropdown={showCodexServiceTierDropdown}
-                setShowCodexServiceTierDropdown={setShowCodexServiceTierDropdown}
-                codexServiceTierDropdownRef={codexServiceTierDropdownRef}
                 codexServiceTier={codexServiceTier}
                 codexFastServiceTier={codexFastServiceTier}
                 onSelectCodexServiceTier={(serviceTier) =>

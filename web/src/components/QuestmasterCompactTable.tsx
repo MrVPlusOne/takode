@@ -13,12 +13,7 @@ import { useStore } from "../store.js";
 import type { QuestListPreview, QuestmasterTask, QuestStatus } from "../types.js";
 import { getHighlightParts } from "../utils/highlight.js";
 import { markdownToPlainText, writeClipboardText } from "../utils/copy-utils.js";
-import {
-  getQuestLeaderSessionId,
-  getQuestOwnerSessionId,
-  timeAgo,
-  verificationProgress,
-} from "../utils/quest-helpers.js";
+import { getQuestLeaderSessionId, getQuestOwnerSessionId, timeAgo } from "../utils/quest-helpers.js";
 import type { QuestJourneyContext } from "../utils/quest-journey-context.js";
 import { QUEST_STATUS_THEME } from "../utils/quest-status-theme.js";
 import { getQuestJourneyPhaseForState, getQuestJourneyPresentation } from "../../shared/quest-journey.js";
@@ -39,7 +34,6 @@ const COMPACT_SORT_COLUMNS: readonly QuestmasterCompactSortColumn[] = [
   "owner",
   "leader",
   "status",
-  "verify",
   "feedback",
   "updated",
 ];
@@ -50,7 +44,6 @@ const DEFAULT_COMPACT_SORT_DIRECTIONS: Record<QuestmasterCompactSortColumn, Ques
   owner: "asc",
   leader: "asc",
   status: "asc",
-  verify: "desc",
   feedback: "desc",
   updated: "desc",
 };
@@ -78,12 +71,6 @@ type QuestTableQuest = QuestmasterTask | QuestListPreview;
 
 export function questRecencyTs(quest: QuestTableQuest): number {
   return Math.max(quest.createdAt, quest.updatedAt ?? 0, quest.statusChangedAt ?? 0);
-}
-
-function questVerificationProgress(quest: QuestTableQuest): { checked: number; total: number } | null {
-  if ("verificationProgress" in quest && quest.verificationProgress) return quest.verificationProgress;
-  const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
-  return hasVerification ? verificationProgress(quest.verificationItems) : null;
 }
 
 function questFeedbackCounts(quest: QuestTableQuest): { unaddressed: number; total: number; addressed: number } {
@@ -272,7 +259,7 @@ export function CompactQuestTable({
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-cc-border bg-cc-card">
-      <table className="w-full min-w-[840px] text-xs">
+      <table className="w-full min-w-[760px] text-xs">
         <thead>
           <tr className="border-b border-cc-border bg-cc-bg/50 text-cc-muted">
             <CompactSortHeader
@@ -306,13 +293,6 @@ export function CompactQuestTable({
             <CompactSortHeader
               column="status"
               label="Status"
-              sort={sort}
-              sortSaving={sortSaving}
-              onSortChange={onSortChange}
-            />
-            <CompactSortHeader
-              column="verify"
-              label="User review checks"
               sort={sort}
               sortSaving={sortSaving}
               onSortChange={onSortChange}
@@ -384,13 +364,6 @@ function leaderSortLabel(quest: QuestTableQuest, context: CompactSortContext): s
   return (context.sessionNameById.get(sessionId) || sessionId).trim().toLowerCase();
 }
 
-function verificationSortTuple(quest: QuestTableQuest): [number, number, number] {
-  const progress = questVerificationProgress(quest);
-  if (!progress) return [0, 0, 0];
-  const ratio = progress.total > 0 ? progress.checked / progress.total : 0;
-  return [ratio, progress.checked, progress.total];
-}
-
 function feedbackSortTuple(quest: QuestTableQuest): [number, number] {
   const counts = questFeedbackCounts(quest);
   return [counts.unaddressed, counts.total];
@@ -425,7 +398,6 @@ function compareCompactSortColumn(
     );
     return leftStatus.sortRank - rightStatus.sortRank || compareText(leftStatus.label, rightStatus.label);
   }
-  if (column === "verify") return compareNumberTuple(verificationSortTuple(left), verificationSortTuple(right));
   if (column === "feedback") return compareNumberTuple(feedbackSortTuple(left), feedbackSortTuple(right));
   return questRecencyTs(left) - questRecencyTs(right);
 }
@@ -602,7 +574,6 @@ const CompactQuestRow = memo(function CompactQuestRow({
   const displayStatus = getQuestmasterDisplayStatus(quest, journeyContext);
   const questSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionId = getQuestLeaderSessionId(quest);
-  const vProgress = questVerificationProgress(quest);
   const feedbackCounts = questFeedbackCounts(quest);
 
   return (
@@ -671,9 +642,6 @@ const CompactQuestRow = memo(function CompactQuestRow({
             <span>{displayStatus.label}</span>
           </span>
         </QuestStatusHoverTarget>
-      </td>
-      <td className="px-3 py-1.5 whitespace-nowrap align-middle text-cc-muted tabular-nums">
-        {vProgress ? `${vProgress.checked}/${vProgress.total}` : "\u2014"}
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle tabular-nums">
         {feedbackCounts.total > 0 ? (

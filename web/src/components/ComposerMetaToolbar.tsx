@@ -18,8 +18,6 @@ function PaperPlaneIcon({ className = "w-4 h-4" }: { className?: string }) {
 export function ComposerMetaToolbar({
   sessionId,
   sessionView,
-  diffLinesAdded,
-  diffLinesRemoved,
   isCodex,
   isConnected,
   canEditLaunchSettings,
@@ -31,14 +29,8 @@ export function ComposerMetaToolbar({
   claudeModelOptions,
   codexModelOptions,
   onSelectModel,
-  showCodexReasoningDropdown,
-  setShowCodexReasoningDropdown,
-  codexReasoningDropdownRef,
   codexReasoningEffort,
   onSelectCodexReasoning,
-  showCodexServiceTierDropdown,
-  setShowCodexServiceTierDropdown,
-  codexServiceTierDropdownRef,
   codexServiceTier,
   codexFastServiceTier,
   onSelectCodexServiceTier,
@@ -77,8 +69,6 @@ export function ComposerMetaToolbar({
     gitAhead: number;
     gitBehind: number;
   };
-  diffLinesAdded: number;
-  diffLinesRemoved: number;
   isCodex: boolean;
   isConnected: boolean;
   canEditLaunchSettings: boolean;
@@ -90,14 +80,8 @@ export function ComposerMetaToolbar({
   claudeModelOptions: ModelOption[];
   codexModelOptions: ModelOption[];
   onSelectModel: (model: string) => void;
-  showCodexReasoningDropdown: boolean;
-  setShowCodexReasoningDropdown: (open: boolean) => void;
-  codexReasoningDropdownRef: RefObject<HTMLDivElement | null>;
   codexReasoningEffort: string;
   onSelectCodexReasoning: (effort: string) => void;
-  showCodexServiceTierDropdown: boolean;
-  setShowCodexServiceTierDropdown: (open: boolean) => void;
-  codexServiceTierDropdownRef: RefObject<HTMLDivElement | null>;
   codexServiceTier: string | null;
   codexFastServiceTier: NonNullable<ModelOption["serviceTiers"]>[number] | null;
   onSelectCodexServiceTier: (serviceTier: string | null) => void;
@@ -142,6 +126,8 @@ export function ComposerMetaToolbar({
     model: sessionView.model,
     currentEffort: codexReasoningEffort,
   });
+  const selectedReasoningLabel =
+    codexReasoningOptions.find((x) => x.value === codexReasoningEffort)?.label || "Default";
   const settingsDisabled = !canEditLaunchSettings;
   const quietSettingsDisabledClass = settingsDisabled
     ? "opacity-30 cursor-not-allowed text-cc-muted"
@@ -159,17 +145,7 @@ export function ComposerMetaToolbar({
   const codexModelTitle = settingsDisabled
     ? "Reconnect to Takode to change model"
     : isConnected
-      ? `Model: ${sessionView.model} (relaunch required)`
-      : "Applies on resume";
-  const speedTitle = settingsDisabled
-    ? "Reconnect to Takode to change speed"
-    : isConnected
-      ? `Speed: ${selectedSpeedLabel} (applies next turn)`
-      : "Applies next turn after resume";
-  const reasoningTitle = settingsDisabled
-    ? "Reconnect to Takode to change reasoning"
-    : isConnected
-      ? "Reasoning effort (relaunch required)"
+      ? `Model: ${sessionView.model}; speed: ${selectedSpeedLabel}; reasoning: ${selectedReasoningLabel} (click to change)`
       : "Applies on resume";
   const permissionChangeDetail = isConnected
     ? "This will restart the CLI session. Any in-progress operation will be interrupted. Your conversation will be preserved."
@@ -242,207 +218,143 @@ export function ComposerMetaToolbar({
         <div className="shrink-0">{collapseAllButton}</div>
         <div className="shrink-0">{pauseControl}</div>
 
-        {(sessionView.gitBranch || sessionView.model) && (
+        {sessionView.model && (
           <div data-testid="composer-footer-meta" className="flex min-w-0 items-center gap-2 text-[11px] text-cc-muted">
-            {sessionView.gitBranch && (
-              <span className="flex min-w-0 items-center gap-1 truncate">
-                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 opacity-60">
-                  <path d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.116.862a2.25 2.25 0 10-.862.862A4.48 4.48 0 007.25 7.5h-1.5A2.25 2.25 0 003.5 9.75v.318a2.25 2.25 0 101.5 0V9.75a.75.75 0 01.75-.75h1.5a5.98 5.98 0 003.884-1.435A2.25 2.25 0 109.634 3.362zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5z" />
-                </svg>
-                <span className="truncate max-w-[92px] sm:max-w-[160px]">{sessionView.gitBranch}</span>
-                {sessionView.isContainerized && (
-                  <span className="rounded bg-blue-500/10 px-1 text-[10px] text-blue-400">container</span>
-                )}
-              </span>
-            )}
-            {(sessionView.gitAhead > 0 || sessionView.gitBehind > 0) && (
-              <span className="hidden sm:flex shrink-0 items-center gap-0.5 text-[10px]">
-                {sessionView.gitAhead > 0 && <span className="text-green-500">{sessionView.gitAhead}&#8593;</span>}
-                {sessionView.gitBehind > 0 && <span className="text-cc-warning">{sessionView.gitBehind}&#8595;</span>}
-              </span>
-            )}
-            {(diffLinesAdded > 0 || diffLinesRemoved > 0) && (
-              <span className="hidden sm:flex shrink-0 items-center gap-1">
-                <span className="text-green-500">+{diffLinesAdded}</span>
-                <span className="text-red-400">-{diffLinesRemoved}</span>
-              </span>
-            )}
-            {sessionView.model && (
-              <>
-                {sessionView.gitBranch && <span className="hidden sm:inline shrink-0 text-cc-muted/40">&middot;</span>}
-                {!isCodex ? (
-                  <div className="relative min-w-0 hidden sm:block" ref={modelDropdownRef}>
-                    <button
-                      onClick={() => setShowModelDropdown(!showModelDropdown)}
-                      disabled={settingsDisabled}
-                      className={`flex min-w-0 items-center gap-0.5 font-mono-code transition-colors select-none ${
-                        settingsDisabled ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
-                      }`}
-                      title={claudeModelTitle}
-                    >
-                      <span className="truncate">{formatModel(sessionView.model)}</span>
-                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
-                        <path d="M4 6l4 4 4-4" />
-                      </svg>
-                    </button>
-                    {showModelDropdown && (
-                      <div
-                        data-testid="composer-model-menu"
-                        className="absolute left-0 bottom-full z-10 mb-1 max-h-64 w-52 overflow-hidden overflow-y-auto rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg"
+            {!isCodex ? (
+              <div className="relative min-w-0" ref={modelDropdownRef}>
+                <button
+                  onClick={() => setShowModelDropdown(!showModelDropdown)}
+                  disabled={settingsDisabled}
+                  className={`flex min-w-0 max-w-[132px] items-center gap-1 rounded-md px-2 py-1 font-mono-code transition-colors select-none sm:max-w-[180px] ${
+                    settingsDisabled
+                      ? "cursor-not-allowed opacity-30"
+                      : "cursor-pointer hover:bg-cc-hover hover:text-cc-fg"
+                  }`}
+                  title={claudeModelTitle}
+                >
+                  <span className="truncate">{formatModel(sessionView.model)}</span>
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
+                    <path d="M4 6l4 4 4-4" />
+                  </svg>
+                </button>
+                {showModelDropdown && (
+                  <div
+                    data-testid="composer-model-menu"
+                    className="absolute left-0 bottom-full z-10 mb-1 max-h-64 w-52 overflow-y-auto rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg"
+                  >
+                    {claudeModelOptions.map((m) => (
+                      <button
+                        key={m.value}
+                        onClick={() => {
+                          onSelectModel(m.value);
+                          setShowModelDropdown(false);
+                        }}
+                        className={`w-full cursor-pointer px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover ${
+                          m.value === sessionView.model ? "font-medium text-cc-primary" : "text-cc-fg"
+                        }`}
                       >
-                        {claudeModelOptions.map((m) => (
-                          <button
-                            key={m.value}
-                            onClick={() => {
-                              onSelectModel(m.value);
-                              setShowModelDropdown(false);
-                            }}
-                            className={`w-full cursor-pointer px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover ${
-                              m.value === sessionView.model ? "font-medium text-cc-primary" : "text-cc-fg"
-                            }`}
-                          >
-                            <span className="mr-1.5">{m.icon}</span>
-                            {m.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                        <span className="mr-1.5">{m.icon}</span>
+                        {m.label}
+                      </button>
+                    ))}
                   </div>
-                ) : (
-                  <>
-                    <div className="relative min-w-0 hidden sm:block" ref={modelDropdownRef}>
-                      <button
-                        onClick={() => setShowModelDropdown(!showModelDropdown)}
-                        disabled={settingsDisabled}
-                        className={`flex min-w-0 items-center gap-0.5 font-mono-code transition-colors select-none ${
-                          settingsDisabled ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
-                        }`}
-                        title={codexModelTitle}
-                      >
-                        <span className="truncate">{formatModel(sessionView.model)}</span>
-                        <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
-                          <path d="M4 6l4 4 4-4" />
-                        </svg>
-                      </button>
-                      {showModelDropdown && (
-                        <div
-                          data-testid="composer-model-menu"
-                          className="absolute left-0 bottom-full z-10 mb-1 max-h-64 w-52 overflow-hidden overflow-y-auto rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg"
-                        >
-                          {codexModelOptions.map((m) => (
-                            <button
-                              key={m.value}
-                              onClick={() => {
-                                onSelectModel(m.value);
-                                setShowModelDropdown(false);
-                              }}
-                              className={`w-full cursor-pointer px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover ${
-                                m.value === sessionView.model ? "font-medium text-cc-primary" : "text-cc-fg"
-                              }`}
-                            >
-                              <span className="mr-1.5">{m.icon}</span>
-                              {m.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <span className="hidden sm:inline shrink-0 text-cc-muted/40">&middot;</span>
-                    <div className="relative shrink-0 hidden sm:block" ref={codexServiceTierDropdownRef}>
-                      <button
-                        onClick={() => setShowCodexServiceTierDropdown(!showCodexServiceTierDropdown)}
-                        disabled={settingsDisabled}
-                        className={`flex items-center gap-1 transition-colors select-none ${
-                          settingsDisabled ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
-                        }`}
-                        title={speedTitle}
-                      >
-                        <span>{selectedSpeedLabel.toLowerCase()}</span>
-                        <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
-                          <path d="M4 6l4 4 4-4" />
-                        </svg>
-                      </button>
-                      {showCodexServiceTierDropdown && (
-                        <div
-                          data-testid="composer-speed-menu"
-                          className="absolute left-0 bottom-full z-10 mb-1 w-48 overflow-hidden rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg"
-                        >
-                          <button
-                            onClick={() => {
-                              onSelectCodexServiceTier(null);
-                              setShowCodexServiceTierDropdown(false);
-                            }}
-                            className={`w-full cursor-pointer px-3 py-2 text-left transition-colors hover:bg-cc-hover ${
-                              !fastSelected ? "text-cc-primary" : "text-cc-fg"
-                            }`}
-                          >
-                            <div className="text-xs font-medium">Standard</div>
-                            <div className="mt-0.5 text-[11px] leading-snug text-cc-muted">Default Codex speed.</div>
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (!codexFastServiceTier) return;
-                              onSelectCodexServiceTier(codexFastServiceTier.id);
-                              setShowCodexServiceTierDropdown(false);
-                            }}
-                            disabled={!codexFastServiceTier}
-                            className={`w-full px-3 py-2 text-left transition-colors ${
-                              !codexFastServiceTier
-                                ? "cursor-not-allowed opacity-45"
-                                : "cursor-pointer hover:bg-cc-hover"
-                            } ${fastSelected ? "text-cc-primary" : "text-cc-fg"}`}
-                          >
-                            <div className="text-xs font-medium">Fast</div>
-                            <div className="mt-0.5 text-[11px] leading-snug text-cc-muted">
-                              {fastSupported ? fastDescription : "Not available for this model."}
-                            </div>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    <span className="hidden sm:inline shrink-0 text-cc-muted/40">&middot;</span>
-                    <div className="relative shrink-0 hidden sm:block" ref={codexReasoningDropdownRef}>
-                      <button
-                        onClick={() => setShowCodexReasoningDropdown(!showCodexReasoningDropdown)}
-                        disabled={settingsDisabled}
-                        className={`flex items-center gap-1 transition-colors select-none ${
-                          settingsDisabled ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
-                        }`}
-                        title={reasoningTitle}
-                      >
-                        <span>
-                          {codexReasoningOptions.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() ||
-                            "default"}
-                        </span>
-                        <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
-                          <path d="M4 6l4 4 4-4" />
-                        </svg>
-                      </button>
-                      {showCodexReasoningDropdown && (
-                        <div
-                          data-testid="composer-reasoning-menu"
-                          className="absolute left-0 bottom-full z-10 mb-1 w-40 overflow-hidden rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg"
-                        >
-                          {codexReasoningOptions.map((effort) => (
-                            <button
-                              key={effort.value || "default"}
-                              onClick={() => {
-                                onSelectCodexReasoning(effort.value);
-                                setShowCodexReasoningDropdown(false);
-                              }}
-                              className={`w-full cursor-pointer px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover ${
-                                effort.value === codexReasoningEffort ? "font-medium text-cc-primary" : "text-cc-fg"
-                              }`}
-                            >
-                              {effort.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </>
                 )}
-              </>
+              </div>
+            ) : (
+              <div className="relative min-w-0" ref={modelDropdownRef}>
+                <button
+                  onClick={() => setShowModelDropdown(!showModelDropdown)}
+                  disabled={settingsDisabled}
+                  className={`flex min-w-0 max-w-[132px] items-center gap-1 rounded-md px-2 py-1 font-mono-code transition-colors select-none sm:max-w-[180px] ${
+                    settingsDisabled
+                      ? "cursor-not-allowed opacity-30"
+                      : "cursor-pointer hover:bg-cc-hover hover:text-cc-fg"
+                  }`}
+                  title={codexModelTitle}
+                >
+                  <span className="truncate">{formatModel(sessionView.model)}</span>
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
+                    <path d="M4 6l4 4 4-4" />
+                  </svg>
+                </button>
+                {showModelDropdown && (
+                  <div
+                    data-testid="composer-model-menu"
+                    className="absolute left-0 bottom-full z-10 mb-1 max-h-80 w-64 overflow-y-auto rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg"
+                  >
+                    <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-cc-muted">
+                      Model
+                    </div>
+                    {codexModelOptions.map((m) => (
+                      <button
+                        key={m.value}
+                        onClick={() => {
+                          onSelectModel(m.value);
+                          setShowModelDropdown(false);
+                        }}
+                        className={`w-full cursor-pointer px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover ${
+                          m.value === sessionView.model ? "font-medium text-cc-primary" : "text-cc-fg"
+                        }`}
+                      >
+                        <span className="mr-1.5">{m.icon}</span>
+                        {m.label}
+                      </button>
+                    ))}
+                    <div data-testid="composer-speed-menu" className="mt-1 border-t border-cc-border/70 py-1">
+                      <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-cc-muted">
+                        Speed
+                      </div>
+                      <button
+                        onClick={() => {
+                          onSelectCodexServiceTier(null);
+                          setShowModelDropdown(false);
+                        }}
+                        className={`w-full cursor-pointer px-3 py-2 text-left transition-colors hover:bg-cc-hover ${
+                          !fastSelected ? "text-cc-primary" : "text-cc-fg"
+                        }`}
+                      >
+                        <div className="text-xs font-medium">Standard</div>
+                        <div className="mt-0.5 text-[11px] leading-snug text-cc-muted">Default Codex speed.</div>
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!codexFastServiceTier) return;
+                          onSelectCodexServiceTier(codexFastServiceTier.id);
+                          setShowModelDropdown(false);
+                        }}
+                        disabled={!codexFastServiceTier}
+                        className={`w-full px-3 py-2 text-left transition-colors ${
+                          !codexFastServiceTier ? "cursor-not-allowed opacity-45" : "cursor-pointer hover:bg-cc-hover"
+                        } ${fastSelected ? "text-cc-primary" : "text-cc-fg"}`}
+                      >
+                        <div className="text-xs font-medium">Fast</div>
+                        <div className="mt-0.5 text-[11px] leading-snug text-cc-muted">
+                          {fastSupported ? fastDescription : "Not available for this model."}
+                        </div>
+                      </button>
+                    </div>
+                    <div data-testid="composer-reasoning-menu" className="border-t border-cc-border/70 py-1">
+                      <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-cc-muted">
+                        Reasoning
+                      </div>
+                      {codexReasoningOptions.map((effort) => (
+                        <button
+                          key={effort.value || "default"}
+                          onClick={() => {
+                            onSelectCodexReasoning(effort.value);
+                            setShowModelDropdown(false);
+                          }}
+                          className={`w-full cursor-pointer px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover ${
+                            effort.value === codexReasoningEffort ? "font-medium text-cc-primary" : "text-cc-fg"
+                          }`}
+                        >
+                          {effort.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}

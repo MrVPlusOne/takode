@@ -643,14 +643,11 @@ describe("Composer permission mode selector", () => {
     });
     render(<Composer sessionId="s1" />);
 
-    const speedSelector = screen.getByTitle("Applies next turn after resume");
-    expect(speedSelector.hasAttribute("disabled")).toBe(false);
+    const modelSelector = screen.getByText("gpt-5.3-codex").closest("button");
+    expect(modelSelector?.getAttribute("title")).toBe("Applies on resume");
+    expect(modelSelector?.hasAttribute("disabled")).toBe(false);
 
-    const reasoningSelector = screen.getByText("default").closest("button");
-    expect(reasoningSelector?.getAttribute("title")).toBe("Applies on resume");
-    expect(reasoningSelector?.hasAttribute("disabled")).toBe(false);
-
-    await userEvent.click(reasoningSelector!);
+    await userEvent.click(modelSelector!);
     await userEvent.click(screen.getByText("High"));
 
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
@@ -669,7 +666,7 @@ describe("Composer permission mode selector", () => {
     });
     render(<Composer sessionId="s1" />);
 
-    const trigger = screen.getByTitle("Reasoning effort (relaunch required)");
+    const trigger = screen.getByTitle(/Model: gpt-5.3-codex; speed:/);
     await userEvent.click(trigger);
     await userEvent.click(screen.getByText("High"));
 
@@ -690,7 +687,7 @@ describe("Composer permission mode selector", () => {
     });
     render(<Composer sessionId="s1" />);
 
-    const trigger = screen.getByTitle("Reasoning effort (relaunch required)");
+    const trigger = screen.getByTitle(/Model: gpt-5.4; speed:/);
     await userEvent.click(trigger);
     await userEvent.click(screen.getByText("Extra high"));
 

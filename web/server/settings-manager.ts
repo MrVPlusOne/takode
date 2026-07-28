@@ -114,7 +114,6 @@ export const QUESTMASTER_COMPACT_SORT_COLUMNS = [
   "owner",
   "leader",
   "status",
-  "verify",
   "feedback",
   "updated",
 ] as const;

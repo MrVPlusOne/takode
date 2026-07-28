@@ -565,15 +565,15 @@ describe("QuestmasterPage status display", () => {
     expect(await screen.findAllByRole("columnheader", { name: "Quest" })).toHaveLength(1);
     expect(screen.getAllByRole("columnheader", { name: "Owner" })).toHaveLength(1);
     expect(screen.getAllByRole("columnheader", { name: "Leader" })).toHaveLength(1);
-    expect(screen.getAllByRole("columnheader", { name: "User review checks" })).toHaveLength(1);
+    expect(screen.queryByRole("columnheader", { name: "User review checks" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("table")).toHaveLength(1);
     expect(screen.queryByText("Review Inbox")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /q-1 Fresh verification quest/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /q-2 Regular verification quest/ })).toBeInTheDocument();
   });
 
-  it("shows Completed status without inbox text while User review checks stay in their column", async () => {
-    // Status no longer encodes review inbox state; User review check progress remains visible separately.
+  it("shows Completed status without inbox text or the removed User review checks column", async () => {
+    // Status no longer encodes review inbox state; the compact table also omits review-check progress.
     mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
 
     renderQuestmaster({ isActive: true });
@@ -581,7 +581,7 @@ describe("QuestmasterPage status display", () => {
     await screen.findByRole("button", { name: /q-1 Fresh verification quest/ });
     expect(screen.getAllByText("Completed").length).toBeGreaterThan(0);
     expect(screen.queryByText("Inbox")).not.toBeInTheDocument();
-    expect(screen.getAllByText("0/1").length).toBeGreaterThan(0);
+    expect(screen.queryByText("0/1")).not.toBeInTheDocument();
   });
 
   it("shows the active Journey phase as compact Status and opens the shared Journey hover card", async () => {
@@ -743,12 +743,12 @@ describe("QuestmasterPage status display", () => {
     const staleBoardStatus = within(staleBoardRow).getByText("Completed");
     expect(staleBoardStatus).toBeInTheDocument();
     expect(within(staleBoardRow).queryByText("Port")).not.toBeInTheDocument();
-    expect(within(staleBoardRow).getByText("0/1")).toBeInTheDocument();
+    expect(within(staleBoardRow).queryByText("0/1")).not.toBeInTheDocument();
 
     const staleRunRow = screen.getByRole("button", { name: /q-94 Done quest with stale run/ });
     expect(within(staleRunRow).getByText("Completed")).toBeInTheDocument();
     expect(within(staleRunRow).queryByText("Port")).not.toBeInTheDocument();
-    expect(within(staleRunRow).getByText("0/1")).toBeInTheDocument();
+    expect(within(staleRunRow).queryByText("0/1")).not.toBeInTheDocument();
 
     fireEvent.mouseEnter(staleBoardStatus);
     expect(await screen.findByTestId("quest-hover-journey")).toBeInTheDocument();

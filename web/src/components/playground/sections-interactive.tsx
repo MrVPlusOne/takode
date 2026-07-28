@@ -61,8 +61,6 @@ function PlaygroundComposerPermissionToolbar({
   state: "menu" | "popover";
 }) {
   const modelDropdownRef = useRef<HTMLDivElement | null>(null);
-  const codexReasoningDropdownRef = useRef<HTMLDivElement | null>(null);
-  const codexServiceTierDropdownRef = useRef<HTMLDivElement | null>(null);
   const permissionDropdownRef = useRef<HTMLDivElement | null>(null);
   const isCodex = backend === "codex";
   const codexModelOptions = isCodex
@@ -86,8 +84,6 @@ function PlaygroundComposerPermissionToolbar({
             gitAhead: isCodex ? 1 : 0,
             gitBehind: 0,
           }}
-          diffLinesAdded={isCodex ? 0 : 12}
-          diffLinesRemoved={isCodex ? 0 : 3}
           isCodex={isCodex}
           isConnected={true}
           canEditLaunchSettings={true}
@@ -99,14 +95,8 @@ function PlaygroundComposerPermissionToolbar({
           claudeModelOptions={CLAUDE_MODELS.filter((model) => model.value)}
           codexModelOptions={codexModelOptions}
           onSelectModel={() => {}}
-          showCodexReasoningDropdown={false}
-          setShowCodexReasoningDropdown={() => {}}
-          codexReasoningDropdownRef={codexReasoningDropdownRef}
           codexReasoningEffort={isCodex ? "high" : ""}
           onSelectCodexReasoning={() => {}}
-          showCodexServiceTierDropdown={isCodex && state === "menu"}
-          setShowCodexServiceTierDropdown={() => {}}
-          codexServiceTierDropdownRef={codexServiceTierDropdownRef}
           codexServiceTier={isCodex ? "priority" : null}
           codexFastServiceTier={isCodex ? (codexModelOptions[1]?.serviceTiers?.[0] ?? null) : null}
           onSelectCodexServiceTier={() => {}}

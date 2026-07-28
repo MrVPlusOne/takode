@@ -615,15 +615,7 @@ export interface PushoverEventFilters {
 }
 
 export type QuestmasterViewMode = "cards" | "compact";
-export type QuestmasterCompactSortColumn =
-  | "quest"
-  | "title"
-  | "owner"
-  | "leader"
-  | "status"
-  | "verify"
-  | "feedback"
-  | "updated";
+export type QuestmasterCompactSortColumn = "quest" | "title" | "owner" | "leader" | "status" | "feedback" | "updated";
 export type QuestmasterCompactSortDirection = "asc" | "desc";
 export interface QuestmasterCompactSort {
   column: QuestmasterCompactSortColumn;

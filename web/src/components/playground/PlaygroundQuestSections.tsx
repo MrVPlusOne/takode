@@ -24,9 +24,9 @@ export function PlaygroundQuestmasterCompactSection() {
   return (
     <Section
       title="Questmaster Compact Table"
-      description="Compact Questmaster rows with generalized status, User review checks, and markdown TLDR rendering."
+      description="Compact Questmaster rows with generalized status, feedback, and markdown TLDR rendering."
     >
-      <Card label="Status, User review checks, and title cell content">
+      <Card label="Status, feedback, and title cell content">
         <PlaygroundQuestmasterCompactDemo />
       </Card>
     </Section>
