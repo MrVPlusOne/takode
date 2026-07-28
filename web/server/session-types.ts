@@ -681,7 +681,7 @@ export interface SessionPauseState {
   lastQueuedAt?: number;
 }
 
-export type CodexResultErrorFamily = "model_backend_stream_error";
+export type CodexResultErrorFamily = "model_backend_stream_error" | "copilot_auth_refresh_exhausted";
 export type CodexAutoPauseInputSourceKind = "manual" | "automatic";
 
 export interface CodexAutoPauseHeldInput {

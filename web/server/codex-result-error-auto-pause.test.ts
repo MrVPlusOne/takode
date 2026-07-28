@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCodexAutoPauseDiagnostic,
   classifyCodexResultError,
   determineCodexTurnSourceKind,
   determineUserMessageSourceKind,
@@ -29,6 +30,15 @@ function result(overrides: Partial<CLIResultMessage> = {}): CLIResultMessage {
   };
 }
 
+const COPILOT_AUTH_REFRESH_EXHAUSTED_RESULT =
+  "litellm.BadRequestError: GetLLMProvider Exception - litellm.AuthenticationError: " +
+  "Failed to refresh API key: Failed to refresh API key after maximum retries\n\n" +
+  "original model: github_copilot/gpt-5.6-sol";
+
+function copilotAuthRefreshResult(overrides: Partial<CLIResultMessage> = {}): CLIResultMessage {
+  return result({ result: COPILOT_AUTH_REFRESH_EXHAUSTED_RESULT, ...overrides });
+}
+
 function session(): { state: Pick<SessionState, "codex_result_error_auto_pause"> } {
   return { state: { codex_result_error_auto_pause: null } };
 }
@@ -39,10 +49,74 @@ function turn(sourceKind: "manual" | "automatic"): Pick<CodexOutboundTurn, "auto
 
 describe("Codex result-error auto-pause", () => {
   it("classifies only narrow Codex terminal responses backend stream errors", () => {
-    expect(classifyCodexResultError(result())?.fingerprint).toBe("model_backend_stream_error:responses");
+    expect(classifyCodexResultError(result())).toEqual({
+      family: "model_backend_stream_error",
+      fingerprint: "model_backend_stream_error:responses",
+      message: "Model backend stream disconnected before completion.",
+    });
     expect(classifyCodexResultError(result({ codex_turn_id: undefined }))).toBeNull();
     expect(classifyCodexResultError(result({ is_error: false, result: "ok" }))).toBeNull();
     expect(classifyCodexResultError(result({ result: "permission denied by user" }))).toBeNull();
+  });
+
+  it("classifies Copilot auth refresh exhaustion only when all high-confidence markers are present", () => {
+    expect(classifyCodexResultError(copilotAuthRefreshResult())).toEqual({
+      family: "copilot_auth_refresh_exhausted",
+      fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+      message: "GitHub Copilot API-key refresh exhausted its retry budget.",
+    });
+  });
+
+  it.each([
+    [
+      "generic authentication failure",
+      "litellm.AuthenticationError: invalid credentials\n\noriginal model: github_copilot/gpt-5.6-sol",
+    ],
+    [
+      "other provider refresh failure",
+      "litellm.AuthenticationError: Failed to refresh API key after maximum retries\n\noriginal model: openai/gpt-5.6-sol",
+    ],
+    ["permission failure", "permission denied by user for github_copilot/gpt-5.6-sol"],
+    ["unrelated 400", "litellm.BadRequestError: status 400 for github_copilot/gpt-5.6-sol"],
+  ])("does not classify %s as Copilot auth refresh exhaustion", (_label, rawResult) => {
+    expect(classifyCodexResultError(result({ result: rawResult }))).toBeNull();
+  });
+
+  it("stores and diagnoses Copilot auth refresh exhaustion without retaining raw or credential-like text", () => {
+    const sentinel = "sentinel-api-key-value";
+    const s = session();
+    const outcome = noteCodexResultForAutoPause(
+      s,
+      copilotAuthRefreshResult({
+        result: `${COPILOT_AUTH_REFRESH_EXHAUSTED_RESULT}\nAuthorization: Bearer ${sentinel}`,
+      }),
+      turn("automatic"),
+      100,
+    );
+    const state = s.state.codex_result_error_auto_pause!;
+    const rendered = JSON.stringify({ state, diagnostic: outcome.diagnostic ?? buildCodexAutoPauseDiagnostic(state) });
+
+    expect(state.lastError).toBe("GitHub Copilot API-key refresh exhausted its retry budget.");
+    expect(rendered).not.toContain(sentinel);
+    expect(rendered).not.toContain("Authorization");
+    expect(rendered).not.toContain("BadRequestError");
+    expect(outcome.diagnostic).toContain("refresh exhausted its retries");
+    expect(outcome.diagnostic).not.toContain("DNS");
+  });
+
+  it("pauses after the first Copilot refresh-exhaustion result", () => {
+    const s = session();
+
+    const first = noteCodexResultForAutoPause(s, copilotAuthRefreshResult(), turn("automatic"), 100);
+
+    expect(first.pausedNow).toBe(true);
+    expect(s.state.codex_result_error_auto_pause).toMatchObject({
+      family: "copilot_auth_refresh_exhausted",
+      fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+      streak: 1,
+      threshold: 1,
+      pausedAt: 100,
+    });
   });
 
   it("counts consecutive classified errors and pauses at the threshold without using recovery state", () => {
@@ -82,14 +156,12 @@ describe("Codex result-error auto-pause", () => {
 
   it("keeps automatic sources paused after a matching manual failure and resumes only after manual success", () => {
     const s = session();
-    noteCodexResultForAutoPause(s, result({ uuid: "r1" }), turn("automatic"), 100);
-    noteCodexResultForAutoPause(s, result({ uuid: "r2" }), turn("automatic"), 200);
-    noteCodexResultForAutoPause(s, result({ uuid: "r3" }), turn("automatic"), 300);
+    noteCodexResultForAutoPause(s, copilotAuthRefreshResult({ uuid: "r1" }), turn("automatic"), 100);
 
-    const failedManual = noteCodexResultForAutoPause(s, result({ uuid: "r4" }), turn("manual"), 400);
+    const failedManual = noteCodexResultForAutoPause(s, copilotAuthRefreshResult({ uuid: "r2" }), turn("manual"), 200);
     expect(failedManual.pausedNow).toBe(false);
-    expect(s.state.codex_result_error_auto_pause?.pausedAt).toBe(300);
-    expect(s.state.codex_result_error_auto_pause?.streak).toBe(4);
+    expect(s.state.codex_result_error_auto_pause?.pausedAt).toBe(100);
+    expect(s.state.codex_result_error_auto_pause?.streak).toBe(2);
 
     queueCodexAutoPausedInput(s, "programmatic", {
       type: "user_message",
@@ -100,7 +172,7 @@ describe("Codex result-error auto-pause", () => {
       s,
       result({ is_error: false, result: "ok", subtype: "success", stop_reason: "end_turn" }),
       turn("manual"),
-      500,
+      300,
     );
 
     expect(resumed.resumedNow).toBe(true);
@@ -185,5 +257,23 @@ describe("Codex result-error auto-pause", () => {
 
     expect(determineCodexTurnSourceKind([manual])).toBe("manual");
     expect(determineCodexTurnSourceKind([manual, automatic])).toBe("automatic");
+  });
+
+  it("keeps Copilot refresh auto-pause state independent across sessions", () => {
+    const first = session();
+    const second = session();
+
+    noteCodexResultForAutoPause(first, copilotAuthRefreshResult({ uuid: "first" }), turn("automatic"), 100);
+
+    expect(first.state.codex_result_error_auto_pause?.pausedAt).toBe(100);
+    expect(second.state.codex_result_error_auto_pause).toBeNull();
+
+    noteCodexResultForAutoPause(second, copilotAuthRefreshResult({ uuid: "second" }), turn("automatic"), 200);
+
+    expect(first.state.codex_result_error_auto_pause?.pausedAt).toBe(100);
+    expect(second.state.codex_result_error_auto_pause?.pausedAt).toBe(200);
+    expect(first.state.codex_result_error_auto_pause?.heldInputs).not.toBe(
+      second.state.codex_result_error_auto_pause?.heldInputs,
+    );
   });
 });

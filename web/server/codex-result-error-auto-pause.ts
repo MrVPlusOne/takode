@@ -21,7 +21,11 @@ import type {
 type BrowserUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message" }>;
 
 export const CODEX_RESULT_ERROR_AUTO_PAUSE_THRESHOLD = 3;
+export const CODEX_COPILOT_AUTH_REFRESH_AUTO_PAUSE_THRESHOLD = 1;
 export const CODEX_RESULT_ERROR_AUTO_PAUSE_STREAK_WINDOW_MS = 10 * 60 * 1000;
+
+const MODEL_BACKEND_STREAM_ERROR_SUMMARY = "Model backend stream disconnected before completion.";
+const COPILOT_AUTH_REFRESH_EXHAUSTED_SUMMARY = "GitHub Copilot API-key refresh exhausted its retry budget.";
 
 export interface ClassifiedCodexResultError {
   family: CodexResultErrorFamily;
@@ -45,6 +49,19 @@ export function classifyCodexResultError(msg: CLIResultMessage): ClassifiedCodex
 
   const normalized = msg.result.toLowerCase();
   if (
+    normalized.includes("litellm.authenticationerror") &&
+    normalized.includes("failed to refresh api key") &&
+    normalized.includes("after maximum retries") &&
+    normalized.includes("github_copilot/")
+  ) {
+    return {
+      family: "copilot_auth_refresh_exhausted",
+      fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+      message: COPILOT_AUTH_REFRESH_EXHAUSTED_SUMMARY,
+    };
+  }
+
+  if (
     normalized.includes("stream disconnected before completion") &&
     normalized.includes("error sending request") &&
     normalized.includes("/responses")
@@ -52,7 +69,7 @@ export function classifyCodexResultError(msg: CLIResultMessage): ClassifiedCodex
     return {
       family: "model_backend_stream_error",
       fingerprint: "model_backend_stream_error:responses",
-      message: msg.result,
+      message: MODEL_BACKEND_STREAM_ERROR_SUMMARY,
     };
   }
 
@@ -122,14 +139,15 @@ export function noteCodexResultForAutoPause(
   const priorHeld = existing?.heldInputs ?? [];
   const streak = sameFingerprint && withinWindow ? existing.streak + 1 : 1;
   const totalMatchingErrors = sameFingerprint ? existing.totalMatchingErrors + 1 : 1;
-  const pausedAt = existing?.pausedAt ?? (streak >= CODEX_RESULT_ERROR_AUTO_PAUSE_THRESHOLD ? now : null);
+  const threshold = getCodexResultErrorAutoPauseThreshold(classified.family);
+  const pausedAt = existing?.pausedAt ?? (streak >= threshold ? now : null);
   const wasPaused = !!existing?.pausedAt;
   const pausedNow = !wasPaused && !!pausedAt;
   const state: CodexResultErrorAutoPauseState = {
     family: classified.family,
     fingerprint: classified.fingerprint,
     streak,
-    threshold: CODEX_RESULT_ERROR_AUTO_PAUSE_THRESHOLD,
+    threshold,
     pausedAt,
     lastError: classified.message,
     lastErrorAt: now,
@@ -193,10 +211,20 @@ export function buildCodexAutoPauseDiagnostic(state: CodexResultErrorAutoPauseSt
   const heldCount = getCodexAutoPauseHeldInputCount(state);
   const heldSuffix =
     heldCount === 0 ? "No automatic inputs are currently held." : `${heldCount} automatic input(s) are held.`;
+  const reason =
+    state.family === "copilot_auth_refresh_exhausted"
+      ? "GitHub Copilot API-key refresh exhausted its retries"
+      : `${state.streak} consecutive backend stream errors`;
   return (
-    `Automatic Codex input delivery paused after ${state.streak} consecutive backend stream errors. ` +
+    `Automatic Codex input delivery paused because ${reason}. ` +
     `${heldSuffix} Send a direct composer message or explicit takode send after fixing the backend to test recovery.`
   );
+}
+
+function getCodexResultErrorAutoPauseThreshold(family: CodexResultErrorFamily): number {
+  return family === "copilot_auth_refresh_exhausted"
+    ? CODEX_COPILOT_AUTH_REFRESH_AUTO_PAUSE_THRESHOLD
+    : CODEX_RESULT_ERROR_AUTO_PAUSE_THRESHOLD;
 }
 
 export function materializeCodexAutoPausedInputsForDrain(

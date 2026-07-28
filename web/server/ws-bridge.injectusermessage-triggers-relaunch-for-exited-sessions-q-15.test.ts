@@ -59,6 +59,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 
+const COPILOT_AUTH_REFRESH_EXHAUSTED_RESULT =
+  "litellm.BadRequestError: GetLLMProvider Exception - litellm.AuthenticationError: " +
+  "Failed to refresh API key: Failed to refresh API key after maximum retries\n\n" +
+  "original model: github_copilot/gpt-5.6-sol";
+
 function createMockSocket(data: SocketData) {
   return {
     data,
@@ -716,16 +721,15 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     const session = bridge.getOrCreateSession(sid, "codex");
     session.state.backend_state = "disconnected";
     session.state.codex_result_error_auto_pause = {
-      family: "model_backend_stream_error",
-      fingerprint: "model_backend_stream_error:responses",
-      streak: 3,
-      threshold: 3,
+      family: "copilot_auth_refresh_exhausted",
+      fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+      streak: 1,
+      threshold: 1,
       pausedAt: 123,
-      lastError:
-        "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
+      lastError: "GitHub Copilot API-key refresh exhausted its retry budget.",
       lastErrorAt: 123,
       lastSourceKind: "automatic",
-      totalMatchingErrors: 3,
+      totalMatchingErrors: 1,
       heldInputs: [],
     };
 
@@ -754,7 +758,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(relaunchCb).toHaveBeenCalledWith(sid);
   });
 
-  it("moves queued automatic Codex backlog into auto-pause before dispatching after the threshold", async () => {
+  it("replays Copilot refresh exhaustion by holding queued and future automatic inputs after one result", async () => {
     const sid = "s-codex-auto-pause-queued-backlog";
     const session = bridge.getOrCreateSession(sid, "codex");
     const adapter = makeCodexAdapterMock();
@@ -762,19 +766,6 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     emitCodexSessionReady(adapter, { cliSessionId: "thread-queued-backlog" });
 
     const now = Date.now();
-    session.state.codex_result_error_auto_pause = {
-      family: "model_backend_stream_error",
-      fingerprint: "model_backend_stream_error:responses",
-      streak: 2,
-      threshold: 3,
-      pausedAt: null,
-      lastError:
-        "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
-      lastErrorAt: now,
-      lastSourceKind: "automatic",
-      totalMatchingErrors: 2,
-      heldInputs: [],
-    };
     session.isGenerating = true;
     session.pendingCodexInputs.push({
       id: "queued-auto-input",
@@ -837,8 +828,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
         type: "result",
         subtype: "error",
         is_error: true,
-        result:
-          "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
+        result: COPILOT_AUTH_REFRESH_EXHAUSTED_RESULT,
         duration_ms: 0,
         duration_api_ms: 0,
         num_turns: 1,
@@ -852,6 +842,11 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     });
     await flushAsync();
 
+    expect(session.state.codex_result_error_auto_pause).toMatchObject({
+      family: "copilot_auth_refresh_exhausted",
+      threshold: 1,
+      streak: 1,
+    });
     expect(session.state.codex_result_error_auto_pause?.pausedAt).toBeTruthy();
     expect(session.state.codex_result_error_auto_pause?.heldInputs.map((item: any) => item.message.content)).toContain(
       "queued resource lease follow-up",
@@ -866,6 +861,23 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
         pendingInputIds: ["queued-auto-input"],
       }),
     );
+
+    const firstFutureAutomatic = bridge.injectUserMessage(sid, "same timer reminder", {
+      sessionId: "timer:refresh-check",
+      sessionLabel: "Timer refresh-check",
+    });
+    const secondFutureAutomatic = bridge.injectUserMessage(sid, "same timer reminder", {
+      sessionId: "timer:refresh-check",
+      sessionLabel: "Timer refresh-check",
+    });
+
+    expect(firstFutureAutomatic).toBe("paused_queued");
+    expect(secondFutureAutomatic).toBe("paused_queued");
+    expect(
+      session.state.codex_result_error_auto_pause?.heldInputs.find(
+        (item: any) => item.message.content === "same timer reminder",
+      ),
+    ).toMatchObject({ count: 2 });
 
     adapter.sendBrowserMessage.mockClear();
     adapter.setCurrentTurnId(null);
@@ -904,19 +916,6 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     const now = Date.now();
     session.processedClientMessageIds.push(clientMsgId);
     session.processedClientMessageIdSet.add(clientMsgId);
-    session.state.codex_result_error_auto_pause = {
-      family: "model_backend_stream_error",
-      fingerprint: "model_backend_stream_error:responses",
-      streak: 2,
-      threshold: 3,
-      pausedAt: null,
-      lastError:
-        "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
-      lastErrorAt: now,
-      lastSourceKind: "automatic",
-      totalMatchingErrors: 2,
-      heldInputs: [],
-    };
     session.pendingCodexInputs.push({
       id: "queued-browser-auto-input",
       clientMsgId,
@@ -954,8 +953,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
         type: "result",
         subtype: "error",
         is_error: true,
-        result:
-          "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
+        result: COPILOT_AUTH_REFRESH_EXHAUSTED_RESULT,
         duration_ms: 0,
         duration_api_ms: 0,
         num_turns: 1,
@@ -974,6 +972,39 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(heldMessage?.client_msg_id).toBeUndefined();
     expect(session.pendingCodexInputs).toHaveLength(0);
     expect(session.pendingCodexTurns).toHaveLength(0);
+    expect(session.state.codex_result_error_auto_pause).toMatchObject({
+      family: "copilot_auth_refresh_exhausted",
+      threshold: 1,
+      streak: 1,
+      pausedAt: expect.any(Number),
+    });
+
+    await (bridge as any).handleCodexResultErrorAutoPause(
+      session,
+      {
+        type: "result",
+        subtype: "error",
+        is_error: true,
+        result: COPILOT_AUTH_REFRESH_EXHAUSTED_RESULT,
+        duration_ms: 0,
+        duration_api_ms: 0,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "failed",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        session_id: sid,
+        codex_turn_id: "failed-manual-turn",
+        uuid: "failed-manual-result",
+      },
+      { autoPauseSourceKind: "manual" },
+    );
+
+    expect(session.state.codex_result_error_auto_pause).toMatchObject({
+      family: "copilot_auth_refresh_exhausted",
+      pausedAt: expect.any(Number),
+      streak: 2,
+    });
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
 
     await (bridge as any).handleCodexResultErrorAutoPause(
       session,
