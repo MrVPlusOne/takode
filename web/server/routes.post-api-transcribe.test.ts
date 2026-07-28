@@ -829,6 +829,12 @@ describe("POST /api/transcribe", () => {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ text: "legacy variant transcript" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
       );
 
     const form = new FormData();
@@ -856,9 +862,29 @@ describe("POST /api/transcribe", () => {
     expect(replayForm.getAll("keywords[]")).toEqual(["Takode", "ReplayTerm"]);
     expect(replayForm.getAll("languages[]")).toEqual(["en"]);
 
+    const legacyReplayRes = await app.request("/api/transcription-logs/" + sourceId + "/retranscribe", {
+      method: "POST",
+      body: JSON.stringify({ sttModel: "custom-legacy-transcribe" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(legacyReplayRes.status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    const [, legacyReplayInit] = vi.mocked(fetch).mock.calls[2] as [string, RequestInit];
+    const legacyReplayForm = legacyReplayInit.body as FormData;
+    const legacyPrompt = String(legacyReplayForm.get("prompt"));
+    expect(legacyReplayForm.get("model")).toBe("custom-legacy-transcribe");
+    expect(legacyReplayForm.getAll("keywords[]")).toEqual([]);
+    expect(legacyReplayForm.getAll("languages[]")).toEqual([]);
+    expect(legacyPrompt).toContain("Custom vocabulary: Takode, ReplayTerm");
+    expect(legacyPrompt).toContain("Expected input languages: en");
+
     const detailRes = await app.request("/api/transcription-logs/" + sourceId);
     const detail = (await detailRes.json()) as { replayVariants?: Array<{ rawTranscript?: string }> };
-    expect(detail.replayVariants?.[0]?.rawTranscript).toBe("variant transcript");
+    expect(detail.replayVariants?.map((variant) => variant.rawTranscript)).toEqual([
+      "legacy variant transcript",
+      "variant transcript",
+    ]);
   });
 
   it("re-enhances a source transcript with selected model and style into a durable child variant", async () => {

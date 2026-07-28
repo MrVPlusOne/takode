@@ -205,6 +205,66 @@ describe("TranscriptionDebugPanel", () => {
     expect(await screen.findByText("replay enhanced")).toBeInTheDocument();
   });
 
+  it("compares original enhancement output against replay enhancement output", async () => {
+    mockApi.getTranscriptionLogEntry.mockResolvedValueOnce({
+      id: 42,
+      timestamp: Date.now(),
+      sessionId: "session-12345678",
+      mode: "dictation",
+      uploadDurationMs: 12,
+      sttModel: "gpt-transcribe",
+      sttDurationMs: 1100,
+      rawTranscript: "source raw transcript",
+      audioSizeBytes: 4096,
+      audioMimeType: "audio/wav",
+      audioFileName: "recording.wav",
+      audioUrl: "/api/transcription-logs/42/audio",
+      recordingDirectoryPath: "/Users/test/.companion/transcription-recordings/prod/2026-05-25/tx-42",
+      recordingStatus: "success",
+      canOpenRecordingDirectory: true,
+      openRecordingDirectoryLabel: "Open in Finder",
+      replayAvailability: {
+        retranscribe: { available: true },
+        reenhance: { available: true },
+      },
+      sttPrompt: "Prompt sent to the STT model",
+      enhancement: {
+        model: "gpt-5-mini",
+        systemPrompt: "system",
+        userMessage: "user",
+        enhancedText: "original enhanced output",
+        durationMs: 1200,
+      },
+      replayVariants: [
+        {
+          id: "variant-enhanced",
+          kind: "enhancement_replay",
+          status: "success",
+          createdAt: Date.now(),
+          sourceLogId: 42,
+          model: "gpt-5.5",
+          provider: "openai",
+          enhancementMode: "bullet",
+          rawTranscript: "source raw transcript",
+          enhancedText: "replay enhanced output",
+          timing: { enhancementDurationMs: 333 },
+        },
+      ],
+    });
+
+    render(<TranscriptionDebugPanel />);
+
+    fireEvent.click(screen.getByText("Show"));
+    fireEvent.click(await screen.findByText("gpt-4o-mini-transcribe-alpha-tapioca-4"));
+
+    expect(await screen.findByText("Original enhanced output")).toBeInTheDocument();
+    expect(screen.getAllByText("original enhanced output").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Replay enhanced output")).toBeInTheDocument();
+    expect(screen.getByText("replay enhanced output")).toBeInTheDocument();
+    expect(screen.getByText("Source raw transcript context")).toBeInTheDocument();
+    expect(screen.getAllByText("source raw transcript").length).toBeGreaterThanOrEqual(1);
+  });
+
   it("shows backend disabled replay reasons in detail", async () => {
     mockApi.getTranscriptionLogEntry.mockResolvedValueOnce({
       id: 42,

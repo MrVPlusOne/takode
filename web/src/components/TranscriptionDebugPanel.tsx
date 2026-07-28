@@ -67,6 +67,13 @@ function replayKindLabel(kind: TranscriptionReplayVariant["kind"]): string {
   return kind === "stt_replay" ? "Re-transcribe" : "Re-enhance";
 }
 
+function originalEnhancementComparisonText(entry: TranscriptionLogEntry): string {
+  if (!entry.enhancement) return "Original enhancement was not attempted.";
+  if (entry.enhancement.enhancedText) return entry.enhancement.enhancedText;
+  if (entry.enhancement.skipReason) return "(skipped: " + entry.enhancement.skipReason + ")";
+  return "(null — skipped, failed, or hallucination guard)";
+}
+
 export function TranscriptionDebugPanel() {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<TranscriptionLogIndexEntry[]>([]);
@@ -769,21 +776,31 @@ export function TranscriptionDebugPanel() {
                                 </div>
                               )}
                               {variant.kind === "enhancement_replay" && (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                  <div>
-                                    <div className="text-[11px] uppercase tracking-wider text-cc-muted mb-1">
-                                      Source raw transcript
+                                <div className="space-y-2">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    <div>
+                                      <div className="text-[11px] uppercase tracking-wider text-cc-muted mb-1">
+                                        Original enhanced output
+                                      </div>
+                                      <pre className="p-2 text-xs font-mono bg-cc-input-bg border border-cc-border rounded text-cc-fg whitespace-pre-wrap max-h-[260px] overflow-y-auto">
+                                        {originalEnhancementComparisonText(expandedEntry)}
+                                      </pre>
                                     </div>
-                                    <pre className="p-2 text-xs font-mono bg-cc-input-bg border border-cc-border rounded text-cc-fg whitespace-pre-wrap max-h-[260px] overflow-y-auto">
-                                      {variant.rawTranscript || expandedEntry.rawTranscript || "(empty)"}
-                                    </pre>
+                                    <div>
+                                      <div className="text-[11px] uppercase tracking-wider text-cc-muted mb-1">
+                                        Replay enhanced output
+                                      </div>
+                                      <pre className="p-2 text-xs font-mono bg-cc-input-bg border border-cc-border rounded text-cc-fg whitespace-pre-wrap max-h-[260px] overflow-y-auto">
+                                        {variant.enhancedText ?? "(null — skipped, failed, or hallucination guard)"}
+                                      </pre>
+                                    </div>
                                   </div>
                                   <div>
                                     <div className="text-[11px] uppercase tracking-wider text-cc-muted mb-1">
-                                      Replay enhanced output
+                                      Source raw transcript context
                                     </div>
                                     <pre className="p-2 text-xs font-mono bg-cc-input-bg border border-cc-border rounded text-cc-fg whitespace-pre-wrap max-h-[260px] overflow-y-auto">
-                                      {variant.enhancedText ?? "(null — skipped, failed, or hallucination guard)"}
+                                      {variant.rawTranscript || expandedEntry.rawTranscript || "(empty)"}
                                     </pre>
                                   </div>
                                 </div>

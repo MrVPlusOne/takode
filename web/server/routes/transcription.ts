@@ -657,16 +657,23 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
   function buildSourceSttReplayContext(source: TranscriptionReplaySource, targetModel: string) {
     const usesGptTranscribeContext = targetModel === GPT_TRANSCRIBE_STT_MODEL;
     if (source.sttReplayContext) {
+      const prompt = usesGptTranscribeContext
+        ? source.sttReplayContext.prompt
+        : buildPromptCompatibleReplayPrompt(
+            source.sttReplayContext.prompt,
+            source.sttReplayContext.keywords,
+            source.sttReplayContext.languageHints,
+          );
       return {
         ...source.sttReplayContext,
         backend: "openai",
         model: targetModel,
+        prompt,
+        promptLength: prompt.length,
         usesGptTranscribeContext,
         promptIncludesCustomVocabulary: usesGptTranscribeContext
           ? source.sttReplayContext.promptIncludesCustomVocabulary
           : true,
-        keywords: usesGptTranscribeContext ? source.sttReplayContext.keywords : [],
-        languageHints: usesGptTranscribeContext ? source.sttReplayContext.languageHints : [],
       };
     }
     const missingStructuredContext =
@@ -684,6 +691,17 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       droppedKeywordCount: source.sttContext?.droppedKeywordCount ?? 0,
       languageHints: [] as string[],
     };
+  }
+
+  function buildPromptCompatibleReplayPrompt(prompt: string, keywords: string[], languageHints: string[]): string {
+    const parts = [prompt.trim()].filter(Boolean);
+    if (keywords.length > 0) {
+      parts.push("Custom vocabulary: " + keywords.join(", "));
+    }
+    if (languageHints.length > 0) {
+      parts.push("Expected input languages: " + languageHints.join(", "));
+    }
+    return parts.join("\n\n");
   }
 
   api.post("/transcription-logs/:id/retranscribe", async (c) => {
