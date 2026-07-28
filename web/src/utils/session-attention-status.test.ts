@@ -1,0 +1,67 @@
+import { describe, expect, it } from "vitest";
+import { deriveEffectiveSessionAttentionStatus } from "./session-attention-status.js";
+import type { SessionNotification } from "../types.js";
+
+describe("deriveEffectiveSessionAttentionStatus", () => {
+  it("keeps fresh backend review summaries visible for the selected orchestrator session", () => {
+    // Regression coverage for selected-vs-unselected sidebar flicker: viewing a
+    // leader session shell is not proof that a thread-scoped unread was viewed.
+    // A fresh backend-authored active summary should therefore stay visible
+    // until a real clear/read update arrives.
+    const status = deriveEffectiveSessionAttentionStatus({
+      sessionId: "leader",
+      currentSessionId: "leader",
+      notifications: [],
+      summary: {
+        id: "leader",
+        isOrchestrator: true,
+        notificationUrgency: "review",
+        activeNotificationCount: 1,
+        activeReviewNotificationCount: 1,
+        notificationStatusVersion: 7,
+      },
+      fallbackUrgency: "review",
+    });
+
+    expect(status).toEqual({ urgency: "review", count: 1 });
+  });
+
+  it("still suppresses stale fallback attention for the selected session without a fresh active summary", () => {
+    const status = deriveEffectiveSessionAttentionStatus({
+      sessionId: "leader",
+      currentSessionId: "leader",
+      notifications: [],
+      fallbackUrgency: "review",
+    });
+
+    expect(status).toBeNull();
+  });
+
+  it("continues to let fresh cleared summaries suppress stale cached review notifications", () => {
+    const cachedReview: SessionNotification = {
+      id: "n-review",
+      category: "review",
+      summary: "Older review",
+      timestamp: 100,
+      messageId: null,
+      done: false,
+    };
+
+    const status = deriveEffectiveSessionAttentionStatus({
+      sessionId: "leader",
+      currentSessionId: "other",
+      notifications: [cachedReview],
+      summary: {
+        id: "leader",
+        isOrchestrator: true,
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        activeReviewNotificationCount: 0,
+        notificationStatusVersion: 8,
+      },
+      fallbackUrgency: "review",
+    });
+
+    expect(status).toBeNull();
+  });
+});

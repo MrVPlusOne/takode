@@ -1080,7 +1080,34 @@ describe("SessionItem notification marker", () => {
       },
     ];
 
-    renderSessionItem({ session: makeSession({ isOrchestrator: true }) });
+    renderSessionItem({
+      session: makeSession({ isOrchestrator: true, notificationUrgency: "review", activeNotificationCount: 1 }),
+    });
+
+    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "review");
+  });
+
+  it("keeps the blue marker for a selected leader session with a fresh active review summary", () => {
+    // The selected session row should not briefly hide a backend-authored
+    // thread-scoped unread summary just because the user opened the leader
+    // session shell. Otherwise switching away makes the same unread reappear.
+    setSessionNotifications("s1", []);
+    mockStoreState.currentSessionId = "s1";
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        isOrchestrator: true,
+        notificationUrgency: "review",
+        activeNotificationCount: 1,
+        activeReviewNotificationCount: 1,
+        notificationStatusVersion: 9,
+        notificationStatusUpdatedAt: 9000,
+      },
+    ];
+
+    renderSessionItem({
+      session: makeSession({ isOrchestrator: true, notificationUrgency: "review", activeNotificationCount: 1 }),
+    });
 
     expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "review");
   });

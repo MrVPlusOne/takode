@@ -324,6 +324,43 @@ describe("SessionHoverCard", () => {
     expect(screen.queryByTestId("session-hover-attention-status")).toBeNull();
   });
 
+  it("keeps backend-authored unread conversations visible while the leader session is selected", () => {
+    // Selecting a leader session only proves the session shell was viewed. It
+    // must not hide a fresh backend summary for an unread target thread; the
+    // hover text should be consistent before and after selecting the row.
+    mockStoreState.currentSessionId = "s1";
+    mockStoreState.sessionNotifications.set("s1", []);
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        isOrchestrator: true,
+        notificationUrgency: "review",
+        activeNotificationCount: 1,
+        activeReviewNotificationCount: 1,
+        notificationStatusVersion: 9,
+        notificationStatusUpdatedAt: 9000,
+      },
+    ];
+
+    render(
+      <SessionHoverCard
+        session={makeSession({ isOrchestrator: true, notificationUrgency: "review", activeNotificationCount: 1 })}
+        sessionName="Selected Leader Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    const status = screen.getByTestId("session-hover-attention-status");
+    expect(status).toHaveTextContent("1 unread conversation");
+    expect(within(status).getByTestId("session-hover-attention-status-dot")).toHaveClass("bg-blue-500");
+  });
+
   it("does not explain stale action attention after notification status is cleared", () => {
     // Raw sessionAttention can outlive the versioned notification summary; the
     // hover card should match the row's effective action-attention suppression.
