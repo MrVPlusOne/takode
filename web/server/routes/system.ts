@@ -17,7 +17,7 @@ import { getUsageLimits } from "../usage-limits.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import {
   getTranscriptionLogIndex,
-  getTranscriptionLogEntry,
+  getTranscriptionLogEntryWithReplays,
   getTranscriptionLogAudio,
   getTranscriptionLogRecordingDirectory,
   deleteTranscriptionLogRecording,
@@ -1082,10 +1082,10 @@ export function createSystemRoutes(ctx: RouteContext) {
     return c.json(getTranscriptionLogIndex());
   });
 
-  api.get("/transcription-logs/:id", (c) => {
+  api.get("/transcription-logs/:id", async (c) => {
     const id = Number(c.req.param("id"));
     if (Number.isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
-    const entry = getTranscriptionLogEntry(id);
+    const entry = await getTranscriptionLogEntryWithReplays(id);
     if (!entry) return c.json({ error: "Not found" }, 404);
     return c.json(entry);
   });

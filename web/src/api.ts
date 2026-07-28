@@ -23,6 +23,11 @@ import { searchGlobalStarredMessages, searchSessionMessages } from "./api/sessio
 import { getMemoryCatalog, getMemoryRecord, getMemoryUpdateDiff, listMemorySpaces } from "./api/memory.js";
 import type { MemoryUpdateDiffSourceFile } from "./api/memory.js";
 import { transcribe } from "./api/transcription.js";
+import type {
+  TranscriptionLogEntry,
+  TranscriptionLogIndexEntry,
+  TranscriptionReplayVariant,
+} from "./api/transcription-debug-types.js";
 import type { VoiceTranscriptionFrontendTimingReport, VoiceTranscriptionTiming } from "./transcription-progress.js";
 import type { ShortcutSettings } from "./shortcuts.js";
 import type { SessionDefaultsSettings } from "../shared/session-defaults.js";
@@ -57,6 +62,12 @@ export type {
   MemoryUpdateDiffSourceFile,
   MemoryUpdateDiffResponse,
 } from "./api/memory.js";
+
+export type {
+  TranscriptionLogEntry,
+  TranscriptionLogIndexEntry,
+  TranscriptionReplayVariant,
+} from "./api/transcription-debug-types.js";
 
 export type {
   VoiceTranscriptionMode,
@@ -791,63 +802,6 @@ export interface CronJobExecution {
 }
 
 // ─── Namer Log Types ────────────────────────────────────────────────────────
-
-// ─── Transcription Debug Logs ────────────────────────────────────────────────
-
-export interface TranscriptionLogIndexEntry {
-  id: number;
-  timestamp: number;
-  status?: "success" | "error";
-  sessionId: string | null;
-  requestId?: string | null;
-  mode?: "dictation" | "edit" | "append";
-  /** Browser upload + server request-body read/setup time before SSE begins. */
-  uploadDurationMs: number;
-  sttModel: string;
-  sttDurationMs: number;
-  sttContext?: {
-    promptLength: number;
-    keywordCount: number;
-    droppedKeywordCount: number;
-    languageHints: string[];
-  };
-  rawTranscript: string;
-  audioSizeBytes: number;
-  audioMimeType?: string | null;
-  audioFileName?: string | null;
-  serverTiming?: VoiceTranscriptionTiming["serverTiming"];
-  frontendTiming?: VoiceTranscriptionFrontendTimingReport & { receivedAt: number };
-  audioUrl?: string;
-  recordingDirectoryPath?: string;
-  recordingManifestPath?: string;
-  recordingStatus?: "success" | "error";
-  recordingPersistenceError?: string;
-  recordingDeletedAt?: number;
-  canOpenRecordingDirectory?: boolean;
-  openRecordingDirectoryLabel?: string;
-  error?: {
-    message: string;
-    phase?: string;
-  };
-  enhancement: {
-    model: string;
-    enhancedText: string | null;
-    durationMs: number;
-    skipReason?: string;
-  } | null;
-}
-
-export interface TranscriptionLogEntry extends TranscriptionLogIndexEntry {
-  sttPrompt: string;
-  enhancement: {
-    model: string;
-    systemPrompt: string;
-    userMessage: string;
-    enhancedText: string | null;
-    durationMs: number;
-    skipReason?: string;
-  } | null;
-}
 
 export interface NamerLogIndexEntry {
   id: number;
@@ -1640,6 +1594,15 @@ export const api = {
       `/transcription-logs/${id}/recording/open`,
     ),
   deleteTranscriptionRecording: (id: number) => del<TranscriptionLogEntry>(`/transcription-logs/${id}/recording`),
+  retranscribeLogEntry: (id: number, sttModel: string) =>
+    post<{ ok: boolean; variant: TranscriptionReplayVariant }>(`/transcription-logs/${id}/retranscribe`, {
+      sttModel,
+    }),
+  reenhanceLogEntry: (id: number, enhancementModel: string, enhancementMode: "default" | "bullet") =>
+    post<{ ok: boolean; variant: TranscriptionReplayVariant }>(`/transcription-logs/${id}/reenhance`, {
+      enhancementModel,
+      enhancementMode,
+    }),
 
   // Enhancement tester (debug tool in Settings)
   testEnhancement: (text: string, mode: "default" | "bullet", sessionId?: string) =>

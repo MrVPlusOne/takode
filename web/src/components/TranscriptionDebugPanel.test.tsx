@@ -8,6 +8,8 @@ const mockApi = vi.hoisted(() => ({
   getTranscriptionLogEntry: vi.fn(),
   openTranscriptionRecordingDirectory: vi.fn(),
   deleteTranscriptionRecording: vi.fn(),
+  retranscribeLogEntry: vi.fn(),
+  reenhanceLogEntry: vi.fn(),
 }));
 
 vi.mock("../api.js", () => ({
@@ -16,6 +18,8 @@ vi.mock("../api.js", () => ({
     getTranscriptionLogEntry: (...args: unknown[]) => mockApi.getTranscriptionLogEntry(...args),
     openTranscriptionRecordingDirectory: (...args: unknown[]) => mockApi.openTranscriptionRecordingDirectory(...args),
     deleteTranscriptionRecording: (...args: unknown[]) => mockApi.deleteTranscriptionRecording(...args),
+    retranscribeLogEntry: (...args: unknown[]) => mockApi.retranscribeLogEntry(...args),
+    reenhanceLogEntry: (...args: unknown[]) => mockApi.reenhanceLogEntry(...args),
   },
 }));
 
@@ -36,7 +40,6 @@ beforeEach(() => {
       uploadDurationMs: 12,
       sttModel: "gpt-4o-mini-transcribe-alpha-tapioca-4",
       sttDurationMs: 1100,
-      rawTranscript: "debug transcript",
       audioSizeBytes: 4096,
       audioMimeType: "audio/wav",
       audioFileName: "recording.wav",
@@ -65,7 +68,17 @@ beforeEach(() => {
     recordingStatus: "success",
     canOpenRecordingDirectory: true,
     openRecordingDirectoryLabel: "Open in Finder",
+    replayAvailability: {
+      retranscribe: { available: true },
+      reenhance: { available: true },
+    },
     sttPrompt: "Prompt sent to the STT model",
+    sttContext: {
+      promptLength: 28,
+      keywordCount: 1,
+      droppedKeywordCount: 0,
+      languageHints: ["en"],
+    },
     enhancement: null,
   });
   mockApi.openTranscriptionRecordingDirectory.mockResolvedValue({ ok: true });
@@ -88,6 +101,36 @@ beforeEach(() => {
     canOpenRecordingDirectory: false,
     sttPrompt: "Prompt sent to the STT model",
     enhancement: null,
+  });
+  mockApi.retranscribeLogEntry.mockResolvedValue({
+    ok: true,
+    variant: {
+      id: "variant-stt",
+      kind: "stt_replay",
+      status: "success",
+      createdAt: Date.now(),
+      sourceLogId: 42,
+      model: "gpt-transcribe",
+      provider: "openai",
+      rawTranscript: "replay transcript",
+      timing: { sttDurationMs: 222 },
+    },
+  });
+  mockApi.reenhanceLogEntry.mockResolvedValue({
+    ok: true,
+    variant: {
+      id: "variant-enh",
+      kind: "enhancement_replay",
+      status: "success",
+      createdAt: Date.now(),
+      sourceLogId: 42,
+      model: "gpt-5.5",
+      provider: "openai",
+      enhancementMode: "bullet",
+      rawTranscript: "debug transcript",
+      enhancedText: "replay enhanced",
+      timing: { enhancementDurationMs: 333 },
+    },
   });
   vi.spyOn(window, "confirm").mockReturnValue(true);
 });
@@ -135,5 +178,67 @@ describe("TranscriptionDebugPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete recording" }));
     await waitFor(() => expect(mockApi.deleteTranscriptionRecording).toHaveBeenCalledWith(42));
     expect(await screen.findByText("deleted")).toBeInTheDocument();
+  });
+
+  it("runs replay actions from detail with explicit provider confirmations", async () => {
+    render(<TranscriptionDebugPanel />);
+
+    fireEvent.click(screen.getByText("Show"));
+    fireEvent.click(await screen.findByText("gpt-4o-mini-transcribe-alpha-tapioca-4"));
+
+    expect(await screen.findByText("Replay & compare")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Target STT model/i), { target: { value: "gpt-transcribe" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run re-transcribe" }));
+
+    await waitFor(() => expect(mockApi.retranscribeLogEntry).toHaveBeenCalledWith(42, "gpt-transcribe"));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("original audio plus stored STT context"));
+    expect(await screen.findByText("replay transcript")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Enhancement model/i), { target: { value: "gpt-5.5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Bullet Points" }));
+    fireEvent.click(screen.getByRole("button", { name: "Run re-enhance" }));
+
+    await waitFor(() => expect(mockApi.reenhanceLogEntry).toHaveBeenCalledWith(42, "gpt-5.5", "bullet"));
+    expect(window.confirm).toHaveBeenCalledWith(
+      expect.stringContaining("raw STT transcript plus stored enhancement context"),
+    );
+    expect(await screen.findByText("replay enhanced")).toBeInTheDocument();
+  });
+
+  it("shows backend disabled replay reasons in detail", async () => {
+    mockApi.getTranscriptionLogEntry.mockResolvedValueOnce({
+      id: 42,
+      timestamp: Date.now(),
+      sessionId: "session-12345678",
+      mode: "dictation",
+      uploadDurationMs: 12,
+      sttModel: "gpt-transcribe",
+      sttDurationMs: 1100,
+      rawTranscript: "debug transcript",
+      audioSizeBytes: 4096,
+      audioMimeType: "audio/wav",
+      audioFileName: "recording.wav",
+      audioUrl: "/api/transcription-logs/42/audio",
+      recordingDirectoryPath: "/Users/test/.companion/transcription-recordings/prod/2026-05-25/tx-42",
+      recordingStatus: "success",
+      canOpenRecordingDirectory: true,
+      openRecordingDirectoryLabel: "Open in Finder",
+      replayAvailability: {
+        retranscribe: { available: false, reason: "Separated STT replay context is missing" },
+        reenhance: { available: false, reason: "No OpenAI-compatible API key configured" },
+      },
+      sttPrompt: "Prompt sent to the STT model",
+      enhancement: null,
+    });
+
+    render(<TranscriptionDebugPanel />);
+
+    fireEvent.click(screen.getByText("Show"));
+    fireEvent.click(await screen.findByText("gpt-4o-mini-transcribe-alpha-tapioca-4"));
+
+    expect(await screen.findByText("Separated STT replay context is missing")).toBeInTheDocument();
+    expect(screen.getByText("No OpenAI-compatible API key configured")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run re-transcribe" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run re-enhance" })).toBeDisabled();
   });
 });

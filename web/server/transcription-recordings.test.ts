@@ -5,8 +5,10 @@ import { join } from "node:path";
 import {
   _setTranscriptionRecordingRootForTest,
   deleteTranscriptionRecordingDirectory,
+  readTranscriptionReplayVariants,
   writeTranscriptionRecording,
   writeTranscriptionRecordingFrontendTiming,
+  writeTranscriptionReplayVariant,
 } from "./transcription-recordings.js";
 
 describe("transcription recordings", () => {
@@ -90,6 +92,63 @@ describe("transcription recordings", () => {
     );
     const manifest = JSON.parse(await readFile(result.manifestPath, "utf-8")) as { artifacts: Record<string, string> };
     expect(manifest.artifacts.frontendTiming).toBe("frontend-timing.json");
+  });
+
+  it("writes durable source-scoped replay variants without secrets", async () => {
+    const source = await writeTranscriptionRecording({
+      status: "success",
+      sessionId: "session-1",
+      requestId: "tx-source",
+      mode: "dictation",
+      backend: "openai",
+      uploadDurationMs: 12,
+      sttModel: "gpt-transcribe",
+      sttDurationMs: 34,
+      sttPrompt: "Replay prompt",
+      rawTranscript: "source transcript",
+      audioBytes: Buffer.from([1, 2, 3]),
+      audioMimeType: "audio/wav",
+      audioFileName: "recording.wav",
+      audioExtension: "wav",
+      enhancement: null,
+    });
+
+    const variant = await writeTranscriptionReplayVariant(source.directoryPath, {
+      kind: "stt_replay",
+      status: "success",
+      sourceLogId: 42,
+      model: "gpt-transcribe",
+      provider: "openai",
+      sttPrompt: "Replay prompt",
+      sttReplayContext: {
+        version: 1,
+        backend: "openai",
+        model: "gpt-transcribe",
+        prompt: "Replay prompt",
+        promptLength: 13,
+        usesGptTranscribeContext: true,
+        promptIncludesCustomVocabulary: false,
+        keywords: ["Takode"],
+        droppedKeywordCount: 0,
+        languageHints: ["en"],
+      },
+      rawTranscript: "variant transcript",
+      timing: { sttDurationMs: 100 },
+    });
+
+    expect(variant.rawTranscript).toBe("variant transcript");
+    const loaded = await readTranscriptionReplayVariants(source.directoryPath);
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]).toMatchObject({
+      kind: "stt_replay",
+      sourceLogId: 42,
+      model: "gpt-transcribe",
+      rawTranscript: "variant transcript",
+      sttContext: { keywordCount: 1, languageHints: ["en"] },
+    });
+    const indexText = await readFile(join(source.directoryPath, "replays", "index.json"), "utf-8");
+    expect(indexText).not.toContain("variant transcript");
+    expect(indexText).not.toContain("secret");
   });
 
   it("deletes only paths inside the recording root", async () => {

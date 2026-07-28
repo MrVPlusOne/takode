@@ -804,6 +804,116 @@ describe("POST /api/transcribe", () => {
     expect(outboundForm.getAll("languages[]")).toEqual([]);
   });
 
+  it("re-transcribes a source recording with stored STT context into a durable child variant", async () => {
+    mockVoiceSettings({
+      baseUrl: "https://provider.example/v1/",
+      enhancementEnabled: false,
+      sttModel: "gpt-transcribe",
+      customVocabulary: "Takode, ReplayTerm",
+      sttLanguageHints: ["en"],
+    });
+    vi.mocked(sessionNames.getName).mockReturnValue("Replay source session");
+    ensureBridgeSession(bridge, "session-1", {
+      taskHistory: [{ title: "Replay transcription context" }],
+      messageHistory: [],
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ text: "original transcript" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ text: "variant transcript" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    const form = new FormData();
+    form.append("audio", new File([new Uint8Array([0x52, 0x49, 0x46, 0x46])], "recording.wav", { type: "audio/wav" }));
+    form.append("backend", "openai");
+    form.append("sessionId", "session-1");
+    const sourceRes = await app.request("/api/transcribe", { method: "POST", body: form });
+    expect(sourceRes.status).toBe(200);
+    await sourceRes.text();
+    const sourceId = transcriptionEnhancer.getTranscriptionLogIndex()[0].id;
+
+    const replayRes = await app.request("/api/transcription-logs/" + sourceId + "/retranscribe", {
+      method: "POST",
+      body: JSON.stringify({ sttModel: "gpt-transcribe" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(replayRes.status).toBe(200);
+    const replayBody = (await replayRes.json()) as { variant: { rawTranscript: string } };
+    expect(replayBody.variant.rawTranscript).toBe("variant transcript");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const [, replayInit] = vi.mocked(fetch).mock.calls[1] as [string, RequestInit];
+    const replayForm = replayInit.body as FormData;
+    expect(replayForm.get("model")).toBe("gpt-transcribe");
+    expect(replayForm.getAll("keywords[]")).toEqual(["Takode", "ReplayTerm"]);
+    expect(replayForm.getAll("languages[]")).toEqual(["en"]);
+
+    const detailRes = await app.request("/api/transcription-logs/" + sourceId);
+    const detail = (await detailRes.json()) as { replayVariants?: Array<{ rawTranscript?: string }> };
+    expect(detail.replayVariants?.[0]?.rawTranscript).toBe("variant transcript");
+  });
+
+  it("re-enhances a source transcript with selected model and style into a durable child variant", async () => {
+    mockVoiceSettings({
+      enhancementEnabled: false,
+      sttModel: "gpt-transcribe",
+      customVocabulary: "Takode",
+    });
+    vi.mocked(sessionNames.getName).mockReturnValue("Enhance replay session");
+    ensureBridgeSession(bridge, "session-1", {
+      taskHistory: [{ title: "Replay enhancement context" }],
+      messageHistory: [],
+    });
+    const longTranscript =
+      "This is a deliberately long replay transcript with enough words and characters for the enhancement path to run with useful context and produce a cleaned output.";
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ text: longTranscript }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: "cleaned replay output" } }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    const form = new FormData();
+    form.append("audio", new File([new Uint8Array([0x52, 0x49, 0x46, 0x46])], "recording.wav", { type: "audio/wav" }));
+    form.append("backend", "openai");
+    form.append("sessionId", "session-1");
+    const sourceRes = await app.request("/api/transcribe", { method: "POST", body: form });
+    expect(sourceRes.status).toBe(200);
+    await sourceRes.text();
+    const sourceId = transcriptionEnhancer.getTranscriptionLogIndex()[0].id;
+
+    const replayRes = await app.request("/api/transcription-logs/" + sourceId + "/reenhance", {
+      method: "POST",
+      body: JSON.stringify({ enhancementModel: "gpt-5.5", enhancementMode: "bullet" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(replayRes.status).toBe(200);
+    const replayBody = (await replayRes.json()) as { variant: { enhancedText: string; enhancementMode: string } };
+    expect(replayBody.variant.enhancedText).toBe("cleaned replay output");
+    expect(replayBody.variant.enhancementMode).toBe("bullet");
+    const [chatUrl, chatInit] = vi.mocked(fetch).mock.calls[1] as [string, RequestInit];
+    expect(chatUrl).toBe("https://api.openai.com/v1/chat/completions");
+    const chatBody = JSON.parse(String(chatInit.body)) as { model: string; messages: Array<{ content: string }> };
+    expect(chatBody.model).toBe("gpt-5.5");
+    expect(chatBody.messages[1].content).toContain("Replay enhancement context");
+  });
+
   it("records pre-stream upload time separately from STT timing for raw dictation uploads", async () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
@@ -860,7 +970,6 @@ describe("POST /api/transcribe", () => {
       expect.objectContaining({
         uploadDurationMs: expect.any(Number),
         sttDurationMs: expect.any(Number),
-        rawTranscript: "timed transcript",
         audioMimeType: "audio/wav",
         audioFileName: "recording.wav",
         serverTiming: expect.objectContaining({
@@ -883,6 +992,13 @@ describe("POST /api/transcribe", () => {
     const [indexEntry] = (await indexRes.json()) as Array<Record<string, unknown>>;
     expect(indexEntry).not.toHaveProperty("inputContext");
     expect(indexEntry).not.toHaveProperty("result");
+    expect(indexEntry).not.toHaveProperty("rawTranscript");
+
+    const detailRes = await app.request(
+      "/api/transcription-logs/" + transcriptionEnhancer.getTranscriptionLogIndex()[0].id,
+    );
+    expect(detailRes.status).toBe(200);
+    await expect(detailRes.json()).resolves.toMatchObject({ rawTranscript: "timed transcript" });
 
     // The debug panel should be able to inspect the exact source audio behind a transcript.
     const logEntry = transcriptionEnhancer.getTranscriptionLogIndex()[0];

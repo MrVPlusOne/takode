@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api.js";
-import type { TranscriptionLogIndexEntry, TranscriptionLogEntry } from "../api.js";
+import type { TranscriptionLogIndexEntry, TranscriptionLogEntry, TranscriptionReplayVariant } from "../api.js";
+
+const REPLAY_STT_MODELS = [
+  "gpt-transcribe",
+  "gpt-4o-mini-transcribe",
+  "gpt-4o-transcribe",
+  "gpt-4o-mini-transcribe-2025-12-15",
+];
 
 function timeAgo(ts: number): string {
   const now = Date.now();
@@ -56,6 +63,10 @@ function statusColor(entry: TranscriptionLogIndexEntry): string {
   return enhancementColor(entry);
 }
 
+function replayKindLabel(kind: TranscriptionReplayVariant["kind"]): string {
+  return kind === "stt_replay" ? "Re-transcribe" : "Re-enhance";
+}
+
 export function TranscriptionDebugPanel() {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<TranscriptionLogIndexEntry[]>([]);
@@ -70,6 +81,11 @@ export function TranscriptionDebugPanel() {
   const [recordingActionError, setRecordingActionError] = useState("");
   const [openingRecording, setOpeningRecording] = useState(false);
   const [deletingRecording, setDeletingRecording] = useState(false);
+  const [replaySttModel, setReplaySttModel] = useState("gpt-transcribe");
+  const [replayEnhancementModel, setReplayEnhancementModel] = useState("gpt-5-mini");
+  const [replayEnhancementMode, setReplayEnhancementMode] = useState<"default" | "bullet">("default");
+  const [replayRunning, setReplayRunning] = useState<"stt" | "enhancement" | null>(null);
+  const [replayError, setReplayError] = useState("");
 
   const fetchIndex = useCallback(() => {
     setLoading(true);
@@ -97,6 +113,7 @@ export function TranscriptionDebugPanel() {
       setCopiedAudioUrl(false);
       setCopiedRecordingPath(false);
       setRecordingActionError("");
+      setReplayError("");
       return;
     }
     setExpandedId(id);
@@ -104,6 +121,7 @@ export function TranscriptionDebugPanel() {
     setCopiedAudioUrl(false);
     setCopiedRecordingPath(false);
     setRecordingActionError("");
+    setReplayError("");
     setDetailLoading(true);
     try {
       const entry = await api.getTranscriptionLogEntry(id);
@@ -118,6 +136,13 @@ export function TranscriptionDebugPanel() {
   const selectedIndexEntry = expandedId !== null ? entries.find((e) => e.id === expandedId) : null;
   const audioUrl = expandedEntry?.audioUrl ? resolveAbsoluteUrl(expandedEntry.audioUrl) : null;
   const recordingPath = expandedEntry?.recordingDirectoryPath ?? null;
+
+  useEffect(() => {
+    if (!expandedEntry) return;
+    setReplaySttModel(expandedEntry.sttModel || "gpt-transcribe");
+    setReplayEnhancementModel(expandedEntry.enhancement?.model || "gpt-5-mini");
+    setReplayEnhancementMode("default");
+  }, [expandedEntry?.id]);
 
   const updateEntry = (entry: TranscriptionLogEntry) => {
     setExpandedEntry(entry);
@@ -163,6 +188,55 @@ export function TranscriptionDebugPanel() {
     }
   };
 
+  const runRetranscribe = async () => {
+    if (!expandedEntry) return;
+    const confirmed = window.confirm(
+      "Run re-transcribe with " +
+        replaySttModel +
+        "? This sends the original audio plus stored STT context to your configured OpenAI-compatible provider and may incur provider charges. Sensitive debug context may be included.",
+    );
+    if (!confirmed) return;
+    setReplayRunning("stt");
+    setReplayError("");
+    try {
+      const result = await api.retranscribeLogEntry(expandedEntry.id, replaySttModel);
+      setExpandedEntry({
+        ...expandedEntry,
+        replayVariants: [result.variant, ...(expandedEntry.replayVariants ?? [])],
+      });
+    } catch (error) {
+      setReplayError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setReplayRunning(null);
+    }
+  };
+
+  const runReenhance = async () => {
+    if (!expandedEntry) return;
+    const style = replayEnhancementMode === "bullet" ? "Bullet Points" : "Prose";
+    const confirmed = window.confirm(
+      "Run re-enhance with " +
+        replayEnhancementModel +
+        " (" +
+        style +
+        ")? This sends the raw STT transcript plus stored enhancement context/prompts to your configured OpenAI-compatible provider and may incur provider charges. Sensitive debug context may be included.",
+    );
+    if (!confirmed) return;
+    setReplayRunning("enhancement");
+    setReplayError("");
+    try {
+      const result = await api.reenhanceLogEntry(expandedEntry.id, replayEnhancementModel, replayEnhancementMode);
+      setExpandedEntry({
+        ...expandedEntry,
+        replayVariants: [result.variant, ...(expandedEntry.replayVariants ?? [])],
+      });
+    } catch (error) {
+      setReplayError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setReplayRunning(null);
+    }
+  };
+
   // Close modal on Escape key
   useEffect(() => {
     if (expandedId === null) return;
@@ -173,6 +247,7 @@ export function TranscriptionDebugPanel() {
         setCopiedAudioUrl(false);
         setCopiedRecordingPath(false);
         setRecordingActionError("");
+        setReplayError("");
       }
     };
     document.addEventListener("keydown", handleKeyDown);
@@ -259,6 +334,7 @@ export function TranscriptionDebugPanel() {
               setCopiedAudioUrl(false);
               setCopiedRecordingPath(false);
               setRecordingActionError("");
+              setReplayError("");
             }}
           >
             <div
@@ -295,6 +371,7 @@ export function TranscriptionDebugPanel() {
                     setCopiedAudioUrl(false);
                     setCopiedRecordingPath(false);
                     setRecordingActionError("");
+                    setReplayError("");
                   }}
                   className="px-2 py-1 rounded text-xs text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
                 >
@@ -537,6 +614,185 @@ export function TranscriptionDebugPanel() {
                         )}
                       </div>
                     )}
+
+                    <div className="text-xs text-cc-muted border-t border-cc-border pt-3 space-y-3">
+                      <div>
+                        <h4 className="text-sm font-semibold text-cc-fg">Replay &amp; compare</h4>
+                        <p className="mt-1">
+                          Reuse this source record&apos;s stored audio, transcript, and debug context. Replay calls are
+                          explicit provider calls and may incur charges.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="rounded-lg border border-cc-border p-3 space-y-2">
+                          <div className="font-medium text-cc-fg">Re-transcribe source audio</div>
+                          <label className="block">
+                            <span className="block text-[11px] uppercase tracking-wider text-cc-muted mb-1">
+                              Target STT model
+                            </span>
+                            <input
+                              list="transcription-replay-stt-models"
+                              value={replaySttModel}
+                              onChange={(event) => setReplaySttModel(event.target.value)}
+                              className="w-full px-2 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded text-cc-fg font-mono"
+                            />
+                          </label>
+                          <datalist id="transcription-replay-stt-models">
+                            {REPLAY_STT_MODELS.map((model) => (
+                              <option key={model} value={model} />
+                            ))}
+                          </datalist>
+                          {expandedEntry.sttContext && (
+                            <p>
+                              Source context: prompt {expandedEntry.sttContext.promptLength} chars,{" "}
+                              {expandedEntry.sttContext.keywordCount} keywords,{" "}
+                              {expandedEntry.sttContext.languageHints.length} language hints.
+                            </p>
+                          )}
+                          {expandedEntry.replayAvailability?.retranscribe.reason && (
+                            <p className="text-cc-warning">{expandedEntry.replayAvailability.retranscribe.reason}</p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void runRetranscribe()}
+                            disabled={
+                              replayRunning !== null ||
+                              !replaySttModel.trim() ||
+                              expandedEntry.replayAvailability?.retranscribe.available === false
+                            }
+                            className="px-3 py-1.5 rounded bg-cc-primary text-white text-xs hover:bg-cc-primary/80 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {replayRunning === "stt" ? "Running..." : "Run re-transcribe"}
+                          </button>
+                        </div>
+
+                        <div className="rounded-lg border border-cc-border p-3 space-y-2">
+                          <div className="font-medium text-cc-fg">Re-enhance raw transcript</div>
+                          <label className="block">
+                            <span className="block text-[11px] uppercase tracking-wider text-cc-muted mb-1">
+                              Enhancement model
+                            </span>
+                            <input
+                              value={replayEnhancementModel}
+                              onChange={(event) => setReplayEnhancementModel(event.target.value)}
+                              className="w-full px-2 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded text-cc-fg font-mono"
+                            />
+                          </label>
+                          <div className="flex rounded border border-cc-border overflow-hidden w-max">
+                            <button
+                              type="button"
+                              onClick={() => setReplayEnhancementMode("default")}
+                              className={
+                                "px-3 py-1.5 text-xs cursor-pointer " +
+                                (replayEnhancementMode === "default"
+                                  ? "bg-cc-primary text-white"
+                                  : "bg-cc-input-bg text-cc-muted hover:text-cc-fg")
+                              }
+                            >
+                              Prose
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setReplayEnhancementMode("bullet")}
+                              className={
+                                "px-3 py-1.5 text-xs cursor-pointer " +
+                                (replayEnhancementMode === "bullet"
+                                  ? "bg-cc-primary text-white"
+                                  : "bg-cc-input-bg text-cc-muted hover:text-cc-fg")
+                              }
+                            >
+                              Bullet Points
+                            </button>
+                          </div>
+                          {expandedEntry.replayAvailability?.reenhance.reason && (
+                            <p className="text-cc-warning">{expandedEntry.replayAvailability.reenhance.reason}</p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void runReenhance()}
+                            disabled={
+                              replayRunning !== null ||
+                              !replayEnhancementModel.trim() ||
+                              expandedEntry.replayAvailability?.reenhance.available === false
+                            }
+                            className="px-3 py-1.5 rounded bg-cc-primary text-white text-xs hover:bg-cc-primary/80 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {replayRunning === "enhancement" ? "Running..." : "Run re-enhance"}
+                          </button>
+                        </div>
+                      </div>
+
+                      {replayError && (
+                        <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
+                          {replayError}
+                        </div>
+                      )}
+
+                      {expandedEntry.replayVariants && expandedEntry.replayVariants.length > 0 && (
+                        <div className="space-y-2">
+                          {expandedEntry.replayVariants.map((variant) => (
+                            <div key={variant.id} className="rounded-lg bg-cc-hover p-3 space-y-2">
+                              <div className="flex flex-wrap items-center gap-2 text-xs">
+                                <span className="font-medium text-cc-fg">{replayKindLabel(variant.kind)}</span>
+                                <span className="font-mono text-cc-fg">{variant.model}</span>
+                                {variant.enhancementMode && <span>{variant.enhancementMode}</span>}
+                                {variant.timing?.sttDurationMs !== undefined && (
+                                  <span>STT {formatDuration(variant.timing.sttDurationMs)}</span>
+                                )}
+                                {variant.timing?.enhancementDurationMs !== undefined && (
+                                  <span>Enh {formatDuration(variant.timing.enhancementDurationMs)}</span>
+                                )}
+                                <span className={variant.status === "error" ? "text-cc-error" : "text-cc-success"}>
+                                  {variant.status}
+                                </span>
+                              </div>
+                              {variant.error && <div className="text-cc-error">{variant.error.message}</div>}
+                              {variant.kind === "stt_replay" && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                  <div>
+                                    <div className="text-[11px] uppercase tracking-wider text-cc-muted mb-1">
+                                      Original STT output
+                                    </div>
+                                    <pre className="p-2 text-xs font-mono bg-cc-input-bg border border-cc-border rounded text-cc-fg whitespace-pre-wrap max-h-[260px] overflow-y-auto">
+                                      {expandedEntry.rawTranscript || "(empty)"}
+                                    </pre>
+                                  </div>
+                                  <div>
+                                    <div className="text-[11px] uppercase tracking-wider text-cc-muted mb-1">
+                                      Replay STT output
+                                    </div>
+                                    <pre className="p-2 text-xs font-mono bg-cc-input-bg border border-cc-border rounded text-cc-fg whitespace-pre-wrap max-h-[260px] overflow-y-auto">
+                                      {variant.rawTranscript || "(empty)"}
+                                    </pre>
+                                  </div>
+                                </div>
+                              )}
+                              {variant.kind === "enhancement_replay" && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                  <div>
+                                    <div className="text-[11px] uppercase tracking-wider text-cc-muted mb-1">
+                                      Source raw transcript
+                                    </div>
+                                    <pre className="p-2 text-xs font-mono bg-cc-input-bg border border-cc-border rounded text-cc-fg whitespace-pre-wrap max-h-[260px] overflow-y-auto">
+                                      {variant.rawTranscript || expandedEntry.rawTranscript || "(empty)"}
+                                    </pre>
+                                  </div>
+                                  <div>
+                                    <div className="text-[11px] uppercase tracking-wider text-cc-muted mb-1">
+                                      Replay enhanced output
+                                    </div>
+                                    <pre className="p-2 text-xs font-mono bg-cc-input-bg border border-cc-border rounded text-cc-fg whitespace-pre-wrap max-h-[260px] overflow-y-auto">
+                                      {variant.enhancedText ?? "(null — skipped, failed, or hallucination guard)"}
+                                    </pre>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
 
                     <div>
                       <span className="text-[11px] uppercase tracking-wider text-cc-muted font-medium">

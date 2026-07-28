@@ -11,15 +11,20 @@ import {
 } from "../transcription.js";
 import {
   enhanceTranscript,
+  enhanceTranscriptFromReplayContext,
   buildSttPrompt,
+  buildTranscriptionContext,
   addTranscriptionLogEntry,
+  addTranscriptionReplayVariant,
   attachTranscriptionFrontendTiming,
   applyVoiceEdit,
   applyVoiceAppend,
+  getTranscriptionReplaySource,
   type TranscriptionClientTiming,
   type TranscriptionFrontendTimingEvent,
   type TranscriptionFrontendTimingReport,
   type TranscriptionRecordingTiming,
+  type TranscriptionReplaySource,
   type TranscriptionServerTiming,
   type TranscriptionUiTiming,
 } from "../transcription-enhancer.js";
@@ -49,6 +54,8 @@ type TranscriptionFrontendTimingPhase =
   | "appending"
   | "complete"
   | "error";
+
+type ReplayValidationError = { error: string; status: 400 | 404 | 409 | 410 };
 
 interface TranscriptionProgressTiming {
   uploadDurationMs?: number;
@@ -483,6 +490,80 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     });
   }
 
+  function parseLogId(raw: string): number | null {
+    const id = Number(raw);
+    return Number.isInteger(id) && id > 0 ? id : null;
+  }
+
+  function normalizeReplayModel(value: unknown): string {
+    return typeof value === "string" ? value.trim() : "";
+  }
+
+  function normalizeReplayEnhancementMode(value: unknown): "default" | "bullet" {
+    return value === "bullet" ? "bullet" : "default";
+  }
+
+  function buildReplayInputContext({
+    threadKey,
+    threadTitle,
+    focusedContext,
+    composerText,
+    sessionContext,
+  }: {
+    threadKey?: string;
+    threadTitle?: string;
+    focusedContext?: string;
+    composerText?: string;
+    sessionContext: ReturnType<typeof getTranscriptionSessionContext>;
+  }) {
+    return {
+      ...(threadKey ? { threadKey } : {}),
+      ...(threadTitle ? { threadTitle } : {}),
+      ...(focusedContext ? { focusedContext } : {}),
+      ...(composerText ? { composerText } : {}),
+      ...(sessionContext.sessionName ? { sessionName: sessionContext.sessionName } : {}),
+      ...(sessionContext.activeSessionNames?.length ? { activeSessionNames: sessionContext.activeSessionNames } : {}),
+      ...(sessionContext.taskHistory.length
+        ? { taskTitles: sessionContext.taskHistory.map((task) => task.title) }
+        : {}),
+    };
+  }
+
+  function buildEnhancementReplayContext({
+    mode,
+    composerText,
+    focusedContext,
+    sessionContext,
+    config,
+  }: {
+    mode: TranscriptionMode;
+    composerText?: string;
+    focusedContext?: string;
+    sessionContext: ReturnType<typeof getTranscriptionSessionContext>;
+    config: ReturnType<typeof getSettings>["transcriptionConfig"];
+  }) {
+    const extra = {
+      mode,
+      ...(composerText ? { composerText } : {}),
+      taskTitles: sessionContext.taskHistory.map((task) => task.title),
+      ...(sessionContext.sessionName ? { sessionName: sessionContext.sessionName } : {}),
+      ...(sessionContext.threadTitle ? { threadTitle: sessionContext.threadTitle } : {}),
+      ...(focusedContext ? { focusedContext } : {}),
+      ...(sessionContext.activeSessionNames?.length ? { activeSessionNames: sessionContext.activeSessionNames } : {}),
+      ...(config.customVocabulary ? { customVocabulary: config.customVocabulary } : {}),
+    };
+    return {
+      version: 1 as const,
+      mode,
+      enhancementMode: config.enhancementMode ?? "default",
+      model: config.enhancementModel || "gpt-5-mini",
+      conversationContext: sessionContext.messageHistory
+        ? buildTranscriptionContext(sessionContext.messageHistory)
+        : "",
+      extra,
+    };
+  }
+
   // ─── Enhancement tester (debug tool) ───────────────────────────────
 
   /**
@@ -561,6 +642,198 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     if (!report) return c.json({ error: "Invalid frontend transcription timing report" }, 400);
     const result = await attachTranscriptionFrontendTiming(report);
     return c.json({ ok: true, ...result });
+  });
+
+  function validateReplaySource(id: number): TranscriptionReplaySource | ReplayValidationError {
+    const source = getTranscriptionReplaySource(id);
+    if (!source) return { error: "Transcription log entry not found", status: 404 };
+    if (!source.recordingDirectoryPath) return { error: "Source recording is not available", status: 409 };
+    if (source.recordingDeletedAt) return { error: "Source recording was deleted", status: 410 };
+    if (source.recordingPersistenceError) return { error: source.recordingPersistenceError, status: 409 };
+    if (!source.audioBytes.length) return { error: "Source audio is missing", status: 409 };
+    return source;
+  }
+
+  function buildSourceSttReplayContext(source: TranscriptionReplaySource, targetModel: string) {
+    const usesGptTranscribeContext = targetModel === GPT_TRANSCRIBE_STT_MODEL;
+    if (source.sttReplayContext) {
+      return {
+        ...source.sttReplayContext,
+        backend: "openai",
+        model: targetModel,
+        usesGptTranscribeContext,
+        promptIncludesCustomVocabulary: usesGptTranscribeContext
+          ? source.sttReplayContext.promptIncludesCustomVocabulary
+          : true,
+        keywords: usesGptTranscribeContext ? source.sttReplayContext.keywords : [],
+        languageHints: usesGptTranscribeContext ? source.sttReplayContext.languageHints : [],
+      };
+    }
+    const missingStructuredContext =
+      (source.sttContext?.keywordCount ?? 0) > 0 || !!source.sttContext?.languageHints.length;
+    if (usesGptTranscribeContext && missingStructuredContext) return null;
+    return {
+      version: 1 as const,
+      backend: "openai",
+      model: targetModel,
+      prompt: source.sttPrompt,
+      promptLength: source.sttPrompt.length,
+      usesGptTranscribeContext,
+      promptIncludesCustomVocabulary: true,
+      keywords: [] as string[],
+      droppedKeywordCount: source.sttContext?.droppedKeywordCount ?? 0,
+      languageHints: [] as string[],
+    };
+  }
+
+  api.post("/transcription-logs/:id/retranscribe", async (c) => {
+    const id = parseLogId(c.req.param("id"));
+    if (!id) return c.json({ error: "Invalid ID" }, 400);
+    const sourceOrError = validateReplaySource(id);
+    if ("error" in sourceOrError) return c.json({ error: sourceOrError.error }, sourceOrError.status);
+    const body = await c.req.json().catch(() => ({}));
+    const settings = getSettings();
+    const targetModel =
+      normalizeReplayModel(body.sttModel) || settings.transcriptionConfig.sttModel || GPT_TRANSCRIBE_STT_MODEL;
+    if (!targetModel) return c.json({ error: "STT model is required" }, 400);
+    const apiKey = resolveOpenAIKey();
+    if (!apiKey) {
+      return c.json(
+        { error: "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY." },
+        400,
+      );
+    }
+    const sttReplayContext = buildSourceSttReplayContext(sourceOrError, targetModel);
+    if (!sttReplayContext) {
+      return c.json({ error: "Separated STT replay context is missing for this source recording" }, 409);
+    }
+
+    const sttStart = Date.now();
+    try {
+      const rawTranscript = await transcribeWithOpenai(
+        sourceOrError.audioBytes,
+        sourceOrError.audioMimeType || "",
+        apiKey,
+        {
+          sttPrompt: sttReplayContext.prompt || undefined,
+          fileName: sourceOrError.audioFileName ?? undefined,
+          sttModel: targetModel,
+          baseUrl: settings.transcriptionConfig.baseUrl,
+          keywords: sttReplayContext.usesGptTranscribeContext ? sttReplayContext.keywords : [],
+          languageHints: sttReplayContext.usesGptTranscribeContext ? sttReplayContext.languageHints : [],
+        },
+      );
+      const sttDurationMs = Date.now() - sttStart;
+      const variant = await addTranscriptionReplayVariant(id, {
+        kind: "stt_replay",
+        status: "success",
+        sourceLogId: id,
+        model: targetModel,
+        provider: "openai",
+        sttPrompt: sttReplayContext.prompt,
+        sttReplayContext,
+        rawTranscript,
+        timing: { sttDurationMs },
+      });
+      return c.json({ ok: true, variant });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const variant = await addTranscriptionReplayVariant(id, {
+        kind: "stt_replay",
+        status: "error",
+        sourceLogId: id,
+        model: targetModel,
+        provider: "openai",
+        sttPrompt: sttReplayContext.prompt,
+        sttReplayContext,
+        timing: { sttDurationMs: Date.now() - sttStart },
+        error: { message, phase: "transcribe" },
+      });
+      return c.json({ error: message, variant }, 502);
+    }
+  });
+
+  api.post("/transcription-logs/:id/reenhance", async (c) => {
+    const id = parseLogId(c.req.param("id"));
+    if (!id) return c.json({ error: "Invalid ID" }, 400);
+    const sourceOrError = validateReplaySource(id);
+    if ("error" in sourceOrError) return c.json({ error: sourceOrError.error }, sourceOrError.status);
+    if (!sourceOrError.rawTranscript.trim()) return c.json({ error: "Source raw transcript is missing" }, 409);
+    if (!sourceOrError.enhancementReplayContext) {
+      return c.json({ error: "Separated enhancement replay context is missing for this source recording" }, 409);
+    }
+    if (sourceOrError.enhancementReplayContext.mode && sourceOrError.enhancementReplayContext.mode !== "dictation") {
+      return c.json({ error: "Re-enhance is supported for dictation recordings only in v1" }, 409);
+    }
+    const apiKey = resolveOpenAIKey();
+    if (!apiKey) {
+      return c.json(
+        { error: "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY." },
+        400,
+      );
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const settings = getSettings();
+    const enhancementMode = normalizeReplayEnhancementMode(body.enhancementMode);
+    const enhancementModel =
+      normalizeReplayModel(body.enhancementModel) || settings.transcriptionConfig.enhancementModel || "gpt-5-mini";
+    const replayConfig = {
+      ...settings.transcriptionConfig,
+      enhancementEnabled: true,
+      enhancementModel,
+      enhancementMode,
+    };
+    const enhancementReplayContext = {
+      ...sourceOrError.enhancementReplayContext,
+      model: enhancementModel,
+      enhancementMode,
+    };
+    const enhancementStart = Date.now();
+    try {
+      const result = await enhanceTranscriptFromReplayContext(
+        sourceOrError.rawTranscript,
+        sourceOrError.enhancementReplayContext.conversationContext,
+        replayConfig,
+        apiKey,
+        sourceOrError.enhancementReplayContext.extra,
+      );
+      const enhancementDurationMs = Date.now() - enhancementStart;
+      const debug = result._debug;
+      if (!debug) return c.json({ error: "Enhancement replay did not return debug output" }, 500);
+      const providerError = debug.skipReason?.startsWith("API error") || debug.skipReason === "Empty response from LLM";
+      const variant = await addTranscriptionReplayVariant(id, {
+        kind: "enhancement_replay",
+        status: providerError ? "error" : "success",
+        sourceLogId: id,
+        model: enhancementModel,
+        provider: "openai",
+        enhancementMode,
+        enhancementReplayContext,
+        rawTranscript: sourceOrError.rawTranscript,
+        enhancedText: debug.enhancedText,
+        systemPrompt: debug.systemPrompt,
+        userMessage: debug.userMessage,
+        timing: { enhancementDurationMs },
+        ...(providerError ? { error: { message: debug.skipReason!, phase: "enhance" } } : {}),
+      });
+      if (providerError) return c.json({ error: debug.skipReason, variant }, 502);
+      return c.json({ ok: true, variant });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const variant = await addTranscriptionReplayVariant(id, {
+        kind: "enhancement_replay",
+        status: "error",
+        sourceLogId: id,
+        model: enhancementModel,
+        provider: "openai",
+        enhancementMode,
+        enhancementReplayContext,
+        rawTranscript: sourceOrError.rawTranscript,
+        timing: { enhancementDurationMs: Date.now() - enhancementStart },
+        error: { message, phase: "enhance" },
+      });
+      return c.json({ error: message, variant }, 502);
+    }
   });
 
   api.post("/transcribe", async (c) => {
@@ -646,6 +919,27 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           droppedKeywordCount: number;
           languageHints: string[];
         };
+        sttReplayContext?: {
+          version: 1;
+          backend: string;
+          model: string;
+          prompt: string;
+          promptLength: number;
+          usesGptTranscribeContext: boolean;
+          promptIncludesCustomVocabulary: boolean;
+          keywords: string[];
+          droppedKeywordCount: number;
+          languageHints: string[];
+          inputContext?: {
+            threadKey?: string;
+            threadTitle?: string;
+            focusedContext?: string;
+            composerText?: string;
+            sessionName?: string;
+            activeSessionNames?: string[];
+            taskTitles?: string[];
+          };
+        };
         rawTranscript?: string;
       },
     ) => {
@@ -660,6 +954,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         sttDurationMs: 0,
         sttPrompt: details?.sttPrompt ?? "",
         sttContext: details?.sttContext,
+        sttReplayContext: details?.sttReplayContext,
         rawTranscript: details?.rawTranscript ?? "",
         audioSizeBytes: buf.length,
         audioMimeType: audioMimeType ?? uploadFormat.mimeType,
@@ -776,6 +1071,29 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           droppedKeywordCount: sanitizedKeywords.droppedKeywordCount,
           languageHints: sttLanguageHints,
         };
+        const sttReplayContext = {
+          version: 1 as const,
+          backend: backend ?? "unavailable",
+          model: configuredSttModel,
+          prompt: sttPrompt,
+          promptLength: sttPrompt.length,
+          usesGptTranscribeContext,
+          promptIncludesCustomVocabulary: !usesGptTranscribeContext,
+          keywords: sanitizedKeywords.keywords,
+          droppedKeywordCount: sanitizedKeywords.droppedKeywordCount,
+          languageHints: sttLanguageHints,
+          inputContext: buildReplayInputContext({
+            threadKey,
+            threadTitle: sessionContext.threadTitle,
+            focusedContext,
+            composerText: mode === "edit" || mode === "append" ? composerText : undefined,
+            sessionContext,
+          }),
+        };
+        const enhancementReplayContext =
+          mode === "dictation"
+            ? buildEnhancementReplayContext({ mode, focusedContext, sessionContext, config: transcriptionConfig })
+            : undefined;
         debugSttPrompt = sttPrompt;
         debugSttContext = sttContext;
         serverTiming.contextBuildDurationMs = Date.now() - contextBuildStart;
@@ -800,7 +1118,12 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           if (!apiKey) {
             const message =
               "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY in your environment.";
-            await recordFailedUpload(message, "transcribe", { sttModel: configuredSttModel, sttPrompt, sttContext });
+            await recordFailedUpload(message, "transcribe", {
+              sttModel: configuredSttModel,
+              sttPrompt,
+              sttContext,
+              sttReplayContext,
+            });
             await stream.writeSSE({
               event: "error",
               data: JSON.stringify({ error: message }),
@@ -913,6 +1236,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             sttModel,
             sttDurationMs,
             sttPrompt,
+            sttReplayContext,
             sttContext,
             rawTranscript: rawText,
             audioSizeBytes: buf.length,
@@ -923,6 +1247,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             audioBytes: Buffer.from(buf),
             result: resultPayload,
             inputContext: { threadKey, threadTitle, focusedContext, composerText },
+            enhancementReplayContext,
             enhancement: {
               model: result._debug.model,
               systemPrompt: result._debug.systemPrompt,
@@ -992,6 +1317,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             sttModel,
             sttDurationMs,
             sttPrompt,
+            sttReplayContext,
             sttContext,
             rawTranscript: rawText,
             audioSizeBytes: buf.length,
@@ -1002,6 +1328,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             audioBytes: Buffer.from(buf),
             result: resultPayload,
             inputContext: { threadKey, threadTitle, focusedContext, composerText },
+            enhancementReplayContext,
             enhancement: {
               model: result._debug.model,
               systemPrompt: result._debug.systemPrompt,
@@ -1069,6 +1396,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             sttModel,
             sttDurationMs,
             sttPrompt,
+            sttReplayContext,
             sttContext,
             rawTranscript: rawText,
             audioSizeBytes: buf.length,
@@ -1079,6 +1407,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             audioBytes: Buffer.from(buf),
             result: resultPayload,
             inputContext: { threadKey, threadTitle, focusedContext, composerText },
+            enhancementReplayContext,
             enhancement: result._debug
               ? {
                   model: result._debug.model,
@@ -1128,6 +1457,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           sttModel,
           sttDurationMs,
           sttPrompt,
+          sttReplayContext,
           sttContext,
           rawTranscript: rawText,
           audioSizeBytes: buf.length,
@@ -1138,6 +1468,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           audioBytes: Buffer.from(buf),
           result: resultPayload,
           inputContext: { threadKey, threadTitle, focusedContext, composerText },
+          enhancementReplayContext,
           enhancement: null,
         });
       } catch (e: unknown) {

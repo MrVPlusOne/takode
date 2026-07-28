@@ -8,7 +8,7 @@
  */
 
 import type { BrowserIncomingMessage, ContentBlock, SessionTaskEntry } from "./session-types.js";
-import type { TranscriptionConfig } from "./settings-manager.js";
+import { getSettings, type TranscriptionConfig } from "./settings-manager.js";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -16,9 +16,15 @@ import { formatReplyContentForContext, type ReplyContext } from "../shared/reply
 import { getLocalPathOpenCapability } from "./local-path-actions.js";
 import {
   deleteTranscriptionRecordingDirectory,
+  readTranscriptionReplayVariants,
+  writeTranscriptionReplayVariant,
   writeTranscriptionRecording,
   writeTranscriptionRecordingFrontendTiming,
+  type TranscriptionEnhancementReplayContext,
+  type TranscriptionReplayVariant,
   type TranscriptionRecordingStatus,
+  type TranscriptionSttReplayContext,
+  type WriteTranscriptionReplayVariantInput,
 } from "./transcription-recordings.js";
 
 // ─── Tunable limits ─────────────────────────────────────────────────────────
@@ -1005,6 +1011,87 @@ export async function enhanceTranscript(
   };
 }
 
+export async function enhanceTranscriptFromReplayContext(
+  rawText: string,
+  conversationContext: string,
+  config: TranscriptionConfig,
+  apiKey: string,
+  extra?: EnhancementContextInput,
+): Promise<EnhancementResult> {
+  const model = config.enhancementModel || "gpt-5-mini";
+  const systemPrompt = getDictationSystemPrompt(config.enhancementMode);
+
+  if (!config.enhancementEnabled) {
+    return {
+      text: rawText,
+      enhanced: false,
+      _debug: { model, systemPrompt, userMessage: "", enhancedText: null, durationMs: 0, skipReason: "disabled" },
+    };
+  }
+
+  if (rawText.trim().length < MIN_CHARS_FOR_ENHANCEMENT) {
+    return {
+      text: rawText,
+      enhanced: false,
+      _debug: { model, systemPrompt, userMessage: "", enhancedText: null, durationMs: 0, skipReason: "too short" },
+    };
+  }
+
+  const hasExtra = !!(
+    extra?.composerText ||
+    extra?.taskTitles?.length ||
+    extra?.sessionName ||
+    extra?.activeSessionNames?.length ||
+    extra?.customVocabulary?.trim()
+  );
+  if (!conversationContext && !hasExtra) {
+    return {
+      text: rawText,
+      enhanced: false,
+      _debug: { model, systemPrompt, userMessage: "", enhancedText: null, durationMs: 0, skipReason: "no context" },
+    };
+  }
+
+  const prompt = buildEnhancementPrompt(rawText, conversationContext, extra, config.enhancementMode);
+  const t0 = Date.now();
+  const llmResult = await callEnhancementLLM(prompt, config, apiKey, systemPrompt);
+  const durationMs = Date.now() - t0;
+
+  if (!llmResult.ok) {
+    return {
+      text: rawText,
+      enhanced: false,
+      _debug: { model, systemPrompt, userMessage: prompt, enhancedText: null, durationMs, skipReason: llmResult.error },
+    };
+  }
+
+  const enhanced = llmResult.text;
+  if (enhanced.length > rawText.length * HALLUCINATION_LENGTH_RATIO) {
+    console.warn(
+      `[transcription-enhancer] Discarding replay hallucinated output (${enhanced.length} chars vs ${rawText.length} raw)`,
+    );
+    return {
+      text: rawText,
+      enhanced: false,
+      _debug: {
+        model,
+        systemPrompt,
+        userMessage: prompt,
+        enhancedText: enhanced,
+        durationMs,
+        skipReason: "hallucination guard",
+      },
+    };
+  }
+
+  return {
+    text: enhanced,
+    rawText,
+    enhanced: true,
+    _debug: { model, systemPrompt, userMessage: prompt, enhancedText: enhanced, durationMs },
+  };
+}
+
 export interface VoiceEditResult {
   text: string;
   _debug: {
@@ -1278,18 +1365,25 @@ export interface TranscriptionLogEntry {
     message: string;
     phase?: string;
   };
+  replayVariants?: TranscriptionReplayVariant[];
+  replayAvailability?: {
+    retranscribe: { available: boolean; reason?: string };
+    reenhance: { available: boolean; reason?: string };
+  };
 }
 
 interface StoredTranscriptionLogEntry extends Omit<TranscriptionLogEntry, "audioUrl"> {
   audioBytes: Buffer;
   backend: string;
   audioExtension: string;
+  sttReplayContext?: TranscriptionSttReplayContext;
   inputContext?: {
     threadKey?: string;
     threadTitle?: string;
     focusedContext?: string;
     composerText?: string;
   };
+  enhancementReplayContext?: TranscriptionEnhancementReplayContext;
   result?: unknown;
 }
 
@@ -1325,8 +1419,58 @@ function toPublicTranscriptionLogEntry(entry: StoredTranscriptionLogEntry): Tran
       entry.recordingDirectoryPath && !entry.recordingDeletedAt && capability.canOpenContainingFolder,
     ),
     openRecordingDirectoryLabel: capability.openContainingFolderLabel,
+    replayAvailability: getReplayAvailability(entry),
     audioUrl: buildTranscriptionAudioUrl(entry.id),
   };
+}
+
+function hasOpenAIKey(): boolean {
+  const settings = getSettings();
+  return Boolean(
+    settings.transcriptionConfig.apiKey ||
+      process.env.OPENAI_API_KEY ||
+      (settings.namerConfig.backend === "openai" && settings.namerConfig.apiKey),
+  );
+}
+
+function getReplayAvailability(entry: StoredTranscriptionLogEntry): TranscriptionLogEntry["replayAvailability"] {
+  const sourceUnavailable = getSourceUnavailableReason(entry);
+  if (sourceUnavailable) {
+    return {
+      retranscribe: { available: false, reason: sourceUnavailable },
+      reenhance: { available: false, reason: sourceUnavailable },
+    };
+  }
+  if (!hasOpenAIKey()) {
+    return {
+      retranscribe: { available: false, reason: "No OpenAI-compatible API key configured" },
+      reenhance: { available: false, reason: "No OpenAI-compatible API key configured" },
+    };
+  }
+  const missingStructuredSttContext =
+    !entry.sttReplayContext && ((entry.sttContext?.keywordCount ?? 0) > 0 || !!entry.sttContext?.languageHints.length);
+  const retranscribe = missingStructuredSttContext
+    ? { available: false, reason: "Separated STT replay context is missing" }
+    : { available: true };
+  const reenhance = (() => {
+    if (!entry.rawTranscript.trim()) return { available: false, reason: "Source raw transcript is missing" };
+    if (entry.mode && entry.mode !== "dictation") {
+      return { available: false, reason: "Re-enhance is supported for dictation recordings only in v1" };
+    }
+    if (!entry.enhancementReplayContext) {
+      return { available: false, reason: "Separated enhancement replay context is missing" };
+    }
+    return { available: true };
+  })();
+  return { retranscribe, reenhance };
+}
+
+function getSourceUnavailableReason(entry: StoredTranscriptionLogEntry): string | null {
+  if (!entry.recordingDirectoryPath) return "Source recording is not available";
+  if (entry.recordingDeletedAt) return "Source recording was deleted";
+  if (entry.recordingPersistenceError) return entry.recordingPersistenceError;
+  if (!entry.audioBytes.length) return "Source audio is missing";
+  return null;
 }
 
 /** Add a transcription log entry. Called from routes.ts after each transcription. */
@@ -1357,6 +1501,7 @@ export async function addTranscriptionLogEntry(
     sttModel: full.sttModel,
     sttDurationMs: full.sttDurationMs,
     sttPrompt: full.sttPrompt,
+    sttReplayContext: full.sttReplayContext,
     sttContext: full.sttContext,
     rawTranscript: full.rawTranscript,
     audioBytes: full.audioBytes,
@@ -1365,6 +1510,7 @@ export async function addTranscriptionLogEntry(
     audioExtension: full.audioExtension,
     serverTiming: full.serverTiming,
     inputContext: full.inputContext,
+    enhancementReplayContext: full.enhancementReplayContext,
     result: full.result,
     enhancement: full.enhancement,
     frontendTiming: full.frontendTiming,
@@ -1431,6 +1577,72 @@ export function getTranscriptionLogRecordingDirectory(
     ...(entry.recordingDeletedAt ? { deletedAt: entry.recordingDeletedAt } : {}),
     ...(entry.recordingPersistenceError ? { persistenceError: entry.recordingPersistenceError } : {}),
   };
+}
+
+export interface TranscriptionReplaySource {
+  id: number;
+  sessionId: string | null;
+  requestId: string | null;
+  mode?: "dictation" | "edit" | "append";
+  backend: string;
+  sttModel: string;
+  sttPrompt: string;
+  sttContext?: TranscriptionLogEntry["sttContext"];
+  sttReplayContext?: TranscriptionSttReplayContext;
+  enhancementReplayContext?: TranscriptionEnhancementReplayContext;
+  rawTranscript: string;
+  audioBytes: Buffer;
+  audioMimeType: string | null;
+  audioFileName: string | null;
+  audioExtension: string;
+  audioSizeBytes: number;
+  recordingDirectoryPath?: string;
+  recordingManifestPath?: string;
+  recordingStatus?: TranscriptionRecordingStatus;
+  recordingPersistenceError?: string;
+  recordingDeletedAt?: number;
+  enhancement: TranscriptionLogEntry["enhancement"];
+}
+
+export function getTranscriptionReplaySource(id: number): TranscriptionReplaySource | undefined {
+  const entry = transcriptionLog.find((e) => e.id === id);
+  if (!entry) return undefined;
+  return {
+    id: entry.id,
+    sessionId: entry.sessionId,
+    requestId: entry.requestId,
+    mode: entry.mode,
+    backend: entry.backend,
+    sttModel: entry.sttModel,
+    sttPrompt: entry.sttPrompt,
+    sttContext: entry.sttContext,
+    sttReplayContext: entry.sttReplayContext,
+    enhancementReplayContext: entry.enhancementReplayContext,
+    rawTranscript: entry.rawTranscript,
+    audioBytes: entry.audioBytes,
+    audioMimeType: entry.audioMimeType,
+    audioFileName: entry.audioFileName,
+    audioExtension: entry.audioExtension,
+    audioSizeBytes: entry.audioSizeBytes,
+    recordingDirectoryPath: entry.recordingDirectoryPath,
+    recordingManifestPath: entry.recordingManifestPath,
+    recordingStatus: entry.recordingStatus,
+    recordingPersistenceError: entry.recordingPersistenceError,
+    recordingDeletedAt: entry.recordingDeletedAt,
+    enhancement: entry.enhancement,
+  };
+}
+
+export async function addTranscriptionReplayVariant(
+  sourceLogId: number,
+  input: WriteTranscriptionReplayVariantInput,
+): Promise<TranscriptionReplayVariant> {
+  const entry = transcriptionLog.find((e) => e.id === sourceLogId);
+  if (!entry?.recordingDirectoryPath) {
+    throw new Error("Source recording not found");
+  }
+  const variant = await writeTranscriptionReplayVariant(entry.recordingDirectoryPath, input);
+  return variant;
 }
 
 export async function deleteTranscriptionLogRecording(id: number): Promise<TranscriptionLogEntry | undefined> {
@@ -1501,14 +1713,24 @@ async function flushLog(): Promise<void> {
 
 /** List all log entries (lightweight: no sttPrompt, system prompt, or user message). Newest first. */
 export function getTranscriptionLogIndex(): Array<
-  Omit<TranscriptionLogEntry, "sttPrompt" | "enhancement"> & {
+  Omit<
+    TranscriptionLogEntry,
+    "sttPrompt" | "rawTranscript" | "enhancement" | "replayVariants" | "replayAvailability"
+  > & {
     enhancement: Omit<NonNullable<TranscriptionLogEntry["enhancement"]>, "systemPrompt" | "userMessage"> | null;
   }
 > {
   return transcriptionLog
     .map((entry) => {
       const publicEntry = toPublicTranscriptionLogEntry(entry);
-      const { sttPrompt: _p, enhancement, ...rest } = publicEntry;
+      const {
+        sttPrompt: _p,
+        rawTranscript: _r,
+        replayVariants: _v,
+        replayAvailability: _a,
+        enhancement,
+        ...rest
+      } = publicEntry;
       if (!enhancement) return { ...rest, enhancement: null };
       const { systemPrompt: _s, userMessage: _u, ...enhRest } = enhancement;
       return { ...rest, enhancement: enhRest };
@@ -1520,6 +1742,16 @@ export function getTranscriptionLogIndex(): Array<
 export function getTranscriptionLogEntry(id: number): TranscriptionLogEntry | undefined {
   const entry = transcriptionLog.find((e) => e.id === id);
   return entry ? toPublicTranscriptionLogEntry(entry) : undefined;
+}
+
+export async function getTranscriptionLogEntryWithReplays(id: number): Promise<TranscriptionLogEntry | undefined> {
+  const entry = transcriptionLog.find((e) => e.id === id);
+  if (!entry) return undefined;
+  const publicEntry = toPublicTranscriptionLogEntry(entry);
+  if (entry.recordingDirectoryPath && !entry.recordingDeletedAt && !entry.recordingPersistenceError) {
+    publicEntry.replayVariants = await readTranscriptionReplayVariants(entry.recordingDirectoryPath);
+  }
+  return publicEntry;
 }
 
 /** Get source audio bytes for a transcription log entry. */
