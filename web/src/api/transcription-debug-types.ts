@@ -2,6 +2,8 @@ import type { VoiceTranscriptionFrontendTimingReport, VoiceTranscriptionTiming }
 
 export interface TranscriptionLogIndexEntry {
   id: number;
+  recordingKey?: string;
+  recordingId?: string;
   timestamp: number;
   status?: "success" | "error";
   sessionId: string | null;
@@ -28,6 +30,8 @@ export interface TranscriptionLogIndexEntry {
   recordingStatus?: "success" | "error";
   recordingPersistenceError?: string;
   recordingDeletedAt?: number;
+  discoveryState?: "ready" | "incomplete" | "malformed" | "unsupported" | "unsafe" | "deleted";
+  discoveryIssue?: string;
   canOpenRecordingDirectory?: boolean;
   openRecordingDirectoryLabel?: string;
   error?: {
@@ -40,13 +44,13 @@ export interface TranscriptionLogIndexEntry {
   };
   enhancement: {
     model: string;
-    enhancedText: string | null;
+    enhancedTextPresent: boolean;
     durationMs: number;
     skipReason?: string;
   } | null;
 }
 
-export interface TranscriptionLogEntry extends TranscriptionLogIndexEntry {
+export interface TranscriptionLogEntry extends Omit<TranscriptionLogIndexEntry, "enhancement"> {
   rawTranscript: string;
   sttPrompt: string;
   enhancement: {
@@ -66,6 +70,7 @@ export interface TranscriptionReplayVariant {
   status: "success" | "error";
   createdAt: number;
   sourceLogId: number;
+  sourceRecordingId?: string;
   model: string;
   provider: "openai";
   enhancementMode?: "default" | "bullet";

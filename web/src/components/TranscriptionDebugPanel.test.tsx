@@ -31,28 +31,34 @@ beforeEach(() => {
     configurable: true,
     value: { writeText: vi.fn().mockResolvedValue(undefined) },
   });
-  mockApi.getTranscriptionLogs.mockResolvedValue([
-    {
-      id: 42,
-      timestamp: Date.now(),
-      sessionId: "session-12345678",
-      mode: "dictation",
-      uploadDurationMs: 12,
-      sttModel: "gpt-4o-mini-transcribe-alpha-tapioca-4",
-      sttDurationMs: 1100,
-      audioSizeBytes: 4096,
-      audioMimeType: "audio/wav",
-      audioFileName: "recording.wav",
-      audioUrl: "/api/transcription-logs/42/audio",
-      recordingDirectoryPath: "/Users/test/.companion/transcription-recordings/prod/2026-05-25/tx-42",
-      recordingStatus: "success",
-      canOpenRecordingDirectory: true,
-      openRecordingDirectoryLabel: "Open in Finder",
-      enhancement: null,
-    },
-  ]);
+  mockApi.getTranscriptionLogs.mockResolvedValue({
+    entries: [
+      {
+        id: 42,
+        recordingKey: "r_test-recording",
+        timestamp: Date.now(),
+        sessionId: "session-12345678",
+        mode: "dictation",
+        uploadDurationMs: 12,
+        sttModel: "gpt-4o-mini-transcribe-alpha-tapioca-4",
+        sttDurationMs: 1100,
+        audioSizeBytes: 4096,
+        audioMimeType: "audio/wav",
+        audioFileName: "recording.wav",
+        audioUrl: "/api/transcription-logs/42/audio",
+        recordingDirectoryPath: "/Users/test/.companion/transcription-recordings/prod/2026-05-25/tx-42",
+        recordingStatus: "success",
+        canOpenRecordingDirectory: true,
+        openRecordingDirectoryLabel: "Open in Finder",
+        enhancement: null,
+      },
+    ],
+    nextCursor: null,
+    total: 1,
+  });
   mockApi.getTranscriptionLogEntry.mockResolvedValue({
     id: 42,
+    recordingKey: "r_test-recording",
     timestamp: Date.now(),
     sessionId: "session-12345678",
     mode: "dictation",
@@ -84,6 +90,7 @@ beforeEach(() => {
   mockApi.openTranscriptionRecordingDirectory.mockResolvedValue({ ok: true });
   mockApi.deleteTranscriptionRecording.mockResolvedValue({
     id: 42,
+    recordingKey: "r_test-recording",
     timestamp: Date.now(),
     sessionId: "session-12345678",
     mode: "dictation",
@@ -173,14 +180,15 @@ describe("TranscriptionDebugPanel", () => {
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(path));
 
     fireEvent.click(screen.getByRole("button", { name: "Open in Finder" }));
-    await waitFor(() => expect(mockApi.openTranscriptionRecordingDirectory).toHaveBeenCalledWith(42));
+    await waitFor(() => expect(mockApi.openTranscriptionRecordingDirectory).toHaveBeenCalledWith("r_test-recording"));
 
     fireEvent.click(screen.getByRole("button", { name: "Delete recording" }));
-    await waitFor(() => expect(mockApi.deleteTranscriptionRecording).toHaveBeenCalledWith(42));
-    expect(await screen.findByText("deleted")).toBeInTheDocument();
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("cannot be undone"));
+    await waitFor(() => expect(mockApi.deleteTranscriptionRecording).toHaveBeenCalledWith("r_test-recording"));
+    expect((await screen.findAllByText("deleted")).length).toBeGreaterThan(0);
   });
 
-  it("runs replay actions from detail with explicit provider confirmations", async () => {
+  it("runs replay actions immediately without provider confirmations", async () => {
     render(<TranscriptionDebugPanel />);
 
     fireEvent.click(screen.getByText("Show"));
@@ -190,19 +198,54 @@ describe("TranscriptionDebugPanel", () => {
     fireEvent.change(screen.getByLabelText(/Target STT model/i), { target: { value: "gpt-transcribe" } });
     fireEvent.click(screen.getByRole("button", { name: "Run re-transcribe" }));
 
-    await waitFor(() => expect(mockApi.retranscribeLogEntry).toHaveBeenCalledWith(42, "gpt-transcribe"));
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("original audio plus stored STT context"));
+    await waitFor(() =>
+      expect(mockApi.retranscribeLogEntry).toHaveBeenCalledWith("r_test-recording", "gpt-transcribe"),
+    );
+    expect(window.confirm).not.toHaveBeenCalled();
     expect(await screen.findByText("replay transcript")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/Enhancement model/i), { target: { value: "gpt-5.5" } });
     fireEvent.click(screen.getByRole("button", { name: "Bullet Points" }));
     fireEvent.click(screen.getByRole("button", { name: "Run re-enhance" }));
 
-    await waitFor(() => expect(mockApi.reenhanceLogEntry).toHaveBeenCalledWith(42, "gpt-5.5", "bullet"));
-    expect(window.confirm).toHaveBeenCalledWith(
-      expect.stringContaining("raw STT transcript plus stored enhancement context"),
+    await waitFor(() =>
+      expect(mockApi.reenhanceLogEntry).toHaveBeenCalledWith("r_test-recording", "gpt-5.5", "bullet"),
     );
+    expect(window.confirm).not.toHaveBeenCalled();
     expect(await screen.findByText("replay enhanced")).toBeInTheDocument();
+  });
+
+  it("loads additional durable pages without duplicating stable recording keys", async () => {
+    const first = {
+      id: 1,
+      recordingKey: "r_first",
+      timestamp: Date.now(),
+      sessionId: null,
+      uploadDurationMs: 1,
+      sttModel: "first-model",
+      sttDurationMs: 2,
+      audioSizeBytes: 3,
+      enhancement: null,
+    };
+    const second = {
+      ...first,
+      id: 2,
+      recordingKey: "r_second",
+      timestamp: Date.now() - 1,
+      sttModel: "second-model",
+    };
+    mockApi.getTranscriptionLogs
+      .mockResolvedValueOnce({ entries: [first], nextCursor: "next-page", total: 2 })
+      // The second page intentionally repeats the boundary record to validate UI deduplication.
+      .mockResolvedValueOnce({ entries: [first, second], nextCursor: null, total: 2 });
+
+    render(<TranscriptionDebugPanel />);
+    fireEvent.click(screen.getByText("Show"));
+    expect(await screen.findByText("first-model")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("second-model")).toBeInTheDocument();
+    expect(screen.getAllByText("first-model")).toHaveLength(1);
+    expect(mockApi.getTranscriptionLogs).toHaveBeenLastCalledWith("next-page", false);
   });
 
   it("compares original enhancement output against replay enhancement output", async () => {

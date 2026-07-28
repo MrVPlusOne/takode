@@ -16,7 +16,7 @@ import { getLogPath } from "../server-logger.js";
 import { getUsageLimits } from "../usage-limits.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import {
-  getTranscriptionLogIndex,
+  getTranscriptionLogIndexPage,
   getTranscriptionLogEntryWithReplays,
   getTranscriptionLogAudio,
   getTranscriptionLogRecordingDirectory,
@@ -1078,22 +1078,27 @@ export function createSystemRoutes(ctx: RouteContext) {
 
   // ─── Transcription Debug Logs ────────────────────────────────────
 
-  api.get("/transcription-logs", (c) => {
-    return c.json(getTranscriptionLogIndex());
+  api.get("/transcription-logs", async (c) => {
+    const limit = Number(c.req.query("limit") ?? 50);
+    const page = await getTranscriptionLogIndexPage({
+      limit: Number.isFinite(limit) ? limit : 50,
+      cursor: c.req.query("cursor") ?? null,
+      refresh: c.req.query("refresh") === "1",
+    });
+    c.header("X-Next-Cursor", page.nextCursor ?? "");
+    c.header("X-Total-Count", String(page.total));
+    return c.json(page.entries);
   });
 
   api.get("/transcription-logs/:id", async (c) => {
-    const id = Number(c.req.param("id"));
-    if (Number.isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
-    const entry = await getTranscriptionLogEntryWithReplays(id);
+    const locator = c.req.param("id");
+    const entry = await getTranscriptionLogEntryWithReplays(locator);
     if (!entry) return c.json({ error: "Not found" }, 404);
     return c.json(entry);
   });
 
-  api.get("/transcription-logs/:id/audio", (c) => {
-    const id = Number(c.req.param("id"));
-    if (Number.isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
-    const audio = getTranscriptionLogAudio(id);
+  api.get("/transcription-logs/:id/audio", async (c) => {
+    const audio = await getTranscriptionLogAudio(c.req.param("id"));
     if (!audio) return c.json({ error: "Not found" }, 404);
     const headers: Record<string, string> = {
       "Content-Type": audio.mimeType,
@@ -1106,12 +1111,11 @@ export function createSystemRoutes(ctx: RouteContext) {
   });
 
   api.post("/transcription-logs/:id/recording/open", async (c) => {
-    const id = Number(c.req.param("id"));
-    if (Number.isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
-    const recording = getTranscriptionLogRecordingDirectory(id);
+    const recording = await getTranscriptionLogRecordingDirectory(c.req.param("id"));
     if (!recording) return c.json({ error: "Recording not found" }, 404);
     if (recording.deletedAt) return c.json({ error: "Recording was deleted" }, 410);
     if (recording.persistenceError) return c.json({ error: recording.persistenceError }, 409);
+    if (!recording.path) return c.json({ error: "Recording not found" }, 404);
     try {
       return c.json(
         await openLocalPathContainingFolder({
@@ -1125,10 +1129,8 @@ export function createSystemRoutes(ctx: RouteContext) {
   });
 
   api.delete("/transcription-logs/:id/recording", async (c) => {
-    const id = Number(c.req.param("id"));
-    if (Number.isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
     try {
-      const entry = await deleteTranscriptionLogRecording(id);
+      const entry = await deleteTranscriptionLogRecording(c.req.param("id"));
       if (!entry) return c.json({ error: "Recording not found" }, 404);
       return c.json(entry);
     } catch (error) {

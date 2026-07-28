@@ -887,6 +887,84 @@ describe("POST /api/transcribe", () => {
     ]);
   });
 
+  it("hydrates metadata-only list, detail, audio, replay, aliases, and tombstones after restart", async () => {
+    mockVoiceSettings({ enhancementEnabled: false, sttModel: "gpt-transcribe" });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ text: "persisted raw transcript" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ text: "replayed after restart" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    const form = new FormData();
+    form.append("audio", new File([new Uint8Array([0x52, 0x49, 0x46, 0x46])], "restart.wav", { type: "audio/wav" }));
+    form.append("backend", "openai");
+    const sourceRes = await app.request("/api/transcribe", { method: "POST", body: form });
+    expect(sourceRes.status).toBe(200);
+    await sourceRes.text();
+    const live = transcriptionEnhancer.getTranscriptionLogIndex()[0];
+    expect(live.recordingKey).toEqual(expect.stringMatching(/^r_/));
+    const mergedCurrentRes = await app.request("/api/transcription-logs?limit=50&refresh=1");
+    expect(await mergedCurrentRes.json()).toHaveLength(1);
+
+    // Clearing the process-local hot cache simulates a server restart while preserving the isolated recording root.
+    transcriptionEnhancer._resetTranscriptionLogForTest();
+    const indexRes = await app.request("/api/transcription-logs?limit=50&refresh=1");
+    expect(indexRes.status).toBe(200);
+    expect(indexRes.headers.get("X-Total-Count")).toBe("1");
+    const index = (await indexRes.json()) as Array<Record<string, unknown>>;
+    expect(index).toHaveLength(1);
+    expect(index[0]).toMatchObject({ recordingKey: live.recordingKey, enhancement: null });
+    expect(JSON.stringify(index)).not.toContain("persisted raw transcript");
+    expect(index[0]).not.toHaveProperty("rawTranscript");
+    expect(index[0]).not.toHaveProperty("sttPrompt");
+    expect(index[0]).not.toHaveProperty("replayVariants");
+    expect(index[0]).not.toHaveProperty("recordingDirectoryPath");
+    expect(index[0]).not.toHaveProperty("recordingManifestPath");
+
+    const stableDetailRes = await app.request(`/api/transcription-logs/${live.recordingKey}`);
+    expect(stableDetailRes.status).toBe(200);
+    await expect(stableDetailRes.json()).resolves.toMatchObject({ rawTranscript: "persisted raw transcript" });
+    const compatibilityId = Number(index[0].id);
+    const numericDetailRes = await app.request(`/api/transcription-logs/${compatibilityId}`);
+    expect(numericDetailRes.status).toBe(200);
+
+    const audioRes = await app.request(`/api/transcription-logs/${live.recordingKey}/audio`);
+    expect(audioRes.status).toBe(200);
+    expect(new Uint8Array(await audioRes.arrayBuffer())).toEqual(new Uint8Array([0x52, 0x49, 0x46, 0x46]));
+
+    const replayRes = await app.request(`/api/transcription-logs/${live.recordingKey}/retranscribe`, {
+      method: "POST",
+      body: JSON.stringify({ sttModel: "gpt-transcribe" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(replayRes.status).toBe(200);
+    await expect(replayRes.json()).resolves.toMatchObject({ variant: { rawTranscript: "replayed after restart" } });
+
+    const deleteRes = await app.request(`/api/transcription-logs/${live.recordingKey}/recording`, {
+      method: "DELETE",
+    });
+    expect(deleteRes.status).toBe(200);
+    await expect(deleteRes.json()).resolves.toMatchObject({ recordingDeletedAt: expect.any(Number) });
+    transcriptionEnhancer._resetTranscriptionLogForTest();
+    const deletedIndexRes = await app.request("/api/transcription-logs?limit=50&refresh=1");
+    const [deleted] = (await deletedIndexRes.json()) as Array<Record<string, unknown>>;
+    expect(deleted).toMatchObject({ recordingKey: live.recordingKey, discoveryState: "deleted" });
+    expect(
+      (await app.request(`/api/transcription-logs/${live.recordingKey}/recording/open`, { method: "POST" })).status,
+    ).toBe(410);
+    expect(
+      (await app.request(`/api/transcription-logs/${live.recordingKey}/retranscribe`, { method: "POST" })).status,
+    ).toBe(410);
+  });
+
   it("re-enhances a source transcript with selected model and style into a durable child variant", async () => {
     mockVoiceSettings({
       enhancementEnabled: false,

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getSettings } from "./settings-manager.js";
 
 export type TranscriptionRecordingStatus = "success" | "error";
@@ -262,7 +262,9 @@ export async function writeTranscriptionRecordingFrontendTiming(
 ): Promise<void> {
   if (!directoryPath) return;
   await assertInsideRecordingRoot(directoryPath);
-  await writeFile(join(directoryPath, "frontend-timing.json"), JSON.stringify(timing, null, 2), "utf-8");
+  const timingPath = join(directoryPath, "frontend-timing.json");
+  await assertSafeWritableFile(timingPath);
+  await writeFile(timingPath, JSON.stringify(timing, null, 2), "utf-8");
   await updateManifestArtifacts(directoryPath, { frontendTiming: "frontend-timing.json" });
 }
 
@@ -274,7 +276,10 @@ export async function writeTranscriptionReplayVariant(
   const replayRoot = join(sourceDirectoryPath, "replays");
   const id = buildRecordingId(input.kind + "-" + Date.now());
   const directoryPath = join(replayRoot, id);
-  await mkdir(directoryPath, { recursive: true });
+  await mkdir(replayRoot, { recursive: true });
+  await assertSafeChildDirectory(sourceDirectoryPath, replayRoot);
+  await mkdir(directoryPath);
+  await assertSafeChildDirectory(sourceDirectoryPath, directoryPath);
 
   const artifacts: Record<string, string> = { manifest: "replays/" + id + "/manifest.json" };
   if (input.sttPrompt) {
@@ -357,7 +362,8 @@ export async function readTranscriptionReplayVariants(
 ): Promise<TranscriptionReplayVariant[]> {
   if (!sourceDirectoryPath) return [];
   await assertInsideRecordingRoot(sourceDirectoryPath);
-  const indexPath = join(sourceDirectoryPath, "replays", "index.json");
+  const indexPath = await resolveSafeExistingArtifactPath(sourceDirectoryPath, "replays/index.json");
+  if (!indexPath) return [];
   let summaries: Array<
     Omit<TranscriptionReplayVariant, "rawTranscript" | "enhancedText" | "systemPrompt" | "userMessage" | "sttPrompt">
   >;
@@ -392,7 +398,7 @@ export function _setTranscriptionRecordingRootForTest(root: string | null): void
   testRecordingRoot = root;
 }
 
-function getTranscriptionRecordingRoot(): string {
+export function getTranscriptionRecordingRoot(): string {
   return testRecordingRoot ?? getDefaultTranscriptionRecordingRoot();
 }
 
@@ -450,6 +456,16 @@ async function assertInsideRecordingRoot(directoryPath: string): Promise<void> {
   if (rootRelative === "" || rootRelative === ".." || rootRelative.startsWith(`..${sep}`)) {
     throw new Error("Recording path is outside the transcription recording root");
   }
+  const targetInfo = await lstat(target).catch(() => null);
+  if (!targetInfo || targetInfo.isSymbolicLink()) {
+    throw new Error("Recording path is missing or symlinked");
+  }
+  const realRoot = await realpath(root);
+  const realTarget = await realpath(target);
+  const realRelative = relative(realRoot, realTarget);
+  if (realRelative === "" || realRelative === ".." || realRelative.startsWith(`..${sep}`)) {
+    throw new Error("Recording path escapes the transcription recording root");
+  }
 }
 
 function withoutReplayPayloads(
@@ -474,6 +490,7 @@ async function appendReplayIndex(
   >,
 ): Promise<void> {
   const indexPath = join(sourceDirectoryPath, "replays", "index.json");
+  await assertSafeWritableFile(indexPath);
   let existing: (typeof summary)[] = [];
   try {
     const parsed = JSON.parse(await readFile(indexPath, "utf-8")) as unknown;
@@ -491,8 +508,8 @@ async function readOptionalTextArtifact<T extends string>(
   key: T,
 ): Promise<Record<T, string> | {}> {
   if (!relativePath) return {};
-  const absolutePath = join(sourceDirectoryPath, relativePath);
-  await assertInsideRecordingRoot(absolutePath);
+  const absolutePath = await resolveSafeExistingArtifactPath(sourceDirectoryPath, relativePath);
+  if (!absolutePath) return {};
   try {
     return { [key]: await readFile(absolutePath, "utf-8") } as Record<T, string>;
   } catch {
@@ -500,9 +517,53 @@ async function readOptionalTextArtifact<T extends string>(
   }
 }
 
+async function resolveSafeExistingArtifactPath(
+  sourceDirectoryPath: string,
+  artifactRelativePath: string,
+): Promise<string | undefined> {
+  const sourceRoot = resolve(sourceDirectoryPath);
+  const target = resolve(sourceRoot, artifactRelativePath);
+  const sourceRelative = relative(sourceRoot, target);
+  if (
+    sourceRelative === "" ||
+    sourceRelative === ".." ||
+    sourceRelative.startsWith(`..${sep}`) ||
+    isAbsolute(artifactRelativePath)
+  ) {
+    return undefined;
+  }
+  const info = await lstat(target).catch(() => null);
+  if (!info || info.isSymbolicLink() || !info.isFile()) return undefined;
+  const realSource = await realpath(sourceRoot).catch(() => null);
+  const realTarget = await realpath(target).catch(() => null);
+  if (!realSource || !realTarget) return undefined;
+  const realRelative = relative(realSource, realTarget);
+  if (realRelative === "" || realRelative === ".." || realRelative.startsWith(`..${sep}`)) return undefined;
+  return realTarget;
+}
+
 async function updateManifestArtifacts(directoryPath: string, artifacts: Record<string, string>): Promise<void> {
   const manifestPath = join(directoryPath, "manifest.json");
+  await assertSafeWritableFile(manifestPath);
   const manifest = JSON.parse(await readFile(manifestPath, "utf-8")) as { artifacts?: Record<string, string> };
   manifest.artifacts = { ...manifest.artifacts, ...artifacts };
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
+}
+
+async function assertSafeWritableFile(filePath: string): Promise<void> {
+  await assertInsideRecordingRoot(resolve(filePath, ".."));
+  const info = await lstat(filePath).catch(() => null);
+  if (info && (info.isSymbolicLink() || !info.isFile())) {
+    throw new Error("Recording artifact target is not a regular file");
+  }
+}
+
+async function assertSafeChildDirectory(sourceDirectoryPath: string, directoryPath: string): Promise<void> {
+  await assertInsideRecordingRoot(directoryPath);
+  const realSource = await realpath(sourceDirectoryPath);
+  const realDirectory = await realpath(directoryPath);
+  const sourceRelative = relative(realSource, realDirectory);
+  if (sourceRelative === "" || sourceRelative === ".." || sourceRelative.startsWith(`..${sep}`)) {
+    throw new Error("Recording child directory escapes its source recording");
+  }
 }

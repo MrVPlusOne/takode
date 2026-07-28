@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -171,5 +171,37 @@ describe("transcription recordings", () => {
 
     await expect(deleteTranscriptionRecordingDirectory(result.directoryPath)).resolves.toBeUndefined();
     await expect(deleteTranscriptionRecordingDirectory(tmpdir())).rejects.toThrow(/outside/);
+  });
+
+  it("rejects symlinked replay directories before writing child artifacts", async () => {
+    const source = await writeTranscriptionRecording({
+      status: "success",
+      sessionId: null,
+      requestId: "tx-symlink-replay",
+      backend: "openai",
+      uploadDurationMs: 1,
+      sttModel: "gpt-transcribe",
+      sttDurationMs: 1,
+      sttPrompt: "",
+      rawTranscript: "source",
+      audioBytes: Buffer.from([1]),
+      audioMimeType: "audio/webm",
+      audioFileName: "recording.webm",
+      audioExtension: "webm",
+      enhancement: null,
+    });
+    const outside = join(root, "outside-replays");
+    await mkdir(outside);
+    await symlink(outside, join(source.directoryPath, "replays"));
+
+    await expect(
+      writeTranscriptionReplayVariant(source.directoryPath, {
+        kind: "stt_replay",
+        status: "success",
+        sourceLogId: 1,
+        model: "gpt-transcribe",
+        provider: "openai",
+      }),
+    ).rejects.toThrow();
   });
 });

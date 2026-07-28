@@ -41,24 +41,26 @@ function resolveAbsoluteUrl(path: string): string {
 function enhancementLabel(entry: TranscriptionLogIndexEntry): string {
   if (!entry.enhancement) return "STT only";
   if (entry.enhancement.skipReason) return `skipped: ${entry.enhancement.skipReason}`;
-  if (entry.enhancement.enhancedText) return "enhanced";
+  if (entry.enhancement.enhancedTextPresent) return "enhanced";
   return "failed";
 }
 
 function enhancementColor(entry: TranscriptionLogIndexEntry): string {
   if (!entry.enhancement) return "text-cc-muted";
   if (entry.enhancement.skipReason) return "text-cc-warning";
-  if (entry.enhancement.enhancedText) return "text-cc-success";
+  if (entry.enhancement.enhancedTextPresent) return "text-cc-success";
   return "text-cc-error";
 }
 
 function statusLabel(entry: TranscriptionLogIndexEntry): string {
+  if (entry.recordingDeletedAt || entry.discoveryState === "deleted") return "deleted";
   if (entry.recordingStatus === "error" || entry.status === "error")
     return `failed: ${entry.error?.message ?? "error"}`;
   return enhancementLabel(entry);
 }
 
 function statusColor(entry: TranscriptionLogIndexEntry): string {
+  if (entry.recordingDeletedAt || entry.discoveryState === "deleted") return "text-cc-warning";
   if (entry.recordingStatus === "error" || entry.status === "error") return "text-cc-error";
   return enhancementColor(entry);
 }
@@ -79,8 +81,10 @@ export function TranscriptionDebugPanel() {
   const [entries, setEntries] = useState<TranscriptionLogIndexEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetched, setFetched] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [totalEntries, setTotalEntries] = useState(0);
   const [error, setError] = useState("");
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<string | number | null>(null);
   const [expandedEntry, setExpandedEntry] = useState<TranscriptionLogEntry | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [copiedAudioUrl, setCopiedAudioUrl] = useState(false);
@@ -94,26 +98,36 @@ export function TranscriptionDebugPanel() {
   const [replayRunning, setReplayRunning] = useState<"stt" | "enhancement" | null>(null);
   const [replayError, setReplayError] = useState("");
 
-  const fetchIndex = useCallback(() => {
-    setLoading(true);
-    setError("");
-    api
-      .getTranscriptionLogs()
-      .then((data) => {
-        setEntries(data);
-        setFetched(true);
-      })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
-  }, []);
+  const fetchIndex = useCallback(
+    (append = false, refresh = false) => {
+      setLoading(true);
+      setError("");
+      api
+        .getTranscriptionLogs(append ? nextCursor : null, refresh)
+        .then((data) => {
+          setEntries((current) => {
+            if (!append) return data.entries;
+            const byKey = new Map(current.map((entry) => [entry.recordingKey ?? String(entry.id), entry]));
+            for (const entry of data.entries) byKey.set(entry.recordingKey ?? String(entry.id), entry);
+            return [...byKey.values()];
+          });
+          setNextCursor(data.nextCursor);
+          setTotalEntries(data.total);
+          setFetched(true);
+        })
+        .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+        .finally(() => setLoading(false));
+    },
+    [nextCursor],
+  );
 
   const handleOpen = () => {
     const next = !open;
     setOpen(next);
-    if (next && !fetched) fetchIndex();
+    if (next && !fetched) fetchIndex(false, false);
   };
 
-  const handleToggle = async (id: number) => {
+  const handleToggle = async (id: string | number) => {
     if (expandedId === id) {
       setExpandedId(null);
       setExpandedEntry(null);
@@ -140,7 +154,7 @@ export function TranscriptionDebugPanel() {
     }
   };
 
-  const selectedIndexEntry = expandedId !== null ? entries.find((e) => e.id === expandedId) : null;
+  const selectedIndexEntry = expandedId !== null ? entries.find((e) => (e.recordingKey ?? e.id) === expandedId) : null;
   const audioUrl = expandedEntry?.audioUrl ? resolveAbsoluteUrl(expandedEntry.audioUrl) : null;
   const recordingPath = expandedEntry?.recordingDirectoryPath ?? null;
 
@@ -153,7 +167,31 @@ export function TranscriptionDebugPanel() {
 
   const updateEntry = (entry: TranscriptionLogEntry) => {
     setExpandedEntry(entry);
-    setEntries((current) => current.map((item) => (item.id === entry.id ? { ...item, ...entry } : item)));
+    const locator = entry.recordingKey ?? entry.id;
+    setEntries((current) =>
+      current.map((item) =>
+        (item.recordingKey ?? item.id) === locator
+          ? {
+              ...item,
+              status: entry.status,
+              recordingStatus: entry.recordingStatus,
+              recordingDeletedAt: entry.recordingDeletedAt,
+              recordingPersistenceError: entry.recordingPersistenceError,
+              discoveryState: entry.discoveryState,
+              discoveryIssue: entry.discoveryIssue,
+              error: entry.error,
+              enhancement: entry.enhancement
+                ? {
+                    model: entry.enhancement.model,
+                    durationMs: entry.enhancement.durationMs,
+                    enhancedTextPresent: entry.enhancement.enhancedText !== null,
+                    ...(entry.enhancement.skipReason ? { skipReason: entry.enhancement.skipReason } : {}),
+                  }
+                : null,
+            }
+          : item,
+      ),
+    );
   };
 
   const copyRecordingPath = () => {
@@ -172,7 +210,7 @@ export function TranscriptionDebugPanel() {
     setOpeningRecording(true);
     setRecordingActionError("");
     try {
-      await api.openTranscriptionRecordingDirectory(expandedEntry.id);
+      await api.openTranscriptionRecordingDirectory(expandedEntry.recordingKey ?? expandedEntry.id);
     } catch (error) {
       setRecordingActionError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -187,7 +225,7 @@ export function TranscriptionDebugPanel() {
     setDeletingRecording(true);
     setRecordingActionError("");
     try {
-      updateEntry(await api.deleteTranscriptionRecording(expandedEntry.id));
+      updateEntry(await api.deleteTranscriptionRecording(expandedEntry.recordingKey ?? expandedEntry.id));
     } catch (error) {
       setRecordingActionError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -197,16 +235,10 @@ export function TranscriptionDebugPanel() {
 
   const runRetranscribe = async () => {
     if (!expandedEntry) return;
-    const confirmed = window.confirm(
-      "Run re-transcribe with " +
-        replaySttModel +
-        "? This sends the original audio plus stored STT context to your configured OpenAI-compatible provider and may incur provider charges. Sensitive debug context may be included.",
-    );
-    if (!confirmed) return;
     setReplayRunning("stt");
     setReplayError("");
     try {
-      const result = await api.retranscribeLogEntry(expandedEntry.id, replaySttModel);
+      const result = await api.retranscribeLogEntry(expandedEntry.recordingKey ?? expandedEntry.id, replaySttModel);
       setExpandedEntry({
         ...expandedEntry,
         replayVariants: [result.variant, ...(expandedEntry.replayVariants ?? [])],
@@ -220,19 +252,14 @@ export function TranscriptionDebugPanel() {
 
   const runReenhance = async () => {
     if (!expandedEntry) return;
-    const style = replayEnhancementMode === "bullet" ? "Bullet Points" : "Prose";
-    const confirmed = window.confirm(
-      "Run re-enhance with " +
-        replayEnhancementModel +
-        " (" +
-        style +
-        ")? This sends the raw STT transcript plus stored enhancement context/prompts to your configured OpenAI-compatible provider and may incur provider charges. Sensitive debug context may be included.",
-    );
-    if (!confirmed) return;
     setReplayRunning("enhancement");
     setReplayError("");
     try {
-      const result = await api.reenhanceLogEntry(expandedEntry.id, replayEnhancementModel, replayEnhancementMode);
+      const result = await api.reenhanceLogEntry(
+        expandedEntry.recordingKey ?? expandedEntry.id,
+        replayEnhancementModel,
+        replayEnhancementMode,
+      );
       setExpandedEntry({
         ...expandedEntry,
         replayVariants: [result.variant, ...(expandedEntry.replayVariants ?? [])],
@@ -276,11 +303,12 @@ export function TranscriptionDebugPanel() {
         <div className="mt-3 space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-xs text-cc-muted">
-              In-memory log of voice transcription calls.{fetched ? ` ${entries.length} entries.` : ""}
+              Durable voice transcription records.
+              {fetched ? ` Showing ${entries.length}${totalEntries ? ` of ${totalEntries}` : ""}.` : ""}
             </p>
             <button
               type="button"
-              onClick={fetchIndex}
+              onClick={() => fetchIndex(false, true)}
               disabled={loading}
               className="px-2 py-1 rounded text-xs text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer disabled:opacity-50"
             >
@@ -296,36 +324,50 @@ export function TranscriptionDebugPanel() {
 
           {entries.length > 0 && (
             <div className="space-y-1 max-h-[400px] overflow-y-auto">
-              {entries.map((entry) => (
-                <div key={entry.id} className="rounded-lg border border-cc-border overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => handleToggle(entry.id)}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-cc-hover transition-colors cursor-pointer ${expandedId === entry.id ? "bg-cc-hover" : ""}`}
-                  >
-                    <span className="text-cc-muted shrink-0 w-16">{timeAgo(entry.timestamp)}</span>
-                    <span className="text-cc-muted shrink-0">Up {formatDuration(entry.uploadDurationMs)}</span>
-                    <span className="text-cc-fg shrink-0 font-mono text-[10px]">{entry.sttModel}</span>
-                    <span className="text-cc-muted shrink-0">{formatDuration(entry.sttDurationMs)}</span>
-                    <span className={`flex-1 truncate ${statusColor(entry)}`}>{statusLabel(entry)}</span>
-                    {entry.enhancement && !entry.enhancement.skipReason && (
-                      <span className="text-cc-muted shrink-0">{formatDuration(entry.enhancement.durationMs)}</span>
-                    )}
-                    <span className="text-cc-muted shrink-0 font-mono text-[10px]">
-                      {formatBytes(entry.audioSizeBytes)}
-                    </span>
-                    {entry.sessionId && (
-                      <span
-                        className="text-cc-muted shrink-0 font-mono text-[10px] w-16 truncate"
-                        title={entry.sessionId}
-                      >
-                        {entry.sessionId.slice(0, 8)}
+              {entries.map((entry) => {
+                const locator = entry.recordingKey ?? entry.id;
+                return (
+                  <div key={locator} className="rounded-lg border border-cc-border overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => handleToggle(locator)}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-cc-hover transition-colors cursor-pointer ${expandedId === locator ? "bg-cc-hover" : ""}`}
+                    >
+                      <span className="text-cc-muted shrink-0 w-16">{timeAgo(entry.timestamp)}</span>
+                      <span className="text-cc-muted shrink-0">Up {formatDuration(entry.uploadDurationMs)}</span>
+                      <span className="text-cc-fg shrink-0 font-mono text-[10px]">{entry.sttModel}</span>
+                      <span className="text-cc-muted shrink-0">{formatDuration(entry.sttDurationMs)}</span>
+                      <span className={`flex-1 truncate ${statusColor(entry)}`}>{statusLabel(entry)}</span>
+                      {entry.enhancement && !entry.enhancement.skipReason && (
+                        <span className="text-cc-muted shrink-0">{formatDuration(entry.enhancement.durationMs)}</span>
+                      )}
+                      <span className="text-cc-muted shrink-0 font-mono text-[10px]">
+                        {formatBytes(entry.audioSizeBytes)}
                       </span>
-                    )}
-                  </button>
-                </div>
-              ))}
+                      {entry.sessionId && (
+                        <span
+                          className="text-cc-muted shrink-0 font-mono text-[10px] w-16 truncate"
+                          title={entry.sessionId}
+                        >
+                          {entry.sessionId.slice(0, 8)}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
+          )}
+
+          {nextCursor && (
+            <button
+              type="button"
+              onClick={() => fetchIndex(true, false)}
+              disabled={loading}
+              className="w-full px-3 py-2 rounded-lg border border-cc-border text-xs text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {loading ? "Loading..." : "Load more"}
+            </button>
           )}
         </div>
       )}
@@ -432,7 +474,10 @@ export function TranscriptionDebugPanel() {
                       )}
                     </div>
 
-                    {(recordingPath || expandedEntry.recordingPersistenceError) && (
+                    {(recordingPath ||
+                      expandedEntry.recordingDeletedAt ||
+                      expandedEntry.recordingPersistenceError ||
+                      expandedEntry.discoveryIssue) && (
                       <div className="text-xs text-cc-muted border-t border-cc-border pt-3 space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium text-cc-fg">Recording folder</span>
@@ -479,6 +524,9 @@ export function TranscriptionDebugPanel() {
                         )}
                         {expandedEntry.recordingPersistenceError && (
                           <div className="text-cc-error">{expandedEntry.recordingPersistenceError}</div>
+                        )}
+                        {expandedEntry.discoveryIssue && !expandedEntry.recordingPersistenceError && (
+                          <div className="text-cc-warning">{expandedEntry.discoveryIssue}</div>
                         )}
                         {recordingActionError && <div className="text-cc-error">{recordingActionError}</div>}
                       </div>

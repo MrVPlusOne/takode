@@ -490,7 +490,8 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     });
   }
 
-  function parseLogId(raw: string): number | null {
+  function parseLogLocator(raw: string): string | number | null {
+    if (/^r_[A-Za-z0-9_-]+$/.test(raw)) return raw;
     const id = Number(raw);
     return Number.isInteger(id) && id > 0 ? id : null;
   }
@@ -644,11 +645,13 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     return c.json({ ok: true, ...result });
   });
 
-  function validateReplaySource(id: number): TranscriptionReplaySource | ReplayValidationError {
-    const source = getTranscriptionReplaySource(id);
+  async function validateReplaySource(
+    locator: string | number,
+  ): Promise<TranscriptionReplaySource | ReplayValidationError> {
+    const source = await getTranscriptionReplaySource(locator);
     if (!source) return { error: "Transcription log entry not found", status: 404 };
-    if (!source.recordingDirectoryPath) return { error: "Source recording is not available", status: 409 };
     if (source.recordingDeletedAt) return { error: "Source recording was deleted", status: 410 };
+    if (!source.recordingDirectoryPath) return { error: "Source recording is not available", status: 409 };
     if (source.recordingPersistenceError) return { error: source.recordingPersistenceError, status: 409 };
     if (!source.audioBytes.length) return { error: "Source audio is missing", status: 409 };
     return source;
@@ -705,9 +708,9 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
   }
 
   api.post("/transcription-logs/:id/retranscribe", async (c) => {
-    const id = parseLogId(c.req.param("id"));
-    if (!id) return c.json({ error: "Invalid ID" }, 400);
-    const sourceOrError = validateReplaySource(id);
+    const locator = parseLogLocator(c.req.param("id"));
+    if (!locator) return c.json({ error: "Invalid ID" }, 400);
+    const sourceOrError = await validateReplaySource(locator);
     if ("error" in sourceOrError) return c.json({ error: sourceOrError.error }, sourceOrError.status);
     const body = await c.req.json().catch(() => ({}));
     const settings = getSettings();
@@ -742,10 +745,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         },
       );
       const sttDurationMs = Date.now() - sttStart;
-      const variant = await addTranscriptionReplayVariant(id, {
+      const variant = await addTranscriptionReplayVariant(locator, {
         kind: "stt_replay",
         status: "success",
-        sourceLogId: id,
+        sourceLogId: sourceOrError.id,
+        sourceRecordingId: sourceOrError.recordingId,
         model: targetModel,
         provider: "openai",
         sttPrompt: sttReplayContext.prompt,
@@ -756,10 +760,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       return c.json({ ok: true, variant });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const variant = await addTranscriptionReplayVariant(id, {
+      const variant = await addTranscriptionReplayVariant(locator, {
         kind: "stt_replay",
         status: "error",
-        sourceLogId: id,
+        sourceLogId: sourceOrError.id,
+        sourceRecordingId: sourceOrError.recordingId,
         model: targetModel,
         provider: "openai",
         sttPrompt: sttReplayContext.prompt,
@@ -772,9 +777,9 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
   });
 
   api.post("/transcription-logs/:id/reenhance", async (c) => {
-    const id = parseLogId(c.req.param("id"));
-    if (!id) return c.json({ error: "Invalid ID" }, 400);
-    const sourceOrError = validateReplaySource(id);
+    const locator = parseLogLocator(c.req.param("id"));
+    if (!locator) return c.json({ error: "Invalid ID" }, 400);
+    const sourceOrError = await validateReplaySource(locator);
     if ("error" in sourceOrError) return c.json({ error: sourceOrError.error }, sourceOrError.status);
     if (!sourceOrError.rawTranscript.trim()) return c.json({ error: "Source raw transcript is missing" }, 409);
     if (!sourceOrError.enhancementReplayContext) {
@@ -819,10 +824,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       const debug = result._debug;
       if (!debug) return c.json({ error: "Enhancement replay did not return debug output" }, 500);
       const providerError = debug.skipReason?.startsWith("API error") || debug.skipReason === "Empty response from LLM";
-      const variant = await addTranscriptionReplayVariant(id, {
+      const variant = await addTranscriptionReplayVariant(locator, {
         kind: "enhancement_replay",
         status: providerError ? "error" : "success",
-        sourceLogId: id,
+        sourceLogId: sourceOrError.id,
+        sourceRecordingId: sourceOrError.recordingId,
         model: enhancementModel,
         provider: "openai",
         enhancementMode,
@@ -838,10 +844,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       return c.json({ ok: true, variant });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const variant = await addTranscriptionReplayVariant(id, {
+      const variant = await addTranscriptionReplayVariant(locator, {
         kind: "enhancement_replay",
         status: "error",
-        sourceLogId: id,
+        sourceLogId: sourceOrError.id,
+        sourceRecordingId: sourceOrError.recordingId,
         model: enhancementModel,
         provider: "openai",
         enhancementMode,

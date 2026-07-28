@@ -126,6 +126,28 @@ async function get<T = unknown>(path: string, signal?: AbortSignal): Promise<T> 
   return res.json();
 }
 
+export interface TranscriptionLogsPage {
+  entries: TranscriptionLogIndexEntry[];
+  nextCursor: string | null;
+  total: number;
+}
+
+async function getTranscriptionLogsPage(cursor?: string | null, refresh = false): Promise<TranscriptionLogsPage> {
+  const params = new URLSearchParams({ limit: "50" });
+  if (cursor) params.set("cursor", cursor);
+  if (refresh) params.set("refresh", "1");
+  const res = await fetch(`${BASE}/transcription-logs?${params.toString()}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return {
+    entries: (await res.json()) as TranscriptionLogIndexEntry[],
+    nextCursor: res.headers.get("X-Next-Cursor") || null,
+    total: Number(res.headers.get("X-Total-Count") ?? 0),
+  };
+}
+
 export type ValidatedGetResult<T> =
   | { status: "fresh"; data: T; etag: string | null }
   | { status: "not-modified"; etag: string | null };
@@ -1587,22 +1609,25 @@ export const api = {
     post<{ ok: boolean }>(`/sessions/${encodeURIComponent(sessionId)}/message`, { content }),
 
   // Transcription debug logs
-  getTranscriptionLogs: () => get<TranscriptionLogIndexEntry[]>("/transcription-logs"),
-  getTranscriptionLogEntry: (id: number) => get<TranscriptionLogEntry>(`/transcription-logs/${id}`),
-  openTranscriptionRecordingDirectory: (id: number) =>
+  getTranscriptionLogs: (cursor?: string | null, refresh = false) => getTranscriptionLogsPage(cursor, refresh),
+  getTranscriptionLogEntry: (id: string | number) =>
+    get<TranscriptionLogEntry>(`/transcription-logs/${encodeURIComponent(id)}`),
+  openTranscriptionRecordingDirectory: (id: string | number) =>
     post<{ ok: boolean; absolutePath: string; openedPath: string; platform: string }>(
-      `/transcription-logs/${id}/recording/open`,
+      `/transcription-logs/${encodeURIComponent(id)}/recording/open`,
     ),
-  deleteTranscriptionRecording: (id: number) => del<TranscriptionLogEntry>(`/transcription-logs/${id}/recording`),
-  retranscribeLogEntry: (id: number, sttModel: string) =>
-    post<{ ok: boolean; variant: TranscriptionReplayVariant }>(`/transcription-logs/${id}/retranscribe`, {
-      sttModel,
-    }),
-  reenhanceLogEntry: (id: number, enhancementModel: string, enhancementMode: "default" | "bullet") =>
-    post<{ ok: boolean; variant: TranscriptionReplayVariant }>(`/transcription-logs/${id}/reenhance`, {
-      enhancementModel,
-      enhancementMode,
-    }),
+  deleteTranscriptionRecording: (id: string | number) =>
+    del<TranscriptionLogEntry>(`/transcription-logs/${encodeURIComponent(id)}/recording`),
+  retranscribeLogEntry: (id: string | number, sttModel: string) =>
+    post<{ ok: boolean; variant: TranscriptionReplayVariant }>(
+      `/transcription-logs/${encodeURIComponent(id)}/retranscribe`,
+      { sttModel },
+    ),
+  reenhanceLogEntry: (id: string | number, enhancementModel: string, enhancementMode: "default" | "bullet") =>
+    post<{ ok: boolean; variant: TranscriptionReplayVariant }>(
+      `/transcription-logs/${encodeURIComponent(id)}/reenhance`,
+      { enhancementModel, enhancementMode },
+    ),
 
   // Enhancement tester (debug tool in Settings)
   testEnhancement: (text: string, mode: "default" | "bullet", sessionId?: string) =>
