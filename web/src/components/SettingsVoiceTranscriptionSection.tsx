@@ -1,4 +1,14 @@
-import { useMemo, useState, type ComponentProps, type Dispatch, type SetStateAction } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type Dispatch,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type SetStateAction,
+} from "react";
 import { api, type TranscriptionConfig } from "../api.js";
 import { GPT_TRANSCRIBE_LANGUAGE_HINTS } from "../../shared/transcription-language-hints.js";
 import { CollapsibleSection } from "./CollapsibleSection.js";
@@ -74,20 +84,84 @@ export function SettingsVoiceTranscriptionSection({
   setTranscriptionError,
 }: SettingsVoiceTranscriptionSectionProps) {
   const [languageSearch, setLanguageSearch] = useState("");
+  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
+  const [activeLanguageIndex, setActiveLanguageIndex] = useState(0);
+  const languagePickerRef = useRef<HTMLDivElement>(null);
+  const languageTriggerRef = useRef<HTMLButtonElement>(null);
+  const languageSearchRef = useRef<HTMLInputElement>(null);
+  const languagePickerId = useId();
+  const languageListboxId = `${languagePickerId}-listbox`;
   const isGptTranscribeSelected = sttModel === DEFAULT_STT_MODEL;
   const selectedLanguageHintSet = useMemo(() => new Set(sttLanguageHints), [sttLanguageHints]);
   const filteredLanguageHints = useMemo(() => {
     const query = languageSearch.trim().toLowerCase();
-    if (!query) return GPT_TRANSCRIBE_LANGUAGE_HINTS;
     return GPT_TRANSCRIBE_LANGUAGE_HINTS.filter(
-      (hint) => hint.code.includes(query) || hint.name.toLowerCase().includes(query),
+      (hint) =>
+        !selectedLanguageHintSet.has(hint.code) &&
+        (!query || hint.code.includes(query) || hint.name.toLowerCase().includes(query)),
     );
-  }, [languageSearch]);
+  }, [languageSearch, selectedLanguageHintSet]);
 
-  function toggleLanguageHint(code: string) {
-    setSttLanguageHints((current) =>
-      current.includes(code) ? current.filter((hint) => hint !== code) : [...current, code],
-    );
+  function closeLanguagePicker(restoreFocus: boolean) {
+    setLanguagePickerOpen(false);
+    setLanguageSearch("");
+    setActiveLanguageIndex(0);
+    if (restoreFocus) languageTriggerRef.current?.focus();
+  }
+
+  function addLanguageHint(code: string) {
+    setSttLanguageHints((current) => (current.includes(code) ? current : [...current, code]));
+    closeLanguagePicker(true);
+  }
+
+  function removeLanguageHint(code: string) {
+    setSttLanguageHints((current) => current.filter((hint) => hint !== code));
+  }
+
+  useEffect(() => {
+    if (!languagePickerOpen) return;
+    languageSearchRef.current?.focus();
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!languagePickerRef.current?.contains(event.target as Node)) closeLanguagePicker(false);
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      closeLanguagePicker(true);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [languagePickerOpen]);
+
+  useEffect(() => {
+    if (!isGptTranscribeSelected && languagePickerOpen) closeLanguagePicker(false);
+  }, [isGptTranscribeSelected, languagePickerOpen]);
+
+  function handleLanguageSearchKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveLanguageIndex((current) =>
+        filteredLanguageHints.length === 0 ? 0 : (current + 1) % filteredLanguageHints.length,
+      );
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveLanguageIndex((current) =>
+        filteredLanguageHints.length === 0
+          ? 0
+          : (current - 1 + filteredLanguageHints.length) % filteredLanguageHints.length,
+      );
+    } else if (event.key === "Enter" && filteredLanguageHints[activeLanguageIndex]) {
+      event.preventDefault();
+      addLanguageHint(filteredLanguageHints[activeLanguageIndex].code);
+    }
   }
 
   async function saveTranscriptionSettings() {
@@ -196,10 +270,14 @@ export function SettingsVoiceTranscriptionSection({
         )}
         {isGptTranscribeSelected && (
           <div>
-            <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="stt-language-search">
+            <div className="block text-xs font-medium text-cc-muted mb-1.5" id="stt-language-label">
               Expected Languages
-            </label>
-            <div className="space-y-2 rounded-lg border border-cc-border bg-cc-input-bg/40 p-2">
+            </div>
+            <div
+              ref={languagePickerRef}
+              className="space-y-2 rounded-lg border border-cc-border bg-cc-input-bg/40 p-2"
+              aria-labelledby="stt-language-label"
+            >
               {sttLanguageHints.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {sttLanguageHints.map((code) => {
@@ -208,7 +286,7 @@ export function SettingsVoiceTranscriptionSection({
                       <button
                         key={code}
                         type="button"
-                        onClick={() => toggleLanguageHint(code)}
+                        onClick={() => removeLanguageHint(code)}
                         className="rounded-full border border-cc-border bg-cc-hover px-2 py-1 text-xs text-cc-fg"
                         aria-label={`Remove ${hint?.name ?? code} (${code})`}
                       >
@@ -218,34 +296,85 @@ export function SettingsVoiceTranscriptionSection({
                   })}
                 </div>
               )}
-              <input
-                id="stt-language-search"
-                type="search"
-                value={languageSearch}
-                onChange={(e) => setLanguageSearch(e.target.value)}
-                placeholder="Search language name or code…"
-                className="w-full px-3 py-2 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
-              />
-              <div role="listbox" aria-label="Expected language options" className="max-h-40 overflow-y-auto space-y-1">
-                {filteredLanguageHints.map((hint) => {
-                  const selected = selectedLanguageHintSet.has(hint.code);
-                  return (
-                    <button
-                      key={hint.code}
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      onClick={() => toggleLanguageHint(hint.code)}
-                      className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs ${
-                        selected ? "bg-cc-primary/15 text-cc-fg" : "text-cc-muted hover:bg-cc-hover"
-                      }`}
-                    >
-                      <span>{hint.name}</span>
-                      <span className="font-mono text-[11px]">{hint.code}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              <button
+                ref={languageTriggerRef}
+                type="button"
+                aria-label="Add expected language"
+                aria-expanded={languagePickerOpen}
+                aria-controls={languagePickerId}
+                aria-haspopup="listbox"
+                onClick={() => {
+                  if (languagePickerOpen) {
+                    closeLanguagePicker(false);
+                  } else {
+                    setLanguageSearch("");
+                    setActiveLanguageIndex(0);
+                    setLanguagePickerOpen(true);
+                  }
+                }}
+                className="flex w-full items-center justify-between rounded-lg border border-cc-border bg-cc-input-bg px-3 py-2 text-left text-sm text-cc-muted hover:text-cc-fg focus:outline-none focus:border-cc-primary/60"
+              >
+                <span>Search language name or code…</span>
+                <span aria-hidden="true">+</span>
+              </button>
+              {languagePickerOpen && (
+                <div id={languagePickerId} className="space-y-1.5">
+                  <input
+                    ref={languageSearchRef}
+                    id="stt-language-search"
+                    type="search"
+                    role="combobox"
+                    aria-label="Search expected languages"
+                    aria-expanded="true"
+                    aria-controls={languageListboxId}
+                    aria-autocomplete="list"
+                    aria-activedescendant={
+                      filteredLanguageHints[activeLanguageIndex]
+                        ? `${languageListboxId}-option-${filteredLanguageHints[activeLanguageIndex].code}`
+                        : undefined
+                    }
+                    value={languageSearch}
+                    onChange={(event) => {
+                      setLanguageSearch(event.target.value);
+                      setActiveLanguageIndex(0);
+                    }}
+                    onKeyDown={handleLanguageSearchKeyDown}
+                    placeholder="Search language name or code…"
+                    className="w-full px-3 py-2 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
+                  />
+                  <div
+                    id={languageListboxId}
+                    role="listbox"
+                    aria-label="Expected language options"
+                    className="max-h-40 overflow-y-auto space-y-1"
+                  >
+                    {filteredLanguageHints.length === 0 ? (
+                      <p className="px-2 py-1.5 text-xs text-cc-muted">No matching languages.</p>
+                    ) : (
+                      filteredLanguageHints.map((hint, index) => (
+                        <button
+                          id={`${languageListboxId}-option-${hint.code}`}
+                          key={hint.code}
+                          type="button"
+                          role="option"
+                          aria-selected={index === activeLanguageIndex}
+                          tabIndex={-1}
+                          onPointerMove={() => setActiveLanguageIndex(index)}
+                          onClick={() => addLanguageHint(hint.code)}
+                          className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs ${
+                            index === activeLanguageIndex
+                              ? "bg-cc-primary/15 text-cc-fg"
+                              : "text-cc-muted hover:bg-cc-hover"
+                          }`}
+                        >
+                          <span>{hint.name}</span>
+                          <span className="font-mono text-[11px]">{hint.code}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             <p className="mt-1 text-xs text-cc-muted">
               Optional gpt-transcribe input-language hints. This is a conservative static list based on documented

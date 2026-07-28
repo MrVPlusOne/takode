@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 import { DEFAULT_SESSION_DEFAULTS } from "../../shared/session-defaults.js";
 
@@ -224,6 +225,33 @@ function settingsSection(title: string): HTMLElement {
   const section = heading.closest("section, form");
   if (!section) throw new Error(`Missing section wrapper: ${title}`);
   return section as HTMLElement;
+}
+
+function settingsWithGptTranscribeLanguageHints(sttLanguageHints: string[] = ["en"]) {
+  return {
+    serverName: "",
+    serverId: "test-id",
+    serverSlug: "prod",
+    pushoverConfigured: false,
+    pushoverEnabled: true,
+    pushoverDelaySeconds: 30,
+    pushoverBaseUrl: "",
+    claudeBinary: "",
+    codexBinary: "",
+    maxKeepAlive: 0,
+    heavyRepoModeEnabled: false,
+    namerConfig: { backend: "claude" as const },
+    autoNamerEnabled: true,
+    editorConfig: { editor: "none" as const },
+    transcriptionConfig: {
+      apiKey: "***",
+      baseUrl: "https://api.openai.com/v1",
+      enhancementEnabled: true,
+      enhancementModel: "gpt-5-mini",
+      sttModel: "gpt-transcribe",
+      sttLanguageHints,
+    },
+  };
 }
 
 function deferred<T>() {
@@ -508,59 +536,108 @@ describe("SettingsPage", () => {
     });
   });
 
-  it("shows and saves searchable language hints only for gpt-transcribe", async () => {
-    mockApi.getSettings.mockResolvedValue({
-      serverName: "",
-      serverId: "test-id",
-      serverSlug: "prod",
-      pushoverConfigured: false,
-      pushoverEnabled: true,
-      pushoverDelaySeconds: 30,
-      pushoverBaseUrl: "",
-      claudeBinary: "",
-      codexBinary: "",
-      maxKeepAlive: 0,
-      heavyRepoModeEnabled: false,
-      namerConfig: { backend: "claude" },
-      autoNamerEnabled: true,
-      editorConfig: { editor: "none" },
-      transcriptionConfig: {
-        apiKey: "***",
-        baseUrl: "https://api.openai.com/v1",
-        enhancementEnabled: true,
-        enhancementModel: "gpt-5-mini",
-        sttModel: "gpt-transcribe",
-        sttLanguageHints: ["en"],
-      },
-    });
+  it("keeps selected language chips visible while the searchable picker stays closed until keyboard activation", async () => {
+    const user = userEvent.setup();
+    mockApi.getSettings.mockResolvedValue(settingsWithGptTranscribeLanguageHints());
 
     render(<SettingsPage />);
     await waitForSettingsPage();
 
     const voiceSection = settingsSection("Voice Transcription");
-    const languageSearch = within(voiceSection).getByLabelText("Expected Languages");
-    expect(languageSearch).toBeInTheDocument();
+    expect(within(voiceSection).getByText("Expected Languages")).toBeInTheDocument();
     await waitFor(() => {
       expect(within(voiceSection).getByRole("button", { name: "Remove English (en)" })).toBeInTheDocument();
     });
 
-    fireEvent.change(languageSearch, { target: { value: "French" } });
-    fireEvent.click(within(voiceSection).getByRole("option", { name: /French.*fr/ }));
-    fireEvent.click(within(voiceSection).getByRole("button", { name: "Save" }));
+    const trigger = within(voiceSection).getByRole("button", { name: "Add expected language" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveAttribute("aria-haspopup", "listbox");
+    expect(within(voiceSection).queryByRole("combobox", { name: "Search expected languages" })).toBeNull();
+    expect(within(voiceSection).queryByRole("listbox", { name: "Expected language options" })).toBeNull();
+
+    trigger.focus();
+    await user.keyboard("{Enter}");
+
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById(trigger.getAttribute("aria-controls")!)).toBeInTheDocument();
+    const languageSearch = within(voiceSection).getByRole("combobox", { name: "Search expected languages" });
+    expect(languageSearch).toHaveFocus();
+    expect(languageSearch).toHaveAttribute(
+      "aria-controls",
+      within(voiceSection).getByRole("listbox", { name: "Expected language options" }).id,
+    );
+
+    await user.type(languageSearch, "Chinese");
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+    expect(within(voiceSection).queryByRole("combobox", { name: "Search expected languages" })).toBeNull();
+    expect(within(voiceSection).getByRole("button", { name: "Remove English (en)" })).toBeInTheDocument();
+    expect(
+      within(voiceSection).getByRole("button", { name: "Remove Chinese (Simplified, China) (zh-cn)" }),
+    ).toBeInTheDocument();
+
+    await user.click(within(voiceSection).getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(mockApi.updateSettings).toHaveBeenCalledWith(
         expect.objectContaining({
           transcriptionConfig: expect.objectContaining({
             sttModel: "gpt-transcribe",
-            sttLanguageHints: ["en", "fr"],
+            sttLanguageHints: ["en", "zh-cn"],
           }),
         }),
       );
     });
 
+    const removeChinese = within(voiceSection).getByRole("button", {
+      name: "Remove Chinese (Simplified, China) (zh-cn)",
+    });
+    removeChinese.focus();
+    await user.keyboard("{Enter}");
+    expect(within(voiceSection).queryByRole("button", { name: /Remove Chinese/ })).toBeNull();
+
     fireEvent.change(within(voiceSection).getByLabelText("STT Model"), { target: { value: "gpt-4o-transcribe" } });
-    expect(within(voiceSection).queryByLabelText("Expected Languages")).not.toBeInTheDocument();
+    expect(within(voiceSection).queryByText("Expected Languages")).not.toBeInTheDocument();
+  });
+
+  it("closes the language picker on Escape or outside interaction without losing selected chips", async () => {
+    const user = userEvent.setup();
+    mockApi.getSettings.mockResolvedValue(settingsWithGptTranscribeLanguageHints(["en", "zh-cn"]));
+
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    const voiceSection = settingsSection("Voice Transcription");
+    const trigger = await within(voiceSection).findByRole("button", { name: "Add expected language" });
+    await waitFor(() => {
+      expect(
+        within(voiceSection).getByRole("button", { name: "Remove Chinese (Simplified, China) (zh-cn)" }),
+      ).toBeInTheDocument();
+    });
+
+    trigger.focus();
+    await user.keyboard(" ");
+    expect(within(voiceSection).getByRole("combobox", { name: "Search expected languages" })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+    expect(within(voiceSection).queryByRole("listbox", { name: "Expected language options" })).toBeNull();
+    expect(within(voiceSection).getByRole("button", { name: "Remove English (en)" })).toBeInTheDocument();
+
+    await user.click(trigger);
+    expect(within(voiceSection).getByRole("combobox", { name: "Search expected languages" })).toHaveFocus();
+    const enhancementModel = within(voiceSection).getByLabelText("Enhancement Model");
+    await user.click(enhancementModel);
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(enhancementModel).toHaveFocus();
+    expect(within(voiceSection).queryByRole("combobox", { name: "Search expected languages" })).toBeNull();
+    expect(
+      within(voiceSection).getByRole("button", { name: "Remove Chinese (Simplified, China) (zh-cn)" }),
+    ).toBeInTheDocument();
   });
 
   it("requires a model name before saving Custom Model transcription settings", async () => {
