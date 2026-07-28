@@ -88,12 +88,11 @@ const INDEX_AUDIO_MIME_TYPE_ALIASES = new Map<string, string>([
   ["audio/mpga", "audio/mpeg"],
 ]);
 
-function containsAbsolutePathText(value: string): boolean {
+function containsExplicitAbsolutePath(value: string): boolean {
   return (
     /[A-Za-z]:[\\/]/.test(value) ||
     /(?:^|[\s"'`([{=,:;])(?:\\\\|\/\/)[^\s"'`\])}]+/.test(value) ||
     /(?:^|[\s"'`([{=,:;])\/[^\s"'`\])}]+/.test(value) ||
-    /\/(?:Users|home|tmp|private|var|Volumes|mnt|opt|etc|usr|root|run|srv)(?:\/|$)/i.test(value) ||
     /file:\/\//i.test(value)
   );
 }
@@ -103,7 +102,7 @@ export function sanitizeIndexIdentifier(value: string | null): string | null {
     !value ||
     value.length > INDEX_IDENTIFIER_MAX_LENGTH ||
     /[\u0000-\u001f\u007f-\u009f]/.test(value) ||
-    containsAbsolutePathText(value)
+    containsExplicitAbsolutePath(value)
   ) {
     return null;
   }
@@ -111,12 +110,30 @@ export function sanitizeIndexIdentifier(value: string | null): string | null {
   return /^[A-Za-z0-9][A-Za-z0-9._:@+/-]*$/.test(normalized) ? normalized : null;
 }
 
+export function sanitizeIndexModelIdentifier(value: string | null): string | null {
+  if (
+    !value ||
+    value.length > INDEX_IDENTIFIER_MAX_LENGTH ||
+    /[\u0000-\u001f\u007f-\u009f]/.test(value) ||
+    containsExplicitAbsolutePath(value)
+  ) {
+    return null;
+  }
+  const normalized = value.trim();
+  const segments = normalized.split("/");
+  return segments.every(
+    (segment) => segment !== "." && segment !== ".." && /^[A-Za-z0-9][A-Za-z0-9._:@+-]*$/.test(segment),
+  )
+    ? normalized
+    : null;
+}
+
 export function sanitizeIndexAudioMimeType(value: string | null): string | null {
   if (
     !value ||
     value.length > INDEX_AUDIO_MIME_TYPE_MAX_LENGTH ||
     /[\u0000-\u001f\u007f-\u009f]/.test(value) ||
-    containsAbsolutePathText(value)
+    containsExplicitAbsolutePath(value)
   ) {
     return null;
   }

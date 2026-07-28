@@ -1,16 +1,26 @@
 import { describe, expect, it } from "vitest";
 
-import { sanitizeIndexAudioMimeType, sanitizeIndexIdentifier } from "./transcription-log-catalog-adapter.js";
+import {
+  sanitizeIndexAudioMimeType,
+  sanitizeIndexIdentifier,
+  sanitizeIndexModelIdentifier,
+} from "./transcription-log-catalog-adapter.js";
 
 describe("transcription metadata index sanitizers", () => {
   it("preserves bounded model identifiers while rejecting path text and controls", () => {
-    expect(sanitizeIndexIdentifier("openai/gpt-4o-mini-transcribe")).toBe("openai/gpt-4o-mini-transcribe");
-    expect(sanitizeIndexIdentifier("hf.co:443/models/whisper-large-v3")).toBe("hf.co:443/models/whisper-large-v3");
-    expect(sanitizeIndexIdentifier(" /Users/private/model ")).toBeNull();
-    expect(sanitizeIndexIdentifier("custom:/var/private/model")).toBeNull();
-    expect(sanitizeIndexIdentifier("custom C:\\Users\\private\\model")).toBeNull();
-    expect(sanitizeIndexIdentifier("custom\nmodel")).toBeNull();
-    expect(sanitizeIndexIdentifier("m".repeat(201))).toBeNull();
+    expect(sanitizeIndexModelIdentifier("openai/gpt-4o-mini-transcribe")).toBe("openai/gpt-4o-mini-transcribe");
+    expect(sanitizeIndexModelIdentifier("hf.co:443/models/whisper-large-v3")).toBe("hf.co:443/models/whisper-large-v3");
+    expect(sanitizeIndexModelIdentifier("org/private")).toBe("org/private");
+    expect(sanitizeIndexModelIdentifier("team/root")).toBe("team/root");
+    expect(sanitizeIndexModelIdentifier("provider/models/run/latest")).toBe("provider/models/run/latest");
+    expect(sanitizeIndexModelIdentifier("/Users/private/model")).toBeNull();
+    expect(sanitizeIndexModelIdentifier("custom:/var/private/model")).toBeNull();
+    expect(sanitizeIndexModelIdentifier("custom=C:\\Users\\private\\model")).toBeNull();
+    expect(sanitizeIndexModelIdentifier("custom=\\\\server\\share\\model")).toBeNull();
+    expect(sanitizeIndexModelIdentifier("custom=file:///private/model")).toBeNull();
+    expect(sanitizeIndexModelIdentifier("custom\nmodel")).toBeNull();
+    expect(sanitizeIndexModelIdentifier("m".repeat(201))).toBeNull();
+    expect(sanitizeIndexIdentifier("session-id")).toBe("session-id");
   });
 
   it("canonicalizes supported transcription MIME metadata and rejects arbitrary input", () => {

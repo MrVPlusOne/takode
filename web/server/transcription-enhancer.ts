@@ -27,6 +27,7 @@ import {
   sanitizeIndexAudioMimeType,
   sanitizeIndexFileName,
   sanitizeIndexIdentifier,
+  sanitizeIndexModelIdentifier,
   storedEntryToCatalogEntry,
   transcriptionLogEntryKey,
   type TranscriptionIndexEnhancementSkipReason,
@@ -1645,14 +1646,14 @@ export async function getTranscriptionReplaySource(
     requestId: entry.requestId,
     mode: entry.mode,
     backend: entry.backend,
-    sttModel: sanitizeIndexIdentifier(entry.sttModel) ?? "unknown",
+    sttModel: entry.sttModel,
     sttPrompt: entry.sttPrompt,
     sttContext: entry.sttContext,
     sttReplayContext: entry.sttReplayContext,
     enhancementReplayContext: entry.enhancementReplayContext,
     rawTranscript: entry.rawTranscript,
     audioBytes: entry.audioBytes,
-    audioMimeType: sanitizeIndexIdentifier(entry.audioMimeType),
+    audioMimeType: entry.audioMimeType,
     audioFileName: entry.audioFileName,
     audioExtension: entry.audioExtension,
     audioSizeBytes: entry.audioSizeBytes,
@@ -1891,7 +1892,7 @@ function toTranscriptionLogIndexEntry(entry: StoredTranscriptionLogEntry): Trans
     requestId: sanitizeIndexIdentifier(entry.requestId),
     mode: entry.mode,
     uploadDurationMs: entry.uploadDurationMs,
-    sttModel: sanitizeIndexIdentifier(entry.sttModel) ?? "unknown",
+    sttModel: sanitizeIndexModelIdentifier(entry.sttModel) ?? "unknown",
     sttDurationMs: entry.sttDurationMs,
     sttContext: entry.sttContext
       ? {
@@ -1910,7 +1911,7 @@ function toTranscriptionLogIndexEntry(entry: StoredTranscriptionLogEntry): Trans
     statusReason: getTranscriptionIndexStatusReason(entry),
     enhancement: entry.enhancement
       ? {
-          model: sanitizeIndexIdentifier(entry.enhancement.model) ?? "unknown",
+          model: sanitizeIndexModelIdentifier(entry.enhancement.model) ?? "unknown",
           durationMs: entry.enhancement.durationMs,
           enhancedTextPresent: entry.enhancement.enhancedText !== null,
           ...(skipReasonCode ? { skipReasonCode } : {}),

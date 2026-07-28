@@ -889,7 +889,10 @@ describe("POST /api/transcribe", () => {
   });
 
   it("hydrates metadata-only list, detail, audio, replay, aliases, and tombstones after restart", async () => {
-    mockVoiceSettings({ enhancementEnabled: false, sttModel: "gpt-transcribe" });
+    const sourceModel = "org/private";
+    const sourceMimeType = "audio/webm;codecs=opus";
+    const sourceAudio = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]);
+    mockVoiceSettings({ enhancementEnabled: false, sttModel: sourceModel });
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ text: "persisted raw transcript" }), {
@@ -904,10 +907,14 @@ describe("POST /api/transcribe", () => {
         }),
       );
 
-    const form = new FormData();
-    form.append("audio", new File([new Uint8Array([0x52, 0x49, 0x46, 0x46])], "restart.wav", { type: "audio/wav" }));
-    form.append("backend", "openai");
-    const sourceRes = await app.request("/api/transcribe", { method: "POST", body: form });
+    const sourceRes = await app.request("/api/transcribe?backend=openai", {
+      method: "POST",
+      body: sourceAudio,
+      headers: {
+        "Content-Type": sourceMimeType,
+        "X-Companion-Audio-Filename": "restart.webm",
+      },
+    });
     expect(sourceRes.status).toBe(200);
     await sourceRes.text();
     const live = transcriptionEnhancer.getTranscriptionLogIndex()[0];
@@ -922,13 +929,21 @@ describe("POST /api/transcribe", () => {
     expect(indexRes.headers.get("X-Total-Count")).toBe("1");
     const index = (await indexRes.json()) as Array<Record<string, unknown>>;
     expect(index).toHaveLength(1);
-    expect(index[0]).toMatchObject({ recordingKey: live.recordingKey, enhancement: null });
+    expect(index[0]).toMatchObject({
+      recordingKey: live.recordingKey,
+      sttModel: sourceModel,
+      audioMimeType: "audio/webm",
+      enhancement: null,
+    });
     expect(JSON.stringify(index)).not.toContain("persisted raw transcript");
     expect(index[0]).not.toHaveProperty("rawTranscript");
     expect(index[0]).not.toHaveProperty("sttPrompt");
     expect(index[0]).not.toHaveProperty("replayVariants");
     expect(index[0]).not.toHaveProperty("recordingDirectoryPath");
     expect(index[0]).not.toHaveProperty("recordingManifestPath");
+
+    const replaySource = await transcriptionEnhancer.getTranscriptionReplaySource(live.recordingKey!);
+    expect(replaySource).toMatchObject({ sttModel: sourceModel, audioMimeType: sourceMimeType });
 
     const stableDetailRes = await app.request(`/api/transcription-logs/${live.recordingKey}`);
     expect(stableDetailRes.status).toBe(200);
@@ -939,15 +954,19 @@ describe("POST /api/transcribe", () => {
 
     const audioRes = await app.request(`/api/transcription-logs/${live.recordingKey}/audio`);
     expect(audioRes.status).toBe(200);
-    expect(new Uint8Array(await audioRes.arrayBuffer())).toEqual(new Uint8Array([0x52, 0x49, 0x46, 0x46]));
+    expect(new Uint8Array(await audioRes.arrayBuffer())).toEqual(sourceAudio);
 
     const replayRes = await app.request(`/api/transcription-logs/${live.recordingKey}/retranscribe`, {
       method: "POST",
-      body: JSON.stringify({ sttModel: "gpt-transcribe" }),
+      body: JSON.stringify({ sttModel: sourceModel }),
       headers: { "Content-Type": "application/json" },
     });
     expect(replayRes.status).toBe(200);
     await expect(replayRes.json()).resolves.toMatchObject({ variant: { rawTranscript: "replayed after restart" } });
+    const [, replayInit] = vi.mocked(fetch).mock.calls[1] as [string, RequestInit];
+    const replayForm = replayInit.body as FormData;
+    expect(replayForm.get("model")).toBe(sourceModel);
+    expect((replayForm.get("file") as File).type).toBe("audio/webm");
 
     const deleteRes = await app.request(`/api/transcription-logs/${live.recordingKey}/recording`, {
       method: "DELETE",
