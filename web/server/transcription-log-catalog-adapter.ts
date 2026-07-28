@@ -69,9 +69,62 @@ export function getEnhancementSkipReasonCode(
   return "other";
 }
 
+const INDEX_IDENTIFIER_MAX_LENGTH = 200;
+const INDEX_AUDIO_MIME_TYPE_MAX_LENGTH = 100;
+const INDEX_AUDIO_MIME_TYPE_ALIASES = new Map<string, string>([
+  ["audio/webm", "audio/webm"],
+  ["video/webm", "audio/webm"],
+  ["audio/ogg", "audio/ogg"],
+  ["video/ogg", "audio/ogg"],
+  ["audio/mp4", "audio/mp4"],
+  ["video/mp4", "audio/mp4"],
+  ["audio/m4a", "audio/mp4"],
+  ["audio/x-m4a", "audio/mp4"],
+  ["audio/wav", "audio/wav"],
+  ["audio/x-wav", "audio/wav"],
+  ["audio/flac", "audio/flac"],
+  ["audio/mpeg", "audio/mpeg"],
+  ["audio/mp3", "audio/mpeg"],
+  ["audio/mpga", "audio/mpeg"],
+]);
+
+function containsAbsolutePathText(value: string): boolean {
+  return (
+    /[A-Za-z]:[\\/]/.test(value) ||
+    /(?:^|[\s"'`([{=,:;])(?:\\\\|\/\/)[^\s"'`\])}]+/.test(value) ||
+    /(?:^|[\s"'`([{=,:;])\/[^\s"'`\])}]+/.test(value) ||
+    /\/(?:Users|home|tmp|private|var|Volumes|mnt|opt|etc|usr|root|run|srv)(?:\/|$)/i.test(value) ||
+    /file:\/\//i.test(value)
+  );
+}
+
 export function sanitizeIndexIdentifier(value: string | null): string | null {
-  if (!value || value.length > 500 || /^(?:\/|[A-Za-z]:[\\/])/.test(value)) return null;
-  return value;
+  if (
+    !value ||
+    value.length > INDEX_IDENTIFIER_MAX_LENGTH ||
+    /[\u0000-\u001f\u007f-\u009f]/.test(value) ||
+    containsAbsolutePathText(value)
+  ) {
+    return null;
+  }
+  const normalized = value.trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._:@+/-]*$/.test(normalized) ? normalized : null;
+}
+
+export function sanitizeIndexAudioMimeType(value: string | null): string | null {
+  if (
+    !value ||
+    value.length > INDEX_AUDIO_MIME_TYPE_MAX_LENGTH ||
+    /[\u0000-\u001f\u007f-\u009f]/.test(value) ||
+    containsAbsolutePathText(value)
+  ) {
+    return null;
+  }
+  const [baseType, ...parameters] = value.split(";");
+  if (parameters.length > 1 || (parameters[0] && !/^\s*codecs=[A-Za-z0-9._-]{1,64}\s*$/i.test(parameters[0]))) {
+    return null;
+  }
+  return INDEX_AUDIO_MIME_TYPE_ALIASES.get(baseType?.trim().toLowerCase() ?? "") ?? null;
 }
 
 export function sanitizeIndexFileName(value: string | null): string | null {

@@ -24,6 +24,7 @@ import {
   hasSafeTranscriptionAudio,
   loadCatalogStoredEntry,
   lookupTranscriptionLogAudio,
+  sanitizeIndexAudioMimeType,
   sanitizeIndexFileName,
   sanitizeIndexIdentifier,
   storedEntryToCatalogEntry,
@@ -1890,7 +1891,7 @@ function toTranscriptionLogIndexEntry(entry: StoredTranscriptionLogEntry): Trans
     requestId: sanitizeIndexIdentifier(entry.requestId),
     mode: entry.mode,
     uploadDurationMs: entry.uploadDurationMs,
-    sttModel: entry.sttModel,
+    sttModel: sanitizeIndexIdentifier(entry.sttModel) ?? "unknown",
     sttDurationMs: entry.sttDurationMs,
     sttContext: entry.sttContext
       ? {
@@ -1899,7 +1900,7 @@ function toTranscriptionLogIndexEntry(entry: StoredTranscriptionLogEntry): Trans
         }
       : undefined,
     audioSizeBytes: entry.audioSizeBytes,
-    audioMimeType: entry.audioMimeType,
+    audioMimeType: sanitizeIndexAudioMimeType(entry.audioMimeType),
     audioFileName: sanitizeIndexFileName(entry.audioFileName),
     audioAvailable,
     ...(audioAvailable ? { audioUrl: buildTranscriptionAudioUrl(entry) } : {}),

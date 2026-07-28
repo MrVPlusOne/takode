@@ -994,18 +994,19 @@ describe("POST /api/transcribe", () => {
     const datePath = join(transcriptionRecordingRoot, new Date().toISOString().slice(0, 10));
     await writeFile(datePath, "block recording directory creation", "utf-8");
     const absoluteDiagnostic = join(transcriptionRecordingRoot, "private", "artifact.txt");
+    const pathLikeModel = `custom:${absoluteDiagnostic}`;
     const detail = await transcriptionEnhancer.addTranscriptionLogEntry({
       status: "error",
       sessionId: absoluteDiagnostic,
       mode: "dictation",
       backend: "openai",
       uploadDurationMs: 1,
-      sttModel: "gpt-transcribe",
+      sttModel: pathLikeModel,
       sttDurationMs: 2,
       rawTranscript: `raw ${absoluteDiagnostic}`,
       audioBytes: Buffer.from([1]),
       audioSizeBytes: 1,
-      audioMimeType: "audio/wav",
+      audioMimeType: absoluteDiagnostic,
       audioFileName: absoluteDiagnostic,
       audioExtension: "wav",
       sttPrompt: `prompt ${absoluteDiagnostic}`,
@@ -1021,12 +1022,23 @@ describe("POST /api/transcribe", () => {
       error: { message: `provider failed at ${absoluteDiagnostic}`, phase: "transcribe" },
     });
     expect(detail.recordingPersistenceError).toContain(transcriptionRecordingRoot);
+    expect(detail).toMatchObject({ sttModel: pathLikeModel, audioMimeType: absoluteDiagnostic });
+
+    const detailRes = await app.request(`/api/transcription-logs/${detail.id}`);
+    expect(detailRes.status).toBe(200);
+    await expect(detailRes.json()).resolves.toMatchObject({
+      sttModel: pathLikeModel,
+      audioMimeType: absoluteDiagnostic,
+      recordingPersistenceError: expect.stringContaining(transcriptionRecordingRoot),
+    });
 
     const indexRes = await app.request("/api/transcription-logs?refresh=1");
     const index = (await indexRes.json()) as unknown;
     expect(index).toEqual([
       expect.objectContaining({
         statusReason: "persistence_error",
+        sttModel: "unknown",
+        audioMimeType: null,
         audioAvailable: false,
         enhancement: expect.objectContaining({ skipReasonCode: "provider_error" }),
       }),
