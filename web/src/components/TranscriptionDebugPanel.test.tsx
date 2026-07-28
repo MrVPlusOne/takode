@@ -70,6 +70,7 @@ beforeEach(() => {
     audioMimeType: "audio/wav",
     audioFileName: "recording.wav",
     audioUrl: "/api/transcription-logs/42/audio",
+    audioAvailable: true,
     recordingDirectoryPath: "/Users/test/.companion/transcription-recordings/prod/2026-05-25/tx-42",
     recordingStatus: "success",
     canOpenRecordingDirectory: true,
@@ -102,6 +103,7 @@ beforeEach(() => {
     audioMimeType: "audio/wav",
     audioFileName: "recording.wav",
     audioUrl: "/api/transcription-logs/42/audio",
+    audioAvailable: false,
     recordingDirectoryPath: "/Users/test/.companion/transcription-recordings/prod/2026-05-25/tx-42",
     recordingStatus: "success",
     recordingDeletedAt: Date.now(),
@@ -343,5 +345,58 @@ describe("TranscriptionDebugPanel", () => {
     expect(screen.getByText("No OpenAI-compatible API key configured")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run re-transcribe" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run re-enhance" })).toBeDisabled();
+  });
+
+  it.each([
+    ["malformed", undefined],
+    ["incomplete", undefined],
+    ["deleted", Date.now()],
+  ] as const)("does not advertise source audio for %s durable records", async (discoveryState, deletedAt) => {
+    mockApi.getTranscriptionLogs.mockResolvedValueOnce({
+      entries: [
+        {
+          id: 42,
+          recordingKey: "r_test-recording",
+          timestamp: Date.now(),
+          sessionId: null,
+          uploadDurationMs: 0,
+          sttModel: "unknown",
+          sttDurationMs: 0,
+          audioSizeBytes: 0,
+          audioAvailable: false,
+          discoveryState,
+          recordingDeletedAt: deletedAt,
+          statusReason: discoveryState === "deleted" ? "recording_deleted" : `recording_${discoveryState}`,
+          enhancement: null,
+        },
+      ],
+      nextCursor: null,
+      total: 1,
+    });
+    mockApi.getTranscriptionLogEntry.mockResolvedValueOnce({
+      id: 42,
+      recordingKey: "r_test-recording",
+      timestamp: Date.now(),
+      sessionId: null,
+      uploadDurationMs: 0,
+      sttModel: "unknown",
+      sttDurationMs: 0,
+      rawTranscript: "",
+      sttPrompt: "",
+      audioSizeBytes: 0,
+      audioAvailable: false,
+      audioUrl: "/api/transcription-logs/r_test-recording/audio",
+      discoveryState,
+      discoveryIssue: `Safe ${discoveryState} state`,
+      recordingDeletedAt: deletedAt,
+      enhancement: null,
+    });
+
+    render(<TranscriptionDebugPanel />);
+    fireEvent.click(screen.getByText("Show"));
+    fireEvent.click(await screen.findByText("unknown"));
+    await screen.findByText("Transcription Detail");
+    expect(screen.queryByRole("link", { name: "Open source audio" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy audio link" })).not.toBeInTheDocument();
   });
 });

@@ -40,22 +40,23 @@ function resolveAbsoluteUrl(path: string): string {
 
 function enhancementLabel(entry: TranscriptionLogIndexEntry): string {
   if (!entry.enhancement) return "STT only";
-  if (entry.enhancement.skipReason) return `skipped: ${entry.enhancement.skipReason}`;
+  if (entry.enhancement.skipReasonCode) return `skipped: ${statusReasonLabel(entry.enhancement.skipReasonCode)}`;
   if (entry.enhancement.enhancedTextPresent) return "enhanced";
   return "failed";
 }
 
 function enhancementColor(entry: TranscriptionLogIndexEntry): string {
   if (!entry.enhancement) return "text-cc-muted";
-  if (entry.enhancement.skipReason) return "text-cc-warning";
+  if (entry.enhancement.skipReasonCode) return "text-cc-warning";
   if (entry.enhancement.enhancedTextPresent) return "text-cc-success";
   return "text-cc-error";
 }
 
 function statusLabel(entry: TranscriptionLogIndexEntry): string {
   if (entry.recordingDeletedAt || entry.discoveryState === "deleted") return "deleted";
-  if (entry.recordingStatus === "error" || entry.status === "error")
-    return `failed: ${entry.error?.message ?? "error"}`;
+  if (entry.recordingStatus === "error" || entry.status === "error" || entry.statusReason) {
+    return `failed: ${statusReasonLabel(entry.statusReason ?? "transcription_error")}`;
+  }
   return enhancementLabel(entry);
 }
 
@@ -63,6 +64,10 @@ function statusColor(entry: TranscriptionLogIndexEntry): string {
   if (entry.recordingDeletedAt || entry.discoveryState === "deleted") return "text-cc-warning";
   if (entry.recordingStatus === "error" || entry.status === "error") return "text-cc-error";
   return enhancementColor(entry);
+}
+
+function statusReasonLabel(reason: string): string {
+  return reason.replace(/^recording_/, "").replaceAll("_", " ");
 }
 
 function replayKindLabel(kind: TranscriptionReplayVariant["kind"]): string {
@@ -176,16 +181,29 @@ export function TranscriptionDebugPanel() {
               status: entry.status,
               recordingStatus: entry.recordingStatus,
               recordingDeletedAt: entry.recordingDeletedAt,
-              recordingPersistenceError: entry.recordingPersistenceError,
               discoveryState: entry.discoveryState,
-              discoveryIssue: entry.discoveryIssue,
-              error: entry.error,
+              statusReason:
+                entry.recordingDeletedAt || entry.discoveryState === "deleted"
+                  ? "recording_deleted"
+                  : entry.recordingPersistenceError
+                    ? "persistence_error"
+                    : entry.discoveryState && entry.discoveryState !== "ready"
+                      ? (`recording_${entry.discoveryState}` as TranscriptionLogIndexEntry["statusReason"])
+                      : entry.status === "error" || entry.recordingStatus === "error"
+                        ? "transcription_error"
+                        : undefined,
               enhancement: entry.enhancement
                 ? {
                     model: entry.enhancement.model,
                     durationMs: entry.enhancement.durationMs,
                     enhancedTextPresent: entry.enhancement.enhancedText !== null,
-                    ...(entry.enhancement.skipReason ? { skipReason: entry.enhancement.skipReason } : {}),
+                    ...(entry.enhancement.skipReason
+                      ? {
+                          skipReasonCode: entry.enhancement.skipReason.startsWith("API error")
+                            ? ("provider_error" as const)
+                            : ("other" as const),
+                        }
+                      : {}),
                   }
                 : null,
             }
@@ -338,7 +356,7 @@ export function TranscriptionDebugPanel() {
                       <span className="text-cc-fg shrink-0 font-mono text-[10px]">{entry.sttModel}</span>
                       <span className="text-cc-muted shrink-0">{formatDuration(entry.sttDurationMs)}</span>
                       <span className={`flex-1 truncate ${statusColor(entry)}`}>{statusLabel(entry)}</span>
-                      {entry.enhancement && !entry.enhancement.skipReason && (
+                      {entry.enhancement && !entry.enhancement.skipReasonCode && (
                         <span className="text-cc-muted shrink-0">{formatDuration(entry.enhancement.durationMs)}</span>
                       )}
                       <span className="text-cc-muted shrink-0 font-mono text-[10px]">
@@ -404,7 +422,7 @@ export function TranscriptionDebugPanel() {
                         {timeAgo(selectedIndexEntry.timestamp)} &middot; Up{" "}
                         {formatDuration(selectedIndexEntry.uploadDurationMs)} &middot; STT{" "}
                         {formatDuration(selectedIndexEntry.sttDurationMs)}
-                        {selectedIndexEntry.enhancement && !selectedIndexEntry.enhancement.skipReason
+                        {selectedIndexEntry.enhancement && !selectedIndexEntry.enhancement.skipReasonCode
                           ? ` &middot; Enh ${formatDuration(selectedIndexEntry.enhancement.durationMs)}`
                           : ""}
                         {selectedIndexEntry.sessionId ? ` \u00b7 ${selectedIndexEntry.sessionId.slice(0, 8)}` : ""}
@@ -446,7 +464,7 @@ export function TranscriptionDebugPanel() {
                       <span className="ml-3">
                         Audio: <span className="text-cc-fg">{formatBytes(expandedEntry.audioSizeBytes)}</span>
                       </span>
-                      {audioUrl && (
+                      {expandedEntry.audioAvailable && audioUrl && (
                         <span className="ml-3 inline-flex items-center gap-2">
                           <a
                             href={audioUrl}

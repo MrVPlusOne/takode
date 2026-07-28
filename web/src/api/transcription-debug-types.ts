@@ -22,22 +22,23 @@ export interface TranscriptionLogIndexEntry {
   audioSizeBytes: number;
   audioMimeType?: string | null;
   audioFileName?: string | null;
-  serverTiming?: VoiceTranscriptionTiming["serverTiming"];
-  frontendTiming?: VoiceTranscriptionFrontendTimingReport & { receivedAt: number };
   audioUrl?: string;
+  audioAvailable?: boolean;
   recordingDirectoryPath?: string;
   recordingManifestPath?: string;
   recordingStatus?: "success" | "error";
-  recordingPersistenceError?: string;
   recordingDeletedAt?: number;
   discoveryState?: "ready" | "incomplete" | "malformed" | "unsupported" | "unsafe" | "deleted";
-  discoveryIssue?: string;
+  statusReason?:
+    | "recording_deleted"
+    | "persistence_error"
+    | "recording_incomplete"
+    | "recording_malformed"
+    | "recording_unsupported"
+    | "recording_unsafe"
+    | "transcription_error";
   canOpenRecordingDirectory?: boolean;
   openRecordingDirectoryLabel?: string;
-  error?: {
-    message: string;
-    phase?: string;
-  };
   replayAvailability?: {
     retranscribe: { available: boolean; reason?: string };
     reenhance: { available: boolean; reason?: string };
@@ -46,11 +47,21 @@ export interface TranscriptionLogIndexEntry {
     model: string;
     enhancedTextPresent: boolean;
     durationMs: number;
-    skipReason?: string;
+    skipReasonCode?: "disabled" | "too_short" | "no_context" | "provider_error" | "empty_response" | "other";
   } | null;
 }
 
 export interface TranscriptionLogEntry extends Omit<TranscriptionLogIndexEntry, "enhancement"> {
+  serverTiming?: VoiceTranscriptionTiming["serverTiming"];
+  frontendTiming?: VoiceTranscriptionFrontendTimingReport & { receivedAt: number };
+  recordingDirectoryPath?: string;
+  recordingManifestPath?: string;
+  recordingPersistenceError?: string;
+  discoveryIssue?: string;
+  error?: {
+    message: string;
+    phase?: string;
+  };
   rawTranscript: string;
   sttPrompt: string;
   enhancement: {

@@ -15,11 +15,22 @@ import { homedir } from "node:os";
 import { formatReplyContentForContext, type ReplyContext } from "../shared/reply-context.js";
 import { getLocalPathOpenCapability } from "./local-path-actions.js";
 import {
+  buildTranscriptionAudioUrl,
   catalogEntryToStoredEntry,
   decodeLogIndexCursor,
+  getEnhancementSkipReasonCode,
   getCatalogEntryForLocator,
+  getTranscriptionIndexStatusReason,
+  hasSafeTranscriptionAudio,
   loadCatalogStoredEntry,
+  lookupTranscriptionLogAudio,
+  sanitizeIndexFileName,
+  sanitizeIndexIdentifier,
   storedEntryToCatalogEntry,
+  transcriptionLogEntryKey,
+  type TranscriptionIndexEnhancementSkipReason,
+  type TranscriptionIndexStatusReason,
+  type TranscriptionLogAudioLookup,
   type StoredTranscriptionLogEntry,
 } from "./transcription-log-catalog-adapter.js";
 import {
@@ -27,7 +38,6 @@ import {
   getTranscriptionRecordingCompatibilityId,
   getTranscriptionRecordingKey,
   listTranscriptionRecordingCatalog,
-  readTranscriptionRecordingCatalogAudio,
   tombstoneAndDeleteTranscriptionRecording,
   upsertTranscriptionRecordingCatalogEntry,
 } from "./transcription-recording-catalog.js";
@@ -1360,7 +1370,8 @@ export interface TranscriptionLogEntry {
   audioMimeType: string | null;
   audioFileName: string | null;
   serverTiming?: TranscriptionServerTiming;
-  audioUrl: string;
+  audioUrl?: string;
+  audioAvailable?: boolean;
   /** Enhancement phase (null if not attempted) */
   enhancement: {
     model: string;
@@ -1404,10 +1415,6 @@ let logIdCounter = 0;
 const transcriptionLog: StoredTranscriptionLogEntry[] = [];
 const pendingFrontendTimingByRequestId = new Map<string, TranscriptionFrontendTiming>();
 
-function buildTranscriptionAudioUrl(entry: Pick<StoredTranscriptionLogEntry, "id" | "recordingKey">): string {
-  return `/api/transcription-logs/${encodeURIComponent(entry.recordingKey ?? String(entry.id))}/audio`;
-}
-
 function toPublicTranscriptionLogEntry(entry: StoredTranscriptionLogEntry): TranscriptionLogEntry {
   const {
     audioBytes: _audioBytes,
@@ -1419,6 +1426,7 @@ function toPublicTranscriptionLogEntry(entry: StoredTranscriptionLogEntry): Tran
   } = entry;
   const publicEntry: PublicStoredTranscriptionLogFields = publicFields;
   const capability = getLocalPathOpenCapability();
+  const audioAvailable = hasSafeTranscriptionAudio(entry);
   return {
     ...publicEntry,
     canOpenRecordingDirectory: Boolean(
@@ -1426,7 +1434,8 @@ function toPublicTranscriptionLogEntry(entry: StoredTranscriptionLogEntry): Tran
     ),
     openRecordingDirectoryLabel: capability.openContainingFolderLabel,
     replayAvailability: getReplayAvailability(entry),
-    audioUrl: buildTranscriptionAudioUrl(entry),
+    audioAvailable,
+    ...(audioAvailable ? { audioUrl: buildTranscriptionAudioUrl(entry) } : {}),
   };
 }
 
@@ -1635,14 +1644,14 @@ export async function getTranscriptionReplaySource(
     requestId: entry.requestId,
     mode: entry.mode,
     backend: entry.backend,
-    sttModel: entry.sttModel,
+    sttModel: sanitizeIndexIdentifier(entry.sttModel) ?? "unknown",
     sttPrompt: entry.sttPrompt,
     sttContext: entry.sttContext,
     sttReplayContext: entry.sttReplayContext,
     enhancementReplayContext: entry.enhancementReplayContext,
     rawTranscript: entry.rawTranscript,
     audioBytes: entry.audioBytes,
-    audioMimeType: entry.audioMimeType,
+    audioMimeType: sanitizeIndexIdentifier(entry.audioMimeType),
     audioFileName: entry.audioFileName,
     audioExtension: entry.audioExtension,
     audioSizeBytes: entry.audioSizeBytes,
@@ -1769,22 +1778,17 @@ export interface TranscriptionLogIndexEntry {
   audioSizeBytes: number;
   audioMimeType: string | null;
   audioFileName: string | null;
-  audioUrl: string;
-  serverTiming?: TranscriptionServerTiming;
-  frontendTiming?: TranscriptionFrontendTiming | null;
+  audioUrl?: string;
+  audioAvailable: boolean;
   recordingStatus?: TranscriptionRecordingStatus;
-  recordingDirectoryPath?: string;
-  recordingManifestPath?: string;
-  recordingPersistenceError?: string;
   recordingDeletedAt?: number;
   discoveryState?: TranscriptionLogEntry["discoveryState"];
-  discoveryIssue?: string;
-  error?: TranscriptionLogEntry["error"];
+  statusReason?: TranscriptionIndexStatusReason;
   enhancement: {
     model: string;
     durationMs: number;
     enhancedTextPresent: boolean;
-    skipReason?: string;
+    skipReasonCode?: TranscriptionIndexEnhancementSkipReason;
   } | null;
 }
 
@@ -1796,31 +1800,7 @@ export interface TranscriptionLogIndexPage {
 
 /** Current-process compatibility view. The HTTP index uses getTranscriptionLogIndexPage. */
 export function getTranscriptionLogIndex(): TranscriptionLogIndexEntry[] {
-  return transcriptionLog
-    .map((entry) => {
-      const publicEntry = toPublicTranscriptionLogEntry(entry);
-      const {
-        sttPrompt: _sttPrompt,
-        rawTranscript: _rawTranscript,
-        replayVariants: _replayVariants,
-        replayAvailability: _replayAvailability,
-        enhancement: _enhancement,
-        ...rest
-      } = publicEntry;
-      return {
-        ...rest,
-        audioUrl: `/api/transcription-logs/${entry.id}/audio`,
-        enhancement: entry.enhancement
-          ? {
-              model: entry.enhancement.model,
-              durationMs: entry.enhancement.durationMs,
-              enhancedTextPresent: entry.enhancement.enhancedText !== null,
-              ...(entry.enhancement.skipReason ? { skipReason: entry.enhancement.skipReason } : {}),
-            }
-          : null,
-      };
-    })
-    .reverse();
+  return transcriptionLog.map(toTranscriptionLogIndexEntry).reverse();
 }
 
 export async function getTranscriptionLogIndexPage(options?: {
@@ -1834,7 +1814,7 @@ export async function getTranscriptionLogIndexPage(options?: {
     merged.set(catalogEntry.recordingKey, catalogEntryToStoredEntry(catalogEntry));
   }
   for (const liveEntry of transcriptionLog) {
-    const key = liveEntry.recordingKey ?? `legacy-${liveEntry.id}`;
+    const key = transcriptionLogEntryKey(liveEntry);
     const existing = merged.get(key);
     if (existing?.recordingDeletedAt && !liveEntry.recordingDeletedAt) continue;
     merged.set(key, liveEntry);
@@ -1842,8 +1822,8 @@ export async function getTranscriptionLogIndexPage(options?: {
   const all = [...merged.values()].map(toTranscriptionLogIndexEntry).sort((a, b) => {
     const timestampDelta = b.timestamp - a.timestamp;
     if (timestampDelta !== 0) return timestampDelta;
-    const aKey = logEntryKey(a);
-    const bKey = logEntryKey(b);
+    const aKey = transcriptionLogEntryKey(a);
+    const bKey = transcriptionLogEntryKey(b);
     return aKey === bKey ? 0 : aKey < bKey ? 1 : -1;
   });
   const cursor = decodeLogIndexCursor(options?.cursor);
@@ -1851,7 +1831,7 @@ export async function getTranscriptionLogIndexPage(options?: {
     ? all.filter(
         (entry) =>
           entry.timestamp < cursor.timestamp ||
-          (entry.timestamp === cursor.timestamp && logEntryKey(entry) < cursor.recordingKey),
+          (entry.timestamp === cursor.timestamp && transcriptionLogEntryKey(entry) < cursor.recordingKey),
       )
     : all;
   const limit = Math.max(1, Math.min(100, Math.trunc(options?.limit ?? 50)));
@@ -1861,7 +1841,7 @@ export async function getTranscriptionLogIndexPage(options?: {
     entries,
     nextCursor:
       eligible.length > entries.length && last
-        ? Buffer.from(JSON.stringify([last.timestamp, logEntryKey(last)]), "utf-8").toString("base64url")
+        ? Buffer.from(JSON.stringify([last.timestamp, transcriptionLogEntryKey(last)]), "utf-8").toString("base64url")
         : null,
     total: all.length,
   };
@@ -1886,18 +1866,8 @@ export async function getTranscriptionLogEntryWithReplays(
 }
 
 /** Get source audio bytes for a transcription log entry. */
-export async function getTranscriptionLogAudio(
-  locator: TranscriptionLogLocator,
-): Promise<{ data: Buffer; mimeType: string; fileName: string | null } | undefined> {
-  const liveEntry = findLiveTranscriptionEntry(locator);
-  if (liveEntry?.audioBytes.length) {
-    return {
-      data: liveEntry.audioBytes,
-      mimeType: liveEntry.audioMimeType || "application/octet-stream",
-      fileName: liveEntry.audioFileName,
-    };
-  }
-  return readTranscriptionRecordingCatalogAudio(locator);
+export async function getTranscriptionLogAudio(locator: TranscriptionLogLocator): Promise<TranscriptionLogAudioLookup> {
+  return lookupTranscriptionLogAudio(locator, findLiveTranscriptionEntry(locator));
 }
 
 function findLiveTranscriptionEntry(locator: TranscriptionLogLocator): StoredTranscriptionLogEntry | undefined {
@@ -1908,42 +1878,44 @@ function findLiveTranscriptionEntry(locator: TranscriptionLogLocator): StoredTra
 }
 
 function toTranscriptionLogIndexEntry(entry: StoredTranscriptionLogEntry): TranscriptionLogIndexEntry {
+  const audioAvailable = hasSafeTranscriptionAudio(entry);
+  const skipReasonCode = getEnhancementSkipReasonCode(entry.enhancement?.skipReason);
   return {
     id: entry.id,
     recordingKey: entry.recordingKey,
     recordingId: entry.recordingId,
     timestamp: entry.timestamp,
     status: entry.status,
-    sessionId: entry.sessionId,
-    requestId: entry.requestId,
+    sessionId: sanitizeIndexIdentifier(entry.sessionId),
+    requestId: sanitizeIndexIdentifier(entry.requestId),
     mode: entry.mode,
     uploadDurationMs: entry.uploadDurationMs,
     sttModel: entry.sttModel,
     sttDurationMs: entry.sttDurationMs,
-    sttContext: entry.sttContext,
+    sttContext: entry.sttContext
+      ? {
+          ...entry.sttContext,
+          languageHints: entry.sttContext.languageHints.filter((hint) => /^[A-Za-z0-9-]{1,20}$/.test(hint)),
+        }
+      : undefined,
     audioSizeBytes: entry.audioSizeBytes,
     audioMimeType: entry.audioMimeType,
-    audioFileName: entry.audioFileName,
-    audioUrl: buildTranscriptionAudioUrl(entry),
+    audioFileName: sanitizeIndexFileName(entry.audioFileName),
+    audioAvailable,
+    ...(audioAvailable ? { audioUrl: buildTranscriptionAudioUrl(entry) } : {}),
     recordingStatus: entry.recordingStatus,
-    recordingPersistenceError: entry.recordingPersistenceError,
     recordingDeletedAt: entry.recordingDeletedAt,
     discoveryState: entry.discoveryState,
-    discoveryIssue: entry.discoveryIssue,
-    error: entry.error,
+    statusReason: getTranscriptionIndexStatusReason(entry),
     enhancement: entry.enhancement
       ? {
-          model: entry.enhancement.model,
+          model: sanitizeIndexIdentifier(entry.enhancement.model) ?? "unknown",
           durationMs: entry.enhancement.durationMs,
           enhancedTextPresent: entry.enhancement.enhancedText !== null,
-          ...(entry.enhancement.skipReason ? { skipReason: entry.enhancement.skipReason } : {}),
+          ...(skipReasonCode ? { skipReasonCode } : {}),
         }
       : null,
   };
-}
-
-function logEntryKey(entry: Pick<TranscriptionLogIndexEntry, "id" | "recordingKey">): string {
-  return entry.recordingKey ?? `legacy-${entry.id}`;
 }
 
 // ─── Test helpers ───────────────────────────────────────────────────────────

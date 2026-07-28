@@ -1099,7 +1099,13 @@ export function createSystemRoutes(ctx: RouteContext) {
 
   api.get("/transcription-logs/:id/audio", async (c) => {
     const audio = await getTranscriptionLogAudio(c.req.param("id"));
-    if (!audio) return c.json({ error: "Not found" }, 404);
+    if (audio.state === "not_found") return c.json({ error: "Not found", code: "recording_not_found" }, 404);
+    if (audio.state === "deleted") {
+      return c.json({ error: "Source recording was deleted", code: "recording_deleted" }, 410);
+    }
+    if (audio.state === "unavailable") {
+      return c.json({ error: "Source audio is unavailable", code: audio.reason }, 409);
+    }
     const headers: Record<string, string> = {
       "Content-Type": audio.mimeType,
       "Cache-Control": "no-store",

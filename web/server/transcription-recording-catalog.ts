@@ -59,7 +59,7 @@ export interface TranscriptionRecordingCatalogEntry {
   directoryPath?: string;
   manifestPath?: string;
   recordingDeletedAt?: number;
-  deletionError?: string;
+  deletionFailed?: boolean;
 }
 
 export interface TranscriptionRecordingCatalogDetail {
@@ -106,24 +106,30 @@ interface RecordingManifest {
   artifacts?: unknown;
 }
 
+interface RecordingTombstoneSummary {
+  timestamp: number;
+  status: TranscriptionRecordingStatus;
+  sessionId: string | null;
+  requestId: string | null;
+  mode?: "dictation" | "edit" | "append";
+  backend: string;
+  uploadDurationMs: number;
+  sttModel: string;
+  sttDurationMs: number;
+  sttContext?: TranscriptionRecordingCatalogEntry["sttContext"];
+  audioSizeBytes: number;
+  audioMimeType: string | null;
+  audioFileName: string | null;
+  enhancement: TranscriptionRecordingCatalogEnhancement | null;
+}
+
 interface RecordingTombstone {
   version: 1;
   recordingKey: string;
   recordingId: string;
   deletedAt: number;
-  deletionError?: string;
-  summary: Omit<
-    TranscriptionRecordingCatalogEntry,
-    | "id"
-    | "recordingKey"
-    | "recordingId"
-    | "directoryPath"
-    | "manifestPath"
-    | "discoveryState"
-    | "discoveryIssue"
-    | "recordingDeletedAt"
-    | "deletionError"
-  >;
+  deletionFailed?: boolean;
+  summary: RecordingTombstoneSummary;
 }
 
 let catalogSnapshot = new Map<string, TranscriptionRecordingCatalogEntry>();
@@ -268,7 +274,7 @@ export async function tombstoneAndDeleteTranscriptionRecording(
   try {
     await rm(entry.directoryPath, { recursive: true, force: true });
   } catch (error) {
-    tombstone.deletionError = error instanceof Error ? error.message : String(error);
+    tombstone.deletionFailed = true;
     await writeTombstone(tombstone);
     const deletedEntry = catalogEntryFromTombstone(tombstone);
     catalogSnapshot.set(entry.recordingKey, deletedEntry);
@@ -579,29 +585,68 @@ async function readJsonFile<T>(
 
 async function readTombstones(root: string): Promise<TranscriptionRecordingCatalogEntry[]> {
   const tombstoneRoot = join(root, TOMBSTONE_DIRECTORY);
-  const files = await readdir(tombstoneRoot, { withFileTypes: true }).catch(() => []);
+  const tombstoneInfo = await lstat(tombstoneRoot).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (!tombstoneInfo) return [];
+  if (tombstoneInfo.isSymbolicLink() || !tombstoneInfo.isDirectory()) {
+    throw new Error("Transcription tombstone directory is unsafe");
+  }
+  const realRoot = await realpath(root);
+  const realTombstoneRoot = await realpath(tombstoneRoot);
+  if (!isContainedRelativePath(relative(realRoot, realTombstoneRoot))) {
+    throw new Error("Transcription tombstone directory escapes the recording root");
+  }
+  const files = await readdir(tombstoneRoot, { withFileTypes: true });
   const tombstones = await mapWithConcurrency(files, DISCOVERY_CONCURRENCY, async (entry) => {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) return undefined;
-    const parsed = await readJsonFile<RecordingTombstone>(join(tombstoneRoot, entry.name));
-    if (!parsed.ok || parsed.value.version !== 1) return undefined;
-    return catalogEntryFromTombstone(parsed.value);
+    if (entry.isSymbolicLink() || !entry.isFile() || !entry.name.endsWith(".json")) return undefined;
+    const tombstonePath = join(tombstoneRoot, entry.name);
+    const tombstoneRealPath = await realpath(tombstonePath).catch(() => null);
+    if (!tombstoneRealPath || !isContainedRelativePath(relative(realTombstoneRoot, tombstoneRealPath))) {
+      return undefined;
+    }
+    const filenameKey = entry.name.slice(0, -".json".length);
+    if (!isValidRecordingKey(filenameKey, root)) return undefined;
+    const parsed = await readJsonFile<unknown>(tombstonePath);
+    if (!parsed.ok) return undefined;
+    const tombstone = normalizeTombstone(parsed.value, filenameKey, root);
+    return tombstone ? catalogEntryFromTombstone(tombstone) : undefined;
   });
   return tombstones.filter((entry): entry is TranscriptionRecordingCatalogEntry => Boolean(entry));
 }
 
 function buildTombstone(entry: TranscriptionRecordingCatalogEntry, deletedAt: number): RecordingTombstone {
-  const {
-    id: _id,
-    recordingKey: _recordingKey,
-    recordingId: _recordingId,
-    directoryPath: _directoryPath,
-    manifestPath: _manifestPath,
-    discoveryState: _discoveryState,
-    discoveryIssue: _discoveryIssue,
-    recordingDeletedAt: _recordingDeletedAt,
-    deletionError: _deletionError,
-    ...summary
-  } = entry;
+  const summary = normalizeTombstoneSummary({
+    timestamp: entry.timestamp,
+    status: entry.status,
+    sessionId: isNullableSafeMetadataString(entry.sessionId, 500) ? entry.sessionId : null,
+    requestId: isNullableSafeMetadataString(entry.requestId, 500) ? entry.requestId : null,
+    mode: entry.mode,
+    backend: isSafeMetadataString(entry.backend, 500) ? entry.backend : "unknown",
+    uploadDurationMs: entry.uploadDurationMs,
+    sttModel: isSafeMetadataString(entry.sttModel, 500) ? entry.sttModel : "unknown",
+    sttDurationMs: entry.sttDurationMs,
+    sttContext: entry.sttContext
+      ? {
+          ...entry.sttContext,
+          languageHints: entry.sttContext.languageHints.filter((hint) => /^[A-Za-z0-9-]{1,20}$/.test(hint)),
+        }
+      : undefined,
+    audioSizeBytes: entry.audioSizeBytes,
+    audioMimeType: isSafeNullableMimeType(entry.audioMimeType) ? entry.audioMimeType : null,
+    audioFileName: isSafeNullableFileName(entry.audioFileName) ? entry.audioFileName : null,
+    enhancement: entry.enhancement
+      ? {
+          model: isSafeMetadataString(entry.enhancement.model, 500) ? entry.enhancement.model : "unknown",
+          durationMs: entry.enhancement.durationMs,
+          enhancedTextPresent: entry.enhancement.enhancedTextPresent,
+        }
+      : null,
+  });
+  if (!summary || !isValidRecordingKey(entry.recordingKey, getTranscriptionRecordingRoot())) {
+    throw new Error("Recording metadata cannot be represented as a safe tombstone");
+  }
   return {
     version: 1,
     recordingKey: entry.recordingKey,
@@ -613,14 +658,120 @@ function buildTombstone(entry: TranscriptionRecordingCatalogEntry, deletedAt: nu
 
 function catalogEntryFromTombstone(tombstone: RecordingTombstone): TranscriptionRecordingCatalogEntry {
   return {
-    ...tombstone.summary,
     id: getOrCreateCompatibilityId(tombstone.recordingKey),
     recordingKey: tombstone.recordingKey,
     recordingId: tombstone.recordingId,
+    timestamp: tombstone.summary.timestamp,
+    status: tombstone.summary.status,
+    sessionId: tombstone.summary.sessionId,
+    requestId: tombstone.summary.requestId,
+    ...(tombstone.summary.mode ? { mode: tombstone.summary.mode } : {}),
+    backend: tombstone.summary.backend,
+    uploadDurationMs: tombstone.summary.uploadDurationMs,
+    sttModel: tombstone.summary.sttModel,
+    sttDurationMs: tombstone.summary.sttDurationMs,
+    ...(tombstone.summary.sttContext ? { sttContext: tombstone.summary.sttContext } : {}),
+    audioSizeBytes: tombstone.summary.audioSizeBytes,
+    audioMimeType: tombstone.summary.audioMimeType,
+    audioFileName: tombstone.summary.audioFileName,
+    enhancement: tombstone.summary.enhancement,
     discoveryState: "deleted",
-    discoveryIssue: tombstone.deletionError || "Source recording was deleted",
+    discoveryIssue: tombstone.deletionFailed
+      ? "Recording deletion did not fully complete"
+      : "Source recording was deleted",
     recordingDeletedAt: tombstone.deletedAt,
-    ...(tombstone.deletionError ? { deletionError: tombstone.deletionError } : {}),
+    ...(tombstone.deletionFailed ? { deletionFailed: true } : {}),
+  };
+}
+
+function normalizeTombstone(value: unknown, filenameKey: string, root: string): RecordingTombstone | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    record.version !== 1 ||
+    record.recordingKey !== filenameKey ||
+    !isValidRecordingKey(filenameKey, root) ||
+    !isValidRecordingId(record.recordingId) ||
+    record.recordingId !== recordingIdFromKey(filenameKey) ||
+    !isNonNegativeFiniteNumber(record.deletedAt) ||
+    record.deletedAt === 0 ||
+    (record.deletionFailed !== undefined && typeof record.deletionFailed !== "boolean")
+  ) {
+    return undefined;
+  }
+  const summary = normalizeTombstoneSummary(record.summary);
+  if (!summary) return undefined;
+  return {
+    version: 1,
+    recordingKey: filenameKey,
+    recordingId: record.recordingId,
+    deletedAt: record.deletedAt,
+    ...(record.deletionFailed === true ? { deletionFailed: true } : {}),
+    summary,
+  };
+}
+
+function normalizeTombstoneSummary(value: unknown): RecordingTombstoneSummary | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const summary = value as Record<string, unknown>;
+  if (
+    !isNonNegativeFiniteNumber(summary.timestamp) ||
+    (summary.status !== "success" && summary.status !== "error") ||
+    !isNullableSafeMetadataString(summary.sessionId, 500) ||
+    !isNullableSafeMetadataString(summary.requestId, 500) ||
+    (summary.mode !== undefined && normalizeMode(summary.mode) === undefined) ||
+    !isSafeMetadataString(summary.backend, 500) ||
+    !isNonNegativeFiniteNumber(summary.uploadDurationMs) ||
+    !isSafeMetadataString(summary.sttModel, 500) ||
+    !isNonNegativeFiniteNumber(summary.sttDurationMs) ||
+    !isNonNegativeFiniteNumber(summary.audioSizeBytes) ||
+    !isSafeNullableMimeType(summary.audioMimeType) ||
+    !isSafeNullableFileName(summary.audioFileName)
+  ) {
+    return undefined;
+  }
+  const sttContext = summary.sttContext === undefined ? undefined : normalizeSttContext(summary.sttContext);
+  if (
+    summary.sttContext !== undefined &&
+    (!sttContext || !sttContext.languageHints.every((hint) => /^[A-Za-z0-9-]{1,20}$/.test(hint)))
+  ) {
+    return undefined;
+  }
+  const enhancement = normalizeTombstoneEnhancement(summary.enhancement);
+  if (enhancement === undefined) return undefined;
+  return {
+    timestamp: summary.timestamp,
+    status: summary.status,
+    sessionId: summary.sessionId,
+    requestId: summary.requestId,
+    ...(summary.mode ? { mode: normalizeMode(summary.mode) } : {}),
+    backend: summary.backend,
+    uploadDurationMs: summary.uploadDurationMs,
+    sttModel: summary.sttModel,
+    sttDurationMs: summary.sttDurationMs,
+    ...(sttContext ? { sttContext } : {}),
+    audioSizeBytes: summary.audioSizeBytes,
+    audioMimeType: summary.audioMimeType,
+    audioFileName: summary.audioFileName,
+    enhancement,
+  };
+}
+
+function normalizeTombstoneEnhancement(value: unknown): TranscriptionRecordingCatalogEnhancement | null | undefined {
+  if (value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const enhancement = value as Record<string, unknown>;
+  if (
+    !isSafeMetadataString(enhancement.model, 500) ||
+    !isNonNegativeFiniteNumber(enhancement.durationMs) ||
+    typeof enhancement.enhancedTextPresent !== "boolean"
+  ) {
+    return undefined;
+  }
+  return {
+    model: enhancement.model,
+    durationMs: enhancement.durationMs,
+    enhancedTextPresent: enhancement.enhancedTextPresent,
   };
 }
 
@@ -776,6 +927,69 @@ function asString(value: unknown): string {
 
 function normalizeRecordingId(value: unknown, fallback: string): string {
   return typeof value === "string" && /^[A-Za-z0-9_.-]{1,200}$/.test(value) ? value : fallback;
+}
+
+function isValidRecordingId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_.-]{1,200}$/.test(value);
+}
+
+function isValidRecordingKey(value: string, root: string): boolean {
+  if (!/^r_[A-Za-z0-9_-]+$/.test(value)) return false;
+  try {
+    const encoded = value.slice(2);
+    const decoded = Buffer.from(encoded, "base64url").toString("utf-8");
+    if (Buffer.from(decoded, "utf-8").toString("base64url") !== encoded || decoded.includes("\\")) return false;
+    const segments = decoded.split("/");
+    if (segments.length < 2 || segments.some((segment) => !segment || segment === "." || segment === "..")) {
+      return false;
+    }
+    return getTranscriptionRecordingKey(resolve(root, ...segments)) === value;
+  } catch {
+    return false;
+  }
+}
+
+function recordingIdFromKey(value: string): string | undefined {
+  try {
+    return Buffer.from(value.slice(2), "base64url").toString("utf-8").split("/").at(-1);
+  } catch {
+    return undefined;
+  }
+}
+
+function isSafeMetadataString(value: unknown, maxLength: number): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= maxLength &&
+    !value.includes("/") &&
+    !value.includes("\\") &&
+    !value.includes("\n") &&
+    !value.includes("\r")
+  );
+}
+
+function isNullableSafeMetadataString(value: unknown, maxLength: number): value is string | null {
+  return value === null || value === "" || isSafeMetadataString(value, maxLength);
+}
+
+function isSafeNullableMimeType(value: unknown): value is string | null {
+  return value === null || (typeof value === "string" && /^[A-Za-z0-9.+-]+\/[A-Za-z0-9.+-]+$/.test(value));
+}
+
+function isSafeNullableFileName(value: unknown): value is string | null {
+  return (
+    value === null ||
+    (typeof value === "string" &&
+      value.length <= 500 &&
+      !isAbsolute(value) &&
+      !value.includes("/") &&
+      !value.includes("\\"))
+  );
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function asFiniteNumber(value: unknown): number | undefined {

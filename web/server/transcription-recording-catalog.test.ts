@@ -12,7 +12,11 @@ import {
   readTranscriptionRecordingCatalogDetail,
   tombstoneAndDeleteTranscriptionRecording,
 } from "./transcription-recording-catalog.js";
-import { _resetTranscriptionLogForTest, getTranscriptionLogIndexPage } from "./transcription-enhancer.js";
+import {
+  _resetTranscriptionLogForTest,
+  deleteTranscriptionLogRecording,
+  getTranscriptionLogIndexPage,
+} from "./transcription-enhancer.js";
 import { _setTranscriptionRecordingRootForTest, writeTranscriptionRecording } from "./transcription-recordings.js";
 
 describe("transcription recording catalog", () => {
@@ -203,6 +207,86 @@ describe("transcription recording catalog", () => {
     expect(tombstoneText).not.toContain("stored prompt");
   });
 
+  it("rejects a symlinked tombstone directory outside the recording root", async () => {
+    await writeRecording("symlinked-tombstone-root");
+    const outside = await mkdtemp(join(tmpdir(), "transcription-tombstones-outside-"));
+    try {
+      await symlink(outside, join(root, ".tombstones"));
+      await expect(listTranscriptionRecordingCatalog({ refresh: true })).rejects.toThrow(
+        /tombstone directory is unsafe/i,
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores malformed version-one tombstones and filename/key mismatches", async () => {
+    await writeRecording("invalid-tombstone");
+    const [entry] = await listTranscriptionRecordingCatalog({ refresh: true });
+    const tombstoneRoot = join(root, ".tombstones");
+    await mkdir(tombstoneRoot);
+    await writeFile(
+      join(tombstoneRoot, `${entry.recordingKey}.json`),
+      JSON.stringify({ version: 1, recordingKey: entry.recordingKey, recordingId: "bad/id", deletedAt: -1 }),
+      "utf-8",
+    );
+    expect((await listTranscriptionRecordingCatalog({ refresh: true }))[0].discoveryState).toBe("ready");
+
+    await writeFile(
+      join(tombstoneRoot, `${entry.recordingKey}.json`),
+      JSON.stringify({ ...makeTombstone(entry), recordingKey: "r_bWlzbWF0Y2gvcmVjb3Jk" }),
+      "utf-8",
+    );
+    expect((await listTranscriptionRecordingCatalog({ refresh: true }))[0].discoveryState).toBe("ready");
+  });
+
+  it("ignores symlinked tombstone entries even when their payload is otherwise valid", async () => {
+    await writeRecording("symlinked-tombstone-entry");
+    const [entry] = await listTranscriptionRecordingCatalog({ refresh: true });
+    const tombstoneRoot = join(root, ".tombstones");
+    await mkdir(tombstoneRoot);
+    const outsideDirectory = await mkdtemp(join(tmpdir(), "transcription-tombstone-file-"));
+    const outsideFile = join(outsideDirectory, "entry.json");
+    try {
+      await writeFile(outsideFile, JSON.stringify(makeTombstone(entry)), "utf-8");
+      await symlink(outsideFile, join(tombstoneRoot, `${entry.recordingKey}.json`));
+      expect((await listTranscriptionRecordingCatalog({ refresh: true }))[0].discoveryState).toBe("ready");
+    } finally {
+      await rm(outsideDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("drops injected paths from valid tombstones and cannot delete another record", async () => {
+    await writeRecording("tombstone-source");
+    await writeRecording("protected-source");
+    const entries = await listTranscriptionRecordingCatalog({ refresh: true });
+    const source = entries.find((entry) => entry.requestId === "tombstone-source")!;
+    const protectedEntry = entries.find((entry) => entry.requestId === "protected-source")!;
+    const tombstoneRoot = join(root, ".tombstones");
+    await mkdir(tombstoneRoot);
+    await writeFile(
+      join(tombstoneRoot, `${source.recordingKey}.json`),
+      JSON.stringify({
+        ...makeTombstone(source),
+        summary: {
+          ...makeTombstone(source).summary,
+          directoryPath: protectedEntry.directoryPath,
+          manifestPath: protectedEntry.manifestPath,
+          error: { message: protectedEntry.directoryPath },
+        },
+      }),
+      "utf-8",
+    );
+
+    _resetTranscriptionLogForTest();
+    const tombstoned = await getTranscriptionRecordingCatalogEntry(source.recordingKey);
+    expect(tombstoned).toMatchObject({ discoveryState: "deleted" });
+    expect(tombstoned).not.toHaveProperty("directoryPath");
+    expect(tombstoned).not.toHaveProperty("manifestPath");
+    await expect(deleteTranscriptionLogRecording(source.recordingKey)).resolves.toBeUndefined();
+    await access(protectedEntry.directoryPath!);
+  });
+
   async function writeRecording(requestId: string) {
     return writeTranscriptionRecording({
       status: "success",
@@ -244,5 +328,30 @@ describe("transcription recording catalog", () => {
       }),
       "utf-8",
     );
+  }
+
+  function makeTombstone(entry: Awaited<ReturnType<typeof listTranscriptionRecordingCatalog>>[number]) {
+    return {
+      version: 1,
+      recordingKey: entry.recordingKey,
+      recordingId: entry.recordingId,
+      deletedAt: Date.now(),
+      summary: {
+        timestamp: entry.timestamp,
+        status: entry.status,
+        sessionId: entry.sessionId,
+        requestId: entry.requestId,
+        mode: entry.mode,
+        backend: entry.backend,
+        uploadDurationMs: entry.uploadDurationMs,
+        sttModel: entry.sttModel,
+        sttDurationMs: entry.sttDurationMs,
+        sttContext: entry.sttContext,
+        audioSizeBytes: entry.audioSizeBytes,
+        audioMimeType: entry.audioMimeType,
+        audioFileName: entry.audioFileName,
+        enhancement: entry.enhancement,
+      },
+    };
   }
 });

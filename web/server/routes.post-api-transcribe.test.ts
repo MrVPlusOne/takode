@@ -181,7 +181,7 @@ vi.mock("./usage-limits.js", () => ({
 import { Hono } from "hono";
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
@@ -755,7 +755,8 @@ describe("POST /api/transcribe", () => {
     expect(outboundForm.getAll("keywords[]")).toEqual(["Takode", "WsBridge", "AC-42"]);
     expect(outboundForm.getAll("languages[]")).toEqual(["en", "fr"]);
     expect(outboundForm.has("language")).toBe(false);
-    expect(transcriptionEnhancer.getTranscriptionLogIndex()[0]).toEqual(
+    const currentIndexEntry = transcriptionEnhancer.getTranscriptionLogIndex()[0];
+    expect(currentIndexEntry).toEqual(
       expect.objectContaining({
         sttContext: {
           promptLength: sttPrompt.length,
@@ -960,9 +961,109 @@ describe("POST /api/transcribe", () => {
     expect(
       (await app.request(`/api/transcription-logs/${live.recordingKey}/recording/open`, { method: "POST" })).status,
     ).toBe(410);
+    const deletedAudioRes = await app.request(`/api/transcription-logs/${live.recordingKey}/audio`);
+    expect(deletedAudioRes.status).toBe(410);
+    await expect(deletedAudioRes.json()).resolves.toMatchObject({ code: "recording_deleted" });
     expect(
       (await app.request(`/api/transcription-logs/${live.recordingKey}/retranscribe`, { method: "POST" })).status,
     ).toBe(410);
+  });
+
+  it("returns explicit unavailable audio states for known non-ready records and 404 only for unknown locators", async () => {
+    const dateRoot = join(transcriptionRecordingRoot, "2026-07-28");
+    await mkdir(join(dateRoot, "incomplete"), { recursive: true });
+    await mkdir(join(dateRoot, "malformed"), { recursive: true });
+    await writeFile(join(dateRoot, "malformed", "manifest.json"), "{bad-json", "utf-8");
+    transcriptionEnhancer._resetTranscriptionLogForTest();
+
+    const indexRes = await app.request("/api/transcription-logs?refresh=1");
+    const index = (await indexRes.json()) as Array<{ recordingKey: string; discoveryState: string; audioUrl?: string }>;
+    expect(index).toHaveLength(2);
+    for (const entry of index) {
+      expect(entry.audioUrl).toBeUndefined();
+      const audioRes = await app.request(`/api/transcription-logs/${entry.recordingKey}/audio`);
+      expect(audioRes.status).toBe(409);
+      await expect(audioRes.json()).resolves.toMatchObject({ code: `recording_${entry.discoveryState}` });
+    }
+    const unknown = await app.request("/api/transcription-logs/r_dW5rbm93bi9yZWNvcmQ/audio");
+    expect(unknown.status).toBe(404);
+    await expect(unknown.json()).resolves.toMatchObject({ code: "recording_not_found" });
+  });
+
+  it("recursively keeps absolute persistence and provider diagnostics out of the metadata index", async () => {
+    const datePath = join(transcriptionRecordingRoot, new Date().toISOString().slice(0, 10));
+    await writeFile(datePath, "block recording directory creation", "utf-8");
+    const absoluteDiagnostic = join(transcriptionRecordingRoot, "private", "artifact.txt");
+    const detail = await transcriptionEnhancer.addTranscriptionLogEntry({
+      status: "error",
+      sessionId: absoluteDiagnostic,
+      mode: "dictation",
+      backend: "openai",
+      uploadDurationMs: 1,
+      sttModel: "gpt-transcribe",
+      sttDurationMs: 2,
+      rawTranscript: `raw ${absoluteDiagnostic}`,
+      audioBytes: Buffer.from([1]),
+      audioSizeBytes: 1,
+      audioMimeType: "audio/wav",
+      audioFileName: absoluteDiagnostic,
+      audioExtension: "wav",
+      sttPrompt: `prompt ${absoluteDiagnostic}`,
+      enhancement: {
+        model: "gpt-5-mini",
+        systemPrompt: absoluteDiagnostic,
+        userMessage: absoluteDiagnostic,
+        enhancedText: absoluteDiagnostic,
+        durationMs: 3,
+        skipReason: `API error at ${absoluteDiagnostic}`,
+      },
+      frontendTiming: null,
+      error: { message: `provider failed at ${absoluteDiagnostic}`, phase: "transcribe" },
+    });
+    expect(detail.recordingPersistenceError).toContain(transcriptionRecordingRoot);
+
+    const indexRes = await app.request("/api/transcription-logs?refresh=1");
+    const index = (await indexRes.json()) as unknown;
+    expect(index).toEqual([
+      expect.objectContaining({
+        statusReason: "persistence_error",
+        audioAvailable: false,
+        enhancement: expect.objectContaining({ skipReasonCode: "provider_error" }),
+      }),
+    ]);
+    const forbiddenKeys = new Set([
+      "rawTranscript",
+      "enhancedText",
+      "sttPrompt",
+      "systemPrompt",
+      "userMessage",
+      "inputContext",
+      "result",
+      "replayVariants",
+      "artifacts",
+      "recordingPersistenceError",
+      "recordingDirectoryPath",
+      "recordingManifestPath",
+      "discoveryIssue",
+      "error",
+    ]);
+    const visit = (value: unknown): void => {
+      if (typeof value === "string") {
+        expect(value).not.toContain(transcriptionRecordingRoot);
+        expect(value).not.toContain(absoluteDiagnostic);
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+        return;
+      }
+      if (!value || typeof value !== "object") return;
+      for (const [key, child] of Object.entries(value)) {
+        expect(forbiddenKeys.has(key)).toBe(false);
+        visit(child);
+      }
+    };
+    visit(index);
   });
 
   it("re-enhances a source transcript with selected model and style into a durable child variant", async () => {
@@ -1070,12 +1171,20 @@ describe("POST /api/transcribe", () => {
 
     expect(res.status).toBe(200);
     await res.text();
-    expect(transcriptionEnhancer.getTranscriptionLogIndex()[0]).toEqual(
+    const currentIndexEntry = transcriptionEnhancer.getTranscriptionLogIndex()[0];
+    expect(currentIndexEntry).toEqual(
       expect.objectContaining({
         uploadDurationMs: expect.any(Number),
         sttDurationMs: expect.any(Number),
         audioMimeType: "audio/wav",
         audioFileName: "recording.wav",
+        audioUrl: expect.stringMatching(/^\/api\/transcription-logs\/r_[A-Za-z0-9_-]+\/audio$/),
+        recordingStatus: "success",
+      }),
+    );
+    const currentDetailEntry = transcriptionEnhancer.getTranscriptionLogEntry(currentIndexEntry.id)!;
+    expect(currentDetailEntry).toEqual(
+      expect.objectContaining({
         serverTiming: expect.objectContaining({
           bodyReadDurationMs: expect.any(Number),
           contextBuildDurationMs: expect.any(Number),
@@ -1085,9 +1194,7 @@ describe("POST /api/transcribe", () => {
           uploadFormatMimeType: "audio/wav",
           uploadFormatExtension: "wav",
         }),
-        audioUrl: expect.stringMatching(/^\/api\/transcription-logs\/\d+\/audio$/),
         recordingDirectoryPath: expect.stringContaining(transcriptionRecordingRoot),
-        recordingStatus: "success",
       }),
     );
 
@@ -1105,8 +1212,8 @@ describe("POST /api/transcribe", () => {
     await expect(detailRes.json()).resolves.toMatchObject({ rawTranscript: "timed transcript" });
 
     // The debug panel should be able to inspect the exact source audio behind a transcript.
-    const logEntry = transcriptionEnhancer.getTranscriptionLogIndex()[0];
-    const audioRes = await app.request(logEntry.audioUrl);
+    const logEntry = currentDetailEntry;
+    const audioRes = await app.request(logEntry.audioUrl!);
     expect(audioRes.status).toBe(200);
     expect(audioRes.headers.get("Content-Type")).toBe("audio/wav");
     expect(new Uint8Array(await audioRes.arrayBuffer())).toEqual(new Uint8Array([0x52, 0x49, 0x46, 0x46]));
@@ -1186,12 +1293,18 @@ describe("POST /api/transcribe", () => {
     expect(entry).toMatchObject({
       recordingStatus: "error",
       requestId: "voice-failure-1",
+      statusReason: "transcription_error",
+    });
+    expect(entry).not.toHaveProperty("error");
+    const detailRes = await app.request(`/api/transcription-logs/${entry.recordingKey}`);
+    await expect(detailRes.json()).resolves.toMatchObject({
       error: { message: "STT unavailable", phase: "transcribe" },
     });
-    await expect(readFile(join(entry.recordingDirectoryPath!, "audio.webm"))).resolves.toEqual(
+    const storedDetail = transcriptionEnhancer.getTranscriptionLogEntry(entry.id)!;
+    await expect(readFile(join(storedDetail.recordingDirectoryPath!, "audio.webm"))).resolves.toEqual(
       Buffer.from([0x1a, 0x45, 0xdf, 0xa3]),
     );
-    await expect(readFile(join(entry.recordingDirectoryPath!, "error.json"), "utf-8")).resolves.toContain(
+    await expect(readFile(join(storedDetail.recordingDirectoryPath!, "error.json"), "utf-8")).resolves.toContain(
       "STT unavailable",
     );
   });
@@ -1540,7 +1653,8 @@ describe("POST /api/transcribe", () => {
 
     expect(timingRes.status).toBe(200);
     expect(await timingRes.json()).toEqual({ ok: true, attached: true, logId: 1 });
-    expect(transcriptionEnhancer.getTranscriptionLogIndex()[0]).toEqual(
+    const timedIndexEntry = transcriptionEnhancer.getTranscriptionLogIndex()[0];
+    expect(transcriptionEnhancer.getTranscriptionLogEntry(timedIndexEntry.id)).toEqual(
       expect.objectContaining({
         requestId: "voice-request-enhance-1",
         frontendTiming: expect.objectContaining({
@@ -1593,7 +1707,7 @@ describe("POST /api/transcribe", () => {
         }),
       }),
     );
-    const entry = transcriptionEnhancer.getTranscriptionLogIndex()[0];
+    const entry = transcriptionEnhancer.getTranscriptionLogEntry(timedIndexEntry.id)!;
     await expect(readFile(join(entry.recordingDirectoryPath!, "frontend-timing.json"), "utf-8")).resolves.toContain(
       "voice-request-enhance-1",
     );

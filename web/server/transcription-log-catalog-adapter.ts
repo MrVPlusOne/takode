@@ -30,6 +30,108 @@ export interface StoredTranscriptionLogEntry extends Omit<TranscriptionLogEntry,
   result?: unknown;
 }
 
+export type TranscriptionIndexStatusReason =
+  | "recording_deleted"
+  | "persistence_error"
+  | "recording_incomplete"
+  | "recording_malformed"
+  | "recording_unsupported"
+  | "recording_unsafe"
+  | "transcription_error";
+
+export type TranscriptionIndexEnhancementSkipReason =
+  | "disabled"
+  | "too_short"
+  | "no_context"
+  | "provider_error"
+  | "empty_response"
+  | "other";
+
+export function getTranscriptionIndexStatusReason(
+  entry: StoredTranscriptionLogEntry,
+): TranscriptionIndexStatusReason | undefined {
+  if (entry.recordingDeletedAt || entry.discoveryState === "deleted") return "recording_deleted";
+  if (entry.recordingPersistenceError) return "persistence_error";
+  if (entry.discoveryState && entry.discoveryState !== "ready") return `recording_${entry.discoveryState}`;
+  if (entry.status === "error" || entry.recordingStatus === "error") return "transcription_error";
+  return undefined;
+}
+
+export function getEnhancementSkipReasonCode(
+  reason: string | undefined,
+): TranscriptionIndexEnhancementSkipReason | undefined {
+  if (!reason) return undefined;
+  if (reason === "disabled") return "disabled";
+  if (reason === "too short") return "too_short";
+  if (reason === "no context") return "no_context";
+  if (reason.startsWith("API error")) return "provider_error";
+  if (reason === "Empty response from LLM") return "empty_response";
+  return "other";
+}
+
+export function sanitizeIndexIdentifier(value: string | null): string | null {
+  if (!value || value.length > 500 || /^(?:\/|[A-Za-z]:[\\/])/.test(value)) return null;
+  return value;
+}
+
+export function sanitizeIndexFileName(value: string | null): string | null {
+  if (!value || value.length > 500 || value.includes("/") || value.includes("\\")) return null;
+  return value;
+}
+
+export function hasSafeTranscriptionAudio(entry: StoredTranscriptionLogEntry): boolean {
+  if (entry.recordingDeletedAt || entry.recordingPersistenceError) return false;
+  if (entry.discoveryState && entry.discoveryState !== "ready") return false;
+  if (entry.audioAvailable !== undefined) return entry.audioAvailable;
+  return Boolean(entry.recordingDirectoryPath && entry.audioBytes.length > 0);
+}
+
+export function buildTranscriptionAudioUrl(entry: Pick<StoredTranscriptionLogEntry, "id" | "recordingKey">): string {
+  return `/api/transcription-logs/${encodeURIComponent(entry.recordingKey ?? String(entry.id))}/audio`;
+}
+
+export function transcriptionLogEntryKey(entry: { id: number; recordingKey?: string }): string {
+  return entry.recordingKey ?? `legacy-${entry.id}`;
+}
+
+export type TranscriptionLogAudioLookup =
+  | { state: "available"; data: Buffer; mimeType: string; fileName: string | null }
+  | { state: "deleted" }
+  | {
+      state: "unavailable";
+      reason:
+        | "persistence_error"
+        | "recording_incomplete"
+        | "recording_malformed"
+        | "recording_unsupported"
+        | "recording_unsafe"
+        | "audio_missing";
+    }
+  | { state: "not_found" };
+
+export async function lookupTranscriptionLogAudio(
+  locator: string | number,
+  liveEntry?: StoredTranscriptionLogEntry,
+): Promise<TranscriptionLogAudioLookup> {
+  const entry = liveEntry ?? (await loadCatalogStoredEntry(locator, false));
+  if (!entry) return { state: "not_found" };
+  if (entry.recordingDeletedAt || entry.discoveryState === "deleted") return { state: "deleted" };
+  if (entry.discoveryState && entry.discoveryState !== "ready") {
+    return { state: "unavailable", reason: `recording_${entry.discoveryState}` };
+  }
+  if (entry.recordingPersistenceError) return { state: "unavailable", reason: "persistence_error" };
+  if (liveEntry?.audioBytes.length && hasSafeTranscriptionAudio(liveEntry)) {
+    return {
+      state: "available",
+      data: liveEntry.audioBytes,
+      mimeType: liveEntry.audioMimeType || "application/octet-stream",
+      fileName: liveEntry.audioFileName,
+    };
+  }
+  const audio = await readTranscriptionRecordingCatalogAudio(locator);
+  return audio ? { state: "available", ...audio } : { state: "unavailable", reason: "audio_missing" };
+}
+
 export async function loadCatalogStoredEntry(
   locator: string | number,
   includeAudio: boolean,
@@ -80,7 +182,7 @@ export function catalogEntryToStoredEntry(
     sttContext: entry.sttContext,
     rawTranscript: detail?.rawTranscript ?? "",
     audioBytes: detail?.audioBytes ?? Buffer.alloc(0),
-    audioAvailable: detail?.audioAvailable ?? entry.discoveryState === "ready",
+    audioAvailable: detail?.audioAvailable ?? false,
     audioSizeBytes: entry.audioSizeBytes,
     audioMimeType: entry.audioMimeType,
     audioFileName: entry.audioFileName,
