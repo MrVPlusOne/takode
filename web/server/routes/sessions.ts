@@ -21,7 +21,7 @@ import { trafficStats } from "../traffic-stats.js";
 import { generateUniqueSessionName } from "../../src/utils/names.js";
 import type { HerdSessionsResponse } from "../../shared/herd-types.js";
 import type { RouteContext } from "./context.js";
-import { resolveSessionCreateModel } from "./session-create-model.js";
+import { createSessionCreateModelResolver } from "./session-create-model.js";
 import {
   applyInitialSessionState as applyInitialSessionStateController,
   clearAttentionAndMarkRead as clearAttentionAndMarkReadController,
@@ -87,6 +87,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     buildOrchestratorSystemPrompt,
     resolveInitialModeState,
   } = ctx;
+  const sessionModelResolver = createSessionCreateModelResolver({ getClaudeUserDefaultModel, launcher });
   const pendingWorktreeCleanups = new Map<string, Promise<void>>();
   const sessionAttentionDeps = {
     broadcastToBrowsers: (session: NonNullable<ReturnType<typeof wsBridge.getSession>>, msg: unknown) =>
@@ -462,17 +463,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       const resumeAskPermission = body.askPermission !== false;
       const initialModeState = resolveInitialModeState(backend, body.permissionMode, resumeAskPermission);
       const initialCwd = body.cwd ? resolve(expandTilde(body.cwd)) : process.cwd();
-      const resumedModel =
-        backend === "codex"
-          ? await resolveSessionCreateModel({
-              backend,
-              createdBy: body.createdBy,
-              configuredDefaultModel: binarySettings.sessionDefaults?.codex.model,
-              getClaudeUserDefaultModel,
-              launcher,
-              requestedModel,
-            })
-          : {};
+      const resumedModel = await sessionModelResolver.forResume(backend, body, binarySettings, requestedModel);
       const launchOptions: LaunchOptions = {
         model: resumedModel.model,
         modelAuthority: resumedModel.modelAuthority,
@@ -770,14 +761,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     const askPermissionRequested = body.askPermission !== false;
     const initialModeState = resolveInitialModeState(backend, body.permissionMode, askPermissionRequested);
-    const resolvedModel = await resolveSessionCreateModel({
-      backend,
-      createdBy: body.createdBy,
-      configuredDefaultModel: backend === "codex" ? binarySettings.sessionDefaults?.codex.model : undefined,
-      getClaudeUserDefaultModel,
-      launcher,
-      requestedModel: backend === "codex" ? requestedModel : body.model,
-    });
+    const resolvedModel = await sessionModelResolver.forCreate(backend, body, binarySettings, requestedModel);
     const codexReasoningEffort =
       backend === "codex" && typeof body.codexReasoningEffort === "string"
         ? body.codexReasoningEffort.trim() || undefined

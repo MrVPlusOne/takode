@@ -20,6 +20,20 @@ type ResolveSessionCreateModelOptions = {
   requestedModel?: unknown;
 };
 
+type SessionCreateModelBody = {
+  createdBy?: unknown;
+  model?: unknown;
+};
+
+type SessionCreateModelSettings = {
+  sessionDefaults?: { codex?: { model?: unknown } };
+};
+
+type SessionCreateModelResolverDeps = {
+  getClaudeUserDefaultModel: () => Promise<string>;
+  launcher: SessionCreateModelLauncher;
+};
+
 export interface ResolvedSessionCreateModel {
   model?: string;
   modelAuthority?: ModelAuthorityDecision;
@@ -64,4 +78,36 @@ export async function resolveSessionCreateModel({
   }
 
   return {};
+}
+
+/** Bind route dependencies and keep request/default precedence out of the sessions route entrypoint. */
+export function createSessionCreateModelResolver({
+  getClaudeUserDefaultModel,
+  launcher,
+}: SessionCreateModelResolverDeps) {
+  const resolveForBody = (
+    backend: SessionBackend,
+    body: SessionCreateModelBody,
+    settings: SessionCreateModelSettings,
+    originalRequestedModel: unknown,
+  ) =>
+    resolveSessionCreateModel({
+      backend,
+      createdBy: body.createdBy,
+      configuredDefaultModel: backend === "codex" ? settings.sessionDefaults?.codex?.model : undefined,
+      getClaudeUserDefaultModel,
+      launcher,
+      requestedModel: backend === "codex" ? originalRequestedModel : body.model,
+    });
+
+  return {
+    forCreate: resolveForBody,
+    forResume: (
+      backend: SessionBackend,
+      body: SessionCreateModelBody,
+      settings: SessionCreateModelSettings,
+      originalRequestedModel: unknown,
+    ): Promise<ResolvedSessionCreateModel> =>
+      backend === "codex" ? resolveForBody(backend, body, settings, originalRequestedModel) : Promise.resolve({}),
+  };
 }

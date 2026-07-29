@@ -97,8 +97,20 @@ describe("codex model defaults", () => {
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual([
-      { value: "gpt-5.5", label: "GPT-5.5", description: "Newest model" },
-      { value: "gpt-5.4", label: "gpt-5.4", description: "Older model" },
+      {
+        value: "gpt-5.5",
+        canonicalIdentity: "gpt-5.5",
+        routeEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        label: "GPT-5.5",
+        description: "Newest model",
+      },
+      {
+        value: "gpt-5.4",
+        canonicalIdentity: "gpt-5.4",
+        routeEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        label: "gpt-5.4",
+        description: "Older model",
+      },
     ]);
   });
 

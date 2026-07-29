@@ -484,7 +484,14 @@ describe("Codex spawn preparation", () => {
 
       const [cmdAndArgs] = mockSpawn.mock.calls[0];
       expect(cmdAndArgs[0]).toBe(fakeCodex);
-      expect(cmdAndArgs.slice(1, 5)).toEqual(["-c", "tools.webSearch=false", "-a", "untrusted"]);
+      expect(cmdAndArgs.slice(1, 7)).toEqual([
+        "-c",
+        "tools.webSearch=false",
+        "-c",
+        "model=gpt-5.6-sol",
+        "-a",
+        "untrusted",
+      ]);
     } finally {
       rmSync(tmpBinDir, { recursive: true, force: true });
     }

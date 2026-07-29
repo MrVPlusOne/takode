@@ -99,7 +99,7 @@ describe("getDefaultModel", () => {
   });
 
   it("returns the shared codex default for codex backend", () => {
-    expect(getDefaultModel("codex")).toBe("gpt-5.4");
+    expect(getDefaultModel("codex")).toBe("gpt-5.6-sol");
   });
 });
 

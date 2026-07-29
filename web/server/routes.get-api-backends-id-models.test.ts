@@ -586,9 +586,27 @@ describe("GET /api/backends/:id/models", () => {
     const json = await res.json();
     // Should only include visible 5.3+ models, ordered by version then variant.
     expect(json).toEqual([
-      { value: "gpt-5.4", label: "gpt-5.4", description: "Frontier model" },
-      { value: "gpt-5.3-codex", label: "gpt-5.3-codex", description: "Main codex model" },
-      { value: "gpt-5.3-codex-spark", label: "gpt-5.3-codex-spark", description: "Fast model" },
+      {
+        value: "gpt-5.4",
+        canonicalIdentity: "gpt-5.4",
+        routeEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        label: "gpt-5.4",
+        description: "Frontier model",
+      },
+      {
+        value: "gpt-5.3-codex",
+        canonicalIdentity: "gpt-5.3-codex",
+        routeEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        label: "gpt-5.3-codex",
+        description: "Main codex model",
+      },
+      {
+        value: "gpt-5.3-codex-spark",
+        canonicalIdentity: "gpt-5.3-codex-spark",
+        routeEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        label: "gpt-5.3-codex-spark",
+        description: "Fast model",
+      },
     ]);
   });
 
@@ -619,6 +637,8 @@ describe("GET /api/backends/:id/models", () => {
     await expect(res.json()).resolves.toEqual([
       {
         value: "gpt-5.4",
+        canonicalIdentity: "gpt-5.4",
+        routeEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
         label: "gpt-5.4",
         description: "Frontier model",
         contextWindow: 272000,

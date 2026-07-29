@@ -555,7 +555,9 @@ describe("POST /api/sessions/create with backend", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5.4", backendType: "codex" }));
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5.6-sol", backendType: "codex" }),
+    );
   });
 
   it("injects orchestrator env vars for codex leader sessions", async () => {
