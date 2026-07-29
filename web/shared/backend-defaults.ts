@@ -5,7 +5,7 @@ export type BackendFamily = "claude" | "codex";
 
 export const DEFAULT_MODEL_BY_BACKEND_FAMILY: Record<BackendFamily, string> = {
   claude: "",
-  codex: "gpt-5.4",
+  codex: "gpt-5.6-sol",
 };
 
 export function getBackendFamily(backend: BackendType): BackendFamily {

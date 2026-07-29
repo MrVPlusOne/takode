@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { resolveBinary } from "./path-resolver.js";
 import { getSettings } from "./settings-manager.js";
 import { getLegacyCodexHome } from "./codex-home.js";
+import { buildTakodeCatalogRouteEntry, fingerprintModelRouteEntry } from "./model-identity-contract.js";
 
 const CODEX_MODEL_CATALOG_TIMEOUT_MS = 3_000;
 const CODEX_MODEL_CATALOG_MAX_BUFFER = 2 * 1024 * 1024;
@@ -16,6 +17,8 @@ export interface CodexReasoningLevelInfo {
 
 export interface CodexBackendModelInfo {
   value: string;
+  canonicalIdentity: string;
+  routeEntryFingerprint: string;
   label: string;
   description: string;
   contextWindow?: number;
@@ -152,6 +155,8 @@ export function mapCodexCatalogModels(raw: unknown): CodexBackendModelInfo[] {
           : undefined;
       return {
         value: slug,
+        canonicalIdentity: slug,
+        routeEntryFingerprint: fingerprintModelRouteEntry(buildTakodeCatalogRouteEntry(slug)),
         label: typeof model.display_name === "string" && model.display_name.trim() ? model.display_name.trim() : slug,
         description: typeof model.description === "string" ? model.description : "",
         contextWindow: positiveInteger(model.context_window),

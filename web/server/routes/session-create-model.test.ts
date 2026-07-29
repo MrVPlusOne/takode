@@ -26,7 +26,10 @@ describe("resolveSessionCreateModel", () => {
         getClaudeUserDefaultModel: vi.fn(async () => "claude-default"),
         launcher,
       }),
-    ).resolves.toBe("gpt-5.5");
+    ).resolves.toMatchObject({
+      model: "gpt-5.5",
+      modelAuthority: { source: "inherited_session" },
+    });
   });
 
   it("falls back to the target backend default for cross-backend spawns", async () => {
@@ -40,7 +43,7 @@ describe("resolveSessionCreateModel", () => {
         getClaudeUserDefaultModel,
         launcher,
       }),
-    ).resolves.toBe("claude-default");
+    ).resolves.toEqual({ model: "claude-default" });
     expect(getClaudeUserDefaultModel).toHaveBeenCalledTimes(1);
   });
 
@@ -55,6 +58,43 @@ describe("resolveSessionCreateModel", () => {
         launcher,
         requestedModel: "custom-model",
       }),
-    ).resolves.toBe("custom-model");
+    ).resolves.toEqual({ model: "custom-model" });
+  });
+
+  it("records the configured default above the managed fallback", async () => {
+    const launcher = makeLauncher();
+
+    await expect(
+      resolveSessionCreateModel({
+        backend: "codex",
+        configuredDefaultModel: "gpt-5.6-terra",
+        getClaudeUserDefaultModel: vi.fn(async () => "claude-default"),
+        launcher,
+      }),
+    ).resolves.toMatchObject({
+      model: "gpt-5.6-terra",
+      modelAuthority: {
+        source: "session_default",
+        overrideTrace: [
+          { source: "session_default", status: "selected" },
+          { source: "managed_fallback", model: "gpt-5.6-sol", status: "overridden" },
+        ],
+      },
+    });
+  });
+
+  it("uses the managed Codex default when no higher authority exists", async () => {
+    const launcher = makeLauncher();
+
+    await expect(
+      resolveSessionCreateModel({
+        backend: "codex",
+        getClaudeUserDefaultModel: vi.fn(async () => "claude-default"),
+        launcher,
+      }),
+    ).resolves.toMatchObject({
+      model: "gpt-5.6-sol",
+      modelAuthority: { source: "managed_fallback" },
+    });
   });
 });

@@ -1,7 +1,10 @@
 import type { BackendType } from "./session-types.js";
+import type { ModelAuthorityDecision } from "./model-identity-contract.js";
 
 export interface LaunchOptions {
   model?: string;
+  /** Persisted explanation of the managed Codex model winner and overridden candidates. */
+  modelAuthority?: ModelAuthorityDecision;
   permissionMode?: string;
   /** Whether permission prompts are enabled (shared UI state; backend-specific mapping). */
   askPermission?: boolean;

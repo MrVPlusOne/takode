@@ -15,6 +15,7 @@ import {
 } from "../../shared/permission-modes.js";
 import { isSafeCodexReasoningEffort } from "../../shared/session-defaults.js";
 import { markCodexModelSwitchCompactionGuard } from "./codex-model-switch-compaction.js";
+import { resolveModelAuthority } from "../model-identity-contract.js";
 
 function shouldSendClassicClaudeControlRequest(session: AdapterBrowserRoutingSessionLike): boolean {
   return session.backendType === "claude" && !!session.backendSocket;
@@ -238,6 +239,16 @@ export function handleCodexSetModel(
 ): void {
   const nextModel = model.trim();
   if (!nextModel || session.state.model === nextModel) return;
+  let modelAuthority;
+  try {
+    modelAuthority = resolveModelAuthority([{ source: "explicit_request", model: nextModel, precedence: 400 }]);
+  } catch (error) {
+    deps.broadcastToBrowsers(session, {
+      type: "error",
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
   const launchInfo = deps.getLauncherSessionInfo(session.id);
   const previousModel =
     typeof session.state.model === "string"
@@ -247,7 +258,10 @@ export function handleCodexSetModel(
         : undefined;
   session.state.model = nextModel;
   markCodexModelSwitchCompactionGuard(session, { previousModel, nextModel });
-  if (launchInfo) launchInfo.model = nextModel;
+  if (launchInfo) {
+    launchInfo.model = nextModel;
+    launchInfo.modelAuthority = modelAuthority;
+  }
   deps.broadcastToBrowsers(session, {
     type: "session_update",
     session: { model: nextModel },

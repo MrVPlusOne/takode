@@ -581,7 +581,10 @@ describe("Codex runtime settings updates", () => {
     const browser = makeBrowserSocket(sid);
     const adapter = makeCodexAdapterMock();
     const relaunchCb = vi.fn();
-    const launcherInfo = { model: "gpt-5.4", permissionMode: "plan" };
+    const launcherInfo: { model: string; permissionMode: string; modelAuthority?: unknown } = {
+      model: "gpt-5.4",
+      permissionMode: "plan",
+    };
     const launcherMock = {
       touchActivity: vi.fn(),
       touchUserMessage: vi.fn(),
@@ -604,6 +607,10 @@ describe("Codex runtime settings updates", () => {
     const session = bridge.getSession(sid)!;
     expect(session.state.model).toBe("gpt-5.3-codex");
     expect(launcherInfo.model).toBe("gpt-5.3-codex");
+    expect(launcherInfo.modelAuthority).toMatchObject({
+      model: "gpt-5.3-codex",
+      source: "explicit_request",
+    });
     expect(session.codexModelSwitchCompactionGuard).toEqual(
       expect.objectContaining({
         nextModel: "gpt-5.3-codex",
@@ -619,6 +626,33 @@ describe("Codex runtime settings updates", () => {
         type: "session_update",
         session: expect.objectContaining({ model: "gpt-5.3-codex" }),
       }),
+    );
+  });
+
+  it("rejects a non-canonical Codex model switch before mutating or relaunching", async () => {
+    const sid = "s-invalid-codex-model";
+    const browser = makeBrowserSocket(sid);
+    const relaunchCb = vi.fn();
+    const launcherInfo = { model: "gpt-5.6-sol", permissionMode: "codex-default" };
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => launcherInfo),
+    } as any);
+    bridge.onSessionRelaunchRequestedCallback(relaunchCb);
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.state.model = "gpt-5.6-sol";
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "set_model", model: "GPT-5.7" }));
+
+    expect(session.state.model).toBe("gpt-5.6-sol");
+    expect(launcherInfo.model).toBe("gpt-5.6-sol");
+    expect(relaunchCb).not.toHaveBeenCalled();
+    const messages = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(messages).toContainEqual(
+      expect.objectContaining({ type: "error", message: expect.stringContaining("Invalid canonical model id") }),
     );
   });
 

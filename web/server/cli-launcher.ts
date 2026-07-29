@@ -37,6 +37,8 @@ import type { SdkSessionInfo } from "./session-info.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "./memory-session-space.js";
 import type { LaunchOptions } from "./cli-launcher-options.js";
 import { CLAUDE_1M_CONTEXT_BETA, CLAUDE_1M_CONTEXT_TOKENS } from "../shared/session-defaults.js";
+import { resolveModelAuthority } from "./model-identity-contract.js";
+import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 
 export type { SdkSessionInfo } from "./session-info.js";
 export type { LaunchOptions } from "./cli-launcher-options.js";
@@ -555,11 +557,30 @@ export class CliLauncher {
     const cwd = options.cwd || process.cwd();
     const backendType = options.backendType || "claude";
     const memorySessionSpaceSlug = this.resolveLaunchMemorySessionSpaceSlug(options);
+    const modelAuthority =
+      backendType === "codex"
+        ? (options.modelAuthority ??
+          resolveModelAuthority([
+            options.model
+              ? { source: "launch_option", model: options.model, precedence: 400 }
+              : {
+                  source: "managed_fallback",
+                  model: getDefaultModelForBackend("codex"),
+                  precedence: 100,
+                },
+          ]))
+        : undefined;
+    if (modelAuthority && options.model && modelAuthority.model !== options.model.trim()) {
+      throw new Error(
+        `model_default_conflict: launch model ${options.model} does not match authority winner ${modelAuthority.model}`,
+      );
+    }
 
     const info: SdkSessionInfo = {
       sessionId,
       state: "starting",
-      model: options.model,
+      model: modelAuthority?.model ?? options.model,
+      modelAuthority,
       permissionMode: options.permissionMode,
       askPermission: options.askPermission,
       uiMode: options.uiMode,
@@ -670,7 +691,12 @@ export class CliLauncher {
     }
     const envWithSessionId = this.composeSessionEnv(launchEnv, identityEnv, options.blockedEnvKeys);
     this.sessionEnvs.set(sessionId, envWithSessionId);
-    options = { ...options, env: envWithSessionId };
+    options = {
+      ...options,
+      model: info.model,
+      modelAuthority: info.modelAuthority,
+      env: envWithSessionId,
+    };
 
     // Write session-auth file so takode/quest CLIs can authenticate when env vars are missing
     // (e.g., after CLI relaunch). Fire-and-forget — non-blocking.

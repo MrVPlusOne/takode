@@ -1132,6 +1132,30 @@ describe("POST /api/sessions/create", () => {
     );
   });
 
+  it("always resolves an explicit managed model for resumed Codex sessions", async () => {
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        backend: "codex",
+        cwd: "/test",
+        resumeCliSessionId: "codex-resume-model-authority",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumeCliSessionId: "codex-resume-model-authority",
+        model: "gpt-5.6-sol",
+        modelAuthority: expect.objectContaining({
+          model: "gpt-5.6-sol",
+          source: "managed_fallback",
+        }),
+      }),
+    );
+  });
+
   it("sets up a worktree when useWorktree and branch are specified", async () => {
     vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
       repoRoot: "/repo",

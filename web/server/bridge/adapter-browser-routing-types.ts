@@ -10,6 +10,7 @@ import type {
   SessionState,
 } from "../session-types.js";
 import type { MemoryCatalogInjectionBundle } from "../memory-catalog-injection-utils.js";
+import type { ModelAuthorityDecision } from "../model-identity-contract.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
 
 export type InterruptSource = "user" | "leader" | "system";
@@ -168,6 +169,7 @@ export interface AdapterBrowserRoutingDeps {
         isOrchestrator?: boolean;
         killedByIdleManager?: boolean;
         model?: string;
+        modelAuthority?: ModelAuthorityDecision;
         permissionMode?: string;
         state?: string;
         uiMode?: "plan" | "agent";

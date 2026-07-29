@@ -69,6 +69,8 @@ describe("Codex model catalog loading", () => {
     expect(result?.models).toEqual([
       {
         value: "gpt-5.6-sol",
+        canonicalIdentity: "gpt-5.6-sol",
+        routeEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
         label: "GPT-5.6-Sol",
         description: "Latest frontier agentic coding model.",
         contextWindow: 372000,
@@ -179,6 +181,8 @@ describe("mapCodexCatalogModels", () => {
     ).toEqual([
       {
         value: "gpt-5.6-luna",
+        canonicalIdentity: "gpt-5.6-luna",
+        routeEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
         label: "GPT-5.6-Luna",
         description: "Fast model",
         contextWindow: 372000,

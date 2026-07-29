@@ -565,6 +565,20 @@ describe("launch", () => {
     isDirectory: () => options.directory ?? true,
   });
 
+  it("makes direct managed Codex launches explicit through the fallback authority", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const info = await launchCodex();
+
+    expect(info.model).toBe("gpt-5.6-sol");
+    expect(info.modelAuthority).toMatchObject({
+      model: "gpt-5.6-sol",
+      source: "managed_fallback",
+    });
+    expect(mockSpawn.mock.calls[0]?.[0]).toEqual(expect.arrayContaining(["model=gpt-5.6-sol"]));
+  });
+
   it("writes session-auth to centralized ~/.companion/session-auth/ directory", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
@@ -1419,10 +1433,16 @@ describe("launch", () => {
       expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      const overridden = catalog.models.find((entry: any) => entry.slug === "gpt-5.5");
-      expect(overridden.context_window).toBe(1_296_667);
-      expect(overridden.max_context_window).toBe(1_296_667);
-      expect(overridden.auto_compact_token_limit).toBe(1_167_000);
+      // The managed launch model is explicit, so a stale host config model is
+      // preserved as catalog history but cannot become the effective winner.
+      const overridden = catalog.models.find((entry: any) => entry.slug === "gpt-5.6-sol");
+      expect(overridden.context_window).toBe(1_679_012);
+      expect(overridden.max_context_window).toBe(1_679_012);
+      expect(overridden.auto_compact_token_limit).toBe(1_511_110);
+
+      const staleHostModel = catalog.models.find((entry: any) => entry.slug === "gpt-5.5");
+      expect(staleHostModel.context_window).toBe(272000);
+      expect(staleHostModel.auto_compact_token_limit).toBeNull();
 
       const untouched = catalog.models.find((entry: any) => entry.slug === "gpt-5.4");
       expect(untouched.context_window).toBe(272000);
@@ -1543,18 +1563,20 @@ describe("launch", () => {
       expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
 
       const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
-      expect(catalog.models).toMatchObject([
-        {
-          slug: "gpt-5.5",
-          display_name: "GPT-5.5",
-          description: "Newest model",
-          effective_context_window_percent: 95,
-          context_window: 1_296_667,
-          max_context_window: 1_296_667,
-          auto_compact_token_limit: 1_167_000,
-          visibility: "list",
-        },
-      ]);
+      expect(catalog.models.find((entry: any) => entry.slug === "gpt-5.5")).toMatchObject({
+        display_name: "GPT-5.5",
+        description: "Newest model",
+        effective_context_window_percent: 95,
+        context_window: 272000,
+        max_context_window: 272000,
+        auto_compact_token_limit: null,
+        visibility: "list",
+      });
+      expect(catalog.models.find((entry: any) => entry.slug === "gpt-5.6-sol")).toMatchObject({
+        context_window: 1_444_445,
+        max_context_window: 1_444_445,
+        auto_compact_token_limit: 1_300_000,
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1905,7 +1927,7 @@ describe("launch", () => {
       expect(innerScript).toContain("cat > \"/root/.codex/config.toml\" <<'__COMPANION_CODEX_CONFIG__'");
       expect(innerScript).toContain("model_context_window = 1444445");
       expect(innerScript).toContain("model_auto_compact_token_limit = 1300000");
-      expect(innerScript).toContain("exec 'codex' '-c' 'tools.webSearch=false' '-a'");
+      expect(innerScript).toContain("exec 'codex' '-c' 'tools.webSearch=false' '-c' 'model=gpt-5.6-sol' '-a'");
     } finally {
       rmSync(customHome, { recursive: true, force: true });
     }

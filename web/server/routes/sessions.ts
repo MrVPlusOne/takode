@@ -420,6 +420,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     emitProgress?: EmitCreationProgress,
   ): Promise<SessionConfig> => {
     const binarySettings = getSettings();
+    const requestedModel = body.model;
     try {
       body = applySessionDefaultsToCreateBody(body, backend, binarySettings);
     } catch (error) {
@@ -461,7 +462,20 @@ export function createSessionsRoutes(ctx: RouteContext) {
       const resumeAskPermission = body.askPermission !== false;
       const initialModeState = resolveInitialModeState(backend, body.permissionMode, resumeAskPermission);
       const initialCwd = body.cwd ? resolve(expandTilde(body.cwd)) : process.cwd();
+      const resumedModel =
+        backend === "codex"
+          ? await resolveSessionCreateModel({
+              backend,
+              createdBy: body.createdBy,
+              configuredDefaultModel: binarySettings.sessionDefaults?.codex.model,
+              getClaudeUserDefaultModel,
+              launcher,
+              requestedModel,
+            })
+          : {};
       const launchOptions: LaunchOptions = {
+        model: resumedModel.model,
+        modelAuthority: resumedModel.modelAuthority,
         cwd: initialCwd,
         claudeBinary: body.claudeBinary || binarySettings.claudeBinary || undefined,
         codexBinary: body.codexBinary || binarySettings.codexBinary || undefined,
@@ -756,12 +770,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     const askPermissionRequested = body.askPermission !== false;
     const initialModeState = resolveInitialModeState(backend, body.permissionMode, askPermissionRequested);
-    const model = await resolveSessionCreateModel({
+    const resolvedModel = await resolveSessionCreateModel({
       backend,
       createdBy: body.createdBy,
+      configuredDefaultModel: backend === "codex" ? binarySettings.sessionDefaults?.codex.model : undefined,
       getClaudeUserDefaultModel,
       launcher,
-      requestedModel: body.model,
+      requestedModel: backend === "codex" ? requestedModel : body.model,
     });
     const codexReasoningEffort =
       backend === "codex" && typeof body.codexReasoningEffort === "string"
@@ -775,7 +790,8 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     const initialCwd = cwd || process.cwd();
     const launchOptions: LaunchOptions = {
-      model,
+      model: resolvedModel.model,
+      modelAuthority: resolvedModel.modelAuthority,
       permissionMode: initialModeState.permissionMode,
       askPermission: initialModeState.askPermission,
       uiMode: initialModeState.uiMode,
