@@ -206,7 +206,10 @@ describe("TranscriptionDebugPanel", () => {
     fireEvent.click(screen.getByText("Show"));
     fireEvent.click(await screen.findByText("gpt-4o-mini-transcribe-alpha-tapioca-4"));
 
-    expect(await screen.findByText("Replay & compare")).toBeInTheDocument();
+    const replayDisclosure = await screen.findByRole("button", { name: /Replay & compare/i });
+    expect(replayDisclosure.tagName).toBe("BUTTON");
+    expect(replayDisclosure).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(replayDisclosure);
     fireEvent.change(screen.getByLabelText(/Target STT model/i), { target: { value: "gpt-transcribe" } });
     fireEvent.click(screen.getByRole("button", { name: "Run re-transcribe" }));
 
@@ -227,6 +230,78 @@ describe("TranscriptionDebugPanel", () => {
     );
     expect(window.confirm).not.toHaveBeenCalled();
     expect(await screen.findByText("replay enhanced")).toBeInTheDocument();
+    expect(replayDisclosure).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("keeps Replay & compare collapsed per detail open while Raw Transcript remains outside and visible", async () => {
+    render(<TranscriptionDebugPanel />);
+
+    fireEvent.click(screen.getByText("Show"));
+    fireEvent.click(await screen.findByText("gpt-4o-mini-transcribe-alpha-tapioca-4"));
+
+    const disclosure = await screen.findByRole("button", { name: /Replay & compare/i });
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    expect(disclosure).toHaveAttribute("aria-controls", "transcription-replay-compare-content");
+    expect(screen.getByText("Expand")).toBeInTheDocument();
+    expect(screen.getByText("Raw Transcript (STT Output)")).toBeInTheDocument();
+    expect(screen.getByText("debug transcript")).toBeInTheDocument();
+    expect(screen.getByText(/Reuse this source record/)).not.toBeVisible();
+    expect(screen.queryByRole("button", { name: "Run re-transcribe" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Run re-enhance" })).not.toBeInTheDocument();
+
+    fireEvent.click(disclosure);
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Collapse")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Replay and compare controls and variants" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run re-transcribe" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close (Esc)" }));
+    fireEvent.click(await screen.findByText("gpt-4o-mini-transcribe-alpha-tapioca-4"));
+    expect(await screen.findByRole("button", { name: /Replay & compare/i })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("Raw Transcript (STT Output)")).toBeInTheDocument();
+  });
+
+  it("resets the disclosure on a direct source switch", async () => {
+    const indexPage = await mockApi.getTranscriptionLogs();
+    const baseDetail = await mockApi.getTranscriptionLogEntry();
+    const firstIndex = {
+      ...indexPage.entries[0],
+      id: 41,
+      recordingKey: "r_first-source",
+      sttModel: "first-index-model",
+    };
+    const secondIndex = {
+      ...indexPage.entries[0],
+      id: 42,
+      recordingKey: "r_second-source",
+      sttModel: "second-index-model",
+    };
+    mockApi.getTranscriptionLogs.mockReset().mockResolvedValue({
+      entries: [firstIndex, secondIndex],
+      nextCursor: null,
+      total: 2,
+    });
+    mockApi.getTranscriptionLogEntry.mockReset().mockImplementation((locator: string) =>
+      Promise.resolve({
+        ...baseDetail,
+        id: locator === "r_first-source" ? 41 : 42,
+        recordingKey: locator,
+        sttModel: locator === "r_first-source" ? "first-detail-model" : "second-detail-model",
+        rawTranscript: locator === "r_first-source" ? "raw first source" : "raw second source",
+      }),
+    );
+
+    render(<TranscriptionDebugPanel />);
+    fireEvent.click(screen.getByText("Show"));
+    fireEvent.click(await screen.findByText("first-index-model"));
+    const disclosure = await screen.findByRole("button", { name: /Replay & compare/i });
+    fireEvent.click(disclosure);
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(screen.getByText("second-index-model"));
+    expect(await screen.findByText("raw second source")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Replay & compare/i })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "Run re-transcribe" })).not.toBeInTheDocument();
   });
 
   it("loads additional durable pages without duplicating stable recording keys", async () => {
@@ -314,6 +389,11 @@ describe("TranscriptionDebugPanel", () => {
     fireEvent.click(screen.getByText("Show"));
     fireEvent.click(await screen.findByText("gpt-4o-mini-transcribe-alpha-tapioca-4"));
 
+    const disclosure = await screen.findByRole("button", { name: /Replay & compare/i });
+    expect(screen.getByText("Raw Transcript (STT Output)")).toBeInTheDocument();
+    expect(screen.getByText("Replay enhanced output")).not.toBeVisible();
+    fireEvent.click(disclosure);
+
     expect(await screen.findByText("Original enhanced output")).toBeInTheDocument();
     expect(document.querySelector('[data-transcript-diff-side="original"]')).toHaveTextContent(
       "original enhanced output",
@@ -355,6 +435,9 @@ describe("TranscriptionDebugPanel", () => {
 
     fireEvent.click(screen.getByText("Show"));
     fireEvent.click(await screen.findByText("gpt-4o-mini-transcribe-alpha-tapioca-4"));
+    expect(await screen.findByText("Separated STT replay context is missing")).not.toBeVisible();
+    expect(await screen.findByText("Raw Transcript (STT Output)")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /Replay & compare/i }));
 
     expect(await screen.findByText("Separated STT replay context is missing")).toBeInTheDocument();
     expect(screen.getByText("No OpenAI-compatible API key configured")).toBeInTheDocument();

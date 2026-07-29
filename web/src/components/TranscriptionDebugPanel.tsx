@@ -103,6 +103,7 @@ export function TranscriptionDebugPanel() {
   const [replayEnhancementMode, setReplayEnhancementMode] = useState<"default" | "bullet">("default");
   const [replayRunning, setReplayRunning] = useState<"stt" | "enhancement" | null>(null);
   const [replayError, setReplayError] = useState("");
+  const [replayExpanded, setReplayExpanded] = useState(false);
 
   const fetchIndex = useCallback(
     (append = false, refresh = false) => {
@@ -141,6 +142,7 @@ export function TranscriptionDebugPanel() {
       setCopiedRecordingPath(false);
       setRecordingActionError("");
       setReplayError("");
+      setReplayExpanded(false);
       return;
     }
     setExpandedId(id);
@@ -149,6 +151,7 @@ export function TranscriptionDebugPanel() {
     setCopiedRecordingPath(false);
     setRecordingActionError("");
     setReplayError("");
+    setReplayExpanded(false);
     setDetailLoading(true);
     try {
       const entry = await api.getTranscriptionLogEntry(id);
@@ -301,6 +304,7 @@ export function TranscriptionDebugPanel() {
         setCopiedRecordingPath(false);
         setRecordingActionError("");
         setReplayError("");
+        setReplayExpanded(false);
       }
     };
     document.addEventListener("keydown", handleKeyDown);
@@ -415,6 +419,7 @@ export function TranscriptionDebugPanel() {
               setCopiedRecordingPath(false);
               setRecordingActionError("");
               setReplayError("");
+              setReplayExpanded(false);
             }}
           >
             <div
@@ -452,6 +457,7 @@ export function TranscriptionDebugPanel() {
                     setCopiedRecordingPath(false);
                     setRecordingActionError("");
                     setReplayError("");
+                    setReplayExpanded(false);
                   }}
                   className="px-2 py-1 rounded text-xs text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
                 >
@@ -701,14 +707,30 @@ export function TranscriptionDebugPanel() {
                       </div>
                     )}
 
-                    <div className="text-xs text-cc-muted border-t border-cc-border pt-3 space-y-3">
-                      <div>
-                        <h4 className="text-sm font-semibold text-cc-fg">Replay &amp; compare</h4>
-                        <p className="mt-1">
-                          Reuse this source record&apos;s stored audio, transcript, and debug context. Replay calls are
-                          explicit provider calls and may incur charges.
-                        </p>
-                      </div>
+                    <div className="text-xs text-cc-muted border-t border-cc-border pt-3">
+                      <button
+                        type="button"
+                        className="w-full flex items-center justify-between gap-3 rounded px-1 py-1 text-left text-cc-fg hover:bg-cc-hover cursor-pointer"
+                        aria-expanded={replayExpanded}
+                        aria-controls="transcription-replay-compare-content"
+                        onClick={() => setReplayExpanded((expanded) => !expanded)}
+                      >
+                        <span className="text-sm font-semibold">Replay &amp; compare</span>
+                        <span className="text-xs text-cc-muted">{replayExpanded ? "Collapse" : "Expand"}</span>
+                      </button>
+                    </div>
+
+                    <div
+                      id="transcription-replay-compare-content"
+                      role="region"
+                      aria-label="Replay and compare controls and variants"
+                      hidden={!replayExpanded}
+                      className="text-xs text-cc-muted space-y-3"
+                    >
+                      <p>
+                        Reuse this source record&apos;s stored audio, transcript, and debug context. Replay calls are
+                        explicit provider calls and may incur charges.
+                      </p>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div className="rounded-lg border border-cc-border p-3 space-y-2">
