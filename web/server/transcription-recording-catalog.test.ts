@@ -14,10 +14,12 @@ import {
 } from "./transcription-recording-catalog.js";
 import {
   _resetTranscriptionLogForTest,
+  addTranscriptionLogEntry,
   deleteTranscriptionLogRecording,
   getTranscriptionLogIndexPage,
 } from "./transcription-enhancer.js";
 import { _setTranscriptionRecordingRootForTest, writeTranscriptionRecording } from "./transcription-recordings.js";
+import { TRANSCRIPTION_PREVIEW_INPUT_MAX_BYTES } from "./transcription-preview.js";
 
 describe("transcription recording catalog", () => {
   let root: string;
@@ -25,10 +27,12 @@ describe("transcription recording catalog", () => {
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "transcription-catalog-"));
     _setTranscriptionRecordingRootForTest(root);
+    _resetTranscriptionLogForTest();
     _resetTranscriptionRecordingCatalogForTest();
   });
 
   afterEach(async () => {
+    _resetTranscriptionLogForTest();
     _resetTranscriptionRecordingCatalogForTest();
     _setTranscriptionRecordingRootForTest(null);
     await rm(root, { recursive: true, force: true });
@@ -66,6 +70,42 @@ describe("transcription recording catalog", () => {
     _resetTranscriptionRecordingCatalogForTest();
     const second = await listTranscriptionRecordingCatalog({ refresh: true });
     expect(second[0].recordingKey).toBe(expectedKey);
+  });
+
+  it("keeps adversarial preview-prefix cases identical before and after restart", async () => {
+    const lateUnsafePrefix = "Visible ".padEnd(TRANSCRIPTION_PREVIEW_INPUT_MAX_BYTES, "x");
+    const cases = [
+      {
+        requestId: "leading-whitespace",
+        rawTranscript: `${" ".repeat(TRANSCRIPTION_PREVIEW_INPUT_MAX_BYTES)}late raw text`,
+        enhancedText: undefined,
+      },
+      {
+        requestId: "enhanced-after-prefix",
+        rawTranscript: "raw fallback",
+        enhancedText: `${" ".repeat(TRANSCRIPTION_PREVIEW_INPUT_MAX_BYTES)}late enhanced text`,
+      },
+      {
+        requestId: "unsafe-after-prefix",
+        rawTranscript: `${lateUnsafePrefix} /Users/private/result.txt\u0000`,
+        enhancedText: undefined,
+      },
+    ];
+    for (const entry of cases) await addPreviewCase(entry);
+
+    const liveEntries = await getTranscriptionLogIndexPage({ refresh: true });
+    const livePreviews = new Map(liveEntries.entries.map((entry) => [entry.requestId, entry.previewText]));
+
+    // Resetting both hot state and the catalog simulates restart discovery from the same isolated artifacts.
+    _resetTranscriptionLogForTest();
+    _resetTranscriptionRecordingCatalogForTest();
+    const restartedEntries = await getTranscriptionLogIndexPage({ refresh: true });
+    const restartedPreviews = new Map(restartedEntries.entries.map((entry) => [entry.requestId, entry.previewText]));
+
+    expect(restartedPreviews).toEqual(livePreviews);
+    expect(livePreviews.get("leading-whitespace")).toBeUndefined();
+    expect(livePreviews.get("enhanced-after-prefix")).toBe("raw fallback");
+    expect(livePreviews.get("unsafe-after-prefix")).toEqual(expect.stringMatching(/^Visible x+…$/));
   });
 
   it("keyset-pages more than fifty records with deterministic timestamp/key ordering", async () => {
@@ -311,6 +351,41 @@ describe("transcription recording catalog", () => {
       audioFileName: "recording.wav",
       audioExtension: "wav",
       enhancement: null,
+    });
+  }
+
+  async function addPreviewCase(input: {
+    requestId: string;
+    rawTranscript: string;
+    enhancedText: string | undefined;
+  }): Promise<void> {
+    await addTranscriptionLogEntry({
+      status: "success",
+      sessionId: "session-1",
+      requestId: input.requestId,
+      mode: "dictation",
+      backend: "openai",
+      uploadDurationMs: 1,
+      sttModel: "gpt-transcribe",
+      sttDurationMs: 2,
+      rawTranscript: input.rawTranscript,
+      audioBytes: Buffer.from([1]),
+      audioSizeBytes: 1,
+      audioMimeType: "audio/wav",
+      audioFileName: "recording.wav",
+      audioExtension: "wav",
+      sttPrompt: "",
+      enhancement:
+        input.enhancedText === undefined
+          ? null
+          : {
+              model: "gpt-5-mini",
+              systemPrompt: "",
+              userMessage: "",
+              enhancedText: input.enhancedText,
+              durationMs: 3,
+            },
+      frontendTiming: null,
     });
   }
 

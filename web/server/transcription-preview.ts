@@ -1,5 +1,17 @@
 export const TRANSCRIPTION_PREVIEW_MAX_CHARACTERS = 160;
-export const TRANSCRIPTION_PREVIEW_READ_MAX_BYTES = 4 * 1024;
+export const TRANSCRIPTION_PREVIEW_INPUT_MAX_BYTES = 4 * 1024;
+
+export function decodeTranscriptionPreviewInputPrefix(bytes: Uint8Array): string {
+  const prefix = bytes.subarray(0, TRANSCRIPTION_PREVIEW_INPUT_MAX_BYTES);
+  return new TextDecoder().decode(prefix, { stream: bytes.length >= TRANSCRIPTION_PREVIEW_INPUT_MAX_BYTES });
+}
+
+export function getTranscriptionPreviewInputPrefix(value: string): string {
+  // Every UTF-16 code unit contributes at least one UTF-8 byte, so this avoids encoding an unbounded live string
+  // while still providing every byte that could fall inside the shared prefix contract.
+  const boundedCodeUnits = value.slice(0, TRANSCRIPTION_PREVIEW_INPUT_MAX_BYTES);
+  return decodeTranscriptionPreviewInputPrefix(new TextEncoder().encode(boundedCodeUnits));
+}
 
 function containsExplicitAbsolutePath(value: string): boolean {
   return (
@@ -12,7 +24,7 @@ function containsExplicitAbsolutePath(value: string): boolean {
 
 export function normalizeTranscriptionPreview(value: string | null | undefined): string | undefined {
   if (!value) return undefined;
-  const normalized = value.replace(/\s+/gu, " ").trim();
+  const normalized = getTranscriptionPreviewInputPrefix(value).replace(/\s+/gu, " ").trim();
   if (
     !normalized ||
     /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u.test(normalized) ||

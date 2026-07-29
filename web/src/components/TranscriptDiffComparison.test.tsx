@@ -2,7 +2,12 @@
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, expect, it } from "vitest";
-import { buildTranscriptDiff, TranscriptDiffComparison } from "./TranscriptDiffComparison.js";
+import {
+  buildTranscriptDiff,
+  TRANSCRIPT_CHARACTER_DIFF_MAX_TOTAL_CODE_UNITS,
+  TRANSCRIPT_WORD_DIFF_MAX_TOTAL_CODE_UNITS,
+  TranscriptDiffComparison,
+} from "./TranscriptDiffComparison.js";
 
 describe("TranscriptDiffComparison", () => {
   it("highlights character-level replacements on their corresponding sides", () => {
@@ -49,6 +54,21 @@ describe("TranscriptDiffComparison", () => {
     expect(long.mode).toBe("word");
     expect(long.original.map((span) => span.value).join("")).toHaveLength(2_500);
     expect(long.replay.map((span) => span.value).join("")).toHaveLength(2_500);
+  });
+
+  it("routes oversized inputs before character or word tokenization", () => {
+    // A one-character edit would be a cheap character diff after tokenization; word mode proves the size gate ran first.
+    const characterSideLength = Math.floor(TRANSCRIPT_CHARACTER_DIFF_MAX_TOTAL_CODE_UNITS / 2) + 1;
+    const original = "a".repeat(characterSideLength);
+    const replay = `${"a".repeat(characterSideLength - 1)}b`;
+    expect(buildTranscriptDiff(original, replay).mode).toBe("word");
+
+    // Inputs beyond the second gate stay exact but plain, avoiding full word tokenization too.
+    const plainSideLength = Math.floor(TRANSCRIPT_WORD_DIFF_MAX_TOTAL_CODE_UNITS / 2) + 1;
+    const plain = buildTranscriptDiff("a".repeat(plainSideLength), "b".repeat(plainSideLength));
+    expect(plain.mode).toBe("unavailable");
+    expect(plain.original[0].value).toHaveLength(plainSideLength);
+    expect(plain.replay[0].value).toHaveLength(plainSideLength);
   });
 
   it("keeps skip-state labels plain instead of diffing them as transcript text", () => {

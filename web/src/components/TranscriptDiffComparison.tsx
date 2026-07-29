@@ -3,6 +3,8 @@ import * as Diff from "diff";
 
 const CHARACTER_DIFF_OPTIONS = { timeout: 30, maxEditLength: 2_000 } as const;
 const WORD_DIFF_OPTIONS = { timeout: 30, maxEditLength: 500 } as const;
+export const TRANSCRIPT_CHARACTER_DIFF_MAX_TOTAL_CODE_UNITS = 100_000;
+export const TRANSCRIPT_WORD_DIFF_MAX_TOTAL_CODE_UNITS = 250_000;
 
 export interface TranscriptDiffSpan {
   value: string;
@@ -40,12 +42,25 @@ export function buildTranscriptDiff(originalText: string, replayText: string, hi
     };
   }
 
-  const characterChanges = Diff.diffChars(originalText, replayText, CHARACTER_DIFF_OPTIONS);
+  const totalCodeUnits = originalText.length + replayText.length;
+  // jsdiff tokenizes before applying timeout/maxEditLength, so gate by O(1) string lengths first.
+  const characterChanges =
+    totalCodeUnits <= TRANSCRIPT_CHARACTER_DIFF_MAX_TOTAL_CODE_UNITS
+      ? Diff.diffChars(originalText, replayText, CHARACTER_DIFF_OPTIONS)
+      : undefined;
   if (characterChanges) {
     return {
       original: spansForSide(characterChanges, "original"),
       replay: spansForSide(characterChanges, "replay"),
       mode: "character",
+    };
+  }
+
+  if (totalCodeUnits > TRANSCRIPT_WORD_DIFF_MAX_TOTAL_CODE_UNITS) {
+    return {
+      original: [{ value: originalText, changed: false }],
+      replay: [{ value: replayText, changed: false }],
+      mode: "unavailable",
     };
   }
 

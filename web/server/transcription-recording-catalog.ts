@@ -7,7 +7,11 @@ import type {
   TranscriptionSttReplayContext,
 } from "./transcription-recordings.js";
 import { getTranscriptionRecordingRoot } from "./transcription-recordings.js";
-import { buildTranscriptionPreview, TRANSCRIPTION_PREVIEW_READ_MAX_BYTES } from "./transcription-preview.js";
+import {
+  buildTranscriptionPreview,
+  decodeTranscriptionPreviewInputPrefix,
+  TRANSCRIPTION_PREVIEW_INPUT_MAX_BYTES,
+} from "./transcription-preview.js";
 
 const SCAN_CACHE_MS = 30_000;
 const DISCOVERY_CONCURRENCY = 8;
@@ -494,9 +498,9 @@ async function readPreviewText(directoryPath: string, relativePath: string | und
   const handle = await open(artifactPath, "r").catch(() => null);
   if (!handle) return "";
   try {
-    const bytes = Buffer.alloc(TRANSCRIPTION_PREVIEW_READ_MAX_BYTES);
+    const bytes = Buffer.alloc(TRANSCRIPTION_PREVIEW_INPUT_MAX_BYTES);
     const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
-    return new TextDecoder().decode(bytes.subarray(0, bytesRead), { stream: bytesRead === bytes.length });
+    return decodeTranscriptionPreviewInputPrefix(bytes.subarray(0, bytesRead));
   } catch {
     return "";
   } finally {
