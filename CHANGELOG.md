@@ -1,5 +1,142 @@
 # Takode Changelog
 
+## 2026-07-28
+
+### Added
+
+- **GPT Transcribe voice model** -- New voice-transcription settings default to `gpt-transcribe` with bounded vocabulary and expected-language hints while preserving older and custom model compatibility
+- **Transcription replay comparisons** -- Transcription Detail can re-run stored audio or raw transcripts against selected models, save comparison variants, and rediscover a privacy-bounded recording archive after restart
+
+### Changed
+
+- **Composer and Questmaster density** -- The composer condenses model controls into one chip and removes branch/diff metadata, while the compact quest table drops its User review checks column
+- **Expected language picker** -- Selected language hints remain visible while the searchable picker stays collapsed until requested
+
+### Fixed
+
+- **Copilot authentication exhaustion** -- Codex sessions pause automatic inputs after a strictly recognized terminal API-key refresh failure while preserving manual recovery and exact-once backlog drain
+
+## 2026-07-27
+
+### Changed
+
+- **Delegate task results** -- Delegate traces group Bash commands with their results, lead with the child summary, and separate task, timing, and inspection metadata from result content
+
+### Fixed
+
+- **Delegate task context** -- Native-fork delegates resume the expected inherited Codex context, fail closed instead of silently starting fresh, and keep pending handoff state accurate
+- **Backend startup labels** -- Session creation shows launch progress for Codex, Claude Code, or Claude SDK according to the selected backend
+- **Leader route splits** -- Thread routing recognizes split markers even when blank spacer lines surround them
+
+## 2026-07-26
+
+### Changed
+
+- **Delegate task contract** -- The command-only delegation tool is now the general `delegate_task(task)` workflow while retaining hidden child evidence, lifecycle safeguards, and compact parent results
+
+### Fixed
+
+- **Codex startup recovery** -- Queued work waits for initializing or resuming adapters to become ready instead of relaunching them prematurely, and internal initialization turn-end rows stay out of leader activity
+
+## 2026-07-25
+
+### Added
+
+- **Quest commit diffs** -- Leader quest tabs can open quest-recorded code commits with selected-first loading, clear zero-code states, and protection from stale background failures
+
+### Changed
+
+- **Message dates** -- Message timestamps stay time-only today and add compact yesterday, current-year, or prior-year date context for older history
+- **Quest Journey details** -- Long phase histories are grouped and windowed so current runs stay readable while older notes remain accessible
+
+### Fixed
+
+- **Delegate child lifecycle** -- Completed hidden delegates leave active session lists without losing UUID-backed transcript inspection
+
+## 2026-07-24
+
+### Changed
+
+- **Post-Explore routing** -- Leaders can revise a completed Explore directly to a clear low-risk Implement step while required User Checkpoints and later safeguards remain protected
+- **Light theme contrast** -- Chat, quest links, attention rows, and related light-theme surfaces have clearer text and state contrast
+
+## 2026-07-23
+
+### Added
+
+- **Delegated work** -- Leaders can fork bounded work into a hidden Codex child, keep raw evidence in the child transcript, and receive a compact inspectable parent result
+
+### Changed
+
+- **Bash result visibility** -- Codex Bash cards prefer fuller matching output, mark embedded newlines in collapsed previews, and bound retained raw output
+- **Injected event details** -- Injected events show payload size metadata, and memory-catalog snapshots can be copied from their feed rows
+
+### Fixed
+
+- **Thread routing boundaries** -- Mid-message route splits, deep-link scroll targets, and stale ready-status chips resolve to the intended thread without repeated navigation
+- **Codex tool readiness** -- Startup and delegated-child prompts wait for refreshed MCP tools and an actual callable handoff tool before proceeding
+
+## 2026-07-22
+
+### Added
+
+- **Memory catalog startup context** -- Leader startup and recovery receive a visible catalog snapshot so relevant durable memory can be inspected before work continues
+
+### Changed
+
+- **Leader tab selection** -- Relevant quest tabs can surface in the background without automatically replacing the leader's selected thread
+
+### Fixed
+
+- **Thread-aware message links** -- Session and message links select the intended thread before jumping to their target
+- **Codex shell environment** -- Session-scoped Codex shell tools preserve the configured home directory and its isolated session state
+
+## 2026-07-21
+
+### Added
+
+- **Journey revisions** -- `takode board revise` can replace an active Journey suffix while preserving completed phase history and validating required safeguards
+
+### Changed
+
+- **Board proposals** -- `takode board propose --summary` creates and presents one expanded approval packet with Journey and dependency context
+
+### Fixed
+
+- **Thread continuation links** -- Continuation markers keep their session and quest links when rendered in collapsed feed history
+
+## 2026-07-20
+
+### Added
+
+- **Questmaster local backups** -- Quest and Journey text gains retained local snapshots and mutation journals, with separately deduplicated image blobs and manual restore guidance
+
+### Fixed
+
+- **Needs-input retries** -- Notification retries anchor to visible prompts, deduplicate only exact active retries, and report recovered notification state more accurately
+- **Quest hover previews** -- Quest links validate cached preview metadata before rendering so stale summaries do not appear under the wrong quest
+
+## 2026-07-17
+
+### Changed
+
+- **Leader ready outcomes** -- Leader workflows verify promised durable actions before marking a thread Ready
+
+### Fixed
+
+- **All Threads status noise** -- Internal thread-status chips stay out of the combined All Threads feed
+
+## 2026-07-15
+
+### Changed
+
+- **Quest reference autocomplete** -- Composer quest references use the full authoritative candidate set instead of only the currently loaded quest page
+
+### Fixed
+
+- **Message navigator jumps** -- User-message navigation loads off-window targets before scrolling to them
+- **Internal status rows** -- Codex retry turn-end events and Thread Ready bookkeeping stay out of the visible conversation feed
+
 ## 2026-07-14
 
 ### Added
@@ -10,10 +147,12 @@
 
 - **Needs-input suggestions** -- Needs-input prompts can carry more short suggested answers, with guidance updated to keep choices useful without an arbitrary cap
 - **Checkpoint approval guidance** -- Leader and checkpoint instructions distinguish actual user decisions from corrections more explicitly before continuing work
+- **Leader work summaries** -- Session summaries show waiting counts, and newly started Journeys receive clearer attention treatment
 
 ### Fixed
 
 - **Leader preload recovery reminders** -- Recovery reminders avoid false compaction signals during resume replay and point leaders back to preload state more accurately
+- **Quest Quiz directives** -- Inline quiz directives render after their quest details arrive instead of remaining unresolved in fetched history
 
 ## 2026-07-13
 
