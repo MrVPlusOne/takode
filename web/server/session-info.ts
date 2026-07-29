@@ -6,7 +6,7 @@ import type {
   SessionPauseState,
 } from "./session-types.js";
 import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
-import type { ModelAuthorityDecision } from "./model-identity-contract.js";
+import type { ModelAuthorityDecision, ModelProvenanceMigration } from "./model-identity-contract.js";
 
 export interface SdkSessionInfo {
   sessionId: string;
@@ -20,6 +20,8 @@ export interface SdkSessionInfo {
   model?: string;
   /** Managed Codex model winner plus the precedence/override trace used at launch. */
   modelAuthority?: ModelAuthorityDecision;
+  /** Historical server-owned warning for one-time unknown-provenance migration. */
+  modelProvenanceMigration?: ModelProvenanceMigration;
   permissionMode?: string;
   /** Whether permission prompts are enabled (shared UI state; backend-specific mapping). */
   askPermission?: boolean;

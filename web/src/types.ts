@@ -63,6 +63,7 @@ import type { ImageRef } from "../server/image-store.js";
 import type { SessionTimer } from "../server/timer-types.js";
 import type { ReplyContext } from "../shared/reply-context.js";
 import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
+import type { ModelAuthorityDecision, ModelProvenanceMigration } from "../server/model-identity-contract.js";
 import type {
   LeaderProfilePool,
   LeaderProfilePoolSettings,
@@ -149,6 +150,7 @@ export type {
   CodexAutoPauseHeldInput,
 };
 export type { TreeGroup, TreeGroupState } from "../server/tree-group-store.js";
+export type { ModelAuthorityDecision, ModelProvenanceMigration } from "../server/model-identity-contract.js";
 export type {
   StreamCurrentState,
   StreamEntryType,
@@ -325,6 +327,8 @@ export interface SdkSessionInfo {
   state: "starting" | "connected" | "running" | "exited";
   exitCode?: number | null;
   model?: string;
+  modelAuthority?: ModelAuthorityDecision;
+  modelProvenanceMigration?: ModelProvenanceMigration;
   permissionMode?: string;
   cwd: string;
   createdAt: number;

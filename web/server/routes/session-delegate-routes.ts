@@ -442,7 +442,8 @@ export function registerSessionDelegateRoutes(
     const childSession = wsBridge.getOrCreateSession(child.sessionId, "codex");
     childSession.state.hidden = true;
     childSession.state.cwd = parent.state.cwd || parentInfo.cwd;
-    childSession.state.model = parent.state.model || parentInfo.model || "";
+    childSession.state.model = child.model || parentInfo.model || parent.state.model || "";
+    childSession.state.modelProvenanceMigration = child.modelProvenanceMigration;
     childSession.state.treeGroupId = parent.state.treeGroupId ?? "default";
     childSession.state.memorySessionSpaceSlug = parent.state.memorySessionSpaceSlug;
     (childSession.state as any).delegateChild = { parentSessionId, delegateId, task };

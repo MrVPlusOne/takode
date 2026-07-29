@@ -1,9 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
-import { exec as execCb } from "node:child_process";
-import { promisify } from "node:util";
 import { mkdir, access, writeFile } from "node:fs/promises";
 
-const execPromise = promisify(execCb);
 import type { Subprocess } from "bun";
 import type { SessionStore } from "./session-store.js";
 import type {
@@ -37,7 +34,9 @@ import type { SdkSessionInfo } from "./session-info.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "./memory-session-space.js";
 import type { LaunchOptions } from "./cli-launcher-options.js";
 import { CLAUDE_1M_CONTEXT_BETA, CLAUDE_1M_CONTEXT_TOKENS } from "../shared/session-defaults.js";
-import { resolveLaunchModelSelection } from "./cli-launcher-model-authority.js";
+import { ensureModelAuthority, resolveLaunchModelSelection } from "./cli-launcher-model-authority.js";
+import { captureProcessSnapshot, sanitizeSpawnArgsForLog } from "./cli-launcher-process-diagnostics.js";
+import type { ModelProvenanceMigration } from "./model-identity-contract.js";
 
 export type { SdkSessionInfo } from "./session-info.js";
 export type { LaunchOptions } from "./cli-launcher-options.js";
@@ -83,44 +82,6 @@ async function waitForProcessExit(pid: number, timeoutMs: number): Promise<boole
   return !isProcessAlive(pid);
 }
 
-async function captureProcessSnapshot(pid: number): Promise<string[]> {
-  if (!Number.isInteger(pid) || pid <= 0) return [];
-  const cmd =
-    `PARENT_PID="$(ps -o ppid= -p ${pid} 2>/dev/null | tr -d ' ')"; ` +
-    `CHILD_PIDS="$(pgrep -P ${pid} 2>/dev/null | tr '\\n' ' ')"; ` +
-    `IDS="${pid}"; ` +
-    `[ -n "$PARENT_PID" ] && IDS="$IDS $PARENT_PID"; ` +
-    `[ -n "$CHILD_PIDS" ] && IDS="$IDS $CHILD_PIDS"; ` +
-    `ps -o pid=,ppid=,pgid=,stat=,etime=,command= -p $IDS 2>/dev/null`;
-  try {
-    const { stdout } = await execPromise(cmd, { timeout: 3000, maxBuffer: 64 * 1024 });
-    return stdout
-      .split("\n")
-      .map((line) => line.trimEnd())
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-function sanitizeSpawnArgsForLog(args: string[]): string {
-  const secretKeyPattern = /(token|key|secret|password)/i;
-  const out = [...args];
-  for (let i = 0; i < out.length; i++) {
-    if (out[i] === "-e" && i + 1 < out.length) {
-      const envPair = out[i + 1];
-      const eqIdx = envPair.indexOf("=");
-      if (eqIdx > 0) {
-        const k = envPair.slice(0, eqIdx);
-        if (secretKeyPattern.test(k)) {
-          out[i + 1] = `${k}=***`;
-        }
-      }
-    }
-  }
-  return out.join(" ");
-}
-
 /**
  * Manages CLI backend processes (Claude Code via --sdk-url WebSocket,
  * or Codex via app-server stdio).
@@ -148,11 +109,13 @@ export class CliLauncher {
     | ((sessionId: string, adapter: import("./claude-sdk-adapter.js").ClaudeSdkAdapter) => void)
     | null = null;
   private onBeforeRelaunch: ((sessionId: string, backendType: BackendType) => void) | null = null;
+  private onModelProvenanceMigration: ((sessionId: string, migration: ModelProvenanceMigration) => void) | null = null;
   private exitHandlers: ((sessionId: string, exitCode: number | null) => void)[] = [];
   private settingsGetter:
     | (() => {
         claudeBinary: string;
         codexBinary: string;
+        sessionDefaults?: { codex?: { model?: string } };
       })
     | null = null;
   /** Callback to resolve env profile variables by slug (set by server bootstrap). */
@@ -218,6 +181,10 @@ export class CliLauncher {
     this.onBeforeRelaunch = cb;
   }
 
+  onModelProvenanceMigrationCallback(cb: (sessionId: string, migration: ModelProvenanceMigration) => void): void {
+    this.onModelProvenanceMigration = cb;
+  }
+
   /** Attach a persistent store for surviving server restarts. */
   setStore(store: SessionStore): void {
     this.store = store;
@@ -233,6 +200,7 @@ export class CliLauncher {
     fn: () => {
       claudeBinary: string;
       codexBinary: string;
+      sessionDefaults?: { codex?: { model?: string } };
     },
   ): void {
     this.settingsGetter = fn;
@@ -416,6 +384,11 @@ export class CliLauncher {
   }
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
+  private recordModelProvenanceMigration(info: SdkSessionInfo, migration: ModelProvenanceMigration): void {
+    this.persistState();
+    this.onModelProvenanceMigration?.(info.sessionId, migration);
+  }
+
   /**
    * Restore sessions from disk and check which PIDs are still alive.
    * Returns the number of recovered sessions.
@@ -556,13 +529,19 @@ export class CliLauncher {
     const cwd = options.cwd || process.cwd();
     const backendType = options.backendType || "claude";
     const memorySessionSpaceSlug = this.resolveLaunchMemorySessionSpaceSlug(options);
-    const modelSelection = resolveLaunchModelSelection(backendType, options);
+    const parent = options.parentSessionId ? this.sessions.get(options.parentSessionId) : undefined;
+    const configuredDefaultModel = this.settingsGetter?.().sessionDefaults?.codex?.model;
+    const modelSelection = resolveLaunchModelSelection(backendType, options, { parent, configuredDefaultModel });
+    if (modelSelection.migratedParent && parent?.modelProvenanceMigration) {
+      this.recordModelProvenanceMigration(parent, parent.modelProvenanceMigration);
+    }
 
     const info: SdkSessionInfo = {
       sessionId,
       state: "starting",
       model: modelSelection.model,
       modelAuthority: modelSelection.modelAuthority,
+      modelProvenanceMigration: modelSelection.modelProvenanceMigration,
       permissionMode: options.permissionMode,
       askPermission: options.askPermission,
       uiMode: options.uiMode,
@@ -639,6 +618,9 @@ export class CliLauncher {
     }
 
     this.sessions.set(sessionId, info);
+    if (options.modelProvenanceMigrationCreated && info.modelProvenanceMigration) {
+      this.recordModelProvenanceMigration(info, info.modelProvenanceMigration);
+    }
 
     // Assign monotonic integer session number only for user-facing sessions.
     if (info.publicSessionNumber !== false) {
@@ -721,13 +703,21 @@ export class CliLauncher {
     const info = this.sessions.get(sessionId);
     if (!info) return { ok: false, error: "Session not found" };
     const binSettings = this.settingsGetter?.() ?? { claudeBinary: "", codexBinary: "" };
+    const bt = info.backendType ?? "claude";
+    if (bt === "codex") {
+      const ensured = ensureModelAuthority(info, binSettings.sessionDefaults?.codex?.model, "legacy_relaunch");
+      if (ensured.migrationCreated && ensured.migration) {
+        this.recordModelProvenanceMigration(info, ensured.migration);
+      } else if (ensured.stateChanged) {
+        this.persistState();
+      }
+    }
 
     // Kill old process if still alive
     const oldProc = this.processes.get(sessionId);
     // Notify ws-bridge before killing so it can mark the upcoming adapter
     // disconnect as intentional — prevents the disconnect handler from
     // requesting a redundant auto-relaunch that races with this one.
-    const bt = info.backendType ?? "claude";
     if (oldProc || info.pid) {
       this.onBeforeRelaunch?.(sessionId, bt);
     }

@@ -41,6 +41,7 @@ import {
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
+import { ModelProvenanceMigrationBanner } from "./ModelProvenanceMigrationBanner.js";
 import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
 import {
   QUEST_PARTICIPANT_CHIP_CLASS,
@@ -1092,6 +1093,7 @@ export function ChatView({
     claimedQuestStatus,
     claimedQuestLeaderSessionId,
     herdedBy,
+    modelProvenanceMigration,
     leaderOpenThreadTabs,
     slackThreads,
   } = useStore(
@@ -1122,6 +1124,7 @@ export function ChatView({
         claimedQuestLeaderSessionId:
           sessionState?.claimedQuestLeaderSessionId ?? sdkSession?.claimedQuestLeaderSessionId,
         herdedBy: sdkSession?.herdedBy,
+        modelProvenanceMigration: sessionState?.modelProvenanceMigration ?? sdkSession?.modelProvenanceMigration,
         leaderOpenThreadTabs: sessionState?.leaderOpenThreadTabs ?? sdkSession?.leaderOpenThreadTabs,
         slackThreads: sessionState?.slackThreads ?? EMPTY_SIDE_CHATS,
       };
@@ -1708,6 +1711,8 @@ export function ChatView({
           </button>
         </div>
       )}
+
+      {!preview && modelProvenanceMigration && <ModelProvenanceMigrationBanner migration={modelProvenanceMigration} />}
 
       {/* Session task outline — horizontal milestone chips */}
       {!preview && !isLeaderSession && !sessionQuestBannerRow && <TaskOutlineBar sessionId={sessionId} />}

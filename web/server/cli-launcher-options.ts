@@ -1,10 +1,14 @@
 import type { BackendType } from "./session-types.js";
-import type { ModelAuthorityDecision } from "./model-identity-contract.js";
+import type { ModelAuthorityDecision, ModelProvenanceMigration } from "./model-identity-contract.js";
 
 export interface LaunchOptions {
   model?: string;
   /** Persisted explanation of the managed Codex model winner and overridden candidates. */
   modelAuthority?: ModelAuthorityDecision;
+  /** Durable warning record when original Codex model provenance was unavailable. */
+  modelProvenanceMigration?: ModelProvenanceMigration;
+  /** Internal one-shot marker: this launch created the migration record rather than inheriting it. */
+  modelProvenanceMigrationCreated?: boolean;
   permissionMode?: string;
   /** Whether permission prompts are enabled (shared UI state; backend-specific mapping). */
   askPermission?: boolean;

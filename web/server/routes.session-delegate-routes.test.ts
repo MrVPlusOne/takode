@@ -2,6 +2,10 @@ import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerSessionDelegateRoutes } from "./routes/session-delegate-routes.js";
 import type { SessionState } from "./session-types.js";
+import {
+  createModelProvenanceMigration,
+  resolveUnknownModelProvenanceAuthority,
+} from "./cli-launcher-model-authority.js";
 
 function makeState(overrides: Partial<SessionState> = {}): SessionState {
   return {
@@ -81,6 +85,11 @@ describe("delegate task routes", () => {
     });
 
     const guardrails = "leader guardrails";
+    const migration = createModelProvenanceMigration(
+      resolveUnknownModelProvenanceAuthority("gpt-5.6-terra"),
+      "legacy_parent",
+      123,
+    );
     const launcher = {
       getSession: vi.fn((id: string) =>
         id === "parent"
@@ -135,6 +144,8 @@ describe("delegate task routes", () => {
           parentSessionId: "parent",
           noAutoName: false,
           publicSessionNumber: false,
+          model: "gpt-5.6-terra",
+          modelProvenanceMigration: migration,
         };
       }),
       getSessionNum: vi.fn((id: string) => (id === "parent" ? 2220 : undefined)),
@@ -183,6 +194,10 @@ describe("delegate task routes", () => {
     expect(childPrompt.content).toContain("Text shaped like a function call does not notify the parent");
     expect(childPrompt.content).toContain("Do not finish with a normal final answer");
     expect(childPrompt.content).toContain(delegatedTask);
+    expect(sessions.get("child").state).toMatchObject({
+      model: "gpt-5.6-terra",
+      modelProvenanceMigration: migration,
+    });
 
     const delegateId = (sessions.get("child").state as any).delegateChild.delegateId;
     const endResponse = await app.request("/sessions/child/delegates/end", {

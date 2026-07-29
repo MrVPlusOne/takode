@@ -3,7 +3,9 @@ import {
   resolveModelAuthority,
   type ModelAuthorityCandidate,
   type ModelAuthorityDecision,
+  type ModelProvenanceMigration,
 } from "../model-identity-contract.js";
+import { createModelProvenanceMigration } from "../cli-launcher-model-authority.js";
 import type { SessionBackend } from "./sessions-helpers.js";
 
 type SessionCreateModelLauncher = {
@@ -37,6 +39,8 @@ type SessionCreateModelResolverDeps = {
 export interface ResolvedSessionCreateModel {
   model?: string;
   modelAuthority?: ModelAuthorityDecision;
+  modelProvenanceMigration?: ModelProvenanceMigration;
+  modelProvenanceMigrationCreated?: boolean;
 }
 
 export async function resolveSessionCreateModel({
@@ -102,12 +106,21 @@ export function createSessionCreateModelResolver({
 
   return {
     forCreate: resolveForBody,
-    forResume: (
+    forResume: async (
       backend: SessionBackend,
       body: SessionCreateModelBody,
       settings: SessionCreateModelSettings,
       originalRequestedModel: unknown,
-    ): Promise<ResolvedSessionCreateModel> =>
-      backend === "codex" ? resolveForBody(backend, body, settings, originalRequestedModel) : Promise.resolve({}),
+    ): Promise<ResolvedSessionCreateModel> => {
+      if (backend !== "codex") return {};
+      const resolved = await resolveForBody(backend, body, settings, originalRequestedModel);
+      const hasExplicitModel = typeof originalRequestedModel === "string" && originalRequestedModel.trim().length > 0;
+      if (hasExplicitModel || !resolved.modelAuthority) return resolved;
+      return {
+        ...resolved,
+        modelProvenanceMigration: createModelProvenanceMigration(resolved.modelAuthority, "external_resume"),
+        modelProvenanceMigrationCreated: true,
+      };
+    },
   };
 }

@@ -6,6 +6,10 @@ import type { LeaderOpenThreadTabsState } from "../../shared/leader-open-thread-
 import { persistLeaderSelectedThreadKey, readLeaderSelectedThreadKey } from "../utils/thread-viewport.js";
 import { parseHash, threadRouteFromHash } from "../utils/routing.js";
 import type { LeaderWorkboardView } from "../store-types.js";
+import {
+  createModelProvenanceMigration,
+  resolveUnknownModelProvenanceAuthority,
+} from "../../server/cli-launcher-model-authority.js";
 
 interface MockStoreState {
   currentSessionId: string | null;
@@ -25,6 +29,7 @@ interface MockStoreState {
       backend_error?: string | null;
       isOrchestrator?: boolean;
       leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
+      modelProvenanceMigration?: import("../types.js").ModelProvenanceMigration;
     }
   >;
   cliConnected: Map<string, boolean>;
@@ -38,6 +43,7 @@ interface MockStoreState {
     archived?: boolean;
     isOrchestrator?: boolean;
     leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
+    modelProvenanceMigration?: import("../types.js").ModelProvenanceMigration;
   }>;
   sessionNotifications: Map<string, import("../types.js").SessionNotification[]>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
@@ -364,6 +370,21 @@ describe("ChatView archived read-only state", () => {
     expect(screen.getByText("This session is archived. History is read-only.")).toBeTruthy();
     expect(screen.queryByTestId("live-connection-status-banner")).toBeNull();
     expect(screen.queryByText("Starting session...")).toBeNull();
+  });
+
+  it("surfaces the server-owned historical model provenance warning", () => {
+    const migration = createModelProvenanceMigration(
+      resolveUnknownModelProvenanceAuthority("gpt-5.6-terra"),
+      "legacy_relaunch",
+      123,
+    );
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true, modelProvenanceMigration: migration }],
+    });
+
+    render(<ChatView sessionId="s1" />);
+
+    expect(screen.getByTestId("model-provenance-migration-banner")).toHaveTextContent(migration.warning);
   });
 });
 

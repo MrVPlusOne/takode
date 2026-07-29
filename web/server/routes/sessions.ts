@@ -465,8 +465,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       const initialCwd = body.cwd ? resolve(expandTilde(body.cwd)) : process.cwd();
       const resumedModel = await sessionModelResolver.forResume(backend, body, binarySettings, requestedModel);
       const launchOptions: LaunchOptions = {
-        model: resumedModel.model,
-        modelAuthority: resumedModel.modelAuthority,
+        ...resumedModel,
         cwd: initialCwd,
         claudeBinary: body.claudeBinary || binarySettings.claudeBinary || undefined,
         codexBinary: body.codexBinary || binarySettings.codexBinary || undefined,
@@ -774,8 +773,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     const initialCwd = cwd || process.cwd();
     const launchOptions: LaunchOptions = {
-      model: resolvedModel.model,
-      modelAuthority: resolvedModel.modelAuthority,
+      ...resolvedModel,
       permissionMode: initialModeState.permissionMode,
       askPermission: initialModeState.askPermission,
       uiMode: initialModeState.uiMode,

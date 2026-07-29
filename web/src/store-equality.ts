@@ -207,6 +207,8 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.state === b.state &&
     a.exitCode === b.exitCode &&
     a.model === b.model &&
+    a.modelProvenanceMigration?.migratedAt === b.modelProvenanceMigration?.migratedAt &&
+    a.modelProvenanceMigration?.selectedModel === b.modelProvenanceMigration?.selectedModel &&
     a.permissionMode === b.permissionMode &&
     a.cwd === b.cwd &&
     a.createdAt === b.createdAt &&

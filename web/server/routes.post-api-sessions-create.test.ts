@@ -1152,8 +1152,36 @@ describe("POST /api/sessions/create", () => {
           model: "gpt-5.6-sol",
           source: "managed_fallback",
         }),
+        modelProvenanceMigrationCreated: true,
+        modelProvenanceMigration: expect.objectContaining({
+          source: "external_resume",
+          selectedModel: "gpt-5.6-sol",
+          warning: expect.stringContaining("Original model provenance was unavailable"),
+        }),
       }),
     );
+  });
+
+  it("preserves an explicit external-resume model without a migration warning", async () => {
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        backend: "codex",
+        cwd: "/test",
+        model: "gpt-5.6-terra",
+        resumeCliSessionId: "codex-resume-explicit-authority",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gpt-5.6-terra",
+        modelAuthority: expect.objectContaining({ source: "explicit_request" }),
+      }),
+    );
+    expect(launcher.launch.mock.calls[0][0]).not.toHaveProperty("modelProvenanceMigration");
   });
 
   it("sets up a worktree when useWorktree and branch are specified", async () => {

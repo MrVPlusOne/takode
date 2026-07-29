@@ -3,6 +3,7 @@ import type { FeedWindowSync } from "../shared/feed-window-sync.js";
 import type { LeaderOpenThreadTabsState, LeaderThreadTabUpdate } from "../shared/leader-open-thread-tabs.js";
 import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
 import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
+import type { ModelProvenanceMigration } from "./model-identity-contract.js";
 
 // Types for the WebSocket bridge between Claude Code CLI and the browser
 
@@ -1331,6 +1332,8 @@ export interface SessionState {
   /** Server-authored backend failure detail for disconnected/broken states. */
   backend_error?: string | null;
   model: string;
+  /** Server-owned historical warning for one-time unknown-provenance migration. */
+  modelProvenanceMigration?: ModelProvenanceMigration;
   /** Server-owned configured Codex web access for the next launch/resume. */
   codex_internet_access?: boolean | null;
   /** Server-owned configured Codex usable context capacity target for the next launch/resume. */

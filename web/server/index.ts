@@ -52,6 +52,7 @@ import { resumeRestartContinuations } from "./restart-continuation-store.js";
 import { requestStartupRecoveryRelaunch, runStartupRecovery } from "./startup-recovery.js";
 import { getStaticAssetCacheControl } from "./static-asset-cache.js";
 import { markCodexIntentionalRelaunch, markSessionRelaunchPending } from "./bridge/codex-recovery-orchestrator.js";
+import { deliverModelProvenanceMigration } from "./model-provenance-migration-delivery.js";
 import {
   addTaskEntry as addTaskEntryController,
   mergeKeywords as mergeKeywordsController,
@@ -335,6 +336,10 @@ launcher.onCodexAdapterCreated((sessionId, adapter) => {
 
 launcher.onClaudeSdkAdapterCreated((sessionId, adapter) => {
   wsBridge.attachClaudeSdkAdapter(sessionId, adapter);
+});
+
+launcher.onModelProvenanceMigrationCallback((sessionId, migration) => {
+  deliverModelProvenanceMigration(sessionId, migration, wsBridge);
 });
 
 // Mark upcoming adapter disconnects as intentional before relaunch kills

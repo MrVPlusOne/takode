@@ -28,6 +28,17 @@ export interface ModelAuthorityDecision {
   overrideTrace: ModelAuthorityTraceEntry[];
 }
 
+export type ModelProvenanceMigrationSource = "external_resume" | "legacy_relaunch" | "legacy_parent";
+
+export interface ModelProvenanceMigration {
+  code: "model_provenance_unavailable";
+  source: ModelProvenanceMigrationSource;
+  selectedModel: string;
+  authority: ModelAuthorityDecision;
+  migratedAt: number;
+  warning: string;
+}
+
 export class ModelDefaultConflictError extends Error {
   readonly code = "model_default_conflict";
 

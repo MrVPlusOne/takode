@@ -15,6 +15,7 @@ import { ToolBlock } from "../ToolBlock.js";
 import { GitHubPRDisplay } from "../TaskPanel.js";
 import { SessionStatusDot } from "../SessionStatusDot.js";
 import { SessionItem } from "../SessionItem.js";
+import { ModelProvenanceMigrationBanner } from "../ModelProvenanceMigrationBanner.js";
 import { YarnBallDot } from "../CatIcons.js";
 import { getShortcutTitle } from "../../shortcuts.js";
 import { useStore } from "../../store.js";
@@ -717,6 +718,31 @@ export function PlaygroundOverviewSections() {
             <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
               <ChatView sessionId={PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID} />
             </div>
+          </Card>
+          <Card label="Historical unknown-provenance migration warning">
+            <ModelProvenanceMigrationBanner
+              migration={{
+                code: "model_provenance_unavailable",
+                source: "legacy_relaunch",
+                selectedModel: "gpt-5.6-sol",
+                authority: {
+                  model: "gpt-5.6-sol",
+                  source: "session_default",
+                  policyVersion: "playground",
+                  overrideTrace: [
+                    {
+                      model: "gpt-5.6-sol",
+                      source: "session_default",
+                      precedence: 300,
+                      status: "selected",
+                    },
+                  ],
+                },
+                migratedAt: 0,
+                warning:
+                  "Original model provenance was unavailable. Takode selected gpt-5.6-sol and persisted this exact choice.",
+              }}
+            />
           </Card>
         </div>
       </Section>

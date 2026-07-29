@@ -2,6 +2,10 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { registerSessionSideChatRoutes } from "./routes/session-side-chat-routes.js";
 import type { BrowserIncomingMessage, SessionState } from "./session-types.js";
+import {
+  createModelProvenanceMigration,
+  resolveUnknownModelProvenanceAuthority,
+} from "./cli-launcher-model-authority.js";
 
 vi.mock("./session-names.js", () => ({
   setName: vi.fn(),
@@ -79,6 +83,11 @@ function makeState(overrides: Partial<SessionState> = {}): SessionState {
 
 describe("Side Chat session routes", () => {
   it("launches hidden Codex children with the root session env profile and runtime env", async () => {
+    const migration = createModelProvenanceMigration(
+      resolveUnknownModelProvenanceAuthority("gpt-5.6-terra"),
+      "legacy_parent",
+      123,
+    );
     const root = {
       id: "root",
       state: makeState({ backend_type: "codex", memorySessionSpaceSlug: "Takode" }),
@@ -126,6 +135,8 @@ describe("Side Chat session routes", () => {
         cwd: "/repo",
         createdAt: 2,
         state: "starting" as const,
+        model: "gpt-5.6-terra",
+        modelProvenanceMigration: migration,
       })),
       touchActivity: vi.fn(),
     };
@@ -190,6 +201,10 @@ describe("Side Chat session routes", () => {
     expect(launchOptions.env).not.toHaveProperty("COMPANION_SESSION_ID");
     expect(launchOptions.env).not.toHaveProperty("TAKODE_ROLE");
     expect(childSession.state.permissionMode).toBe("codex-default");
+    expect(childSession.state).toMatchObject({
+      model: "gpt-5.6-terra",
+      modelProvenanceMigration: migration,
+    });
   });
 
   it("uses Codex thread/fork and resumes the hidden child from the forked thread", async () => {

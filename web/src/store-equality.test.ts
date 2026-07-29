@@ -21,4 +21,28 @@ describe("sdkSessionListEqual", () => {
     ).toBe(false);
     expect(sdkSessionListEqual([session({ claudeReasoningEffort: "max" })], [session()])).toBe(false);
   });
+
+  it("detects a server-authored model provenance migration warning", () => {
+    const migration = {
+      code: "model_provenance_unavailable" as const,
+      source: "legacy_relaunch" as const,
+      selectedModel: "gpt-5.6-sol",
+      authority: {
+        model: "gpt-5.6-sol",
+        source: "managed_fallback" as const,
+        policyVersion: "test",
+        overrideTrace: [
+          {
+            model: "gpt-5.6-sol",
+            source: "managed_fallback" as const,
+            precedence: 100,
+            status: "selected" as const,
+          },
+        ],
+      },
+      migratedAt: 123,
+      warning: "Original provenance unavailable",
+    };
+    expect(sdkSessionListEqual([session({ modelProvenanceMigration: migration })], [session()])).toBe(false);
+  });
 });

@@ -356,6 +356,7 @@ export function registerSessionSideChatRoutes(
 
     const childSession = wsBridge.getOrCreateSession(child.sessionId, backend);
     childSession.state.hidden = true;
+    childSession.state.modelProvenanceMigration = child.modelProvenanceMigration;
     childSession.state.slackThreadChild = {
       rootSessionId: id,
       threadId: sideChatId,
@@ -372,7 +373,7 @@ export function registerSessionSideChatRoutes(
     };
     childSession.state.permissionMode = permissionMode;
     childSession.state.cwd = root.state.cwd || rootInfo.cwd;
-    childSession.state.model = root.state.model || rootInfo.model || "";
+    childSession.state.model = child.model || rootInfo.model || root.state.model || "";
     childSession.state.treeGroupId = root.state.treeGroupId ?? "default";
     childSession.state.memorySessionSpaceSlug = root.state.memorySessionSpaceSlug;
     wsBridge.persistSessionById(child.sessionId);

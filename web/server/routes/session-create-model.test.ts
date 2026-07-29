@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolveSessionCreateModel } from "./session-create-model.js";
+import { createSessionCreateModelResolver, resolveSessionCreateModel } from "./session-create-model.js";
 
 function makeLauncher(
   session:
@@ -95,6 +95,25 @@ describe("resolveSessionCreateModel", () => {
     ).resolves.toMatchObject({
       model: "gpt-5.6-sol",
       modelAuthority: { source: "managed_fallback" },
+    });
+  });
+
+  it("marks unknown external resume provenance while choosing the configured default", async () => {
+    const resolver = createSessionCreateModelResolver({
+      launcher: makeLauncher(),
+      getClaudeUserDefaultModel: async () => "",
+    });
+
+    await expect(
+      resolver.forResume("codex", {}, { sessionDefaults: { codex: { model: "gpt-5.6-terra" } } }, undefined),
+    ).resolves.toMatchObject({
+      model: "gpt-5.6-terra",
+      modelAuthority: { source: "session_default" },
+      modelProvenanceMigrationCreated: true,
+      modelProvenanceMigration: {
+        source: "external_resume",
+        selectedModel: "gpt-5.6-terra",
+      },
     });
   });
 });
