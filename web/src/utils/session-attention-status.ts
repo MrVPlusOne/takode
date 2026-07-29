@@ -78,15 +78,17 @@ function filterOpenNotifications(
   notifications: SessionNotification[],
   summary: SessionAttentionSummary | undefined,
 ): SessionNotification[] {
+  const openTabs = summary?.isOrchestrator
+    ? normalizeLeaderOpenThreadTabsState(summary.leaderOpenThreadTabs)
+    : undefined;
+  if (!openTabs) return notifications.filter((notification) => !notification.done);
+
   const openThreadKeys = new Set<string>([MAIN_THREAD_KEY]);
-  if (summary?.isOrchestrator) {
-    const openTabs = normalizeLeaderOpenThreadTabsState(summary.leaderOpenThreadTabs);
-    for (const key of openTabs?.orderedOpenThreadKeys ?? []) openThreadKeys.add(normalizeThreadKey(key));
-  }
+  for (const key of openTabs.orderedOpenThreadKeys) openThreadKeys.add(normalizeThreadKey(key));
   return notifications
     .filter((notification) => !notification.done)
     .filter((notification) => {
-      if (!summary?.isOrchestrator || notification.category !== "review") return true;
+      if (notification.category !== "review") return true;
       const threadKey = normalizeThreadKey(notification.threadKey || notification.questId || MAIN_THREAD_KEY);
       return openThreadKeys.has(threadKey);
     });
@@ -162,10 +164,13 @@ export function deriveEffectiveSessionAttentionStatus({
   const hasFreshSummary =
     summary?.notificationStatusVersion !== undefined || summary?.notificationStatusUpdatedAt !== undefined;
   const hasFreshActiveSummary = hasFreshSummary && !!summaryUrgency && (summaryActiveCount ?? 0) > 0;
+  const hasAuthoritativeLeaderTabState =
+    summary?.isOrchestrator === true && normalizeLeaderOpenThreadTabsState(summary.leaderOpenThreadTabs) !== undefined;
   const hasActiveOpenReview = activeNotifications.some(
     (notification) => notification.category === "review" && !notification.done,
   );
-  const summaryCanOverrideWithReview = summaryUrgency !== "review" || !summary?.isOrchestrator || hasActiveOpenReview;
+  const summaryCanOverrideWithReview =
+    summaryUrgency !== "review" || !hasAuthoritativeLeaderTabState || hasActiveOpenReview;
 
   if (
     hasFreshSummary &&
@@ -186,7 +191,7 @@ export function deriveEffectiveSessionAttentionStatus({
   if (mutedCount > 0) return { urgency: "muted-needs-input", count: mutedCount };
 
   if (summaryActiveCount === 0 || (hasFreshSummary && summaryUrgency === null)) return null;
-  if (summaryUrgency === "review" && summary?.isOrchestrator && !hasActiveOpenReview) return null;
+  if (summaryUrgency === "review" && hasAuthoritativeLeaderTabState && !hasActiveOpenReview) return null;
   if (currentSessionId === sessionId && !hasFreshActiveSummary) return null;
   return getFallbackStatus(fallbackUrgency, fallbackSummary ?? summary);
 }

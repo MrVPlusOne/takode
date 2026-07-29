@@ -10,7 +10,7 @@ import type {
   TaskItem,
 } from "./types.js";
 import { generateUniqueSessionName } from "./utils/names.js";
-import { playNotificationSound, playReviewSound, playNeedsInputSound } from "./utils/notification-sound.js";
+import { playNotificationSound } from "./utils/notification-sound.js";
 import {
   extractTextFromBlocks,
   normalizeHistoryMessageToChatMessages,
@@ -38,6 +38,7 @@ import { applyThreadAttachmentUpdate } from "./thread-attachment-update-handler.
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
 import { handleTranscriptionProgressMessage } from "./transcription-progress.js";
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
+import { handleNotificationUpdateMessage } from "./ws-notification-handler.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -48,9 +49,6 @@ let sessionCreatedTimer: ReturnType<typeof setTimeout> | null = null;
 
 let sessionMutationRefreshInFlight: Promise<void> | null = null;
 
-/** Debounce guard: prevent overlapping notification sounds from rapid updates. */
-let lastNotificationSoundAt = 0;
-const NOTIFICATION_SOUND_DEBOUNCE_MS = 1000;
 /** Delay transient backend_disconnected flips to avoid sidebar flicker during fast relaunches. */
 const CLI_DISCONNECT_DEBOUNCE_MS = 250;
 
@@ -1444,48 +1442,7 @@ function handleParsedMessage(
     }
 
     case "notification_update": {
-      // Server-authoritative notification inbox for this session.
-      const newNotifications = data.notifications ?? [];
-      const oldNotifications = store.sessionNotifications?.get(sessionId) ?? [];
-
-      // Detect newly added unaddressed notifications by comparing IDs
-      const oldIds = new Set(oldNotifications.map((n: { id: string }) => n.id));
-      const added = newNotifications.filter((n: { id: string; done: boolean }) => !n.done && !oldIds.has(n.id));
-
-      const applied = applySessionNotifications(
-        sessionId,
-        newNotifications,
-        {
-          notificationUrgency: data.notificationUrgency,
-          activeNotificationCount: data.activeNotificationCount,
-          activeNeedsInputNotificationCount: data.activeNeedsInputNotificationCount,
-          activeReviewNotificationCount: data.activeReviewNotificationCount,
-          mutedNeedsInputNotificationCount: data.mutedNeedsInputNotificationCount,
-          notificationStatusVersion: data.notificationStatusVersion,
-          notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
-        },
-        { authoritativeStatus: true },
-      );
-      if (!applied) break;
-
-      // Play differentiated sounds for new notifications (when tab is not focused).
-      // Debounce to prevent overlapping sounds from rapid notification_update messages.
-      const now = Date.now();
-      if (
-        added.length > 0 &&
-        !document.hasFocus() &&
-        store.notificationSound &&
-        now - lastNotificationSoundAt >= NOTIFICATION_SOUND_DEBOUNCE_MS
-      ) {
-        lastNotificationSoundAt = now;
-        const hasNeedsInput = added.some((n: { category: string }) => n.category === "needs-input");
-        const hasReview = added.some((n: { category: string }) => n.category === "review");
-        if (hasNeedsInput) {
-          playNeedsInputSound();
-        } else if (hasReview) {
-          playReviewSound();
-        }
-      }
+      handleNotificationUpdateMessage(sessionId, data);
       break;
     }
 

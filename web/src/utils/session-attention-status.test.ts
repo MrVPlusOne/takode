@@ -98,6 +98,36 @@ describe("deriveEffectiveSessionAttentionStatus", () => {
     expect(status).toEqual({ urgency: "review", count: 1 });
   });
 
+  it("preserves legacy leader unread when authoritative tab state is absent", () => {
+    const legacyReview: SessionNotification = {
+      id: "n-legacy",
+      category: "review",
+      summary: "Legacy thread ready",
+      timestamp: 3000,
+      messageId: null,
+      done: false,
+      threadKey: "q-1000",
+      questId: "q-1000",
+    };
+
+    const status = deriveEffectiveSessionAttentionStatus({
+      sessionId: "leader",
+      currentSessionId: "leader",
+      notifications: [legacyReview],
+      summary: {
+        id: "leader",
+        isOrchestrator: true,
+        notificationUrgency: "review",
+        activeNotificationCount: 1,
+        activeReviewNotificationCount: 1,
+        notificationStatusVersion: 9,
+      },
+      fallbackUrgency: "review",
+    });
+
+    expect(status).toEqual({ urgency: "review", count: 1 });
+  });
+
   it("still suppresses stale fallback attention for the selected session without a fresh active summary", () => {
     const status = deriveEffectiveSessionAttentionStatus({
       sessionId: "leader",
