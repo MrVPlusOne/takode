@@ -263,6 +263,59 @@ describe("handleMessage: state_snapshot", () => {
     expect(useStore.getState().sessionAttention.get("s1")).toBeNull();
   });
 
+  it("does not recompute an authoritative snapshot count from raw historical reviews", () => {
+    // q-1735 live sequence: compact summary is one, the equal-version session
+    // snapshot historically carried five raw unresolved rows, and the next
+    // compact refresh returned to one. Authoritative snapshot fields prevent
+    // the middle payload from ever surfacing five.
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "s1",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 1,
+        isOrchestrator: true,
+        notificationUrgency: "review",
+        activeNotificationCount: 1,
+        activeReviewNotificationCount: 1,
+        notificationStatusVersion: 7,
+        notificationStatusUpdatedAt: 7000,
+      },
+    ]);
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "idle",
+      permissionMode: "default",
+      backendConnected: true,
+      uiMode: null,
+      askPermission: true,
+      notifications: [
+        { id: "n-old-1", category: "review", timestamp: 1000, threadKey: "q-old-1", done: false },
+        { id: "n-old-2", category: "review", timestamp: 1100, threadKey: "q-old-2", done: false },
+        { id: "n-old-3", category: "review", timestamp: 1200, threadKey: "q-old-3", done: false },
+        { id: "n-old-4", category: "review", timestamp: 1300, threadKey: "q-old-4", done: false },
+        { id: "n-current", category: "review", timestamp: 3000, threadKey: "q-current", done: false },
+      ],
+      notificationUrgency: "review",
+      activeNotificationCount: 1,
+      activeNeedsInputNotificationCount: 0,
+      activeReviewNotificationCount: 1,
+      mutedNeedsInputNotificationCount: 0,
+      notificationStatusVersion: 7,
+      notificationStatusUpdatedAt: 7000,
+    });
+
+    expect(useStore.getState().sdkSessions.find((session) => session.sessionId === "s1")).toMatchObject({
+      notificationUrgency: "review",
+      activeNotificationCount: 1,
+      activeReviewNotificationCount: 1,
+      notificationStatusVersion: 7,
+    });
+  });
+
   it("hydrates and replaces server-authoritative attention records from snapshots and live updates", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

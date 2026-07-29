@@ -1452,10 +1452,20 @@ function handleParsedMessage(
       const oldIds = new Set(oldNotifications.map((n: { id: string }) => n.id));
       const added = newNotifications.filter((n: { id: string; done: boolean }) => !n.done && !oldIds.has(n.id));
 
-      const applied = applySessionNotifications(sessionId, newNotifications, {
-        notificationStatusVersion: data.notificationStatusVersion,
-        notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
-      });
+      const applied = applySessionNotifications(
+        sessionId,
+        newNotifications,
+        {
+          notificationUrgency: data.notificationUrgency,
+          activeNotificationCount: data.activeNotificationCount,
+          activeNeedsInputNotificationCount: data.activeNeedsInputNotificationCount,
+          activeReviewNotificationCount: data.activeReviewNotificationCount,
+          mutedNeedsInputNotificationCount: data.mutedNeedsInputNotificationCount,
+          notificationStatusVersion: data.notificationStatusVersion,
+          notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
+        },
+        { authoritativeStatus: true },
+      );
       if (!applied) break;
 
       // Play differentiated sounds for new notifications (when tab is not focused).
@@ -1491,6 +1501,15 @@ function handleParsedMessage(
 
     case "state_snapshot": {
       // Authoritative state from server — overrides any stale transient state
+      const authoritativeNotificationStatus = {
+        notificationUrgency: data.notificationUrgency,
+        activeNotificationCount: data.activeNotificationCount,
+        activeNeedsInputNotificationCount: data.activeNeedsInputNotificationCount,
+        activeReviewNotificationCount: data.activeReviewNotificationCount,
+        mutedNeedsInputNotificationCount: data.mutedNeedsInputNotificationCount,
+        notificationStatusVersion: data.notificationStatusVersion,
+        notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
+      };
       store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
       store.setActiveTurnRoute(sessionId, data.sessionStatus === "running" ? data.activeTurnRoute : null);
       store.setCliConnected(sessionId, data.backendConnected);
@@ -1524,14 +1543,10 @@ function handleParsedMessage(
       // Sync server-authoritative attention state
       if (data.attentionReason !== undefined) {
         const snapshotNotificationStatus = data.notifications
-          ? summarizeNotificationStatus(data.notifications, {
-              notificationStatusVersion: data.notificationStatusVersion,
-              notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
+          ? summarizeNotificationStatus(data.notifications, authoritativeNotificationStatus, {
+              authoritativeStatus: true,
             })
-          : {
-              notificationStatusVersion: data.notificationStatusVersion,
-              notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
-            };
+          : authoritativeNotificationStatus;
         const shouldApplyAttention = shouldApplyAttentionReasonWithNotificationFreshness(
           sessionId,
           data.attentionReason,
@@ -1563,9 +1578,8 @@ function handleParsedMessage(
       }
       // Sync notification inbox from server on connect/reconnect
       if (data.notifications) {
-        applySessionNotifications(sessionId, data.notifications, {
-          notificationStatusVersion: data.notificationStatusVersion,
-          notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
+        applySessionNotifications(sessionId, data.notifications, authoritativeNotificationStatus, {
+          authoritativeStatus: true,
         });
       }
       store.setSessionAttentionRecords(sessionId, data.attentionRecords ?? []);

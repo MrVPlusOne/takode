@@ -1150,6 +1150,11 @@ export type BrowserIncomingMessageBase =
       notifications?: SessionNotification[];
       attentionRecords?: SessionAttentionRecord[];
       leaderThreadStatuses?: SessionState["leaderThreadStatuses"];
+      notificationUrgency?: "needs-input" | "review" | null;
+      activeNotificationCount?: number;
+      activeNeedsInputNotificationCount?: number;
+      activeReviewNotificationCount?: number;
+      mutedNeedsInputNotificationCount?: number;
       notificationStatusVersion?: number;
       notificationStatusUpdatedAt?: number;
     }
@@ -1193,6 +1198,10 @@ export type BrowserIncomingMessageBase =
   | {
       type: "notification_update";
       notifications: SessionNotification[];
+      notificationUrgency?: NotificationUrgency;
+      activeNotificationCount?: number;
+      activeNeedsInputNotificationCount?: number;
+      activeReviewNotificationCount?: number;
       notificationStatusVersion?: number;
       notificationStatusUpdatedAt?: number;
       mutedNeedsInputNotificationCount?: number;

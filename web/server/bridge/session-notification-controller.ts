@@ -5,6 +5,7 @@ import type {
   SessionNotification,
 } from "../session-types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import { normalizeLeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
 import {
   type ThreadRouteMetadata,
   normalizeThreadRoute,
@@ -113,7 +114,7 @@ export function clearAttentionAndMarkRead(
   deps: PersistNotificationDeps,
   options: ClearAttentionAndMarkReadOptions = {},
 ): void {
-  const unreadReviewNotifications = getActionableSessionNotifications(session).filter(
+  const unreadReviewNotifications = getUserVisibleSessionNotifications(session).filter(
     (notification) => notification.category === "review" && !notification.done,
   );
   const hasThreadScopedReviewNotifications =
@@ -175,10 +176,29 @@ function isThreadScopedReviewNotification(notification: SessionNotification): bo
   return route !== null && route.threadKey !== "main";
 }
 
-function getActionableSessionNotifications(session: SessionLike): SessionNotification[] {
+function openLeaderReviewThreadKeys(session: SessionLike): Set<string> | null {
+  if (session.state?.isOrchestrator !== true) return null;
+  const openTabs = normalizeLeaderOpenThreadTabsState(session.state?.leaderOpenThreadTabs);
+  if (!openTabs) return null;
+  return new Set(["main", ...openTabs.orderedOpenThreadKeys]);
+}
+
+function isDiscoverableLeaderReviewNotification(
+  notification: SessionNotification,
+  openThreadKeys: Set<string> | null,
+): boolean {
+  if (notification.category !== "review" || notification.done || !openThreadKeys) return true;
+  const route = normalizeThreadRoute(notification.threadKey, notification.questId);
+  return openThreadKeys.has(route?.threadKey ?? "main");
+}
+
+export function getUserVisibleSessionNotifications(session: SessionLike): SessionNotification[] {
+  const openThreadKeys = openLeaderReviewThreadKeys(session);
   return (session.notifications ?? []).filter(
     (notification: SessionNotification) =>
-      isActionableSessionNotification(notification) && !isReadReviewNotification(session, notification),
+      isActionableSessionNotification(notification) &&
+      !isReadReviewNotification(session, notification) &&
+      isDiscoverableLeaderReviewNotification(notification, openThreadKeys),
   );
 }
 
@@ -189,7 +209,7 @@ export function getNotificationStatusSnapshot(session: SessionLike): Notificatio
   let mutedNeedsInputNotificationCount = 0;
   let hasNeedsInput = false;
   let hasReview = false;
-  const notifications = getActionableSessionNotifications(session);
+  const notifications = getUserVisibleSessionNotifications(session);
   for (const notification of notifications) {
     if (notification.done) continue;
     activeNotificationCount += 1;
@@ -225,9 +245,8 @@ function buildNotificationUpdateMessage(session: SessionLike): BrowserIncomingMe
   const status = getNotificationStatusSnapshot(session);
   return {
     type: "notification_update",
-    notifications: getActionableSessionNotifications(session),
-    notificationStatusVersion: status.notificationStatusVersion,
-    notificationStatusUpdatedAt: status.notificationStatusUpdatedAt,
+    notifications: getUserVisibleSessionNotifications(session),
+    ...status,
   } as BrowserIncomingMessage;
 }
 

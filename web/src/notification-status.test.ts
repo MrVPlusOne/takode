@@ -33,6 +33,18 @@ function needsInputNotification(overrides: Partial<SessionNotification> = {}): S
   };
 }
 
+function reviewNotification(overrides: Partial<SessionNotification> = {}): SessionNotification {
+  return {
+    id: "review-1",
+    category: "review",
+    summary: "Ready for review",
+    timestamp: 1000,
+    messageId: null,
+    done: false,
+    ...overrides,
+  };
+}
+
 function waitingNotification(): SessionNotification {
   return {
     id: "waiting-1",
@@ -146,6 +158,53 @@ describe("notification status attention freshness", () => {
     });
 
     expect(useStore.getState().sessionNotifications.get("s1")).toBe(cached);
+  });
+
+  it("keeps authoritative snapshot counts from inflating to raw historical review rows", () => {
+    // q-1735 producer sequence: the compact list says one, an equal-version
+    // selection snapshot contains five raw unresolved rows, then the compact
+    // list refresh says one again. The snapshot's server counts must win so the
+    // store never exposes a transient five.
+    const compactSummary = session({
+      notificationUrgency: "review",
+      activeNotificationCount: 1,
+      activeReviewNotificationCount: 1,
+      notificationStatusVersion: 7,
+      notificationStatusUpdatedAt: 7000,
+    });
+    useStore.getState().setSdkSessions([compactSummary]);
+
+    const rawHistoricalReviews = [
+      reviewNotification({ id: "n-old-1", timestamp: 1000, threadKey: "q-old-1" }),
+      reviewNotification({ id: "n-old-2", timestamp: 1100, threadKey: "q-old-2" }),
+      reviewNotification({ id: "n-old-3", timestamp: 1200, threadKey: "q-old-3" }),
+      reviewNotification({ id: "n-old-4", timestamp: 1300, threadKey: "q-old-4" }),
+      reviewNotification({ id: "n-current", timestamp: 3000, threadKey: "q-current" }),
+    ];
+    applySessionNotifications(
+      "s1",
+      rawHistoricalReviews,
+      {
+        notificationUrgency: "review",
+        activeNotificationCount: 1,
+        activeNeedsInputNotificationCount: 0,
+        activeReviewNotificationCount: 1,
+        mutedNeedsInputNotificationCount: 0,
+        notificationStatusVersion: 7,
+        notificationStatusUpdatedAt: 7000,
+      },
+      { authoritativeStatus: true },
+    );
+
+    expect(useStore.getState().sdkSessions[0]).toMatchObject({
+      notificationUrgency: "review",
+      activeNotificationCount: 1,
+      activeReviewNotificationCount: 1,
+      notificationStatusVersion: 7,
+    });
+
+    setSdkSessionsWithNotificationFreshness([compactSummary]);
+    expect(useStore.getState().sdkSessions[0]?.activeNotificationCount).toBe(1);
   });
 
   it("filters waiting markers out of unresolved notification state", () => {

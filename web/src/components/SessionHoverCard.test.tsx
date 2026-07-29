@@ -329,7 +329,17 @@ describe("SessionHoverCard", () => {
     // must not hide a fresh backend summary for an unread target thread; the
     // hover text should be consistent before and after selecting the row.
     mockStoreState.currentSessionId = "s1";
-    mockStoreState.sessionNotifications.set("s1", []);
+    mockStoreState.sessionNotifications.set("s1", [
+      {
+        id: "n-review",
+        category: "review",
+        summary: "q-1 ready for review",
+        timestamp: Date.now(),
+        done: false,
+        threadKey: "q-1",
+        questId: "q-1",
+      },
+    ]);
     mockStoreState.sdkSessions = [
       {
         sessionId: "s1",
@@ -339,6 +349,12 @@ describe("SessionHoverCard", () => {
         activeReviewNotificationCount: 1,
         notificationStatusVersion: 9,
         notificationStatusUpdatedAt: 9000,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-1"],
+          closedThreadTombstones: [],
+          updatedAt: 9000,
+        },
       },
     ];
 
@@ -359,6 +375,53 @@ describe("SessionHoverCard", () => {
     const status = screen.getByTestId("session-hover-attention-status");
     expect(status).toHaveTextContent("1 unread conversation");
     expect(within(status).getByTestId("session-hover-attention-status-dot")).toHaveClass("bg-blue-500");
+  });
+
+  it("does not show unread text for a loaded review whose leader thread is closed", () => {
+    mockStoreState.sessionNotifications.set("s1", [
+      {
+        id: "n-review",
+        category: "review",
+        summary: "q-1 ready for review",
+        timestamp: Date.now(),
+        done: false,
+        threadKey: "q-1",
+        questId: "q-1",
+      },
+    ]);
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        isOrchestrator: true,
+        notificationUrgency: "review",
+        activeNotificationCount: 1,
+        activeReviewNotificationCount: 1,
+        notificationStatusVersion: 10,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: [],
+          closedThreadTombstones: [{ threadKey: "q-1", closedAt: Date.now() }],
+          updatedAt: Date.now(),
+        },
+      },
+    ];
+
+    render(
+      <SessionHoverCard
+        session={makeSession({ isOrchestrator: true, notificationUrgency: "review", activeNotificationCount: 1 })}
+        sessionName="Closed Leader Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText(/unread conversation/i)).toBeNull();
+    expect(screen.queryByTestId("session-hover-attention-status")).toBeNull();
   });
 
   it("does not explain stale action attention after notification status is cleared", () => {

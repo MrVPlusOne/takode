@@ -64,14 +64,31 @@ function summarizeNotifications(
 export function summarizeNotificationStatus(
   notifications: ReadonlyArray<SessionNotification>,
   status: NotificationStatusSnapshot = {},
+  options: { authoritativeStatus?: boolean } = {},
 ): NotificationStatusSnapshot {
   const summary = summarizeNotifications(notifications);
+  const authoritative = options.authoritativeStatus === true;
   return {
-    notificationUrgency: summary.notificationUrgency,
-    activeNotificationCount: summary.activeNotificationCount,
-    activeNeedsInputNotificationCount: summary.activeNeedsInputNotificationCount,
-    activeReviewNotificationCount: summary.activeReviewNotificationCount,
-    mutedNeedsInputNotificationCount: summary.mutedNeedsInputNotificationCount,
+    notificationUrgency:
+      authoritative && status.notificationUrgency !== undefined
+        ? status.notificationUrgency
+        : summary.notificationUrgency,
+    activeNotificationCount:
+      authoritative && status.activeNotificationCount !== undefined
+        ? status.activeNotificationCount
+        : summary.activeNotificationCount,
+    activeNeedsInputNotificationCount:
+      authoritative && status.activeNeedsInputNotificationCount !== undefined
+        ? status.activeNeedsInputNotificationCount
+        : summary.activeNeedsInputNotificationCount,
+    activeReviewNotificationCount:
+      authoritative && status.activeReviewNotificationCount !== undefined
+        ? status.activeReviewNotificationCount
+        : summary.activeReviewNotificationCount,
+    mutedNeedsInputNotificationCount:
+      authoritative && status.mutedNeedsInputNotificationCount !== undefined
+        ? status.mutedNeedsInputNotificationCount
+        : summary.mutedNeedsInputNotificationCount,
     notificationStatusVersion: status.notificationStatusVersion,
     notificationStatusUpdatedAt: status.notificationStatusUpdatedAt,
   };
@@ -264,9 +281,10 @@ export function applySessionNotifications(
   sessionId: string,
   notifications: SessionNotification[],
   status: NotificationStatusSnapshot,
+  options: { authoritativeStatus?: boolean } = {},
 ): boolean {
   const actionableNotifications = notifications.filter(isActionableSessionNotification);
-  const incoming = summarizeNotificationStatus(actionableNotifications, status);
+  const incoming = summarizeNotificationStatus(actionableNotifications, status, options);
   let applied = false;
   useStore.setState((state) => {
     const sdkSession = state.sdkSessions.find((session) => session.sessionId === sessionId);

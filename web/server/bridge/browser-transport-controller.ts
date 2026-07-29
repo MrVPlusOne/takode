@@ -24,6 +24,10 @@ import { sessionTag } from "../session-tag.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
+import {
+  getNotificationStatusSnapshot,
+  getUserVisibleSessionNotifications,
+} from "./session-notification-controller.js";
 import { compactPendingCodexInputsForBrowser } from "../codex-pending-input-safety.js";
 import { routeFromHistoryEntry } from "../thread-routing-metadata.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
@@ -937,6 +941,7 @@ export function sendStateSnapshot(
 ): void {
   const board = deps.getBoard(session.id) as BoardRow[];
   const completedBoard = deps.getCompletedBoard(session.id) as BoardRow[];
+  const notificationStatus = getNotificationStatusSnapshot(session);
   sendToBrowser(ws, {
     type: "state_snapshot",
     sessionStatus: deriveSessionStatus(session, deps),
@@ -954,11 +959,16 @@ export function sendStateSnapshot(
     completedBoard,
     leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
     rowSessionStatuses: deps.getBoardRowSessionStatuses(session.id, board, completedBoard),
-    notifications: session.notifications,
+    notifications: getUserVisibleSessionNotifications(session),
     attentionRecords: session.attentionRecords,
     leaderThreadStatuses: session.state.leaderThreadStatuses ?? {},
-    notificationStatusVersion: session.notificationStatusVersion,
-    notificationStatusUpdatedAt: session.notificationStatusUpdatedAt,
+    notificationUrgency: notificationStatus.notificationUrgency,
+    activeNotificationCount: notificationStatus.activeNotificationCount,
+    activeNeedsInputNotificationCount: notificationStatus.activeNeedsInputNotificationCount,
+    activeReviewNotificationCount: notificationStatus.activeReviewNotificationCount,
+    mutedNeedsInputNotificationCount: notificationStatus.mutedNeedsInputNotificationCount,
+    notificationStatusVersion: notificationStatus.notificationStatusVersion,
+    notificationStatusUpdatedAt: notificationStatus.notificationStatusUpdatedAt,
   } as BrowserIncomingMessage);
 }
 

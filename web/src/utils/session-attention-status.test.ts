@@ -11,7 +11,7 @@ describe("deriveEffectiveSessionAttentionStatus", () => {
     const status = deriveEffectiveSessionAttentionStatus({
       sessionId: "leader",
       currentSessionId: "leader",
-      notifications: [],
+      notifications: undefined,
       summary: {
         id: "leader",
         isOrchestrator: true,
@@ -19,6 +19,78 @@ describe("deriveEffectiveSessionAttentionStatus", () => {
         activeNotificationCount: 1,
         activeReviewNotificationCount: 1,
         notificationStatusVersion: 7,
+      },
+      fallbackUrgency: "review",
+    });
+
+    expect(status).toEqual({ urgency: "review", count: 1 });
+  });
+
+  it("does not revive a closed leader review after the canonical inbox is loaded", () => {
+    const closedReview: SessionNotification = {
+      id: "n-closed",
+      category: "review",
+      summary: "Closed thread ready",
+      timestamp: 3000,
+      messageId: null,
+      done: false,
+      threadKey: "q-closed",
+      questId: "q-closed",
+    };
+
+    const status = deriveEffectiveSessionAttentionStatus({
+      sessionId: "leader",
+      currentSessionId: "other",
+      notifications: [closedReview],
+      summary: {
+        id: "leader",
+        isOrchestrator: true,
+        notificationUrgency: "review",
+        activeNotificationCount: 1,
+        activeReviewNotificationCount: 1,
+        notificationStatusVersion: 7,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: [],
+          closedThreadTombstones: [{ threadKey: "q-closed", closedAt: 4000 }],
+          updatedAt: 4000,
+        },
+      },
+      fallbackUrgency: "review",
+    });
+
+    expect(status).toBeNull();
+  });
+
+  it("preserves a loaded unread review for an open leader thread", () => {
+    const openReview: SessionNotification = {
+      id: "n-open",
+      category: "review",
+      summary: "Open thread ready",
+      timestamp: 3000,
+      messageId: null,
+      done: false,
+      threadKey: "q-open",
+      questId: "q-open",
+    };
+
+    const status = deriveEffectiveSessionAttentionStatus({
+      sessionId: "leader",
+      currentSessionId: "leader",
+      notifications: [openReview],
+      summary: {
+        id: "leader",
+        isOrchestrator: true,
+        notificationUrgency: "review",
+        activeNotificationCount: 1,
+        activeReviewNotificationCount: 1,
+        notificationStatusVersion: 8,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-open"],
+          closedThreadTombstones: [],
+          updatedAt: 5000,
+        },
       },
       fallbackUrgency: "review",
     });

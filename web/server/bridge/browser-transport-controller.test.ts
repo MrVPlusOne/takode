@@ -16,6 +16,7 @@ import {
   handleSessionSubscribe,
   injectUserMessage,
   sendLeaderProjectionSnapshot,
+  sendStateSnapshot,
   sendHistoryWindowSync,
   sendThreadWindowSync,
   type BrowserTransportSessionLike,
@@ -176,6 +177,56 @@ describe("archived session browser viewing", () => {
     expect(routeBrowserMessage).not.toHaveBeenCalled();
     expect(deps.touchActivity).not.toHaveBeenCalled();
     expect(deps.persistSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("state snapshot notification projection", () => {
+  it("does not hydrate read or closed leader reviews as active unread", () => {
+    // q-1735 live shape: raw persistence has four already-read unresolved
+    // reviews plus one newer closed-thread review. The browser snapshot must
+    // carry the same zero-count projection as the compact session list.
+    const ws = { send: vi.fn() };
+    const session = makeSession({
+      state: {
+        permissionMode: "default",
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-2000"],
+          closedThreadTombstones: [
+            { threadKey: "q-1001", closedAt: 5001 },
+            { threadKey: "q-1002", closedAt: 5002 },
+            { threadKey: "q-1003", closedAt: 5003 },
+            { threadKey: "q-1004", closedAt: 5004 },
+            { threadKey: "q-1710", closedAt: 5005 },
+          ],
+          updatedAt: 5005,
+        },
+      } as any,
+      lastReadAt: 2000,
+      notificationStatusVersion: 7,
+      notificationStatusUpdatedAt: 7000,
+      notifications: [
+        { id: "n-old-1", category: "review", timestamp: 1000, threadKey: "q-1001", done: false },
+        { id: "n-old-2", category: "review", timestamp: 1100, threadKey: "q-1002", done: false },
+        { id: "n-old-3", category: "review", timestamp: 1200, threadKey: "q-1003", done: false },
+        { id: "n-old-4", category: "review", timestamp: 1300, threadKey: "q-1004", done: false },
+        { id: "n-closed", category: "review", timestamp: 3000, threadKey: "q-1710", done: false },
+      ],
+    });
+
+    sendStateSnapshot(session, ws, makeInjectDeps());
+
+    const snapshot = JSON.parse(String(ws.send.mock.calls[0]?.[0]));
+    expect(snapshot).toMatchObject({
+      type: "state_snapshot",
+      notifications: [],
+      notificationUrgency: null,
+      activeNotificationCount: 0,
+      activeReviewNotificationCount: 0,
+      notificationStatusVersion: 7,
+      notificationStatusUpdatedAt: 7000,
+    });
   });
 });
 

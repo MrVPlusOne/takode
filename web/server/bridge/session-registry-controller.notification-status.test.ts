@@ -3,6 +3,7 @@ import {
   buildPersistedSessionPayload,
   clearAttentionAndMarkRead,
   getNotificationStatusSnapshot,
+  getUserVisibleSessionNotifications,
   markAllNotificationsDone,
   markNotificationDone,
   notifyUser,
@@ -38,6 +39,22 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     attentionReason: null,
     ...overrides,
   } as any;
+}
+
+function leaderState(openThreadKeys: string[], closedThreadKeys: string[] = []) {
+  return {
+    backend_type: "claude",
+    isOrchestrator: true,
+    leaderOpenThreadTabs: {
+      version: 1,
+      orderedOpenThreadKeys: openThreadKeys,
+      closedThreadTombstones: closedThreadKeys.map((threadKey, index) => ({
+        threadKey,
+        closedAt: 5000 + index,
+      })),
+      updatedAt: 6000,
+    },
+  };
 }
 
 function attentionRecord(overrides: Partial<SessionAttentionRecord> = {}): SessionAttentionRecord {
@@ -290,6 +307,62 @@ describe("session notification status metadata", () => {
     });
   });
 
+  it("uses one read- and open-target-aware projection for leader review status", () => {
+    // Producer-shaped regression for q-1735: four historical unresolved rows
+    // plus one newer closed-thread review must not become visible session unread.
+    const session = makeSession({
+      state: leaderState(["q-2000"], ["q-1001", "q-1002", "q-1003", "q-1004", "q-1710"]),
+      lastReadAt: 2000,
+      notificationStatusVersion: 7,
+      notifications: [
+        { id: "n-old-1", category: "review", timestamp: 1000, threadKey: "q-1001", done: false },
+        { id: "n-old-2", category: "review", timestamp: 1100, threadKey: "q-1002", done: false },
+        { id: "n-old-3", category: "review", timestamp: 1200, threadKey: "q-1003", done: false },
+        { id: "n-old-4", category: "review", timestamp: 1300, threadKey: "q-1004", done: false },
+        { id: "n-closed", category: "review", timestamp: 3000, threadKey: "q-1710", done: false },
+      ],
+    });
+    const deps = makeDeps();
+
+    expect(getUserVisibleSessionNotifications(session)).toEqual([]);
+    expect(getNotificationStatusSnapshot(session)).toMatchObject({
+      notificationUrgency: null,
+      activeNotificationCount: 0,
+      activeReviewNotificationCount: 0,
+      notificationStatusVersion: 7,
+    });
+
+    markNotificationDone(session, "n-old-1", true, deps);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "notification_update",
+        notifications: [],
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        activeReviewNotificationCount: 0,
+      }),
+    );
+  });
+
+  it("preserves legitimate unread review status for an open leader thread", () => {
+    const session = makeSession({
+      state: leaderState(["q-2000"], ["q-1710"]),
+      lastReadAt: 2000,
+      notifications: [
+        { id: "n-closed", category: "review", timestamp: 3000, threadKey: "q-1710", done: false },
+        { id: "n-open", category: "review", timestamp: 4000, threadKey: "q-2000", done: false },
+      ],
+    });
+
+    expect(getUserVisibleSessionNotifications(session).map((notification) => notification.id)).toEqual(["n-open"]);
+    expect(getNotificationStatusSnapshot(session)).toMatchObject({
+      notificationUrgency: "review",
+      activeNotificationCount: 1,
+      activeReviewNotificationCount: 1,
+    });
+  });
+
   it("marking a session read broadcasts a cleared review-notification status", () => {
     const session = makeSession({
       attentionReason: null,
@@ -327,6 +400,7 @@ describe("session notification status metadata", () => {
 
   it("keeps thread-scoped Thread Ready unread when an automatic session-view read fires from Main", () => {
     const session = makeSession({
+      state: leaderState(["q-1563"]),
       attentionReason: "review",
       notificationStatusVersion: 4,
     });
@@ -366,6 +440,7 @@ describe("session notification status metadata", () => {
 
   it("keeps broad explicit read behavior for thread-scoped Thread Ready unread", () => {
     const session = makeSession({
+      state: leaderState(["q-1563"]),
       attentionReason: "review",
       notificationStatusVersion: 4,
     });

@@ -30,6 +30,7 @@ export {
   clearActionAttentionIfNoNotifications,
   clearAttentionAndMarkRead,
   getNotificationStatusSnapshot,
+  getUserVisibleSessionNotifications,
   markAllNotificationsDone,
   markAllNotificationsDoneBySessionId,
   markNotificationDone,

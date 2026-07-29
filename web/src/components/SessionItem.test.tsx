@@ -1091,7 +1091,17 @@ describe("SessionItem notification marker", () => {
     // The selected session row should not briefly hide a backend-authored
     // thread-scoped unread summary just because the user opened the leader
     // session shell. Otherwise switching away makes the same unread reappear.
-    setSessionNotifications("s1", []);
+    setSessionNotifications("s1", [
+      {
+        id: "n-review",
+        category: "review",
+        summary: "q-1 ready for review",
+        timestamp: Date.now(),
+        done: false,
+        threadKey: "q-1",
+        questId: "q-1",
+      },
+    ]);
     mockStoreState.currentSessionId = "s1";
     mockStoreState.sdkSessions = [
       {
@@ -1102,6 +1112,12 @@ describe("SessionItem notification marker", () => {
         activeReviewNotificationCount: 1,
         notificationStatusVersion: 9,
         notificationStatusUpdatedAt: 9000,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-1"],
+          closedThreadTombstones: [],
+          updatedAt: 9000,
+        },
       },
     ];
 

@@ -162,8 +162,10 @@ export function deriveEffectiveSessionAttentionStatus({
   const hasFreshSummary =
     summary?.notificationStatusVersion !== undefined || summary?.notificationStatusUpdatedAt !== undefined;
   const hasFreshActiveSummary = hasFreshSummary && !!summaryUrgency && (summaryActiveCount ?? 0) > 0;
-  const summaryCanOverrideWithReview =
-    summaryUrgency !== "review" || !summary?.isOrchestrator || activeNotifications.some((n) => n.category === "review");
+  const hasActiveOpenReview = activeNotifications.some(
+    (notification) => notification.category === "review" && !notification.done,
+  );
+  const summaryCanOverrideWithReview = summaryUrgency !== "review" || !summary?.isOrchestrator || hasActiveOpenReview;
 
   if (
     hasFreshSummary &&
@@ -184,6 +186,7 @@ export function deriveEffectiveSessionAttentionStatus({
   if (mutedCount > 0) return { urgency: "muted-needs-input", count: mutedCount };
 
   if (summaryActiveCount === 0 || (hasFreshSummary && summaryUrgency === null)) return null;
+  if (summaryUrgency === "review" && summary?.isOrchestrator && !hasActiveOpenReview) return null;
   if (currentSessionId === sessionId && !hasFreshActiveSummary) return null;
   return getFallbackStatus(fallbackUrgency, fallbackSummary ?? summary);
 }
