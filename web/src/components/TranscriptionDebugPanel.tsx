@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import type { TranscriptionLogIndexEntry, TranscriptionLogEntry, TranscriptionReplayVariant } from "../api.js";
+import { TranscriptDiffComparison } from "./TranscriptDiffComparison.js";
 
 const REPLAY_STT_MODELS = [
   "gpt-transcribe",
@@ -76,7 +77,7 @@ function replayKindLabel(kind: TranscriptionReplayVariant["kind"]): string {
 
 function originalEnhancementComparisonText(entry: TranscriptionLogEntry): string {
   if (!entry.enhancement) return "Original enhancement was not attempted.";
-  if (entry.enhancement.enhancedText) return entry.enhancement.enhancedText;
+  if (entry.enhancement.enhancedText !== null) return entry.enhancement.enhancedText;
   if (entry.enhancement.skipReason) return "(skipped: " + entry.enhancement.skipReason + ")";
   return "(null — skipped, failed, or hallucination guard)";
 }
@@ -349,27 +350,39 @@ export function TranscriptionDebugPanel() {
                     <button
                       type="button"
                       onClick={() => handleToggle(locator)}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-cc-hover transition-colors cursor-pointer ${expandedId === locator ? "bg-cc-hover" : ""}`}
+                      className={`w-full px-3 py-2 text-left text-xs hover:bg-cc-hover transition-colors cursor-pointer ${expandedId === locator ? "bg-cc-hover" : ""}`}
                     >
-                      <span className="text-cc-muted shrink-0 w-16">{timeAgo(entry.timestamp)}</span>
-                      <span className="text-cc-muted shrink-0">Up {formatDuration(entry.uploadDurationMs)}</span>
-                      <span className="text-cc-fg shrink-0 font-mono text-[10px]">{entry.sttModel}</span>
-                      <span className="text-cc-muted shrink-0">{formatDuration(entry.sttDurationMs)}</span>
-                      <span className={`flex-1 truncate ${statusColor(entry)}`}>{statusLabel(entry)}</span>
-                      {entry.enhancement && !entry.enhancement.skipReasonCode && (
-                        <span className="text-cc-muted shrink-0">{formatDuration(entry.enhancement.durationMs)}</span>
-                      )}
-                      <span className="text-cc-muted shrink-0 font-mono text-[10px]">
-                        {formatBytes(entry.audioSizeBytes)}
-                      </span>
-                      {entry.sessionId && (
-                        <span
-                          className="text-cc-muted shrink-0 font-mono text-[10px] w-16 truncate"
-                          title={entry.sessionId}
-                        >
-                          {entry.sessionId.slice(0, 8)}
+                      <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
+                        <span className="text-cc-muted shrink-0 w-16">{timeAgo(entry.timestamp)}</span>
+                        <span className="text-cc-muted shrink-0">Up {formatDuration(entry.uploadDurationMs)}</span>
+                        <span className="text-cc-fg shrink-0 font-mono text-[10px]">{entry.sttModel}</span>
+                        <span className="text-cc-muted shrink-0">{formatDuration(entry.sttDurationMs)}</span>
+                        <span className={`flex-1 truncate ${statusColor(entry)}`}>{statusLabel(entry)}</span>
+                        {entry.enhancement && !entry.enhancement.skipReasonCode && (
+                          <span className="text-cc-muted shrink-0">{formatDuration(entry.enhancement.durationMs)}</span>
+                        )}
+                        <span className="text-cc-muted shrink-0 font-mono text-[10px]">
+                          {formatBytes(entry.audioSizeBytes)}
                         </span>
-                      )}
+                        {entry.sessionId && (
+                          <span
+                            className="text-cc-muted shrink-0 font-mono text-[10px] w-16 truncate"
+                            title={entry.sessionId}
+                          >
+                            {entry.sessionId.slice(0, 8)}
+                          </span>
+                        )}
+                      </span>
+                      {entry.previewText &&
+                        !entry.recordingDeletedAt &&
+                        (!entry.discoveryState || entry.discoveryState === "ready") && (
+                          <span
+                            className="mt-1 block truncate text-cc-muted"
+                            aria-label={`Transcript preview: ${entry.previewText}`}
+                          >
+                            {entry.previewText}
+                          </span>
+                        )}
                     </button>
                   </div>
                 );
@@ -822,45 +835,30 @@ export function TranscriptionDebugPanel() {
                               </div>
                               {variant.error && <div className="text-cc-error">{variant.error.message}</div>}
                               {variant.kind === "stt_replay" && (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                  <div>
-                                    <div className="text-[11px] uppercase tracking-wider text-cc-muted mb-1">
-                                      Original STT output
-                                    </div>
-                                    <pre className="p-2 text-xs font-mono bg-cc-input-bg border border-cc-border rounded text-cc-fg whitespace-pre-wrap max-h-[260px] overflow-y-auto">
-                                      {expandedEntry.rawTranscript || "(empty)"}
-                                    </pre>
-                                  </div>
-                                  <div>
-                                    <div className="text-[11px] uppercase tracking-wider text-cc-muted mb-1">
-                                      Replay STT output
-                                    </div>
-                                    <pre className="p-2 text-xs font-mono bg-cc-input-bg border border-cc-border rounded text-cc-fg whitespace-pre-wrap max-h-[260px] overflow-y-auto">
-                                      {variant.rawTranscript || "(empty)"}
-                                    </pre>
-                                  </div>
-                                </div>
+                                <TranscriptDiffComparison
+                                  originalLabel="Original STT output"
+                                  replayLabel="Replay STT output"
+                                  originalText={expandedEntry.rawTranscript}
+                                  replayText={variant.rawTranscript ?? "(no replay output)"}
+                                  highlight={variant.rawTranscript !== undefined}
+                                />
                               )}
                               {variant.kind === "enhancement_replay" && (
                                 <div className="space-y-2">
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                    <div>
-                                      <div className="text-[11px] uppercase tracking-wider text-cc-muted mb-1">
-                                        Original enhanced output
-                                      </div>
-                                      <pre className="p-2 text-xs font-mono bg-cc-input-bg border border-cc-border rounded text-cc-fg whitespace-pre-wrap max-h-[260px] overflow-y-auto">
-                                        {originalEnhancementComparisonText(expandedEntry)}
-                                      </pre>
-                                    </div>
-                                    <div>
-                                      <div className="text-[11px] uppercase tracking-wider text-cc-muted mb-1">
-                                        Replay enhanced output
-                                      </div>
-                                      <pre className="p-2 text-xs font-mono bg-cc-input-bg border border-cc-border rounded text-cc-fg whitespace-pre-wrap max-h-[260px] overflow-y-auto">
-                                        {variant.enhancedText ?? "(null — skipped, failed, or hallucination guard)"}
-                                      </pre>
-                                    </div>
-                                  </div>
+                                  <TranscriptDiffComparison
+                                    originalLabel="Original enhanced output"
+                                    replayLabel="Replay enhanced output"
+                                    originalText={originalEnhancementComparisonText(expandedEntry)}
+                                    replayText={
+                                      variant.enhancedText ?? "(null — skipped, failed, or hallucination guard)"
+                                    }
+                                    highlight={
+                                      expandedEntry.enhancement?.enhancedText !== null &&
+                                      expandedEntry.enhancement?.enhancedText !== undefined &&
+                                      variant.enhancedText !== null &&
+                                      variant.enhancedText !== undefined
+                                    }
+                                  />
                                   <div>
                                     <div className="text-[11px] uppercase tracking-wider text-cc-muted mb-1">
                                       Source raw transcript context

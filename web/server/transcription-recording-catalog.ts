@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type {
   TranscriptionEnhancementReplayContext,
@@ -7,6 +7,7 @@ import type {
   TranscriptionSttReplayContext,
 } from "./transcription-recordings.js";
 import { getTranscriptionRecordingRoot } from "./transcription-recordings.js";
+import { buildTranscriptionPreview, TRANSCRIPTION_PREVIEW_READ_MAX_BYTES } from "./transcription-preview.js";
 
 const SCAN_CACHE_MS = 30_000;
 const DISCOVERY_CONCURRENCY = 8;
@@ -53,6 +54,7 @@ export interface TranscriptionRecordingCatalogEntry {
   audioFileName: string | null;
   serverTiming?: unknown;
   enhancement: TranscriptionRecordingCatalogEnhancement | null;
+  previewText?: string;
   error?: { message: string; phase?: string };
   discoveryState: TranscriptionRecordingDiscoveryState;
   discoveryIssue?: string;
@@ -394,6 +396,7 @@ async function discoverDirectory(
   }
   const artifacts = normalizeArtifacts(manifest.artifacts);
   const enhancement = await readEnhancementSummary(directoryPath, artifacts.enhancement);
+  const previewText = await readRecordingPreview(directoryPath, artifacts, enhancement);
   const error = await readOptionalJson<{ message?: unknown; phase?: unknown }>(directoryPath, artifacts.errorJson);
   const audio = normalizeAudio(manifest.audio);
   return {
@@ -415,6 +418,7 @@ async function discoverDirectory(
     audioFileName: audio.originalFileName,
     ...(manifest.serverTiming !== undefined ? { serverTiming: manifest.serverTiming } : {}),
     enhancement,
+    ...(previewText ? { previewText } : {}),
     ...(typeof error?.message === "string"
       ? { error: { message: error.message, ...(typeof error.phase === "string" ? { phase: error.phase } : {}) } }
       : {}),
@@ -467,6 +471,37 @@ async function readEnhancementSummary(
     enhancedTextPresent: metadata.enhancedTextPresent === true,
     ...(typeof metadata.skipReason === "string" ? { skipReason: metadata.skipReason } : {}),
   };
+}
+
+async function readRecordingPreview(
+  directoryPath: string,
+  artifacts: Record<string, string>,
+  enhancement: TranscriptionRecordingCatalogEnhancement | null,
+): Promise<string | undefined> {
+  const enhancedText =
+    enhancement?.enhancedTextPresent && artifacts.enhancement
+      ? await readPreviewText(directoryPath, join(artifacts.enhancement, "enhanced-result.txt"))
+      : undefined;
+  const enhancedPreview = buildTranscriptionPreview(enhancedText, undefined);
+  if (enhancedPreview) return enhancedPreview;
+  return buildTranscriptionPreview(undefined, await readPreviewText(directoryPath, artifacts.rawTranscript));
+}
+
+async function readPreviewText(directoryPath: string, relativePath: string | undefined): Promise<string> {
+  if (!relativePath) return "";
+  const artifactPath = await resolveSafeArtifactPath(directoryPath, relativePath, "file");
+  if (!artifactPath) return "";
+  const handle = await open(artifactPath, "r").catch(() => null);
+  if (!handle) return "";
+  try {
+    const bytes = Buffer.alloc(TRANSCRIPTION_PREVIEW_READ_MAX_BYTES);
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
+    return new TextDecoder().decode(bytes.subarray(0, bytesRead), { stream: bytesRead === bytes.length });
+  } catch {
+    return "";
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
 }
 
 async function readEnhancementDetail(

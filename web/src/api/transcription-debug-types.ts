@@ -13,6 +13,8 @@ export interface TranscriptionLogIndexEntry {
   uploadDurationMs: number;
   sttModel: string;
   sttDurationMs: number;
+  /** Server-authored, bounded, single-line transcript excerpt. */
+  previewText?: string;
   sttContext?: {
     promptLength: number;
     keywordCount: number;

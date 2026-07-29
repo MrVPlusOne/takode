@@ -42,6 +42,7 @@ beforeEach(() => {
         uploadDurationMs: 12,
         sttModel: "gpt-4o-mini-transcribe-alpha-tapioca-4",
         sttDurationMs: 1100,
+        previewText: "Useful bounded transcript preview",
         audioSizeBytes: 4096,
         audioMimeType: "audio/wav",
         audioFileName: "recording.wav",
@@ -149,6 +150,15 @@ afterEach(() => {
 });
 
 describe("TranscriptionDebugPanel", () => {
+  it("renders the server-authored list preview as a single bounded row", async () => {
+    render(<TranscriptionDebugPanel />);
+    fireEvent.click(screen.getByText("Show"));
+
+    const preview = await screen.findByText("Useful bounded transcript preview");
+    expect(preview).toHaveClass("truncate");
+    expect(preview).toHaveAttribute("aria-label", "Transcript preview: Useful bounded transcript preview");
+  });
+
   it("uses model-agnostic raw transcript labeling and exposes a copyable source audio link", async () => {
     // Non-Whisper STT models should not inherit legacy Whisper-specific debug copy.
     render(<TranscriptionDebugPanel />);
@@ -204,7 +214,9 @@ describe("TranscriptionDebugPanel", () => {
       expect(mockApi.retranscribeLogEntry).toHaveBeenCalledWith("r_test-recording", "gpt-transcribe"),
     );
     expect(window.confirm).not.toHaveBeenCalled();
-    expect(await screen.findByText("replay transcript")).toBeInTheDocument();
+    const replayStt = await waitFor(() => document.querySelector('[data-transcript-diff-side="replay"]'));
+    expect(replayStt).toHaveTextContent("replay transcript");
+    expect(replayStt?.querySelectorAll('[data-transcript-diff-kind="added"]')).not.toHaveLength(0);
 
     fireEvent.change(screen.getByLabelText(/Enhancement model/i), { target: { value: "gpt-5.5" } });
     fireEvent.click(screen.getByRole("button", { name: "Bullet Points" }));
@@ -303,9 +315,12 @@ describe("TranscriptionDebugPanel", () => {
     fireEvent.click(await screen.findByText("gpt-4o-mini-transcribe-alpha-tapioca-4"));
 
     expect(await screen.findByText("Original enhanced output")).toBeInTheDocument();
-    expect(screen.getAllByText("original enhanced output").length).toBeGreaterThanOrEqual(1);
+    expect(document.querySelector('[data-transcript-diff-side="original"]')).toHaveTextContent(
+      "original enhanced output",
+    );
     expect(screen.getByText("Replay enhanced output")).toBeInTheDocument();
-    expect(screen.getByText("replay enhanced output")).toBeInTheDocument();
+    expect(document.querySelector('[data-transcript-diff-side="replay"]')).toHaveTextContent("replay enhanced output");
+    expect(document.querySelectorAll('[data-transcript-diff-kind="added"]')).not.toHaveLength(0);
     expect(screen.getByText("Source raw transcript context")).toBeInTheDocument();
     expect(screen.getAllByText("source raw transcript").length).toBeGreaterThanOrEqual(1);
   });
@@ -367,6 +382,7 @@ describe("TranscriptionDebugPanel", () => {
           discoveryState,
           recordingDeletedAt: deletedAt,
           statusReason: discoveryState === "deleted" ? "recording_deleted" : `recording_${discoveryState}`,
+          previewText: "must stay hidden",
           enhancement: null,
         },
       ],
@@ -396,6 +412,7 @@ describe("TranscriptionDebugPanel", () => {
     fireEvent.click(screen.getByText("Show"));
     fireEvent.click(await screen.findByText("unknown"));
     await screen.findByText("Transcription Detail");
+    expect(screen.queryByText("must stay hidden")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Open source audio" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy audio link" })).not.toBeInTheDocument();
   });

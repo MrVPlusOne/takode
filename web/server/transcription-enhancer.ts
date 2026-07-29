@@ -54,6 +54,7 @@ import {
   type TranscriptionSttReplayContext,
   type WriteTranscriptionReplayVariantInput,
 } from "./transcription-recordings.js";
+import { buildTranscriptionPreview } from "./transcription-preview.js";
 
 // ─── Tunable limits ─────────────────────────────────────────────────────────
 
@@ -1357,6 +1358,8 @@ export interface TranscriptionLogEntry {
   /** STT phase */
   sttModel: string;
   sttDurationMs: number;
+  /** Bounded, normalized transcript excerpt allowed in the lightweight index. */
+  previewText?: string;
   rawTranscript: string;
   audioSizeBytes: number;
   /** Prompt sent to the STT model to guide vocabulary recognition. */
@@ -1776,6 +1779,7 @@ export interface TranscriptionLogIndexEntry {
   uploadDurationMs: number;
   sttModel: string;
   sttDurationMs: number;
+  previewText?: string;
   sttContext?: TranscriptionLogEntry["sttContext"];
   audioSizeBytes: number;
   audioMimeType: string | null;
@@ -1882,6 +1886,12 @@ function findLiveTranscriptionEntry(locator: TranscriptionLogLocator): StoredTra
 function toTranscriptionLogIndexEntry(entry: StoredTranscriptionLogEntry): TranscriptionLogIndexEntry {
   const audioAvailable = hasSafeTranscriptionAudio(entry);
   const skipReasonCode = getEnhancementSkipReasonCode(entry.enhancement?.skipReason);
+  const previewText =
+    !entry.recordingDeletedAt &&
+    !entry.recordingPersistenceError &&
+    (!entry.discoveryState || entry.discoveryState === "ready")
+      ? (entry.previewText ?? buildTranscriptionPreview(entry.enhancement?.enhancedText, entry.rawTranscript))
+      : undefined;
   return {
     id: entry.id,
     recordingKey: entry.recordingKey,
@@ -1894,6 +1904,7 @@ function toTranscriptionLogIndexEntry(entry: StoredTranscriptionLogEntry): Trans
     uploadDurationMs: entry.uploadDurationMs,
     sttModel: sanitizeIndexModelIdentifier(entry.sttModel) ?? "unknown",
     sttDurationMs: entry.sttDurationMs,
+    ...(previewText ? { previewText } : {}),
     sttContext: entry.sttContext
       ? {
           ...entry.sttContext,

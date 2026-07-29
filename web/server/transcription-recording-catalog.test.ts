@@ -41,7 +41,12 @@ describe("transcription recording catalog", () => {
     _resetTranscriptionRecordingCatalogForTest();
     const first = await listTranscriptionRecordingCatalog({ refresh: true });
     expect(first).toHaveLength(1);
-    expect(first[0]).toMatchObject({ recordingKey: expectedKey, requestId: "restart-source", discoveryState: "ready" });
+    expect(first[0]).toMatchObject({
+      recordingKey: expectedKey,
+      requestId: "restart-source",
+      discoveryState: "ready",
+      previewText: "stored transcript",
+    });
 
     const detail = await readTranscriptionRecordingCatalogDetail(expectedKey);
     expect(detail).toMatchObject({
@@ -103,6 +108,7 @@ describe("transcription recording catalog", () => {
     expect(states).toEqual(expect.arrayContaining(["incomplete", "malformed", "unsupported", "unsafe"]));
     for (const entry of await listTranscriptionRecordingCatalog()) {
       if (entry.discoveryState === "ready") continue;
+      expect(entry.previewText).toBeUndefined();
       const detail = await readTranscriptionRecordingCatalogDetail(entry.recordingKey);
       expect(detail).toMatchObject({ rawTranscript: "", sttPrompt: "", audioAvailable: false });
     }
@@ -132,7 +138,7 @@ describe("transcription recording catalog", () => {
     expect(detail?.rawTranscript).toBe("");
   });
 
-  it("loads legacy detail artifacts without leaking transcript or enhancement output into metadata", async () => {
+  it("loads legacy detail artifacts while exposing only the bounded enhanced preview", async () => {
     const directory = join(root, "2026-07-28", "legacy-v1");
     await mkdir(join(directory, "enhancement"), { recursive: true });
     await writeFile(join(directory, "stt-prompt.txt"), "legacy private prompt", "utf-8");
@@ -170,8 +176,8 @@ describe("transcription recording catalog", () => {
       durationMs: 12,
       enhancedTextPresent: true,
     });
+    expect(entry.previewText).toBe("legacy enhanced result");
     expect(JSON.stringify(entry)).not.toContain("legacy private transcript");
-    expect(JSON.stringify(entry)).not.toContain("legacy enhanced result");
     const detail = await readTranscriptionRecordingCatalogDetail(entry.recordingKey);
     expect(detail).toMatchObject({
       sttPrompt: "legacy private prompt",
@@ -188,7 +194,7 @@ describe("transcription recording catalog", () => {
       durationMs: 12,
       enhancedTextPresent: true,
     });
-    expect(JSON.stringify(page.entries)).not.toContain("legacy enhanced result");
+    expect(page.entries[0].previewText).toBe("legacy enhanced result");
   });
 
   it("persists a metadata-only tombstone so deleted directories do not resurrect", async () => {
@@ -202,6 +208,7 @@ describe("transcription recording catalog", () => {
     const afterRestart = await listTranscriptionRecordingCatalog({ refresh: true });
     expect(afterRestart).toHaveLength(1);
     expect(afterRestart[0]).toMatchObject({ recordingKey: entry.recordingKey, discoveryState: "deleted" });
+    expect(afterRestart[0].previewText).toBeUndefined();
     const tombstoneText = await readFile(join(root, ".tombstones", `${entry.recordingKey}.json`), "utf-8");
     expect(tombstoneText).not.toContain("stored transcript");
     expect(tombstoneText).not.toContain("stored prompt");

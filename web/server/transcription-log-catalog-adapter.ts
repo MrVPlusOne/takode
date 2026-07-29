@@ -13,6 +13,7 @@ import type {
   TranscriptionLogEntry,
   TranscriptionServerTiming,
 } from "./transcription-enhancer.js";
+import { buildTranscriptionPreview } from "./transcription-preview.js";
 
 export interface StoredTranscriptionLogEntry extends Omit<TranscriptionLogEntry, "audioUrl"> {
   audioBytes: Buffer;
@@ -248,6 +249,7 @@ export function catalogEntryToStoredEntry(
     uploadDurationMs: entry.uploadDurationMs,
     sttModel: entry.sttModel,
     sttDurationMs: entry.sttDurationMs,
+    previewText: entry.previewText,
     sttPrompt: detail?.sttPrompt ?? "",
     sttContext: entry.sttContext,
     rawTranscript: detail?.rawTranscript ?? "",
@@ -300,6 +302,12 @@ export function storedEntryToCatalogEntry(
   liveEntry: StoredTranscriptionLogEntry,
 ): TranscriptionRecordingCatalogEntry | undefined {
   if (!liveEntry.recordingKey || !liveEntry.recordingId || !liveEntry.recordingDirectoryPath) return undefined;
+  const previewText =
+    !liveEntry.recordingDeletedAt &&
+    !liveEntry.recordingPersistenceError &&
+    (!liveEntry.discoveryState || liveEntry.discoveryState === "ready")
+      ? buildTranscriptionPreview(liveEntry.enhancement?.enhancedText, liveEntry.rawTranscript)
+      : undefined;
   return {
     id: liveEntry.id,
     recordingKey: liveEntry.recordingKey,
@@ -313,6 +321,7 @@ export function storedEntryToCatalogEntry(
     uploadDurationMs: liveEntry.uploadDurationMs,
     sttModel: liveEntry.sttModel,
     sttDurationMs: liveEntry.sttDurationMs,
+    ...(previewText ? { previewText } : {}),
     sttContext: liveEntry.sttContext,
     audioSizeBytes: liveEntry.audioSizeBytes,
     audioMimeType: liveEntry.audioMimeType,

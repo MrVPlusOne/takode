@@ -887,6 +887,7 @@ describe("POST /api/transcribe", () => {
     const indexRes = await app.request("/api/transcription-logs");
     expect(indexRes.status).toBe(200);
     const [indexEntry] = (await indexRes.json()) as Array<Record<string, unknown>>;
+    expect(indexEntry.previewText).toBe("timed transcript");
     expect(indexEntry).not.toHaveProperty("inputContext");
     expect(indexEntry).not.toHaveProperty("result");
     expect(indexEntry).not.toHaveProperty("rawTranscript");
@@ -1176,6 +1177,9 @@ describe("POST /api/transcribe", () => {
     const body = await res.text();
     expect(body).toContain('"enhanced":true');
     expect(body).toContain('"timing"');
+    expect(transcriptionEnhancer.getTranscriptionLogIndex()[0].previewText).toBe(
+      "This mobile Safari recording should report enhancement progress before the final transcript result.",
+    );
 
     const progressMessages = (
       bridge.broadcastToSession.mock.calls as Array<

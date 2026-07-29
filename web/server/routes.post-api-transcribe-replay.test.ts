@@ -674,7 +674,7 @@ describe("POST /api/transcribe replay and durable discovery", () => {
     ]);
   });
 
-  it("hydrates metadata-only list, detail, audio, replay, aliases, and tombstones after restart", async () => {
+  it("hydrates preview-bounded list, detail, audio, replay, aliases, and tombstones after restart", async () => {
     const sourceModel = "org/private";
     const sourceMimeType = "audio/webm;codecs=opus";
     const sourceAudio = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]);
@@ -706,7 +706,9 @@ describe("POST /api/transcribe replay and durable discovery", () => {
     const live = transcriptionEnhancer.getTranscriptionLogIndex()[0];
     expect(live.recordingKey).toEqual(expect.stringMatching(/^r_/));
     const mergedCurrentRes = await app.request("/api/transcription-logs?limit=50&refresh=1");
-    expect(await mergedCurrentRes.json()).toHaveLength(1);
+    await expect(mergedCurrentRes.json()).resolves.toEqual([
+      expect.objectContaining({ previewText: "persisted raw transcript" }),
+    ]);
 
     // Clearing the process-local hot cache simulates a server restart while preserving the isolated recording root.
     transcriptionEnhancer._resetTranscriptionLogForTest();
@@ -720,8 +722,8 @@ describe("POST /api/transcribe replay and durable discovery", () => {
       sttModel: sourceModel,
       audioMimeType: "audio/webm",
       enhancement: null,
+      previewText: "persisted raw transcript",
     });
-    expect(JSON.stringify(index)).not.toContain("persisted raw transcript");
     expect(index[0]).not.toHaveProperty("rawTranscript");
     expect(index[0]).not.toHaveProperty("sttPrompt");
     expect(index[0]).not.toHaveProperty("replayVariants");
@@ -763,6 +765,7 @@ describe("POST /api/transcribe replay and durable discovery", () => {
     const deletedIndexRes = await app.request("/api/transcription-logs?limit=50&refresh=1");
     const [deleted] = (await deletedIndexRes.json()) as Array<Record<string, unknown>>;
     expect(deleted).toMatchObject({ recordingKey: live.recordingKey, discoveryState: "deleted" });
+    expect(deleted).not.toHaveProperty("previewText");
     expect(
       (await app.request(`/api/transcription-logs/${live.recordingKey}/recording/open`, { method: "POST" })).status,
     ).toBe(410);
@@ -782,10 +785,16 @@ describe("POST /api/transcribe replay and durable discovery", () => {
     transcriptionEnhancer._resetTranscriptionLogForTest();
 
     const indexRes = await app.request("/api/transcription-logs?refresh=1");
-    const index = (await indexRes.json()) as Array<{ recordingKey: string; discoveryState: string; audioUrl?: string }>;
+    const index = (await indexRes.json()) as Array<{
+      recordingKey: string;
+      discoveryState: string;
+      audioUrl?: string;
+      previewText?: string;
+    }>;
     expect(index).toHaveLength(2);
     for (const entry of index) {
       expect(entry.audioUrl).toBeUndefined();
+      expect(entry.previewText).toBeUndefined();
       const audioRes = await app.request(`/api/transcription-logs/${entry.recordingKey}/audio`);
       expect(audioRes.status).toBe(409);
       await expect(audioRes.json()).resolves.toMatchObject({ code: `recording_${entry.discoveryState}` });
