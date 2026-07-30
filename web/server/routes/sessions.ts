@@ -50,6 +50,7 @@ import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { registerArchivedSessionPageRoute } from "./session-archived-page-route.js";
 import { registerSessionMessageSearchRoute } from "./session-message-search-route.js";
 import { registerSessionStarredMessagesRoute } from "./session-starred-messages-route.js";
+import { registerSessionModelProvenanceMigrationRoute } from "./session-model-provenance-migration-route.js";
 import { registerGlobalStarredMessageSearchRoute } from "./global-starred-message-search-route.js";
 import { parseIncludeArchived, registerSessionSearchRoute } from "./session-search-route.js";
 import { registerSessionPermissionModeRoute, resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
@@ -1181,6 +1182,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
   registerGlobalStarredMessageSearchRoute(api, { launcher, wsBridge });
   registerSessionMessageSearchRoute(api, { launcher, wsBridge, resolveId });
   registerSessionStarredMessagesRoute(api, { launcher, wsBridge, resolveId });
+  registerSessionModelProvenanceMigrationRoute(api, ctx);
   api.get("/sessions/:id", (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);

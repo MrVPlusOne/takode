@@ -1230,6 +1230,7 @@ export type BrowserIncomingMessageBase =
         notificationStatusUpdatedAt?: number;
         leaderActiveBoardRows?: BoardRow[];
         leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
+        modelProvenanceMigration?: ModelProvenanceMigration;
       };
     }
   | {

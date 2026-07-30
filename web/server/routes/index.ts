@@ -158,6 +158,7 @@ export function createRoutes(
   perfTracer?: PerfTracer,
   sleepInhibitor?: import("../sleep-inhibitor.js").SleepInhibitor,
   resourceLeaseManager?: import("../resource-lease-manager.js").ResourceLeaseManager,
+  modelProvenanceMigrationAcknowledgementStore?: import("../model-provenance-migration-acknowledgement-store.js").ModelProvenanceMigrationAcknowledgementStore,
 ) {
   const api = new Hono();
 
@@ -203,6 +204,7 @@ export function createRoutes(
     cronScheduler,
     timerManager,
     resourceLeaseManager,
+    modelProvenanceMigrationAcknowledgementStore,
     imageStore,
     pushoverNotifier,
     sleepInhibitor,

@@ -31,12 +31,16 @@ export interface ModelAuthorityDecision {
 export type ModelProvenanceMigrationSource = "external_resume" | "legacy_relaunch" | "legacy_parent";
 
 export interface ModelProvenanceMigration {
+  /** Stable identity shared by every session that inherited this migration event. */
+  eventId: string;
   code: "model_provenance_unavailable";
   source: ModelProvenanceMigrationSource;
   selectedModel: string;
   authority: ModelAuthorityDecision;
   migratedAt: number;
   warning: string;
+  /** Server-authored attention projection; provenance fields remain unchanged. */
+  acknowledgedAt?: number;
 }
 
 export class ModelDefaultConflictError extends Error {

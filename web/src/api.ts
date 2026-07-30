@@ -1178,6 +1178,12 @@ export const api = {
       `/sessions/${encodeURIComponent(sessionId)}/starred-messages/${encodeURIComponent(messageId)}`,
     ),
 
+  acknowledgeModelProvenanceMigration: (sessionId: string, eventId: string) =>
+    post<{ ok: true; eventId: string; acknowledgedAt: number; affectedSessionIds: string[] }>(
+      `/sessions/${encodeURIComponent(sessionId)}/model-provenance-migration/acknowledge`,
+      { eventId },
+    ),
+
   archiveSession: (sessionId: string, opts?: { force?: boolean }) =>
     post(`/sessions/${encodeURIComponent(sessionId)}/archive`, opts),
 

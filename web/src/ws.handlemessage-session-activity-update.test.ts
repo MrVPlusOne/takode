@@ -6,6 +6,7 @@ import type {
   ContentBlock,
   BrowserIncomingMessage,
   SessionNotification,
+  ModelProvenanceMigration,
 } from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
@@ -136,6 +137,40 @@ function fireMessage(data: Record<string, unknown>) {
 // Connection
 // ===========================================================================
 describe("handleMessage: session_activity_update", () => {
+  it("projects event-wide migration acknowledgement into an inactive session snapshot", () => {
+    // Global fanout keeps another browser's inactive parent/child row authoritative before it navigates there.
+    wsModule.connectSession("leader");
+    fireMessage({ type: "session_init", session: makeSession("leader") });
+    useStore
+      .getState()
+      .setSdkSessions([{ sessionId: "worker", state: "connected", cwd: "/home/user", createdAt: 2, archived: false }]);
+    const migration: ModelProvenanceMigration = {
+      eventId: "shared-event",
+      code: "model_provenance_unavailable",
+      source: "legacy_parent",
+      selectedModel: "gpt-5.6-sol",
+      authority: {
+        model: "gpt-5.6-sol",
+        source: "session_default",
+        policyVersion: "test",
+        overrideTrace: [{ model: "gpt-5.6-sol", source: "session_default", precedence: 300, status: "selected" }],
+      },
+      migratedAt: 123,
+      warning: "Original provenance unavailable",
+      acknowledgedAt: 456,
+    };
+
+    fireMessage({
+      type: "session_activity_update",
+      session_id: "worker",
+      session: { modelProvenanceMigration: migration },
+    });
+
+    expect(
+      useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")?.modelProvenanceMigration,
+    ).toEqual(migration);
+  });
+
   it("updates inactive session sidebar state from another session socket", () => {
     wsModule.connectSession("leader");
     fireMessage({ type: "session_init", session: makeSession("leader") });

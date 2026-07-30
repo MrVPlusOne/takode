@@ -53,6 +53,8 @@ import { requestStartupRecoveryRelaunch, runStartupRecovery } from "./startup-re
 import { getStaticAssetCacheControl } from "./static-asset-cache.js";
 import { markCodexIntentionalRelaunch, markSessionRelaunchPending } from "./bridge/codex-recovery-orchestrator.js";
 import { deliverModelProvenanceMigration } from "./model-provenance-migration-delivery.js";
+import { ModelProvenanceMigrationAcknowledgementStore } from "./model-provenance-migration-acknowledgement-store.js";
+import { projectModelProvenanceMigrationFamilies } from "./model-provenance-migration-runtime.js";
 import {
   addTaskEntry as addTaskEntryController,
   mergeKeywords as mergeKeywordsController,
@@ -107,6 +109,10 @@ const serverSlug = getServerSlug();
 initTreeGroupStoreForServer({ serverId, port });
 initNewSessionDefaultsStoreForServer({ serverId });
 const sessionStore = new SessionStore(undefined, port);
+const modelProvenanceMigrationAcknowledgementStore = new ModelProvenanceMigrationAcknowledgementStore(
+  join(sessionStore.directory, "model-provenance-migration-acknowledgements.json"),
+);
+await modelProvenanceMigrationAcknowledgementStore.load();
 const wsBridge = new WsBridge();
 const launcher = new CliLauncher(port, { serverId, serverSlug });
 const worktreeTracker = new WorktreeTracker();
@@ -207,6 +213,7 @@ launcher.setEnvResolver(async (slug) => {
 });
 await launcher.restoreFromDisk();
 await wsBridge.restoreFromDisk();
+projectModelProvenanceMigrationFamilies(launcher, wsBridge, modelProvenanceMigrationAcknowledgementStore);
 {
   const defaultMemorySessionSpaceSlug = normalizeMemorySessionSpaceSlug(launcher.getMemorySessionSpaceSlug());
   const restoredSessions = (
@@ -824,6 +831,7 @@ app.route(
     perfTracer,
     sleepInhibitor,
     resourceLeaseManager,
+    modelProvenanceMigrationAcknowledgementStore,
   ),
 );
 

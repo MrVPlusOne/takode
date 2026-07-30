@@ -8,6 +8,7 @@ import {
   type ModelProvenanceMigrationSource,
 } from "./model-identity-contract.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
+import { createModelProvenanceMigrationEventId } from "./model-provenance-migration.js";
 
 export interface LaunchModelSelection {
   model?: string;
@@ -55,6 +56,7 @@ export function createModelProvenanceMigration(
   migratedAt = Date.now(),
 ): ModelProvenanceMigration {
   return {
+    eventId: createModelProvenanceMigrationEventId(),
     code: "model_provenance_unavailable",
     source,
     selectedModel: authority.model,

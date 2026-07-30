@@ -117,6 +117,22 @@ describe("Playground", () => {
     expect(document.body).toHaveTextContent("tmux new-session");
   });
 
+  it("documents visible, expanded, and acknowledged-hidden migration notice states", () => {
+    // Playground must retain all user-visible states needed by the later desktop/mobile Execute pass.
+    render(<PlaygroundOverviewSections />);
+
+    const compactCard = screen.getByText("Compact migration notice").parentElement?.parentElement;
+    const expandedCard = screen.getByText("Expanded migration details").parentElement?.parentElement;
+    const hiddenCard = screen.getByText("Acknowledged migration hidden").parentElement?.parentElement;
+    expect(compactCard).toBeTruthy();
+    expect(expandedCard).toBeTruthy();
+    expect(hiddenCard).toBeTruthy();
+    expect(within(compactCard!).getByRole("status", { name: "Model provenance migration notice" })).toBeTruthy();
+    expect(expandedCard?.querySelector("details")).toHaveAttribute("open");
+    expect(within(hiddenCard!).queryByRole("status", { name: "Model provenance migration notice" })).toBeNull();
+    expect(screen.getByTestId("playground-acknowledged-migration-hidden")).toBeEmptyDOMElement();
+  });
+
   it("documents first-line Side Chat action controls and fallback reason states", () => {
     render(<Playground />);
 

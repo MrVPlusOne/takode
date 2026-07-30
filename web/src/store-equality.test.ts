@@ -24,6 +24,7 @@ describe("sdkSessionListEqual", () => {
 
   it("detects a server-authored model provenance migration warning", () => {
     const migration = {
+      eventId: "model-provenance-migration:test",
       code: "model_provenance_unavailable" as const,
       source: "legacy_relaunch" as const,
       selectedModel: "gpt-5.6-sol",
@@ -44,5 +45,11 @@ describe("sdkSessionListEqual", () => {
       warning: "Original provenance unavailable",
     };
     expect(sdkSessionListEqual([session({ modelProvenanceMigration: migration })], [session()])).toBe(false);
+    expect(
+      sdkSessionListEqual(
+        [session({ modelProvenanceMigration: { ...migration, acknowledgedAt: 456 } })],
+        [session({ modelProvenanceMigration: migration })],
+      ),
+    ).toBe(false);
   });
 });

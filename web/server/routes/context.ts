@@ -34,6 +34,7 @@ export interface RouteContext {
   sleepInhibitor?: import("../sleep-inhibitor.js").SleepInhibitor;
   timerManager?: import("../timer-manager.js").TimerManager;
   resourceLeaseManager?: import("../resource-lease-manager.js").ResourceLeaseManager;
+  modelProvenanceMigrationAcknowledgementStore?: import("../model-provenance-migration-acknowledgement-store.js").ModelProvenanceMigrationAcknowledgementStore;
   options?: { requestRestart?: () => void };
   perfTracer?: PerfTracer;
 

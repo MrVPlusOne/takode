@@ -81,6 +81,7 @@ interface MockStoreState {
 let mockState: MockStoreState;
 const mockSendToSession = vi.fn((_sessionId: string, _msg: unknown) => true);
 const mockMessageFeedRenders = vi.fn();
+const mockAcknowledgeModelProvenanceMigration = vi.hoisted(() => vi.fn().mockResolvedValue({ ok: true }));
 
 function resetStore(overrides: Partial<MockStoreState> = {}) {
   mockState = {
@@ -138,7 +139,13 @@ vi.mock("../store.js", () => ({
 }));
 
 vi.mock("../hooks/useSessionSearch.js", () => ({ useSessionSearch: () => {} }));
-vi.mock("../api.js", () => ({ api: { relaunchSession: vi.fn(), unarchiveSession: vi.fn() } }));
+vi.mock("../api.js", () => ({
+  api: {
+    relaunchSession: vi.fn(),
+    unarchiveSession: vi.fn(),
+    acknowledgeModelProvenanceMigration: mockAcknowledgeModelProvenanceMigration,
+  },
+}));
 vi.mock("../ws.js", () => ({ sendToSession: (sessionId: string, msg: unknown) => mockSendToSession(sessionId, msg) }));
 vi.mock("./SearchBar.js", () => ({ SearchBar: () => null }));
 vi.mock("./TaskOutlineBar.js", () => ({ TaskOutlineBar: () => null }));
@@ -312,6 +319,7 @@ beforeEach(() => {
   window.location.hash = "#/session/s1";
   mockSendToSession.mockClear();
   mockMessageFeedRenders.mockClear();
+  mockAcknowledgeModelProvenanceMigration.mockClear();
 });
 
 describe("ChatView archived read-only state", () => {
@@ -346,6 +354,29 @@ describe("ChatView archived read-only state", () => {
     render(<ChatView sessionId="s1" />);
 
     expect(screen.getByTestId("model-provenance-migration-banner")).toHaveTextContent(migration.warning);
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss model provenance migration notice" }));
+    expect(mockAcknowledgeModelProvenanceMigration).toHaveBeenCalledWith("s1", migration.eventId);
+    expect(screen.getByTestId("model-provenance-migration-banner")).toBeInTheDocument();
+  });
+
+  it("keeps an authoritatively acknowledged migration hidden after hydration", () => {
+    const migration = {
+      ...createModelProvenanceMigration(
+        resolveUnknownModelProvenanceAuthority("gpt-5.6-terra"),
+        "legacy_relaunch",
+        123,
+      ),
+      acknowledgedAt: 456,
+    };
+    resetStore({
+      sessions: new Map([
+        ["s1", { backend_state: "connected", isOrchestrator: true, modelProvenanceMigration: migration }],
+      ]),
+    });
+
+    render(<ChatView sessionId="s1" />);
+
+    expect(screen.queryByTestId("model-provenance-migration-banner")).toBeNull();
   });
 });
 

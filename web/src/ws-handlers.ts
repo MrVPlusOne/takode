@@ -782,6 +782,7 @@ function handleParsedMessage(
         ...(update.leaderActivePhaseSummary !== undefined
           ? { leaderActivePhaseSummary: update.leaderActivePhaseSummary }
           : {}),
+        ...(update.modelProvenanceMigration ? { modelProvenanceMigration: update.modelProvenanceMigration } : {}),
       });
       if (update.leaderActiveBoardRows !== undefined) {
         store.setSessionBoard(targetSessionId, update.leaderActiveBoardRows);

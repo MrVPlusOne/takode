@@ -119,7 +119,29 @@ import {
   PlaygroundSectionGroup,
   TaskRow,
 } from "./shared.js";
-import type { SessionAttentionRecord } from "../../types.js";
+import type { ModelProvenanceMigration, SessionAttentionRecord } from "../../types.js";
+
+const PLAYGROUND_MODEL_PROVENANCE_MIGRATION: ModelProvenanceMigration = {
+  eventId: "model-provenance-migration:playground",
+  code: "model_provenance_unavailable",
+  source: "legacy_relaunch",
+  selectedModel: "gpt-5.6-sol",
+  authority: {
+    model: "gpt-5.6-sol",
+    source: "session_default",
+    policyVersion: "playground",
+    overrideTrace: [
+      {
+        model: "gpt-5.6-sol",
+        source: "session_default",
+        precedence: 300,
+        status: "selected",
+      },
+    ],
+  },
+  migratedAt: 0,
+  warning: "Original model provenance was unavailable. Takode selected gpt-5.6-sol and persisted this exact choice.",
+};
 
 function PlaygroundAssistantQuestQuizMessage() {
   useEffect(() => {
@@ -728,30 +750,26 @@ export function PlaygroundOverviewSections() {
               <ChatView sessionId={PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID} />
             </div>
           </Card>
-          <Card label="Historical unknown-provenance migration warning">
+          <Card label="Compact migration notice">
             <ModelProvenanceMigrationBanner
-              migration={{
-                code: "model_provenance_unavailable",
-                source: "legacy_relaunch",
-                selectedModel: "gpt-5.6-sol",
-                authority: {
-                  model: "gpt-5.6-sol",
-                  source: "session_default",
-                  policyVersion: "playground",
-                  overrideTrace: [
-                    {
-                      model: "gpt-5.6-sol",
-                      source: "session_default",
-                      precedence: 300,
-                      status: "selected",
-                    },
-                  ],
-                },
-                migratedAt: 0,
-                warning:
-                  "Original model provenance was unavailable. Takode selected gpt-5.6-sol and persisted this exact choice.",
-              }}
+              migration={PLAYGROUND_MODEL_PROVENANCE_MIGRATION}
+              onAcknowledge={async () => {}}
             />
+          </Card>
+          <Card label="Expanded migration details">
+            <ModelProvenanceMigrationBanner
+              migration={PLAYGROUND_MODEL_PROVENANCE_MIGRATION}
+              defaultDetailsOpen
+              onAcknowledge={async () => {}}
+            />
+          </Card>
+          <Card label="Acknowledged migration hidden">
+            <div data-testid="playground-acknowledged-migration-hidden" className="min-h-8">
+              <ModelProvenanceMigrationBanner
+                migration={{ ...PLAYGROUND_MODEL_PROVENANCE_MIGRATION, acknowledgedAt: 1 }}
+                onAcknowledge={async () => {}}
+              />
+            </div>
           </Card>
         </div>
       </Section>

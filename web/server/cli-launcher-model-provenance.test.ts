@@ -64,11 +64,13 @@ describe("CliLauncher legacy model provenance", () => {
     );
     expect(migrationEvents).toHaveBeenCalledOnce();
     const firstMigration = legacy.modelProvenanceMigration;
+    firstMigration!.acknowledgedAt = 456;
 
     configuredDefault = "gpt-5.6-luna";
     expect(await launcher.relaunch(legacy.sessionId)).toEqual({ ok: true });
     expect(legacy.model).toBe("gpt-5.6-terra");
     expect(legacy.modelProvenanceMigration).toBe(firstMigration);
+    expect(legacy.modelProvenanceMigration).toMatchObject({ eventId: firstMigration!.eventId, acknowledgedAt: 456 });
     expect(migrationEvents).toHaveBeenCalledOnce();
 
     await vi.advanceTimersByTimeAsync(200);

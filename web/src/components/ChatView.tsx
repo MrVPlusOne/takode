@@ -1712,7 +1712,12 @@ export function ChatView({
         </div>
       )}
 
-      {!preview && modelProvenanceMigration && <ModelProvenanceMigrationBanner migration={modelProvenanceMigration} />}
+      {!preview && modelProvenanceMigration && (
+        <ModelProvenanceMigrationBanner
+          migration={modelProvenanceMigration}
+          onAcknowledge={(eventId) => api.acknowledgeModelProvenanceMigration(sessionId, eventId)}
+        />
+      )}
 
       {/* Session task outline — horizontal milestone chips */}
       {!preview && !isLeaderSession && !sessionQuestBannerRow && <TaskOutlineBar sessionId={sessionId} />}
