@@ -172,6 +172,12 @@ clone or after dependency changes, run `bun install --cwd web --frozen-lockfile`
 first. See [Dependency and Install Policy](docs/dependency-policy.md) for lockfile
 review, exact-version, and package update expectations.
 
+### Optional raw protocol debugging
+
+Takode does not record raw Claude Code, Codex, or browser protocol traffic by default. For a temporary bounded diagnostic, start or restart the server with exactly `COMPANION_RECORD=1` or `COMPANION_RECORD=true`. Automatic capture can use substantial memory and disk with many active sessions, so remove the variable (or set it to `0`/`false`) and restart when finished; any other value also keeps capture off.
+
+Recordings are ephemeral debugging artifacts under `$TMPDIR/companion-recordings/` by default. Existing files remain available when capture is disabled. For one current-process session only, use `POST /api/sessions/:id/recording/start`, inspect `GET /api/sessions/:id/recording/status`, and finish with `POST /api/sessions/:id/recording/stop`. See the [Architecture & Contributor Guide](CLAUDE.md#raw-protocol-recordings) for the JSONL format, listing endpoint, and storage override.
+
 ## Documentation
 
 - [Changelog](CHANGELOG.md)

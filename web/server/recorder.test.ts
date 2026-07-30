@@ -4,12 +4,19 @@ import { tmpdir } from "node:os";
 import { compactRecordingRaw, SessionRecorder, RecorderManager } from "./recorder.js";
 
 let tempDir: string;
+let originalCompanionRecord: string | undefined;
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), "recorder-test-"));
+  originalCompanionRecord = process.env.COMPANION_RECORD;
 });
 
 afterEach(() => {
+  if (originalCompanionRecord === undefined) {
+    delete process.env.COMPANION_RECORD;
+  } else {
+    process.env.COMPANION_RECORD = originalCompanionRecord;
+  }
   rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -169,11 +176,57 @@ describe("SessionRecorder", () => {
 // ─── RecorderManager ─────────────────────────────────────────────────────────
 
 describe("RecorderManager", () => {
-  it("enabled by default when no options provided", () => {
-    // Recording is always on unless explicitly disabled
-    const mgr = new RecorderManager({ recordingsDir: tempDir });
-    expect(mgr.isGloballyEnabled()).toBe(true);
-    expect(mgr.isRecording("any-session")).toBe(true);
+  it("defaults off without creating recording state or filesystem work", () => {
+    // Default-off must stop before recorder, buffer, directory, file, or cleanup
+    // timer creation, including browser and server-event recording callbacks.
+    delete process.env.COMPANION_RECORD;
+    const recordingsDir = join(tempDir, "disabled-recordings");
+    const intervalSpy = vi.spyOn(globalThis, "setInterval");
+    const mgr = new RecorderManager({ recordingsDir });
+
+    try {
+      expect(mgr.isGloballyEnabled()).toBe(false);
+      expect(mgr.isRecording("any-session")).toBe(false);
+
+      mgr.record("sess-1", "in", "browser payload", "browser", "claude", "/cwd");
+      mgr.recordServerEvent("sess-1", "turn_state", { state: "idle" }, "claude", "/cwd");
+
+      expect(mgr.getActiveRecorderStats("sess-1")).toBeNull();
+      expect(existsSync(recordingsDir)).toBe(false);
+      expect(intervalSpy).not.toHaveBeenCalled();
+    } finally {
+      mgr.closeAll();
+      intervalSpy.mockRestore();
+    }
+  });
+
+  it.each([
+    ["1", true],
+    ["true", true],
+    ["0", false],
+    ["false", false],
+    ["", false],
+    ["TRUE", false],
+    ["yes", false],
+    ["unexpected", false],
+  ])("resolves COMPANION_RECORD=%j to globalEnabled=%s", (value, expected) => {
+    process.env.COMPANION_RECORD = value;
+    const mgr = new RecorderManager({ recordingsDir: join(tempDir, value || "empty") });
+
+    expect(mgr.isGloballyEnabled()).toBe(expected);
+    expect(mgr.isRecording("any-session")).toBe(expected);
+    mgr.closeAll();
+  });
+
+  it("automatically records when explicitly enabled through the environment", () => {
+    process.env.COMPANION_RECORD = "true";
+    const recordingsDir = join(tempDir, "opt-in-recordings");
+    const mgr = new RecorderManager({ recordingsDir });
+
+    mgr.record("sess-1", "in", "captured", "cli", "claude", "/cwd");
+
+    expect(readDirSafe(recordingsDir)).toHaveLength(1);
+    expect(mgr.getActiveRecorderStats("sess-1")).not.toBeNull();
     mgr.closeAll();
   });
 
@@ -205,6 +258,26 @@ describe("RecorderManager", () => {
 
     mgr.disableForSession("sess-1");
     expect(mgr.isRecording("sess-1")).toBe(false);
+  });
+
+  it("manual capture records only the selected session and stops cleanly", () => {
+    const recordingsDir = join(tempDir, "manual-recordings");
+    const mgr = new RecorderManager({ globalEnabled: false, recordingsDir });
+
+    mgr.enableForSession("sess-1");
+    mgr.record("sess-1", "in", "selected", "browser", "claude", "/cwd");
+    mgr.record("sess-2", "in", "not selected", "browser", "claude", "/cwd");
+
+    expect(readDirSafe(recordingsDir)).toHaveLength(1);
+    expect(readDirSafe(recordingsDir)[0]).toContain("sess-1");
+    expect(mgr.getActiveRecorderStats("sess-2")).toBeNull();
+
+    mgr.disableForSession("sess-1");
+    expect(mgr.isRecording("sess-1")).toBe(false);
+    expect(mgr.getRecordingStatus("sess-1").filePath).toBeUndefined();
+
+    mgr.record("sess-1", "in", "after stop", "browser", "claude", "/cwd");
+    expect(readDirSafe(recordingsDir)).toHaveLength(1);
   });
 
   it("lazily creates a recorder on first record() call", () => {
@@ -292,6 +365,21 @@ describe("RecorderManager", () => {
       recordingsDir: join(tempDir, "nonexistent"),
     });
     expect(await mgr.listRecordings()).toEqual([]);
+  });
+
+  it("lists existing recording files while automatic recording is off", async () => {
+    delete process.env.COMPANION_RECORD;
+    createFakeRecording(tempDir, "existing_claude_2025-01-01.jsonl", 2);
+    const mgr = new RecorderManager({ recordingsDir: tempDir });
+
+    expect(mgr.isGloballyEnabled()).toBe(false);
+    expect(await mgr.listRecordings()).toEqual([
+      expect.objectContaining({
+        filename: "existing_claude_2025-01-01.jsonl",
+        sessionId: "existing",
+        backendType: "claude",
+      }),
+    ]);
   });
 
   it("closeAll closes all active recorders and stops cleanup timer", () => {

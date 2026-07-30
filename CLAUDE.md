@@ -293,13 +293,15 @@ Sessions persist to disk (`~/.companion/sessions/`) and survive server restarts.
 
 ### Raw Protocol Recordings
 
-The server automatically records **all raw protocol messages** (both Claude Code NDJSON and Codex JSON-RPC) to JSONL files. This is useful for debugging, understanding the protocol, and building replay-based tests.
+Raw protocol recording is an explicit debugging opt-in. Normal startup does not record Claude Code NDJSON, Codex JSON-RPC, or browser transport payloads. To temporarily capture every session, start or restart Takode with exactly `COMPANION_RECORD=1` or `COMPANION_RECORD=true`; unset, `0`, `false`, and all other values keep automatic capture off. Automatic capture can consume substantial memory and disk when many sessions receive large global payloads, so enable it only while collecting a bounded diagnostic.
 
 - **Location**: `$TMPDIR/companion-recordings/` by default (fast local tmpfs). Override with `COMPANION_RECORDINGS_DIR` for persistent storage (e.g. `~/.companion/recordings/`).
 - **Format**: JSONL — one JSON object per line. First line is a header with session metadata, subsequent lines are raw message entries.
 - **File naming**: `{sessionId}_{backendType}_{ISO-timestamp}_{randomSuffix}.jsonl`
-- **Disable**: set `COMPANION_RECORD=0` or `COMPANION_RECORD=false`
-- **Rotation**: automatic cleanup when total lines exceed 500k (configurable via `COMPANION_RECORDINGS_MAX_LINES`)
+- **Automatic opt-in**: set exactly `COMPANION_RECORD=1` or `COMPANION_RECORD=true` before server startup
+- **Manual capture**: use the per-session REST start/stop endpoints below; manual capture is process-local, affects only that session, and does not survive restart
+- **Existing files**: listing and status remain available while automatic capture is off; disabling capture does not delete or migrate files
+- **Rotation**: when automatic capture is enabled, cleanup runs when total lines exceed 500k (configurable via `COMPANION_RECORDINGS_MAX_LINES`)
 
 Each entry captures:
 ```json
@@ -313,6 +315,8 @@ Each entry captures:
 - `GET /api/recordings` — list all recording files with metadata
 - `GET /api/sessions/:id/recording/status` — check if a session is recording + file path
 - `POST /api/sessions/:id/recording/start` / `stop` — enable/disable per session
+
+To return to the safe default after temporary automatic capture, remove `COMPANION_RECORD` (or set it to `0`/`false`) and restart Takode. Recordings are debugging artifacts and production session behavior must not depend on them.
 
 **Code**: `web/server/recorder.ts` (recorder + manager), `web/server/replay.ts` (load & filter utilities).
 

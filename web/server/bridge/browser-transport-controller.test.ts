@@ -7,6 +7,9 @@
  * by an older buffered copy during event_replay).
  */
 
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import {
   broadcastToBrowsers,
@@ -21,7 +24,8 @@ import {
   sendThreadWindowSync,
   type BrowserTransportSessionLike,
 } from "./browser-transport-controller.js";
-import type { BrowserIncomingMessage } from "../session-types.js";
+import type { BackendType, BrowserIncomingMessage } from "../session-types.js";
+import { RecorderManager } from "../recorder.js";
 import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
 
 function makeSession(overrides?: Partial<BrowserTransportSessionLike>): BrowserTransportSessionLike {
@@ -318,6 +322,36 @@ describe("tree_groups_update replay-buffer exclusion", () => {
       expect(session.eventBuffer).toHaveLength(0);
     }
     expect(deps.persistSession).not.toHaveBeenCalled();
+  });
+
+  it("does no recording work for global broadcasts when automatic capture is off", () => {
+    // broadcastGlobal() invokes this browser transport callback once per session.
+    // The disabled recorder must reject every callback before creating any
+    // per-session recorder, buffer, directory, or file.
+    const root = mkdtempSync(join(tmpdir(), "browser-broadcast-recording-test-"));
+    const recordingsDir = join(root, "recordings");
+    const recorder = new RecorderManager({ globalEnabled: false, recordingsDir });
+    const deps = {
+      ...makeDeps(),
+      recordOutgoingRaw: (sessionId: string, json: string, backendType: string, cwd: string) =>
+        recorder.record(sessionId, "out", json, "browser", backendType as BackendType, cwd),
+    };
+    const sessions = [makeSession({ id: "s1" }), makeSession({ id: "s2" }), makeSession({ id: "s3" })];
+    const msg = { type: "quest_list_updated" } as BrowserIncomingMessage;
+
+    try {
+      for (const session of sessions) {
+        broadcastToBrowsers(session, msg, deps, { skipBuffer: true });
+      }
+
+      expect(existsSync(recordingsDir)).toBe(false);
+      for (const session of sessions) {
+        expect(recorder.getActiveRecorderStats(session.id)).toBeNull();
+      }
+    } finally {
+      recorder.closeAll();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

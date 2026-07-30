@@ -182,7 +182,8 @@ export class SessionRecorder {
 /**
  * Manages recording for all sessions.
  *
- * Always enabled by default. Disable explicitly with COMPANION_RECORD=0.
+ * Automatic recording is disabled by default. Enable it explicitly with
+ * COMPANION_RECORD=1 or COMPANION_RECORD=true.
  *
  * Default recordings directory is `$TMPDIR/companion-recordings/` — recordings
  * are ephemeral debugging data and benefit from fast local storage. Override
@@ -194,9 +195,9 @@ export class SessionRecorder {
  * - `GET /api/traffic/stats` for the server-wide recordings directory
  * - `GET /api/sessions/:id/recording/status` for the concrete file paths of one session
  *
- * Automatic rotation: when total lines across all recording files exceed
- * maxLines (default 500 000, override with COMPANION_RECORDINGS_MAX_LINES),
- * the oldest files are deleted until we're back under the limit.
+ * When automatic recording is enabled, rotation deletes the oldest files when
+ * total lines exceed maxLines (default 500 000, override with
+ * COMPANION_RECORDINGS_MAX_LINES).
  */
 export class RecorderManager {
   private globalEnabled: boolean;
@@ -231,12 +232,12 @@ export class RecorderManager {
   }
 
   /**
-   * Always on unless explicitly disabled with COMPANION_RECORD=0|false.
+   * Automatic capture is opt-in. Other values stay disabled so a typo cannot
+   * unexpectedly enable high-volume protocol recording.
    */
   private static resolveEnabled(): boolean {
     const env = process.env.COMPANION_RECORD;
-    if (env === "0" || env === "false") return false;
-    return true;
+    return env === "1" || env === "true";
   }
 
   isGloballyEnabled(): boolean {
