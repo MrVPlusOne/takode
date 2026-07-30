@@ -275,14 +275,14 @@ describe("Playground", () => {
         .some((row) => row.getAttribute("data-attention-type") === "quest_thread_created"),
     ).toBe(false);
 
-    expect(screen.getByText("Earlier context attached to the implementation quest.")).toBeTruthy();
+    expect(screen.getAllByText("Earlier context attached to the implementation quest.").length).toBeGreaterThan(0);
 
     const marker = screen.getAllByTestId("thread-system-marker-cluster")[0];
     expect(marker).toHaveTextContent("Work continued from Main to thread:q-962");
     expect(marker).not.toHaveTextContent("activities in thread:");
     expect(within(marker).queryByText("Jump")).toBeNull();
     expect(within(marker).getByRole("button", { name: "Main" })).toBeTruthy();
-    expect(within(marker).getByRole("button", { name: "thread:q-962" })).toBeTruthy();
+    expect(within(marker).getAllByRole("button", { name: "thread:q-962" }).length).toBeGreaterThan(0);
     fireEvent.click(within(marker).getByRole("button", { name: "Details" }));
     expect(marker).toHaveTextContent("1 message moved to thread:q-961");
     expect(
@@ -291,6 +291,18 @@ describe("Playground", () => {
       ),
     ).toBeNull();
     expect(screen.getByLabelText("Thread Ready for thread:q-963: dispatch plan is ready")).toBeTruthy();
+
+    const questProjection = screen.getByTestId("playground-quest-thread-projection");
+    expect(questProjection).toHaveTextContent("Work continued from thread:q-961 to thread:q-962");
+    expect(questProjection).not.toHaveTextContent("Work continued from thread:q-962 to thread:q-961");
+
+    const allProjection = screen.getByTestId("playground-all-thread-projection");
+    expect(allProjection).toHaveTextContent("Work continued from thread:q-961 to thread:q-962");
+    expect(allProjection).toHaveTextContent("Work continued from thread:q-962 to thread:q-961");
+
+    const mainProjection = screen.getByTestId("playground-main-thread-projection");
+    expect(mainProjection).toHaveTextContent("Work continued from Main to thread:q-962");
+    expect(mainProjection).not.toHaveTextContent("Work continued from thread:q-961 to thread:q-962");
   });
 
   it("documents waiting counts in the lightweight herd summary mock", () => {

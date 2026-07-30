@@ -572,21 +572,30 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Thread Projections"
-        description="Main keeps attached source context visible without source attachment markers; All Threads preserves the global message view without current status footers; quest projections keep attached context plus routed notification and thread-status footer metadata."
+        description="Main keeps its existing handoff view; All Threads preserves the global audit; quest projections keep outbound handoffs while suppressing redundant inbound transitions."
       >
         <div className="grid gap-4 xl:grid-cols-4">
           <Card label="Main">
-            <div className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card">
+            <div
+              data-testid="playground-main-thread-projection"
+              className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card"
+            >
               <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="main" />
             </div>
           </Card>
           <Card label="All Threads">
-            <div className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card">
+            <div
+              data-testid="playground-all-thread-projection"
+              className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card"
+            >
               <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="all" />
             </div>
           </Card>
           <Card label="Quest Thread">
-            <div className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card">
+            <div
+              data-testid="playground-quest-thread-projection"
+              className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card"
+            >
               <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="q-961" />
             </div>
           </Card>

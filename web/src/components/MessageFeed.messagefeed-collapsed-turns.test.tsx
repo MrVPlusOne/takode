@@ -837,10 +837,8 @@ describe("MessageFeed - collapsed turns", () => {
 
     const destinationView = render(<MessageFeed sessionId={sid} threadKey="q-941" />);
     expect(screen.getByText("Destination quest dispatch")).toBeTruthy();
-    expectTextContent(
-      screen.getByTestId("thread-transition-marker"),
-      "Work continued from thread:q-940 to thread:q-941",
-    );
+    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
+    expect(screen.queryByText(/Work continued from/)).toBeNull();
     destinationView.unmount();
 
     render(<MessageFeed sessionId={sid} threadKey="q-942" />);

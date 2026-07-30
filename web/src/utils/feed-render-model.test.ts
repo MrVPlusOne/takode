@@ -1058,20 +1058,20 @@ describe("feed render model builders", () => {
     expect(model.messages.map((message) => message.id)).toEqual(["u-q1080", "hist-result-2"]);
   });
 
-  it("defensively scopes selected-thread window transition markers to affected threads", () => {
+  it("keeps outbound and suppresses inbound selected-thread window transition markers", () => {
     const sourceMarker = makeTransitionMarker({
       id: "transition-q1139-q1141",
       sourceThreadKey: "q-1139",
       threadKey: "q-1141",
     });
-    const unrelatedMarker = makeTransitionMarker({
-      id: "transition-q1141-q1135",
+    const inboundMarker = makeTransitionMarker({
+      id: "transition-q1141-q1139",
       sourceThreadKey: "q-1141",
-      threadKey: "q-1135",
+      threadKey: "q-1139",
     });
     const selectedFeedWindowMessages = [
       ...normalizeHistoryMessageToChatMessages(sourceMarker, 1),
-      ...normalizeHistoryMessageToChatMessages(unrelatedMarker, 2),
+      ...normalizeHistoryMessageToChatMessages(inboundMarker, 2),
     ];
     const threadWindow = makeWindow({
       thread_key: "q-1139",
@@ -1084,7 +1084,7 @@ describe("feed render model builders", () => {
       threadKey: "q-1139",
       entries: [
         { message: sourceMarker, history_index: 1 },
-        { message: unrelatedMarker, history_index: 2 },
+        { message: inboundMarker, history_index: 2 },
       ],
       window: threadWindow,
     });
@@ -1097,7 +1097,7 @@ describe("feed render model builders", () => {
       sessionNotifications: [],
     });
 
-    expect(feedSync.items.map((item) => item.messageId)).toEqual(["transition-q1139-q1141", "transition-q1141-q1135"]);
+    expect(feedSync.items.map((item) => item.messageId)).toEqual(["transition-q1139-q1141", "transition-q1141-q1139"]);
     expect(model.messages.map((message) => message.id)).toEqual(["transition-q1139-q1141"]);
   });
 

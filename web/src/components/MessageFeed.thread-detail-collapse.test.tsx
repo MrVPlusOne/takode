@@ -26,7 +26,7 @@ beforeAll(() => {
   });
 });
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ChatMessage, SessionAttentionRecord, ThreadTransitionMarker } from "../types.js";
 
 vi.mock("react-markdown", () => ({
@@ -451,6 +451,78 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(marker.textContent).toContain("Work continued from Main to thread:q-941");
     expect(marker.textContent).toContain("1 activity in thread:q-941");
     expect(within(marker).getAllByRole("button", { name: "thread:q-941" }).length).toBeGreaterThan(0);
+  });
+
+  it("projects bidirectional mixed marker clusters without empty or duplicate rows", () => {
+    // Mirror the reported q-1752 cluster and include the adjacent attachment
+    // and activity shapes that share the thread-system marker renderer.
+    const sid = "test-directional-bidirectional-transition-cluster";
+    const outbound = transitionMarker({ id: "outbound", sourceThreadKey: "q-1752", threadKey: "q-1742" });
+    const inbound = transitionMarker({ id: "inbound", sourceThreadKey: "q-1742", threadKey: "q-1752" });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "attachment",
+        role: "system",
+        content: "1 message moved to q-1752",
+        metadata: {
+          threadAttachmentMarker: {
+            type: "thread_attachment_marker",
+            id: "attachment",
+            timestamp: 1,
+            markerKey: "thread-attachment:q-1752:context",
+            threadKey: "q-1752",
+            questId: "q-1752",
+            attachedAt: 1,
+            attachedBy: "leader",
+            messageIds: ["context"],
+            messageIndices: [1],
+            ranges: ["1"],
+            count: 1,
+            firstMessageId: "context",
+            firstMessageIndex: 1,
+          },
+        },
+      }),
+      makeMessage({
+        id: outbound.id,
+        role: "system",
+        content: "Work continued from thread:q-1752 to thread:q-1742",
+        metadata: { threadTransitionMarker: outbound },
+      }),
+      makeMessage({
+        id: inbound.id,
+        role: "system",
+        content: "Work continued from thread:q-1742 to thread:q-1752",
+        metadata: { threadTransitionMarker: inbound },
+      }),
+      makeMessage({
+        id: "activity",
+        role: "system",
+        content: "1 activity in thread:q-1752",
+        metadata: {
+          threadKey: "q-1752",
+          questId: "q-1752",
+          crossThreadActivityMarker: crossThreadActivityMarker({
+            threadKey: "q-1752",
+            questId: "q-1752",
+            count: 1,
+            firstMessageId: "activity-source",
+            summary: "Useful activity detail",
+          }),
+        },
+      }),
+    ]);
+    const onSelectThread = vi.fn();
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1752" onSelectThread={onSelectThread} />);
+
+    const marker = screen.getByTestId("thread-system-marker-cluster");
+    expect(marker.textContent).toContain("Work continued from thread:q-1752 to thread:q-1742");
+    expect(marker.textContent).not.toContain("Work continued from thread:q-1742 to thread:q-1752");
+    expect(marker.textContent).toContain("1 activity in thread:q-1752");
+    expect(screen.queryByText("1 message moved to q-1752")).toBeNull();
+    fireEvent.click(within(marker).getByRole("button", { name: "thread:q-1742" }));
+    expect(onSelectThread).toHaveBeenCalledWith("q-1742");
   });
 
   it("hides approval notice rows but keeps Journey notices when a turn is collapsed", () => {

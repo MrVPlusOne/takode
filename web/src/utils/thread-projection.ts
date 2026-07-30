@@ -258,13 +258,10 @@ export function collectMessageToolUseIds(messages: ChatMessage[]): Set<string> {
   return ids;
 }
 
-function transitionMarkerInvolvesThread(marker: ThreadTransitionMarker, threadKey: string): boolean {
+function transitionMarkerStartsInThread(marker: ThreadTransitionMarker, threadKey: string): boolean {
   const target = normalizeThreadKey(threadKey);
   return (
-    normalizeThreadKey(marker.sourceThreadKey) === target ||
-    normalizeThreadKey(marker.sourceQuestId ?? "") === target ||
-    normalizeThreadKey(marker.threadKey) === target ||
-    normalizeThreadKey(marker.questId ?? "") === target
+    normalizeThreadKey(marker.sourceThreadKey) === target || normalizeThreadKey(marker.sourceQuestId ?? "") === target
   );
 }
 
@@ -276,7 +273,7 @@ function threadSystemMarkerVisibleInQuestThread(
   const attachment = message.metadata?.threadAttachmentMarker;
   if (attachment) return false;
   const transition = message.metadata?.threadTransitionMarker;
-  if (transition) return transitionMarkerInvolvesThread(transition, threadKey);
+  if (transition) return transitionMarkerStartsInThread(transition, threadKey);
   return false;
 }
 

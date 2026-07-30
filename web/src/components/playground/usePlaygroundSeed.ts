@@ -594,11 +594,55 @@ export function usePlaygroundSeed() {
         },
       }),
       makePlaygroundMessage({
+        id: "playground-thread-outbound-transition",
+        role: "system",
+        content: "Work continued from thread:q-961 to thread:q-962",
+        timestamp: Date.now() - 140_000,
+        historyIndex: 4,
+        variant: "info",
+        metadata: {
+          threadTransitionMarker: {
+            type: "thread_transition_marker",
+            id: "playground-thread-outbound-transition",
+            timestamp: Date.now() - 140_000,
+            markerKey: "thread-transition:q-961->q-962:1",
+            sourceThreadKey: "q-961",
+            sourceQuestId: "q-961",
+            threadKey: "q-962",
+            questId: "q-962",
+            transitionedAt: Date.now() - 140_000,
+            reason: "route_switch",
+          },
+        },
+      }),
+      makePlaygroundMessage({
+        id: "playground-thread-inbound-transition",
+        role: "system",
+        content: "Work continued from thread:q-962 to thread:q-961",
+        timestamp: Date.now() - 135_000,
+        historyIndex: 5,
+        variant: "info",
+        metadata: {
+          threadTransitionMarker: {
+            type: "thread_transition_marker",
+            id: "playground-thread-inbound-transition",
+            timestamp: Date.now() - 135_000,
+            markerKey: "thread-transition:q-962->q-961:2",
+            sourceThreadKey: "q-962",
+            sourceQuestId: "q-962",
+            threadKey: "q-961",
+            questId: "q-961",
+            transitionedAt: Date.now() - 135_000,
+            reason: "route_switch",
+          },
+        },
+      }),
+      makePlaygroundMessage({
         id: "playground-thread-q961",
         role: "assistant",
         content: "Implementation is underway.",
         timestamp: Date.now() - 120_000,
-        historyIndex: 4,
+        historyIndex: 6,
         metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -606,7 +650,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Tool calls and implementation notes are continuing in q-961.",
         timestamp: Date.now() - 110_000,
-        historyIndex: 5,
+        historyIndex: 7,
         metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -614,7 +658,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Queued until the dependency finishes.",
         timestamp: Date.now() - 90_000,
-        historyIndex: 6,
+        historyIndex: 8,
         metadata: { threadRefs: [{ threadKey: "q-962", questId: "q-962", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -622,7 +666,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Waiting for a free worker before dispatch.",
         timestamp: Date.now() - 60_000,
-        historyIndex: 7,
+        historyIndex: 9,
         metadata: { threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -630,7 +674,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "",
         timestamp: threadStatusTimestamp,
-        historyIndex: 8,
+        historyIndex: 10,
         metadata: {
           threadRefs: [
             { threadKey: "q-962", questId: "q-962", source: "explicit" },
@@ -644,7 +688,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "The scope confirmation was answered and should keep its resolved needs-input marker visible.",
         timestamp: Date.now() - 52_000,
-        historyIndex: 9,
+        historyIndex: 11,
         metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -653,7 +697,7 @@ export function usePlaygroundSeed() {
         content:
           "Older Thread Ready output remains in history, but its resolved notification marker should not render as a crossed-out stale chip.",
         timestamp: Date.now() - 44_000,
-        historyIndex: 10,
+        historyIndex: 12,
         metadata: { threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -661,7 +705,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Completed Journey is ready for review without active phase cues.",
         timestamp: Date.now() - 30_000,
-        historyIndex: 11,
+        historyIndex: 13,
         metadata: { threadRefs: [{ threadKey: "q-964", questId: "q-964", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -670,9 +714,66 @@ export function usePlaygroundSeed() {
         content:
           "Approval plan for q-965: run the focused worker, then hold at Code Review for the thumbnail evidence.",
         timestamp: Date.now() - 20_000,
-        historyIndex: 12,
+        historyIndex: 14,
       }),
     ]);
+    const questProjectionMessages =
+      useStore
+        .getState()
+        .messages.get(PLAYGROUND_THREAD_PANEL_SESSION_ID)
+        ?.filter((message) =>
+          [
+            "playground-thread-outbound-transition",
+            "playground-thread-inbound-transition",
+            "playground-thread-q961-assistant",
+          ].includes(message.id),
+        ) ?? [];
+    store.setThreadWindow(
+      PLAYGROUND_THREAD_PANEL_SESSION_ID,
+      "q-961",
+      {
+        thread_key: "q-961",
+        from_item: 0,
+        item_count: questProjectionMessages.length,
+        total_items: questProjectionMessages.length,
+        has_older_items: false,
+        has_newer_items: false,
+        source_history_length: 15,
+        section_item_count: 10,
+        visible_item_count: 3,
+      },
+      questProjectionMessages,
+    );
+    const mainProjectionMessages =
+      useStore
+        .getState()
+        .messages.get(PLAYGROUND_THREAD_PANEL_SESSION_ID)
+        ?.filter((message) =>
+          [
+            "playground-thread-main",
+            "playground-thread-attached-history",
+            "playground-thread-attachment-marker",
+            "playground-thread-transition-marker",
+            "playground-thread-outbound-transition",
+            "playground-thread-inbound-transition",
+          ].includes(message.id),
+        ) ?? [];
+    store.setThreadWindow(
+      PLAYGROUND_THREAD_PANEL_SESSION_ID,
+      "main",
+      {
+        thread_key: "main",
+        from_item: 0,
+        item_count: mainProjectionMessages.length,
+        total_items: mainProjectionMessages.length,
+        has_older_items: false,
+        has_newer_items: false,
+        source_history_length: 15,
+        section_item_count: 10,
+        visible_item_count: 3,
+      },
+      mainProjectionMessages,
+    );
     store.setSessionNotifications(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
       {
         id: "playground-attention-input",
