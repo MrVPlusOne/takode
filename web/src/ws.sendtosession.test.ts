@@ -75,6 +75,7 @@ beforeEach(async () => {
   listSessionsMock.mockResolvedValue([]);
   playNotificationSoundMock.mockReset();
   MockWebSocket.instances = [];
+  MockWebSocket.OPEN = 1;
 
   const storeModule = await import("./store.js");
   useStore = storeModule.useStore;
@@ -130,7 +131,7 @@ describe("sendToSession", () => {
     wsModule.connectSession("s1");
     const msg = { type: "user_message" as const, content: "hello" };
 
-    wsModule.sendToSession("s1", msg);
+    expect(wsModule.sendToSession("s1", msg)).toBe(true);
 
     const payload = JSON.parse(lastWs.send.mock.calls[0][0]);
     expect(payload.type).toBe("user_message");
@@ -140,7 +141,22 @@ describe("sendToSession", () => {
 
   it("does nothing when session has no socket", () => {
     // Should not throw
-    wsModule.sendToSession("nonexistent", { type: "interrupt" });
+    expect(wsModule.sendToSession("nonexistent", { type: "interrupt" })).toBe(false);
+  });
+
+  it("does not confuse a missing socket with an unavailable global OPEN constant", () => {
+    // Disconnected/Playground environments may expose an incomplete WebSocket
+    // constructor. Socket ownership must be checked before readiness equality.
+    MockWebSocket.OPEN = undefined as unknown as number;
+
+    expect(wsModule.sendToSession("playground-without-socket", { type: "interrupt" })).toBe(false);
+  });
+
+  it("declines a socket-shaped value that has no send capability", () => {
+    wsModule.connectSession("s1");
+    (lastWs as unknown as { send?: unknown }).send = undefined;
+
+    expect(wsModule.sendToSession("s1", { type: "interrupt" })).toBe(false);
   });
 
   it("preserves provided client_msg_id", () => {

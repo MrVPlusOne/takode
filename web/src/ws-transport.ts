@@ -99,6 +99,10 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   let seqStorageFlushTimer: ReturnType<typeof setTimeout> | null = null;
   let ackFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
+  function isSocketSendable(ws: WebSocket | undefined): ws is WebSocket {
+    return !!ws && typeof ws.send === "function" && ws.readyState === WebSocket.OPEN;
+  }
+
   function getLastSeq(sessionId: string): number {
     const cached = lastSeqBySession.get(sessionId);
     if (typeof cached === "number") return cached;
@@ -194,7 +198,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
       pendingAcks.delete(targetSessionId);
       maxSeq = Math.max(maxSeq, seq);
       const ws = sockets.get(targetSessionId);
-      if (ws?.readyState === WebSocket.OPEN) {
+      if (isSocketSendable(ws)) {
         ws.send(JSON.stringify({ type: "session_ack", last_seq: seq }));
         ackCount++;
       }
@@ -233,7 +237,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
 
   function sendSessionSubscribe(sessionId: string, forceFullHistory = false): boolean {
     const ws = sockets.get(sessionId);
-    if (ws?.readyState !== WebSocket.OPEN) return false;
+    if (!isSocketSendable(ws)) return false;
     const hasLocalMessages = !forceFullHistory && callbacks.hasLocalMessages(sessionId);
     const lastSeq = hasLocalMessages ? getLastSeq(sessionId) : 0;
     const knownFrozenCount = hasLocalMessages ? callbacks.getKnownFrozenCount(sessionId) : 0;
@@ -419,7 +423,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
       }
 
       const hb = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
+        if (isSocketSendable(ws)) {
           ws.send(JSON.stringify({ type: "ping" }));
         }
       }, HEARTBEAT_INTERVAL_MS);
@@ -546,7 +550,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
       }
     }
 
-    if (ws?.readyState === WebSocket.OPEN) {
+    if (isSocketSendable(ws)) {
       ws.send(JSON.stringify(outgoing));
       return true;
     }

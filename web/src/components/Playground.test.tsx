@@ -238,6 +238,35 @@ describe("Playground", () => {
     expect(screen.getByText("Herd Events · board_stalled")).toBeTruthy();
   });
 
+  it("renders real ChatView and MessageFeed recovery fixtures without a socket", () => {
+    // Producer-shaped Playground state must remain renderable when there is no
+    // authoritative transport. The incomplete readiness static reproduces the
+    // isolated Execute environment that previously dereferenced socket.send.
+    vi.stubGlobal(
+      "WebSocket",
+      class DisconnectedPlaygroundWebSocket {
+        static OPEN = undefined;
+      },
+    );
+
+    render(<Playground />);
+
+    expect(screen.getByTestId("playground-real-chat-stack")).toBeTruthy();
+    expect(screen.getByTestId("playground-mobile-feed-width")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Automatic input recovery summary" })).toBeTruthy();
+    expect(screen.getByText("Herd Events · turn_end")).toBeTruthy();
+    expect(screen.getByText("Herd Events · board_stalled")).toBeTruthy();
+
+    const olderSectionButton = screen.getAllByRole("button", { name: "Load older section" })[0];
+    expect(olderSectionButton).toBeTruthy();
+    fireEvent.click(olderSectionButton!);
+
+    // Explicit progress invariant: the disconnected action returns, the tree
+    // stays mounted, and the producer-normalized summary remains singular.
+    expect(screen.getAllByTestId("codex-auto-pause-recovery-summary")).toHaveLength(1);
+    expect(screen.getByTestId("playground-real-chat-stack")).toBeTruthy();
+  }, 20_000);
+
   it("documents the mobile user-message navigator in its open touch overlay state", () => {
     render(<Playground />);
 
