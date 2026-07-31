@@ -1,5 +1,7 @@
 import type { BrowserIncomingMessage, SessionPauseState } from "../session-types.js";
 import { pauseSessionState, unpauseSessionState } from "../session-pause.js";
+import { markCodexAutoPauseRecoveryFailed } from "./codex-auto-pause-recovery-summary.js";
+import { classifyRecoveryDeliveryOwnership, resolveRecoveryIngressOwnership } from "./browser-ingress-ownership.js";
 import { handleBrowserIngressMessage, type BrowserTransportDeps } from "./browser-transport-controller.js";
 import { backendAttached } from "./session-registry-controller.js";
 import type { Session } from "./ws-bridge-session.js";
@@ -30,7 +32,24 @@ export async function unpauseSessionForDelivery(
   deps.broadcastToBrowsers(session, { type: "session_update", session: { pause: null } });
   deps.persistSession(session);
   for (const item of queued) {
-    await handleBrowserIngressMessage(session, item.message, undefined, deps.getBrowserTransportDeps());
+    const existingOwnership = resolveRecoveryIngressOwnership(
+      classifyRecoveryDeliveryOwnership(session, item.message),
+      item.message,
+    );
+    if (existingOwnership.status === "owned") continue;
+    const admission = await handleBrowserIngressMessage(
+      session,
+      item.message,
+      undefined,
+      deps.getBrowserTransportDeps(),
+    );
+    const ownership = resolveRecoveryIngressOwnership(admission, item.message);
+    if (
+      ownership.status === "unowned" &&
+      markCodexAutoPauseRecoveryFailed(session, ownership.links, Date.now(), deps, "delivery_pipeline_rejected")
+    ) {
+      deps.persistSession(session);
+    }
   }
   if (queued.length === 0 && !backendAttached(session)) {
     deps.onCLIRelaunchNeeded?.(session.id);

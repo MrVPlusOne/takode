@@ -26,6 +26,7 @@ import {
   type BrowserTransportDeps,
   type ProgrammaticUserMessageOptions,
 } from "./browser-transport-controller.js";
+import { resolveRecoveryIngressOwnership } from "./browser-ingress-ownership.js";
 
 type ProgrammaticUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message" }>;
 
@@ -133,25 +134,12 @@ async function drainCodexAutoPausedInputs(
 ): Promise<void> {
   for (const message of messages) {
     const admission = await handleBrowserIngressMessage(session, message, undefined, deps.getBrowserTransportDeps());
-    if (
-      admission.status === "accepted_pending_delivery" ||
-      admission.status === "queued_manual_pause" ||
-      admission.status === "reheld_auto_pause" ||
-      admission.status === "terminal_receipt"
-    ) {
-      continue;
-    }
-    const rejectedLinks =
-      "unownedRecoveryLinks" in admission && admission.unownedRecoveryLinks
-        ? admission.unownedRecoveryLinks
-        : admission.status === "ignored_no_owner"
-          ? []
-          : (message.autoPauseRecoveries ?? []);
-    if (rejectedLinks.length === 0) continue;
+    const ownership = resolveRecoveryIngressOwnership(admission, message);
+    if (ownership.status !== "unowned") continue;
     console.warn(
-      `[codex-auto-pause] Released input ${rejectedLinks[0]?.groupId ?? "unknown"} has no durable delivery owner (${admission.status}).`,
+      `[codex-auto-pause] Released input ${ownership.links[0]?.groupId ?? "unknown"} has no durable delivery owner (${admission.status}).`,
     );
-    if (markCodexAutoPauseRecoveryFailed(session, rejectedLinks, Date.now(), deps, "delivery_pipeline_rejected")) {
+    if (markCodexAutoPauseRecoveryFailed(session, ownership.links, Date.now(), deps, "delivery_pipeline_rejected")) {
       deps.persistSession(session);
     }
   }
