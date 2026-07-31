@@ -100,7 +100,9 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   let ackFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
   function isSocketSendable(ws: WebSocket | undefined): ws is WebSocket {
-    return !!ws && typeof ws.send === "function" && ws.readyState === WebSocket.OPEN;
+    if (!ws || typeof ws.send !== "function" || typeof WebSocket === "undefined") return false;
+    const openReadyState = WebSocket.OPEN;
+    return openReadyState === 1 && ws.readyState === openReadyState;
   }
 
   function getLastSeq(sessionId: string): number {

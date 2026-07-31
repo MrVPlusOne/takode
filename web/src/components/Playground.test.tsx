@@ -255,8 +255,8 @@ describe("Playground", () => {
 
     const realChatElement = screen.getByTestId("playground-real-chat-stack");
     const realChat = within(realChatElement);
-    expect(realChatElement).toBeTruthy();
-    expect(screen.getByTestId("playground-mobile-feed-width")).toBeTruthy();
+    expect(realChatElement).toBeInTheDocument();
+    expect(screen.getByTestId("playground-mobile-feed-width")).toBeInTheDocument();
     expect(realChat.getByRole("region", { name: "Automatic input recovery summary" })).toBeTruthy();
     expect(realChat.getByText("Herd Events · turn_end")).toBeTruthy();
     expect(realChat.getByText("Herd Events · board_stalled")).toBeTruthy();
@@ -275,16 +275,31 @@ describe("Playground", () => {
 
     // Explicit progress invariant: the disconnected action returns, the tree
     // stays mounted without fake loading, and the normalized row remains singular.
-    expect(realChat.queryByText("Loading older section...")).toBeNull();
-    expect(realChat.getByRole("button", { name: "Load older section" })).toBeTruthy();
-    expect(realChat.getAllByTestId("codex-auto-pause-recovery-summary")).toHaveLength(1);
-    expect(realChatElement).toBeTruthy();
+    const realChatAfterHistoryElement = screen.getByTestId("playground-real-chat-stack");
+    expect(realChatAfterHistoryElement).toBeInTheDocument();
+    const realChatAfterHistory = within(realChatAfterHistoryElement);
+    expect(realChatAfterHistory.getByTestId("message-feed-overlay")).toBeInTheDocument();
+    expect(realChatAfterHistory.queryByText("Loading older section...")).not.toBeInTheDocument();
+    expect(realChatAfterHistory.getByRole("button", { name: "Load older section" })).toBeInTheDocument();
+    expect(realChatAfterHistory.getAllByTestId("codex-auto-pause-recovery-summary")).toHaveLength(1);
+    expect(screen.queryByRole("heading", { name: "A runtime error occurred" })).not.toBeInTheDocument();
 
     const questThreadFeed = within(screen.getByTestId("playground-quest-thread-projection"));
     const olderThreadButton = questThreadFeed.getByRole("button", { name: "Load older section" });
     fireEvent.click(olderThreadButton);
-    expect(questThreadFeed.queryByText("Loading older section...")).toBeNull();
-    expect(questThreadFeed.getByRole("button", { name: "Load older section" })).toBeTruthy();
+
+    const questThreadAfterActionElement = screen.getByTestId("playground-quest-thread-projection");
+    expect(questThreadAfterActionElement).toBeInTheDocument();
+    const questThreadAfterAction = within(questThreadAfterActionElement);
+    expect(questThreadAfterAction.getByTestId("message-feed-overlay")).toBeInTheDocument();
+    expect(questThreadAfterAction.queryByText("Loading older section...")).not.toBeInTheDocument();
+    expect(questThreadAfterAction.getByRole("button", { name: "Load older section" })).toBeInTheDocument();
+
+    const realChatAfterThreadAction = within(screen.getByTestId("playground-real-chat-stack"));
+    expect(realChatAfterThreadAction.getByTestId("message-feed-overlay")).toBeInTheDocument();
+    expect(realChatAfterThreadAction.getAllByTestId("codex-auto-pause-recovery-summary")).toHaveLength(1);
+    expect(realChatAfterThreadAction.queryByText("Loading older section...")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "A runtime error occurred" })).not.toBeInTheDocument();
   }, 20_000);
 
   it("documents the mobile user-message navigator in its open touch overlay state", () => {

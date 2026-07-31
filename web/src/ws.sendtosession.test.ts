@@ -159,6 +159,36 @@ describe("sendToSession", () => {
     expect(wsModule.sendToSession("s1", { type: "interrupt" })).toBe(false);
   });
 
+  it("declines an owned callable socket when the OPEN constant is missing", () => {
+    wsModule.connectSession("s1");
+    MockWebSocket.OPEN = undefined as unknown as number;
+
+    expect(typeof lastWs.send).toBe("function");
+    expect(lastWs.readyState).toBe(1);
+    expect(wsModule.sendToSession("s1", { type: "interrupt" })).toBe(false);
+    expect(lastWs.send).not.toHaveBeenCalled();
+  });
+
+  it("declines an owned callable socket when readyState is missing", () => {
+    wsModule.connectSession("s1");
+    (lastWs as unknown as { readyState?: number }).readyState = undefined;
+
+    expect(typeof lastWs.send).toBe("function");
+    expect(MockWebSocket.OPEN).toBe(1);
+    expect(wsModule.sendToSession("s1", { type: "interrupt" })).toBe(false);
+    expect(lastWs.send).not.toHaveBeenCalled();
+  });
+
+  it("declines an owned callable socket when both readiness values are missing", () => {
+    MockWebSocket.OPEN = undefined as unknown as number;
+    wsModule.connectSession("s1");
+
+    expect(typeof lastWs.send).toBe("function");
+    expect(lastWs.readyState).toBeUndefined();
+    expect(wsModule.sendToSession("s1", { type: "interrupt" })).toBe(false);
+    expect(lastWs.send).not.toHaveBeenCalled();
+  });
+
   it("preserves provided client_msg_id", () => {
     wsModule.connectSession("s1");
     wsModule.sendToSession("s1", {
@@ -209,6 +239,33 @@ describe("waitForConnection", () => {
     wsModule.connectSession("incomplete-socket");
     (lastWs as unknown as { send?: unknown }).send = undefined;
     const waiting = expect(wsModule.waitForConnection("incomplete-socket")).rejects.toThrow("Connection timeout");
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await waiting;
+  });
+
+  it("does not resolve an owned callable socket when the OPEN constant is missing", async () => {
+    wsModule.connectSession("missing-open-state");
+    MockWebSocket.OPEN = undefined as unknown as number;
+    const waiting = expect(wsModule.waitForConnection("missing-open-state")).rejects.toThrow("Connection timeout");
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await waiting;
+  });
+
+  it("does not resolve an owned callable socket when readyState is missing", async () => {
+    wsModule.connectSession("missing-ready-state");
+    (lastWs as unknown as { readyState?: number }).readyState = undefined;
+    const waiting = expect(wsModule.waitForConnection("missing-ready-state")).rejects.toThrow("Connection timeout");
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await waiting;
+  });
+
+  it("does not resolve an owned callable socket when both readiness values are missing", async () => {
+    MockWebSocket.OPEN = undefined as unknown as number;
+    wsModule.connectSession("missing-readiness");
+    const waiting = expect(wsModule.waitForConnection("missing-readiness")).rejects.toThrow("Connection timeout");
 
     await vi.advanceTimersByTimeAsync(10_000);
     await waiting;
