@@ -115,6 +115,36 @@ function makeSession(groups = ["group-1"]): RecoveryDeliveryTransferSessionLike 
   };
 }
 
+const REVIEWER_COLLISION_SUMMARY_ID = "codex-auto-pause-recovery-1234567890";
+const REVIEWER_COLLIDING_SOURCE_IDS = [
+  "codex-auto-pause-1234567890043-40",
+  "codex-auto-pause-1234567890094-91",
+] as const;
+
+function makeReviewerCollisionSession(count: number): {
+  session: RecoveryDeliveryTransferSessionLike;
+  sourceIds: string[];
+} {
+  const sourceIds = Array.from({ length: count }, (_, index) => `codex-auto-pause-reviewer-${index + 1}`);
+  if (count >= 2) {
+    sourceIds[Math.min(39, count - 2)] = REVIEWER_COLLIDING_SOURCE_IDS[0];
+    sourceIds[Math.min(90, count - 1)] = REVIEWER_COLLIDING_SOURCE_IDS[1];
+  }
+  const session = makeSession(sourceIds);
+  const recoverySummary = session.messageHistory[0];
+  if (recoverySummary?.type !== "codex_auto_pause_recovery_summary") throw new Error("missing recovery summary");
+  recoverySummary.id = REVIEWER_COLLISION_SUMMARY_ID;
+  for (const [index, held] of (session.state.codex_result_error_auto_pause?.heldInputs ?? []).entries()) {
+    const sourceId = sourceIds[index]!;
+    held.id = sourceId;
+    held.message = {
+      ...messageFor(sourceId, `captured payload ${index + 1}`),
+      autoPauseRecoveries: [{ summaryId: REVIEWER_COLLISION_SUMMARY_ID, groupId: sourceId }],
+    };
+  }
+  return { session, sourceIds };
+}
+
 function candidates(session: RecoveryDeliveryTransferSessionLike): RecoveryDeliveryTransferCandidate[] {
   return (session.state.codex_result_error_auto_pause?.heldInputs ?? []).map((held) => ({
     sourceOwnerKind: "auto_pause",
@@ -187,10 +217,14 @@ function effectiveOwnerCount(session: RecoveryDeliveryTransferSessionLike, targe
   return Number(pendingOwns) + Number(manualOwns) + Number(autoOwns);
 }
 
-function expectOwnedOrTerminal(session: RecoveryDeliveryTransferSessionLike, groupId = "group-1"): void {
+function expectOwnedOrTerminal(
+  session: RecoveryDeliveryTransferSessionLike,
+  groupId = "group-1",
+  summaryId = "summary-1",
+): void {
   const outcome = receiptOutcome(session, groupId);
   if (outcome === "released_to_delivery") {
-    expect(effectiveOwnerCount(session, link(groupId)), `owner for ${groupId}`).toBe(1);
+    expect(effectiveOwnerCount(session, { summaryId, groupId }), `owner for ${groupId}`).toBe(1);
   } else {
     expect(outcome).toBeTruthy();
   }
@@ -333,6 +367,22 @@ describe("recovery delivery transfer ownership", () => {
     expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(groups.length);
   });
 
+  it("rejects distinct transfers sharing one source owner before a Map can overwrite either lookup", async () => {
+    const session = makeSession(["group-1", "group-2"]);
+    const heldInputs = session.state.codex_result_error_auto_pause!.heldInputs;
+    heldInputs[0]!.id = "duplicate-source-owner";
+    heldInputs[1]!.id = "duplicate-source-owner";
+    const persistSessionImmediately = vi.fn(async () => {});
+
+    await expect(
+      beginRecoveryDeliveryTransferHandoff(session, candidates(session), {}, { persistSessionImmediately }),
+    ).rejects.toThrow("source owner collision");
+
+    expect(persistSessionImmediately).not.toHaveBeenCalled();
+    expect(session.recoveryDeliveryTransfers).toEqual([]);
+    expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(2);
+  });
+
   it("restarts from an overlap snapshot without reconstructing payload from the summary", async () => {
     const session = makeSession();
     const dir = mkdtempSync(join(tmpdir(), "takode-recovery-transfer-"));
@@ -460,6 +510,173 @@ describe("recovery delivery transfer ownership", () => {
     );
     expect(session.recoveryDeliveryTransfers).toEqual([]);
     expectOwnedOrTerminal(session);
+  });
+
+  it("uses the complete transfer identity and retries live retained-owner collisions deterministically", async () => {
+    const { session, sourceIds } = makeReviewerCollisionSession(2);
+    const preparedCandidates = candidates(session);
+    const snapshots: RecoveryDeliveryTransferSessionLike[] = [];
+    let overlap!: RecoveryDeliveryTransferSessionLike;
+    let persistCalls = 0;
+
+    const transferIds = await beginRecoveryDeliveryTransferHandoff(
+      session,
+      preparedCandidates,
+      {},
+      {
+        persistSessionImmediately: vi.fn(async (target: RecoveryDeliveryTransferSessionLike) => {
+          persistCalls += 1;
+          if (persistCalls === 1) {
+            const firstTransfer = target.recoveryDeliveryTransfers.find(
+              (entry) => entry.sourceOwnerId === REVIEWER_COLLIDING_SOURCE_IDS[0],
+            )!;
+            const collidingBase = `codex-auto-pause-retained-${firstTransfer.id}`;
+            const heldInputs = target.state.codex_result_error_auto_pause!.heldInputs;
+            for (const [index, held] of heldInputs.entries()) {
+              held.count += 1;
+              held.lastQueuedAt = 100 + index;
+              held.message = {
+                type: "user_message",
+                content: `latest newcomer ${index + 1}`,
+                agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+              };
+            }
+            heldInputs.push({
+              id: `${collidingBase}-2`,
+              queuedAt: 102,
+              lastQueuedAt: 102,
+              source: "programmatic",
+              count: 1,
+              message: { type: "user_message", content: "pre-existing retained owner" },
+            });
+            target.pendingCodexInputs.push({
+              id: collidingBase,
+              content: "ordinary pending owner",
+              timestamp: 103,
+              cancelable: true,
+            });
+            target.state.pause = {
+              pausedAt: 104,
+              queuedMessages: [
+                {
+                  id: `${collidingBase}-1`,
+                  queuedAt: 104,
+                  source: "browser",
+                  message: { type: "user_message", content: "manual owner" },
+                },
+              ],
+            };
+            overlap = structuredClone(target);
+          }
+          snapshots.push(structuredClone(target));
+        }),
+      },
+    );
+
+    const firstTransferId = transferIds.get(REVIEWER_COLLIDING_SOURCE_IDS[0])!;
+    const secondTransferId = transferIds.get(REVIEWER_COLLIDING_SOURCE_IDS[1])!;
+    expect(firstTransferId.slice(-12)).toBe("ed2000000073");
+    expect(secondTransferId.slice(-12)).toBe("ed2000000073");
+    expect(firstTransferId).not.toBe(secondTransferId);
+    expect(transferIds.size).toBe(2);
+
+    const activeRetained = session.state.codex_result_error_auto_pause!.heldInputs.filter((item) =>
+      item.message.content.startsWith("latest newcomer"),
+    );
+    expect(activeRetained.map((item) => item.id)).toEqual([
+      `codex-auto-pause-retained-${firstTransferId}-3`,
+      `codex-auto-pause-retained-${secondTransferId}`,
+    ]);
+    expect(new Set(session.state.codex_result_error_auto_pause!.heldInputs.map((item) => item.id)).size).toBe(
+      session.state.codex_result_error_auto_pause!.heldInputs.length,
+    );
+    for (const sourceId of sourceIds) expectOwnedOrTerminal(session, sourceId, REVIEWER_COLLISION_SUMMARY_ID);
+
+    const restored = structuredClone(overlap);
+    restored.recoveryDeliveryTransfers = normalizePersistedRecoveryDeliveryTransfers(overlap.recoveryDeliveryTransfers);
+    const restoredSnapshots: RecoveryDeliveryTransferSessionLike[] = [];
+    const restoredDeps = makeDeps(restoredSnapshots);
+    await resumeRecoveryDeliveryTransfers(restored, restoredDeps);
+    const restoredRetained = restored.state.codex_result_error_auto_pause!.heldInputs.filter((item) =>
+      item.message.content.startsWith("latest newcomer"),
+    );
+    expect(restoredRetained.map((item) => item.id)).toEqual(activeRetained.map((item) => item.id));
+    expect(restored.recoveryDeliveryTransfers).toEqual([]);
+    const restoredIds = restored.state.codex_result_error_auto_pause!.heldInputs.map((item) => item.id);
+    expect(new Set(restoredIds).size).toBe(restoredIds.length);
+    const snapshotCount = restoredSnapshots.length;
+    await resumeRecoveryDeliveryTransfers(restored, restoredDeps);
+    expect(restoredSnapshots).toHaveLength(snapshotCount);
+    for (const sourceId of sourceIds) {
+      expectOwnedOrTerminal(restored, sourceId, REVIEWER_COLLISION_SUMMARY_ID);
+      for (const snapshot of restoredSnapshots) {
+        expectOwnedOrTerminal(snapshot, sourceId, REVIEWER_COLLISION_SUMMARY_ID);
+      }
+    }
+  });
+
+  it("keeps 100 partial-coalescing transfer lookups one-to-one across active and restored drains", async () => {
+    const { session, sourceIds } = makeReviewerCollisionSession(100);
+    const preparedCandidates = candidates(session);
+    let overlap!: RecoveryDeliveryTransferSessionLike;
+    let persistCalls = 0;
+    const activeSnapshots: RecoveryDeliveryTransferSessionLike[] = [];
+    const transferIds = await beginRecoveryDeliveryTransferHandoff(
+      session,
+      preparedCandidates,
+      {},
+      {
+        persistSessionImmediately: vi.fn(async (target: RecoveryDeliveryTransferSessionLike) => {
+          persistCalls += 1;
+          if (persistCalls === 1) {
+            for (const [index, held] of target.state.codex_result_error_auto_pause!.heldInputs.entries()) {
+              held.count += 1;
+              held.lastQueuedAt = 1_000 + index;
+              held.message = {
+                type: "user_message",
+                content: `latest bounded newcomer ${index + 1}`,
+                agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+              };
+            }
+            overlap = structuredClone(target);
+          }
+          activeSnapshots.push(structuredClone(target));
+        }),
+      },
+    );
+
+    expect(transferIds.size).toBe(100);
+    expect(new Set(transferIds.values()).size).toBe(100);
+    for (const [index, sourceId] of sourceIds.entries()) {
+      const transferId = transferIds.get(sourceId)!;
+      const transfer = session.recoveryDeliveryTransfers.find((entry) => entry.id === transferId);
+      expect(transfer?.sourceOwnerId).toBe(sourceId);
+      expect(transfer?.message.content).toBe(`captured payload ${index + 1}`);
+      expectOwnedOrTerminal(session, sourceId, REVIEWER_COLLISION_SUMMARY_ID);
+    }
+    const activeRetainedIds = session.state.codex_result_error_auto_pause!.heldInputs.map((item) => item.id);
+    expect(activeRetainedIds).toHaveLength(100);
+    expect(new Set(activeRetainedIds).size).toBe(100);
+
+    const restored = structuredClone(overlap);
+    restored.recoveryDeliveryTransfers = normalizePersistedRecoveryDeliveryTransfers(overlap.recoveryDeliveryTransfers);
+    const restoredSnapshots: RecoveryDeliveryTransferSessionLike[] = [];
+    const deps = makeDeps(restoredSnapshots);
+    await resumeRecoveryDeliveryTransfers(restored, deps);
+    await resumeRecoveryDeliveryTransfers(restored, deps);
+
+    expect(restored.recoveryDeliveryTransfers).toEqual([]);
+    const restoredIds = restored.state.codex_result_error_auto_pause!.heldInputs.map((item) => item.id);
+    expect(new Set(restoredIds).size).toBe(restoredIds.length);
+    for (const sourceId of sourceIds) {
+      expectOwnedOrTerminal(restored, sourceId, REVIEWER_COLLISION_SUMMARY_ID);
+      for (const snapshot of activeSnapshots) {
+        expectOwnedOrTerminal(snapshot, sourceId, REVIEWER_COLLISION_SUMMARY_ID);
+      }
+      for (const snapshot of restoredSnapshots) {
+        expectOwnedOrTerminal(snapshot, sourceId, REVIEWER_COLLISION_SUMMARY_ID);
+      }
+    }
   });
 
   it("selectively removes a captured manual owner while restart retains later queued arrivals", async () => {

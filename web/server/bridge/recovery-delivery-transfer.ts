@@ -17,6 +17,7 @@ type RecoveryUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message
 export const RECOVERY_DELIVERY_TRANSFER_MAX_COUNT = 128;
 export const RECOVERY_DELIVERY_TRANSFER_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 const RECOVERY_DELIVERY_TRANSFER_METADATA_ALLOWANCE = 256 * 1024;
+const RECOVERY_DELIVERY_RETAINED_ID_MAX_COLLISION_RETRIES = 4096;
 
 export interface RecoveryDeliveryTransfer {
   /**
@@ -69,12 +70,13 @@ export async function beginRecoveryDeliveryTransferHandoff(
   deps: Pick<RecoveryDeliveryTransferDeps, "persistSessionImmediately">,
 ): Promise<Map<string, string>> {
   const prepared = prepareTransfers(session, candidates);
+  const transferIdsBySourceOwner = indexTransferIdsBySourceOwner(prepared);
   await deps.persistSessionImmediately(session);
   const removal = detachTransferSourceOwners(session, prepared);
   options.removeAdditionalSourceOwners?.();
   options.onSourceOwnersRemoved?.(removal);
   await deps.persistSessionImmediately(session);
-  return new Map(prepared.map((entry) => [entry.sourceOwnerId, entry.id]));
+  return transferIdsBySourceOwner;
 }
 
 export async function deliverRecoveryDeliveryTransfer(
@@ -181,6 +183,7 @@ function prepareTransfers(
 ): RecoveryDeliveryTransfer[] {
   const existingById = new Map(session.recoveryDeliveryTransfers.map((entry) => [entry.id, entry]));
   const prepared: RecoveryDeliveryTransfer[] = [];
+  const preparedBySourceOwner = new Map<string, string>();
   const additions: RecoveryDeliveryTransfer[] = [];
   let totalBytes = session.recoveryDeliveryTransfers.reduce((total, entry) => total + entry.payloadBytes, 0);
   for (const candidate of candidates) {
@@ -195,6 +198,7 @@ function prepareTransfers(
       ) {
         throw new Error("Recovery delivery transfer identity collision; the existing pause owner was retained.");
       }
+      assertUniqueTransferSourceOwner(preparedBySourceOwner, existing);
       prepared.push(existing);
       continue;
     }
@@ -217,11 +221,45 @@ function prepareTransfers(
     };
     additions.push(transfer);
     existingById.set(id, transfer);
+    assertUniqueTransferSourceOwner(preparedBySourceOwner, transfer);
     prepared.push(transfer);
     totalBytes += payloadBytes;
   }
   session.recoveryDeliveryTransfers.push(...additions);
   return prepared;
+}
+
+function assertUniqueTransferSourceOwner(
+  transferIdBySourceOwner: Map<string, string>,
+  transfer: RecoveryDeliveryTransfer,
+): void {
+  const existingTransferId = transferIdBySourceOwner.get(transfer.sourceOwnerId);
+  if (existingTransferId && existingTransferId !== transfer.id) {
+    throw new Error("Recovery delivery source owner collision; distinct transfers were not persisted.");
+  }
+  transferIdBySourceOwner.set(transfer.sourceOwnerId, transfer.id);
+}
+
+function indexTransferIdsBySourceOwner(transfers: readonly RecoveryDeliveryTransfer[]): Map<string, string> {
+  const indexed = new Map<string, string>();
+  for (const transfer of transfers) assertUniqueTransferSourceOwner(indexed, transfer);
+  return indexed;
+}
+
+function indexTransfersBySourceOwner(
+  transfers: readonly RecoveryDeliveryTransfer[],
+  sourceOwnerKind: RecoveryDeliveryTransfer["sourceOwnerKind"],
+): Map<string, RecoveryDeliveryTransfer> {
+  const indexed = new Map<string, RecoveryDeliveryTransfer>();
+  for (const transfer of transfers) {
+    if (transfer.sourceOwnerKind !== sourceOwnerKind) continue;
+    const existing = indexed.get(transfer.sourceOwnerId);
+    if (existing && existing.id !== transfer.id) {
+      throw new Error("Recovery delivery source owner collision; selective removal was not attempted.");
+    }
+    indexed.set(transfer.sourceOwnerId, transfer);
+  }
+  return indexed;
 }
 
 function transferId(candidate: RecoveryDeliveryTransferCandidate): string {
@@ -280,23 +318,20 @@ function detachTransferSourceOwners(
   transfers: readonly RecoveryDeliveryTransfer[] = session.recoveryDeliveryTransfers,
 ): RecoveryDeliverySourceRemoval & { changed: boolean } {
   let changed = false;
-  const autoOwnerIds = new Set(
-    transfers.filter((entry) => entry.sourceOwnerKind === "auto_pause").map((entry) => entry.sourceOwnerId),
-  );
+  const transferByAutoOwner = indexTransfersBySourceOwner(transfers, "auto_pause");
+  const autoOwnerIds = new Set(transferByAutoOwner.keys());
   const autoPause = session.state.codex_result_error_auto_pause;
   if (autoPause && autoOwnerIds.size > 0) {
-    const transferByOwner = new Map(
-      transfers.filter((entry) => entry.sourceOwnerKind === "auto_pause").map((entry) => [entry.sourceOwnerId, entry]),
-    );
+    const occupiedOwnerIds = collectLiveRecoveryDeliveryOwnerIds(session);
     const retained = autoPause.heldInputs.flatMap((item) => {
-      const transfer = transferByOwner.get(item.id);
+      const transfer = transferByAutoOwner.get(item.id);
       if (!transfer) return [item];
       changed = true;
       if (item.count <= transfer.sourceOwnerCount) return [];
       return [
         {
           ...item,
-          id: `codex-auto-pause-retained-${transfer.id.slice(-12)}`,
+          id: allocateRetainedAutoPauseOwnerId(transfer.id, occupiedOwnerIds),
           count: item.count - transfer.sourceOwnerCount,
           queuedAt: item.lastQueuedAt,
         },
@@ -309,9 +344,7 @@ function detachTransferSourceOwners(
     }
   }
 
-  const manualOwnerIds = new Set(
-    transfers.filter((entry) => entry.sourceOwnerKind === "manual_pause").map((entry) => entry.sourceOwnerId),
-  );
+  const manualOwnerIds = new Set(indexTransfersBySourceOwner(transfers, "manual_pause").keys());
   const pause = session.state.pause;
   if (pause && manualOwnerIds.size > 0) {
     const retained = pause.queuedMessages.filter((item) => !manualOwnerIds.has(item.id));
@@ -324,4 +357,33 @@ function detachTransferSourceOwners(
     autoPauseRetained: !!session.state.codex_result_error_auto_pause?.heldInputs.length,
     manualPauseRetained: !!session.state.pause?.queuedMessages.length,
   };
+}
+
+function collectLiveRecoveryDeliveryOwnerIds(session: RecoveryDeliveryTransferSessionLike): Set<string> {
+  const ids = new Set<string>();
+  for (const input of session.pendingCodexInputs) ids.add(input.id);
+  for (const turn of session.pendingCodexTurns) {
+    ids.add(turn.userMessageId);
+    if (turn.turnId) ids.add(turn.turnId);
+    for (const inputId of turn.pendingInputIds ?? []) ids.add(inputId);
+  }
+  for (const item of session.state.codex_result_error_auto_pause?.heldInputs ?? []) ids.add(item.id);
+  for (const item of session.state.pause?.queuedMessages ?? []) ids.add(item.id);
+  for (const transfer of session.recoveryDeliveryTransfers) ids.add(transfer.sourceOwnerId);
+  return ids;
+}
+
+function allocateRetainedAutoPauseOwnerId(transferId: string, occupiedOwnerIds: Set<string>): string {
+  const base = `codex-auto-pause-retained-${transferId}`;
+  if (!occupiedOwnerIds.has(base)) {
+    occupiedOwnerIds.add(base);
+    return base;
+  }
+  for (let counter = 1; counter <= RECOVERY_DELIVERY_RETAINED_ID_MAX_COLLISION_RETRIES; counter += 1) {
+    const candidate = `${base}-${counter}`;
+    if (occupiedOwnerIds.has(candidate)) continue;
+    occupiedOwnerIds.add(candidate);
+    return candidate;
+  }
+  throw new Error("Recovery delivery retained owner id capacity exceeded; the existing pause owner was retained.");
 }
