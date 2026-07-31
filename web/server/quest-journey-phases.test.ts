@@ -239,18 +239,28 @@ describe("Quest Journey phase directory loading", () => {
       "notification summaries, notification UI options, and `--suggest` choices",
     );
     expect(userCheckpointPhase?.leaderBrief).toContain("takode notify needs-input");
-    expect(userCheckpointPhase?.leaderBrief).toContain("wait for explicit approval of that revised packet");
+    // Paired fictional replies lock the distinction between edit-only and exact edit-plus-approval.
+    expect(userCheckpointPhase?.leaderBrief).toContain("a material edit alone is not approval");
+    expect(userCheckpointPhase?.leaderBrief).toContain("One fresh reply may make one exact substitution");
+    expect(userCheckpointPhase?.leaderBrief).toContain('"Change the batch limit to 120" is edit-only');
     expect(userCheckpointPhase?.leaderBrief).toContain(
-      "material parameter edits, approval-impacting corrections, or approval-impacting questions",
+      '"Approve the bounded operation with batch limit 120" is edit-plus-approval',
     );
+    expect(userCheckpointPhase?.leaderBrief).toContain("ambiguous referents, dependent changes");
+    expect(userCheckpointPhase?.leaderBrief).toContain("changed monitor/stop conditions");
+    expect(userCheckpointPhase?.leaderBrief).toContain("changed safety implications/consequences/tradeoffs");
+    expect(userCheckpointPhase?.leaderBrief).toContain("fresh explicit approval before external consequences");
     expect(userCheckpointPhase?.leaderBrief).toContain("Harmless typo-only corrections can be recorded");
-    expect(userCheckpointPhase?.leaderBrief).toContain('"LGTM", "approved", "run it"');
-    expect(userCheckpointPhase?.leaderBrief).toContain("explicitly approved the exact packet");
+    expect(userCheckpointPhase?.leaderBrief).toContain("explicitly approved the exact resulting packet");
     expect(userCheckpointPhase?.leaderBrief).toContain("revise the remaining Journey");
     expect(userCheckpointPhase?.leaderBrief).toContain("Do not use this phase as a terminal phase");
     expect(userCheckpointPhase?.assigneeBrief).toContain("self-contained decision packet");
     expect(userCheckpointPhase?.assigneeBrief).toContain("Use internally consistent, human-readable option labels");
     expect(userCheckpointPhase?.assigneeBrief).toContain("make the exact packet being approved unambiguous");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("one exact substitution and explicitly approve");
+    expect(userCheckpointPhase?.assigneeBrief).toContain('"Change the batch limit to 120" versus');
+    expect(userCheckpointPhase?.assigneeBrief).toContain('"Approve the bounded operation with batch limit 120"');
+    expect(userCheckpointPhase?.assigneeBrief).toContain("dependent-change, or consequence-changing replies");
     expect(userCheckpointPhase?.assigneeBrief).toContain("harmless typo-only corrections");
     expect(userCheckpointPhase?.assigneeBrief).toContain("required user answer");
     expect(userCheckpointPhase?.assigneeBrief).toContain("Journey-revision implications");

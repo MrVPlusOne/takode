@@ -254,12 +254,16 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("User Checkpoint is an intermediate user-participation stop");
     expect(result).toContain("self-contained packet with findings, named options, key tradeoffs");
     expect(result).toContain("exact requested answer");
-    expect(result).toContain(
-      "material parameter edits, approval-impacting corrections, or approval-impacting questions",
-    );
-    expect(result).toContain("publish a revised exact packet");
-    expect(result).toContain("Harmless typo-only corrections can be recorded");
-    expect(result).toContain('"LGTM", "approved", "run it"');
+    // The generated prompt must preserve both the permissive exact case and every fail-closed boundary.
+    expect(result).toContain("a material edit alone is not approval");
+    expect(result).toContain("One fresh reply may make one exact substitution");
+    expect(result).toContain('"Change the batch limit to 120" is edit-only');
+    expect(result).toContain('"Approve the bounded operation with batch limit 120" is edit-plus-approval');
+    expect(result).toContain("questions, vague/conditional/conflicting approval, ambiguous referents");
+    expect(result).toContain("dependent changes, changed monitor/stop conditions");
+    expect(result).toContain("changed safety implications/consequences/tradeoffs");
+    expect(result).toContain("fresh explicit approval before external consequences");
+    expect(result).toContain("Harmless typo-only corrections can still proceed");
     expect(result).toContain("User Checkpoints are mandatory by default");
     expect(result).toContain(
       "A completed-Explore `takode board revise` may drop the immediate post-Explore checkpoint",
@@ -391,11 +395,11 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Direct create/dispatch is allowed only for clear, low-risk, reversible repo-local work");
     expect(result).toContain("Pre-dispatch approval remains mandatory for ambiguous");
     expect(result).toContain("Use delayed approval via User Checkpoint");
-    expect(result).toContain(
-      "material parameter edits, approval-impacting corrections, or approval-impacting questions",
-    );
-    expect(result).toContain("advance only after explicit approval of that revised packet");
-    expect(result).toContain("exact action and no approval ambiguity remains");
+    expect(result).toContain("a material edit alone is not approval");
+    expect(result).toContain("One fresh reply may make one exact substitution");
+    expect(result).toContain("no question or user choice remains");
+    expect(result).toContain("obtain fresh explicit approval before external consequences");
+    expect(result).toContain("exact action was explicitly approved and no ambiguity remains");
     expect(result).toContain("Use `Goal / Acceptance` as the source of truth for the requested work");
     expect(result).toContain("make it read like a TLDR for approval");
     expect(result).toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");

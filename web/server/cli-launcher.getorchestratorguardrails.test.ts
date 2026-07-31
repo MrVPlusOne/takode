@@ -442,12 +442,16 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("User Checkpoint is an intermediate user-participation stop");
     expect(guardrails).toContain("self-contained packet with findings, named options, key tradeoffs");
     expect(guardrails).toContain("exact requested answer");
-    expect(guardrails).toContain(
-      "material parameter edits, approval-impacting corrections, or approval-impacting questions",
-    );
-    expect(guardrails).toContain("publish a revised exact packet");
-    expect(guardrails).toContain("Harmless typo-only corrections can be recorded");
-    expect(guardrails).toContain('"LGTM", "approved", "run it"');
+    // Generated leader guardrails use neutral paired examples and retain conservative fallbacks.
+    expect(guardrails).toContain("a material edit alone is not approval");
+    expect(guardrails).toContain("One fresh reply may make one exact substitution");
+    expect(guardrails).toContain('"Change the batch limit to 120" is edit-only');
+    expect(guardrails).toContain('"Approve the bounded operation with batch limit 120" is edit-plus-approval');
+    expect(guardrails).toContain("questions, vague/conditional/conflicting approval, ambiguous referents");
+    expect(guardrails).toContain("dependent changes, changed monitor/stop conditions");
+    expect(guardrails).toContain("changed safety implications/consequences/tradeoffs");
+    expect(guardrails).toContain("fresh explicit approval before external consequences");
+    expect(guardrails).toContain("Harmless typo-only corrections can still proceed");
     expect(guardrails).toContain("write the authorized Journey to the board before or with dispatch");
     expect(guardrails).toContain("Do not use sleep-based waits");
     expect(guardrails).toContain("repeated `takode peek` / `takode scan` checks");
@@ -634,11 +638,11 @@ describe("getOrchestratorGuardrails", () => {
       "Direct create/dispatch is allowed only for clear, low-risk, reversible repo-local work",
     );
     expect(guardrails).toContain("Use delayed approval via User Checkpoint");
-    expect(guardrails).toContain(
-      "material parameter edits, approval-impacting corrections, or approval-impacting questions",
-    );
-    expect(guardrails).toContain("advance only after explicit approval of that revised packet");
-    expect(guardrails).toContain("exact action and no approval ambiguity remains");
+    expect(guardrails).toContain("a material edit alone is not approval");
+    expect(guardrails).toContain("One fresh reply may make one exact substitution");
+    expect(guardrails).toContain("no question or user choice remains");
+    expect(guardrails).toContain("obtain fresh explicit approval before external consequences");
+    expect(guardrails).toContain("exact action was explicitly approved and no ambiguity remains");
     expect(guardrails).toContain(
       "approval surface concise and decision-oriented rather than pasting the full quest body",
     );
