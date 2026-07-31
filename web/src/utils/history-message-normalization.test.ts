@@ -590,6 +590,7 @@ describe("normalizeHistoryMessageToChatMessages", () => {
       id: "recovery-1",
       timestamp: 100,
       content: "Automatic input recovery: 1 suppressed.",
+      searchText: "automatic input recovery detail:board_stalled reason_code:stale_board_state",
       threadKey: "q-42",
       questId: "q-42",
       recovery: {

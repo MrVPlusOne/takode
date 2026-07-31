@@ -368,6 +368,7 @@ describe("Codex auto-pause recovery summary fanout", () => {
       id: "recovery-summary",
       timestamp: 100,
       content: "Automatic input recovery: 1 delivered.",
+      searchText: "automatic input recovery outcome:delivered",
       recovery: {
         family: "copilot_auth_refresh_exhausted",
         pausedAt: 10,
@@ -398,6 +399,7 @@ describe("Codex auto-pause recovery summary fanout", () => {
       id: "recovery-summary",
       timestamp: 3,
       content: "Automatic input recovery: 1 delivered.",
+      searchText: "automatic input recovery outcome:delivered completion:pending",
       recovery: {
         family: "copilot_auth_refresh_exhausted",
         pausedAt: 1,

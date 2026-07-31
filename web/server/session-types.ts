@@ -1044,6 +1044,7 @@ export type BrowserIncomingMessageBase =
       id: string;
       timestamp: number;
       content: string;
+      searchText: string;
       recovery: CodexAutoPauseRecoverySummary;
     }
   | { type: "message_history"; messages: BrowserIncomingMessage[] }

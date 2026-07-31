@@ -3,64 +3,34 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ChatMessage } from "../types.js";
 import { MessageBubble } from "./MessageBubble.js";
+import {
+  buildPlaygroundAutoPauseRecoveryMessage,
+  PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY,
+} from "./playground/AutoPausePlaygroundStates.js";
 
 afterEach(cleanup);
 
 function summaryMessage(): ChatMessage {
-  return {
-    id: "recovery-summary",
-    role: "system",
-    content: "Automatic input recovery: 1 delivered, 1 suppressed.",
-    timestamp: 300,
-    variant: "info",
-    metadata: {
-      codexAutoPauseRecoverySummary: {
-        family: "copilot_auth_refresh_exhausted",
-        pausedAt: 100,
-        recoveryConfirmedAt: 200,
-        updatedAt: 300,
-        status: "settled",
-        receipts: [
-          {
-            groupId: "group-turn-end",
-            source: "programmatic",
-            sourceLabel: "Herd Events",
-            sourceDetail: "turn_end",
-            count: 2,
-            coalescedCount: 1,
-            survivingGroupId: "group-turn-end",
-            queuedAt: 110,
-            lastQueuedAt: 120,
-            releasedAt: 200,
-            terminalAt: 210,
-            completedAt: 300,
-            recovered: true,
-            outcome: "delivered",
-            reasonCode: "codex_delivery_recovered",
-            reason: "Accepted by Codex exactly once and completed after automatic turn recovery.",
-          },
-          {
-            groupId: "group-board-stalled",
-            source: "programmatic",
-            sourceLabel: "Herd Events",
-            sourceDetail: "board_stalled",
-            count: 1,
-            coalescedCount: 0,
-            queuedAt: 115,
-            lastQueuedAt: 115,
-            releasedAt: 200,
-            terminalAt: 220,
-            outcome: "suppressed",
-            reasonCode: "stale_board_state",
-            reason: "Suppressed because the authoritative board state no longer matched the stalled event.",
-          },
-        ],
-      },
-    },
-  };
+  return buildPlaygroundAutoPauseRecoveryMessage();
 }
 
 describe("CodexAutoPauseRecoverySummary", () => {
+  it("builds the Playground card from a raw server entry through production normalization", () => {
+    // This fails if the browser message contract or normalizer drifts away from the documented Playground state.
+    const message = buildPlaygroundAutoPauseRecoveryMessage();
+    expect(PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY.type).toBe("codex_auto_pause_recovery_summary");
+    expect(message).toMatchObject({
+      id: PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY.id,
+      role: "system",
+      historyIndex: 42,
+      metadata: {
+        threadKey: "q-42",
+        questId: "q-42",
+        codexAutoPauseRecoverySummary: PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY.recovery,
+      },
+    });
+  });
+
   it("renders accessible delivered/recovered and stale-suppressed terminal receipts", () => {
     // The original incident must remain understandable after the paused composer banner disappears.
     render(<MessageBubble message={summaryMessage()} showTimestamp={false} />);
@@ -83,7 +53,7 @@ describe("CodexAutoPauseRecoverySummary", () => {
 
   it("re-renders the same summary row as asynchronous outcomes settle", () => {
     // A later authoritative update replaces the existing message instead of creating duplicate history cards.
-    const message = summaryMessage();
+    const message = structuredClone(summaryMessage());
     const summary = message.metadata!.codexAutoPauseRecoverySummary!;
     summary.status = "releasing";
     summary.receipts[1] = {

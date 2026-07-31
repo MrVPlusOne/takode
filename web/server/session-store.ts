@@ -4,7 +4,11 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { isReplayableBufferedEvent } from "./bridge/replay-buffer-policy.js";
 import { isModelProvenanceMigrationAcknowledgementStateFile } from "./model-provenance-migration-acknowledgement-store.js";
-import { isCodexAutoPauseRecoverySummaryFinal } from "./codex-auto-pause-types.js";
+import {
+  buildCodexAutoPauseRecoverySearchText,
+  CODEX_AUTO_PAUSE_RECOVERY_SEARCH_MAX_LENGTH,
+  isCodexAutoPauseRecoverySummaryFinal,
+} from "./codex-auto-pause-types.js";
 import type {
   SessionState,
   BrowserIncomingMessage,
@@ -21,7 +25,7 @@ import type {
 } from "./session-types.js";
 
 export interface SearchExcerpt {
-  type: "user_message" | "assistant" | "compact_marker";
+  type: "user_message" | "assistant" | "compact_marker" | "recovery_summary";
   content: string;
   timestamp: number;
   id?: string;
@@ -131,9 +135,8 @@ export interface PersistedSession {
   /** Epoch ms for the latest notification status mutation. */
   notificationStatusUpdatedAt?: number;
 
-  /** Lightweight search excerpts extracted at archive time. Only user_message
-   *  content and compact_marker summaries — enough for search without loading
-   *  the full messageHistory from the frozen JSONL log. */
+  /** Lightweight bounded excerpts extracted at archive time for user, assistant,
+   *  compact-marker, and server-authored recovery-summary search. */
   _searchExcerpts?: SearchExcerpt[];
 
   /** Set when this session was loaded with only search-relevant data (archived
@@ -660,6 +663,15 @@ export class SessionStore {
           timestamp: typeof msg.timestamp === "number" ? msg.timestamp : 0,
           id: msg.id,
           markerKind: msg.markerKind,
+        });
+      } else if (msg.type === "codex_auto_pause_recovery_summary") {
+        const content = (msg.searchText || buildCodexAutoPauseRecoverySearchText(msg.recovery)).trim();
+        if (!content) continue;
+        excerpts.push({
+          type: "recovery_summary",
+          content: content.slice(0, CODEX_AUTO_PAUSE_RECOVERY_SEARCH_MAX_LENGTH),
+          timestamp: typeof msg.timestamp === "number" ? msg.timestamp : 0,
+          id: msg.id,
         });
       } else if (msg.type === "assistant") {
         const text = SessionStore.extractAssistantText(msg);

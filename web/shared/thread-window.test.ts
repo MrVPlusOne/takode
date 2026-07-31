@@ -986,6 +986,7 @@ describe("thread window hydration", () => {
       id: "recovery-q-42",
       timestamp: 2,
       content: "Automatic input recovery: 1 delivered.",
+      searchText: "automatic input recovery outcome:delivered",
       threadKey: "q-42",
       questId: "q-42",
       threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" }],

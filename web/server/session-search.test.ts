@@ -1,5 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { searchSessionDocuments, type SessionSearchDocument } from "./session-search.js";
+import {
+  createCodexAutoPauseRecoverySummary,
+  markCodexAutoPauseRecoveryDelivered,
+  markCodexAutoPauseRecoverySuppressed,
+  markCodexAutoPauseRecoveryTurnCompleted,
+} from "./bridge/codex-auto-pause-recovery-summary.js";
+import type {
+  BrowserIncomingMessage,
+  CodexAutoPauseHeldInput,
+  CodexResultErrorAutoPauseState,
+} from "./session-types.js";
 
 describe("searchSessionDocuments", () => {
   it("boosts an exact session-number query above other matches", () => {
@@ -666,33 +677,87 @@ describe("searchSessionDocuments", () => {
   });
 
   it("keeps completed automatic-input recovery summaries searchable", () => {
-    // Durable audit projection must remain discoverable after the composer pause UI clears.
+    // Search consumes the exact bounded projection authored by the recovery-summary producer, not invented content.
+    const heldInputs: CodexAutoPauseHeldInput[] = [
+      {
+        id: "group-turn",
+        queuedAt: 510,
+        lastQueuedAt: 510,
+        source: "programmatic",
+        count: 1,
+        message: {
+          type: "user_message",
+          content: "private turn payload sentinel",
+          agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+          takodeHerdBatch: {
+            events: [{ id: 1, event: "turn_end", sessionId: "worker", ts: 500, data: {} } as any],
+            renderedLines: ["private turn payload sentinel"],
+          },
+        },
+      },
+      {
+        id: "group-board",
+        queuedAt: 520,
+        lastQueuedAt: 520,
+        source: "programmatic",
+        count: 1,
+        message: {
+          type: "user_message",
+          content: "private board payload sentinel",
+          agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+          takodeHerdBatch: {
+            events: [{ id: 2, event: "board_stalled", sessionId: "worker", ts: 520, data: {} } as any],
+            renderedLines: ["private board payload sentinel"],
+          },
+        },
+      },
+    ];
+    const pauseState: CodexResultErrorAutoPauseState = {
+      family: "copilot_auth_refresh_exhausted",
+      fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+      streak: 1,
+      threshold: 1,
+      pausedAt: 500,
+      lastError: "GitHub Copilot API-key refresh exhausted its retry budget.",
+      lastErrorAt: 500,
+      lastSourceKind: "automatic",
+      totalMatchingErrors: 1,
+      heldInputs,
+    };
+    const session = { messageHistory: [] as BrowserIncomingMessage[] };
+    const deps = { broadcastToBrowsers: vi.fn() };
+    const summary = createCodexAutoPauseRecoverySummary(session, pauseState, heldInputs, 700, deps);
+    const turnLink = { summaryId: summary.id, groupId: "group-turn" };
+    markCodexAutoPauseRecoveryDelivered(session, [turnLink], 800, deps);
+    markCodexAutoPauseRecoverySuppressed(
+      session,
+      [{ summaryId: summary.id, groupId: "group-board" }],
+      810,
+      deps,
+      "stale_board_state",
+    );
+    markCodexAutoPauseRecoveryTurnCompleted(
+      session,
+      { autoPauseRecoveryLinks: [turnLink], dispatchCount: 2 },
+      false,
+      false,
+      900,
+      deps,
+    );
     const docs: SessionSearchDocument[] = [
       {
         sessionId: "s-recovery",
         archived: false,
         createdAt: 100,
-        messageHistory: [
-          {
-            type: "codex_auto_pause_recovery_summary",
-            id: "recovery-1",
-            timestamp: 1_000,
-            content: "Automatic input recovery: one delivered and one suppressed as stale.",
-            recovery: {
-              family: "copilot_auth_refresh_exhausted",
-              pausedAt: 500,
-              recoveryConfirmedAt: 700,
-              updatedAt: 1_000,
-              status: "settled",
-              receipts: [],
-            },
-          },
-        ],
+        messageHistory: session.messageHistory,
       },
     ];
 
-    const out = searchSessionDocuments(docs, { query: "suppressed stale" });
-    expect(out.totalMatches).toBe(1);
-    expect(out.results[0]).toMatchObject({ matchedField: "recovery_summary", sessionId: "s-recovery" });
+    for (const query of ["board_stalled", "stale_board_state", "delivered recovered", "turn_end"]) {
+      const out = searchSessionDocuments(docs, { query });
+      expect(out.results[0], query).toMatchObject({ matchedField: "recovery_summary", sessionId: "s-recovery" });
+    }
+    expect(summary.searchText).not.toContain("private turn payload sentinel");
+    expect(summary.searchText).not.toContain("private board payload sentinel");
   });
 });

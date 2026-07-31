@@ -31,6 +31,7 @@ import {
   type ThreadRouteMetadata,
 } from "../thread-routing-metadata.js";
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
+import { isTerminalResultInterrupted } from "../result-interruption.js";
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 const DELEGATE_LIVE_ACTIVITY_LIMIT = 800;
@@ -849,6 +850,10 @@ export async function handleCodexAdapterBrowserMessage(
         ? ((session.pendingCodexTurns.find((turn: CodexOutboundTurn) => turn.turnId === codexTurnId) ??
             null) as CodexOutboundTurn | null)
         : ((session.pendingCodexTurns?.[0] ?? null) as CodexOutboundTurn | null);
+    const resultInterrupted = isTerminalResultInterrupted(outgoing.data, {
+      explicitInterrupted: outgoing.interrupted === true,
+      sessionInterrupted: session.interruptedDuringTurn === true,
+    });
     session.consecutiveAdapterFailures = 0;
     session.lastAdapterFailureAt = null;
     if (!deps.completeCodexTurnsForResult(session, outgoing.data, Date.now())) {
@@ -860,7 +865,14 @@ export async function handleCodexAdapterBrowserMessage(
     });
     deps.handleResultMessage(session, outgoing.data as CLIResultMessage);
     if (
-      markCodexAutoPauseRecoveryTurnCompleted(session, completedTurn, outgoing.data.is_error === true, Date.now(), deps)
+      markCodexAutoPauseRecoveryTurnCompleted(
+        session,
+        completedTurn,
+        outgoing.data.is_error === true,
+        resultInterrupted,
+        Date.now(),
+        deps,
+      )
     ) {
       deps.persistSession(session);
     }
@@ -869,7 +881,7 @@ export async function handleCodexAdapterBrowserMessage(
       session,
       outgoing.data as CLIResultMessage,
       completedTurn,
-      outgoing.interrupted === true,
+      resultInterrupted,
     );
     if (maybeAutoPause instanceof Promise) {
       await maybeAutoPause;

@@ -101,6 +101,8 @@ describe("Codex auto-pause recovery summary", () => {
       }),
       expect.objectContaining({ groupId: "group-board", sourceDetail: "board_stalled", count: 1 }),
     ]);
+    expect(entry.searchText).toContain("detail:turn_end");
+    expect(entry.searchText).toContain("detail:board_stalled");
     const serialized = JSON.stringify(entry);
     expect(serialized).not.toContain("private turn payload sentinel");
     expect(serialized).not.toContain("private board payload sentinel");
@@ -126,7 +128,7 @@ describe("Codex auto-pause recovery summary", () => {
       message: {
         type: "user_message",
         content: "full private payload sentinel",
-        agentSource: { sessionId: "agent", sessionLabel: `unsafe\n${"x".repeat(120)}` },
+        agentSource: { sessionId: "agent", sessionLabel: `unsafe\napi_key=credential-sentinel ${"x".repeat(120)}` },
       },
     };
     const entry = createCodexAutoPauseRecoverySummary({ messageHistory: [] }, pauseState([input]), [input], 2, {
@@ -135,6 +137,9 @@ describe("Codex auto-pause recovery summary", () => {
 
     expect(entry.recovery.receipts[0]?.sourceLabel.length).toBeLessThanOrEqual(64);
     expect(entry.recovery.receipts[0]?.sourceLabel).not.toMatch(/[\n\r]/u);
+    expect(entry.recovery.receipts[0]?.sourceLabel).not.toContain("credential-sentinel");
+    expect(entry.searchText.length).toBeLessThanOrEqual(2_048);
+    expect(entry.searchText).not.toContain("credential-sentinel");
     expect(JSON.stringify(entry)).not.toContain("full private payload sentinel");
   });
 
@@ -161,6 +166,7 @@ describe("Codex auto-pause recovery summary", () => {
         session,
         { autoPauseRecoveryLinks: [turnLink], dispatchCount: 2 },
         false,
+        false,
         230,
         { broadcastToBrowsers },
       ),
@@ -168,6 +174,9 @@ describe("Codex auto-pause recovery summary", () => {
 
     expect(entry.recovery.status).toBe("settled");
     expect(entry.content).toBe("Automatic input recovery: 1 delivered, 1 suppressed.");
+    expect(entry.searchText).toContain("outcome:delivered");
+    expect(entry.searchText).toContain("completion:recovered");
+    expect(entry.searchText).toContain("reason_code:stale_board_state");
     expect(entry.recovery.receipts).toEqual([
       expect.objectContaining({
         groupId: "group-turn",
@@ -192,6 +201,7 @@ describe("Codex auto-pause recovery summary", () => {
       markCodexAutoPauseRecoveryTurnCompleted(
         session,
         { autoPauseRecoveryLinks: [turnLink], dispatchCount: 2 },
+        false,
         false,
         250,
         { broadcastToBrowsers },

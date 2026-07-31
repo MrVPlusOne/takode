@@ -52,10 +52,59 @@ export interface CodexAutoPauseRecoverySummary {
   receipts: CodexAutoPauseRecoveryReceipt[];
 }
 
+export const CODEX_AUTO_PAUSE_RECOVERY_SEARCH_MAX_LENGTH = 2_048;
+
+export function buildCodexAutoPauseRecoverySearchText(summary: CodexAutoPauseRecoverySummary): string {
+  const parts = ["automatic input recovery", `family:${summary.family}`, `status:${summary.status}`];
+  for (let index = 0; index < summary.receipts.length; index++) {
+    const receipt = summary.receipts[index]!;
+    const completion = receipt.completionError
+      ? "backend_error"
+      : receipt.completedAt !== undefined
+        ? receipt.recovered
+          ? "recovered"
+          : "completed"
+        : "pending";
+    const projection = [
+      `source:${boundedSearchValue(receipt.sourceLabel, 64)}`,
+      receipt.sourceDetail ? `detail:${boundedSearchValue(receipt.sourceDetail, 96)}` : "",
+      `outcome:${receipt.outcome}`,
+      `reason_code:${receipt.reasonCode}`,
+      `reason:${boundedSearchValue(receipt.reason, 240)}`,
+      `count:${Math.max(1, Math.floor(receipt.count))}`,
+      `coalesced:${Math.max(0, Math.floor(receipt.coalescedCount))}`,
+      `completion:${completion}`,
+      receipt.recovered ? "recovered:true" : "",
+      receipt.survivingGroupId ? `survivor:${boundedSearchValue(receipt.survivingGroupId, 96)}` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const candidate = [...parts, projection].join(" | ");
+    if (candidate.length > CODEX_AUTO_PAUSE_RECOVERY_SEARCH_MAX_LENGTH) {
+      parts.push(`remaining_receipts:${summary.receipts.length - index}`);
+      break;
+    }
+    parts.push(projection);
+  }
+  return boundedSearchValue(parts.join(" | "), CODEX_AUTO_PAUSE_RECOVERY_SEARCH_MAX_LENGTH);
+}
+
 export function isCodexAutoPauseRecoverySummaryFinal(summary: CodexAutoPauseRecoverySummary): boolean {
   return summary.receipts.every(
     (receipt) =>
       receipt.outcome !== "released_to_delivery" &&
       (receipt.outcome !== "delivered" || receipt.completedAt !== undefined),
   );
+}
+
+function boundedSearchValue(value: string, maxLength: number): string {
+  return value
+    .replace(
+      /\b(authorization|api[-_ ]?key|bearer|access[-_ ]?token|refresh[-_ ]?token)\b(?:\s*[:=]\s*|\s+)[^\s|,;]+/giu,
+      "$1 [redacted]",
+    )
+    .replace(/[\u0000-\u001f\u007f]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, maxLength);
 }

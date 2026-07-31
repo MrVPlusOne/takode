@@ -2,6 +2,7 @@ import type { BrowserIncomingMessage, SessionTaskEntry } from "./session-types.j
 import type { SearchExcerpt } from "./session-store.js";
 import { multiWordMatch, normalizeForSearch } from "../shared/search-utils.js";
 import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
+import { buildCodexAutoPauseRecoverySearchText } from "./codex-auto-pause-types.js";
 
 export type SessionSearchMatchedField =
   | "session_number"
@@ -198,17 +199,28 @@ function messageMatchCandidate(
           ? "user_message"
           : excerpt.type === "assistant"
             ? "assistant"
-            : "compact_marker";
-      const score = excerpt.type === "user_message" ? 500 : excerpt.type === "assistant" ? 470 : 450;
+            : excerpt.type === "recovery_summary"
+              ? "recovery_summary"
+              : "compact_marker";
+      const score =
+        excerpt.type === "user_message"
+          ? 500
+          : excerpt.type === "assistant"
+            ? 470
+            : excerpt.type === "recovery_summary"
+              ? 455
+              : 450;
       const isSessionRecycle = searchExcerptIsSessionRecycle(excerpt);
       const prefix =
         excerpt.type === "user_message"
           ? "message"
           : excerpt.type === "assistant"
             ? "assistant"
-            : isSessionRecycle
-              ? "session recycle"
-              : "compaction";
+            : excerpt.type === "recovery_summary"
+              ? "recovery"
+              : isSessionRecycle
+                ? "session recycle"
+                : "compaction";
       return {
         sessionId: doc.sessionId,
         score,
@@ -251,7 +263,7 @@ function messageMatchCandidate(
     }
 
     if (msg.type === "codex_auto_pause_recovery_summary") {
-      const content = msg.content.trim();
+      const content = (msg.searchText || buildCodexAutoPauseRecoverySearchText(msg.recovery)).trim();
       if (!matches(content)) continue;
       const timestamp = msg.timestamp || doc.lastActivityAt || doc.createdAt;
       return {

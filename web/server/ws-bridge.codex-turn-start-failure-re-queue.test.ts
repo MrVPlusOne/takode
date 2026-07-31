@@ -178,6 +178,7 @@ function installReleasedRecoveryReceipt(session: any, pendingInput: any) {
     id: "recovery-summary",
     timestamp: 1,
     content: "Automatic input recovery: 1 awaiting delivery.",
+    searchText: "automatic input recovery outcome:released_to_delivery",
     recovery: {
       family: "copilot_auth_refresh_exhausted",
       pausedAt: 1,

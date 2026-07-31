@@ -64,7 +64,7 @@ function makeAssistant(
   };
 }
 
-function makeResult(id: string, numTurns = 1): BrowserIncomingMessage {
+function makeResult(id: string, numTurns = 1, stopReason = "end_turn"): BrowserIncomingMessage {
   return {
     type: "result",
     data: {
@@ -75,12 +75,54 @@ function makeResult(id: string, numTurns = 1): BrowserIncomingMessage {
       duration_api_ms: 0,
       num_turns: numTurns,
       total_cost_usd: 0,
-      stop_reason: "end_turn",
+      stop_reason: stopReason,
       usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       uuid: id,
       session_id: "codex-leader",
     },
   };
+}
+
+function attachDeliveredRecovery(session: TestCodexSession) {
+  const summaryId = "recovery-summary";
+  const groupId = "held-group";
+  session.messageHistory.push({
+    type: "codex_auto_pause_recovery_summary",
+    id: summaryId,
+    timestamp: 1,
+    content: "Automatic input recovery: 1 delivered.",
+    searchText: "automatic input recovery outcome:delivered completion:pending",
+    recovery: {
+      family: "copilot_auth_refresh_exhausted",
+      pausedAt: 1,
+      recoveryConfirmedAt: 2,
+      updatedAt: 3,
+      status: "settled",
+      receipts: [
+        {
+          groupId,
+          source: "programmatic",
+          sourceLabel: "Herd Events",
+          count: 1,
+          coalescedCount: 0,
+          queuedAt: 1,
+          lastQueuedAt: 1,
+          releasedAt: 2,
+          terminalAt: 3,
+          outcome: "delivered",
+          reasonCode: "codex_delivery_accepted",
+          reason: "Accepted by Codex exactly once.",
+        },
+      ],
+    },
+  });
+  (session as any).pendingCodexTurns = [
+    {
+      autoPauseRecoveryLinks: [{ summaryId, groupId }],
+      dispatchCount: 1,
+    },
+  ];
+  return session.messageHistory[0] as Extract<BrowserIncomingMessage, { type: "codex_auto_pause_recovery_summary" }>;
 }
 
 function makeThreadStatus({
@@ -152,6 +194,49 @@ async function routeAssistantMessage(
 }
 
 describe("codex-adapter-browser-message-controller thread routing", () => {
+  it.each([
+    "interrupted",
+    "cancel",
+    "cancelled",
+    "canceled",
+    "user_cancelled",
+  ])("derives canonical interruption from producer stop_reason=%s before completion and auto-pause", async (stopReason) => {
+    // Codex emits an ordinary result wrapper; interruption lives in data.stop_reason, not a synthetic top-level flag.
+    const session = makeSession();
+    const summary = attachDeliveredRecovery(session);
+    const deps = makeDeps([]);
+
+    await handleCodexAdapterBrowserMessage(session, makeResult(`result-${stopReason}`, 1, stopReason), deps);
+
+    expect(deps.handleCodexResultErrorAutoPause).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ stop_reason: stopReason }),
+      expect.anything(),
+      true,
+    );
+    expect(summary.recovery.receipts[0]).toMatchObject({ reasonCode: "codex_delivery_accepted" });
+    expect(summary.recovery.receipts[0]?.completedAt).toBeUndefined();
+  });
+
+  it("allows a normal producer-shaped successful manual result to complete delivery and auto-pause recovery", async () => {
+    const session = makeSession();
+    const summary = attachDeliveredRecovery(session);
+    const deps = makeDeps([]);
+
+    await handleCodexAdapterBrowserMessage(session, makeResult("result-success"), deps);
+
+    expect(deps.handleCodexResultErrorAutoPause).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ stop_reason: "end_turn" }),
+      expect.anything(),
+      false,
+    );
+    expect(summary.recovery.receipts[0]).toMatchObject({
+      reasonCode: "codex_delivery_completed",
+      completedAt: expect.any(Number),
+    });
+  });
+
   it("records live streamed activity breadcrumbs for hidden delegate children", async () => {
     const session = makeSession() as TestCodexSession & {
       delegateLiveActivity?: { kind: string; label: string; text: string; status: string };

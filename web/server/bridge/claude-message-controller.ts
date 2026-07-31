@@ -34,6 +34,7 @@ import {
   type TokenUsage,
 } from "./context-usage.js";
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
+import { isResultStopReasonInterrupted, isTerminalResultInterrupted } from "../result-interruption.js";
 import {
   recordCompactionBoundary,
   recordCompactionFinished,
@@ -815,17 +816,13 @@ export function handleResultMessage(
 
   const turnDurationMs =
     typeof session.generationStartedAt === "number" ? Math.max(0, Date.now() - session.generationStartedAt) : undefined;
-  const stopReason = typeof msg.stop_reason === "string" ? msg.stop_reason.toLowerCase() : "";
-  const resultInterrupted = stopReason.includes("interrupt") || stopReason.includes("cancel");
-  const resultIsUserControlDiagnostic =
-    msg.is_error &&
-    typeof msg.result === "string" &&
-    msg.result.includes("[ede_diagnostic]") &&
-    msg.result.includes("result_type=user");
+  const resultInterrupted = isResultStopReasonInterrupted(msg);
   if (resultInterrupted && !session.interruptedDuringTurn && session.queuedTurnStarts > 0) {
     deps.markTurnInterrupted(session, session.queuedTurnInterruptSources[0] ?? "user");
   }
-  const turnWasInterrupted = session.interruptedDuringTurn || resultInterrupted || resultIsUserControlDiagnostic;
+  const turnWasInterrupted = isTerminalResultInterrupted(msg, {
+    sessionInterrupted: session.interruptedDuringTurn,
+  });
   const turnTriggerSource = deps.getCurrentTurnTriggerSource(session);
   const threadRoutingReminder =
     turnWasInterrupted || turnTriggerSource === "system" ? null : buildThreadRoutingReminderForCompletedTurn(session);

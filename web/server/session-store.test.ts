@@ -1622,6 +1622,7 @@ describe("property-based: frozen history correctness", () => {
       id: "recovery-summary",
       timestamp: 3,
       content: "Automatic input recovery: 1 delivered.",
+      searchText: "automatic input recovery outcome:delivered completion:pending",
       recovery: {
         family: "copilot_auth_refresh_exhausted",
         pausedAt: 1,

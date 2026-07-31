@@ -10,6 +10,7 @@ import type {
   PendingCodexInput,
   ThreadRef,
 } from "../session-types.js";
+import { buildCodexAutoPauseRecoverySearchText } from "../codex-auto-pause-types.js";
 
 type RecoverySummaryEntry = Extract<BrowserIncomingMessage, { type: "codex_auto_pause_recovery_summary" }>;
 
@@ -63,6 +64,7 @@ export function createCodexAutoPauseRecoverySummary(
     id,
     timestamp: now,
     content: buildRecoverySummaryContent(recovery.receipts),
+    searchText: buildCodexAutoPauseRecoverySearchText(recovery),
     recovery,
     ...route,
   };
@@ -128,10 +130,11 @@ export function markCodexAutoPauseRecoveryTurnCompleted(
   session: RecoverySummarySessionLike,
   turn: Pick<CodexOutboundTurn, "autoPauseRecoveryLinks" | "dispatchCount"> | null | undefined,
   isError: boolean,
+  interrupted: boolean,
   now: number,
   deps: RecoverySummaryDeps,
 ): boolean {
-  if (!turn?.autoPauseRecoveryLinks?.length) return false;
+  if (interrupted || !turn?.autoPauseRecoveryLinks?.length) return false;
   const recovered = turn.dispatchCount > 1;
   let changed = false;
   const touched = new Map<string, RecoverySummaryEntry>();
@@ -152,7 +155,7 @@ export function markCodexAutoPauseRecoveryTurnCompleted(
         : "codex_delivery_completed";
     receipt.reason = REASONS[receipt.reasonCode];
     entry.recovery.updatedAt = now;
-    entry.content = buildRecoverySummaryContent(entry.recovery.receipts);
+    refreshRecoverySummaryEntry(entry);
     touched.set(summaryId, entry);
     changed = true;
   }
@@ -186,7 +189,7 @@ function updateRecoveryOutcomes(
     entry.recovery.status = entry.recovery.receipts.every((item) => item.outcome !== "released_to_delivery")
       ? "settled"
       : "releasing";
-    entry.content = buildRecoverySummaryContent(entry.recovery.receipts);
+    refreshRecoverySummaryEntry(entry);
     deps.broadcastToBrowsers(session, entry);
   }
   return changed;
@@ -238,6 +241,10 @@ function sourceDetail(item: CodexAutoPauseHeldInput): string | undefined {
 
 function boundedLabel(value: string, maxLength: number): string {
   return value
+    .replace(
+      /\b(authorization|api[-_ ]?key|bearer|access[-_ ]?token|refresh[-_ ]?token)\b(?:\s*[:=]\s*|\s+)[^\s|,;]+/giu,
+      "$1 [redacted]",
+    )
     .replace(/[\u0000-\u001f\u007f]+/gu, " ")
     .replace(/\s+/gu, " ")
     .trim()
@@ -292,6 +299,11 @@ function buildRecoverySummaryContent(receipts: readonly CodexAutoPauseRecoveryRe
     })
     .join(", ");
   return `Automatic input recovery: ${details || "no held inputs"}.`;
+}
+
+function refreshRecoverySummaryEntry(entry: RecoverySummaryEntry): void {
+  entry.content = buildRecoverySummaryContent(entry.recovery.receipts);
+  entry.searchText = buildCodexAutoPauseRecoverySearchText(entry.recovery);
 }
 
 function findRecoverySummary(session: RecoverySummarySessionLike, id: string): RecoverySummaryEntry | undefined {

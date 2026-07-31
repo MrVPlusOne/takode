@@ -1696,7 +1696,11 @@ describe("CodexAdapter", () => {
     expect(result.data.codex_turn_id).toBe("turn_multi_tool_error");
   });
 
-  it("emits result for interrupted turn/completed so session returns to idle", async () => {
+  it.each([
+    "interrupted",
+    "cancelled",
+    "canceled",
+  ])("emits the real result producer shape for turn/completed status=%s", async (status) => {
     // Interrupted turns must still emit a result so the server transitions
     // to idle. For internal interrupts (new message mid-turn), the next
     // turn/start immediately sets generating=true again.
@@ -1714,7 +1718,7 @@ describe("CodexAdapter", () => {
       JSON.stringify({
         method: "turn/completed",
         params: {
-          turn: { id: "turn_1", status: "interrupted", items: [], error: null },
+          turn: { id: "turn_1", status, items: [], error: null },
         },
       }) + "\n",
     );
@@ -1723,9 +1727,9 @@ describe("CodexAdapter", () => {
     const results = messages.filter((m) => m.type === "result");
     expect(results).toHaveLength(1);
     const resultData = (results[0] as { data: { subtype: string; is_error: boolean; stop_reason: string } }).data;
-    expect(resultData.subtype).toBe("success");
-    expect(resultData.is_error).toBe(false);
-    expect(resultData.stop_reason).toBe("interrupted");
+    expect(resultData.subtype).toBe(status === "interrupted" ? "success" : "error_during_execution");
+    expect(resultData.is_error).toBe(status !== "interrupted");
+    expect(resultData.stop_reason).toBe(status);
   });
 
   it("returns false for unsupported outgoing message types", async () => {
