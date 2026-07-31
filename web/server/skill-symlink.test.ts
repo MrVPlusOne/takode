@@ -12,6 +12,10 @@ const fsMocks = vi.hoisted(() => ({
   unlinkSync: vi.fn(),
   rmSync: vi.fn(),
 }));
+const fsPromisesMocks = vi.hoisted(() => ({
+  readFile: vi.fn(),
+  stat: vi.fn(),
+}));
 
 function missingPathError(): Error & { code: string } {
   return Object.assign(new Error("ENOENT"), { code: "ENOENT" });
@@ -36,6 +40,7 @@ vi.mock("node:url", () => ({
 }));
 
 vi.mock("node:fs", () => fsMocks);
+vi.mock("node:fs/promises", () => fsPromisesMocks);
 
 import { ensureSkillSymlinks } from "./skill-symlink.js";
 
@@ -46,6 +51,16 @@ describe("ensureSkillSymlinks", () => {
     fsMocks.readdirSync.mockReturnValue([]);
     fsMocks.lstatSync.mockImplementation((_targetDir: string): { isSymbolicLink: () => boolean } => {
       throw missingPathError();
+    });
+    fsPromisesMocks.stat.mockImplementation(async (skillPath: string) => {
+      const skillDir = skillPath.replace(/\/SKILL\.md$/, "");
+      if (!fsMocks.existsSync(skillDir)) throw missingPathError();
+      return { isFile: () => true };
+    });
+    fsPromisesMocks.readFile.mockImplementation(async (skillPath: string) => {
+      const skillDir = skillPath.replace(/\/SKILL\.md$/, "");
+      if (!fsMocks.existsSync(skillDir)) throw missingPathError();
+      return "---\nname: test\ndescription: Test skill\n---\n\n# Test skill\n";
     });
   });
 
@@ -114,6 +129,36 @@ describe("ensureSkillSymlinks", () => {
     expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(
       expect.any(String),
       "/home/tester/.codex/skills/browser-validator",
+    );
+  });
+
+  it("falls back to the populated Claude source when an existing agent directory has no skill payload", async () => {
+    // Directory presence alone must not suppress fallback to a usable canonical source.
+    fsMocks.existsSync.mockImplementation((targetDir: string) => {
+      return (
+        targetDir === "/repo/.claude/skills/takode-orchestration" ||
+        targetDir === "/repo/.agents/skills/takode-orchestration"
+      );
+    });
+    fsPromisesMocks.stat.mockImplementation(async (skillPath: string) => {
+      if (skillPath === "/repo/.claude/skills/takode-orchestration/SKILL.md") {
+        return { isFile: () => true };
+      }
+      throw missingPathError();
+    });
+    fsPromisesMocks.readFile.mockResolvedValue(
+      "---\nname: orchestration\ndescription: Canonical orchestration skill\n---\n\n# Canonical orchestration skill\n",
+    );
+
+    await ensureSkillSymlinks(["takode-orchestration"]);
+
+    expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
+      "/repo/.claude/skills/takode-orchestration",
+      "/home/tester/.agents/skills/takode-orchestration",
+    );
+    expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(
+      "/repo/.agents/skills/takode-orchestration",
+      "/home/tester/.agents/skills/takode-orchestration",
     );
   });
 
@@ -418,7 +463,7 @@ describe("ensureSkillSymlinks", () => {
 
     expect(fsMocks.symlinkSync).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(
-      "[skill-symlink] Skipping missing repo skill source: /repo/.claude/skills/cron-scheduling or /repo/.agents/skills/cron-scheduling",
+      "[skill-symlink] Skipping repo skill without usable SKILL.md: /repo/.claude/skills/cron-scheduling or /repo/.agents/skills/cron-scheduling",
     );
 
     warnSpy.mockRestore();

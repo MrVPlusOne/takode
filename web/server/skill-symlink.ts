@@ -9,6 +9,7 @@ import {
   rmSync,
   type Dirent,
 } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -56,6 +57,13 @@ const DEPRECATED_PROJECT_SKILL_SLUGS = new Set([
 ]);
 const LEGACY_CODEX_PROJECT_OWNED_SKILL_SLUGS = new Set(["quest"]);
 
+export interface SkillSymlinkRoots {
+  mainRepoRoot?: string;
+  claudeSkillsHome?: string;
+  agentsSkillsHome?: string;
+  legacyCodexSkillsHome?: string;
+}
+
 /**
  * Symlink repo skills into the global Claude and agent skill homes so all
  * sessions discover the same project-defined skills regardless of working
@@ -66,32 +74,56 @@ const LEGACY_CODEX_PROJECT_OWNED_SKILL_SLUGS = new Set(["quest"]);
  * also discovers repo skill slugs from `.claude/skills` and `.agents/skills`
  * so agent-only project skills are installed without touching Claude's root.
  */
-export async function ensureSkillSymlinks(slugs: string[]): Promise<void> {
-  const mainRepoRoot = await resolveMainRepoRoot();
+export async function ensureSkillSymlinks(slugs: string[], roots: SkillSymlinkRoots = {}): Promise<void> {
+  const mainRepoRoot = roots.mainRepoRoot ?? (await resolveMainRepoRoot());
   const repoClaudeSkillsHome = join(mainRepoRoot, ".claude", "skills");
   const repoAgentsSkillsHome = join(mainRepoRoot, ".agents", "skills");
+  const claudeSkillsHome = roots.claudeSkillsHome ?? CLAUDE_SKILLS_HOME;
+  const agentsSkillsHome = roots.agentsSkillsHome ?? AGENTS_SKILLS_HOME;
+  const legacyCodexSkillsHome = roots.legacyCodexSkillsHome ?? LEGACY_CODEX_SKILLS_HOME;
 
-  migrateLegacyCodexSkillsToAgents();
-  removeDeprecatedProjectSkillSymlinks();
-  removeLegacyCodexProjectOwnedSkillCopies();
+  migrateLegacyCodexSkillsToAgents(legacyCodexSkillsHome, agentsSkillsHome);
+  removeDeprecatedProjectSkillSymlinks(claudeSkillsHome, agentsSkillsHome, legacyCodexSkillsHome);
+  removeLegacyCodexProjectOwnedSkillCopies(legacyCodexSkillsHome);
 
   const allSlugs = discoverRepoSkillSlugs(slugs, repoClaudeSkillsHome, repoAgentsSkillsHome);
   for (const slug of allSlugs) {
     const repoClaudeDir = join(repoClaudeSkillsHome, slug);
     const repoAgentsDir = join(repoAgentsSkillsHome, slug);
-    const hasClaudeSource = existsSync(repoClaudeDir); // sync-ok: startup cold path
-    const hasAgentsSource = existsSync(repoAgentsDir); // sync-ok: startup cold path
+    const [hasClaudeSource, hasAgentsSource] = await Promise.all([
+      hasUsableSkillPayload(repoClaudeDir),
+      hasUsableSkillPayload(repoAgentsDir),
+    ]);
     if (!hasClaudeSource && !hasAgentsSource) {
-      console.warn(`[skill-symlink] Skipping missing repo skill source: ${repoClaudeDir} or ${repoAgentsDir}`);
+      console.warn(`[skill-symlink] Skipping repo skill without usable SKILL.md: ${repoClaudeDir} or ${repoAgentsDir}`);
       continue;
     }
 
     if (hasClaudeSource) {
-      ensureSymlink(repoClaudeDir, join(CLAUDE_SKILLS_HOME, slug));
+      ensureSymlink(repoClaudeDir, join(claudeSkillsHome, slug));
     }
-    ensureSymlink(hasAgentsSource ? repoAgentsDir : repoClaudeDir, join(AGENTS_SKILLS_HOME, slug));
+    ensureSymlink(hasAgentsSource ? repoAgentsDir : repoClaudeDir, join(agentsSkillsHome, slug));
   }
   console.log(`[skill-symlink] ${allSlugs.join(", ")} symlinked for Claude and agents`);
+}
+
+async function hasUsableSkillPayload(skillDir: string): Promise<boolean> {
+  const skillPath = join(skillDir, "SKILL.md");
+  try {
+    const skillStat = await stat(skillPath);
+    if (!skillStat.isFile()) return false;
+    return hasRequiredSkillContent(await readFile(skillPath, "utf-8"));
+  } catch {
+    return false;
+  }
+}
+
+function hasRequiredSkillContent(content: string): boolean {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/.exec(content.trimEnd());
+  if (!match) return false;
+  const frontmatter = match[1];
+  const body = match[2];
+  return /^name:\s*\S.*$/m.test(frontmatter) && /^description:\s*\S.*$/m.test(frontmatter) && body.trim().length > 0;
 }
 
 function discoverRepoSkillSlugs(
@@ -108,12 +140,12 @@ function discoverRepoSkillSlugs(
   ].filter((slug) => !isDeprecatedProjectSkillSlug(slug));
 }
 
-function migrateLegacyCodexSkillsToAgents(): void {
-  if (!existsSync(LEGACY_CODEX_SKILLS_HOME)) return; // sync-ok: startup cold path
+function migrateLegacyCodexSkillsToAgents(legacyCodexSkillsHome: string, agentsSkillsHome: string): void {
+  if (!existsSync(legacyCodexSkillsHome)) return; // sync-ok: startup cold path
 
   let entries: Dirent[];
   try {
-    entries = readdirSync(LEGACY_CODEX_SKILLS_HOME, { withFileTypes: true }); // sync-ok: startup cold path
+    entries = readdirSync(legacyCodexSkillsHome, { withFileTypes: true }); // sync-ok: startup cold path
   } catch (error) {
     console.warn(`[skill-symlink] Failed to inspect legacy Codex skills:`, error);
     return;
@@ -123,24 +155,28 @@ function migrateLegacyCodexSkillsToAgents(): void {
     if (entry.name.startsWith(".")) continue;
     if (isDeprecatedProjectSkillSlug(entry.name)) continue;
     if (isLegacyCodexProjectOwnedSkillSlug(entry.name)) continue;
-    const legacyDir = join(LEGACY_CODEX_SKILLS_HOME, entry.name);
-    const agentsDir = join(AGENTS_SKILLS_HOME, entry.name);
+    const legacyDir = join(legacyCodexSkillsHome, entry.name);
+    const agentsDir = join(agentsSkillsHome, entry.name);
     if (existsSync(agentsDir)) continue; // sync-ok: startup cold path
     ensureSymlink(legacyDir, agentsDir);
   }
 }
 
-function removeLegacyCodexProjectOwnedSkillCopies(): void {
+function removeLegacyCodexProjectOwnedSkillCopies(legacyCodexSkillsHome: string): void {
   for (const slug of LEGACY_CODEX_PROJECT_OWNED_SKILL_SLUGS) {
-    removeDeprecatedProjectSkillPath(join(LEGACY_CODEX_SKILLS_HOME, slug));
+    removeDeprecatedProjectSkillPath(join(legacyCodexSkillsHome, slug));
   }
 }
 
-function removeDeprecatedProjectSkillSymlinks(): void {
+function removeDeprecatedProjectSkillSymlinks(
+  claudeSkillsHome: string,
+  agentsSkillsHome: string,
+  legacyCodexSkillsHome: string,
+): void {
   for (const slug of DEPRECATED_PROJECT_SKILL_SLUGS) {
-    removeDeprecatedProjectSkillPath(join(CLAUDE_SKILLS_HOME, slug));
-    removeDeprecatedProjectSkillPath(join(AGENTS_SKILLS_HOME, slug));
-    removeDeprecatedProjectSkillPath(join(LEGACY_CODEX_SKILLS_HOME, slug));
+    removeDeprecatedProjectSkillPath(join(claudeSkillsHome, slug));
+    removeDeprecatedProjectSkillPath(join(agentsSkillsHome, slug));
+    removeDeprecatedProjectSkillPath(join(legacyCodexSkillsHome, slug));
   }
 }
 
