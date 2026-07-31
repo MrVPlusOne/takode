@@ -71,6 +71,7 @@ import {
 } from "../thread-routing-metadata.js";
 import { isActualHumanUserMessage } from "../user-message-classification.js";
 import { determineUserMessageSourceKind } from "../codex-result-error-auto-pause.js";
+import { getRecoveryDeliveryTransferId } from "./recovery-delivery-transfer-marker.js";
 import {
   appendMemoryCatalogToUserMessage,
   hasMemoryCatalogHistoryFollowUp,
@@ -1642,6 +1643,7 @@ export function routeAdapterBrowserMessage(
   ws: unknown,
   deps: AdapterBrowserRoutingDeps,
 ): boolean | Promise<boolean> {
+  const recoveryDeliveryTransferId = getRecoveryDeliveryTransferId(msg);
   if (session.backendType !== "codex" && session.backendType !== "claude-sdk") {
     return false;
   }
@@ -1818,6 +1820,13 @@ export function routeAdapterBrowserMessage(
           ingested.needsInputResolutionNoticeIds,
           ingested.historyEntry.id,
         );
+        if (recoveryDeliveryTransferId) {
+          // Transfer-routed input becomes durable pending work before normal
+          // adapter dispatch is released by the transfer controller.
+          deps.rebuildQueuedCodexPendingStartBatch(session);
+          deps.persistSession(session);
+          return true;
+        }
       }
       const currentTurnId = session.codexAdapter?.getCurrentTurnId() ?? null;
       const isHerdEvent = deps.isHerdEventSource(msg.agentSource);

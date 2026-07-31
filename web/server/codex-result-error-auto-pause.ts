@@ -117,6 +117,7 @@ export function noteCodexResultForAutoPause(
   msg: CLIResultMessage,
   turn: Pick<CodexOutboundTurn, "autoPauseSourceKind"> | null | undefined,
   now = Date.now(),
+  options: { retainPausedOwnerOnResume?: boolean } = {},
 ): {
   changed: boolean;
   pausedNow: boolean;
@@ -127,7 +128,11 @@ export function noteCodexResultForAutoPause(
   const classified = classifyCodexResultError(msg);
   if (!classified) {
     if (!msg.is_error) {
-      return clearCodexResultErrorAutoPauseAfterSuccess(session, getCodexTurnSourceKind(turn));
+      return clearCodexResultErrorAutoPauseAfterSuccess(
+        session,
+        getCodexTurnSourceKind(turn),
+        options.retainPausedOwnerOnResume === true,
+      );
     }
     return { changed: false, pausedNow: false, resumedNow: false };
   }
@@ -311,6 +316,7 @@ export function holdCodexAutoPausedQueuedBacklog<TSession extends CodexAutoPause
 function clearCodexResultErrorAutoPauseAfterSuccess(
   session: CodexResultErrorAutoPauseSessionLike,
   sourceKind: CodexAutoPauseInputSourceKind,
+  retainPausedOwner: boolean,
 ): { changed: boolean; pausedNow: false; resumedNow: boolean; heldInputs?: CodexAutoPauseHeldInput[] } {
   const existing = session.state.codex_result_error_auto_pause ?? null;
   if (!existing) return { changed: false, pausedNow: false, resumedNow: false };
@@ -318,7 +324,7 @@ function clearCodexResultErrorAutoPauseAfterSuccess(
     return { changed: false, pausedNow: false, resumedNow: false };
   }
   const heldInputs = existing.pausedAt ? existing.heldInputs : [];
-  session.state.codex_result_error_auto_pause = null;
+  if (!retainPausedOwner) session.state.codex_result_error_auto_pause = null;
   return {
     changed: true,
     pausedNow: false,

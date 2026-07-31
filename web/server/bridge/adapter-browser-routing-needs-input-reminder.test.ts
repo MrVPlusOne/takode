@@ -640,6 +640,37 @@ describe("direct user needs-input reminders", () => {
     expect(session.messageHistory[1]).toMatchObject({ type: "user_message", content: "Fresh user message" });
   });
 
+  it("admits recovery transfers into pending state without adapter dispatch until the durability barrier releases", () => {
+    // The transfer controller persists this pending owner before invoking the normal pending-turn dispatcher.
+    const session = makeSession();
+    session.backendType = "codex";
+    const deps = makeDeps();
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+    const routed = routeAdapterBrowserMessage(
+      session,
+      {
+        ...userMessage({ agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" } }),
+        autoPauseRecoveries: [{ summaryId: "summary-1", groupId: "group-1" }],
+        recoveryDeliveryTransferId: "recovery-transfer-1234567890abcdef12345678",
+      } as any,
+      null,
+      deps,
+    );
+
+    expect(routed).toBe(true);
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(session.pendingCodexInputs[0]?.autoPauseRecoveries).toEqual([
+      { summaryId: "summary-1", groupId: "group-1" },
+    ]);
+    expect(JSON.stringify(session.pendingCodexInputs)).not.toContain("recoveryDeliveryTransferId");
+    expect(deps.rebuildQueuedCodexPendingStartBatch).toHaveBeenCalledTimes(1);
+    expect(deps.queueCodexPendingStartBatch).not.toHaveBeenCalled();
+    expect(deps.trySteerPendingCodexInputs).not.toHaveBeenCalled();
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+  });
+
   it("carries deferred resolution notices through Codex pending inputs and consumes them on commit", () => {
     const session = makeSession([externallyResolvedNeedsInput("n-2", "Already handled", 200)]);
     session.backendType = "codex";

@@ -3,6 +3,7 @@ import { readdir, readFile, writeFile, unlink, appendFile } from "node:fs/promis
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { isReplayableBufferedEvent } from "./bridge/replay-buffer-policy.js";
+import type { RecoveryDeliveryTransfer } from "./bridge/recovery-delivery-transfer.js";
 import { isModelProvenanceMigrationAcknowledgementStateFile } from "./model-provenance-migration-acknowledgement-store.js";
 import {
   buildCodexAutoPauseRecoverySearchText,
@@ -90,6 +91,7 @@ export interface PersistedSession {
   forceCompactPending?: boolean;
   pendingCodexTurns?: CodexOutboundTurn[];
   pendingCodexInputs?: PendingCodexInput[];
+  recoveryDeliveryTransfers?: RecoveryDeliveryTransfer[];
   pendingCodexRollback?: { numTurns: number; truncateIdx: number; clearCodexState: boolean } | null;
   pendingCodexRollbackError?: string | null;
   codexLeaderRecycleContinuation?: import("./session-types.js").CodexLeaderRecycleContinuation | null;
@@ -229,6 +231,8 @@ export class SessionStore {
   private pendingSaves = new Map<string, PersistedSession>();
   /** Track in-flight async writes so flushAll can await them. */
   private inflightWrites = new Set<Promise<unknown>>();
+  /** Serialize hot JSON replacements per session so durability barriers cannot be overwritten by older writes. */
+  private hotWriteChains = new Map<string, Promise<void>>();
 
   /**
    * How many messages from the start of each session's messageHistory are
@@ -707,7 +711,7 @@ export class SessionStore {
    * Two-tier write: completed turns go to append-only JSONL (O(new msgs)),
    * current turn goes to the hot JSON file (O(current turn), typically <1ms).
    */
-  saveSync(session: PersistedSession): void {
+  saveSync(session: PersistedSession): Promise<boolean> {
     const cleanedHistory = this.trimDuplicateReplayPreviewTail(session.messageHistory);
     if (cleanedHistory.removedCount > 0) {
       // Only use the cleaned array for persistence — do NOT mutate the live
@@ -766,16 +770,27 @@ export class SessionStore {
 
       // Hot JSON: only the current turn (no tool results yet — they arrive
       // with the result message, which triggers the next freeze)
-      this.writeHotJson(session, messages.slice(cutoff), [], cutoff, toolResultsToFreeze);
+      return this.writeHotJson(session, messages.slice(cutoff), [], cutoff, toolResultsToFreeze);
     } else {
       // No new freeze — write the hot JSON with the current tail
-      this.writeHotJson(
+      return this.writeHotJson(
         session,
         messages.slice(prevFrozenMsgs),
         allToolResults.slice(prevFrozenToolResults),
         prevFrozenMsgs,
         prevFrozenToolResults,
       );
+    }
+  }
+
+  /** Capture and await one ordered hot-state replacement for ownership-transfer durability barriers. */
+  async saveImmediate(session: PersistedSession): Promise<void> {
+    const timer = this.debounceTimers.get(session.id);
+    if (timer) clearTimeout(timer);
+    this.debounceTimers.delete(session.id);
+    this.pendingSaves.delete(session.id);
+    if (!(await this.saveSync(session))) {
+      throw new Error(`Failed to persist session ${session.id}`);
     }
   }
 
@@ -786,7 +801,7 @@ export class SessionStore {
     hotToolResults: PersistedSession["toolResults"],
     frozenMsgCount: number,
     frozenToolResultCount: number,
-  ): void {
+  ): Promise<boolean> {
     const hotSession: PersistedSession = {
       ...session,
       messageHistory: hotMessages,
@@ -804,14 +819,29 @@ export class SessionStore {
       );
     }
 
-    const p = writeFile(this.filePath(session.id), data, "utf-8")
-      .catch((err) => {
-        console.error(`[session-store] Failed to save session ${session.id}:`, err);
-      })
+    const prior = this.hotWriteChains.get(session.id) ?? Promise.resolve();
+    const p = prior
+      .catch(() => {})
+      .then(async () => {
+        try {
+          await writeFile(this.filePath(session.id), data, "utf-8");
+          return true;
+        } catch (err) {
+          console.error(`[session-store] Failed to save session ${session.id}:`, err);
+          return false;
+        }
+      });
+    const chain = p
+      .then(() => undefined)
       .finally(() => {
         this.inflightWrites.delete(p);
+        if (this.hotWriteChains.get(session.id) === chain) this.hotWriteChains.delete(session.id);
       });
     this.inflightWrites.add(p);
+    this.hotWriteChains.set(session.id, chain);
+    this.inflightWrites.add(chain);
+    void chain.finally(() => this.inflightWrites.delete(chain));
+    return p;
   }
 
   /** Load a single session from disk, combining frozen log + hot state. */

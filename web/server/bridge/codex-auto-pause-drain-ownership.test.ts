@@ -54,6 +54,7 @@ function makeSession(): BrowserTransportSessionLike {
     pendingPermissions: new Map(),
     pendingCodexInputs: [],
     pendingCodexTurns: [],
+    recoveryDeliveryTransfers: [],
     taskHistory: [],
     eventBuffer: [],
     lastReadAt: 0,
@@ -121,6 +122,7 @@ function makeIngressDeps(
 
 async function releaseHeldInput(session: BrowserTransportSessionLike, getIngressDeps: () => BrowserTransportDeps) {
   const persistSession = vi.fn();
+  const snapshots: any[] = [];
   const result = handleCodexResultErrorAutoPause(
     session as any,
     {
@@ -135,11 +137,15 @@ async function releaseHeldInput(session: BrowserTransportSessionLike, getIngress
       broadcastToBrowsers: vi.fn(),
       broadcastPendingCodexInputs: vi.fn(),
       persistSession,
+      persistSessionImmediately: vi.fn(async (target) => {
+        snapshots.push(structuredClone(target));
+      }),
       getBrowserTransportDeps: getIngressDeps,
+      releasePendingTransfer: vi.fn(),
     },
   );
   await result;
-  return persistSession;
+  return { persistSession, snapshots };
 }
 
 function recoveryReceipt(session: BrowserTransportSessionLike) {
@@ -264,7 +270,7 @@ describe("Codex auto-pause drain ownership", () => {
         autoPauseRecoveries: message.autoPauseRecoveries,
       } as any);
     });
-    await releaseHeldInput(session, () => makeIngressDeps(route));
+    const boundary = await releaseHeldInput(session, () => makeIngressDeps(route));
     await releaseHeldInput(session, () =>
       makeIngressDeps((target, message: BrowserOutgoingMessage) => {
         if (message.type !== "user_message") return;
@@ -284,6 +290,28 @@ describe("Codex auto-pause drain ownership", () => {
     expect(session.pendingCodexInputs[0]?.autoPauseRecoveries).toEqual([
       { summaryId: summary.id, groupId: receipt.groupId },
     ]);
+    expect(boundary.snapshots).toHaveLength(4);
+    expect(boundary.snapshots[0]).toMatchObject({
+      state: { codex_result_error_auto_pause: { heldInputs: [{ id: "held-group" }] } },
+      recoveryDeliveryTransfers: [{ sourceOwnerId: "held-group" }],
+      messageHistory: [expect.objectContaining({ type: "codex_auto_pause_recovery_summary" })],
+    });
+    expect(boundary.snapshots[1]).toMatchObject({
+      state: { codex_result_error_auto_pause: null },
+      recoveryDeliveryTransfers: [{ sourceOwnerId: "held-group" }],
+    });
+    expect(boundary.snapshots[2]).toMatchObject({
+      pendingCodexInputs: [
+        expect.objectContaining({
+          autoPauseRecoveries: [{ summaryId: summary.id, groupId: receipt.groupId }],
+        }),
+      ],
+      recoveryDeliveryTransfers: [{ sourceOwnerId: "held-group" }],
+    });
+    expect(boundary.snapshots[3]).toMatchObject({
+      pendingCodexInputs: [expect.any(Object)],
+      recoveryDeliveryTransfers: [],
+    });
     expectEveryReleasedReceiptOwned(session);
 
     const dir = mkdtempSync(join(tmpdir(), "takode-drain-ownership-"));

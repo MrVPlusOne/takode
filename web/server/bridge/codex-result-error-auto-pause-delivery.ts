@@ -7,13 +7,9 @@ import {
   queueCodexAutoPausedInput,
   sweepCodexAutoPausedQueuedBacklog,
 } from "../codex-result-error-auto-pause.js";
-import {
-  createCodexAutoPauseRecoverySummary,
-  markCodexAutoPauseRecoveryFailed,
-} from "./codex-auto-pause-recovery-summary.js";
+import { createCodexAutoPauseRecoverySummary } from "./codex-auto-pause-recovery-summary.js";
 import type {
   BrowserIncomingMessage,
-  BrowserOutgoingMessage,
   CLIResultMessage,
   CodexOutboundTurn,
   TakodeHerdBatchSnapshot,
@@ -21,16 +17,14 @@ import type {
 } from "../session-types.js";
 import { buildProgrammaticUserMessage } from "../session-pause.js";
 import type { Session } from "./ws-bridge-session.js";
+import type { BrowserTransportDeps, ProgrammaticUserMessageOptions } from "./browser-transport-controller.js";
 import {
-  handleBrowserIngressMessage,
-  type BrowserTransportDeps,
-  type ProgrammaticUserMessageOptions,
-} from "./browser-transport-controller.js";
-import { resolveRecoveryIngressOwnership } from "./browser-ingress-ownership.js";
+  beginRecoveryDeliveryTransferHandoff,
+  deliverRecoveryDeliveryTransfer,
+  type RecoveryDeliveryTransferDeps,
+} from "./recovery-delivery-transfer.js";
 
-type ProgrammaticUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message" }>;
-
-interface CodexAutoPauseDeliveryDeps {
+interface CodexAutoPauseDeliveryDeps extends RecoveryDeliveryTransferDeps {
   broadcastToBrowsers: (session: Session, msg: BrowserIncomingMessage) => void;
   broadcastPendingCodexInputs: (session: Session) => void;
   persistSession: (session: Session) => void;
@@ -55,15 +49,16 @@ export function handleCodexResultErrorAutoPause(
   if (session.backendType !== "codex") return;
   if (interrupted) return;
   const activeBeforeResult = getActiveCodexResultErrorAutoPause(session);
-  const outcome = noteCodexResultForAutoPause(session, msg, completedTurn);
+  const outcome = noteCodexResultForAutoPause(session, msg, completedTurn, Date.now(), {
+    retainPausedOwnerOnResume: true,
+  });
   if (!outcome.changed) return;
-  const recoverySummary =
-    outcome.resumedNow && outcome.heldInputs?.length && activeBeforeResult
-      ? createCodexAutoPauseRecoverySummary(session, activeBeforeResult, outcome.heldInputs, Date.now(), deps)
-      : null;
   const swept = sweepCodexAutoPausedQueuedBacklog(session);
   if (swept.changed) {
     deps.broadcastPendingCodexInputs(session);
+  }
+  if (outcome.resumedNow) {
+    return finishSuccessfulAutoPauseRecovery(session, activeBeforeResult, outcome.heldInputs ?? [], deps);
   }
   broadcastCodexResultErrorAutoPauseUpdate(session, deps);
   if (outcome.diagnostic) {
@@ -74,10 +69,56 @@ export function handleCodexResultErrorAutoPause(
     });
   }
   deps.persistSession(session);
-  if (!outcome.resumedNow || !outcome.heldInputs?.length) return;
+}
 
-  const messages = materializeCodexAutoPausedInputsForDrain(outcome.heldInputs, recoverySummary?.id);
-  return drainCodexAutoPausedInputs(session, messages, deps);
+async function finishSuccessfulAutoPauseRecovery(
+  session: Session,
+  activeBeforeResult: ReturnType<typeof getActiveCodexResultErrorAutoPause>,
+  heldInputs: NonNullable<ReturnType<typeof getActiveCodexResultErrorAutoPause>>["heldInputs"],
+  deps: CodexAutoPauseDeliveryDeps,
+): Promise<void> {
+  if (!activeBeforeResult || heldInputs.length === 0) {
+    session.state.codex_result_error_auto_pause = null;
+    broadcastCodexResultErrorAutoPauseUpdate(session, deps);
+    deps.persistSession(session);
+    return;
+  }
+  const recoverySummary = createCodexAutoPauseRecoverySummary(
+    session,
+    activeBeforeResult,
+    heldInputs,
+    Date.now(),
+    deps,
+  );
+  const messages = materializeCodexAutoPausedInputsForDrain(heldInputs, recoverySummary.id);
+  let transfers: Map<string, string>;
+  try {
+    transfers = await beginRecoveryDeliveryTransferHandoff(
+      session,
+      heldInputs.map((item, index) => ({
+        sourceOwnerKind: "auto_pause" as const,
+        sourceOwnerId: item.id,
+        message: messages[index]!,
+      })),
+      () => {
+        session.state.codex_result_error_auto_pause = null;
+        broadcastCodexResultErrorAutoPauseUpdate(session, deps);
+      },
+      deps,
+    );
+  } catch (err) {
+    console.error("[codex-auto-pause] Failed to persist recovery delivery transfer:", err);
+    deps.broadcastToBrowsers(session, {
+      type: "error",
+      message: "Held automatic inputs remain paused because their recovery transfer could not be persisted.",
+    });
+    deps.persistSession(session);
+    return;
+  }
+  for (const item of heldInputs) {
+    const transferId = transfers.get(item.id);
+    if (transferId) await deliverRecoveryDeliveryTransfer(session, transferId, deps);
+  }
 }
 
 export function prepareProgrammaticCodexAutoPauseDelivery(
@@ -125,22 +166,4 @@ function broadcastCodexResultErrorAutoPauseUpdate(
     type: "session_update",
     session: { codex_result_error_auto_pause: session.state.codex_result_error_auto_pause ?? null },
   });
-}
-
-async function drainCodexAutoPausedInputs(
-  session: Session,
-  messages: ProgrammaticUserMessage[],
-  deps: CodexAutoPauseDeliveryDeps,
-): Promise<void> {
-  for (const message of messages) {
-    const admission = await handleBrowserIngressMessage(session, message, undefined, deps.getBrowserTransportDeps());
-    const ownership = resolveRecoveryIngressOwnership(admission, message);
-    if (ownership.status !== "unowned") continue;
-    console.warn(
-      `[codex-auto-pause] Released input ${ownership.links[0]?.groupId ?? "unknown"} has no durable delivery owner (${admission.status}).`,
-    );
-    if (markCodexAutoPauseRecoveryFailed(session, ownership.links, Date.now(), deps, "delivery_pipeline_rejected")) {
-      deps.persistSession(session);
-    }
-  }
 }

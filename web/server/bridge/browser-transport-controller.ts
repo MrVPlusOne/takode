@@ -106,6 +106,7 @@ export interface BrowserTransportSessionLike {
   pendingPermissions: Map<string, PermissionRequest>;
   pendingCodexInputs: PendingCodexInput[];
   pendingCodexTurns: CodexOutboundTurn[];
+  recoveryDeliveryTransfers?: import("./recovery-delivery-transfer.js").RecoveryDeliveryTransfer[];
   claudeSdkAdapter?: unknown | null;
   taskHistory: SessionTaskEntry[];
   eventBuffer: BufferedBrowserEvent[];

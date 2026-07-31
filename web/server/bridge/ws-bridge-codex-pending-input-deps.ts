@@ -4,6 +4,7 @@ import { pruneStalePendingCodexHerdInputs as pruneStalePendingCodexHerdInputsCon
 import { rebuildQueuedCodexPendingStartBatch as rebuildQueuedCodexPendingStartBatchController } from "./codex-recovery-orchestrator.js";
 import { handleCodexResultErrorAutoPause as handleCodexResultErrorAutoPauseDelivery } from "./codex-result-error-auto-pause-delivery.js";
 import type { Session } from "./ws-bridge-session.js";
+import { getRecoveryDeliveryTransferDepsForBridge } from "./ws-bridge-recovery-delivery-transfer-deps.js";
 
 export function handleCodexResultErrorAutoPauseForBridge(
   host: any,
@@ -17,14 +18,12 @@ export function handleCodexResultErrorAutoPauseForBridge(
     msg,
     completedTurn,
     {
-      broadcastToBrowsers: (targetSession, message) => host.broadcastToBrowsers(targetSession, message),
+      ...getRecoveryDeliveryTransferDepsForBridge(host),
       broadcastPendingCodexInputs: (targetSession) =>
         host.broadcastToBrowsers(targetSession, {
           type: "codex_pending_inputs",
           inputs: compactPendingCodexInputsForBrowser(targetSession.pendingCodexInputs),
         }),
-      persistSession: (targetSession) => host.persistSession(targetSession),
-      getBrowserTransportDeps: () => host.getBrowserTransportDeps(),
     },
     interrupted,
   );

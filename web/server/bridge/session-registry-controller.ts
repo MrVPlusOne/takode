@@ -11,6 +11,7 @@ import type {
   SessionAttentionRecord,
 } from "../session-types.js";
 import { detectQuestEvent } from "./quest-detector.js";
+import { normalizePersistedRecoveryDeliveryTransfers } from "./recovery-delivery-transfer.js";
 import {
   clearAttentionAndMarkRead,
   deriveNotificationStatusUpdatedAt,
@@ -104,6 +105,7 @@ type SessionRuntimeOptions = {
   forceCompactPending?: boolean;
   pendingCodexTurns?: any[];
   pendingCodexInputs?: any[];
+  recoveryDeliveryTransfers?: import("./recovery-delivery-transfer.js").RecoveryDeliveryTransfer[];
   pendingCodexRollback?: { numTurns: number; truncateIdx: number; clearCodexState: boolean } | null;
   pendingCodexRollbackError?: string | null;
   codexLeaderRecycleContinuation?: CodexLeaderRecycleContinuation | null;
@@ -160,6 +162,7 @@ function createSessionRuntime(
     forceCompactPending: options.forceCompactPending ?? false,
     pendingCodexTurns: options.pendingCodexTurns ?? [],
     pendingCodexInputs: options.pendingCodexInputs ?? [],
+    recoveryDeliveryTransfers: options.recoveryDeliveryTransfers ?? [],
     pendingCodexRollback: options.pendingCodexRollback ?? null,
     pendingCodexRollbackError: options.pendingCodexRollbackError ?? null,
     codexLeaderRecycleContinuation: options.codexLeaderRecycleContinuation ?? null,
@@ -538,6 +541,7 @@ export async function restorePersistedSessions(
     finalizeRecoveredDisconnectedTerminalTools: (session: SessionLike, reason: string) => void;
     scheduleCodexToolResultWatchdogs: (session: SessionLike, reason: string) => void;
     reconcileRestoredBoardState: (session: SessionLike) => Promise<void>;
+    resumeRecoveryDeliveryTransfers?: (session: SessionLike) => Promise<void>;
   },
 ): Promise<number> {
   let count = 0;
@@ -609,6 +613,7 @@ export async function restorePersistedSessions(
           : false,
       pendingCodexTurns: restoredCodexTurns,
       pendingCodexInputs: Array.isArray(p.pendingCodexInputs) ? p.pendingCodexInputs : [],
+      recoveryDeliveryTransfers: normalizePersistedRecoveryDeliveryTransfers(p.recoveryDeliveryTransfers),
       pendingCodexRollback:
         p.pendingCodexRollback &&
         typeof p.pendingCodexRollback === "object" &&
@@ -688,6 +693,7 @@ export async function restorePersistedSessions(
     await deps.reconcileRestoredBoardState(session);
 
     sessions.set(p.id, session);
+    await deps.resumeRecoveryDeliveryTransfers?.(session);
     count += 1;
   }
   if (count > 0) {
@@ -766,6 +772,7 @@ export function buildPersistedSessionPayload(session: SessionLike): PersistedSes
     forceCompactPending: session.forceCompactPending,
     pendingCodexTurns: session.pendingCodexTurns,
     pendingCodexInputs: session.pendingCodexInputs,
+    recoveryDeliveryTransfers: session.recoveryDeliveryTransfers,
     pendingCodexRollback: session.pendingCodexRollback,
     pendingCodexRollbackError: session.pendingCodexRollbackError,
     codexLeaderRecycleContinuation: session.codexLeaderRecycleContinuation,

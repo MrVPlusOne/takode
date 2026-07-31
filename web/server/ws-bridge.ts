@@ -107,6 +107,8 @@ import {
   pruneStalePendingCodexHerdInputsForBridge,
 } from "./bridge/ws-bridge-codex-pending-input-deps.js";
 import { pauseSessionForDelivery, unpauseSessionForDelivery } from "./bridge/session-pause-delivery.js";
+import { resumeRecoveryDeliveryTransfers } from "./bridge/recovery-delivery-transfer.js";
+import { getRecoveryDeliveryTransferDepsForBridge } from "./bridge/ws-bridge-recovery-delivery-transfer-deps.js";
 import {
   routeSideChatUserMessage as routeSideChatUserMessageController,
   syncSideChatRecord as syncSideChatRecordController,
@@ -224,7 +226,6 @@ import {
   markCodexIntentionalRelaunch as markCodexIntentionalRelaunchController,
   maybeFlushQueuedCodexMessages as maybeFlushQueuedCodexMessagesController,
   pokeStaleCodexPendingDelivery as pokeStaleCodexPendingDeliveryController,
-  queueCodexPendingStartBatch as queueCodexPendingStartBatchController,
   rearmRecoveredQueuedHeadTurn as rearmRecoveredQueuedHeadTurnController,
   registerCodexAdapterRecoveryLifecycle,
   rebuildQueuedCodexPendingStartBatch as rebuildQueuedCodexPendingStartBatchController,
@@ -756,6 +757,8 @@ export class WsBridge {
       scheduleCodexToolResultWatchdogs: (session, reason) =>
         this.scheduleCodexToolResultWatchdogs(session as Session, reason),
       reconcileRestoredBoardState: (session) => this.reconcileRestoredBoardState(session as Session),
+      resumeRecoveryDeliveryTransfers: (session) =>
+        resumeRecoveryDeliveryTransfers(session as Session, getRecoveryDeliveryTransferDepsForBridge(this)),
     });
   }
 
@@ -812,9 +815,7 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
     return unpauseSessionForDelivery(session, {
-      broadcastToBrowsers: (targetSession, message) => this.broadcastToBrowsers(targetSession, message),
-      persistSession: (targetSession) => this.persistSession(targetSession),
-      getBrowserTransportDeps: () => this.getBrowserTransportDeps(),
+      ...getRecoveryDeliveryTransferDepsForBridge(this),
       onCLIRelaunchNeeded: this.onCLIRelaunchNeeded ?? undefined,
     });
   }

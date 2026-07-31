@@ -1,12 +1,15 @@
 import type { BrowserIncomingMessage, SessionPauseState } from "../session-types.js";
 import { pauseSessionState, unpauseSessionState } from "../session-pause.js";
-import { markCodexAutoPauseRecoveryFailed } from "./codex-auto-pause-recovery-summary.js";
-import { classifyRecoveryDeliveryOwnership, resolveRecoveryIngressOwnership } from "./browser-ingress-ownership.js";
 import { handleBrowserIngressMessage, type BrowserTransportDeps } from "./browser-transport-controller.js";
+import {
+  beginRecoveryDeliveryTransferHandoff,
+  deliverRecoveryDeliveryTransfer,
+  type RecoveryDeliveryTransferDeps,
+} from "./recovery-delivery-transfer.js";
 import { backendAttached } from "./session-registry-controller.js";
 import type { Session } from "./ws-bridge-session.js";
 
-interface SessionPauseDeliveryDeps {
+interface SessionPauseDeliveryDeps extends RecoveryDeliveryTransferDeps {
   broadcastToBrowsers: (session: Session, msg: BrowserIncomingMessage) => void;
   persistSession: (session: Session) => void;
   getBrowserTransportDeps: () => BrowserTransportDeps;
@@ -28,28 +31,42 @@ export async function unpauseSessionForDelivery(
   session: Session,
   deps: SessionPauseDeliveryDeps,
 ): Promise<{ queued: number }> {
-  const queued = unpauseSessionState(session);
-  deps.broadcastToBrowsers(session, { type: "session_update", session: { pause: null } });
-  deps.persistSession(session);
-  for (const item of queued) {
-    const existingOwnership = resolveRecoveryIngressOwnership(
-      classifyRecoveryDeliveryOwnership(session, item.message),
-      item.message,
-    );
-    if (existingOwnership.status === "owned") continue;
-    const admission = await handleBrowserIngressMessage(
-      session,
-      item.message,
-      undefined,
-      deps.getBrowserTransportDeps(),
-    );
-    const ownership = resolveRecoveryIngressOwnership(admission, item.message);
-    if (
-      ownership.status === "unowned" &&
-      markCodexAutoPauseRecoveryFailed(session, ownership.links, Date.now(), deps, "delivery_pipeline_rejected")
-    ) {
+  const queued = [...(session.state.pause?.queuedMessages ?? [])];
+  const recoveryItems = queued.filter((item) => item.message.autoPauseRecoveries?.length);
+  let transfers = new Map<string, string>();
+  if (recoveryItems.length > 0) {
+    try {
+      transfers = await beginRecoveryDeliveryTransferHandoff(
+        session,
+        recoveryItems.map((item) => ({
+          sourceOwnerKind: "manual_pause" as const,
+          sourceOwnerId: item.id,
+          message: item.message,
+        })),
+        () => {
+          unpauseSessionState(session);
+          deps.broadcastToBrowsers(session, { type: "session_update", session: { pause: null } });
+        },
+        deps,
+      );
+    } catch (err) {
+      console.error("[session-pause] Failed to persist recovery delivery transfer:", err);
+      deps.broadcastToBrowsers(session, {
+        type: "error",
+        message: "Paused inputs remain held because their recovery transfer could not be persisted.",
+      });
       deps.persistSession(session);
+      return { queued: queued.length };
     }
+  } else {
+    unpauseSessionState(session);
+    deps.broadcastToBrowsers(session, { type: "session_update", session: { pause: null } });
+    deps.persistSession(session);
+  }
+  for (const item of queued) {
+    const transferId = transfers.get(item.id);
+    if (transferId) await deliverRecoveryDeliveryTransfer(session, transferId, deps);
+    else await handleBrowserIngressMessage(session, item.message, undefined, deps.getBrowserTransportDeps());
   }
   if (queued.length === 0 && !backendAttached(session)) {
     deps.onCLIRelaunchNeeded?.(session.id);

@@ -358,6 +358,31 @@ describe("tree_groups_update replay-buffer exclusion", () => {
 });
 
 describe("Codex auto-pause recovery summary fanout", () => {
+  it("keeps persisted recovery-transfer payloads out of browser state snapshots", () => {
+    const ws = { send: vi.fn() };
+    const session = makeSession({
+      recoveryDeliveryTransfers: [
+        {
+          id: "recovery-transfer-1234567890abcdef12345678",
+          createdAt: 10,
+          sourceOwnerKind: "auto_pause",
+          sourceOwnerId: "held-1",
+          payloadBytes: 20,
+          message: {
+            type: "user_message",
+            content: "private transfer payload sentinel",
+            autoPauseRecoveries: [{ summaryId: "summary-1", groupId: "group-1" }],
+          },
+        },
+      ],
+    });
+
+    sendStateSnapshot(session, ws, makeInjectDeps());
+
+    expect(JSON.stringify(ws.send.mock.calls)).not.toContain("private transfer payload sentinel");
+    expect(JSON.stringify(ws.send.mock.calls)).not.toContain("recoveryDeliveryTransfers");
+  });
+
   it("projects the same mutable server-authored receipt to two browsers", () => {
     // Both tabs receive the same stable history identity; neither browser invents or merges terminal state locally.
     const first = { send: vi.fn() };

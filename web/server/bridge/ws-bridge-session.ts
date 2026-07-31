@@ -13,6 +13,7 @@ import type {
   TurnStartFailedAwareAdapter,
 } from "./adapter-interface.js";
 import type { BrowserTransportStateLike } from "./browser-transport-controller.js";
+import type { RecoveryDeliveryTransfer } from "./recovery-delivery-transfer.js";
 import type { InterruptSource as GenerationInterruptSource } from "./generation-lifecycle.js";
 import type { QuestLifecycleStatus } from "./quest-detector.js";
 import type {
@@ -111,6 +112,8 @@ export interface Session {
   pendingCodexTurns: CodexOutboundTurn[];
   /** Codex inputs accepted by Takode but not yet delivered to Codex. */
   pendingCodexInputs: PendingCodexInput[];
+  /** Server-only persisted payload owners while recovery-linked inputs cross into normal delivery. */
+  recoveryDeliveryTransfers: RecoveryDeliveryTransfer[];
   /** Pending Codex thread rollback to run on the next connected adapter. */
   pendingCodexRollback: { numTurns: number; truncateIdx: number; clearCodexState: boolean } | null;
   /** Last error from a pending Codex rollback, if any. */

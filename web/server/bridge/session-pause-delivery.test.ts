@@ -66,6 +66,7 @@ function makeSession(message: Extract<BrowserOutgoingMessage, { type: "user_mess
     pendingPermissions: new Map(),
     pendingCodexInputs: [],
     pendingCodexTurns: [],
+    recoveryDeliveryTransfers: [],
     taskHistory: [],
     eventBuffer: [],
     lastReadAt: 0,
@@ -118,7 +119,9 @@ function makeDeliveryDeps(getIngressDeps: () => BrowserTransportDeps) {
   return {
     broadcastToBrowsers: vi.fn(),
     persistSession: vi.fn(),
+    persistSessionImmediately: vi.fn(async () => {}),
     getBrowserTransportDeps: getIngressDeps,
+    releasePendingTransfer: vi.fn(),
     onCLIRelaunchNeeded: vi.fn(),
   };
 }
