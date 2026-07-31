@@ -196,7 +196,7 @@ function isSupportedPlainString(value: string): boolean {
 }
 
 function isImplicitNonStringScalar(value: string): boolean {
-  if (/^(?:~|null|true|false|yes|no|on|off)$/i.test(value)) return true;
+  if (/^(?:~|null|true|false|y|n|yes|no|on|off)$/i.test(value)) return true;
   if (/^[+-]?(?:\.inf|\.nan|infinity|nan)$/i.test(value)) return true;
   if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(value)) return true;
   if (
