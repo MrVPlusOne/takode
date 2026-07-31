@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildCodexAutoPauseRecoverySearchText } from "../../server/codex-auto-pause-types.js";
 import type { ChatMessage, CodexAutoPauseRecoveryOutcome, CodexAutoPauseRecoveryReceipt } from "../types.js";
@@ -170,7 +171,7 @@ describe("CodexAutoPauseRecoverySummary", () => {
     expect(screen.getByText("Outcomes 1–10 of 100")).toBeTruthy();
     expect(within(firstPage).getByText("Producer source 001 · turn_end")).toBeTruthy();
     expect(within(firstPage).getByText("Producer source 010 · board_stalled")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Previous outcome page" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Previous outcome page" }).getAttribute("aria-disabled")).toBe("true");
     expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(10);
 
     for (let page = 1; page < 10; page++) {
@@ -184,13 +185,60 @@ describe("CodexAutoPauseRecoverySummary", () => {
 
     expect(screen.getByText("Producer source 091 · turn_end")).toBeTruthy();
     expect(screen.getByText("Producer source 100 · board_stalled")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Next outcome page" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Next outcome page" }).getAttribute("aria-disabled")).toBe("true");
     expect(observedSources).toEqual(
       Array.from({ length: 100 }, (_, index) => {
         const source = `Producer source ${String(index + 1).padStart(3, "0")}`;
         return `${source} · ${index % 2 === 0 ? "turn_end" : "board_stalled"}`;
       }),
     );
+  });
+
+  it("keeps native pagination focus attached through terminal and initial boundaries", async () => {
+    // Boundary buttons remain native and focusable so reaching a disabled edge cannot drop keyboard focus to <body>.
+    const user = userEvent.setup();
+    render(<MessageBubble message={producerShapedSummaryMessage(100)} showTimestamp={false} />);
+
+    const disclosure = screen.getByText("Inspect held input outcomes");
+    const details = disclosure.closest("details") as HTMLDetailsElement;
+    fireEvent.click(disclosure);
+    fireEvent(details, new Event("toggle", { bubbles: true }));
+
+    const previous = screen.getByRole("button", { name: "Previous outcome page" });
+    const next = screen.getByRole("button", { name: "Next outcome page" });
+    expect(previous.getAttribute("aria-disabled")).toBe("true");
+    expect(previous.hasAttribute("disabled")).toBe(false);
+    previous.focus();
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(previous);
+    expect(screen.getByText("Outcomes 1–10 of 100")).toBeTruthy();
+
+    for (let page = 1; page < 9; page++) await user.click(next);
+    expect(screen.getByText("Outcomes 81–90 of 100")).toBeTruthy();
+
+    next.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByText("Outcomes 91–100 of 100")).toBeTruthy();
+    expect(next.getAttribute("aria-disabled")).toBe("true");
+    expect(next.hasAttribute("disabled")).toBe(false);
+    expect(document.activeElement).toBe(next);
+    expect(document.contains(document.activeElement)).toBe(true);
+
+    await user.keyboard("{Enter}");
+    expect(screen.getByText("Outcomes 91–100 of 100")).toBeTruthy();
+    expect(document.activeElement).toBe(next);
+
+    previous.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByText("Outcomes 81–90 of 100")).toBeTruthy();
+    expect(document.activeElement).toBe(previous);
+
+    for (let page = 8; page > 0; page--) await user.click(previous);
+    expect(screen.getByText("Outcomes 1–10 of 100")).toBeTruthy();
+    expect(previous.getAttribute("aria-disabled")).toBe("true");
+    expect(previous.hasAttribute("disabled")).toBe(false);
+    expect(document.activeElement).toBe(previous);
+    expect(document.contains(document.activeElement)).toBe(true);
   });
 
   it("bounds a live 25-to-100 receipt update without closing accepted detail state", () => {

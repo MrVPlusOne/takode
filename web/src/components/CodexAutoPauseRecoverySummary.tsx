@@ -103,19 +103,25 @@ export function CodexAutoPauseRecoverySummary({ summary }: { summary: RecoverySu
                 <nav className="flex items-center gap-1.5" aria-label="Held input outcome pages">
                   <button
                     type="button"
-                    className="rounded border border-cc-border/60 px-2 py-1 hover:bg-cc-hover disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded border border-cc-border/60 px-2 py-1 hover:bg-cc-hover aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
                     aria-label="Previous outcome page"
-                    disabled={page === 0}
-                    onClick={() => setRequestedPage(page - 1)}
+                    aria-disabled={page === 0}
+                    onClick={() => {
+                      if (page === 0) return;
+                      setRequestedPage(page - 1);
+                    }}
                   >
                     Previous
                   </button>
                   <button
                     type="button"
-                    className="rounded border border-cc-border/60 px-2 py-1 hover:bg-cc-hover disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded border border-cc-border/60 px-2 py-1 hover:bg-cc-hover aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
                     aria-label="Next outcome page"
-                    disabled={page === pageCount - 1}
-                    onClick={() => setRequestedPage(page + 1)}
+                    aria-disabled={page === pageCount - 1}
+                    onClick={() => {
+                      if (page === pageCount - 1) return;
+                      setRequestedPage(page + 1);
+                    }}
                   >
                     Next
                   </button>
