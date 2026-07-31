@@ -132,19 +132,26 @@ async function drainCodexAutoPausedInputs(
   deps: CodexAutoPauseDeliveryDeps,
 ): Promise<void> {
   for (const message of messages) {
-    try {
-      await handleBrowserIngressMessage(session, message, undefined, deps.getBrowserTransportDeps());
-    } catch {
-      console.warn(
-        `[codex-auto-pause] Released input ${message.autoPauseRecoveries?.[0]?.groupId ?? "unknown"} was rejected before pending delivery.`,
-      );
-      markCodexAutoPauseRecoveryFailed(
-        session,
-        message.autoPauseRecoveries ?? [],
-        Date.now(),
-        deps,
-        "delivery_pipeline_rejected",
-      );
+    const admission = await handleBrowserIngressMessage(session, message, undefined, deps.getBrowserTransportDeps());
+    if (
+      admission.status === "accepted_pending_delivery" ||
+      admission.status === "queued_manual_pause" ||
+      admission.status === "reheld_auto_pause" ||
+      admission.status === "terminal_receipt"
+    ) {
+      continue;
+    }
+    const rejectedLinks =
+      "unownedRecoveryLinks" in admission && admission.unownedRecoveryLinks
+        ? admission.unownedRecoveryLinks
+        : admission.status === "ignored_no_owner"
+          ? []
+          : (message.autoPauseRecoveries ?? []);
+    if (rejectedLinks.length === 0) continue;
+    console.warn(
+      `[codex-auto-pause] Released input ${rejectedLinks[0]?.groupId ?? "unknown"} has no durable delivery owner (${admission.status}).`,
+    );
+    if (markCodexAutoPauseRecoveryFailed(session, rejectedLinks, Date.now(), deps, "delivery_pipeline_rejected")) {
       deps.persistSession(session);
     }
   }

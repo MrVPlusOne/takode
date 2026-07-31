@@ -172,13 +172,14 @@ describe("archived session browser viewing", () => {
     });
     const session = makeSession();
 
-    await handleBrowserIngressMessage(
+    const result = await handleBrowserIngressMessage(
       session,
       { type: "user_message", content: "should not resume", client_msg_id: "archived-c1" },
       undefined,
       deps,
     );
 
+    expect(result).toMatchObject({ status: "ignored_no_owner", reason: "archived_read_only" });
     expect(routeBrowserMessage).not.toHaveBeenCalled();
     expect(deps.touchActivity).not.toHaveBeenCalled();
     expect(deps.persistSession).not.toHaveBeenCalled();
@@ -1243,12 +1244,26 @@ describe("programmatic user message injection", () => {
       state: { permissionMode: "default", pause: { pausedAt: 123, queuedMessages: [] } } as any,
     });
 
-    await handleBrowserIngressMessage(session, { type: "user_message", content: "hold this input" }, undefined, deps);
+    const result = await handleBrowserIngressMessage(
+      session,
+      {
+        type: "user_message",
+        content: "hold this input",
+        autoPauseRecoveries: [{ summaryId: "summary-1", groupId: "manual-group" }],
+      },
+      undefined,
+      deps,
+    );
 
+    expect(result).toEqual({ status: "queued_manual_pause" });
     expect(session.state.pause?.queuedMessages).toHaveLength(1);
     expect(session.state.pause?.queuedMessages[0]).toMatchObject({
       source: "browser",
-      message: { type: "user_message", content: "hold this input" },
+      message: {
+        type: "user_message",
+        content: "hold this input",
+        autoPauseRecoveries: [{ summaryId: "summary-1", groupId: "manual-group" }],
+      },
     });
     expect(deps.routeBrowserMessage).not.toHaveBeenCalled();
     expect(deps.persistSession).toHaveBeenCalledWith(session);
@@ -1301,18 +1316,23 @@ describe("programmatic user message injection", () => {
       } as any,
     });
 
-    await handleBrowserIngressMessage(
+    const result = await handleBrowserIngressMessage(
       session,
       {
         type: "user_message",
         content: "timer event",
         agentSource: { sessionId: "timer:abc", sessionLabel: "Timer" },
+        autoPauseRecoveries: [{ summaryId: "summary-1", groupId: "auto-group" }],
       },
       undefined,
       deps,
     );
 
+    expect(result).toEqual({ status: "reheld_auto_pause" });
     expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
+    expect(session.state.codex_result_error_auto_pause?.heldInputs[0]?.message.autoPauseRecoveries).toEqual([
+      { summaryId: "summary-1", groupId: "auto-group" },
+    ]);
     expect(deps.routeBrowserMessage).not.toHaveBeenCalled();
     expect(deps.persistSession).toHaveBeenCalledWith(session);
     expect(deps.broadcastError).toHaveBeenCalledWith(
@@ -1356,6 +1376,119 @@ describe("programmatic user message injection", () => {
       expect.objectContaining({ type: "user_message", content: "manual test", inputSource: "composer" }),
       undefined,
     );
+  });
+
+  it("returns normal pending-delivery ownership only after the recovery links are durably admitted", async () => {
+    // Returning from the route callback is insufficient: the released group must be discoverable in pending delivery.
+    const link = { summaryId: "summary-1", groupId: "pending-group" };
+    const session = makeSession({ backendType: "codex" });
+    const deps = makeInjectDeps({
+      routeBrowserMessage: vi.fn((target: BrowserTransportSessionLike) => {
+        target.pendingCodexInputs.push({ id: "pending-1", autoPauseRecoveries: [link] } as any);
+      }),
+    });
+
+    const result = await handleBrowserIngressMessage(
+      session,
+      { type: "user_message", content: "released event", autoPauseRecoveries: [link] },
+      undefined,
+      deps,
+    );
+
+    expect(result).toEqual({ status: "accepted_pending_delivery" });
+  });
+
+  it("recognizes an authoritative terminal receipt when routing settles before returning", async () => {
+    const link = { summaryId: "summary-1", groupId: "terminal-group" };
+    const session = makeSession({
+      backendType: "codex",
+      messageHistory: [
+        {
+          type: "codex_auto_pause_recovery_summary",
+          id: link.summaryId,
+          recovery: { receipts: [{ groupId: link.groupId, outcome: "failed" }] },
+        } as any,
+      ],
+    });
+
+    const result = await handleBrowserIngressMessage(
+      session,
+      { type: "user_message", content: "terminal event", autoPauseRecoveries: [link] },
+      undefined,
+      makeInjectDeps(),
+    );
+
+    expect(result).toEqual({ status: "terminal_receipt" });
+  });
+
+  it("reports a completed route with no pending or terminal owner instead of inferring admission", async () => {
+    const link = { summaryId: "summary-1", groupId: "ownerless-group" };
+
+    const result = await handleBrowserIngressMessage(
+      makeSession({ backendType: "codex" }),
+      { type: "user_message", content: "ownerless event", autoPauseRecoveries: [link] },
+      undefined,
+      makeInjectDeps(),
+    );
+
+    expect(result).toEqual({
+      status: "ignored_no_owner",
+      reason: "route_completed_without_owner",
+      unownedRecoveryLinks: [link],
+    });
+  });
+
+  it.each([
+    ["direct", undefined],
+    ["queued", Promise.resolve()],
+  ])("returns terminal rejection for %s routing failures", async (_label, priorRoute) => {
+    // Both immediate and serialized callback failures are swallowed for ordinary browser callers but explicit to drain.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const deps = makeInjectDeps({
+      getRouteChain: vi.fn(() => priorRoute),
+      routeBrowserMessage: vi.fn(async () => {
+        throw new Error("route rejected");
+      }),
+    });
+
+    const result = await handleBrowserIngressMessage(
+      makeSession({ backendType: "codex" }),
+      {
+        type: "user_message",
+        content: "rejected event",
+        autoPauseRecoveries: [{ summaryId: "summary-1", groupId: "rejected-group" }],
+      },
+      undefined,
+      deps,
+    );
+
+    expect(result).toMatchObject({ status: "terminal_rejected", reason: "routing_error" });
+    expect(result).toHaveProperty("unownedRecoveryLinks", [{ summaryId: "summary-1", groupId: "rejected-group" }]);
+    expect(deps.broadcastError).toHaveBeenCalledWith(expect.anything(), "Failed to process message. Please retry.");
+    errorSpy.mockRestore();
+  });
+
+  it("preserves pending ownership when a route throws after admitting the released group", async () => {
+    // A late route exception must not overwrite an already durable pending owner with a false failed receipt.
+    const link = { summaryId: "summary-1", groupId: "accepted-before-error" };
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const deps = makeInjectDeps({
+      routeBrowserMessage: vi.fn((target: BrowserTransportSessionLike) => {
+        target.pendingCodexInputs.push({ id: "pending-before-error", autoPauseRecoveries: [link] } as any);
+        throw new Error("late route error");
+      }),
+    });
+
+    const result = await handleBrowserIngressMessage(
+      makeSession({ backendType: "codex" }),
+      { type: "user_message", content: "accepted event", autoPauseRecoveries: [link] },
+      undefined,
+      deps,
+    );
+
+    expect(result).toEqual({ status: "accepted_pending_delivery" });
+    expect(deps.broadcastError).toHaveBeenCalledWith(expect.anything(), "Failed to process message. Please retry.");
+    errorSpy.mockRestore();
   });
 
   it("rejects paused browser messages with raw images instead of silently processing them", async () => {

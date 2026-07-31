@@ -25,6 +25,11 @@ import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
 import {
+  classifyRecoveryDeliveryOwnership,
+  unownedRecoveryLinks,
+  type BrowserIngressOwnershipResult,
+} from "./browser-ingress-ownership.js";
+import {
   getNotificationStatusSnapshot,
   getUserVisibleSessionNotifications,
 } from "./session-notification-controller.js";
@@ -359,14 +364,20 @@ export async function handleBrowserIngressMessage(
   msg: BrowserOutgoingMessage,
   ws: BrowserTransportSocketLike | undefined,
   deps: BrowserTransportDeps,
-): Promise<void> {
-  if (isArchivedReadOnlySession(session, deps) && !isArchivedReadOnlyBrowserMessage(msg)) return;
+): Promise<BrowserIngressOwnershipResult> {
+  if (isArchivedReadOnlySession(session, deps) && !isArchivedReadOnlyBrowserMessage(msg)) {
+    return {
+      status: "ignored_no_owner",
+      reason: "archived_read_only",
+      ...unownedRecoveryLinks(msg),
+    };
+  }
 
   if (isSessionPaused(session)) {
     if (msg.type === "user_message" && !isComposerUserMessage(session, msg)) {
       if (!canQueuePausedUserMessage(msg)) {
         deps.broadcastError(session, "Session is paused. Raw image messages cannot be safely held; unpause and retry.");
-        return;
+        return { status: "terminal_rejected", reason: "unsafe_raw_image" };
       }
       queuePausedUserMessage(session, "browser", msg);
       deps.persistSession(session);
@@ -375,7 +386,7 @@ export async function handleBrowserIngressMessage(
         session: { pause: session.state.pause },
       } as BrowserIncomingMessage);
       deps.broadcastError(session, buildPausedDiagnostic(session));
-      return;
+      return { status: "queued_manual_pause" };
     }
   }
   const codexAutoPause = getActiveCodexResultErrorAutoPause(session);
@@ -385,7 +396,7 @@ export async function handleBrowserIngressMessage(
         session,
         "Automatic Codex input delivery is paused. Raw image messages cannot be safely held; send a direct composer message to test recovery.",
       );
-      return;
+      return { status: "terminal_rejected", reason: "unsafe_raw_image" };
     }
     queueCodexAutoPausedInput(session, "browser", msg);
     deps.persistSession(session);
@@ -394,14 +405,20 @@ export async function handleBrowserIngressMessage(
       session: { codex_result_error_auto_pause: session.state.codex_result_error_auto_pause },
     } as BrowserIncomingMessage);
     deps.broadcastError(session, buildCodexAutoPauseDiagnostic(session.state.codex_result_error_auto_pause!));
-    return;
+    return { status: "reheld_auto_pause" };
   }
 
+  let ownershipResult: BrowserIngressOwnershipResult = {
+    status: "ignored_no_owner",
+    reason: "protocol_handled",
+    ...unownedRecoveryLinks(msg),
+  };
   const routeTask = async () => {
     const maybeProtocolHandled = handleBrowserProtocolMessage(session, msg, ws, deps);
     const protocolHandled = maybeProtocolHandled instanceof Promise ? await maybeProtocolHandled : maybeProtocolHandled;
     if (protocolHandled) return;
-    return deps.routeBrowserMessage(session, msg, ws);
+    await deps.routeBrowserMessage(session, msg, ws);
+    ownershipResult = classifyRecoveryDeliveryOwnership(session, msg);
   };
   const routePromise =
     shouldSerializeBrowserMessage(msg) || hasSessionRouteInFlight(session.id, deps)
@@ -410,13 +427,25 @@ export async function handleBrowserIngressMessage(
 
   try {
     await routePromise;
+    return ownershipResult;
   } catch (err) {
+    const durableOwnership = classifyRecoveryDeliveryOwnership(session, msg);
+    const rejectedLinks =
+      durableOwnership.status === "ignored_no_owner" ? durableOwnership.unownedRecoveryLinks : undefined;
     if (msg.type === "user_message" && msg.imageRefs?.length) {
       deps.notifyImageSendFailure(session, err);
-      return;
+    } else {
+      console.error(`[ws-bridge] Failed to route browser message for session ${sessionTag(session.id)}:`, err);
+      deps.broadcastError(session, "Failed to process message. Please retry.");
     }
-    console.error(`[ws-bridge] Failed to route browser message for session ${sessionTag(session.id)}:`, err);
-    deps.broadcastError(session, "Failed to process message. Please retry.");
+    if (durableOwnership.status === "accepted_pending_delivery" || durableOwnership.status === "terminal_receipt") {
+      return durableOwnership;
+    }
+    return {
+      status: "terminal_rejected",
+      reason: "routing_error",
+      ...(rejectedLinks ? { unownedRecoveryLinks: rejectedLinks } : {}),
+    };
   }
 }
 
@@ -453,7 +482,7 @@ export function handleBrowserMessage(
 
   return {
     messageType: msg.type,
-    completion: handleBrowserIngressMessage(session, msg, ws, deps),
+    completion: handleBrowserIngressMessage(session, msg, ws, deps).then(() => undefined),
   };
 }
 
