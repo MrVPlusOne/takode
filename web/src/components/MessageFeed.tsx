@@ -85,7 +85,7 @@ import {
   readSavedViewportPosition,
   useIdempotentState,
 } from "./message-feed-viewport-state.js";
-import { getHistoryBoundaryWindowRequest, getThreadBoundaryWindowRequest } from "./message-feed-window-paging.js";
+import { useMessageFeedSectionWindowLoaders } from "./message-feed-section-window-loaders.js";
 import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
 import { useMessageFeedUserNavigationTargets, useUserMessageNavigation } from "./message-feed-user-navigation-hook.js";
 import { getMissingScrollTargetWindowAction, type PendingTargetWindowRequest } from "./message-feed-scroll-target.js";
@@ -869,7 +869,7 @@ export function MessageFeed({
         sectionTurnCount,
         visibleSectionCount,
       });
-      sendToSession(sessionId, {
+      return sendToSession(sessionId, {
         type: "history_window_request",
         from_turn: fromTurn,
         turn_count: turnCount,
@@ -882,85 +882,21 @@ export function MessageFeed({
     [sessionId],
   );
 
-  const handleLoadOlderSection = useCallback(() => {
-    if (activeThreadWindow) {
-      const request = getThreadBoundaryWindowRequest(activeThreadWindow, "older");
-      if (!request) return;
-      const requestKey = `thread:${normalizedThreadKey}:${request.fromItem}:${request.itemCount}`;
-      if (!markSectionLoadPending("older", requestKey)) return;
-      autoFollowEnabledRef.current = false;
-      setShowScrollButton(true);
-      requestThreadWindow(request.fromItem, request.itemCount);
-      return;
-    }
-    if (activeHistoryWindow) {
-      const request = getHistoryBoundaryWindowRequest(activeHistoryWindow, "older");
-      if (!request) return;
-      const requestKey = `history:${request.fromTurn}:${request.turnCount}:${activeHistoryWindow.section_turn_count}:${activeHistoryWindow.visible_section_count}`;
-      if (!markSectionLoadPending("older", requestKey)) return;
-      autoFollowEnabledRef.current = false;
-      setShowScrollButton(true);
-      requestHistoryWindow(
-        request.fromTurn,
-        request.turnCount,
-        activeHistoryWindow.section_turn_count,
-        activeHistoryWindow.visible_section_count,
-      );
-      return;
-    }
-    if (previousSectionStartIndex == null) return;
-    autoFollowEnabledRef.current = false;
-    setShowScrollButton(true);
-    moveSectionWindow(previousSectionStartIndex);
-  }, [
+  const { handleLoadNewerSection, handleLoadOlderSection } = useMessageFeedSectionWindowLoaders({
     activeThreadWindow,
     activeHistoryWindow,
-    markSectionLoadPending,
-    moveSectionWindow,
-    normalizedThreadKey,
-    previousSectionStartIndex,
-    requestHistoryWindow,
-    requestThreadWindow,
-  ]);
-
-  const handleLoadNewerSection = useCallback(() => {
-    if (activeThreadWindow) {
-      const request = getThreadBoundaryWindowRequest(activeThreadWindow, "newer");
-      if (!request) return;
-      const requestKey = `thread:${normalizedThreadKey}:${request.fromItem}:${request.itemCount}`;
-      if (!markSectionLoadPending("newer", requestKey)) return;
-      autoFollowEnabledRef.current = false;
-      requestThreadWindow(request.fromItem, request.itemCount);
-      return;
-    }
-    if (activeHistoryWindow) {
-      const request = getHistoryBoundaryWindowRequest(activeHistoryWindow, "newer");
-      if (!request) return;
-      const requestKey = `history:${request.fromTurn}:${request.turnCount}:${activeHistoryWindow.section_turn_count}:${activeHistoryWindow.visible_section_count}`;
-      if (!markSectionLoadPending("newer", requestKey)) return;
-      autoFollowEnabledRef.current = false;
-      requestHistoryWindow(
-        request.fromTurn,
-        request.turnCount,
-        activeHistoryWindow.section_turn_count,
-        activeHistoryWindow.visible_section_count,
-      );
-      return;
-    }
-    if (nextSectionStartIndex == null) return;
-    autoFollowEnabledRef.current = false;
-    moveSectionWindow(nextSectionStartIndex === latestVisibleSectionStartIndex ? null : nextSectionStartIndex);
-  }, [
-    activeThreadWindow,
-    activeHistoryWindow,
+    autoFollowEnabledRef,
     latestVisibleSectionStartIndex,
-    markSectionLoadPending,
+    markPending: markSectionLoadPending,
     moveSectionWindow,
     nextSectionStartIndex,
     normalizedThreadKey,
+    pendingRequestKeyRef: pendingSectionLoadKeyRef,
+    previousSectionStartIndex,
     requestHistoryWindow,
     requestThreadWindow,
-  ]);
+    setShowScrollButton,
+  });
 
   const triggerSectionLoadNearBoundary = useCallback(
     (direction: "older" | "newer") => {

@@ -18,7 +18,6 @@ import {
   PlaygroundNeedsInputTranscriptionFailurePreview,
 } from "./NeedsInputAnswerPreviews.js";
 import { PlaygroundQuestDetailModalSection } from "./PlaygroundQuestDetailModalSection.js";
-import { PlaygroundAutoPauseRecoverySummary } from "./AutoPausePlaygroundStates.js";
 import { PlaygroundQuestStatusPanelSection, PlaygroundQuestmasterCompactSection } from "./PlaygroundQuestSections.js";
 import {
   Card,
@@ -303,10 +302,6 @@ export function PlaygroundInteractiveSections() {
                 />
               </div>
             </div>
-          </Card>
-          <div className="mt-4" />
-          <Card label="Codex automatic-input recovery summary">
-            <PlaygroundAutoPauseRecoverySummary />
           </Card>
           <div className="mt-4" />
           <Card label="Paused other input sources">

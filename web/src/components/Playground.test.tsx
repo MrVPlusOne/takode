@@ -58,6 +58,8 @@ vi.mock("remark-gfm", () => ({
 
 import { Playground } from "./Playground.js";
 import { PlaygroundSideChatStates } from "./playground/SideChatPlaygroundStates.js";
+import { PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY } from "./playground/AutoPausePlaygroundStates.js";
+import { MOCK_SESSION_ID } from "./playground/fixtures.js";
 import { PlaygroundOverviewSections } from "./playground/sections-overview.js";
 import {
   PlaygroundDelegateTaskPendingLiveActivityGroup,
@@ -232,10 +234,10 @@ describe("Playground", () => {
     render(<Playground />);
 
     expect(screen.getByText("Codex backend-error auto-pause")).toBeTruthy();
-    expect(screen.getByText("Codex automatic-input recovery summary")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Automatic input recovery summary" })).toBeTruthy();
-    expect(screen.getByText("Herd Events · turn_end")).toBeTruthy();
-    expect(screen.getByText("Herd Events · board_stalled")).toBeTruthy();
+    const realChat = within(screen.getByTestId("playground-real-chat-stack"));
+    expect(realChat.getByRole("region", { name: "Automatic input recovery summary" })).toBeTruthy();
+    expect(realChat.getByText("Herd Events · turn_end")).toBeTruthy();
+    expect(realChat.getByText("Herd Events · board_stalled")).toBeTruthy();
   });
 
   it("renders real ChatView and MessageFeed recovery fixtures without a socket", () => {
@@ -251,20 +253,38 @@ describe("Playground", () => {
 
     render(<Playground />);
 
-    expect(screen.getByTestId("playground-real-chat-stack")).toBeTruthy();
+    const realChatElement = screen.getByTestId("playground-real-chat-stack");
+    const realChat = within(realChatElement);
+    expect(realChatElement).toBeTruthy();
     expect(screen.getByTestId("playground-mobile-feed-width")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Automatic input recovery summary" })).toBeTruthy();
-    expect(screen.getByText("Herd Events · turn_end")).toBeTruthy();
-    expect(screen.getByText("Herd Events · board_stalled")).toBeTruthy();
+    expect(realChat.getByRole("region", { name: "Automatic input recovery summary" })).toBeTruthy();
+    expect(realChat.getByText("Herd Events · turn_end")).toBeTruthy();
+    expect(realChat.getByText("Herd Events · board_stalled")).toBeTruthy();
+    const seededRecovery = useStore
+      .getState()
+      .messages.get(MOCK_SESSION_ID)
+      ?.find((message) => message.id === PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY.id);
+    expect(seededRecovery).toMatchObject({
+      id: PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY.id,
+      metadata: { codexAutoPauseRecoverySummary: PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY.recovery },
+    });
 
-    const olderSectionButton = screen.getAllByRole("button", { name: "Load older section" })[0];
+    const olderSectionButton = realChat.getByRole("button", { name: "Load older section" });
     expect(olderSectionButton).toBeTruthy();
-    fireEvent.click(olderSectionButton!);
+    fireEvent.click(olderSectionButton);
 
     // Explicit progress invariant: the disconnected action returns, the tree
-    // stays mounted, and the producer-normalized summary remains singular.
-    expect(screen.getAllByTestId("codex-auto-pause-recovery-summary")).toHaveLength(1);
-    expect(screen.getByTestId("playground-real-chat-stack")).toBeTruthy();
+    // stays mounted without fake loading, and the normalized row remains singular.
+    expect(realChat.queryByText("Loading older section...")).toBeNull();
+    expect(realChat.getByRole("button", { name: "Load older section" })).toBeTruthy();
+    expect(realChat.getAllByTestId("codex-auto-pause-recovery-summary")).toHaveLength(1);
+    expect(realChatElement).toBeTruthy();
+
+    const questThreadFeed = within(screen.getByTestId("playground-quest-thread-projection"));
+    const olderThreadButton = questThreadFeed.getByRole("button", { name: "Load older section" });
+    fireEvent.click(olderThreadButton);
+    expect(questThreadFeed.queryByText("Loading older section...")).toBeNull();
+    expect(questThreadFeed.getByRole("button", { name: "Load older section" })).toBeTruthy();
   }, 20_000);
 
   it("documents the mobile user-message navigator in its open touch overlay state", () => {

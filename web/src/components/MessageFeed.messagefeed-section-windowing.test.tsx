@@ -957,6 +957,7 @@ describe("MessageFeed section windowing", () => {
       visible_section_count: 3,
       feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
     });
+    expect(screen.getByText("Loading older section...")).toBeTruthy();
   });
 
   it("sends a cached history window hash with scroll-triggered server window requests", () => {

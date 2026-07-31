@@ -1,7 +1,6 @@
 import { buildCodexAutoPauseRecoverySearchText } from "../../../server/codex-auto-pause-types.js";
 import type { BrowserIncomingMessage, ChatMessage, CodexAutoPauseRecoverySummary } from "../../types.js";
 import { normalizeHistoryMessageToChatMessages } from "../../utils/history-message-normalization.js";
-import { MessageBubble } from "../MessageBubble.js";
 
 const NOW = Date.now();
 
@@ -84,14 +83,4 @@ export function buildPlaygroundAutoPauseRecoveryMessage(): ChatMessage {
   const [message] = normalizeHistoryMessageToChatMessages(PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY, 42);
   if (!message) throw new Error("Playground recovery summary failed production history normalization");
   return message;
-}
-
-export function PlaygroundAutoPauseRecoverySummary() {
-  return (
-    <MessageBubble
-      message={buildPlaygroundAutoPauseRecoveryMessage()}
-      sessionId="playground-auto-pause"
-      showTimestamp={false}
-    />
-  );
 }

@@ -193,3 +193,32 @@ describe("sendToSession", () => {
     expect(typeof payload.client_msg_id).toBe("string");
   });
 });
+
+describe("waitForConnection", () => {
+  it("does not resolve a missing socket when the global OPEN constant is unavailable", async () => {
+    MockWebSocket.OPEN = undefined as unknown as number;
+    const waiting = expect(wsModule.waitForConnection("missing-playground-socket")).rejects.toThrow(
+      "Connection timeout",
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await waiting;
+  });
+
+  it("does not resolve a socket-shaped value without send capability", async () => {
+    wsModule.connectSession("incomplete-socket");
+    (lastWs as unknown as { send?: unknown }).send = undefined;
+    const waiting = expect(wsModule.waitForConnection("incomplete-socket")).rejects.toThrow("Connection timeout");
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await waiting;
+  });
+
+  it("resolves for an owned connected socket with send capability", async () => {
+    wsModule.connectSession("connected-socket");
+    const waiting = wsModule.waitForConnection("connected-socket");
+
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(waiting).resolves.toBeUndefined();
+  });
+});

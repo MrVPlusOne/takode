@@ -509,7 +509,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     return new Promise((resolve, reject) => {
       const check = setInterval(() => {
         const ws = sockets.get(sessionId);
-        if (ws?.readyState === WebSocket.OPEN) {
+        if (isSocketSendable(ws)) {
           clearInterval(check);
           clearTimeout(timeout);
           resolve();

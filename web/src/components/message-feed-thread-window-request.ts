@@ -47,6 +47,7 @@ export function useThreadWindowRequester({
         ...(cachedWindowHash && !targetMessageId ? { cached_window_hash: cachedWindowHash } : {}),
       });
       if (delivered && !activeThreadWindow) setPendingInitialThreadWindowKey(normalizedThreadKey);
+      return delivered;
     },
     [activeThreadWindow, normalizedThreadKey, sectionTurnCount, sessionId, setPendingInitialThreadWindowKey],
   );

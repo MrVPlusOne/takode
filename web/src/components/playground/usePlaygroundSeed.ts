@@ -37,6 +37,7 @@ import {
   makePlaygroundMessage,
   makePlaygroundSectionedMessages,
 } from "./fixtures.js";
+import { buildPlaygroundAutoPauseRecoveryMessage } from "./AutoPausePlaygroundStates.js";
 
 export function usePlaygroundSeed() {
   useEffect(() => {
@@ -70,6 +71,7 @@ export function usePlaygroundSeed() {
     ];
     const prevSessions = new Map(demoSessionIds.map((id) => [id, snapshot.sessions.get(id)]));
     const prevMessages = new Map(demoSessionIds.map((id) => [id, snapshot.messages.get(id)]));
+    const prevHistoryWindows = new Map(demoSessionIds.map((id) => [id, snapshot.historyWindows.get(id)]));
     const prevThreadWindows = new Map(demoSessionIds.map((id) => [id, snapshot.threadWindows.get(id)]));
     const prevThreadWindowMessages = new Map(demoSessionIds.map((id) => [id, snapshot.threadWindowMessages.get(id)]));
     const prevPerms = new Map(demoSessionIds.map((id) => [id, snapshot.pendingPermissions.get(id)]));
@@ -257,7 +259,18 @@ export function usePlaygroundSeed() {
       MSG_ASSISTANT,
       MSG_ASSISTANT_TOOLS,
       MSG_TOOL_ERROR,
+      buildPlaygroundAutoPauseRecoveryMessage(),
     ]);
+    store.setHistoryWindow(sessionId, {
+      from_turn: 6,
+      turn_count: 6,
+      total_turns: 12,
+      has_older_items: true,
+      has_newer_items: false,
+      start_index: 12,
+      section_turn_count: 10,
+      visible_section_count: 3,
+    });
     store.setStreaming(sessionId, "I'm updating tests and then I'll run the full suite.");
     store.setStreamingStats(sessionId, { startedAt: Date.now() - 12000, outputTokens: 1200 });
     store.addPermission(sessionId, PERM_BASH);
@@ -733,12 +746,12 @@ export function usePlaygroundSeed() {
       "q-961",
       {
         thread_key: "q-961",
-        from_item: 0,
+        from_item: 2,
         item_count: questProjectionMessages.length,
-        total_items: questProjectionMessages.length,
-        has_older_items: false,
+        total_items: questProjectionMessages.length + 2,
+        has_older_items: true,
         has_newer_items: false,
-        source_history_length: 15,
+        source_history_length: 17,
         section_item_count: 10,
         visible_item_count: 3,
       },
@@ -1426,6 +1439,7 @@ export function usePlaygroundSeed() {
       useStore.setState((s) => {
         const sessions = new Map(s.sessions);
         const messages = new Map(s.messages);
+        const historyWindows = new Map(s.historyWindows);
         const threadWindows = new Map(s.threadWindows);
         const threadWindowMessages = new Map(s.threadWindowMessages);
         const pendingPermissions = new Map(s.pendingPermissions);
@@ -1479,6 +1493,9 @@ export function usePlaygroundSeed() {
           else sessions.delete(demoId);
           if (prevMessageList) messages.set(demoId, prevMessageList);
           else messages.delete(demoId);
+          const prevHistoryWindow = prevHistoryWindows.get(demoId);
+          if (prevHistoryWindow) historyWindows.set(demoId, prevHistoryWindow);
+          else historyWindows.delete(demoId);
           const prevThreadWindowMap = prevThreadWindows.get(demoId);
           const prevThreadWindowMessageMap = prevThreadWindowMessages.get(demoId);
           if (prevThreadWindowMap) threadWindows.set(demoId, prevThreadWindowMap);
@@ -1543,6 +1560,7 @@ export function usePlaygroundSeed() {
         return {
           sessions,
           messages,
+          historyWindows,
           threadWindows,
           threadWindowMessages,
           pendingPermissions,
