@@ -6,6 +6,12 @@ import { SessionStore, type PersistedSession } from "../session-store.js";
 import type { BrowserOutgoingMessage } from "../session-types.js";
 import { queueCodexAutoPausedInput } from "../codex-result-error-auto-pause.js";
 import { handleCodexResultErrorAutoPause } from "./codex-result-error-auto-pause-delivery.js";
+import { markCodexAutoPauseRecoveryDelivered } from "./codex-auto-pause-recovery-summary.js";
+import {
+  normalizePersistedRecoveryDeliveryTransfers,
+  RECOVERY_DELIVERY_TRANSFER_MAX_COUNT,
+  resumeRecoveryDeliveryTransfers,
+} from "./recovery-delivery-transfer.js";
 import type { BrowserTransportDeps, BrowserTransportSessionLike } from "./browser-transport-controller.js";
 
 const tempDirs: string[] = [];
@@ -344,6 +350,253 @@ describe("Codex auto-pause drain ownership", () => {
       2,
     );
     expectEveryReleasedReceiptOwned(session);
+  });
+
+  it.each([
+    "barrier",
+    "capacity",
+  ] as const)("reconciles missing and coalesced receipts before retrying a failed %s handoff", async (failureMode) => {
+    const session = makeSession();
+    const route = vi.fn((target: BrowserTransportSessionLike, routed: BrowserOutgoingMessage) => {
+      if (routed.type !== "user_message") return;
+      target.pendingCodexInputs.push({
+        id: `pending-retry-${target.pendingCodexInputs.length + 1}`,
+        content: routed.content,
+        timestamp: 360,
+        cancelable: true,
+        autoPauseRecoveries: routed.autoPauseRecoveries,
+      } as any);
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    if (failureMode === "capacity") {
+      session.recoveryDeliveryTransfers = Array.from({ length: RECOVERY_DELIVERY_TRANSFER_MAX_COUNT }, (_, index) => ({
+        id: `recovery-transfer-capacity-${index}`,
+        createdAt: 1,
+        sourceOwnerKind: "manual_pause" as const,
+        sourceOwnerId: `capacity-owner-${index}`,
+        sourceOwnerCount: 1,
+        payloadBytes: 1,
+        message: {
+          type: "user_message" as const,
+          content: "bounded unrelated transfer",
+          autoPauseRecoveries: [{ summaryId: "unrelated-summary", groupId: `unrelated-${index}` }],
+        },
+      }));
+    }
+
+    await releaseHeldInput(
+      session,
+      () => makeIngressDeps(route),
+      failureMode === "barrier"
+        ? () => {
+            throw new Error("first transfer barrier failed");
+          }
+        : undefined,
+    );
+
+    const firstSummary = recoveryReceipt(session).summary;
+    expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
+    expect(session.recoveryDeliveryTransfers).toHaveLength(
+      failureMode === "barrier" ? 1 : RECOVERY_DELIVERY_TRANSFER_MAX_COUNT,
+    );
+    expect(firstSummary.recovery.receipts).toHaveLength(1);
+    expect(route).not.toHaveBeenCalled();
+    if (failureMode === "capacity") session.recoveryDeliveryTransfers = [];
+
+    queueCodexAutoPausedInput(
+      session as any,
+      "programmatic",
+      {
+        type: "user_message",
+        content: "held event",
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+      },
+      201,
+    );
+    const distinct = queueCodexAutoPausedInput(
+      session as any,
+      "programmatic",
+      {
+        type: "user_message",
+        content: "retry timer private payload",
+        agentSource: { sessionId: "timer:retry", sessionLabel: "Retry timer" },
+        threadKey: "q-retry",
+        questId: "q-retry",
+      },
+      202,
+    )!;
+
+    await releaseHeldInput(session, () => makeIngressDeps(route));
+
+    const summaries = session.messageHistory.filter((message) => message.type === "codex_auto_pause_recovery_summary");
+    expect(summaries).toHaveLength(1);
+    const summary = summaries[0]!;
+    if (summary.type !== "codex_auto_pause_recovery_summary") throw new Error("missing retry summary");
+    expect(summary.recovery.receipts).toHaveLength(2);
+    expect(new Set(summary.recovery.receipts.map((receipt) => receipt.groupId)).size).toBe(2);
+    expect(summary.recovery.receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ groupId: "held-group", count: 2, coalescedCount: 1 }),
+        expect.objectContaining({ groupId: distinct.id, count: 1, sourceLabel: "Timer" }),
+      ]),
+    );
+    expect(session.state.codex_result_error_auto_pause).toBeNull();
+    expect(session.recoveryDeliveryTransfers).toEqual([]);
+    expect(session.pendingCodexInputs).toHaveLength(2);
+    expect(route).toHaveBeenCalledTimes(2);
+    for (const link of session.pendingCodexInputs.flatMap((input) => input.autoPauseRecoveries ?? [])) {
+      expect(summary.recovery.receipts.filter((receipt) => receipt.groupId === link.groupId)).toHaveLength(1);
+    }
+    expect(JSON.stringify(summary)).not.toContain("retry timer private payload");
+    expect(JSON.stringify(summary)).not.toContain("recovery-transfer-");
+    expectEveryReleasedReceiptOwned(session);
+
+    const links = session.pendingCodexInputs.flatMap((input) => input.autoPauseRecoveries ?? []);
+    expect(markCodexAutoPauseRecoveryDelivered(session, links, 370, { broadcastToBrowsers: vi.fn() })).toBe(true);
+    const settled = structuredClone(summary.recovery.receipts);
+    expect(markCodexAutoPauseRecoveryDelivered(session, links, 380, { broadcastToBrowsers: vi.fn() })).toBe(false);
+    expect(summary.recovery.receipts).toEqual(settled);
+
+    await releaseHeldInput(session, () => makeIngressDeps(route));
+    expect(route).toHaveBeenCalledTimes(2);
+    expect(
+      session.messageHistory.filter((message) => message.type === "codex_auto_pause_recovery_summary"),
+    ).toHaveLength(1);
+  });
+
+  it("reconciles failed and retried handoff boundaries across restart without duplicate delivery", async () => {
+    const session = makeSession();
+    const route = vi.fn((target: BrowserTransportSessionLike, routed: BrowserOutgoingMessage) => {
+      if (routed.type !== "user_message") return;
+      target.pendingCodexInputs.push({
+        id: `pending-restored-retry-${target.pendingCodexInputs.length + 1}`,
+        content: routed.content,
+        timestamp: 390,
+        cancelable: true,
+        autoPauseRecoveries: routed.autoPauseRecoveries,
+      } as any);
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await releaseHeldInput(
+      session,
+      () => makeIngressDeps(route),
+      () => {
+        throw new Error("persisted overlap barrier failed");
+      },
+    );
+    queueCodexAutoPausedInput(
+      session as any,
+      "programmatic",
+      {
+        type: "user_message",
+        content: "held event",
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+      },
+      301,
+    );
+    queueCodexAutoPausedInput(
+      session as any,
+      "programmatic",
+      {
+        type: "user_message",
+        content: "restored distinct private payload",
+        agentSource: { sessionId: "timer:restored" },
+      },
+      302,
+    );
+
+    const dir = mkdtempSync(join(tmpdir(), "takode-drain-retry-"));
+    tempDirs.push(dir);
+    const store = new SessionStore(dir);
+    await store.saveImmediate({
+      id: session.id,
+      state: { ...session.state, session_id: session.id },
+      messageHistory: session.messageHistory,
+      pendingMessages: [],
+      pendingPermissions: [],
+      pendingCodexInputs: session.pendingCodexInputs,
+      pendingCodexTurns: session.pendingCodexTurns,
+      recoveryDeliveryTransfers: session.recoveryDeliveryTransfers,
+    } as unknown as PersistedSession);
+    const failedBoundary = (await store.load(session.id))!;
+    const restored = makeSession();
+    restored.state = failedBoundary.state;
+    restored.messageHistory = failedBoundary.messageHistory;
+    restored.pendingCodexInputs = failedBoundary.pendingCodexInputs ?? [];
+    restored.pendingCodexTurns = failedBoundary.pendingCodexTurns ?? [];
+    restored.recoveryDeliveryTransfers = normalizePersistedRecoveryDeliveryTransfers(
+      failedBoundary.recoveryDeliveryTransfers,
+    );
+
+    await resumeRecoveryDeliveryTransfers(restored as any, {
+      broadcastToBrowsers: vi.fn(),
+      persistSession: vi.fn(),
+      persistSessionImmediately: vi.fn(async () => {}),
+      getBrowserTransportDeps: () => makeIngressDeps(route),
+      releasePendingTransfer: vi.fn(),
+    });
+
+    const afterResume = recoveryReceipt(restored);
+    expect(afterResume.receipt).toMatchObject({ groupId: "held-group", count: 2, coalescedCount: 1 });
+    expect(restored.recoveryDeliveryTransfers).toEqual([]);
+    expect(route).toHaveBeenCalledTimes(2);
+    expect(restored.pendingCodexInputs).toHaveLength(2);
+
+    const summaries = restored.messageHistory.filter((message) => message.type === "codex_auto_pause_recovery_summary");
+    expect(summaries).toHaveLength(1);
+    const summary = summaries[0]!;
+    if (summary.type !== "codex_auto_pause_recovery_summary") throw new Error("missing restored retry summary");
+    expect(new Set(summary.recovery.receipts.map((receipt) => receipt.groupId)).size).toBe(
+      summary.recovery.receipts.length,
+    );
+    expect(restored.recoveryDeliveryTransfers).toEqual([]);
+    for (const link of restored.pendingCodexInputs.flatMap((input) => input.autoPauseRecoveries ?? [])) {
+      expect(summary.recovery.receipts.filter((receipt) => receipt.groupId === link.groupId)).toHaveLength(1);
+    }
+    expect(JSON.stringify(summary)).not.toContain("restored distinct private payload");
+    expectEveryReleasedReceiptOwned(restored);
+
+    await releaseHeldInput(restored, () => makeIngressDeps(route));
+    expect(route).toHaveBeenCalledTimes(2);
+
+    const links = restored.pendingCodexInputs.flatMap((input) => input.autoPauseRecoveries ?? []);
+    expect(markCodexAutoPauseRecoveryDelivered(restored, links, 400, { broadcastToBrowsers: vi.fn() })).toBe(true);
+    const terminalReceipts = structuredClone(summary.recovery.receipts);
+    expect(markCodexAutoPauseRecoveryDelivered(restored, links, 410, { broadcastToBrowsers: vi.fn() })).toBe(false);
+    expect(summary.recovery.receipts).toEqual(terminalReceipts);
+
+    await store.saveImmediate({
+      id: restored.id,
+      state: { ...restored.state, session_id: restored.id },
+      messageHistory: restored.messageHistory,
+      pendingMessages: [],
+      pendingPermissions: [],
+      pendingCodexInputs: restored.pendingCodexInputs,
+      pendingCodexTurns: restored.pendingCodexTurns,
+      recoveryDeliveryTransfers: restored.recoveryDeliveryTransfers,
+    } as unknown as PersistedSession);
+    const retriedBoundary = (await store.load(restored.id))!;
+    const replayed = makeSession();
+    replayed.state = retriedBoundary.state;
+    replayed.messageHistory = retriedBoundary.messageHistory;
+    replayed.pendingCodexInputs = retriedBoundary.pendingCodexInputs ?? [];
+    replayed.pendingCodexTurns = retriedBoundary.pendingCodexTurns ?? [];
+    replayed.recoveryDeliveryTransfers = normalizePersistedRecoveryDeliveryTransfers(
+      retriedBoundary.recoveryDeliveryTransfers,
+    );
+    await resumeRecoveryDeliveryTransfers(replayed as any, {
+      broadcastToBrowsers: vi.fn(),
+      persistSession: vi.fn(),
+      persistSessionImmediately: vi.fn(async () => {}),
+      getBrowserTransportDeps: () => makeIngressDeps(route),
+      releasePendingTransfer: vi.fn(),
+    });
+    await releaseHeldInput(replayed, () => makeIngressDeps(route));
+    expect(route).toHaveBeenCalledTimes(2);
+    expect(
+      replayed.messageHistory.filter((message) => message.type === "codex_auto_pause_recovery_summary"),
+    ).toHaveLength(1);
   });
 
   it("persists normal pending ownership with its released receipt across restart", async () => {

@@ -1,6 +1,10 @@
 import { getCodexPendingInputMaxDeliveryBytes } from "../codex-pending-input-safety.js";
+import { materializeCodexAutoPausedInputsForDrain } from "../codex-result-error-auto-pause.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, CodexAutoPauseRecoveryLink } from "../session-types.js";
-import { markCodexAutoPauseRecoveryFailed } from "./codex-auto-pause-recovery-summary.js";
+import {
+  createCodexAutoPauseRecoverySummary,
+  markCodexAutoPauseRecoveryFailed,
+} from "./codex-auto-pause-recovery-summary.js";
 import { classifyRecoveryDeliveryOwnership, resolveRecoveryIngressOwnership } from "./browser-ingress-ownership.js";
 import {
   handleBrowserIngressMessage,
@@ -125,6 +129,7 @@ export async function resumeRecoveryDeliveryTransfers(
   deps: RecoveryDeliveryTransferDeps,
 ): Promise<void> {
   if (session.recoveryDeliveryTransfers.length === 0) return;
+  await reconcilePersistedAutoPauseTransferRetry(session, deps);
   if (detachTransferSourceOwners(session).changed) {
     await deps.persistSessionImmediately(session);
   }
@@ -185,9 +190,16 @@ function prepareTransfers(
   const prepared: RecoveryDeliveryTransfer[] = [];
   const preparedBySourceOwner = new Map<string, string>();
   const additions: RecoveryDeliveryTransfer[] = [];
+  const updates: Array<{
+    transfer: RecoveryDeliveryTransfer;
+    sourceOwnerCount: number;
+    payloadBytes: number;
+    message: RecoveryUserMessage;
+  }> = [];
   let totalBytes = session.recoveryDeliveryTransfers.reduce((total, entry) => total + entry.payloadBytes, 0);
   for (const candidate of candidates) {
     if (!candidate.message.autoPauseRecoveries?.length) continue;
+    assertRecoverySummaryMembership(session, candidate.message);
     const id = transferId(candidate);
     const existing = existingById.get(id);
     if (existing) {
@@ -198,6 +210,20 @@ function prepareTransfers(
       ) {
         throw new Error("Recovery delivery transfer identity collision; the existing pause owner was retained.");
       }
+      if (preparedBySourceOwner.get(existing.sourceOwnerId) === existing.id) continue;
+      const message = stripTransientTransferMarker(candidate.message);
+      const payloadBytes = measureTransferPayload(message);
+      const nextTotalBytes = totalBytes - existing.payloadBytes + payloadBytes;
+      if (!isTransferPayloadBounded(payloadBytes) || nextTotalBytes > RECOVERY_DELIVERY_TRANSFER_MAX_TOTAL_BYTES) {
+        throw new Error("Recovery delivery transfer capacity exceeded; the existing pause owner was retained.");
+      }
+      updates.push({
+        transfer: existing,
+        sourceOwnerCount: Math.max(1, Math.floor(candidate.sourceOwnerCount ?? 1)),
+        payloadBytes,
+        message,
+      });
+      totalBytes = nextTotalBytes;
       assertUniqueTransferSourceOwner(preparedBySourceOwner, existing);
       prepared.push(existing);
       continue;
@@ -225,8 +251,73 @@ function prepareTransfers(
     prepared.push(transfer);
     totalBytes += payloadBytes;
   }
+  for (const update of updates) {
+    update.transfer.sourceOwnerCount = update.sourceOwnerCount;
+    update.transfer.payloadBytes = update.payloadBytes;
+    update.transfer.message = update.message;
+  }
   session.recoveryDeliveryTransfers.push(...additions);
   return prepared;
+}
+
+async function reconcilePersistedAutoPauseTransferRetry(
+  session: RecoveryDeliveryTransferSessionLike,
+  deps: Pick<RecoveryDeliveryTransferDeps, "broadcastToBrowsers" | "persistSessionImmediately">,
+): Promise<void> {
+  const state = session.state.codex_result_error_auto_pause;
+  if (!state?.pausedAt) return;
+  const matchingTransfers = indexTransfersBySourceOwner(session.recoveryDeliveryTransfers, "auto_pause");
+  const transferredHeldInputs = state.heldInputs.filter((item) => matchingTransfers.has(item.id));
+  if (transferredHeldInputs.length === 0) return;
+  for (const item of transferredHeldInputs) {
+    const transfer = matchingTransfers.get(item.id);
+    if (!transfer) continue;
+    assertRecoverySummaryMembership(session, transfer.message);
+  }
+  const summaryId = `codex-auto-pause-recovery-${state.pausedAt ?? state.lastErrorAt}`;
+  const isSamePauseRetry = transferredHeldInputs.some((item) =>
+    matchingTransfers
+      .get(item.id)
+      ?.message.autoPauseRecoveries?.some((link) => link.summaryId === summaryId && link.groupId === item.id),
+  );
+  // Legacy/restored transfers may predate the same-pause summary identity.
+  // Their own links were validated above; keep their established detach path.
+  if (!isSamePauseRetry) return;
+  const heldInputs = [...state.heldInputs];
+  const summary = createCodexAutoPauseRecoverySummary(session, state, heldInputs, Date.now(), deps);
+  const messages = materializeCodexAutoPausedInputsForDrain(heldInputs, summary.id);
+  prepareTransfers(
+    session,
+    heldInputs.map((item, index) => ({
+      sourceOwnerKind: "auto_pause" as const,
+      sourceOwnerId: item.id,
+      sourceOwnerCount: item.count,
+      message: messages[index]!,
+    })),
+  );
+  await deps.persistSessionImmediately(session);
+}
+
+function assertRecoverySummaryMembership(
+  session: RecoveryDeliveryTransferSessionLike,
+  message: RecoveryUserMessage,
+): void {
+  const seen = new Set<string>();
+  for (const link of message.autoPauseRecoveries ?? []) {
+    const key = `${link.summaryId}\u0000${link.groupId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const summaries = session.messageHistory.filter(
+      (entry): entry is Extract<BrowserIncomingMessage, { type: "codex_auto_pause_recovery_summary" }> =>
+        entry.type === "codex_auto_pause_recovery_summary" && entry.id === link.summaryId,
+    );
+    const receiptCount = summaries
+      .flatMap((entry) => entry.recovery.receipts)
+      .filter((receipt) => receipt.groupId === link.groupId).length;
+    if (summaries.length !== 1 || receiptCount !== 1) {
+      throw new Error("Recovery delivery transfer summary membership mismatch; the source owner was retained.");
+    }
+  }
 }
 
 function assertUniqueTransferSourceOwner(

@@ -457,7 +457,7 @@ describe("recovery delivery transfer ownership", () => {
     await beginPromise;
   });
 
-  it("selectively splits coalesced auto-pause newcomers while resuming a captured transfer", async () => {
+  it("selectively splits legacy coalesced overlap sources whose transfer predates same-pause identity", async () => {
     const session = makeSession();
     const held = session.state.codex_result_error_auto_pause!.heldInputs[0]!;
     held.count = 3;
@@ -508,8 +508,51 @@ describe("recovery delivery transfer ownership", () => {
         }),
       ]),
     );
+    const entry = session.messageHistory[0];
+    expect(entry?.type).toBe("codex_auto_pause_recovery_summary");
+    if (entry?.type === "codex_auto_pause_recovery_summary") {
+      expect(entry.recovery.receipts[0]).toMatchObject({ count: 1, coalescedCount: 0 });
+    }
     expect(session.recoveryDeliveryTransfers).toEqual([]);
     expectOwnedOrTerminal(session);
+  });
+
+  it("fails closed before reusing a transfer whose recovery link has no matching receipt", async () => {
+    const session = makeSession();
+    const held = session.state.codex_result_error_auto_pause!.heldInputs[0]!;
+    session.recoveryDeliveryTransfers = [
+      {
+        id: "recovery-transfer-membership-mismatch",
+        createdAt: 1,
+        sourceOwnerKind: "auto_pause",
+        sourceOwnerId: held.id,
+        sourceOwnerCount: 1,
+        payloadBytes: 100,
+        message: messageFor("missing-group", "captured private payload"),
+      },
+    ];
+    const persistSessionImmediately = vi.fn(async () => {});
+
+    await expect(resumeRecoveryDeliveryTransfers(session, makeDeps([]))).rejects.toThrow("summary membership mismatch");
+    await expect(
+      beginRecoveryDeliveryTransferHandoff(
+        session,
+        [
+          {
+            sourceOwnerKind: "auto_pause",
+            sourceOwnerId: held.id,
+            sourceOwnerCount: held.count,
+            message: messageFor("missing-group", "captured private payload"),
+          },
+        ],
+        {},
+        { persistSessionImmediately },
+      ),
+    ).rejects.toThrow("summary membership mismatch");
+
+    expect(persistSessionImmediately).not.toHaveBeenCalled();
+    expect(session.state.codex_result_error_auto_pause?.heldInputs).toEqual([held]);
+    expect(session.recoveryDeliveryTransfers).toHaveLength(1);
   });
 
   it("uses the complete transfer identity and retries live retained-owner collisions deterministically", async () => {

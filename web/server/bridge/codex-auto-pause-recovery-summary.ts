@@ -48,7 +48,12 @@ export function createCodexAutoPauseRecoverySummary(
 ): RecoverySummaryEntry {
   const id = `codex-auto-pause-recovery-${state.pausedAt ?? state.lastErrorAt}`;
   const existing = findRecoverySummary(session, id);
-  if (existing) return existing;
+  if (existing) {
+    if (reconcileRecoverySummaryEntry(existing, heldInputs, now)) {
+      deps.broadcastToBrowsers(session, existing);
+    }
+    return existing;
+  }
 
   const recovery = {
     family: state.family,
@@ -215,6 +220,77 @@ function buildReleasedReceipt(item: CodexAutoPauseHeldInput, now: number): Codex
   };
 }
 
+function reconcileRecoverySummaryEntry(
+  entry: RecoverySummaryEntry,
+  heldInputs: readonly CodexAutoPauseHeldInput[],
+  now: number,
+): boolean {
+  let changed = false;
+  const receiptByGroupId = new Map(entry.recovery.receipts.map((receipt) => [receipt.groupId, receipt]));
+  for (const item of heldInputs) {
+    const existing = receiptByGroupId.get(item.id);
+    if (!existing) {
+      const receipt = buildReleasedReceipt(item, now);
+      entry.recovery.receipts.push(receipt);
+      receiptByGroupId.set(item.id, receipt);
+      changed = true;
+      continue;
+    }
+    if (existing.outcome !== "released_to_delivery") continue;
+    changed = reconcileReleasedReceipt(existing, item) || changed;
+  }
+
+  changed = reconcileRecoverySummaryRoute(entry, heldInputs) || changed;
+  const status = entry.recovery.receipts.every((receipt) => receipt.outcome !== "released_to_delivery")
+    ? "settled"
+    : "releasing";
+  if (entry.recovery.status !== status) {
+    entry.recovery.status = status;
+    changed = true;
+  }
+  const content = buildRecoverySummaryContent(entry.recovery.receipts);
+  const searchText = buildCodexAutoPauseRecoverySearchText(entry.recovery);
+  if (entry.content !== content || entry.searchText !== searchText) changed = true;
+  entry.content = content;
+  entry.searchText = searchText;
+  if (changed) entry.recovery.updatedAt = now;
+  return changed;
+}
+
+function reconcileReleasedReceipt(receipt: CodexAutoPauseRecoveryReceipt, item: CodexAutoPauseHeldInput): boolean {
+  const next = buildReleasedReceipt(item, receipt.releasedAt);
+  let changed = false;
+  const assign = <K extends keyof CodexAutoPauseRecoveryReceipt>(key: K, value: CodexAutoPauseRecoveryReceipt[K]) => {
+    if (receipt[key] === value) return;
+    receipt[key] = value;
+    changed = true;
+  };
+  assign("source", next.source);
+  assign("sourceLabel", next.sourceLabel);
+  assign("count", next.count);
+  assign("coalescedCount", next.coalescedCount);
+  assign("queuedAt", next.queuedAt);
+  assign("lastQueuedAt", next.lastQueuedAt);
+  changed = assignOptionalReceiptField(receipt, "sourceDetail", next.sourceDetail) || changed;
+  changed = assignOptionalReceiptField(receipt, "survivingGroupId", next.survivingGroupId) || changed;
+  return changed;
+}
+
+function assignOptionalReceiptField(
+  receipt: CodexAutoPauseRecoveryReceipt,
+  key: "sourceDetail" | "survivingGroupId",
+  value: string | undefined,
+): boolean {
+  if (value === undefined) {
+    if (!(key in receipt)) return false;
+    delete receipt[key];
+    return true;
+  }
+  if (receipt[key] === value) return false;
+  receipt[key] = value;
+  return true;
+}
+
 function sourceLabel(item: CodexAutoPauseHeldInput): string {
   if (item.message.takodeHerdBatch || item.message.agentSource?.sessionId === "herd-events") return "Herd Events";
   const sourceId = item.message.agentSource?.sessionId ?? "";
@@ -280,6 +356,54 @@ function collectHeldInputRoute(
     ...(only!.questId ? { questId: only!.questId } : {}),
     threadRefs,
   };
+}
+
+function reconcileRecoverySummaryRoute(
+  entry: RecoverySummaryEntry,
+  heldInputs: readonly CodexAutoPauseHeldInput[],
+): boolean {
+  const before = JSON.stringify({
+    threadKey: entry.threadKey,
+    questId: entry.questId,
+    threadRefs: entry.threadRefs,
+  });
+  const refs = new Map<string, ThreadRef>();
+  for (const ref of entry.threadRefs ?? []) refs.set(ref.threadKey.toLowerCase(), ref);
+  if (entry.threadKey) {
+    refs.set(entry.threadKey.toLowerCase(), {
+      threadKey: entry.threadKey,
+      ...(entry.questId ? { questId: entry.questId } : {}),
+      source: "explicit",
+    });
+  }
+  const current = collectHeldInputRoute(heldInputs);
+  for (const ref of current.threadRefs ?? []) refs.set(ref.threadKey.toLowerCase(), ref);
+  if (current.threadKey) {
+    refs.set(current.threadKey.toLowerCase(), {
+      threadKey: current.threadKey,
+      ...(current.questId ? { questId: current.questId } : {}),
+      source: "explicit",
+    });
+  }
+  delete entry.threadKey;
+  delete entry.questId;
+  delete entry.threadRefs;
+  const merged = [...refs.values()];
+  if (merged.length === 1) {
+    entry.threadKey = merged[0]!.threadKey;
+    if (merged[0]!.questId) entry.questId = merged[0]!.questId;
+    entry.threadRefs = merged;
+  } else if (merged.length > 1) {
+    entry.threadRefs = merged;
+  }
+  return (
+    before !==
+    JSON.stringify({
+      threadKey: entry.threadKey,
+      questId: entry.questId,
+      threadRefs: entry.threadRefs,
+    })
+  );
 }
 
 function buildRecoverySummaryContent(receipts: readonly CodexAutoPauseRecoveryReceipt[]): string {

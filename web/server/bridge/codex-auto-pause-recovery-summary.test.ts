@@ -210,6 +210,109 @@ describe("Codex auto-pause recovery summary", () => {
     expect(broadcastToBrowsers).toHaveBeenCalledTimes(calls);
   });
 
+  it("reconciles same-pause retry groups and counts without regressing terminal receipts", () => {
+    const session = { messageHistory: [] as BrowserIncomingMessage[] };
+    const broadcastToBrowsers = vi.fn();
+    const terminal = heldInput("group-terminal", "turn_end", "terminal private payload");
+    const released = heldInput("group-released", "board_stalled", "released private payload");
+    const entry = createCodexAutoPauseRecoverySummary(
+      session,
+      pauseState([terminal, released]),
+      [terminal, released],
+      200,
+      {
+        broadcastToBrowsers,
+      },
+    );
+    const terminalLink = { summaryId: entry.id, groupId: terminal.id };
+    expect(markCodexAutoPauseRecoveryDelivered(session, [terminalLink], 210, { broadcastToBrowsers })).toBe(true);
+    expect(
+      markCodexAutoPauseRecoveryTurnCompleted(
+        session,
+        { autoPauseRecoveryLinks: [terminalLink], dispatchCount: 2 },
+        false,
+        false,
+        220,
+        { broadcastToBrowsers },
+      ),
+    ).toBe(true);
+    const terminalBeforeRetry = structuredClone(entry.recovery.receipts[0]);
+
+    const terminalCurrent = {
+      ...heldInput("group-terminal", "board_stalled", "changed terminal private payload", 9),
+      queuedAt: 300,
+      lastQueuedAt: 310,
+    };
+    const releasedCurrent = {
+      ...heldInput("group-released", "turn_end", "latest released private payload", 3),
+      queuedAt: 110,
+      lastQueuedAt: 330,
+      message: {
+        ...heldInput("group-released", "turn_end", "latest released private payload", 3).message,
+        threadKey: "q-99",
+        questId: "q-99",
+      },
+    };
+    const newcomer = {
+      ...heldInput("group-new", "board_stalled", "new private payload", 2),
+      queuedAt: 340,
+      lastQueuedAt: 350,
+      message: {
+        ...heldInput("group-new", "board_stalled", "new private payload", 2).message,
+        threadKey: "q-100",
+        questId: "q-100",
+      },
+    };
+    const callsBeforeRetry = broadcastToBrowsers.mock.calls.length;
+
+    expect(
+      createCodexAutoPauseRecoverySummary(
+        session,
+        pauseState([terminalCurrent, releasedCurrent, newcomer]),
+        [terminalCurrent, releasedCurrent, newcomer],
+        400,
+        { broadcastToBrowsers },
+      ),
+    ).toBe(entry);
+
+    expect(session.messageHistory).toHaveLength(1);
+    expect(entry.recovery.receipts).toHaveLength(3);
+    expect(new Set(entry.recovery.receipts.map((receipt) => receipt.groupId)).size).toBe(3);
+    expect(entry.recovery.receipts.find((receipt) => receipt.groupId === terminal.id)).toEqual(terminalBeforeRetry);
+    expect(entry.recovery.receipts.find((receipt) => receipt.groupId === released.id)).toMatchObject({
+      count: 3,
+      coalescedCount: 2,
+      survivingGroupId: released.id,
+      queuedAt: 110,
+      lastQueuedAt: 330,
+      sourceDetail: "turn_end",
+      outcome: "released_to_delivery",
+      releasedAt: 200,
+    });
+    expect(entry.recovery.receipts.find((receipt) => receipt.groupId === newcomer.id)).toMatchObject({
+      count: 2,
+      coalescedCount: 1,
+      outcome: "released_to_delivery",
+      releasedAt: 400,
+    });
+    expect(entry.threadRefs?.map((ref) => ref.threadKey)).toEqual(expect.arrayContaining(["q-42", "q-99", "q-100"]));
+    expect(entry.content).toBe("Automatic input recovery: 1 delivered, 2 awaiting delivery.");
+    expect(entry.searchText).toContain("count:3");
+    expect(entry.searchText).toContain("count:2");
+    expect(JSON.stringify(entry)).not.toContain("private payload");
+    expect(broadcastToBrowsers).toHaveBeenCalledTimes(callsBeforeRetry + 1);
+
+    createCodexAutoPauseRecoverySummary(
+      session,
+      pauseState([terminalCurrent, releasedCurrent, newcomer]),
+      [terminalCurrent, releasedCurrent, newcomer],
+      410,
+      { broadcastToBrowsers },
+    );
+    expect(entry.recovery.receipts).toHaveLength(3);
+    expect(broadcastToBrowsers).toHaveBeenCalledTimes(callsBeforeRetry + 1);
+  });
+
   it("survives a persistence round trip and settles from retained correlation links", () => {
     // Restart safety depends on both the mutable history entry and pending-delivery links being JSON-persisted.
     const original = { messageHistory: [] as BrowserIncomingMessage[] };
