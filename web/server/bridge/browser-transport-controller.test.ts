@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import {
   broadcastToBrowsers,
+  freezeHistoryThroughCurrentTail,
   handleBrowserOpen,
   handleBrowserProtocolMessage,
   handleBrowserIngressMessage,
@@ -352,6 +353,76 @@ describe("tree_groups_update replay-buffer exclusion", () => {
       recorder.closeAll();
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("Codex auto-pause recovery summary fanout", () => {
+  it("projects the same mutable server-authored receipt to two browsers", () => {
+    // Both tabs receive the same stable history identity; neither browser invents or merges terminal state locally.
+    const first = { send: vi.fn() };
+    const second = { send: vi.fn() };
+    const session = makeSession({ browserSockets: new Set([first, second]) });
+    const deps = makeDeps();
+    const message = {
+      type: "codex_auto_pause_recovery_summary",
+      id: "recovery-summary",
+      timestamp: 100,
+      content: "Automatic input recovery: 1 delivered.",
+      recovery: {
+        family: "copilot_auth_refresh_exhausted",
+        pausedAt: 10,
+        recoveryConfirmedAt: 20,
+        updatedAt: 100,
+        status: "settled",
+        receipts: [],
+      },
+    } as BrowserIncomingMessage;
+
+    broadcastToBrowsers(session, message, deps);
+
+    for (const socket of [first, second]) {
+      expect(socket.send).toHaveBeenCalledOnce();
+      expect(JSON.parse(socket.send.mock.calls[0]![0])).toMatchObject({
+        type: "codex_auto_pause_recovery_summary",
+        id: "recovery-summary",
+        recovery: { status: "settled" },
+      });
+    }
+    expect(session.eventBuffer[0]?.message.type).toBe("codex_auto_pause_recovery_summary");
+  });
+
+  it("keeps an unresolved mutable summary out of the frozen browser prefix", () => {
+    // Incremental history hashes assume frozen rows are immutable; the summary freezes only after delivered turns finish.
+    const summary = {
+      type: "codex_auto_pause_recovery_summary",
+      id: "recovery-summary",
+      timestamp: 3,
+      content: "Automatic input recovery: 1 delivered.",
+      recovery: {
+        family: "copilot_auth_refresh_exhausted",
+        pausedAt: 1,
+        recoveryConfirmedAt: 2,
+        updatedAt: 3,
+        status: "settled",
+        receipts: [{ outcome: "delivered" }],
+      },
+    } as BrowserIncomingMessage;
+    const session = makeSession({
+      messageHistory: [
+        { type: "user_message", id: "u1", content: "probe", timestamp: 1 } as BrowserIncomingMessage,
+        { type: "result", data: { is_error: false } } as BrowserIncomingMessage,
+        summary,
+      ],
+    });
+
+    freezeHistoryThroughCurrentTail(session);
+    expect(session.frozenCount).toBe(2);
+
+    if (summary.type === "codex_auto_pause_recovery_summary") {
+      summary.recovery.receipts[0] = { ...summary.recovery.receipts[0]!, completedAt: 4 } as any;
+    }
+    freezeHistoryThroughCurrentTail(session);
+    expect(session.frozenCount).toBe(3);
   });
 });
 

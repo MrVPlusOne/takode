@@ -484,6 +484,7 @@ function normalizeHistoryMessages(
       frozenCount = chatMessages.length;
     } else if (
       histMsg.type === "compact_marker" ||
+      histMsg.type === "codex_auto_pause_recovery_summary" ||
       histMsg.type === "thread_attachment_marker" ||
       histMsg.type === "thread_transition_marker" ||
       histMsg.type === "permission_denied" ||
@@ -864,6 +865,15 @@ function handleParsedMessage(
     case "compact_marker": {
       const [message] = normalizeHistoryMessageToChatMessages(data, -1);
       if (message) store.appendMessage(sessionId, message);
+      break;
+    }
+
+    case "codex_auto_pause_recovery_summary": {
+      const [message] = normalizeHistoryMessageToChatMessages(data, -1);
+      if (!message) break;
+      const existing = store.messages.get(sessionId)?.some((candidate) => candidate.id === message.id);
+      if (existing) store.updateMessage(sessionId, message.id, message);
+      else store.appendMessage(sessionId, message);
       break;
     }
 

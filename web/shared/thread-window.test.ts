@@ -978,4 +978,32 @@ describe("thread window hydration", () => {
     expect(sync.window.has_older_items).toBe(true);
     expect(sync.window.has_newer_items).toBe(true);
   });
+
+  it("projects a server-authored recovery summary into its producer-shaped quest thread", () => {
+    // The durable receipt carries ordinary server routing metadata and must not be frontend-invented or Main-leaking.
+    const summary: BrowserIncomingMessage = {
+      type: "codex_auto_pause_recovery_summary",
+      id: "recovery-q-42",
+      timestamp: 2,
+      content: "Automatic input recovery: 1 delivered.",
+      threadKey: "q-42",
+      questId: "q-42",
+      threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" }],
+      recovery: {
+        family: "copilot_auth_refresh_exhausted",
+        pausedAt: 1,
+        recoveryConfirmedAt: 2,
+        updatedAt: 3,
+        status: "settled",
+        receipts: [],
+      },
+    };
+    const history = [user("u1", "main request"), summary];
+    const windowOptions = { fromItem: -1, itemCount: 10, sectionItemCount: 5, visibleItemCount: 2 };
+    const quest = buildThreadWindowSync({ messageHistory: history, threadKey: "q-42", ...windowOptions });
+    const main = buildThreadWindowSync({ messageHistory: history, threadKey: "main", ...windowOptions });
+
+    expect(quest.entries.map((entry) => entry.message.type)).toContain("codex_auto_pause_recovery_summary");
+    expect(main.entries.map((entry) => entry.message.type)).not.toContain("codex_auto_pause_recovery_summary");
+  });
 });

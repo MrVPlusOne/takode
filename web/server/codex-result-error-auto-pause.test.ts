@@ -190,15 +190,27 @@ describe("Codex result-error auto-pause", () => {
       content: "board stalled",
       agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
       threadKey: "main",
+      autoPauseRecoveries: [{ summaryId: "prior-summary", groupId: "prior-group-a" }],
     };
 
     queueCodexAutoPausedInput(s, "programmatic", message, 400);
-    queueCodexAutoPausedInput(s, "programmatic", message, 500);
+    queueCodexAutoPausedInput(
+      s,
+      "programmatic",
+      { ...message, autoPauseRecoveries: [{ summaryId: "prior-summary", groupId: "prior-group-b" }] },
+      500,
+    );
 
     const state = s.state.codex_result_error_auto_pause!;
     expect(state.heldInputs).toHaveLength(1);
     expect(getCodexAutoPauseHeldInputCount(state)).toBe(2);
-    expect(materializeCodexAutoPausedInputsForDrain(state.heldInputs)[0]?.content).toContain("2 similar automatic");
+    const [materialized] = materializeCodexAutoPausedInputsForDrain(state.heldInputs, "current-summary");
+    expect(materialized?.content).toContain("2 similar automatic");
+    expect(materialized?.autoPauseRecoveries).toEqual([
+      { summaryId: "prior-summary", groupId: "prior-group-a" },
+      { summaryId: "prior-summary", groupId: "prior-group-b" },
+      { summaryId: "current-summary", groupId: state.heldInputs[0]!.id },
+    ]);
   });
 
   it("treats only composer and explicit manual overrides as manual while background sources are automatic", () => {

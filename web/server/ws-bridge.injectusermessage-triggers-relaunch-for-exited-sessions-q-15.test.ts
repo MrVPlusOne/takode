@@ -978,6 +978,10 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
       streak: 1,
       pausedAt: expect.any(Number),
     });
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    await flushAsync();
+    browser.send.mockClear();
 
     await (bridge as any).handleCodexResultErrorAutoPause(
       session,
@@ -1027,6 +1031,14 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     );
     await flushAsync();
 
+    const recoveryEvents = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+    const summaryIndex = recoveryEvents.findIndex((event: any) => event.type === "codex_auto_pause_recovery_summary");
+    const pauseClearedIndex = recoveryEvents.findIndex(
+      (event: any) => event.type === "session_update" && event.session?.codex_result_error_auto_pause === null,
+    );
+    expect(summaryIndex).toBeGreaterThanOrEqual(0);
+    expect(pauseClearedIndex).toBeGreaterThan(summaryIndex);
+
     expect(session.state.codex_result_error_auto_pause).toBeNull();
     expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
     expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
@@ -1035,6 +1047,8 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
         inputs: [expect.objectContaining({ content })],
       }),
     );
+    expect(JSON.stringify(adapter.sendBrowserMessage.mock.calls)).not.toContain("autoPauseRecoveries");
+    expect(JSON.stringify(adapter.sendBrowserMessage.mock.calls)).not.toContain("Automatic input recovery:");
     expect(session.pendingCodexInputs.filter((input: any) => input.content === content)).toHaveLength(1);
     expect(session.pendingCodexInputs[0]?.clientMsgId).toBeUndefined();
 
@@ -1044,6 +1058,12 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     );
     expect(committedUserEntries).toHaveLength(1);
     expect(session.pendingCodexInputs.filter((input: any) => input.content === content)).toHaveLength(0);
+    const recoverySummary = session.messageHistory.find(
+      (entry: any) => entry.type === "codex_auto_pause_recovery_summary",
+    ) as any;
+    expect(recoverySummary?.recovery.receipts).toEqual([
+      expect.objectContaining({ outcome: "delivered", reasonCode: "codex_delivery_accepted" }),
+    ]);
   });
 
   it("manual Codex success clears result-error auto-pause and drains coalesced held inputs deliberately", async () => {
@@ -1108,8 +1128,80 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(session.pendingCodexInputs).toHaveLength(1);
     expect(session.pendingCodexInputs[0]?.content).toContain("2 similar automatic inputs");
     expect(session.pendingCodexInputs[0]?.content).toContain("coalesced board wake");
+    const recoverySummary = session.messageHistory.find(
+      (entry: any) => entry.type === "codex_auto_pause_recovery_summary",
+    ) as any;
+    expect(recoverySummary).toMatchObject({
+      id: "codex-auto-pause-recovery-123",
+      recovery: {
+        status: "releasing",
+        receipts: [
+          expect.objectContaining({
+            groupId: "held-herd",
+            count: 2,
+            coalescedCount: 1,
+            outcome: "released_to_delivery",
+          }),
+        ],
+      },
+    });
+    expect(session.pendingCodexInputs[0]?.autoPauseRecoveries).toEqual([
+      { summaryId: recoverySummary.id, groupId: "held-herd" },
+    ]);
     expect(session.state.backend_state).not.toBe("recovery_suppressed");
     expect(relaunchCb).toHaveBeenCalledWith(sid);
+  });
+
+  it("keeps held inputs paused when a manual recovery turn is interrupted", async () => {
+    // Interrupted turns are not successful probes and must not create a synthetic recovery summary or drain work.
+    const sid = "s-codex-auto-pause-interrupted-manual";
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.state.codex_result_error_auto_pause = {
+      family: "copilot_auth_refresh_exhausted",
+      fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+      streak: 1,
+      threshold: 1,
+      pausedAt: 123,
+      lastError: "GitHub Copilot API-key refresh exhausted its retry budget.",
+      lastErrorAt: 123,
+      lastSourceKind: "automatic",
+      totalMatchingErrors: 1,
+      heldInputs: [
+        {
+          id: "held-after-interrupt",
+          queuedAt: 124,
+          lastQueuedAt: 124,
+          source: "programmatic",
+          count: 1,
+          message: { type: "user_message", content: "held event", agentSource: { sessionId: "herd-events" } },
+        },
+      ],
+    };
+
+    await (bridge as any).handleCodexResultErrorAutoPause(
+      session,
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "partial before interrupt",
+        duration_ms: 0,
+        duration_api_ms: 0,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "interrupted",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        session_id: sid,
+        codex_turn_id: "manual-interrupted",
+        uuid: "manual-interrupted-result",
+      },
+      { autoPauseSourceKind: "manual" },
+      true,
+    );
+
+    expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(session.messageHistory.some((entry: any) => entry.type === "codex_auto_pause_recovery_summary")).toBe(false);
   });
 
   it("wakes an idle-killed session by clearing flag and requesting relaunch", () => {

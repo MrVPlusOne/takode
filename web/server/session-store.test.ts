@@ -9,6 +9,7 @@ import {
   MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_TEMP_FILENAME,
 } from "./model-provenance-migration-acknowledgement-store.js";
 import { searchSessionDocuments } from "./session-search.js";
+import type { BrowserIncomingMessage } from "./session-types.js";
 
 let tempDir: string;
 let store: SessionStore;
@@ -1610,6 +1611,73 @@ describe("property-based: frozen history correctness", () => {
       expect(hotRaw._frozenCount, `seed=${seed}: _frozenCount=${hotRaw._frozenCount} but expected=${expected}`).toBe(
         expected,
       );
+    }
+  });
+
+  it("keeps a mutable recovery summary hot until delivered turns finish", async () => {
+    // The summary is updated after result handling; freezing its pre-completion form would lose recovered outcome details.
+    const sessionId = "mutable-auto-pause-recovery";
+    const summary = {
+      type: "codex_auto_pause_recovery_summary",
+      id: "recovery-summary",
+      timestamp: 3,
+      content: "Automatic input recovery: 1 delivered.",
+      recovery: {
+        family: "copilot_auth_refresh_exhausted",
+        pausedAt: 1,
+        recoveryConfirmedAt: 2,
+        updatedAt: 3,
+        status: "settled",
+        receipts: [
+          {
+            groupId: "group-1",
+            source: "programmatic",
+            sourceLabel: "Herd Events",
+            count: 1,
+            coalescedCount: 0,
+            queuedAt: 1,
+            lastQueuedAt: 1,
+            releasedAt: 2,
+            terminalAt: 3,
+            outcome: "delivered",
+            reasonCode: "codex_delivery_accepted",
+            reason: "Accepted by Codex exactly once.",
+          },
+        ],
+      },
+    } as BrowserIncomingMessage;
+    const messages = [
+      { type: "user_message", id: "u1", content: "probe", timestamp: 1 },
+      { type: "result", data: { is_error: false } },
+      summary,
+      { type: "user_message", id: "u2", content: "held event", timestamp: 4 },
+      { type: "result", data: { is_error: false } },
+    ] as BrowserIncomingMessage[];
+    const session = makeSession(sessionId, { messageHistory: messages });
+
+    store.saveSync(session);
+    await store.flushAll();
+    expect(JSON.parse(readFileSync(join(tempDir, `${sessionId}.json`), "utf-8"))._frozenCount).toBe(2);
+
+    if (summary.type === "codex_auto_pause_recovery_summary") {
+      summary.recovery.receipts[0]!.completedAt = 5;
+      summary.recovery.receipts[0]!.reasonCode = "codex_delivery_completed";
+      summary.recovery.receipts[0]!.reason = "Accepted by Codex exactly once and the turn completed.";
+      summary.recovery.updatedAt = 5;
+    }
+    store.saveSync(session);
+    await store.flushAll();
+    const reloaded = await store.load(sessionId);
+    const reloadedSummary = reloaded?.messageHistory.find(
+      (message) => message.type === "codex_auto_pause_recovery_summary",
+    );
+    expect(reloaded?._frozenCount).toBe(5);
+    expect(reloadedSummary?.type).toBe("codex_auto_pause_recovery_summary");
+    if (reloadedSummary?.type === "codex_auto_pause_recovery_summary") {
+      expect(reloadedSummary.recovery.receipts[0]).toMatchObject({
+        completedAt: 5,
+        reasonCode: "codex_delivery_completed",
+      });
     }
   });
 

@@ -117,7 +117,7 @@ export function PausedInputChip({
     () =>
       visibleCount > 0
         ? isAutoPause
-          ? `Automatic input sources are paused after repeated Codex backend errors. ${label} will release after a successful manual test.`
+          ? `Automatic input sources are paused after a Codex backend error. A successful direct composer message releases ${label} exactly once; a failed probe keeps them held.`
           : `Other input sources are paused. ${label} will release after resume.`
         : directComposerMessagesSend
           ? "Other input sources are paused. Direct composer messages still send."
@@ -145,7 +145,7 @@ export function PausedInputChip({
           </button>
           <span className="min-w-0 flex-1 text-amber-200/80">
             {isAutoPause
-              ? "Direct composer messages and explicit takode sends can test recovery."
+              ? "Send a direct composer message to test recovery. Success releases held inputs exactly once; failure keeps them held."
               : directComposerMessagesSend
                 ? "Direct composer messages still send. External input waits here."
                 : "Direct composer messages still need the session to resume. External input waits here."}

@@ -7,6 +7,10 @@ import {
   queueCodexAutoPausedInput,
   sweepCodexAutoPausedQueuedBacklog,
 } from "../codex-result-error-auto-pause.js";
+import {
+  createCodexAutoPauseRecoverySummary,
+  markCodexAutoPauseRecoveryFailed,
+} from "./codex-auto-pause-recovery-summary.js";
 import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
@@ -45,10 +49,17 @@ export function handleCodexResultErrorAutoPause(
   msg: CLIResultMessage,
   completedTurn: CodexOutboundTurn | null,
   deps: CodexAutoPauseDeliveryDeps,
+  interrupted = false,
 ): Promise<void> | void {
   if (session.backendType !== "codex") return;
+  if (interrupted) return;
+  const activeBeforeResult = getActiveCodexResultErrorAutoPause(session);
   const outcome = noteCodexResultForAutoPause(session, msg, completedTurn);
   if (!outcome.changed) return;
+  const recoverySummary =
+    outcome.resumedNow && outcome.heldInputs?.length && activeBeforeResult
+      ? createCodexAutoPauseRecoverySummary(session, activeBeforeResult, outcome.heldInputs, Date.now(), deps)
+      : null;
   const swept = sweepCodexAutoPausedQueuedBacklog(session);
   if (swept.changed) {
     deps.broadcastPendingCodexInputs(session);
@@ -64,7 +75,7 @@ export function handleCodexResultErrorAutoPause(
   deps.persistSession(session);
   if (!outcome.resumedNow || !outcome.heldInputs?.length) return;
 
-  const messages = materializeCodexAutoPausedInputsForDrain(outcome.heldInputs);
+  const messages = materializeCodexAutoPausedInputsForDrain(outcome.heldInputs, recoverySummary?.id);
   return drainCodexAutoPausedInputs(session, messages, deps);
 }
 
@@ -121,6 +132,20 @@ async function drainCodexAutoPausedInputs(
   deps: CodexAutoPauseDeliveryDeps,
 ): Promise<void> {
   for (const message of messages) {
-    await handleBrowserIngressMessage(session, message, undefined, deps.getBrowserTransportDeps());
+    try {
+      await handleBrowserIngressMessage(session, message, undefined, deps.getBrowserTransportDeps());
+    } catch {
+      console.warn(
+        `[codex-auto-pause] Released input ${message.autoPauseRecoveries?.[0]?.groupId ?? "unknown"} was rejected before pending delivery.`,
+      );
+      markCodexAutoPauseRecoveryFailed(
+        session,
+        message.autoPauseRecoveries ?? [],
+        Date.now(),
+        deps,
+        "delivery_pipeline_rejected",
+      );
+      deps.persistSession(session);
+    }
   }
 }

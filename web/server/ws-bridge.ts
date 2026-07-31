@@ -823,8 +823,9 @@ export class WsBridge {
     session: Session,
     msg: CLIResultMessage,
     completedTurn: CodexOutboundTurn | null,
+    interrupted = false,
   ): Promise<void> | void {
-    return handleCodexResultErrorAutoPauseForBridge(this, session, msg, completedTurn);
+    return handleCodexResultErrorAutoPauseForBridge(this, session, msg, completedTurn, interrupted);
   }
 
   private getSessionGitStateDeps() {

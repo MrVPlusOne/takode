@@ -117,4 +117,48 @@ describe("PausedInputChip", () => {
       screen.getByText("Direct composer messages still need the session to resume. External input waits here."),
     ).toBeTruthy();
   });
+
+  it("explains successful exact-once recovery and failed-probe retention", async () => {
+    // Auto-pause recovery is intentionally implicit in the composer send, so the copy must state both outcomes.
+    render(
+      <PausedInputChip
+        pause={null}
+        heldCount={0}
+        autoPausedHeldCount={1}
+        directComposerMessagesSend={true}
+        autoPause={{
+          family: "copilot_auth_refresh_exhausted",
+          fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+          streak: 1,
+          threshold: 1,
+          pausedAt: 1_000,
+          lastError: "GitHub Copilot API-key refresh exhausted its retry budget.",
+          lastErrorAt: 1_000,
+          lastSourceKind: "automatic",
+          totalMatchingErrors: 1,
+          heldInputs: [
+            {
+              id: "held-herd",
+              queuedAt: 1_100,
+              lastQueuedAt: 1_100,
+              source: "programmatic",
+              count: 1,
+              message: { type: "user_message", content: "held event", agentSource: { sessionId: "herd-events" } },
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Send a direct composer message to test recovery. Success releases held inputs exactly once; failure keeps them held.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByTestId("composer-paused-chip").getAttribute("title")).toContain(
+      "A successful direct composer message releases 1 held input exactly once; a failed probe keeps them held.",
+    );
+    await userEvent.click(screen.getByTestId("composer-paused-chip"));
+    expect(screen.getByTestId("composer-held-input-list").textContent).toContain("held event");
+  });
 });

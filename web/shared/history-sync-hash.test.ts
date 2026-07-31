@@ -187,4 +187,29 @@ describe("history-sync-hash", () => {
     expect(result.renderedCount).toBe(1);
     expect(result.hash).toMatch(/^[0-9a-f]{8}$/);
   });
+
+  it("changes when a mutable recovery summary settles under the same stable id", () => {
+    // Unlike immutable protocol IDs, this server-authored history row is updated in place as outcomes arrive.
+    const base = {
+      type: "codex_auto_pause_recovery_summary" as const,
+      id: "recovery-summary",
+      timestamp: 100,
+      content: "Automatic input recovery: 1 awaiting delivery.",
+      recovery: {
+        family: "copilot_auth_refresh_exhausted" as const,
+        pausedAt: 10,
+        recoveryConfirmedAt: 20,
+        updatedAt: 100,
+        status: "releasing" as const,
+        receipts: [],
+      },
+    };
+    const settled = {
+      ...base,
+      content: "Automatic input recovery: 1 delivered.",
+      recovery: { ...base.recovery, updatedAt: 200, status: "settled" as const },
+    };
+
+    expect(computeHistoryMessagesSyncHash([base]).hash).not.toBe(computeHistoryMessagesSyncHash([settled]).hash);
+  });
 });

@@ -227,6 +227,17 @@ describe("Playground", () => {
     );
   });
 
+  it("documents paused recovery guidance and completed terminal receipts", () => {
+    // Message-related lifecycle states must remain inspectable without a live server or backend.
+    render(<Playground />);
+
+    expect(screen.getByText("Codex backend-error auto-pause")).toBeTruthy();
+    expect(screen.getByText("Codex automatic-input recovery summary")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Automatic input recovery summary" })).toBeTruthy();
+    expect(screen.getByText("Herd Events · turn_end")).toBeTruthy();
+    expect(screen.getByText("Herd Events · board_stalled")).toBeTruthy();
+  });
+
   it("documents the mobile user-message navigator in its open touch overlay state", () => {
     render(<Playground />);
 

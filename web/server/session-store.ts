@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { isReplayableBufferedEvent } from "./bridge/replay-buffer-policy.js";
 import { isModelProvenanceMigrationAcknowledgementStateFile } from "./model-provenance-migration-acknowledgement-store.js";
+import { isCodexAutoPauseRecoverySummaryFinal } from "./codex-auto-pause-types.js";
 import type {
   SessionState,
   BrowserIncomingMessage,
@@ -417,12 +418,23 @@ export class SessionStore {
    * are the current in-progress turn and stay "hot".
    */
   private computeFreezeCutoff(messages: BrowserIncomingMessage[]): number {
+    let cutoff = 0;
     for (let i = messages.length - 1; i >= 0; i--) {
       if ((messages[i] as { type: string }).type === "result") {
-        return i + 1;
+        cutoff = i + 1;
+        break;
       }
     }
-    return 0;
+    for (let i = 0; i < cutoff; i++) {
+      const message = messages[i];
+      if (
+        message?.type === "codex_auto_pause_recovery_summary" &&
+        !isCodexAutoPauseRecoverySummaryFinal(message.recovery)
+      ) {
+        return i;
+      }
+    }
+    return cutoff;
   }
 
   private static toolResultPreviewReplayKey(message: BrowserIncomingMessage): string | null {

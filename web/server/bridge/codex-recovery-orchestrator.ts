@@ -43,6 +43,10 @@ import {
 import { consumeCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 import { handleTerminalTurnStartFailure } from "./codex-terminal-turn-start-failure.js";
 import {
+  collectCodexAutoPauseRecoveryLinks,
+  markCodexAutoPauseRecoveryDelivered,
+} from "./codex-auto-pause-recovery-summary.js";
+import {
   recordCodexResumeSnapshotProof,
   recordCodexTurnResultProof,
   recordCodexTurnStartedProof,
@@ -521,6 +525,7 @@ export function recordSteeredCodexTurn(
     disconnectedAt: null,
     resumeConfirmedAt: null,
     autoPauseSourceKind: determineCodexTurnSourceKind(inputs),
+    autoPauseRecoveryLinks: collectCodexAutoPauseRecoveryLinks(inputs),
   });
   for (const idx of committedHistoryIndexes) {
     deps.trackUserMessageForTurn(session, idx, "queued");
@@ -599,6 +604,7 @@ export function rebuildQueuedCodexPendingStartBatch(
     existingQueuedTurn.updatedAt = Date.now();
     existingQueuedTurn.lastError = null;
     existingQueuedTurn.autoPauseSourceKind = determineCodexTurnSourceKind(deliverable);
+    existingQueuedTurn.autoPauseRecoveryLinks = collectCodexAutoPauseRecoveryLinks(deliverable);
     deps.persistSession(session);
     return;
   }
@@ -630,6 +636,7 @@ export function rebuildQueuedCodexPendingStartBatch(
     disconnectedAt: null,
     resumeConfirmedAt: null,
     autoPauseSourceKind: determineCodexTurnSourceKind(deliverable),
+    autoPauseRecoveryLinks: collectCodexAutoPauseRecoveryLinks(deliverable),
   });
   deps.persistSession(session);
 }
@@ -674,6 +681,10 @@ function mergeCodexPendingTurnRecoveryState(keeper: CodexOutboundTurn, duplicate
   keeper.resumeConfirmedAt = keeper.resumeConfirmedAt ?? duplicate.resumeConfirmedAt;
   keeper.turnId = keeper.turnId ?? duplicate.turnId;
   keeper.lastError = keeper.lastError ?? duplicate.lastError;
+  keeper.autoPauseRecoveryLinks = collectCodexAutoPauseRecoveryLinks([
+    { autoPauseRecoveries: keeper.autoPauseRecoveryLinks },
+    { autoPauseRecoveries: duplicate.autoPauseRecoveryLinks },
+  ]);
 }
 
 export function reconcileDuplicateCodexPendingTurns(
@@ -1261,6 +1272,7 @@ function commitPendingCodexInput(
   if (idx < 0) return null;
   const pending = session.pendingCodexInputs[idx];
   session.pendingCodexInputs.splice(idx, 1);
+  markCodexAutoPauseRecoveryDelivered(session, pending.autoPauseRecoveries, Date.now(), deps);
   if (
     pending.needsInputReminderText &&
     shouldCommitNeedsInputReminderHistoryEntry(pending.needsInputReminderText, session.notifications)

@@ -664,4 +664,35 @@ describe("searchSessionDocuments", () => {
     expect(out.results[1].matchedField).toBe("assistant");
     expect(out.results[2].matchedField).toBe("compact_marker");
   });
+
+  it("keeps completed automatic-input recovery summaries searchable", () => {
+    // Durable audit projection must remain discoverable after the composer pause UI clears.
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-recovery",
+        archived: false,
+        createdAt: 100,
+        messageHistory: [
+          {
+            type: "codex_auto_pause_recovery_summary",
+            id: "recovery-1",
+            timestamp: 1_000,
+            content: "Automatic input recovery: one delivered and one suppressed as stale.",
+            recovery: {
+              family: "copilot_auth_refresh_exhausted",
+              pausedAt: 500,
+              recoveryConfirmedAt: 700,
+              updatedAt: 1_000,
+              status: "settled",
+              receipts: [],
+            },
+          },
+        ],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "suppressed stale" });
+    expect(out.totalMatches).toBe(1);
+    expect(out.results[0]).toMatchObject({ matchedField: "recovery_summary", sessionId: "s-recovery" });
+  });
 });

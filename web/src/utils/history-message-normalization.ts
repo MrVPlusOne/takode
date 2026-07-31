@@ -315,6 +315,25 @@ export function normalizeHistoryMessageToChatMessages(
     ];
   }
 
+  if (histMsg.type === "codex_auto_pause_recovery_summary") {
+    return [
+      {
+        id: histMsg.id,
+        role: "system",
+        content: histMsg.content,
+        timestamp: histMsg.timestamp,
+        historyIndex,
+        variant: "info",
+        metadata: {
+          codexAutoPauseRecoverySummary: histMsg.recovery,
+          ...(histMsg.threadRefs ? { threadRefs: histMsg.threadRefs } : {}),
+          ...(histMsg.threadKey ? { threadKey: histMsg.threadKey } : {}),
+          ...(histMsg.questId ? { questId: histMsg.questId } : {}),
+        },
+      },
+    ];
+  }
+
   if (histMsg.type === "thread_attachment_marker") {
     return [
       {

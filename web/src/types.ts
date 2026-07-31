@@ -22,6 +22,9 @@ import type {
   PendingCodexInput,
   PendingCodexInputImageDraft,
   CodexAutoPauseHeldInput,
+  CodexAutoPauseRecoveryOutcome,
+  CodexAutoPauseRecoveryReceipt,
+  CodexAutoPauseRecoverySummary,
   VsCodeSelectionMetadata,
   VsCodeSelectionState,
   SessionNotification,
@@ -148,6 +151,9 @@ export type {
   PausedInboundMessage,
   SessionPauseState,
   CodexAutoPauseHeldInput,
+  CodexAutoPauseRecoveryOutcome,
+  CodexAutoPauseRecoveryReceipt,
+  CodexAutoPauseRecoverySummary,
 };
 export type { TreeGroup, TreeGroupState } from "../server/tree-group-store.js";
 export type { ModelAuthorityDecision, ModelProvenanceMigration } from "../server/model-identity-contract.js";
@@ -253,6 +259,7 @@ export interface ChatMessage {
       updatedAt: number;
     };
     attentionRecord?: SessionAttentionRecord;
+    codexAutoPauseRecoverySummary?: CodexAutoPauseRecoverySummary;
     compactMarkerKind?: "compaction" | "session_recycled";
     threadStatusMarkers?: LeaderThreadStatus[];
     threadRoutingError?: ThreadRoutingError;

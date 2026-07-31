@@ -582,4 +582,55 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     ]);
     now.mockRestore();
   });
+
+  it("normalizes a server-authored recovery summary without making it a user/model message", () => {
+    // The browser history projection is a system row with authoritative structured receipts and thread routing.
+    const message: BrowserIncomingMessage = {
+      type: "codex_auto_pause_recovery_summary",
+      id: "recovery-1",
+      timestamp: 100,
+      content: "Automatic input recovery: 1 suppressed.",
+      threadKey: "q-42",
+      questId: "q-42",
+      recovery: {
+        family: "copilot_auth_refresh_exhausted",
+        pausedAt: 10,
+        recoveryConfirmedAt: 20,
+        updatedAt: 100,
+        status: "settled",
+        receipts: [
+          {
+            groupId: "group-1",
+            source: "programmatic",
+            sourceLabel: "Herd Events",
+            sourceDetail: "board_stalled",
+            count: 1,
+            coalescedCount: 0,
+            queuedAt: 11,
+            lastQueuedAt: 11,
+            releasedAt: 20,
+            terminalAt: 100,
+            outcome: "suppressed",
+            reasonCode: "stale_board_state",
+            reason: "Suppressed because the authoritative board state no longer matched the stalled event.",
+          },
+        ],
+      },
+    };
+
+    const [normalized] = normalizeHistoryMessageToChatMessages(message, 8);
+
+    expect(normalized).toMatchObject({
+      id: "recovery-1",
+      role: "system",
+      variant: "info",
+      historyIndex: 8,
+      metadata: {
+        threadKey: "q-42",
+        questId: "q-42",
+        codexAutoPauseRecoverySummary: message.recovery,
+      },
+    });
+    expect(normalized?.agentSource).toBeUndefined();
+  });
 });

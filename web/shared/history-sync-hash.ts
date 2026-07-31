@@ -15,6 +15,7 @@ type ComparableHistoryEntry = {
   variant?: string;
   cliUuid?: string;
   timestamp?: number | null;
+  mutable?: boolean;
 };
 
 function stableStringify(value: unknown): string {
@@ -70,7 +71,7 @@ function normalizeErrorText(msg: Extract<BrowserIncomingMessage, { type: "result
 }
 
 function fingerprintComparableEntry(entry: ComparableHistoryEntry): string {
-  if (entry.id) {
+  if (entry.id && !entry.mutable) {
     return `id:${entry.id}`;
   }
   return hashString(stableStringify(entry));
@@ -135,6 +136,21 @@ function forEachComparableHistoryEntry(
           content: message.summary || "Conversation compacted",
           variant: "info",
           timestamp: null,
+        },
+        renderedIndex++,
+      );
+      continue;
+    }
+    if (message.type === "codex_auto_pause_recovery_summary") {
+      visitor(
+        {
+          id: message.id,
+          role: "system",
+          content: message.content,
+          metadata: message.recovery,
+          variant: "info",
+          timestamp: message.timestamp,
+          mutable: true,
         },
         renderedIndex++,
       );

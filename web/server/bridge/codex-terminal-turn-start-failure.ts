@@ -2,6 +2,7 @@ import type { BrowserOutgoingMessage } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
 import type { TurnStartFailureInfo } from "./adapter-interface.js";
 import { restoreQueuedNeedsInputResolutionNotices } from "./adapter-browser-routing-needs-input-reminder.js";
+import { markCodexAutoPauseRecoveryFailed } from "./codex-auto-pause-recovery-summary.js";
 import type {
   CodexAdapterRecoveryLifecycleDeps,
   CodexRecoveryOrchestratorSessionLike,
@@ -31,6 +32,10 @@ export function handleTerminalTurnStartFailure(
     );
 
   const pendingInputIds = pending?.pendingInputIds ?? (pending?.userMessageId ? [pending.userMessageId] : []);
+  const recoveryLinks = pendingInputIds.flatMap(
+    (id) => session.pendingCodexInputs.find((input) => input.id === id)?.autoPauseRecoveries ?? [],
+  );
+  markCodexAutoPauseRecoveryFailed(session, recoveryLinks, Date.now(), deps);
   for (const id of pendingInputIds) {
     removePendingInput(session, id, deps);
   }

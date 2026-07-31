@@ -29,6 +29,7 @@ import {
   getUserVisibleSessionNotifications,
 } from "./session-notification-controller.js";
 import { compactPendingCodexInputsForBrowser } from "../codex-pending-input-safety.js";
+import { isCodexAutoPauseRecoverySummaryFinal } from "../codex-auto-pause-types.js";
 import { routeFromHistoryEntry } from "../thread-routing-metadata.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import {
@@ -987,7 +988,11 @@ export function clampFrozenCount(session: BrowserTransportSessionLike): void {
 }
 
 export function freezeHistoryThroughCurrentTail(session: BrowserTransportSessionLike): void {
-  session.frozenCount = session.messageHistory.length;
+  const mutableSummaryIndex = session.messageHistory.findIndex(
+    (message) =>
+      message.type === "codex_auto_pause_recovery_summary" && !isCodexAutoPauseRecoverySummaryFinal(message.recovery),
+  );
+  session.frozenCount = mutableSummaryIndex >= 0 ? mutableSummaryIndex : session.messageHistory.length;
 }
 
 export async function sendHistorySync(
@@ -1400,6 +1405,7 @@ export function isHistoryBackedEvent(msg: ReplayableBrowserIncomingMessage): boo
     msg.type === "assistant" ||
     msg.type === "result" ||
     msg.type === "user_message" ||
+    msg.type === "codex_auto_pause_recovery_summary" ||
     msg.type === "error" ||
     msg.type === "tool_result_preview" ||
     msg.type === "permission_request" ||

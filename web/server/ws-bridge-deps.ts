@@ -1018,7 +1018,8 @@ export function getCodexAdapterBrowserMessageDeps(host: any) {
       targetSession: unknown,
       msg: CLIResultMessage,
       completedTurn: CodexOutboundTurn | null,
-    ) => host.handleCodexResultErrorAutoPause(targetSession as Session, msg, completedTurn),
+      interrupted?: boolean,
+    ) => host.handleCodexResultErrorAutoPause(targetSession as Session, msg, completedTurn, interrupted),
     syncSideChatParent: (targetSession: unknown) => host.syncSideChatRecordForChild?.(targetSession as Session),
   };
 }

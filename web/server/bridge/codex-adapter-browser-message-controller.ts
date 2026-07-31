@@ -24,6 +24,7 @@ import { recordCompactionFinished, recordCompactionStarted } from "./session-lif
 import { shouldSuppressCodexModelSwitchCompaction } from "./codex-model-switch-compaction.js";
 import { shouldTrackCodexToolResultRecovery } from "./tool-result-recovery-controller.js";
 import { recordContextUsageHistory } from "./context-usage.js";
+import { markCodexAutoPauseRecoveryTurnCompleted } from "./codex-auto-pause-recovery-summary.js";
 import {
   appendThreadTransitionMarkerForRouteSwitch,
   normalizeThreadRoute,
@@ -460,6 +461,7 @@ export interface CodexAdapterBrowserMessageDeps {
     session: CodexBrowserMessageSessionLike,
     msg: CLIResultMessage,
     completedTurn: CodexOutboundTurn | null,
+    interrupted?: boolean,
   ) => Promise<void> | void;
   syncSideChatParent?: (session: CodexBrowserMessageSessionLike) => void;
 }
@@ -857,11 +859,17 @@ export async function handleCodexAdapterBrowserMessage(
       completedTurnId: typeof outgoing.data.codex_turn_id === "string" ? outgoing.data.codex_turn_id : null,
     });
     deps.handleResultMessage(session, outgoing.data as CLIResultMessage);
+    if (
+      markCodexAutoPauseRecoveryTurnCompleted(session, completedTurn, outgoing.data.is_error === true, Date.now(), deps)
+    ) {
+      deps.persistSession(session);
+    }
     deps.syncSideChatParent?.(session);
     const maybeAutoPause = deps.handleCodexResultErrorAutoPause(
       session,
       outgoing.data as CLIResultMessage,
       completedTurn,
+      outgoing.interrupted === true,
     );
     if (maybeAutoPause instanceof Promise) {
       await maybeAutoPause;

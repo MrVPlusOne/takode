@@ -179,9 +179,13 @@ export function queueCodexAutoPausedInput(
   const key = codexAutoPauseCoalesceKey(source, message);
   const existing = state.heldInputs.find((item) => codexAutoPauseCoalesceKey(item.source, item.message) === key);
   if (existing) {
+    const autoPauseRecoveries = mergeRecoveryLinks(existing.message.autoPauseRecoveries, message.autoPauseRecoveries);
     existing.count += 1;
     existing.lastQueuedAt = now;
-    existing.message = message;
+    existing.message = {
+      ...message,
+      ...(autoPauseRecoveries.length ? { autoPauseRecoveries } : {}),
+    };
     return existing;
   }
   const item: CodexAutoPauseHeldInput = {
@@ -217,7 +221,8 @@ export function buildCodexAutoPauseDiagnostic(state: CodexResultErrorAutoPauseSt
       : `${state.streak} consecutive backend stream errors`;
   return (
     `Automatic Codex input delivery paused because ${reason}. ` +
-    `${heldSuffix} Send a direct composer message or explicit takode send after fixing the backend to test recovery.`
+    `${heldSuffix} Send a direct composer message after fixing the backend to test recovery. ` +
+    "Success releases held automatic inputs exactly once; failure keeps them held."
   );
 }
 
@@ -229,14 +234,24 @@ function getCodexResultErrorAutoPauseThreshold(family: CodexResultErrorFamily): 
 
 export function materializeCodexAutoPausedInputsForDrain(
   heldInputs: readonly CodexAutoPauseHeldInput[],
+  recoverySummaryId?: string,
 ): BrowserUserMessage[] {
   return heldInputs.map((item) => {
-    if (item.count <= 1) return item.message;
+    const message =
+      item.count <= 1
+        ? item.message
+        : {
+            ...item.message,
+            content:
+              `[Takode auto-pause resumed: ${item.count} similar automatic inputs were coalesced while delivery was paused.]\n\n` +
+              item.message.content,
+          };
+    if (!recoverySummaryId) return message;
     return {
-      ...item.message,
-      content:
-        `[Takode auto-pause resumed: ${item.count} similar automatic inputs were coalesced while delivery was paused.]\n\n` +
-        item.message.content,
+      ...message,
+      autoPauseRecoveries: mergeRecoveryLinks(message.autoPauseRecoveries, [
+        { summaryId: recoverySummaryId, groupId: item.id },
+      ]),
     };
   });
 }
@@ -333,7 +348,21 @@ function pendingCodexInputToAutoPauseMessage(input: PendingCodexInput): BrowserU
     ...(input.questId ? { questId: input.questId } : {}),
     ...(input.threadRefs ? { threadRefs: input.threadRefs } : {}),
     ...(input.autoPauseSourceKind ? { autoPauseSourceKind: input.autoPauseSourceKind } : {}),
+    ...(input.autoPauseRecoveries?.length ? { autoPauseRecoveries: input.autoPauseRecoveries } : {}),
   };
+}
+
+function mergeRecoveryLinks(
+  left: BrowserUserMessage["autoPauseRecoveries"],
+  right: BrowserUserMessage["autoPauseRecoveries"],
+) {
+  const seen = new Set<string>();
+  return [...(left ?? []), ...(right ?? [])].filter((link) => {
+    const key = `${link.summaryId}\u0000${link.groupId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function pruneHeldQueuedCodexStartPendingTurns(session: CodexAutoPausedQueuedBacklogSessionLike): boolean {

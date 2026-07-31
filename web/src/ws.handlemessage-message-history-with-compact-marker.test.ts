@@ -260,4 +260,83 @@ describe("handleMessage: message_history with compact_marker", () => {
     });
     expect(msgs[1].content).toBe("Recover enough context after leader recycle.");
   });
+
+  it("hydrates and authoritatively updates one recovery summary across reconnect-style history", () => {
+    // The same stable history ID is replaced in place as asynchronous held-input outcomes settle.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    const base = {
+      type: "codex_auto_pause_recovery_summary",
+      id: "recovery-summary",
+      timestamp: 100,
+      content: "Automatic input recovery: 1 awaiting delivery.",
+      recovery: {
+        family: "copilot_auth_refresh_exhausted",
+        pausedAt: 10,
+        recoveryConfirmedAt: 20,
+        updatedAt: 100,
+        status: "releasing",
+        receipts: [
+          {
+            groupId: "group-1",
+            source: "programmatic",
+            sourceLabel: "Herd Events",
+            count: 1,
+            coalescedCount: 0,
+            queuedAt: 11,
+            lastQueuedAt: 11,
+            releasedAt: 20,
+            outcome: "released_to_delivery",
+            reasonCode: "manual_recovery_succeeded",
+            reason: "Manual recovery succeeded; queued for exact-once delivery.",
+          },
+        ],
+      },
+    };
+    fireMessage({ type: "message_history", messages: [base] });
+    expect(useStore.getState().messages.get("s1")).toHaveLength(1);
+
+    const settled = {
+      ...base,
+      content: "Automatic input recovery: 1 delivered.",
+      recovery: {
+        ...base.recovery,
+        updatedAt: 200,
+        status: "settled",
+        receipts: [
+          {
+            ...base.recovery.receipts[0],
+            outcome: "delivered",
+            reasonCode: "codex_delivery_accepted",
+            reason: "Accepted by Codex exactly once.",
+            terminalAt: 200,
+          },
+        ],
+      },
+    };
+    fireMessage(settled);
+
+    const messages = useStore.getState().messages.get("s1")!;
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      id: "recovery-summary",
+      role: "system",
+      content: "Automatic input recovery: 1 delivered.",
+      metadata: {
+        codexAutoPauseRecoverySummary: {
+          status: "settled",
+          receipts: [expect.objectContaining({ outcome: "delivered" })],
+        },
+      },
+    });
+
+    // A later authoritative full history carries the same settled projection after reconnect.
+    fireMessage({ type: "message_history", messages: [settled] });
+    expect(useStore.getState().messages.get("s1")).toEqual([
+      expect.objectContaining({
+        id: "recovery-summary",
+        metadata: { codexAutoPauseRecoverySummary: expect.objectContaining({ status: "settled" }) },
+      }),
+    ]);
+  });
 });

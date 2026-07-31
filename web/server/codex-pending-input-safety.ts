@@ -43,7 +43,7 @@ export function compactPendingCodexInputsForBrowser(inputs: PendingCodexInput[])
 }
 
 function compactPendingCodexInputForBrowser(input: PendingCodexInput, maxPreviewBytes: number): PendingCodexInput {
-  const { historyFollowUps: _historyFollowUps, ...browserInput } = input;
+  const { historyFollowUps: _historyFollowUps, autoPauseRecoveries: _autoPauseRecoveries, ...browserInput } = input;
   const content = compactText(input.content, maxPreviewBytes);
   const deliveryContent =
     typeof input.deliveryContent === "string" ? compactText(input.deliveryContent, maxPreviewBytes) : undefined;

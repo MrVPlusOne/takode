@@ -4,6 +4,14 @@ import type { LeaderOpenThreadTabsState, LeaderThreadTabUpdate } from "../shared
 import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
 import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 import type { ModelProvenanceMigration } from "./model-identity-contract.js";
+import type { CodexAutoPauseRecoveryLink, CodexAutoPauseRecoverySummary } from "./codex-auto-pause-types.js";
+export type {
+  CodexAutoPauseRecoveryLink,
+  CodexAutoPauseRecoveryOutcome,
+  CodexAutoPauseRecoveryReasonCode,
+  CodexAutoPauseRecoveryReceipt,
+  CodexAutoPauseRecoverySummary,
+} from "./codex-auto-pause-types.js";
 
 // Types for the WebSocket bridge between Claude Code CLI and the browser
 
@@ -539,6 +547,8 @@ export interface PendingCodexInput {
   slackThreadId?: string;
   /** Server-only source classification used by Codex result-error auto-pause. */
   autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
+  /** Server-only correlation for a held input released into normal Codex delivery. */
+  autoPauseRecoveries?: CodexAutoPauseRecoveryLink[];
 }
 
 export interface CodexPendingBatchInput {
@@ -566,6 +576,8 @@ export type BrowserOutgoingMessage =
       inputSource?: "composer" | "programmatic";
       /** Server-only override for Codex result-error auto-pause source classification. */
       autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
+      /** Server-only correlation for an automatic input released after a successful manual probe. */
+      autoPauseRecoveries?: CodexAutoPauseRecoveryLink[];
       /** UI-only thread routing metadata. Main is implicit; quest threads are optional projections. */
       threadKey?: string;
       questId?: string;
@@ -1027,6 +1039,13 @@ export type BrowserIncomingMessageBase =
     }
   | { type: "codex_pending_inputs"; inputs: PendingCodexInput[] }
   | { type: "codex_pending_input_cancelled"; input: PendingCodexInput }
+  | {
+      type: "codex_auto_pause_recovery_summary";
+      id: string;
+      timestamp: number;
+      content: string;
+      recovery: CodexAutoPauseRecoverySummary;
+    }
   | { type: "message_history"; messages: BrowserIncomingMessage[] }
   | ThreadAttachmentUpdate
   | { type: "feed_window_sync"; sync: FeedWindowSync }
@@ -1306,6 +1325,8 @@ export interface CodexOutboundTurn {
   resumeConfirmedAt: number | null;
   /** Server-only source classification used by Codex result-error auto-pause. */
   autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
+  /** Correlations retained across acknowledgement, reconnect, and turn retry. */
+  autoPauseRecoveryLinks?: CodexAutoPauseRecoveryLink[];
 }
 
 export interface SessionState {

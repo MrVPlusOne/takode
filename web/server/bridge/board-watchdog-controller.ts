@@ -20,8 +20,16 @@ import {
   shouldPersistLeaderThreadTab,
 } from "../../shared/leader-open-thread-tabs.js";
 import { HERD_WORKER_SLOT_LIMIT } from "../../shared/takode-constants.js";
-import type { BoardRow, SessionAttentionRecord, TakodeEvent, TakodeHerdBatchSnapshot } from "../session-types.js";
+import type {
+  BoardRow,
+  BrowserIncomingMessage,
+  CodexAutoPauseRecoveryLink,
+  SessionAttentionRecord,
+  TakodeEvent,
+  TakodeHerdBatchSnapshot,
+} from "../session-types.js";
 import { formatRenderedHerdEventBatch } from "../herd-event-dispatcher.js";
+import { markCodexAutoPauseRecoverySuppressed } from "./codex-auto-pause-recovery-summary.js";
 
 type SessionLike = any;
 
@@ -1180,6 +1188,7 @@ export function pruneStalePendingCodexHerdInputs(
   reason: string,
   deps: Pick<BoardWatchdogDeps, "emitTakodeEvent">,
   helpers: {
+    broadcastToBrowsers: (session: SessionLike, message: BrowserIncomingMessage) => void;
     broadcastPendingCodexInputs: (session: SessionLike) => void;
     rebuildQueuedCodexPendingStartBatch: (session: SessionLike) => void;
     persistSession: (session: SessionLike) => void;
@@ -1187,6 +1196,8 @@ export function pruneStalePendingCodexHerdInputs(
 ): boolean {
   let changed = false;
   const nextInputs: any[] = [];
+  const staleSuppressedLinks: CodexAutoPauseRecoveryLink[] = [];
+  const supersededSuppressedLinks: CodexAutoPauseRecoveryLink[] = [];
 
   for (const input of session.pendingCodexInputs) {
     const pruned = pruneStaleBoardStalledHerdBatch(session, input.takodeHerdBatch, { ...deps, ...helpers } as any);
@@ -1196,7 +1207,12 @@ export function pruneStalePendingCodexHerdInputs(
     }
 
     changed = true;
-    if (!pruned.batch || !pruned.content) continue;
+    if (!pruned.batch || !pruned.content) {
+      const target =
+        pruned.suppressedReasonCode === "superseded_board_state" ? supersededSuppressedLinks : staleSuppressedLinks;
+      target.push(...(input.autoPauseRecoveries ?? []));
+      continue;
+    }
 
     input.content = pruned.content;
     if (input.deliveryContent) input.deliveryContent = pruned.content;
@@ -1207,6 +1223,15 @@ export function pruneStalePendingCodexHerdInputs(
   if (!changed) return false;
 
   session.pendingCodexInputs = nextInputs;
+  const terminalAt = Date.now();
+  markCodexAutoPauseRecoverySuppressed(session, staleSuppressedLinks, terminalAt, helpers, "stale_board_state");
+  markCodexAutoPauseRecoverySuppressed(
+    session,
+    supersededSuppressedLinks,
+    terminalAt,
+    helpers,
+    "superseded_board_state",
+  );
   helpers.broadcastPendingCodexInputs(session);
   helpers.rebuildQueuedCodexPendingStartBatch(session);
   helpers.persistSession(session);
@@ -1218,23 +1243,32 @@ export function pruneStaleBoardStalledHerdBatch(
   session: SessionLike,
   batch: TakodeHerdBatchSnapshot | undefined,
   deps: BoardWatchdogDeps,
-): { batch?: TakodeHerdBatchSnapshot; content?: string; changed: boolean } {
+): {
+  batch?: TakodeHerdBatchSnapshot;
+  content?: string;
+  changed: boolean;
+  suppressedReasonCode?: "stale_board_state" | "superseded_board_state";
+} {
   if (!batch || batch.events.length === 0) return { batch, changed: false };
 
   const keptEvents: TakodeEvent[] = [];
   const keptRenderedLines: string[] = [];
   const keptEventKeys: string[] = [];
   let changed = false;
+  let suppressedByNewerTurn = false;
+  let suppressedByStaleState = false;
 
   for (let i = 0; i < batch.events.length; i++) {
     const event = batch.events[i];
     const renderedLine = batch.renderedLines[i] ?? "";
     if (isBoardStalledSupersededBySameBatchTurnEnd(session, event, batch.events, deps)) {
       changed = true;
+      suppressedByNewerTurn = true;
       continue;
     }
     if (!isLiveBoardStalledEvent(session, event, deps)) {
       changed = true;
+      suppressedByStaleState = true;
       continue;
     }
     keptEvents.push(event);
@@ -1244,7 +1278,13 @@ export function pruneStaleBoardStalledHerdBatch(
   }
 
   if (!changed) return { batch, changed: false };
-  if (keptEvents.length === 0) return { changed: true };
+  if (keptEvents.length === 0) {
+    return {
+      changed: true,
+      suppressedReasonCode:
+        suppressedByStaleState || !suppressedByNewerTurn ? "stale_board_state" : "superseded_board_state",
+    };
+  }
 
   return {
     changed: true,

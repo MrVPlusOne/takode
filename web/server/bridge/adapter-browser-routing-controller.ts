@@ -51,6 +51,10 @@ import type {
 } from "../session-types.js";
 import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
 import { getCodexPendingInputSizeLimit } from "../codex-pending-input-safety.js";
+import {
+  markCodexAutoPauseRecoveryDiscarded,
+  markCodexAutoPauseRecoveryFailed,
+} from "./codex-auto-pause-recovery-summary.js";
 import { sessionTag } from "../session-tag.js";
 import type { BrowserTransportSessionLike, BrowserTransportSocketLike } from "./browser-transport-controller.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
@@ -1549,6 +1553,7 @@ function normalizeAdapterUserMessage(
     delete (delivered as { imageRefs?: unknown }).imageRefs;
     delete (delivered as { images?: unknown }).images;
     delete (delivered as { autoPauseSourceKind?: unknown }).autoPauseSourceKind;
+    delete (delivered as { autoPauseRecoveries?: unknown }).autoPauseRecoveries;
     return delivered;
   }
   const resolvedImageRefs = userImageRefs ?? msg.imageRefs;
@@ -1556,6 +1561,7 @@ function normalizeAdapterUserMessage(
     const stripped = { ...adapterMsg } as BrowserOutgoingMessage;
     delete (stripped as { historyFollowUps?: unknown }).historyFollowUps;
     delete (stripped as { autoPauseSourceKind?: unknown }).autoPauseSourceKind;
+    delete (stripped as { autoPauseRecoveries?: unknown }).autoPauseRecoveries;
     return stripped;
   }
   let annotatedContent = msg.content || "";
@@ -1571,6 +1577,7 @@ function normalizeAdapterUserMessage(
   delete (stripped as { imageRefs?: unknown }).imageRefs;
   delete (stripped as { images?: unknown }).images;
   delete (stripped as { autoPauseSourceKind?: unknown }).autoPauseSourceKind;
+  delete (stripped as { autoPauseRecoveries?: unknown }).autoPauseRecoveries;
   return stripped;
 }
 function queueAdapterMessage(session: AdapterBrowserRoutingSessionLike, raw: string): void {
@@ -1661,6 +1668,7 @@ export function routeAdapterBrowserMessage(
       if (!pendingInput?.cancelable) return true;
       const cancelableHeadId = deps.getCancelablePendingCodexInputs(session)[0]?.id ?? null;
       const cancelledHeadPendingInput = cancelableHeadId === msg.id;
+      markCodexAutoPauseRecoveryDiscarded(session, pendingInput.autoPauseRecoveries, Date.now(), deps);
       const activeTurnId = session.codexAdapter?.getCurrentTurnId() ?? null;
       session.pendingCodexTurns = activeTurnId
         ? session.pendingCodexTurns.filter((turn) => turn.turnId === activeTurnId)
@@ -1784,9 +1792,17 @@ export function routeAdapterBrowserMessage(
           ...(ingested.historyEntry.threadRefs ? { threadRefs: ingested.historyEntry.threadRefs } : {}),
           ...(ingested.historyEntry.slackThreadId ? { slackThreadId: ingested.historyEntry.slackThreadId } : {}),
           autoPauseSourceKind: determineUserMessageSourceKind(msg),
+          ...(msg.autoPauseRecoveries?.length ? { autoPauseRecoveries: msg.autoPauseRecoveries } : {}),
         };
         const sizeLimit = getCodexPendingInputSizeLimit(pendingInput);
         if (sizeLimit.overLimit) {
+          markCodexAutoPauseRecoveryFailed(
+            session,
+            msg.autoPauseRecoveries ?? [],
+            Date.now(),
+            deps,
+            "pending_input_too_large",
+          );
           deps.broadcastToBrowsers(session, {
             type: "error",
             message:

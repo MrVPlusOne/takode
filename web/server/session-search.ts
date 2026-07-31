@@ -13,6 +13,7 @@ export type SessionSearchMatchedField =
   | "repo"
   | "user_message"
   | "assistant"
+  | "recovery_summary"
   | "compact_marker";
 
 export interface SessionSearchDocument {
@@ -232,7 +233,7 @@ function messageMatchCandidate(
     scanned++;
     const msg = history[i];
 
-    // Search user messages and compaction markers
+    // Search user messages and server-authored recovery summaries.
     if (msg.type === "user_message") {
       const content = (msg.content || "").trim();
       if (!content) continue;
@@ -244,6 +245,20 @@ function messageMatchCandidate(
         score: 500,
         matchedField: "user_message",
         matchContext: `message: ${buildSnippet(content, qWords)}`,
+        matchedAt: timestamp,
+        messageMatch: { id: msg.id, timestamp, snippet: buildSnippet(content, qWords) },
+      };
+    }
+
+    if (msg.type === "codex_auto_pause_recovery_summary") {
+      const content = msg.content.trim();
+      if (!matches(content)) continue;
+      const timestamp = msg.timestamp || doc.lastActivityAt || doc.createdAt;
+      return {
+        sessionId: doc.sessionId,
+        score: 455,
+        matchedField: "recovery_summary",
+        matchContext: `recovery: ${buildSnippet(content, qWords)}`,
         matchedAt: timestamp,
         messageMatch: { id: msg.id, timestamp, snippet: buildSnippet(content, qWords) },
       };

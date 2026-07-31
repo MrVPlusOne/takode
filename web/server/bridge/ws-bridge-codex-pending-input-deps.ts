@@ -10,21 +10,29 @@ export function handleCodexResultErrorAutoPauseForBridge(
   session: Session,
   msg: CLIResultMessage,
   completedTurn: CodexOutboundTurn | null,
+  interrupted = false,
 ): Promise<void> | void {
-  return handleCodexResultErrorAutoPauseDelivery(session, msg, completedTurn, {
-    broadcastToBrowsers: (targetSession, message) => host.broadcastToBrowsers(targetSession, message),
-    broadcastPendingCodexInputs: (targetSession) =>
-      host.broadcastToBrowsers(targetSession, {
-        type: "codex_pending_inputs",
-        inputs: compactPendingCodexInputsForBrowser(targetSession.pendingCodexInputs),
-      }),
-    persistSession: (targetSession) => host.persistSession(targetSession),
-    getBrowserTransportDeps: () => host.getBrowserTransportDeps(),
-  });
+  return handleCodexResultErrorAutoPauseDelivery(
+    session,
+    msg,
+    completedTurn,
+    {
+      broadcastToBrowsers: (targetSession, message) => host.broadcastToBrowsers(targetSession, message),
+      broadcastPendingCodexInputs: (targetSession) =>
+        host.broadcastToBrowsers(targetSession, {
+          type: "codex_pending_inputs",
+          inputs: compactPendingCodexInputsForBrowser(targetSession.pendingCodexInputs),
+        }),
+      persistSession: (targetSession) => host.persistSession(targetSession),
+      getBrowserTransportDeps: () => host.getBrowserTransportDeps(),
+    },
+    interrupted,
+  );
 }
 
 export function pruneStalePendingCodexHerdInputsForBridge(host: any, session: Session, reason: string): boolean {
   return pruneStalePendingCodexHerdInputsController(session, reason, host.getBoardWatchdogDeps(), {
+    broadcastToBrowsers: (targetSession, message) => host.broadcastToBrowsers(targetSession as Session, message),
     broadcastPendingCodexInputs: (targetSession) =>
       host.broadcastToBrowsers(targetSession as Session, {
         type: "codex_pending_inputs",

@@ -171,6 +171,38 @@ function getCodexStartPendingInputs(msg: any) {
   return msg.inputs as Array<{ content: string }>;
 }
 
+function installReleasedRecoveryReceipt(session: any, pendingInput: any) {
+  pendingInput.autoPauseRecoveries = [{ summaryId: "recovery-summary", groupId: "held-group" }];
+  session.messageHistory.push({
+    type: "codex_auto_pause_recovery_summary",
+    id: "recovery-summary",
+    timestamp: 1,
+    content: "Automatic input recovery: 1 awaiting delivery.",
+    recovery: {
+      family: "copilot_auth_refresh_exhausted",
+      pausedAt: 1,
+      recoveryConfirmedAt: 2,
+      updatedAt: 2,
+      status: "releasing",
+      receipts: [
+        {
+          groupId: "held-group",
+          source: "programmatic",
+          sourceLabel: "Herd Events",
+          count: 1,
+          coalescedCount: 0,
+          queuedAt: 1,
+          lastQueuedAt: 1,
+          releasedAt: 2,
+          outcome: "released_to_delivery",
+          reasonCode: "manual_recovery_succeeded",
+          reason: "Manual recovery succeeded; queued for exact-once delivery.",
+        },
+      ],
+    },
+  });
+}
+
 function getNotificationTestDeps(bridge: WsBridge) {
   return {
     isHerdedWorkerSession: (session: any) => !!(bridge as any).launcher?.getSession(session.id)?.herdedBy,
@@ -596,6 +628,8 @@ describe("Codex turn-start failure re-queue", () => {
     void bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "hello" }));
 
     const failedMsg = { type: "user_message", content: "hello" };
+    const sessionBeforeFailure = bridge.getSession("s1")!;
+    installReleasedRecoveryReceipt(sessionBeforeFailure, sessionBeforeFailure.pendingCodexInputs[0]);
     adapter.emitTurnStartFailed(failedMsg);
 
     const session = bridge.getSession("s1")!;
@@ -605,6 +639,10 @@ describe("Codex turn-start failure re-queue", () => {
       status: "dispatched",
       dispatchCount: 2,
     });
+    expect(
+      (session.messageHistory.find((entry: any) => entry.type === "codex_auto_pause_recovery_summary") as any).recovery
+        .receipts[0].outcome,
+    ).toBe("released_to_delivery");
   });
 
   it("does not redispatch nonrecoverable turn-start validation failures", () => {
@@ -615,6 +653,10 @@ describe("Codex turn-start failure re-queue", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
     void bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "oversized" }));
+
+    // Model a released held input: a nonrecoverable turn/start rejection must terminally update its durable receipt.
+    const sessionBeforeFailure = bridge.getSession("s1")!;
+    installReleasedRecoveryReceipt(sessionBeforeFailure, sessionBeforeFailure.pendingCodexInputs[0]);
 
     expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
     adapter.emitTurnStartFailed(
@@ -630,6 +672,13 @@ describe("Codex turn-start failure re-queue", () => {
     expect(session.pendingCodexInputs).toHaveLength(0);
     expect(session.pendingCodexTurns).toHaveLength(0);
     expect(session.isGenerating).toBe(false);
+    const recoverySummary = session.messageHistory.find(
+      (entry: any) => entry.type === "codex_auto_pause_recovery_summary",
+    ) as any;
+    expect(recoverySummary.recovery).toMatchObject({
+      status: "settled",
+      receipts: [expect.objectContaining({ outcome: "failed", reasonCode: "nonrecoverable_turn_start" })],
+    });
     expect(
       browser.send.mock.calls
         .map(([arg]: [string]) => JSON.parse(arg))

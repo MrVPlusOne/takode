@@ -37,6 +37,7 @@ import { MessageTimestamp } from "./MessageTimestamp.js";
 import { shouldShowCompactGuidance } from "../utils/assistant-message-guidance.js";
 import { isStarActionableMessage } from "../utils/starred-messages.js";
 import { useMessageStarActions } from "./use-message-star-actions.js";
+import { CodexAutoPauseRecoverySummary } from "./CodexAutoPauseRecoverySummary.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
 
@@ -103,6 +104,9 @@ export const MessageBubble = memo(function MessageBubble({
   const searchHighlight = useMessageSearchHighlight(sessionId, message);
 
   if (message.role === "system") {
+    if (message.metadata?.codexAutoPauseRecoverySummary) {
+      return <CodexAutoPauseRecoverySummary summary={message.metadata.codexAutoPauseRecoverySummary} />;
+    }
     if (message.variant === "error") {
       const isContextLimit = shouldShowCompactGuidance(message.content);
       return (
