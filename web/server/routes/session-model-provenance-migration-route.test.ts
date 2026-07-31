@@ -1,7 +1,18 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { ModelProvenanceMigration } from "../model-identity-contract.js";
+import { ModelProvenanceMigrationAcknowledgementStore } from "../model-provenance-migration-acknowledgement-store.js";
 import { registerSessionModelProvenanceMigrationRoute } from "./session-model-provenance-migration-route.js";
+
+function deferred() {
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 function migration(eventId: string, migratedAt = 123): ModelProvenanceMigration {
   return {
@@ -20,7 +31,7 @@ function migration(eventId: string, migratedAt = 123): ModelProvenanceMigration 
   };
 }
 
-function makeRoute(currentEventId = "shared-event") {
+function makeRoute(currentEventId = "shared-event", storeOverride?: unknown) {
   const shared = migration("shared-event");
   const sessions = [
     {
@@ -37,7 +48,7 @@ function makeRoute(currentEventId = "shared-event") {
     ]),
   );
   const acknowledgements = new Map<string, number>();
-  const store = {
+  const defaultStore = {
     acknowledge: vi.fn(async (eventId: string) => {
       const acknowledgedAt = acknowledgements.get(eventId) ?? 999;
       acknowledgements.set(eventId, acknowledgedAt);
@@ -45,9 +56,11 @@ function makeRoute(currentEventId = "shared-event") {
     }),
     getAcknowledgedAt: (eventId: string) => acknowledgements.get(eventId),
   };
+  const store = (storeOverride ?? defaultStore) as typeof defaultStore;
   const broadcastToSession = vi.fn();
   const broadcastGlobal = vi.fn();
   const app = new Hono();
+  app.onError((error, c) => c.json({ error: error.message }, 500));
   registerSessionModelProvenanceMigrationRoute(app, {
     launcher: {
       getSession: (id: string) => sessions.find((session) => session.sessionId === id),
@@ -109,5 +122,63 @@ describe("model provenance migration acknowledgement route", () => {
     expect(store.acknowledge).not.toHaveBeenCalled();
     expect(broadcastToSession).not.toHaveBeenCalled();
     expect(broadcastGlobal).not.toHaveBeenCalled();
+  });
+
+  it("holds concurrent route responses and projection until one shared write succeeds", async () => {
+    // Two browser requests join one route operation and one store write; fanout happens only after commit.
+    const gate = deferred();
+    const writer = vi.fn(() => gate.promise);
+    const store = new ModelProvenanceMigrationAcknowledgementStore("/disposable/acknowledgements.json", writer);
+    const { app, sessions, broadcastToSession, broadcastGlobal } = makeRoute("shared-event", store);
+    const request = () =>
+      app.request("/sessions/parent/model-provenance-migration/acknowledge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: "shared-event" }),
+      });
+
+    const first = request();
+    const duplicate = request();
+    await vi.waitFor(() => expect(writer).toHaveBeenCalledOnce());
+    expect(store.getAcknowledgedAt("shared-event")).toBeUndefined();
+    expect(sessions[0].modelProvenanceMigration.acknowledgedAt).toBeUndefined();
+    expect(broadcastToSession).not.toHaveBeenCalled();
+    expect(broadcastGlobal).not.toHaveBeenCalled();
+
+    gate.resolve();
+    const responses = await Promise.all([first, duplicate]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    expect(store.getAcknowledgedAt("shared-event")).toBeTypeOf("number");
+    expect(broadcastToSession).toHaveBeenCalledTimes(2);
+    expect(broadcastGlobal).toHaveBeenCalledTimes(2);
+    expect(writer).toHaveBeenCalledOnce();
+  });
+
+  it("returns failure to every concurrent route caller without projection when the shared write fails", async () => {
+    // A durability error must not create a transient authoritative-hidden browser state.
+    const gate = deferred();
+    const writer = vi.fn(() => gate.promise);
+    const store = new ModelProvenanceMigrationAcknowledgementStore("/disposable/acknowledgements.json", writer);
+    const { app, sessions, broadcastToSession, broadcastGlobal } = makeRoute("shared-event", store);
+    const request = () =>
+      app.request("/sessions/parent/model-provenance-migration/acknowledge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: "shared-event" }),
+      });
+
+    const first = request();
+    const duplicate = request();
+    await vi.waitFor(() => expect(writer).toHaveBeenCalledOnce());
+    gate.reject(new Error("controlled write failure"));
+
+    const responses = await Promise.all([first, duplicate]);
+    expect(responses.map((response) => response.status)).toEqual([500, 500]);
+    expect(store.getAcknowledgedAt("shared-event")).toBeUndefined();
+    expect(sessions[0].modelProvenanceMigration.acknowledgedAt).toBeUndefined();
+    expect(sessions[1].modelProvenanceMigration.acknowledgedAt).toBeUndefined();
+    expect(broadcastToSession).not.toHaveBeenCalled();
+    expect(broadcastGlobal).not.toHaveBeenCalled();
+    expect(writer).toHaveBeenCalledOnce();
   });
 });

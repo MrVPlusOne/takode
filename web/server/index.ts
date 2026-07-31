@@ -53,7 +53,10 @@ import { requestStartupRecoveryRelaunch, runStartupRecovery } from "./startup-re
 import { getStaticAssetCacheControl } from "./static-asset-cache.js";
 import { markCodexIntentionalRelaunch, markSessionRelaunchPending } from "./bridge/codex-recovery-orchestrator.js";
 import { deliverModelProvenanceMigration } from "./model-provenance-migration-delivery.js";
-import { ModelProvenanceMigrationAcknowledgementStore } from "./model-provenance-migration-acknowledgement-store.js";
+import {
+  MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_FILENAME,
+  ModelProvenanceMigrationAcknowledgementStore,
+} from "./model-provenance-migration-acknowledgement-store.js";
 import { projectModelProvenanceMigrationFamilies } from "./model-provenance-migration-runtime.js";
 import {
   addTaskEntry as addTaskEntryController,
@@ -110,7 +113,7 @@ initTreeGroupStoreForServer({ serverId, port });
 initNewSessionDefaultsStoreForServer({ serverId });
 const sessionStore = new SessionStore(undefined, port);
 const modelProvenanceMigrationAcknowledgementStore = new ModelProvenanceMigrationAcknowledgementStore(
-  join(sessionStore.directory, "model-provenance-migration-acknowledgements.json"),
+  join(sessionStore.directory, MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_FILENAME),
 );
 await modelProvenanceMigrationAcknowledgementStore.load();
 const wsBridge = new WsBridge();

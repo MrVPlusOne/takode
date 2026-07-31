@@ -6,6 +6,10 @@ import { projectModelProvenanceMigrationFamilies } from "../model-provenance-mig
 export function registerSessionModelProvenanceMigrationRoute(api: Hono, ctx: RouteContext): void {
   const store = ctx.modelProvenanceMigrationAcknowledgementStore;
   if (!store) return;
+  const inFlightAcknowledgements = new Map<
+    string,
+    Promise<{ ok: true; eventId: string; acknowledgedAt: number; affectedSessionIds: string[] }>
+  >();
 
   api.post("/sessions/:id/model-provenance-migration/acknowledge", async (c) => {
     const sessionId = ctx.resolveId(c.req.param("id"));
@@ -36,11 +40,26 @@ export function registerSessionModelProvenanceMigrationRoute(api: Hono, ctx: Rou
       );
     }
 
-    const acknowledgedAt = await store.acknowledge(eventId);
-    const affectedSessionIds = projectModelProvenanceMigrationFamilies(ctx.launcher, ctx.wsBridge, store, {
-      eventId,
-      broadcast: true,
-    });
-    return c.json({ ok: true, eventId, acknowledgedAt, affectedSessionIds });
+    let operation = inFlightAcknowledgements.get(eventId);
+    if (!operation) {
+      operation = (async () => {
+        const acknowledgedAt = await store.acknowledge(eventId);
+        const affectedSessionIds = projectModelProvenanceMigrationFamilies(ctx.launcher, ctx.wsBridge, store, {
+          eventId,
+          broadcast: true,
+        });
+        return { ok: true as const, eventId, acknowledgedAt, affectedSessionIds };
+      })();
+      inFlightAcknowledgements.set(eventId, operation);
+      void operation.then(
+        () => {
+          if (inFlightAcknowledgements.get(eventId) === operation) inFlightAcknowledgements.delete(eventId);
+        },
+        () => {
+          if (inFlightAcknowledgements.get(eventId) === operation) inFlightAcknowledgements.delete(eventId);
+        },
+      );
+    }
+    return c.json(await operation);
   });
 }
