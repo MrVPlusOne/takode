@@ -44,6 +44,14 @@ vi.mock("node:fs/promises", () => fsPromisesMocks);
 
 import { ensureSkillSymlinks } from "./skill-symlink.js";
 
+const TEST_ROOTS = {
+  mainRepoRoot: "/repo",
+  claudeSkillsHome: "/home/tester/.claude/skills",
+  agentsSkillsHome: "/home/tester/.agents/skills",
+  legacyCodexSkillsHome: "/home/tester/.codex/skills",
+};
+const VALID_SKILL = "---\nname: test\ndescription: Test skill\n---\n\n# Test skill\n";
+
 describe("ensureSkillSymlinks", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -54,13 +62,15 @@ describe("ensureSkillSymlinks", () => {
     });
     fsPromisesMocks.stat.mockImplementation(async (skillPath: string) => {
       const skillDir = skillPath.replace(/\/SKILL\.md$/, "");
+      if (skillDir.startsWith("/home/tester/")) return { isFile: () => true };
       if (!fsMocks.existsSync(skillDir)) throw missingPathError();
       return { isFile: () => true };
     });
     fsPromisesMocks.readFile.mockImplementation(async (skillPath: string) => {
       const skillDir = skillPath.replace(/\/SKILL\.md$/, "");
+      if (skillDir.startsWith("/home/tester/")) return VALID_SKILL;
       if (!fsMocks.existsSync(skillDir)) throw missingPathError();
-      return "---\nname: test\ndescription: Test skill\n---\n\n# Test skill\n";
+      return VALID_SKILL;
     });
   });
 
@@ -160,6 +170,122 @@ describe("ensureSkillSymlinks", () => {
       "/repo/.agents/skills/takode-orchestration",
       "/home/tester/.agents/skills/takode-orchestration",
     );
+  });
+
+  it("rejects partial disposable roots before any installation mutation", async () => {
+    await expect(
+      ensureSkillSymlinks(["takode-orchestration"], {
+        mainRepoRoot: "/disposable/repo",
+      } as unknown as typeof TEST_ROOTS),
+    ).rejects.toThrow("Disposable roots must provide");
+
+    expect(fsMocks.mkdirSync).not.toHaveBeenCalled();
+    expect(fsMocks.symlinkSync).not.toHaveBeenCalled();
+    expect(fsMocks.unlinkSync).not.toHaveBeenCalled();
+    expect(fsMocks.rmSync).not.toHaveBeenCalled();
+    expect(fsPromisesMocks.stat).not.toHaveBeenCalled();
+    expect(fsPromisesMocks.readFile).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "stat",
+    "read",
+  ] as const)("rolls back a link after post-link %s invalidation and falls back to the canonical source", async (failureMode) => {
+    fsMocks.existsSync.mockImplementation((targetDir: string) => {
+      return (
+        targetDir === "/repo/.claude/skills/takode-orchestration" ||
+        targetDir === "/repo/.agents/skills/takode-orchestration"
+      );
+    });
+    let agentsTargetLstatCalls = 0;
+    fsMocks.lstatSync.mockImplementation((targetDir: string) => {
+      if (targetDir === "/home/tester/.agents/skills/takode-orchestration") {
+        agentsTargetLstatCalls += 1;
+        if (agentsTargetLstatCalls === 2) return { isSymbolicLink: () => true };
+      }
+      throw missingPathError();
+    });
+    let agentsTargetStatCalls = 0;
+    fsPromisesMocks.stat.mockImplementation(async (skillPath: string) => {
+      if (skillPath === "/home/tester/.agents/skills/takode-orchestration/SKILL.md") {
+        agentsTargetStatCalls += 1;
+        if (failureMode === "stat" && agentsTargetStatCalls === 1) throw missingPathError();
+        return { isFile: () => true };
+      }
+      return { isFile: () => true };
+    });
+    fsPromisesMocks.readFile.mockImplementation(async (skillPath: string) => {
+      if (
+        failureMode === "read" &&
+        skillPath === "/home/tester/.agents/skills/takode-orchestration/SKILL.md" &&
+        agentsTargetStatCalls === 1
+      ) {
+        throw missingPathError();
+      }
+      return VALID_SKILL;
+    });
+
+    await ensureSkillSymlinks(["takode-orchestration"], TEST_ROOTS);
+
+    expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
+      "/repo/.agents/skills/takode-orchestration",
+      "/home/tester/.agents/skills/takode-orchestration",
+    );
+    expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.agents/skills/takode-orchestration");
+    expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
+      "/repo/.claude/skills/takode-orchestration",
+      "/home/tester/.agents/skills/takode-orchestration",
+    );
+  });
+
+  it("removes a post-link invalidated install when no fallback remains", async () => {
+    fsMocks.existsSync.mockImplementation((targetDir: string) => {
+      return targetDir === "/repo/.agents/skills/agent-only";
+    });
+    let targetLstatCalls = 0;
+    fsMocks.lstatSync.mockImplementation((targetDir: string) => {
+      if (targetDir === "/home/tester/.agents/skills/agent-only") {
+        targetLstatCalls += 1;
+        if (targetLstatCalls === 2) return { isSymbolicLink: () => true };
+      }
+      throw missingPathError();
+    });
+    fsPromisesMocks.stat.mockImplementation(async (skillPath: string) => {
+      if (skillPath === "/repo/.agents/skills/agent-only/SKILL.md") return { isFile: () => true };
+      throw missingPathError();
+    });
+    fsPromisesMocks.readFile.mockResolvedValue(VALID_SKILL);
+
+    await ensureSkillSymlinks(["agent-only"], TEST_ROOTS);
+
+    expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
+      "/repo/.agents/skills/agent-only",
+      "/home/tester/.agents/skills/agent-only",
+    );
+    expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.agents/skills/agent-only");
+    expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(
+      "/repo/.claude/skills/agent-only",
+      "/home/tester/.agents/skills/agent-only",
+    );
+  });
+
+  it("reports neither-usable sources as skipped rather than installed", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fsMocks.existsSync.mockImplementation((targetDir: string) => {
+      return targetDir === "/repo/.claude/skills/unusable" || targetDir === "/repo/.agents/skills/unusable";
+    });
+    fsPromisesMocks.stat.mockRejectedValue(missingPathError());
+
+    await ensureSkillSymlinks(["unusable"], TEST_ROOTS);
+
+    expect(fsMocks.symlinkSync).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith("[skill-symlink] Installed none; skipped unusable:claude, unusable:agents");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[skill-symlink] Skipping repo skill without usable SKILL.md: /repo/.claude/skills/unusable or /repo/.agents/skills/unusable",
+    );
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
   });
 
   it("discovers agents-only project skills and installs them only for agents", async () => {
@@ -452,8 +578,8 @@ describe("ensureSkillSymlinks", () => {
   });
 
   it("skips missing repo skill sources instead of creating broken symlinks", async () => {
-    // Validates q-275: startup should not create global skill symlinks for
-    // hardcoded slugs that do not exist in the repo checkout.
+    // Startup must not create global skill symlinks for hardcoded slugs that
+    // do not exist in the repo checkout.
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     fsMocks.existsSync.mockImplementation((targetDir: string) => {
       return targetDir === "/repo/.claude/skills" || targetDir === "/repo/.agents/skills";

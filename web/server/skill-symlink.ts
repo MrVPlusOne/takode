@@ -58,10 +58,10 @@ const DEPRECATED_PROJECT_SKILL_SLUGS = new Set([
 const LEGACY_CODEX_PROJECT_OWNED_SKILL_SLUGS = new Set(["quest"]);
 
 export interface SkillSymlinkRoots {
-  mainRepoRoot?: string;
-  claudeSkillsHome?: string;
-  agentsSkillsHome?: string;
-  legacyCodexSkillsHome?: string;
+  mainRepoRoot: string;
+  claudeSkillsHome: string;
+  agentsSkillsHome: string;
+  legacyCodexSkillsHome: string;
 }
 
 /**
@@ -74,37 +74,68 @@ export interface SkillSymlinkRoots {
  * also discovers repo skill slugs from `.claude/skills` and `.agents/skills`
  * so agent-only project skills are installed without touching Claude's root.
  */
-export async function ensureSkillSymlinks(slugs: string[], roots: SkillSymlinkRoots = {}): Promise<void> {
-  const mainRepoRoot = roots.mainRepoRoot ?? (await resolveMainRepoRoot());
+export async function ensureSkillSymlinks(slugs: string[], roots?: SkillSymlinkRoots): Promise<void> {
+  assertCompleteSkillSymlinkRoots(roots);
+  const mainRepoRoot = roots?.mainRepoRoot ?? (await resolveMainRepoRoot());
   const repoClaudeSkillsHome = join(mainRepoRoot, ".claude", "skills");
   const repoAgentsSkillsHome = join(mainRepoRoot, ".agents", "skills");
-  const claudeSkillsHome = roots.claudeSkillsHome ?? CLAUDE_SKILLS_HOME;
-  const agentsSkillsHome = roots.agentsSkillsHome ?? AGENTS_SKILLS_HOME;
-  const legacyCodexSkillsHome = roots.legacyCodexSkillsHome ?? LEGACY_CODEX_SKILLS_HOME;
+  const claudeSkillsHome = roots?.claudeSkillsHome ?? CLAUDE_SKILLS_HOME;
+  const agentsSkillsHome = roots?.agentsSkillsHome ?? AGENTS_SKILLS_HOME;
+  const legacyCodexSkillsHome = roots?.legacyCodexSkillsHome ?? LEGACY_CODEX_SKILLS_HOME;
 
   migrateLegacyCodexSkillsToAgents(legacyCodexSkillsHome, agentsSkillsHome);
   removeDeprecatedProjectSkillSymlinks(claudeSkillsHome, agentsSkillsHome, legacyCodexSkillsHome);
   removeLegacyCodexProjectOwnedSkillCopies(legacyCodexSkillsHome);
 
   const allSlugs = discoverRepoSkillSlugs(slugs, repoClaudeSkillsHome, repoAgentsSkillsHome);
+  const installed: string[] = [];
+  const skipped: string[] = [];
   for (const slug of allSlugs) {
     const repoClaudeDir = join(repoClaudeSkillsHome, slug);
     const repoAgentsDir = join(repoAgentsSkillsHome, slug);
-    const [hasClaudeSource, hasAgentsSource] = await Promise.all([
-      hasUsableSkillPayload(repoClaudeDir),
-      hasUsableSkillPayload(repoAgentsDir),
-    ]);
-    if (!hasClaudeSource && !hasAgentsSource) {
-      console.warn(`[skill-symlink] Skipping repo skill without usable SKILL.md: ${repoClaudeDir} or ${repoAgentsDir}`);
-      continue;
-    }
+    const claudeTarget = join(claudeSkillsHome, slug);
+    const agentsTarget = join(agentsSkillsHome, slug);
+    const claudeSource = await installFirstUsableSkillSource([repoClaudeDir], claudeTarget);
+    const agentsSource = await installFirstUsableSkillSource([repoAgentsDir, repoClaudeDir], agentsTarget);
 
-    if (hasClaudeSource) {
-      ensureSymlink(repoClaudeDir, join(claudeSkillsHome, slug));
+    if (claudeSource) installed.push(`${slug}:claude`);
+    else skipped.push(`${slug}:claude`);
+    if (agentsSource) installed.push(`${slug}:agents`);
+    else skipped.push(`${slug}:agents`);
+
+    if (!claudeSource && !agentsSource) {
+      console.warn(`[skill-symlink] Skipping repo skill without usable SKILL.md: ${repoClaudeDir} or ${repoAgentsDir}`);
     }
-    ensureSymlink(hasAgentsSource ? repoAgentsDir : repoClaudeDir, join(agentsSkillsHome, slug));
   }
-  console.log(`[skill-symlink] ${allSlugs.join(", ")} symlinked for Claude and agents`);
+  console.log(
+    `[skill-symlink] Installed ${installed.length > 0 ? installed.join(", ") : "none"}; skipped ${
+      skipped.length > 0 ? skipped.join(", ") : "none"
+    }`,
+  );
+}
+
+function assertCompleteSkillSymlinkRoots(roots: SkillSymlinkRoots | undefined): void {
+  if (roots === undefined) return;
+  const requiredRoots: Array<keyof SkillSymlinkRoots> = [
+    "mainRepoRoot",
+    "claudeSkillsHome",
+    "agentsSkillsHome",
+    "legacyCodexSkillsHome",
+  ];
+  if (requiredRoots.some((key) => typeof roots[key] !== "string" || roots[key].trim().length === 0)) {
+    throw new Error(`[skill-symlink] Disposable roots must provide ${requiredRoots.join(", ")} together`);
+  }
+}
+
+async function installFirstUsableSkillSource(candidates: string[], targetDir: string): Promise<string | null> {
+  for (const sourceDir of candidates) {
+    if (!(await hasUsableSkillPayload(sourceDir))) continue;
+    ensureSymlink(sourceDir, targetDir);
+    if (await hasUsableSkillPayload(targetDir)) return sourceDir;
+    removeDeprecatedProjectSkillPath(targetDir);
+  }
+  removeDeprecatedProjectSkillPath(targetDir);
+  return null;
 }
 
 async function hasUsableSkillPayload(skillDir: string): Promise<boolean> {
@@ -121,9 +152,91 @@ async function hasUsableSkillPayload(skillDir: string): Promise<boolean> {
 function hasRequiredSkillContent(content: string): boolean {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/.exec(content.trimEnd());
   if (!match) return false;
-  const frontmatter = match[1];
-  const body = match[2];
-  return /^name:\s*\S.*$/m.test(frontmatter) && /^description:\s*\S.*$/m.test(frontmatter) && body.trim().length > 0;
+  const frontmatterLines = match[1].split(/\r?\n/);
+  return (
+    hasSemanticFrontmatterValue(frontmatterLines, "name") &&
+    hasSemanticFrontmatterValue(frontmatterLines, "description") &&
+    hasSemanticMarkdownBody(match[2])
+  );
+}
+
+function hasSemanticFrontmatterValue(lines: string[], key: "name" | "description"): boolean {
+  const matches = lines.flatMap((line, index) => {
+    const match = new RegExp(`^${key}:\\s*(.*)$`).exec(line);
+    return match ? [{ index, raw: match[1].trim() }] : [];
+  });
+  if (matches.length !== 1) return false;
+  const { index, raw } = matches[0];
+  if (/^[>|][+-]?(?:\s+#.*)?$/.test(raw)) {
+    for (const line of lines.slice(index + 1)) {
+      if (line.trim().length === 0 || line.trimStart().startsWith("#")) continue;
+      if (!/^\s+/.test(line)) break;
+      if (isSemanticText(line.trim())) return true;
+    }
+    return false;
+  }
+  if (/^[>|]/.test(raw)) return false;
+  return parseSemanticScalar(raw) !== null;
+}
+
+function parseSemanticScalar(raw: string): string | null {
+  if (raw.startsWith('"')) return parseDoubleQuotedScalar(raw);
+  if (raw.startsWith("'")) return parseSingleQuotedScalar(raw);
+  const commentIndex = raw.search(/(^|\s)#/);
+  const value = (commentIndex >= 0 ? raw.slice(0, commentIndex) : raw).trim();
+  return isSemanticText(value) ? value : null;
+}
+
+function parseDoubleQuotedScalar(raw: string): string | null {
+  let escaped = false;
+  for (let index = 1; index < raw.length; index += 1) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (raw[index] === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (raw[index] !== '"') continue;
+    const tail = raw.slice(index + 1).trim();
+    if (tail.length > 0 && !tail.startsWith("#")) return null;
+    try {
+      const value = JSON.parse(raw.slice(0, index + 1));
+      return typeof value === "string" && isSemanticText(value) ? value : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function parseSingleQuotedScalar(raw: string): string | null {
+  let value = "";
+  for (let index = 1; index < raw.length; index += 1) {
+    if (raw[index] !== "'") {
+      value += raw[index];
+      continue;
+    }
+    if (raw[index + 1] === "'") {
+      value += "'";
+      index += 1;
+      continue;
+    }
+    const tail = raw.slice(index + 1).trim();
+    if (tail.length > 0 && !tail.startsWith("#")) return null;
+    return isSemanticText(value) ? value : null;
+  }
+  return null;
+}
+
+function isSemanticText(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed.length > 0 && !trimmed.startsWith("#");
+}
+
+function hasSemanticMarkdownBody(body: string): boolean {
+  return body.replace(/<!--[\s\S]*?(?:-->|$)/g, "").trim().length > 0;
 }
 
 function discoverRepoSkillSlugs(

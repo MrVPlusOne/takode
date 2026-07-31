@@ -150,8 +150,8 @@ describe("buildCompanionInstructions", () => {
           repoRoot: "/Users/jiayiwei/Code/yolo",
           branch: "main-wt-5892",
           worktreePath: "/Users/jiayiwei/.companion/worktrees/yolo/main-wt-5892",
-          sourceSessionNum: 2078,
-          sourceLabel: "#2078 QA Data Leader",
+          sourceSessionNum: 2468,
+          sourceLabel: "#2468 QA Data Leader",
         },
       },
     });
@@ -159,7 +159,7 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Base repo checkout: `/Users/jiayiwei/Code/yolo`");
     expect(result).toContain("Base branch / port target: `main-wt-5892`");
     expect(result).toContain("Port target worktree: `/Users/jiayiwei/.companion/worktrees/yolo/main-wt-5892`");
-    expect(result).toContain("Port target source: #2078 QA Data Leader");
+    expect(result).toContain("Port target source: #2468 QA Data Leader");
   });
 
   it("orders leader needs-input notifications after explicit user-visible text", () => {

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -123,5 +123,123 @@ describe("skill source payload validation", () => {
     const installedDir = join(installation.installedAgentsHome, slug);
     expect(await readlink(installedDir)).toBe(agentDir);
     expect(await readFile(join(installedDir, "SKILL.md"), "utf-8")).toBe(agentContent);
+  });
+
+  it("accepts semantic quoted, literal, and folded metadata values", async () => {
+    // Repository skills use both quoted scalars and folded block descriptions;
+    // those real values must remain eligible distinct non-Claude sources.
+    const installation = await makeInstallation();
+    const accepted = new Map([
+      ["double-quoted", '---\nname: "double-quoted"\ndescription: "Useful quoted description"\n---\n\n# Quoted body\n'],
+      [
+        "single-quoted",
+        "---\nname: 'single-quoted'\ndescription: 'It''s a useful description'\n---\n\n# Quoted body\n",
+      ],
+      [
+        "literal-description",
+        "---\nname: literal-description\ndescription: |-\n  First literal line.\n  Second literal line.\n---\n\n# Literal body\n",
+      ],
+      [
+        "folded-description",
+        "---\nname: folded-description\ndescription: >-\n  First folded line\n  continues here.\n---\n\n# Folded body\n",
+      ],
+    ]);
+    for (const [slug, content] of accepted) {
+      await writeSkill(installation.repoClaudeHome, slug, validSkillContent(slug, "Canonical fallback"));
+      await writeSkill(installation.repoAgentsHome, slug, content);
+    }
+
+    await ensureSkillSymlinks([...accepted.keys()], installation.roots);
+
+    for (const [slug, content] of accepted) {
+      const installedDir = join(installation.installedAgentsHome, slug);
+      expect(await readlink(installedDir)).toBe(join(installation.repoAgentsHome, slug));
+      expect(await readFile(join(installedDir, "SKILL.md"), "utf-8")).toBe(content);
+    }
+  });
+
+  it("accepts the repository's real quoted and folded skill metadata", async () => {
+    // Running the real source catalog against disposable destinations catches
+    // compatibility drift in currently tracked skill frontmatter forms.
+    const installation = await makeInstallation();
+    const roots = { ...installation.roots, mainRepoRoot: PROJECT_ROOT };
+
+    await ensureSkillSymlinks(["takode-orchestration", "skeptic-review"], roots);
+
+    const orchestration = await readFile(
+      join(installation.installedAgentsHome, "takode-orchestration", "SKILL.md"),
+      "utf-8",
+    );
+    const skeptic = await readFile(join(installation.installedAgentsHome, "skeptic-review", "SKILL.md"), "utf-8");
+    expect(orchestration).toContain("One fresh reply may make one exact substitution");
+    expect(skeptic).toContain("name: skeptic-review");
+    expect(skeptic).toContain("description: >-");
+  });
+
+  it("rejects semantic blanks and comments in metadata and bodies", async () => {
+    // Surface tokens are insufficient: required values and the instruction body
+    // must carry semantic text after quotes, comments, and block markers are resolved.
+    const installation = await makeInstallation();
+    const rejected = new Map([
+      ["empty-double", '---\nname: empty-double\ndescription: ""\n---\n\n# Body\n'],
+      ["empty-single", "---\nname: empty-single\ndescription: ''\n---\n\n# Body\n"],
+      ["comment-value", "---\nname: comment-value\ndescription: # only a comment\n---\n\n# Body\n"],
+      ["quoted-comment", '---\nname: quoted-comment\ndescription: "# only a comment"\n---\n\n# Body\n'],
+      ["empty-block", "---\nname: empty-block\ndescription: >-\n---\n\n# Body\n"],
+      ["comment-block", "---\nname: comment-block\ndescription: |\n  # only a comment\n---\n\n# Body\n"],
+      ["comment-body", "---\nname: comment-body\ndescription: Useful description\n---\n\n<!-- only a comment -->\n"],
+    ]);
+    const canonicalDirs = new Map<string, string>();
+    for (const [slug, content] of rejected) {
+      canonicalDirs.set(
+        slug,
+        await writeSkill(installation.repoClaudeHome, slug, validSkillContent(slug, "Canonical fallback")),
+      );
+      await writeSkill(installation.repoAgentsHome, slug, content);
+    }
+
+    await ensureSkillSymlinks([...rejected.keys()], installation.roots);
+
+    for (const slug of rejected.keys()) {
+      const installedDir = join(installation.installedAgentsHome, slug);
+      expect(await readlink(installedDir)).toBe(canonicalDirs.get(slug));
+      expect(await readFile(join(installedDir, "SKILL.md"), "utf-8")).toContain("# Canonical fallback");
+    }
+  });
+
+  it("rejects partial disposable roots before creating any destination", async () => {
+    // The runtime guard complements the required-root type so JavaScript and
+    // casted callers cannot mix disposable and persistent destinations.
+    const installation = await makeInstallation();
+    const partialRoots = { mainRepoRoot: installation.roots.mainRepoRoot } as SkillSymlinkRoots;
+
+    await expect(ensureSkillSymlinks(["partial-roots"], partialRoots)).rejects.toThrow("Disposable roots must provide");
+
+    await expect(lstat(join(installation.root, "home"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("removes stale installed links and reports skips when neither source is usable", async () => {
+    // Fail-closed installation leaves no discoverable link when both ordered
+    // sources are invalid, and the summary reports destinations actually skipped.
+    const installation = await makeInstallation();
+    const slug = "unusable-guide";
+    const invalidSource = await writeSkill(installation.repoClaudeHome, slug, "<!-- no skill payload -->\n");
+    await writeSkill(installation.repoAgentsHome, slug, "  \n");
+    const installedClaudeDir = join(installation.roots.claudeSkillsHome, slug);
+    const installedAgentsDir = join(installation.roots.agentsSkillsHome, slug);
+    await Promise.all([
+      mkdir(installation.roots.claudeSkillsHome, { recursive: true }),
+      mkdir(installation.roots.agentsSkillsHome, { recursive: true }),
+    ]);
+    await Promise.all([symlink(invalidSource, installedClaudeDir), symlink(invalidSource, installedAgentsDir)]);
+    const logs: string[] = [];
+    const logSpy = vi.spyOn(console, "log").mockImplementation((message: string) => logs.push(message));
+
+    await ensureSkillSymlinks([slug], installation.roots);
+
+    await expect(lstat(installedClaudeDir)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(installedAgentsDir)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(logs).toContain("[skill-symlink] Installed none; skipped unusable-guide:claude, unusable-guide:agents");
+    logSpy.mockRestore();
   });
 });
