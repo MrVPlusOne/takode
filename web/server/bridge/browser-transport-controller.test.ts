@@ -453,6 +453,44 @@ describe("Codex auto-pause recovery summary fanout", () => {
     freezeHistoryThroughCurrentTail(session);
     expect(session.frozenCount).toBe(3);
   });
+
+  it("advances the frozen browser prefix for interrupted delivered receipt finality", () => {
+    const summary = {
+      type: "codex_auto_pause_recovery_summary",
+      id: "interrupted-recovery-summary",
+      timestamp: 3,
+      content: "Automatic input recovery: 1 delivered.",
+      searchText: "automatic input recovery outcome:delivered completion:pending",
+      recovery: {
+        family: "copilot_auth_refresh_exhausted",
+        pausedAt: 1,
+        recoveryConfirmedAt: 2,
+        updatedAt: 3,
+        status: "settled",
+        receipts: [{ outcome: "delivered" }],
+      },
+    } as BrowserIncomingMessage;
+    const session = makeSession({
+      messageHistory: [
+        { type: "user_message", id: "u1", content: "probe", timestamp: 1 } as BrowserIncomingMessage,
+        { type: "result", data: { is_error: false } } as BrowserIncomingMessage,
+        summary,
+      ],
+    });
+
+    freezeHistoryThroughCurrentTail(session);
+    expect(session.frozenCount).toBe(2);
+
+    if (summary.type === "codex_auto_pause_recovery_summary") {
+      summary.recovery.receipts[0] = {
+        ...summary.recovery.receipts[0]!,
+        finalizedAt: 4,
+        finalityReason: "turn_interrupted_or_cancelled",
+      } as any;
+    }
+    freezeHistoryThroughCurrentTail(session);
+    expect(session.frozenCount).toBe(3);
+  });
 });
 
 describe("quest_list_updated replay-buffer exclusion", () => {

@@ -18,6 +18,8 @@ export type CodexAutoPauseRecoveryReasonCode =
   | "delivery_pipeline_rejected"
   | "nonrecoverable_turn_start";
 
+export type CodexAutoPauseRecoveryFinalityReason = "turn_interrupted_or_cancelled";
+
 export interface CodexAutoPauseRecoveryLink {
   summaryId: string;
   groupId: string;
@@ -41,6 +43,9 @@ export interface CodexAutoPauseRecoveryReceipt {
   completedAt?: number;
   recovered?: boolean;
   completionError?: boolean;
+  /** Delivery is immutable even though the backend turn did not complete normally. */
+  finalizedAt?: number;
+  finalityReason?: CodexAutoPauseRecoveryFinalityReason;
 }
 
 export interface CodexAutoPauseRecoverySummary {
@@ -58,13 +63,17 @@ export function buildCodexAutoPauseRecoverySearchText(summary: CodexAutoPauseRec
   const parts = ["automatic input recovery", `family:${summary.family}`, `status:${summary.status}`];
   for (let index = 0; index < summary.receipts.length; index++) {
     const receipt = summary.receipts[index]!;
-    const completion = receipt.completionError
-      ? "backend_error"
-      : receipt.completedAt !== undefined
-        ? receipt.recovered
-          ? "recovered"
-          : "completed"
-        : "pending";
+    const interruptedFinality =
+      receipt.finalizedAt !== undefined && receipt.finalityReason === "turn_interrupted_or_cancelled";
+    const completion = interruptedFinality
+      ? "interrupted_or_cancelled"
+      : receipt.completionError
+        ? "backend_error"
+        : receipt.completedAt !== undefined
+          ? receipt.recovered
+            ? "recovered"
+            : "completed"
+          : "pending";
     const projection = [
       `source:${boundedSearchValue(receipt.sourceLabel, 64)}`,
       receipt.sourceDetail ? `detail:${boundedSearchValue(receipt.sourceDetail, 96)}` : "",
@@ -74,6 +83,7 @@ export function buildCodexAutoPauseRecoverySearchText(summary: CodexAutoPauseRec
       `count:${Math.max(1, Math.floor(receipt.count))}`,
       `coalesced:${Math.max(0, Math.floor(receipt.coalescedCount))}`,
       `completion:${completion}`,
+      interruptedFinality ? `finality_reason:${receipt.finalityReason}` : "",
       receipt.recovered ? "recovered:true" : "",
       receipt.survivingGroupId ? `survivor:${boundedSearchValue(receipt.survivingGroupId, 96)}` : "",
     ]
@@ -93,7 +103,9 @@ export function isCodexAutoPauseRecoverySummaryFinal(summary: CodexAutoPauseReco
   return summary.receipts.every(
     (receipt) =>
       receipt.outcome !== "released_to_delivery" &&
-      (receipt.outcome !== "delivered" || receipt.completedAt !== undefined),
+      (receipt.outcome !== "delivered" ||
+        receipt.completedAt !== undefined ||
+        (receipt.finalizedAt !== undefined && receipt.finalityReason === "turn_interrupted_or_cancelled")),
   );
 }
 

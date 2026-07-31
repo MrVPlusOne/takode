@@ -39,8 +39,14 @@ describe("CodexAutoPauseRecoverySummary", () => {
     expect(screen.getByText("Automatic input recovery complete")).toBeTruthy();
     expect(screen.getByText("Herd Events · turn_end")).toBeTruthy();
     expect(screen.getByText("Herd Events · board_stalled")).toBeTruthy();
-    expect(screen.getByText("Delivered")).toBeTruthy();
+    expect(screen.getAllByText("Delivered")).toHaveLength(2);
     expect(screen.getByText("Suppressed")).toBeTruthy();
+    expect(screen.getByText("Timer · turn_end")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Delivered exactly once; the turn was interrupted or cancelled, so no completion or recovery was claimed.",
+      ),
+    ).toBeTruthy();
     expect(
       screen.getByText("Accepted by Codex exactly once and completed after automatic turn recovery."),
     ).toBeTruthy();
@@ -48,7 +54,7 @@ describe("CodexAutoPauseRecoverySummary", () => {
       screen.getByText("Suppressed because the authoritative board state no longer matched the stalled event."),
     ).toBeTruthy();
     expect(screen.getByText(/1 similar input was coalesced into representative/)).toBeTruthy();
-    expect(screen.getByRole("list", { name: "Held input outcomes" }).children).toHaveLength(2);
+    expect(screen.getByRole("list", { name: "Held input outcomes" }).children).toHaveLength(3);
   });
 
   it("re-renders the same summary row as asynchronous outcomes settle", () => {

@@ -139,14 +139,17 @@ export function markCodexAutoPauseRecoveryTurnCompleted(
   now: number,
   deps: RecoverySummaryDeps,
 ): boolean {
-  if (interrupted || !turn?.autoPauseRecoveryLinks?.length) return false;
+  if (!turn?.autoPauseRecoveryLinks?.length) return false;
+  if (interrupted) {
+    return finalizeInterruptedRecoveryDeliveries(session, turn.autoPauseRecoveryLinks, now, deps);
+  }
   const recovered = turn.dispatchCount > 1;
   let changed = false;
   const touched = new Map<string, RecoverySummaryEntry>();
   for (const { summaryId, groupId } of dedupeLinks(turn.autoPauseRecoveryLinks)) {
     const entry = findRecoverySummary(session, summaryId);
     const receipt = entry?.recovery.receipts.find((item) => item.groupId === groupId);
-    if (!entry || !receipt || receipt.outcome !== "delivered") continue;
+    if (!entry || !receipt || receipt.outcome !== "delivered" || receipt.finalizedAt !== undefined) continue;
     if (receipt.completedAt !== undefined && receipt.recovered === recovered && receipt.completionError === isError) {
       continue;
     }
@@ -159,6 +162,30 @@ export function markCodexAutoPauseRecoveryTurnCompleted(
         ? "codex_delivery_recovered"
         : "codex_delivery_completed";
     receipt.reason = REASONS[receipt.reasonCode];
+    entry.recovery.updatedAt = now;
+    refreshRecoverySummaryEntry(entry);
+    touched.set(summaryId, entry);
+    changed = true;
+  }
+  for (const entry of touched.values()) deps.broadcastToBrowsers(session, entry);
+  return changed;
+}
+
+function finalizeInterruptedRecoveryDeliveries(
+  session: RecoverySummarySessionLike,
+  links: readonly CodexAutoPauseRecoveryLink[],
+  now: number,
+  deps: RecoverySummaryDeps,
+): boolean {
+  let changed = false;
+  const touched = new Map<string, RecoverySummaryEntry>();
+  for (const { summaryId, groupId } of dedupeLinks(links)) {
+    const entry = findRecoverySummary(session, summaryId);
+    const receipt = entry?.recovery.receipts.find((item) => item.groupId === groupId);
+    if (!entry || !receipt || receipt.outcome !== "delivered" || receipt.completedAt !== undefined) continue;
+    if (receipt.finalizedAt !== undefined && receipt.finalityReason === "turn_interrupted_or_cancelled") continue;
+    receipt.finalizedAt = now;
+    receipt.finalityReason = "turn_interrupted_or_cancelled";
     entry.recovery.updatedAt = now;
     refreshRecoverySummaryEntry(entry);
     touched.set(summaryId, entry);

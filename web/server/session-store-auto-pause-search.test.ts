@@ -143,4 +143,107 @@ describe("archived Codex auto-pause recovery search", () => {
     expect(excerpts).not.toContain("private board payload sentinel");
     expect(excerpts.length).toBeLessThanOrEqual(2_200);
   });
+
+  it("persists interrupted delivery finality through thread history and archived search", async () => {
+    const held: CodexAutoPauseHeldInput = {
+      id: "interrupted-group",
+      queuedAt: 11,
+      lastQueuedAt: 11,
+      source: "programmatic",
+      count: 1,
+      message: {
+        type: "user_message",
+        content: "private interrupted payload sentinel",
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+        threadKey: "q-interrupted",
+        questId: "q-interrupted",
+      },
+    };
+    const state: CodexResultErrorAutoPauseState = {
+      family: "copilot_auth_refresh_exhausted",
+      fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+      streak: 1,
+      threshold: 1,
+      pausedAt: 10,
+      lastError: "GitHub Copilot API-key refresh exhausted its retry budget.",
+      lastErrorAt: 10,
+      lastSourceKind: "automatic",
+      totalMatchingErrors: 1,
+      heldInputs: [held],
+    };
+    const session = { messageHistory: [] as BrowserIncomingMessage[] };
+    const deps = { broadcastToBrowsers: vi.fn() };
+    const summary = createCodexAutoPauseRecoverySummary(session, state, [held], 20, deps);
+    const link = { summaryId: summary.id, groupId: held.id };
+    markCodexAutoPauseRecoveryDelivered(session, [link], 30, deps);
+    markCodexAutoPauseRecoveryTurnCompleted(
+      session,
+      { autoPauseRecoveryLinks: [link], dispatchCount: 1 },
+      false,
+      true,
+      40,
+      deps,
+    );
+    expect(summary).toMatchObject({
+      threadKey: "q-interrupted",
+      questId: "q-interrupted",
+      recovery: {
+        receipts: [
+          expect.objectContaining({
+            outcome: "delivered",
+            finalityReason: "turn_interrupted_or_cancelled",
+          }),
+        ],
+      },
+    });
+    expect(summary.recovery.receipts[0]?.completedAt).toBeUndefined();
+    expect(summary.searchText).toContain("completion:interrupted_or_cancelled");
+    expect(summary.searchText).not.toContain("private interrupted payload sentinel");
+
+    const activeDoc = {
+      sessionId: "interrupted-recovery-session",
+      archived: false,
+      createdAt: 1,
+      messageHistory: session.messageHistory,
+    };
+    for (const query of ["delivered interrupted_or_cancelled", "turn_interrupted_or_cancelled"]) {
+      expect(searchSessionDocuments([activeDoc], { query }).results[0], `active:${query}`).toMatchObject({
+        matchedField: "recovery_summary",
+      });
+    }
+
+    const dir = mkdtempSync(join(tmpdir(), "takode-interrupted-auto-pause-search-"));
+    tempDirs.push(dir);
+    const store = new SessionStore(dir);
+    const persisted = {
+      id: activeDoc.sessionId,
+      state: { session_id: activeDoc.sessionId },
+      messageHistory: session.messageHistory,
+      pendingMessages: [],
+      pendingPermissions: [],
+    } as unknown as PersistedSession;
+    store.saveSync(persisted);
+    await store.flushAll();
+    const restored = await store.load(persisted.id);
+    expect(restored?.messageHistory[0]).toMatchObject({
+      type: "codex_auto_pause_recovery_summary",
+      threadKey: "q-interrupted",
+      questId: "q-interrupted",
+    });
+    expect(await store.setArchived(persisted.id, true)).toBe(true);
+    await store.flushAll();
+    const searchOnly = await store.loadSearchDataOnly(persisted.id);
+    const archivedDoc = {
+      sessionId: persisted.id,
+      archived: true,
+      createdAt: 1,
+      searchExcerpts: searchOnly?._searchExcerpts,
+    };
+    for (const query of ["delivered interrupted_or_cancelled", "turn_interrupted_or_cancelled"]) {
+      expect(searchSessionDocuments([archivedDoc], { query }).results[0], `archived:${query}`).toMatchObject({
+        matchedField: "recovery_summary",
+      });
+    }
+    expect(JSON.stringify(searchOnly?._searchExcerpts)).not.toContain("private interrupted payload sentinel");
+  });
 });

@@ -210,6 +210,89 @@ describe("Codex auto-pause recovery summary", () => {
     expect(broadcastToBrowsers).toHaveBeenCalledTimes(calls);
   });
 
+  it("finalizes an interrupted delivered turn without completion enrichment or replay mutation", () => {
+    const session = { messageHistory: [] as BrowserIncomingMessage[] };
+    const broadcastToBrowsers = vi.fn();
+    const input = heldInput("group-interrupted", "turn_end", "private interrupted payload");
+    const entry = createCodexAutoPauseRecoverySummary(session, pauseState([input]), [input], 200, {
+      broadcastToBrowsers,
+    });
+    const link = { summaryId: entry.id, groupId: input.id };
+    expect(markCodexAutoPauseRecoveryDelivered(session, [link], 210, { broadcastToBrowsers })).toBe(true);
+
+    expect(
+      markCodexAutoPauseRecoveryTurnCompleted(
+        session,
+        { autoPauseRecoveryLinks: [link], dispatchCount: 2 },
+        false,
+        true,
+        220,
+        { broadcastToBrowsers },
+      ),
+    ).toBe(true);
+    expect(entry.recovery.receipts[0]).toMatchObject({
+      outcome: "delivered",
+      reasonCode: "codex_delivery_accepted",
+      terminalAt: 210,
+      finalizedAt: 220,
+      finalityReason: "turn_interrupted_or_cancelled",
+    });
+    expect(entry.recovery.receipts[0]?.completedAt).toBeUndefined();
+    expect(entry.recovery.receipts[0]?.recovered).toBeUndefined();
+    expect(entry.searchText).toContain("completion:interrupted_or_cancelled");
+    expect(JSON.stringify(entry)).not.toContain("private interrupted payload");
+
+    const calls = broadcastToBrowsers.mock.calls.length;
+    expect(
+      markCodexAutoPauseRecoveryTurnCompleted(
+        session,
+        { autoPauseRecoveryLinks: [link], dispatchCount: 2 },
+        false,
+        true,
+        230,
+        { broadcastToBrowsers },
+      ),
+    ).toBe(false);
+    expect(
+      markCodexAutoPauseRecoveryTurnCompleted(
+        session,
+        { autoPauseRecoveryLinks: [link], dispatchCount: 2 },
+        false,
+        false,
+        240,
+        { broadcastToBrowsers },
+      ),
+    ).toBe(false);
+    expect(entry.recovery.receipts[0]?.finalizedAt).toBe(220);
+    expect(entry.recovery.receipts[0]?.completedAt).toBeUndefined();
+    expect(broadcastToBrowsers).toHaveBeenCalledTimes(calls);
+  });
+
+  it("does not create finality for an interrupted probe whose held receipt was never delivered", () => {
+    const session = { messageHistory: [] as BrowserIncomingMessage[] };
+    const broadcastToBrowsers = vi.fn();
+    const input = heldInput("group-still-held", "turn_end", "still held payload");
+    const entry = createCodexAutoPauseRecoverySummary(session, pauseState([input]), [input], 200, {
+      broadcastToBrowsers,
+    });
+    const link = { summaryId: entry.id, groupId: input.id };
+    const calls = broadcastToBrowsers.mock.calls.length;
+
+    expect(
+      markCodexAutoPauseRecoveryTurnCompleted(
+        session,
+        { autoPauseRecoveryLinks: [link], dispatchCount: 1 },
+        false,
+        true,
+        210,
+        { broadcastToBrowsers },
+      ),
+    ).toBe(false);
+    expect(entry.recovery.receipts[0]).toMatchObject({ outcome: "released_to_delivery" });
+    expect(entry.recovery.receipts[0]?.finalizedAt).toBeUndefined();
+    expect(broadcastToBrowsers).toHaveBeenCalledTimes(calls);
+  });
+
   it("reconciles same-pause retry groups and counts without regressing terminal receipts", () => {
     const session = { messageHistory: [] as BrowserIncomingMessage[] };
     const broadcastToBrowsers = vi.fn();

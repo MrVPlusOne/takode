@@ -204,7 +204,8 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     // Codex emits an ordinary result wrapper; interruption lives in data.stop_reason, not a synthetic top-level flag.
     const session = makeSession();
     const summary = attachDeliveredRecovery(session);
-    const deps = makeDeps([]);
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
 
     await handleCodexAdapterBrowserMessage(session, makeResult(`result-${stopReason}`, 1, stopReason), deps);
 
@@ -214,8 +215,47 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       expect.anything(),
       true,
     );
-    expect(summary.recovery.receipts[0]).toMatchObject({ reasonCode: "codex_delivery_accepted" });
+    expect(summary.recovery.receipts[0]).toMatchObject({
+      outcome: "delivered",
+      reasonCode: "codex_delivery_accepted",
+      terminalAt: 3,
+      finalizedAt: expect.any(Number),
+      finalityReason: "turn_interrupted_or_cancelled",
+    });
     expect(summary.recovery.receipts[0]?.completedAt).toBeUndefined();
+    expect(summary.recovery.receipts[0]?.recovered).toBeUndefined();
+    expect(summary.recovery.receipts[0]?.completionError).toBeUndefined();
+    expect(summary.searchText).toContain("completion:interrupted_or_cancelled");
+    expect(summary.searchText).toContain("finality_reason:turn_interrupted_or_cancelled");
+    expect(broadcasts).toEqual([summary]);
+
+    const finalizedAt = summary.recovery.receipts[0]?.finalizedAt;
+    await handleCodexAdapterBrowserMessage(session, makeResult(`replayed-${stopReason}`, 1, stopReason), deps);
+    expect(summary.recovery.receipts[0]?.finalizedAt).toBe(finalizedAt);
+    expect(broadcasts).toEqual([summary]);
+  });
+
+  it.each([
+    "explicit",
+    "session",
+  ] as const)("finalizes delivered recovery links for %s interruption without claiming completion", async (source) => {
+    const session = makeSession();
+    const summary = attachDeliveredRecovery(session);
+    const result = makeResult(`result-${source}`);
+    if (source === "explicit") (result as any).interrupted = true;
+    else (session as any).interruptedDuringTurn = true;
+    const deps = makeDeps([]);
+
+    await handleCodexAdapterBrowserMessage(session, result, deps);
+
+    expect(summary.recovery.receipts[0]).toMatchObject({
+      outcome: "delivered",
+      reasonCode: "codex_delivery_accepted",
+      finalityReason: "turn_interrupted_or_cancelled",
+      finalizedAt: expect.any(Number),
+    });
+    expect(summary.recovery.receipts[0]?.completedAt).toBeUndefined();
+    expect(summary.recovery.receipts[0]?.recovered).toBeUndefined();
   });
 
   it("allows a normal producer-shaped successful manual result to complete delivery and auto-pause recovery", async () => {
@@ -235,6 +275,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       reasonCode: "codex_delivery_completed",
       completedAt: expect.any(Number),
     });
+    expect(summary.recovery.receipts[0]?.finalizedAt).toBeUndefined();
   });
 
   it("records live streamed activity breadcrumbs for hidden delegate children", async () => {

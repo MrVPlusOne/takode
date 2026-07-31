@@ -29,6 +29,11 @@ function receiptTitle(receipt: CodexAutoPauseRecoveryReceipt): string {
   return receipt.sourceDetail ? `${receipt.sourceLabel} · ${receipt.sourceDetail}` : receipt.sourceLabel;
 }
 
+function finalityDetail(receipt: CodexAutoPauseRecoveryReceipt): string | null {
+  if (receipt.finalizedAt === undefined || receipt.finalityReason !== "turn_interrupted_or_cancelled") return null;
+  return "Delivered exactly once; the turn was interrupted or cancelled, so no completion or recovery was claimed.";
+}
+
 export function CodexAutoPauseRecoverySummary({ summary }: { summary: RecoverySummary }) {
   const terminalCount = summary.receipts.filter((receipt) => receipt.outcome !== "released_to_delivery").length;
   const deliveredCount = summary.receipts.filter((receipt) => receipt.outcome === "delivered").length;
@@ -93,6 +98,9 @@ export function CodexAutoPauseRecoverySummary({ summary }: { summary: RecoverySu
                 )}
               </div>
               <p className="mt-1 leading-relaxed text-cc-muted">{receipt.reason}</p>
+              {finalityDetail(receipt) && (
+                <p className="mt-1 leading-relaxed text-cc-muted">{finalityDetail(receipt)}</p>
+              )}
               {receipt.coalescedCount > 0 && (
                 <p className="mt-1 text-[10px] text-cc-muted/80">
                   {receipt.coalescedCount} similar input{receipt.coalescedCount === 1 ? " was" : "s were"} coalesced
@@ -107,6 +115,11 @@ export function CodexAutoPauseRecoverySummary({ summary }: { summary: RecoverySu
                 {receipt.terminalAt && (
                   <span title={new Date(receipt.terminalAt).toISOString()}>
                     Terminal {formatTime(receipt.terminalAt)}
+                  </span>
+                )}
+                {receipt.finalizedAt && (
+                  <span title={new Date(receipt.finalizedAt).toISOString()}>
+                    Final {formatTime(receipt.finalizedAt)}
                   </span>
                 )}
                 <span title={receipt.groupId}>Group {receipt.groupId.slice(-8)}</span>
