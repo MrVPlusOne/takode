@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionStore, type PersistedSession } from "./session-store.js";
-import { MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_FILENAME } from "./model-provenance-migration-acknowledgement-store.js";
+import {
+  MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_FILENAME,
+  MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_TEMP_FILENAME,
+} from "./model-provenance-migration-acknowledgement-store.js";
 import { searchSessionDocuments } from "./session-search.js";
 
 let tempDir: string;
@@ -427,12 +430,16 @@ describe("loadAll", () => {
   });
 
   it("excludes the model-provenance acknowledgement sidecar from session discovery", async () => {
-    // Server-scoped acknowledgement state shares the directory but is not a session record.
+    // Committed and interrupted-candidate server state share the directory but neither is a session record.
     const contents = JSON.stringify({ version: 1, acknowledgements: { "event-a": 123 } });
     await writeFile(join(tempDir, MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_FILENAME), contents, "utf8");
+    await writeFile(join(tempDir, MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_TEMP_FILENAME), "partial", "utf8");
 
     expect(await store.loadAll()).toEqual([]);
     expect(await readFile(join(tempDir, MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_FILENAME), "utf8")).toBe(contents);
+    expect(await readFile(join(tempDir, MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_TEMP_FILENAME), "utf8")).toBe(
+      "partial",
+    );
   });
 
   it("returns an empty array for an empty directory", async () => {

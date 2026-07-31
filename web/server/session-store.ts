@@ -3,7 +3,7 @@ import { readdir, readFile, writeFile, unlink, appendFile } from "node:fs/promis
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { isReplayableBufferedEvent } from "./bridge/replay-buffer-policy.js";
-import { MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_FILENAME } from "./model-provenance-migration-acknowledgement-store.js";
+import { isModelProvenanceMigrationAcknowledgementStateFile } from "./model-provenance-migration-acknowledgement-store.js";
 import type {
   SessionState,
   BrowserIncomingMessage,
@@ -927,8 +927,7 @@ export class SessionStore {
     try {
       const launcherRestoreState = await this.loadLauncherRestoreState(metrics);
       const files = (await readdir(this.dir)).filter(
-        (f) =>
-          f.endsWith(".json") && f !== "launcher.json" && f !== MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_FILENAME,
+        (f) => f !== "launcher.json" && !isModelProvenanceMigrationAcknowledgementStateFile(f) && f.endsWith(".json"),
       );
       for (const file of files) {
         const sessionId = file.replace(/\.json$/, "");

@@ -1,14 +1,56 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
 export const MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_FILENAME = "model-provenance-migration-acknowledgements.json";
+export const MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_TEMP_SUFFIX = ".takode-candidate";
+export const MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_TEMP_FILENAME = `${MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_FILENAME}${MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_TEMP_SUFFIX}`;
 
 type AcknowledgementWriter = (filePath: string, contents: string) => Promise<void>;
+type AtomicRename = (candidatePath: string, committedPath: string) => Promise<void>;
 
-const defaultAcknowledgementWriter: AcknowledgementWriter = async (filePath, contents) => {
-  await writeFile(filePath, contents, "utf8");
-};
+function isMissingFile(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === "ENOENT";
+}
+
+export function modelProvenanceMigrationAcknowledgementTempPath(filePath: string): string {
+  return `${filePath}${MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_TEMP_SUFFIX}`;
+}
+
+export function isModelProvenanceMigrationAcknowledgementStateFile(fileName: string): boolean {
+  return (
+    fileName === MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_FILENAME ||
+    fileName === MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_TEMP_FILENAME
+  );
+}
+
+async function removeOwnedCandidate(candidatePath: string): Promise<void> {
+  try {
+    await unlink(candidatePath);
+  } catch (error) {
+    if (!isMissingFile(error)) throw error;
+  }
+}
+
+export async function replaceModelProvenanceMigrationAcknowledgementsAtomically(
+  filePath: string,
+  contents: string,
+  renameFile: AtomicRename = rename,
+): Promise<void> {
+  const candidatePath = modelProvenanceMigrationAcknowledgementTempPath(filePath);
+  await mkdir(dirname(filePath), { recursive: true });
+  await removeOwnedCandidate(candidatePath);
+  const candidate = await open(candidatePath, "wx", 0o600);
+  try {
+    await candidate.writeFile(contents, "utf8");
+    await candidate.sync();
+  } finally {
+    await candidate.close();
+  }
+  await renameFile(candidatePath, filePath);
+}
+
+const defaultAcknowledgementWriter: AcknowledgementWriter = replaceModelProvenanceMigrationAcknowledgementsAtomically;
 
 interface PersistedAcknowledgements {
   version: 1;
@@ -40,9 +82,14 @@ export class ModelProvenanceMigrationAcknowledgementStore {
         }
       }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      if (!isMissingFile(error)) {
         console.warn("[model-provenance] Failed to load acknowledgement state:", error);
       }
+    }
+    try {
+      await removeOwnedCandidate(modelProvenanceMigrationAcknowledgementTempPath(this.filePath));
+    } catch (error) {
+      console.warn("[model-provenance] Failed to remove stale acknowledgement candidate:", error);
     }
   }
 
