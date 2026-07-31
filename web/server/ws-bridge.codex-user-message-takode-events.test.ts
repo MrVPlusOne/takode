@@ -17,6 +17,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { SessionStore } from "./session-store.js";
+import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
   advanceBoardRow as advanceBoardRowController,
@@ -668,6 +669,156 @@ describe("Codex user_message takode events", () => {
     expect(lastTurnEnd[2]).toEqual(expect.objectContaining({ interrupted: true, interrupt_source: "user" }));
 
     spy.mockRestore();
+  });
+
+  it.each([
+    "interrupted",
+    "cancel",
+    "cancelled",
+    "canceled",
+    "user_cancelled",
+  ])("advances live frozen history and reconnect hash for delivered stop_reason=%s", async (stopReason) => {
+    const sid = `worker-codex-finality-${stopReason}`;
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: `thread-${stopReason}` });
+    bridge.handleBrowserOpen(browser, sid);
+    await flushAsync();
+    browser.send.mockClear();
+    const session = bridge.getSession(sid)!;
+    const summaryId = `recovery-summary-${stopReason}`;
+    const groupId = `recovery-group-${stopReason}`;
+    session.messageHistory.push({
+      type: "codex_auto_pause_recovery_summary",
+      id: summaryId,
+      timestamp: 1,
+      content: "Automatic input recovery: 1 awaiting delivery.",
+      searchText: "automatic input recovery outcome:released_to_delivery completion:pending",
+      recovery: {
+        family: "copilot_auth_refresh_exhausted",
+        pausedAt: 1,
+        recoveryConfirmedAt: 2,
+        updatedAt: 2,
+        status: "releasing",
+        receipts: [
+          {
+            groupId,
+            source: "programmatic",
+            sourceLabel: "Herd Events",
+            count: 1,
+            coalescedCount: 0,
+            queuedAt: 1,
+            lastQueuedAt: 1,
+            releasedAt: 2,
+            outcome: "released_to_delivery",
+            reasonCode: "manual_recovery_succeeded",
+            reason: "Manual recovery succeeded; queued for exact-once delivery.",
+          },
+        ],
+      },
+      threadKey: "q-finality",
+      questId: "q-finality",
+      threadRefs: [{ threadKey: "q-finality", questId: "q-finality", source: "explicit" }],
+    });
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "deliver the recovery-linked input once",
+        autoPauseRecoveries: [{ summaryId, groupId }],
+      }),
+    );
+    adapter.emitTurnStarted(`turn-${stopReason}`);
+    await flushAsync();
+    const summary = session.messageHistory.find(
+      (message) => message.type === "codex_auto_pause_recovery_summary" && message.id === summaryId,
+    );
+    expect(summary?.type).toBe("codex_auto_pause_recovery_summary");
+    if (summary?.type !== "codex_auto_pause_recovery_summary") throw new Error("missing recovery summary");
+    expect(summary.recovery.receipts[0]).toMatchObject({ outcome: "delivered", terminalAt: expect.any(Number) });
+    const terminalAt = summary.recovery.receipts[0]!.terminalAt;
+
+    const result = {
+      type: "result" as const,
+      data: {
+        type: "result" as const,
+        subtype: "success" as const,
+        is_error: false,
+        result: "bounded interrupted result",
+        duration_ms: 320,
+        duration_api_ms: 320,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: stopReason,
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        codex_turn_id: `turn-${stopReason}`,
+        uuid: `result-${stopReason}`,
+        session_id: sid,
+      },
+    };
+    adapter.emitBrowserMessage(result);
+    await flushAsync();
+
+    expect(summary.recovery.receipts[0]).toMatchObject({
+      outcome: "delivered",
+      reasonCode: "codex_delivery_accepted",
+      terminalAt,
+      finalizedAt: expect.any(Number),
+      finalityReason: "turn_interrupted_or_cancelled",
+    });
+    expect(summary.recovery.receipts[0]?.completedAt).toBeUndefined();
+    expect(session.frozenCount).toBe(session.messageHistory.length);
+    const frozenHash = computeHistoryMessagesSyncHash(session.messageHistory.slice(0, session.frozenCount)).hash;
+    const resultCount = session.messageHistory.filter((message) => message.type === "result").length;
+    const finalizedAt = summary.recovery.receipts[0]!.finalizedAt;
+
+    adapter.emitBrowserMessage(result);
+    await flushAsync();
+    expect(summary.recovery.receipts[0]?.finalizedAt).toBe(finalizedAt);
+    expect(session.frozenCount).toBe(session.messageHistory.length);
+    expect(session.messageHistory.filter((message) => message.type === "result")).toHaveLength(resultCount);
+
+    const reconnect = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(reconnect, sid);
+    await bridge.handleBrowserMessage(
+      reconnect,
+      JSON.stringify({ type: "session_subscribe", last_seq: 0, known_frozen_count: 0 }),
+    );
+    await flushAsync();
+    const historySync = reconnect.send.mock.calls
+      .map(([raw]: [string]) => JSON.parse(raw))
+      .find((message: any) => message.type === "history_sync");
+    expect(historySync).toMatchObject({
+      frozen_count: session.frozenCount,
+      expected_frozen_hash: frozenHash,
+      hot_messages: [],
+    });
+
+    await store.flushAll();
+    const restored = await store.load(sid);
+    expect(restored?._frozenCount).toBe(session.frozenCount);
+    const restoredSummary = restored?.messageHistory.find(
+      (message) => message.type === "codex_auto_pause_recovery_summary" && message.id === summaryId,
+    );
+    expect(restoredSummary).toMatchObject({
+      type: "codex_auto_pause_recovery_summary",
+      recovery: {
+        receipts: [
+          expect.objectContaining({
+            outcome: "delivered",
+            finalizedAt,
+            finalityReason: "turn_interrupted_or_cancelled",
+          }),
+        ],
+      },
+    });
   });
 
   it("does not mark turn_end as interrupted when a queued follow-up arrives but the current codex result completes normally", async () => {

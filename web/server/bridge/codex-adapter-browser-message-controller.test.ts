@@ -228,11 +228,13 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(summary.searchText).toContain("completion:interrupted_or_cancelled");
     expect(summary.searchText).toContain("finality_reason:turn_interrupted_or_cancelled");
     expect(broadcasts).toEqual([summary]);
+    expect(deps.freezeHistoryThroughCurrentTail).toHaveBeenCalledWith(session);
 
     const finalizedAt = summary.recovery.receipts[0]?.finalizedAt;
     await handleCodexAdapterBrowserMessage(session, makeResult(`replayed-${stopReason}`, 1, stopReason), deps);
     expect(summary.recovery.receipts[0]?.finalizedAt).toBe(finalizedAt);
     expect(broadcasts).toEqual([summary]);
+    expect(deps.freezeHistoryThroughCurrentTail).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -276,6 +278,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       completedAt: expect.any(Number),
     });
     expect(summary.recovery.receipts[0]?.finalizedAt).toBeUndefined();
+    expect(deps.freezeHistoryThroughCurrentTail).not.toHaveBeenCalled();
   });
 
   it("records live streamed activity breadcrumbs for hidden delegate children", async () => {

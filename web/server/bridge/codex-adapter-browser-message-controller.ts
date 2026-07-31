@@ -864,16 +864,16 @@ export async function handleCodexAdapterBrowserMessage(
       completedTurnId: typeof outgoing.data.codex_turn_id === "string" ? outgoing.data.codex_turn_id : null,
     });
     deps.handleResultMessage(session, outgoing.data as CLIResultMessage);
-    if (
-      markCodexAutoPauseRecoveryTurnCompleted(
-        session,
-        completedTurn,
-        outgoing.data.is_error === true,
-        resultInterrupted,
-        Date.now(),
-        deps,
-      )
-    ) {
+    const recoverySummaryChanged = markCodexAutoPauseRecoveryTurnCompleted(
+      session,
+      completedTurn,
+      outgoing.data.is_error === true,
+      resultInterrupted,
+      Date.now(),
+      deps,
+    );
+    if (recoverySummaryChanged) {
+      if (resultInterrupted) deps.freezeHistoryThroughCurrentTail(session);
       deps.persistSession(session);
     }
     deps.syncSideChatParent?.(session);
