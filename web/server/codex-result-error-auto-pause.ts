@@ -193,8 +193,14 @@ export function queueCodexAutoPausedInput(
     };
     return existing;
   }
+  let ordinal = state.heldInputs.length + 1;
+  let id = `codex-auto-pause-${now}-${ordinal}`;
+  while (state.heldInputs.some((item) => item.id === id)) {
+    ordinal += 1;
+    id = `codex-auto-pause-${now}-${ordinal}`;
+  }
   const item: CodexAutoPauseHeldInput = {
-    id: `codex-auto-pause-${now}-${state.heldInputs.length + 1}`,
+    id,
     queuedAt: now,
     lastQueuedAt: now,
     source,

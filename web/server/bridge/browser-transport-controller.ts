@@ -24,6 +24,7 @@ import { sessionTag } from "../session-tag.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
+import { stripRecoveryDeliveryTransferMarker } from "./recovery-delivery-transfer-routing-context.js";
 import {
   classifyRecoveryDeliveryOwnership,
   unownedRecoveryLinks,
@@ -362,10 +363,11 @@ export function handleBrowserClose(
 
 export async function handleBrowserIngressMessage(
   session: BrowserTransportSessionLike,
-  msg: BrowserOutgoingMessage,
+  rawMsg: BrowserOutgoingMessage,
   ws: BrowserTransportSocketLike | undefined,
   deps: BrowserTransportDeps,
 ): Promise<BrowserIngressOwnershipResult> {
+  const msg = stripRecoveryDeliveryTransferMarker(rawMsg);
   if (isArchivedReadOnlySession(session, deps) && !isArchivedReadOnlyBrowserMessage(msg)) {
     return {
       status: "ignored_no_owner",

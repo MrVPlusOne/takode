@@ -33,6 +33,9 @@ export async function unpauseSessionForDelivery(
 ): Promise<{ queued: number }> {
   const queued = [...(session.state.pause?.queuedMessages ?? [])];
   const recoveryItems = queued.filter((item) => item.message.autoPauseRecoveries?.length);
+  const ordinaryItemIds = new Set(
+    queued.filter((item) => !item.message.autoPauseRecoveries?.length).map((item) => item.id),
+  );
   let transfers = new Map<string, string>();
   if (recoveryItems.length > 0) {
     try {
@@ -43,9 +46,19 @@ export async function unpauseSessionForDelivery(
           sourceOwnerId: item.id,
           message: item.message,
         })),
-        () => {
-          unpauseSessionState(session);
-          deps.broadcastToBrowsers(session, { type: "session_update", session: { pause: null } });
+        {
+          removeAdditionalSourceOwners: () => {
+            const pause = session.state.pause;
+            if (!pause || ordinaryItemIds.size === 0) return;
+            pause.queuedMessages = pause.queuedMessages.filter((item) => !ordinaryItemIds.has(item.id));
+            if (pause.queuedMessages.length === 0) session.state.pause = null;
+          },
+          onSourceOwnersRemoved: () => {
+            deps.broadcastToBrowsers(session, {
+              type: "session_update",
+              session: { pause: session.state.pause ?? null },
+            });
+          },
         },
         deps,
       );

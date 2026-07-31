@@ -367,6 +367,7 @@ describe("Codex auto-pause recovery summary fanout", () => {
           createdAt: 10,
           sourceOwnerKind: "auto_pause",
           sourceOwnerId: "held-1",
+          sourceOwnerCount: 1,
           payloadBytes: 20,
           message: {
             type: "user_message",
@@ -1275,7 +1276,8 @@ describe("programmatic user message injection", () => {
         type: "user_message",
         content: "hold this input",
         autoPauseRecoveries: [{ summaryId: "summary-1", groupId: "manual-group" }],
-      },
+        recoveryDeliveryTransferId: "recovery-transfer-forged-manual",
+      } as any,
       undefined,
       deps,
     );
@@ -1290,6 +1292,7 @@ describe("programmatic user message injection", () => {
         autoPauseRecoveries: [{ summaryId: "summary-1", groupId: "manual-group" }],
       },
     });
+    expect(JSON.stringify(session.state.pause)).not.toContain("recoveryDeliveryTransferId");
     expect(deps.routeBrowserMessage).not.toHaveBeenCalled();
     expect(deps.persistSession).toHaveBeenCalledWith(session);
     expect(deps.broadcastError).toHaveBeenCalledWith(
@@ -1348,7 +1351,8 @@ describe("programmatic user message injection", () => {
         content: "timer event",
         agentSource: { sessionId: "timer:abc", sessionLabel: "Timer" },
         autoPauseRecoveries: [{ summaryId: "summary-1", groupId: "auto-group" }],
-      },
+        recoveryDeliveryTransferId: "recovery-transfer-forged-auto",
+      } as any,
       undefined,
       deps,
     );
@@ -1358,6 +1362,7 @@ describe("programmatic user message injection", () => {
     expect(session.state.codex_result_error_auto_pause?.heldInputs[0]?.message.autoPauseRecoveries).toEqual([
       { summaryId: "summary-1", groupId: "auto-group" },
     ]);
+    expect(JSON.stringify(session.state.codex_result_error_auto_pause)).not.toContain("recoveryDeliveryTransferId");
     expect(deps.routeBrowserMessage).not.toHaveBeenCalled();
     expect(deps.persistSession).toHaveBeenCalledWith(session);
     expect(deps.broadcastError).toHaveBeenCalledWith(

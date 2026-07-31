@@ -83,26 +83,29 @@ async function finishSuccessfulAutoPauseRecovery(
     deps.persistSession(session);
     return;
   }
+  const capturedHeldInputs = [...heldInputs];
   const recoverySummary = createCodexAutoPauseRecoverySummary(
     session,
     activeBeforeResult,
-    heldInputs,
+    capturedHeldInputs,
     Date.now(),
     deps,
   );
-  const messages = materializeCodexAutoPausedInputsForDrain(heldInputs, recoverySummary.id);
+  const messages = materializeCodexAutoPausedInputsForDrain(capturedHeldInputs, recoverySummary.id);
   let transfers: Map<string, string>;
   try {
     transfers = await beginRecoveryDeliveryTransferHandoff(
       session,
-      heldInputs.map((item, index) => ({
+      capturedHeldInputs.map((item, index) => ({
         sourceOwnerKind: "auto_pause" as const,
         sourceOwnerId: item.id,
+        sourceOwnerCount: item.count,
         message: messages[index]!,
       })),
-      () => {
-        session.state.codex_result_error_auto_pause = null;
-        broadcastCodexResultErrorAutoPauseUpdate(session, deps);
+      {
+        onSourceOwnersRemoved: () => {
+          broadcastCodexResultErrorAutoPauseUpdate(session, deps);
+        },
       },
       deps,
     );
@@ -115,7 +118,7 @@ async function finishSuccessfulAutoPauseRecovery(
     deps.persistSession(session);
     return;
   }
-  for (const item of heldInputs) {
+  for (const item of capturedHeldInputs) {
     const transferId = transfers.get(item.id);
     if (transferId) await deliverRecoveryDeliveryTransfer(session, transferId, deps);
   }

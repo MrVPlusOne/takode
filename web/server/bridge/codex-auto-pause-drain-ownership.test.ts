@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionStore, type PersistedSession } from "../session-store.js";
 import type { BrowserOutgoingMessage } from "../session-types.js";
+import { queueCodexAutoPausedInput } from "../codex-result-error-auto-pause.js";
 import { handleCodexResultErrorAutoPause } from "./codex-result-error-auto-pause-delivery.js";
 import type { BrowserTransportDeps, BrowserTransportSessionLike } from "./browser-transport-controller.js";
 
@@ -120,9 +121,15 @@ function makeIngressDeps(
   };
 }
 
-async function releaseHeldInput(session: BrowserTransportSessionLike, getIngressDeps: () => BrowserTransportDeps) {
+async function releaseHeldInput(
+  session: BrowserTransportSessionLike,
+  getIngressDeps: () => BrowserTransportDeps,
+  onFirstBarrier?: () => void | Promise<void>,
+) {
   const persistSession = vi.fn();
+  const broadcastToBrowsers = vi.fn();
   const snapshots: any[] = [];
+  let barrierCount = 0;
   const result = handleCodexResultErrorAutoPause(
     session as any,
     {
@@ -134,18 +141,20 @@ async function releaseHeldInput(session: BrowserTransportSessionLike, getIngress
     } as any,
     { autoPauseSourceKind: "manual" } as any,
     {
-      broadcastToBrowsers: vi.fn(),
+      broadcastToBrowsers,
       broadcastPendingCodexInputs: vi.fn(),
       persistSession,
       persistSessionImmediately: vi.fn(async (target) => {
         snapshots.push(structuredClone(target));
+        barrierCount += 1;
+        if (barrierCount === 1) await onFirstBarrier?.();
       }),
       getBrowserTransportDeps: getIngressDeps,
       releasePendingTransfer: vi.fn(),
     },
   );
   await result;
-  return { persistSession, snapshots };
+  return { persistSession, snapshots, broadcastToBrowsers };
 }
 
 function recoveryReceipt(session: BrowserTransportSessionLike) {
@@ -255,6 +264,85 @@ describe("Codex auto-pause drain ownership", () => {
     expect(session.state.codex_result_error_auto_pause?.heldInputs[0]?.message.autoPauseRecoveries).toEqual([
       { summaryId: summary.id, groupId: receipt.groupId },
     ]);
+    expectEveryReleasedReceiptOwned(session);
+  });
+
+  it("selectively transfers captured groups while concurrent arrivals and coalescing remain paused", async () => {
+    const session = makeSession();
+    const route = vi.fn((target: BrowserTransportSessionLike, routed: BrowserOutgoingMessage) => {
+      if (routed.type !== "user_message") return;
+      target.pendingCodexInputs.push({
+        id: `pending-${target.pendingCodexInputs.length + 1}`,
+        content: routed.content,
+        timestamp: 350,
+        cancelable: true,
+        autoPauseRecoveries: routed.autoPauseRecoveries,
+      } as any);
+    });
+
+    const first = await releaseHeldInput(
+      session,
+      () => makeIngressDeps(route),
+      () => {
+        queueCodexAutoPausedInput(
+          session as any,
+          "programmatic",
+          {
+            type: "user_message",
+            content: "held event",
+            agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+          },
+          201,
+        );
+        queueCodexAutoPausedInput(
+          session as any,
+          "programmatic",
+          {
+            type: "user_message",
+            content: "held event",
+            agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+          },
+          202,
+        );
+        queueCodexAutoPausedInput(
+          session as any,
+          "programmatic",
+          { type: "user_message", content: "timer newcomer", agentSource: { sessionId: "timer:new" } },
+          203,
+        );
+      },
+    );
+
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(3);
+    expect(session.state.codex_result_error_auto_pause?.heldInputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: expect.stringContaining("retained-"), count: 2 }),
+        expect.objectContaining({ message: expect.objectContaining({ content: "timer newcomer" }), count: 1 }),
+        expect.objectContaining({
+          message: expect.objectContaining({ autoPauseRecoveries: expect.any(Array) }),
+          count: 1,
+        }),
+      ]),
+    );
+    expect(first.snapshots[1]?.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(2);
+    expect(first.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "session_update",
+        session: { codex_result_error_auto_pause: expect.objectContaining({ heldInputs: expect.any(Array) }) },
+      }),
+    );
+    expectEveryReleasedReceiptOwned(session);
+
+    await releaseHeldInput(session, () => makeIngressDeps(route));
+
+    expect(session.state.codex_result_error_auto_pause).toBeNull();
+    expect(session.pendingCodexInputs).toHaveLength(3);
+    expect(route).toHaveBeenCalledTimes(3);
+    expect(session.messageHistory.filter((entry) => entry.type === "codex_auto_pause_recovery_summary")).toHaveLength(
+      2,
+    );
     expectEveryReleasedReceiptOwned(session);
   });
 

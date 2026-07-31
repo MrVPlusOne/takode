@@ -92,9 +92,16 @@ export function queuePausedUserMessage(
 ): PausedInboundMessage | null {
   const pause = session.state.pause;
   if (!pause || !canQueuePausedUserMessage(message)) return null;
+  const now = Date.now();
+  let ordinal = pause.queuedMessages.length + 1;
+  let id = `paused-${now}-${ordinal}`;
+  while (pause.queuedMessages.some((item) => item.id === id)) {
+    ordinal += 1;
+    id = `paused-${now}-${ordinal}`;
+  }
   const queued: PausedInboundMessage = {
-    id: `paused-${Date.now()}-${pause.queuedMessages.length + 1}`,
-    queuedAt: Date.now(),
+    id,
+    queuedAt: now,
     source,
     message,
   };

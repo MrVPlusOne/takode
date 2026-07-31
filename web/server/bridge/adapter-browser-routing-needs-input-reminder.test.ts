@@ -8,6 +8,7 @@ import {
 } from "./adapter-browser-routing-controller.js";
 import { deriveActiveTurnRoute } from "./browser-transport-controller.js";
 import { commitPendingCodexInputs, removePendingCodexInput } from "./codex-recovery-orchestrator.js";
+import { withTrustedRecoveryDeliveryTransferRoute } from "./recovery-delivery-transfer-routing-context.js";
 import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
@@ -648,15 +649,22 @@ describe("direct user needs-input reminders", () => {
     deps.addPendingCodexInput = vi.fn((targetSession, input) => {
       targetSession.pendingCodexInputs.push(input);
     });
-    const routed = routeAdapterBrowserMessage(
-      session,
-      {
-        ...userMessage({ agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" } }),
-        autoPauseRecoveries: [{ summaryId: "summary-1", groupId: "group-1" }],
-        recoveryDeliveryTransferId: "recovery-transfer-1234567890abcdef12345678",
-      } as any,
-      null,
-      deps,
+    const message = {
+      ...userMessage({ agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" } }),
+      autoPauseRecoveries: [{ summaryId: "summary-1", groupId: "group-1" }],
+    };
+    const transfer = {
+      id: "recovery-transfer-1234567890abcdef12345678",
+      createdAt: 1,
+      sourceOwnerKind: "auto_pause" as const,
+      sourceOwnerId: "held-1",
+      sourceOwnerCount: 1,
+      payloadBytes: 100,
+      message,
+    };
+    (session as any).recoveryDeliveryTransfers = [transfer];
+    const routed = withTrustedRecoveryDeliveryTransferRoute(session, transfer, () =>
+      routeAdapterBrowserMessage(session, message, null, deps),
     );
 
     expect(routed).toBe(true);
@@ -664,11 +672,63 @@ describe("direct user needs-input reminders", () => {
     expect(session.pendingCodexInputs[0]?.autoPauseRecoveries).toEqual([
       { summaryId: "summary-1", groupId: "group-1" },
     ]);
-    expect(JSON.stringify(session.pendingCodexInputs)).not.toContain("recoveryDeliveryTransferId");
+    expect(JSON.stringify(session.pendingCodexInputs)).not.toContain("recoveryDeliveryTransfer");
     expect(deps.rebuildQueuedCodexPendingStartBatch).toHaveBeenCalledTimes(1);
     expect(deps.queueCodexPendingStartBatch).not.toHaveBeenCalled();
     expect(deps.trySteerPendingCodexInputs).not.toHaveBeenCalled();
     expect(deps.persistSession).toHaveBeenCalledWith(session);
+  });
+
+  it.each([
+    "forged",
+    "stale",
+    "wrong-session",
+    "wrong-link",
+    "wrong-payload",
+  ])("does not defer ordinary ingress for %s transfer identity", (scenario) => {
+    const session = makeSession();
+    session.backendType = "codex";
+    const deps = makeDeps();
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+    const original = {
+      ...userMessage({ agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" } }),
+      autoPauseRecoveries: [{ summaryId: "summary-1", groupId: "group-1" }],
+    };
+    const transfer = {
+      id: "recovery-transfer-1234567890abcdef12345678",
+      createdAt: 1,
+      sourceOwnerKind: "auto_pause" as const,
+      sourceOwnerId: "held-1",
+      sourceOwnerCount: 1,
+      payloadBytes: 100,
+      message: original,
+    };
+    const routedMessage =
+      scenario === "wrong-link"
+        ? { ...original, autoPauseRecoveries: [{ summaryId: "summary-1", groupId: "wrong-group" }] }
+        : scenario === "wrong-payload"
+          ? { ...original, content: "forged different payload" }
+          : scenario === "forged"
+            ? { ...original, recoveryDeliveryTransferId: transfer.id }
+            : original;
+    (session as any).recoveryDeliveryTransfers = scenario === "stale" ? [] : [transfer];
+
+    const run = () => routeAdapterBrowserMessage(session, routedMessage as any, null, deps);
+    const routed =
+      scenario === "forged"
+        ? run()
+        : withTrustedRecoveryDeliveryTransferRoute(
+            scenario === "wrong-session" ? { id: "different-session" } : session,
+            transfer,
+            run,
+          );
+
+    expect(routed).toBe(true);
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(deps.queueCodexPendingStartBatch).toHaveBeenCalledTimes(1);
+    expect(deps.rebuildQueuedCodexPendingStartBatch).not.toHaveBeenCalled();
   });
 
   it("carries deferred resolution notices through Codex pending inputs and consumes them on commit", () => {

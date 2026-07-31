@@ -71,7 +71,7 @@ import {
 } from "../thread-routing-metadata.js";
 import { isActualHumanUserMessage } from "../user-message-classification.js";
 import { determineUserMessageSourceKind } from "../codex-result-error-auto-pause.js";
-import { getRecoveryDeliveryTransferId } from "./recovery-delivery-transfer-marker.js";
+import { getTrustedRecoveryDeliveryTransferId } from "./recovery-delivery-transfer-routing-context.js";
 import {
   appendMemoryCatalogToUserMessage,
   hasMemoryCatalogHistoryFollowUp,
@@ -532,6 +532,12 @@ export async function routeBrowserMessage(
   ws: BrowserTransportSocketLike | undefined,
   deps: AdapterBrowserRoutingDeps,
 ): Promise<void> {
+  const trustedRecoveryTransferId = getTrustedRecoveryDeliveryTransferId(session, msg);
+  if (trustedRecoveryTransferId) {
+    const routed = routeAdapterBrowserMessage(session, msg, ws, deps);
+    if (routed instanceof Promise) await routed;
+    return;
+  }
   if (msg.type === "user_message") {
     // Reject legacy raw-image payloads -- images must be pre-uploaded via the
     // attach-time flow and arrive as imageRefs + deliveryContent.
@@ -1643,7 +1649,7 @@ export function routeAdapterBrowserMessage(
   ws: unknown,
   deps: AdapterBrowserRoutingDeps,
 ): boolean | Promise<boolean> {
-  const recoveryDeliveryTransferId = getRecoveryDeliveryTransferId(msg);
+  const recoveryDeliveryTransferId = getTrustedRecoveryDeliveryTransferId(session, msg);
   if (session.backendType !== "codex" && session.backendType !== "claude-sdk") {
     return false;
   }

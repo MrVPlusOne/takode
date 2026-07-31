@@ -119,6 +119,7 @@ function candidates(session: RecoveryDeliveryTransferSessionLike): RecoveryDeliv
   return (session.state.codex_result_error_auto_pause?.heldInputs ?? []).map((held) => ({
     sourceOwnerKind: "auto_pause",
     sourceOwnerId: held.id,
+    sourceOwnerCount: held.count,
     message: held.message,
   }));
 }
@@ -214,14 +215,7 @@ describe("recovery delivery transfer ownership", () => {
     const snapshots: RecoveryDeliveryTransferSessionLike[] = [];
     const deps = makeDeps(snapshots);
 
-    await beginRecoveryDeliveryTransferHandoff(
-      session,
-      candidates(session),
-      () => {
-        session.state.codex_result_error_auto_pause = null;
-      },
-      deps,
-    );
+    await beginRecoveryDeliveryTransferHandoff(session, candidates(session), {}, deps);
 
     expect(snapshots).toHaveLength(2);
     expect(snapshots[0]?.recoveryDeliveryTransfers).toHaveLength(1);
@@ -250,14 +244,7 @@ describe("recovery delivery transfer ownership", () => {
       } as any);
     });
     const deps = makeDeps(snapshots, route);
-    const transfers = await beginRecoveryDeliveryTransferHandoff(
-      session,
-      candidates(session),
-      () => {
-        session.state.codex_result_error_auto_pause = null;
-      },
-      deps,
-    );
+    const transfers = await beginRecoveryDeliveryTransferHandoff(session, candidates(session), {}, deps);
 
     const delivering = deliverRecoveryDeliveryTransfer(session, transfers.get("held-1")!, deps);
     await Promise.resolve();
@@ -278,14 +265,7 @@ describe("recovery delivery transfer ownership", () => {
     const session = makeSession();
     const snapshots: RecoveryDeliveryTransferSessionLike[] = [];
     const deps = makeDeps(snapshots, vi.fn());
-    const transfers = await beginRecoveryDeliveryTransferHandoff(
-      session,
-      candidates(session),
-      () => {
-        session.state.codex_result_error_auto_pause = null;
-      },
-      deps,
-    );
+    const transfers = await beginRecoveryDeliveryTransferHandoff(session, candidates(session), {}, deps);
 
     await deliverRecoveryDeliveryTransfer(session, transfers.get("held-1")!, deps);
 
@@ -311,14 +291,7 @@ describe("recovery delivery transfer ownership", () => {
       } as any);
     });
     const deps = makeDeps(snapshots, route);
-    const transfers = await beginRecoveryDeliveryTransferHandoff(
-      session,
-      candidates(session),
-      () => {
-        session.state.codex_result_error_auto_pause = null;
-      },
-      deps,
-    );
+    const transfers = await beginRecoveryDeliveryTransferHandoff(session, candidates(session), {}, deps);
     expect(session.recoveryDeliveryTransfers).toHaveLength(count);
 
     let completed = 0;
@@ -345,9 +318,14 @@ describe("recovery delivery transfer ownership", () => {
     });
 
     await expect(
-      beginRecoveryDeliveryTransferHandoff(session, candidates(session), removeSource, {
-        persistSessionImmediately: vi.fn(async () => {}),
-      }),
+      beginRecoveryDeliveryTransferHandoff(
+        session,
+        candidates(session),
+        { onSourceOwnersRemoved: removeSource },
+        {
+          persistSessionImmediately: vi.fn(async () => {}),
+        },
+      ),
     ).rejects.toThrow("capacity exceeded");
 
     expect(removeSource).not.toHaveBeenCalled();
@@ -368,9 +346,7 @@ describe("recovery delivery transfer ownership", () => {
     const beginPromise = beginRecoveryDeliveryTransferHandoff(
       session,
       candidates(session),
-      () => {
-        session.state.codex_result_error_auto_pause = null;
-      },
+      {},
       {
         persistSessionImmediately: async (target) => {
           persistCalls += 1;
@@ -387,6 +363,7 @@ describe("recovery delivery transfer ownership", () => {
 
     // Simulate restart from the first durable overlap snapshot.
     const overlap = (await store.load(session.id))!;
+    expect(JSON.stringify(overlap.recoveryDeliveryTransfers)).not.toContain("recoveryDeliveryTransferId");
     const restored = makeSession();
     restored.state = overlap.state;
     restored.messageHistory = overlap.messageHistory;
@@ -428,5 +405,114 @@ describe("recovery delivery transfer ownership", () => {
 
     unblockFirstPersist();
     await beginPromise;
+  });
+
+  it("selectively splits coalesced auto-pause newcomers while resuming a captured transfer", async () => {
+    const session = makeSession();
+    const held = session.state.codex_result_error_auto_pause!.heldInputs[0]!;
+    held.count = 3;
+    held.message = {
+      type: "user_message",
+      content: "latest coalesced newcomer",
+      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+    };
+    session.recoveryDeliveryTransfers = [
+      {
+        id: "recovery-transfer-coalesced1234567890",
+        createdAt: 1,
+        sourceOwnerKind: "auto_pause",
+        sourceOwnerId: held.id,
+        sourceOwnerCount: 1,
+        payloadBytes: 100,
+        message: messageFor("group-1", "captured original payload"),
+      },
+    ];
+    const routed: string[] = [];
+    const snapshots: RecoveryDeliveryTransferSessionLike[] = [];
+    const deps = makeDeps(snapshots, (target: BrowserTransportSessionLike, input: BrowserOutgoingMessage) => {
+      if (input.type !== "user_message") return;
+      routed.push(input.content);
+      target.pendingCodexInputs.push({
+        id: "captured-pending",
+        content: input.content,
+        timestamp: 50,
+        cancelable: true,
+        autoPauseRecoveries: input.autoPauseRecoveries,
+      } as any);
+    });
+
+    await resumeRecoveryDeliveryTransfers(session, deps);
+
+    expect(routed).toEqual([]);
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(session.state.codex_result_error_auto_pause?.heldInputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: expect.stringContaining("retained-"),
+          count: 2,
+          message: expect.objectContaining({ content: "latest coalesced newcomer" }),
+        }),
+        expect.objectContaining({
+          count: 1,
+          message: expect.objectContaining({ content: "captured original payload" }),
+        }),
+      ]),
+    );
+    expect(session.recoveryDeliveryTransfers).toEqual([]);
+    expectOwnedOrTerminal(session);
+  });
+
+  it("selectively removes a captured manual owner while restart retains later queued arrivals", async () => {
+    const session = makeSession();
+    session.state.codex_result_error_auto_pause = null;
+    const capturedMessage = messageFor("group-1", "captured manual payload");
+    session.state.pause = {
+      pausedAt: 60,
+      queuedMessages: [
+        { id: "manual-captured", queuedAt: 61, source: "browser", message: capturedMessage },
+        {
+          id: "manual-newcomer",
+          queuedAt: 62,
+          source: "browser",
+          message: { type: "user_message", content: "later manual newcomer" },
+        },
+      ],
+    };
+    session.recoveryDeliveryTransfers = [
+      {
+        id: "recovery-transfer-manual123456789012",
+        createdAt: 1,
+        sourceOwnerKind: "manual_pause",
+        sourceOwnerId: "manual-captured",
+        sourceOwnerCount: 1,
+        payloadBytes: 100,
+        message: capturedMessage,
+      },
+    ];
+    const deps = makeDeps([], (target: BrowserTransportSessionLike, input: BrowserOutgoingMessage) => {
+      if (input.type !== "user_message") return;
+      target.pendingCodexInputs.push({
+        id: "manual-pending",
+        content: input.content,
+        timestamp: 63,
+        cancelable: true,
+        autoPauseRecoveries: input.autoPauseRecoveries,
+      } as any);
+    });
+
+    await resumeRecoveryDeliveryTransfers(session, deps);
+
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(session.state.pause?.queuedMessages).toEqual([
+      expect.objectContaining({
+        id: "manual-newcomer",
+        message: { type: "user_message", content: "later manual newcomer" },
+      }),
+      expect.objectContaining({
+        message: expect.objectContaining({ content: "captured manual payload" }),
+      }),
+    ]);
+    expect(session.recoveryDeliveryTransfers).toEqual([]);
+    expectOwnedOrTerminal(session);
   });
 });

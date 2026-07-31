@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionStore, type PersistedSession } from "../session-store.js";
+import { queuePausedUserMessage } from "../session-pause.js";
 import type { BrowserOutgoingMessage, CodexAutoPauseRecoveryLink } from "../session-types.js";
 import type { BrowserTransportDeps, BrowserTransportSessionLike } from "./browser-transport-controller.js";
 import { unpauseSessionForDelivery } from "./session-pause-delivery.js";
@@ -115,14 +116,21 @@ function makeIngressDeps(options: IngressOptions = {}): BrowserTransportDeps {
   } as unknown as BrowserTransportDeps;
 }
 
-function makeDeliveryDeps(getIngressDeps: () => BrowserTransportDeps) {
+function makeDeliveryDeps(getIngressDeps: () => BrowserTransportDeps, onFirstBarrier?: () => void | Promise<void>) {
+  const snapshots: any[] = [];
+  let barrierCount = 0;
   return {
     broadcastToBrowsers: vi.fn(),
     persistSession: vi.fn(),
-    persistSessionImmediately: vi.fn(async () => {}),
+    persistSessionImmediately: vi.fn(async (target) => {
+      snapshots.push(structuredClone(target));
+      barrierCount += 1;
+      if (barrierCount === 1) await onFirstBarrier?.();
+    }),
     getBrowserTransportDeps: getIngressDeps,
     releasePendingTransfer: vi.fn(),
     onCLIRelaunchNeeded: vi.fn(),
+    snapshots,
   };
 }
 
@@ -229,6 +237,63 @@ describe("manual pause recovery-link transfer", () => {
 
     expect(recoveryLinksInManualPause(session)).toEqual(message.autoPauseRecoveries);
     expect(receipt(session).receipt.outcome).toBe("released_to_delivery");
+    expectEveryReleasedLinkOwnedOnce(session);
+  });
+
+  it("selectively resumes captured messages while concurrent manual-pause arrivals remain held", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(200);
+    const message = recoveryMessage();
+    const session = makeSession(message);
+    const routedContents: string[] = [];
+    const route = vi.fn((target: BrowserTransportSessionLike, routed: BrowserOutgoingMessage) => {
+      if (routed.type !== "user_message") return;
+      routedContents.push(routed.content);
+      if (!routed.autoPauseRecoveries?.length) return;
+      target.pendingCodexInputs.push({
+        id: "captured-pending",
+        content: routed.content,
+        timestamp: 145,
+        cancelable: true,
+        autoPauseRecoveries: routed.autoPauseRecoveries,
+      } as any);
+    });
+    const deps = makeDeliveryDeps(
+      () => makeIngressDeps({ route }),
+      () => {
+        queuePausedUserMessage(session as any, "browser", {
+          type: "user_message",
+          content: "concurrent newcomer one",
+        });
+        queuePausedUserMessage(session as any, "browser", {
+          type: "user_message",
+          content: "concurrent newcomer two",
+        });
+      },
+    );
+
+    await unpauseSessionForDelivery(session as any, deps as any);
+
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(session.state.pause?.queuedMessages.map((item) => item.message.content)).toEqual([
+      "concurrent newcomer one",
+      "concurrent newcomer two",
+      "released automatic event",
+    ]);
+    expect(deps.snapshots[1]?.state.pause?.queuedMessages).toHaveLength(2);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "session_update",
+        session: { pause: expect.objectContaining({ queuedMessages: expect.any(Array) }) },
+      }),
+    );
+    expectEveryReleasedLinkOwnedOnce(session);
+
+    await unpauseSessionForDelivery(session as any, deps as any);
+
+    expect(session.state.pause).toBeNull();
+    expect(routedContents).toEqual(["concurrent newcomer one", "concurrent newcomer two", "released automatic event"]);
+    expect(route).toHaveBeenCalledTimes(3);
     expectEveryReleasedLinkOwnedOnce(session);
   });
 

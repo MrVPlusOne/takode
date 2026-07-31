@@ -7,7 +7,10 @@ import {
   type BrowserTransportDeps,
   type BrowserTransportSessionLike,
 } from "./browser-transport-controller.js";
-import { getRecoveryDeliveryTransferId } from "./recovery-delivery-transfer-marker.js";
+import {
+  stripRecoveryDeliveryTransferMarker,
+  withTrustedRecoveryDeliveryTransferRoute,
+} from "./recovery-delivery-transfer-routing-context.js";
 
 type RecoveryUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message" }>;
 
@@ -25,6 +28,7 @@ export interface RecoveryDeliveryTransfer {
   createdAt: number;
   sourceOwnerKind: "auto_pause" | "manual_pause";
   sourceOwnerId: string;
+  sourceOwnerCount: number;
   payloadBytes: number;
   message: RecoveryUserMessage;
 }
@@ -32,6 +36,7 @@ export interface RecoveryDeliveryTransfer {
 export interface RecoveryDeliveryTransferCandidate {
   sourceOwnerKind: RecoveryDeliveryTransfer["sourceOwnerKind"];
   sourceOwnerId: string;
+  sourceOwnerCount?: number;
   message: RecoveryUserMessage;
 }
 
@@ -49,22 +54,25 @@ export interface RecoveryDeliveryTransferDeps {
 
 const activeTransferDeliveries = new WeakMap<RecoveryDeliveryTransferSessionLike, Set<string>>();
 
-export function recoveryTransferMessage(
-  message: RecoveryUserMessage,
-  transferId: string,
-): RecoveryUserMessage & { recoveryDeliveryTransferId: string } {
-  return { ...message, recoveryDeliveryTransferId: transferId };
+export interface RecoveryDeliverySourceRemoval {
+  autoPauseRetained: boolean;
+  manualPauseRetained: boolean;
 }
 
 export async function beginRecoveryDeliveryTransferHandoff(
   session: RecoveryDeliveryTransferSessionLike,
   candidates: readonly RecoveryDeliveryTransferCandidate[],
-  removeSourceOwners: () => void,
+  options: {
+    removeAdditionalSourceOwners?: () => void;
+    onSourceOwnersRemoved?: (result: RecoveryDeliverySourceRemoval) => void;
+  },
   deps: Pick<RecoveryDeliveryTransferDeps, "persistSessionImmediately">,
 ): Promise<Map<string, string>> {
   const prepared = prepareTransfers(session, candidates);
   await deps.persistSessionImmediately(session);
-  removeSourceOwners();
+  const removal = detachTransferSourceOwners(session, prepared);
+  options.removeAdditionalSourceOwners?.();
+  options.onSourceOwnersRemoved?.(removal);
   await deps.persistSessionImmediately(session);
   return new Map(prepared.map((entry) => [entry.sourceOwnerId, entry.id]));
 }
@@ -87,12 +95,8 @@ export async function deliverRecoveryDeliveryTransfer(
     );
     let acceptedPending = false;
     if (preflight.status !== "owned") {
-      const routedMessage = recoveryTransferMessage(transfer.message, transfer.id);
-      const admission = await handleBrowserIngressMessage(
-        session,
-        routedMessage,
-        undefined,
-        deps.getBrowserTransportDeps(),
+      const admission = await withTrustedRecoveryDeliveryTransferRoute(session, transfer, async () =>
+        handleBrowserIngressMessage(session, transfer.message, undefined, deps.getBrowserTransportDeps()),
       );
       const ownership = resolveRecoveryIngressOwnership(admission, transfer.message);
       acceptedPending = admission.status === "accepted_pending_delivery";
@@ -119,7 +123,7 @@ export async function resumeRecoveryDeliveryTransfers(
   deps: RecoveryDeliveryTransferDeps,
 ): Promise<void> {
   if (session.recoveryDeliveryTransfers.length === 0) return;
-  if (detachTransferSourceOwners(session)) {
+  if (detachTransferSourceOwners(session).changed) {
     await deps.persistSessionImmediately(session);
   }
   for (const transfer of [...session.recoveryDeliveryTransfers]) {
@@ -160,6 +164,10 @@ export function normalizePersistedRecoveryDeliveryTransfers(value: unknown): Rec
       createdAt: record.createdAt,
       sourceOwnerKind: record.sourceOwnerKind,
       sourceOwnerId: record.sourceOwnerId,
+      sourceOwnerCount:
+        typeof record.sourceOwnerCount === "number" && record.sourceOwnerCount > 0
+          ? Math.floor(record.sourceOwnerCount)
+          : 1,
       payloadBytes,
       message: stripTransientTransferMarker(record.message),
     });
@@ -203,6 +211,7 @@ function prepareTransfers(
       createdAt: Date.now(),
       sourceOwnerKind: candidate.sourceOwnerKind,
       sourceOwnerId: candidate.sourceOwnerId,
+      sourceOwnerCount: Math.max(1, Math.floor(candidate.sourceOwnerCount ?? 1)),
       payloadBytes,
       message: stripTransientTransferMarker(candidate.message),
     };
@@ -250,12 +259,7 @@ function isTransferPayloadBounded(payloadBytes: number): boolean {
 }
 
 function stripTransientTransferMarker(message: RecoveryUserMessage): RecoveryUserMessage {
-  const transferId = getRecoveryDeliveryTransferId(message);
-  if (!transferId) return message;
-  const { recoveryDeliveryTransferId: _marker, ...persisted } = message as RecoveryUserMessage & {
-    recoveryDeliveryTransferId: string;
-  };
-  return persisted;
+  return stripRecoveryDeliveryTransferMarker(message) as RecoveryUserMessage;
 }
 
 function hasPendingRecoveryOwner(
@@ -271,25 +275,42 @@ function hasPendingRecoveryOwner(
   );
 }
 
-function detachTransferSourceOwners(session: RecoveryDeliveryTransferSessionLike): boolean {
+function detachTransferSourceOwners(
+  session: RecoveryDeliveryTransferSessionLike,
+  transfers: readonly RecoveryDeliveryTransfer[] = session.recoveryDeliveryTransfers,
+): RecoveryDeliverySourceRemoval & { changed: boolean } {
   let changed = false;
   const autoOwnerIds = new Set(
-    session.recoveryDeliveryTransfers
-      .filter((entry) => entry.sourceOwnerKind === "auto_pause")
-      .map((entry) => entry.sourceOwnerId),
+    transfers.filter((entry) => entry.sourceOwnerKind === "auto_pause").map((entry) => entry.sourceOwnerId),
   );
   const autoPause = session.state.codex_result_error_auto_pause;
   if (autoPause && autoOwnerIds.size > 0) {
-    const retained = autoPause.heldInputs.filter((item) => !autoOwnerIds.has(item.id));
-    changed ||= retained.length !== autoPause.heldInputs.length;
+    const transferByOwner = new Map(
+      transfers.filter((entry) => entry.sourceOwnerKind === "auto_pause").map((entry) => [entry.sourceOwnerId, entry]),
+    );
+    const retained = autoPause.heldInputs.flatMap((item) => {
+      const transfer = transferByOwner.get(item.id);
+      if (!transfer) return [item];
+      changed = true;
+      if (item.count <= transfer.sourceOwnerCount) return [];
+      return [
+        {
+          ...item,
+          id: `codex-auto-pause-retained-${transfer.id.slice(-12)}`,
+          count: item.count - transfer.sourceOwnerCount,
+          queuedAt: item.lastQueuedAt,
+        },
+      ];
+    });
     if (retained.length === 0) session.state.codex_result_error_auto_pause = null;
-    else autoPause.heldInputs = retained;
+    else {
+      autoPause.heldInputs = retained;
+      autoPause.pausedAt = Math.max(Date.now(), (autoPause.pausedAt ?? 0) + 1);
+    }
   }
 
   const manualOwnerIds = new Set(
-    session.recoveryDeliveryTransfers
-      .filter((entry) => entry.sourceOwnerKind === "manual_pause")
-      .map((entry) => entry.sourceOwnerId),
+    transfers.filter((entry) => entry.sourceOwnerKind === "manual_pause").map((entry) => entry.sourceOwnerId),
   );
   const pause = session.state.pause;
   if (pause && manualOwnerIds.size > 0) {
@@ -298,5 +319,9 @@ function detachTransferSourceOwners(session: RecoveryDeliveryTransferSessionLike
     if (retained.length === 0) session.state.pause = null;
     else pause.queuedMessages = retained;
   }
-  return changed;
+  return {
+    changed,
+    autoPauseRetained: !!session.state.codex_result_error_auto_pause?.heldInputs.length,
+    manualPauseRetained: !!session.state.pause?.queuedMessages.length,
+  };
 }
