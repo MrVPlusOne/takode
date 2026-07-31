@@ -184,7 +184,33 @@ function parseSemanticScalar(raw: string): string | null {
   if (raw.startsWith("'")) return parseSingleQuotedScalar(raw);
   const commentIndex = raw.search(/(^|\s)#/);
   const value = (commentIndex >= 0 ? raw.slice(0, commentIndex) : raw).trim();
-  return isSemanticText(value) ? value : null;
+  return isSupportedPlainString(value) ? value : null;
+}
+
+function isSupportedPlainString(value: string): boolean {
+  if (!isSemanticText(value)) return false;
+  if ("!&*%@,`[]{}".includes(value[0])) return false;
+  if (/^(?:-\s|\?\s|:\s)/.test(value)) return false;
+  if (/[\[\]{}]/.test(value) || /:\s/.test(value)) return false;
+  return !isImplicitNonStringScalar(value);
+}
+
+function isImplicitNonStringScalar(value: string): boolean {
+  if (/^(?:~|null|true|false|yes|no|on|off)$/i.test(value)) return true;
+  if (/^[+-]?(?:\.inf|\.nan|infinity|nan)$/i.test(value)) return true;
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(value)) return true;
+  if (
+    /^\d{4}-\d{1,2}-\d{1,2}(?:[Tt]|\s+)\d{1,2}:\d{2}:\d{2}(?:\.\d+)?(?:\s*(?:Z|[+-]\d{1,2}(?::?\d{2})?))?$/i.test(value)
+  )
+    return true;
+  if (/^[+-]?[0-9][0-9_]*(?::[0-5]?[0-9])+(?:\.[0-9_]*)?$/.test(value)) return true;
+  return (
+    /^[+-]?0[bB][01_]+$/.test(value) ||
+    /^[+-]?0[oO][0-7_]+$/.test(value) ||
+    /^[+-]?0[xX][0-9a-fA-F_]+$/.test(value) ||
+    /^[+-]?[0-9][0-9_]*(?:\.[0-9_]*)?(?:[eE][+-]?[0-9][0-9_]*)?$/.test(value) ||
+    /^[+-]?\.[0-9_]+(?:[eE][+-]?[0-9][0-9_]*)?$/.test(value)
+  );
 }
 
 function parseDoubleQuotedScalar(raw: string): string | null {

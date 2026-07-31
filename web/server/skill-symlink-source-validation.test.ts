@@ -130,6 +130,7 @@ describe("skill source payload validation", () => {
     // those real values must remain eligible distinct non-Claude sources.
     const installation = await makeInstallation();
     const accepted = new Map([
+      ["plain-string", "---\nname: plain-string\ndescription: Ordinary nonempty text\n---\n\n# Plain body\n"],
       ["double-quoted", '---\nname: "double-quoted"\ndescription: "Useful quoted description"\n---\n\n# Quoted body\n'],
       [
         "single-quoted",
@@ -142,6 +143,11 @@ describe("skill source payload validation", () => {
       [
         "folded-description",
         "---\nname: folded-description\ndescription: >-\n  First folded line\n  continues here.\n---\n\n# Folded body\n",
+      ],
+      ["quoted-scalar-text", '---\nname: "null"\ndescription: "42"\n---\n\n# Quoted scalar body\n'],
+      [
+        "literal-scalar-text",
+        "---\nname: literal-scalar-text\ndescription: |-\n  null\n---\n\n# Literal scalar body\n",
       ],
     ]);
     for (const [slug, content] of accepted) {
@@ -204,6 +210,79 @@ describe("skill source payload validation", () => {
       const installedDir = join(installation.installedAgentsHome, slug);
       expect(await readlink(installedDir)).toBe(canonicalDirs.get(slug));
       expect(await readFile(join(installedDir, "SKILL.md"), "utf-8")).toContain("# Canonical fallback");
+    }
+  });
+
+  it("rejects implicit non-string and unsupported YAML metadata forms", async () => {
+    // Required metadata must resolve to strings inside the supported subset;
+    // typed scalars and structural YAML forms cannot suppress canonical fallback.
+    const installation = await makeInstallation();
+    const unsupported = new Map([
+      ["null-name", "---\nname: null\ndescription: Useful description\n---\n\n# Body\n"],
+      ["tilde-value", "---\nname: tilde-value\ndescription: ~\n---\n\n# Body\n"],
+      ["boolean-value", "---\nname: boolean-value\ndescription: true\n---\n\n# Body\n"],
+      ["numeric-value", "---\nname: numeric-value\ndescription: 42\n---\n\n# Body\n"],
+      ["float-value", "---\nname: float-value\ndescription: 3.14\n---\n\n# Body\n"],
+      ["exponent-value", "---\nname: exponent-value\ndescription: 1e6\n---\n\n# Body\n"],
+      ["hex-value", "---\nname: hex-value\ndescription: 0x2A\n---\n\n# Body\n"],
+      ["infinite-value", "---\nname: infinite-value\ndescription: -.Inf\n---\n\n# Body\n"],
+      ["nan-value", "---\nname: nan-value\ndescription: .NaN\n---\n\n# Body\n"],
+      ["date-value", "---\nname: date-value\ndescription: 2026-07-31\n---\n\n# Body\n"],
+      ["timestamp-value", "---\nname: timestamp-value\ndescription: 2026-07-31T12:34:56Z\n---\n\n# Body\n"],
+      ["flow-list", "---\nname: flow-list\ndescription: [one, two]\n---\n\n# Body\n"],
+      ["flow-map", "---\nname: flow-map\ndescription: {key: value}\n---\n\n# Body\n"],
+      ["explicit-tag", "---\nname: explicit-tag\ndescription: !!str tagged\n---\n\n# Body\n"],
+      ["custom-tag", "---\nname: custom-tag\ndescription: !custom tagged\n---\n\n# Body\n"],
+      ["anchor-value", "---\nname: anchor-value\ndescription: &label anchored\n---\n\n# Body\n"],
+      ["alias-value", "---\nname: alias-value\ndescription: *label\n---\n\n# Body\n"],
+      ["sequence-value", "---\nname: sequence-value\ndescription: - item\n---\n\n# Body\n"],
+      ["mapping-value", "---\nname: mapping-value\ndescription: key: value\n---\n\n# Body\n"],
+    ]);
+    const canonicalDirs = new Map<string, string>();
+    for (const [slug, content] of unsupported) {
+      canonicalDirs.set(
+        slug,
+        await writeSkill(installation.repoClaudeHome, slug, validSkillContent(slug, "Canonical fallback")),
+      );
+      await writeSkill(installation.repoAgentsHome, slug, content);
+    }
+
+    await ensureSkillSymlinks([...unsupported.keys()], installation.roots);
+
+    for (const slug of unsupported.keys()) {
+      const installedDir = join(installation.installedAgentsHome, slug);
+      expect(await readlink(installedDir)).toBe(canonicalDirs.get(slug));
+      expect(await readFile(join(installedDir, "SKILL.md"), "utf-8")).toContain("# Canonical fallback");
+    }
+  });
+
+  it("rejects duplicate required metadata keys", async () => {
+    // Ambiguous duplicate name or description fields fail closed instead of
+    // relying on first- or last-key YAML parser behavior.
+    const installation = await makeInstallation();
+    const duplicates = new Map([
+      [
+        "duplicate-name",
+        "---\nname: duplicate-name\nname: other-name\ndescription: Useful description\n---\n\n# Body\n",
+      ],
+      [
+        "duplicate-description",
+        "---\nname: duplicate-description\ndescription: First description\ndescription: Second description\n---\n\n# Body\n",
+      ],
+    ]);
+    const canonicalDirs = new Map<string, string>();
+    for (const [slug, content] of duplicates) {
+      canonicalDirs.set(
+        slug,
+        await writeSkill(installation.repoClaudeHome, slug, validSkillContent(slug, "Canonical fallback")),
+      );
+      await writeSkill(installation.repoAgentsHome, slug, content);
+    }
+
+    await ensureSkillSymlinks([...duplicates.keys()], installation.roots);
+
+    for (const slug of duplicates.keys()) {
+      expect(await readlink(join(installation.installedAgentsHome, slug))).toBe(canonicalDirs.get(slug));
     }
   });
 
