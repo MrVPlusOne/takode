@@ -5,7 +5,13 @@ import type {
 } from "../types.js";
 import { useState } from "react";
 
-const RECEIPTS_PER_PAGE = 25;
+const SMALL_SUMMARY_RECEIPT_LIMIT = 25;
+const LARGE_SUMMARY_PAGE_SIZE = 10;
+const RECOVERY_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
 
 const OUTCOME_LABELS: Record<CodexAutoPauseRecoveryOutcome, string> = {
   released_to_delivery: "Released",
@@ -24,7 +30,7 @@ function outcomeClasses(outcome: CodexAutoPauseRecoveryOutcome): string {
 
 function formatTime(timestamp: number | undefined): string {
   if (!timestamp) return "—";
-  return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return RECOVERY_TIME_FORMATTER.format(timestamp);
 }
 
 function receiptTitle(receipt: CodexAutoPauseRecoveryReceipt): string {
@@ -43,14 +49,17 @@ export function CodexAutoPauseRecoverySummary({ summary }: { summary: RecoverySu
     ["suppressed", "discarded", "failed"].includes(receipt.outcome),
   ).length;
   const settled = summary.status === "settled";
-  const [open, setOpen] = useState(summary.receipts.length <= RECEIPTS_PER_PAGE && (!settled || issueCount > 0));
+  const paginated = summary.receipts.length > SMALL_SUMMARY_RECEIPT_LIMIT;
+  const pageSize = paginated ? LARGE_SUMMARY_PAGE_SIZE : Math.max(1, summary.receipts.length);
+  const [open, setOpen] = useState(
+    summary.receipts.length <= SMALL_SUMMARY_RECEIPT_LIMIT && (!settled || issueCount > 0),
+  );
   const [requestedPage, setRequestedPage] = useState(0);
-  const pageCount = Math.max(1, Math.ceil(summary.receipts.length / RECEIPTS_PER_PAGE));
+  const pageCount = Math.max(1, Math.ceil(summary.receipts.length / pageSize));
   const page = Math.min(requestedPage, pageCount - 1);
-  const pageStart = page * RECEIPTS_PER_PAGE;
-  const pageEnd = Math.min(summary.receipts.length, pageStart + RECEIPTS_PER_PAGE);
+  const pageStart = page * pageSize;
+  const pageEnd = Math.min(summary.receipts.length, pageStart + pageSize);
   const visibleReceipts = summary.receipts.slice(pageStart, pageEnd);
-  const paginated = summary.receipts.length > RECEIPTS_PER_PAGE;
 
   return (
     <section

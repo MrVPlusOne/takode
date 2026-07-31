@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildCodexAutoPauseRecoverySearchText } from "../../server/codex-auto-pause-types.js";
 import type { ChatMessage, CodexAutoPauseRecoveryOutcome, CodexAutoPauseRecoveryReceipt } from "../types.js";
 import { MessageBubble } from "./MessageBubble.js";
@@ -9,7 +9,10 @@ import {
   PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY,
 } from "./playground/AutoPausePlaygroundStates.js";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 function summaryMessage(): ChatMessage {
   return buildPlaygroundAutoPauseRecoveryMessage();
@@ -127,6 +130,15 @@ describe("CodexAutoPauseRecoverySummary", () => {
     expect(screen.getByText("Automatic input recovery complete")).toBeTruthy();
   });
 
+  it("reuses one locale formatter instead of rebuilding timestamp formatting for every receipt field", () => {
+    // The live-open page performed repeated per-row toLocaleTimeString setup inside the measured Chrome task.
+    const legacyPerCallFormatter = vi.spyOn(Date.prototype, "toLocaleTimeString");
+
+    render(<MessageBubble message={summaryMessage()} showTimestamp={false} />);
+
+    expect(legacyPerCallFormatter).not.toHaveBeenCalled();
+  });
+
   it("keeps a producer-shaped 100-receipt summary collapsed until requested and pages every outcome", () => {
     // Large summaries must preserve every terminal receipt without eagerly mounting the 100-row long-task/card.
     render(<MessageBubble message={producerShapedSummaryMessage(100)} showTimestamp={false} />);
@@ -141,33 +153,44 @@ describe("CodexAutoPauseRecoverySummary", () => {
     fireEvent.click(disclosure);
     fireEvent(details, new Event("toggle", { bubbles: true }));
 
-    const firstPage = screen.getByRole("list", { name: "Held input outcomes" });
+    const observedSources: string[] = [];
+    const readPageSources = () => {
+      const list = screen.getByRole("list", { name: "Held input outcomes" });
+      const sources = Array.from(list.children).map(
+        (row) => row.querySelector("div > span[title]")?.textContent?.trim() ?? "",
+      );
+      observedSources.push(...sources);
+      return list;
+    };
+    const firstPage = readPageSources();
     expect(details.open).toBe(true);
-    expect(firstPage.children).toHaveLength(25);
+    expect(firstPage.children).toHaveLength(10);
     expect(firstPage.className).toContain("max-h-96");
     expect(firstPage.className).toContain("overflow-y-auto");
-    expect(screen.getByText("Outcomes 1–25 of 100")).toBeTruthy();
+    expect(screen.getByText("Outcomes 1–10 of 100")).toBeTruthy();
     expect(within(firstPage).getByText("Producer source 001 · turn_end")).toBeTruthy();
-    expect(within(firstPage).getByText("Producer source 025 · turn_end")).toBeTruthy();
+    expect(within(firstPage).getByText("Producer source 010 · board_stalled")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Previous outcome page" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(25);
+    expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(10);
 
-    fireEvent.click(screen.getByRole("button", { name: "Next outcome page" }));
-    expect(screen.getByText("Outcomes 26–50 of 100")).toBeTruthy();
-    expect(screen.getByText("Producer source 026 · board_stalled")).toBeTruthy();
-    expect(screen.getByText("Producer source 050 · board_stalled")).toBeTruthy();
-    expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(25);
+    for (let page = 1; page < 10; page++) {
+      fireEvent.click(screen.getByRole("button", { name: "Next outcome page" }));
+      const start = page * 10 + 1;
+      const end = start + 9;
+      expect(screen.getByText(`Outcomes ${start}–${end} of 100`)).toBeTruthy();
+      expect(readPageSources().children).toHaveLength(10);
+      expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(10);
+    }
 
-    fireEvent.click(screen.getByRole("button", { name: "Next outcome page" }));
-    expect(screen.getByText("Outcomes 51–75 of 100")).toBeTruthy();
-    expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(25);
-
-    fireEvent.click(screen.getByRole("button", { name: "Next outcome page" }));
-    expect(screen.getByText("Outcomes 76–100 of 100")).toBeTruthy();
-    expect(screen.getByText("Producer source 076 · board_stalled")).toBeTruthy();
+    expect(screen.getByText("Producer source 091 · turn_end")).toBeTruthy();
     expect(screen.getByText("Producer source 100 · board_stalled")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Next outcome page" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(25);
+    expect(observedSources).toEqual(
+      Array.from({ length: 100 }, (_, index) => {
+        const source = `Producer source ${String(index + 1).padStart(3, "0")}`;
+        return `${source} · ${index % 2 === 0 ? "turn_end" : "board_stalled"}`;
+      }),
+    );
   });
 
   it("bounds a live 25-to-100 receipt update without closing accepted detail state", () => {
@@ -177,12 +200,13 @@ describe("CodexAutoPauseRecoverySummary", () => {
     const details = disclosure.closest("details") as HTMLDetailsElement;
     expect(details.open).toBe(true);
     expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(25);
+    expect(screen.queryByRole("navigation", { name: "Held input outcome pages" })).toBeNull();
 
     view.rerender(<MessageBubble message={producerShapedSummaryMessage(100)} showTimestamp={false} />);
 
     expect(details.open).toBe(true);
-    expect(screen.getByText("Outcomes 1–25 of 100")).toBeTruthy();
-    expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(25);
+    expect(screen.getByText("Outcomes 1–10 of 100")).toBeTruthy();
+    expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(10);
     expect(screen.queryAllByTestId("codex-auto-pause-recovery-summary")).toHaveLength(1);
   });
 });
