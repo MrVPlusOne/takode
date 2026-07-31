@@ -5,6 +5,8 @@ import type {
 } from "../types.js";
 import { useState } from "react";
 
+const RECEIPTS_PER_PAGE = 25;
+
 const OUTCOME_LABELS: Record<CodexAutoPauseRecoveryOutcome, string> = {
   released_to_delivery: "Released",
   delivered: "Delivered",
@@ -41,7 +43,14 @@ export function CodexAutoPauseRecoverySummary({ summary }: { summary: RecoverySu
     ["suppressed", "discarded", "failed"].includes(receipt.outcome),
   ).length;
   const settled = summary.status === "settled";
-  const [open, setOpen] = useState(!settled || issueCount > 0);
+  const [open, setOpen] = useState(summary.receipts.length <= RECEIPTS_PER_PAGE && (!settled || issueCount > 0));
+  const [requestedPage, setRequestedPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(summary.receipts.length / RECEIPTS_PER_PAGE));
+  const page = Math.min(requestedPage, pageCount - 1);
+  const pageStart = page * RECEIPTS_PER_PAGE;
+  const pageEnd = Math.min(summary.receipts.length, pageStart + RECEIPTS_PER_PAGE);
+  const visibleReceipts = summary.receipts.slice(pageStart, pageEnd);
+  const paginated = summary.receipts.length > RECEIPTS_PER_PAGE;
 
   return (
     <section
@@ -75,58 +84,94 @@ export function CodexAutoPauseRecoverySummary({ summary }: { summary: RecoverySu
         <summary className="cursor-pointer select-none text-[11px] font-medium text-cc-muted hover:text-cc-fg">
           Inspect held input outcomes
         </summary>
-        <ul className="mt-2 space-y-1.5" aria-label="Held input outcomes">
-          {summary.receipts.map((receipt) => (
-            <li
-              key={receipt.groupId}
-              className="rounded-md border border-cc-border/50 bg-cc-bg/35 px-2.5 py-2"
-              data-testid={`codex-auto-pause-receipt-${receipt.outcome}`}
+        {open && (
+          <div className="mt-2">
+            {paginated && (
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-cc-muted">
+                <span aria-live="polite" data-testid="codex-auto-pause-recovery-page-status">
+                  Outcomes {pageStart + 1}–{pageEnd} of {summary.receipts.length}
+                </span>
+                <nav className="flex items-center gap-1.5" aria-label="Held input outcome pages">
+                  <button
+                    type="button"
+                    className="rounded border border-cc-border/60 px-2 py-1 hover:bg-cc-hover disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Previous outcome page"
+                    disabled={page === 0}
+                    onClick={() => setRequestedPage(page - 1)}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border border-cc-border/60 px-2 py-1 hover:bg-cc-hover disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Next outcome page"
+                    disabled={page === pageCount - 1}
+                    onClick={() => setRequestedPage(page + 1)}
+                  >
+                    Next
+                  </button>
+                </nav>
+              </div>
+            )}
+            <ul
+              key={page}
+              className="max-h-96 space-y-1.5 overflow-y-auto overscroll-contain pr-1"
+              aria-label="Held input outcomes"
+              data-testid="codex-auto-pause-recovery-outcome-page"
             >
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                <span className="min-w-0 flex-1 truncate font-medium" title={receiptTitle(receipt)}>
-                  {receiptTitle(receipt)}
-                </span>
-                <span
-                  className={`rounded border px-1.5 py-0.5 font-mono-code text-[10px] ${outcomeClasses(receipt.outcome)}`}
+              {visibleReceipts.map((receipt) => (
+                <li
+                  key={receipt.groupId}
+                  className="rounded-md border border-cc-border/50 bg-cc-bg/35 px-2.5 py-2"
+                  data-testid={`codex-auto-pause-receipt-${receipt.outcome}`}
                 >
-                  {OUTCOME_LABELS[receipt.outcome]}
-                </span>
-                {receipt.count > 1 && (
-                  <span className="rounded bg-cc-hover px-1.5 py-0.5 font-mono-code text-[10px] text-cc-muted">
-                    ×{receipt.count}
-                  </span>
-                )}
-              </div>
-              <p className="mt-1 leading-relaxed text-cc-muted">{receipt.reason}</p>
-              {finalityDetail(receipt) && (
-                <p className="mt-1 leading-relaxed text-cc-muted">{finalityDetail(receipt)}</p>
-              )}
-              {receipt.coalescedCount > 0 && (
-                <p className="mt-1 text-[10px] text-cc-muted/80">
-                  {receipt.coalescedCount} similar input{receipt.coalescedCount === 1 ? " was" : "s were"} coalesced
-                  into representative {receipt.survivingGroupId?.slice(-8)}.
-                </p>
-              )}
-              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono-code text-[10px] text-cc-muted/70">
-                <span title={new Date(receipt.queuedAt).toISOString()}>Held {formatTime(receipt.queuedAt)}</span>
-                <span title={new Date(receipt.releasedAt).toISOString()}>
-                  Released {formatTime(receipt.releasedAt)}
-                </span>
-                {receipt.terminalAt && (
-                  <span title={new Date(receipt.terminalAt).toISOString()}>
-                    Terminal {formatTime(receipt.terminalAt)}
-                  </span>
-                )}
-                {receipt.finalizedAt && (
-                  <span title={new Date(receipt.finalizedAt).toISOString()}>
-                    Final {formatTime(receipt.finalizedAt)}
-                  </span>
-                )}
-                <span title={receipt.groupId}>Group {receipt.groupId.slice(-8)}</span>
-              </div>
-            </li>
-          ))}
-        </ul>
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <span className="min-w-0 flex-1 truncate font-medium" title={receiptTitle(receipt)}>
+                      {receiptTitle(receipt)}
+                    </span>
+                    <span
+                      className={`rounded border px-1.5 py-0.5 font-mono-code text-[10px] ${outcomeClasses(receipt.outcome)}`}
+                    >
+                      {OUTCOME_LABELS[receipt.outcome]}
+                    </span>
+                    {receipt.count > 1 && (
+                      <span className="rounded bg-cc-hover px-1.5 py-0.5 font-mono-code text-[10px] text-cc-muted">
+                        ×{receipt.count}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 leading-relaxed text-cc-muted">{receipt.reason}</p>
+                  {finalityDetail(receipt) && (
+                    <p className="mt-1 leading-relaxed text-cc-muted">{finalityDetail(receipt)}</p>
+                  )}
+                  {receipt.coalescedCount > 0 && (
+                    <p className="mt-1 text-[10px] text-cc-muted/80">
+                      {receipt.coalescedCount} similar input{receipt.coalescedCount === 1 ? " was" : "s were"} coalesced
+                      into representative {receipt.survivingGroupId?.slice(-8)}.
+                    </p>
+                  )}
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono-code text-[10px] text-cc-muted/70">
+                    <span title={new Date(receipt.queuedAt).toISOString()}>Held {formatTime(receipt.queuedAt)}</span>
+                    <span title={new Date(receipt.releasedAt).toISOString()}>
+                      Released {formatTime(receipt.releasedAt)}
+                    </span>
+                    {receipt.terminalAt && (
+                      <span title={new Date(receipt.terminalAt).toISOString()}>
+                        Terminal {formatTime(receipt.terminalAt)}
+                      </span>
+                    )}
+                    {receipt.finalizedAt && (
+                      <span title={new Date(receipt.finalizedAt).toISOString()}>
+                        Final {formatTime(receipt.finalizedAt)}
+                      </span>
+                    )}
+                    <span title={receipt.groupId}>Group {receipt.groupId.slice(-8)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </details>
     </section>
   );

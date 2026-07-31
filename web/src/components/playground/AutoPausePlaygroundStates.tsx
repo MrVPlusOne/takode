@@ -79,8 +79,13 @@ export const PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY: Extract<
   threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" }],
 };
 
-export function buildPlaygroundAutoPauseRecoveryMessage(): ChatMessage {
-  const [message] = normalizeHistoryMessageToChatMessages(PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY, 42);
+export function buildPlaygroundAutoPauseRecoveryMessage(
+  entry: Extract<
+    BrowserIncomingMessage,
+    { type: "codex_auto_pause_recovery_summary" }
+  > = PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY,
+): ChatMessage {
+  const [message] = normalizeHistoryMessageToChatMessages(entry, 42);
   if (!message) throw new Error("Playground recovery summary failed production history normalization");
   return message;
 }

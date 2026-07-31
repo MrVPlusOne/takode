@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ChatMessage } from "../types.js";
+import { buildCodexAutoPauseRecoverySearchText } from "../../server/codex-auto-pause-types.js";
+import type { ChatMessage, CodexAutoPauseRecoveryOutcome, CodexAutoPauseRecoveryReceipt } from "../types.js";
 import { MessageBubble } from "./MessageBubble.js";
 import {
   buildPlaygroundAutoPauseRecoveryMessage,
@@ -12,6 +13,54 @@ afterEach(cleanup);
 
 function summaryMessage(): ChatMessage {
   return buildPlaygroundAutoPauseRecoveryMessage();
+}
+
+const TERMINAL_OUTCOMES: CodexAutoPauseRecoveryOutcome[] = ["delivered", "suppressed", "discarded", "failed"];
+
+function producerShapedSummaryMessage(receiptCount: number): ChatMessage {
+  const now = Date.now();
+  const receipts = Array.from({ length: receiptCount }, (_, index): CodexAutoPauseRecoveryReceipt => {
+    const outcome = TERMINAL_OUTCOMES[index % TERMINAL_OUTCOMES.length]!;
+    let reasonCode: CodexAutoPauseRecoveryReceipt["reasonCode"] = "delivery_pipeline_rejected";
+    let reason = "Delivery pipeline rejected the released input without accepting ownership.";
+    if (outcome === "delivered") {
+      reasonCode = "codex_delivery_recovered";
+      reason = "Accepted by Codex exactly once and completed after automatic turn recovery.";
+    } else if (outcome === "suppressed") {
+      reasonCode = "stale_board_state";
+      reason = "Suppressed because the authoritative board state no longer matched the stalled event.";
+    } else if (outcome === "discarded") {
+      reasonCode = "explicit_cancel";
+      reason = "Discarded after explicit cancellation before delivery could begin.";
+    }
+    return {
+      groupId: `producer-recovery-group-${String(index + 1).padStart(3, "0")}`,
+      source: "programmatic",
+      sourceLabel: `Producer source ${String(index + 1).padStart(3, "0")}`,
+      sourceDetail: index % 2 === 0 ? "turn_end" : "board_stalled",
+      count: 1,
+      coalescedCount: 0,
+      queuedAt: now - 120_000 + index,
+      lastQueuedAt: now - 100_000 + index,
+      releasedAt: now - 60_000 + index,
+      terminalAt: now - 59_000 + index,
+      ...(outcome === "delivered" ? { completedAt: now - 15_000 + index, recovered: true } : {}),
+      outcome,
+      reasonCode,
+      reason,
+    };
+  });
+  const entry = structuredClone(PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY);
+  entry.timestamp = now;
+  entry.content = `Automatic input recovery: ${receiptCount} terminal receipts.`;
+  entry.recovery = {
+    ...entry.recovery,
+    updatedAt: now,
+    status: "settled",
+    receipts,
+  };
+  entry.searchText = buildCodexAutoPauseRecoverySearchText(entry.recovery);
+  return buildPlaygroundAutoPauseRecoveryMessage(entry);
 }
 
 describe("CodexAutoPauseRecoverySummary", () => {
@@ -76,5 +125,64 @@ describe("CodexAutoPauseRecoverySummary", () => {
 
     expect(screen.queryAllByTestId("codex-auto-pause-recovery-summary")).toHaveLength(1);
     expect(screen.getByText("Automatic input recovery complete")).toBeTruthy();
+  });
+
+  it("keeps a producer-shaped 100-receipt summary collapsed until requested and pages every outcome", () => {
+    // Large summaries must preserve every terminal receipt without eagerly mounting the 100-row long-task/card.
+    render(<MessageBubble message={producerShapedSummaryMessage(100)} showTimestamp={false} />);
+
+    const disclosure = screen.getByText("Inspect held input outcomes");
+    const details = disclosure.closest("details") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(screen.queryByRole("list", { name: "Held input outcomes" })).toBeNull();
+    expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(0);
+    expect(screen.getByText("100/100 settled")).toBeTruthy();
+
+    fireEvent.click(disclosure);
+    fireEvent(details, new Event("toggle", { bubbles: true }));
+
+    const firstPage = screen.getByRole("list", { name: "Held input outcomes" });
+    expect(details.open).toBe(true);
+    expect(firstPage.children).toHaveLength(25);
+    expect(firstPage.className).toContain("max-h-96");
+    expect(firstPage.className).toContain("overflow-y-auto");
+    expect(screen.getByText("Outcomes 1–25 of 100")).toBeTruthy();
+    expect(within(firstPage).getByText("Producer source 001 · turn_end")).toBeTruthy();
+    expect(within(firstPage).getByText("Producer source 025 · turn_end")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Previous outcome page" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(25);
+
+    fireEvent.click(screen.getByRole("button", { name: "Next outcome page" }));
+    expect(screen.getByText("Outcomes 26–50 of 100")).toBeTruthy();
+    expect(screen.getByText("Producer source 026 · board_stalled")).toBeTruthy();
+    expect(screen.getByText("Producer source 050 · board_stalled")).toBeTruthy();
+    expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(25);
+
+    fireEvent.click(screen.getByRole("button", { name: "Next outcome page" }));
+    expect(screen.getByText("Outcomes 51–75 of 100")).toBeTruthy();
+    expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(25);
+
+    fireEvent.click(screen.getByRole("button", { name: "Next outcome page" }));
+    expect(screen.getByText("Outcomes 76–100 of 100")).toBeTruthy();
+    expect(screen.getByText("Producer source 076 · board_stalled")).toBeTruthy();
+    expect(screen.getByText("Producer source 100 · board_stalled")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Next outcome page" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(25);
+  });
+
+  it("bounds a live 25-to-100 receipt update without closing accepted detail state", () => {
+    // Execute updates an existing open summary; that path must never replace its 25-row page with all 100 rows.
+    const view = render(<MessageBubble message={producerShapedSummaryMessage(25)} showTimestamp={false} />);
+    const disclosure = screen.getByText("Inspect held input outcomes");
+    const details = disclosure.closest("details") as HTMLDetailsElement;
+    expect(details.open).toBe(true);
+    expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(25);
+
+    view.rerender(<MessageBubble message={producerShapedSummaryMessage(100)} showTimestamp={false} />);
+
+    expect(details.open).toBe(true);
+    expect(screen.getByText("Outcomes 1–25 of 100")).toBeTruthy();
+    expect(screen.queryAllByTestId(/^codex-auto-pause-receipt-/)).toHaveLength(25);
+    expect(screen.queryAllByTestId("codex-auto-pause-recovery-summary")).toHaveLength(1);
   });
 });
