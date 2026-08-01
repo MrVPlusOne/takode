@@ -1034,6 +1034,63 @@ describe("thread window hydration", () => {
     expect(new Set(sync.entries.map((entry) => entry.history_index)).size).toBe(sync.entries.length);
   });
 
+  it("sanitizes selected mixed previews without authorizing unrelated later closure", () => {
+    // In-range preview metadata is support, not a relation seed for unrelated tools in the same batch.
+    const mixedPreview = {
+      type: "tool_result_preview",
+      previews: [
+        ...(
+          toolResultPreview("tool-main", "selected closure") as Extract<
+            BrowserIncomingMessage,
+            { type: "tool_result_preview" }
+          >
+        ).previews,
+        ...(
+          toolResultPreview("tool-other", "unrelated in-range closure") as Extract<
+            BrowserIncomingMessage,
+            { type: "tool_result_preview" }
+          >
+        ).previews,
+      ],
+    } satisfies BrowserIncomingMessage;
+    const history = [
+      assistant("a1", "selected main tool", { toolUseId: "tool-main" }),
+      mixedPreview,
+      successfulResult("r1"),
+      toolResultPreview("tool-other", "later unrelated preview"),
+      assistant("a5", "later unrelated parent closure", { parentToolUseId: "tool-other" }),
+    ];
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: 1,
+      sectionItemCount: 1,
+      visibleItemCount: 1,
+    });
+    const previewEntries = sync.entries.filter((entry) => entry.message.type === "tool_result_preview");
+    const supportRecordCount = sync.entries.reduce((count, entry) => {
+      if (entry.message.type === "tool_result_preview") return count + entry.message.previews.length;
+      if (entry.message.type === "result" && !entry.message.data.is_error) return count + 1;
+      return count;
+    }, 0);
+
+    expect(sync.window).toEqual(
+      expect.objectContaining({ item_count: 1, total_items: 2, has_older_items: false, has_newer_items: true }),
+    );
+    expect(sync.entries.map((entry) => entry.history_index)).toEqual([0, 1, 2]);
+    expect(previewEntries).toHaveLength(1);
+    expect(previewEntries[0]?.message).toEqual(
+      expect.objectContaining({
+        type: "tool_result_preview",
+        previews: [expect.objectContaining({ tool_use_id: "tool-main", content: "selected closure" })],
+      }),
+    );
+    expect(supportRecordCount).toBeLessThanOrEqual(THREAD_WINDOW_SUPPORT_RECORD_LIMIT);
+    expect(new Set(sync.entries.map((entry) => entry.history_index)).size).toBe(sync.entries.length);
+  });
+
   it("bounds repeated matching support updates and retains the latest preview", () => {
     // A single visible tool row must not pull an unbounded matching replay/update tail into one browser window.
     const history: BrowserIncomingMessage[] = [

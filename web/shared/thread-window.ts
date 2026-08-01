@@ -163,7 +163,11 @@ function buildThreadWindowEntries(input: {
     input.threadKey === MAIN_THREAD_KEY
       ? expandMainAttachmentSourceItems(input.messageHistory, input.items, selectedOrFallbackItems)
       : selectedOrFallbackItems;
-  return dedupeEntries(expandToolClosureItems(input.messageHistory, sourceExpandedItems));
+  return dedupeEntries(
+    expandToolClosureItems(input.messageHistory, sourceExpandedItems, {
+      orphanPreviewFallback: selectedItems.length === 0,
+    }),
+  );
 }
 
 function threadWindowEntryRendersChatRow(message: BrowserIncomingMessage): boolean {
@@ -513,34 +517,62 @@ function isMainAttachmentSourceMessage(message: BrowserIncomingMessage): boolean
 function expandToolClosureItems(
   messages: ReadonlyArray<BrowserIncomingMessage>,
   selectedItems: FeedItem[],
+  options: { orphanPreviewFallback: boolean },
 ): FeedItem[] {
   if (selectedItems.length === 0) return selectedItems;
 
-  const selectedToolUseIds = new Set<string>();
+  const allowedToolUseIds = new Set<string>();
   for (const item of selectedItems) {
+    if (item.entry.message.type === "tool_result_preview") continue;
+    if (!threadWindowEntryRendersChatRow(item.entry.message)) continue;
     for (const toolUseId of relatedToolUseIds(item.entry.message)) {
-      selectedToolUseIds.add(toolUseId);
+      allowedToolUseIds.add(toolUseId);
     }
   }
-  if (selectedToolUseIds.size === 0) return selectedItems;
 
-  const selectedHistoryIndexes = new Set(selectedItems.map((item) => item.order));
-  const supportItems: FeedItem[] = [];
+  const selectedEntryKeys = new Set(selectedItems.map((item) => entryKey(item.entry)));
+  const retainedSelectedSupportKeys = new Set<string>();
   let supportRecordCount = 0;
+  for (let index = selectedItems.length - 1; index >= 0; index--) {
+    const item = selectedItems[index]!;
+    const message = item.entry.message;
+    if (message.type === "tool_result_preview" || threadWindowEntryRendersChatRow(message)) continue;
+    if (supportRecordCount >= THREAD_WINDOW_SUPPORT_RECORD_LIMIT) continue;
+    retainedSelectedSupportKeys.add(entryKey(item.entry));
+    supportRecordCount += 1;
+  }
+  const retainedSelectedItems = selectedItems.filter((item) => {
+    const message = item.entry.message;
+    if (message.type === "tool_result_preview") return false;
+    return threadWindowEntryRendersChatRow(message) || retainedSelectedSupportKeys.has(entryKey(item.entry));
+  });
+
+  const previewRelationIds = options.orphanPreviewFallback
+    ? new Set(
+        selectedItems.flatMap((item) =>
+          item.entry.message.type === "tool_result_preview"
+            ? item.entry.message.previews.map((preview) => preview.tool_use_id)
+            : [],
+        ),
+      )
+    : allowedToolUseIds;
+  const supportItems: FeedItem[] = [];
   const previewToolUseIds = new Set<string>();
+  const previewCandidates = options.orphanPreviewFallback
+    ? selectedItems.map((item) => ({ message: item.entry.message, index: item.order }))
+    : messages.map((message, index) => ({ message, index }));
   for (
-    let index = messages.length - 1;
-    index >= 0 && supportRecordCount < THREAD_WINDOW_SUPPORT_RECORD_LIMIT;
-    index--
+    let candidateIndex = previewCandidates.length - 1;
+    candidateIndex >= 0 && supportRecordCount < THREAD_WINDOW_SUPPORT_RECORD_LIMIT;
+    candidateIndex--
   ) {
-    const message = messages[index]!;
+    const { message, index } = previewCandidates[candidateIndex]!;
     if (message.type === "tool_result_preview") {
       const previews = message.previews
-        .filter((preview) => selectedToolUseIds.has(preview.tool_use_id) && !previewToolUseIds.has(preview.tool_use_id))
+        .filter((preview) => previewRelationIds.has(preview.tool_use_id) && !previewToolUseIds.has(preview.tool_use_id))
         .slice(0, THREAD_WINDOW_SUPPORT_RECORD_LIMIT - supportRecordCount);
       if (previews.length === 0) continue;
       previews.forEach((preview) => previewToolUseIds.add(preview.tool_use_id));
-      if (selectedHistoryIndexes.has(index)) continue;
       supportRecordCount += previews.length;
       supportItems.push({
         order: index,
@@ -552,24 +584,28 @@ function expandToolClosureItems(
     }
   }
 
+  if (options.orphanPreviewFallback || allowedToolUseIds.size === 0) {
+    return [...retainedSelectedItems, ...supportItems];
+  }
+
   const closureToolUseIds = new Set<string>();
   for (
     let index = messages.length - 1;
     index >= 0 && supportRecordCount < THREAD_WINDOW_SUPPORT_RECORD_LIMIT;
     index--
   ) {
-    if (selectedHistoryIndexes.has(index)) continue;
     const message = messages[index]!;
     if (message.type === "tool_result_preview") continue;
     const relationIds = relatedToolUseIds(message).filter(
-      (toolUseId) => selectedToolUseIds.has(toolUseId) && !closureToolUseIds.has(toolUseId),
+      (toolUseId) => allowedToolUseIds.has(toolUseId) && !closureToolUseIds.has(toolUseId),
     );
     if (relationIds.length === 0) continue;
     relationIds.forEach((toolUseId) => closureToolUseIds.add(toolUseId));
+    if (selectedEntryKeys.has(entryKey({ message, history_index: index }))) continue;
     supportRecordCount += 1;
     supportItems.push({ order: index, entry: { message, history_index: index } });
   }
-  return [...selectedItems, ...supportItems];
+  return [...retainedSelectedItems, ...supportItems];
 }
 
 function dedupeFeedItems(items: FeedItem[]): FeedItem[] {
