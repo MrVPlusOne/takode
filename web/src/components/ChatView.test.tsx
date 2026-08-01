@@ -53,6 +53,7 @@ interface MockStoreState {
   sessionTaskHistory: Map<string, Array<{ title: string; triggerMessageId: string }>>;
   messages: Map<string, unknown[]>;
   historyLoading: Map<string, boolean>;
+  threadWindows: Map<string, Map<string, import("../types.js").ThreadWindowState>>;
   quests: Array<Record<string, unknown> & { questId: string; title: string; status: string }>;
   zoomLevel: number;
   openQuestOverlay: (questId: string) => void;
@@ -85,6 +86,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionTaskHistory: new Map(),
     messages: new Map(),
     historyLoading: new Map(),
+    threadWindows: new Map(),
     quests: [],
     zoomLevel: 1,
     openQuestOverlay: mockOpenQuestOverlay,
@@ -403,6 +405,8 @@ vi.mock("./QuestJourneyTimeline.js", () => ({
 
 import { ChatView } from "./ChatView.js";
 import { persistLeaderSelectedThreadKey, SAVE_THREAD_VIEWPORT_EVENT } from "../utils/thread-viewport.js";
+import { clearFrontendPerfEntries } from "../utils/frontend-perf-recorder.js";
+import { runCachedWarmThreadNavigationRegression } from "./chat-view-warm-navigation-regression.js";
 
 beforeEach(() => {
   resetStore();
@@ -414,6 +418,7 @@ beforeEach(() => {
   mockMarkNotificationDone.mockClear();
   mockOpenQuestOverlay.mockClear();
   mockSendToSession.mockClear();
+  clearFrontendPerfEntries();
 });
 
 describe("ChatView archived banner", () => {
@@ -1109,6 +1114,14 @@ describe("ChatView backend banners", () => {
 
     expect(snapshots).toEqual([{ sessionId: "s1", threadKey: "main" }]);
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941");
+  });
+
+  it("correlates repeated cached warm Main and quest switches for a producer-shaped large leader", () => {
+    // Cached switching emits no history receive frame, so navigation timing must survive repeated remounts independently.
+    runCachedWarmThreadNavigationRegression({
+      resetStore: (overrides) => resetStore(overrides),
+      renderView: () => render(<ChatView sessionId="s1" />),
+    });
   });
 
   it("offers All Threads as a global projection while keeping a Main/global composer available", () => {

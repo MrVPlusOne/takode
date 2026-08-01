@@ -948,6 +948,88 @@ describe("thread window hydration", () => {
     expect(sync.window.has_newer_items).toBe(false);
   });
 
+  it("counts standalone rows so more than 90 preview-only ranges cannot produce a false empty window", () => {
+    // Producer-valid preview/result support tails must not consume the visible page budget.
+    const history: BrowserIncomingMessage[] = [];
+    for (let i = 0; i < 50; i++) {
+      history.push(user(`u${i}`, `main request ${i}`));
+      history.push(assistant(`a${i}`, `main response ${i}`));
+      history.push(successfulResult(`r${i}`));
+    }
+    const visibleHistoryLength = history.length;
+    for (let i = 0; i < 140; i++) {
+      history.push(toolResultPreview(`orphan-tool-${i}`, `support preview ${i}`));
+      history.push(successfulResult(`support-result-${i}`));
+    }
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: -1,
+      itemCount: 30,
+      sectionItemCount: 10,
+      visibleItemCount: 3,
+    });
+    const standaloneRows = sync.entries.filter((entry) => {
+      if (entry.message.type === "tool_result_preview") return false;
+      if (entry.message.type !== "result") return true;
+      return Boolean((entry.message.data as { is_error?: boolean }).is_error && !entry.message.interrupted);
+    });
+
+    expect(sync.window).toEqual(
+      expect.objectContaining({ total_items: 50, item_count: 30, has_older_items: true, has_newer_items: false }),
+    );
+    expect(standaloneRows.length).toBeGreaterThan(0);
+    expect(sync.entries.every((entry) => entry.history_index < visibleHistoryLength)).toBe(true);
+  });
+
+  it("delivers matching Main tool closure outside the visible range without leaking unrelated previews", () => {
+    // Support records are relation-bounded to selected tool rows and keep source ordering and identity.
+    const mixedPreview = {
+      type: "tool_result_preview",
+      previews: [
+        ...(
+          toolResultPreview("tool-main", "main closure") as Extract<
+            BrowserIncomingMessage,
+            { type: "tool_result_preview" }
+          >
+        ).previews,
+        ...(
+          toolResultPreview("tool-other", "unrelated closure") as Extract<
+            BrowserIncomingMessage,
+            { type: "tool_result_preview" }
+          >
+        ).previews,
+      ],
+    } satisfies BrowserIncomingMessage;
+    const history = [
+      assistant("a1", "main tool", { toolUseId: "tool-main" }),
+      successfulResult("r1"),
+      mixedPreview,
+      user("u4", "later visible Main row"),
+    ];
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: 1,
+      sectionItemCount: 1,
+      visibleItemCount: 1,
+    });
+
+    expect(sync.window).toEqual(
+      expect.objectContaining({ total_items: 2, item_count: 1, has_older_items: false, has_newer_items: true }),
+    );
+    expect(sync.entries.map((entry) => entry.history_index)).toEqual([0, 1, 2]);
+    const preview = sync.entries[2]?.message;
+    expect(preview?.type).toBe("tool_result_preview");
+    if (preview?.type === "tool_result_preview") {
+      expect(preview.previews.map((entry) => entry.tool_use_id)).toEqual(["tool-main"]);
+    }
+    expect(new Set(sync.entries.map((entry) => entry.history_index)).size).toBe(sync.entries.length);
+  });
+
   it("preserves a standalone failed result while filtering successful result-only ranges", () => {
     // Failed results render as diagnostics and therefore cannot be discarded with invisible successful results.
     const history = [

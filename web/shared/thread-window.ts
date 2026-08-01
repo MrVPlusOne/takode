@@ -60,7 +60,7 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
     Math.floor(input.itemCount || getThreadWindowItemCount(visibleItemCount, sectionItemCount)),
   );
   const items = buildThreadConversationItems(input.messageHistory, threadKey);
-  const ranges = buildRenderableConversationRanges(items);
+  const ranges = buildVisibleConversationRanges(items);
   const totalItems = ranges.length;
   const requestedFromItem = Math.floor(input.fromItem);
   const targetRangeIndex = input.targetMessageId
@@ -88,6 +88,7 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
     ranges,
     fromItem: initialFromItem,
     endItem,
+    supportItemLimit: requestedItemCount,
   });
   const availability = deriveThreadWindowAvailability({
     items,
@@ -131,7 +132,7 @@ export function buildProjectedThreadEntries(
 ): ThreadWindowEntry[] {
   const normalizedThreadKey = normalizeSelectedFeedThreadKey(threadKey);
   const items = buildThreadConversationItems(messageHistory, normalizedThreadKey);
-  const ranges = buildRenderableConversationRanges(items);
+  const ranges = buildVisibleConversationRanges(items);
   return buildThreadWindowEntries({
     messageHistory,
     threadKey: normalizedThreadKey,
@@ -139,6 +140,7 @@ export function buildProjectedThreadEntries(
     ranges,
     fromItem: 0,
     endItem: ranges.length,
+    supportItemLimit: Math.max(1, items.length),
   });
 }
 
@@ -149,13 +151,18 @@ function buildThreadWindowEntries(input: {
   ranges: ConversationRange[];
   fromItem: number;
   endItem: number;
+  supportItemLimit: number;
 }): ThreadWindowEntry[] {
   const selectedItems = selectConversationItems(input.items, input.ranges.slice(input.fromItem, input.endItem));
+  const selectedOrFallbackItems =
+    selectedItems.length > 0
+      ? selectedItems
+      : selectRecentStandalonePreviewItems(input.items, input.ranges, input.supportItemLimit);
   const sourceExpandedItems =
     input.threadKey === MAIN_THREAD_KEY
-      ? expandMainAttachmentSourceItems(input.messageHistory, input.items, selectedItems)
-      : selectedItems;
-  return dedupeEntries(expandToolClosureItems(input.messageHistory, input.threadKey, sourceExpandedItems));
+      ? expandMainAttachmentSourceItems(input.messageHistory, input.items, selectedOrFallbackItems)
+      : selectedOrFallbackItems;
+  return dedupeEntries(expandToolClosureItems(input.messageHistory, sourceExpandedItems));
 }
 
 function threadWindowEntryRendersChatRow(message: BrowserIncomingMessage): boolean {
@@ -422,20 +429,23 @@ function buildConversationRanges(items: FeedItem[]): ConversationRange[] {
   return ranges;
 }
 
-function buildRenderableConversationRanges(items: FeedItem[]): ConversationRange[] {
+function buildVisibleConversationRanges(items: FeedItem[]): ConversationRange[] {
   return buildConversationRanges(items).filter((range) =>
-    items
-      .slice(range.startItem, range.endItem)
-      .some((item) => threadWindowEntryContributesToBrowser(item.entry.message)),
+    items.slice(range.startItem, range.endItem).some((item) => threadWindowEntryRendersChatRow(item.entry.message)),
   );
-}
-
-function threadWindowEntryContributesToBrowser(message: BrowserIncomingMessage): boolean {
-  return message.type === "tool_result_preview" || threadWindowEntryRendersChatRow(message);
 }
 
 function selectConversationItems(items: FeedItem[], ranges: ConversationRange[]): FeedItem[] {
   return ranges.flatMap((range) => items.slice(range.startItem, range.endItem));
+}
+
+function selectRecentStandalonePreviewItems(
+  items: FeedItem[],
+  visibleRanges: ConversationRange[],
+  supportItemLimit: number,
+): FeedItem[] {
+  if (visibleRanges.length > 0) return [];
+  return items.filter((item) => item.entry.message.type === "tool_result_preview").slice(-supportItemLimit);
 }
 
 function expandMainAttachmentSourceItems(
@@ -501,12 +511,9 @@ function isMainAttachmentSourceMessage(message: BrowserIncomingMessage): boolean
 
 function expandToolClosureItems(
   messages: ReadonlyArray<BrowserIncomingMessage>,
-  threadKey: string,
   selectedItems: FeedItem[],
 ): FeedItem[] {
-  if (threadKey === MAIN_THREAD_KEY || selectedItems.length === 0) {
-    return selectedItems;
-  }
+  if (selectedItems.length === 0) return selectedItems;
 
   const selectedToolUseIds = new Set<string>();
   for (const item of selectedItems) {
@@ -518,6 +525,18 @@ function expandToolClosureItems(
 
   const expanded = [...selectedItems];
   messages.forEach((message, index) => {
+    if (message.type === "tool_result_preview") {
+      const previews = message.previews.filter((preview) => selectedToolUseIds.has(preview.tool_use_id));
+      if (previews.length === 0) return;
+      expanded.push({
+        order: index,
+        entry: {
+          message: previews.length === message.previews.length ? message : { ...message, previews },
+          history_index: index,
+        },
+      });
+      return;
+    }
     if (!relatedToolUseIds(message).some((toolUseId) => selectedToolUseIds.has(toolUseId))) return;
     expanded.push({ order: index, entry: { message, history_index: index } });
   });

@@ -271,7 +271,7 @@ describe("handleMessage: message_history", () => {
           kind: "ws_message",
           sessionId: "s1",
           messageType: "message_history",
-          payloadBytes: expect.any(Number),
+          payloadUtf16CodeUnits: expect.any(Number),
           receiveId: expect.any(String),
           parseDurationMs: expect.any(Number),
           applyDurationMs: expect.any(Number),

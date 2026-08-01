@@ -1161,6 +1161,76 @@ describe("selected feed thread windows", () => {
     expect(sync.entries.map((entry: any) => entry.message.id)).toEqual(["u-700", "u-800", "u-900"]);
   });
 
+  it("does not let preview-only support tails consume the server-authored visible window budget", () => {
+    // Exercise the actual browser producer, not a frontend-invented window shape.
+    const history: BrowserIncomingMessage[] = [
+      { type: "user_message", id: "u-main", content: "visible request", timestamp: 1 },
+      {
+        type: "assistant",
+        message: { id: "a-main", role: "assistant", content: [{ type: "text", text: "visible response" }] },
+      } as BrowserIncomingMessage,
+      {
+        type: "result",
+        data: {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          duration_ms: 1,
+          duration_api_ms: 1,
+          num_turns: 1,
+          session_id: "s1",
+          total_cost_usd: 0,
+          result: "done",
+        },
+      } as BrowserIncomingMessage,
+    ];
+    for (let index = 0; index < 140; index++) {
+      history.push({
+        type: "tool_result_preview",
+        previews: [
+          {
+            tool_use_id: `orphan-${index}`,
+            content: "support-only",
+            is_error: false,
+            total_size: 12,
+            is_truncated: false,
+          },
+        ],
+      });
+      history.push({
+        type: "result",
+        data: {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          duration_ms: 1,
+          duration_api_ms: 1,
+          num_turns: 1,
+          session_id: "s1",
+          total_cost_usd: 0,
+          result: "done",
+        },
+      } as BrowserIncomingMessage);
+    }
+    const send = vi.fn();
+
+    sendThreadWindowSync(
+      makeSession({ messageHistory: history }),
+      { send },
+      { threadKey: "main", fromItem: -1, itemCount: 30, sectionItemCount: 10, visibleItemCount: 3 },
+    );
+
+    const sync = JSON.parse(send.mock.calls[0][0]);
+    expect(sync.window).toMatchObject({
+      total_items: 1,
+      item_count: 1,
+      has_older_items: false,
+      has_newer_items: false,
+    });
+    expect(sync.entries.map((entry: any) => entry.history_index)).toEqual([0, 1, 2]);
+    expect(sync.entries.some((entry: any) => entry.message.type === "user_message")).toBe(true);
+  });
+
   it("omits selected-thread payload when the cached thread window hash still matches", () => {
     const send = vi.fn();
     const session = makeSession({

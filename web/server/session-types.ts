@@ -5,6 +5,7 @@ import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-ph
 import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 import type { ModelProvenanceMigration } from "./model-identity-contract.js";
 import type { CodexAutoPauseRecoveryLink, CodexAutoPauseRecoverySummary } from "./codex-auto-pause-types.js";
+import type { LeaderProjectionSnapshot } from "./leader-projection-types.js";
 import type { SessionLifecycleBrowserMessage } from "./session-lifecycle-message.js";
 export type {
   CodexAutoPauseRecoveryLink,
@@ -13,6 +14,12 @@ export type {
   CodexAutoPauseRecoveryReceipt,
   CodexAutoPauseRecoverySummary,
 } from "./codex-auto-pause-types.js";
+export type {
+  LeaderProjectionInternalSnapshot,
+  LeaderProjectionSnapshot,
+  LeaderProjectionThreadRow,
+  LeaderProjectionThreadSummary,
+} from "./leader-projection-types.js";
 
 // Types for the WebSocket bridge between Claude Code CLI and the browser
 
@@ -827,62 +834,6 @@ export interface ThreadWindowEntry {
   message: BrowserIncomingMessage;
   history_index: number;
   synthetic?: boolean;
-}
-
-export interface LeaderProjectionThreadSummary {
-  threadKey: string;
-  questId?: string;
-  messageCount: number;
-  firstMessageAt?: number;
-  lastMessageAt?: number;
-  firstHistoryIndex?: number;
-  lastHistoryIndex?: number;
-}
-
-export interface LeaderProjectionThreadRow {
-  threadKey: string;
-  questId?: string;
-  title: string;
-  status?: string;
-  boardStatus?: string;
-  journey?: import("../shared/quest-journey.js").QuestJourneyPlanState;
-  boardRow?: BoardRow;
-  rowStatus?: BoardRowSessionStatus;
-  section?: "active" | "done";
-  messageCount: number;
-  createdAt: number;
-}
-
-/** Rich server-side projection used for projection construction and diagnostics. */
-export interface LeaderProjectionInternalSnapshot {
-  schemaVersion: 1;
-  revision: number;
-  sourceHistoryLength: number;
-  generatedAt: number;
-  threadSummaries: LeaderProjectionThreadSummary[];
-  threadRows: LeaderProjectionThreadRow[];
-  workBoardThreadRows: Array<{
-    threadKey: string;
-    questId?: string;
-    title: string;
-    messageCount?: number;
-    section?: "active" | "done";
-  }>;
-  messageAttentionRecords: SessionAttentionRecord[];
-  attentionRecords: SessionAttentionRecord[];
-  rawTurnBoundaries: Array<{
-    turnIndex: number;
-    startHistoryIndex: number;
-    endHistoryIndex: number | null;
-  }>;
-}
-
-/** Compact browser wire contract. Keep this limited to fields consumed by the browser. */
-export interface LeaderProjectionSnapshot {
-  schemaVersion: 2;
-  sourceHistoryLength: number;
-  threadSummaries: LeaderProjectionThreadSummary[];
-  messageAttentionRecords: SessionAttentionRecord[];
 }
 
 /** High-level task recognized by the session auto-namer. */

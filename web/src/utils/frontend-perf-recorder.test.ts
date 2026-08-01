@@ -3,11 +3,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   beginHistoryReceiveRenderTiming,
+  beginThreadNavigationTiming,
+  clearFrontendPerfSessionCorrelations,
   clearFrontendPerfEntries,
   completeHistoryReceiveRenderTiming,
   exportFrontendPerfEntries,
   getFrontendPerfEntries,
   markHistoryReceiveRenderCommitted,
+  markThreadNavigationCommitted,
   recordFeedRenderSnapshot,
   recordFrontendPerfEntry,
 } from "./frontend-perf-recorder.js";
@@ -89,7 +92,7 @@ describe("frontend perf recorder", () => {
       receiveId: "receive-1",
       sessionId: "s1",
       messageType: "leader_projection_snapshot",
-      payloadBytes: 12_345,
+      payloadUtf16CodeUnits: 12_345,
       receivedAt: 10,
       parseDurationMs: 4,
     });
@@ -109,7 +112,7 @@ describe("frontend perf recorder", () => {
         sessionId: "s1",
         messageType: "leader_projection_snapshot",
         receiveId: "receive-1",
-        payloadBytes: 12_345,
+        payloadUtf16CodeUnits: 12_345,
         parseDurationMs: 4,
         applyDurationMs: 6,
         reactCommitDurationMs: 5,
@@ -117,5 +120,88 @@ describe("frontend perf recorder", () => {
         totalDurationMs: 40,
       },
     ]);
+  });
+
+  it("records cached thread navigation from selection through commit and next paint", () => {
+    // Warm navigation has no receive frame, so it needs its own bounded metadata-only correlation.
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const now = vi.spyOn(performance, "now");
+    now.mockReturnValueOnce(10);
+    beginThreadNavigationTiming({
+      sessionId: "s1",
+      fromThreadKey: "main",
+      toThreadKey: "q-1",
+      cachedWindow: true,
+    });
+    now.mockReturnValueOnce(25);
+    markThreadNavigationCommitted("s1", "q-1");
+    frames.shift()?.(30);
+    now.mockReturnValueOnce(50);
+    frames.shift()?.(40);
+
+    expect(getFrontendPerfEntries()).toEqual([
+      expect.objectContaining({
+        kind: "thread_navigation",
+        sessionId: "s1",
+        fromThreadKey: "main",
+        toThreadKey: "q-1",
+        cachedWindow: true,
+        reactCommitDurationMs: 15,
+        nextPaintDurationMs: 25,
+        totalDurationMs: 40,
+      }),
+    ]);
+  });
+
+  it("drops orphaned, globally excess, and session-closed receive correlations", () => {
+    // Cleanup is activity-driven: no recurring timer or payload scan is added to the mobile hot path.
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    beginHistoryReceiveRenderTiming({
+      receiveId: "aged-receive",
+      sessionId: "aged-session",
+      messageType: "thread_window_sync",
+      payloadUtf16CodeUnits: 10,
+      receivedAt: 0,
+      parseDurationMs: 1,
+    });
+    beginHistoryReceiveRenderTiming({
+      receiveId: "fresh-receive",
+      sessionId: "fresh-session",
+      messageType: "thread_window_sync",
+      payloadUtf16CodeUnits: 10,
+      receivedAt: 30_001,
+      parseDurationMs: 1,
+    });
+    completeHistoryReceiveRenderTiming({ receiveId: "aged-receive", appliedAt: 30_002, applyDurationMs: 1 });
+    markHistoryReceiveRenderCommitted("aged-session");
+    clearFrontendPerfSessionCorrelations("fresh-session");
+
+    for (let index = 0; index < 101; index++) {
+      beginHistoryReceiveRenderTiming({
+        receiveId: `receive-${index}`,
+        sessionId: `session-${index}`,
+        messageType: "thread_window_sync",
+        payloadUtf16CodeUnits: 10,
+        receivedAt: index,
+        parseDurationMs: 1,
+      });
+    }
+    completeHistoryReceiveRenderTiming({ receiveId: "receive-0", appliedAt: 102, applyDurationMs: 1 });
+    markHistoryReceiveRenderCommitted("session-0");
+
+    completeHistoryReceiveRenderTiming({ receiveId: "receive-100", appliedAt: 102, applyDurationMs: 1 });
+    markHistoryReceiveRenderCommitted("session-100");
+    clearFrontendPerfSessionCorrelations("session-100");
+    while (frames.length > 0) frames.shift()?.(0);
+
+    expect(getFrontendPerfEntries()).toEqual([]);
   });
 });

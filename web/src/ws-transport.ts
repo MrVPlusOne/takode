@@ -3,7 +3,9 @@ import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 import { scopedGetItem, scopedSetItem } from "./utils/scoped-storage.js";
 import {
   beginHistoryReceiveRenderTiming,
+  clearFrontendPerfSessionCorrelations,
   completeHistoryReceiveRenderTiming,
+  discardHistoryReceiveRenderTiming,
   recordFrontendPerfEntry,
 } from "./utils/frontend-perf-recorder.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
@@ -451,7 +453,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
           receiveId,
           sessionId,
           messageType: data.type,
-          payloadBytes: rawData.length,
+          payloadUtf16CodeUnits: rawData.length,
           receivedAt,
           parseDurationMs,
         });
@@ -468,10 +470,11 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
           parseDurationMs,
           applyDurationMs,
           ...(typeof data.seq === "number" ? { seq: data.seq } : {}),
-          ...(rawData ? { payloadBytes: rawData.length } : {}),
+          ...(rawData ? { payloadUtf16CodeUnits: rawData.length } : {}),
         });
         completeHistoryReceiveRenderTiming({ receiveId, appliedAt, applyDurationMs });
       } catch {
+        discardHistoryReceiveRenderTiming(receiveId);
         // ignore non-JSON messages
       }
     };
@@ -479,6 +482,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     ws.onclose = () => {
       flushPendingSeqStorage(sessionId);
       clearSocketState(sessionId, ws);
+      clearFrontendPerfSessionCorrelations(sessionId);
       recordConnectionCycle(sessionId, "close");
       if (suppressCloseHandling) return;
       if (intentionalCloseSockets.has(ws)) return;
@@ -504,6 +508,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
 
   function disconnectSession(sessionId: string): void {
     flushPendingSeqState(sessionId);
+    clearFrontendPerfSessionCorrelations(sessionId);
     reconnectAttempts.delete(sessionId);
     const ws = clearSocketState(sessionId);
     if (ws) {

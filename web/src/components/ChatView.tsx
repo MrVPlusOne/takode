@@ -71,6 +71,7 @@ import {
   parseQuestIdsFromReviewSummary,
 } from "../utils/attention-records.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
+import { beginThreadNavigationTiming, markThreadNavigationCommitted } from "../utils/frontend-perf-recorder.js";
 import {
   placeOpenThreadTabKey,
   readOpenThreadTabKeys,
@@ -1096,6 +1097,7 @@ export function ChatView({
     modelProvenanceMigration,
     leaderOpenThreadTabs,
     slackThreads,
+    cachedThreadWindows,
   } = useStore(
     useShallow((s) => {
       const sessionState = s.sessions.get(sessionId);
@@ -1127,6 +1129,7 @@ export function ChatView({
         modelProvenanceMigration: sessionState?.modelProvenanceMigration ?? sdkSession?.modelProvenanceMigration,
         leaderOpenThreadTabs: sessionState?.leaderOpenThreadTabs ?? sdkSession?.leaderOpenThreadTabs,
         slackThreads: sessionState?.slackThreads ?? EMPTY_SIDE_CHATS,
+        cachedThreadWindows: s.threadWindows?.get(sessionId),
       };
     }),
   );
@@ -1145,6 +1148,11 @@ export function ChatView({
   );
   const [selectedSideChatId, setSelectedSideChatId] = useState<string | null>(null);
   const selectedSideChat = selectedSideChatId ? slackThreads[selectedSideChatId] : undefined;
+
+  useLayoutEffect(() => {
+    if (!isLeaderSession) return;
+    markThreadNavigationCommitted(sessionId, normalizeThreadKey(selectedThreadKey));
+  }, [isLeaderSession, selectedThreadKey, sessionId]);
 
   useEffect(() => {
     const onOpen = (event: Event) => {
@@ -1336,13 +1344,19 @@ export function ChatView({
       }
       if (nextThreadKey === normalizeThreadKey(selectedThreadKey)) return;
       requestThreadViewportSnapshot(sessionId);
+      beginThreadNavigationTiming({
+        sessionId,
+        fromThreadKey: normalizeThreadKey(selectedThreadKey),
+        toThreadKey: nextThreadKey,
+        cachedWindow: cachedThreadWindows?.has(nextThreadKey) === true,
+      });
       setSelectedThreadKey(nextThreadKey);
       if (!preview) {
         locallySelectedRouteThreadKeyRef.current = nextThreadKey;
         navigateToSessionThread(sessionId, nextThreadKey);
       }
     },
-    [isLeaderSession, openThreadTab, preview, selectedThreadKey, sessionId],
+    [cachedThreadWindows, isLeaderSession, openThreadTab, preview, selectedThreadKey, sessionId],
   );
   const handleCloseThreadTab = useCallback(
     (threadKey: string, nextThreadKey = MAIN_THREAD_KEY) => {

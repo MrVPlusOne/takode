@@ -11,7 +11,7 @@ export type FrontendPerfEntry =
       parseDurationMs?: number;
       applyDurationMs?: number;
       seq?: number;
-      payloadBytes?: number;
+      payloadUtf16CodeUnits?: number;
     }
   | {
       kind: "history_receive_render";
@@ -19,9 +19,21 @@ export type FrontendPerfEntry =
       sessionId: string;
       messageType: string;
       receiveId: string;
-      payloadBytes: number;
+      payloadUtf16CodeUnits: number;
       parseDurationMs: number;
       applyDurationMs: number;
+      reactCommitDurationMs: number;
+      nextPaintDurationMs: number;
+      totalDurationMs: number;
+    }
+  | {
+      kind: "thread_navigation";
+      timestamp: number;
+      sessionId: string;
+      navigationId: string;
+      fromThreadKey: string;
+      toThreadKey: string;
+      cachedWindow: boolean;
       reactCommitDurationMs: number;
       nextPaintDurationMs: number;
       totalDurationMs: number;
@@ -208,6 +220,9 @@ declare global {
 
 const entries: FrontendPerfEntry[] = [];
 const feedRenderSignatures = new Map<string, string>();
+const MAX_PENDING_HISTORY_RECEIVES_PER_SESSION = 20;
+const MAX_PENDING_HISTORY_RECEIVES = 100;
+const MAX_PENDING_CORRELATION_AGE_MS = 30_000;
 const HISTORY_RECEIVE_TYPES = new Set([
   "leader_projection_snapshot",
   "message_history",
@@ -220,7 +235,7 @@ interface PendingHistoryReceive {
   receiveId: string;
   sessionId: string;
   messageType: string;
-  payloadBytes: number;
+  payloadUtf16CodeUnits: number;
   receivedAt: number;
   parseDurationMs: number;
   appliedAt?: number;
@@ -231,6 +246,20 @@ interface PendingHistoryReceive {
 
 const pendingHistoryReceives = new Map<string, PendingHistoryReceive>();
 const pendingHistoryReceiveIdsBySession = new Map<string, string[]>();
+let navigationCounter = 0;
+
+interface PendingThreadNavigation {
+  navigationId: string;
+  sessionId: string;
+  fromThreadKey: string;
+  toThreadKey: string;
+  cachedWindow: boolean;
+  startedAt: number;
+  committedAt?: number;
+  paintScheduled?: boolean;
+}
+
+const pendingThreadNavigations = new Map<string, PendingThreadNavigation>();
 
 function perfNow(): number {
   return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
@@ -244,11 +273,38 @@ function scheduleFrame(callback: () => void): void {
   setTimeout(callback, 0);
 }
 
+function removePendingHistoryReceive(receiveId: string): void {
+  const pending = pendingHistoryReceives.get(receiveId);
+  if (!pending) return;
+  pendingHistoryReceives.delete(receiveId);
+  const ids = pendingHistoryReceiveIdsBySession.get(pending.sessionId) ?? [];
+  const remaining = ids.filter((candidate) => candidate !== receiveId);
+  if (remaining.length > 0) pendingHistoryReceiveIdsBySession.set(pending.sessionId, remaining);
+  else pendingHistoryReceiveIdsBySession.delete(pending.sessionId);
+}
+
+function prunePendingCorrelations(now = perfNow()): void {
+  for (const pending of pendingHistoryReceives.values()) {
+    if (now - pending.receivedAt > MAX_PENDING_CORRELATION_AGE_MS) {
+      removePendingHistoryReceive(pending.receiveId);
+    }
+  }
+  while (pendingHistoryReceives.size >= MAX_PENDING_HISTORY_RECEIVES) {
+    const oldestId = pendingHistoryReceives.keys().next().value as string | undefined;
+    if (!oldestId) break;
+    removePendingHistoryReceive(oldestId);
+  }
+  for (const [sessionId, pending] of pendingThreadNavigations) {
+    if (now - pending.startedAt > MAX_PENDING_CORRELATION_AGE_MS) pendingThreadNavigations.delete(sessionId);
+  }
+}
+
 function scheduleHistoryReceivePaint(pending: PendingHistoryReceive): void {
   if (pending.paintScheduled || pending.appliedAt === undefined || pending.committedAt === undefined) return;
   pending.paintScheduled = true;
   scheduleFrame(() => {
     scheduleFrame(() => {
+      if (pendingHistoryReceives.get(pending.receiveId) !== pending) return;
       const paintAt = perfNow();
       const commitBase = Math.max(pending.appliedAt!, pending.committedAt!);
       recordFrontendPerfEntry({
@@ -257,18 +313,14 @@ function scheduleHistoryReceivePaint(pending: PendingHistoryReceive): void {
         sessionId: pending.sessionId,
         messageType: pending.messageType,
         receiveId: pending.receiveId,
-        payloadBytes: pending.payloadBytes,
+        payloadUtf16CodeUnits: pending.payloadUtf16CodeUnits,
         parseDurationMs: pending.parseDurationMs,
         applyDurationMs: pending.applyDurationMs ?? 0,
         reactCommitDurationMs: Math.max(0, pending.committedAt! - pending.appliedAt!),
         nextPaintDurationMs: Math.max(0, paintAt - commitBase),
         totalDurationMs: Math.max(0, paintAt - pending.receivedAt),
       });
-      pendingHistoryReceives.delete(pending.receiveId);
-      const ids = pendingHistoryReceiveIdsBySession.get(pending.sessionId) ?? [];
-      const remaining = ids.filter((receiveId) => receiveId !== pending.receiveId);
-      if (remaining.length > 0) pendingHistoryReceiveIdsBySession.set(pending.sessionId, remaining);
-      else pendingHistoryReceiveIdsBySession.delete(pending.sessionId);
+      removePendingHistoryReceive(pending.receiveId);
     });
   });
 }
@@ -277,19 +329,24 @@ export function beginHistoryReceiveRenderTiming(input: {
   receiveId: string;
   sessionId: string;
   messageType: string;
-  payloadBytes: number;
+  payloadUtf16CodeUnits: number;
   receivedAt: number;
   parseDurationMs: number;
 }): void {
   if (!HISTORY_RECEIVE_TYPES.has(input.messageType)) return;
+  prunePendingCorrelations(input.receivedAt);
   const pending: PendingHistoryReceive = { ...input };
   pendingHistoryReceives.set(input.receiveId, pending);
   const ids = [...(pendingHistoryReceiveIdsBySession.get(input.sessionId) ?? []), input.receiveId];
-  while (ids.length > 20) {
+  while (ids.length > MAX_PENDING_HISTORY_RECEIVES_PER_SESSION) {
     const staleId = ids.shift();
-    if (staleId) pendingHistoryReceives.delete(staleId);
+    if (staleId) removePendingHistoryReceive(staleId);
   }
   pendingHistoryReceiveIdsBySession.set(input.sessionId, ids);
+}
+
+export function discardHistoryReceiveRenderTiming(receiveId: string): void {
+  removePendingHistoryReceive(receiveId);
 }
 
 export function completeHistoryReceiveRenderTiming(input: {
@@ -306,12 +363,61 @@ export function completeHistoryReceiveRenderTiming(input: {
 
 export function markHistoryReceiveRenderCommitted(sessionId: string): void {
   const committedAt = perfNow();
+  prunePendingCorrelations(committedAt);
   for (const receiveId of pendingHistoryReceiveIdsBySession.get(sessionId) ?? []) {
     const pending = pendingHistoryReceives.get(receiveId);
     if (!pending || pending.committedAt !== undefined) continue;
     pending.committedAt = committedAt;
     scheduleHistoryReceivePaint(pending);
   }
+}
+
+export function beginThreadNavigationTiming(input: {
+  sessionId: string;
+  fromThreadKey: string;
+  toThreadKey: string;
+  cachedWindow: boolean;
+}): string {
+  const startedAt = perfNow();
+  prunePendingCorrelations(startedAt);
+  const navigationId = `thread-navigation-${++navigationCounter}`;
+  pendingThreadNavigations.set(input.sessionId, { ...input, navigationId, startedAt });
+  return navigationId;
+}
+
+export function markThreadNavigationCommitted(sessionId: string, threadKey: string): void {
+  const committedAt = perfNow();
+  prunePendingCorrelations(committedAt);
+  const pending = pendingThreadNavigations.get(sessionId);
+  if (!pending || pending.toThreadKey !== threadKey || pending.paintScheduled) return;
+  pending.committedAt = committedAt;
+  pending.paintScheduled = true;
+  scheduleFrame(() => {
+    scheduleFrame(() => {
+      if (pendingThreadNavigations.get(sessionId) !== pending) return;
+      const paintAt = perfNow();
+      recordFrontendPerfEntry({
+        kind: "thread_navigation",
+        timestamp: Date.now(),
+        sessionId,
+        navigationId: pending.navigationId,
+        fromThreadKey: pending.fromThreadKey,
+        toThreadKey: pending.toThreadKey,
+        cachedWindow: pending.cachedWindow,
+        reactCommitDurationMs: Math.max(0, pending.committedAt! - pending.startedAt),
+        nextPaintDurationMs: Math.max(0, paintAt - pending.committedAt!),
+        totalDurationMs: Math.max(0, paintAt - pending.startedAt),
+      });
+      if (pendingThreadNavigations.get(sessionId) === pending) pendingThreadNavigations.delete(sessionId);
+    });
+  });
+}
+
+export function clearFrontendPerfSessionCorrelations(sessionId: string): void {
+  for (const receiveId of [...(pendingHistoryReceiveIdsBySession.get(sessionId) ?? [])]) {
+    removePendingHistoryReceive(receiveId);
+  }
+  pendingThreadNavigations.delete(sessionId);
 }
 
 export function recordFrontendPerfEntry(entry: FrontendPerfEntry): void {
@@ -330,6 +436,7 @@ export function clearFrontendPerfEntries(): void {
   feedRenderSignatures.clear();
   pendingHistoryReceives.clear();
   pendingHistoryReceiveIdsBySession.clear();
+  pendingThreadNavigations.clear();
 }
 
 export function exportFrontendPerfEntries(): string {
