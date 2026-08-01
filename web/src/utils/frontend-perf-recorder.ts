@@ -222,6 +222,7 @@ const entries: FrontendPerfEntry[] = [];
 const feedRenderSignatures = new Map<string, string>();
 const MAX_PENDING_HISTORY_RECEIVES_PER_SESSION = 20;
 const MAX_PENDING_HISTORY_RECEIVES = 100;
+const MAX_PENDING_THREAD_NAVIGATIONS = 100;
 const MAX_PENDING_CORRELATION_AGE_MS = 30_000;
 const HISTORY_RECEIVE_TYPES = new Set([
   "leader_projection_snapshot",
@@ -296,6 +297,11 @@ function prunePendingCorrelations(now = perfNow()): void {
   }
   for (const [sessionId, pending] of pendingThreadNavigations) {
     if (now - pending.startedAt > MAX_PENDING_CORRELATION_AGE_MS) pendingThreadNavigations.delete(sessionId);
+  }
+  while (pendingThreadNavigations.size > MAX_PENDING_THREAD_NAVIGATIONS) {
+    const oldestSessionId = pendingThreadNavigations.keys().next().value as string | undefined;
+    if (!oldestSessionId) break;
+    pendingThreadNavigations.delete(oldestSessionId);
   }
 }
 
@@ -382,6 +388,7 @@ export function beginThreadNavigationTiming(input: {
   prunePendingCorrelations(startedAt);
   const navigationId = `thread-navigation-${++navigationCounter}`;
   pendingThreadNavigations.set(input.sessionId, { ...input, navigationId, startedAt });
+  prunePendingCorrelations(startedAt);
   return navigationId;
 }
 

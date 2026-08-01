@@ -15,6 +15,7 @@ import {
 
 export const MAIN_THREAD_KEY = "main";
 export const ALL_THREADS_KEY = "all";
+export const THREAD_WINDOW_SUPPORT_RECORD_LIMIT = 64;
 
 export interface BuildThreadWindowInput {
   messageHistory: ReadonlyArray<BrowserIncomingMessage>;
@@ -523,24 +524,52 @@ function expandToolClosureItems(
   }
   if (selectedToolUseIds.size === 0) return selectedItems;
 
-  const expanded = [...selectedItems];
-  messages.forEach((message, index) => {
+  const selectedHistoryIndexes = new Set(selectedItems.map((item) => item.order));
+  const supportItems: FeedItem[] = [];
+  let supportRecordCount = 0;
+  const previewToolUseIds = new Set<string>();
+  for (
+    let index = messages.length - 1;
+    index >= 0 && supportRecordCount < THREAD_WINDOW_SUPPORT_RECORD_LIMIT;
+    index--
+  ) {
+    const message = messages[index]!;
     if (message.type === "tool_result_preview") {
-      const previews = message.previews.filter((preview) => selectedToolUseIds.has(preview.tool_use_id));
-      if (previews.length === 0) return;
-      expanded.push({
+      const previews = message.previews
+        .filter((preview) => selectedToolUseIds.has(preview.tool_use_id) && !previewToolUseIds.has(preview.tool_use_id))
+        .slice(0, THREAD_WINDOW_SUPPORT_RECORD_LIMIT - supportRecordCount);
+      if (previews.length === 0) continue;
+      previews.forEach((preview) => previewToolUseIds.add(preview.tool_use_id));
+      if (selectedHistoryIndexes.has(index)) continue;
+      supportRecordCount += previews.length;
+      supportItems.push({
         order: index,
         entry: {
           message: previews.length === message.previews.length ? message : { ...message, previews },
           history_index: index,
         },
       });
-      return;
     }
-    if (!relatedToolUseIds(message).some((toolUseId) => selectedToolUseIds.has(toolUseId))) return;
-    expanded.push({ order: index, entry: { message, history_index: index } });
-  });
-  return expanded;
+  }
+
+  const closureToolUseIds = new Set<string>();
+  for (
+    let index = messages.length - 1;
+    index >= 0 && supportRecordCount < THREAD_WINDOW_SUPPORT_RECORD_LIMIT;
+    index--
+  ) {
+    if (selectedHistoryIndexes.has(index)) continue;
+    const message = messages[index]!;
+    if (message.type === "tool_result_preview") continue;
+    const relationIds = relatedToolUseIds(message).filter(
+      (toolUseId) => selectedToolUseIds.has(toolUseId) && !closureToolUseIds.has(toolUseId),
+    );
+    if (relationIds.length === 0) continue;
+    relationIds.forEach((toolUseId) => closureToolUseIds.add(toolUseId));
+    supportRecordCount += 1;
+    supportItems.push({ order: index, entry: { message, history_index: index } });
+  }
+  return [...selectedItems, ...supportItems];
 }
 
 function dedupeFeedItems(items: FeedItem[]): FeedItem[] {

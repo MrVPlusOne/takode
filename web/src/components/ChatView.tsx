@@ -1338,18 +1338,21 @@ export function ChatView({
   const handleSelectThread = useCallback(
     (threadKey: string) => {
       const nextThreadKey = normalizeThreadKey(threadKey || MAIN_THREAD_KEY);
+      const currentThreadKey = normalizeThreadKey(selectedThreadKey);
+      if (nextThreadKey !== currentThreadKey) {
+        beginThreadNavigationTiming({
+          sessionId,
+          fromThreadKey: currentThreadKey,
+          toThreadKey: nextThreadKey,
+          cachedWindow: cachedThreadWindows?.has(nextThreadKey) === true,
+        });
+      }
       openThreadTab(nextThreadKey);
       if (isLeaderSession && !preview) {
         persistLeaderSelectedThreadKey(sessionId, nextThreadKey);
       }
-      if (nextThreadKey === normalizeThreadKey(selectedThreadKey)) return;
+      if (nextThreadKey === currentThreadKey) return;
       requestThreadViewportSnapshot(sessionId);
-      beginThreadNavigationTiming({
-        sessionId,
-        fromThreadKey: normalizeThreadKey(selectedThreadKey),
-        toThreadKey: nextThreadKey,
-        cachedWindow: cachedThreadWindows?.has(nextThreadKey) === true,
-      });
       setSelectedThreadKey(nextThreadKey);
       if (!preview) {
         locallySelectedRouteThreadKeyRef.current = nextThreadKey;

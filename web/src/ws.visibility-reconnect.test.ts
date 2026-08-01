@@ -27,6 +27,7 @@ vi.mock("./utils/notification-sound.js", () => ({
 
 let wsModule: typeof import("./ws.js");
 let useStore: typeof import("./store.js").useStore;
+let perfModule: typeof import("./utils/frontend-perf-recorder.js");
 
 // ---------------------------------------------------------------------------
 // MockWebSocket
@@ -82,6 +83,7 @@ beforeEach(async () => {
   localStorage.clear();
 
   wsModule = await import("./ws.js");
+  perfModule = await import("./utils/frontend-perf-recorder.js");
 });
 
 afterEach(() => {
@@ -220,7 +222,35 @@ describe("visibility reconnect", () => {
     replacementSocket.onopen?.(new Event("open"));
     replacementSocket.send.mockClear();
 
-    firstSocket.onclose?.();
+    const originalAnimationFrame = Object.getOwnPropertyDescriptor(globalThis, "requestAnimationFrame");
+    Object.defineProperty(globalThis, "requestAnimationFrame", {
+      configurable: true,
+      value: (callback: FrameRequestCallback) => {
+        callback(0);
+        return 1;
+      },
+    });
+    perfModule.clearFrontendPerfEntries();
+    perfModule.beginThreadNavigationTiming({
+      sessionId: "s1",
+      fromThreadKey: "main",
+      toThreadKey: "q-1",
+      cachedWindow: true,
+    });
+
+    try {
+      firstSocket.onclose?.();
+      perfModule.markThreadNavigationCommitted("s1", "q-1");
+      expect(perfModule.getFrontendPerfEntries()).toContainEqual(
+        expect.objectContaining({ kind: "thread_navigation", sessionId: "s1", toThreadKey: "q-1" }),
+      );
+    } finally {
+      if (originalAnimationFrame) {
+        Object.defineProperty(globalThis, "requestAnimationFrame", originalAnimationFrame);
+      } else {
+        delete (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+      }
+    }
 
     expect(wsModule.sendToSession("s1", { type: "interrupt" })).toBe(true);
     expect(replacementSocket.send).toHaveBeenCalledTimes(1);

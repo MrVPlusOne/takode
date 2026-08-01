@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "../server/session-types.js";
-import { buildProjectedThreadEntries, buildThreadWindowSync } from "./thread-window.js";
+import {
+  buildProjectedThreadEntries,
+  buildThreadWindowSync,
+  THREAD_WINDOW_SUPPORT_RECORD_LIMIT,
+} from "./thread-window.js";
 
 function user(id: string, content: string, threadKey?: string): BrowserIncomingMessage {
   return {
@@ -1028,6 +1032,39 @@ describe("thread window hydration", () => {
       expect(preview.previews.map((entry) => entry.tool_use_id)).toEqual(["tool-main"]);
     }
     expect(new Set(sync.entries.map((entry) => entry.history_index)).size).toBe(sync.entries.length);
+  });
+
+  it("bounds repeated matching support updates and retains the latest preview", () => {
+    // A single visible tool row must not pull an unbounded matching replay/update tail into one browser window.
+    const history: BrowserIncomingMessage[] = [
+      assistant("a1", "main tool", { toolUseId: "tool-main" }),
+      successfulResult("r1"),
+    ];
+    for (let index = 0; index < 140; index++) {
+      history.push(toolResultPreview("tool-main", `matching preview ${index}`));
+      history.push(successfulResult(`support-result-${index}`));
+    }
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: 1,
+      sectionItemCount: 1,
+      visibleItemCount: 1,
+    });
+    const previews = sync.entries.filter(
+      (entry): entry is typeof entry & { message: Extract<BrowserIncomingMessage, { type: "tool_result_preview" }> } =>
+        entry.message.type === "tool_result_preview",
+    );
+
+    expect(sync.window.item_count).toBe(1);
+    expect(sync.entries.length).toBeLessThanOrEqual(2 + THREAD_WINDOW_SUPPORT_RECORD_LIMIT);
+    expect(previews).toHaveLength(1);
+    expect(previews[0]?.history_index).toBe(history.length - 2);
+    expect(previews[0]?.message.previews).toEqual([
+      expect.objectContaining({ tool_use_id: "tool-main", content: "matching preview 139" }),
+    ]);
   });
 
   it("preserves a standalone failed result while filtering successful result-only ranges", () => {

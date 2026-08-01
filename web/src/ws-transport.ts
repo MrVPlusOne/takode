@@ -480,8 +480,10 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     };
 
     ws.onclose = () => {
+      const ownsSessionSocket = sockets.get(sessionId) === ws;
       flushPendingSeqStorage(sessionId);
       clearSocketState(sessionId, ws);
+      if (!ownsSessionSocket) return;
       clearFrontendPerfSessionCorrelations(sessionId);
       recordConnectionCycle(sessionId, "close");
       if (suppressCloseHandling) return;

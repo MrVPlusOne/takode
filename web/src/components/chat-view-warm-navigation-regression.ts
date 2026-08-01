@@ -65,6 +65,8 @@ export function runCachedWarmThreadNavigationRegression(input: {
       .find((button) => button.getAttribute("data-thread-key") === SYNTHETIC_PRIMARY_THREAD_KEY);
     expect(questButton).toBeDefined();
 
+    fireEvent.click(scope.getByTestId("mock-workboard-main"));
+    expect(getFrontendPerfEntries().filter((entry) => entry.kind === "thread_navigation")).toEqual([]);
     fireEvent.click(questButton!);
     flushNextPaint();
     fireEvent.click(scope.getByTestId("mock-workboard-main"));
@@ -72,10 +74,27 @@ export function runCachedWarmThreadNavigationRegression(input: {
     fireEvent.click(questButton!);
     flushNextPaint();
 
+    const navigationEntries = getFrontendPerfEntries().filter((entry) => entry.kind === "thread_navigation");
+    expect(navigationEntries.map((entry) => Object.keys(entry).sort())).toEqual(
+      Array.from({ length: 3 }, () => [
+        "cachedWindow",
+        "fromThreadKey",
+        "kind",
+        "navigationId",
+        "nextPaintDurationMs",
+        "reactCommitDurationMs",
+        "sessionId",
+        "timestamp",
+        "toThreadKey",
+        "totalDurationMs",
+      ]),
+    );
     expect(
-      getFrontendPerfEntries()
-        .filter((entry) => entry.kind === "thread_navigation")
-        .map((entry) => ({ from: entry.fromThreadKey, to: entry.toThreadKey, cached: entry.cachedWindow })),
+      navigationEntries.map((entry) => ({
+        from: entry.fromThreadKey,
+        to: entry.toThreadKey,
+        cached: entry.cachedWindow,
+      })),
     ).toEqual([
       { from: "main", to: SYNTHETIC_PRIMARY_THREAD_KEY, cached: true },
       { from: SYNTHETIC_PRIMARY_THREAD_KEY, to: "main", cached: true },

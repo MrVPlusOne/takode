@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 const mockScrollTo = vi.fn();
+const mockSendToSession = vi.hoisted(() => vi.fn(() => true));
 
 beforeAll(() => {
   Element.prototype.scrollTo = mockScrollTo;
@@ -37,7 +38,7 @@ vi.mock("remark-gfm", () => ({
 }));
 
 vi.mock("../ws.js", () => ({
-  sendToSession: vi.fn(() => true),
+  sendToSession: mockSendToSession,
 }));
 
 const mockStoreValues: Record<string, unknown> = {};
@@ -128,6 +129,10 @@ import {
   requestThreadViewportSnapshot,
 } from "../utils/thread-viewport.js";
 import { MessageFeed } from "./MessageFeed.js";
+import {
+  createSyntheticLargeLeaderFeedFixture,
+  SYNTHETIC_PRIMARY_THREAD_KEY,
+} from "../test-fixtures/large-leader-feed-fixture.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -161,6 +166,7 @@ beforeEach(() => {
   mockScrollTo.mockClear();
   mockSetActiveTaskTurnId.mockClear();
   mockSetCollapsibleTurnIds.mockClear();
+  mockSendToSession.mockClear();
   localStorage.clear();
   localStorage.setItem("cc-server-id", "test-server");
   mockStoreValues.messages = new Map();
@@ -172,6 +178,54 @@ beforeEach(() => {
 });
 
 describe("MessageFeed thread viewport restoration", () => {
+  it("reuses producer-shaped cached Main and quest windows without requesting either during warm switches", () => {
+    // This uses the real MessageFeed cache/request effects; only transport delivery is mocked.
+    const sid = "test-cached-warm-switches";
+    const fixture = createSyntheticLargeLeaderFeedFixture();
+    const makeWindow = (threadKey: string, itemCount: number): ThreadWindowState => ({
+      thread_key: threadKey,
+      from_item: 0,
+      item_count: itemCount,
+      total_items: itemCount,
+      has_older_items: false,
+      has_newer_items: false,
+      source_history_length: fixture.selectedWindowSourceHistoryLength,
+      section_item_count: 10,
+      visible_item_count: 3,
+    });
+    setStoreMessages(sid, fixture.allMessages);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.threadWindows = new Map([
+      [
+        sid,
+        new Map([
+          ["main", makeWindow("main", fixture.selectedMainWindowMessages.length)],
+          [
+            SYNTHETIC_PRIMARY_THREAD_KEY,
+            makeWindow(SYNTHETIC_PRIMARY_THREAD_KEY, fixture.selectedQuestWindowMessages.length),
+          ],
+        ]),
+      ],
+    ]);
+    mockStoreValues.threadWindowMessages = new Map([
+      [
+        sid,
+        new Map([
+          ["main", fixture.selectedMainWindowMessages],
+          [SYNTHETIC_PRIMARY_THREAD_KEY, fixture.selectedQuestWindowMessages],
+        ]),
+      ],
+    ]);
+
+    const view = render(<MessageFeed key="main" sessionId={sid} threadKey="main" />);
+    view.rerender(
+      <MessageFeed key={SYNTHETIC_PRIMARY_THREAD_KEY} sessionId={sid} threadKey={SYNTHETIC_PRIMARY_THREAD_KEY} />,
+    );
+    view.rerender(<MessageFeed key="main-return" sessionId={sid} threadKey="main" />);
+
+    expect(mockSendToSession).not.toHaveBeenCalledWith(sid, expect.objectContaining({ type: "thread_window_request" }));
+  });
+
   it("restores a browser-local persisted leader viewport when memory state is missing", async () => {
     const sid = "test-persisted-leader-viewport";
     setStoreMessages(sid, [

@@ -204,4 +204,29 @@ describe("frontend perf recorder", () => {
 
     expect(getFrontendPerfEntries()).toEqual([]);
   });
+
+  it("globally bounds pending warm thread navigation correlations", () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    for (let index = 0; index < 101; index++) {
+      beginThreadNavigationTiming({
+        sessionId: `session-${index}`,
+        fromThreadKey: "main",
+        toThreadKey: "q-1",
+        cachedWindow: true,
+      });
+    }
+
+    markThreadNavigationCommitted("session-0", "q-1");
+    markThreadNavigationCommitted("session-100", "q-1");
+    frames.shift()?.(0);
+    frames.shift()?.(0);
+
+    expect(getFrontendPerfEntries()).toEqual([
+      expect.objectContaining({ kind: "thread_navigation", sessionId: "session-100" }),
+    ]);
+  });
 });
