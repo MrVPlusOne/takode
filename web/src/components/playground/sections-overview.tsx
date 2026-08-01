@@ -304,24 +304,38 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
 export function PlaygroundOverviewSections() {
   const compactQuestThreadBannerRows: Array<{ label: string; threadKey: string; row: QuestThreadBannerRow }> = [
     {
-      label: "Active phase",
+      label: "Active reviewer phase",
       threadKey: "q-961",
       row: {
         threadKey: "q-961",
         questId: "q-961",
         title: "Finish data-flow cleanup",
-        boardStatus: "IMPLEMENTING",
+        boardStatus: "CODE_REVIEWING",
         commitShas: ["abc1234def5678", "def5678abc1234"],
         section: "active" as const,
         journey: {
           mode: "active" as const,
           phaseIds: ["alignment", "implement", "outcome-review", "code-review"],
-          currentPhaseId: "implement",
+          currentPhaseId: "code-review",
           phaseNotes: { "2": "Visual outcome review runs before code review." },
         },
         rowStatus: {
           worker: { sessionId: "playground-thread-worker", sessionNum: 1321, name: "Clear Mesa", status: "running" },
-          reviewer: { sessionId: "playground-thread-reviewer", sessionNum: 1306, status: "idle" },
+          reviewer: {
+            sessionId: "playground-thread-reviewer",
+            sessionNum: 1306,
+            name: "Review Lead",
+            status: "idle",
+          },
+        },
+        boardRow: {
+          questId: "q-961",
+          title: "Finish data-flow cleanup",
+          worker: "playground-thread-worker",
+          workerNum: 1321,
+          status: "CODE_REVIEWING",
+          createdAt: 1,
+          updatedAt: 2,
         },
       },
     },

@@ -629,8 +629,11 @@ describe("Playground", () => {
     expect(banner).toHaveClass("py-1");
     expect(within(banner).getByTestId("quest-thread-meta-strip")).toHaveClass("flex-[1_1_auto]");
     expect(within(banner).getByTestId("quest-thread-participant-strip")).toHaveClass("inline-flex");
-    expect(within(banner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Implement");
+    expect(within(banner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Code Review");
     expect(within(banner).getByTestId("quest-journey-compact-summary")).not.toHaveTextContent("note");
+    expect(within(banner).getByLabelText("Worker #1321 Clear Mesa")).toBeTruthy();
+    expect(within(banner).getByLabelText("Reviewer #1306 Review Lead")).toBeTruthy();
+    expect(within(banner).getByTestId("quest-thread-commit-button")).toHaveTextContent("2 commits");
     const queuedBanner = screen.getAllByTestId("quest-thread-banner")[1];
     expect(within(queuedBanner).getByTestId("quest-thread-queued-status-chip")).toHaveTextContent(
       "Queued, waiting for #1801, q-1367, free worker",

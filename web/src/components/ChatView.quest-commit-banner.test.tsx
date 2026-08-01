@@ -31,14 +31,16 @@ vi.mock("./SessionInlineLink.js", () => ({
     sessionNum,
     ariaLabel,
     dataTestId,
+    title,
     children,
   }: {
     sessionNum?: number;
     ariaLabel?: string;
     dataTestId?: string;
+    title?: string;
     children?: ReactNode;
   }) => (
-    <a href={"#session-" + sessionNum} aria-label={ariaLabel} data-testid={dataTestId}>
+    <a href={"#session-" + sessionNum} aria-label={ariaLabel} data-testid={dataTestId} title={title}>
       {children}
     </a>
   ),
@@ -64,6 +66,15 @@ function participantRow(): QuestThreadBannerRow {
     boardStatus: "IMPLEMENTING",
     commitShas: ["abc1234", "def5678"],
     section: "active",
+    boardRow: {
+      questId: "q-968",
+      title: "Thread navigation rework",
+      worker: "worker-968",
+      workerNum: 1321,
+      status: "IMPLEMENTING",
+      createdAt: 1,
+      updatedAt: 2,
+    },
     rowStatus: {
       worker: { sessionId: "worker-968", sessionNum: 1321, name: "Clear Mesa", status: "running" },
       reviewer: { sessionId: "reviewer-968", sessionNum: 1306, name: "Reviewer Long Name", status: "idle" },
@@ -81,9 +92,34 @@ describe("QuestThreadBanner commit affordance", () => {
 
     const banner = screen.getByTestId("quest-thread-banner");
     expect(within(banner).getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
-    expect(within(banner).getByLabelText("Reviewer #1306 Reviewer Long Name")).toHaveAttribute("href", "#session-1306");
+    const reviewer = within(banner).getByLabelText("Reviewer #1306 Reviewer Long Name");
+    expect(reviewer).toHaveAttribute("href", "#session-1306");
+    expect(reviewer).toHaveAttribute("title", "Open reviewer session #1306 Reviewer Long Name");
     expect(banner).not.toHaveTextContent("Clear Mesa");
     expect(banner).not.toHaveTextContent("Reviewer Long Name");
+  });
+
+  it("removes or retargets the reviewer chip when the authoritative row status changes", () => {
+    // These payload transitions mirror successive server-authored board_updated
+    // messages after reviewer replacement and archival/removal.
+    const original = participantRow();
+    const view = render(<QuestThreadBanner row={original} threadKey="q-968" />);
+    expect(screen.getByLabelText("Reviewer #1306 Reviewer Long Name")).toHaveAttribute("href", "#session-1306");
+
+    const changed = participantRow();
+    changed.rowStatus = {
+      ...changed.rowStatus,
+      reviewer: { sessionId: "reviewer-969", sessionNum: 1307, name: "Replacement Reviewer", status: "running" },
+    };
+    view.rerender(<QuestThreadBanner row={changed} threadKey="q-968" />);
+    expect(screen.queryByLabelText("Reviewer #1306 Reviewer Long Name")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Reviewer #1307 Replacement Reviewer")).toHaveAttribute("href", "#session-1307");
+
+    const removed = participantRow();
+    removed.rowStatus = { ...removed.rowStatus, reviewer: null };
+    view.rerender(<QuestThreadBanner row={removed} threadKey="q-968" />);
+    expect(screen.queryByLabelText(/^Reviewer #/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
   });
 
   it("shows a code-commit count chip that opens the Diff tab", () => {
@@ -95,5 +131,18 @@ describe("QuestThreadBanner commit affordance", () => {
 
     fireEvent.click(commitButton);
     expect(mockSetActiveTab).toHaveBeenCalledWith("diff");
+  });
+
+  it("preserves the zero-commit affordance when no reviewer is assigned", () => {
+    const row = participantRow();
+    row.commitShas = [];
+    row.rowStatus = { ...row.rowStatus, reviewer: null };
+    render(<QuestThreadBanner row={row} threadKey="q-968" />);
+
+    expect(screen.queryByLabelText(/^Reviewer #/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Worker #1321 Clear Mesa")).toBeInTheDocument();
+    expect(screen.getByTestId("quest-thread-commit-button")).toHaveAccessibleName(
+      "Open q-968 recorded commit diffs, 0 commits",
+    );
   });
 });

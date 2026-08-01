@@ -325,6 +325,29 @@ const WS_BRIDGE_PROCESSED_CLIENT_MSG_ID_LIMIT = 1000;
 const WS_BRIDGE_USER_MESSAGE_RUNNING_TIMEOUT_MS = 30_000;
 const WS_BRIDGE_VSCODE_OPEN_FILE_TIMEOUT_MS = 8_000;
 const WS_BRIDGE_VSCODE_WINDOW_STALE_MS = 30_000;
+const BOARD_PARTICIPANT_LIFECYCLE_MESSAGES = new Set(["session_created", "session_archived", "session_deleted"]);
+
+export function broadcastGlobalWithBoardParticipantRefresh(host: any, msg: BrowserIncomingMessage): void {
+  const sessions = [...(host.sessions.values() as Iterable<Session>)];
+  for (const session of sessions) {
+    host.broadcastToBrowsers(session, msg, { skipBuffer: true });
+  }
+  if (!BOARD_PARTICIPANT_LIFECYCLE_MESSAGES.has(msg.type)) return;
+
+  for (const session of sessions) {
+    const board = getBoardForSessionController(host.sessions, session.id);
+    if (board.length === 0) continue;
+    const completedBoard = getCompletedBoardForSessionController(host.sessions, session.id);
+    host.broadcastToBrowsers(session, {
+      type: "board_updated",
+      board,
+      completedBoard,
+      ...(session.state?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: session.state.leaderOpenThreadTabs } : {}),
+      leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
+      rowSessionStatuses: host.getBoardRowSessionStatuses(session.id, board, completedBoard),
+    });
+  }
+}
 
 function readLauncherSession(host: any, sessionId: string) {
   return typeof host.launcher?.getSession === "function" ? host.launcher.getSession(sessionId) : undefined;

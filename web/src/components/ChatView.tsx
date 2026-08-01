@@ -467,7 +467,7 @@ function QuestBannerParticipantChip({
       className={QUEST_PARTICIPANT_CHIP_CLASS}
       dataTestId="quest-thread-participant"
       ariaLabel={label}
-      title={`Open ${role.toLowerCase()} session ${sessionNum != null ? `#${sessionNum}` : sessionId}`}
+      title={`Open ${role.toLowerCase()} session ${sessionNum != null ? `#${sessionNum}` : sessionId}${displayName ? ` ${displayName}` : ""}`}
       threadKey={threadKey}
     >
       {content}

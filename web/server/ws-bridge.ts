@@ -339,6 +339,7 @@ import {
   getBrowserRoutingDeps as getBrowserRoutingDepsController,
   getCodexRecoveryOrchestratorDeps as getCodexRecoveryOrchestratorDepsController,
   getGenerationLifecycleDeps as getGenerationLifecycleDepsController,
+  broadcastGlobalWithBoardParticipantRefresh,
 } from "./ws-bridge-deps.js";
 
 const BOARD_STALL_THRESHOLD_MS = 3 * 60_000;
@@ -618,9 +619,7 @@ export class WsBridge {
 
   /** Push a message to all connected browsers across ALL sessions. */
   broadcastGlobal(msg: BrowserIncomingMessage): void {
-    for (const session of this.sessions.values()) {
-      this.broadcastToBrowsers(session, msg, { skipBuffer: true });
-    }
+    broadcastGlobalWithBoardParticipantRefresh(this, msg);
   }
 
   private broadcastSessionActivityUpdateGlobally(
@@ -1372,6 +1371,7 @@ export class WsBridge {
           archived: session.archived,
           state: cliConnected && bridgeSession?.isGenerating ? "running" : session.state,
           cliConnected,
+          name: session.name,
         };
       }),
     );

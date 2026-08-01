@@ -853,17 +853,20 @@ export function usePlaygroundSeed() {
       {
         questId: "q-961",
         title: "Finish data-flow cleanup",
-        status: "IMPLEMENTING",
+        worker: "playground-thread-worker",
+        workerNum: 1321,
+        status: "CODE_REVIEWING",
         updatedAt: Date.now() - 120_000,
         createdAt: Date.now() - 240_000,
         journey: {
           mode: "active",
           phaseIds: ["alignment", "implement", "code-review"],
-          activePhaseIndex: 1,
-          currentPhaseId: "implement",
+          activePhaseIndex: 2,
+          currentPhaseId: "code-review",
           phaseTimings: {
             "0": { startedAt: Date.now() - 240_000, endedAt: Date.now() - 180_000 },
-            "1": { startedAt: Date.now() - 180_000 },
+            "1": { startedAt: Date.now() - 180_000, endedAt: Date.now() - 120_000 },
+            "2": { startedAt: Date.now() - 120_000 },
           },
         },
       },
@@ -898,7 +901,12 @@ export function usePlaygroundSeed() {
     store.setSessionBoardRowStatuses(PLAYGROUND_THREAD_PANEL_SESSION_ID, {
       "q-961": {
         worker: { sessionId: "playground-thread-worker", sessionNum: 1321, name: "Clear Mesa", status: "running" },
-        reviewer: { sessionId: "playground-thread-reviewer", sessionNum: 1306, status: "idle" },
+        reviewer: {
+          sessionId: "playground-thread-reviewer",
+          sessionNum: 1306,
+          name: "Review Lead",
+          status: "idle",
+        },
       },
       "q-962": {
         worker: { sessionId: "playground-thread-worker-queued", sessionNum: 1320, status: "idle" },
