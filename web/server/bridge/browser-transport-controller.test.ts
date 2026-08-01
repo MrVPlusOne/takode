@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import {
   broadcastToBrowsers,
+  buildLeaderProjectionSnapshotForSession,
   freezeHistoryThroughCurrentTail,
   handleBrowserOpen,
   handleBrowserProtocolMessage,
@@ -771,16 +772,10 @@ describe("leader projection snapshots", () => {
       {
         type: "leader_projection_snapshot",
         projection: {
-          schemaVersion: 1,
-          revision: 1,
+          schemaVersion: 2,
           sourceHistoryLength: 0,
-          generatedAt: 1,
           threadSummaries: [],
-          threadRows: [],
-          workBoardThreadRows: [],
           messageAttentionRecords: [],
-          attentionRecords: [],
-          rawTurnBoundaries: [],
         },
       } as BrowserIncomingMessage,
       deps,
@@ -815,13 +810,58 @@ describe("leader projection snapshots", () => {
 
     const snapshot = JSON.parse(send.mock.calls[0][0]);
     expect(snapshot.type).toBe("leader_projection_snapshot");
+    expect(snapshot.projection.schemaVersion).toBe(2);
     expect(snapshot.projection.sourceHistoryLength).toBe(1);
     expect(snapshot.projection.threadSummaries).toEqual([
       expect.objectContaining({ threadKey: "q-1039", messageCount: 1 }),
     ]);
-    expect(snapshot.projection.threadRows).toEqual([
-      expect.objectContaining({ threadKey: "q-1039", title: "Projection summaries", messageCount: 1 }),
+    expect(Object.keys(snapshot.projection).sort()).toEqual([
+      "messageAttentionRecords",
+      "schemaVersion",
+      "sourceHistoryLength",
+      "threadSummaries",
     ]);
+    expect(snapshot.projection).not.toHaveProperty("threadRows");
+    expect(snapshot.projection).not.toHaveProperty("attentionRecords");
+    expect(snapshot.projection).not.toHaveProperty("rawTurnBoundaries");
+  });
+
+  it("sends the same compact authoritative projection to multiple browsers while retaining the rich server cache", () => {
+    // The wire payload is shared authoritative state, while server-only rows remain available to internal callers.
+    const firstSend = vi.fn();
+    const secondSend = vi.fn();
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true } as any,
+      messageHistory: [
+        {
+          type: "user_message",
+          id: "u1",
+          content: "projected message",
+          timestamp: 1,
+          threadKey: "q-2040",
+          questId: "q-2040",
+        } as BrowserIncomingMessage,
+      ],
+    });
+    const deps = makeInjectDeps({
+      getBoard: vi.fn(() => [{ questId: "q-2040", title: "Projection source", status: "IMPLEMENT", updatedAt: 2 }]),
+    });
+
+    sendLeaderProjectionSnapshot(session, { send: firstSend }, deps);
+    sendLeaderProjectionSnapshot(session, { send: secondSend }, deps);
+
+    const first = JSON.parse(firstSend.mock.calls[0][0]);
+    const second = JSON.parse(secondSend.mock.calls[0][0]);
+    expect(second).toEqual(first);
+    expect(first.projection).toEqual(
+      expect.objectContaining({ schemaVersion: 2, sourceHistoryLength: 1, messageAttentionRecords: [] }),
+    );
+    const internal = buildLeaderProjectionSnapshotForSession(session, deps);
+    expect(internal.schemaVersion).toBe(1);
+    expect(internal.threadRows).toEqual([
+      expect.objectContaining({ threadKey: "q-2040", title: "Projection source", messageCount: 1 }),
+    ]);
+    expect(first.projection).not.toHaveProperty("threadRows");
   });
 });
 

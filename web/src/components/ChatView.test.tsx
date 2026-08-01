@@ -1835,10 +1835,8 @@ describe("ChatView backend banners", () => {
         [
           "s1",
           {
-            schemaVersion: 1,
-            revision: 1,
+            schemaVersion: 2,
             sourceHistoryLength: 50_000,
-            generatedAt: Date.now(),
             threadSummaries: [
               {
                 threadKey: "q-1039",
@@ -1848,8 +1846,6 @@ describe("ChatView backend banners", () => {
                 lastMessageAt: 2,
               },
             ],
-            threadRows: [],
-            workBoardThreadRows: [],
             messageAttentionRecords: [
               {
                 id: "message-rework:u-1",
@@ -1871,8 +1867,6 @@ describe("ChatView backend banners", () => {
                 dedupeKey: "message-rework:u-1",
               },
             ],
-            attentionRecords: [],
-            rawTurnBoundaries: [],
           },
         ],
       ]),
@@ -1911,10 +1905,8 @@ describe("ChatView backend banners", () => {
         [
           "s1",
           {
-            schemaVersion: 1,
-            revision: 1,
+            schemaVersion: 2,
             sourceHistoryLength: 500,
-            generatedAt: Date.now(),
             threadSummaries: [
               {
                 threadKey: "q-941",
@@ -1924,11 +1916,7 @@ describe("ChatView backend banners", () => {
                 lastMessageAt: 2,
               },
             ],
-            threadRows: [],
-            workBoardThreadRows: [],
             messageAttentionRecords: [],
-            attentionRecords: [],
-            rawTurnBoundaries: [],
           },
         ],
       ]),

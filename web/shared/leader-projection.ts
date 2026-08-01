@@ -3,6 +3,7 @@ import type {
   BoardRowSessionStatus,
   BrowserIncomingMessage,
   ContentBlock,
+  LeaderProjectionInternalSnapshot,
   LeaderProjectionSnapshot,
   LeaderProjectionThreadRow,
   LeaderProjectionThreadSummary,
@@ -79,7 +80,7 @@ function isCompletedQuestStatus(status?: string | null): boolean {
   return normalized === "done" || normalized === "completed" || normalized === "needs_verification";
 }
 
-export function buildLeaderProjectionSnapshot(input: BuildLeaderProjectionInput): LeaderProjectionSnapshot {
+export function buildLeaderProjectionSnapshot(input: BuildLeaderProjectionInput): LeaderProjectionInternalSnapshot {
   const routeIndex = usableThreadRouteIndex(input.threadRouteIndex, input.messageHistory);
   const threadSummaries = routeIndex
     ? collectLeaderThreadSummariesFromRouteIndex(routeIndex)
@@ -114,6 +115,15 @@ export function buildLeaderProjectionSnapshot(input: BuildLeaderProjectionInput)
     rawTurnBoundaries: routeIndex
       ? buildRawTurnBoundariesFromRouteIndex(routeIndex)
       : buildRawTurnBoundaries(input.messageHistory),
+  };
+}
+
+export function toLeaderProjectionWireSnapshot(projection: LeaderProjectionInternalSnapshot): LeaderProjectionSnapshot {
+  return {
+    schemaVersion: 2,
+    sourceHistoryLength: projection.sourceHistoryLength,
+    threadSummaries: projection.threadSummaries,
+    messageAttentionRecords: projection.messageAttentionRecords,
   };
 }
 
@@ -340,7 +350,9 @@ function buildProjectionRevision(input: BuildLeaderProjectionInput): number {
   return input.messageHistory.length * 1_000_000 + notificationVersion * 10_000 + attentionVersion * 100 + boardVersion;
 }
 
-function toWorkBoardThreadRow(row: LeaderProjectionThreadRow): LeaderProjectionSnapshot["workBoardThreadRows"][number] {
+function toWorkBoardThreadRow(
+  row: LeaderProjectionThreadRow,
+): LeaderProjectionInternalSnapshot["workBoardThreadRows"][number] {
   return {
     threadKey: row.threadKey,
     questId: row.questId,
@@ -352,8 +364,8 @@ function toWorkBoardThreadRow(row: LeaderProjectionThreadRow): LeaderProjectionS
 
 function buildRawTurnBoundaries(
   messages: ReadonlyArray<LeaderProjectionMessageLike>,
-): LeaderProjectionSnapshot["rawTurnBoundaries"] {
-  const boundaries: LeaderProjectionSnapshot["rawTurnBoundaries"] = [];
+): LeaderProjectionInternalSnapshot["rawTurnBoundaries"] {
+  const boundaries: LeaderProjectionInternalSnapshot["rawTurnBoundaries"] = [];
   let currentStart: number | null = null;
   messages.forEach((message, index) => {
     if (message.type === "user_message" || message.role === "user") {

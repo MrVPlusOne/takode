@@ -143,6 +143,19 @@ function successfulResult(id: string): BrowserIncomingMessage {
   };
 }
 
+function failedResult(id: string): BrowserIncomingMessage {
+  const success = successfulResult(id) as Extract<BrowserIncomingMessage, { type: "result" }>;
+  return {
+    ...success,
+    data: {
+      ...success.data,
+      subtype: "error_during_execution",
+      is_error: true,
+      result: "failed",
+    },
+  };
+}
+
 describe("thread window hydration", () => {
   it("exports full projected entries with the same Main filtering used by thread windows", () => {
     const history = [
@@ -894,14 +907,15 @@ describe("thread window hydration", () => {
     );
   });
 
-  it("fills sparse Main tail windows until they include a meaningful visible slice", () => {
+  it("counts renderable Main ranges so more than 90 result-only turns cannot produce a false empty window", () => {
+    // This producer-shaped tail exceeds the former 90-range cap and must still expose bounded recent Main content.
     const history: BrowserIncomingMessage[] = [];
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 50; i++) {
       history.push(user(`u${i}`, `main request ${i}`));
       history.push(assistant(`a${i}`, `main response ${i}`));
       history.push(successfulResult(`r${i}`));
     }
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 140; i++) {
       history.push(user(`uq${i}`, `quest request ${i}`, "q-1205"));
       history.push(assistant(`aq${i}`, `quest response ${i}`, { threadKey: "q-1205" }));
       history.push(successfulResult(`rq${i}`));
@@ -921,14 +935,58 @@ describe("thread window hydration", () => {
       return entry.message.type !== "tool_result_preview";
     });
 
-    expect(sync.window.item_count).toBeGreaterThan(30);
-    expect(sync.window.item_count).toBeLessThanOrEqual(90);
+    expect(sync.window.total_items).toBe(50);
+    expect(sync.window.item_count).toBe(30);
     expect(visibleMessages.length).toBeGreaterThanOrEqual(10);
     expect(
-      sync.entries.some((entry) => entry.message.type === "user_message" && entry.message.content === "main request 0"),
+      sync.entries.some(
+        (entry) => entry.message.type === "user_message" && entry.message.content === "main request 20",
+      ),
     ).toBe(true);
-    expect(sync.window.has_older_items).toBe(false);
+    expect(sync.entries.every((entry) => entry.history_index < 150)).toBe(true);
+    expect(sync.window.has_older_items).toBe(true);
     expect(sync.window.has_newer_items).toBe(false);
+  });
+
+  it("preserves a standalone failed result while filtering successful result-only ranges", () => {
+    // Failed results render as diagnostics and therefore cannot be discarded with invisible successful results.
+    const history = [
+      user("uq1", "quest request", "q-1205"),
+      assistant("aq1", "quest response", { threadKey: "q-1205" }),
+      successfulResult("r1"),
+      user("uq2", "quest retry", "q-1205"),
+      assistant("aq2", "quest failure", { threadKey: "q-1205" }),
+      failedResult("r2"),
+    ];
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: -1,
+      itemCount: 30,
+      sectionItemCount: 10,
+      visibleItemCount: 3,
+    });
+
+    expect(sync.window.total_items).toBe(1);
+    expect(sync.entries.map((entry) => entry.message)).toEqual([history[5]]);
+  });
+
+  it("keeps a genuinely empty Main projection empty", () => {
+    // Successful result metadata alone is not conversation content and must not invent an available window.
+    const sync = buildThreadWindowSync({
+      messageHistory: [successfulResult("r1"), successfulResult("r2")],
+      threadKey: "main",
+      fromItem: -1,
+      itemCount: 30,
+      sectionItemCount: 10,
+      visibleItemCount: 3,
+    });
+
+    expect(sync.entries).toEqual([]);
+    expect(sync.window).toEqual(
+      expect.objectContaining({ total_items: 0, has_older_items: false, has_newer_items: false }),
+    );
   });
 
   it("uses matching rendered feed items as the window unit for large histories", () => {

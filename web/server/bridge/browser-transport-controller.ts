@@ -16,7 +16,7 @@ import {
   computeHistoryPrefixSyncHash,
 } from "../../shared/history-sync-hash.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
-import { buildLeaderProjectionSnapshot } from "../../shared/leader-projection.js";
+import { buildLeaderProjectionSnapshot, toLeaderProjectionWireSnapshot } from "../../shared/leader-projection.js";
 import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
 import { buildThreadWindowSync, getThreadWindowItemCount } from "../../shared/thread-window.js";
 import { deriveWindowAvailability } from "../../shared/window-availability.js";
@@ -68,6 +68,7 @@ import type {
   SessionNotification,
   SessionTaskEntry,
   SessionState,
+  LeaderProjectionInternalSnapshot,
   TakodeHerdBatchSnapshot,
   ToolResultPreview,
   VsCodeOpenFileCommand,
@@ -127,7 +128,7 @@ export interface BrowserTransportSessionLike {
 
 interface CachedLeaderProjection {
   key: string;
-  projection: NonNullable<Extract<BrowserIncomingMessage, { type: "leader_projection_snapshot" }>["projection"]>;
+  projection: LeaderProjectionInternalSnapshot;
 }
 
 const leaderProjectionCache = new WeakMap<BrowserTransportSessionLike, CachedLeaderProjection>();
@@ -911,7 +912,7 @@ export function sendLeaderProjectionSnapshot(
   if (!isLeaderSession(session, deps)) return;
   sendToBrowser(ws, {
     type: "leader_projection_snapshot",
-    projection: buildLeaderProjectionSnapshotForSession(session, deps),
+    projection: toLeaderProjectionWireSnapshot(buildLeaderProjectionSnapshotForSession(session, deps)),
   } as BrowserIncomingMessage);
 }
 

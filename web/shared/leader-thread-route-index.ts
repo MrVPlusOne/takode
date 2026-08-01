@@ -1,6 +1,6 @@
 import type {
   ContentBlock,
-  LeaderProjectionSnapshot,
+  LeaderProjectionInternalSnapshot,
   LeaderProjectionThreadSummary,
   ThreadAttachmentMarker,
   ThreadRef,
@@ -36,7 +36,7 @@ export interface LeaderThreadRouteIndex {
   sourceFingerprint: string;
   sourceFingerprintHash: number;
   threadSummaries: LeaderProjectionThreadSummary[];
-  rawTurnBoundaries: LeaderProjectionSnapshot["rawTurnBoundaries"];
+  rawTurnBoundaries: LeaderProjectionInternalSnapshot["rawTurnBoundaries"];
   openTurnStartHistoryIndex: number | null;
 }
 
@@ -44,7 +44,7 @@ interface LeaderThreadRouteIndexDraft {
   sourceHistoryLength: number;
   sourceFingerprintHash: number;
   summaries: Map<string, LeaderProjectionThreadSummary>;
-  rawTurnBoundaries: LeaderProjectionSnapshot["rawTurnBoundaries"];
+  rawTurnBoundaries: LeaderProjectionInternalSnapshot["rawTurnBoundaries"];
   openTurnStartHistoryIndex: number | null;
 }
 
@@ -87,7 +87,7 @@ export function collectLeaderThreadSummariesFromRouteIndex(
 
 export function buildRawTurnBoundariesFromRouteIndex(
   index: LeaderThreadRouteIndex,
-): LeaderProjectionSnapshot["rawTurnBoundaries"] {
+): LeaderProjectionInternalSnapshot["rawTurnBoundaries"] {
   return index.rawTurnBoundaries.map((boundary) => ({ ...boundary }));
 }
 

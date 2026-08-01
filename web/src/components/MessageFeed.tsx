@@ -91,6 +91,7 @@ import { useMessageFeedUserNavigationTargets, useUserMessageNavigation } from ".
 import { getMissingScrollTargetWindowAction, type PendingTargetWindowRequest } from "./message-feed-scroll-target.js";
 import { useThreadWindowRequester } from "./message-feed-thread-window-request.js";
 import { flashMessageFeedTarget } from "./message-feed-target-highlight.js";
+import { markHistoryReceiveRenderCommitted } from "../utils/frontend-perf-recorder.js";
 import { MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
 import {
   isUserBoundaryEntry,
@@ -296,6 +297,10 @@ export function MessageFeed({
   } | null>(null);
   const pendingSectionLoadKeyRef = useRef<string | null>(null);
   const pendingTargetWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
+
+  useLayoutEffect(() => {
+    markHistoryReceiveRenderCommitted(sessionId);
+  }, [allMessages, historyLoading, historyWindow, leaderProjection, selectedFeedWindow, sessionId]);
 
   const codexTerminalEntries = useMemo(
     () => (isCodexSession ? collectCodexTerminalEntries(messages, toolResults, toolProgress, toolStartTimestamps) : []),

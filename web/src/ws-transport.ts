@@ -1,7 +1,11 @@
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, SdkSessionInfo } from "./types.js";
 import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 import { scopedGetItem, scopedSetItem } from "./utils/scoped-storage.js";
-import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
+import {
+  beginHistoryReceiveRenderTiming,
+  completeHistoryReceiveRenderTiming,
+  recordFrontendPerfEntry,
+} from "./utils/frontend-perf-recorder.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
 
 /** Heartbeat interval — send a ping every 30s to keep the connection alive */
@@ -95,6 +99,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   const intentionalCloseSockets = new WeakSet<WebSocket>();
 
   let clientMsgCounter = 0;
+  let receiveCounter = 0;
   let suppressCloseHandling = false;
   let seqStorageFlushTimer: ReturnType<typeof setTimeout> | null = null;
   let ackFlushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -434,20 +439,38 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     };
 
     ws.onmessage = (event) => {
+      const receivedAt = perfNow();
+      const receiveId = `ws-receive-${++receiveCounter}`;
       try {
         const rawData = typeof event.data === "string" ? event.data : "";
+        const parseStartedAt = perfNow();
         const data = JSON.parse(event.data) as SequencedIncomingMessage;
-        const startedAt = perfNow();
+        const parsedAt = perfNow();
+        const parseDurationMs = parsedAt - parseStartedAt;
+        beginHistoryReceiveRenderTiming({
+          receiveId,
+          sessionId,
+          messageType: data.type,
+          payloadBytes: rawData.length,
+          receivedAt,
+          parseDurationMs,
+        });
         handleParsedMessage(sessionId, data);
+        const appliedAt = perfNow();
+        const applyDurationMs = appliedAt - parsedAt;
         recordFrontendPerfEntry({
           kind: "ws_message",
           timestamp: Date.now(),
           sessionId,
           messageType: data.type,
-          durationMs: perfNow() - startedAt,
+          receiveId,
+          durationMs: appliedAt - receivedAt,
+          parseDurationMs,
+          applyDurationMs,
           ...(typeof data.seq === "number" ? { seq: data.seq } : {}),
           ...(rawData ? { payloadBytes: rawData.length } : {}),
         });
+        completeHistoryReceiveRenderTiming({ receiveId, appliedAt, applyDurationMs });
       } catch {
         // ignore non-JSON messages
       }

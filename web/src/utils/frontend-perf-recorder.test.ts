@@ -1,16 +1,21 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  beginHistoryReceiveRenderTiming,
   clearFrontendPerfEntries,
+  completeHistoryReceiveRenderTiming,
   exportFrontendPerfEntries,
   getFrontendPerfEntries,
+  markHistoryReceiveRenderCommitted,
   recordFeedRenderSnapshot,
   recordFrontendPerfEntry,
 } from "./frontend-perf-recorder.js";
 
 afterEach(() => {
   clearFrontendPerfEntries();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("frontend perf recorder", () => {
@@ -68,6 +73,49 @@ describe("frontend perf recorder", () => {
         referenceKind: "quest",
         scannedQuestCount: 50,
       }),
+    ]);
+  });
+
+  it("records metadata-only parse, apply, commit, and next-paint stages for history frames", () => {
+    // The correlated record intentionally exposes only sizes, timings, type, and an opaque local receive ID.
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const now = vi.spyOn(performance, "now");
+
+    beginHistoryReceiveRenderTiming({
+      receiveId: "receive-1",
+      sessionId: "s1",
+      messageType: "leader_projection_snapshot",
+      payloadBytes: 12_345,
+      receivedAt: 10,
+      parseDurationMs: 4,
+    });
+    now.mockReturnValueOnce(25);
+    markHistoryReceiveRenderCommitted("s1");
+    completeHistoryReceiveRenderTiming({ receiveId: "receive-1", appliedAt: 20, applyDurationMs: 6 });
+
+    expect(getFrontendPerfEntries()).toEqual([]);
+    frames.shift()?.(30);
+    now.mockReturnValueOnce(50);
+    frames.shift()?.(40);
+
+    expect(getFrontendPerfEntries()).toEqual([
+      {
+        kind: "history_receive_render",
+        timestamp: expect.any(Number),
+        sessionId: "s1",
+        messageType: "leader_projection_snapshot",
+        receiveId: "receive-1",
+        payloadBytes: 12_345,
+        parseDurationMs: 4,
+        applyDurationMs: 6,
+        reactCommitDurationMs: 5,
+        nextPaintDurationMs: 25,
+        totalDurationMs: 40,
+      },
     ]);
   });
 });

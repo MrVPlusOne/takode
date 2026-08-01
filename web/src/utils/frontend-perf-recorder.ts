@@ -7,8 +7,24 @@ export type FrontendPerfEntry =
       sessionId: string;
       messageType: string;
       durationMs: number;
+      receiveId?: string;
+      parseDurationMs?: number;
+      applyDurationMs?: number;
       seq?: number;
       payloadBytes?: number;
+    }
+  | {
+      kind: "history_receive_render";
+      timestamp: number;
+      sessionId: string;
+      messageType: string;
+      receiveId: string;
+      payloadBytes: number;
+      parseDurationMs: number;
+      applyDurationMs: number;
+      reactCommitDurationMs: number;
+      nextPaintDurationMs: number;
+      totalDurationMs: number;
     }
   | {
       kind: "event_replay";
@@ -192,6 +208,111 @@ declare global {
 
 const entries: FrontendPerfEntry[] = [];
 const feedRenderSignatures = new Map<string, string>();
+const HISTORY_RECEIVE_TYPES = new Set([
+  "leader_projection_snapshot",
+  "message_history",
+  "history_sync",
+  "history_window_sync",
+  "thread_window_sync",
+]);
+
+interface PendingHistoryReceive {
+  receiveId: string;
+  sessionId: string;
+  messageType: string;
+  payloadBytes: number;
+  receivedAt: number;
+  parseDurationMs: number;
+  appliedAt?: number;
+  applyDurationMs?: number;
+  committedAt?: number;
+  paintScheduled?: boolean;
+}
+
+const pendingHistoryReceives = new Map<string, PendingHistoryReceive>();
+const pendingHistoryReceiveIdsBySession = new Map<string, string[]>();
+
+function perfNow(): number {
+  return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+}
+
+function scheduleFrame(callback: () => void): void {
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => callback());
+    return;
+  }
+  setTimeout(callback, 0);
+}
+
+function scheduleHistoryReceivePaint(pending: PendingHistoryReceive): void {
+  if (pending.paintScheduled || pending.appliedAt === undefined || pending.committedAt === undefined) return;
+  pending.paintScheduled = true;
+  scheduleFrame(() => {
+    scheduleFrame(() => {
+      const paintAt = perfNow();
+      const commitBase = Math.max(pending.appliedAt!, pending.committedAt!);
+      recordFrontendPerfEntry({
+        kind: "history_receive_render",
+        timestamp: Date.now(),
+        sessionId: pending.sessionId,
+        messageType: pending.messageType,
+        receiveId: pending.receiveId,
+        payloadBytes: pending.payloadBytes,
+        parseDurationMs: pending.parseDurationMs,
+        applyDurationMs: pending.applyDurationMs ?? 0,
+        reactCommitDurationMs: Math.max(0, pending.committedAt! - pending.appliedAt!),
+        nextPaintDurationMs: Math.max(0, paintAt - commitBase),
+        totalDurationMs: Math.max(0, paintAt - pending.receivedAt),
+      });
+      pendingHistoryReceives.delete(pending.receiveId);
+      const ids = pendingHistoryReceiveIdsBySession.get(pending.sessionId) ?? [];
+      const remaining = ids.filter((receiveId) => receiveId !== pending.receiveId);
+      if (remaining.length > 0) pendingHistoryReceiveIdsBySession.set(pending.sessionId, remaining);
+      else pendingHistoryReceiveIdsBySession.delete(pending.sessionId);
+    });
+  });
+}
+
+export function beginHistoryReceiveRenderTiming(input: {
+  receiveId: string;
+  sessionId: string;
+  messageType: string;
+  payloadBytes: number;
+  receivedAt: number;
+  parseDurationMs: number;
+}): void {
+  if (!HISTORY_RECEIVE_TYPES.has(input.messageType)) return;
+  const pending: PendingHistoryReceive = { ...input };
+  pendingHistoryReceives.set(input.receiveId, pending);
+  const ids = [...(pendingHistoryReceiveIdsBySession.get(input.sessionId) ?? []), input.receiveId];
+  while (ids.length > 20) {
+    const staleId = ids.shift();
+    if (staleId) pendingHistoryReceives.delete(staleId);
+  }
+  pendingHistoryReceiveIdsBySession.set(input.sessionId, ids);
+}
+
+export function completeHistoryReceiveRenderTiming(input: {
+  receiveId: string;
+  appliedAt: number;
+  applyDurationMs: number;
+}): void {
+  const pending = pendingHistoryReceives.get(input.receiveId);
+  if (!pending) return;
+  pending.appliedAt = input.appliedAt;
+  pending.applyDurationMs = input.applyDurationMs;
+  scheduleHistoryReceivePaint(pending);
+}
+
+export function markHistoryReceiveRenderCommitted(sessionId: string): void {
+  const committedAt = perfNow();
+  for (const receiveId of pendingHistoryReceiveIdsBySession.get(sessionId) ?? []) {
+    const pending = pendingHistoryReceives.get(receiveId);
+    if (!pending || pending.committedAt !== undefined) continue;
+    pending.committedAt = committedAt;
+    scheduleHistoryReceivePaint(pending);
+  }
+}
 
 export function recordFrontendPerfEntry(entry: FrontendPerfEntry): void {
   entries.push(entry);
@@ -207,6 +328,8 @@ export function getFrontendPerfEntries(): FrontendPerfEntry[] {
 export function clearFrontendPerfEntries(): void {
   entries.length = 0;
   feedRenderSignatures.clear();
+  pendingHistoryReceives.clear();
+  pendingHistoryReceiveIdsBySession.clear();
 }
 
 export function exportFrontendPerfEntries(): string {

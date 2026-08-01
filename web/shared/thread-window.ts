@@ -60,7 +60,7 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
     Math.floor(input.itemCount || getThreadWindowItemCount(visibleItemCount, sectionItemCount)),
   );
   const items = buildThreadConversationItems(input.messageHistory, threadKey);
-  const ranges = buildConversationRanges(items);
+  const ranges = buildRenderableConversationRanges(items);
   const totalItems = ranges.length;
   const requestedFromItem = Math.floor(input.fromItem);
   const targetRangeIndex = input.targetMessageId
@@ -80,40 +80,29 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
         : requestedFromItem < 0
           ? Math.max(0, totalItems - requestedItemCount)
           : Math.max(0, Math.min(requestedFromItem, Math.max(0, totalItems - 1)));
-  const initialEndItem = Math.min(totalItems, initialFromItem + requestedItemCount);
-  const filledRange = fillSparseThreadWindowRange({
-    messageHistory: input.messageHistory,
-    threadKey,
-    items,
-    ranges,
-    fromItem: initialFromItem,
-    endItem: initialEndItem,
-    requestedItemCount,
-    sectionItemCount,
-    visibleItemCount,
-  });
+  const endItem = Math.min(totalItems, initialFromItem + requestedItemCount);
   const entries = buildThreadWindowEntries({
     messageHistory: input.messageHistory,
     threadKey,
     items,
     ranges,
-    fromItem: filledRange.fromItem,
-    endItem: filledRange.endItem,
+    fromItem: initialFromItem,
+    endItem,
   });
   const availability = deriveThreadWindowAvailability({
     items,
     ranges,
     entries,
-    fromItem: filledRange.fromItem,
-    endItem: filledRange.endItem,
+    fromItem: initialFromItem,
+    endItem,
   });
   return {
     threadKey,
     entries,
     window: {
       thread_key: threadKey,
-      from_item: filledRange.fromItem,
-      item_count: Math.max(0, filledRange.endItem - filledRange.fromItem),
+      from_item: initialFromItem,
+      item_count: Math.max(0, endItem - initialFromItem),
       total_items: totalItems,
       ...availability,
       source_history_length: input.messageHistory.length,
@@ -142,7 +131,7 @@ export function buildProjectedThreadEntries(
 ): ThreadWindowEntry[] {
   const normalizedThreadKey = normalizeSelectedFeedThreadKey(threadKey);
   const items = buildThreadConversationItems(messageHistory, normalizedThreadKey);
-  const ranges = buildConversationRanges(items);
+  const ranges = buildRenderableConversationRanges(items);
   return buildThreadWindowEntries({
     messageHistory,
     threadKey: normalizedThreadKey,
@@ -151,39 +140,6 @@ export function buildProjectedThreadEntries(
     fromItem: 0,
     endItem: ranges.length,
   });
-}
-
-function fillSparseThreadWindowRange(input: {
-  messageHistory: ReadonlyArray<BrowserIncomingMessage>;
-  threadKey: string;
-  items: FeedItem[];
-  ranges: ConversationRange[];
-  fromItem: number;
-  endItem: number;
-  requestedItemCount: number;
-  sectionItemCount: number;
-  visibleItemCount: number;
-}): { fromItem: number; endItem: number } {
-  if (input.ranges.length === 0) return { fromItem: input.fromItem, endItem: input.endItem };
-
-  const minimumVisibleEntries = Math.min(input.requestedItemCount, input.sectionItemCount);
-  const maxFilledItemCount = Math.max(input.requestedItemCount, input.sectionItemCount * input.visibleItemCount * 3);
-  let fromItem = input.fromItem;
-  let entries = buildThreadWindowEntries({ ...input, fromItem });
-
-  while (
-    fromItem > 0 &&
-    input.endItem - fromItem < maxFilledItemCount &&
-    countBrowserVisibleThreadEntries(entries) < minimumVisibleEntries
-  ) {
-    const nextItemCount = Math.min(maxFilledItemCount, input.endItem - fromItem + input.sectionItemCount);
-    const nextFromItem = Math.max(0, input.endItem - nextItemCount);
-    if (nextFromItem === fromItem) break;
-    fromItem = nextFromItem;
-    entries = buildThreadWindowEntries({ ...input, fromItem });
-  }
-
-  return { fromItem, endItem: input.endItem };
 }
 
 function buildThreadWindowEntries(input: {
@@ -200,14 +156,6 @@ function buildThreadWindowEntries(input: {
       ? expandMainAttachmentSourceItems(input.messageHistory, input.items, selectedItems)
       : selectedItems;
   return dedupeEntries(expandToolClosureItems(input.messageHistory, input.threadKey, sourceExpandedItems));
-}
-
-function countBrowserVisibleThreadEntries(entries: ReadonlyArray<ThreadWindowEntry>): number {
-  let count = 0;
-  for (const entry of entries) {
-    if (threadWindowEntryRendersChatRow(entry.message)) count++;
-  }
-  return count;
 }
 
 function threadWindowEntryRendersChatRow(message: BrowserIncomingMessage): boolean {
@@ -472,6 +420,18 @@ function buildConversationRanges(items: FeedItem[]): ConversationRange[] {
     ranges.push({ startItem, endItem: items.length });
   }
   return ranges;
+}
+
+function buildRenderableConversationRanges(items: FeedItem[]): ConversationRange[] {
+  return buildConversationRanges(items).filter((range) =>
+    items
+      .slice(range.startItem, range.endItem)
+      .some((item) => threadWindowEntryContributesToBrowser(item.entry.message)),
+  );
+}
+
+function threadWindowEntryContributesToBrowser(message: BrowserIncomingMessage): boolean {
+  return message.type === "tool_result_preview" || threadWindowEntryRendersChatRow(message);
 }
 
 function selectConversationItems(items: FeedItem[], ranges: ConversationRange[]): FeedItem[] {

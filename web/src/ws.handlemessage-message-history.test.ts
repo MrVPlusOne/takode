@@ -272,6 +272,10 @@ describe("handleMessage: message_history", () => {
           sessionId: "s1",
           messageType: "message_history",
           payloadBytes: expect.any(Number),
+          receiveId: expect.any(String),
+          parseDurationMs: expect.any(Number),
+          applyDurationMs: expect.any(Number),
+          durationMs: expect.any(Number),
         }),
       ]),
     );

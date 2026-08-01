@@ -853,7 +853,8 @@ export interface LeaderProjectionThreadRow {
   createdAt: number;
 }
 
-export interface LeaderProjectionSnapshot {
+/** Rich server-side projection used for projection construction and diagnostics. */
+export interface LeaderProjectionInternalSnapshot {
   schemaVersion: 1;
   revision: number;
   sourceHistoryLength: number;
@@ -874,6 +875,14 @@ export interface LeaderProjectionSnapshot {
     startHistoryIndex: number;
     endHistoryIndex: number | null;
   }>;
+}
+
+/** Compact browser wire contract. Keep this limited to fields consumed by the browser. */
+export interface LeaderProjectionSnapshot {
+  schemaVersion: 2;
+  sourceHistoryLength: number;
+  threadSummaries: LeaderProjectionThreadSummary[];
+  messageAttentionRecords: SessionAttentionRecord[];
 }
 
 /** High-level task recognized by the session auto-namer. */
