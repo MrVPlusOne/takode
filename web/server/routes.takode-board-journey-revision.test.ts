@@ -894,6 +894,113 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it("rejects every mutation before malformed raw occurrences can shift history", async () => {
+    // Exercise both ways filtering could manufacture provenance: an unknown occurrence between
+    // Explore/Implement and one before the pair. Every route must leave the raw row byte-for-byte equivalent.
+    for (const phaseIds of [
+      ["alignment", "explore", "legacy-invalid", "implement", "code-review", "port", "memory"],
+      ["alignment", "legacy-invalid", "explore", "implement", "code-review", "port", "memory"],
+    ]) {
+      setupTakodeSessions();
+      installHistoricalExploreImplementRow();
+      const row = bridge._sessions["orch-1"].board.get("q-9");
+      row.journey.phaseIds = phaseIds;
+      row.journey.activePhaseIndex = 3;
+      row.journey.currentPhaseId = "implement";
+      row.journey.phaseNotes = { "4": "Keep this note on the same raw occurrence." };
+      row.journey.phaseTimings = {
+        "0": { startedAt: 1, endedAt: 2 },
+        "1": { startedAt: 3, endedAt: 4 },
+        "2": { startedAt: 5, endedAt: 6 },
+        "3": { startedAt: 7 },
+      };
+      const snapshot = structuredClone(row);
+
+      const mutations: Array<() => Response | Promise<Response>> = [
+        () =>
+          app.request("/api/sessions/orch-1/board", {
+            method: "POST",
+            headers: authHeaders("orch-1", "tok-1"),
+            body: JSON.stringify({
+              questId: "q-9",
+              phaseNoteEdits: [{ index: 4, note: "Do not apply this note." }],
+            }),
+          }),
+        () =>
+          app.request("/api/sessions/orch-1/board", {
+            method: "POST",
+            headers: authHeaders("orch-1", "tok-1"),
+            body: JSON.stringify({ questId: "q-9", worker: "worker-2" }),
+          }),
+        () =>
+          app.request("/api/sessions/orch-1/board", {
+            method: "POST",
+            headers: authHeaders("orch-1", "tok-1"),
+            body: JSON.stringify({ questId: "q-9", waitForInput: ["n-16"] }),
+          }),
+        () =>
+          app.request("/api/sessions/orch-1/board", {
+            method: "POST",
+            headers: authHeaders("orch-1", "tok-1"),
+            body: JSON.stringify({ questId: "q-9", status: "CODE_REVIEWING", activePhaseIndex: 4 }),
+          }),
+        () =>
+          app.request("/api/sessions/orch-1/board/q-9/advance", {
+            method: "POST",
+            headers: authHeaders("orch-1", "tok-1"),
+          }),
+        () =>
+          postBoardRevise("q-9", {
+            fromIndex: 4,
+            expectedPhaseId: "code-review",
+            phases: ["explore", "user-checkpoint", "implement", "port", "memory"],
+          }),
+      ];
+
+      for (const mutate of mutations) {
+        const res = await mutate();
+        expect(res.status).toBe(409);
+        expect(await res.json()).toMatchObject({ error: expect.stringContaining("repair required") });
+        expect(bridge._sessions["orch-1"].board.get("q-9")).toEqual(snapshot);
+      }
+    }
+  });
+
+  it("accepts position-preserving aliases on a historical row", async () => {
+    // Aliases may canonicalize, but occurrence-indexed notes and timings must remain attached.
+    setupTakodeSessions();
+    installHistoricalExploreImplementRow();
+    const row = bridge._sessions["orch-1"].board.get("q-9");
+    row.journey.phaseIds = ["planning", "explore", "implementation", "skeptic-review", "port", "memory"];
+    row.journey.phaseNotes = { "3": "Review the same canonical occurrence." };
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-9", worker: "worker-2" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          worker: "worker-2",
+          journey: {
+            phaseIds: ["alignment", "explore", "implement", "code-review", "port", "memory"],
+            activePhaseIndex: 2,
+            phaseNotes: { "3": "Review the same canonical occurrence." },
+            phaseTimings: {
+              "0": { startedAt: 1, endedAt: 2 },
+              "1": { startedAt: 3, endedAt: 4 },
+              "2": { startedAt: 5 },
+            },
+          },
+        },
+      ],
+    });
+  });
+
   it("rejects a new future repeated Explore to Implement adjacency on a historical row", async () => {
     // The earlier admitted pair is occurrence-specific; rewriting a later suffix cannot borrow it.
     setupTakodeSessions();

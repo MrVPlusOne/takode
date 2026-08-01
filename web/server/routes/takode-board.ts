@@ -19,6 +19,7 @@ import {
   validateQuestJourneyCompletedPrefixRevision,
   validateQuestJourneyPhaseSequence,
   validateQuestJourneyPhaseSequenceMutation,
+  validateQuestJourneyPersistedPhaseMutation,
   validateQuestJourneyUserCheckpointNotes,
   validateQuestJourneyUserCheckpointRemoval,
   type QuestJourneyLifecycleMode,
@@ -373,6 +374,10 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
 
     const bridgeSession = wsBridge.getSession(id);
     const existingRow = bridgeSession?.board.get(questId) ?? null;
+    const persistedPhaseError = existingRow?.journey
+      ? validateQuestJourneyPersistedPhaseMutation(existingRow.journey, existingRow.status)
+      : undefined;
+    if (persistedPhaseError) return c.json({ error: persistedPhaseError }, 409);
     if (waitForInput && waitForInput.length > 0) {
       if (!bridgeSession) return c.json({ error: "Session not found in bridge" }, 404);
       const missing = waitForInput.filter(
@@ -954,6 +959,8 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
         404,
       );
     }
+    const persistedPhaseError = validateQuestJourneyPersistedPhaseMutation(existingRow.journey, existingRow.status);
+    if (persistedPhaseError) return c.json({ error: persistedPhaseError }, 409);
 
     const body = await c.req.json().catch(() => ({}));
     const fromIndex =
@@ -1136,6 +1143,11 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
 
     const bridgeSession = wsBridge.getSession(id);
+    const existingRow = bridgeSession?.board.get(questId);
+    const persistedPhaseError = existingRow?.journey
+      ? validateQuestJourneyPersistedPhaseMutation(existingRow.journey, existingRow.status)
+      : undefined;
+    if (persistedPhaseError) return c.json({ error: persistedPhaseError }, 409);
     const body = await c.req.json().catch(() => undefined);
     const skipOptionalUserCheckpointReason =
       body &&

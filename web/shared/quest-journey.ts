@@ -323,6 +323,12 @@ export const OPTIONAL_USER_CHECKPOINT_NOTE_ERROR =
 export const REQUIRED_USER_CHECKPOINT_REMOVAL_ERROR =
   "Cannot remove a User Checkpoint marked as explicitly user-requested or required. User-requested or required checkpoints must stay in the Journey until the user decision is recorded.";
 
+export const QUEST_JOURNEY_PHASE_REPAIR_REQUIRED_ERROR =
+  "Quest Journey repair required: the persisted phase plan contains an unknown or malformed occurrence. Repair the row with recognized phase IDs while preserving occurrence positions before changing it.";
+
+export const QUEST_JOURNEY_PHASE_PROVENANCE_REPAIR_REQUIRED_ERROR =
+  "Quest Journey repair required: the current phase occurrence boundary cannot be determined positionally. Pin the active phase occurrence before changing this row.";
+
 export const QUEST_JOURNEY_PHASE_BY_ID: Record<QuestJourneyPhaseId, QuestJourneyPhase> = Object.fromEntries(
   QUEST_JOURNEY_PHASES.map((phase) => [phase.id, phase]),
 ) as Record<QuestJourneyPhaseId, QuestJourneyPhase>;
@@ -367,6 +373,41 @@ export function getInvalidQuestJourneyPhaseIds(values: readonly string[]): strin
   return values.filter((value) => canonicalizeQuestJourneyPhaseId(value) === null);
 }
 
+export function validateQuestJourneyPersistedPhaseOccurrences(values: unknown): string | undefined {
+  if (!Array.isArray(values)) return QUEST_JOURNEY_PHASE_REPAIR_REQUIRED_ERROR;
+
+  for (const [index, value] of values.entries()) {
+    if (typeof value === "string" && canonicalizeQuestJourneyPhaseId(value) !== null) continue;
+    return `${QUEST_JOURNEY_PHASE_REPAIR_REQUIRED_ERROR} Invalid occurrence position: ${index + 1}.`;
+  }
+
+  return undefined;
+}
+
+export function validateQuestJourneyPersistedPhaseMutation(
+  plan: Partial<QuestJourneyPlanState> | undefined,
+  status?: string | null,
+): string | undefined {
+  if (!plan) return undefined;
+  const occurrenceError = validateQuestJourneyPersistedPhaseOccurrences(plan.phaseIds);
+  if (occurrenceError) return occurrenceError;
+
+  const phaseIds = (plan.phaseIds as unknown[]).map(
+    (phaseId) => canonicalizeQuestJourneyPhaseId(phaseId as string) as QuestJourneyPhaseId,
+  );
+  const mode = canonicalizeQuestJourneyLifecycleMode(plan.mode);
+  const normalizedStatus = typeof status === "string" ? status.trim().toUpperCase() : "";
+  const isActive = mode !== "proposed" && normalizedStatus !== "PROPOSED" && normalizedStatus !== "QUEUED";
+  const hasExploreImplement = phaseIds.some(
+    (phaseId, index) => phaseId === "explore" && phaseIds[index + 1] === "implement",
+  );
+
+  if (isActive && hasExploreImplement && getQuestJourneyCurrentPhaseIndex(plan, status) === undefined) {
+    return QUEST_JOURNEY_PHASE_PROVENANCE_REPAIR_REQUIRED_ERROR;
+  }
+  return undefined;
+}
+
 export function validateQuestJourneyPhaseSequence(
   values: readonly string[],
   options: QuestJourneyPhaseSequenceValidationOptions = {},
@@ -388,17 +429,24 @@ export function validateQuestJourneyPhaseSequence(
 export function validateQuestJourneyPhaseSequenceMutation(
   mutation: QuestJourneyPhaseSequenceMutationValidation,
 ): string | undefined {
-  const existingPhaseIds = normalizeQuestJourneyPhaseIds(mutation.existingPlan?.phaseIds);
+  const rawExistingPhaseIds: unknown = mutation.existingPlan?.phaseIds;
+  const provenanceError = validateQuestJourneyPersistedPhaseMutation(mutation.existingPlan, mutation.existingStatus);
+  if (provenanceError) return provenanceError;
+  const existingPhaseIds = Array.isArray(rawExistingPhaseIds)
+    ? rawExistingPhaseIds.map((phaseId) => canonicalizeQuestJourneyPhaseId(phaseId as string) as QuestJourneyPhaseId)
+    : [];
   const nextPhaseIds = normalizeQuestJourneyPhaseIds(mutation.nextPhaseIds);
   const existingMode = canonicalizeQuestJourneyLifecycleMode(mutation.existingPlan?.mode);
   const normalizedStatus =
     typeof mutation.existingStatus === "string" ? mutation.existingStatus.trim().toUpperCase() : "";
   const currentPhaseIndex = getQuestJourneyCurrentPhaseIndex(mutation.existingPlan, mutation.existingStatus);
   const allowedIndices = new Set<number>();
+  const isActiveExistingPlan =
+    existingMode !== "proposed" && normalizedStatus !== "PROPOSED" && normalizedStatus !== "QUEUED";
 
   // A q-1705 transition becomes immutable history once Implement is current or completed.
   // Match by position in both plans so the allowance cannot move to a later repeated occurrence.
-  if (existingMode !== "proposed" && normalizedStatus !== "PROPOSED" && currentPhaseIndex !== undefined) {
+  if (isActiveExistingPlan && currentPhaseIndex !== undefined) {
     for (let index = 0; index < currentPhaseIndex; index += 1) {
       if (
         existingPhaseIds[index] === "explore" &&

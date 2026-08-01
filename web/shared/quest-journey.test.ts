@@ -28,6 +28,7 @@ import {
   validateQuestJourneyCompletedPrefixRevision,
   validateQuestJourneyPhaseSequence,
   validateQuestJourneyPhaseSequenceMutation,
+  validateQuestJourneyPersistedPhaseOccurrences,
   validateQuestJourneyUserCheckpointNotes,
   validateQuestJourneyUserCheckpointRemoval,
   rebaseQuestJourneyPhaseNotes,
@@ -180,6 +181,59 @@ describe("phase alias compatibility", () => {
         nextPhaseIds: ["explore", "implement", "alignment", "code-review", "port"],
       }),
     ).toContain("adjacent `explore -> implement`");
+  });
+
+  it("fails closed when raw persisted occurrences cannot preserve positions", () => {
+    // Unknown occurrences must not be filtered into a manufactured adjacent pair.
+    for (const phaseIds of [
+      ["alignment", "explore", "legacy-invalid", "implement", "code-review"],
+      ["alignment", "legacy-invalid", "explore", "implement", "code-review"],
+    ]) {
+      expect(validateQuestJourneyPersistedPhaseOccurrences(phaseIds)).toContain("repair required");
+      expect(
+        validateQuestJourneyPhaseSequenceMutation({
+          existingPlan: {
+            mode: "active",
+            phaseIds: phaseIds as QuestJourneyPhaseId[],
+            activePhaseIndex: 3,
+            currentPhaseId: "implement",
+          },
+          existingStatus: "IMPLEMENTING",
+          nextPhaseIds: ["alignment", "explore", "implement", "code-review"],
+        }),
+      ).toContain("repair required");
+    }
+  });
+
+  it("accepts aliases when canonicalization preserves every occurrence position", () => {
+    // Each alias maps one-to-one, so the historical pair retains the same raw positions.
+    expect(
+      validateQuestJourneyPhaseSequenceMutation({
+        existingPlan: {
+          mode: "active",
+          phaseIds: ["planning", "explore", "implementation", "skeptic-review"] as QuestJourneyPhaseId[],
+          activePhaseIndex: 2,
+          currentPhaseId: "implement",
+        },
+        existingStatus: "IMPLEMENTING",
+        nextPhaseIds: ["alignment", "explore", "implement", "code-review"],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("requires repair when a repeated phase makes historical provenance ambiguous", () => {
+    // Without an active occurrence index, the validator cannot identify which Implement bounds history.
+    expect(
+      validateQuestJourneyPhaseSequenceMutation({
+        existingPlan: {
+          mode: "active",
+          phaseIds: ["alignment", "explore", "implement", "code-review", "explore", "implement", "port"],
+          currentPhaseId: "implement",
+        },
+        existingStatus: "IMPLEMENTING",
+        nextPhaseIds: ["alignment", "explore", "implement", "code-review", "explore", "implement", "port"],
+      }),
+    ).toContain("repair required");
   });
 
   it("keeps future repeated Explore to Implement occurrences strict", () => {
