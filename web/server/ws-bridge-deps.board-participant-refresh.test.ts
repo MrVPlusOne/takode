@@ -1,7 +1,21 @@
-import { describe, expect, it, vi } from "vitest";
-import { broadcastGlobalWithBoardParticipantRefresh } from "./ws-bridge-deps.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { broadcastGlobalAndScheduleBoardParticipantRefresh } from "./bridge/board-participant-invalidation-controller.js";
+import { buildBoardRowSessionStatuses } from "./board-row-session-status.js";
+import { maybeBroadcastGlobalSessionActivityUpdate } from "./ws-bridge-deps.js";
+import { WsBridge } from "./ws-bridge.js";
 
-function makeHost() {
+type LauncherSession = {
+  sessionId: string;
+  sessionNum?: number;
+  reviewerOf?: number;
+  herdedBy?: string;
+  archived?: boolean;
+  state: string;
+  cliConnected?: boolean;
+  name?: string;
+};
+
+function makeHarness() {
   const leader = {
     id: "leader-1",
     state: {},
@@ -21,58 +35,276 @@ function makeHost() {
     ]),
     completedBoard: new Map(),
   };
-  const reviewer = { id: "reviewer-1", state: {}, board: new Map(), completedBoard: new Map() };
-  const rowSessionStatuses = {
-    "q-1761": {
-      worker: { sessionId: "worker-1", sessionNum: 2402, status: "idle" },
-      reviewer: { sessionId: "reviewer-1", sessionNum: 2403, status: "running" },
+  const launcherSessions = new Map<string, LauncherSession>([
+    ["leader-1", { sessionId: "leader-1", sessionNum: 1563, state: "connected", cliConnected: true }],
+    [
+      "worker-1",
+      {
+        sessionId: "worker-1",
+        sessionNum: 2402,
+        herdedBy: "leader-1",
+        state: "connected",
+        cliConnected: true,
+        name: "Stale Worker Name",
+      },
+    ],
+  ]);
+  const names = new Map([
+    ["worker-1", "Current Worker"],
+    ["reviewer-1", "Current Reviewer"],
+    ["reviewer-2", "Replacement Reviewer"],
+    ["reviewer-3", "Deleted Reviewer"],
+  ]);
+  const host = {
+    sessions: new Map([[leader.id, leader]]),
+    launcher: {
+      getSession: (sessionId: string) => launcherSessions.get(sessionId),
+      listSessions: () => [...launcherSessions.values()],
     },
+    sessionNameGetter: (sessionId: string) => names.get(sessionId),
+    broadcastToBrowsers: vi.fn(),
+    broadcastSessionActivityUpdateGlobally: vi.fn(),
+    getBoardRowSessionStatuses: vi.fn((_leaderId: string, board: any[], completedBoard: any[]) =>
+      buildBoardRowSessionStatuses(
+        [...board, ...completedBoard],
+        [...launcherSessions.values()].map((session) => ({
+          ...session,
+          name: names.get(session.sessionId),
+        })),
+      ),
+    ),
   };
-  return {
-    leader,
-    host: {
-      sessions: new Map([
-        [leader.id, leader],
-        [reviewer.id, reviewer],
-      ]),
-      broadcastToBrowsers: vi.fn(),
-      getBoardRowSessionStatuses: vi.fn(() => rowSessionStatuses),
-    },
-  };
+  return { host, leader, launcherSessions };
 }
 
-describe("broadcastGlobalWithBoardParticipantRefresh", () => {
-  // Reviewer lifecycle events do not mutate the Work Board row itself. Each event
-  // must therefore republish the server-computed participant projection.
-  it.each([
-    "session_created",
-    "session_archived",
-    "session_deleted",
-  ] as const)("refreshes server-authored board participant statuses after %s", (type) => {
-    const { host, leader } = makeHost();
+function boardUpdates(host: ReturnType<typeof makeHarness>["host"]) {
+  return host.broadcastToBrowsers.mock.calls.filter(([, message]) => message.type === "board_updated");
+}
 
-    broadcastGlobalWithBoardParticipantRefresh(host, { type, session_id: "reviewer-1" });
+function flushInvalidations() {
+  vi.advanceTimersByTime(50);
+}
 
-    expect(host.broadcastToBrowsers).toHaveBeenCalledWith(
-      leader,
-      expect.objectContaining({
-        type: "board_updated",
-        board: [expect.objectContaining({ questId: "q-1761", workerNum: 2402 })],
-        rowSessionStatuses: {
-          "q-1761": expect.objectContaining({
-            reviewer: expect.objectContaining({ sessionId: "reviewer-1", sessionNum: 2403 }),
-          }),
-        },
-      }),
-    );
+describe("targeted board participant invalidation", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  // These transitions use the same launcher and board fields as production so
+  // archive/delete cannot accidentally keep returning a static reviewer stub.
+  it("projects reviewer spawn through real session and board inputs", () => {
+    const { host, leader, launcherSessions } = makeHarness();
+    launcherSessions.set("reviewer-1", {
+      sessionId: "reviewer-1",
+      sessionNum: 2403,
+      reviewerOf: 2402,
+      herdedBy: "leader-1",
+      state: "running",
+      cliConnected: true,
+      name: "Stale Reviewer Name",
+    });
+
+    broadcastGlobalAndScheduleBoardParticipantRefresh(host, {
+      type: "session_created",
+      session_id: "reviewer-1",
+    });
+    expect(boardUpdates(host)).toHaveLength(0);
+    flushInvalidations();
+
+    expect(boardUpdates(host)).toEqual([
+      [
+        leader,
+        expect.objectContaining({
+          type: "board_updated",
+          board: [expect.objectContaining({ worker: "worker-1", workerNum: 2402 })],
+          rowSessionStatuses: {
+            "q-1761": {
+              worker: expect.objectContaining({ sessionId: "worker-1", name: "Current Worker" }),
+              reviewer: expect.objectContaining({ sessionId: "reviewer-1", name: "Current Reviewer" }),
+            },
+          },
+        }),
+        { skipBuffer: true, skipGlobalActivity: true },
+      ],
+    ]);
   });
 
-  it("does not rebroadcast board state for unrelated global messages", () => {
-    const { host } = makeHost();
+  it("coalesces an archive/create replacement burst and publishes only the exact replacement", () => {
+    const { host, launcherSessions } = makeHarness();
+    launcherSessions.set("reviewer-1", {
+      sessionId: "reviewer-1",
+      sessionNum: 2403,
+      reviewerOf: 2402,
+      herdedBy: "leader-1",
+      archived: true,
+      state: "exited",
+    });
+    broadcastGlobalAndScheduleBoardParticipantRefresh(host, {
+      type: "session_archived",
+      session_id: "reviewer-1",
+      reviewerOf: 2402,
+      herdedBy: "leader-1",
+    });
+    launcherSessions.set("reviewer-2", {
+      sessionId: "reviewer-2",
+      sessionNum: 2404,
+      reviewerOf: 2402,
+      herdedBy: "leader-1",
+      state: "running",
+      cliConnected: true,
+    });
+    broadcastGlobalAndScheduleBoardParticipantRefresh(host, {
+      type: "session_created",
+      session_id: "reviewer-2",
+    });
+    flushInvalidations();
 
-    broadcastGlobalWithBoardParticipantRefresh(host, { type: "quest_list_updated" });
+    expect(boardUpdates(host)).toHaveLength(1);
+    expect(boardUpdates(host)[0]?.[1]).toMatchObject({
+      rowSessionStatuses: {
+        "q-1761": {
+          worker: { sessionId: "worker-1", sessionNum: 2402, name: "Current Worker", status: "idle" },
+          reviewer: {
+            sessionId: "reviewer-2",
+            sessionNum: 2404,
+            name: "Replacement Reviewer",
+            status: "running",
+          },
+        },
+      },
+    });
+  });
 
-    expect(host.broadcastToBrowsers).toHaveBeenCalledTimes(2);
+  it("removes archived and deleted reviewers from the exact active board projection", () => {
+    const { host, launcherSessions } = makeHarness();
+    launcherSessions.set("reviewer-3", {
+      sessionId: "reviewer-3",
+      sessionNum: 2405,
+      reviewerOf: 2402,
+      herdedBy: "leader-1",
+      state: "running",
+      cliConnected: true,
+    });
+    broadcastGlobalAndScheduleBoardParticipantRefresh(host, {
+      type: "session_created",
+      session_id: "reviewer-3",
+    });
+    flushInvalidations();
+    host.broadcastToBrowsers.mockClear();
+
+    launcherSessions.get("reviewer-3")!.archived = true;
+    broadcastGlobalAndScheduleBoardParticipantRefresh(host, {
+      type: "session_archived",
+      session_id: "reviewer-3",
+      reviewerOf: 2402,
+      herdedBy: "leader-1",
+    });
+    flushInvalidations();
+    expect(boardUpdates(host)[0]?.[1]).toMatchObject({
+      rowSessionStatuses: { "q-1761": { reviewer: null } },
+    });
+
+    host.broadcastToBrowsers.mockClear();
+    launcherSessions.delete("reviewer-3");
+    broadcastGlobalAndScheduleBoardParticipantRefresh(host, {
+      type: "session_deleted",
+      session_id: "reviewer-3",
+      reviewerOf: 2402,
+      herdedBy: "leader-1",
+    });
+    flushInvalidations();
+    expect(boardUpdates(host)[0]?.[1]).toMatchObject({
+      rowSessionStatuses: { "q-1761": { reviewer: null } },
+    });
+  });
+
+  it("does not publish boards for unrelated session lifecycle changes", () => {
+    const { host, launcherSessions } = makeHarness();
+    launcherSessions.set("unrelated-reviewer", {
+      sessionId: "unrelated-reviewer",
+      sessionNum: 2501,
+      reviewerOf: 2500,
+      herdedBy: "leader-1",
+      state: "running",
+      cliConnected: true,
+    });
+
+    broadcastGlobalAndScheduleBoardParticipantRefresh(host, {
+      type: "session_created",
+      session_id: "unrelated-reviewer",
+    });
+    flushInvalidations();
+
+    expect(boardUpdates(host)).toHaveLength(0);
     expect(host.getBoardRowSessionStatuses).not.toHaveBeenCalled();
+  });
+
+  it("keeps reconnect status on the existing global session-activity path", () => {
+    const { host } = makeHarness();
+    const reviewerSession = {
+      id: "reviewer-1",
+      state: {},
+      pendingPermissions: new Map(),
+      notifications: [],
+      notificationStatusVersion: 0,
+      notificationStatusUpdatedAt: 0,
+    };
+
+    maybeBroadcastGlobalSessionActivityUpdate(host, reviewerSession as any, {
+      type: "status_change",
+      status: "running",
+    });
+
+    expect(host.broadcastSessionActivityUpdateGlobally).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "session_activity_update",
+        session_id: "reviewer-1",
+        session: expect.objectContaining({ status: "running" }),
+      }),
+    );
+    expect(boardUpdates(host)).toHaveLength(0);
+  });
+});
+
+describe("board participant names", () => {
+  it("uses the authoritative session-name getter instead of launcher names", () => {
+    const bridge = new WsBridge();
+    bridge.launcher = {
+      listSessions: () => [
+        {
+          sessionId: "worker-1",
+          sessionNum: 2402,
+          state: "connected",
+          name: "Stale Launcher Worker",
+        },
+        {
+          sessionId: "reviewer-1",
+          sessionNum: 2403,
+          reviewerOf: 2402,
+          state: "connected",
+          name: "Stale Launcher Reviewer",
+        },
+      ],
+    } as any;
+    bridge.sessionNameGetter = (sessionId) =>
+      sessionId === "worker-1" ? "Authoritative Worker" : "Authoritative Reviewer";
+
+    const statuses = bridge.getBoardRowSessionStatuses(
+      "leader-1",
+      [
+        {
+          questId: "q-1761",
+          worker: "worker-1",
+          workerNum: 2402,
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+      [],
+    );
+
+    expect(statuses["q-1761"]).toMatchObject({
+      worker: { name: "Authoritative Worker" },
+      reviewer: { name: "Authoritative Reviewer" },
+    });
   });
 });

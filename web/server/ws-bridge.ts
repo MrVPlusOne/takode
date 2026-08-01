@@ -339,8 +339,9 @@ import {
   getBrowserRoutingDeps as getBrowserRoutingDepsController,
   getCodexRecoveryOrchestratorDeps as getCodexRecoveryOrchestratorDepsController,
   getGenerationLifecycleDeps as getGenerationLifecycleDepsController,
-  broadcastGlobalWithBoardParticipantRefresh,
+  maybeBroadcastGlobalSessionActivityUpdate,
 } from "./ws-bridge-deps.js";
+import { broadcastGlobalAndScheduleBoardParticipantRefresh } from "./bridge/board-participant-invalidation-controller.js";
 
 const BOARD_STALL_THRESHOLD_MS = 3 * 60_000;
 
@@ -619,7 +620,7 @@ export class WsBridge {
 
   /** Push a message to all connected browsers across ALL sessions. */
   broadcastGlobal(msg: BrowserIncomingMessage): void {
-    broadcastGlobalWithBoardParticipantRefresh(this, msg);
+    broadcastGlobalAndScheduleBoardParticipantRefresh(this, msg);
   }
 
   private broadcastSessionActivityUpdateGlobally(
@@ -1371,7 +1372,7 @@ export class WsBridge {
           archived: session.archived,
           state: cliConnected && bridgeSession?.isGenerating ? "running" : session.state,
           cliConnected,
-          name: session.name,
+          name: this.sessionNameGetter?.(session.sessionId),
         };
       }),
     );
@@ -1962,38 +1963,12 @@ export class WsBridge {
     return isHistoryBackedEventController(msg);
   }
 
-  private maybeBroadcastGlobalSessionActivityUpdate(session: Session, msg: BrowserIncomingMessage): void {
-    if (
-      msg.type !== "permission_request" &&
-      msg.type !== "permission_approved" &&
-      msg.type !== "permission_denied" &&
-      msg.type !== "permission_cancelled" &&
-      msg.type !== "permissions_cleared" &&
-      msg.type !== "board_updated" &&
-      msg.type !== "status_change" &&
-      !(msg.type === "session_update" && ("attentionReason" in msg.session || "lastReadAt" in msg.session))
-    ) {
-      return;
-    }
-
-    this.broadcastSessionActivityUpdateGlobally({
-      type: "session_activity_update",
-      session_id: session.id,
-      session: {
-        ...getSessionActivitySnapshotController(session),
-        ...(msg.type === "status_change" ? { status: msg.status } : {}),
-        ...(msg.type === "board_updated"
-          ? {
-              leaderActiveBoardRows: msg.board,
-              leaderActivePhaseSummary: msg.leaderActivePhaseSummary ?? buildLeaderActivePhaseSummary(msg.board),
-            }
-          : {}),
-      },
-    });
-  }
-
-  private broadcastToBrowsers(session: Session, msg: BrowserIncomingMessage, options?: { skipBuffer?: boolean }) {
-    this.maybeBroadcastGlobalSessionActivityUpdate(session, msg);
+  private broadcastToBrowsers(
+    session: Session,
+    msg: BrowserIncomingMessage,
+    options?: { skipBuffer?: boolean; skipGlobalActivity?: boolean },
+  ) {
+    if (!options?.skipGlobalActivity) maybeBroadcastGlobalSessionActivityUpdate(this, session, msg);
     broadcastToBrowsersController(session, msg, this.getBrowserTransportDeps(), options);
   }
 }

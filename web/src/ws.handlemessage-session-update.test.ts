@@ -156,4 +156,67 @@ describe("handleMessage: session_update", () => {
     ]);
     expect(useStore.getState().sessions.get("s1")!.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-9"]);
   });
+
+  it("replaces board participant projections across reviewer lifecycle updates", () => {
+    // The WebSocket handler must replace the authoritative row status on each
+    // coalesced lifecycle projection while retaining the active board worker.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });
+    const board = [
+      {
+        questId: "q-1761",
+        title: "Restore reviewer chip",
+        worker: "worker-1",
+        workerNum: 2402,
+        status: "CODE_REVIEWING",
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    ];
+
+    fireMessage({
+      type: "board_updated",
+      board,
+      completedBoard: [],
+      rowSessionStatuses: {
+        "q-1761": {
+          worker: { sessionId: "worker-1", sessionNum: 2402, status: "idle" },
+          reviewer: { sessionId: "reviewer-1", sessionNum: 2403, status: "running" },
+        },
+      },
+    });
+    expect(useStore.getState().sessionBoardRowStatuses.get("s1")?.["q-1761"]?.reviewer?.sessionId).toBe("reviewer-1");
+
+    fireMessage({
+      type: "board_updated",
+      board,
+      completedBoard: [],
+      rowSessionStatuses: {
+        "q-1761": {
+          worker: { sessionId: "worker-1", sessionNum: 2402, status: "idle" },
+          reviewer: { sessionId: "reviewer-2", sessionNum: 2404, status: "running" },
+        },
+      },
+    });
+    expect(useStore.getState().sessionBoardRowStatuses.get("s1")?.["q-1761"]).toMatchObject({
+      worker: { sessionId: "worker-1", sessionNum: 2402 },
+      reviewer: { sessionId: "reviewer-2", sessionNum: 2404 },
+    });
+
+    fireMessage({
+      type: "board_updated",
+      board,
+      completedBoard: [],
+      rowSessionStatuses: {
+        "q-1761": {
+          worker: { sessionId: "worker-1", sessionNum: 2402, status: "idle" },
+          reviewer: null,
+        },
+      },
+    });
+    expect(useStore.getState().sessionBoardRowStatuses.get("s1")?.["q-1761"]).toMatchObject({
+      worker: { sessionId: "worker-1", sessionNum: 2402 },
+      reviewer: null,
+    });
+  });
 });

@@ -711,6 +711,14 @@ describe("POST /api/sessions/:id/archive", () => {
     expect(sessionStore.setArchived).toHaveBeenCalledWith("reviewer-1", true);
     expect(launcher.removeSession).not.toHaveBeenCalledWith("reviewer-1");
     expect(bridge.closeSession).not.toHaveBeenCalledWith("reviewer-1");
+    expect(bridge.broadcastGlobal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "session_archived",
+        session_id: "reviewer-1",
+        reviewerOf: 42,
+        herdedBy: "leader-1",
+      }),
+    );
     expect(bridge.broadcastGlobal).not.toHaveBeenCalledWith({
       type: "session_deleted",
       session_id: "reviewer-1",

@@ -325,32 +325,42 @@ const WS_BRIDGE_PROCESSED_CLIENT_MSG_ID_LIMIT = 1000;
 const WS_BRIDGE_USER_MESSAGE_RUNNING_TIMEOUT_MS = 30_000;
 const WS_BRIDGE_VSCODE_OPEN_FILE_TIMEOUT_MS = 8_000;
 const WS_BRIDGE_VSCODE_WINDOW_STALE_MS = 30_000;
-const BOARD_PARTICIPANT_LIFECYCLE_MESSAGES = new Set(["session_created", "session_archived", "session_deleted"]);
-
-export function broadcastGlobalWithBoardParticipantRefresh(host: any, msg: BrowserIncomingMessage): void {
-  const sessions = [...(host.sessions.values() as Iterable<Session>)];
-  for (const session of sessions) {
-    host.broadcastToBrowsers(session, msg, { skipBuffer: true });
-  }
-  if (!BOARD_PARTICIPANT_LIFECYCLE_MESSAGES.has(msg.type)) return;
-
-  for (const session of sessions) {
-    const board = getBoardForSessionController(host.sessions, session.id);
-    if (board.length === 0) continue;
-    const completedBoard = getCompletedBoardForSessionController(host.sessions, session.id);
-    host.broadcastToBrowsers(session, {
-      type: "board_updated",
-      board,
-      completedBoard,
-      ...(session.state?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: session.state.leaderOpenThreadTabs } : {}),
-      leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
-      rowSessionStatuses: host.getBoardRowSessionStatuses(session.id, board, completedBoard),
-    });
-  }
-}
-
 function readLauncherSession(host: any, sessionId: string) {
   return typeof host.launcher?.getSession === "function" ? host.launcher.getSession(sessionId) : undefined;
+}
+
+export function maybeBroadcastGlobalSessionActivityUpdate(
+  host: any,
+  session: Session,
+  msg: BrowserIncomingMessage,
+): void {
+  if (
+    msg.type !== "permission_request" &&
+    msg.type !== "permission_approved" &&
+    msg.type !== "permission_denied" &&
+    msg.type !== "permission_cancelled" &&
+    msg.type !== "permissions_cleared" &&
+    msg.type !== "board_updated" &&
+    msg.type !== "status_change" &&
+    !(msg.type === "session_update" && ("attentionReason" in msg.session || "lastReadAt" in msg.session))
+  ) {
+    return;
+  }
+
+  host.broadcastSessionActivityUpdateGlobally({
+    type: "session_activity_update",
+    session_id: session.id,
+    session: {
+      ...getSessionActivitySnapshotController(session),
+      ...(msg.type === "status_change" ? { status: msg.status } : {}),
+      ...(msg.type === "board_updated"
+        ? {
+            leaderActiveBoardRows: msg.board,
+            leaderActivePhaseSummary: msg.leaderActivePhaseSummary ?? buildLeaderActivePhaseSummary(msg.board),
+          }
+        : {}),
+    },
+  });
 }
 
 function requestCliRelaunchIfUnpaused(host: any): ((sessionId: string) => void) | undefined {

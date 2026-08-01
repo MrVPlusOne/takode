@@ -44,6 +44,7 @@ import {
   throwPreparationError,
 } from "./sessions-helpers.js";
 import { registerSessionsArchiveRoutes } from "./sessions-archive-routes.js";
+import { broadcastSessionDeletedAndClose } from "./session-lifecycle-broadcast.js";
 import { withProgressHeartbeat } from "./progress-heartbeat.js";
 import { cleanupWorktree, createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
@@ -1876,8 +1877,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     // Broadcast deletion to all browsers BEFORE closing the session sockets.
     // This ensures every browser tab (not just the one that triggered delete)
     // removes the session from the sidebar immediately.
-    wsBridge.broadcastGlobal({ type: "session_deleted", session_id: id });
-    wsBridge.closeSession(id);
+    broadcastSessionDeletedAndClose(wsBridge, id, sessionInfo ?? undefined);
     await imageStore?.removeSession(id);
     // Clean up tree group assignment (fire-and-forget)
     treeGroupStore.removeSession(id).catch((err) => {

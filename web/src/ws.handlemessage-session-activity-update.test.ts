@@ -179,6 +179,15 @@ describe("handleMessage: session_activity_update", () => {
       { sessionId: "leader", state: "connected", cwd: "/home/user", createdAt: 1, archived: false },
       { sessionId: "worker", state: "connected", cwd: "/home/user", createdAt: 2, archived: false },
     ]);
+    const reviewerProjection = {
+      "q-1761": {
+        worker: { sessionId: "parent-worker", sessionNum: 2402, status: "idle" as const },
+        reviewer: { sessionId: "worker", sessionNum: 2403, status: "idle" as const },
+      },
+    };
+    // Reconnect/running state is a session-activity concern and must not need a
+    // board participant projection rewrite.
+    useStore.getState().setSessionBoardRowStatuses("leader", reviewerProjection);
 
     fireMessage({
       type: "session_activity_update",
@@ -203,6 +212,7 @@ describe("handleMessage: session_activity_update", () => {
     expect(worker.notificationStatusVersion).toBe(2);
     expect(useStore.getState().sessionAttention.get("worker")).toBe("action");
     expect(useStore.getState().sessionStatus.get("worker")).toBe("running");
+    expect(useStore.getState().sessionBoardRowStatuses.get("leader")).toEqual(reviewerProjection);
     useStore.setState({
       sessionNotifications: new Map([["worker", [needsInputNotification()]]]),
     });
@@ -231,6 +241,7 @@ describe("handleMessage: session_activity_update", () => {
     expect(useStore.getState().sessionAttention.get("worker")).toBeNull();
     expect(useStore.getState().sessionNotifications.get("worker")).toBeUndefined();
     expect(useStore.getState().sessionStatus.get("worker")).toBe("idle");
+    expect(useStore.getState().sessionBoardRowStatuses.get("leader")).toEqual(reviewerProjection);
   });
 
   it("does not clear cached full notifications for summary-only active updates", () => {

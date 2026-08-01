@@ -626,6 +626,7 @@ describe("DELETE /api/sessions/:id", () => {
       cwd: "/test",
       createdAt: Date.now(),
       herdedBy: "leader-1",
+      reviewerOf: 2402,
       archived: false,
     });
 
@@ -638,6 +639,12 @@ describe("DELETE /api/sessions/:id", () => {
       { archive_source: "user" },
       undefined,
     );
+    expect(bridge.broadcastGlobal).toHaveBeenCalledWith({
+      type: "session_deleted",
+      session_id: "s1",
+      reviewerOf: 2402,
+      herdedBy: "leader-1",
+    });
   });
 
   it("skips herd event when deleting an already-archived session", async () => {

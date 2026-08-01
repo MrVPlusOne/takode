@@ -2,6 +2,7 @@ import type { Hono } from "hono";
 import { recreateWorktreeIfMissing } from "../migration.js";
 import { containerManager } from "../container-manager.js";
 import { getActorSessionId, getArchiveSource } from "./sessions-helpers.js";
+import { broadcastSessionArchived } from "./session-lifecycle-broadcast.js";
 import type { RouteContext } from "./context.js";
 
 type WorktreeCleanupStatus = "pending" | "done" | "failed";
@@ -49,19 +50,26 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
     wsBridge,
   } = deps;
 
-  function broadcastSessionArchived(sessionId: string) {
-    wsBridge.broadcastGlobal({
-      type: "session_archived",
-      session_id: sessionId,
-      archivedAt: launcher.getSession(sessionId)?.archivedAt,
-    });
-  }
-
   // Shared helper: archive a single session (kill, cleanup, persist).
   // Used by both /archive and /archive-group endpoints.
   async function archiveSingleSession(id: string, actorSessionId?: string) {
     // Emit herd event before killing -- the leader needs to know a worker was archived.
     const archivedSessionInfo = launcher.getSession(id);
+    const archivedRelation = {
+      reviewerOf: archivedSessionInfo?.reviewerOf,
+      herdedBy: archivedSessionInfo?.herdedBy,
+    };
+    const archivedNum = archivedSessionInfo?.sessionNum ?? launcher.getSessionNum(id);
+    const attachedReviewerRelations = new Map(
+      archivedNum === undefined
+        ? []
+        : launcher
+            .listSessions()
+            .filter((session) => session.reviewerOf === archivedNum && !session.archived)
+            .map(
+              (session) => [session.sessionId, { reviewerOf: session.reviewerOf, herdedBy: session.herdedBy }] as const,
+            ),
+    );
     if (archivedSessionInfo?.herdedBy) {
       wsBridge.emitTakodeEvent(
         id,
@@ -84,7 +92,7 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
       throw error;
     }
     if (!wasArchived) {
-      broadcastSessionArchived(id);
+      broadcastSessionArchived(wsBridge, id, launcher.getSession(id)?.archivedAt, archivedRelation);
     }
 
     // Clean up container if any
@@ -110,11 +118,14 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
     // reviewer process or a standalone active-sidebar row.
     // listSessions() returns a new array (Array.from), and kill() only mutates
     // session.state without removing from the sessions map, so iteration is safe.
-    const archivedNum = launcher.getSessionNum(id);
     if (archivedNum !== undefined) {
       const allSessions = launcher.listSessions();
       for (const s of allSessions) {
         if (s.reviewerOf === archivedNum && !s.archived) {
+          const reviewerRelation = attachedReviewerRelations.get(s.sessionId) ?? {
+            reviewerOf: s.reviewerOf,
+            herdedBy: s.herdedBy,
+          };
           console.log(`[routes] Auto-archiving reviewer session ${s.sessionId} (reviewerOf=#${archivedNum})`);
           launcher.setArchived(s.sessionId, true);
           try {
@@ -123,12 +134,17 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
             launcher.setArchived(s.sessionId, false);
             throw error;
           }
-          broadcastSessionArchived(s.sessionId);
+          broadcastSessionArchived(
+            wsBridge,
+            s.sessionId,
+            launcher.getSession(s.sessionId)?.archivedAt,
+            reviewerRelation,
+          );
           containerManager.removeContainer(s.sessionId);
           queueArchivedWorktreeCleanup(s.sessionId, { archiveBranch: true });
           await sessionStore.setArchived(s.sessionId, true);
           // Emit after kill so the leader doesn't query a still-alive session
-          if (s.herdedBy) {
+          if (reviewerRelation.herdedBy) {
             wsBridge.emitTakodeEvent(s.sessionId, "session_archived", { archive_source: "cascade" });
           }
         }

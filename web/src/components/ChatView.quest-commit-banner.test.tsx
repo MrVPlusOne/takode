@@ -1,24 +1,12 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BoardRowSessionStatus } from "../types.js";
+import type { BoardParticipantStatus, BrowserIncomingMessage } from "../types.js";
+import { useStore } from "../store.js";
 
 const mockSetActiveTab = vi.fn();
-
-vi.mock("../store.js", () => ({
-  useStore: (selector: (state: unknown) => unknown) =>
-    selector({
-      quests: [],
-      questDetails: new Map(),
-      sdkSessions: [
-        { sessionId: "worker-968", sessionNum: 1321, state: "running", name: "Clear Mesa" },
-        { sessionId: "reviewer-968", sessionNum: 1306, state: "connected", name: "Reviewer Long Name" },
-      ],
-      setActiveTab: mockSetActiveTab,
-    }),
-}));
 
 vi.mock("./QuestInlineLink.js", () => ({
   QuestInlineLink: ({ questId, children }: { questId: string; children?: ReactNode }) => (
@@ -58,72 +46,150 @@ vi.mock("./QuestJourneyTimeline.js", () => ({
 
 import { QuestThreadBanner, type QuestThreadBannerRow } from "./ChatView.js";
 
-function participantRow(): QuestThreadBannerRow {
+const LEADER_ID = "leader-968";
+const QUEST_ID = "q-968";
+const BOARD_ROW = {
+  questId: QUEST_ID,
+  title: "Thread navigation rework",
+  worker: "worker-968",
+  workerNum: 1321,
+  status: "IMPLEMENTING",
+  createdAt: 1,
+  updatedAt: 2,
+};
+
+type BoardUpdatedMessage = Extract<BrowserIncomingMessage, { type: "board_updated" }>;
+
+function boardUpdatedMessage(reviewer: BoardParticipantStatus | null): BoardUpdatedMessage {
   return {
-    threadKey: "q-968",
-    questId: "q-968",
-    title: "Thread navigation rework",
-    boardStatus: "IMPLEMENTING",
-    commitShas: ["abc1234", "def5678"],
-    section: "active",
-    boardRow: {
-      questId: "q-968",
-      title: "Thread navigation rework",
-      worker: "worker-968",
-      workerNum: 1321,
-      status: "IMPLEMENTING",
-      createdAt: 1,
-      updatedAt: 2,
+    type: "board_updated",
+    board: [BOARD_ROW],
+    completedBoard: [],
+    rowSessionStatuses: {
+      [QUEST_ID]: {
+        worker: { sessionId: "worker-968", sessionNum: 1321, name: "Clear Mesa", status: "running" },
+        reviewer,
+      },
     },
-    rowStatus: {
-      worker: { sessionId: "worker-968", sessionNum: 1321, name: "Clear Mesa", status: "running" },
-      reviewer: { sessionId: "reviewer-968", sessionNum: 1306, name: "Reviewer Long Name", status: "idle" },
-    } satisfies BoardRowSessionStatus,
   };
+}
+
+function applyBoardUpdated(message: BoardUpdatedMessage) {
+  const store = useStore.getState();
+  store.setSessionBoard(LEADER_ID, message.board);
+  store.setSessionCompletedBoard(LEADER_ID, message.completedBoard);
+  store.setSessionBoardRowStatuses(LEADER_ID, message.rowSessionStatuses ?? {});
+}
+
+function StoreQuestThreadBanner({ commitShas = ["abc1234", "def5678"] }: { commitShas?: string[] }) {
+  const boardRow = useStore((state) => state.sessionBoards.get(LEADER_ID)?.[0]);
+  const rowStatus = useStore((state) => state.sessionBoardRowStatuses.get(LEADER_ID)?.[QUEST_ID]);
+  if (!boardRow) return null;
+  const row: QuestThreadBannerRow = {
+    threadKey: QUEST_ID,
+    questId: QUEST_ID,
+    title: boardRow.title ?? QUEST_ID,
+    boardStatus: boardRow.status,
+    commitShas,
+    section: "active",
+    boardRow,
+    rowStatus,
+  };
+  return <QuestThreadBanner row={row} threadKey={QUEST_ID} />;
 }
 
 describe("QuestThreadBanner commit affordance", () => {
   beforeEach(() => {
+    useStore.getState().reset();
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "worker-968",
+        sessionNum: 1321,
+        state: "running",
+        cwd: "/worker",
+        createdAt: 1,
+        name: "Clear Mesa",
+      },
+      {
+        sessionId: "reviewer-968",
+        sessionNum: 1306,
+        state: "connected",
+        cwd: "/reviewer",
+        createdAt: 2,
+        name: "Reviewer Long Name",
+      },
+      {
+        sessionId: "reviewer-969",
+        sessionNum: 1307,
+        state: "running",
+        cwd: "/replacement-reviewer",
+        createdAt: 3,
+        name: "Replacement Reviewer",
+      },
+    ]);
+    useStore.setState({ setActiveTab: mockSetActiveTab });
     mockSetActiveTab.mockClear();
   });
 
-  it("keeps participant navigation accessible while shortening visible labels", () => {
-    render(<QuestThreadBanner row={participantRow()} threadKey="q-968" />);
+  // Apply successive board_updated-shaped payloads to the real store so the
+  // banner proves subscription updates, rather than prop-only rerenders.
+  it("applies producer-shaped add, replacement, and removal projections without losing worker or commit state", () => {
+    applyBoardUpdated(boardUpdatedMessage(null));
+    render(<StoreQuestThreadBanner />);
 
     const banner = screen.getByTestId("quest-thread-banner");
     expect(within(banner).getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
-    const reviewer = within(banner).getByLabelText("Reviewer #1306 Reviewer Long Name");
-    expect(reviewer).toHaveAttribute("href", "#session-1306");
-    expect(reviewer).toHaveAttribute("title", "Open reviewer session #1306 Reviewer Long Name");
+    expect(within(banner).queryByLabelText(/^Reviewer #/)).not.toBeInTheDocument();
+    expect(within(banner).getByTestId("quest-thread-commit-button")).toHaveTextContent("2 commits");
+
+    act(() => {
+      applyBoardUpdated(
+        boardUpdatedMessage({
+          sessionId: "reviewer-968",
+          sessionNum: 1306,
+          name: "Reviewer Long Name",
+          status: "idle",
+        }),
+      );
+    });
+    const addedReviewer = within(banner).getByLabelText("Reviewer #1306 Reviewer Long Name");
+    expect(addedReviewer).toHaveAttribute("href", "#session-1306");
+    expect(addedReviewer).toHaveAttribute("title", "Open reviewer session #1306 Reviewer Long Name");
+
+    act(() => {
+      applyBoardUpdated(
+        boardUpdatedMessage({
+          sessionId: "reviewer-969",
+          sessionNum: 1307,
+          name: "Replacement Reviewer",
+          status: "running",
+        }),
+      );
+    });
+    expect(within(banner).queryByLabelText("Reviewer #1306 Reviewer Long Name")).not.toBeInTheDocument();
+    expect(within(banner).getByLabelText("Reviewer #1307 Replacement Reviewer")).toHaveAttribute(
+      "href",
+      "#session-1307",
+    );
+
+    act(() => applyBoardUpdated(boardUpdatedMessage(null)));
+    expect(within(banner).queryByLabelText(/^Reviewer #/)).not.toBeInTheDocument();
+    expect(within(banner).getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
+    expect(within(banner).getByTestId("quest-thread-commit-button")).toHaveTextContent("2 commits");
     expect(banner).not.toHaveTextContent("Clear Mesa");
-    expect(banner).not.toHaveTextContent("Reviewer Long Name");
-  });
-
-  it("removes or retargets the reviewer chip when the authoritative row status changes", () => {
-    // These payload transitions mirror successive server-authored board_updated
-    // messages after reviewer replacement and archival/removal.
-    const original = participantRow();
-    const view = render(<QuestThreadBanner row={original} threadKey="q-968" />);
-    expect(screen.getByLabelText("Reviewer #1306 Reviewer Long Name")).toHaveAttribute("href", "#session-1306");
-
-    const changed = participantRow();
-    changed.rowStatus = {
-      ...changed.rowStatus,
-      reviewer: { sessionId: "reviewer-969", sessionNum: 1307, name: "Replacement Reviewer", status: "running" },
-    };
-    view.rerender(<QuestThreadBanner row={changed} threadKey="q-968" />);
-    expect(screen.queryByLabelText("Reviewer #1306 Reviewer Long Name")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Reviewer #1307 Replacement Reviewer")).toHaveAttribute("href", "#session-1307");
-
-    const removed = participantRow();
-    removed.rowStatus = { ...removed.rowStatus, reviewer: null };
-    view.rerender(<QuestThreadBanner row={removed} threadKey="q-968" />);
-    expect(screen.queryByLabelText(/^Reviewer #/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
+    expect(banner).not.toHaveTextContent("Replacement Reviewer");
   });
 
   it("shows a code-commit count chip that opens the Diff tab", () => {
-    render(<QuestThreadBanner row={participantRow()} threadKey="q-968" />);
+    applyBoardUpdated(
+      boardUpdatedMessage({
+        sessionId: "reviewer-968",
+        sessionNum: 1306,
+        name: "Reviewer Long Name",
+        status: "idle",
+      }),
+    );
+    render(<StoreQuestThreadBanner />);
 
     const commitButton = screen.getByTestId("quest-thread-commit-button");
     expect(commitButton).toHaveTextContent("2 commits");
@@ -134,10 +200,8 @@ describe("QuestThreadBanner commit affordance", () => {
   });
 
   it("preserves the zero-commit affordance when no reviewer is assigned", () => {
-    const row = participantRow();
-    row.commitShas = [];
-    row.rowStatus = { ...row.rowStatus, reviewer: null };
-    render(<QuestThreadBanner row={row} threadKey="q-968" />);
+    applyBoardUpdated(boardUpdatedMessage(null));
+    render(<StoreQuestThreadBanner commitShas={[]} />);
 
     expect(screen.queryByLabelText(/^Reviewer #/)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Worker #1321 Clear Mesa")).toBeInTheDocument();
