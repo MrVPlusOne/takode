@@ -27,6 +27,7 @@ import {
   reviseQuestJourneySuffix,
   validateQuestJourneyCompletedPrefixRevision,
   validateQuestJourneyPhaseSequence,
+  validateQuestJourneyPhaseSequenceMutation,
   validateQuestJourneyUserCheckpointNotes,
   validateQuestJourneyUserCheckpointRemoval,
   rebaseQuestJourneyPhaseNotes,
@@ -146,6 +147,82 @@ describe("phase alias compatibility", () => {
     expect(validateQuestJourneyPhaseSequence(["alignment", "implement", "code-review"])).toBeUndefined();
     expect(validateQuestJourneyPhaseSequence(["explore", "user-checkpoint", "implement"])).toBeUndefined();
     expect(validateQuestJourneyPhaseSequence(["explore", "execute", "outcome-review"])).toBeUndefined();
+  });
+
+  it("accepts only unchanged historical Explore to Implement occurrences during active mutations", () => {
+    // The admitted pair ends at the current Implement occurrence. Keeping it in place is valid,
+    // while treating Implement as future or moving the pair to another occurrence is not.
+    const existingPlan = {
+      mode: "active" as const,
+      phaseIds: ["alignment", "explore", "implement", "code-review", "port"] as QuestJourneyPhaseId[],
+      activePhaseIndex: 2,
+      currentPhaseId: "implement" as const,
+    };
+
+    expect(
+      validateQuestJourneyPhaseSequenceMutation({
+        existingPlan,
+        existingStatus: "IMPLEMENTING",
+        nextPhaseIds: existingPlan.phaseIds,
+      }),
+    ).toBeUndefined();
+    expect(
+      validateQuestJourneyPhaseSequenceMutation({
+        existingPlan: { ...existingPlan, activePhaseIndex: 1, currentPhaseId: "explore" },
+        existingStatus: "EXPLORING",
+        nextPhaseIds: existingPlan.phaseIds,
+      }),
+    ).toContain("adjacent `explore -> implement`");
+    expect(
+      validateQuestJourneyPhaseSequenceMutation({
+        existingPlan,
+        existingStatus: "IMPLEMENTING",
+        nextPhaseIds: ["explore", "implement", "alignment", "code-review", "port"],
+      }),
+    ).toContain("adjacent `explore -> implement`");
+  });
+
+  it("keeps future repeated Explore to Implement occurrences strict", () => {
+    // A valid earlier historical pair must not grant the same allowance to a newly rewritten cycle.
+    const existingPlan = {
+      mode: "active" as const,
+      phaseIds: [
+        "alignment",
+        "explore",
+        "implement",
+        "code-review",
+        "explore",
+        "user-checkpoint",
+        "implement",
+        "port",
+      ] as QuestJourneyPhaseId[],
+      activePhaseIndex: 3,
+      currentPhaseId: "code-review" as const,
+    };
+
+    expect(
+      validateQuestJourneyPhaseSequenceMutation({
+        existingPlan,
+        existingStatus: "CODE_REVIEWING",
+        nextPhaseIds: ["alignment", "explore", "implement", "code-review", "explore", "implement", "port"],
+      }),
+    ).toContain("adjacent `explore -> implement`");
+  });
+
+  it("does not grandfather adjacent Explore to Implement in proposed rows", () => {
+    // Proposal validation remains strict even if malformed persisted metadata claims an active position.
+    expect(
+      validateQuestJourneyPhaseSequenceMutation({
+        existingPlan: {
+          mode: "proposed",
+          phaseIds: ["alignment", "explore", "implement", "code-review"],
+          activePhaseIndex: 2,
+          currentPhaseId: "implement",
+        },
+        existingStatus: "PROPOSED",
+        nextPhaseIds: ["alignment", "explore", "implement", "code-review"],
+      }),
+    ).toContain("adjacent `explore -> implement`");
   });
 
   it("requires concrete optional User Checkpoint notes before allowing skip semantics", () => {

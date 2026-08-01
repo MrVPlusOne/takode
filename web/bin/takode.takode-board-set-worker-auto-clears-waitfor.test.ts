@@ -73,6 +73,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
   let port: number;
   let capturedBodies: JsonObject[];
   let nextBoardResponse: JsonObject | null;
+  let nextBoardError: { status: number; error: string } | null;
 
   beforeAll(async () => {
     capturedBodies = [];
@@ -86,6 +87,11 @@ describe("takode board set --worker auto-clears waitFor", () => {
       if (req.method === "POST" && req.url?.startsWith("/api/sessions/leader-1/board")) {
         const body = await readJson(req);
         capturedBodies.push(body);
+        if (nextBoardError) {
+          res.writeHead(nextBoardError.status, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: nextBoardError.error }));
+          return;
+        }
         const questId = typeof body.questId === "string" ? body.questId : "q-1";
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
@@ -117,6 +123,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
   beforeEach(() => {
     capturedBodies = [];
     nextBoardResponse = null;
+    nextBoardError = null;
   });
 
   it("sends waitFor: [] when --worker is provided without --wait-for", async () => {
@@ -511,6 +518,23 @@ describe("takode board set --worker auto-clears waitFor", () => {
   });
 
   it("sends board note edits keyed by 1-based phase positions", async () => {
+    nextBoardResponse = {
+      board: [
+        {
+          questId: "q-1",
+          status: "CODE_REVIEWING",
+          createdAt: 1,
+          updatedAt: 2,
+          journey: {
+            mode: "active",
+            phaseIds: ["alignment", "explore", "implement", "code-review", "port"],
+            activePhaseIndex: 3,
+            currentPhaseId: "code-review",
+            phaseNotes: { "3": "Inspect only the follow-up diff" },
+          },
+        },
+      ],
+    };
     const result = await runTakode(
       ["board", "note", "q-1", "4", "--text", "Inspect only the follow-up diff", "--port", String(port)],
       {
@@ -524,6 +548,44 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(capturedBodies[0]).toMatchObject({
       questId: "q-1",
       phaseNoteEdits: [{ index: 3, note: "Inspect only the follow-up diff" }],
+    });
+  });
+
+  it("surfaces server rejection of a new future Explore to Implement suffix", async () => {
+    // The CLI cannot infer persisted history, so the server remains authoritative for suffix rejection text.
+    nextBoardError = {
+      status: 400,
+      error:
+        "Quest Journey phases cannot contain adjacent `explore -> implement`. Implement already includes ordinary investigation.",
+    };
+
+    const result = await runTakode(
+      [
+        "board",
+        "revise",
+        "q-1",
+        "--from-position",
+        "5",
+        "--expect-phase",
+        "port",
+        "--phases",
+        "explore,implement,port",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("adjacent `explore -> implement`");
+    expect(capturedBodies[0]).toMatchObject({
+      fromIndex: 4,
+      expectedPhaseId: "port",
+      phases: ["explore", "implement", "port"],
     });
   });
 

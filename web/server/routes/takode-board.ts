@@ -18,6 +18,7 @@ import {
   reviseQuestJourneySuffix,
   validateQuestJourneyCompletedPrefixRevision,
   validateQuestJourneyPhaseSequence,
+  validateQuestJourneyPhaseSequenceMutation,
   validateQuestJourneyUserCheckpointNotes,
   validateQuestJourneyUserCheckpointRemoval,
   type QuestJourneyLifecycleMode,
@@ -542,7 +543,14 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
 
     const resolvedPhaseIds = typedPhaseIds ?? existingPhaseIds;
-    const resolvedSequenceError = validateQuestJourneyPhaseSequence(resolvedPhaseIds);
+    const resolvedSequenceError =
+      existingJourney && existingMode === "active"
+        ? validateQuestJourneyPhaseSequenceMutation({
+            existingPlan: existingJourney,
+            existingStatus: existingRow?.status,
+            nextPhaseIds: resolvedPhaseIds,
+          })
+        : validateQuestJourneyPhaseSequence(resolvedPhaseIds);
     if (resolvedSequenceError) return c.json({ error: resolvedSequenceError }, 400);
     if (typedPhaseIds && existingJourney && existingMode === "active") {
       const removalError = validateQuestJourneyUserCheckpointRemoval(
@@ -1046,7 +1054,10 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       revisedPhaseNotes = nextNotes.size > 0 ? Object.fromEntries([...nextNotes.entries()]) : undefined;
     }
 
-    const sequenceError = validateQuestJourneyPhaseSequence(nextPhaseIds, {
+    const sequenceError = validateQuestJourneyPhaseSequenceMutation({
+      existingPlan: existingJourney,
+      existingStatus: existingRow.status,
+      nextPhaseIds,
       allowedAdjacentExploreImplementIndex: exploreImplementAllowance?.adjacentExploreImplementIndex,
     });
     if (sequenceError) return c.json({ error: sequenceError }, 400);

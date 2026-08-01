@@ -606,6 +606,38 @@ describe("Takode server-authoritative auth", () => {
     });
   }
 
+  function installHistoricalExploreImplementRow() {
+    bridge._sessions["orch-1"].notifications = [{ id: "n-16", category: "needs-input", done: false }];
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Preserve historical Explore routing",
+          worker: "worker-1",
+          status: "IMPLEMENTING",
+          createdAt: 1,
+          updatedAt: 8,
+          journey: {
+            presetId: "post-explore-implement",
+            mode: "active",
+            phaseIds: ["alignment", "explore", "implement", "code-review", "port", "memory"],
+            activePhaseIndex: 2,
+            currentPhaseId: "implement",
+            phaseTimings: {
+              "0": { startedAt: 1, endedAt: 2 },
+              "1": { startedAt: 3, endedAt: 4 },
+              "2": { startedAt: 5 },
+            },
+            revisionReason: "Explore found a clear repo-local fix with no user choice.",
+            revisedAt: 6,
+            revisionCount: 1,
+          },
+        },
+      ],
+    ]);
+  }
+
   function installLegacyRepeatedExecuteRow() {
     bridge._sessions["orch-1"].notifications = [{ id: "n-16", category: "needs-input", done: false }];
     bridge._sessions["orch-1"].board = new Map([
@@ -746,6 +778,158 @@ describe("Takode server-authoritative auth", () => {
           },
         },
       ],
+    });
+  });
+
+  it("keeps a legally admitted historical Explore to Implement row operable", async () => {
+    setupTakodeSessions();
+    installHistoricalExploreImplementRow();
+
+    // Notes, assignment, wait state, and status updates all share the general board mutation route.
+    // They must not re-litigate an unchanged historical adjacency that ends at the current occurrence.
+    const noteRes = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        phaseNoteEdits: [{ index: 3, note: "Review the focused historical-transition regression." }],
+      }),
+    });
+    expect(noteRes.status).toBe(200);
+
+    const workerRes = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-9", worker: "worker-2" }),
+    });
+    expect(workerRes.status).toBe(200);
+
+    const waitRes = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-9", waitForInput: ["n-16"] }),
+    });
+    expect(waitRes.status).toBe(200);
+
+    const statusRes = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-9", status: "CODE_REVIEWING", activePhaseIndex: 3 }),
+    });
+    expect(statusRes.status).toBe(200);
+    expect(await statusRes.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          worker: "worker-2",
+          status: "CODE_REVIEWING",
+          journey: {
+            phaseIds: ["alignment", "explore", "implement", "code-review", "port", "memory"],
+            activePhaseIndex: 3,
+            currentPhaseId: "code-review",
+            revisionCount: 2,
+            phaseNotes: { "3": "Review the focused historical-transition regression." },
+            phaseTimings: {
+              "0": { startedAt: 1, endedAt: 2 },
+              "1": { startedAt: 3, endedAt: 4 },
+              "2": { startedAt: 5, endedAt: expect.any(Number) },
+              "3": { startedAt: expect.any(Number) },
+            },
+          },
+        },
+      ],
+    });
+
+    const reviseRes = await postBoardRevise("q-9", {
+      fromIndex: 4,
+      expectedPhaseId: "port",
+      phases: ["explore", "user-checkpoint", "implement", "code-review", "port", "memory"],
+      presetId: "fresh-feedback-cycle",
+      phaseNoteEdits: [{ index: 1, note: "Present findings if the repeated Explore reveals a user choice." }],
+    });
+    expect(reviseRes.status).toBe(200);
+    expect(await reviseRes.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          status: "CODE_REVIEWING",
+          journey: {
+            phaseIds: [
+              "alignment",
+              "explore",
+              "implement",
+              "code-review",
+              "explore",
+              "user-checkpoint",
+              "implement",
+              "code-review",
+              "port",
+              "memory",
+            ],
+            activePhaseIndex: 3,
+            currentPhaseId: "code-review",
+            revisionCount: 3,
+            phaseTimings: {
+              "0": { startedAt: 1, endedAt: 2 },
+              "1": { startedAt: 3, endedAt: 4 },
+            },
+          },
+        },
+      ],
+    });
+
+    const repeatedExploreAdvance = await app.request("/api/sessions/orch-1/board/q-9/advance", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+    expect(repeatedExploreAdvance.status).toBe(200);
+    expect(await repeatedExploreAdvance.json()).toMatchObject({
+      newState: "EXPLORING",
+      board: [
+        {
+          questId: "q-9",
+          journey: { activePhaseIndex: 4, currentPhaseId: "explore", revisionCount: 3 },
+        },
+      ],
+    });
+  });
+
+  it("rejects a new future repeated Explore to Implement adjacency on a historical row", async () => {
+    // The earlier admitted pair is occurrence-specific; rewriting a later suffix cannot borrow it.
+    setupTakodeSessions();
+    installHistoricalExploreImplementRow();
+    bridge._sessions["orch-1"].board.get("q-9").status = "CODE_REVIEWING";
+    bridge._sessions["orch-1"].board.get("q-9").journey.activePhaseIndex = 3;
+    bridge._sessions["orch-1"].board.get("q-9").journey.currentPhaseId = "code-review";
+
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 4,
+      expectedPhaseId: "port",
+      phases: ["explore", "implement", "port", "memory"],
+      presetId: "invalid-repeated-explore",
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("adjacent `explore -> implement`") });
+  });
+
+  it("preserves stale suffix revision errors on a historical row", async () => {
+    // Historical validation must not mask optimistic-concurrency errors from --expect-phase.
+    setupTakodeSessions();
+    installHistoricalExploreImplementRow();
+    bridge._sessions["orch-1"].board.get("q-9").status = "CODE_REVIEWING";
+    bridge._sessions["orch-1"].board.get("q-9").journey.activePhaseIndex = 3;
+    bridge._sessions["orch-1"].board.get("q-9").journey.currentPhaseId = "code-review";
+
+    const res = await postBoardRevise("q-9", {
+      fromIndex: 4,
+      expectedPhaseId: "memory",
+      phases: ["explore", "user-checkpoint", "implement", "port", "memory"],
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("Revision expected phase Memory at position 5"),
     });
   });
 

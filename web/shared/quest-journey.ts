@@ -300,6 +300,14 @@ export interface QuestJourneyCompletedPrefixRevision {
 
 export interface QuestJourneyPhaseSequenceValidationOptions {
   allowedAdjacentExploreImplementIndex?: number;
+  allowedAdjacentExploreImplementIndices?: readonly number[];
+}
+
+export interface QuestJourneyPhaseSequenceMutationValidation {
+  existingPlan: Partial<QuestJourneyPlanState> | undefined;
+  existingStatus?: string | null;
+  nextPhaseIds: readonly QuestJourneyPhaseId[];
+  allowedAdjacentExploreImplementIndex?: number;
 }
 
 export interface QuestJourneyUserCheckpointRemovalOptions {
@@ -364,13 +372,52 @@ export function validateQuestJourneyPhaseSequence(
   options: QuestJourneyPhaseSequenceValidationOptions = {},
 ): string | undefined {
   const phaseIds = normalizeQuestJourneyPhaseIds(values);
+  const allowedIndices = new Set(options.allowedAdjacentExploreImplementIndices ?? []);
+  if (options.allowedAdjacentExploreImplementIndex !== undefined) {
+    allowedIndices.add(options.allowedAdjacentExploreImplementIndex);
+  }
   for (let index = 0; index < phaseIds.length - 1; index += 1) {
     if (phaseIds[index] === "explore" && phaseIds[index + 1] === "implement") {
-      if (options.allowedAdjacentExploreImplementIndex === index) continue;
+      if (allowedIndices.has(index)) continue;
       return EXPLORE_TO_IMPLEMENT_JOURNEY_ERROR;
     }
   }
   return undefined;
+}
+
+export function validateQuestJourneyPhaseSequenceMutation(
+  mutation: QuestJourneyPhaseSequenceMutationValidation,
+): string | undefined {
+  const existingPhaseIds = normalizeQuestJourneyPhaseIds(mutation.existingPlan?.phaseIds);
+  const nextPhaseIds = normalizeQuestJourneyPhaseIds(mutation.nextPhaseIds);
+  const existingMode = canonicalizeQuestJourneyLifecycleMode(mutation.existingPlan?.mode);
+  const normalizedStatus =
+    typeof mutation.existingStatus === "string" ? mutation.existingStatus.trim().toUpperCase() : "";
+  const currentPhaseIndex = getQuestJourneyCurrentPhaseIndex(mutation.existingPlan, mutation.existingStatus);
+  const allowedIndices = new Set<number>();
+
+  // A q-1705 transition becomes immutable history once Implement is current or completed.
+  // Match by position in both plans so the allowance cannot move to a later repeated occurrence.
+  if (existingMode !== "proposed" && normalizedStatus !== "PROPOSED" && currentPhaseIndex !== undefined) {
+    for (let index = 0; index < currentPhaseIndex; index += 1) {
+      if (
+        existingPhaseIds[index] === "explore" &&
+        existingPhaseIds[index + 1] === "implement" &&
+        nextPhaseIds[index] === "explore" &&
+        nextPhaseIds[index + 1] === "implement"
+      ) {
+        allowedIndices.add(index);
+      }
+    }
+  }
+
+  if (mutation.allowedAdjacentExploreImplementIndex !== undefined) {
+    allowedIndices.add(mutation.allowedAdjacentExploreImplementIndex);
+  }
+
+  return validateQuestJourneyPhaseSequence(nextPhaseIds, {
+    allowedAdjacentExploreImplementIndices: [...allowedIndices],
+  });
 }
 
 export function validateQuestJourneyUserCheckpointNotes(
