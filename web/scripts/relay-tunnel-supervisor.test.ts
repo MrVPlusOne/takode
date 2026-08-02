@@ -1,5 +1,21 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import {
+  appendFile,
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  lstat,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -16,6 +32,7 @@ interface Fixture {
   state: string;
   fakeState: string;
   config: string;
+  sshConfig: string;
   identity: string;
   fakeChild: string;
   log: string;
@@ -94,12 +111,36 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect((await stat(join(fixture.state, "status.json"))).mode & 0o777).toBe(0o600);
   });
 
+  it("renders one effective remote forward and no inherited forward types through ssh -G", async () => {
+    const fixture = await createFixture("hold");
+    const supervisor = startSupervisor(fixture);
+    await waitForStatus(fixture, (status) => status.state === "running");
+
+    const renderedArguments = (await waitForFile(join(fixture.fakeState, "args.1"))).split("\n");
+    const effective = spawnSync("/usr/bin/ssh", ["-G", ...renderedArguments], { encoding: "utf8" });
+    expect(effective.status, effective.stderr).toBe(0);
+    const forwards = effective.stdout.split("\n").filter((line) => /^(?:remote|local|dynamic)forward\s/.test(line));
+    expect(forwards).toEqual(["remoteforward [127.0.0.1]:15432 [127.0.0.1]:15433"]);
+    expect(effective.stdout).toContain("clearallforwardings no\n");
+
+    supervisor.kill("SIGTERM");
+    expect((await waitForExit(supervisor)).code).toBe(0);
+  });
+
+  it("fails closed when the explicit SSH config contributes an extra forward", async () => {
+    const fixture = await createFixture();
+    await appendFile(fixture.sshConfig, "  RemoteForward 15434 127.0.0.1:15435\n", "utf8");
+    const supervisor = startSupervisor(fixture, { maxChildExits: 1 });
+
+    expect((await waitForExit(supervisor)).code).toBe(0);
+    expect((await readStatus(fixture)).exitClass).toBe("ssh_forward_contract");
+    expect(await pathExists(join(fixture.fakeState, "child-attempts"))).toBe(false);
+  });
+
   it("quarantines a dead owner, rejects a live duplicate, and removes only its own token", async () => {
     const fixture = await createFixture("hold");
     const staleLock = join(fixture.state, "owner.lock");
-    await mkdir(staleLock, { recursive: true, mode: 0o700 });
-    await writeFile(join(staleLock, "pid"), "999999\n", { mode: 0o600 });
-    await writeFile(join(staleLock, "token"), "dead-owner\n", { mode: 0o600 });
+    await writeOwnerLock(staleLock, 999999, "dead-owner", "0".repeat(64));
 
     const owner = startSupervisor(fixture);
     const running = await waitForStatus(fixture, (status) => status.state === "running");
@@ -112,8 +153,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect((await readStatus(fixture)).ownerToken).toBe(originalToken);
     const quarantines = (await readdir(fixture.state)).filter((name) => name.startsWith("owner.lock.quarantine."));
     expect(quarantines).toHaveLength(1);
-    expect((await stat(join(fixture.state, quarantines[0]))).mode & 0o777).toBe(0o700);
-    expect((await stat(join(fixture.state, quarantines[0], "pid"))).mode & 0o777).toBe(0o600);
+    expect((await stat(join(fixture.state, quarantines[0]))).mode & 0o777).toBe(0o600);
     expect(await readFile(fixture.log, "utf8")).toContain("event=live_owner_rejected");
 
     owner.kill("SIGTERM");
@@ -122,21 +162,122 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect((await readStatus(fixture)).state).toBe("stopped");
   });
 
-  it("fails closed on a live unknown lock owner without signalling it", async () => {
+  it("rejects an exact live initializing owner without signalling it", async () => {
     const fixture = await createFixture();
     const unrelated = spawn("sleep", ["30"], { stdio: "ignore" });
     runningProcesses.add(unrelated);
     await waitFor(() => processIsAlive(unrelated.pid!));
     const lock = join(fixture.state, "owner.lock");
-    await mkdir(lock, { recursive: true, mode: 0o700 });
-    await writeFile(join(lock, "pid"), `${unrelated.pid}\n`, { mode: 0o600 });
-    await writeFile(join(lock, "token"), "unrelated-live-owner\n", { mode: 0o600 });
+    await writeOwnerLock(lock, unrelated.pid!, "unrelated-live-owner", processStartIdentity(unrelated.pid!));
 
     const contender = startSupervisor(fixture);
     expect((await waitForExit(contender)).code).toBe(0);
     expect(processIsAlive(unrelated.pid!)).toBe(true);
-    expect(await readFile(join(lock, "token"), "utf8")).toBe("unrelated-live-owner\n");
+    expect(await readFile(lock, "utf8")).toContain("token=unrelated-live-owner\n");
   });
+
+  it("publishes initializing ownership atomically under deterministic concurrent acquisition", async () => {
+    const fixture = await createFixture("hold");
+    // Hold the winner between immutable initializing publication and its ready
+    // record so the contender exercises the former mkdir-before-metadata race.
+    const first = startSupervisor(fixture, { ownerInitDelay: 0.4 });
+    await waitForFile(join(fixture.state, "owner.lock"));
+    const second = startSupervisor(fixture, { ownerContentionTicks: 5 });
+
+    expect((await waitForExit(second)).code).toBe(0);
+    await waitForStatus(fixture, (status) => status.state === "running");
+    expect(Number(await waitForFile(join(fixture.fakeState, "child-attempts")))).toBe(1);
+    expect(findFixtureProcesses(fixture.root)).toHaveLength(1);
+
+    first.kill("SIGTERM");
+    expect((await waitForExit(first)).code).toBe(0);
+    expect(await pathExists(join(fixture.state, "owner.lock"))).toBe(false);
+  });
+
+  it("quarantines a PID-reused stale claim without signalling the unrelated process", async () => {
+    const fixture = await createFixture("hold");
+    const unrelated = spawn("sleep", ["30"], { stdio: "ignore" });
+    runningProcesses.add(unrelated);
+    await waitFor(() => processIsAlive(unrelated.pid!));
+    await writeOwnerLock(join(fixture.state, "owner.lock"), unrelated.pid!, "reused-pid", "f".repeat(64));
+
+    const supervisor = startSupervisor(fixture);
+    await waitForStatus(fixture, (status) => status.state === "running");
+    expect(processIsAlive(unrelated.pid!)).toBe(true);
+    expect((await readdir(fixture.state)).filter((name) => name.startsWith("owner.lock.quarantine."))).toHaveLength(1);
+
+    supervisor.kill("SIGTERM");
+    expect((await waitForExit(supervisor)).code).toBe(0);
+    expect(processIsAlive(unrelated.pid!)).toBe(true);
+  });
+
+  it("bounds contention on an incomplete lock without quarantine or a duplicate child", async () => {
+    const fixture = await createFixture("hold");
+    const incompleteLock = join(fixture.state, "owner.lock");
+    await writeFile(incompleteLock, "", { mode: 0o600 });
+    const supervisor = startSupervisor(fixture, { ownerContentionTicks: 2 });
+
+    expect((await waitForExit(supervisor)).code).toBe(0);
+    expect(await pathExists(incompleteLock)).toBe(true);
+    expect((await readdir(fixture.state)).filter((name) => name.startsWith("owner.lock.quarantine."))).toEqual([]);
+    expect(await pathExists(join(fixture.fakeState, "child-attempts"))).toBe(false);
+    expect(findFixtureProcesses(fixture.root)).toEqual([]);
+  });
+
+  it("rejects token and inode replacement while preserving one live owner and exact cleanup", async () => {
+    const fixture = await createFixture("hold");
+    const owner = startSupervisor(fixture);
+    const status = await waitForStatus(
+      fixture,
+      (snapshot) => snapshot.state === "running" && snapshot.healthCode === 200,
+    );
+    const lock = join(fixture.state, "owner.lock");
+    const original = await readFile(lock, "utf8");
+
+    // Mutate content on the same inode, then replace the pathname with a new
+    // inode. Neither identity change may let a contender create a child.
+    await writeFile(lock, original.replace(`token=${status.ownerToken}`, "token=replaced-token"), { mode: 0o600 });
+    const tokenContender = startSupervisor(fixture);
+    expect(
+      (await waitForExit(tokenContender).catch((error) => Promise.reject(new Error(`token contender: ${error}`)))).code,
+    ).toBe(0);
+    await writeFile(lock, original, { mode: 0o600 });
+
+    const savedLock = join(fixture.state, "owner.lock.saved");
+    await rename(lock, savedLock);
+    await copyFile(savedLock, lock);
+    await chmod(lock, 0o600);
+    const inodeContender = startSupervisor(fixture);
+    expect(
+      (await waitForExit(inodeContender).catch((error) => Promise.reject(new Error(`inode contender: ${error}`)))).code,
+    ).toBe(0);
+    await rm(lock);
+    await rename(savedLock, lock);
+
+    expect(processIsAlive(owner.pid!)).toBe(true);
+    expect(findFixtureProcesses(fixture.root)).toHaveLength(1);
+    owner.kill("SIGTERM");
+    expect((await waitForExit(owner).catch((error) => Promise.reject(new Error(`owner stop: ${error}`)))).code).toBe(0);
+    expect(await pathExists(lock)).toBe(false);
+    expect(findFixtureProcesses(fixture.root)).toEqual([]);
+    expect((await readdir(fixture.state)).filter((name) => name.startsWith("owner.ready."))).toEqual([]);
+    expect((await readdir(fixture.state)).filter((name) => name.startsWith(".owner-claim."))).toEqual([]);
+  });
+
+  it("retains only the newest five verified stale-owner quarantines", async () => {
+    const fixture = await createFixture("exit:255");
+    for (let index = 0; index < 7; index += 1) {
+      await writeFile(join(fixture.state, `owner.lock.quarantine.000000000${index}.retained`), `stale=${index}\n`, {
+        mode: 0o600,
+      });
+    }
+    await writeOwnerLock(join(fixture.state, "owner.lock"), 900001, "new-stale", "0".repeat(64));
+    const supervisor = startSupervisor(fixture, { maxChildExits: 1, quickStartLimit: 99, quarantineLimit: 5 });
+    expect((await waitForExit(supervisor)).code).toBe(0);
+    const quarantines = (await readdir(fixture.state)).filter((name) => name.startsWith("owner.lock.quarantine."));
+    expect(quarantines).toHaveLength(5);
+    for (const name of quarantines) expect((await stat(join(fixture.state, name))).mode & 0o777).toBe(0o600);
+  }, 60_000);
 
   it("records a verified child process-group handshake before exact deliberate cleanup", async () => {
     for (let iteration = 0; iteration < 5; iteration += 1) {
@@ -154,7 +295,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
       expect(processIsAlive(nestedPid)).toBe(false);
       expect((await readStatus(fixture)).exitClass).toBe("deliberate_stop");
     }
-  }, 15_000);
+  }, 30_000);
 
   it("exits nonzero and leaves no child or lock when the PGID handshake fails", async () => {
     const fixture = await createFixture("hold");
@@ -212,7 +353,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     const stableLog = await readFile(stableFixture.log, "utf8");
     expect(stableLog).toContain("event=stable_child_reset");
     expect((await readStatus(stableFixture)).attempt).toBe(1);
-  }, 10_000);
+  }, 30_000);
 
   it("persists wrapper start history so a launchd restart cannot reset cooldown", async () => {
     const fixture = await createFixture("exit:255");
@@ -245,6 +386,70 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect((await waitForExit(supervisor)).code).toBe(0);
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(900);
     expect(await readFile(fixture.log, "utf8")).toContain("event=restart_storm_cooldown");
+  });
+
+  it("fails closed on wrong-owner, wrong-mode, direct-symlink, and parent-symlink trusted paths", async () => {
+    const wrongOwner = await createFixture();
+    expect(await pathExists("/etc/ssh/ssh_config")).toBe(true);
+    await replaceConfigValue(wrongOwner, "SSH_CONFIG_FILE", "/private/etc/ssh/ssh_config");
+    await expectPausedFatal(wrongOwner, "ssh_config_owner");
+
+    const wrongMode = await createFixture();
+    await chmod(wrongMode.sshConfig, 0o644);
+    await expectPausedFatal(wrongMode, "ssh_config_permissions");
+
+    const directSymlink = await createFixture();
+    const realSshConfig = `${directSymlink.sshConfig}.real`;
+    await rename(directSymlink.sshConfig, realSshConfig);
+    await symlink(realSshConfig, directSymlink.sshConfig);
+    await expectPausedFatal(directSymlink, "ssh_config_untrusted_path");
+
+    const parentSymlink = await createFixture();
+    const trustedParent = join(parentSymlink.root, "trusted-parent");
+    const linkedParent = join(parentSymlink.root, "linked-parent");
+    await mkdir(trustedParent, { mode: 0o700 });
+    const linkedIdentity = join(trustedParent, "identity");
+    await writeFile(linkedIdentity, "disposable\n", { mode: 0o600 });
+    await symlink(trustedParent, linkedParent);
+    await replaceConfigValue(parentSymlink, "SSH_IDENTITY_FILE", join(linkedParent, "identity"));
+    await expectPausedFatal(parentSymlink, "identity_untrusted_path");
+  });
+
+  it("never chmods an untrusted existing state path and rejects direct or parent state symlinks", async () => {
+    const wrongMode = await createFixture();
+    await chmod(wrongMode.state, 0o755);
+    const wrongModeResult = await waitForExit(startSupervisor(wrongMode));
+    expect(wrongModeResult.code).toBe(0);
+    expect((await stat(wrongMode.state)).mode & 0o777).toBe(0o755);
+    expect(await pathExists(join(wrongMode.state, "status.json"))).toBe(false);
+
+    const direct = await createFixture();
+    const actualState = `${direct.state}.actual`;
+    await rename(direct.state, actualState);
+    await symlink(actualState, direct.state);
+    expect((await waitForExit(startSupervisor(direct))).code).toBe(0);
+    expect((await lstat(direct.state)).isSymbolicLink()).toBe(true);
+    expect(await pathExists(join(actualState, "status.json"))).toBe(false);
+
+    const parent = await createFixture();
+    const actualParent = join(parent.root, "actual-state-parent");
+    const linkedParent = join(parent.root, "linked-state-parent");
+    await mkdir(actualParent, { mode: 0o700 });
+    await mkdir(join(actualParent, "state"), { mode: 0o700 });
+    await symlink(actualParent, linkedParent);
+    const linkedFixture = { ...parent, state: join(linkedParent, "state") };
+    expect((await waitForExit(startSupervisor(linkedFixture))).code).toBe(0);
+    expect(await pathExists(join(actualParent, "state", "status.json"))).toBe(false);
+  });
+
+  it("derives USER and LOGNAME for the sparse child environment when both are absent", async () => {
+    const fixture = await createFixture("exit:255");
+    const supervisor = startSupervisor(fixture, { maxChildExits: 1, omitUserIdentity: true });
+    expect((await waitForExit(supervisor)).code).toBe(0);
+    const expectedUser = spawnSync("/usr/bin/id", ["-un"], { encoding: "utf8" }).stdout.trim();
+    const environment = await readFile(join(fixture.fakeState, "env.1"), "utf8");
+    expect(environment).toContain(`USER=${expectedUser}\n`);
+    expect(environment).toContain(`LOGNAME=${expectedUser}\n`);
   });
 
   it("keeps status and logs atomic, bounded to metadata keys, and child environment sparse", async () => {
@@ -338,7 +543,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
 });
 
 async function createFixture(mode = "exit:255"): Promise<Fixture> {
-  const root = await mkdtemp(join(tmpdir(), "takode-relay-supervisor-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "takode-relay-supervisor-")));
   tempDirs.push(root);
   const state = join(root, "state with spaces");
   const fakeState = join(root, "fake-child-state");
@@ -368,7 +573,7 @@ async function createFixture(mode = "exit:255"): Promise<Fixture> {
     { mode: 0o600 },
   );
   await writeFile(fakeChild, fakeChildSource(), { mode: 0o755 });
-  return { root, state, fakeState, config, identity, fakeChild, log };
+  return { root, state, fakeState, config, sshConfig, identity, fakeChild, log };
 }
 
 function startSupervisor(
@@ -381,6 +586,10 @@ function startSupervisor(
     cooldownSeconds?: number;
     handshakeFail?: boolean;
     handshakeTicks?: number;
+    ownerInitDelay?: number;
+    ownerContentionTicks?: number;
+    quarantineLimit?: number;
+    omitUserIdentity?: boolean;
   } = {},
 ): ChildProcess {
   const child = spawn("/bin/bash", [SUPERVISOR, fixture.config, fixture.state], {
@@ -403,6 +612,11 @@ function startSupervisor(
       TAKODE_RELAY_SUPERVISOR_TEST_HEALTH_RESULT: "200 0.123",
       TAKODE_RELAY_SUPERVISOR_TEST_TERM_TICKS: "20",
       TAKODE_RELAY_SUPERVISOR_TEST_TERM_TICK_SECONDS: "0.01",
+      TAKODE_RELAY_SUPERVISOR_TEST_OWNER_INIT_DELAY: String(options.ownerInitDelay ?? 0),
+      TAKODE_RELAY_SUPERVISOR_TEST_OWNER_CONTENTION_TICKS: String(options.ownerContentionTicks ?? 50),
+      TAKODE_RELAY_SUPERVISOR_TEST_OWNER_CONTENTION_TICK_SECONDS: "0.01",
+      TAKODE_RELAY_SUPERVISOR_TEST_QUARANTINE_LIMIT: String(options.quarantineLimit ?? 5),
+      ...(options.omitUserIdentity ? { USER: undefined, LOGNAME: undefined } : {}),
     },
   });
   runningProcesses.add(child);
@@ -412,7 +626,7 @@ function startSupervisor(
 
 async function waitForExit(
   child: ChildProcess,
-  timeoutMs = 5_000,
+  timeoutMs = 10_000,
 ): Promise<{ code: number | null; signal: string | null }> {
   if (child.exitCode !== null || child.signalCode !== null) {
     return { code: child.exitCode, signal: child.signalCode };
@@ -449,6 +663,21 @@ async function readStatus(fixture: Fixture): Promise<StatusSnapshot> {
   return JSON.parse(await readFile(join(fixture.state, "status.json"), "utf8"));
 }
 
+async function replaceConfigValue(fixture: Fixture, key: string, value: string): Promise<void> {
+  const source = await readFile(fixture.config, "utf8");
+  await writeFile(fixture.config, source.replace(new RegExp(`^${key}=.*$`, "m"), `${key}=${value}`), { mode: 0o600 });
+}
+
+async function expectPausedFatal(fixture: Fixture, exitClass: string): Promise<void> {
+  const supervisor = startSupervisor(fixture, { maxChildExits: 1 });
+  expect((await waitForExit(supervisor)).code).toBe(0);
+  const status = await readStatus(fixture);
+  expect(status.state).toBe("paused_fatal");
+  expect(status.exitClass).toBe(exitClass);
+  expect(await pathExists(join(fixture.fakeState, "child-attempts"))).toBe(false);
+  expect(await pathExists(join(fixture.state, "owner.lock"))).toBe(false);
+}
+
 async function waitForFile(path: string): Promise<string> {
   let value = "";
   await waitFor(async () => {
@@ -483,6 +712,23 @@ function processIsAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+function processStartIdentity(pid: number): string {
+  const result = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8" });
+  expect(result.status, result.stderr).toBe(0);
+  return createHash("sha256").update(`${pid}:${result.stdout.trim()}`).digest("hex");
+}
+
+async function writeOwnerLock(path: string, pid: number, token: string, startIdentity: string): Promise<void> {
+  await writeFile(
+    path,
+    `${["protocol=1", "phase=initializing", `pid=${pid}`, `token=${token}`, `start_identity=${startIdentity}`].join(
+      "\n",
+    )}\n`,
+    { mode: 0o600 },
+  );
+  await appendFile(path, `lock_inode=${(await stat(path)).ino}\n`, "utf8");
 }
 
 function readProcessGroup(pid: number): number {

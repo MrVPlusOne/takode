@@ -29,8 +29,12 @@ Run these from the repository root unless noted otherwise.
     [`relay-tunnel-supervisor.conf.example`](./relay-tunnel-supervisor.conf.example).
   - Repository validation is safe and offline:
     - `/bin/bash -n scripts/relay-tunnel-supervisor.sh`
+    - `shellcheck scripts/relay-tunnel-supervisor.sh`
     - `plutil -lint scripts/com.takode.relay-tunnel.plist.template`
     - `cd web && bun --no-install run test -- scripts/relay-tunnel-supervisor.test.ts`
+  - The focused test renders the supervisor's exact argument array through
+    `/usr/bin/ssh -G` and requires one configured remote forward with no extra
+    local, dynamic, or config-inherited forwards.
   - Installing or loading the LaunchAgent, signalling the current tunnel, or
     changing relay/sshd state is an approval-gated Execute action. See
     [`docs/relay-tunnel-supervision.md`](../docs/relay-tunnel-supervision.md).

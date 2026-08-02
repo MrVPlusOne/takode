@@ -36,6 +36,10 @@ HANDSHAKE_WAIT_TICKS=200
 HANDSHAKE_TICK_SECONDS=0.01
 CHILD_TERM_TICKS=50
 CHILD_TERM_TICK_SECONDS=0.1
+OWNER_PROTOCOL_VERSION=1
+OWNER_CONTENTION_TICKS=200
+OWNER_CONTENTION_TICK_SECONDS=0.01
+OWNER_QUARANTINE_LIMIT=5
 
 TESTING=${TAKODE_RELAY_SUPERVISOR_TESTING:-0}
 TEST_CHILD=${TAKODE_RELAY_SUPERVISOR_TEST_CHILD:-}
@@ -44,6 +48,8 @@ TEST_LOG_FILE=${TAKODE_RELAY_SUPERVISOR_TEST_LOG_FILE:-}
 TEST_MAX_CHILD_EXITS=${TAKODE_RELAY_SUPERVISOR_TEST_MAX_CHILD_EXITS:-0}
 TEST_HANDSHAKE_FAIL=${TAKODE_RELAY_SUPERVISOR_TEST_HANDSHAKE_FAIL:-0}
 TEST_HEALTH_RESULT=${TAKODE_RELAY_SUPERVISOR_TEST_HEALTH_RESULT:-}
+TEST_OWNER_INIT_DELAY=${TAKODE_RELAY_SUPERVISOR_TEST_OWNER_INIT_DELAY:-0}
+CURRENT_UID=$($ID_BIN -u 2>/dev/null || printf '')
 RUNTIME_USER=${USER:-$($ID_BIN -un 2>/dev/null || true)}
 RUNTIME_LOGNAME=${LOGNAME:-$RUNTIME_USER}
 
@@ -58,6 +64,9 @@ if [ "$TESTING" = "1" ]; then
   HANDSHAKE_WAIT_TICKS=${TAKODE_RELAY_SUPERVISOR_TEST_HANDSHAKE_TICKS:-$HANDSHAKE_WAIT_TICKS}
   CHILD_TERM_TICKS=${TAKODE_RELAY_SUPERVISOR_TEST_TERM_TICKS:-$CHILD_TERM_TICKS}
   CHILD_TERM_TICK_SECONDS=${TAKODE_RELAY_SUPERVISOR_TEST_TERM_TICK_SECONDS:-$CHILD_TERM_TICK_SECONDS}
+  OWNER_CONTENTION_TICKS=${TAKODE_RELAY_SUPERVISOR_TEST_OWNER_CONTENTION_TICKS:-$OWNER_CONTENTION_TICKS}
+  OWNER_CONTENTION_TICK_SECONDS=${TAKODE_RELAY_SUPERVISOR_TEST_OWNER_CONTENTION_TICK_SECONDS:-$OWNER_CONTENTION_TICK_SECONDS}
+  OWNER_QUARANTINE_LIMIT=${TAKODE_RELAY_SUPERVISOR_TEST_QUARANTINE_LIMIT:-$OWNER_QUARANTINE_LIMIT}
 fi
 
 umask 077
@@ -65,6 +74,15 @@ umask 077
 OWNER_LOCK=""
 OWNER_TOKEN=""
 OWNER_ACQUIRED=0
+OWNER_INODE=""
+OWNER_START_IDENTITY=""
+OWNER_METADATA_FILE=""
+OBSERVED_OWNER_PROTOCOL=""
+OBSERVED_OWNER_PHASE=""
+OBSERVED_OWNER_PID=""
+OBSERVED_OWNER_TOKEN=""
+OBSERVED_OWNER_START_IDENTITY=""
+OBSERVED_OWNER_INODE=""
 WRAPPER_STARTED_AT=$(date +%s)
 CHILD_PID=""
 CHILD_PGID=""
@@ -89,6 +107,7 @@ REMOTE_PORT=""
 LOCAL_HOST=""
 LOCAL_PORT=""
 HEALTHCHECK_URL=""
+SSH_ARGUMENTS=()
 
 STATUS_FILE=""
 WRAPPER_HISTORY_FILE=""
@@ -121,8 +140,10 @@ absolute_path() {
 }
 
 file_mode() {
-  if stat -f '%Lp' "$1" >/dev/null 2>&1; then
-    stat -f '%Lp' "$1"
+  local raw
+  if stat -f '%p' "$1" >/dev/null 2>&1; then
+    raw=$(stat -f '%p' "$1") || return 1
+    printf '%o\n' $((8#$raw & 07777))
   else
     stat -c '%a' "$1"
   fi
@@ -134,6 +155,118 @@ file_owner_uid() {
   else
     stat -c '%u' "$1"
   fi
+}
+
+path_inode() {
+  if stat -f '%i' "$1" >/dev/null 2>&1; then
+    stat -f '%i' "$1"
+  else
+    stat -c '%i' "$1"
+  fi
+}
+
+path_is_trusted_ancestry() {
+  local path relative old_ifs current component owner mode mode_number
+  path=$1
+  absolute_path "$path" || return 1
+  case "$path" in
+    *//*|*/./*|*/../*|*/.|*/..|*[\*\?\[]*|*$'\n'*|*$'\r'*) return 1 ;;
+  esac
+  relative=${path#/}
+  current=""
+  old_ifs=$IFS
+  IFS='/'
+  # Intentional field splitting uses slash only; wildcard characters were
+  # rejected above so components cannot expand through the filesystem.
+  # shellcheck disable=SC2086
+  set -- $relative
+  IFS=$old_ifs
+  for component in "$@"; do
+    current="${current}/${component}"
+    if [ -L "$current" ]; then return 1; fi
+    if [ -e "$current" ]; then
+      owner=$(file_owner_uid "$current") || return 1
+      if [ "$owner" != "$CURRENT_UID" ] && [ "$owner" != "0" ]; then return 1; fi
+      if [ -d "$current" ]; then
+        mode=$(file_mode "$current") || return 1
+        mode_number=$((8#$mode))
+        if [ $((mode_number & 0022)) -ne 0 ] && { [ "$owner" != "0" ] || [ $((mode_number & 01000)) -eq 0 ]; }; then
+          return 1
+        fi
+      fi
+    elif [ "$current" != "$path" ]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+process_start_identity() {
+  local pid start
+  pid=$1
+  is_unsigned_integer "$pid" || return 1
+  start=$(ps -o lstart= -p "$pid" 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+  [ -n "$start" ] || return 1
+  printf '%s' "$pid:$start" | "$SHASUM_BIN" -a 256 | awk '{print $1}'
+}
+
+read_owner_metadata() {
+  local metadata_path line key value seen
+  metadata_path=$1
+  OBSERVED_OWNER_PROTOCOL=""
+  OBSERVED_OWNER_PHASE=""
+  OBSERVED_OWNER_PID=""
+  OBSERVED_OWNER_TOKEN=""
+  OBSERVED_OWNER_START_IDENTITY=""
+  OBSERVED_OWNER_INODE=""
+  [ -f "$metadata_path" ] && [ ! -L "$metadata_path" ] || return 1
+  [ "$(file_owner_uid "$metadata_path" 2>/dev/null || true)" = "$CURRENT_UID" ] || return 1
+  [ "$(file_mode "$metadata_path" 2>/dev/null || true)" = "600" ] || return 1
+  seen="|"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in *=*) key=${line%%=*}; value=${line#*=} ;; *) return 1 ;; esac
+    case "$seen" in *"|$key|"*) return 1 ;; esac
+    seen="${seen}${key}|"
+    case "$key" in
+      protocol) OBSERVED_OWNER_PROTOCOL=$value ;;
+      phase) OBSERVED_OWNER_PHASE=$value ;;
+      pid) OBSERVED_OWNER_PID=$value ;;
+      token) OBSERVED_OWNER_TOKEN=$value ;;
+      start_identity) OBSERVED_OWNER_START_IDENTITY=$value ;;
+      lock_inode) OBSERVED_OWNER_INODE=$value ;;
+      *) return 1 ;;
+    esac
+  done < "$metadata_path"
+  [ "$OBSERVED_OWNER_PROTOCOL" = "$OWNER_PROTOCOL_VERSION" ] &&
+    { [ "$OBSERVED_OWNER_PHASE" = "initializing" ] || [ "$OBSERVED_OWNER_PHASE" = "ready" ]; } &&
+    is_unsigned_integer "$OBSERVED_OWNER_PID" && [ -n "$OBSERVED_OWNER_TOKEN" ] &&
+    [[ "$OBSERVED_OWNER_TOKEN" != *[!A-Za-z0-9._-]* ]] &&
+    [ ${#OBSERVED_OWNER_START_IDENTITY} -eq 64 ] && is_unsigned_integer "$OBSERVED_OWNER_INODE"
+}
+
+verify_owner_lock_initializing() {
+  local inode
+  [ "$OWNER_ACQUIRED" -eq 1 ] && [ -f "$OWNER_LOCK" ] && [ ! -L "$OWNER_LOCK" ] || return 1
+  inode=$(path_inode "$OWNER_LOCK" 2>/dev/null) || return 1
+  [ "$inode" = "$OWNER_INODE" ] || return 1
+  read_owner_metadata "$OWNER_LOCK" || return 1
+  [ "$OBSERVED_OWNER_PHASE" = "initializing" ] &&
+    [ "$OBSERVED_OWNER_PID" = "$$" ] && [ "$OBSERVED_OWNER_TOKEN" = "$OWNER_TOKEN" ] &&
+    [ "$OBSERVED_OWNER_START_IDENTITY" = "$OWNER_START_IDENTITY" ] &&
+    [ "$OBSERVED_OWNER_INODE" = "$OWNER_INODE" ]
+}
+
+verify_current_owner() {
+  verify_owner_lock_initializing || return 1
+  read_owner_metadata "$OWNER_METADATA_FILE" || return 1
+  [ "$OBSERVED_OWNER_PHASE" = "ready" ] &&
+    [ "$OBSERVED_OWNER_PID" = "$$" ] && [ "$OBSERVED_OWNER_TOKEN" = "$OWNER_TOKEN" ] &&
+    [ "$OBSERVED_OWNER_START_IDENTITY" = "$OWNER_START_IDENTITY" ] &&
+    [ "$OBSERVED_OWNER_INODE" = "$OWNER_INODE" ]
+}
+
+verify_current_process_identity() {
+  [ "$(process_start_identity "$$" 2>/dev/null || true)" = "$OWNER_START_IDENTITY" ]
 }
 
 atomic_write_lines() {
@@ -155,6 +288,7 @@ json_number_or_null() {
 
 write_status() {
   local state exit_class backoff now uptime child_pid_json child_pgid_json temporary
+  if [ "$OWNER_ACQUIRED" -eq 1 ] && ! verify_current_owner; then return 1; fi
   state=$1
   exit_class=$2
   backoff=$3
@@ -200,13 +334,12 @@ emit_event() {
 }
 
 remove_owned_lock() {
-  local recorded_token
-  if [ "$OWNER_ACQUIRED" -ne 1 ] || [ ! -d "$OWNER_LOCK" ]; then
+  if [ "$OWNER_ACQUIRED" -ne 1 ]; then
     return 0
   fi
-  recorded_token=$(cat "$OWNER_LOCK/token" 2>/dev/null || true)
-  if [ "$recorded_token" = "$OWNER_TOKEN" ]; then
-    rm -rf "$OWNER_LOCK"
+  if verify_current_owner && verify_current_process_identity; then
+    rm -f "$OWNER_LOCK"
+    rm -f "$OWNER_METADATA_FILE"
   fi
   OWNER_ACQUIRED=0
 }
@@ -215,6 +348,12 @@ terminate_child() {
   local tick proposed_pgid actual_pgid
   if [ -z "$CHILD_PID" ]; then
     return 0
+  fi
+
+  # Ownership must still match the immutable published inode and ready record
+  # before this wrapper signals even its recorded child identity.
+  if ! verify_current_owner || ! verify_current_process_identity; then
+    return 70
   fi
 
   if ! kill -0 "$CHILD_PID" 2>/dev/null; then
@@ -285,12 +424,28 @@ trap deliberate_stop TERM INT
 trap on_exit EXIT
 
 initialize_state_dir() {
-  if ! absolute_path "$STATE_DIR" || [ -L "$STATE_DIR" ]; then
-    printf 'relay supervisor: state directory must be absolute\n' >&2
+  local owner mode
+  if ! absolute_path "$STATE_DIR" || ! path_is_trusted_ancestry "$STATE_DIR"; then
+    printf 'relay supervisor: state directory ancestry is untrusted\n' >&2
     exit 0
   fi
-  mkdir -p "$STATE_DIR" || exit 70
-  chmod 700 "$STATE_DIR" || exit 70
+  if [ -e "$STATE_DIR" ]; then
+    [ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ] || { printf 'relay supervisor: state path is not a directory\n' >&2; exit 0; }
+    owner=$(file_owner_uid "$STATE_DIR" 2>/dev/null || true)
+    mode=$(file_mode "$STATE_DIR" 2>/dev/null || true)
+    if [ "$owner" != "$CURRENT_UID" ] || [ "$mode" != "700" ]; then
+      printf 'relay supervisor: existing state directory ownership or mode is untrusted\n' >&2
+      exit 0
+    fi
+  else
+    mkdir "$STATE_DIR" || exit 70
+    owner=$(file_owner_uid "$STATE_DIR" 2>/dev/null || true)
+    mode=$(file_mode "$STATE_DIR" 2>/dev/null || true)
+    if [ "$owner" != "$CURRENT_UID" ] || [ "$mode" != "700" ] || [ -L "$STATE_DIR" ]; then
+      rmdir "$STATE_DIR" 2>/dev/null || true
+      exit 0
+    fi
+  fi
   STATUS_FILE="$STATE_DIR/status.json"
   WRAPPER_HISTORY_FILE="$STATE_DIR/wrapper-start-history"
   CHILD_HISTORY_FILE="$STATE_DIR/child-start-history"
@@ -307,34 +462,147 @@ validate_runtime_environment() {
   done
 }
 
-acquire_owner() {
-  local existing_pid quarantine
-  OWNER_TOKEN=$(printf '%s' "$$:$PPID:$(date +%s):$RANDOM" | "$SHASUM_BIN" -a 256 | awk '{print $1}')
-  if mkdir "$OWNER_LOCK" 2>/dev/null; then
-    chmod 700 "$OWNER_LOCK"
-  else
-    existing_pid=$(cat "$OWNER_LOCK/pid" 2>/dev/null || true)
-    if is_unsigned_integer "$existing_pid" && kill -0 "$existing_pid" 2>/dev/null; then
-      emit_event "live_owner_rejected"
-      exit 0
-    fi
-    quarantine="$STATE_DIR/owner.lock.quarantine.$(date +%s).${OWNER_TOKEN}"
-    if ! mv "$OWNER_LOCK" "$quarantine" 2>/dev/null; then
-      emit_event "owner_race_rejected"
-      exit 0
-    fi
-    chmod 700 "$quarantine" 2>/dev/null || true
-    chmod 600 "$quarantine/pid" "$quarantine/token" 2>/dev/null || true
-    if ! mkdir "$OWNER_LOCK" 2>/dev/null; then
-      emit_event "owner_race_rejected"
-      exit 0
-    fi
-    chmod 700 "$OWNER_LOCK"
-    emit_event "dead_owner_quarantined"
+prune_owner_quarantines() {
+  local -a entries
+  local entry oldest count
+  while :; do
+    entries=()
+    for entry in "$STATE_DIR"/owner.lock.quarantine.*; do
+      [ -f "$entry" ] && [ ! -L "$entry" ] || continue
+      entries+=("$entry")
+    done
+    count=${#entries[@]}
+    [ "$count" -le "$OWNER_QUARANTINE_LIMIT" ] && return 0
+    oldest=${entries[0]}
+    for entry in "${entries[@]}"; do
+      if [[ "$entry" < "$oldest" ]]; then oldest=$entry; fi
+    done
+    [ "$(file_owner_uid "$oldest" 2>/dev/null || true)" = "$CURRENT_UID" ] || return 1
+    [ "$(file_mode "$oldest" 2>/dev/null || true)" = "600" ] || return 1
+    rm -f "$oldest" || return 1
+  done
+}
+
+quarantine_observed_owner() {
+  local expected_inode quarantine moved_inode stale_ready stale_pid stale_token stale_start stale_metadata_inode
+  expected_inode=$1
+  [ -f "$OWNER_LOCK" ] && [ ! -L "$OWNER_LOCK" ] || return 1
+  [ "$(path_inode "$OWNER_LOCK" 2>/dev/null || true)" = "$expected_inode" ] || return 1
+  quarantine="$STATE_DIR/owner.lock.quarantine.$(printf '%010d' "$(date +%s)").${OWNER_TOKEN}"
+  mv "$OWNER_LOCK" "$quarantine" 2>/dev/null || return 1
+  moved_inode=$(path_inode "$quarantine" 2>/dev/null || true)
+  if [ "$moved_inode" != "$expected_inode" ]; then
+    if [ ! -e "$OWNER_LOCK" ]; then mv "$quarantine" "$OWNER_LOCK" 2>/dev/null || true; fi
+    return 1
   fi
-  atomic_write_lines "$OWNER_LOCK/pid" "$$" || exit 70
-  atomic_write_lines "$OWNER_LOCK/token" "$OWNER_TOKEN" || exit 70
+  chmod 600 "$quarantine" 2>/dev/null || return 1
+  stale_pid=$OBSERVED_OWNER_PID
+  stale_token=$OBSERVED_OWNER_TOKEN
+  stale_start=$OBSERVED_OWNER_START_IDENTITY
+  stale_metadata_inode=$OBSERVED_OWNER_INODE
+  stale_ready="$STATE_DIR/owner.ready.${stale_token}"
+  if [ -f "$stale_ready" ] && [ ! -L "$stale_ready" ] && read_owner_metadata "$stale_ready" &&
+    [ "$OBSERVED_OWNER_PHASE" = "ready" ] && [ "$OBSERVED_OWNER_PID" = "$stale_pid" ] &&
+    [ "$OBSERVED_OWNER_TOKEN" = "$stale_token" ] && [ "$OBSERVED_OWNER_START_IDENTITY" = "$stale_start" ] &&
+    [ "$OBSERVED_OWNER_INODE" = "$stale_metadata_inode" ]; then
+    rm -f "$stale_ready" || return 1
+  fi
+  prune_owner_quarantines || return 1
+  emit_event "dead_owner_quarantined"
+}
+
+wait_for_owner_metadata() {
+  local expected_inode tick
+  expected_inode=$1
+  tick=0
+  while [ "$tick" -lt "$OWNER_CONTENTION_TICKS" ]; do
+    [ "$(path_inode "$OWNER_LOCK" 2>/dev/null || true)" = "$expected_inode" ] || return 1
+    if read_owner_metadata "$OWNER_LOCK"; then return 0; fi
+    sleep "$OWNER_CONTENTION_TICK_SECONDS"
+    tick=$((tick + 1))
+  done
+  return 1
+}
+
+publish_owner_claim() {
+  local claim claim_inode
+  OWNER_TOKEN=$(printf '%s' "$$:$PPID:$(date +%s):$RANDOM" | "$SHASUM_BIN" -a 256 | awk '{print $1}')
+  OWNER_START_IDENTITY=$(process_start_identity "$$") || return 70
+  claim="$STATE_DIR/.owner-claim.${OWNER_TOKEN}"
+  : > "$claim" || return 70
+  chmod 600 "$claim" || return 70
+  claim_inode=$(path_inode "$claim") || return 70
+  cat > "$claim" <<EOF
+protocol=$OWNER_PROTOCOL_VERSION
+phase=initializing
+pid=$$
+token=$OWNER_TOKEN
+start_identity=$OWNER_START_IDENTITY
+lock_inode=$claim_inode
+EOF
+  chmod 600 "$claim" || return 70
+  [ "$(path_inode "$claim" 2>/dev/null || true)" = "$claim_inode" ] || { rm -f "$claim"; return 70; }
+  if ! ln "$claim" "$OWNER_LOCK" 2>/dev/null; then rm -f "$claim"; return 1; fi
+  OWNER_INODE=$(path_inode "$OWNER_LOCK" 2>/dev/null || true)
+  rm -f "$claim"
+  [ "$OWNER_INODE" = "$claim_inode" ] || return 70
   OWNER_ACQUIRED=1
+  verify_owner_lock_initializing || return 70
+  if [ "$TESTING" = "1" ] && [ "$TEST_OWNER_INIT_DELAY" != "0" ]; then sleep "$TEST_OWNER_INIT_DELAY"; fi
+  verify_owner_lock_initializing || return 70
+  OWNER_METADATA_FILE="$STATE_DIR/owner.ready.${OWNER_TOKEN}"
+  atomic_write_lines "$OWNER_METADATA_FILE" \
+    "protocol=$OWNER_PROTOCOL_VERSION" "phase=ready" "pid=$$" "token=$OWNER_TOKEN" \
+    "start_identity=$OWNER_START_IDENTITY" "lock_inode=$OWNER_INODE" || return 70
+  verify_current_owner && verify_current_process_identity || return 70
+  return 0
+}
+
+acquire_owner() {
+  local observed_inode observed_start attempt claim_status
+  attempt=0
+  while [ "$attempt" -lt 3 ]; do
+    publish_owner_claim
+    claim_status=$?
+    if [ "$claim_status" -eq 0 ]; then return 0; fi
+    if [ "$OWNER_ACQUIRED" -eq 1 ]; then
+      emit_event "owner_publication_failed"
+      exit 70
+    fi
+    [ -e "$OWNER_LOCK" ] || { attempt=$((attempt + 1)); continue; }
+    if [ -L "$OWNER_LOCK" ] || [ ! -f "$OWNER_LOCK" ]; then
+      emit_event "owner_untrusted_rejected"
+      exit 0
+    fi
+    if [ "$(file_owner_uid "$OWNER_LOCK" 2>/dev/null || true)" != "$CURRENT_UID" ] ||
+      [ "$(file_mode "$OWNER_LOCK" 2>/dev/null || true)" != "600" ]; then
+      emit_event "owner_untrusted_rejected"
+      exit 0
+    fi
+    observed_inode=$(path_inode "$OWNER_LOCK" 2>/dev/null || true)
+    is_unsigned_integer "$observed_inode" || { emit_event "owner_race_rejected"; exit 0; }
+    if ! wait_for_owner_metadata "$observed_inode"; then
+      [ "$(path_inode "$OWNER_LOCK" 2>/dev/null || true)" = "$observed_inode" ] || { emit_event "owner_race_rejected"; exit 0; }
+      # An incomplete claim has no token/start identity to verify. Leave it in
+      # place after bounded contention rather than risk quarantining a live
+      # initializer from an older protocol.
+      emit_event "owner_contention_exhausted"
+      exit 0
+    fi
+    [ "$OBSERVED_OWNER_INODE" = "$observed_inode" ] || { emit_event "owner_race_rejected"; exit 0; }
+    if kill -0 "$OBSERVED_OWNER_PID" 2>/dev/null; then
+      observed_start=$(process_start_identity "$OBSERVED_OWNER_PID" 2>/dev/null || true)
+      if [ -n "$observed_start" ] && [ "$observed_start" = "$OBSERVED_OWNER_START_IDENTITY" ]; then
+        emit_event "live_owner_rejected"
+        exit 0
+      fi
+    fi
+    [ "$(path_inode "$OWNER_LOCK" 2>/dev/null || true)" = "$observed_inode" ] || { emit_event "owner_race_rejected"; exit 0; }
+    quarantine_observed_owner "$observed_inode" || { emit_event "owner_race_rejected"; exit 0; }
+    attempt=$((attempt + 1))
+  done
+  emit_event "owner_contention_exhausted"
+  exit 0
 }
 
 pause_fatal() {
@@ -345,11 +613,11 @@ pause_fatal() {
 }
 
 parse_config() {
-  local seen raw_line line key value identity_mode
-  if ! absolute_path "$CONFIG_PATH" || [ ! -f "$CONFIG_PATH" ] || [ ! -r "$CONFIG_PATH" ] || [ -L "$CONFIG_PATH" ]; then
+  local seen raw_line line key value identity_mode ssh_config_mode
+  if ! absolute_path "$CONFIG_PATH" || ! path_is_trusted_ancestry "$CONFIG_PATH" || [ ! -f "$CONFIG_PATH" ] || [ ! -r "$CONFIG_PATH" ] || [ -L "$CONFIG_PATH" ]; then
     pause_fatal "config_unreadable"
   fi
-  if [ "$(file_owner_uid "$CONFIG_PATH")" != "$(id -u)" ] || [ "$(file_mode "$CONFIG_PATH")" != "600" ]; then
+  if [ "$(file_owner_uid "$CONFIG_PATH")" != "$CURRENT_UID" ] || [ "$(file_mode "$CONFIG_PATH")" != "600" ]; then
     pause_fatal "config_permissions"
   fi
 
@@ -391,11 +659,61 @@ parse_config() {
   case "$HEALTHCHECK_URL" in *[[:space:]]*) pause_fatal "config_invalid_healthcheck" ;; esac
   absolute_path "$SSH_CONFIG_FILE" || pause_fatal "config_invalid_path"
   absolute_path "$SSH_IDENTITY_FILE" || pause_fatal "config_invalid_path"
+  path_is_trusted_ancestry "$SSH_CONFIG_FILE" || pause_fatal "ssh_config_untrusted_path"
+  path_is_trusted_ancestry "$SSH_IDENTITY_FILE" || pause_fatal "identity_untrusted_path"
   [ -f "$SSH_CONFIG_FILE" ] && [ -r "$SSH_CONFIG_FILE" ] && [ ! -L "$SSH_CONFIG_FILE" ] || pause_fatal "ssh_config_unreadable"
   [ -f "$SSH_IDENTITY_FILE" ] && [ -r "$SSH_IDENTITY_FILE" ] && [ ! -L "$SSH_IDENTITY_FILE" ] || pause_fatal "identity_unreadable"
-  [ "$(file_owner_uid "$SSH_IDENTITY_FILE")" = "$(id -u)" ] || pause_fatal "identity_owner"
+  [ "$(file_owner_uid "$SSH_CONFIG_FILE")" = "$CURRENT_UID" ] || pause_fatal "ssh_config_owner"
+  ssh_config_mode=$(file_mode "$SSH_CONFIG_FILE")
+  [ "$ssh_config_mode" = "600" ] || pause_fatal "ssh_config_permissions"
+  [ "$(file_owner_uid "$SSH_IDENTITY_FILE")" = "$CURRENT_UID" ] || pause_fatal "identity_owner"
   identity_mode=$(file_mode "$SSH_IDENTITY_FILE")
   case "$identity_mode" in 400|600) ;; *) pause_fatal "identity_permissions" ;; esac
+}
+
+build_ssh_arguments() {
+  SSH_ARGUMENTS=(
+    -F "$SSH_CONFIG_FILE"
+    -i "$SSH_IDENTITY_FILE"
+    -N
+    -o BatchMode=yes
+    -o ConnectTimeout=10
+    -o ServerAliveInterval=10
+    -o ServerAliveCountMax=3
+    -o ExitOnForwardFailure=yes
+    -o TCPKeepAlive=no
+    -o ControlMaster=no
+    -o ClearAllForwardings=no
+    -o IdentitiesOnly=yes
+    -o IdentityAgent=none
+    -o AddKeysToAgent=no
+    -o StrictHostKeyChecking=yes
+    -R "${REMOTE_BIND_HOST}:${REMOTE_PORT}:${LOCAL_HOST}:${LOCAL_PORT}"
+    "$SSH_HOST"
+  )
+}
+
+validate_effective_ssh_forwarding() {
+  local effective line key value expected_remote remote_count clear_value
+  build_ssh_arguments
+  effective=$("$SSH_BIN" -G "${SSH_ARGUMENTS[@]}" 2>/dev/null) || pause_fatal "ssh_effective_config"
+  expected_remote="[${REMOTE_BIND_HOST}]:${REMOTE_PORT} [${LOCAL_HOST}]:${LOCAL_PORT}"
+  remote_count=0
+  clear_value=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    key=${line%%[[:space:]]*}
+    value=${line#"$key"}
+    value=${value#"${value%%[![:space:]]*}"}
+    case "$key" in
+      remoteforward)
+        remote_count=$((remote_count + 1))
+        [ "$value" = "$expected_remote" ] || pause_fatal "ssh_forward_contract"
+        ;;
+      localforward|dynamicforward) pause_fatal "ssh_forward_contract" ;;
+      clearallforwardings) clear_value=$value ;;
+    esac
+  done <<< "$effective"
+  [ "$remote_count" -eq 1 ] && [ "$clear_value" = "no" ] || pause_fatal "ssh_forward_contract"
 }
 
 atomic_replace_history() {
@@ -517,32 +835,12 @@ sample_health() {
 
 spawn_child() {
   local handshake child_executable tick actual_pgid
-  local -a child_arguments
+  verify_current_owner && verify_current_process_identity || return 70
   handshake="$STATE_DIR/.child-pgid.${OWNER_TOKEN}.${ATTEMPT}"
   CHILD_HANDSHAKE_FILE=$handshake
   rm -f "$handshake"
 
   child_executable=$SSH_BIN
-  child_arguments=(
-    -F "$SSH_CONFIG_FILE"
-    -i "$SSH_IDENTITY_FILE"
-    -N
-    -o BatchMode=yes
-    -o ConnectTimeout=10
-    -o ServerAliveInterval=10
-    -o ServerAliveCountMax=3
-    -o ExitOnForwardFailure=yes
-    -o TCPKeepAlive=no
-    -o ControlMaster=no
-    -o ClearAllForwardings=yes
-    -o IdentitiesOnly=yes
-    -o IdentityAgent=none
-    -o AddKeysToAgent=no
-    -o StrictHostKeyChecking=yes
-    -R "${REMOTE_BIND_HOST}:${REMOTE_PORT}:${LOCAL_HOST}:${LOCAL_PORT}"
-    "$SSH_HOST"
-  )
-
   if [ "$TESTING" = "1" ] && [ -n "$TEST_CHILD" ]; then
     child_executable=$TEST_CHILD
   fi
@@ -551,13 +849,13 @@ spawn_child() {
     "$ENV_BIN" -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" USER="$RUNTIME_USER" LOGNAME="$RUNTIME_LOGNAME" TAKODE_RELAY_SUPERVISOR_TEST_STATE="$TEST_STATE" \
       "$PERL_BIN" -e 'setpgrp(0,0) or die "setpgrp failed: $!"; sleep 30' >/dev/null 2>&1 &
   elif [ "$TESTING" = "1" ]; then
-    "$ENV_BIN" -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" USER="${USER:-}" LOGNAME="${LOGNAME:-}" TAKODE_RELAY_SUPERVISOR_TEST_STATE="$TEST_STATE" \
+    "$ENV_BIN" -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" USER="$RUNTIME_USER" LOGNAME="$RUNTIME_LOGNAME" TAKODE_RELAY_SUPERVISOR_TEST_STATE="$TEST_STATE" \
       "$PERL_BIN" -e 'my $file=shift @ARGV; setpgrp(0,0) or die "setpgrp failed: $!"; open(my $fh, ">", $file) or die $!; chmod 0600, $file; print $fh "$$\n"; close($fh); exec @ARGV' \
-      "$handshake" "$child_executable" "${child_arguments[@]}" >/dev/null 2>&1 &
+      "$handshake" "$child_executable" "${SSH_ARGUMENTS[@]}" >/dev/null 2>&1 &
   else
     "$ENV_BIN" -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" USER="$RUNTIME_USER" LOGNAME="$RUNTIME_LOGNAME" \
       "$PERL_BIN" -e 'my $file=shift @ARGV; setpgrp(0,0) or die "setpgrp failed: $!"; open(my $fh, ">", $file) or die $!; chmod 0600, $file; print $fh "$$\n"; close($fh); exec @ARGV' \
-      "$handshake" "$child_executable" "${child_arguments[@]}" >/dev/null 2>&1 &
+      "$handshake" "$child_executable" "${SSH_ARGUMENTS[@]}" >/dev/null 2>&1 &
   fi
   CHILD_PID=$!
 
@@ -651,6 +949,7 @@ initialize_state_dir
 acquire_owner
 validate_runtime_environment
 parse_config
+validate_effective_ssh_forwarding
 honor_persisted_cooldown
 record_wrapper_start
 write_status "starting" "none" 0 || exit 70

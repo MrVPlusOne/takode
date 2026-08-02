@@ -50,28 +50,31 @@ LOCAL_PORT=<local-application-port>
 HEALTHCHECK_URL=<https-health-endpoint>
 ```
 
-The config and identity must be owned by the current user and mode 0600 (the identity may also be 0400). Unknown, duplicate, malformed, relative-path, unreadable, or unsafe values pause cleanly instead of entering a launchd restart loop.
+The runtime config and SSH config must be owned by the current user and mode 0600; the identity must be current-user-owned and mode 0600 or 0400. The state directory must already be current-user-owned mode 0700, or its trusted parent must exist so the supervisor can create the final directory at 0700. The supervisor rejects direct symlinks, symlinked ancestry, unsafe writable ancestry, wrong ownership, and wrong modes without repairing them in place. State-path trust failures leave the untrusted path untouched and report on stderr because writing status there would violate the same boundary. Other fatal trust/config failures record `paused_fatal` and exit zero. Unknown, duplicate, malformed, relative-path, unreadable, or unsafe values likewise pause cleanly instead of entering a launchd restart loop.
 
 The production SSH child always uses absolute `/usr/bin/ssh` with:
 
 - foreground `-N` operation and one explicit reverse forward;
 - `BatchMode=yes`, `ConnectTimeout=10`, and `StrictHostKeyChecking=yes`;
 - `ServerAliveInterval=10`, `ServerAliveCountMax=3`, and `TCPKeepAlive=no`;
-- `ExitOnForwardFailure=yes`, `ControlMaster=no`, and `ClearAllForwardings=yes`;
+- `ExitOnForwardFailure=yes`, `ControlMaster=no`, and explicit `ClearAllForwardings=no`;
 - `IdentitiesOnly=yes`, `IdentityAgent=none`, `AddKeysToAgent=no`, and the explicit config/identity paths;
 - a sparse environment containing only HOME, fixed system PATH, USER, and LOGNAME.
 
-Validate the selected identity and known-host state in the same sparse environment before activation. The supervisor never prompts.
+Before each child start, the supervisor renders this exact argument array through offline `/usr/bin/ssh -G`. It requires exactly the configured remote forward, no local or dynamic forwards, and `clearallforwardings no`; a forward inherited from the explicit SSH config pauses the wrapper before SSH starts. This preserves the command-line `-R` while preventing the explicit config from silently adding forwarding. Validate the selected identity and known-host state in the same sparse environment before activation. The supervisor never prompts.
 
 ## Ownership and lifecycle contract
 
 ### Singleton and child ownership
 
-The launchd label `com.takode.relay-tunnel` is the OS-level owner. The supervisor adds an atomic state-directory lock:
+The launchd label `com.takode.relay-tunnel` is the OS-level owner. The supervisor adds an atomic state-directory ownership protocol:
 
-- a live lock owner is rejected without signalling it or changing its status;
-- a dead owner lock is atomically renamed to a bounded quarantine trail;
-- only the matching owner token may remove the active lock;
+- a wrapper first creates a private, fully populated versioned initializing claim containing PID, process-start identity, token, and inode, then publishes that immutable inode atomically as `owner.lock` with a hard link;
+- contenders accept only complete metadata, wait at most two seconds for malformed legacy/incomplete state, then leave an unverifiable claim in place and exit; an exact live initializing or ready owner is rejected without signalling it or changing its status;
+- a ready record is published only after the wrapper re-verifies the initializing lock's inode, token, PID, and process-start identity; the same identities are rechecked before child creation, status publication, signalling, and cleanup;
+- a dead owner or a live PID with a different process-start identity is stale and is atomically renamed only after its observed inode is rechecked; PID reuse never authorizes signalling;
+- the newest five verified stale locks are retained as mode-0600 quarantine metadata and older entries are pruned; a matching stale ready record is removed with its lock;
+- token or inode replacement makes the current owner fail closed; only the exact verified owner may remove the active lock and ready record;
 - unknown PIDs and listeners are never killed;
 - a remote bind collision makes SSH exit through `ExitOnForwardFailure`; it does not authorize eviction.
 
