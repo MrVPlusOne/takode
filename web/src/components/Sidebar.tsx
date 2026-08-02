@@ -59,7 +59,7 @@ import {
   writeSidebarGroupVisibleLimits,
 } from "../utils/sidebar-group-overflow.js";
 import { getShortcutTitle } from "../shortcuts.js";
-import { getDocumentTitleAttentionCount } from "../utils/document-title-attention.js";
+import { formatDocumentTitle, getDocumentTitleAttentionCount } from "../utils/document-title-attention.js";
 import { buildSidebarItemFromSearchResult } from "../utils/sidebar-search-result.js";
 import { useArchivedSessionPaging } from "../hooks/useArchivedSessionPaging.js";
 import { archiveGroupNavigationExcludedIds, archiveGroupSuccessfulIds } from "../utils/archive-group-reconciliation.js";
@@ -268,33 +268,16 @@ export function Sidebar() {
       .catch(() => {});
   }, []);
 
-  // Update document.title when serverName or attention counts change.
-  // Needs-input notifications use the same aggregate as the global bell; other
-  // title attention keeps the existing session-level permission/unread behavior.
+  // Keep the browser-tab prefix aligned with the active global needs-input bell.
   useEffect(() => {
-    const totalAttention = getDocumentTitleAttentionCount({
+    const needsInputCount = getDocumentTitleAttentionCount({
       sdkSessions,
       sessionNotifications,
-      pendingPermissions,
-      sessionAttention,
-      sessionStatus,
-      cliConnected,
-      cliDisconnectReason,
-      countUserPermissions,
     });
     const suffix = import.meta.env.DEV ? "[DEV] Takode" : "Takode";
     const base = serverName ? `${serverName} — ${suffix}` : suffix;
-    document.title = totalAttention > 0 ? `(${totalAttention}) ${base}` : base;
-  }, [
-    serverName,
-    sessionAttention,
-    pendingPermissions,
-    sessionNotifications,
-    sdkSessions,
-    sessionStatus,
-    cliConnected,
-    cliDisconnectReason,
-  ]);
+    document.title = formatDocumentTitle(base, needsInputCount);
+  }, [serverName, sessionNotifications, sdkSessions]);
 
   useEffect(() => {
     if (editingServerName && serverNameInputRef.current) {
