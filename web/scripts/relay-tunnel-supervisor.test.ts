@@ -99,7 +99,19 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect(operations).toContain("unified-log mirror is best-effort");
     expect(operations).toContain("deadline=$(( started_epoch + 30 ))");
     expect(operations).toContain('launchctl bootstrap "gui/$UID" "$PLIST_PATH"');
+    expect(operations).toContain('-o ClearAllForwardings=yes "$RELAY_HOST"');
+    expect(operations).toContain('"$launchd_pid" = "$status_supervisor_pid"');
+    expect(operations).toContain('"$actual_child_ppid" = "$status_supervisor_pid"');
+    expect(operations).toContain('"$supervisor_count" = 1');
+    expect(operations).toContain('"$child_count" = 1');
     expect(operations).toContain('"$child_pid" = "$actual_child_pgid"');
+    expect(operations).toContain('"$3" -gt 0');
+    expect(operations).toContain('"$4" = 1');
+    expect(operations).toContain('"$1" = 1');
+    expect(operations).toContain('"$2" = 0');
+    expect(operations).toContain("app_owner_pid");
+    expect(operations).toContain("app_owner_is_sshd");
+    expect(operations).toContain('> "$trace.first-ready"');
     expect(operations).toContain("first_ready_epoch");
 
     if (process.platform === "darwin") {
@@ -175,12 +187,11 @@ describe("relay tunnel supervisor tracked artifacts", () => {
       maxChildExits: 5,
       quickStartLimit: 99,
       eventMaxBytes: 900,
-      eventRotationCount: 2,
     });
     expect((await waitForExit(supervisor, 45_000)).code).toBe(0);
 
     const eventFiles = (await readdir(fixture.state)).filter((name) => name.startsWith("events.log")).sort();
-    expect(eventFiles).toEqual(["events.log", "events.log.1", "events.log.2"]);
+    expect(eventFiles).toEqual(["events.log", "events.log.1", "events.log.2", "events.log.3"]);
     for (const name of eventFiles) {
       const path = join(fixture.state, name);
       const info = await stat(path);
@@ -190,6 +201,51 @@ describe("relay tunnel supervisor tracked artifacts", () => {
       for (const line of text.trim().split("\n").filter(Boolean)) expectEventMetadataLine(line);
     }
   }, 60_000);
+
+  it("accepts an existing canonical current ledger plus exactly three bounded rotations", async () => {
+    const fixture = await createFixture("exit:255");
+    for (const name of ["events.log", "events.log.1", "events.log.2", "events.log.3"]) {
+      await writeFile(join(fixture.state, name), `canonical=${name}\n`, { mode: 0o600 });
+    }
+    const rotatedBefore = await snapshotEventLedger(fixture, ["events.log.1", "events.log.2", "events.log.3"]);
+
+    const supervisor = startSupervisor(fixture, { maxChildExits: 1 });
+    expect((await waitForExit(supervisor)).code).toBe(0);
+    expect((await readStatus(fixture)).state).toBe("paused_test_complete");
+    expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(1);
+    expect(await snapshotEventLedger(fixture, ["events.log.1", "events.log.2", "events.log.3"])).toEqual(rotatedBefore);
+    expect(await readFile(join(fixture.state, "events.log"), "utf8")).toContain("event=wrapper_started");
+  });
+
+  it.each([
+    "leading-zero",
+    "out-of-range",
+    "oversized-current",
+    "oversized-rotated",
+  ])("rejects noncanonical or oversized restart ledger state: %s", async (variant) => {
+    const fixture = await createFixture();
+    if (variant === "leading-zero") {
+      await writeFile(join(fixture.state, "events.log.01"), "sentinel-leading-zero\n", { mode: 0o600 });
+    } else if (variant === "out-of-range") {
+      await writeFile(join(fixture.state, "events.log.4"), "sentinel-out-of-range\n", { mode: 0o600 });
+    } else if (variant === "oversized-current") {
+      await writeFile(join(fixture.state, "events.log"), "x".repeat(262145), { mode: 0o600 });
+    } else {
+      await writeFile(join(fixture.state, "events.log.2"), "x".repeat(262145), { mode: 0o600 });
+    }
+    const before = await snapshotEventLedger(fixture);
+
+    const supervisor = startSupervisor(fixture, { maxChildExits: 1, unifiedLogger: true });
+    expect((await waitForExit(supervisor)).code).toBe(0);
+    const status = await readStatus(fixture);
+    expect(status.state).toBe("paused_fatal");
+    expect(status.exitClass).toBe("event_sink_untrusted");
+    expect(await pathExists(join(fixture.fakeState, "child-attempts"))).toBe(false);
+    expect(await snapshotEventLedger(fixture)).toEqual(before);
+    expect((await readdir(fixture.state)).filter((name) => /^events[.]log(?:[.].+)?$/.test(name)).sort()).toEqual(
+      Object.keys(before).sort(),
+    );
+  });
 
   it("fails closed without following an untrusted event-sink symlink", async () => {
     const fixture = await createFixture();
@@ -236,7 +292,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     ]) {
       expect(metadata).not.toContain(forbidden);
     }
-  });
+  }, 30_000);
 
   it("pauses before child 2 when SSH config becomes a direct symlink during backoff", async () => {
     const fixture = await createFixture();
@@ -251,7 +307,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect((await readStatus(fixture)).exitClass).toBe("ssh_config_untrusted_path");
     expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(1);
     expect(await pathExists(join(fixture.fakeState, "args.2"))).toBe(false);
-  });
+  }, 30_000);
 
   it("pauses before child 2 when identity ancestry becomes a symlink during backoff", async () => {
     const fixture = await createFixture();
@@ -271,7 +327,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect((await readStatus(fixture)).exitClass).toBe("identity_untrusted_path");
     expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(1);
     expect(await pathExists(join(fixture.fakeState, "args.2"))).toBe(false);
-  });
+  }, 30_000);
 
   it("pauses before child 2 when identity content changes during backoff", async () => {
     const fixture = await createFixture();
@@ -284,7 +340,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect((await readStatus(fixture)).exitClass).toBe("identity_changed");
     expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(1);
     expect(await pathExists(join(fixture.fakeState, "args.2"))).toBe(false);
-  });
+  }, 30_000);
 
   it("keeps parsed runtime values stable and pauses when runtime config changes during backoff", async () => {
     const fixture = await createFixture();
@@ -297,7 +353,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect((await readStatus(fixture)).exitClass).toBe("runtime_config_changed");
     expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(1);
     expect(await pathExists(join(fixture.fakeState, "args.2"))).toBe(false);
-  });
+  }, 30_000);
 
   it("revalidates an unchanged retry and launches child 2 with the exact forward contract", async () => {
     const fixture = await createFixture();
@@ -313,7 +369,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
       const renderedArguments = (await readFile(join(fixture.fakeState, `args.${attempt}`), "utf8")).trim().split("\n");
       expectExactForwardContract(renderedArguments);
     }
-  });
+  }, 30_000);
 
   it("quarantines a dead owner, rejects a live duplicate, and removes only its own token", async () => {
     const fixture = await createFixture("hold");
@@ -771,7 +827,6 @@ function startSupervisor(
     quarantineLimit?: number;
     omitUserIdentity?: boolean;
     eventMaxBytes?: number;
-    eventRotationCount?: number;
     unifiedLogger?: boolean;
   } = {},
 ): ChildProcess {
@@ -800,7 +855,6 @@ function startSupervisor(
       TAKODE_RELAY_SUPERVISOR_TEST_OWNER_CONTENTION_TICK_SECONDS: "0.01",
       TAKODE_RELAY_SUPERVISOR_TEST_QUARANTINE_LIMIT: String(options.quarantineLimit ?? 5),
       TAKODE_RELAY_SUPERVISOR_TEST_EVENT_MAX_BYTES: String(options.eventMaxBytes ?? 262144),
-      TAKODE_RELAY_SUPERVISOR_TEST_EVENT_ROTATION_COUNT: String(options.eventRotationCount ?? 3),
       TAKODE_RELAY_SUPERVISOR_TEST_LOGGER_BIN: options.unifiedLogger ? fixture.fakeLogger : "",
       ...(options.omitUserIdentity ? { USER: undefined, LOGNAME: undefined } : {}),
     },
@@ -946,6 +1000,16 @@ function expectEventMetadataLine(line: string): void {
   ]) {
     expect(line).not.toContain(forbidden);
   }
+}
+
+async function snapshotEventLedger(fixture: Fixture, names?: string[]): Promise<Record<string, string>> {
+  const selected = names ?? (await readdir(fixture.state)).filter((name) => /^events[.]log(?:[.].+)?$/.test(name));
+  const snapshot: Record<string, string> = {};
+  for (const name of selected) {
+    const content = await readFile(join(fixture.state, name));
+    snapshot[name] = `${content.byteLength}:${createHash("sha256").update(content).digest("hex")}`;
+  }
+  return snapshot;
 }
 
 async function writeOwnerLock(path: string, pid: number, token: string, startIdentity: string): Promise<void> {

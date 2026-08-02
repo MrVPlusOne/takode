@@ -71,7 +71,6 @@ if [ "$TESTING" = "1" ]; then
   OWNER_CONTENTION_TICK_SECONDS=${TAKODE_RELAY_SUPERVISOR_TEST_OWNER_CONTENTION_TICK_SECONDS:-$OWNER_CONTENTION_TICK_SECONDS}
   OWNER_QUARANTINE_LIMIT=${TAKODE_RELAY_SUPERVISOR_TEST_QUARANTINE_LIMIT:-$OWNER_QUARANTINE_LIMIT}
   EVENT_MAX_BYTES=${TAKODE_RELAY_SUPERVISOR_TEST_EVENT_MAX_BYTES:-$EVENT_MAX_BYTES}
-  EVENT_ROTATION_COUNT=${TAKODE_RELAY_SUPERVISOR_TEST_EVENT_ROTATION_COUNT:-$EVENT_ROTATION_COUNT}
 fi
 
 umask 077
@@ -368,7 +367,8 @@ event_file_is_trusted() {
   local path=$1
   [ -f "$path" ] && [ ! -L "$path" ] || return 1
   [ "$(file_owner_uid "$path" 2>/dev/null || true)" = "$CURRENT_UID" ] || return 1
-  [ "$(file_mode "$path" 2>/dev/null || true)" = "600" ]
+  [ "$(file_mode "$path" 2>/dev/null || true)" = "600" ] || return 1
+  [ "$(file_size "$path" 2>/dev/null || true)" -le "$EVENT_MAX_BYTES" ] 2>/dev/null
 }
 
 validate_event_sink_trust() {
@@ -389,8 +389,7 @@ validate_event_sink_trust() {
   for path in "$EVENT_FILE".*; do
     [ -e "$path" ] || [ -L "$path" ] || continue
     suffix=${path#"$EVENT_FILE."}
-    is_positive_integer "$suffix" || return 1
-    [ "$suffix" -le "$EVENT_ROTATION_COUNT" ] || return 1
+    case "$suffix" in 1|2|3) ;; *) return 1 ;; esac
   done
   return 0
 }

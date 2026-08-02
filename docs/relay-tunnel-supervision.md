@@ -174,13 +174,13 @@ Only after disposable validation passes:
 
 Iteration counts are not time bounds: SSH connection attempts and remote health probes can make “30 polls” take much longer than 30 seconds. Use an epoch deadline, probes individually bounded to one second, and a retained metadata-only trace. The first coherent observation is accepted only when its observation timestamp is at or before the deadline.
 
-Set `EVIDENCE_DIR`, `STATE_FILE`, `LAUNCHD_LABEL`, `PLIST_PATH`, `RELAY_HOST`, `RELAY_APPLICATION_PORT`, and `RELAY_MONITOR_PORT` from the approved packet. Establish the deadline immediately before bootstrap so process launch time is included, then use this shape:
+Set `EVIDENCE_DIR`, `STATE_FILE`, `LAUNCHD_LABEL`, `PLIST_PATH`, `SUPERVISOR_PATH`, `CONFIG_PATH`, `STATE_DIR`, `RELAY_HOST`, `RELAY_APPLICATION_PORT`, and `RELAY_MONITOR_PORT` from the approved packet. Establish the deadline immediately before bootstrap so process launch time is included, then use this shape:
 
 ```bash
 started_epoch=$(date +%s)
 deadline=$(( started_epoch + 30 ))
 trace="$EVIDENCE_DIR/readiness.tsv"
-printf 'observed_epoch\tobserved_utc\tsupervisor_pid\tchild_pid\tchild_pgid\tactual_child_pgid\tstate\tstatus_health\tapp_listeners\tmonitor_listeners\tupstream_health\tcoherent\n' > "$trace"
+printf 'observed_epoch\tobserved_utc\tlaunchd_pid\tstatus_supervisor_pid\tactual_child_ppid\tsupervisor_count\tchild_count\tchild_pid\tchild_pgid\tactual_child_pgid\tstate\tstatus_health\tapp_listeners\tmonitor_listeners\tapp_owner_pid\tapp_owner_is_sshd\tupstream_health\tcoherent\n' > "$trace"
 chmod 600 "$trace"
 first_ready_epoch=""
 launchctl bootstrap "gui/$UID" "$PLIST_PATH"
@@ -189,29 +189,46 @@ while :; do
   poll_started=$(date +%s)
   [ "$poll_started" -gt "$deadline" ] && break
 
-  supervisor_pid=$(launchctl print "gui/$UID/$LAUNCHD_LABEL" 2>/dev/null | awk '/pid =/ {print $3; exit}')
+  launchd_pid=$(launchctl print "gui/$UID/$LAUNCHD_LABEL" 2>/dev/null | awk '/pid =/ {print $3; exit}')
+  status_supervisor_pid=$(jq -r '.supervisorPid // 0' "$STATE_FILE" 2>/dev/null || printf 0)
   child_pid=$(jq -r '.childPid // 0' "$STATE_FILE" 2>/dev/null || printf 0)
   child_pgid=$(jq -r '.childPgid // 0' "$STATE_FILE" 2>/dev/null || printf 0)
+  actual_child_ppid=$(ps -o ppid= -p "$child_pid" 2>/dev/null | tr -d ' ')
   actual_child_pgid=$(ps -o pgid= -p "$child_pid" 2>/dev/null | tr -d ' ')
+  expected_supervisor="/bin/bash $SUPERVISOR_PATH $CONFIG_PATH $STATE_DIR"
+  supervisor_count=$(ps -axo command= | awk -v expected="$expected_supervisor" '$0 == expected { count += 1 } END { print count + 0 }')
+  if [ "$status_supervisor_pid" != 0 ]; then
+    child_count=$(pgrep -P "$status_supervisor_pid" -f '^/usr/bin/ssh ' 2>/dev/null | awk 'NF { count += 1 } END { print count + 0 }')
+  else
+    child_count=0
+  fi
   state=$(jq -r '.state // "missing"' "$STATE_FILE" 2>/dev/null || printf missing)
   status_health=$(jq -r '.healthCode // 0' "$STATE_FILE" 2>/dev/null || printf 0)
-  remote=$(ssh -o BatchMode=yes -o ConnectTimeout=1 "$RELAY_HOST" \
-    "a=\$(sudo -n ss -ltn | grep -Ec '127\\.0\\.0\\.1:$RELAY_APPLICATION_PORT' || true); \
-     m=\$(sudo -n ss -ltn | grep -Ec '127\\.0\\.0\\.1:$RELAY_MONITOR_PORT' || true); \
+  remote=$(ssh -o BatchMode=yes -o ConnectTimeout=1 -o ClearAllForwardings=yes "$RELAY_HOST" \
+    "rows=\$(sudo -n ss -H -ltnp 'sport = :$RELAY_APPLICATION_PORT' || true); \
+     a=\$(printf '%s\\n' \"\$rows\" | awk 'NF { count += 1 } END { print count + 0 }'); \
+     m=\$(sudo -n ss -H -ltn 'sport = :$RELAY_MONITOR_PORT' | awk 'NF { count += 1 } END { print count + 0 }'); \
+     owner_pid=\$(printf '%s\\n' \"\$rows\" | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p'); \
+     owner_is_sshd=\$(printf '%s\\n' \"\$rows\" | grep -Fc 'users:((\"sshd\",pid=' || true); \
      h=\$(curl -fsS --max-time 1 -o /dev/null -w '%{http_code}' 'http://127.0.0.1:$RELAY_APPLICATION_PORT/api/health' 2>/dev/null || true); \
-     printf '%s %s %s\\n' \"\$a\" \"\$m\" \"\$h\"" 2>/dev/null || printf '9 9 000')
+     printf '%s %s %s %s %s\\n' \"\$a\" \"\$m\" \"\${owner_pid:-0}\" \"\$owner_is_sshd\" \"\$h\"" \
+    2>/dev/null || printf '9 9 0 0 000')
   set -- $remote
 
   observed_epoch=$(date +%s)
   observed_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   coherent=0
-  if [ -n "$supervisor_pid" ] && [ "$child_pid" = "$child_pgid" ] && [ "$child_pid" = "$actual_child_pgid" ] && [ "$child_pid" != 0 ] &&
-    [ "$state" = running ] && [ "$status_health" = 200 ] && [ "$1" = 1 ] && [ "$2" = 0 ] && [ "$3" = 200 ]; then
+  if [ -n "$launchd_pid" ] && [ "$launchd_pid" = "$status_supervisor_pid" ] &&
+    [ "$actual_child_ppid" = "$status_supervisor_pid" ] && [ "$supervisor_count" = 1 ] && [ "$child_count" = 1 ] &&
+    [ "$child_pid" = "$child_pgid" ] && [ "$child_pid" = "$actual_child_pgid" ] && [ "$child_pid" != 0 ] &&
+    [ "$state" = running ] && [ "$status_health" = 200 ] && [ "$1" = 1 ] && [ "$2" = 0 ] &&
+    [ "$3" -gt 0 ] 2>/dev/null && [ "$4" = 1 ] && [ "$5" = 200 ]; then
     coherent=1
   fi
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$observed_epoch" "$observed_utc" "${supervisor_pid:-0}" "$child_pid" "$child_pgid" "${actual_child_pgid:-0}" "$state" \
-    "$status_health" "$1" "$2" "$3" "$coherent" >> "$trace"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$observed_epoch" "$observed_utc" "${launchd_pid:-0}" "$status_supervisor_pid" "${actual_child_ppid:-0}" \
+    "$supervisor_count" "$child_count" "$child_pid" "$child_pgid" "${actual_child_pgid:-0}" "$state" \
+    "$status_health" "$1" "$2" "$3" "$4" "$5" "$coherent" >> "$trace"
 
   if [ "$coherent" = 1 ] && [ "$observed_epoch" -le "$deadline" ]; then
     first_ready_epoch=$observed_epoch
@@ -222,6 +239,8 @@ while :; do
 done
 
 [ -n "$first_ready_epoch" ] || { echo "readiness deadline missed" >&2; exit 1; }
+printf '%s\t%s\n' "$first_ready_epoch" "$observed_utc" > "$trace.first-ready"
+chmod 600 "$trace.first-ready"
 ```
 
 Use the old fixed monitor port during migration; after cutover, `RELAY_MONITOR_PORT` remains that retired port so the monitor requires it to stay absent. Retain the trace even when readiness fails. Record HTTPS, WebSocket, ordinary/IAP access, and 5xx checks as separate evidence after the coherent edge; do not fold slow end-to-end probes into the readiness loop.
