@@ -95,6 +95,11 @@ CURRENT_STATE="starting"
 LAST_EXIT_CLASS="none"
 CURRENT_BACKOFF="0"
 CONFIG_FINGERPRINT="unavailable"
+CONFIG_INODE=""
+SSH_CONFIG_FINGERPRINT=""
+SSH_CONFIG_INODE=""
+SSH_IDENTITY_FINGERPRINT=""
+SSH_IDENTITY_INODE=""
 HEALTH_CODE="null"
 HEALTH_DURATION_MS="null"
 COOLDOWN_COMPLETED=0
@@ -208,6 +213,10 @@ process_start_identity() {
   start=$(ps -o lstart= -p "$pid" 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
   [ -n "$start" ] || return 1
   printf '%s' "$pid:$start" | "$SHASUM_BIN" -a 256 | awk '{print $1}'
+}
+
+file_fingerprint() {
+  "$SHASUM_BIN" -a 256 "$1" 2>/dev/null | awk '{print $1}'
 }
 
 read_owner_metadata() {
@@ -612,16 +621,36 @@ pause_fatal() {
   exit 0
 }
 
-parse_config() {
-  local seen raw_line line key value identity_mode ssh_config_mode
+validate_runtime_config_trust() {
   if ! absolute_path "$CONFIG_PATH" || ! path_is_trusted_ancestry "$CONFIG_PATH" || [ ! -f "$CONFIG_PATH" ] || [ ! -r "$CONFIG_PATH" ] || [ -L "$CONFIG_PATH" ]; then
     pause_fatal "config_unreadable"
   fi
   if [ "$(file_owner_uid "$CONFIG_PATH")" != "$CURRENT_UID" ] || [ "$(file_mode "$CONFIG_PATH")" != "600" ]; then
     pause_fatal "config_permissions"
   fi
+}
 
-  CONFIG_FINGERPRINT=$("$SHASUM_BIN" -a 256 "$CONFIG_PATH" 2>/dev/null | awk '{print $1}')
+validate_ssh_input_trust() {
+  local identity_mode ssh_config_mode
+  absolute_path "$SSH_CONFIG_FILE" || pause_fatal "config_invalid_path"
+  absolute_path "$SSH_IDENTITY_FILE" || pause_fatal "config_invalid_path"
+  path_is_trusted_ancestry "$SSH_CONFIG_FILE" || pause_fatal "ssh_config_untrusted_path"
+  path_is_trusted_ancestry "$SSH_IDENTITY_FILE" || pause_fatal "identity_untrusted_path"
+  [ -f "$SSH_CONFIG_FILE" ] && [ -r "$SSH_CONFIG_FILE" ] && [ ! -L "$SSH_CONFIG_FILE" ] || pause_fatal "ssh_config_unreadable"
+  [ -f "$SSH_IDENTITY_FILE" ] && [ -r "$SSH_IDENTITY_FILE" ] && [ ! -L "$SSH_IDENTITY_FILE" ] || pause_fatal "identity_unreadable"
+  [ "$(file_owner_uid "$SSH_CONFIG_FILE")" = "$CURRENT_UID" ] || pause_fatal "ssh_config_owner"
+  ssh_config_mode=$(file_mode "$SSH_CONFIG_FILE")
+  [ "$ssh_config_mode" = "600" ] || pause_fatal "ssh_config_permissions"
+  [ "$(file_owner_uid "$SSH_IDENTITY_FILE")" = "$CURRENT_UID" ] || pause_fatal "identity_owner"
+  identity_mode=$(file_mode "$SSH_IDENTITY_FILE")
+  case "$identity_mode" in 400|600) ;; *) pause_fatal "identity_permissions" ;; esac
+}
+
+parse_config() {
+  local seen raw_line line key value
+  validate_runtime_config_trust
+
+  CONFIG_FINGERPRINT=$(file_fingerprint "$CONFIG_PATH")
   [ -n "$CONFIG_FINGERPRINT" ] || CONFIG_FINGERPRINT="unavailable"
   seen="|"
   while IFS= read -r raw_line || [ -n "$raw_line" ]; do
@@ -657,18 +686,30 @@ parse_config() {
   [ "$LOCAL_PORT" -le 65535 ] || pause_fatal "config_invalid_port"
   case "$HEALTHCHECK_URL" in http://*|https://*) ;; *) pause_fatal "config_invalid_healthcheck" ;; esac
   case "$HEALTHCHECK_URL" in *[[:space:]]*) pause_fatal "config_invalid_healthcheck" ;; esac
-  absolute_path "$SSH_CONFIG_FILE" || pause_fatal "config_invalid_path"
-  absolute_path "$SSH_IDENTITY_FILE" || pause_fatal "config_invalid_path"
-  path_is_trusted_ancestry "$SSH_CONFIG_FILE" || pause_fatal "ssh_config_untrusted_path"
-  path_is_trusted_ancestry "$SSH_IDENTITY_FILE" || pause_fatal "identity_untrusted_path"
-  [ -f "$SSH_CONFIG_FILE" ] && [ -r "$SSH_CONFIG_FILE" ] && [ ! -L "$SSH_CONFIG_FILE" ] || pause_fatal "ssh_config_unreadable"
-  [ -f "$SSH_IDENTITY_FILE" ] && [ -r "$SSH_IDENTITY_FILE" ] && [ ! -L "$SSH_IDENTITY_FILE" ] || pause_fatal "identity_unreadable"
-  [ "$(file_owner_uid "$SSH_CONFIG_FILE")" = "$CURRENT_UID" ] || pause_fatal "ssh_config_owner"
-  ssh_config_mode=$(file_mode "$SSH_CONFIG_FILE")
-  [ "$ssh_config_mode" = "600" ] || pause_fatal "ssh_config_permissions"
-  [ "$(file_owner_uid "$SSH_IDENTITY_FILE")" = "$CURRENT_UID" ] || pause_fatal "identity_owner"
-  identity_mode=$(file_mode "$SSH_IDENTITY_FILE")
-  case "$identity_mode" in 400|600) ;; *) pause_fatal "identity_permissions" ;; esac
+  validate_ssh_input_trust
+}
+
+capture_trusted_input_contract() {
+  CONFIG_INODE=$(path_inode "$CONFIG_PATH" 2>/dev/null || true)
+  SSH_CONFIG_INODE=$(path_inode "$SSH_CONFIG_FILE" 2>/dev/null || true)
+  SSH_IDENTITY_INODE=$(path_inode "$SSH_IDENTITY_FILE" 2>/dev/null || true)
+  SSH_CONFIG_FINGERPRINT=$(file_fingerprint "$SSH_CONFIG_FILE")
+  SSH_IDENTITY_FINGERPRINT=$(file_fingerprint "$SSH_IDENTITY_FILE")
+  is_unsigned_integer "$CONFIG_INODE" && is_unsigned_integer "$SSH_CONFIG_INODE" &&
+    is_unsigned_integer "$SSH_IDENTITY_INODE" && [ ${#CONFIG_FINGERPRINT} -eq 64 ] &&
+    [ ${#SSH_CONFIG_FINGERPRINT} -eq 64 ] && [ ${#SSH_IDENTITY_FINGERPRINT} -eq 64 ] ||
+    pause_fatal "trusted_input_snapshot_failed"
+}
+
+verify_trusted_input_contract() {
+  validate_runtime_config_trust
+  validate_ssh_input_trust
+  [ "$(path_inode "$CONFIG_PATH" 2>/dev/null || true)" = "$CONFIG_INODE" ] &&
+    [ "$(file_fingerprint "$CONFIG_PATH")" = "$CONFIG_FINGERPRINT" ] || pause_fatal "runtime_config_changed"
+  [ "$(path_inode "$SSH_CONFIG_FILE" 2>/dev/null || true)" = "$SSH_CONFIG_INODE" ] &&
+    [ "$(file_fingerprint "$SSH_CONFIG_FILE")" = "$SSH_CONFIG_FINGERPRINT" ] || pause_fatal "ssh_config_changed"
+  [ "$(path_inode "$SSH_IDENTITY_FILE" 2>/dev/null || true)" = "$SSH_IDENTITY_INODE" ] &&
+    [ "$(file_fingerprint "$SSH_IDENTITY_FILE")" = "$SSH_IDENTITY_FINGERPRINT" ] || pause_fatal "identity_changed"
 }
 
 build_ssh_arguments() {
@@ -714,6 +755,14 @@ validate_effective_ssh_forwarding() {
     esac
   done <<< "$effective"
   [ "$remote_count" -eq 1 ] && [ "$clear_value" = "no" ] || pause_fatal "ssh_forward_contract"
+}
+
+validate_child_launch_contract() {
+  verify_trusted_input_contract
+  validate_effective_ssh_forwarding
+  # Recheck inode/content identities after ssh -G so replacement during the
+  # render cannot silently become the input consumed by the child.
+  verify_trusted_input_contract
 }
 
 atomic_replace_history() {
@@ -836,6 +885,7 @@ sample_health() {
 spawn_child() {
   local handshake child_executable tick actual_pgid
   verify_current_owner && verify_current_process_identity || return 70
+  validate_child_launch_contract
   handshake="$STATE_DIR/.child-pgid.${OWNER_TOKEN}.${ATTEMPT}"
   CHILD_HANDSHAKE_FILE=$handshake
   rm -f "$handshake"
@@ -949,7 +999,7 @@ initialize_state_dir
 acquire_owner
 validate_runtime_environment
 parse_config
-validate_effective_ssh_forwarding
+capture_trusted_input_contract
 honor_persisted_cooldown
 record_wrapper_start
 write_status "starting" "none" 0 || exit 70

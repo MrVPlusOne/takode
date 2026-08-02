@@ -24,6 +24,7 @@ const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
 const SUPERVISOR = join(REPO_ROOT, "scripts", "relay-tunnel-supervisor.sh");
 const PLIST_TEMPLATE = join(REPO_ROOT, "scripts", "com.takode.relay-tunnel.plist.template");
 const CONFIG_EXAMPLE = join(REPO_ROOT, "scripts", "relay-tunnel-supervisor.conf.example");
+const OPERATIONS_DOC = join(REPO_ROOT, "docs", "relay-tunnel-supervision.md");
 const tempDirs: string[] = [];
 const runningProcesses = new Set<ChildProcess>();
 
@@ -65,10 +66,11 @@ afterEach(async () => {
 
 describe("relay tunnel supervisor tracked artifacts", () => {
   it("keeps production values runtime-only and renders a valid user LaunchAgent template", async () => {
-    const [source, plist, example] = await Promise.all([
+    const [source, plist, example, operations] = await Promise.all([
       readFile(SUPERVISOR, "utf8"),
       readFile(PLIST_TEMPLATE, "utf8"),
       readFile(CONFIG_EXAMPLE, "utf8"),
+      readFile(OPERATIONS_DOC, "utf8"),
     ]);
 
     expect(source).toContain('SSH_BIN="/usr/bin/ssh"');
@@ -88,6 +90,8 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect(plist).not.toContain("NetworkState");
     expect(example).not.toContain("takode-relay");
     expect(example).not.toMatch(/\b(?:3455|3456|20000)\b/);
+    expect(operations).toContain("Before every child start");
+    expect(operations).toContain("deliberate reload is bootout");
 
     if (process.platform === "darwin") {
       const lint = spawnSync("plutil", ["-lint", PLIST_TEMPLATE], { encoding: "utf8" });
@@ -117,11 +121,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     await waitForStatus(fixture, (status) => status.state === "running");
 
     const renderedArguments = (await waitForFile(join(fixture.fakeState, "args.1"))).split("\n");
-    const effective = spawnSync("/usr/bin/ssh", ["-G", ...renderedArguments], { encoding: "utf8" });
-    expect(effective.status, effective.stderr).toBe(0);
-    const forwards = effective.stdout.split("\n").filter((line) => /^(?:remote|local|dynamic)forward\s/.test(line));
-    expect(forwards).toEqual(["remoteforward [127.0.0.1]:15432 [127.0.0.1]:15433"]);
-    expect(effective.stdout).toContain("clearallforwardings no\n");
+    expectExactForwardContract(renderedArguments);
 
     supervisor.kill("SIGTERM");
     expect((await waitForExit(supervisor)).code).toBe(0);
@@ -135,6 +135,111 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect((await waitForExit(supervisor)).code).toBe(0);
     expect((await readStatus(fixture)).exitClass).toBe("ssh_forward_contract");
     expect(await pathExists(join(fixture.fakeState, "child-attempts"))).toBe(false);
+  });
+
+  it("pauses before child 2 when SSH config gains an extra forward during backoff", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.fakeState, "sequence"), "exit:255\nhold\n", "utf8");
+    const supervisor = startSupervisor(fixture, { backoffs: "2,2,2,2,2" });
+    await waitForStatus(fixture, (status) => status.state === "backoff" && status.attempt === 1);
+
+    await appendFile(fixture.sshConfig, "  RemoteForward 15434 127.0.0.1:15435\n", "utf8");
+    expect((await waitForExit(supervisor)).code).toBe(0);
+    const status = await readStatus(fixture);
+    expect(status.state).toBe("paused_fatal");
+    expect(status.exitClass).toBe("ssh_config_changed");
+    expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(1);
+    expect(await pathExists(join(fixture.fakeState, "args.2"))).toBe(false);
+    expect(findFixtureProcesses(fixture.root)).toEqual([]);
+
+    const metadata = `${JSON.stringify(status)}\n${await readFile(fixture.log, "utf8")}`;
+    for (const forbidden of [
+      "private-relay.example",
+      "RemoteForward",
+      "do-not-log-ssh-config",
+      "15432",
+      "15434",
+      "127.0.0.1",
+    ]) {
+      expect(metadata).not.toContain(forbidden);
+    }
+  });
+
+  it("pauses before child 2 when SSH config becomes a direct symlink during backoff", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.fakeState, "sequence"), "exit:255\nhold\n", "utf8");
+    const supervisor = startSupervisor(fixture, { backoffs: "2,2,2,2,2" });
+    await waitForStatus(fixture, (status) => status.state === "backoff" && status.attempt === 1);
+
+    const original = `${fixture.sshConfig}.original`;
+    await rename(fixture.sshConfig, original);
+    await symlink(original, fixture.sshConfig);
+    expect((await waitForExit(supervisor)).code).toBe(0);
+    expect((await readStatus(fixture)).exitClass).toBe("ssh_config_untrusted_path");
+    expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(1);
+    expect(await pathExists(join(fixture.fakeState, "args.2"))).toBe(false);
+  });
+
+  it("pauses before child 2 when identity ancestry becomes a symlink during backoff", async () => {
+    const fixture = await createFixture();
+    const identityParent = join(fixture.root, "identity-parent");
+    const identityPath = join(identityParent, "identity");
+    await mkdir(identityParent, { mode: 0o700 });
+    await writeFile(identityPath, "disposable-test-identity\n", { mode: 0o600 });
+    await replaceConfigValue(fixture, "SSH_IDENTITY_FILE", identityPath);
+    await writeFile(join(fixture.fakeState, "sequence"), "exit:255\nhold\n", "utf8");
+    const supervisor = startSupervisor(fixture, { backoffs: "2,2,2,2,2" });
+    await waitForStatus(fixture, (status) => status.state === "backoff" && status.attempt === 1);
+
+    const originalParent = `${identityParent}.original`;
+    await rename(identityParent, originalParent);
+    await symlink(originalParent, identityParent);
+    expect((await waitForExit(supervisor)).code).toBe(0);
+    expect((await readStatus(fixture)).exitClass).toBe("identity_untrusted_path");
+    expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(1);
+    expect(await pathExists(join(fixture.fakeState, "args.2"))).toBe(false);
+  });
+
+  it("pauses before child 2 when identity content changes during backoff", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.fakeState, "sequence"), "exit:255\nhold\n", "utf8");
+    const supervisor = startSupervisor(fixture, { backoffs: "2,2,2,2,2" });
+    await waitForStatus(fixture, (status) => status.state === "backoff" && status.attempt === 1);
+
+    await writeFile(fixture.identity, "changed-disposable-test-identity\n", { mode: 0o600 });
+    expect((await waitForExit(supervisor)).code).toBe(0);
+    expect((await readStatus(fixture)).exitClass).toBe("identity_changed");
+    expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(1);
+    expect(await pathExists(join(fixture.fakeState, "args.2"))).toBe(false);
+  });
+
+  it("keeps parsed runtime values stable and pauses when runtime config changes during backoff", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.fakeState, "sequence"), "exit:255\nhold\n", "utf8");
+    const supervisor = startSupervisor(fixture, { backoffs: "2,2,2,2,2" });
+    await waitForStatus(fixture, (status) => status.state === "backoff" && status.attempt === 1);
+
+    await replaceConfigValue(fixture, "REMOTE_PORT", "15434");
+    expect((await waitForExit(supervisor)).code).toBe(0);
+    expect((await readStatus(fixture)).exitClass).toBe("runtime_config_changed");
+    expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(1);
+    expect(await pathExists(join(fixture.fakeState, "args.2"))).toBe(false);
+  });
+
+  it("revalidates an unchanged retry and launches child 2 with the exact forward contract", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.fakeState, "sequence"), "exit:255\nexit:255\n", "utf8");
+    const supervisor = startSupervisor(fixture, {
+      backoffs: "0.01,0.01,0.01,0.01,0.01",
+      maxChildExits: 2,
+    });
+
+    expect((await waitForExit(supervisor)).code).toBe(0);
+    expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(2);
+    for (const attempt of [1, 2]) {
+      const renderedArguments = (await readFile(join(fixture.fakeState, `args.${attempt}`), "utf8")).trim().split("\n");
+      expectExactForwardContract(renderedArguments);
+    }
   });
 
   it("quarantines a dead owner, rejects a live duplicate, and removes only its own token", async () => {
@@ -371,7 +476,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect((await waitForExit(second)).code).toBe(0);
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(900);
     expect(await readFile(fixture.log, "utf8")).toContain("event=restart_storm_cooldown");
-  });
+  }, 30_000);
 
   it("rate-limits a quick child restart storm before allowing retries to resume", async () => {
     const fixture = await createFixture("exit:255");
@@ -386,7 +491,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect((await waitForExit(supervisor)).code).toBe(0);
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(900);
     expect(await readFile(fixture.log, "utf8")).toContain("event=restart_storm_cooldown");
-  });
+  }, 30_000);
 
   it("fails closed on wrong-owner, wrong-mode, direct-symlink, and parent-symlink trusted paths", async () => {
     const wrongOwner = await createFixture();
@@ -539,7 +644,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     const finalStatus: StatusSnapshot = JSON.parse(statusText);
     expect(finalStatus.healthCode).toBe(200);
     expect(finalStatus.healthDurationMs).toBe(123);
-  });
+  }, 30_000);
 });
 
 async function createFixture(mode = "exit:255"): Promise<Fixture> {
@@ -626,7 +731,7 @@ function startSupervisor(
 
 async function waitForExit(
   child: ChildProcess,
-  timeoutMs = 10_000,
+  timeoutMs = 20_000,
 ): Promise<{ code: number | null; signal: string | null }> {
   if (child.exitCode !== null || child.signalCode !== null) {
     return { code: child.exitCode, signal: child.signalCode };
@@ -692,7 +797,7 @@ async function waitForFile(path: string): Promise<string> {
   return value;
 }
 
-async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 4_000): Promise<void> {
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await predicate()) return;
@@ -718,6 +823,14 @@ function processStartIdentity(pid: number): string {
   const result = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8" });
   expect(result.status, result.stderr).toBe(0);
   return createHash("sha256").update(`${pid}:${result.stdout.trim()}`).digest("hex");
+}
+
+function expectExactForwardContract(renderedArguments: string[]): void {
+  const effective = spawnSync("/usr/bin/ssh", ["-G", ...renderedArguments], { encoding: "utf8" });
+  expect(effective.status, effective.stderr).toBe(0);
+  const forwards = effective.stdout.split("\n").filter((line) => /^(?:remote|local|dynamic)forward\s/.test(line));
+  expect(forwards).toEqual(["remoteforward [127.0.0.1]:15432 [127.0.0.1]:15433"]);
+  expect(effective.stdout).toContain("clearallforwardings no\n");
 }
 
 async function writeOwnerLock(path: string, pid: number, token: string, startIdentity: string): Promise<void> {

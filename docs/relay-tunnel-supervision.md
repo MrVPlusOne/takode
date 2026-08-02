@@ -61,7 +61,9 @@ The production SSH child always uses absolute `/usr/bin/ssh` with:
 - `IdentitiesOnly=yes`, `IdentityAgent=none`, `AddKeysToAgent=no`, and the explicit config/identity paths;
 - a sparse environment containing only HOME, fixed system PATH, USER, and LOGNAME.
 
-Before each child start, the supervisor renders this exact argument array through offline `/usr/bin/ssh -G`. It requires exactly the configured remote forward, no local or dynamic forwards, and `clearallforwardings no`; a forward inherited from the explicit SSH config pauses the wrapper before SSH starts. This preserves the command-line `-R` while preventing the explicit config from silently adding forwarding. Validate the selected identity and known-host state in the same sparse environment before activation. The supervisor never prompts.
+Before every child start, including retries, the supervisor revalidates runtime-config, SSH-config, and identity ancestry/ownership/modes; requires their startup inode and SHA-256 identities to remain unchanged; renders the exact argument array through offline `/usr/bin/ssh -G`; and rechecks the pinned identities after rendering. It requires exactly the configured remote forward, no local or dynamic forwards, and `clearallforwardings no`. A replaced, symlinked, permission-changed, or materially changed trusted input, or a forward inherited from the explicit SSH config, records metadata-only `paused_fatal` and exits zero before another SSH child starts. This preserves the command-line `-R` while preventing retries from silently changing forwarding or authentication behavior.
+
+Runtime values are parsed once and remain stable for the wrapper lifetime. Editing the installed runtime config, SSH config, or identity is not a live reload mechanism. After validating intended changes, the deliberate reload is bootout, verification that the owned child/listener cleared, bootstrap of the validated plist, then an explicit start if needed. Validate the selected identity and known-host state in the same sparse environment before activation. The supervisor never prompts.
 
 ## Ownership and lifecycle contract
 
