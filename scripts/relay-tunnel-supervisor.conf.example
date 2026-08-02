@@ -1,0 +1,10 @@
+# Copy to the stable runtime config path and replace every placeholder.
+# The installed file must be owned by the current user and mode 0600.
+SSH_HOST=relay-host.example
+SSH_CONFIG_FILE=/absolute/path/to/ssh-config
+SSH_IDENTITY_FILE=/absolute/path/to/private-identity
+REMOTE_BIND_HOST=127.0.0.1
+REMOTE_PORT=15432
+LOCAL_HOST=127.0.0.1
+LOCAL_PORT=15433
+HEALTHCHECK_URL=https://relay.example.invalid/api/health

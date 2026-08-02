@@ -21,6 +21,20 @@ Run these from the repository root unless noted otherwise.
     `web/server/protocol/codex-upstream/` from upstream `openai/codex`.
   - Updates copied schema files and snapshot README metadata.
 
+- [`relay-tunnel-supervisor.sh`](./relay-tunnel-supervisor.sh)
+  - Foreground, monitor-free direct-SSH supervisor intended for the tracked
+    `com.takode.relay-tunnel` user LaunchAgent template.
+  - Production host, port, identity, and destination values come from a
+    mode-0600 runtime config based on
+    [`relay-tunnel-supervisor.conf.example`](./relay-tunnel-supervisor.conf.example).
+  - Repository validation is safe and offline:
+    - `/bin/bash -n scripts/relay-tunnel-supervisor.sh`
+    - `plutil -lint scripts/com.takode.relay-tunnel.plist.template`
+    - `cd web && bun --no-install run test -- scripts/relay-tunnel-supervisor.test.ts`
+  - Installing or loading the LaunchAgent, signalling the current tunnel, or
+    changing relay/sshd state is an approval-gated Execute action. See
+    [`docs/relay-tunnel-supervision.md`](../docs/relay-tunnel-supervision.md).
+
 ## Bun script
 
 - [`audit-recordings.ts`](./audit-recordings.ts)
