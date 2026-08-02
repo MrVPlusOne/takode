@@ -111,7 +111,10 @@ describe("result-message-controller", () => {
     handleResultMessage(session, makeResult(), deps);
 
     expect(session.messageHistory).toHaveLength(0);
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, { type: "status_change", status: "idle" });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ type: "status_change", status: "idle" }),
+    );
     expect(deps.persistSession).toHaveBeenCalledWith(session);
     expect(deps.onTurnCompleted).not.toHaveBeenCalled();
   });

@@ -161,7 +161,7 @@ describe("handleMessage: status_change", () => {
     expect(useStore.getState().activeTurnRoutes.get("s1")).toBeNull();
   });
 
-  it("tracks server-authored recovery testing and clears it on every terminal status", () => {
+  it("applies server-authored testing updates and clears omitted legacy terminal projections", () => {
     // Generic local running state is insufficient; only the server projection
     // may switch the auto-pause banner into its testing copy.
     wsModule.connectSession("s1");

@@ -401,9 +401,17 @@ describe("Codex auto-pause recovery summary fanout", () => {
     }
 
     session.isGenerating = false;
-    const afterInterruption = { send: vi.fn() };
-    sendStateSnapshot(session, afterInterruption, makeInjectDeps());
-    expect(JSON.parse(String(afterInterruption.send.mock.calls[0]?.[0]))).toMatchObject({
+    const pendingRetry = { send: vi.fn() };
+    sendStateSnapshot(session, pendingRetry, makeInjectDeps());
+    expect(JSON.parse(String(pendingRetry.send.mock.calls[0]?.[0]))).toMatchObject({
+      type: "state_snapshot",
+      codexAutoPauseRecoveryTesting: true,
+    });
+
+    session.pendingCodexTurns = [];
+    const afterTerminal = { send: vi.fn() };
+    sendStateSnapshot(session, afterTerminal, makeInjectDeps());
+    expect(JSON.parse(String(afterTerminal.send.mock.calls[0]?.[0]))).toMatchObject({
       type: "state_snapshot",
       codexAutoPauseRecoveryTesting: false,
     });

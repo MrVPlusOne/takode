@@ -684,6 +684,10 @@ export function getClaudeMessageHandlers(host: any) {
     reconcileTerminalResultState: (targetSession: unknown) => {
       reconcileTerminalResultStateLifecycle(host.getGenerationLifecycleDeps(), targetSession as Session, "result");
     },
+    getCodexAutoPauseRecoveryTesting: (targetSession: unknown) =>
+      (targetSession as Session).backendType === "codex"
+        ? isCodexAutoPauseRecoveryTesting(targetSession as Session)
+        : false,
     finalizeOrphanedTerminalToolsOnResult: (targetSession: unknown, resultMsg: CLIResultMessage) =>
       host.finalizeOrphanedTerminalToolsOnResult(targetSession as Session, resultMsg),
     cancelPermissionNotification: (sessionId: string, requestId: string) =>

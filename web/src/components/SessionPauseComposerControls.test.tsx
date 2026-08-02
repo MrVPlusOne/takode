@@ -208,7 +208,7 @@ describe("PausedInputChip", () => {
     expect(guidance.parentElement?.className).toContain("flex-wrap");
   });
 
-  it("returns a failed manual probe to idle copy and clears the banner after successful recovery", () => {
+  it("renders held-idle when testing is false and removes the banner after authoritative pause clear", () => {
     const { rerender } = render(
       <PausedInputChip
         pause={null}

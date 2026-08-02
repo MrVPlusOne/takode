@@ -3,6 +3,7 @@ import {
   addPendingCodexInput,
   clearStaleCodexCompactionState,
   commitPendingCodexInputs,
+  dispatchQueuedCodexTurns,
   handleCodexAdapterInitError,
   hydrateCodexResumedHistory,
   markCodexIntentionalRelaunch,
@@ -183,6 +184,21 @@ function makePendingTurn(): CodexOutboundTurn {
     turnId: null,
     disconnectedAt: null,
     resumeConfirmedAt: null,
+  };
+}
+
+function activateAutoPause(session: CodexRecoveryOrchestratorSessionLike): void {
+  session.state.codex_result_error_auto_pause = {
+    family: "copilot_auth_refresh_exhausted",
+    fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+    streak: 1,
+    threshold: 1,
+    pausedAt: 900,
+    lastError: "GitHub Copilot API-key refresh exhausted its retry budget.",
+    lastErrorAt: 900,
+    lastSourceKind: "automatic",
+    totalMatchingErrors: 1,
+    heldInputs: [],
   };
 }
 
@@ -1200,6 +1216,51 @@ describe("reconcileCodexResumedTurn", () => {
         message: expect.stringContaining("no final response was recovered"),
       }),
     );
+  });
+});
+
+describe("accepted auto-pause recovery dispatch presentation", () => {
+  it("preserves current manual ownership and rebroadcasts testing on accepted retry", () => {
+    const session = makeSession([]);
+    activateAutoPause(session);
+    const pending = makePendingTurn();
+    pending.status = "queued";
+    pending.turnTarget = "current";
+    pending.autoPauseSourceKind = "manual";
+    session.pendingCodexTurns = [pending];
+    const adapter = makeLifecycleAdapter();
+    session.codexAdapter = adapter as any;
+    const deps = makeLifecycleDeps();
+
+    dispatchQueuedCodexTurns(session, "manual_recovery_retry", deps);
+
+    expect(pending).toMatchObject({ status: "dispatched", turnTarget: "current" });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "session_update",
+      session: { codex_result_error_auto_pause_recovery_testing: true },
+    });
+  });
+
+  it("clears current manual ownership when the adapter rejects the retry dispatch", () => {
+    const session = makeSession([]);
+    activateAutoPause(session);
+    const pending = makePendingTurn();
+    pending.status = "queued";
+    pending.turnTarget = "current";
+    pending.autoPauseSourceKind = "manual";
+    session.pendingCodexTurns = [pending];
+    const adapter = makeLifecycleAdapter();
+    adapter.sendBrowserMessage = vi.fn(() => false);
+    session.codexAdapter = adapter as any;
+    const deps = makeLifecycleDeps();
+
+    dispatchQueuedCodexTurns(session, "manual_recovery_retry", deps);
+
+    expect(pending).toMatchObject({ status: "queued", turnTarget: null });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "session_update",
+      session: { codex_result_error_auto_pause_recovery_testing: false },
+    });
   });
 });
 

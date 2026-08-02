@@ -365,6 +365,7 @@ interface ResultMessageDeps {
   markTurnInterrupted: (session: ResultMessageSessionLike, source: "user" | "leader" | "system") => void;
   getCurrentTurnTriggerSource: (session: ResultMessageSessionLike) => "user" | "leader" | "system" | "unknown";
   reconcileTerminalResultState: (session: ResultMessageSessionLike) => void;
+  getCodexAutoPauseRecoveryTesting?: (session: ResultMessageSessionLike) => boolean;
   finalizeOrphanedTerminalToolsOnResult: (session: ResultMessageSessionLike, msg: CLIResultMessage) => void;
   refreshGitInfoThenRecomputeDiff: (
     session: ResultMessageSessionLike,
@@ -786,7 +787,11 @@ export function handleResultMessage(
     const reconciled = deps.reconcileReplayState(session);
     const drainedQueuedTurns = deps.drainInlineQueuedClaudeTurns(session, "result_replay");
     if (drainedQueuedTurns || reconciled.clearedResidualState) {
-      deps.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
+      deps.broadcastToBrowsers(session, {
+        type: "status_change",
+        status: "idle",
+        codexAutoPauseRecoveryTesting: deps.getCodexAutoPauseRecoveryTesting?.(session) ?? false,
+      });
       deps.persistSession(session);
     }
     return;
@@ -834,7 +839,11 @@ export function handleResultMessage(
   deps.finalizeOrphanedTerminalToolsOnResult(session, msg);
   session.toolStartTimes.clear();
   if (!session.isGenerating) {
-    deps.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
+    deps.broadcastToBrowsers(session, {
+      type: "status_change",
+      status: "idle",
+      codexAutoPauseRecoveryTesting: deps.getCodexAutoPauseRecoveryTesting?.(session) ?? false,
+    });
   }
   session.lastOutboundUserNdjson = null;
 

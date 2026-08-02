@@ -50,6 +50,7 @@ export interface AdapterBrowserRoutingSessionLike {
     | "codex_reasoning_effort"
     | "codex_service_tier"
     | "codex_token_details"
+    | "codex_result_error_auto_pause"
     | "context_used_percent"
     | "cwd"
     | "is_compacting"

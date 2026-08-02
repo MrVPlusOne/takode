@@ -71,6 +71,7 @@ import {
 } from "../thread-routing-metadata.js";
 import { isActualHumanUserMessage } from "../user-message-classification.js";
 import { determineUserMessageSourceKind } from "../codex-result-error-auto-pause.js";
+import { markAcceptedCodexAutoPauseRecoveryDispatch } from "./codex-auto-pause-recovery-testing.js";
 import { getTrustedRecoveryDeliveryTransferId } from "./recovery-delivery-transfer-routing-context.js";
 import {
   appendMemoryCatalogToUserMessage,
@@ -1883,6 +1884,9 @@ export function routeAdapterBrowserMessage(
         } else {
           deps.queueCodexPendingStartBatch(session, deliveryReason);
         }
+      }
+      if (ingested.historyEntry.id) {
+        markAcceptedCodexAutoPauseRecoveryDispatch(session, ingested.historyEntry.id, pendingTurnTarget, deps);
       }
       if (session.state.backend_state === "broken" || session.state.backend_state === "recovery_suppressed") {
         deps.broadcastToBrowsers(session, {

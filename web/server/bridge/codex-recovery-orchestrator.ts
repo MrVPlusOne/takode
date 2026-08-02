@@ -26,6 +26,7 @@ import {
   holdCodexAutoPausedQueuedBacklog,
   isCodexAutoPauseRecoveryTesting,
 } from "../codex-result-error-auto-pause.js";
+import { broadcastCodexAutoPauseRecoveryTesting } from "./codex-auto-pause-recovery-testing.js";
 import {
   armCodexFreshTurnRequirement as armCodexFreshTurnRequirementState,
   clearCodexFreshTurnRequirement as clearCodexFreshTurnRequirementState,
@@ -448,6 +449,17 @@ export function dispatchQueuedCodexTurns(
     setPendingCodexInputsCancelable: (ids) => deps.setPendingCodexInputsCancelable(session, ids, false),
     persistSession: () => deps.persistSession(session),
   });
+  const recoveryTurn =
+    session.state.codex_result_error_auto_pause?.pausedAt && outcome.head?.autoPauseSourceKind === "manual"
+      ? outcome.head
+      : null;
+  if (outcome.status === "adapter_rejected" && recoveryTurn?.turnTarget === "current") {
+    recoveryTurn.turnTarget = null;
+    broadcastCodexAutoPauseRecoveryTesting(session, deps);
+    deps.persistSession(session);
+  } else if (outcome.status === "dispatched" && isCodexAutoPauseRecoveryTesting(session)) {
+    broadcastCodexAutoPauseRecoveryTesting(session, deps);
+  }
   if (outcome.status !== "dispatched" || !outcome.head) return;
   console.log(
     `[ws-bridge] Dispatched queued Codex turn for session ${sessionTag(session.id)} (${reason}, attempt ${outcome.head.dispatchCount})`,
@@ -845,19 +857,6 @@ function clearCodexInitRecoveryState(session: CodexRecoveryOrchestratorSessionLi
   (session as any).codexInitRetryTimer = null;
   (session as any).codexInitRecoveryFailures = 0;
   (session as any).codexAutoRecoveryReason = null;
-}
-
-function broadcastCodexAutoPauseRecoveryTesting(
-  session: CodexRecoveryOrchestratorSessionLike,
-  deps: Pick<CodexRecoveryOrchestratorDeps, "broadcastToBrowsers">,
-): void {
-  if (!session.state.codex_result_error_auto_pause?.pausedAt) return;
-  deps.broadcastToBrowsers(session, {
-    type: "session_update",
-    session: {
-      codex_result_error_auto_pause_recovery_testing: isCodexAutoPauseRecoveryTesting(session),
-    },
-  });
 }
 
 export function handleCodexAdapterInitError(
@@ -1833,6 +1832,10 @@ export function retryPendingCodexTurn(
   options: { diagnoseDispatchFailure?: boolean } = {},
 ): void {
   const releasedHeadQueuedTurn = pending.turnTarget === "queued";
+  const preserveRecoveryTestingOwnership =
+    pending.turnTarget === "current" &&
+    pending.autoPauseSourceKind === "manual" &&
+    !!session.state.codex_result_error_auto_pause?.pausedAt;
   const restartRunningGuard = session.isGenerating && pending.turnTarget !== "queued";
   if (restartRunningGuard) {
     deps.setGenerating(session, false, "codex_retry_pending_turn_restart");
@@ -1844,7 +1847,7 @@ export function retryPendingCodexTurn(
   pending.updatedAt = Date.now();
   pending.acknowledgedAt = null;
   pending.lastError = null;
-  pending.turnTarget = null;
+  pending.turnTarget = preserveRecoveryTestingOwnership ? "current" : null;
   pending.turnId = null;
   pending.disconnectedAt = null;
   pending.resumeConfirmedAt = null;

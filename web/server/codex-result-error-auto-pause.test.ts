@@ -283,26 +283,28 @@ describe("Codex result-error auto-pause", () => {
       turnTarget: "current" as const,
     };
 
-    expect(isCodexAutoPauseRecoveryTesting({ ...target, isGenerating: true, pendingCodexTurns: [activeTurn] })).toBe(
-      true,
-    );
+    expect(isCodexAutoPauseRecoveryTesting({ ...target, pendingCodexTurns: [activeTurn] })).toBe(true);
     expect(
       isCodexAutoPauseRecoveryTesting({
         ...target,
-        isGenerating: true,
         pendingCodexTurns: [{ ...activeTurn, autoPauseSourceKind: "automatic" }],
       }),
     ).toBe(false);
     expect(
       isCodexAutoPauseRecoveryTesting({
         ...target,
-        isGenerating: true,
         pendingCodexTurns: [{ ...activeTurn, turnTarget: "queued" }],
       }),
     ).toBe(false);
-    expect(isCodexAutoPauseRecoveryTesting({ ...target, isGenerating: false, pendingCodexTurns: [activeTurn] })).toBe(
-      false,
-    );
+    expect(
+      isCodexAutoPauseRecoveryTesting({ ...target, pendingCodexTurns: [{ ...activeTurn, status: "queued" }] }),
+    ).toBe(true);
+    expect(
+      isCodexAutoPauseRecoveryTesting({
+        ...target,
+        pendingCodexTurns: [{ ...activeTurn, status: "completed" }],
+      }),
+    ).toBe(false);
   });
 
   it("keeps Copilot refresh auto-pause state independent across sessions", () => {
