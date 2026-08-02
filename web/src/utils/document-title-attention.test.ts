@@ -25,19 +25,25 @@ function needsInput(id: string, timestamp: number, done = false, muted = false):
   };
 }
 
+function sessionInbox(...notifications: SessionNotification[]): Map<string, SessionNotification[]> {
+  return new Map([["session", notifications]]);
+}
+
+interface TitleAttentionFixture {
+  sdkSessions: SdkSessionInfo[];
+  sessionNotifications?: Map<string, SessionNotification[]>;
+  pendingPermissions?: Map<string, Map<string, unknown>>;
+  sessionAttention?: Map<string, "action" | "error" | "review" | null>;
+  sessionStatus?: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
+}
+
 function countTitleAttention({
   sdkSessions,
   sessionNotifications = new Map(),
   pendingPermissions = new Map(),
   sessionAttention = new Map(),
   sessionStatus = new Map(),
-}: {
-  sdkSessions: SdkSessionInfo[];
-  sessionNotifications?: Map<string, SessionNotification[]>;
-  pendingPermissions?: Map<string, Map<string, unknown>>;
-  sessionAttention?: Map<string, "action" | "error" | "review" | null>;
-  sessionStatus?: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
-}): number {
+}: TitleAttentionFixture): number {
   // Keep unrelated attention state in this fixture so regressions cannot
   // accidentally reintroduce it into the needs-input-only title projection.
   const state = {
@@ -51,6 +57,15 @@ function countTitleAttention({
     countUserPermissions: (permissions: Map<string, unknown> | undefined) => permissions?.size ?? 0,
   };
   return getDocumentTitleAttentionCount(state);
+}
+
+function expectTitleProjection(
+  state: TitleAttentionFixture,
+  expected: { count: number; title: string },
+  base = "Macbook — Takode",
+): void {
+  const count = countTitleAttention(state);
+  expect({ count, title: formatDocumentTitle(base, count) }).toEqual(expected);
 }
 
 describe("getDocumentTitleAttentionCount", () => {
@@ -132,12 +147,62 @@ describe("getDocumentTitleAttentionCount", () => {
 
     expect(result).toBe(1);
   });
+});
 
-  it("follows fresh authoritative summaries over stale cached notifications", () => {
-    const sessionNotifications = new Map([["session", [needsInput("stale", 1)]]]);
+describe("document title notification transitions", () => {
+  it("updates the base title when an active needs-input notification is created", () => {
+    const sdkSessions = [sdk("session")];
 
-    expect(
-      countTitleAttention({
+    // A server inbox update should move the title from its zero state to one active prompt.
+    expectTitleProjection({ sdkSessions }, { count: 0, title: "Macbook — Takode" });
+    expectTitleProjection(
+      { sdkSessions, sessionNotifications: sessionInbox(needsInput("created", 1)) },
+      { count: 1, title: "(1) Macbook — Takode" },
+    );
+  });
+
+  it("removes the title prefix when the active notification is resolved", () => {
+    const sdkSessions = [sdk("session")];
+
+    // Resolution keeps the historical row but marks it done, so title projection must clear.
+    expectTitleProjection(
+      { sdkSessions, sessionNotifications: sessionInbox(needsInput("prompt", 1)) },
+      { count: 1, title: "(1) Macbook — Takode" },
+    );
+    expectTitleProjection(
+      { sdkSessions, sessionNotifications: sessionInbox(needsInput("prompt", 1, true)) },
+      { count: 0, title: "Macbook — Takode" },
+    );
+  });
+
+  it("removes and restores the title prefix across mute and unmute", () => {
+    const sdkSessions = [sdk("session")];
+
+    // Muting changes attention only; unmuting the unresolved prompt must restore its title count.
+    expectTitleProjection(
+      { sdkSessions, sessionNotifications: sessionInbox(needsInput("prompt", 1)) },
+      { count: 1, title: "(1) Macbook — Takode" },
+    );
+    expectTitleProjection(
+      { sdkSessions, sessionNotifications: sessionInbox(needsInput("prompt", 1, false, true)) },
+      { count: 0, title: "Macbook — Takode" },
+    );
+    expectTitleProjection(
+      { sdkSessions, sessionNotifications: sessionInbox(needsInput("prompt", 1)) },
+      { count: 1, title: "(1) Macbook — Takode" },
+    );
+  });
+
+  it("clears a stale cached prompt when a fresh server summary reports zero", () => {
+    const sessionNotifications = sessionInbox(needsInput("stale", 1));
+
+    // The same cached inbox is first usable, then gated out by newer authoritative summary state.
+    expectTitleProjection(
+      { sdkSessions: [sdk("session")], sessionNotifications },
+      { count: 1, title: "(1) Macbook — Takode" },
+    );
+    expectTitleProjection(
+      {
         sdkSessions: [
           sdk("session", {
             notificationUrgency: null,
@@ -147,15 +212,23 @@ describe("getDocumentTitleAttentionCount", () => {
           }),
         ],
         sessionNotifications,
-      }),
-    ).toBe(0);
+      },
+      { count: 0, title: "Macbook — Takode" },
+    );
   });
 
   it("drops a needs-input prompt when its session becomes archived", () => {
-    const sessionNotifications = new Map([["session", [needsInput("active", 1)]]]);
+    const sessionNotifications = sessionInbox(needsInput("active", 1));
 
-    expect(countTitleAttention({ sdkSessions: [sdk("session")], sessionNotifications })).toBe(1);
-    expect(countTitleAttention({ sdkSessions: [sdk("session", { archived: true })], sessionNotifications })).toBe(0);
+    // Archiving removes the session from both the bell aggregate and document-title projection.
+    expectTitleProjection(
+      { sdkSessions: [sdk("session")], sessionNotifications },
+      { count: 1, title: "(1) Macbook — Takode" },
+    );
+    expectTitleProjection(
+      { sdkSessions: [sdk("session", { archived: true })], sessionNotifications },
+      { count: 0, title: "Macbook — Takode" },
+    );
   });
 });
 
