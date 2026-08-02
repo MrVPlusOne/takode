@@ -961,6 +961,7 @@ export type BrowserIncomingMessageBase =
       type: "status_change";
       status: "compacting" | "reverting" | "idle" | "running" | null;
       activeTurnRoute?: ActiveTurnRoute | null;
+      codexAutoPauseRecoveryTesting?: boolean;
     }
   | { type: "permissions_cleared" }
   | { type: "auth_status"; isAuthenticating: boolean; output: string[]; error?: string }
@@ -1125,6 +1126,7 @@ export type BrowserIncomingMessageBase =
       attentionReason?: "action" | "error" | "review" | null;
       generationStartedAt?: number | null;
       activeTurnRoute?: ActiveTurnRoute | null;
+      codexAutoPauseRecoveryTesting?: boolean;
       board?: BoardRow[];
       completedBoard?: BoardRow[];
       leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
@@ -1426,6 +1428,8 @@ export interface SessionState {
   pause?: SessionPauseState | null;
   /** Codex-only auto-pause state for repeated classified terminal result errors. */
   codex_result_error_auto_pause?: CodexResultErrorAutoPauseState | null;
+  /** Ephemeral server-authored browser projection; never persisted as recovery state. */
+  codex_result_error_auto_pause_recovery_testing?: boolean;
   /** Questmaster: ID of the quest claimed by this session */
   claimedQuestId?: string;
   /** Questmaster: title of the claimed quest (for display without fetching) */

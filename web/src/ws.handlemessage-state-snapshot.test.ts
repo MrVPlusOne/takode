@@ -174,6 +174,25 @@ describe("handleMessage: state_snapshot", () => {
     expect(useStore.getState().askPermission.get("s1")).toBe(false);
   });
 
+  it("restores the authoritative recovery-testing projection on reconnect", () => {
+    // Reconnect/restart must reconstruct testing from server turn ownership,
+    // not a stale composer submit remembered by this browser.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "running",
+      permissionMode: "default",
+      backendConnected: true,
+      uiMode: null,
+      askPermission: true,
+      codexAutoPauseRecoveryTesting: true,
+    });
+
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_testing).toBe(true);
+  });
+
   it("stores backendState and backendError from the authoritative snapshot", () => {
     // The browser should trust the server snapshot for broken/recovering
     // backend health rather than inferring it from transient local state.

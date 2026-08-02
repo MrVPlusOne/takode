@@ -21,7 +21,11 @@ import {
 } from "./adapter-browser-routing-needs-input-reminder.js";
 import { isRecoverableCodexInitError } from "../codex-adapter-utils.js";
 import { isActualHumanUserInput, isActualHumanUserMessage } from "../user-message-classification.js";
-import { determineCodexTurnSourceKind, holdCodexAutoPausedQueuedBacklog } from "../codex-result-error-auto-pause.js";
+import {
+  determineCodexTurnSourceKind,
+  holdCodexAutoPausedQueuedBacklog,
+  isCodexAutoPauseRecoveryTesting,
+} from "../codex-result-error-auto-pause.js";
 import {
   armCodexFreshTurnRequirement as armCodexFreshTurnRequirementState,
   clearCodexFreshTurnRequirement as clearCodexFreshTurnRequirementState,
@@ -66,7 +70,16 @@ type CodexRecoveryAdapterLike = any;
 export interface CodexRecoveryOrchestratorSessionLike {
   id: string;
   backendType: "codex" | "claude" | "claude-sdk";
-  state: Pick<SessionState, "backend_state" | "backend_type" | "cwd" | "model" | "is_compacting" | "isOrchestrator">;
+  state: Pick<
+    SessionState,
+    | "backend_state"
+    | "backend_type"
+    | "cwd"
+    | "model"
+    | "is_compacting"
+    | "isOrchestrator"
+    | "codex_result_error_auto_pause"
+  >;
   messageHistory: BrowserIncomingMessage[];
   notifications?: SessionNotification[];
   pendingMessages: string[];
@@ -834,6 +847,19 @@ function clearCodexInitRecoveryState(session: CodexRecoveryOrchestratorSessionLi
   (session as any).codexAutoRecoveryReason = null;
 }
 
+function broadcastCodexAutoPauseRecoveryTesting(
+  session: CodexRecoveryOrchestratorSessionLike,
+  deps: Pick<CodexRecoveryOrchestratorDeps, "broadcastToBrowsers">,
+): void {
+  if (!session.state.codex_result_error_auto_pause?.pausedAt) return;
+  deps.broadcastToBrowsers(session, {
+    type: "session_update",
+    session: {
+      codex_result_error_auto_pause_recovery_testing: isCodexAutoPauseRecoveryTesting(session),
+    },
+  });
+}
+
 export function handleCodexAdapterInitError(
   sessionId: string,
   session: CodexRecoveryOrchestratorSessionLike,
@@ -963,6 +989,7 @@ export function registerCodexAdapterRecoveryLifecycle(
       reconcileCodexResumedTurn(session, meta.resumeSnapshot, deps);
     }
     clearCodexInitRecoveryState(session);
+    broadcastCodexAutoPauseRecoveryTesting(session, deps);
     reconcileDuplicateCodexPendingTurns(session, "session_meta", deps);
     retryNonDrainableCodexHeadTurn(session, "session_meta_stale_ack_head", deps);
     clearStaleCodexCompactionState(session, "session_meta_stale_compaction", deps);
@@ -1057,6 +1084,7 @@ export function registerCodexAdapterRecoveryLifecycle(
         deps.trackUserMessageForTurn(session, idx, pending.turnTarget);
       }
     }
+    broadcastCodexAutoPauseRecoveryTesting(session, deps);
     deps.persistSession(session);
     trySteerPendingCodexInputs(session, "codex_turn_started", deps);
   });

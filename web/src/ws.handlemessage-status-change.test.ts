@@ -160,4 +160,21 @@ describe("handleMessage: status_change", () => {
 
     expect(useStore.getState().activeTurnRoutes.get("s1")).toBeNull();
   });
+
+  it("tracks server-authored recovery testing and clears it on every terminal status", () => {
+    // Generic local running state is insufficient; only the server projection
+    // may switch the auto-pause banner into its testing copy.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({ type: "status_change", status: "running", codexAutoPauseRecoveryTesting: true });
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_testing).toBe(true);
+
+    fireMessage({ type: "status_change", status: "idle" });
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_testing).toBe(false);
+
+    fireMessage({ type: "status_change", status: "running", codexAutoPauseRecoveryTesting: true });
+    fireMessage({ type: "status_change", status: null });
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_testing).toBe(false);
+  });
 });

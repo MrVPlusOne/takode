@@ -336,7 +336,9 @@ describe("Codex auto-pause drain ownership", () => {
       session,
       expect.objectContaining({
         type: "session_update",
-        session: { codex_result_error_auto_pause: expect.objectContaining({ heldInputs: expect.any(Array) }) },
+        session: expect.objectContaining({
+          codex_result_error_auto_pause: expect.objectContaining({ heldInputs: expect.any(Array) }),
+        }),
       }),
     );
     expectEveryReleasedReceiptOwned(session);

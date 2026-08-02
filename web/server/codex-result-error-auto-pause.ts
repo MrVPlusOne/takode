@@ -37,6 +37,11 @@ export interface CodexResultErrorAutoPauseSessionLike {
   state: Pick<SessionState, "codex_result_error_auto_pause">;
 }
 
+export interface CodexAutoPauseRecoveryTestingSessionLike extends CodexResultErrorAutoPauseSessionLike {
+  isGenerating?: boolean;
+  pendingCodexTurns: Array<Pick<CodexOutboundTurn, "autoPauseSourceKind" | "status" | "turnTarget">>;
+}
+
 export interface CodexAutoPausedQueuedBacklogSessionLike extends CodexResultErrorAutoPauseSessionLike {
   pendingCodexInputs: PendingCodexInput[];
   pendingCodexTurns: CodexOutboundTurn[];
@@ -216,6 +221,18 @@ export function getActiveCodexResultErrorAutoPause(
 ): CodexResultErrorAutoPauseState | null {
   const state = session?.state.codex_result_error_auto_pause ?? null;
   return state?.pausedAt ? state : null;
+}
+
+export function isCodexAutoPauseRecoveryTesting(
+  session: CodexAutoPauseRecoveryTestingSessionLike | null | undefined,
+): boolean {
+  if (!session?.isGenerating || !getActiveCodexResultErrorAutoPause(session)) return false;
+  return session.pendingCodexTurns.some(
+    (turn) =>
+      turn.turnTarget === "current" &&
+      turn.autoPauseSourceKind === "manual" &&
+      (turn.status === "dispatched" || turn.status === "backend_acknowledged"),
+  );
 }
 
 export function getCodexAutoPauseHeldInputCount(state: CodexResultErrorAutoPauseState | null | undefined): number {

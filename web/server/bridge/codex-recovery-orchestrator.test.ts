@@ -161,6 +161,7 @@ function makeLifecycleAdapter(disconnectDiagnostics: Record<string, unknown> | n
     rollbackTurns: vi.fn(async () => {}),
     emitDisconnect: () => callbacks.disconnect?.(),
     emitSessionMeta: (meta: any) => callbacks.sessionMeta?.(meta),
+    emitTurnStarted: (turnId: string) => callbacks.turnStarted?.(turnId),
     emitTurnSteerFailed: (pendingInputIds: string[]) => callbacks.turnSteerFailed?.(pendingInputIds),
   };
 }
@@ -1205,6 +1206,53 @@ describe("reconcileCodexResumedTurn", () => {
 describe("registerCodexAdapterRecoveryLifecycle", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("broadcasts testing only after the current manual recovery turn is backend-confirmed", () => {
+    // The initial optimistic running transition is deliberately insufficient;
+    // turn/start acknowledgement confirms the current server-owned manual turn.
+    const session = makeSession([{ id: "input-1", content: "test recovery", timestamp: 1_000, cancelable: false }]);
+    prepareLifecycleSession(session);
+    session.isGenerating = true;
+    session.state.codex_result_error_auto_pause = {
+      family: "copilot_auth_refresh_exhausted",
+      fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+      streak: 1,
+      threshold: 1,
+      pausedAt: 900,
+      lastError: "GitHub Copilot API-key refresh exhausted its retry budget.",
+      lastErrorAt: 900,
+      lastSourceKind: "automatic",
+      totalMatchingErrors: 1,
+      heldInputs: [],
+    };
+    const pending = makePendingTurn();
+    pending.autoPauseSourceKind = "manual";
+    session.pendingCodexTurns = [pending];
+    const adapter = makeLifecycleAdapter();
+    const deps = makeLifecycleDeps({ getCodexTurnAwaitingAck: vi.fn(() => pending) });
+
+    session.codexAdapter = adapter as any;
+    registerCodexAdapterRecoveryLifecycle(session.id, session, adapter, deps);
+    adapter.emitTurnStarted("turn-manual-recovery");
+
+    expect(pending).toMatchObject({
+      turnId: "turn-manual-recovery",
+      status: "backend_acknowledged",
+      turnTarget: "current",
+      autoPauseSourceKind: "manual",
+    });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "session_update",
+      session: { codex_result_error_auto_pause_recovery_testing: true },
+    });
+
+    vi.mocked(deps.broadcastToBrowsers).mockClear();
+    adapter.emitSessionMeta({ cliSessionId: "thread-reconnected" });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "session_update",
+      session: { codex_result_error_auto_pause_recovery_testing: true },
+    });
   });
 
   it("collapses duplicate queued and backend-ack pending turns after recovery session_meta", () => {

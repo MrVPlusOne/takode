@@ -1355,6 +1355,11 @@ function handleParsedMessage(
       if ("activeTurnRoute" in data || data.status !== "running") {
         store.setActiveTurnRoute(sessionId, data.status === "running" ? data.activeTurnRoute : null);
       }
+      if (data.codexAutoPauseRecoveryTesting !== undefined || data.status !== "running") {
+        store.updateSession(sessionId, {
+          codex_result_error_auto_pause_recovery_testing: data.codexAutoPauseRecoveryTesting ?? false,
+        });
+      }
       // Any status change clears stuck flag
       store.setSessionStuck(sessionId, false);
       break;
@@ -1481,6 +1486,9 @@ function handleParsedMessage(
       store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
       store.setActiveTurnRoute(sessionId, data.sessionStatus === "running" ? data.activeTurnRoute : null);
       store.setCliConnected(sessionId, data.backendConnected);
+      store.updateSession(sessionId, {
+        codex_result_error_auto_pause_recovery_testing: data.codexAutoPauseRecoveryTesting ?? false,
+      });
       // state_snapshot is sent after subscribe replay completes. If no
       // message_history/history_sync arrived, this was an empty-history
       // session and the optimistic loading placeholder should be cleared.

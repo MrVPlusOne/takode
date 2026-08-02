@@ -60,6 +60,7 @@ import { buildBoardRowSessionStatuses } from "./board-row-session-status.js";
 import * as gitUtils from "./git-utils.js";
 import { sessionTag } from "./session-tag.js";
 import { isSessionPaused } from "./session-pause.js";
+import { isCodexAutoPauseRecoveryTesting } from "./codex-result-error-auto-pause.js";
 import type { PerfTracer } from "./perf-tracer.js";
 import { HerdEventDispatcher, isSessionIdleRuntime } from "./herd-event-dispatcher.js";
 import { injectCompactionRecovery as injectCompactionRecoveryController } from "./bridge/compaction-recovery.js";
@@ -1212,6 +1213,7 @@ export function getBrowserRoutingDeps(host: any) {
         status,
         activeTurnRoute:
           status === "running" ? deriveActiveTurnRouteBrowserTransportController(targetSession as Session) : null,
+        codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(targetSession as Session),
       }),
     setCodexImageSendStage: (
       targetSession: unknown,
@@ -1437,6 +1439,7 @@ export function getGenerationLifecycleDeps(host: any) {
         type: "status_change",
         status,
         activeTurnRoute: status === "running" ? deriveActiveTurnRouteBrowserTransportController(session) : null,
+        codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
       });
     },
     broadcastSessionUpdate: (session: Session, update: Record<string, unknown>) => {

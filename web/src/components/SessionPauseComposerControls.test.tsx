@@ -3,7 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PausedInputChip, PauseOtherSourcesButton } from "./SessionPauseComposerControls.js";
-import type { SessionPauseState } from "../types.js";
+import type { CodexResultErrorAutoPauseState, SessionPauseState } from "../types.js";
 
 afterEach(() => {
   cleanup();
@@ -29,6 +29,36 @@ function makePauseState(): SessionPauseState {
         queuedAt: new Date("2026-05-08T10:16:00Z").getTime(),
         source: "browser",
         message: { type: "user_message", content: "Browser-origin external send" },
+      },
+    ],
+  };
+}
+
+function makeAutoPauseState(
+  family: CodexResultErrorAutoPauseState["family"] = "copilot_auth_refresh_exhausted",
+): CodexResultErrorAutoPauseState {
+  return {
+    family,
+    fingerprint: "PRIVATE FINGERPRINT MUST NOT RENDER",
+    streak: family === "copilot_auth_refresh_exhausted" ? 1 : 3,
+    threshold: family === "copilot_auth_refresh_exhausted" ? 1 : 3,
+    pausedAt: new Date("2026-05-08T10:15:00Z").getTime(),
+    lastError: "PRIVATE RAW PROVIDER ERROR MUST NOT RENDER",
+    lastErrorAt: new Date("2026-05-08T11:45:00Z").getTime(),
+    lastSourceKind: "manual",
+    totalMatchingErrors: 4,
+    heldInputs: [
+      {
+        id: "held-herd",
+        queuedAt: new Date("2026-05-08T10:16:00Z").getTime(),
+        lastQueuedAt: new Date("2026-05-08T10:17:00Z").getTime(),
+        source: "programmatic",
+        count: 2,
+        message: {
+          type: "user_message",
+          content: "PRIVATE HELD PAYLOAD MUST NOT RENDER",
+          agentSource: { sessionId: "herd-events", sessionLabel: "PRIVATE TRUSTED ROUTE LABEL MUST NOT RENDER" },
+        },
       },
     ],
   };
@@ -118,47 +148,89 @@ describe("PausedInputChip", () => {
     ).toBeTruthy();
   });
 
-  it("explains successful exact-once recovery and failed-probe retention", async () => {
-    // Auto-pause recovery is intentionally implicit in the composer send, so the copy must state both outcomes.
+  it("renders the fixed Copilot cause, original pause time, idle contract, and sanitized held list", async () => {
+    // Cause and timestamp come only from the closed family plus original pausedAt;
+    // later errors and private held/provider data must never leak into visible copy.
+    const autoPause = makeAutoPauseState();
     render(
       <PausedInputChip
         pause={null}
         heldCount={0}
-        autoPausedHeldCount={1}
+        autoPausedHeldCount={2}
         directComposerMessagesSend={true}
-        autoPause={{
-          family: "copilot_auth_refresh_exhausted",
-          fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
-          streak: 1,
-          threshold: 1,
-          pausedAt: 1_000,
-          lastError: "GitHub Copilot API-key refresh exhausted its retry budget.",
-          lastErrorAt: 1_000,
-          lastSourceKind: "automatic",
-          totalMatchingErrors: 1,
-          heldInputs: [
-            {
-              id: "held-herd",
-              queuedAt: 1_100,
-              lastQueuedAt: 1_100,
-              source: "programmatic",
-              count: 1,
-              message: { type: "user_message", content: "held event", agentSource: { sessionId: "herd-events" } },
-            },
-          ],
-        }}
+        autoPause={autoPause}
       />,
     );
 
+    const pausedTime = new Date(autoPause.pausedAt!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    expect(screen.getByTestId("composer-paused-chip").textContent).toContain("Automatic inputs paused· 2 held");
+    expect(screen.getByText(`Cause: Copilot authentication refresh failed at ${pausedTime}.`)).toBeTruthy();
+    expect(screen.getByText("Send a direct message to test recovery.")).toBeTruthy();
+    expect(
+      screen.getByText("If it succeeds, held inputs release automatically. If it fails, they remain held."),
+    ).toBeTruthy();
+    expect(document.body.textContent).not.toContain("PRIVATE RAW PROVIDER ERROR");
+    expect(document.body.textContent).not.toContain("PRIVATE FINGERPRINT");
+    expect(document.body.textContent).not.toContain("PRIVATE TRUSTED ROUTE LABEL");
+
+    await userEvent.click(screen.getByTestId("composer-paused-chip"));
+    const list = screen.getByTestId("composer-held-input-list");
+    expect(list.textContent).toContain("Herd Events");
+    expect(list.textContent).toContain("Held herd event");
+    expect(list.textContent).toContain("x2");
+    expect(list.textContent).not.toContain("PRIVATE HELD PAYLOAD");
+  });
+
+  it("uses the repeated-stream cause and exact server-confirmed testing copy with polite mobile-safe status", () => {
+    render(
+      <PausedInputChip
+        pause={null}
+        heldCount={0}
+        autoPausedHeldCount={2}
+        directComposerMessagesSend={true}
+        autoPause={makeAutoPauseState("model_backend_stream_error")}
+        autoPauseRecoveryTesting={true}
+      />,
+    );
+
+    expect(screen.getByText(/Cause: Model backend stream disconnected repeatedly at/)).toBeTruthy();
     expect(
       screen.getByText(
-        "Send a direct composer message to test recovery. Success releases held inputs exactly once; failure keeps them held.",
+        "Testing recovery with your current message. Held inputs will release automatically if it succeeds.",
       ),
     ).toBeTruthy();
-    expect(screen.getByTestId("composer-paused-chip").getAttribute("title")).toContain(
-      "A successful direct composer message releases 1 held input exactly once; a failed probe keeps them held.",
+    expect(screen.queryByText("Send a direct message to test recovery.")).toBeNull();
+    const guidance = screen.getByTestId("composer-auto-pause-guidance");
+    expect(guidance.getAttribute("role")).toBe("status");
+    expect(guidance.getAttribute("aria-live")).toBe("polite");
+    expect(guidance.getAttribute("aria-atomic")).toBe("true");
+    expect(guidance.className).toContain("break-words");
+    expect(guidance.parentElement?.className).toContain("flex-wrap");
+  });
+
+  it("returns a failed manual probe to idle copy and clears the banner after successful recovery", () => {
+    const { rerender } = render(
+      <PausedInputChip
+        pause={null}
+        heldCount={0}
+        autoPausedHeldCount={2}
+        directComposerMessagesSend={true}
+        autoPause={makeAutoPauseState()}
+        autoPauseRecoveryTesting={false}
+      />,
     );
-    await userEvent.click(screen.getByTestId("composer-paused-chip"));
-    expect(screen.getByTestId("composer-held-input-list").textContent).toContain("held event");
+
+    expect(screen.getByText("Send a direct message to test recovery.")).toBeTruthy();
+    rerender(
+      <PausedInputChip
+        pause={null}
+        heldCount={0}
+        autoPausedHeldCount={0}
+        directComposerMessagesSend={true}
+        autoPause={null}
+        autoPauseRecoveryTesting={false}
+      />,
+    );
+    expect(screen.queryByTestId("composer-paused-chip")).toBeNull();
   });
 });

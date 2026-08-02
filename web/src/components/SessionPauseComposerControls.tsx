@@ -1,5 +1,11 @@
 import { useMemo, useState } from "react";
-import type { CodexAutoPauseHeldInput, PausedInboundMessage, SessionPauseState, SessionState } from "../types.js";
+import type {
+  CodexAutoPauseHeldInput,
+  CodexResultErrorFamily,
+  PausedInboundMessage,
+  SessionPauseState,
+  SessionState,
+} from "../types.js";
 
 function PauseIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -19,19 +25,46 @@ function PlayIcon({ className = "h-4 w-4" }: { className?: string }) {
 
 type HeldInputListItem = PausedInboundMessage | CodexAutoPauseHeldInput;
 
-function formatHeldSource(item: HeldInputListItem): string {
+function formatHeldSource(item: HeldInputListItem, sanitizeAutomaticRouting: boolean): string {
+  if (sanitizeAutomaticRouting) {
+    if (item.message.takodeHerdBatch || item.message.agentSource?.sessionId === "herd-events") return "Herd Events";
+    if (item.message.agentSource?.sessionId.startsWith("timer:")) return "Timer";
+    return item.source === "programmatic" ? "Automatic" : "Browser";
+  }
   if (item.message.agentSource?.sessionLabel) return item.message.agentSource.sessionLabel;
   if (item.message.agentSource?.sessionId) return item.message.agentSource.sessionId;
   if (item.message.takodeHerdBatch) return "Herd";
   return item.source === "programmatic" ? "External" : "Browser";
 }
 
-function formatHeldPreview(item: HeldInputListItem): string {
+function formatHeldPreview(item: HeldInputListItem, sanitizeAutomaticPayload: boolean): string {
+  if (sanitizeAutomaticPayload) {
+    if (item.message.takodeHerdBatch || item.message.agentSource?.sessionId === "herd-events") return "Held herd event";
+    if (item.message.agentSource?.sessionId.startsWith("timer:")) return "Held timer input";
+    const imageCount = item.message.imageRefs?.length ?? 0;
+    if (imageCount > 0) return `Held input with ${imageCount} image attachment${imageCount === 1 ? "" : "s"}`;
+    return item.source === "programmatic" ? "Held automatic input" : "Held browser input";
+  }
   const content = item.message.content.trim();
   if (content) return content;
   const imageCount = item.message.imageRefs?.length ?? 0;
   if (imageCount > 0) return `${imageCount} prepared image attachment${imageCount === 1 ? "" : "s"}`;
   return "Held input";
+}
+
+function fixedAutoPauseCause(family: CodexResultErrorFamily): string {
+  switch (family) {
+    case "copilot_auth_refresh_exhausted":
+      return "Copilot authentication refresh failed";
+    case "model_backend_stream_error":
+      return "Model backend stream disconnected repeatedly";
+    default:
+      return "Model backend error";
+  }
+}
+
+function formatAutoPauseTime(pausedAt: number): string {
+  return new Date(pausedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 function formatHeldTime(item: HeldInputListItem): string {
@@ -92,12 +125,14 @@ export function PauseOtherSourcesButton({
 export function PausedInputChip({
   pause,
   autoPause,
+  autoPauseRecoveryTesting = false,
   heldCount,
   autoPausedHeldCount = 0,
   directComposerMessagesSend,
 }: {
   pause: SessionPauseState | null | undefined;
   autoPause?: SessionState["codex_result_error_auto_pause"];
+  autoPauseRecoveryTesting?: boolean;
   heldCount: number;
   autoPausedHeldCount?: number;
   directComposerMessagesSend: boolean;
@@ -113,17 +148,20 @@ export function PausedInputChip({
         queued.reduce((total, item) => total + getHeldCount(item), 0),
       );
   const label = visibleCount === 1 ? "1 held input" : `${visibleCount} held inputs`;
-  const listTitle = useMemo(
-    () =>
-      visibleCount > 0
-        ? isAutoPause
-          ? `Automatic input sources are paused after a Codex backend error. A successful direct composer message releases ${label} exactly once; a failed probe keeps them held.`
-          : `Other input sources are paused. ${label} will release after resume.`
-        : directComposerMessagesSend
-          ? "Other input sources are paused. Direct composer messages still send."
-          : "Other input sources are paused. Direct composer messages still need the session to resume.",
-    [directComposerMessagesSend, isAutoPause, label, visibleCount],
-  );
+  const compactLabel = `${visibleCount} held`;
+  const autoPauseCause = isAutoPause
+    ? `Cause: ${fixedAutoPauseCause(autoPause.family)} at ${formatAutoPauseTime(autoPause.pausedAt!)}.`
+    : "";
+  const autoPauseGuidance = autoPauseRecoveryTesting
+    ? "Testing recovery with your current message. Held inputs will release automatically if it succeeds."
+    : "Send a direct message to test recovery. If it succeeds, held inputs release automatically. If it fails, they remain held.";
+  const listTitle = useMemo(() => {
+    if (isAutoPause) return `Automatic inputs paused, ${label}. ${autoPauseCause} ${autoPauseGuidance}`;
+    if (visibleCount > 0) return `Other input sources are paused. ${label} will release after resume.`;
+    return directComposerMessagesSend
+      ? "Other input sources are paused. Direct composer messages still send."
+      : "Other input sources are paused. Direct composer messages still need the session to resume.";
+  }, [autoPauseCause, autoPauseGuidance, directComposerMessagesSend, isAutoPause, label, visibleCount]);
 
   if (!isManualPause && !isAutoPause) return null;
 
@@ -140,16 +178,36 @@ export function PausedInputChip({
             className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left font-medium text-amber-200 transition-colors hover:bg-amber-400/10 cursor-pointer"
           >
             <PauseIcon className="h-3.5 w-3.5 shrink-0" />
-            <span className="shrink-0">{isAutoPause ? "Automatic sources paused" : "Other sources paused"}</span>
-            <span className="rounded bg-amber-400/20 px-1.5 py-0.5 font-mono-code text-[10px]">{label}</span>
+            <span className="shrink-0">{isAutoPause ? "Automatic inputs paused" : "Other sources paused"}</span>
+            <span className="rounded bg-amber-400/20 px-1.5 py-0.5 font-mono-code text-[10px]">
+              {isAutoPause ? `· ${compactLabel}` : label}
+            </span>
           </button>
-          <span className="min-w-0 flex-1 text-amber-200/80">
-            {isAutoPause
-              ? "Send a direct composer message to test recovery. Success releases held inputs exactly once; failure keeps them held."
-              : directComposerMessagesSend
+          {isAutoPause ? (
+            <div
+              data-testid="composer-auto-pause-guidance"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className="min-w-0 basis-full space-y-0.5 break-words text-amber-200/80 sm:pl-1"
+            >
+              <p>{autoPauseCause}</p>
+              {autoPauseRecoveryTesting ? (
+                <p>{autoPauseGuidance}</p>
+              ) : (
+                <>
+                  <p>Send a direct message to test recovery.</p>
+                  <p>If it succeeds, held inputs release automatically. If it fails, they remain held.</p>
+                </>
+              )}
+            </div>
+          ) : (
+            <span className="min-w-0 flex-1 text-amber-200/80">
+              {directComposerMessagesSend
                 ? "Direct composer messages still send. External input waits here."
                 : "Direct composer messages still need the session to resume. External input waits here."}
-          </span>
+            </span>
+          )}
         </div>
         {open && (
           <div
@@ -164,8 +222,8 @@ export function PausedInputChip({
                   key={item.id}
                   className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2 border-t border-amber-400/10 px-2.5 py-2 first:border-t-0"
                 >
-                  <span className="font-medium text-amber-100">{formatHeldSource(item)}</span>
-                  <span className="min-w-0 truncate text-amber-100/80">{formatHeldPreview(item)}</span>
+                  <span className="font-medium text-amber-100">{formatHeldSource(item, isAutoPause)}</span>
+                  <span className="min-w-0 truncate text-amber-100/80">{formatHeldPreview(item, isAutoPause)}</span>
                   <span className="flex items-center gap-1 font-mono-code text-[10px] text-amber-100/60">
                     {getHeldCount(item) > 1 && (
                       <span className="rounded bg-amber-400/15 px-1">x{getHeldCount(item)}</span>

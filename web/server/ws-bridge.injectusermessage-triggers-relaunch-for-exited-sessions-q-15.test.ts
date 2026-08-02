@@ -1008,6 +1008,12 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
       pausedAt: expect.any(Number),
       streak: 2,
     });
+    expect(browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: false }),
+      }),
+    );
     expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
 
     await (bridge as any).handleCodexResultErrorAutoPause(
@@ -1038,6 +1044,10 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     );
     expect(summaryIndex).toBeGreaterThanOrEqual(0);
     expect(pauseClearedIndex).toBeGreaterThan(summaryIndex);
+    expect(recoveryEvents[pauseClearedIndex]?.session).toMatchObject({
+      codex_result_error_auto_pause: null,
+      codex_result_error_auto_pause_recovery_testing: false,
+    });
 
     expect(session.state.codex_result_error_auto_pause).toBeNull();
     expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);

@@ -40,6 +40,7 @@ export function useComposerSessionView(sessionId: string) {
         pause: sessionData?.pause ?? null,
         pausedInputQueueCount: sessionData?.pause?.queuedMessages.length ?? 0,
         codexResultErrorAutoPause: sessionData?.codex_result_error_auto_pause ?? null,
+        codexAutoPauseRecoveryTesting: sessionData?.codex_result_error_auto_pause_recovery_testing === true,
         codexAutoPausedInputCount:
           sessionData?.codex_result_error_auto_pause?.heldInputs.reduce(
             (total, item) => total + Math.max(1, item.count),

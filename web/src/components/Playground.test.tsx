@@ -233,7 +233,20 @@ describe("Playground", () => {
     // Message-related lifecycle states must remain inspectable without a live server or backend.
     render(<Playground />);
 
-    expect(screen.getByText("Codex backend-error auto-pause")).toBeTruthy();
+    expect(screen.getByText("Automatic recovery paused — Copilot cause")).toBeTruthy();
+    expect(screen.getByText("Automatic recovery testing — repeated stream cause")).toBeTruthy();
+    expect(screen.getByText("Failed recovery remains held")).toBeTruthy();
+    expect(screen.getAllByText(/Cause: Copilot authentication refresh failed at/)).toHaveLength(2);
+    expect(screen.getByText(/Cause: Model backend stream disconnected repeatedly at/)).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Testing recovery with your current message. Held inputs will release automatically if it succeeds.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByTestId("playground-auto-pause-mobile-width").className).toContain("max-w-[320px]");
+    expect(document.body.textContent).not.toContain("PRIVATE RAW PROVIDER ERROR");
+    expect(document.body.textContent).not.toContain("PRIVATE HELD HERD PAYLOAD");
+    expect(document.body.textContent).not.toContain("PRIVATE TRUSTED ROUTE LABEL");
     const realChat = within(screen.getByTestId("playground-real-chat-stack"));
     expect(realChat.getByRole("region", { name: "Automatic input recovery summary" })).toBeTruthy();
     expect(realChat.getByText("Herd Events · turn_end")).toBeTruthy();

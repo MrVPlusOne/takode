@@ -48,6 +48,7 @@ import {
 import {
   buildCodexAutoPauseDiagnostic,
   getActiveCodexResultErrorAutoPause,
+  isCodexAutoPauseRecoveryTesting,
   isAutomaticCodexAutoPauseInput,
   queueCodexAutoPausedInput,
 } from "../codex-result-error-auto-pause.js";
@@ -989,6 +990,7 @@ export function sendStateSnapshot(
     attentionReason: session.attentionReason,
     generationStartedAt: session.generationStartedAt ?? null,
     activeTurnRoute: deriveActiveTurnRoute(session),
+    codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
     board,
     completedBoard,
     leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),

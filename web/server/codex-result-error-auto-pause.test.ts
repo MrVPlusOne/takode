@@ -5,6 +5,7 @@ import {
   determineCodexTurnSourceKind,
   determineUserMessageSourceKind,
   getCodexAutoPauseHeldInputCount,
+  isCodexAutoPauseRecoveryTesting,
   materializeCodexAutoPausedInputsForDrain,
   noteCodexResultForAutoPause,
   queueCodexAutoPausedInput,
@@ -269,6 +270,39 @@ describe("Codex result-error auto-pause", () => {
 
     expect(determineCodexTurnSourceKind([manual])).toBe("manual");
     expect(determineCodexTurnSourceKind([manual, automatic])).toBe("automatic");
+  });
+
+  it("derives recovery testing only from an active current manual turn under the existing pause", () => {
+    // The browser must not infer testing from a local submit or generic running
+    // status; current server-owned turn source and ownership are both required.
+    const target = session();
+    noteCodexResultForAutoPause(target, copilotAuthRefreshResult(), turn("automatic"), 100);
+    const activeTurn = {
+      autoPauseSourceKind: "manual" as const,
+      status: "backend_acknowledged" as const,
+      turnTarget: "current" as const,
+    };
+
+    expect(isCodexAutoPauseRecoveryTesting({ ...target, isGenerating: true, pendingCodexTurns: [activeTurn] })).toBe(
+      true,
+    );
+    expect(
+      isCodexAutoPauseRecoveryTesting({
+        ...target,
+        isGenerating: true,
+        pendingCodexTurns: [{ ...activeTurn, autoPauseSourceKind: "automatic" }],
+      }),
+    ).toBe(false);
+    expect(
+      isCodexAutoPauseRecoveryTesting({
+        ...target,
+        isGenerating: true,
+        pendingCodexTurns: [{ ...activeTurn, turnTarget: "queued" }],
+      }),
+    ).toBe(false);
+    expect(isCodexAutoPauseRecoveryTesting({ ...target, isGenerating: false, pendingCodexTurns: [activeTurn] })).toBe(
+      false,
+    );
   });
 
   it("keeps Copilot refresh auto-pause state independent across sessions", () => {

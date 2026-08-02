@@ -770,6 +770,7 @@ export function Composer({
   const isPaused = !!pauseState?.pausedAt;
   const pausedInputQueueCount = sessionView.pausedInputQueueCount;
   const codexResultErrorAutoPause = sessionView.codexResultErrorAutoPause;
+  const codexAutoPauseRecoveryTesting = sessionView.codexAutoPauseRecoveryTesting;
   const codexAutoPausedInputCount = sessionView.codexAutoPausedInputCount;
   const { codexModelOptions, codexFastServiceTier } = useCodexModelOptions({
     isCodex,
@@ -1873,6 +1874,7 @@ export function Composer({
               <PausedInputChip
                 pause={pauseState}
                 autoPause={codexResultErrorAutoPause}
+                autoPauseRecoveryTesting={codexAutoPauseRecoveryTesting}
                 heldCount={pausedInputQueueCount}
                 autoPausedHeldCount={codexAutoPausedInputCount}
                 directComposerMessagesSend={isConnected}

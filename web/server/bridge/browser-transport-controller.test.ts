@@ -359,6 +359,56 @@ describe("tree_groups_update replay-buffer exclusion", () => {
 });
 
 describe("Codex auto-pause recovery summary fanout", () => {
+  it("projects active manual recovery testing authoritatively to reconnecting browsers", () => {
+    // Restored pending-turn metadata is sufficient to reconstruct the same
+    // presentation fact after restart; no browser-local composer state participates.
+    const first = { send: vi.fn() };
+    const second = { send: vi.fn() };
+    const session = makeSession({
+      isGenerating: true,
+      state: {
+        permissionMode: "default",
+        codex_result_error_auto_pause: {
+          family: "copilot_auth_refresh_exhausted",
+          fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+          streak: 1,
+          threshold: 1,
+          pausedAt: 123,
+          lastError: "GitHub Copilot API-key refresh exhausted its retry budget.",
+          lastErrorAt: 456,
+          lastSourceKind: "automatic",
+          totalMatchingErrors: 1,
+          heldInputs: [],
+        },
+      } as any,
+      pendingCodexTurns: [
+        {
+          autoPauseSourceKind: "manual",
+          status: "backend_acknowledged",
+          turnTarget: "current",
+        } as any,
+      ],
+    });
+
+    sendStateSnapshot(session, first, makeInjectDeps());
+    sendStateSnapshot(session, second, makeInjectDeps());
+
+    for (const socket of [first, second]) {
+      expect(JSON.parse(String(socket.send.mock.calls[0]?.[0]))).toMatchObject({
+        type: "state_snapshot",
+        codexAutoPauseRecoveryTesting: true,
+      });
+    }
+
+    session.isGenerating = false;
+    const afterInterruption = { send: vi.fn() };
+    sendStateSnapshot(session, afterInterruption, makeInjectDeps());
+    expect(JSON.parse(String(afterInterruption.send.mock.calls[0]?.[0]))).toMatchObject({
+      type: "state_snapshot",
+      codexAutoPauseRecoveryTesting: false,
+    });
+  });
+
   it("keeps persisted recovery-transfer payloads out of browser state snapshots", () => {
     const ws = { send: vi.fn() };
     const session = makeSession({

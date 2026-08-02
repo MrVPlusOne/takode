@@ -1,6 +1,7 @@
 import {
   buildCodexAutoPauseDiagnostic,
   getActiveCodexResultErrorAutoPause,
+  isCodexAutoPauseRecoveryTesting,
   isAutomaticCodexAutoPauseInput,
   materializeCodexAutoPausedInputsForDrain,
   noteCodexResultForAutoPause,
@@ -167,6 +168,9 @@ function broadcastCodexResultErrorAutoPauseUpdate(
 ): void {
   deps.broadcastToBrowsers(session, {
     type: "session_update",
-    session: { codex_result_error_auto_pause: session.state.codex_result_error_auto_pause ?? null },
+    session: {
+      codex_result_error_auto_pause: session.state.codex_result_error_auto_pause ?? null,
+      codex_result_error_auto_pause_recovery_testing: isCodexAutoPauseRecoveryTesting(session),
+    },
   });
 }
