@@ -177,13 +177,29 @@ Iteration counts are not time bounds: SSH connection attempts and remote health 
 Set `EVIDENCE_DIR`, `STATE_FILE`, `LAUNCHD_LABEL`, `PLIST_PATH`, `SUPERVISOR_PATH`, `CONFIG_PATH`, `STATE_DIR`, `RELAY_HOST`, `RELAY_APPLICATION_PORT`, and `RELAY_MONITOR_PORT` from the approved packet. Establish the deadline immediately before bootstrap so process launch time is included, then use this shape:
 
 ```bash
+attempt_utc=$(date -u +%Y%m%dT%H%M%SZ)
+attempt_token=$(uuidgen | tr '[:upper:]' '[:lower:]')
+case "$attempt_token" in
+  ""|*[!a-z0-9-]*) echo "invalid readiness attempt token" >&2; exit 1 ;;
+esac
+attempt_dir="$EVIDENCE_DIR/readiness-attempt-$attempt_utc-$attempt_token"
+umask 077
+mkdir -m 700 "$attempt_dir" || { echo "readiness attempt path already exists" >&2; exit 1; }
+
 started_epoch=$(date +%s)
 deadline=$(( started_epoch + 30 ))
-trace="$EVIDENCE_DIR/readiness.tsv"
+trace="$attempt_dir/readiness.tsv"
+first_ready="$attempt_dir/readiness.first-ready.tsv"
+first_ready_tmp="$attempt_dir/.readiness.first-ready.tmp"
+[ ! -e "$trace" ] && [ ! -e "$first_ready" ] && [ ! -e "$first_ready_tmp" ] || {
+  echo "readiness attempt path is not empty" >&2
+  exit 1
+}
 trace_header=$(printf 'started_epoch\tdeadline\tobserved_epoch\tobserved_utc\tfirst_ready_epoch\tlaunchd_pid\tstatus_supervisor_pid\tactual_child_ppid\tchild_pid\tchild_pgid\tactual_child_pgid\tsupervisor_count\tchild_count\tapp_listeners\tmonitor_listeners\tapp_owner_pid\tapp_owner_type\tapp_owner_is_sshd\tstatus_state\tlocal_health\tupstream_health\tcoherent')
 printf '%s\n' "$trace_header" > "$trace"
 chmod 600 "$trace"
 first_ready_epoch=0
+printf 'readiness_attempt=%s\n' "$attempt_dir"
 launchctl bootstrap "gui/$UID" "$PLIST_PATH"
 
 while :; do
@@ -238,18 +254,25 @@ while :; do
   printf '%s\n' "$poll_row" >> "$trace"
 
   if [ "$first_ready_epoch" -gt 0 ]; then
-    printf '%s\n%s\n' "$trace_header" "$poll_row" > "$trace.first-ready"
-    chmod 600 "$trace.first-ready"
+    (umask 077; printf '%s\n%s\n' "$trace_header" "$poll_row" > "$first_ready_tmp") || exit 1
+    chmod 600 "$first_ready_tmp" || { rm -f "$first_ready_tmp"; exit 1; }
+    ln "$first_ready_tmp" "$first_ready" || { rm -f "$first_ready_tmp"; exit 1; }
+    rm -f "$first_ready_tmp" || true
     break
   fi
   [ "$observed_epoch" -ge "$deadline" ] && break
   sleep 0.25
 done
 
-[ "$first_ready_epoch" -gt 0 ] || { echo "readiness deadline missed" >&2; exit 1; }
+if [ "$first_ready_epoch" -le 0 ]; then
+  rm -f "$first_ready_tmp"
+  [ ! -e "$first_ready" ] || { echo "unexpected first-ready artifact" >&2; exit 1; }
+  echo "readiness deadline missed" >&2
+  exit 1
+fi
 ```
 
-Use the old fixed monitor port during migration; after cutover, `RELAY_MONITOR_PORT` remains that retired port so the monitor requires it to stay absent. Retain the trace even when readiness fails. `trace.first-ready` repeats the immutable header and the complete accepted row, including its start, deadline, observation, first-ready, owner, listener, state, and health fields, so the 30-second predicate can be audited without shell state or another file. Record HTTPS, WebSocket, ordinary/IAP access, and 5xx checks as separate evidence after the coherent edge; do not fold slow end-to-end probes into the readiness loop.
+Use the old fixed monitor port during migration; after cutover, `RELAY_MONITOR_PORT` remains that retired port so the monitor requires it to stay absent. The timestamp-plus-UUID attempt directory is created before bootstrap and is the sole proof scope for that run; record the printed `readiness_attempt` path and never glob the evidence root or reuse another attempt as current proof. Retain each attempt trace even when readiness fails. A failed attempt has no `readiness.first-ready.tsv`; a successful attempt publishes it without clobbering through a same-directory temporary inode and hard link. The accepted artifact repeats the immutable header and complete row, including its start, deadline, observation, first-ready, owner, listener, state, and health fields, so the 30-second predicate can be audited without shell state or another file. Record HTTPS, WebSocket, ordinary/IAP access, and 5xx checks as separate evidence after the coherent edge; do not fold slow end-to-end probes into the readiness loop.
 
 ### Stop conditions and rollback
 

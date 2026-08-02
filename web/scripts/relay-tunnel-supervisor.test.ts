@@ -117,6 +117,10 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect(readiness).toContain('"$2" = 0');
     expect(readiness).toContain('"$observed_epoch" -le "$deadline"');
     expect(readiness).toContain("first_ready_epoch=$observed_epoch");
+    expect(readiness).toContain('attempt_dir="$EVIDENCE_DIR/readiness-attempt-$attempt_utc-$attempt_token"');
+    expect(readiness).toContain('mkdir -m 700 "$attempt_dir"');
+    expect(readiness).toContain('trace="$attempt_dir/readiness.tsv"');
+    expect(readiness).toContain('first_ready="$attempt_dir/readiness.first-ready.tsv"');
 
     const evidenceFields = [
       "started_epoch",
@@ -171,12 +175,174 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     ]) {
       expect(pollRow).toContain(value);
     }
-    expect(readiness).toContain(`printf '%s\\n%s\\n' "$trace_header" "$poll_row" > "$trace.first-ready"`);
+    expect(readiness).toContain(`printf '%s\\n%s\\n' "$trace_header" "$poll_row" > "$first_ready_tmp"`);
+    expect(readiness).toContain('ln "$first_ready_tmp" "$first_ready"');
+    expect(readiness).toContain('[ ! -e "$first_ready" ]');
 
     if (process.platform === "darwin") {
       const lint = spawnSync("plutil", ["-lint", PLIST_TEMPLATE], { encoding: "utf8" });
       expect(lint.status, lint.stderr).toBe(0);
     }
+  });
+
+  it("keeps readiness proof scoped across successive success and failure attempts", async () => {
+    const operations = await readFile(OPERATIONS_DOC, "utf8");
+    const readiness = operations.match(
+      /### Thirty-second wall-clock readiness evidence[\s\S]*?```bash\n([\s\S]*?)\n```/,
+    )?.[1];
+    expect(readiness).toBeDefined();
+
+    const root = await realpath(await mkdtemp(join(tmpdir(), "relay-readiness-evidence-")));
+    tempDirs.push(root);
+    const fakeBin = join(root, "bin");
+    const evidenceRoot = join(root, "evidence");
+    await mkdir(fakeBin, { mode: 0o700 });
+    await mkdir(evidenceRoot, { mode: 0o700 });
+    await Promise.all([
+      writeExecutable(join(fakeBin, "uuidgen"), `#!/bin/bash\nprintf '%s\\n' "$READINESS_ATTEMPT_TOKEN"\n`),
+      writeExecutable(
+        join(fakeBin, "date"),
+        `#!/bin/bash
+if [ "$1" = "-u" ]; then
+  if [ "$2" = "+%Y%m%dT%H%M%SZ" ]; then
+    printf '%s\\n' "$READINESS_ATTEMPT_UTC"
+  else
+    printf '2026-08-02T01:02:03Z\\n'
+  fi
+  exit 0
+fi
+count=0
+[ ! -f "$READINESS_DATE_STATE" ] || read -r count < "$READINESS_DATE_STATE"
+printf '%s\\n' "$(( count + 1 ))" > "$READINESS_DATE_STATE"
+case "$count" in
+  0|1) value=$READINESS_EPOCH_BASE ;;
+  2) value=$(( READINESS_EPOCH_BASE + 1 )) ;;
+  *) value=$(( READINESS_EPOCH_BASE + 31 )) ;;
+esac
+printf '%s\\n' "$value"
+`,
+      ),
+      writeExecutable(
+        join(fakeBin, "launchctl"),
+        `#!/bin/bash
+case "$1" in
+  bootstrap) exit 0 ;;
+  print) [ "$READINESS_TEST_MODE" != success ] || printf 'pid = 111\\n' ;;
+esac
+`,
+      ),
+      writeExecutable(
+        join(fakeBin, "jq"),
+        `#!/bin/bash
+case "$*" in
+  *supervisorPid*) printf '111\\n' ;;
+  *childPid*) printf '222\\n' ;;
+  *childPgid*) printf '222\\n' ;;
+  *state*) printf 'running\\n' ;;
+  *healthCode*) printf '200\\n' ;;
+  *) exit 1 ;;
+esac
+`,
+      ),
+      writeExecutable(
+        join(fakeBin, "ps"),
+        `#!/bin/bash
+case "$*" in
+  *ppid=*) printf '111\\n' ;;
+  *pgid=*) printf '222\\n' ;;
+  *'-axo command='*) printf '/bin/bash %s %s %s\\n' "$SUPERVISOR_PATH" "$CONFIG_PATH" "$STATE_DIR" ;;
+  *) exit 1 ;;
+esac
+`,
+      ),
+      writeExecutable(join(fakeBin, "pgrep"), `#!/bin/bash\nprintf '222\\n'\n`),
+      writeExecutable(join(fakeBin, "ssh"), `#!/bin/bash\nprintf '1 0 333 sshd 1 200\\n'\n`),
+      writeExecutable(join(fakeBin, "sleep"), `#!/bin/bash\nexit 0\n`),
+    ]);
+
+    const runAttempt = (token: string, mode: "success" | "failure", epochBase: number) =>
+      spawnSync("/bin/bash", ["-s"], {
+        input: readiness,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:/usr/bin:/bin`,
+          EVIDENCE_DIR: evidenceRoot,
+          STATE_FILE: join(root, "status.json"),
+          LAUNCHD_LABEL: "com.example.relay-tunnel",
+          PLIST_PATH: join(root, "relay.plist"),
+          SUPERVISOR_PATH: join(root, "supervisor.sh"),
+          CONFIG_PATH: join(root, "runtime.conf"),
+          STATE_DIR: join(root, "state"),
+          RELAY_HOST: "relay-test",
+          RELAY_APPLICATION_PORT: "15432",
+          RELAY_MONITOR_PORT: "15433",
+          READINESS_ATTEMPT_TOKEN: token,
+          READINESS_ATTEMPT_UTC: "20260802T010203Z",
+          READINESS_DATE_STATE: join(root, `date-${token}`),
+          READINESS_EPOCH_BASE: String(epochBase),
+          READINESS_TEST_MODE: mode,
+        },
+      });
+    const attemptPath = (token: string) => join(evidenceRoot, `readiness-attempt-20260802T010203Z-${token}`);
+    const firstToken = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    const failedToken = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+    const secondToken = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+
+    const first = runAttempt(firstToken, "success", 100);
+    expect(first.status, first.stderr).toBe(0);
+    const firstDir = attemptPath(firstToken);
+    const firstReady = join(firstDir, "readiness.first-ready.tsv");
+    expect(first.stdout).toContain(`readiness_attempt=${firstDir}`);
+    expect(await pathExists(firstReady)).toBe(true);
+
+    const failed = runAttempt(failedToken, "failure", 200);
+    expect(failed.status).toBe(1);
+    const failedDir = attemptPath(failedToken);
+    expect(failed.stdout).toContain(`readiness_attempt=${failedDir}`);
+    expect(failed.stdout).not.toContain(firstDir);
+    expect(await pathExists(join(failedDir, "readiness.tsv"))).toBe(true);
+    expect(await pathExists(join(failedDir, "readiness.first-ready.tsv"))).toBe(false);
+    expect(await pathExists(firstReady)).toBe(true);
+
+    const second = runAttempt(secondToken, "success", 300);
+    expect(second.status, second.stderr).toBe(0);
+    const secondDir = attemptPath(secondToken);
+    const secondReady = join(secondDir, "readiness.first-ready.tsv");
+    expect(second.stdout).toContain(`readiness_attempt=${secondDir}`);
+    expect(await pathExists(secondReady)).toBe(true);
+    expect(new Set([firstDir, failedDir, secondDir]).size).toBe(3);
+
+    const firstRows = (await readFile(firstReady, "utf8")).trim().split("\n");
+    const secondRows = (await readFile(secondReady, "utf8")).trim().split("\n");
+    expect(firstRows).toHaveLength(2);
+    expect(secondRows).toHaveLength(2);
+    expect(firstRows[0]).toBe(secondRows[0]);
+    expect(firstRows[1]?.split("\t")).toEqual([
+      "100",
+      "130",
+      "101",
+      "2026-08-02T01:02:03Z",
+      "101",
+      "111",
+      "111",
+      "111",
+      "222",
+      "222",
+      "222",
+      "1",
+      "1",
+      "1",
+      "0",
+      "333",
+      "sshd",
+      "1",
+      "running",
+      "200",
+      "200",
+      "1",
+    ]);
+    expect(secondRows[1]?.split("\t").slice(0, 5)).toEqual(["300", "330", "301", "2026-08-02T01:02:03Z", "301"]);
   });
 
   it("pauses cleanly on fatal configuration without starting a child or looping", async () => {
@@ -869,6 +1035,10 @@ async function createFixture(mode = "exit:255"): Promise<Fixture> {
   await writeFile(fakeChild, fakeChildSource(), { mode: 0o755 });
   await writeFile(fakeLogger, fakeLoggerSource(), { mode: 0o755 });
   return { root, state, fakeState, config, sshConfig, identity, fakeChild, fakeLogger, log };
+}
+
+async function writeExecutable(path: string, source: string): Promise<void> {
+  await writeFile(path, source, { mode: 0o700 });
 }
 
 function startSupervisor(
