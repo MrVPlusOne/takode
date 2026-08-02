@@ -7,4 +7,6 @@ REMOTE_BIND_HOST=127.0.0.1
 REMOTE_PORT=15432
 LOCAL_HOST=127.0.0.1
 LOCAL_PORT=15433
-HEALTHCHECK_URL=https://relay.example.invalid/api/health
+# One-shot metadata sample of the local destination. Validate relay HTTPS and
+# WebSocket separately so a new reverse forward cannot race its own health URL.
+HEALTHCHECK_URL=http://127.0.0.1:15433/api/health

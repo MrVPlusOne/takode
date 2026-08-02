@@ -36,6 +36,7 @@ interface Fixture {
   sshConfig: string;
   identity: string;
   fakeChild: string;
+  fakeLogger: string;
   log: string;
 }
 
@@ -90,8 +91,16 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect(plist).not.toContain("NetworkState");
     expect(example).not.toContain("takode-relay");
     expect(example).not.toMatch(/\b(?:3455|3456|20000)\b/);
+    expect(example).toContain("HEALTHCHECK_URL=http://127.0.0.1:15433/api/health");
+    expect(example).not.toContain("HEALTHCHECK_URL=https://");
     expect(operations).toContain("Before every child start");
     expect(operations).toContain("deliberate reload is bootout");
+    expect(operations).toContain("state/events.log");
+    expect(operations).toContain("unified-log mirror is best-effort");
+    expect(operations).toContain("deadline=$(( started_epoch + 30 ))");
+    expect(operations).toContain('launchctl bootstrap "gui/$UID" "$PLIST_PATH"');
+    expect(operations).toContain('"$child_pid" = "$actual_child_pgid"');
+    expect(operations).toContain("first_ready_epoch");
 
     if (process.platform === "darwin") {
       const lint = spawnSync("plutil", ["-lint", PLIST_TEMPLATE], { encoding: "utf8" });
@@ -135,6 +144,70 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect((await waitForExit(supervisor)).code).toBe(0);
     expect((await readStatus(fixture)).exitClass).toBe("ssh_forward_contract");
     expect(await pathExists(join(fixture.fakeState, "child-attempts"))).toBe(false);
+  });
+
+  it("publishes a discoverable owner-only event sink alongside status and unified best effort", async () => {
+    const fixture = await createFixture("exit:255");
+    const supervisor = startSupervisor(fixture, { maxChildExits: 2, unifiedLogger: true });
+    expect((await waitForExit(supervisor)).code).toBe(0);
+
+    const eventPath = join(fixture.state, "events.log");
+    const eventText = await readFile(eventPath, "utf8");
+    const testLogText = await readFile(fixture.log, "utf8");
+    const unifiedText = await readFile(join(fixture.fakeState, "unified-events"), "utf8");
+    const status = await readStatus(fixture);
+    expect((await stat(eventPath)).mode & 0o777).toBe(0o600);
+    expect((await stat(fixture.state)).mode & 0o777).toBe(0o700);
+    expect(eventText).toContain("event=wrapper_started");
+    expect(eventText).toContain("event=child_started");
+    expect(eventText).toContain("event=health_sample");
+    expect(eventText).toContain("event=unexpected_child_exit");
+    expect(testLogText).toContain("event=wrapper_started");
+    expect(unifiedText).toContain("event=wrapper_started");
+    expect(status.state).toBe("paused_test_complete");
+    for (const line of eventText.trim().split("\n")) expectEventMetadataLine(line);
+  });
+
+  it("rotates the canonical event sink within fixed size and retention bounds", async () => {
+    const fixture = await createFixture("exit:255");
+    const supervisor = startSupervisor(fixture, {
+      backoffs: "0.01,0.01,0.01,0.01,0.01",
+      maxChildExits: 5,
+      quickStartLimit: 99,
+      eventMaxBytes: 900,
+      eventRotationCount: 2,
+    });
+    expect((await waitForExit(supervisor, 45_000)).code).toBe(0);
+
+    const eventFiles = (await readdir(fixture.state)).filter((name) => name.startsWith("events.log")).sort();
+    expect(eventFiles).toEqual(["events.log", "events.log.1", "events.log.2"]);
+    for (const name of eventFiles) {
+      const path = join(fixture.state, name);
+      const info = await stat(path);
+      expect(info.mode & 0o777).toBe(0o600);
+      expect(info.size).toBeLessThanOrEqual(900);
+      const text = await readFile(path, "utf8");
+      for (const line of text.trim().split("\n").filter(Boolean)) expectEventMetadataLine(line);
+    }
+  }, 60_000);
+
+  it("fails closed without following an untrusted event-sink symlink", async () => {
+    const fixture = await createFixture();
+    const outside = join(fixture.root, "outside-event-target");
+    const eventPath = join(fixture.state, "events.log");
+    await writeFile(outside, "sentinel\n", { mode: 0o600 });
+    await symlink(outside, eventPath);
+
+    const supervisor = startSupervisor(fixture, { maxChildExits: 1, unifiedLogger: true });
+    expect((await waitForExit(supervisor)).code).toBe(0);
+    const status = await readStatus(fixture);
+    expect(status.state).toBe("paused_fatal");
+    expect(status.exitClass).toBe("event_sink_untrusted");
+    expect(await pathExists(join(fixture.fakeState, "child-attempts"))).toBe(false);
+    expect((await lstat(eventPath)).isSymbolicLink()).toBe(true);
+    expect(await readFile(outside, "utf8")).toBe("sentinel\n");
+    expect(await readFile(fixture.log, "utf8")).toContain("event=event_sink_untrusted");
+    expect(await readFile(join(fixture.fakeState, "unified-events"), "utf8")).toContain("event=event_sink_untrusted");
   });
 
   it("pauses before child 2 when SSH config gains an extra forward during backoff", async () => {
@@ -656,6 +729,7 @@ async function createFixture(mode = "exit:255"): Promise<Fixture> {
   const sshConfig = join(root, "do-not-log-ssh-config");
   const identity = join(root, "do-not-log-identity");
   const fakeChild = join(root, "fake-ssh-child.sh");
+  const fakeLogger = join(root, "fake-logger.sh");
   const log = join(root, "metadata-events.log");
   await mkdir(state, { recursive: true, mode: 0o700 });
   await mkdir(fakeState, { recursive: true, mode: 0o700 });
@@ -678,7 +752,8 @@ async function createFixture(mode = "exit:255"): Promise<Fixture> {
     { mode: 0o600 },
   );
   await writeFile(fakeChild, fakeChildSource(), { mode: 0o755 });
-  return { root, state, fakeState, config, sshConfig, identity, fakeChild, log };
+  await writeFile(fakeLogger, fakeLoggerSource(), { mode: 0o755 });
+  return { root, state, fakeState, config, sshConfig, identity, fakeChild, fakeLogger, log };
 }
 
 function startSupervisor(
@@ -695,6 +770,9 @@ function startSupervisor(
     ownerContentionTicks?: number;
     quarantineLimit?: number;
     omitUserIdentity?: boolean;
+    eventMaxBytes?: number;
+    eventRotationCount?: number;
+    unifiedLogger?: boolean;
   } = {},
 ): ChildProcess {
   const child = spawn("/bin/bash", [SUPERVISOR, fixture.config, fixture.state], {
@@ -721,6 +799,9 @@ function startSupervisor(
       TAKODE_RELAY_SUPERVISOR_TEST_OWNER_CONTENTION_TICKS: String(options.ownerContentionTicks ?? 50),
       TAKODE_RELAY_SUPERVISOR_TEST_OWNER_CONTENTION_TICK_SECONDS: "0.01",
       TAKODE_RELAY_SUPERVISOR_TEST_QUARANTINE_LIMIT: String(options.quarantineLimit ?? 5),
+      TAKODE_RELAY_SUPERVISOR_TEST_EVENT_MAX_BYTES: String(options.eventMaxBytes ?? 262144),
+      TAKODE_RELAY_SUPERVISOR_TEST_EVENT_ROTATION_COUNT: String(options.eventRotationCount ?? 3),
+      TAKODE_RELAY_SUPERVISOR_TEST_LOGGER_BIN: options.unifiedLogger ? fixture.fakeLogger : "",
       ...(options.omitUserIdentity ? { USER: undefined, LOGNAME: undefined } : {}),
     },
   });
@@ -833,6 +914,40 @@ function expectExactForwardContract(renderedArguments: string[]): void {
   expect(effective.stdout).toContain("clearallforwardings no\n");
 }
 
+function expectEventMetadataLine(line: string): void {
+  const allowedKeys = new Set([
+    "component",
+    "schema",
+    "event",
+    "state",
+    "attempt",
+    "exit_class",
+    "backoff_seconds",
+    "health_code",
+    "health_duration_ms",
+    "owner_token",
+    "supervisor_pid",
+    "child_pid",
+    "child_pgid",
+    "config_fingerprint",
+  ]);
+  for (const field of line.split(" ")) expect(allowedKeys).toContain(field.split("=", 1)[0]);
+  for (const forbidden of [
+    "private-relay.example",
+    "do-not-log-identity",
+    "do-not-log-ssh-config",
+    "do-not-log-health.example",
+    "15432",
+    "15433",
+    "-R",
+    "prompt",
+    "credential",
+    "payload",
+  ]) {
+    expect(line).not.toContain(forbidden);
+  }
+}
+
 async function writeOwnerLock(path: string, pid: number, token: string, startIdentity: string): Promise<void> {
   await writeFile(
     path,
@@ -903,5 +1018,12 @@ case "$mode" in
     ;;
   *) exit 64 ;;
 esac
+`;
+}
+
+function fakeLoggerSource(): string {
+  return `#!/bin/bash
+set -u
+printf '%s\\n' "$*" >> "\${TAKODE_RELAY_SUPERVISOR_TEST_STATE:?}/unified-events"
 `;
 }

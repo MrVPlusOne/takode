@@ -22,6 +22,7 @@ The approved runtime layout is outside a Git worktree so launchd never depends o
   bin/relay-tunnel-supervisor.sh       # 0700, reviewed installed copy
   config/runtime.conf                  # 0600, runtime-only values
   state/                               # 0700, atomic status/ownership metadata
+    events.log                         # 0600, canonical bounded event ledger
 
 ~/Library/LaunchAgents/
   com.takode.relay-tunnel.plist        # rendered, validated, initially inactive
@@ -47,7 +48,7 @@ REMOTE_BIND_HOST=<loopback-bind-address>
 REMOTE_PORT=<application-listener-port>
 LOCAL_HOST=<local-destination-address>
 LOCAL_PORT=<local-application-port>
-HEALTHCHECK_URL=<https-health-endpoint>
+HEALTHCHECK_URL=<local-destination-health-endpoint>
 ```
 
 The runtime config and SSH config must be owned by the current user and mode 0600; the identity must be current-user-owned and mode 0600 or 0400. The state directory must already be current-user-owned mode 0700, or its trusted parent must exist so the supervisor can create the final directory at 0700. The supervisor rejects direct symlinks, symlinked ancestry, unsafe writable ancestry, wrong ownership, and wrong modes without repairing them in place. State-path trust failures leave the untrusted path untouched and report on stderr because writing status there would violate the same boundary. Other fatal trust/config failures record `paused_fatal` and exit zero. Unknown, duplicate, malformed, relative-path, unreadable, or unsafe values likewise pause cleanly instead of entering a launchd restart loop.
@@ -64,6 +65,8 @@ The production SSH child always uses absolute `/usr/bin/ssh` with:
 Before every child start, including retries, the supervisor revalidates runtime-config, SSH-config, and identity ancestry/ownership/modes; requires their startup inode and SHA-256 identities to remain unchanged; renders the exact argument array through offline `/usr/bin/ssh -G`; and rechecks the pinned identities after rendering. It requires exactly the configured remote forward, no local or dynamic forwards, and `clearallforwardings no`. A replaced, symlinked, permission-changed, or materially changed trusted input, or a forward inherited from the explicit SSH config, records metadata-only `paused_fatal` and exits zero before another SSH child starts. This preserves the command-line `-R` while preventing retries from silently changing forwarding or authentication behavior.
 
 Runtime values are parsed once and remain stable for the wrapper lifetime. Editing the installed runtime config, SSH config, or identity is not a live reload mechanism. After validating intended changes, the deliberate reload is bootout, verification that the owned child/listener cleared, bootstrap of the validated plist, then an explicit start if needed. Validate the selected identity and known-host state in the same sparse environment before activation. The supervisor never prompts.
+
+Use a local destination URL such as `http://127.0.0.1:<local-port>/api/health` for `HEALTHCHECK_URL`. This one-shot sample records whether the destination was ready when a child started; it is not an end-to-end tunnel verdict. A relay HTTPS URL can race the reverse forward that was just created and permanently record a false zero. Keep relay HTTPS and WebSocket checks as independent external acceptance gates.
 
 ## Ownership and lifecycle contract
 
@@ -104,7 +107,7 @@ Wrapper and child start histories are atomic mode-0600 state. Eight quick starts
 
 The LaunchAgent uses `ThrottleInterval=10` as a second guard against wrapper crash loops. It does not use launchd `NetworkState`, which macOS documents as unimplemented. The GUI agent starts at login, is cleanly removed at logout, and stays resident across sleep; encrypted SSH client/server keepalives are the liveness signal after wake or network change. Pre-login service would require a separate LaunchDaemon and key design and is not covered.
 
-## Status and metadata-only logs
+## Status and metadata-only events
 
 `state/status.json` is replaced atomically at mode 0600. Its fixed schema contains only:
 
@@ -114,14 +117,20 @@ The LaunchAgent uses `ThrottleInterval=10` as a second guard against wrapper cra
 - health code/duration from a bounded sample after each verified child start;
 - runtime-config fingerprint.
 
-The health sample is evidence only; it never authorizes a restart or process cleanup. The runtime URL, host, ports, key/config paths, SSH arguments, prompts, credentials, payloads, and application content are never written to status or event logs. Events use the same bounded metadata vocabulary through macOS unified logging with tag `com.takode.relay-tunnel`.
+The health sample is evidence only; it never authorizes a restart or process cleanup. The runtime URL, host, ports, key/config paths, SSH arguments, prompts, credentials, commands, payloads, and application content are never written to status or event logs.
+
+The canonical production event sink is `state/events.log`. Only the verified owner writes it, using no-follow append semantics inside the trusted mode-0700 state directory. The current mode-0600 file is limited to 256 KiB and rotates atomically through `events.log.1`, `.2`, and `.3`; no other event-ledger paths are accepted. Every line contains only the same fixed fields already used by status/event metadata: component/schema, event/state, attempt/exit/backoff, health code/duration, owner token, supervisor/child PID+PGID, and config fingerprint.
+
+The supervisor also attempts the same line through macOS `logger` with tag `com.takode.relay-tunnel`. That unified-log mirror is best-effort: some macOS installations do not expose `logger` messages through `log show`, so operators must use the state-local ledger as the reliable source.
 
 Read-only status commands:
 
 ```bash
 launchctl print "gui/$UID/com.takode.relay-tunnel"
 cat "$HOME/Library/Application Support/Takode/relay-tunnel/state/status.json"
-log show --last 30m --predicate 'eventMessage CONTAINS "component=com.takode.relay-tunnel"'
+tail -n 100 "$HOME/Library/Application Support/Takode/relay-tunnel/state/events.log"
+# Optional best-effort mirror:
+log show --last 30m --info --predicate 'eventMessage CONTAINS "component=com.takode.relay-tunnel"'
 ```
 
 Do not paste runtime config, SSH command lines, or private key diagnostics into retained artifacts.
@@ -158,12 +167,68 @@ Only after disposable validation passes:
 1. Stop the inventoried tmux watcher through its documented owner.
 2. Require its exact process group and both old application/monitor listeners to clear. Never kill a newly discovered or unverified process.
 3. Bootstrap the validated production LaunchAgent.
-4. Require exactly one supervisor, one verified direct-SSH child, one application listener, no fixed monitor listener, and healthy HTTPS/WebSocket within 30 seconds.
+4. Use the absolute-deadline readiness monitor below. Require its first coherent edge within 30 wall-clock seconds: exactly one supervisor, one verified direct-SSH child, one application listener, no fixed monitor listener, local sample health, and upstream health. Then check HTTPS/WebSocket independently.
 5. Validate a deliberate bootout/bootstrap reload and read-only status/log evidence. Do not blackhole the production child.
+
+### Thirty-second wall-clock readiness evidence
+
+Iteration counts are not time bounds: SSH connection attempts and remote health probes can make “30 polls” take much longer than 30 seconds. Use an epoch deadline, probes individually bounded to one second, and a retained metadata-only trace. The first coherent observation is accepted only when its observation timestamp is at or before the deadline.
+
+Set `EVIDENCE_DIR`, `STATE_FILE`, `LAUNCHD_LABEL`, `PLIST_PATH`, `RELAY_HOST`, `RELAY_APPLICATION_PORT`, and `RELAY_MONITOR_PORT` from the approved packet. Establish the deadline immediately before bootstrap so process launch time is included, then use this shape:
+
+```bash
+started_epoch=$(date +%s)
+deadline=$(( started_epoch + 30 ))
+trace="$EVIDENCE_DIR/readiness.tsv"
+printf 'observed_epoch\tobserved_utc\tsupervisor_pid\tchild_pid\tchild_pgid\tactual_child_pgid\tstate\tstatus_health\tapp_listeners\tmonitor_listeners\tupstream_health\tcoherent\n' > "$trace"
+chmod 600 "$trace"
+first_ready_epoch=""
+launchctl bootstrap "gui/$UID" "$PLIST_PATH"
+
+while :; do
+  poll_started=$(date +%s)
+  [ "$poll_started" -gt "$deadline" ] && break
+
+  supervisor_pid=$(launchctl print "gui/$UID/$LAUNCHD_LABEL" 2>/dev/null | awk '/pid =/ {print $3; exit}')
+  child_pid=$(jq -r '.childPid // 0' "$STATE_FILE" 2>/dev/null || printf 0)
+  child_pgid=$(jq -r '.childPgid // 0' "$STATE_FILE" 2>/dev/null || printf 0)
+  actual_child_pgid=$(ps -o pgid= -p "$child_pid" 2>/dev/null | tr -d ' ')
+  state=$(jq -r '.state // "missing"' "$STATE_FILE" 2>/dev/null || printf missing)
+  status_health=$(jq -r '.healthCode // 0' "$STATE_FILE" 2>/dev/null || printf 0)
+  remote=$(ssh -o BatchMode=yes -o ConnectTimeout=1 "$RELAY_HOST" \
+    "a=\$(sudo -n ss -ltn | grep -Ec '127\\.0\\.0\\.1:$RELAY_APPLICATION_PORT' || true); \
+     m=\$(sudo -n ss -ltn | grep -Ec '127\\.0\\.0\\.1:$RELAY_MONITOR_PORT' || true); \
+     h=\$(curl -fsS --max-time 1 -o /dev/null -w '%{http_code}' 'http://127.0.0.1:$RELAY_APPLICATION_PORT/api/health' 2>/dev/null || true); \
+     printf '%s %s %s\\n' \"\$a\" \"\$m\" \"\$h\"" 2>/dev/null || printf '9 9 000')
+  set -- $remote
+
+  observed_epoch=$(date +%s)
+  observed_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  coherent=0
+  if [ -n "$supervisor_pid" ] && [ "$child_pid" = "$child_pgid" ] && [ "$child_pid" = "$actual_child_pgid" ] && [ "$child_pid" != 0 ] &&
+    [ "$state" = running ] && [ "$status_health" = 200 ] && [ "$1" = 1 ] && [ "$2" = 0 ] && [ "$3" = 200 ]; then
+    coherent=1
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$observed_epoch" "$observed_utc" "${supervisor_pid:-0}" "$child_pid" "$child_pgid" "${actual_child_pgid:-0}" "$state" \
+    "$status_health" "$1" "$2" "$3" "$coherent" >> "$trace"
+
+  if [ "$coherent" = 1 ] && [ "$observed_epoch" -le "$deadline" ]; then
+    first_ready_epoch=$observed_epoch
+    break
+  fi
+  [ "$observed_epoch" -ge "$deadline" ] && break
+  sleep 0.25
+done
+
+[ -n "$first_ready_epoch" ] || { echo "readiness deadline missed" >&2; exit 1; }
+```
+
+Use the old fixed monitor port during migration; after cutover, `RELAY_MONITOR_PORT` remains that retired port so the monitor requires it to stay absent. Retain the trace even when readiness fails. Record HTTPS, WebSocket, ordinary/IAP access, and 5xx checks as separate evidence after the coherent edge; do not fold slow end-to-end probes into the readiness loop.
 
 ### Stop conditions and rollback
 
-Stop immediately on any syntax, mode, identity, sparse-auth, access, sshd reload, owner, listener, handshake, duplicate, restart-storm, privacy, recovery, health, or rollback-verification failure; on repeated 5xx; or on worse connectivity.
+Stop immediately on any syntax, mode, identity, sparse-auth, access, sshd reload, owner, listener, handshake, duplicate, restart-storm, privacy, recovery, health, or rollback-verification failure; when the retained trace has no coherent edge at or before its absolute deadline; on repeated 5xx; or on worse connectivity. Never infer a deadline miss from an iteration count alone.
 
 Rollback is transactional:
 
@@ -171,8 +236,8 @@ Rollback is transactional:
 2. Reap only their recorded owner-token child groups and verify the new application listener clears.
 3. Restore the prior runtime/plist state and dedicated-relay sshd configuration; validate and reload sshd only.
 4. Restart the original documented tmux/autossh owner.
-5. Prove exactly the former application plus monitor listener ownership, ordinary/IAP access, and HTTP/HTTPS/WebSocket health.
-6. Preserve metadata-only logs and record whether rollback was complete.
+5. Use a separate absolute-deadline trace with short probes to record the first coherent restored-owner/listener edge. Prove exactly the former application plus monitor listener ownership, then check ordinary/IAP access and HTTP/HTTPS/WebSocket health independently.
+6. Preserve `status.json`, the bounded event ledger, readiness/rollback traces, and whether rollback was complete.
 
 ## Retained evidence and cleanup ownership
 
@@ -180,7 +245,9 @@ Do not remove the predecessor evidence or relay root backups during Implement or
 
 - `~/.companion/execute-artifacts/relay-hardening-20260801T213159Z`
 - `~/.companion/execute-artifacts/relay-strategy1-20260801T233116Z`
+- `~/.companion/execute-artifacts/relay-supervision-cutover-20260802T064822Z`
 - `/var/backups/takode-sshd_config.20260801T213159Z.before`
 - `/var/backups/takode-sshd_config.20260801T233116Z.before`
+- `/var/backups/takode-sshd_config.20260802T064822Z.before`
 
 Successful cutover does not itself authorize cleanup. Outcome Review must accept recovery and rollback evidence first. Final Memory then decides whether new backups supersede these paths; preserve them by default when that decision is not explicit.

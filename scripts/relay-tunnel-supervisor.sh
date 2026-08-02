@@ -40,6 +40,8 @@ OWNER_PROTOCOL_VERSION=1
 OWNER_CONTENTION_TICKS=200
 OWNER_CONTENTION_TICK_SECONDS=0.01
 OWNER_QUARANTINE_LIMIT=5
+EVENT_MAX_BYTES=262144
+EVENT_ROTATION_COUNT=3
 
 TESTING=${TAKODE_RELAY_SUPERVISOR_TESTING:-0}
 TEST_CHILD=${TAKODE_RELAY_SUPERVISOR_TEST_CHILD:-}
@@ -49,6 +51,7 @@ TEST_MAX_CHILD_EXITS=${TAKODE_RELAY_SUPERVISOR_TEST_MAX_CHILD_EXITS:-0}
 TEST_HANDSHAKE_FAIL=${TAKODE_RELAY_SUPERVISOR_TEST_HANDSHAKE_FAIL:-0}
 TEST_HEALTH_RESULT=${TAKODE_RELAY_SUPERVISOR_TEST_HEALTH_RESULT:-}
 TEST_OWNER_INIT_DELAY=${TAKODE_RELAY_SUPERVISOR_TEST_OWNER_INIT_DELAY:-0}
+TEST_LOGGER_BIN=${TAKODE_RELAY_SUPERVISOR_TEST_LOGGER_BIN:-}
 CURRENT_UID=$($ID_BIN -u 2>/dev/null || printf '')
 RUNTIME_USER=${USER:-$($ID_BIN -un 2>/dev/null || true)}
 RUNTIME_LOGNAME=${LOGNAME:-$RUNTIME_USER}
@@ -67,6 +70,8 @@ if [ "$TESTING" = "1" ]; then
   OWNER_CONTENTION_TICKS=${TAKODE_RELAY_SUPERVISOR_TEST_OWNER_CONTENTION_TICKS:-$OWNER_CONTENTION_TICKS}
   OWNER_CONTENTION_TICK_SECONDS=${TAKODE_RELAY_SUPERVISOR_TEST_OWNER_CONTENTION_TICK_SECONDS:-$OWNER_CONTENTION_TICK_SECONDS}
   OWNER_QUARANTINE_LIMIT=${TAKODE_RELAY_SUPERVISOR_TEST_QUARANTINE_LIMIT:-$OWNER_QUARANTINE_LIMIT}
+  EVENT_MAX_BYTES=${TAKODE_RELAY_SUPERVISOR_TEST_EVENT_MAX_BYTES:-$EVENT_MAX_BYTES}
+  EVENT_ROTATION_COUNT=${TAKODE_RELAY_SUPERVISOR_TEST_EVENT_ROTATION_COUNT:-$EVENT_ROTATION_COUNT}
 fi
 
 umask 077
@@ -103,6 +108,7 @@ SSH_IDENTITY_INODE=""
 HEALTH_CODE="null"
 HEALTH_DURATION_MS="null"
 COOLDOWN_COMPLETED=0
+EVENT_SINK_READY=0
 
 SSH_HOST=""
 SSH_CONFIG_FILE=""
@@ -118,6 +124,7 @@ STATUS_FILE=""
 WRAPPER_HISTORY_FILE=""
 CHILD_HISTORY_FILE=""
 COOLDOWN_FILE=""
+EVENT_FILE=""
 
 is_unsigned_integer() {
   case "$1" in
@@ -217,6 +224,14 @@ process_start_identity() {
 
 file_fingerprint() {
   "$SHASUM_BIN" -a 256 "$1" 2>/dev/null | awk '{print $1}'
+}
+
+file_size() {
+  if stat -f '%z' "$1" >/dev/null 2>&1; then
+    stat -f '%z' "$1"
+  else
+    stat -c '%s' "$1"
+  fi
 }
 
 read_owner_metadata() {
@@ -333,13 +348,96 @@ EOF
 emit_event() {
   local event event_line
   event=$1
+  case "$event" in ""|*[!A-Za-z0-9_]*) return 1 ;; esac
   event_line="component=$COMPONENT schema=$SCHEMA_VERSION event=$event state=$CURRENT_STATE attempt=$ATTEMPT exit_class=$LAST_EXIT_CLASS backoff_seconds=$CURRENT_BACKOFF health_code=$HEALTH_CODE health_duration_ms=$HEALTH_DURATION_MS owner_token=$OWNER_TOKEN supervisor_pid=$$ child_pid=${CHILD_PID:-0} child_pgid=${CHILD_PGID:-0} config_fingerprint=$CONFIG_FINGERPRINT"
+  if [ "$EVENT_SINK_READY" -eq 1 ] && ! append_event_sink "$event_line"; then
+    EVENT_SINK_READY=0
+  fi
   if [ "$TESTING" = "1" ] && [ -n "$TEST_LOG_FILE" ]; then
     printf '%s\n' "$event_line" >> "$TEST_LOG_FILE"
     chmod 600 "$TEST_LOG_FILE"
-  elif [ -x "$LOGGER_BIN" ]; then
+  fi
+  if [ "$TESTING" = "1" ] && [ -x "$TEST_LOGGER_BIN" ]; then
+    "$TEST_LOGGER_BIN" -t "$COMPONENT" -- "$event_line" >/dev/null 2>&1 || true
+  elif [ "$TESTING" != "1" ] && [ -x "$LOGGER_BIN" ]; then
     "$LOGGER_BIN" -t "$COMPONENT" -- "$event_line" >/dev/null 2>&1 || true
   fi
+}
+
+event_file_is_trusted() {
+  local path=$1
+  [ -f "$path" ] && [ ! -L "$path" ] || return 1
+  [ "$(file_owner_uid "$path" 2>/dev/null || true)" = "$CURRENT_UID" ] || return 1
+  [ "$(file_mode "$path" 2>/dev/null || true)" = "600" ]
+}
+
+validate_event_sink_trust() {
+  local path suffix index
+  path_is_trusted_ancestry "$STATE_DIR" || return 1
+  [ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ] || return 1
+  [ "$(file_owner_uid "$STATE_DIR" 2>/dev/null || true)" = "$CURRENT_UID" ] || return 1
+  [ "$(file_mode "$STATE_DIR" 2>/dev/null || true)" = "700" ] || return 1
+  is_positive_integer "$EVENT_MAX_BYTES" && [ "$EVENT_MAX_BYTES" -ge 512 ] || return 1
+  is_positive_integer "$EVENT_ROTATION_COUNT" || return 1
+  if [ -e "$EVENT_FILE" ] || [ -L "$EVENT_FILE" ]; then event_file_is_trusted "$EVENT_FILE" || return 1; fi
+  index=1
+  while [ "$index" -le "$EVENT_ROTATION_COUNT" ]; do
+    path="$EVENT_FILE.$index"
+    if [ -e "$path" ] || [ -L "$path" ]; then event_file_is_trusted "$path" || return 1; fi
+    index=$((index + 1))
+  done
+  for path in "$EVENT_FILE".*; do
+    [ -e "$path" ] || [ -L "$path" ] || continue
+    suffix=${path#"$EVENT_FILE."}
+    is_positive_integer "$suffix" || return 1
+    [ "$suffix" -le "$EVENT_ROTATION_COUNT" ] || return 1
+  done
+  return 0
+}
+
+initialize_event_sink() {
+  validate_event_sink_trust || return 1
+  if [ ! -e "$EVENT_FILE" ]; then atomic_write_lines "$EVENT_FILE" || return 1; fi
+  event_file_is_trusted "$EVENT_FILE" || return 1
+  EVENT_SINK_READY=1
+}
+
+rotate_event_sink() {
+  local index source destination
+  validate_event_sink_trust || return 1
+  destination="$EVENT_FILE.$EVENT_ROTATION_COUNT"
+  if [ -e "$destination" ]; then rm -f "$destination" || return 1; fi
+  index=$((EVENT_ROTATION_COUNT - 1))
+  while [ "$index" -ge 1 ]; do
+    source="$EVENT_FILE.$index"
+    destination="$EVENT_FILE.$((index + 1))"
+    if [ -e "$source" ]; then mv "$source" "$destination" || return 1; fi
+    index=$((index - 1))
+  done
+  if [ -e "$EVENT_FILE" ]; then mv "$EVENT_FILE" "$EVENT_FILE.1" || return 1; fi
+  atomic_write_lines "$EVENT_FILE" || return 1
+  validate_event_sink_trust
+}
+
+append_event_sink() {
+  local event_line=$1 current_size line_size
+  verify_current_owner || return 1
+  validate_event_sink_trust || return 1
+  event_file_is_trusted "$EVENT_FILE" || return 1
+  current_size=$(file_size "$EVENT_FILE") || return 1
+  line_size=$((${#event_line} + 1))
+  [ "$line_size" -le "$EVENT_MAX_BYTES" ] || return 1
+  if [ $((current_size + line_size)) -gt "$EVENT_MAX_BYTES" ]; then rotate_event_sink || return 1; fi
+  "$PERL_BIN" -MFcntl=:DEFAULT -e '
+    my ($path, $uid, $line) = @ARGV;
+    sysopen(my $fh, $path, O_WRONLY | O_APPEND | O_NOFOLLOW) or exit 2;
+    my @stat = stat($fh);
+    exit 3 unless @stat && $stat[4] == $uid && ($stat[2] & 07777) == 0600 && -f $fh;
+    my $payload = "$line\n";
+    my $written = syswrite($fh, $payload);
+    exit 4 unless defined($written) && $written == length($payload);
+    close($fh) or exit 5;
+  ' "$EVENT_FILE" "$CURRENT_UID" "$event_line"
 }
 
 remove_owned_lock() {
@@ -460,6 +558,7 @@ initialize_state_dir() {
   CHILD_HISTORY_FILE="$STATE_DIR/child-start-history"
   COOLDOWN_FILE="$STATE_DIR/cooldown-until"
   OWNER_LOCK="$STATE_DIR/owner.lock"
+  EVENT_FILE="$STATE_DIR/events.log"
 }
 
 validate_runtime_environment() {
@@ -758,6 +857,7 @@ validate_effective_ssh_forwarding() {
 }
 
 validate_child_launch_contract() {
+  validate_event_sink_trust || pause_fatal "event_sink_untrusted"
   verify_trusted_input_contract
   validate_effective_ssh_forwarding
   # Recheck inode/content identities after ssh -G so replacement during the
@@ -997,6 +1097,7 @@ run_loop() {
 
 initialize_state_dir
 acquire_owner
+initialize_event_sink || pause_fatal "event_sink_untrusted"
 validate_runtime_environment
 parse_config
 capture_trusted_input_contract
