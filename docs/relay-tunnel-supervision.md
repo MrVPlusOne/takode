@@ -180,9 +180,10 @@ Set `EVIDENCE_DIR`, `STATE_FILE`, `LAUNCHD_LABEL`, `PLIST_PATH`, `SUPERVISOR_PAT
 started_epoch=$(date +%s)
 deadline=$(( started_epoch + 30 ))
 trace="$EVIDENCE_DIR/readiness.tsv"
-printf 'observed_epoch\tobserved_utc\tlaunchd_pid\tstatus_supervisor_pid\tactual_child_ppid\tsupervisor_count\tchild_count\tchild_pid\tchild_pgid\tactual_child_pgid\tstate\tstatus_health\tapp_listeners\tmonitor_listeners\tapp_owner_pid\tapp_owner_is_sshd\tupstream_health\tcoherent\n' > "$trace"
+trace_header=$(printf 'started_epoch\tdeadline\tobserved_epoch\tobserved_utc\tfirst_ready_epoch\tlaunchd_pid\tstatus_supervisor_pid\tactual_child_ppid\tchild_pid\tchild_pgid\tactual_child_pgid\tsupervisor_count\tchild_count\tapp_listeners\tmonitor_listeners\tapp_owner_pid\tapp_owner_type\tapp_owner_is_sshd\tstatus_state\tlocal_health\tupstream_health\tcoherent')
+printf '%s\n' "$trace_header" > "$trace"
 chmod 600 "$trace"
-first_ready_epoch=""
+first_ready_epoch=0
 launchctl bootstrap "gui/$UID" "$PLIST_PATH"
 
 while :; do
@@ -202,17 +203,18 @@ while :; do
   else
     child_count=0
   fi
-  state=$(jq -r '.state // "missing"' "$STATE_FILE" 2>/dev/null || printf missing)
-  status_health=$(jq -r '.healthCode // 0' "$STATE_FILE" 2>/dev/null || printf 0)
+  status_state=$(jq -r '.state // "missing"' "$STATE_FILE" 2>/dev/null || printf missing)
+  local_health=$(jq -r '.healthCode // 0' "$STATE_FILE" 2>/dev/null || printf 0)
   remote=$(ssh -o BatchMode=yes -o ConnectTimeout=1 -o ClearAllForwardings=yes "$RELAY_HOST" \
     "rows=\$(sudo -n ss -H -ltnp 'sport = :$RELAY_APPLICATION_PORT' || true); \
      a=\$(printf '%s\\n' \"\$rows\" | awk 'NF { count += 1 } END { print count + 0 }'); \
      m=\$(sudo -n ss -H -ltn 'sport = :$RELAY_MONITOR_PORT' | awk 'NF { count += 1 } END { print count + 0 }'); \
      owner_pid=\$(printf '%s\\n' \"\$rows\" | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p'); \
-     owner_is_sshd=\$(printf '%s\\n' \"\$rows\" | grep -Fc 'users:((\"sshd\",pid=' || true); \
+     owner_type=\$(printf '%s\\n' \"\$rows\" | sed -n 's/.*users:((\"\([A-Za-z0-9_.-][A-Za-z0-9_.-]*\)\".*/\1/p'); \
+     owner_is_sshd=0; [ \"\$owner_type\" = sshd ] && owner_is_sshd=1; \
      h=\$(curl -fsS --max-time 1 -o /dev/null -w '%{http_code}' 'http://127.0.0.1:$RELAY_APPLICATION_PORT/api/health' 2>/dev/null || true); \
-     printf '%s %s %s %s %s\\n' \"\$a\" \"\$m\" \"\${owner_pid:-0}\" \"\$owner_is_sshd\" \"\$h\"" \
-    2>/dev/null || printf '9 9 0 0 000')
+     printf '%s %s %s %s %s %s\\n' \"\$a\" \"\$m\" \"\${owner_pid:-0}\" \"\${owner_type:-unknown}\" \"\$owner_is_sshd\" \"\$h\"" \
+    2>/dev/null || printf '9 9 0 unknown 0 000')
   set -- $remote
 
   observed_epoch=$(date +%s)
@@ -221,29 +223,33 @@ while :; do
   if [ -n "$launchd_pid" ] && [ "$launchd_pid" = "$status_supervisor_pid" ] &&
     [ "$actual_child_ppid" = "$status_supervisor_pid" ] && [ "$supervisor_count" = 1 ] && [ "$child_count" = 1 ] &&
     [ "$child_pid" = "$child_pgid" ] && [ "$child_pid" = "$actual_child_pgid" ] && [ "$child_pid" != 0 ] &&
-    [ "$state" = running ] && [ "$status_health" = 200 ] && [ "$1" = 1 ] && [ "$2" = 0 ] &&
-    [ "$3" -gt 0 ] 2>/dev/null && [ "$4" = 1 ] && [ "$5" = 200 ]; then
+    [ "$status_state" = running ] && [ "$local_health" = 200 ] && [ "$1" = 1 ] && [ "$2" = 0 ] &&
+    [ "$3" -gt 0 ] 2>/dev/null && [ "$4" = sshd ] && [ "$5" = 1 ] && [ "$6" = 200 ]; then
     coherent=1
   fi
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$observed_epoch" "$observed_utc" "${launchd_pid:-0}" "$status_supervisor_pid" "${actual_child_ppid:-0}" \
-    "$supervisor_count" "$child_count" "$child_pid" "$child_pgid" "${actual_child_pgid:-0}" "$state" \
-    "$status_health" "$1" "$2" "$3" "$4" "$5" "$coherent" >> "$trace"
-
   if [ "$coherent" = 1 ] && [ "$observed_epoch" -le "$deadline" ]; then
     first_ready_epoch=$observed_epoch
+  fi
+  poll_row=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+    "$started_epoch" "$deadline" "$observed_epoch" "$observed_utc" "$first_ready_epoch" \
+    "${launchd_pid:-0}" "$status_supervisor_pid" "${actual_child_ppid:-0}" "$child_pid" "$child_pgid" \
+    "${actual_child_pgid:-0}" "$supervisor_count" "$child_count" "$1" "$2" "$3" "$4" "$5" \
+    "$status_state" "$local_health" "$6" "$coherent")
+  printf '%s\n' "$poll_row" >> "$trace"
+
+  if [ "$first_ready_epoch" -gt 0 ]; then
+    printf '%s\n%s\n' "$trace_header" "$poll_row" > "$trace.first-ready"
+    chmod 600 "$trace.first-ready"
     break
   fi
   [ "$observed_epoch" -ge "$deadline" ] && break
   sleep 0.25
 done
 
-[ -n "$first_ready_epoch" ] || { echo "readiness deadline missed" >&2; exit 1; }
-printf '%s\t%s\n' "$first_ready_epoch" "$observed_utc" > "$trace.first-ready"
-chmod 600 "$trace.first-ready"
+[ "$first_ready_epoch" -gt 0 ] || { echo "readiness deadline missed" >&2; exit 1; }
 ```
 
-Use the old fixed monitor port during migration; after cutover, `RELAY_MONITOR_PORT` remains that retired port so the monitor requires it to stay absent. Retain the trace even when readiness fails. Record HTTPS, WebSocket, ordinary/IAP access, and 5xx checks as separate evidence after the coherent edge; do not fold slow end-to-end probes into the readiness loop.
+Use the old fixed monitor port during migration; after cutover, `RELAY_MONITOR_PORT` remains that retired port so the monitor requires it to stay absent. Retain the trace even when readiness fails. `trace.first-ready` repeats the immutable header and the complete accepted row, including its start, deadline, observation, first-ready, owner, listener, state, and health fields, so the 30-second predicate can be audited without shell state or another file. Record HTTPS, WebSocket, ordinary/IAP access, and 5xx checks as separate evidence after the coherent edge; do not fold slow end-to-end probes into the readiness loop.
 
 ### Stop conditions and rollback
 

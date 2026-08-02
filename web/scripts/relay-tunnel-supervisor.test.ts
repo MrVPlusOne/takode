@@ -97,22 +97,81 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect(operations).toContain("deliberate reload is bootout");
     expect(operations).toContain("state/events.log");
     expect(operations).toContain("unified-log mirror is best-effort");
-    expect(operations).toContain("deadline=$(( started_epoch + 30 ))");
-    expect(operations).toContain('launchctl bootstrap "gui/$UID" "$PLIST_PATH"');
-    expect(operations).toContain('-o ClearAllForwardings=yes "$RELAY_HOST"');
-    expect(operations).toContain('"$launchd_pid" = "$status_supervisor_pid"');
-    expect(operations).toContain('"$actual_child_ppid" = "$status_supervisor_pid"');
-    expect(operations).toContain('"$supervisor_count" = 1');
-    expect(operations).toContain('"$child_count" = 1');
-    expect(operations).toContain('"$child_pid" = "$actual_child_pgid"');
-    expect(operations).toContain('"$3" -gt 0');
-    expect(operations).toContain('"$4" = 1');
-    expect(operations).toContain('"$1" = 1');
-    expect(operations).toContain('"$2" = 0');
-    expect(operations).toContain("app_owner_pid");
-    expect(operations).toContain("app_owner_is_sshd");
-    expect(operations).toContain('> "$trace.first-ready"');
-    expect(operations).toContain("first_ready_epoch");
+    const readiness = operations.match(
+      /### Thirty-second wall-clock readiness evidence[\s\S]*?```bash\n([\s\S]*?)\n```/,
+    )?.[1];
+    expect(readiness).toBeDefined();
+    expect(spawnSync("/bin/bash", ["-n"], { input: readiness, encoding: "utf8" }).status).toBe(0);
+    expect(readiness).toContain("deadline=$(( started_epoch + 30 ))");
+    expect(readiness).toContain('launchctl bootstrap "gui/$UID" "$PLIST_PATH"');
+    expect(readiness).toContain('-o ClearAllForwardings=yes "$RELAY_HOST"');
+    expect(readiness).toContain('"$launchd_pid" = "$status_supervisor_pid"');
+    expect(readiness).toContain('"$actual_child_ppid" = "$status_supervisor_pid"');
+    expect(readiness).toContain('"$supervisor_count" = 1');
+    expect(readiness).toContain('"$child_count" = 1');
+    expect(readiness).toContain('"$child_pid" = "$actual_child_pgid"');
+    expect(readiness).toContain('"$3" -gt 0');
+    expect(readiness).toContain('"$4" = sshd');
+    expect(readiness).toContain('"$5" = 1');
+    expect(readiness).toContain('"$1" = 1');
+    expect(readiness).toContain('"$2" = 0');
+    expect(readiness).toContain('"$observed_epoch" -le "$deadline"');
+    expect(readiness).toContain("first_ready_epoch=$observed_epoch");
+
+    const evidenceFields = [
+      "started_epoch",
+      "deadline",
+      "observed_epoch",
+      "observed_utc",
+      "first_ready_epoch",
+      "launchd_pid",
+      "status_supervisor_pid",
+      "actual_child_ppid",
+      "child_pid",
+      "child_pgid",
+      "actual_child_pgid",
+      "supervisor_count",
+      "child_count",
+      "app_listeners",
+      "monitor_listeners",
+      "app_owner_pid",
+      "app_owner_type",
+      "app_owner_is_sshd",
+      "status_state",
+      "local_health",
+      "upstream_health",
+      "coherent",
+    ];
+    expect(readiness).toContain(`trace_header=$(printf '${evidenceFields.join("\\t")}')`);
+    const pollRow = readiness.match(/poll_row=\$\(printf[\s\S]*?\"\$coherent\"\)/)?.[0];
+    expect(pollRow).toBeDefined();
+    for (const value of [
+      '"$started_epoch"',
+      '"$deadline"',
+      '"$observed_epoch"',
+      '"$observed_utc"',
+      '"$first_ready_epoch"',
+      '"${launchd_pid:-0}"',
+      '"$status_supervisor_pid"',
+      '"${actual_child_ppid:-0}"',
+      '"$child_pid"',
+      '"$child_pgid"',
+      '"${actual_child_pgid:-0}"',
+      '"$supervisor_count"',
+      '"$child_count"',
+      '"$1"',
+      '"$2"',
+      '"$3"',
+      '"$4"',
+      '"$5"',
+      '"$status_state"',
+      '"$local_health"',
+      '"$6"',
+      '"$coherent"',
+    ]) {
+      expect(pollRow).toContain(value);
+    }
+    expect(readiness).toContain(`printf '%s\\n%s\\n' "$trace_header" "$poll_row" > "$trace.first-ready"`);
 
     if (process.platform === "darwin") {
       const lint = spawnSync("plutil", ["-lint", PLIST_TEMPLATE], { encoding: "utf8" });
