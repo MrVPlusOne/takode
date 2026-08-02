@@ -947,6 +947,7 @@ export function handleCodexAdapterInitError(
     (session as any).pendingCodexRollbackWaiter?.reject(new Error(error));
     (session as any).pendingCodexRollbackWaiter = null;
   }
+  retireCodexAutoPauseRecoveryTesting(session, deps);
   if (pending) {
     pending.status = "blocked_broken_session";
     pending.lastError = error;
@@ -954,7 +955,6 @@ export function handleCodexAdapterInitError(
     deps.setPendingCodexInputsCancelable(session, pending.pendingInputIds ?? [pending.userMessageId], true);
   }
   deps.setBackendState(session, "broken", error);
-  retireCodexAutoPauseRecoveryTesting(session, deps);
   deps.setAttentionError(session);
   deps.emitTakodeEvent(session.id, "session_error", { error });
   deps.setGenerating(session, false, "codex_init_error");
