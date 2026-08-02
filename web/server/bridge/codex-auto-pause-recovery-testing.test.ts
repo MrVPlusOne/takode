@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CodexOutboundTurn, SessionState } from "../session-types.js";
-import { markAcceptedCodexAutoPauseRecoveryDispatch } from "./codex-auto-pause-recovery-testing.js";
+import {
+  markAcceptedCodexAutoPauseRecoveryDispatch,
+  retireCodexAutoPauseRecoveryTesting,
+} from "./codex-auto-pause-recovery-testing.js";
 
 function activePause(): NonNullable<SessionState["codex_result_error_auto_pause"]> {
   return {
@@ -60,5 +63,31 @@ describe("accepted Codex auto-pause recovery dispatch", () => {
     expect(queuedManual.turnTarget).toBe("queued");
     expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
     expect(deps.persistSession).not.toHaveBeenCalled();
+  });
+
+  it("durably retires a terminal owner until a new exact direct dispatch is accepted", () => {
+    const manual = turn("manual-input", "manual", "current");
+    const automatic = turn("automatic-input", "automatic", "current");
+    const session = {
+      state: { codex_result_error_auto_pause: activePause() },
+      pendingCodexTurns: [manual, automatic],
+    };
+    const deps = { broadcastToBrowsers: vi.fn(), persistSession: vi.fn() };
+
+    expect(retireCodexAutoPauseRecoveryTesting(session, deps)).toBe(true);
+    expect(manual).toMatchObject({ turnTarget: null, autoPauseRecoveryTestingRetired: true });
+    expect(automatic.turnTarget).toBe("current");
+    expect(automatic.autoPauseRecoveryTestingRetired).toBeUndefined();
+    expect(deps.broadcastToBrowsers).toHaveBeenLastCalledWith(session, {
+      type: "session_update",
+      session: { codex_result_error_auto_pause_recovery_testing: false },
+    });
+
+    expect(markAcceptedCodexAutoPauseRecoveryDispatch(session, manual.userMessageId, "current", deps)).toBe(true);
+    expect(manual).toMatchObject({ turnTarget: "current", autoPauseRecoveryTestingRetired: false });
+    expect(deps.broadcastToBrowsers).toHaveBeenLastCalledWith(session, {
+      type: "session_update",
+      session: { codex_result_error_auto_pause_recovery_testing: true },
+    });
   });
 });

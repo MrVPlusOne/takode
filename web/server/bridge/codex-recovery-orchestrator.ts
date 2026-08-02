@@ -26,7 +26,10 @@ import {
   holdCodexAutoPausedQueuedBacklog,
   isCodexAutoPauseRecoveryTesting,
 } from "../codex-result-error-auto-pause.js";
-import { broadcastCodexAutoPauseRecoveryTesting } from "./codex-auto-pause-recovery-testing.js";
+import {
+  broadcastCodexAutoPauseRecoveryTesting,
+  retireCodexAutoPauseRecoveryTesting,
+} from "./codex-auto-pause-recovery-testing.js";
 import {
   armCodexFreshTurnRequirement as armCodexFreshTurnRequirementState,
   clearCodexFreshTurnRequirement as clearCodexFreshTurnRequirementState,
@@ -703,6 +706,7 @@ function mergeCodexPendingTurnRecoveryState(keeper: CodexOutboundTurn, duplicate
   keeper.historyIndex = keeper.historyIndex >= 0 ? keeper.historyIndex : duplicate.historyIndex;
   keeper.acknowledgedAt = keeper.acknowledgedAt ?? duplicate.acknowledgedAt;
   keeper.disconnectedAt = keeper.disconnectedAt ?? duplicate.disconnectedAt;
+  keeper.autoPauseRecoveryTestingRetired ||= duplicate.autoPauseRecoveryTestingRetired;
   keeper.resumeConfirmedAt = keeper.resumeConfirmedAt ?? duplicate.resumeConfirmedAt;
   keeper.turnId = keeper.turnId ?? duplicate.turnId;
   keeper.lastError = keeper.lastError ?? duplicate.lastError;
@@ -902,6 +906,7 @@ export function handleCodexAdapterInitError(
       }
       deps.rebuildQueuedCodexPendingStartBatch(session);
       deps.setBackendState(session, "recovering", null);
+      broadcastCodexAutoPauseRecoveryTesting(session, deps);
       deps.broadcastToBrowsers(session, { type: "backend_disconnected" });
       const delayMs = Math.min(CODEX_INIT_RETRY_BASE_DELAY_MS * failures, 10_000);
       (session as any).codexInitRetryTimer = setTimeout(() => {
@@ -922,11 +927,16 @@ export function handleCodexAdapterInitError(
     deps.rebuildQueuedCodexPendingStartBatch(session);
     const diagnostic = `Codex automatic recovery is paused after ${failures} failed attempts. Use Resume to retry manually.`;
     deps.setBackendState(session, "recovery_suppressed", diagnostic);
+    retireCodexAutoPauseRecoveryTesting(session, deps);
     deps.emitTakodeEvent(session.id, "session_error", { error: diagnostic });
     deps.setGenerating(session, false, "codex_recovery_suppressed");
     deps.broadcastToBrowsers(session, { type: "backend_disconnected", reason: "recovery_suppressed" });
     deps.broadcastToBrowsers(session, { type: "error", message: diagnostic });
-    deps.broadcastToBrowsers(session, { type: "status_change", status: null });
+    deps.broadcastToBrowsers(session, {
+      type: "status_change",
+      status: null,
+      codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
+    });
     deps.persistSession(session);
     return "broken";
   }
@@ -944,12 +954,17 @@ export function handleCodexAdapterInitError(
     deps.setPendingCodexInputsCancelable(session, pending.pendingInputIds ?? [pending.userMessageId], true);
   }
   deps.setBackendState(session, "broken", error);
+  retireCodexAutoPauseRecoveryTesting(session, deps);
   deps.setAttentionError(session);
   deps.emitTakodeEvent(session.id, "session_error", { error });
   deps.setGenerating(session, false, "codex_init_error");
   deps.broadcastToBrowsers(session, { type: "backend_disconnected", reason: "broken" });
   deps.broadcastToBrowsers(session, { type: "error", message: error });
-  deps.broadcastToBrowsers(session, { type: "status_change", status: null });
+  deps.broadcastToBrowsers(session, {
+    type: "status_change",
+    status: null,
+    codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
+  });
   deps.persistSession(session);
   return "broken";
 }
@@ -1175,11 +1190,18 @@ export function registerCodexAdapterRecoveryLifecycle(
             `[ws-bridge] Codex disconnect grace expired for session ${sessionTag(session.id)} ` +
               `while recovery is still in flight; keeping the turn resumable`,
           );
+          broadcastCodexAutoPauseRecoveryTesting(session, deps);
           deps.persistSession(session);
           return;
         }
+        retireCodexAutoPauseRecoveryTesting(session, deps);
         deps.markTurnInterrupted(session, "system");
         deps.setGenerating(session, false, "codex_disconnect");
+        deps.broadcastToBrowsers(session, {
+          type: "status_change",
+          status: "idle",
+          codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
+        });
         deps.persistSession(session);
         console.log(
           `[ws-bridge] Codex disconnect grace expired for session ${sessionTag(session.id)} — emitting deferred system interruption`,
@@ -1190,10 +1212,15 @@ export function registerCodexAdapterRecoveryLifecycle(
           `(${deps.codexDisconnectGraceMs}ms grace, recoverable pending turn)`,
       );
     } else {
+      retireCodexAutoPauseRecoveryTesting(session, deps);
       deps.markTurnInterrupted(session, "system");
       deps.setGenerating(session, false, "codex_disconnect");
     }
-    deps.broadcastToBrowsers(session, { type: "status_change", status: null });
+    deps.broadcastToBrowsers(session, {
+      type: "status_change",
+      status: null,
+      codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
+    });
     deps.scheduleCodexToolResultWatchdogs(session, "codex_disconnect");
     deps.persistSession(session);
     console.log(
@@ -1834,6 +1861,7 @@ export function retryPendingCodexTurn(
   const releasedHeadQueuedTurn = pending.turnTarget === "queued";
   const preserveRecoveryTestingOwnership =
     pending.turnTarget === "current" &&
+    pending.autoPauseRecoveryTestingRetired !== true &&
     pending.autoPauseSourceKind === "manual" &&
     !!session.state.codex_result_error_auto_pause?.pausedAt;
   const restartRunningGuard = session.isGenerating && pending.turnTarget !== "queued";

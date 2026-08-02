@@ -1520,14 +1520,27 @@ describe("handleCodexAdapterInitError", () => {
     // Once the bounded retry budget is spent, queued work remains durable but
     // automatic relaunch pauses so users see a manual recovery path instead of
     // an infinite respawn loop.
-    const adapter = { id: "adapter-1" };
+    const adapter = makeLifecycleAdapter();
     const session = makeSession([]);
+    prepareLifecycleSession(session);
+    activateAutoPause(session);
+    session.state.codex_result_error_auto_pause!.heldInputs.push({
+      id: "held-init-exhaustion",
+      queuedAt: 901,
+      lastQueuedAt: 901,
+      source: "programmatic",
+      count: 1,
+      message: { type: "user_message", content: "held event", agentSource: { sessionId: "herd-events" } },
+    });
     const pending = makePendingTurn();
+    pending.autoPauseSourceKind = "manual";
+    pending.turnTarget = "current";
+    session.isGenerating = true;
     session.codexAdapter = adapter as any;
     session.pendingCodexTurns = [pending];
     (session as any).codexAutoRecoveryReason = "queued_user_message_adapter_missing";
     (session as any).codexInitRecoveryFailures = 2;
-    const deps = makeRecoveryDeps({ maxAdapterRelaunchFailures: 3 });
+    const deps = makeLifecycleDeps({ maxAdapterRelaunchFailures: 3 });
 
     const result = handleCodexAdapterInitError(
       session.id,
@@ -1543,6 +1556,8 @@ describe("handleCodexAdapterInitError", () => {
       "Codex automatic recovery is paused after 3 failed attempts",
     );
     expect(pending.status).toBe("queued");
+    expect(pending).toMatchObject({ turnTarget: null, autoPauseRecoveryTestingRetired: true });
+    expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
     expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
     expect(deps.setAttentionError).not.toHaveBeenCalled();
     expect(deps.emitTakodeEvent).toHaveBeenCalledWith(session.id, "session_error", {
@@ -1557,6 +1572,29 @@ describe("handleCodexAdapterInitError", () => {
       type: "error",
       message: "Codex automatic recovery is paused after 3 failed attempts. Use Resume to retry manually.",
     });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "session_update",
+      session: { codex_result_error_auto_pause_recovery_testing: false },
+    });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "status_change",
+      status: null,
+      codexAutoPauseRecoveryTesting: false,
+    });
+
+    const replacement = makeLifecycleAdapter();
+    session.codexAdapter = replacement as any;
+    vi.mocked(deps.broadcastToBrowsers).mockClear();
+    registerCodexAdapterRecoveryLifecycle(session.id, session, replacement, deps);
+    replacement.emitSessionMeta({ cliSessionId: "thread-after-init-exhaustion" });
+    expect(pending.autoPauseRecoveryTestingRetired).toBe(true);
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: true }),
+      }),
+    );
   });
 
   it("marks non-transient init errors broken immediately", () => {

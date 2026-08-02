@@ -61,6 +61,7 @@ import * as gitUtils from "./git-utils.js";
 import { sessionTag } from "./session-tag.js";
 import { isSessionPaused } from "./session-pause.js";
 import { isCodexAutoPauseRecoveryTesting } from "./codex-result-error-auto-pause.js";
+import { retireCodexAutoPauseRecoveryTesting } from "./bridge/codex-auto-pause-recovery-testing.js";
 import type { PerfTracer } from "./perf-tracer.js";
 import { HerdEventDispatcher, isSessionIdleRuntime } from "./herd-event-dispatcher.js";
 import { injectCompactionRecovery as injectCompactionRecoveryController } from "./bridge/compaction-recovery.js";
@@ -1453,6 +1454,13 @@ export function getGenerationLifecycleDeps(host: any) {
       });
     },
     persistSession: (session: Session) => host.persistSession(session),
+    onNonResultTurnTerminal: (session: Session, reason: string) => {
+      if (session.backendType !== "codex") return;
+      retireCodexAutoPauseRecoveryTesting(session, {
+        broadcastToBrowsers: (targetSession, message) => host.broadcastToBrowsers(targetSession, message),
+        persistSession: (targetSession) => host.persistSession(targetSession),
+      });
+    },
     onSessionActivityStateChanged: (sessionId: string, reason: string) =>
       host.onSessionActivityStateChanged(sessionId, reason),
     emitTakodeEvent: (sessionId: string, type: "turn_start" | "turn_end", data: Record<string, unknown>) => {

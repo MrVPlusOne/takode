@@ -42,7 +42,32 @@ export function markAcceptedCodexAutoPauseRecoveryDispatch<S extends CodexAutoPa
       (candidate.status === "dispatched" || candidate.status === "backend_acknowledged"),
   );
   if (!turn || turn.turnTarget === "queued") return false;
+  turn.autoPauseRecoveryTestingRetired = false;
   turn.turnTarget = "current";
+  broadcastCodexAutoPauseRecoveryTesting(session, deps);
+  deps.persistSession(session);
+  return true;
+}
+
+export function retireCodexAutoPauseRecoveryTesting<S extends CodexAutoPauseRecoveryTestingSessionLike>(
+  session: S,
+  deps: CodexAutoPauseRecoveryTestingDeps<S>,
+): boolean {
+  if (!getActiveCodexResultErrorAutoPause(session)) return false;
+  let changed = false;
+  for (const turn of session.pendingCodexTurns) {
+    if (
+      turn.turnTarget !== "current" ||
+      turn.autoPauseSourceKind !== "manual" ||
+      !["queued", "dispatched", "backend_acknowledged"].includes(turn.status)
+    ) {
+      continue;
+    }
+    turn.autoPauseRecoveryTestingRetired = true;
+    turn.turnTarget = null;
+    changed = true;
+  }
+  if (!changed) return false;
   broadcastCodexAutoPauseRecoveryTesting(session, deps);
   deps.persistSession(session);
   return true;

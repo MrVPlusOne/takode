@@ -946,6 +946,87 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     );
   });
 
+  it("retires accepted manual recovery ownership before optimistic user-message timeout becomes idle", async () => {
+    vi.useFakeTimers();
+    try {
+      const sid = "s-codex-recovery-optimistic-timeout";
+      const session = bridge.getOrCreateSession(sid, "codex");
+      const adapter = makeCodexAdapterMock();
+      bridge.attachCodexAdapter(sid, adapter as any);
+      emitCodexSessionReady(adapter, { cliSessionId: "thread-optimistic-timeout" });
+      session.state.codex_result_error_auto_pause = {
+        family: "copilot_auth_refresh_exhausted",
+        fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+        streak: 1,
+        threshold: 1,
+        pausedAt: 123,
+        lastError: "GitHub Copilot API-key refresh exhausted its retry budget.",
+        lastErrorAt: 123,
+        lastSourceKind: "automatic",
+        totalMatchingErrors: 1,
+        heldInputs: [
+          {
+            id: "held-timeout-test",
+            queuedAt: 124,
+            lastQueuedAt: 124,
+            source: "programmatic",
+            count: 1,
+            message: { type: "user_message", content: "held event", agentSource: { sessionId: "herd-events" } },
+          },
+        ],
+      };
+      const first = makeBrowserSocket(sid);
+      const second = makeBrowserSocket(sid);
+      bridge.handleBrowserOpen(first, sid);
+      bridge.handleBrowserOpen(second, sid);
+      first.send.mockClear();
+      second.send.mockClear();
+
+      bridge.handleBrowserMessage(
+        first,
+        JSON.stringify({ type: "user_message", content: "test recovery", inputSource: "composer" }),
+      );
+      expect(getPendingCodexTurn(session)).toMatchObject({
+        status: "dispatched",
+        turnTarget: "current",
+        autoPauseSourceKind: "manual",
+      });
+      first.send.mockClear();
+      second.send.mockClear();
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(getPendingCodexTurn(session)).toMatchObject({
+        status: "dispatched",
+        turnTarget: null,
+        autoPauseRecoveryTestingRetired: true,
+      });
+      expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
+      for (const connected of [first, second]) {
+        const events = connected.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "session_update",
+            session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: false }),
+          }),
+        );
+        expect(events).toContainEqual(
+          expect.objectContaining({ type: "status_change", status: "idle", codexAutoPauseRecoveryTesting: false }),
+        );
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const reconnect = makeBrowserSocket("s-codex-recovery-optimistic-timeout");
+    bridge.handleBrowserOpen(reconnect, "s-codex-recovery-optimistic-timeout");
+    bridge.handleBrowserMessage(reconnect, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    await flushAsync();
+    expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
+      expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryTesting: false }),
+    );
+  });
+
   it.each([
     {
       label: "matching failure",

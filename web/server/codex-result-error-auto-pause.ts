@@ -38,7 +38,9 @@ export interface CodexResultErrorAutoPauseSessionLike {
 }
 
 export interface CodexAutoPauseRecoveryTestingSessionLike extends CodexResultErrorAutoPauseSessionLike {
-  pendingCodexTurns: Array<Pick<CodexOutboundTurn, "autoPauseSourceKind" | "status" | "turnTarget">>;
+  pendingCodexTurns: Array<
+    Pick<CodexOutboundTurn, "autoPauseRecoveryTestingRetired" | "autoPauseSourceKind" | "status" | "turnTarget">
+  >;
 }
 
 export interface CodexAutoPausedQueuedBacklogSessionLike extends CodexResultErrorAutoPauseSessionLike {
@@ -229,6 +231,7 @@ export function isCodexAutoPauseRecoveryTesting(
   return session.pendingCodexTurns.some(
     (turn) =>
       turn.turnTarget === "current" &&
+      turn.autoPauseRecoveryTestingRetired !== true &&
       turn.autoPauseSourceKind === "manual" &&
       (turn.status === "queued" || turn.status === "dispatched" || turn.status === "backend_acknowledged"),
   );

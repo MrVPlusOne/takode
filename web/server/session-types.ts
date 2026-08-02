@@ -1289,6 +1289,8 @@ export interface CodexOutboundTurn {
   autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
   /** Correlations retained across acknowledgement, reconnect, and turn retry. */
   autoPauseRecoveryLinks?: CodexAutoPauseRecoveryLink[];
+  /** Server-only marker that a non-result terminal path retired this recovery presentation owner. */
+  autoPauseRecoveryTestingRetired?: boolean;
 }
 
 export interface SessionState {

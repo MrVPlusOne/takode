@@ -239,6 +239,7 @@ import {
   setPendingCodexInputsCancelable as setPendingCodexInputsCancelableController,
   trySteerPendingCodexInputs as trySteerPendingCodexInputsController,
 } from "./bridge/codex-recovery-orchestrator.js";
+import { retireCodexAutoPauseRecoveryTesting } from "./bridge/codex-auto-pause-recovery-testing.js";
 import {
   buildToolResultPreviews as buildToolResultPreviewsController,
   clearAllCodexToolResultWatchdogs as clearAllCodexToolResultWatchdogsController,
@@ -1326,8 +1327,17 @@ export class WsBridge {
     this.clearCodexDisconnectGraceTimer(session, `codex_${reason}`);
     if (session.codexAdapter || !session.isGenerating) return;
     if (!getCodexTurnInRecoveryState(session)) return;
+    retireCodexAutoPauseRecoveryTesting(session, {
+      broadcastToBrowsers: (targetSession, message) => this.broadcastToBrowsers(targetSession, message),
+      persistSession: (targetSession) => this.persistSession(targetSession),
+    });
     this.markTurnInterrupted(session, "system");
     setGeneratingLifecycle(this.getGenerationLifecycleDeps(), session, false, "codex_disconnect");
+    this.broadcastToBrowsers(session, {
+      type: "status_change",
+      status: "idle",
+      codexAutoPauseRecoveryTesting: false,
+    });
     this.persistSession(session);
     console.log(
       `[ws-bridge] Finalized deferred Codex disconnect interruption for session ${sessionTag(session.id)} ` +

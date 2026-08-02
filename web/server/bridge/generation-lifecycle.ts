@@ -72,6 +72,7 @@ export interface GenerationLifecycleDeps<S extends GenerationLifecycleSession> {
   recordGenerationStarted?: (session: S, reason: string) => void;
   recordGenerationEnded?: (session: S, reason: string, elapsedMs: number) => void;
   recoverPendingCodexTurnBeforeQueueDrain?: (session: S, reason: string) => boolean;
+  onNonResultTurnTerminal?: (session: S, reason: string) => void;
   onGenerationStopped?: (session: S, reason: string) => void;
   onOrchestratorTurnEnd?: (sessionId: string, reason?: string) => void;
   /** Returns who triggered the current turn on a given session. */
@@ -165,6 +166,7 @@ function restartOptimisticRunningTimer<S extends GenerationLifecycleSession>(
     console.warn(
       `[ws-bridge] Reverting optimistic running state after ${deps.userMessageRunningTimeoutMs}ms for session ${sessionTag(current.id)} (${reason})`,
     );
+    deps.onNonResultTurnTerminal?.(current, "user_message_timeout");
     markTurnInterrupted(current, "system");
     setGenerating(deps, current, false, "user_message_timeout");
     // Drain any remaining queued turns — if the CLI didn't respond to this

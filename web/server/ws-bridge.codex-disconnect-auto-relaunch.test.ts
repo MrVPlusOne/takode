@@ -165,6 +165,30 @@ function getPendingCodexTurn(session: { pendingCodexTurns?: unknown[] }) {
   return (session.pendingCodexTurns?.[0] ?? null) as any;
 }
 
+function seedAutoPause(session: any, heldId: string): void {
+  session.state.codex_result_error_auto_pause = {
+    family: "copilot_auth_refresh_exhausted",
+    fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+    streak: 1,
+    threshold: 1,
+    pausedAt: 123,
+    lastError: "GitHub Copilot API-key refresh exhausted its retry budget.",
+    lastErrorAt: 123,
+    lastSourceKind: "automatic",
+    totalMatchingErrors: 1,
+    heldInputs: [
+      {
+        id: heldId,
+        queuedAt: 124,
+        lastQueuedAt: 124,
+        source: "programmatic",
+        count: 1,
+        message: { type: "user_message", content: "held event", agentSource: { sessionId: "herd-events" } },
+      },
+    ],
+  };
+}
+
 function getCodexStartPendingInputs(msg: any) {
   expect(msg?.type).toBe("codex_start_pending");
   expect(Array.isArray(msg?.inputs)).toBe(true);
@@ -654,6 +678,147 @@ describe("Codex disconnect auto-relaunch", () => {
 
     expect(relaunchCb).toHaveBeenCalledWith(sid);
     expect(bridge.getSession(sid)?.state.backend_state).toBe("recovering");
+  });
+
+  it("preserves manual recovery testing through resumable disconnect grace and replacement session_meta", async () => {
+    vi.useFakeTimers();
+    const sid = "s-recovery-disconnect-resumable";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    try {
+      const adapter = makeCodexAdapterMock();
+      bridge.attachCodexAdapter(sid, adapter as any);
+      emitCodexSessionReady(adapter, { cliSessionId: "thread-disconnect-resumable" });
+      const session = bridge.getSession(sid)!;
+      seedAutoPause(session, "held-disconnect-resumable");
+      const first = makeBrowserSocket(sid);
+      const second = makeBrowserSocket(sid);
+      bridge.handleBrowserOpen(first, sid);
+      bridge.handleBrowserOpen(second, sid);
+      first.send.mockClear();
+      second.send.mockClear();
+
+      await bridge.handleBrowserMessage(
+        first,
+        JSON.stringify({ type: "user_message", content: "test recovery", inputSource: "composer" }),
+      );
+      adapter.emitTurnStarted("turn-disconnect-resumable");
+      first.send.mockClear();
+      second.send.mockClear();
+      adapter.emitDisconnect("turn-disconnect-resumable");
+
+      expect(relaunchCb).toHaveBeenCalledWith(sid);
+      expect(getPendingCodexTurn(session)).toMatchObject({
+        turnTarget: "current",
+        autoPauseRecoveryTestingRetired: false,
+      });
+      for (const connected of [first, second]) {
+        expect(connected.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
+          expect.objectContaining({ type: "status_change", status: null, codexAutoPauseRecoveryTesting: true }),
+        );
+      }
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(session.state.backend_state).toBe("recovering");
+      expect(getPendingCodexTurn(session)).toMatchObject({
+        turnTarget: "current",
+        autoPauseRecoveryTestingRetired: false,
+      });
+
+      const replacement = makeCodexAdapterMock();
+      bridge.attachCodexAdapter(sid, replacement as any);
+      first.send.mockClear();
+      emitCodexSessionReady(replacement, { cliSessionId: "thread-disconnect-replacement" });
+      expect(first.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
+        expect.objectContaining({
+          type: "session_update",
+          session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: true }),
+        }),
+      );
+      expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const reconnect = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(reconnect, sid);
+    bridge.handleBrowserMessage(reconnect, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    await flushAsync();
+    expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
+      expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryTesting: true }),
+    );
+  });
+
+  it("retires manual recovery testing before disconnect grace expires terminally and does not restore on session_meta", async () => {
+    vi.useFakeTimers();
+    const sid = "s-recovery-disconnect-terminal";
+    let session: any;
+    try {
+      const adapter = makeCodexAdapterMock();
+      bridge.attachCodexAdapter(sid, adapter as any);
+      emitCodexSessionReady(adapter, { cliSessionId: "thread-disconnect-terminal" });
+      session = bridge.getSession(sid)!;
+      seedAutoPause(session, "held-disconnect-terminal");
+      const first = makeBrowserSocket(sid);
+      const second = makeBrowserSocket(sid);
+      bridge.handleBrowserOpen(first, sid);
+      bridge.handleBrowserOpen(second, sid);
+      first.send.mockClear();
+      second.send.mockClear();
+
+      await bridge.handleBrowserMessage(
+        first,
+        JSON.stringify({ type: "user_message", content: "test recovery", inputSource: "composer" }),
+      );
+      adapter.emitTurnStarted("turn-disconnect-terminal");
+      adapter.emitDisconnect("turn-disconnect-terminal");
+      session.state.backend_state = "disconnected";
+      first.send.mockClear();
+      second.send.mockClear();
+
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(getPendingCodexTurn(session)).toMatchObject({
+        turnTarget: null,
+        autoPauseRecoveryTestingRetired: true,
+      });
+      expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
+      for (const connected of [first, second]) {
+        const events = connected.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "session_update",
+            session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: false }),
+          }),
+        );
+        expect(events).toContainEqual(
+          expect.objectContaining({ type: "status_change", status: "idle", codexAutoPauseRecoveryTesting: false }),
+        );
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const reconnect = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(reconnect, sid);
+    bridge.handleBrowserMessage(reconnect, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    await flushAsync();
+    expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
+      expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryTesting: false }),
+    );
+
+    const replacement = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, replacement as any);
+    reconnect.send.mockClear();
+    emitCodexSessionReady(replacement, { cliSessionId: "thread-after-terminal-disconnect" });
+    expect(getPendingCodexTurn(session)).toBeNull();
+    expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
+    expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).not.toContainEqual(
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: true }),
+      }),
+    );
   });
 
   it("does not request relaunch for idle-manager disconnects", () => {
