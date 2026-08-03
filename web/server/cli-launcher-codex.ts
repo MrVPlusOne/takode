@@ -1655,7 +1655,8 @@ export async function prepareCodexSpawn(
   const serverId = options.env?.COMPANION_SERVER_ID;
   const isContainerized = !!options.containerId;
   const codexHomeRoot = resolveCompanionCodexHome(options.codexHome);
-  const leaderLaunch = isCodexLeaderRecycleLaunch(info, options);
+  const codexLeaderLaunch = isCodexLeaderLaunch(info, options);
+  const leaderRecycleLaunch = isCodexLeaderRecycleLaunch(info, options);
   const timing = new CooperativeTiming({ label: `Codex spawn prep ${sessionTag(sessionId)}` });
 
   try {
@@ -1695,7 +1696,7 @@ export async function prepareCodexSpawn(
     let contextLaunchConfig: CodexContextLaunchConfig | undefined;
     let containerLeaderConfigToml: string | undefined;
     let containerModelCatalogJson: string | undefined;
-    const containerModelCatalogPath = leaderLaunch
+    const containerModelCatalogPath = leaderRecycleLaunch
       ? containerTakodeLeaderModelCatalogPath
       : options.codexMaxContextLength
         ? containerTakodeNonLeaderModelCatalogPath
@@ -1717,12 +1718,12 @@ export async function prepareCodexSpawn(
       );
       const sessionConfig = await timing.step("ensure Codex session config", () =>
         ensureCodexSessionConfig(codexHome, shellEnvVars, {
-          leaderLaunch,
+          leaderLaunch: leaderRecycleLaunch,
           codexContextCapacityTokens: options.codexMaxContextLength,
           existingLeaderRecycleThresholdTokens: existingLeaderRecycleBudget(info),
           model: options.model,
           takodeDelegateMcp: buildTakodeDelegateMcpConfig(
-            leaderLaunch || options.env?.TAKODE_DELEGATE_ROLE === "child",
+            codexLeaderLaunch || options.env?.TAKODE_DELEGATE_ROLE === "child",
             options.env,
           ),
           timing,
@@ -1740,13 +1741,13 @@ export async function prepareCodexSpawn(
       );
       const containerConfig = await timing.step("ensure container Codex session config", () =>
         ensureCodexSessionConfig(codexHome, shellEnvVars, {
-          leaderLaunch,
+          leaderLaunch: leaderRecycleLaunch,
           codexContextCapacityTokens: options.codexMaxContextLength,
           existingLeaderRecycleThresholdTokens: existingLeaderRecycleBudget(info),
           model: options.model,
           modelCatalogConfigPath: containerModelCatalogPath,
           takodeDelegateMcp: buildTakodeDelegateMcpConfig(
-            leaderLaunch || options.env?.TAKODE_DELEGATE_ROLE === "child",
+            codexLeaderLaunch || options.env?.TAKODE_DELEGATE_ROLE === "child",
             options.env,
           ),
           timing,
@@ -1895,7 +1896,7 @@ export async function prepareCodexSpawn(
     timing.finish({
       backend: "codex",
       container: isContainerized,
-      leader: leaderLaunch,
+      leader: codexLeaderLaunch,
     });
   }
 }
