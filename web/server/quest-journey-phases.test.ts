@@ -33,6 +33,16 @@ async function makeCompanionHome(): Promise<string> {
   return dir;
 }
 
+function explainedShortcutLabels(visibleText: string, shortcuts: string[]): string[] {
+  return shortcuts.filter((shortcut) =>
+    new RegExp(`^- \\*\\*${escapeRegExp(shortcut)}\\*\\*: .+tradeoff`, "im").test(visibleText),
+  );
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 describe("Quest Journey phase directory loading", () => {
   it("seeds and loads built-in phase directories from server-owned data", async () => {
     const companionHome = await makeCompanionHome();
@@ -238,6 +248,20 @@ describe("Quest Journey phase directory loading", () => {
     expect(userCheckpointPhase?.leaderBrief).toContain(
       "notification summaries, notification UI options, and `--suggest` choices",
     );
+    expect(userCheckpointPhase?.leaderBrief).toContain("publish a visible decision section before calling");
+    expect(userCheckpointPhase?.leaderBrief).toContain("Every shortcut option must be named and explained");
+    expect(userCheckpointPhase?.leaderBrief).toContain("phase notes, private packets");
+    expect(userCheckpointPhase?.leaderBrief).toContain("labels/buttons");
+    expect(userCheckpointPhase?.leaderBrief).toContain("without opening hidden context");
+    expect(userCheckpointPhase?.leaderBrief).toContain("Fast A");
+    expect(userCheckpointPhase?.leaderBrief).toContain("Careful B");
+    expect(userCheckpointPhase?.leaderBrief).toContain("Pause C");
+    expect(userCheckpointPhase?.leaderBrief).toContain("If two options are materially equivalent");
+    expect(userCheckpointPhase?.leaderBrief).toContain("For binary yes/no prompts");
+    expect(userCheckpointPhase?.leaderBrief).toContain("multiple independent questions");
+    expect(userCheckpointPhase?.leaderBrief).toContain("free-form or custom answers");
+    expect(userCheckpointPhase?.leaderBrief).toContain("For long packets");
+    expect(userCheckpointPhase?.leaderBrief).toContain("For revised choices");
     expect(userCheckpointPhase?.leaderBrief).toContain("takode notify needs-input");
     // Paired fictional replies lock the distinction between edit-only and exact edit-plus-approval.
     expect(userCheckpointPhase?.leaderBrief).toContain("a material edit alone is not approval");
@@ -256,6 +280,20 @@ describe("Quest Journey phase directory loading", () => {
     expect(userCheckpointPhase?.leaderBrief).toContain("Do not use this phase as a terminal phase");
     expect(userCheckpointPhase?.assigneeBrief).toContain("self-contained decision packet");
     expect(userCheckpointPhase?.assigneeBrief).toContain("Use internally consistent, human-readable option labels");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("include a visible decision section");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("Every shortcut option must be named and explained");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("phase notes, private packets");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("labels/buttons");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("without opening hidden context");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("Fast A");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("Careful B");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("Pause C");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("options are materially equivalent");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("binary yes/no prompts");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("multiple independent questions");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("free-form or custom answers");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("For long packets");
+    expect(userCheckpointPhase?.assigneeBrief).toContain("For revised choices");
     expect(userCheckpointPhase?.assigneeBrief).toContain("make the exact packet being approved unambiguous");
     expect(userCheckpointPhase?.assigneeBrief).toContain("one exact substitution and explicitly approve");
     expect(userCheckpointPhase?.assigneeBrief).toContain('"Change the batch limit to 120" versus');
@@ -264,6 +302,22 @@ describe("Quest Journey phase directory loading", () => {
     expect(userCheckpointPhase?.assigneeBrief).toContain("harmless typo-only corrections");
     expect(userCheckpointPhase?.assigneeBrief).toContain("required user answer");
     expect(userCheckpointPhase?.assigneeBrief).toContain("Journey-revision implications");
+  });
+
+  it("documents an offline check for shortcut prompts that explain only the recommendation", () => {
+    const shortcuts = ["Fast A", "Careful B", "Pause C"];
+    const recommendationOnlyPrompt = [
+      "- **Fast A**: Ship the smaller update now; tradeoff: fastest but least comprehensive.",
+      "Alternatives remain Careful B or Pause C.",
+    ].join("\n");
+    const completePrompt = [
+      "- **Fast A**: Ship the smaller update now; tradeoff: fastest but least comprehensive.",
+      "- **Careful B**: wait for a deeper pass; tradeoff: slower but lowers revision risk.",
+      "- **Pause C**: take no action now; tradeoff: preserves current state but leaves the issue open.",
+    ].join("\n");
+
+    expect(explainedShortcutLabels(recommendationOnlyPrompt, shortcuts)).toEqual(["Fast A"]);
+    expect(explainedShortcutLabels(completePrompt, shortcuts)).toEqual(shortcuts);
   });
 
   it("seeds reviewer briefs with target-specific skill and context loading guidance", async () => {

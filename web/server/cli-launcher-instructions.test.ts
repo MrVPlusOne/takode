@@ -175,6 +175,8 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("The visible thread text is the decision surface");
     expect(result).toContain("complete context needed to answer, including options and tradeoffs when relevant");
     expect(result).toContain("notification summaries, notification UI options, and `--suggest` choices");
+    expect(result).toContain("If shortcuts are offered");
+    expect(result).toContain("name every shortcut and explain its meaning plus relevant tradeoff");
     expect(result).toContain("Any user wait, including approvals, confirmations");
     expect(result).toContain("never represent a user wait only with `Thread Waiting`");
     expect(result).toContain("`Thread Waiting` or `takode notify waiting`");
@@ -195,6 +197,20 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Legacy CLI status for sessions that are parked on non-user work only");
     expect(result).toContain("Leader/orchestrator threads should prefer inline `Thread Waiting` markers");
     expect(result).toContain("Use `Thread Waiting` only for non-user waits");
+  });
+
+  it("includes the User Checkpoint shortcut invariant in generated leader guardrails", () => {
+    const result = getOrchestratorGuardrails("codex");
+
+    expect(result).toContain("If notification shortcuts are offered");
+    expect(result).toContain("the visible decision section must name every shortcut");
+    expect(result).toContain("phase notes, private packets");
+    expect(result).toContain("labels/buttons");
+    expect(result).toContain("Equivalent/no-tradeoff options should say so or be collapsed");
+    expect(result).toContain("yes/no prompts must state what yes authorizes and what no declines");
+    expect(result).toContain("independent questions need matching `--question` groups");
+    expect(result).toContain("custom answers to exact packets are edits/new alternatives");
+    expect(result).toContain("revised packets need a fresh visible section plus fresh notification");
   });
 
   it("includes global resource lease guidance for shared dev-server and browser work", () => {
