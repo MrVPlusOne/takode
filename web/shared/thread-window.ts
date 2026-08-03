@@ -38,6 +38,8 @@ interface ConversationRange {
 }
 
 type RouteTarget = { threadKey: string; questId?: string };
+type ToolResultPreviewMessage = Extract<BrowserIncomingMessage, { type: "tool_result_preview" }>;
+type ToolResultPreviewEntry = ToolResultPreviewMessage["previews"][number];
 
 export function normalizeSelectedFeedThreadKey(threadKey: string): string {
   const normalized = threadKey.trim().toLowerCase();
@@ -556,6 +558,16 @@ function expandToolClosureItems(
         ),
       )
     : allowedToolUseIds;
+  const mandatoryPreviewItems = options.orphanPreviewFallback
+    ? []
+    : collectLatestPreviewItemsForToolIds(inputMessagesWithIndexes(messages), allowedToolUseIds);
+  const mandatoryPreviewToolUseIds = new Set(
+    mandatoryPreviewItems.flatMap((item) =>
+      item.entry.message.type === "tool_result_preview"
+        ? item.entry.message.previews.map((preview) => preview.tool_use_id)
+        : [],
+    ),
+  );
   const supportItems: FeedItem[] = [];
   const previewToolUseIds = new Set<string>();
   const previewCandidates = options.orphanPreviewFallback
@@ -569,7 +581,12 @@ function expandToolClosureItems(
     const { message, index } = previewCandidates[candidateIndex]!;
     if (message.type === "tool_result_preview") {
       const previews = message.previews
-        .filter((preview) => previewRelationIds.has(preview.tool_use_id) && !previewToolUseIds.has(preview.tool_use_id))
+        .filter(
+          (preview) =>
+            previewRelationIds.has(preview.tool_use_id) &&
+            !mandatoryPreviewToolUseIds.has(preview.tool_use_id) &&
+            !previewToolUseIds.has(preview.tool_use_id),
+        )
         .slice(0, THREAD_WINDOW_SUPPORT_RECORD_LIMIT - supportRecordCount);
       if (previews.length === 0) continue;
       previews.forEach((preview) => previewToolUseIds.add(preview.tool_use_id));
@@ -605,7 +622,47 @@ function expandToolClosureItems(
     supportRecordCount += 1;
     supportItems.push({ order: index, entry: { message, history_index: index } });
   }
-  return [...retainedSelectedItems, ...supportItems];
+  return [...retainedSelectedItems, ...mandatoryPreviewItems, ...supportItems];
+}
+
+function inputMessagesWithIndexes(messages: ReadonlyArray<BrowserIncomingMessage>) {
+  return messages.map((message, index) => ({ message, index }));
+}
+
+function collectLatestPreviewItemsForToolIds(
+  candidates: ReadonlyArray<{ message: BrowserIncomingMessage; index: number }>,
+  toolUseIds: ReadonlySet<string>,
+): FeedItem[] {
+  if (toolUseIds.size === 0) return [];
+
+  const remainingToolUseIds = new Set(toolUseIds);
+  const previewItems: FeedItem[] = [];
+  for (
+    let candidateIndex = candidates.length - 1;
+    candidateIndex >= 0 && remainingToolUseIds.size > 0;
+    candidateIndex--
+  ) {
+    const { message, index } = candidates[candidateIndex]!;
+    if (message.type !== "tool_result_preview") continue;
+
+    const previews: ToolResultPreviewEntry[] = [];
+    for (const preview of message.previews) {
+      if (!remainingToolUseIds.has(preview.tool_use_id)) continue;
+      remainingToolUseIds.delete(preview.tool_use_id);
+      previews.push(preview);
+    }
+    if (previews.length === 0) continue;
+
+    previewItems.push({
+      order: index,
+      entry: {
+        message: previews.length === message.previews.length ? message : { ...message, previews },
+        history_index: index,
+      },
+    });
+  }
+
+  return previewItems;
 }
 
 function dedupeFeedItems(items: FeedItem[]): FeedItem[] {

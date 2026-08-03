@@ -603,6 +603,45 @@ describe("MessageFeed - Codex terminal chips", () => {
     expect(screen.getByText("takode board show")).toBeTruthy();
   });
 
+  it("does not revive selected-window historical Bash tools with hydrated previews across idle-running-idle", () => {
+    const sid = "test-codex-selected-window-closed-terminal";
+    setStoreSessionBackend(sid, "codex");
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "codex-selected-window-complete",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-selected-complete", name: "Bash", input: { command: "takode board show" } },
+        ],
+      }),
+    ]);
+    setStoreToolStartTimestamps(sid, { "tu-selected-complete": Date.now() - 8_800_000 });
+    setStoreToolResults(sid, {
+      "tu-selected-complete": {
+        content: "board output",
+        is_truncated: false,
+        duration_seconds: 0.4,
+      },
+    });
+
+    setStoreStatus(sid, "idle");
+    const view = render(<MessageFeed sessionId={sid} />);
+    expect(screen.queryByTestId("codex-live-terminal-chip")).toBeNull();
+    expect(screen.queryByText("Live terminal")).toBeNull();
+
+    setStoreStatus(sid, "running");
+    view.rerender(<MessageFeed sessionId={sid} />);
+    expect(screen.queryByTestId("codex-live-terminal-chip")).toBeNull();
+    expect(screen.queryByText("Live terminal")).toBeNull();
+
+    setStoreStatus(sid, "idle");
+    view.rerender(<MessageFeed sessionId={sid} />);
+    expect(screen.queryByTestId("codex-live-terminal-chip")).toBeNull();
+    expect(screen.queryByText("Live terminal")).toBeNull();
+    expect(screen.getByText("takode board show")).toBeTruthy();
+  });
+
   it("opens the read-only inspector from the live chip", () => {
     const sid = "test-codex-live-inspector";
     setStoreSessionBackend(sid, "codex");

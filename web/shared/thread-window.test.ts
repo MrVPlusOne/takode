@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "../server/session-types.js";
+import { computeHistoryPayloadSyncHash } from "./history-sync-hash.js";
 import {
   buildProjectedThreadEntries,
   buildThreadWindowSync,
@@ -126,6 +127,19 @@ function toolResultPreview(toolUseId: string, content = "preview"): BrowserIncom
         is_truncated: false,
       },
     ],
+  };
+}
+
+function multiToolResultPreview(entries: Array<{ toolUseId: string; content: string }>): BrowserIncomingMessage {
+  return {
+    type: "tool_result_preview",
+    previews: entries.map((entry) => ({
+      tool_use_id: entry.toolUseId,
+      content: entry.content,
+      is_error: false,
+      total_size: entry.content.length,
+      is_truncated: false,
+    })),
   };
 }
 
@@ -1032,6 +1046,242 @@ describe("thread window hydration", () => {
       expect(preview.previews.map((entry) => entry.tool_use_id)).toEqual(["tool-main"]);
     }
     expect(new Set(sync.entries.map((entry) => entry.history_index)).size).toBe(sync.entries.length);
+  });
+
+  it("delivers mandatory previews for more than the optional support cap of visible Main Bash tools", () => {
+    // A selected conversation may have many visible tool rows; known results are mandatory closure, not optional support.
+    const toolIds = Array.from({ length: THREAD_WINDOW_SUPPORT_RECORD_LIMIT + 6 }, (_, index) => `main-bash-${index}`);
+    const history: BrowserIncomingMessage[] = [
+      user("u1", "main asks for a batch"),
+      ...toolIds.map((toolUseId, index) => bashAssistant(`a${index + 1}`, `cmd ${index}`, { toolUseId })),
+      successfulResult("r1"),
+      multiToolResultPreview(toolIds.map((toolUseId, index) => ({ toolUseId, content: `main result ${index}` }))),
+    ];
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: 1,
+      sectionItemCount: 1,
+      visibleItemCount: 1,
+    });
+    const previews = sync.entries.flatMap((entry) =>
+      entry.message.type === "tool_result_preview" ? entry.message.previews : [],
+    );
+
+    expect(sync.window).toEqual(
+      expect.objectContaining({ total_items: 1, item_count: 1, has_older_items: false, has_newer_items: false }),
+    );
+    expect(previews.map((preview) => preview.tool_use_id).sort()).toEqual([...toolIds].sort());
+    expect(sync.entries.filter((entry) => entry.message.type === "tool_result_preview")).toHaveLength(1);
+  });
+
+  it("delivers mandatory previews for more than the optional support cap of visible quest Bash tools", () => {
+    // Quest-thread closure has the same correctness invariant as Main while preserving thread routing.
+    const toolIds = Array.from({ length: THREAD_WINDOW_SUPPORT_RECORD_LIMIT + 3 }, (_, index) => `quest-bash-${index}`);
+    const history: BrowserIncomingMessage[] = [
+      user("uq1", "quest asks for a batch", "q-1205"),
+      ...toolIds.map((toolUseId, index) =>
+        bashAssistant(`aq${index + 1}`, `quest cmd ${index}`, { threadKey: "q-1205", toolUseId }),
+      ),
+      successfulResult("rq1"),
+      multiToolResultPreview(toolIds.map((toolUseId, index) => ({ toolUseId, content: `quest result ${index}` }))),
+    ];
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "q-1205",
+      fromItem: 0,
+      itemCount: 1,
+      sectionItemCount: 1,
+      visibleItemCount: 1,
+    });
+    const previews = sync.entries.flatMap((entry) =>
+      entry.message.type === "tool_result_preview" ? entry.message.previews : [],
+    );
+
+    expect(previews.map((preview) => preview.tool_use_id).sort()).toEqual([...toolIds].sort());
+    expect(sync.entries.some((entry) => entry.message.type === "user_message" && entry.message.id === "uq1")).toBe(
+      true,
+    );
+    expect(sync.window).toEqual(
+      expect.objectContaining({ total_items: 1, item_count: 1, has_older_items: false, has_newer_items: false }),
+    );
+  });
+
+  it("uses the latest mandatory preview and can close multiple tools from one preview record", () => {
+    // One mixed source preview record may supply the latest result for multiple visible tools.
+    const history = [
+      user("u1", "main tool pair"),
+      bashAssistant("a1", "cmd one", { toolUseId: "tool-one" }),
+      bashAssistant("a2", "cmd two", { toolUseId: "tool-two" }),
+      successfulResult("r1"),
+      toolResultPreview("tool-one", "old one"),
+      toolResultPreview("tool-two", "old two"),
+      multiToolResultPreview([
+        { toolUseId: "tool-one", content: "latest one" },
+        { toolUseId: "tool-two", content: "latest two" },
+        { toolUseId: "tool-other", content: "unrelated latest" },
+      ]),
+    ];
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: 1,
+      sectionItemCount: 1,
+      visibleItemCount: 1,
+    });
+    const previewEntries = sync.entries.filter(
+      (entry): entry is typeof entry & { message: Extract<BrowserIncomingMessage, { type: "tool_result_preview" }> } =>
+        entry.message.type === "tool_result_preview",
+    );
+
+    expect(previewEntries).toHaveLength(1);
+    expect(previewEntries[0]?.history_index).toBe(6);
+    expect(previewEntries[0]?.message.previews.map((preview) => [preview.tool_use_id, preview.content])).toEqual([
+      ["tool-one", "latest one"],
+      ["tool-two", "latest two"],
+    ]);
+  });
+
+  it("keeps optional support bounded after mandatory closure", () => {
+    // Secondary parent rows are still optional support and stay capped after mandatory previews are present.
+    const toolIds = Array.from(
+      { length: THREAD_WINDOW_SUPPORT_RECORD_LIMIT + 8 },
+      (_, index) => `support-bash-${index}`,
+    );
+    const history: BrowserIncomingMessage[] = [
+      user("u1", "main asks for many tools"),
+      ...toolIds.map((toolUseId, index) => bashAssistant(`a${index + 1}`, `support cmd ${index}`, { toolUseId })),
+      successfulResult("r1"),
+      multiToolResultPreview(toolIds.map((toolUseId, index) => ({ toolUseId, content: `support result ${index}` }))),
+      ...toolIds.map((toolUseId, index) =>
+        assistant(`ap${index + 1}`, `parent closure ${index}`, { parentToolUseId: toolUseId }),
+      ),
+    ];
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: 1,
+      sectionItemCount: 1,
+      visibleItemCount: 1,
+    });
+    const mandatoryPreviewCount = sync.entries.reduce((count, entry) => {
+      return entry.message.type === "tool_result_preview" ? count + entry.message.previews.length : count;
+    }, 0);
+    const optionalSupportCount = sync.entries.filter((entry) => {
+      if (entry.message.type === "result" && !entry.message.data.is_error) return true;
+      return entry.message.type === "assistant" && entry.message.parent_tool_use_id != null;
+    }).length;
+
+    expect(mandatoryPreviewCount).toBe(toolIds.length);
+    expect(optionalSupportCount).toBeLessThanOrEqual(THREAD_WINDOW_SUPPORT_RECORD_LIMIT);
+  });
+
+  it("keeps selected tool closure in the payload hash so stale incomplete caches miss", () => {
+    // Adding mandatory previews changes the server hash, causing older preview-incomplete caches to be refetched.
+    const history = [
+      user("u1", "main tool"),
+      bashAssistant("a1", "cmd", { toolUseId: "hash-tool" }),
+      successfulResult("r1"),
+      toolResultPreview("hash-tool", "hash result"),
+    ];
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: 1,
+      sectionItemCount: 1,
+      visibleItemCount: 1,
+    });
+    const brokenEntries = sync.entries.filter((entry) => entry.message.type !== "tool_result_preview");
+    const fixedHash = computeHistoryPayloadSyncHash({ threadKey: sync.threadKey, entries: sync.entries });
+    const brokenHash = computeHistoryPayloadSyncHash({ threadKey: sync.threadKey, entries: brokenEntries });
+
+    expect(sync.entries.some((entry) => entry.message.type === "tool_result_preview")).toBe(true);
+    expect(fixedHash).not.toBe(brokenHash);
+  });
+
+  it("delivers mandatory closure for All Threads windows while leaving orphan fallback bounded", () => {
+    const toolIds = Array.from({ length: THREAD_WINDOW_SUPPORT_RECORD_LIMIT + 2 }, (_, index) => `all-bash-${index}`);
+    const allHistory: BrowserIncomingMessage[] = [
+      user("u1", "global asks for tools"),
+      ...toolIds.map((toolUseId, index) => bashAssistant(`a${index + 1}`, `all cmd ${index}`, { toolUseId })),
+      successfulResult("r1"),
+      multiToolResultPreview(toolIds.map((toolUseId, index) => ({ toolUseId, content: `all result ${index}` }))),
+    ];
+
+    const allSync = buildThreadWindowSync({
+      messageHistory: allHistory,
+      threadKey: "all",
+      fromItem: 0,
+      itemCount: 1,
+      sectionItemCount: 1,
+      visibleItemCount: 1,
+    });
+    const allPreviews = allSync.entries.flatMap((entry) =>
+      entry.message.type === "tool_result_preview" ? entry.message.previews : [],
+    );
+    const orphanSync = buildThreadWindowSync({
+      messageHistory: Array.from({ length: THREAD_WINDOW_SUPPORT_RECORD_LIMIT + 10 }, (_, index) =>
+        toolResultPreview(`orphan-${index}`, `orphan ${index}`),
+      ),
+      threadKey: "main",
+      fromItem: -1,
+      itemCount: 10,
+      sectionItemCount: 10,
+      visibleItemCount: 1,
+    });
+
+    expect(allPreviews.map((preview) => preview.tool_use_id).sort()).toEqual([...toolIds].sort());
+    expect(orphanSync.entries).toHaveLength(10);
+    expect(orphanSync.entries.every((entry) => entry.message.type === "tool_result_preview")).toBe(true);
+  });
+
+  it("keeps target-message windows visible while adding mandatory preview closure", () => {
+    const history: BrowserIncomingMessage[] = [];
+    for (let index = 0; index < 8; index++) {
+      history.push(user(`u${index}`, `message ${index}`));
+      history.push(bashAssistant(`a${index}`, `cmd ${index}`, { toolUseId: `target-tool-${index}` }));
+      history.push(successfulResult(`r${index}`));
+      history.push(toolResultPreview(`target-tool-${index}`, `target result ${index}`));
+    }
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: -1,
+      itemCount: 2,
+      sectionItemCount: 2,
+      visibleItemCount: 1,
+      targetMessageId: "u3",
+    });
+    const visibleIds = new Set(
+      sync.entries.flatMap((entry) =>
+        entry.message.type === "assistant"
+          ? entry.message.message.content.map((block) => (block.type === "tool_use" ? block.id : null))
+          : [],
+      ),
+    );
+    visibleIds.delete(null);
+    const previewIds = new Set(
+      sync.entries.flatMap((entry) =>
+        entry.message.type === "tool_result_preview"
+          ? entry.message.previews.map((preview) => preview.tool_use_id)
+          : [],
+      ),
+    );
+
+    expect(sync.entries.some((entry) => entry.message.type === "user_message" && entry.message.id === "u3")).toBe(true);
+    expect(previewIds).toEqual(visibleIds);
+    expect(sync.window.has_older_items).toBe(true);
+    expect(sync.window.has_newer_items).toBe(true);
   });
 
   it("sanitizes selected mixed previews without authorizing unrelated later closure", () => {
