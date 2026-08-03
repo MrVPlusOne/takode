@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 import { ConfigureSessionModal } from "./ConfigureSessionModal.js";
@@ -134,6 +134,62 @@ describe("ConfigureSessionModal", () => {
     expect(storeState.updateSdkSession).toHaveBeenCalledWith("s1", { codexServiceTier: "priority" });
     expect(storeState.updateSession).toHaveBeenCalledWith("s1", { codex_service_tier: "priority" });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("saves Codex leader compaction mode and relaunches", async () => {
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            session_id: "s1",
+            backend_type: "codex",
+            model: "gpt-5.4",
+            permissionMode: "codex-default",
+            isOrchestrator: true,
+            codex_service_tier: null,
+            codex_leader_compaction_mode: "recycle",
+          },
+        ],
+      ]),
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          sessionNum: 1533,
+          backendType: "codex",
+          model: "gpt-5.4",
+          permissionMode: "codex-default",
+          isOrchestrator: true,
+          codexServiceTier: null,
+          codexLeaderCompactionMode: "recycle",
+        },
+      ],
+    });
+    mockUpdateSessionConfig.mockResolvedValueOnce({
+      ok: true,
+      sessionId: "s1",
+      backendConnected: true,
+      restartRequired: true,
+      changedFields: ["codexLeaderCompactionMode"],
+      immediateFields: [],
+      restartRequiredFields: ["codexLeaderCompactionMode"],
+      session: { codexLeaderCompactionMode: "compact" },
+      sessionState: { codex_leader_compaction_mode: "compact" },
+    });
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(<ConfigureSessionModal sessionId="s1" onClose={onClose} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Configure Session" });
+    await user.selectOptions(within(dialog).getByLabelText("Session Codex leader context mode"), "compact");
+    await user.click(within(dialog).getByRole("button", { name: "Restart to Apply Changes" }));
+
+    await waitFor(() =>
+      expect(mockUpdateSessionConfig).toHaveBeenCalledWith("s1", { codexLeaderCompactionMode: "compact" }),
+    );
+    expect(mockRelaunchSession).toHaveBeenCalledWith("s1");
+    expect(storeState.updateSdkSession).toHaveBeenCalledWith("s1", { codexLeaderCompactionMode: "compact" });
+    expect(storeState.updateSession).toHaveBeenCalledWith("s1", { codex_leader_compaction_mode: "compact" });
   });
 
   it("prefers authoritative live session_update state over stale sdk metadata", async () => {

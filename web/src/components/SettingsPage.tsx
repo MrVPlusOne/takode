@@ -41,6 +41,10 @@ import type { LeaderProfilePoolSettings } from "../../shared/leader-profile-port
 import { SettingsPageHeader } from "./SettingsPageHeader.js";
 import { SettingsSearchControls, SettingsSectionNav, useSettingsSearchNavigation } from "./settings-search.js";
 import { EDIT_BLOCKS_EXPANDED_KEY } from "./ToolBlock.js";
+import {
+  normalizeCodexLeaderCompactionMode,
+  type CodexLeaderCompactionMode,
+} from "../../shared/codex-leader-compaction-mode.js";
 
 import { navigateToSession, navigateToMostRecentSession } from "../utils/routing.js";
 
@@ -103,6 +107,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   // CLI binary state
   const [claudeBin, setClaudeBin] = useState("");
   const [codexBin, setCodexBin] = useState("");
+  const [codexLeaderCompactionMode, setCodexLeaderCompactionMode] = useState<CodexLeaderCompactionMode>("recycle");
   const [defaultClaudeBackend, setDefaultClaudeBackend] = useState<"claude" | "claude-sdk">("claude");
   const [logFile, setLogFile] = useState("");
   const [binSaving, setBinSaving] = useState(false);
@@ -258,6 +263,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       .then((s) => {
         setClaudeBin(s.claudeBinary || "");
         setCodexBin(s.codexBinary || "");
+        setCodexLeaderCompactionMode(normalizeCodexLeaderCompactionMode(s.codexLeaderCompactionMode));
         setLeaderProfilePools(s.leaderProfilePools);
         setDefaultClaudeBackend(s.defaultClaudeBackend || "claude");
         setLogFile(s.logFile || "");
@@ -972,6 +978,45 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                     {codexTest.ok ? `${codexTest.resolvedPath} — ${codexTest.version}` : codexTest.error}
                   </p>
                 )}
+              </div>
+
+              <div hidden={settingsSearch.rowHidden("cli", "codex-leader-mode")}>
+                <label className="block text-sm font-medium mb-1.5">Codex Leader Context Mode</label>
+                <div className="flex items-center bg-cc-hover/50 rounded-lg p-0.5 w-fit">
+                  {(
+                    [
+                      ["recycle", "Recycle"],
+                      ["compact", "Compact"],
+                    ] as const
+                  ).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => {
+                        setCodexLeaderCompactionMode(mode);
+                        api
+                          .updateSettings({ codexLeaderCompactionMode: mode })
+                          .then((res) =>
+                            setCodexLeaderCompactionMode(
+                              normalizeCodexLeaderCompactionMode(res.codexLeaderCompactionMode),
+                            ),
+                          )
+                          .catch(console.error);
+                      }}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer select-none ${
+                        codexLeaderCompactionMode === mode
+                          ? "bg-cc-primary/15 text-cc-primary"
+                          : "text-cc-muted hover:text-cc-fg"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-xs text-cc-muted">
+                  Default for new Codex leaders. Recycling keeps Takode-owned leader recovery; compacting lets Codex use
+                  built-in compaction.
+                </p>
               </div>
 
               <div hidden={settingsSearch.rowHidden("cli", "default-backend")}>

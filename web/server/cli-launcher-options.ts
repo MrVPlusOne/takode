@@ -1,5 +1,6 @@
 import type { BackendType } from "./session-types.js";
 import type { ModelAuthorityDecision, ModelProvenanceMigration } from "./model-identity-contract.js";
+import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 
 export interface LaunchOptions {
   model?: string;
@@ -41,6 +42,8 @@ export interface LaunchOptions {
   codexLeaderContextWindowOverrideTokens?: number;
   /** Legacy compatibility only; leader thresholds are derived from source model effective context. */
   codexLeaderRecycleThresholdTokens?: number;
+  /** Codex leader context management mode. Missing means the backward-compatible recycle mode. */
+  codexLeaderCompactionMode?: CodexLeaderCompactionMode;
   /** Deprecated compatibility setting; non-leader compaction is left to Codex defaults. */
   codexNonLeaderAutoCompactThresholdPercent?: number;
   /** Docker container ID — when set, CLI runs inside container via docker exec */

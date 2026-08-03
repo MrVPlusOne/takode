@@ -240,6 +240,7 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.codexReasoningEffort === b.codexReasoningEffort &&
     a.codexServiceTier === b.codexServiceTier &&
     a.codexMaxContextLength === b.codexMaxContextLength &&
+    a.codexLeaderCompactionMode === b.codexLeaderCompactionMode &&
     a.claudeReasoningEffort === b.claudeReasoningEffort &&
     a.claudeMaxContextLength === b.claudeMaxContextLength &&
     a.cronJobId === b.cronJobId &&

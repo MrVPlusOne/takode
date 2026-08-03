@@ -211,6 +211,49 @@ describe("Codex session catalog hardening", () => {
     });
   });
 
+  it("uses normal context capacity config when leader recycling is disabled", async () => {
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const catalogPath = join(codexHome, "takode-model-catalog.json");
+    const model = "takode-test-compact-leader";
+    await writeFile(configPath, `model = "${model}"\n`, "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: model,
+            context_window: 600_000,
+            max_context_window: 600_000,
+            effective_context_window_percent: 95,
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    const result = await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      codexContextCapacityTokens: 545_000,
+      model,
+    });
+
+    // Compaction-mode leaders use the normal effective context target instead
+    // of inflating Codex behind Takode's recycle budget.
+    expect(result.leaderRecycleThresholdTokens).toBeUndefined();
+    const config = await readFile(configPath, "utf-8");
+    expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+    expect(config).toContain("model_context_window = 573685");
+    expect(config).not.toContain("model_auto_compact_token_limit = 2725000");
+
+    const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
+    expect(catalog.models[0]).toMatchObject({
+      context_window: 573_685,
+      max_context_window: 573_685,
+      effective_context_window_percent: 95,
+    });
+  });
+
   it("disables Responses Lite for MAI LiteLLM leader catalog overrides", async () => {
     const codexHome = await makeCodexHome();
     const configPath = join(codexHome, "config.toml");

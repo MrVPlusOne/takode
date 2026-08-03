@@ -679,6 +679,48 @@ describe("Codex /compact passthrough", () => {
     expect((userMsgs[0] as any).content).toBe("/compact");
   });
 
+  it("forwards /compact to Codex for leaders in compaction mode", async () => {
+    const browser = makeBrowserSocket("leader-compact-mode");
+    const adapter = makeCodexAdapterMock();
+    const launcher = {
+      getSession: vi.fn((sessionId: string) =>
+        sessionId === "leader-compact-mode"
+          ? {
+              sessionId,
+              backendType: "codex",
+              isOrchestrator: true,
+              cliSessionId: "thread-leader",
+              codexLeaderCompactionMode: "compact",
+              codexLeaderRecyclePending: null,
+            }
+          : null,
+      ),
+      prepareCodexLeaderRecycle: vi.fn(() => ({ ok: true })),
+      relaunch: vi.fn(async () => ({ ok: true })),
+      completeCodexLeaderRecycle: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+    };
+    bridge.setLauncher(launcher as any);
+    bridge.attachCodexAdapter("leader-compact-mode", adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-leader" });
+    bridge.handleBrowserOpen(browser, "leader-compact-mode");
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "/compact",
+      }),
+    );
+
+    expect(launcher.prepareCodexLeaderRecycle).not.toHaveBeenCalled();
+    expect(launcher.relaunch).not.toHaveBeenCalled();
+    expect(adapter.sendBrowserMessage).toHaveBeenCalled();
+    const adapterMsg = (adapter.sendBrowserMessage.mock.calls as any[])[0]?.[0] as any;
+    expect(getCodexStartPendingInputs(adapterMsg)[0]?.content).toContain("/compact");
+  });
+
   it("recycles Codex leaders when tracked context tokens cross the threshold", async () => {
     const browser = makeBrowserSocket("leader-threshold");
     const adapter = makeCodexAdapterMock();

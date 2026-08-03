@@ -80,6 +80,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     items: [
       { id: "claude", text: "Claude Code binary path command auto-detect" },
       { id: "codex", text: "Codex binary path command auto-detect" },
+      { id: "codex-leader-mode", text: "Codex Leader Context Mode recycle compaction compact" },
       { id: "default-backend", text: "Default Backend Claude CLI Claude SDK backend" },
       { id: "log-file", text: "Log File server runtime logs" },
       { id: "editor", text: "File Link Editor VSCode local remote Cursor none editor", aliases: ["vscode"] },

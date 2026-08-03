@@ -29,6 +29,10 @@ import {
   normalizeCodexPermissionProfile,
   resolveCodexPermissionProfile,
 } from "../../shared/permission-modes.js";
+import {
+  normalizeCodexLeaderCompactionMode,
+  type CodexLeaderCompactionMode,
+} from "../../shared/codex-leader-compaction-mode.js";
 
 const inputClass =
   "w-full rounded-lg border border-cc-border bg-cc-input-bg px-3 py-2 text-sm text-cc-fg focus:border-cc-primary/60 focus:outline-none";
@@ -42,6 +46,7 @@ interface SessionConfigForm {
   codexReasoningEffort: string;
   codexServiceTier: string | null;
   codexMaxContextLength: string;
+  codexLeaderCompactionMode: CodexLeaderCompactionMode;
   claudeReasoningEffort: string;
   claudeMaxContextLength: string;
 }
@@ -185,6 +190,9 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
     codexMaxContextLength: Object.prototype.hasOwnProperty.call(session ?? {}, "codex_max_context_length")
       ? (session as Record<string, unknown> | undefined)?.codex_max_context_length
       : sdkSession?.codexMaxContextLength,
+    codexLeaderCompactionMode: Object.prototype.hasOwnProperty.call(session ?? {}, "codex_leader_compaction_mode")
+      ? (session as Record<string, unknown> | undefined)?.codex_leader_compaction_mode
+      : sdkSession?.codexLeaderCompactionMode,
     claudeReasoningEffort: Object.prototype.hasOwnProperty.call(session ?? {}, "claude_reasoning_effort")
       ? (session as Record<string, unknown> | undefined)?.claude_reasoning_effort
       : sdkSession?.claudeReasoningEffort,
@@ -199,6 +207,7 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
     const liveCodexReasoningEffort = liveValue<string | null>(live, "codex_reasoning_effort");
     const liveCodexServiceTier = liveValue<string | null>(live, "codex_service_tier");
     const liveCodexMaxContextLength = liveValue<number | null>(live, "codex_max_context_length");
+    const liveCodexLeaderCompactionMode = liveValue<string | null>(live, "codex_leader_compaction_mode");
     const liveClaudeReasoningEffort = liveValue<string | null>(live, "claude_reasoning_effort");
     const liveClaudeMaxContextLength = liveValue<number | null>(live, "claude_max_context_length");
     const permissionMode = isCodex
@@ -220,6 +229,11 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
         liveCodexMaxContextLength.present
           ? liveCodexMaxContextLength.value
           : (sdkSession?.codexMaxContextLength ?? null),
+      ),
+      codexLeaderCompactionMode: normalizeCodexLeaderCompactionMode(
+        liveCodexLeaderCompactionMode.present
+          ? liveCodexLeaderCompactionMode.value
+          : sdkSession?.codexLeaderCompactionMode,
       ),
       claudeReasoningEffort: liveClaudeReasoningEffort.present
         ? (liveClaudeReasoningEffort.value ?? "")
@@ -318,9 +332,14 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
     if ((form[key] ?? null) !== (initial[key] ?? null)) changedFields.add(key);
   }
   const restartRequired = isCodex
-    ? ["model", "permissionMode", "codexInternetAccess", "codexReasoningEffort", "codexMaxContextLength"].some((key) =>
-        changedFields.has(key as keyof SessionConfigForm),
-      )
+    ? [
+        "model",
+        "permissionMode",
+        "codexInternetAccess",
+        "codexReasoningEffort",
+        "codexMaxContextLength",
+        "codexLeaderCompactionMode",
+      ].some((key) => changedFields.has(key as keyof SessionConfigForm))
     : ["claudeReasoningEffort", "claudeMaxContextLength"].some((key) =>
         changedFields.has(key as keyof SessionConfigForm),
       );
@@ -347,6 +366,9 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
       if (changedFields.has("codexServiceTier")) patch.codexServiceTier = activeForm.codexServiceTier;
       if (changedFields.has("codexMaxContextLength") && codexMaxContext.ok) {
         patch.codexMaxContextLength = codexMaxContext.value;
+      }
+      if (changedFields.has("codexLeaderCompactionMode")) {
+        patch.codexLeaderCompactionMode = activeForm.codexLeaderCompactionMode;
       }
     } else {
       if (changedFields.has("claudeReasoningEffort"))
@@ -487,6 +509,23 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
                       ))}
                     </select>
                   </div>
+
+                  {isCodexLeader && (
+                    <div>
+                      <FieldLabel label="Leader context mode" effect={fieldEffect(true)} />
+                      <select
+                        aria-label="Session Codex leader context mode"
+                        value={form.codexLeaderCompactionMode}
+                        onChange={(event) =>
+                          update("codexLeaderCompactionMode", normalizeCodexLeaderCompactionMode(event.target.value))
+                        }
+                        className={inputClass}
+                      >
+                        <option value="recycle">Recycle before Codex compacts</option>
+                        <option value="compact">Use Codex built-in compaction</option>
+                      </select>
+                    </div>
+                  )}
                 </>
               ) : (
                 <div>

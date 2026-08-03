@@ -31,17 +31,16 @@ export const LEGACY_STANDARD_COMPACTION_RECOVERY_PROMPT = `${STANDARD_COMPACTION
 5. Keep your current role. If you are a worker or reviewer, continue the assigned task and do not switch into leader/orchestration behavior`;
 
 export function getLeaderContextRecoveryInstructions(sessionRef: string): string {
+  void sessionRef;
   return `1. The required leader skill contents are included immediately after this recovery message. Use that preloaded context as your source of truth; do not reread mandatory leader skills via tool calls unless checking freshness or debugging.
-2. Run the preferred leader recovery summary: \`takode leader-context-resume ${sessionRef}\`
-3. Run the default recent-turn scan: \`takode scan ${sessionRef}\`
-4. Key rules:
-   - Treat the recovery summary as the first pass, then use manual follow-ups when the summary is stale, insufficient, or leaves phase history or user intent unclear
-   - Do not conclude recovery is complete until you have checked recent scan turns for unanswered user requests, interrupted actions, and unmodeled quest setup
+2. Use the compacted memory summary as your first recovery signal, then decide the appropriate Takode, quest, board, and memory inspection path for the current situation.
+3. Key rules:
+   - Treat the compacted memory summary as evidence, not as proof that every active request, phase, or user decision is fully recovered
+   - Do not conclude recovery is complete until you have accounted for likely unanswered user requests, interrupted actions, and unmodeled quest setup
    - Scope unresolved user decisions, including \`needs-input\` prompts, to their owner: do not advance the affected thread, quest, or board row, and do not answer on the user's behalf. Keep unrelated dispatch, quests, and herd events moving unless the pending prompt is explicitly safety/global/worker-slot/shared-resource/cross-quest. If the user sets one prompt aside and asks for unrelated work, proceed when that work does not depend on the answer
-   - Follow the default scan with \`takode peek ${sessionRef}\` or \`takode read ${sessionRef} <msg-id>\` when you need specific turn or message detail
-   - Inspect relevant quest state with \`quest show\`, \`quest status\`, and phase feedback commands before advancing Journey work
-   - If durable memory may affect the current decision, run \`memory catalog show\` for orientation; inspect plausible catalog-listed files directly, especially \`current/\`, \`decisions/\`, and \`procedures/\`; use targeted \`rg\` under \`$(memory repo path)\` only when catalog or known context makes a match plausible; skip blind repo-wide memory search when the catalog shows no plausible relevant topic, type, or source
-   - Use \`takode board show\` to verify active Journey state and \`takode list\` to reconcile herd/session state when board or worker context matters
+   - Inspect relevant quest state before advancing Journey work when the compacted summary leaves phase history, acceptance criteria, or user intent unclear
+   - Inspect file-based memory only when durable memory may affect the current decision; use catalog orientation and direct file reads rather than broad blind search
+   - Verify active Journey, board, and herd/session state when those surfaces matter to the next action
    - Treat system-interrupted worker herd events as actionable but not always terminal. If an event says \`recovery pending\`, or the worker still appears connected or generating after a stuck-watchdog interruption, inspect status/history and consider a simple continuation or short timer/recheck before writing fallback documentation yourself. Do not ignore real interruptions; take over only when recovery failed, the worker is idle with no progress, or user urgency requires it
    - Use \`takode spawn\` to create workers (never Agent tool)
    - Invoke /leader-dispatch before every dispatch

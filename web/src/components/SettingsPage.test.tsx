@@ -180,6 +180,7 @@ beforeEach(() => {
     codexNonLeaderAutoCompactThresholdPercent: 90,
     codexLeaderRecycleThresholdTokens: 260_000,
     codexLeaderRecycleThresholdTokensByModel: {},
+    codexLeaderCompactionMode: "recycle",
     maxKeepAlive: 0,
     heavyRepoModeEnabled: false,
     chatMessageLineHeight: 1.45,
@@ -205,6 +206,7 @@ beforeEach(() => {
     codexNonLeaderAutoCompactThresholdPercent: 90,
     codexLeaderRecycleThresholdTokens: 260_000,
     codexLeaderRecycleThresholdTokensByModel: {},
+    codexLeaderCompactionMode: "recycle",
     maxKeepAlive: 0,
     heavyRepoModeEnabled: false,
     chatMessageLineHeight: 1.45,
@@ -1252,7 +1254,7 @@ describe("SettingsPage", () => {
     expect(settingsSection("Notifications")).not.toBeVisible();
   });
 
-  it("does not expose Codex compact/recycle controls in Settings", async () => {
+  it("exposes Codex leader mode without restoring legacy budget controls", async () => {
     mockApi.getSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
@@ -1268,6 +1270,7 @@ describe("SettingsPage", () => {
       codexNonLeaderAutoCompactThresholdPercent: 85,
       codexLeaderRecycleThresholdTokens: 275_000,
       codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
+      codexLeaderCompactionMode: "compact",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       editorConfig: { editor: "none" },
@@ -1286,6 +1289,7 @@ describe("SettingsPage", () => {
       codexLeaderContextWindowOverrideTokens: 1_200_000,
       codexLeaderRecycleThresholdTokens: 280_000,
       codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 440_000, "gpt-5.5": 320_000 },
+      codexLeaderCompactionMode: "recycle",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       editorConfig: { editor: "none" },
@@ -1295,6 +1299,7 @@ describe("SettingsPage", () => {
     await waitForSettingsPage();
 
     const cliSection = settingsSection("CLI & Backends");
+    expect(within(cliSection).getByText("Codex Leader Context Mode")).toBeInTheDocument();
     expect(within(cliSection).queryByLabelText("Codex Non-Leader Auto-Compact Threshold")).toBeNull();
     expect(within(cliSection).queryByLabelText("Codex Leader Context Window")).toBeNull();
     expect(within(cliSection).queryByLabelText("Codex Leader Recycle Budget")).toBeNull();
@@ -1303,19 +1308,31 @@ describe("SettingsPage", () => {
     expect(mockApi.updateSettings).not.toHaveBeenCalled();
   });
 
-  it("does not expose Codex leader recycle controls in Settings search", async () => {
+  it("updates the Codex leader context mode setting", async () => {
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    const cliSection = settingsSection("CLI & Backends");
+    fireEvent.click(within(cliSection).getByRole("button", { name: "Compact" }));
+
+    await waitFor(() => {
+      expect(mockApi.updateSettings).toHaveBeenCalledWith({ codexLeaderCompactionMode: "compact" });
+    });
+  });
+
+  it("keeps legacy Codex leader budget controls out of Settings search", async () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
 
     fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), {
-      target: { value: "leader recycle" },
+      target: { value: "leader model budget" },
     });
 
     const cliSection = settingsSection("CLI & Backends");
-    // The removed leader recycle controls should not remain discoverable
+    // The removed leader budget controls should not remain discoverable
     // through the settings search index after the visible rows are removed.
     expect(cliSection).not.toBeVisible();
-    expect(screen.getByText('No settings match "leader recycle".')).toBeInTheDocument();
+    expect(screen.getByText('No settings match "leader model budget".')).toBeInTheDocument();
   });
 
   it("does not expose the legacy non-leader auto-compact setting in Settings search", async () => {

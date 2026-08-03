@@ -7,6 +7,7 @@ import type {
 } from "./session-types.js";
 import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
 import type { ModelAuthorityDecision, ModelProvenanceMigration } from "./model-identity-contract.js";
+import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 
 export interface SdkSessionInfo {
   sessionId: string;
@@ -45,6 +46,8 @@ export interface SdkSessionInfo {
     trigger: CodexLeaderRecycleTrigger;
     requestedAt: number;
   } | null;
+  /** Codex leader context management mode. Missing values normalize to recycle. */
+  codexLeaderCompactionMode?: CodexLeaderCompactionMode;
   archived?: boolean;
   /** Epoch ms when this session was archived */
   archivedAt?: number;

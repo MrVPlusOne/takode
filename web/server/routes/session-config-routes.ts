@@ -13,6 +13,7 @@ import {
 import type { RouteContext } from "./context.js";
 import { resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
 import { markCodexModelSwitchCompactionGuard } from "../bridge/codex-model-switch-compaction.js";
+import { normalizeCodexLeaderCompactionMode } from "../../shared/codex-leader-compaction-mode.js";
 
 type ConfigField =
   | "model"
@@ -21,6 +22,7 @@ type ConfigField =
   | "codexReasoningEffort"
   | "codexServiceTier"
   | "codexMaxContextLength"
+  | "codexLeaderCompactionMode"
   | "claudeReasoningEffort"
   | "claudeMaxContextLength";
 
@@ -32,6 +34,7 @@ const CODEX_RESTART_FIELDS = new Set<ConfigField>([
   "codexInternetAccess",
   "codexReasoningEffort",
   "codexMaxContextLength",
+  "codexLeaderCompactionMode",
 ]);
 const CLAUDE_RESTART_FIELDS = new Set<ConfigField>(["claudeReasoningEffort", "claudeMaxContextLength"]);
 
@@ -108,6 +111,7 @@ function buildSessionConfigResponse(session: NonNullable<ReturnType<RouteContext
     codexReasoningEffort: session.codexReasoningEffort ?? null,
     codexServiceTier: session.codexServiceTier ?? null,
     codexMaxContextLength: session.codexMaxContextLength ?? null,
+    codexLeaderCompactionMode: session.codexLeaderCompactionMode ?? "recycle",
     claudeReasoningEffort: session.claudeReasoningEffort ?? null,
     claudeMaxContextLength: session.claudeMaxContextLength ?? null,
   };
@@ -234,6 +238,24 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
         ) {
           launchPatch.codexMaxContextLength = maxContext.value ?? undefined;
           record("codexMaxContextLength", "codex_max_context_length", maxContext.value ?? null);
+        }
+      }
+
+      if (hasOwn(body, "codexLeaderCompactionMode")) {
+        if (info.isOrchestrator !== true) {
+          return c.json({ error: "codexLeaderCompactionMode is only supported for Codex leader sessions" }, 400);
+        }
+        const value = body.codexLeaderCompactionMode;
+        if (value !== "recycle" && value !== "compact") {
+          return c.json({ error: 'codexLeaderCompactionMode must be "recycle" or "compact"' }, 400);
+        }
+        const next = normalizeCodexLeaderCompactionMode(value);
+        const current = normalizeCodexLeaderCompactionMode(
+          liveStateValue<string>(liveState, "codex_leader_compaction_mode", info.codexLeaderCompactionMode),
+        );
+        if (changed(current, next)) {
+          launchPatch.codexLeaderCompactionMode = next;
+          record("codexLeaderCompactionMode", "codex_leader_compaction_mode", next);
         }
       }
     } else {

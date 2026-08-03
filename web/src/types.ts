@@ -69,6 +69,7 @@ import type { SessionTimer } from "../server/timer-types.js";
 import type { ReplyContext } from "../shared/reply-context.js";
 import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 import type { ModelAuthorityDecision, ModelProvenanceMigration } from "../server/model-identity-contract.js";
+import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 import type {
   LeaderProfilePool,
   LeaderProfilePoolSettings,
@@ -385,6 +386,8 @@ export interface SdkSessionInfo {
   codexServiceTier?: string | null;
   /** Optional per-session Codex usable context capacity target. */
   codexMaxContextLength?: number | null;
+  /** Codex leader context management mode. Missing values mean recycling. */
+  codexLeaderCompactionMode?: CodexLeaderCompactionMode;
   /** Claude reasoning effort selected at launch. */
   claudeReasoningEffort?: string | null;
   /** Optional Claude max-context override; currently 1M beta only. */

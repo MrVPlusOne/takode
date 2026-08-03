@@ -465,6 +465,48 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     );
   });
 
+  it("leaves leader context stats provider-authored in compaction mode", async () => {
+    // Compaction-mode leaders rely on Codex built-in compaction, so Takode
+    // should not rewrite the runtime window to the smaller recycle budget.
+    const session = makeSession();
+    session.state.codex_leader_compaction_mode = "compact";
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = {
+      ...makeDeps(broadcasts),
+      getLauncherSessionInfo: vi.fn(() => ({
+        isOrchestrator: true,
+        codexLeaderCompactionMode: "compact",
+        codexLeaderRecycleThresholdTokens: 545_000,
+      })),
+    };
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "session_update",
+        session: {
+          context_used_percent: 18,
+          codex_token_details: {
+            contextTokensUsed: 518_366,
+            inputTokens: 10,
+            outputTokens: 20,
+            cachedInputTokens: 30,
+            reasoningOutputTokens: 40,
+            modelContextWindow: 3_027_778,
+          },
+        },
+      },
+      deps,
+    );
+
+    expect(session.state.context_used_percent).toBe(18);
+    expect(session.state.codex_token_details).toMatchObject({
+      contextTokensUsed: 518_366,
+      modelContextWindow: 3_027_778,
+    });
+    expect(deps.requestCodexLeaderRecycle).not.toHaveBeenCalled();
+  });
+
   it("does not let an older higher-budget threshold recycle suppress a lower-budget model-switch recycle", async () => {
     // Repro shape from a GPT-5.5 -> GPT-5.6 leader switch:
     // the previous threshold recycle happened at ~555K under a 545K leader
@@ -560,6 +602,39 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(deps.requestCodexLeaderRecycle).not.toHaveBeenCalled();
   });
 
+  it("does not threshold-recycle Codex leaders in compaction mode", async () => {
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = {
+      ...makeDeps(broadcasts),
+      getLauncherSessionInfo: vi.fn(() => ({
+        isOrchestrator: true,
+        codexLeaderCompactionMode: "compact",
+        codexLeaderRecycleThresholdTokens: 545_000,
+      })),
+    };
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "session_update",
+        session: {
+          codex_token_details: {
+            contextTokensUsed: 600_000,
+            inputTokens: 1,
+            outputTokens: 1,
+            cachedInputTokens: 0,
+            reasoningOutputTokens: 0,
+            modelContextWindow: 3_027_778,
+          },
+        },
+      },
+      deps,
+    );
+
+    expect(deps.requestCodexLeaderRecycle).not.toHaveBeenCalled();
+  });
+
   it("does not rewrite non-leader Codex context stats", async () => {
     const session = makeSession();
     session.state.isOrchestrator = false;
@@ -622,6 +697,23 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
 
     expect(deps.requestCodexLeaderRecycle).toHaveBeenCalledWith(session, "context_window_exhausted");
     expect(broadcasts).toHaveLength(0);
+  });
+
+  it("does not recycle compaction-mode Codex leaders for context-window exhaustion errors", async () => {
+    const session = makeSession();
+    session.state.codex_leader_compaction_mode = "compact";
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = {
+      ...makeDeps(broadcasts),
+      getLauncherSessionInfo: vi.fn(() => ({ isOrchestrator: true, codexLeaderCompactionMode: "compact" })),
+    };
+    const message =
+      "Error: Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.";
+
+    await handleCodexAdapterBrowserMessage(session, { type: "error", message }, deps);
+
+    expect(deps.requestCodexLeaderRecycle).not.toHaveBeenCalled();
+    expect(broadcasts).toEqual([{ type: "error", message }]);
   });
 
   it("recycles Codex leaders for failed context-window exhaustion results without running normal result handling", async () => {

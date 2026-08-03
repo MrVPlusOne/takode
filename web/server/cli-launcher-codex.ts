@@ -41,6 +41,7 @@ import {
   leaderRecycleThresholdForUsableCapacity,
   rawContextWindowForUsableCapacity,
 } from "./codex-context-capacity.js";
+import { isCodexLeaderRecycleMode, type CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 
 const codexFeaturesHeader = "[features]";
 const codexMultiAgentFeature = "multi_agent";
@@ -105,6 +106,7 @@ interface CodexLaunchInfo {
   cwd: string;
   cliSessionId?: string;
   isOrchestrator?: boolean;
+  codexLeaderCompactionMode?: CodexLeaderCompactionMode;
   codexLeaderRecycleThresholdTokens?: number;
   codexLeaderRecycleLineage?: {
     recycleEvents?: Array<{
@@ -135,6 +137,8 @@ interface CodexLaunchOptions {
   requireResumeCliSessionId?: boolean;
   /** Legacy compatibility only; leader thresholds are derived from model effective context. */
   codexLeaderRecycleThresholdTokens?: number;
+  /** Codex leader context management mode. Missing means recycle for backward compatibility. */
+  codexLeaderCompactionMode?: CodexLeaderCompactionMode;
   /** Deprecated compatibility setting; ignored so non-leader compaction follows Codex defaults. */
   codexNonLeaderAutoCompactThresholdPercent?: number;
 }
@@ -294,6 +298,11 @@ function readShellEnvAssignment(raw: string, key: string): string | undefined {
 }
 function isCodexLeaderLaunch(info: CodexLaunchInfo, options: CodexLaunchOptions): boolean {
   return info.isOrchestrator === true || options.env?.TAKODE_ROLE === "orchestrator";
+}
+
+function isCodexLeaderRecycleLaunch(info: CodexLaunchInfo, options: CodexLaunchOptions): boolean {
+  if (!isCodexLeaderLaunch(info, options)) return false;
+  return isCodexLeaderRecycleMode(options.codexLeaderCompactionMode ?? info.codexLeaderCompactionMode);
 }
 
 async function readMaiWrapperHostEnv(wrapperRoot: string): Promise<string> {
@@ -1646,7 +1655,7 @@ export async function prepareCodexSpawn(
   const serverId = options.env?.COMPANION_SERVER_ID;
   const isContainerized = !!options.containerId;
   const codexHomeRoot = resolveCompanionCodexHome(options.codexHome);
-  const leaderLaunch = isCodexLeaderLaunch(info, options);
+  const leaderLaunch = isCodexLeaderRecycleLaunch(info, options);
   const timing = new CooperativeTiming({ label: `Codex spawn prep ${sessionTag(sessionId)}` });
 
   try {

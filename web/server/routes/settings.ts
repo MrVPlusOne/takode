@@ -52,6 +52,7 @@ import {
   isSupportedClaudeDefaultMaxContext,
   normalizeSessionDefaults,
 } from "../../shared/session-defaults.js";
+import { normalizeCodexLeaderCompactionMode } from "../../shared/codex-leader-compaction-mode.js";
 
 export function createSettingsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -773,6 +774,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
         : {}),
       codexLeaderRecycleThresholdTokens: settings.codexLeaderRecycleThresholdTokens,
       codexLeaderRecycleThresholdTokensByModel: settings.codexLeaderRecycleThresholdTokensByModel ?? {},
+      codexLeaderCompactionMode: normalizeCodexLeaderCompactionMode(settings.codexLeaderCompactionMode),
       leaderProfilePools: normalizeLeaderProfilePoolSettings(settings.leaderProfilePools),
       ...(settings.shortcutSettings ? { shortcutSettings: settings.shortcutSettings } : {}),
       sessionDefaults: settings.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS,
@@ -1018,6 +1020,13 @@ export function createSettingsRoutes(ctx: RouteContext) {
     ) {
       return c.json({ error: parsedCodexLeaderRecycleThresholdTokensByModel.error }, 400);
     }
+    if (
+      body.codexLeaderCompactionMode !== undefined &&
+      body.codexLeaderCompactionMode !== "recycle" &&
+      body.codexLeaderCompactionMode !== "compact"
+    ) {
+      return c.json({ error: 'codexLeaderCompactionMode must be "recycle" or "compact"' }, 400);
+    }
     if (parsedSessionDefaults && !isSupportedClaudeDefaultMaxContext(parsedSessionDefaults.claude.maxContextLength)) {
       return c.json(
         {
@@ -1074,6 +1083,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "codexNonLeaderAutoCompactThresholdPercent",
       "codexLeaderRecycleThresholdTokens",
       "codexLeaderRecycleThresholdTokensByModel",
+      "codexLeaderCompactionMode",
       "leaderProfilePools",
       "shortcutSettings",
       "sessionDefaults",
@@ -1138,6 +1148,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
       codexLeaderRecycleThresholdTokensByModel: parsedCodexLeaderRecycleThresholdTokensByModel?.ok
         ? parsedCodexLeaderRecycleThresholdTokensByModel.value
         : undefined,
+      codexLeaderCompactionMode:
+        body.codexLeaderCompactionMode === "recycle" || body.codexLeaderCompactionMode === "compact"
+          ? normalizeCodexLeaderCompactionMode(body.codexLeaderCompactionMode)
+          : undefined,
       leaderProfilePools:
         body.leaderProfilePools && typeof body.leaderProfilePools === "object"
           ? normalizeLeaderProfilePoolSettings(body.leaderProfilePools)

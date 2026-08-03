@@ -37,6 +37,7 @@ import { CLAUDE_1M_CONTEXT_BETA, CLAUDE_1M_CONTEXT_TOKENS } from "../shared/sess
 import { ensureModelAuthority, resolveLaunchModelSelection } from "./cli-launcher-model-authority.js";
 import { captureProcessSnapshot, sanitizeSpawnArgsForLog } from "./cli-launcher-process-diagnostics.js";
 import type { ModelProvenanceMigration } from "./model-identity-contract.js";
+import { normalizeCodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 
 export type { SdkSessionInfo } from "./session-info.js";
 export type { LaunchOptions } from "./cli-launcher-options.js";
@@ -92,6 +93,13 @@ export function getKnownSessionNum(sessionId: string): number | undefined {
   return knownSessionNums.get(sessionId);
 }
 
+type LauncherSettingsSnapshot = {
+  claudeBinary: string;
+  codexBinary: string;
+  codexLeaderCompactionMode?: string;
+  sessionDefaults?: { codex?: { model?: string } };
+};
+
 export class CliLauncher {
   private sessions = new Map<string, SdkSessionInfo>();
   private processes = new Map<string, Subprocess>();
@@ -111,13 +119,7 @@ export class CliLauncher {
   private onBeforeRelaunch: ((sessionId: string, backendType: BackendType) => void) | null = null;
   private onModelProvenanceMigration: ((sessionId: string, migration: ModelProvenanceMigration) => void) | null = null;
   private exitHandlers: ((sessionId: string, exitCode: number | null) => void)[] = [];
-  private settingsGetter:
-    | (() => {
-        claudeBinary: string;
-        codexBinary: string;
-        sessionDefaults?: { codex?: { model?: string } };
-      })
-    | null = null;
+  private settingsGetter: (() => LauncherSettingsSnapshot) | null = null;
   /** Callback to resolve env profile variables by slug (set by server bootstrap). */
   private envResolver: ((slug: string) => Promise<Record<string, string> | null>) | null = null;
 
@@ -196,13 +198,7 @@ export class CliLauncher {
   }
 
   /** Attach a settings getter so relaunch() can read current binary settings. */
-  setSettingsGetter(
-    fn: () => {
-      claudeBinary: string;
-      codexBinary: string;
-      sessionDefaults?: { codex?: { model?: string } };
-    },
-  ): void {
+  setSettingsGetter(fn: () => LauncherSettingsSnapshot): void {
     this.settingsGetter = fn;
   }
 
@@ -569,6 +565,10 @@ export class CliLauncher {
       info.codexServiceTier = options.codexServiceTier ?? null;
       info.codexMaxContextLength = options.codexMaxContextLength;
       info.codexHome = options.codexHome;
+      if (info.isOrchestrator)
+        info.codexLeaderCompactionMode = normalizeCodexLeaderCompactionMode(
+          options.codexLeaderCompactionMode ?? this.settingsGetter?.().codexLeaderCompactionMode,
+        );
     } else {
       info.claudeReasoningEffort = options.claudeReasoningEffort;
       info.claudeMaxContextLength = options.claudeMaxContextLength;
@@ -860,6 +860,7 @@ export class CliLauncher {
             codexReasoningEffort: info.codexReasoningEffort,
             codexServiceTier: info.codexServiceTier,
             codexMaxContextLength: info.codexMaxContextLength,
+            codexLeaderCompactionMode: info.codexLeaderCompactionMode,
             codexHome: info.codexHome,
             containerId: info.containerId,
             containerName: info.containerName,
@@ -1255,6 +1256,7 @@ export class CliLauncher {
           cwd: info.cwd,
           cliSessionId: info.cliSessionId,
           isOrchestrator: info.isOrchestrator,
+          codexLeaderCompactionMode: info.codexLeaderCompactionMode,
           codexLeaderRecycleThresholdTokens: info.codexLeaderRecycleThresholdTokens,
           codexLeaderRecycleLineage: info.codexLeaderRecycleLineage,
         },
@@ -1463,6 +1465,9 @@ export class CliLauncher {
     if (!session) return { ok: false, error: "Session not found" };
     if (session.backendType !== "codex") return { ok: false, error: "Session is not a Codex session" };
     if (!session.isOrchestrator) return { ok: false, error: "Session is not a Codex leader" };
+    if (normalizeCodexLeaderCompactionMode(session.codexLeaderCompactionMode) !== "recycle") {
+      return { ok: false, error: "Codex leader recycling is disabled for this session" };
+    }
     if (session.codexLeaderRecyclePending) return { ok: true };
 
     const previousCliSessionId = session.cliSessionId;
@@ -1652,6 +1657,7 @@ export class CliLauncher {
         | "codexReasoningEffort"
         | "codexServiceTier"
         | "codexMaxContextLength"
+        | "codexLeaderCompactionMode"
         | "claudeReasoningEffort"
         | "claudeMaxContextLength"
       >

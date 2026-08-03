@@ -32,6 +32,7 @@ import {
 } from "../thread-routing-metadata.js";
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
 import { isTerminalResultInterrupted } from "../result-interruption.js";
+import { isCodexLeaderRecycleMode } from "../../shared/codex-leader-compaction-mode.js";
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 const DELEGATE_LIVE_ACTIVITY_LIMIT = 800;
@@ -255,6 +256,7 @@ function updateActiveTurnRouteFromLeaderAssistant(
 type CodexLeaderRecycleLauncherInfo = {
   isOrchestrator?: boolean;
   cliSessionId?: string | null;
+  codexLeaderCompactionMode?: string;
   codexServiceTier?: string | null;
   codexLeaderRecycleThresholdTokens?: number;
   codexLeaderRecycleLineage?: {
@@ -283,6 +285,11 @@ function withCodexLeaderDisplayBudget(
   launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
 ): Record<string, unknown> {
   if (!isCodexLeaderSession(session, launcherInfo)) return patch;
+  if (
+    !isCodexLeaderRecycleMode(launcherInfo?.codexLeaderCompactionMode ?? session.state?.codex_leader_compaction_mode)
+  ) {
+    return patch;
+  }
   const thresholdTokens =
     positiveInteger(launcherInfo?.codexLeaderRecycleThresholdTokens) ??
     positiveInteger(patch.codex_leader_recycle_threshold_tokens) ??
@@ -378,6 +385,7 @@ function shouldTriggerCodexLeaderThresholdRecycle(
   recycleThresholdTokens: number,
 ): boolean {
   if (!launcherInfo?.isOrchestrator) return false;
+  if (!isCodexLeaderRecycleMode(launcherInfo.codexLeaderCompactionMode)) return false;
   if (typeof contextTokensUsed !== "number") return false;
   if (recycleThresholdTokens <= 0 || contextTokensUsed < recycleThresholdTokens) return false;
   const latestThresholdWatermark = getLatestThresholdRecycleWatermark(launcherInfo);
@@ -503,6 +511,11 @@ async function maybeRecycleCodexLeaderForContextWindowExhaustion(
   if (!errorMessage) return false;
   const launcherInfo = deps.getLauncherSessionInfo(session.id);
   if (!isCodexLeaderSession(session, launcherInfo)) return false;
+  if (
+    !isCodexLeaderRecycleMode(launcherInfo?.codexLeaderCompactionMode ?? session.state?.codex_leader_compaction_mode)
+  ) {
+    return false;
+  }
 
   const recycle = await deps.requestCodexLeaderRecycle(session, "context_window_exhausted");
   if (!recycle.ok) {

@@ -77,6 +77,7 @@ import {
   appendMemoryCatalogToUserMessage,
   hasMemoryCatalogHistoryFollowUp,
 } from "../memory-catalog-injection-utils.js";
+import { isCodexLeaderRecycleMode } from "../../shared/codex-leader-compaction-mode.js";
 import type {
   BrowserUserMessage,
   ControlResponseHandler,
@@ -576,7 +577,7 @@ export async function routeBrowserMessage(
   ) {
     if (session.backendType === "codex") {
       const launcherInfo = deps.getLauncherSessionInfo(session.id);
-      if (launcherInfo?.isOrchestrator) {
+      if (launcherInfo?.isOrchestrator && isCodexLeaderRecycleMode(launcherInfo.codexLeaderCompactionMode)) {
         appendLocalSlashCommandHistory(session, "/compact", deps);
         const recycle = await deps.requestCodexLeaderRecycle(session, "manual_compact");
         if (!recycle.ok) {

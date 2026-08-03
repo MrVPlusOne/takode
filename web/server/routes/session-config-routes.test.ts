@@ -192,6 +192,51 @@ describe("session config routes", () => {
     expect((session.state as Record<string, unknown>).codex_max_context_length).toBe(240000);
   });
 
+  it("persists Codex leader compaction mode as a restart-required setting", async () => {
+    const { app, launcher, wsBridge, session } = createApp({
+      info: { isOrchestrator: true, codexLeaderCompactionMode: "recycle" },
+      sessionState: { isOrchestrator: true, codex_leader_compaction_mode: "recycle" },
+    });
+
+    const res = await app.request("/sessions/s1/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codexLeaderCompactionMode: "compact" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      restartRequired: true,
+      restartRequiredFields: ["codexLeaderCompactionMode"],
+      session: { codexLeaderCompactionMode: "compact" },
+      sessionState: { codex_leader_compaction_mode: "compact" },
+    });
+    expect(launcher.updateSessionLaunchConfig).toHaveBeenCalledWith("s1", {
+      codexLeaderCompactionMode: "compact",
+    });
+    expect(wsBridge.broadcastToSession).toHaveBeenCalledWith("s1", {
+      type: "session_update",
+      session: { codex_leader_compaction_mode: "compact" },
+    });
+    expect((session.state as Record<string, unknown>).codex_leader_compaction_mode).toBe("compact");
+  });
+
+  it("rejects Codex leader compaction mode for non-leader Codex sessions", async () => {
+    const { app } = createApp({ info: { isOrchestrator: false } });
+
+    const res = await app.request("/sessions/s1/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codexLeaderCompactionMode: "compact" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "codexLeaderCompactionMode is only supported for Codex leader sessions",
+    });
+  });
+
   it("arms Codex model-switch compaction guard for restart-required model changes", async () => {
     const { app, session } = createApp();
 

@@ -688,31 +688,22 @@ describe("Compaction recovery prompts", () => {
         ]),
       }),
     );
-    expect(recoveryCalls[0][1]).toContain("takode leader-context-resume 42");
-    expect(recoveryCalls[0][1]).toContain("takode board show");
-    expect(recoveryCalls[0][1]).toContain("takode scan 42");
-    expect(recoveryCalls[0][1]).toContain("Run the default recent-turn scan: `takode scan 42`");
+    expect(recoveryCalls[0][1]).toContain("Use the compacted memory summary as your first recovery signal");
+    expect(recoveryCalls[0][1]).toContain("decide the appropriate Takode, quest, board, and memory inspection path");
     expect(recoveryCalls[0][1]).toContain(
-      "Do not conclude recovery is complete until you have checked recent scan turns",
+      "Do not conclude recovery is complete until you have accounted for likely unanswered user requests",
     );
     expect(recoveryCalls[0][1]).toContain("unanswered user requests");
     expect(recoveryCalls[0][1]).toContain("interrupted actions");
     expect(recoveryCalls[0][1]).toContain("unmodeled quest setup");
-    expect(recoveryCalls[0][1]).toContain("takode peek 42");
-    expect(recoveryCalls[0][1]).toContain("takode read 42 <msg-id>");
-    expect(recoveryCalls[0][1]).toContain("quest show");
-    expect(recoveryCalls[0][1]).toContain("quest status");
-    expect(recoveryCalls[0][1]).toContain("memory catalog show");
-    expect(recoveryCalls[0][1]).toContain("inspect plausible catalog-listed files directly");
-    expect(recoveryCalls[0][1]).toContain("targeted `rg` under `$(memory repo path)`");
-    expect(recoveryCalls[0][1]).toContain("skip blind repo-wide memory search");
+    expect(recoveryCalls[0][1]).toContain("Inspect relevant quest state before advancing Journey work");
+    expect(recoveryCalls[0][1]).toContain("Inspect file-based memory only when durable memory may affect");
+    expect(recoveryCalls[0][1]).toContain("Verify active Journey, board, and herd/session state");
+    expect(recoveryCalls[0][1]).not.toContain("takode leader-context-resume 42");
+    expect(recoveryCalls[0][1]).not.toContain("takode scan 42");
     expect(recoveryCalls[0][1]).not.toContain("memory recall");
     expect(recoveryCalls[0][1]).not.toContain("<your-session-number>");
-    expect(recoveryCalls[0][1]).toContain("takode list");
-    expect(recoveryCalls[0][1]).not.toContain("takode board show && takode list");
-    expect(recoveryCalls[0][1]).toContain("checked recent scan turns");
-    expect(recoveryCalls[0][1]).toContain("first pass");
-    expect(recoveryCalls[0][1]).toContain("summary is stale, insufficient");
+    expect(recoveryCalls[0][1]).toContain("compacted memory summary as evidence");
     expect(recoveryCalls[0][1]).toContain("Scope unresolved user decisions, including `needs-input` prompts");
     expect(recoveryCalls[0][1]).toContain("unresolved user decisions");
     expect(recoveryCalls[0][1]).toContain("needs-input");

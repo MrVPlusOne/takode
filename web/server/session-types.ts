@@ -1301,6 +1301,8 @@ export interface SessionState {
   memorySessionSpaceSlug?: string;
   /** Whether this session is an orchestrator/leader session. */
   isOrchestrator?: boolean;
+  /** Codex leader context management mode; missing values mean backward-compatible recycling. */
+  codexLeaderCompactionMode?: import("../shared/codex-leader-compaction-mode.js").CodexLeaderCompactionMode;
   /** Server-owned leader quest/thread tab state. Browsers must treat this as authoritative. */
   leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
   /** Server-owned starred chat messages keyed by stable raw message ID. */
@@ -1324,6 +1326,8 @@ export interface SessionState {
   codex_internet_access?: boolean | null;
   /** Server-owned configured Codex usable context capacity target for the next launch/resume. */
   codex_max_context_length?: number | null;
+  /** Server-owned Codex leader context management mode for the next launch/resume. */
+  codex_leader_compaction_mode?: import("../shared/codex-leader-compaction-mode.js").CodexLeaderCompactionMode;
   /** Server-owned configured Claude reasoning effort for the next launch/resume. */
   claude_reasoning_effort?: string | null;
   /** Server-owned configured Claude max-context override for the next launch/resume. */

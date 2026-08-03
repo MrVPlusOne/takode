@@ -31,6 +31,7 @@ import type {
 import type { VoiceTranscriptionFrontendTimingReport, VoiceTranscriptionTiming } from "./transcription-progress.js";
 import type { ShortcutSettings } from "./shortcuts.js";
 import type { SessionDefaultsSettings } from "../shared/session-defaults.js";
+import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 
 export type {
   MessageSearchCategory,
@@ -291,6 +292,8 @@ export interface SessionConfigPatch {
   codexServiceTier?: string | null;
   /** Desired Codex usable context capacity; server derives raw provider context at launch. */
   codexMaxContextLength?: number | null;
+  /** Codex leader context management mode. */
+  codexLeaderCompactionMode?: CodexLeaderCompactionMode;
   claudeReasoningEffort?: string | null;
   claudeMaxContextLength?: number | null;
 }
@@ -625,6 +628,7 @@ export interface AppSettings {
   codexNonLeaderAutoCompactThresholdPercent?: number;
   codexLeaderRecycleThresholdTokens: number;
   codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
+  codexLeaderCompactionMode?: CodexLeaderCompactionMode;
   leaderProfilePools: LeaderProfilePoolSettings;
   leaderProfilePortraits: LeaderProfilePortrait[];
   leaderProfileFallbackPortrait: LeaderProfilePortrait;
@@ -1434,6 +1438,7 @@ export const api = {
     codexNonLeaderAutoCompactThresholdPercent?: number;
     codexLeaderRecycleThresholdTokens?: number;
     codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
+    codexLeaderCompactionMode?: CodexLeaderCompactionMode;
     leaderProfilePools?: LeaderProfilePoolSettings;
     shortcutSettings?: ShortcutSettings;
     sessionDefaults?: SessionDefaultsSettings;

@@ -131,6 +131,7 @@ vi.mock("./settings-manager.js", () => ({
     questmasterCompactSort: { column: "updated", direction: "desc" },
     codexLeaderContextWindowOverrideTokens: 1_000_000,
     codexLeaderRecycleThresholdTokens: 260_000,
+    codexLeaderCompactionMode: "recycle",
     updatedAt: 0,
   })),
   updateSettings: vi.fn((patch) => ({
@@ -167,6 +168,7 @@ vi.mock("./settings-manager.js", () => ({
     questmasterCompactSort: patch.questmasterCompactSort ?? { column: "updated", direction: "desc" },
     codexLeaderContextWindowOverrideTokens: patch.codexLeaderContextWindowOverrideTokens ?? 1_000_000,
     codexLeaderRecycleThresholdTokens: patch.codexLeaderRecycleThresholdTokens ?? 260_000,
+    codexLeaderCompactionMode: patch.codexLeaderCompactionMode ?? "recycle",
     leaderProfilePools: patch.leaderProfilePools ?? { tako: true, shmi: true },
     updatedAt: Date.now(),
   })),
@@ -1474,6 +1476,36 @@ describe("PUT /api/settings", () => {
       "gpt-5.4": 430_000,
       "gpt-5.5": 320_000,
     });
+  });
+
+  it("updates Codex leader compaction mode", async () => {
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      ...settingsManager.getSettings(),
+      codexLeaderCompactionMode: "compact",
+    });
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codexLeaderCompactionMode: "compact" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ codexLeaderCompactionMode: "compact" }),
+    );
+    expect(await res.json()).toEqual(expect.objectContaining({ codexLeaderCompactionMode: "compact" }));
+  });
+
+  it("rejects invalid Codex leader compaction mode", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codexLeaderCompactionMode: "provider" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'codexLeaderCompactionMode must be "recycle" or "compact"' });
   });
 
   it("updates the non-leader Codex auto-compact threshold percent", async () => {

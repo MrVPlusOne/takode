@@ -18,6 +18,11 @@ import {
   type SessionDefaultsSettings,
 } from "../shared/session-defaults.js";
 import { normalizeGptTranscribeLanguageHints } from "../shared/transcription-language-hints.js";
+import {
+  DEFAULT_CODEX_LEADER_COMPACTION_MODE,
+  normalizeCodexLeaderCompactionMode,
+  type CodexLeaderCompactionMode,
+} from "../shared/codex-leader-compaction-mode.js";
 
 export interface CompanionSettings {
   /** Display name for this server instance */
@@ -82,6 +87,8 @@ export interface CompanionSettings {
   codexLeaderRecycleThresholdTokens: number;
   /** Legacy compatibility overrides; new Codex leader recycle thresholds are derived from model catalog metadata. */
   codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
+  /** Codex leader context management mode. Missing values default to Takode-owned recycling. */
+  codexLeaderCompactionMode?: CodexLeaderCompactionMode;
   /** Enabled built-in leader profile portrait pools. Optional for backward-compatible tests/mocks. */
   leaderProfilePools?: LeaderProfilePoolSettings;
   /** User-configured keyboard shortcut settings. Undefined means no server-side shortcut preference exists yet. */
@@ -243,6 +250,7 @@ let settings: CompanionSettings = {
   codexNonLeaderAutoCompactThresholdPercent: 90,
   codexLeaderRecycleThresholdTokens: CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS,
   codexLeaderRecycleThresholdTokensByModel: {},
+  codexLeaderCompactionMode: DEFAULT_CODEX_LEADER_COMPACTION_MODE,
   leaderProfilePools: DEFAULT_LEADER_PROFILE_POOLS,
   sessionDefaults: DEFAULT_SESSION_DEFAULTS,
   updatedAt: 0,
@@ -528,6 +536,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     codexLeaderRecycleThresholdTokensByModel: normalizeCodexLeaderRecycleThresholdTokensByModel(
       raw?.codexLeaderRecycleThresholdTokensByModel,
     ),
+    codexLeaderCompactionMode: normalizeCodexLeaderCompactionMode(raw?.codexLeaderCompactionMode),
     leaderProfilePools: normalizeLeaderProfilePoolSettings(raw?.leaderProfilePools),
     shortcutSettings: normalizeShortcutSettings(raw?.shortcutSettings),
     sessionDefaults: normalizeSessionDefaults(raw?.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS),
@@ -634,6 +643,7 @@ export function updateSettings(
       | "codexNonLeaderAutoCompactThresholdPercent"
       | "codexLeaderRecycleThresholdTokens"
       | "codexLeaderRecycleThresholdTokensByModel"
+      | "codexLeaderCompactionMode"
       | "leaderProfilePools"
       | "shortcutSettings"
       | "sessionDefaults"

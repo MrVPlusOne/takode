@@ -163,6 +163,7 @@ export interface AdapterBrowserRoutingDeps {
         archived?: boolean;
         askPermission?: boolean;
         cliSessionId?: string;
+        codexLeaderCompactionMode?: string;
         codexReasoningEffort?: string;
         codexServiceTier?: string | null;
         codexSandbox?: "read-only" | "workspace-write" | "danger-full-access";
