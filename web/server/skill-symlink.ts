@@ -36,6 +36,7 @@ const AGENTS_SKILLS_HOME = join(HOME, ".agents", "skills");
 const LEGACY_CODEX_SKILLS_HOME = join(getLegacyCodexHome(), "skills");
 const QUEST_JOURNEY_PHASE_SKILL_SLUGS = [
   "quest-journey-alignment",
+  "quest-journey-work",
   "quest-journey-explore",
   "quest-journey-implement",
   "quest-journey-code-review",
@@ -43,6 +44,7 @@ const QUEST_JOURNEY_PHASE_SKILL_SLUGS = [
   "quest-journey-execute",
   "quest-journey-outcome-review",
   "quest-journey-user-checkpoint",
+  "quest-journey-memory",
   "quest-journey-bookkeeping",
   "quest-journey-port",
 ];

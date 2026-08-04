@@ -203,14 +203,9 @@ describe("buildCompanionInstructions", () => {
     const result = getOrchestratorGuardrails("codex");
 
     expect(result).toContain("If notification shortcuts are offered");
-    expect(result).toContain("the visible decision section must name every shortcut");
+    expect(result).toContain("visible text must name every shortcut");
     expect(result).toContain("phase notes, private packets");
-    expect(result).toContain("labels/buttons");
-    expect(result).toContain("Equivalent/no-tradeoff options should say so or be collapsed");
-    expect(result).toContain("yes/no prompts must state what yes authorizes and what no declines");
-    expect(result).toContain("independent questions need matching `--question` groups");
-    expect(result).toContain("custom answers to exact packets are edits/new alternatives");
-    expect(result).toContain("revised packets need a fresh visible section plus fresh notification");
+    expect(result).toContain("notification summaries, notification UI options, and `--suggest` choices");
   });
 
   it("includes global resource lease guidance for shared dev-server and browser work", () => {
@@ -260,14 +255,13 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("visible chat approval surface is for the user's decision, not worker grounding");
     expect(result).toContain("make it read like a TLDR for approval");
     expect(result).toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");
-    expect(result).toContain("Standard phases are recommended defaults, not mandates");
-    expect(result).toContain("ask what it contributes over merging that work into a later phase");
-    expect(result).toContain("`implement` includes normal investigation, root-cause analysis");
-    expect(result).toContain("Explore is for investigation deliverables or unknown routing");
-    expect(result).toContain("Never propose adjacent `explore -> implement`");
-    expect(result).toContain("`explore -> user-checkpoint -> implement`");
-    expect(result).toContain("After a legitimate Explore has completed");
-    expect(result).toContain("User Checkpoint is an intermediate user-participation stop");
+    expect(result).toContain("Every dispatched task follows Quest Journey v2");
+    expect(result).toContain("alignment -> work -> memory");
+    expect(result).toContain("Work owns the old middle phases");
+    expect(result).toContain("worker-owned Work -> Memory");
+    expect(result).toContain("Embedded review phases are not part of active Quest Journey v2");
+    expect(result).toContain("separate review quest");
+    expect(result).toContain("User Checkpoint pauses Work");
     expect(result).toContain("self-contained packet with findings, named options, key tradeoffs");
     expect(result).toContain("exact requested answer");
     // The generated prompt must preserve both the permissive exact case and every fail-closed boundary.
@@ -280,13 +274,6 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("changed safety implications/consequences/tradeoffs");
     expect(result).toContain("fresh explicit approval before external consequences");
     expect(result).toContain("Harmless typo-only corrections can still proceed");
-    expect(result).toContain("User Checkpoints are mandatory by default");
-    expect(result).toContain(
-      "A completed-Explore `takode board revise` may drop the immediate post-Explore checkpoint",
-    );
-    expect(result).toContain("If the user explicitly asked for the User Checkpoint or the decision truly needs input");
-    expect(result).toContain("notify the user and wait");
-    expect(result).toContain("Omit notes for standard phases by default");
     expect(result).toContain("Phase documentation should be useful, not ritual");
     expect(result).toContain("Use value-based compression instead of hard length caps");
     expect(result).toContain("file-by-file diff narration");
@@ -294,18 +281,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Non-Memory phases should not add routine `memory update not needed` statements");
     expect(result).toContain("quest-backed updates should use `q-N`");
     expect(result).toContain("should not routinely add `commit:*` or `session:*` sources");
-    expect(result).toContain("Provide only deltas the actor is unlikely to infer");
+    expect(result).toContain("provide only deltas the worker cannot infer");
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Escalate alignment back to the user only");
-    expect(result).toContain("send the changed worktree back to Code Review only after that checkpoint exists");
-    expect(result).toContain("separate follow-up commit");
-    expect(result).toContain("does not apply to purely read-only follow-up review discussion");
-    expect(result).toContain(
-      "Use `mental-simulation` when the question is whether a design, workflow, or responsibility split makes sense",
-    );
-    expect(result).toContain("reviewers may do only small bounded reruns or repros");
-    expect(result).toContain("approval-gated runs");
-    expect(result).toContain("route back deliberately: `implement`");
+    expect(result).toContain("The worker may self-review");
+    expect(result).toContain("sync/push when authorized");
     expect(result).toContain("point the worker at the exact prior messages, quests, or discussions");
     expect(result).toContain("After that user-visible text exists, call `takode notify needs-input`");
     expect(result).toContain("The visible thread text is the decision surface");
@@ -353,8 +333,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("write the authorized Journey to the board before or with dispatch");
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Escalate alignment back to the user only");
-    expect(result).toContain("send the changed worktree back to Code Review only after that checkpoint exists");
-    expect(result).toContain("does not apply to purely read-only follow-up review discussion");
+    expect(result).toContain("Work is intentionally broader");
+    expect(result).toContain("worker-owned Work -> Memory transition");
     expect(result).toContain("delegate_task(task)");
     expect(result).toContain("inspectable forked transcript");
     expect(result).toContain("If the user explicitly asks you to use `delegate_task`");
@@ -364,13 +344,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("work elsewhere");
     expect(result).toContain("Any user wait, including approvals, confirmations");
     expect(result).toContain("never represent a user wait only with `Thread Waiting`");
-    expect(result).toContain("After `execute`, leaders may accept evidence directly");
-    expect(result).toContain("Lightweight leader inspection is enough");
-    expect(result).toContain("independent review would not materially reduce risk");
-    expect(result).toContain("Use `outcome-review` when a reviewer should make an acceptance judgment");
-    expect(result).toContain("independent judgment materially reduces risk");
-    expect(result).toContain("small bounded reruns or repros");
-    expect(result).toContain("approval-gated runs");
+    expect(result).toContain("separate review quest");
     expect(result).toContain("System-interrupted worker `turn_end` herd events are actionable but not always terminal");
     expect(result).toContain("the worker still appears connected or generating");
     expect(result).toContain("Fresh worker is the default");
@@ -398,7 +372,8 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Takode -- Cross-Session Orchestration");
     expect(result).toContain("## Durable Names in Handoffs");
     expect(result).toContain("Do not ask for a `q-N`-specific destination");
-    expect(result).toContain("Every dispatched task follows a **Quest Journey** assembled from phases");
+    expect(result).toContain("Every dispatched task follows Quest Journey v2");
+    expect(result).toContain("alignment -> work -> memory");
     expect(result).toContain("Use `/quest-design` before creating or materially refining quest text");
     expect(result).toContain("explicitly check whether the quest is a true follow-up to earlier work");
     expect(result).toContain("Relationship: follow-up of [q-N](quest:q-N)");
@@ -427,10 +402,10 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("do not restate the same work again as a separate quest description");
     expect(result).toContain("full quest-body paste");
     expect(result).toContain("The visible chat approval surface is for the user's decision, not worker grounding");
-    expect(result).toContain("the quest record should hold detailed worker grounding");
-    expect(result).toContain("The compact proposal shape is a menu, not a form");
-    expect(result).toContain("omit optional headings or explanatory bullets unless they add decision value");
-    expect(result).toContain("Include exact wait-for reasons, replacement/archive fallback mechanics");
+    expect(result).toContain("Detailed grounding belongs in the quest record");
+    expect(result).toContain("Use the scannable shape");
+    expect(result).toContain("Use the scannable shape");
+    expect(result).toContain("queueing/capacity choices");
     expect(result).toContain("optional `Context / Evidence`");
     expect(result).toContain("`Invariants / Must Preserve`");
     expect(result).toContain("quest-design-only requests");
@@ -438,15 +413,13 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain(
       "questions and assumptions should not restate facts already implied by `Goal / Acceptance`",
     );
-    expect(result).toContain("board-owned draft-or-active state for the quest");
-    expect(result).toContain("Standard phases are recommended defaults, not mandates");
-    expect(result).toContain("ask what it contributes over merging that work into a later phase");
+    expect(result).toContain("Quest Journey v2");
+    expect(result).toContain("alignment -> work -> memory");
+    expect(result).toContain("work-to-memory");
     expect(result).toContain("USER_CHECKPOINTING");
     expect(result).toContain("User Checkpoint");
-    expect(result).toContain("Do not use it as terminal closure, generic TBD, or optional leader-only indecision");
-    expect(result).toContain("Optional future phases are explicit Journey guidance");
-    expect(result).toContain("do not invent or rely on a generic optional-phase skip command");
-    expect(result).toContain("Omit notes for standard phases by default");
+    expect(result).toContain("same worker");
+    expect(result).toContain("separate review quest");
     expect(result).toContain("write the authorized Journey to the board before or with dispatch");
     expect(result).toContain("Initial Journey authorization comes before dispatch");
     expect(result).toContain("concise leader-verification read-in");
@@ -474,35 +447,29 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("do not let it replace phase documentation");
     expect(result).toContain("Final chat handoffs are compact pointers, not second phase notes");
     expect(result).toContain("Detailed phase results, recommended next action, blockers, evidence, findings");
-    expect(result).toContain("Port's selected target plus ordered `Synced SHAs:`");
+    expect(result).toContain("worker-owned Work -> Memory");
     expect(result).toContain("final Memory's required memory statement");
     expect(result).toContain("If the actor's context was compacted during the phase");
-    expect(result).toContain("Provide only deltas the actor is unlikely to infer");
-    expect(result).toContain("without spending scan space on incidental raw details");
-    expect(result).toContain("Bookkeeping is compatibility-only for targeted intermediate durable state");
+    expect(result).toContain("provide only deltas the worker cannot infer");
+    expect(result).toContain("Work is intentionally broader");
+    expect(result).toContain("Embedded review phases are not part of active Quest Journey v2");
     expect(result).toContain("Every completed non-cancelled quest ends in Memory");
     expect(result).toContain(
-      "Completion without final Memory closure, final User review check settlement, final debrief metadata, debrief TLDR metadata, and quest metadata reconciliation is incomplete",
+      "Completion without final Memory closure, final User review check settlement, final debrief metadata, debrief TLDR metadata, quest metadata reconciliation, and one memory statement is incomplete",
     );
-    expect(result).toContain("title, TLDR, and description still match the accepted delivered scope");
-    expect(result).toContain("ambiguous or intent-changing edits route back to the leader or user");
-    expect(result).toContain("omits `port` but still ends in `memory`");
-    expect(result).toContain("attach their synced SHAs before final Memory");
+    expect(result).toContain("quest metadata reconciliation");
+    expect(result).toContain("Memory must not edit project-tracked implementation files");
+    expect(result).toContain("sync/push when authorized");
     expect(result).toContain("A quest in `MEMORY` is downstream-unblocking");
     expect(result).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
     expect(result).toContain("use explicit `--phase`, `--phase-position`, `--phase-occurrence`");
-    expect(result).toContain("Reviewers should judge phase documentation quality, not just presence");
+    expect(result).toContain("Embedded review phases are not part of active Quest Journey v2");
     expect(result).toContain("significant ambiguity, scope change, Journey revision, user-visible tradeoff");
     expect(result).toContain("point the worker at the exact prior messages, quests, or discussions");
-    expect(result).toContain(
-      "Use `mental-simulation` when the question is whether a design, workflow, or responsibility split makes sense under replayed scenarios.",
-    );
-    expect(result).toContain(
-      "a reviewer should make an acceptance judgment on external evidence the worker has usually already produced",
-    );
-    expect(result).toContain("reviewers may do only small bounded reruns or repros");
-    expect(result).toContain("approval-gated runs rather than a reviewer acceptance pass");
-    expect(result).toContain("route back deliberately: `implement` for behavior/code changes");
+    expect(result).toContain("create or dispatch a separate review quest");
+    expect(result).toContain("accepted Work note");
+    expect(result).toContain("target diff/commit range");
+    expect(result).toContain("missing project work returns to Work");
     expect(result).toContain("| Built-in phase | Board state | Leader brief | Assignee brief | Next leader action |");
     expect(result).toContain("~/.companion/quest-journey-phases/<phase-id>/");
     expect(result).toContain("`~/.companion/quest-journey-phases/alignment/leader.md`");

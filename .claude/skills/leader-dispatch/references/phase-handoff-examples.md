@@ -1,106 +1,68 @@
 # Phase Handoff Examples
 
-Keep actual handoffs shorter than these examples and include only context-dependent deltas. The assignee's final chat should point to the phase feedback index and avoid duplicating the phase note, except for narrow phase-required fields such as User Checkpoint packets, Port synced SHAs/target sync status, final Memory memory statements, urgent blockers/safety facts, and concise routing verdicts.
+Keep actual handoffs shorter than these examples and include only context-dependent deltas. Generic behavior belongs in the active phase briefs.
 
-## Implement
+## Alignment
 
 ```text
-Continue [q-XX](quest:q-XX) with the Implement phase only.
+Work on [q-XX](quest:q-XX). Load the quest skill first, then read and claim the quest: `quest show q-XX && quest claim q-XX`.
 
 Read this phase brief first:
-- `~/.companion/quest-journey-phases/implement/assignee.md`
+- `~/.companion/quest-journey-phases/alignment/assignee.md`
 
-Implement the approved scope, add or refresh the current Implement phase documentation with full agent-oriented detail plus TLDR metadata, then stop with a compact handoff that points to the feedback index. Do not run review workflows, self-port, or change quest status.
+Add or refresh the Alignment phase note with the concise read-in details. In final chat, point to that feedback index and include only blockers, surprises, or Journey-revision evidence that need immediate leader routing. After you send it, stop and wait for Work authorization.
 
-Leader-specific deltas: <accepted refs, unusual boundary, verification expectation, safety warning, or exact source pointers>.
+Leader-specific deltas: <exact prior messages, unusual boundary, memory files, or safety warning>.
 ```
 
-## Implement Rework After Review
+## Work
 
 ```text
-Continue [q-XX](quest:q-XX) with the Implement rework phase only.
+Proceed with Work for [q-XX](quest:q-XX) inside the approved Alignment envelope.
 
 Read this phase brief first:
-- `~/.companion/quest-journey-phases/implement/assignee.md`
+- `~/.companion/quest-journey-phases/work/assignee.md`
 
-Address the reviewer findings. If more tracked changes are needed, commit the current worktree state first, make the fixes in a separate follow-up commit, and send the changed worktree back to Code Review only after that checkpoint exists. Refresh the current Implement phase documentation, then stop with a compact handoff that points to the feedback index. Do not port yet.
+You own investigation, implementation, self-review, approved validation/execution, sync/push duties when authorized, and iterative fixes within the approved envelope. Keep one current Work note. If you need authority outside the envelope, stop for a User Checkpoint. When Work is complete, use `takode board work-to-memory q-XX --work-note <feedback-index>` only if the guard conditions are satisfied.
 
-Findings to address: <specific findings or review note link>.
+Leader-specific deltas: <accepted refs, nonstandard verification, safety warning, exact source pointers, or preset checkpoint obligation>.
 ```
 
-## Code Review
+## User Checkpoint
 
 ```text
-Review [q-XX](quest:q-XX) Code Review phase for worker [#N](session:N).
+Prepare a User Checkpoint packet for [q-XX](quest:q-XX) without doing more Work.
 
 Read this phase brief first:
-- `~/.companion/quest-journey-phases/code-review/assignee.md`
+- `~/.companion/quest-journey-phases/user-checkpoint/assignee.md`
 
-Load the quest context and inspect the worker diff. Review for correctness, regression risk, tests, maintainability, implementation completeness, phase documentation quality, and whether the work matches the approved scope. Add or refresh Code Review phase documentation, then report only ACCEPT or blocking findings plus the feedback index. Do not implement or port.
+Return a self-contained user-facing packet with findings, named options, tradeoffs, recommendation, exact requested answer, and any shortcut labels explained in visible text. Add or refresh the checkpoint note, then stop.
 
-Review focus: <exact files, commits, findings, or risk areas>.
+Decision needed: <what is outside the approved Work envelope>.
 ```
 
-## Mental Simulation
+## Memory
 
 ```text
-Continue [q-XX](quest:q-XX) with Mental Simulation only.
+Proceed with final Memory for [q-XX](quest:q-XX).
 
 Read this phase brief first:
-- `~/.companion/quest-journey-phases/mental-simulation/assignee.md`
+- `~/.companion/quest-journey-phases/memory/assignee.md`
 
-Replay the accepted design/change against these scenarios: <scenario list>. Document outcomes, gaps, risks, and confidence limits in the Mental Simulation phase note, then stop with a compact handoff that points to the feedback index. Do not edit files.
+Use the accepted Work note and current artifacts. Perform catalog/direct-file memory triage, settle final debrief metadata, quest metadata, User review checks, cleanup/follow-ups, exactly one memory statement, and quest completion. Do not edit project-tracked implementation files; missing tracked work returns to Work.
+
+Leader-specific deltas: <synced SHAs, debrief draft, memory files/terms, external artifacts, cleanup needs, or known residual risk>.
 ```
 
-## Execute
+## Separate Review Quest
 
 ```text
-Continue [q-XX](quest:q-XX) with Execute only.
+Work on [q-YY](quest:q-YY), a separate review quest for [q-XX](quest:q-XX).
 
 Read this phase brief first:
-- `~/.companion/quest-journey-phases/execute/assignee.md`
+- `~/.companion/quest-journey-phases/alignment/assignee.md`
 
-Run only the approved validation. Follow resource leases and stop conditions. Document the Execute outcome, artifacts, deviations, cleanup, and residual risks, then stop with a compact handoff that points to the feedback index and names any urgent deviation.
+Use the accepted Work note, target diff/commit range, and evidence listed below. Alignment should confirm the review objective and constraints, then stop for Work authorization.
 
-Approved run: <command/browser flow/external action>.
-Stop conditions: <conditions>.
-```
-
-## Outcome Review
-
-```text
-Review [q-XX](quest:q-XX) Outcome Review phase.
-
-Read this phase brief first:
-- `~/.companion/quest-journey-phases/outcome-review/assignee.md`
-
-Judge whether the existing evidence is sufficient. Keep reruns bounded and only when needed for acceptance. Document ACCEPT or insufficiency with evidence, residual risks, and routing recommendation, then stop with a compact handoff that points to the feedback index.
-
-Evidence to judge: <phase note, artifact path, logs, screenshot, scenario>.
-```
-
-## Port
-
-```text
-Continue [q-XX](quest:q-XX) with Port now.
-
-/port-changes
-
-Read this phase brief first:
-- `~/.companion/quest-journey-phases/port/assignee.md`
-
-Port the accepted tracked changes, run the required post-port verification, add or refresh Port phase documentation, and report back compactly. Include the selected target, target sync status, and feedback index. Include a dedicated `Synced SHAs: sha1,sha2` line with ordered synced SHAs from the target repo so final Memory can attach structured commit metadata; keep detailed verification in the phase note.
-
-Leader-specific deltas: <accepted refs, target branch/worktree, extra verification, port risks, memory-specific accepted-state context>.
-```
-
-## Investigation Or Design With No Tracked Changes
-
-```text
-Continue [q-XX](quest:q-XX) with <phase> only.
-
-Read this phase brief first:
-- `~/.companion/quest-journey-phases/<phase>/assignee.md`
-
-Produce <artifact/evidence/recommendation>, document the phase with full detail plus TLDR metadata, then stop with a compact handoff that points to the feedback index. Do not edit tracked files or complete the quest.
+Review target: <session, message range, Work note, commit range, artifact, or evidence>.
 ```

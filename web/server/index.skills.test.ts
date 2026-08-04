@@ -162,31 +162,19 @@ describe("index startup skill registration", () => {
     ).rejects.toThrow();
   });
 
-  it("keeps the loaded Quest Journey phase table aligned with optional Outcome Review routing", async () => {
+  it("keeps the loaded Quest Journey guidance aligned with the v2 active catalog", async () => {
     const [source, topLevelSource] = await Promise.all([
       readFile(TAKODE_ORCHESTRATION_QUEST_JOURNEY_PATH, "utf-8"),
       readFile(TAKODE_ORCHESTRATION_SKILL_PATH, "utf-8"),
     ]);
 
-    expect(source).toContain(
-      "| Execute | `EXECUTING` | `~/.companion/quest-journey-phases/execute/leader.md` | `~/.companion/quest-journey-phases/execute/assignee.md` | Run approved expensive, risky, long-running, externally consequential, or approval-gated operations | read the execute leader brief, track monitor and stop conditions, then wait for the execution report and decide whether direct leader acceptance, lightweight inspection, outcome review, more execute work, or a Journey revision is needed |",
-    );
-    expect(source).toContain(
-      "| Outcome Review | `OUTCOME_REVIEWING` | `~/.companion/quest-journey-phases/outcome-review/leader.md` | `~/.companion/quest-journey-phases/outcome-review/assignee.md` | Reviewer-owned acceptance judgment for external or non-code outcomes where independent judgment materially reduces risk | read the outcome-review leader brief, then wait for the reviewer judgment and route to implement, execute, alignment, or conclusion |",
-    );
-    expect(source).not.toContain("decide whether outcome review, more execute work, or a Journey revision is needed");
-    expect(source).not.toContain(
-      "Reviewer-owned acceptance judgment over external or non-code outcomes such as metrics, logs, artifacts, prompt behavior, or UX trial notes",
-    );
-    expect(source).toContain("a material edit alone is not approval");
-    expect(source).toContain("One fresh reply may make one exact substitution");
-    expect(source).toContain('"Change the batch limit to 120" is edit-only');
-    expect(source).toContain('"Approve the bounded operation with batch limit 120" is edit-plus-approval');
-    expect(source).toContain("ambiguous referents, dependent changes");
-    expect(source).toContain("changed monitor/stop conditions");
-    expect(source).toContain("changed safety implications/consequences/tradeoffs");
-    expect(source).toContain("fresh explicit approval before external consequences");
-    expect(source).toContain("Harmless typo-only corrections can still proceed");
+    expect(source).toContain("`alignment -> work -> memory`");
+    expect(source).toContain("| Work | `WORKING` |");
+    expect(source).toContain("| User Checkpoint | `USER_CHECKPOINTING` |");
+    expect(source).toContain("| Memory | `MEMORY` |");
+    expect(source).toContain("Legacy v1 phase IDs are rejected for new active rows and revisions");
+    expect(source).not.toContain("`EXECUTING`");
+    expect(source).not.toContain("`OUTCOME_REVIEWING`");
     expect(topLevelSource).toContain("Externally consequential User Checkpoints require fresh explicit approval");
     expect(topLevelSource).toContain("A material edit alone is not approval");
     expect(topLevelSource).toContain("One fresh reply may make one exact substitution");
@@ -231,8 +219,9 @@ describe("index startup skill registration", () => {
     expect(edgeCases).toContain("Do not require routine `memory update not needed` statements");
     expect(edgeCases).not.toContain("Read this reference only when");
 
-    expect(phaseExamples).toContain("## Port");
-    expect(phaseExamples).toContain("Include a dedicated `Synced SHAs: sha1,sha2` line");
+    expect(phaseExamples).toContain("## Work");
+    expect(phaseExamples).toContain("## Memory");
+    expect(phaseExamples).toContain("## Separate Review Quest");
     expect(phaseExamples).toContain("Leader-specific deltas: <accepted refs");
     expect(phaseExamples).not.toContain("Read this reference only when");
 
@@ -263,13 +252,13 @@ describe("index startup skill registration", () => {
     expect(source).toContain("open an immediate fix quest");
     expect(source).toContain("--debrief-file /tmp/final-debrief.md");
     expect(source).toContain("--debrief-tldr-file /tmp/final-debrief-tldr.md");
-    expect(source).toContain("Port is not final quest closure");
+    expect(source).toContain("Sync/push is not final quest closure");
     expect(source).toContain("final Memory owns final User review check settlement");
     expect(source).toContain("structured final debrief metadata");
     expect(source).toContain("Final debrief draft:");
     expect(source).toContain("Debrief TLDR draft:");
     expect(source).toContain("accepted-state summary");
-    expect(source).toContain("Do not add routine `memory update not needed` statements during Port");
+    expect(source).toContain("Do not add routine `memory update not needed` statements during Work-owned sync");
     expect(source).toContain("self-contained quest-journey understanding");
     expect(source).toContain("Keep routine commit hashes, branch names, command lists");
   });

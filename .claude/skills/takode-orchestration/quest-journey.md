@@ -1,230 +1,111 @@
 # Quest Journey Lifecycle
 
-Every dispatched task follows a **Quest Journey** assembled from built-in phases. The work board (`takode board show`) tracks proposed approval-hold Journeys, active current phases, remaining phases, and next required leader action in compact routine output. Use `takode board show --full` for full-board Journey paths and indexed phase notes, or `takode board detail q-N` for one quest's full Journey, notes, timing history, and revision metadata.
+Quest Journey v2 has one active workflow:
 
-The planned Journey is board-owned state associated with the quest while that quest is on the board. Quest creation or refinement defines the quest text; it does not freeze either the proposed draft or the active Journey.
+`alignment -> work -> memory`
 
-When assembling a Journey, ask what each extra phase contributes over merging that work into a later phase. The normal tracked-code path intentionally keeps common work small: `implement` includes the normal investigation, root-cause analysis, code/design reading, and test planning needed to complete approved fixes, docs changes, config changes, prompt changes, and artifact changes. Do not add `explore` before `implement` merely so a worker can look around, and never plan adjacent `explore -> implement`. Use `explore -> user-checkpoint -> implement` when Explore findings may need user steering before implementation. After a legitimate Explore completes, leaders may revise the remaining active Journey directly to `implement` when findings reveal a clear low-risk repo-local fix within existing user intent and no product/policy/user-visible tradeoff, risky external effect, or scope expansion needs user choice.
+`user-checkpoint` is a durable pause state for decisions inside the same Work occurrence. It is not a separate default phase handoff and does not create a new worker. Legacy v1 phase IDs such as `explore`, `implement`, `code-review`, `execute`, `outcome-review`, `port`, and `bookkeeping` are historical-read compatibility only. Do not dispatch or propose them for new active work.
 
-Board-side Journey modes:
+The work board (`takode board show`) tracks proposed rows, queued rows, active state, worker assignment, human-input waits, timing, and next action. Use `takode board show --full` for full board inspection and `takode board detail q-N` for one row's Journey, notes, migration metadata, and timing history.
 
-- `proposed`: pre-dispatch approval-hold or draft, no worker required yet, no active/current phase semantics yet
-- `active`: authorized execution Journey, with progress tracked by phase position/index
+## Active Phase Catalog
 
-`PROPOSED` and `QUEUED` are board states, not phases. Once active, leaders choose the phase sequence that matches the risk boundary and evidence needed next. Repeated phases are allowed, so progress is tracked by active phase occurrence rather than assuming each phase name appears only once.
+Built-in phase directories are seeded into `~/.companion/quest-journey-phases/<phase-id>/` with `phase.json`, `leader.md`, and `assignee.md`. Use `takode phases` to inspect the active catalog and exact brief paths.
 
-Before the first dispatch, leaders should use `/leader-dispatch` to choose among three paths. Direct create/dispatch is allowed for clear, low-risk, reversible repo-local work with no material ambiguity, external side effect, security/privacy/global/shared-resource risk, product/policy choice, or user-level scheduling tradeoff. Pre-dispatch approval remains mandatory for ambiguous, destructive, irreversible, externally consequential, expensive/long-running, shared-resource, security/privacy, product/policy, or user-visible tradeoff work. Use delayed approval via `user-checkpoint` when early phases are safe but later Execute/product-choice/external phases require user confirmation. When approval is required, write a concise packet so one confirmation can approve quest text, Journey, and scheduling. When direct dispatch is allowed, keep any rationale compact and make the authorized Journey durable before or with dispatch using `takode board set --worker ... --phases ...`. The worker alignment phase then returns a concise leader-verification read-in inside that leader-authorized Journey and may surface facts that justify Journey revision; it is not the first time phases are proposed and should not become a broad planning report. After the worker returns that read-in, the leader normally approves the next phase and advances without a routine user-approval round. Escalate back to the user only for significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another real blocking issue.
+| Phase | Board State | Purpose |
+|-------|-------------|---------|
+| Alignment | `PLANNING` | Fresh worker gives a concise leader-verification read-in. The leader approves or corrects the authorization envelope once before Work. |
+| Work | `WORKING` | Assigned worker completes the authorized work end-to-end: investigation, implementation, validation, self-review, approved execution, Port/sync/push, iteration, and one current Work note. |
+| User Checkpoint | `USER_CHECKPOINTING` | Visible decision pause when Work needs user authority or judgment outside the approved envelope. The same worker resumes Work after resolution. |
+| Memory | `MEMORY` | Final durable closure: memory triage/update/deferral, quest metadata/debrief/quiz/check hygiene, cleanup/follow-up routing, and quest completion. |
 
-## Built-In Phase Library
+Historical v1 phase metadata remains available only so stored Quest Detail timelines and old phase notes render intelligibly.
 
-Built-in phase directories are seeded into `~/.companion/quest-journey-phases/<phase-id>/` with:
-- `phase.json`: semantic/runtime metadata such as board state, aliases, role, contract, and next leader action
-- `leader.md`: the leader-facing brief for that phase
-- `assignee.md`: the brief the leader should point the worker or reviewer to for that phase
+## Authorization
 
-Use `takode phases` to list available phase metadata and exact brief paths. Leaders should read the exact `leader.md` path themselves and point the target session to the matching exact `assignee.md` path. Do not rely on globally installed phase skills as the primary mechanism.
+Before first dispatch, use `/leader-dispatch` to choose direct low-risk dispatch, pre-dispatch approval, or delayed approval through User Checkpoint. Direct dispatch is allowed only for clear, low-risk, reversible repo-local work with no material ambiguity, external side effect, security/privacy/global/shared-resource risk, product/policy choice, or user-level scheduling tradeoff.
 
-| Phase | Board state | Leader brief | Assignee brief | Contract | Next leader action |
-|-------|-------------|--------------|----------------|----------|--------------------|
-| Alignment | `PLANNING` | `~/.companion/quest-journey-phases/alignment/leader.md` | `~/.companion/quest-journey-phases/alignment/assignee.md` | Do a concise leader-verification read-in covering concrete understanding, key constraints, real ambiguities/questions, blockers/surprises, and Journey-revision evidence | read the alignment leader brief, send the alignment-only instruction, then review the worker read-in for leader approval, routing, or necessary user escalation |
-| Explore | `EXPLORING` | `~/.companion/quest-journey-phases/explore/leader.md` | `~/.companion/quest-journey-phases/explore/assignee.md` | Investigate when the investigation is the deliverable or when routing is genuinely unknown; do not plan routine Explore -> Implement, but a completed legitimate Explore may be revised to Implement when findings reveal a clear low-risk repo-local fix that needs no user choice | read the explore leader brief, then wait for the findings summary and decide whether to revise the Journey, advance to a planned user-checkpoint, route to execute/outcome-review/memory, or stop |
-| Implement | `IMPLEMENTING` | `~/.companion/quest-journey-phases/implement/leader.md` | `~/.companion/quest-journey-phases/implement/assignee.md` | Make approved code, docs, prompts, config, or artifact changes; this includes normal investigation, root-cause analysis, code/design reading, test planning, and cheap local evidence within the approved scope | read the implement leader brief, then wait for the worker report and choose the next review, execute, port, or memory phase |
-| Code Review | `CODE_REVIEWING` | `~/.companion/quest-journey-phases/code-review/leader.md` | `~/.companion/quest-journey-phases/code-review/assignee.md` | Review tracked code or tracked artifacts for comprehensive landing risk: correctness, regressions, tests, maintainability, quest hygiene, implementation completeness, meaningful evidence, and security when relevant | read the code-review leader brief, then wait for the reviewer result and either send rework or advance |
-| Mental Simulation | `MENTAL_SIMULATING` | `~/.companion/quest-journey-phases/mental-simulation/leader.md` | `~/.companion/quest-journey-phases/mental-simulation/assignee.md` | Replay a design, workflow, or implementation against concrete scenarios | read the mental-simulation leader brief, then wait for the scenario review and decide whether the Journey needs revision |
-| Execute | `EXECUTING` | `~/.companion/quest-journey-phases/execute/leader.md` | `~/.companion/quest-journey-phases/execute/assignee.md` | Run approved expensive, risky, long-running, externally consequential, or approval-gated operations | read the execute leader brief, track monitor and stop conditions, then wait for the execution report and decide whether direct leader acceptance, lightweight inspection, outcome review, more execute work, or a Journey revision is needed |
-| Outcome Review | `OUTCOME_REVIEWING` | `~/.companion/quest-journey-phases/outcome-review/leader.md` | `~/.companion/quest-journey-phases/outcome-review/assignee.md` | Reviewer-owned acceptance judgment for external or non-code outcomes where independent judgment materially reduces risk | read the outcome-review leader brief, then wait for the reviewer judgment and route to implement, execute, alignment, or conclusion |
-| User Checkpoint | `USER_CHECKPOINTING` | `~/.companion/quest-journey-phases/user-checkpoint/leader.md` | `~/.companion/quest-journey-phases/user-checkpoint/assignee.md` | Present a self-contained packet with findings, named options, key tradeoffs, recommendation, and exact requested answer for a required mid-Journey user decision; do not treat this as a terminal phase, final User review check, or generic TBD bucket | read the user-checkpoint leader brief, publish the decision prompt, notify the user, wait for the answer, then revise the remaining Journey |
-| Port | `PORTING` | `~/.companion/quest-journey-phases/port/leader.md` | `~/.companion/quest-journey-phases/port/assignee.md` | Sync accepted tracked changes back to the main repo, verify the main repo after sync, and report synced SHAs and port risks | read the port leader brief, then wait for sync confirmation and post-port verification before advancing to final Memory |
-| Memory | `MEMORY` | `~/.companion/quest-journey-phases/memory/leader.md` | `~/.companion/quest-journey-phases/memory/assignee.md` | Finish non-project-tracked durable-state closure for a substantively accepted quest; do not edit tracked project files | read the memory leader brief, assign the final Memory owner, then complete the quest only after final User review checks, durable state, final debrief metadata, and the memory statement are settled |
-| Bookkeeping | `BOOKKEEPING` | `~/.companion/quest-journey-phases/bookkeeping/leader.md` | `~/.companion/quest-journey-phases/bookkeeping/assignee.md` | Compatibility phase for targeted durable shared external state that does not fit normal phase documentation or final Memory closure | read the bookkeeping leader brief, record the targeted durable shared-state update, then advance when the facts and handoff state are current |
+Initial dispatch authorizes Alignment only. After the worker's read-in, the leader either corrects/escalates or approves Work and Memory within a clear envelope. That envelope may include sync/push and approved operations, but it does not expand authority: project-specific safety, durable-data, permission, lease, cluster/job, credential/privacy/security, external-effect, strong verification, and no-force Git rules remain authoritative.
 
-## Phase Documentation Contract
+## Work
 
-Each active phase should leave durable quest documentation before the leader treats the phase as complete. The actor for the phase writes the full entry for future agents first, then derives TLDR metadata for human scanning. Phase-note TLDRs should usually be 1-5 scan-friendly bullets or sentences that preserve conclusions, decisions, evidence, blockers, risks, handoff facts, and phase-specific outcomes. Keep raw SHAs, branch names, exhaustive command lists, routine file paths, and detailed verification mechanics in the full body or port metadata unless the exact detail is central to understanding that phase.
+Work owns the responsibilities that v1 split across Explore, Implement, Code Review, Execute, Outcome Review, and Port. The worker may self-review, delegate to subagents, run approved long operations, inspect outcomes, iterate, commit, sync, run strong verification, and push when authorized.
 
-When documenting repository files, use Takode custom file links such as `[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)` instead of plain paths. Standard Markdown file links to repo files are a best-effort clickable fallback in Questmaster, but custom `file:` links remain preferred because they carry richer location metadata.
+The worker keeps one current detailed Work note. Refresh that note for iterative fixes instead of appending a process timeline. The final Work note records outcome, key decisions, evidence, sync/external state, residual risk, checkpoint decisions, and Memory handoff.
 
-Prefer the q-991 phase-scoped feedback primitive with current-phase inference:
+Independent review is no longer an embedded phase. When review materially reduces risk, create a separate quest with its own Alignment -> Work -> Memory flow.
+
+## User Checkpoint
+
+Use User Checkpoint when Work needs user authority or judgment outside the approved envelope. The visible user prompt must be self-contained: findings, named options, key tradeoffs, recommendation, exact requested answer, and every notification shortcut explained in visible text before `takode notify needs-input` runs.
+
+Link the active board row to the unresolved notification with `--wait-for-input`. Do not answer the decision yourself. After the answer, clear the wait and resume the same worker's Work occurrence. For externally consequential actions, fail closed on edit-only replies, questions, ambiguous approval, changed safety/monitor/stop conditions, or any remaining choice: publish a revised exact packet and wait for fresh explicit approval.
+
+## Work To Memory
+
+The assigned worker may use the worker-owned Work -> Memory transition only when all are true:
+
+- caller is the authenticated assigned worker;
+- quest is claimed by that worker;
+- board state is `WORKING`;
+- a current Work phase note by that worker exists;
+- no unresolved User Checkpoint is linked.
+
+The command is:
+
+```bash
+takode board work-to-memory q-N --work-note <feedback-index>
+```
+
+Leaders can still inspect or intervene, but routine Work completion does not require leader approval.
+
+## Memory
+
+Final Memory is mandatory for every non-cancelled quest. Memory normally stays with the same worker after Work. It performs catalog/direct-file memory triage, writes or defers durable memory, reconciles quest title/TLDR/description against delivered scope, settles genuine User review checks, records cleanup/follow-ups, writes final debrief metadata, and completes the quest.
+
+Exactly one final memory statement is required:
+
+- `memory updated: <commit>`
+- `memory update deferred: <reason or curator>`
+- `memory update not needed: <reason>`
+
+Memory must not edit project-tracked implementation files. Missing tracked work returns to Work.
+
+## Board Commands
+
+Common v2 flow:
+
+```bash
+takode board set q-12 --worker 5 --phases alignment,work,memory --preset v2-work
+takode board advance q-12
+takode board work-to-memory q-12 --work-note 3
+```
+
+Use `takode board propose --summary ... --phases alignment,work,memory` when pre-dispatch approval should be durable on the board. Use `QUEUED --wait-for ...` only for pre-active scheduling/dependency waits. Use `--wait-for-input` only for active/proposed rows intentionally paused on a same-session needs-input notification.
+
+Legacy v1 phase IDs are rejected for new active rows and revisions. Completed historical runs, phase notes, and migration metadata remain readable.
+
+## Startup Cutover
+
+Server startup reseeds only v2 live phase directories, removes obsolete live v1 phase directories, installs/symlinks current skills, and idempotently migrates persisted active board rows:
+
+- Alignment/Planning -> Alignment.
+- User Checkpoint -> User Checkpoint pause over Work.
+- Memory -> Memory.
+- Explore/Implement/Code Review/Mental Simulation/Execute/Outcome Review/Port/Bookkeeping -> Work.
+
+Migration preserves legacy phase history in row migration metadata and appends v2 context instead of rewriting historical Questmaster runs or feedback. Rows with reviewer-only or no safe worker are queued for leader attention instead of guessing.
+
+Existing sessions adopt v2 only after server restart plus relaunch/recycle with regenerated injected instructions. Rereading a phase file alone is not enough.
+
+## Phase Documentation
+
+Every active phase needs durable quest documentation. Prefer:
 
 ```bash
 quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md --kind phase-summary
 ```
 
-Use `--kind phase-finding` for exploration findings, `--kind review` for review phases, or `--kind artifact` for execution artifacts when that better describes the entry. If inference is unavailable or ambiguous, use explicit flags such as `--phase`, `--phase-position`, `--phase-occurrence`, `--phase-occurrence-id`, or `--journey-run`. Use `--no-phase` only when a flat unscoped quest comment is intentional, such as non-Journey bookkeeping or legacy quest compatibility.
+Use phase-scoped inference when available, or explicit `--phase`, `--phase-position`, `--phase-occurrence`, `--phase-occurrence-id`, or `--journey-run` when needed. Keep phase notes useful and compressed: decisions, blockers, evidence, user choices, external state, residual risks, and next-phase handoff facts. Avoid file-by-file diff narration, long command transcripts, routine green-test lists, and repeated commit metadata.
 
-Use value-based compression for phase documentation instead of hard length caps. Keep phase-local decisions, blockers, recovery context, review judgments, user choices, external artifact state, residual risks, and next-phase handoff facts. Cut or compress file-by-file diff narration, exhaustive command transcripts, routine green test lists, branch hygiene narration, copied tool output, generic review checklists, and repeated commit metadata that Git or Questmaster already preserves. Include low-level detail only when it explains non-obvious risk, recovery, verification, or external state. If the actor's context was compacted during the phase, or if memory confidence is low, they should reconstruct relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, they should use working memory and current artifacts instead of unnecessary session archaeology.
-
-Keep the memory boundary explicit: quest phase notes say what happened in this phase and what the next phase needs; file-based memory stores durable cross-quest knowledge, procedures, decisions, references, and artifact manifests. Non-Memory phases should not add routine `memory update not needed` statements. Include memory-specific evidence only when material, such as `memory updated`, `memory update deferred`, durable user decisions/preferences, memory files inspected for a reason, artifact manifests, or other facts final Memory needs.
-
-For valuable nontrivial phase outcomes, the assignee may run `takode worker-stream` once the substantive result is ready so the leader can start reading while required paperwork finishes. Treat worker-stream output as an early internal checkpoint only: it is optional, not mandatory ceremony, and it does not replace phase documentation, final debrief metadata, or leader-owned phase transitions.
-
-Final chat handoffs are compact pointers, not second phase notes. Detailed phase results, recommended next action, blockers, evidence, findings, and handoff facts normally live in the Questmaster phase feedback. The assignee's final chat should name the phase feedback index and include only the concise outcome or verdict plus urgent blockers, safety facts, or deltas the leader must see immediately. Narrow exceptions still belong in chat when they are the handoff itself: User Checkpoint packets for the leader to publish, Port's selected target plus ordered `Synced SHAs:` and target sync status, final Memory's required memory statement and completion status, urgent blockers or safety facts, and concise verdicts needed for routing.
-
-Phase documentation should stay specific to the phase:
-- Alignment: concise leader-verification packet with concrete understanding, key constraints, real ambiguities/questions, blockers/surprises, and Journey-revision evidence. Avoid broad implementation plans, exhaustive evidence inventories, routine file lists, long command/test details, and repeated quest history unless needed for a blocker or misunderstanding risk.
-- Explore: evidence sources, findings, confidence limits, ambiguities or blockers, options or implementation considerations, and Journey-revision evidence. Summarize log-heavy evidence and link artifacts instead of pasting transcripts.
-- Implement: behavior or artifact change, key design choices, verification categories, remaining risks, and addressed feedback. Mention files only as entry points or when their role is non-obvious; do not narrate the diff file by file.
-- Code Review: verdict first; if there are findings, lead with them. Include decisive evidence, meaningful review aspects, risk reasoning, and documentation hygiene judgment. Do not restate the entire diff or every green command.
-- Mental Simulation: scenarios replayed, outcomes, concrete examples, risks, recommendations, and confidence limits. Avoid generic evidence inventories unless an evidence source changed a scenario judgment.
-- Execute: approved action, monitors, stop conditions, outcome, deviations, artifact or log locations, cleanup or retention decisions, residual risks, and follow-up needs. Keep raw logs out unless the excerpt is the evidence.
-- Outcome Review: evidence judged, ACCEPT or insufficiency rationale, bounded reruns, residual risks, and follow-up routing. Avoid turning it into a second Execute transcript.
-- User Checkpoint: findings, named options, key tradeoffs, recommendation, required user answer, actual user decision when known, and Journey-revision implications.
-- Port: ordered synced SHAs, post-port verification categories, port anomalies, remaining sync risks, accepted-state context final Memory will need, and memory-specific evidence only when material. Omit branch command transcripts unless recovery depended on them.
-- Memory: final debrief metadata status or drafts, quest metadata reconciliation, quest hygiene changes, memory files inspected, memory update or deferral, external durable-state records, cleanup, follow-up routing, and residual risks.
-- Bookkeeping: records updated, superseded facts, external locations, durable handoff facts, and targeted memory updates or deferrals for legacy/intermediate flows. Avoid replaying the whole quest when a targeted consolidation or memory pointer is enough.
-
-Review phases must judge documentation quality, not just presence. Check phase relevance, useful full detail, TLDR completeness where appropriate, and correct phase association when the phase-scoped primitive is available.
-
-## File-Based Memory In Journey Work
-
-Takode memory is a Git-tracked Markdown repo scoped to the current server/session space. Normal `memory` commands auto-create the repo at `~/.companion/memory/<serverSlug>/<sessionSpace>` when needed, such as `~/.companion/memory/prod/Takode`, so agents do not need a separate init step. It is a shared aid for durable state, not a hidden instruction channel. After compaction or low-confidence recovery, recover session and quest context first. If durable memory may affect the work, leaders and workers should use visible reads: run `memory catalog show`, treat the catalog as the triage map, inspect plausible catalog-listed Markdown files directly, and use targeted `rg` under `$(memory repo path)` only when catalog or known context makes a match plausible. Use `memory catalog diff` as a freshness check for final Memory, and for Port or Outcome Review when memory matters for final handoff, debrief accuracy, durable decisions, or memory-writing choices; do not run it constantly, and do not treat it as a replacement for direct file inspection. If the catalog shows no plausible relevant topic, type, or source, skip blind repo-wide memory search and continue from session, quest, code, or artifact evidence. Use `memory repo path` and `memory --help` to rediscover the repo and command surface.
-
-Memory writes are explicit Journey responsibility. A phase actor may update memory when they learned durable shared facts, changed live coordination state, produced external artifacts, or accepted a decision/preference that should survive the quest. Final Memory is the normal owner for end-of-quest memory closure; if the update is useful but not synchronous, route it through Memory or an approved curator instead of blocking the current phase. Non-Memory phases should preserve material memory evidence, not routine no-op memory bookkeeping.
-
-For memory record frontmatter `source`, use the quest ID (`q-N`) as the primary source for quest-backed updates. Do not routinely add `commit:*` or `session:*` sources when the quest already records the relevant commits, sessions, reviews, and phase history. Include `session:<id>` only when there is no corresponding quest, or when the session itself is the durable source of truth. Preserve exceptional `commit:*` or `session:*` sources for non-quest memory updates where that provenance is genuinely the source of truth.
-
-Memory authoring uses one repo-level lock and direct file edits:
-
-```bash
-memory lock acquire --owner <session-or-role>
-# search/read/edit files directly under current/, knowledge/, procedures/, decisions/, references/, artifacts/
-memory lint
-memory diff
-memory commit --message "..." --quest q-N --source q-N --memory-id "<id>"
-memory lock release
-```
-
-Final Memory also reconciles quest metadata with accepted scope. Before completion, check whether the quest title, TLDR, and description still describe the delivered result. Clear final-scope drift can be refreshed during Memory; ambiguous, contentious, or intent-changing edits should route back to the leader or user. Do not use final Memory to rewrite active scope or unfinished quests.
-
-Final Memory must include exactly one memory statement after catalog/direct-file triage:
-- `memory updated: <commit>`
-- `memory update deferred: <reason or curator>`
-- `memory update not needed: <reason>`
-
-Non-Memory phases should include `memory updated` or `memory update deferred` only when memory writing was explicitly assigned or the phase discovered a durable-memory candidate. Otherwise, preserve the accepted-state, artifact, user-decision, risk, and handoff facts final Memory needs without adding a routine `memory update not needed` line.
-
-## Recommended Default
-
-The recommended built-in tracked-code Journey is:
-
-`alignment -> implement -> code-review -> port -> memory`
-
-This preserves a small normal path for common repo work while allowing leaders to choose richer review or operations paths when the quest needs them. It is a default, not a mandate: user overrides win. If the user asks to skip `code-review`, `port`, or another standard phase, follow that instruction or briefly confirm the tradeoff instead of refusing because the phase is standard.
-
-Omit notes for standard phases by default: `alignment`, `implement`, `code-review`, `port`, and final `memory` are self-explanatory unless the user or quest adds unusual phase-specific work. Add concise notes for non-standard phases such as `explore`, `user-checkpoint`, `execute`, `outcome-review`, `mental-simulation`, or compatibility `bookkeeping`; state why the phase is needed and what evidence, user decision, scenario, outcome, or durable state it covers. For every extra phase, ask what it contributes over merging the same work into a later phase. User Checkpoints are mandatory by default. Mark one optional only with an approved phase note that says it may be skipped and gives the concrete skip condition; after Explore, skipping an optional checkpoint with `takode board advance --skip-optional-checkpoint` still records that the condition was satisfied. A completed-Explore `takode board revise` may drop the immediate post-Explore checkpoint and route to Implement, but first consider whether Explore was genuinely needed, the fix is clear and in scope, and no user-facing tradeoff, risky external effect, or scope expansion needs user choice. Leaders may also mark other future phases optional when the need depends on later evidence and the user did not explicitly require the phase; the phase note should name when the phase is needed and/or can be skipped. Non-checkpoint optional phases are removed or added by explicit `takode board revise`, not by a generic skip command. Do not use optionality or post-Explore revision to bypass Code Review, Port for tracked changes, final Memory, required User Checkpoints, real user decisions, or explicit user-required phases.
-
-## Approval and Board Workflow
-
-Use natural prose as the normal lightweight approval surface when not using a proposed row. When a quest benefits from a durable proposed row, use `takode board propose --summary` as the approval surface: move the Goal / Acceptance, key tradeoff, scheduling context, dependencies, and approval question into the summary, and do not repeat that same packet separately in chat. Once the user approves, make the Journey durable on the board before or with dispatch:
-
-```bash
-takode board set q-12 --worker 5 --phases alignment,implement,code-review,port,memory --preset full-code
-```
-
-- `takode board set --worker ... --phases ...` creates the active board row and initial Journey in one step after prose approval
-- `takode board revise` changes an existing active or proposed Journey suffix by 1-based position plus expected phase
-- `takode board propose` remains available to create a board-owned draft when an approval-hold row helps coordination
-- prefer `takode board propose --journey-file ... --summary "..."` for complete proposal drafts with phases, concise non-standard notes, and a full approval summary
-- `takode board note` remains available for targeted note edits, but each draft mutation makes any previous presentation stale
-- `takode board promote` reuses a proposed Journey object for execution after approval; a separate presentation step is no longer required
-- approval-hold rows should use `PROPOSED` plus `--wait-for-input`, not a fake generic queue dependency
-
-Examples:
-
-- Straight tracked-code work: `alignment -> implement -> code-review -> port -> memory`
-- Expensive or approval-gated run that needs independent outcome judgment: `alignment -> explore -> execute -> outcome-review -> memory`
-- Bounded Execute where leader acceptance may be enough: `alignment -> explore -> execute -> memory`
-- Findings that require user steering: `alignment -> explore -> user-checkpoint -> implement -> code-review -> port -> memory`
-- Design or workflow validation: `alignment -> implement -> mental-simulation -> code-review -> port -> memory`
-- Cheap local evidence followed by acceptance review: `alignment -> implement -> outcome-review -> code-review -> port -> memory`
-
-## Journey Revision
-
-Leaders may revise the remaining Journey when risk, evidence needs, external-state impact, user steering, or the next action changes.
-
-Use:
-
-```bash
-takode board revise q-12 --from-position 3 --expect-phase code-review \
-  --phases outcome-review,code-review,port --preset cli-rollout
-```
-
-Rules:
-
-- Already completed phase occurrences are historical and cannot be revised in place.
-- Keep completed prefix positions unchanged; append a later repeated phase when requirements change after a phase has run.
-- Proposed rows with no executed phases can be revised from position 1.
-- Active rows revise only future suffixes; completed and current occurrences are not rewritten in place.
-- Repeated phases are first-class. Insert or append them directly instead of pretending the Journey reset to an earlier abstract state.
-- Indexed phase notes rebase by phase occurrence, not raw index. If the same occurrence still exists after a phase-list revision, the note follows it even when its position shifts.
-- If a revision removes the intended occurrence, `takode board revise` warns about the dropped note so the leader can reattach or rewrite it deliberately.
-- Repeated active phases are tracked by occurrence index, not just by `currentPhaseId`. When a repeated phase is active and `--status` alone would be ambiguous, set `--active-phase-position` so the board row and UI point at the correct occurrence.
-- If the active boundary itself changes, set an explicit `--status` that matches the revised phase plan.
-- `takode board advance` always follows the row's planned phases, not a hard-coded global order.
-- For optional non-checkpoint phases, revise the remaining Journey with `takode board revise` when later evidence shows the phase is unnecessary or newly necessary. Preserve completed/current phase occurrences, respect explicit user-required phases, and use User Checkpoint first when the revision changes user-owned scope, safety, product choice, or explicit requirements.
-
-## Phase-Explicit Worker Steering
-
-- **Authorize one phase at a time.**
-- **Initial Journey authorization happens before dispatch.** Use `/leader-dispatch` to decide whether the proposed Journey and scheduling plan qualify for direct low-risk dispatch or need user approval, then put the authorized Journey on the board before or with dispatch.
-- **Read the exact leader brief; point assignees to the exact assignee brief.** Use `takode phases` when you need the paths. Do not treat globally installed phase skills as the primary phase mechanism.
-- **Initial dispatch = alignment only.**
-- **Promote the same board-drafted Journey after approval when a proposed row exists.** Otherwise, create the active row directly with the authorized phase list. Do not let recovery depend only on transcript prose.
-- **Quest ownership stays with the worker.**
-- **Worker alignment returns a concise leader-verification read-in inside a leader-authorized Journey.** It may surface blockers, surprises, and evidence that justify leader-owned Journey revision, but it should not become a broad implementation plan or evidence inventory. The board-owned Journey remains authoritative until the leader changes it.
-- **Point alignment at exact sources when you already know them.** When the relevant prior messages, quests, or discussions are known, point the worker to those specific sources so alignment can use targeted Takode or quest inspection instead of broad exploration.
-- **Alignment approval is leader-owned by default.** Once the initial Journey plus scheduling plan is authorized by direct-dispatch rubric or user approval, the leader normally approves the returned worker read-in and dispatches the next phase.
-- **Escalate alignment back to the user only for real blockers.** Significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another blocking issue can require fresh user approval.
-- **Alignment approval authorizes exactly one next phase.** For example: explore now, then stop and report back.
-- **Use `user-checkpoint` for explicit mid-Journey user participation.** Present a self-contained packet with findings, named options, key tradeoffs, a recommendation, and the exact requested answer; notify the user only after that packet is visible, then wait; then revise the remaining Journey after explicit approval. If notification shortcuts are offered, the visible decision section must name every shortcut and explain its meaning plus relevant tradeoff; phase notes, private packets, labels/buttons, summaries, and "see feedback" references do not substitute. Equivalent options should say there is no material tradeoff or be collapsed, yes/no prompts must state what yes authorizes and what no declines, independent questions need matching `--question` groups, custom answers to exact packets are edits/new alternatives, and revised packets need a fresh visible section plus fresh notification. For User Checkpoints that gate Execute or another externally consequential phase, a material edit alone is not approval. One fresh reply may make one exact substitution and explicitly approve the resulting packet only when the packet referent, every unchanged term, all dependent parameters, monitor/stop conditions, safety implications, consequences, and tradeoffs remain unchanged and unambiguous, and no question or user choice remains. "Change the batch limit to 120" is edit-only; "Approve the bounded operation with batch limit 120" is edit-plus-approval when every other packet term still satisfies those conditions. Fail closed for edit-only replies, questions, vague/conditional/conflicting approval, ambiguous referents, dependent changes, changed monitor/stop conditions, changed safety implications/consequences/tradeoffs, or any remaining user choice: publish the revised exact packet, keep the board in `USER_CHECKPOINTING`, and obtain fresh explicit approval before external consequences. Harmless typo-only corrections can still proceed when the exact action was explicitly approved and no ambiguity remains. User Checkpoints are mandatory by default; only an approved phase note with a concrete skip condition can make one optional for `takode board advance --skip-optional-checkpoint`. A completed-Explore `takode board revise` may drop the immediate post-Explore checkpoint only after the leader considers whether no user choice is needed; do not skip if the user explicitly requested the checkpoint or the decision truly needs input. Do not use it as terminal closure, generic TBD, optional leader-only indecision, or final User review checks.
-- **Resolve worker/reviewer file links before user-facing routing.** If a user-facing prompt, checkpoint, or summary should point at unported worker/reviewer worktree state, convert worker/reviewer relative paths or relative `file:` links with `takode file-resolve --session <worker-or-reviewer> <path-or-file-link>` and show the returned absolute `file:` link. Keep repo-relative links for post-Port/main state or intentional leader/main-checkout references.
-- **Workers and reviewers document, report, then stop at phase boundaries.** They do not self-review, self-port, self-transition, or self-complete unless explicitly instructed.
-- **Porting requires an explicit instruction.** Port syncs accepted tracked changes, verifies the main repo, reports synced SHAs and risks, then stops. After Port, advance to final Memory instead of completing the quest from Port.
-- **Every completed non-cancelled quest needs final Memory.** Completion without Memory closure, final User review check settlement, final debrief metadata, debrief TLDR metadata, quest metadata reconciliation, and one memory statement is incomplete. A quest in `MEMORY` is downstream-unblocking because substantive work has been accepted and synced when applicable, but the row stays open until Memory finishes.
-- **Quest completion summaries are outcome notes.** When the leader tells the user a quest is complete, lead with the delivered result or decision, why it matters, and any real next action or residual risk. Keep routine internals such as raw commit hashes, empty User review checks, final debrief metadata status, no-op memory statements, command lists, and routine verification out of the visible summary unless directly useful. If quest quiz metadata exists or was updated, write a complementary outcome summary first, then render `{[(Quest Quiz: q-N)]}` on its own physical line where the quiz should appear.
-
-## Review Phases
-
-Use the review phase that matches the evidence you need:
-
-- **`code-review`** for tracked code/artifact quality and landing risk.
-- **`mental-simulation`** for scenario-driven workflow, design, or responsibility-split replay.
-- **Leader acceptance after `execute`** when the run was authorized, bounded, completed within monitor and stop conditions, the Execute note is self-contained, criteria are clear, consequences are low-risk or reversible, and independent reviewer judgment would not materially reduce risk. Lightweight leader inspection is enough when the needed check is small and bounded over existing evidence, such as cited logs, screenshots, artifacts, pass/fail output, or simple local cleanup/retention facts.
-- **`outcome-review`** for reviewer-owned acceptance over external behavior, metrics, artifacts, prompt behavior, or operational outcomes that already exist when independent judgment materially reduces risk.
-- **`execute`** when more evidence requires expensive, risky, long-running, externally consequential, or approval-gated runs rather than a reviewer acceptance pass.
-
-Guidance:
-
-- Use **`mental-simulation`** when the question is whether a design or workflow makes sense under replayed scenarios. This is about plausibility and failure modes, not externally executed sufficiency.
-- Use **`outcome-review`** when the worker has usually already produced the evidence and a reviewer should decide whether that evidence is sufficient because the case is high-risk, externally consequential, hard-to-reverse, security/privacy-sensitive, meaningfully user-visible, complex, noisy, subjective, low-context, missing-artifact, contradictory, insufficient, or otherwise materially risk-reducing. The reviewer may do only small bounded reruns or repros needed for acceptance.
-- Use **`execute`** when the worker needs more than cheap local evidence gathering and the next step is an approved run with monitors, stop conditions, risk controls, or external consequences.
-- If outcome evidence is insufficient, route back deliberately: **`implement`** when behavior or code must change, **`execute`** when more approved runs are needed, and **`alignment`** when success criteria, scope, or experiment design changed.
-
-Do not default to a generic skeptic-review framing for new work. Legacy board rows or saved phrases may still mention `skeptic-review`, `reviewer-groom`, or `stream-update`; treat those as compatibility aliases rather than the preferred vocabulary.
-
-## Zero-Tracked-Change Journeys
-
-Zero-tracked-change quests use the same phase-based Journey model as any other quest. Do not use a separate board flag or shortcut command.
-
-Choose explicit phases that match the evidence you need, omitting `port` only when nothing will be synced and still ending in `memory`. Examples:
-
-- `alignment -> explore -> outcome-review -> memory`
-- `alignment -> explore -> memory`
-- `alignment -> mental-simulation -> memory`
-
-Advancing from the final planned phase removes the row from the board. Git-tracked docs, skills, prompts, templates, and other text-only edits still count as tracked-change work and should include `port`.
-
-Omitting `port` does not omit final Memory. The leader must ensure the completed non-cancelled quest receives final User review check settlement, final debrief metadata, debrief TLDR metadata, quest metadata reconciliation, and one memory statement through final Memory or leader-authored completion metadata.
-
-## Feedback Rework Loop
-
-When new human feedback lands:
-
-0. First check whether the feedback likely belongs to the current quest. Same-thread feedback usually does, but users may occasionally post new-quest or unrelated feature feedback in the wrong thread. If the message appears separate or cross-cutting, ask or propose the split before changing the current quest; after the new quest exists, attach the relevant messages/images there.
-1. Record the feedback on the quest.
-2. Re-open the quest if it was already in `needs_verification` or `done`.
-3. Reset the board row to the earliest valid phase for the new scope.
-4. Treat the new feedback as the source of truth.
-5. Run a fresh Journey from that reset point.
-
-Fresh human feedback outranks stale old-scope review or port completions.
+Final chat handoffs should point to the phase feedback index and repeat only urgent blockers, safety facts, or narrow phase-required exceptions.

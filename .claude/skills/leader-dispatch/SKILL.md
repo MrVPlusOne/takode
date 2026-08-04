@@ -16,9 +16,9 @@ This section is the visible reference catalog. Decide whether to open these file
 | Source | Read when | Skip when |
 |--------|-----------|-----------|
 | `references/edge-cases.md` | The dispatch involves human feedback rework, a stale worker/reviewer completion, user screenshots or generated image evidence, 413/payload-size recovery, user-facing links into unported worker/reviewer worktrees, or memory-specific handoff/completion deltas. | Routine quest creation, worker choice, initial Alignment dispatch, or ordinary phase advancement. |
-| `references/phase-handoff-examples.md` | You need concrete wording for a phase handoff, rework instruction, reviewer dispatch, Port instruction, Mental Simulation, Execute, Outcome Review, or no-tracked-change investigation/design dispatch. | You can write a short phase-explicit handoff from the current phase brief and quest-specific deltas. |
+| `references/phase-handoff-examples.md` | You need concrete wording for a v2 phase handoff, Work rework instruction, User Checkpoint packet, Memory handoff, or separate review-quest dispatch. | You can write a short phase-explicit handoff from the current phase brief and quest-specific deltas. |
 | `quest-design` | You are creating a quest, refining an `idea` quest, materially changing quest title/description/tags, or checking whether a true follow-up relationship needs approval and persistence. | The quest already exists/refined and you are only choosing a worker, advancing phases, or adding routine phase feedback. |
-| `takode-orchestration/quest-journey.md` | You need full Journey transition rules, phase catalog semantics, Journey revision guidance, final Memory/Port closure responsibilities, optional checkpoint skip rules, or zero-tracked-change Journey handling. | The current phase leader brief and board row are enough. |
+| `takode-orchestration/quest-journey.md` | You need full v2 Journey transition rules, phase catalog semantics, Work autonomy, User Checkpoint pause/resume, worker-owned Work -> Memory, final Memory, or startup migration behavior. | The current phase leader brief and board row are enough. |
 | `takode-orchestration/board-usage.md` | You need uncommon board syntax: proposed rows, promotion, `--wait-for`, `--wait-for-input`, optional checkpoint skip commands, full row detail, or direct board troubleshooting. | Routine `board show`, `board set`, `board advance`, or `board detail` is sufficient. |
 | `~/.companion/quest-journey-phases/<phase-id>/leader.md` | Always before advancing, dispatching, or revising a specific phase. Use `takode phases` if you need the exact path. | Never skip for phase transitions. |
 
@@ -33,7 +33,7 @@ Keep the top-level checklist open for routine dispatch. Load references only whe
 - **Write authorized Journey state to the board before or with dispatch.** Do not rely on chat transcript prose as the durable Journey record.
 - **Verify promised durable actions before Ready.** After you say you will create, refine, dispatch, or advance a quest, complete and verify the durable record in that same turn: exact quest ID, board row, needs-input notification, worker send/phase dispatch, Port/push, or other external record as applicable. If the durable action is not complete, mark the thread Waiting or incomplete with what remains instead of Ready.
 - **Keep setup context targeted.** Avoid broad mixed context dumps as the final step before quest setup or dispatch. Prefer compact targeted checks and perform the durable action once the user request is clear.
-- **Initial dispatch authorizes Alignment only.** The first worker message sends the Alignment brief and asks for a read-in; it does not authorize Implement, Explore, review, Port, or completion.
+- **Initial dispatch authorizes Alignment only.** The first worker message sends the Alignment brief and asks for a read-in; it does not authorize Work or Memory yet.
 - **Fresh worker by default.** Reuse only when there is a real context advantage. A disconnected or idle worker is not automatically a good reuse target.
 - **User waits are scoped.** A `needs-input` prompt blocks only its owning thread, quest, or board row unless the visible prompt explicitly concerns safety, global orchestration, worker-slot scheduling, shared resources, or cross-quest dependency.
 - **New blocking prompt means new `needs-input`.** Publish the self-contained decision text in the thread first, then call `takode notify needs-input`; existing unresolved prompts do not cover a separate decision.
@@ -64,7 +64,7 @@ Direct create/dispatch is allowed only when all of these are true:
 - The user's intent is clear enough to write a narrow quest without a material assumption or product-choice guess.
 - The work is reversible and confined to tracked repo/code/docs/prompt/config/test changes or local investigation artifacts.
 - There is no destructive operation, irreversible data mutation, external side effect, deployment, expensive run, credential/security/privacy decision, global/shared-resource contention, cross-quest scheduling tradeoff, or user-visible product/policy choice.
-- Validation can stay cheap/local inside Implement, Code Review, Port, and Memory; any later non-cheap or external run is gated by Execute or User Checkpoint.
+- Validation can stay inside Work and Memory under the approved authorization envelope; any authority outside that envelope is gated by User Checkpoint.
 - Worker selection is routine: fresh worker or clearly safe reuse with no user-level worker-slot, capacity, archive/replacement, or queueing tradeoff.
 
 Even on direct dispatch:
@@ -72,7 +72,7 @@ Even on direct dispatch:
 - Quests remain the unit of work; create/refine the quest with enough worker context.
 - Initial new-worker dispatch remains Alignment-only.
 - Write the Journey to the board before or with dispatch.
-- Code Review, Port when tracked changes exist, phase documentation, and final Memory still apply.
+- Work owns implementation, self-review, validation, sync/push duties when authorized, and phase documentation; final Memory still applies.
 - Add a compact rationale only when the direct choice is non-obvious, for example: `direct dispatch: low-risk reversible docs/tests change; no external side effects`.
 
 Pre-dispatch approval is mandatory when any of these apply:
@@ -82,9 +82,9 @@ Pre-dispatch approval is mandatory when any of these apply:
 - The work touches security, privacy, credentials, permissions, user data, billing, production operations, global/shared resources, cluster/browser/server leases beyond normal worker-owned acquisition, or broad orchestration policy.
 - The leader must choose among user-visible product/policy directions, UI/UX behavior changes with meaningful tradeoffs, compatibility commitments, or acceptance criteria not implied by the request.
 - Scheduling is a user-level tradeoff: reclaiming/archiving a risky worktree worker, queueing behind a specific busy worker for context, delaying another active quest, or using scarce shared resources in a way that may affect other work.
-- The proposed path would skip Code Review, Port, final Memory, phase docs, or another standard safety requirement.
+- The proposed path would skip final Memory, phase docs, required User Checkpoints, strong verification, or another safety requirement.
 
-Use delayed approval via User Checkpoint when safe early phases can gather evidence but a later Execute, product-choice Implement, expensive/external run, security/privacy decision, or policy choice needs user confirmation. Put `user-checkpoint` before the risky phase, publish the self-contained checkpoint packet, call `takode notify needs-input`, link the board row with `--wait-for-input`, then continue only after the user explicitly approves the exact packet and the remaining Journey is revised. If the checkpoint offers shortcuts, the visible decision section must name every shortcut and explain its meaning plus relevant tradeoff before notify runs; phase notes, private packets, labels/buttons, summaries, and "see feedback" references do not substitute. "Change the batch limit to 120" is edit-only and requires a revised packet plus fresh approval. "Approve the bounded operation with batch limit 120" may approve that exact substitution when the packet referent and every other term and consequence remain unchanged and unambiguous. Questions; vague, conditional, or conflicting approval; ambiguous referents; dependent changes; changed monitor/stop conditions, safety implications, consequences, or tradeoffs; and any remaining user choice all require republishing and reapproval. Harmless typo-only corrections can be recorded and allowed to proceed when the exact action was explicitly approved and no ambiguity remains.
+Use delayed approval via User Checkpoint when Work can proceed safely but a later product choice, expensive/external run, security/privacy decision, or policy choice needs user confirmation. Pause the same Work occurrence at `USER_CHECKPOINTING`, publish the self-contained checkpoint packet, call `takode notify needs-input`, link the board row with `--wait-for-input`, then resume the same worker's Work only after the user explicitly approves the exact packet. If the checkpoint offers shortcuts, the visible decision section must name every shortcut and explain its meaning plus relevant tradeoff before notify runs; phase notes, private packets, labels/buttons, summaries, and "see feedback" references do not substitute. "Change the batch limit to 120" is edit-only and requires a revised packet plus fresh approval. "Approve the bounded operation with batch limit 120" may approve that exact substitution when the packet referent and every other term and consequence remain unchanged and unambiguous. Questions; vague, conditional, or conflicting approval; ambiguous referents; dependent changes; changed monitor/stop conditions, safety implications, consequences, or tradeoffs; and any remaining user choice all require republishing and reapproval. Harmless typo-only corrections can be recorded and allowed to proceed when the exact action was explicitly approved and no ambiguity remains.
 
 Before the first worker message:
 
@@ -130,7 +130,7 @@ When all worker slots are used, compare active board work to your herd. If ready
 - If replacement is ineligible, archive the completed worker least likely to be reused.
 - Never archive proactively. Archiving a worktree worker deletes unsynced worktree state, so reclaim capacity only after anything worth keeping has been committed, ported, or otherwise preserved.
 
-For Execute phases blocked only by a shared lease, dispatch the worker into Execute and let the worker run the phase-brief lease acquire flow. Do not externally queue an already-approved Execute phase merely because a lease is currently held.
+For approved Work that needs a shared lease, dispatch the worker into Work and let the worker run the documented lease acquire flow. Do not externally queue already-approved Work merely because a lease is currently held.
 
 ## Shell-Safe Commands
 
@@ -188,13 +188,13 @@ Every phase instruction must be phase-explicit:
 
 - Read the exact current phase leader brief yourself.
 - Include `Read this phase brief first:` and the exact assignee brief path from `takode phases`.
-- Authorize only the current phase.
+- Authorize only the current v2 phase or checkpoint pause.
 - Provide only deltas the assignee cannot infer from the phase brief, quest record, current artifacts, or its own context: accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, exact prior messages, files or memory decisions already inspected, or explicit memory-writing assignment.
 - Require phase documentation before reporting back.
 - Tell the assignee to keep the final chat handoff compact: point to the phase feedback index and include only the concise outcome/verdict plus urgent blockers, safety facts, or narrow phase-required exceptions.
-- Tell the assignee to stop after the compact handoff.
+- Tell Alignment assignees to stop after the compact read-in.
 
-Do not imply the worker can self-review, run `/self-groom`, self-port, change quest status, complete the quest, or continue into later phases. Review, Port, Execute, Outcome Review, Mental Simulation, User Checkpoint, and final Memory each need explicit leader routing.
+After Alignment approval, Work is intentionally broader: the assigned worker may investigate, implement, self-review, run approved operations, sync/push when authorized, iterate, maintain the Work note, and use the worker-owned Work -> Memory transition when its guard conditions are satisfied. Do not reintroduce embedded v1 review/Port/Execute handoffs. Independent review, when needed, is a separate quest.
 
 ## Board Commands
 
@@ -202,9 +202,10 @@ Routine dispatch usually needs only:
 
 ```bash
 takode board show
-takode board set <quest-id> --worker <session> --phases alignment,implement,code-review,port,memory
+takode board set <quest-id> --worker <session> --phases alignment,work,memory
 takode board promote <quest-id> --worker <session>
 takode board advance <quest-id>
+takode board work-to-memory <quest-id> --work-note <feedback-index>
 takode board detail <quest-id>
 ```
 

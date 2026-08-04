@@ -402,9 +402,9 @@ describe("getOrchestratorGuardrails", () => {
     // Quest Journey phase table kept inline as quick reference
     expect(guardrails).toContain("Quest Journey");
     expect(guardrails).toContain("QUEUED");
-    expect(guardrails).toContain("IMPLEMENTING");
-    expect(guardrails).toContain("Code Review");
-    expect(guardrails).toContain("BOOKKEEPING");
+    expect(guardrails).toContain("WORKING");
+    expect(guardrails).toContain("Memory");
+    expect(guardrails).toContain("separate review quest");
     expect(guardrails).toContain("~/.companion/quest-journey-phases/<phase-id>/");
     expect(guardrails).toContain("`~/.companion/quest-journey-phases/alignment/leader.md`");
     expect(guardrails).toContain("`~/.companion/quest-journey-phases/alignment/assignee.md`");
@@ -419,7 +419,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");
     expect(guardrails).toContain("Use the scannable shape");
     expect(guardrails).toContain("preserve judgment, but expand only for ambiguity");
-    expect(guardrails).toContain("board-owned draft-or-active state for the quest");
+    expect(guardrails).toContain("authorized Journey to the board before or with dispatch");
     expect(guardrails).toContain("Work Board");
     // Spawn backend default note
     expect(guardrails).toContain("default to your own backend type");
@@ -433,13 +433,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("wait only on the affected scope");
     expect(guardrails).toContain("Follow the board-approved Quest Journey");
     expect(guardrails).toContain("recommended, not mandatory");
-    expect(guardrails).toContain("ask what it contributes over merging that work into a later phase");
-    expect(guardrails).toContain("`implement` includes normal investigation, root-cause analysis");
-    expect(guardrails).toContain("Never propose adjacent `explore -> implement`");
-    expect(guardrails).toContain("Use `implement` directly for normal bug fixes");
-    expect(guardrails).toContain("`explore -> user-checkpoint -> implement`");
-    expect(guardrails).toContain("After a legitimate Explore has completed");
-    expect(guardrails).toContain("User Checkpoint is an intermediate user-participation stop");
+    expect(guardrails).toContain("After alignment approval, authorize Work and Memory");
+    expect(guardrails).toContain("separate review quest");
+    expect(guardrails).toContain("Every dispatched task follows Quest Journey v2");
+    expect(guardrails).toContain("Work is intentionally broader");
+    expect(guardrails).toContain("User Checkpoint is a durable pause state inside the same Work occurrence");
     expect(guardrails).toContain("self-contained packet with findings, named options, key tradeoffs");
     expect(guardrails).toContain("exact requested answer");
     // Generated leader guardrails use neutral paired examples and retain conservative fallbacks.
@@ -486,21 +484,17 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("point the worker at the exact prior messages, quests, or discussions");
     expect(guardrails).toContain("Fresh human feedback resets the active cycle");
     expect(guardrails).toContain("do not let stale old-scope completions advance the quest");
-    expect(guardrails).toContain("Zero-tracked-change quests still use explicit Journey phases");
-    expect(guardrails).toContain("zero git-tracked changes");
+    expect(guardrails).toContain("zero-tracked-change quests");
+    expect(guardrails).toContain("Work still produces the accepted artifact or finding");
     expect(guardrails).toContain("Pre-dispatch approval is conditional");
-    expect(guardrails).toContain(
-      "approval surface concise and decision-oriented rather than pasting the full quest body",
-    );
-    expect(guardrails).toContain("The compact proposal shape is a menu, not a form");
-    expect(guardrails).toContain("omit optional headings or explanatory bullets unless they add decision value");
-    expect(guardrails).toContain("expected worker choice or fresh-spawn intent");
-    expect(guardrails).toContain("Include exact wait-for reasons, replacement/archive fallback mechanics");
-    expect(guardrails).toContain(
-      "Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work",
-    );
-    expect(guardrails).toContain("attach their synced SHAs before final Memory");
-    expect(guardrails).toContain("local CLI reminder switch");
+    expect(guardrails).toContain("The visible chat approval surface is for the user's decision");
+    expect(guardrails).toContain("Use the scannable shape");
+    expect(guardrails).toContain("optional sections should be omitted when they add no decision value");
+    expect(guardrails).toContain("Fresh worker is the default");
+    expect(guardrails).toContain("Queue work on the board yourself with `--wait-for`");
+    expect(guardrails).toContain("Work still produces the accepted artifact or finding");
+    expect(guardrails).toContain("sync/push when authorized");
+    expect(guardrails).toContain("worker-owned Work -> Memory transition");
     expect(guardrails).toContain("Leaders do not own worker quests");
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
@@ -517,37 +511,27 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("quest-backed updates should use `q-N`");
     expect(guardrails).toContain("should not routinely add `commit:*` or `session:*` sources");
     expect(guardrails).toContain("use explicit `--phase`, `--phase-position`, `--phase-occurrence`");
-    expect(guardrails).toContain("Every completed non-cancelled quest ends in Memory");
-    expect(guardrails).toContain(
-      "Completion without final Memory closure, final User review check settlement, final debrief metadata, debrief TLDR metadata, and quest metadata reconciliation is incomplete",
-    );
-    expect(guardrails).toContain("title, TLDR, and description still match the accepted delivered scope");
+    expect(guardrails).toContain("Final Memory reports exactly one");
+    expect(guardrails).toContain("Work -> Memory transition");
+    expect(guardrails).toContain("quest metadata reconciliation");
     expect(guardrails).toContain("Final debrief TLDRs and routine user-facing summaries should describe");
     expect(guardrails).toContain("without repeating raw commit hashes already carried");
     expect(guardrails).toContain("When telling the user a quest is complete");
     expect(guardrails).toContain("lead with the delivered result or decision, why it matters");
     expect(guardrails).toContain("final debrief metadata status, no-op memory statements");
     expect(guardrails).toContain("{[(Quest Quiz: q-N)]}");
-    expect(guardrails).toContain("ambiguous or intent-changing edits route back to the leader or user");
-    expect(guardrails).toContain("omits `port` but still ends in `memory`");
-    expect(guardrails).toContain("attach their synced SHAs before final Memory");
+    expect(guardrails).toContain("quest metadata reconciliation");
+    expect(guardrails).toContain("sync/push when authorized");
+    expect(guardrails).toContain("worker-owned Work -> Memory transition");
     expect(guardrails).toContain("A quest in `MEMORY` is downstream-unblocking");
-    expect(guardrails).toContain("perform exactly the approved next phase, document the current phase on the quest");
-    expect(guardrails).toContain("Reviewers should judge phase documentation quality, not just presence");
-    expect(guardrails).toContain("no routine raw commit/hash bookkeeping in the human scan layer");
-    expect(guardrails).toContain("Do **not** tell the worker to port yet");
-    expect(guardrails).toContain(
-      "Use `mental-simulation` when the question is whether a design, workflow, or responsibility split makes sense",
-    );
-    expect(guardrails).toContain("reviewers may do only small bounded reruns or repros");
-    expect(guardrails).toContain("approval-gated runs rather than a reviewer acceptance pass");
-    expect(guardrails).toContain("route back deliberately: `implement`");
-    expect(guardrails).toContain("investigation, design, or other zero-tracked-change quests");
-    expect(guardrails).toContain("address code-review findings");
-    expect(guardrails).toContain("Leaders may revise the remaining Journey");
-    expect(guardrails).toContain("what artifact to produce and to stop afterward");
-    expect(guardrails).toContain("omit `port` from the Journey instead of using a separate board shortcut");
-    expect(guardrails).toContain("send an explicit **port now** instruction");
+    expect(guardrails).toContain("Every active phase needs durable quest documentation");
+    expect(guardrails).toContain("Final chat handoffs are compact pointers");
+    expect(guardrails).toContain("raw commit hashes already carried");
+    expect(guardrails).toContain("Separate Review Quests");
+    expect(guardrails).toContain("independent judgment materially reduces risk");
+    expect(guardrails).toContain("For investigation, design, or zero-tracked-change quests");
+    expect(guardrails).toContain("Work still produces the accepted artifact or finding");
+    expect(guardrails).toContain("worker-owned Work -> Memory transition");
     expect(guardrails).toContain("prefer `quest grep <pattern>` over manually scanning many `quest show` results");
     expect(guardrails).toContain("Use `quest list --text` for broad list filtering and `quest grep`");
     expect(guardrails).toContain("takode notify");
@@ -609,7 +593,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("quest-journey.md");
     // Quest Journey phase table inline as quick reference
     expect(guardrails).toContain("Quest Journey");
-    expect(guardrails).toContain("Code Review");
+    expect(guardrails).toContain("Work");
+    expect(guardrails).toContain("separate review quest");
     expect(guardrails).toContain("~/.companion/quest-journey-phases/<phase-id>/");
     expect(guardrails).toContain("`~/.companion/quest-journey-phases/alignment/leader.md`");
     expect(guardrails).toContain("`~/.companion/quest-journey-phases/alignment/assignee.md`");
@@ -625,13 +610,13 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Initial Journey authorization comes before dispatch");
     expect(guardrails).toContain("write the authorized Journey to the board before or with dispatch");
     expect(guardrails).toContain("Follow the board-approved Quest Journey");
-    expect(guardrails).toContain("ask what it contributes over merging that work into a later phase");
+    expect(guardrails).toContain("Work is intentionally broader");
     expect(guardrails).toContain("USER_CHECKPOINTING");
     expect(guardrails).toContain("User Checkpoint");
     expect(guardrails).toContain("not a routine second user-approval gate");
     expect(guardrails).toContain("Alignment approval is leader-owned by default");
     expect(guardrails).toContain("Escalate alignment back to the user only");
-    expect(guardrails).toContain("board-owned draft-or-active state for the quest");
+    expect(guardrails).toContain("After alignment approval, authorize Work and Memory");
     expect(guardrails).toContain("point the worker at the exact prior messages, quests, or discussions");
     expect(guardrails).toContain("Pre-dispatch approval is conditional");
     expect(guardrails).toContain(
@@ -643,13 +628,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("no question or user choice remains");
     expect(guardrails).toContain("obtain fresh explicit approval before external consequences");
     expect(guardrails).toContain("exact action was explicitly approved and no ambiguity remains");
-    expect(guardrails).toContain(
-      "approval surface concise and decision-oriented rather than pasting the full quest body",
-    );
-    expect(guardrails).toContain("The compact proposal shape is a menu, not a form");
-    expect(guardrails).toContain("omit optional headings or explanatory bullets unless they add decision value");
-    expect(guardrails).toContain("expected worker choice or fresh-spawn intent");
-    expect(guardrails).toContain("Include exact wait-for reasons, replacement/archive fallback mechanics");
+    expect(guardrails).toContain("The visible chat approval surface is for the user's decision");
+    expect(guardrails).toContain("Use the scannable shape");
+    expect(guardrails).toContain("optional sections should be omitted when they add no decision value");
+    expect(guardrails).toContain("Fresh worker is the default");
+    expect(guardrails).toContain("Queue work on the board yourself with `--wait-for`");
     expect(guardrails).toContain("Leaders do not own worker quests");
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
@@ -664,23 +647,20 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Keep the memory boundary explicit");
     expect(guardrails).toContain("include memory-specific evidence only when material");
     expect(guardrails).toContain("use explicit `--phase`, `--phase-position`, `--phase-occurrence`");
-    expect(guardrails).toContain("perform exactly the approved next phase, document the current phase on the quest");
-    expect(guardrails).toContain("Reviewers should judge phase documentation quality, not just presence");
-    expect(guardrails).toContain("no routine raw commit/hash bookkeeping in the human scan layer");
-    expect(guardrails).toContain("Do **not** tell the worker to port yet");
-    expect(guardrails).toContain("After `execute`, leaders may accept evidence directly");
-    expect(guardrails).toContain("Lightweight leader inspection is enough");
-    expect(guardrails).toContain("independent review would not materially reduce risk");
-    expect(guardrails).toContain("Use `outcome-review` when a reviewer should make an acceptance judgment");
+    expect(guardrails).toContain("Every active phase needs durable quest documentation");
+    expect(guardrails).toContain("Worker-stream checkpoints are optional early visibility");
+    expect(guardrails).toContain("raw commit hashes already carried");
+    expect(guardrails).toContain("Work is intentionally broader");
+    expect(guardrails).toContain("independent review is genuinely needed");
+    expect(guardrails).toContain("If independent review is genuinely needed");
+    expect(guardrails).toContain("Embedded review phases are not part of active Quest Journey v2");
     expect(guardrails).toContain("independent judgment materially reduces risk");
-    expect(guardrails).toContain("small bounded reruns or repros");
-    expect(guardrails).toContain("approval-gated runs rather than a reviewer acceptance pass");
-    expect(guardrails).toContain("address code-review findings");
-    expect(guardrails).toContain("Leaders may revise the remaining Journey");
-    expect(guardrails).toContain("Optional future phases are explicit Journey guidance");
-    expect(guardrails).toContain("do not invent or rely on a generic optional-phase skip command");
-    expect(guardrails).toContain("what artifact to produce and to stop afterward");
-    expect(guardrails).toContain("send an explicit **port now** instruction");
+    expect(guardrails).toContain("separate review quest");
+    expect(guardrails).toContain("separate review quest");
+    expect(guardrails).toContain("Work is intentionally broader");
+    expect(guardrails).toContain("worker-owned Work -> Memory transition");
+    expect(guardrails).toContain("Work still produces the accepted artifact or finding");
+    expect(guardrails).toContain("sync/push when authorized");
     expect(guardrails).toContain("Every time you ask the user a question");
     expect(guardrails).toContain("First send the detailed question or decision text");
     expect(guardrails).toContain("`[thread:main]` or `[thread:q-N]`");

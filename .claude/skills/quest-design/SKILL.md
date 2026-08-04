@@ -61,9 +61,9 @@ Treat that shape as a menu, not a form to fill out. Do not reproduce every headi
 
 Add separate sections only when they carry non-overlapping approval information, such as `Relationship`, `Context / Evidence`, `Out Of Scope`, `Open Questions`, `Invariants / Must Preserve`, `Journey`, non-standard phase notes, and `Scheduling`. Open questions and assumptions are optional and should only cover decisions not already implied by `Goal / Acceptance` or the user's stated facts. Omit optional sections entirely when they add no new approval value. Detailed worker grounding belongs in the quest record, not in the chat approval surface.
 
-For Journey notes, omit standard tracked-code phase notes by default: `alignment`, `implement`, `code-review`, and `port` only need notes for unusual phase-specific work. Explain non-standard phases concisely: why the phase is needed and what evidence, scenario, outcome, or durable state it covers.
+For Journey notes, use the v2 active workflow by default: `alignment -> work -> memory`, with `user-checkpoint` only when a visible decision pause is expected inside Work. Omit standard v2 phase notes by default; explain only unusual checkpoint needs, exceptional separate review-quest routing, or authority/safety boundaries the user must approve.
 
-When a proposal includes multiple non-standard phase notes, format them as bullets keyed by phase, for example `- Execute: ...` and `- Outcome Review: ...`. Keep the phase list, phase notes, and scheduling plan visually separate so the approval surface is easy to scan before the user confirms.
+When a proposal includes multiple phase notes, format them as bullets keyed by phase, for example `- Work: ...` and `- User Checkpoint: ...`. Keep the phase list, phase notes, and scheduling plan visually separate so the approval surface is easy to scan before the user confirms.
 
 Clarification-needed case: ask the material questions using the quest framing below. After the user clarifies and no major ambiguity remains, the next response should include both the proposed quest draft and proposed Journey/scheduling draft together. More than two confirmation rounds should happen only when new, genuine ambiguity remains.
 

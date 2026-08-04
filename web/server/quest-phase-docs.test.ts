@@ -34,13 +34,13 @@ describe("quest phase documentation resolution", () => {
             questId: "q-1",
             worker: "worker-1",
             workerNum: 42,
-            status: "IMPLEMENTING",
+            status: "WORKING",
             createdAt: 10,
             updatedAt: 90,
             journey: {
-              phaseIds: ["alignment", "explore", "implement", "code-review"],
-              activePhaseIndex: 2,
-              currentPhaseId: "implement",
+              phaseIds: ["alignment", "work", "memory"],
+              activePhaseIndex: 1,
+              currentPhaseId: "work",
             },
           },
         },
@@ -51,16 +51,16 @@ describe("quest phase documentation resolution", () => {
     expect(result.entryPatch).toMatchObject({
       kind: "phase_summary",
       journeyRunId: "board-leader-1-10",
-      phaseOccurrenceId: "board-leader-1-10:p3",
-      phaseId: "implement",
-      phaseIndex: 2,
-      phasePosition: 3,
+      phaseOccurrenceId: "board-leader-1-10:p2",
+      phaseId: "work",
+      phaseIndex: 1,
+      phasePosition: 2,
       phaseOccurrence: 1,
     });
     expect(result.journeyRuns?.[0]).toMatchObject({
       runId: "board-leader-1-10",
       source: "board",
-      phaseIds: ["alignment", "explore", "implement", "code-review"],
+      phaseIds: ["alignment", "work", "memory"],
     });
   });
 
@@ -77,14 +77,14 @@ describe("quest phase documentation resolution", () => {
             questId: "q-1",
             worker: "worker-1",
             workerNum: 42,
-            status: "IMPLEMENTING",
+            status: "WORKING",
             createdAt: 10,
             updatedAt: 450,
             completedAt: 480,
             journey: {
-              phaseIds: ["alignment", "implement"],
+              phaseIds: ["alignment", "work"],
               activePhaseIndex: 1,
-              currentPhaseId: "implement",
+              currentPhaseId: "work",
               phaseTimings: {
                 "0": { startedAt: 10, endedAt: 100 },
                 "1": { startedAt: 100 },
@@ -98,7 +98,7 @@ describe("quest phase documentation resolution", () => {
     expect(result.error).toBeUndefined();
     const occurrence = result.journeyRuns?.[0]?.phaseOccurrences[1];
     expect(occurrence).toMatchObject({
-      phaseId: "implement",
+      phaseId: "work",
       status: "completed",
       startedAt: 100,
     });
@@ -111,18 +111,18 @@ describe("quest phase documentation resolution", () => {
     const result = resolveQuestFeedbackDocumentation({
       quest: quest(),
       authorSessionId: "worker-1",
-      request: { phase: "implement" },
+      request: { phase: "work" },
       boardRows: [
         {
           leaderSessionId: "leader-1",
           row: {
             questId: "q-1",
-            status: "IMPLEMENTING",
+            status: "WORKING",
             createdAt: 10,
             updatedAt: 90,
             journey: {
-              phaseIds: ["alignment", "implement", "code-review", "implement"],
-              currentPhaseId: "implement",
+              phaseIds: ["alignment", "work", "user-checkpoint", "work"],
+              currentPhaseId: "work",
             },
           },
         },
@@ -138,20 +138,20 @@ describe("quest phase documentation resolution", () => {
     const result = resolveQuestFeedbackDocumentation({
       quest: quest(),
       authorSessionId: "worker-1",
-      request: { phase: "implement", phaseOccurrence: 2 },
+      request: { phase: "work", phaseOccurrence: 2 },
       now: 100,
       boardRows: [
         {
           leaderSessionId: "leader-1",
           row: {
             questId: "q-1",
-            status: "IMPLEMENTING",
+            status: "WORKING",
             createdAt: 10,
             updatedAt: 90,
             journey: {
-              phaseIds: ["alignment", "implement", "code-review", "implement"],
+              phaseIds: ["alignment", "work", "user-checkpoint", "work"],
               activePhaseIndex: 1,
-              currentPhaseId: "implement",
+              currentPhaseId: "work",
             },
           },
         },
@@ -162,7 +162,7 @@ describe("quest phase documentation resolution", () => {
     expect(result.entryPatch).toMatchObject({
       journeyRunId: "board-leader-1-10",
       phaseOccurrenceId: "board-leader-1-10:p4",
-      phaseId: "implement",
+      phaseId: "work",
       phaseIndex: 3,
       phasePosition: 4,
       phaseOccurrence: 2,
@@ -181,13 +181,13 @@ describe("quest phase documentation resolution", () => {
           leaderSessionId: "leader-1",
           row: {
             questId: "q-1",
-            status: "IMPLEMENTING",
+            status: "WORKING",
             createdAt: 10,
             updatedAt: 90,
             journey: {
-              phaseIds: ["alignment", "implement", "code-review"],
+              phaseIds: ["alignment", "work", "memory"],
               activePhaseIndex: 2,
-              currentPhaseId: "code-review",
+              currentPhaseId: "memory",
             },
           },
         },
@@ -196,26 +196,26 @@ describe("quest phase documentation resolution", () => {
 
     expect(result.error).toBeUndefined();
     expect(result.entryPatch).toEqual({});
-    expect(result.warning).toContain("disagrees with journey.currentPhaseId code-review");
+    expect(result.warning).toContain("disagrees with journey.currentPhaseId memory");
   });
 
   it("rejects explicit scope when board status and journey active index disagree", () => {
     const result = resolveQuestFeedbackDocumentation({
       quest: quest(),
       authorSessionId: "worker-1",
-      request: { phase: "implement" },
+      request: { phase: "work" },
       boardRows: [
         {
           leaderSessionId: "leader-1",
           row: {
             questId: "q-1",
-            status: "IMPLEMENTING",
+            status: "WORKING",
             createdAt: 10,
             updatedAt: 90,
             journey: {
-              phaseIds: ["alignment", "implement", "code-review"],
+              phaseIds: ["alignment", "work", "memory"],
               activePhaseIndex: 2,
-              currentPhaseId: "implement",
+              currentPhaseId: "work",
             },
           },
         },
@@ -223,7 +223,7 @@ describe("quest phase documentation resolution", () => {
     });
 
     expect(result.status).toBe(409);
-    expect(result.error).toContain("disagrees with journey.activePhaseIndex 3 (code-review)");
+    expect(result.error).toContain("disagrees with journey.activePhaseIndex 3 (memory)");
   });
 
   it("falls back to flat feedback with a warning when active board rows conflict", () => {
@@ -236,7 +236,7 @@ describe("quest phase documentation resolution", () => {
       boardRows: [
         {
           leaderSessionId: "leader-1",
-          row: { questId: "q-1", status: "IMPLEMENTING", createdAt: 10, updatedAt: 90 },
+          row: { questId: "q-1", status: "WORKING", createdAt: 10, updatedAt: 90 },
         },
         {
           leaderSessionId: "leader-2",

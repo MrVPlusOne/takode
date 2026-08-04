@@ -263,7 +263,8 @@ describe("ensureQuestmasterIntegration", () => {
     const skill = writtenFile("/home/tester/.agents/skills/quest/SKILL.md");
     const memoryCompletion = writtenFile("/home/tester/.agents/skills/quest/memory-completion.md");
     expect(skill).toContain("Worktree sessions must not run `quest complete`");
-    expect(skill).toContain("synced to the main repo checkout and pushed");
+    expect(skill).toContain("Work owns implementation, self-review, approved execution, validation, sync/push duties");
+    expect(skill).toContain("changes are synced to the selected target and pushed when required");
     expect(memoryCompletion).toContain(
       'quest complete q-N --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md',
     );
