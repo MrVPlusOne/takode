@@ -255,6 +255,35 @@ interface PrimaryThreadChip {
   updatedAt: number;
 }
 
+function isQuestIdFallbackTitle(title: string | undefined, threadKey: string, questId?: string): boolean {
+  const normalizedTitle = title?.trim().toLowerCase();
+  if (!normalizedTitle) return true;
+  const normalizedThreadKey = normalizeThreadKey(threadKey);
+  const normalizedQuestId = questId ? normalizeThreadKey(questId) : "";
+  return normalizedTitle === normalizedThreadKey || (!!normalizedQuestId && normalizedTitle === normalizedQuestId);
+}
+
+function strongestThreadTabTitle({
+  threadKey,
+  questId,
+  questTitle,
+  boardRowTitle,
+  rowTitle,
+  activeTitle,
+}: {
+  threadKey: string;
+  questId?: string;
+  questTitle?: string;
+  boardRowTitle?: string;
+  rowTitle?: string;
+  activeTitle?: string;
+}): string {
+  const candidates = [questTitle, boardRowTitle, rowTitle, activeTitle];
+  const canonical = candidates.find((title) => !isQuestIdFallbackTitle(title, threadKey, questId));
+  if (canonical) return canonical.trim();
+  return candidates.find((title) => title?.trim())?.trim() ?? threadKey;
+}
+
 function SortableThreadTabContainer({
   tab,
   className,
@@ -589,12 +618,14 @@ function buildOpenThreadTabs({
   activeThreadChips,
   activeBoardRows,
   completedBoardRows,
+  questById,
 }: {
   openThreadKeys: ReadonlyArray<string>;
   threadRows: WorkBoardThreadNavigationRow[];
   activeThreadChips: PrimaryThreadChip[];
   activeBoardRows: BoardRowData[];
   completedBoardRows: BoardRowData[];
+  questById: ReadonlyMap<string, QuestmasterTask>;
 }): PrimaryThreadChip[] {
   const activeByKey = new Map(activeThreadChips.map((chip) => [chip.threadKey, chip]));
   const rowByKey = new Map(threadRows.map((row) => [normalizeThreadKey(row.threadKey), row]));
@@ -613,7 +644,9 @@ function buildOpenThreadTabs({
     const activeBoardRow = activeBoardByKey.get(threadKey);
     const completedBoardRow = completedBoardByKey.get(threadKey);
     const boardRow = activeBoardRow ?? completedBoardRow;
-    if (!active && !row && !boardRow) continue;
+    const questId = active?.questId ?? row?.questId ?? boardRow?.questId ?? threadKey;
+    const quest = questById.get(normalizeThreadKey(questId));
+    if (!active && !row && !boardRow && !quest) continue;
     const completedTitleColor = doneThreadTitleColor({
       boardRow,
       row,
@@ -622,8 +655,15 @@ function buildOpenThreadTabs({
 
     tabs.push({
       threadKey,
-      questId: active?.questId ?? row?.questId ?? boardRow?.questId,
-      title: active?.title ?? row?.title ?? boardRow?.title ?? threadKey,
+      questId,
+      title: strongestThreadTabTitle({
+        threadKey,
+        questId,
+        questTitle: quest?.title,
+        boardRowTitle: boardRow?.title,
+        rowTitle: row?.title,
+        activeTitle: active?.title,
+      }),
       detail: active?.detail ?? (boardRow ? boardRowDetail(boardRow) : doneThreadDetail(row)),
       messageCount: active?.messageCount ?? row?.messageCount,
       needsInput: active?.needsInput ?? (boardRow?.waitForInput?.length ?? 0) > 0,
@@ -1455,6 +1495,8 @@ export function WorkBoardBar({
   const completedCount = completedBoard?.length ?? 0;
   const activeBoardRows = board ?? [];
   const completedBoardRows = completedBoard ?? [];
+  const quests = useStore((s) => s.quests);
+  const questById = useMemo(() => new Map(quests.map((quest) => [normalizeThreadKey(quest.questId), quest])), [quests]);
   const activeThreadChips = useMemo(
     () => buildPrimaryThreadChips({ activeBoardRows, threadRows, attentionRecords }),
     [activeBoardRows, attentionRecords, threadRows],
@@ -1467,8 +1509,9 @@ export function WorkBoardBar({
         activeThreadChips,
         activeBoardRows,
         completedBoardRows,
+        questById,
       }),
-    [activeBoardRows, activeThreadChips, completedBoardRows, openThreadKeys, threadRows],
+    [activeBoardRows, activeThreadChips, completedBoardRows, openThreadKeys, questById, threadRows],
   );
   const previousOpenThreadTabKeysRef = useRef<string[] | null>(null);
   const newThreadTabTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());

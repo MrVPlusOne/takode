@@ -142,7 +142,7 @@ function PlaygroundComposerPermissionToolbar({
 }
 
 export function PlaygroundInteractiveSections() {
-  const [boardOpenThreadKeys, setBoardOpenThreadKeys] = useState(["q-42", "q-55", "q-61", "q-77", "q-88"]);
+  const [boardOpenThreadKeys, setBoardOpenThreadKeys] = useState(["q-1768", "q-42", "q-55", "q-61", "q-77", "q-88"]);
   const [boardPreviewThreadKey, setBoardPreviewThreadKey] = useState("main");
 
   return (
@@ -1316,7 +1316,7 @@ export function PlaygroundInteractiveSections() {
                       dedupeKey: "playground-board-bar-review",
                     },
                   ]);
-                  const questIds = ["q-42", "q-55", "q-61", "q-77", "q-88", "q-99"];
+                  const questIds = ["q-42", "q-55", "q-61", "q-77", "q-88", "q-99", "q-1768"];
                   const quests = state.quests
                     .filter((quest) => !questIds.includes(quest.questId))
                     .concat([
@@ -1390,6 +1390,19 @@ export function PlaygroundInteractiveSections() {
                         sessionId: "playground-board-worker",
                         claimedAt: now - 30_000,
                         tags: ["threads"],
+                      },
+                      {
+                        id: "q-1768-v1",
+                        questId: "q-1768",
+                        version: 1,
+                        title: "Run GPT-5.4 reasoning-effort QA eval",
+                        status: "done" as const,
+                        description:
+                          "Completed tab retained after a later partial status update only carried the quest id.",
+                        createdAt: now - 8_000_000,
+                        completedAt: now - 600_000,
+                        verificationItems: [],
+                        tags: ["done", "title"],
                       },
                     ]);
                   const playgroundSessionIds = [
@@ -1588,6 +1601,13 @@ export function PlaygroundInteractiveSections() {
                       messageCount: 2,
                       section: "done",
                     },
+                    {
+                      threadKey: "q-1768",
+                      questId: "q-1768",
+                      title: "q-1768",
+                      messageCount: 9,
+                      section: "done",
+                    },
                     ...(boardOpenThreadKeys.some((threadKey) => threadKey.startsWith("q-11"))
                       ? Array.from({ length: 12 }, (_, index) => {
                           const questId = `q-${1101 + index}`;
@@ -1695,6 +1715,29 @@ export function PlaygroundInteractiveSections() {
                       chipEligible: false,
                       ledgerEligible: true,
                       dedupeKey: "playground-board-bar-review",
+                    },
+                    {
+                      id: "playground-board-bar-title-fallback-review",
+                      leaderSessionId: "playground-board-bar",
+                      type: "review_ready",
+                      source: {
+                        kind: "notification",
+                        id: "playground-board-bar-title-fallback-review",
+                        questId: "q-1768",
+                      },
+                      questId: "q-1768",
+                      threadKey: "q-1768",
+                      title: "q-1768",
+                      summary: "Thread ready: q-1768 | cancelled",
+                      actionLabel: "Review",
+                      priority: "review",
+                      state: "unresolved",
+                      createdAt: Date.now() - 32_000,
+                      updatedAt: Date.now() - 16_000,
+                      route: { threadKey: "q-1768", questId: "q-1768" },
+                      chipEligible: true,
+                      ledgerEligible: true,
+                      dedupeKey: "playground-board-bar-title-fallback-review",
                     },
                   ]}
                 />

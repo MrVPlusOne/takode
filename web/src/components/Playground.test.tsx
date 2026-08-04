@@ -447,7 +447,8 @@ describe("Playground", () => {
     expect(tabStrip.getAttribute("style") ?? "").toContain("--thread-tab-width: 76px");
     expect(tabStrip).toHaveClass("overflow-visible");
     const moreButton = workBoardBar.getByTestId("thread-tabs-more-button");
-    expect(moreButton).toHaveAttribute("data-hidden-count", "2");
+    expect(moreButton).toHaveAttribute("data-hidden-count", "3");
+    expect(workBoardBar.getByText("Run GPT-5.4 reasoning-effort QA eval")).toBeInTheDocument();
     expect(workBoardBar.getByTestId("workboard-main-banner")).toBeTruthy();
     expect(
       rail.compareDocumentPosition(workBoardBar.getByTestId("workboard-main-banner")) &
@@ -485,18 +486,24 @@ describe("Playground", () => {
     expect(mainTitle).not.toHaveClass("bg-sky-400/10");
 
     const tabs = workBoardBar.getAllByTestId("thread-tab");
-    expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(["q-42", "q-55", "q-61"]);
+    expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(["q-1768", "q-42", "q-55"]);
     expect(within(rail).queryByText("Active")).not.toBeInTheDocument();
     expect(tabs[0]).toHaveClass(
       "min-w-[var(--thread-tab-width)]",
       "max-w-[14rem]",
       "flex-[1_1_var(--thread-tab-width)]",
     );
-    expect(tabs[0]).toHaveAttribute("data-closable", "false");
-    expect(within(tabs[0]).queryByTestId("thread-tab-close")).not.toBeInTheDocument();
+    const q42Tab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-42");
+    expect(q42Tab).toBeTruthy();
+    expect(q42Tab!).toHaveAttribute("data-closable", "false");
+    expect(within(q42Tab!).queryByTestId("thread-tab-close")).not.toBeInTheDocument();
     fireEvent.click(moreButton);
     const moreRows = workBoardBar.getAllByTestId("thread-tabs-more-row");
-    expect(moreRows.map((row) => row.getAttribute("data-thread-key"))).toEqual(["q-77", "q-88"]);
+    expect(moreRows.map((row) => row.getAttribute("data-thread-key"))).toEqual(["q-61", "q-77", "q-88"]);
+    expect(moreRows.find((row) => row.getAttribute("data-thread-key") === "q-61")).toHaveAttribute(
+      "data-hidden",
+      "true",
+    );
     expect(moreRows.find((row) => row.getAttribute("data-thread-key") === "q-77")).toHaveAttribute(
       "data-hidden",
       "true",
@@ -593,7 +600,7 @@ describe("Playground", () => {
     fireEvent.click(workBoardBar.getByText("Main banner"));
     expect(workBoardBar.getByTestId("workboard-projection-main")).toHaveAttribute("aria-pressed", "true");
     expect(workBoardBar.getByTestId("workboard-projection-all")).toHaveAttribute("aria-pressed", "false");
-    expect(workBoardBar.getByTestId("workboard-other-button")).toHaveTextContent("2Other");
+    expect(workBoardBar.getByTestId("workboard-other-button")).toHaveTextContent("3Other");
     expect(workBoardBar.queryByTestId("workboard-off-board-threads")).toBeNull();
     fireEvent.click(workBoardBar.getByTestId("workboard-other-button"));
     expect(workBoardBar.getByTestId("workboard-other-threads-content")).toHaveTextContent(
@@ -628,7 +635,7 @@ describe("Playground", () => {
       "--thread-tab-width: 160px",
     );
     expect(tabs[0]).toHaveClass("min-w-[var(--thread-tab-width)]", "flex-[1_1_var(--thread-tab-width)]");
-    expect(workBoardBar.getByTestId("thread-tabs-more-button")).toHaveAttribute("data-hidden-count", "6");
+    expect(workBoardBar.getByTestId("thread-tabs-more-button")).toHaveAttribute("data-hidden-count", "7");
   });
 
   it("documents compact quest-thread banners without chip note counts and with tap previews", () => {
