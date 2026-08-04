@@ -141,6 +141,10 @@ interface CodexLaunchOptions {
   codexLeaderCompactionMode?: CodexLeaderCompactionMode;
   /** Deprecated compatibility setting; ignored so non-leader compaction follows Codex defaults. */
   codexNonLeaderAutoCompactThresholdPercent?: number;
+  codexLegacyHome?: string;
+  codexAgentsSkillsHome?: string;
+  codexHomePrepared?: boolean;
+  codexSpawnPrepYieldEveryMs?: number;
 }
 
 export interface CodexSpawnSpec {
@@ -1326,6 +1330,8 @@ async function prepareCodexHome(
   options?: {
     filterImagegenSkill?: boolean;
     allowLegacyAuthFallback?: boolean;
+    legacyCodexHome?: string;
+    agentsSkillsHome?: string;
     resumeRolloutSourceHomes?: string[];
     timing?: CooperativeTiming;
   },
@@ -1333,7 +1339,8 @@ async function prepareCodexHome(
   await mkdir(codexHome, { recursive: true });
   await options?.timing?.yieldIfDue("prepare Codex home directory");
 
-  const sourceHome = resolve(seedSourceHome || getLegacyCodexHome());
+  const legacyCodexHome = resolve(options?.legacyCodexHome || getLegacyCodexHome());
+  const sourceHome = resolve(seedSourceHome || legacyCodexHome);
   const canSeedSourceHome = sourceHome !== resolve(codexHome) && (await fileExists(sourceHome));
 
   const fileSeeds = ["auth.json", "config.toml", "models_cache.json", "version.json"];
@@ -1341,7 +1348,6 @@ async function prepareCodexHome(
     for (const name of fileSeeds) {
       try {
         const candidateSources = [join(sourceHome, name)];
-        const legacyCodexHome = resolve(getLegacyCodexHome());
         const mayFallbackToLegacyAuth = name !== "auth.json" || options?.allowLegacyAuthFallback !== false;
         if (
           (name === "auth.json" || name === "models_cache.json") &&
@@ -1403,7 +1409,9 @@ async function prepareCodexHome(
     await removeDeprecatedCodexHomeSkills(codexHome);
     await options?.timing?.yieldIfDue("remove deprecated Codex home skills");
     await migrateLegacyCodexSkillsToAgentsHome(sourceHome, {
+      destSkillsHome: options?.agentsSkillsHome,
       filterImagegenSkill: options?.filterImagegenSkill,
+      legacyCodexHome,
       timing: options?.timing,
     });
   } catch (error) {
@@ -1657,7 +1665,10 @@ export async function prepareCodexSpawn(
   const codexHomeRoot = resolveCompanionCodexHome(options.codexHome);
   const codexLeaderLaunch = isCodexLeaderLaunch(info, options);
   const leaderRecycleLaunch = isCodexLeaderRecycleLaunch(info, options);
-  const timing = new CooperativeTiming({ label: `Codex spawn prep ${sessionTag(sessionId)}` });
+  const timing = new CooperativeTiming({
+    label: `Codex spawn prep ${sessionTag(sessionId)}`,
+    ...(options.codexSpawnPrepYieldEveryMs ? { yieldEveryMs: options.codexSpawnPrepYieldEveryMs } : {}),
+  });
 
   try {
     let binary = options.codexBinary || "codex";
@@ -1703,19 +1714,23 @@ export async function prepareCodexSpawn(
         : undefined;
 
     if (!isContainerized) {
-      await timing.step("prepare Codex home", () =>
-        prepareCodexHome(
-          codexHome,
-          options.resumeCliSessionId || info.cliSessionId,
-          maiWrapperHostSpec?.hostCodexHome,
-          {
-            allowLegacyAuthFallback: !maiWrapperHostSpec,
-            filterImagegenSkill: !!maiWrapperHostSpec,
-            resumeRolloutSourceHomes,
-            timing,
-          },
-        ),
-      );
+      if (!options.codexHomePrepared) {
+        await timing.step("prepare Codex home", () =>
+          prepareCodexHome(
+            codexHome,
+            options.resumeCliSessionId || info.cliSessionId,
+            maiWrapperHostSpec?.hostCodexHome,
+            {
+              allowLegacyAuthFallback: !maiWrapperHostSpec,
+              agentsSkillsHome: options.codexAgentsSkillsHome,
+              filterImagegenSkill: !!maiWrapperHostSpec,
+              legacyCodexHome: options.codexLegacyHome,
+              resumeRolloutSourceHomes,
+              timing,
+            },
+          ),
+        );
+      }
       const sessionConfig = await timing.step("ensure Codex session config", () =>
         ensureCodexSessionConfig(codexHome, shellEnvVars, {
           leaderLaunch: leaderRecycleLaunch,
@@ -1733,12 +1748,16 @@ export async function prepareCodexSpawn(
       leaderLaunchConfig = sessionConfig.leaderLaunchConfig;
       contextLaunchConfig = sessionConfig.contextLaunchConfig;
     } else {
-      await timing.step("prepare container Codex home", () =>
-        prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId, undefined, {
-          resumeRolloutSourceHomes,
-          timing,
-        }),
-      );
+      if (!options.codexHomePrepared) {
+        await timing.step("prepare container Codex home", () =>
+          prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId, undefined, {
+            agentsSkillsHome: options.codexAgentsSkillsHome,
+            legacyCodexHome: options.codexLegacyHome,
+            resumeRolloutSourceHomes,
+            timing,
+          }),
+        );
+      }
       const containerConfig = await timing.step("ensure container Codex session config", () =>
         ensureCodexSessionConfig(codexHome, shellEnvVars, {
           leaderLaunch: leaderRecycleLaunch,

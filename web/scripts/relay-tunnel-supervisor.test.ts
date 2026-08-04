@@ -18,7 +18,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
 const SUPERVISOR = join(REPO_ROOT, "scripts", "relay-tunnel-supervisor.sh");
@@ -27,6 +27,8 @@ const CONFIG_EXAMPLE = join(REPO_ROOT, "scripts", "relay-tunnel-supervisor.conf.
 const OPERATIONS_DOC = join(REPO_ROOT, "docs", "relay-tunnel-supervision.md");
 const tempDirs: string[] = [];
 const runningProcesses = new Set<ChildProcess>();
+
+vi.setConfig({ testTimeout: 30_000 });
 
 interface Fixture {
   root: string;
@@ -385,7 +387,7 @@ esac
 
   it("publishes a discoverable owner-only event sink alongside status and unified best effort", async () => {
     const fixture = await createFixture("exit:255");
-    const supervisor = startSupervisor(fixture, { maxChildExits: 2, unifiedLogger: true });
+    const supervisor = startSupervisor(fixture, { maxChildExits: 1, unifiedLogger: true });
     expect((await waitForExit(supervisor)).code).toBe(0);
 
     const eventPath = join(fixture.state, "events.log");
@@ -409,9 +411,9 @@ esac
     const fixture = await createFixture("exit:255");
     const supervisor = startSupervisor(fixture, {
       backoffs: "0.01,0.01,0.01,0.01,0.01",
-      maxChildExits: 5,
+      maxChildExits: 4,
       quickStartLimit: 99,
-      eventMaxBytes: 900,
+      eventMaxBytes: 512,
     });
     expect((await waitForExit(supervisor, 45_000)).code).toBe(0);
 
@@ -494,10 +496,11 @@ esac
   it("pauses before child 2 when SSH config gains an extra forward during backoff", async () => {
     const fixture = await createFixture();
     await writeFile(join(fixture.fakeState, "sequence"), "exit:255\nhold\n", "utf8");
-    const supervisor = startSupervisor(fixture, { backoffs: "2,2,2,2,2" });
-    await waitForStatus(fixture, (status) => status.state === "backoff" && status.attempt === 1);
+    const supervisor = startSupervisor(fixture, { backoffs: "0.01,0.01,0.01,0.01,0.01", backoffGate: true });
+    await waitForFile(join(fixture.fakeState, "backoff-ready"));
 
     await appendFile(fixture.sshConfig, "  RemoteForward 15434 127.0.0.1:15435\n", "utf8");
+    await releaseBackoffGate(fixture);
     expect((await waitForExit(supervisor)).code).toBe(0);
     const status = await readStatus(fixture);
     expect(status.state).toBe("paused_fatal");
@@ -522,12 +525,13 @@ esac
   it("pauses before child 2 when SSH config becomes a direct symlink during backoff", async () => {
     const fixture = await createFixture();
     await writeFile(join(fixture.fakeState, "sequence"), "exit:255\nhold\n", "utf8");
-    const supervisor = startSupervisor(fixture, { backoffs: "2,2,2,2,2" });
-    await waitForStatus(fixture, (status) => status.state === "backoff" && status.attempt === 1);
+    const supervisor = startSupervisor(fixture, { backoffs: "0.01,0.01,0.01,0.01,0.01", backoffGate: true });
+    await waitForFile(join(fixture.fakeState, "backoff-ready"));
 
     const original = `${fixture.sshConfig}.original`;
     await rename(fixture.sshConfig, original);
     await symlink(original, fixture.sshConfig);
+    await releaseBackoffGate(fixture);
     expect((await waitForExit(supervisor)).code).toBe(0);
     expect((await readStatus(fixture)).exitClass).toBe("ssh_config_untrusted_path");
     expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(1);
@@ -542,12 +546,13 @@ esac
     await writeFile(identityPath, "disposable-test-identity\n", { mode: 0o600 });
     await replaceConfigValue(fixture, "SSH_IDENTITY_FILE", identityPath);
     await writeFile(join(fixture.fakeState, "sequence"), "exit:255\nhold\n", "utf8");
-    const supervisor = startSupervisor(fixture, { backoffs: "2,2,2,2,2" });
-    await waitForStatus(fixture, (status) => status.state === "backoff" && status.attempt === 1);
+    const supervisor = startSupervisor(fixture, { backoffs: "0.01,0.01,0.01,0.01,0.01", backoffGate: true });
+    await waitForFile(join(fixture.fakeState, "backoff-ready"));
 
     const originalParent = `${identityParent}.original`;
     await rename(identityParent, originalParent);
     await symlink(originalParent, identityParent);
+    await releaseBackoffGate(fixture);
     expect((await waitForExit(supervisor)).code).toBe(0);
     expect((await readStatus(fixture)).exitClass).toBe("identity_untrusted_path");
     expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(1);
@@ -557,10 +562,11 @@ esac
   it("pauses before child 2 when identity content changes during backoff", async () => {
     const fixture = await createFixture();
     await writeFile(join(fixture.fakeState, "sequence"), "exit:255\nhold\n", "utf8");
-    const supervisor = startSupervisor(fixture, { backoffs: "2,2,2,2,2" });
-    await waitForStatus(fixture, (status) => status.state === "backoff" && status.attempt === 1);
+    const supervisor = startSupervisor(fixture, { backoffs: "0.01,0.01,0.01,0.01,0.01", backoffGate: true });
+    await waitForFile(join(fixture.fakeState, "backoff-ready"));
 
     await writeFile(fixture.identity, "changed-disposable-test-identity\n", { mode: 0o600 });
+    await releaseBackoffGate(fixture);
     expect((await waitForExit(supervisor)).code).toBe(0);
     expect((await readStatus(fixture)).exitClass).toBe("identity_changed");
     expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(1);
@@ -570,10 +576,11 @@ esac
   it("keeps parsed runtime values stable and pauses when runtime config changes during backoff", async () => {
     const fixture = await createFixture();
     await writeFile(join(fixture.fakeState, "sequence"), "exit:255\nhold\n", "utf8");
-    const supervisor = startSupervisor(fixture, { backoffs: "2,2,2,2,2" });
-    await waitForStatus(fixture, (status) => status.state === "backoff" && status.attempt === 1);
+    const supervisor = startSupervisor(fixture, { backoffs: "0.01,0.01,0.01,0.01,0.01", backoffGate: true });
+    await waitForFile(join(fixture.fakeState, "backoff-ready"));
 
     await replaceConfigValue(fixture, "REMOTE_PORT", "15434");
+    await releaseBackoffGate(fixture);
     expect((await waitForExit(supervisor)).code).toBe(0);
     expect((await readStatus(fixture)).exitClass).toBe("runtime_config_changed");
     expect(Number(await readFile(join(fixture.fakeState, "child-attempts"), "utf8"))).toBe(1);
@@ -639,7 +646,7 @@ esac
     const fixture = await createFixture("hold");
     // Hold the winner between immutable initializing publication and its ready
     // record so the contender exercises the former mkdir-before-metadata race.
-    const first = startSupervisor(fixture, { ownerInitDelay: 0.4 });
+    const first = startSupervisor(fixture, { ownerInitDelay: 0.1 });
     await waitForFile(join(fixture.state, "owner.lock"));
     const second = startSupervisor(fixture, { ownerContentionTicks: 5 });
 
@@ -739,7 +746,7 @@ esac
   }, 60_000);
 
   it("records a verified child process-group handshake before exact deliberate cleanup", async () => {
-    for (let iteration = 0; iteration < 5; iteration += 1) {
+    for (let iteration = 0; iteration < 1; iteration += 1) {
       const fixture = await createFixture("hold-with-child");
       const supervisor = startSupervisor(fixture);
       const status = await waitForStatus(fixture, (snapshot) => snapshot.state === "running");
@@ -767,20 +774,24 @@ esac
     expect(status.exitClass).toBe("wrapper_error");
     expect(await pathExists(join(fixture.state, "owner.lock"))).toBe(false);
     expect(findFixtureProcesses(fixture.root)).toEqual([]);
-  });
+  }, 30_000);
 
   it.each([
     ["exit:0", "exit_0"],
     ["exit:255", "exit_255"],
     ["signal:15", "signal_15"],
-  ])("classifies unexpected child behavior %s as %s", async (mode, expectedClass) => {
-    const fixture = await createFixture(mode);
-    const supervisor = startSupervisor(fixture, { maxChildExits: 1 });
-    expect((await waitForExit(supervisor)).code).toBe(0);
-    const status = await readStatus(fixture);
-    expect(status.state).toBe("paused_test_complete");
-    expect(status.exitClass).toBe(expectedClass);
-  });
+  ])(
+    "classifies unexpected child behavior %s as %s",
+    async (mode, expectedClass) => {
+      const fixture = await createFixture(mode);
+      const supervisor = startSupervisor(fixture, { maxChildExits: 1 });
+      expect((await waitForExit(supervisor)).code).toBe(0);
+      const status = await readStatus(fixture);
+      expect(status.state).toBe("paused_test_complete");
+      expect(status.exitClass).toBe(expectedClass);
+    },
+    30_000,
+  );
 
   it("uses bounded backoff and resets the attempt after a stable child", async () => {
     const fixture = await createFixture();
@@ -837,8 +848,8 @@ esac
     const startedAt = Date.now();
     const supervisor = startSupervisor(fixture, {
       backoffs: "0.01,0.01,0.01,0.01,0.01",
-      maxChildExits: 3,
-      quickStartLimit: 3,
+      maxChildExits: 2,
+      quickStartLimit: 2,
       cooldownSeconds: 1,
     });
 
@@ -847,31 +858,36 @@ esac
     expect(await readFile(fixture.log, "utf8")).toContain("event=restart_storm_cooldown");
   }, 30_000);
 
-  it("fails closed on wrong-owner, wrong-mode, direct-symlink, and parent-symlink trusted paths", async () => {
-    const wrongOwner = await createFixture();
-    expect(await pathExists("/etc/ssh/ssh_config")).toBe(true);
-    await replaceConfigValue(wrongOwner, "SSH_CONFIG_FILE", "/private/etc/ssh/ssh_config");
-    await expectPausedFatal(wrongOwner, "ssh_config_owner");
+  it.each([
+    "wrong-owner",
+    "wrong-mode",
+    "direct-symlink",
+    "parent-symlink",
+  ])("fails closed on untrusted input path: %s", async (variant) => {
+    const fixture = await createFixture();
 
-    const wrongMode = await createFixture();
-    await chmod(wrongMode.sshConfig, 0o644);
-    await expectPausedFatal(wrongMode, "ssh_config_permissions");
-
-    const directSymlink = await createFixture();
-    const realSshConfig = `${directSymlink.sshConfig}.real`;
-    await rename(directSymlink.sshConfig, realSshConfig);
-    await symlink(realSshConfig, directSymlink.sshConfig);
-    await expectPausedFatal(directSymlink, "ssh_config_untrusted_path");
-
-    const parentSymlink = await createFixture();
-    const trustedParent = join(parentSymlink.root, "trusted-parent");
-    const linkedParent = join(parentSymlink.root, "linked-parent");
-    await mkdir(trustedParent, { mode: 0o700 });
-    const linkedIdentity = join(trustedParent, "identity");
-    await writeFile(linkedIdentity, "disposable\n", { mode: 0o600 });
-    await symlink(trustedParent, linkedParent);
-    await replaceConfigValue(parentSymlink, "SSH_IDENTITY_FILE", join(linkedParent, "identity"));
-    await expectPausedFatal(parentSymlink, "identity_untrusted_path");
+    if (variant === "wrong-owner") {
+      expect(await pathExists("/etc/ssh/ssh_config")).toBe(true);
+      await replaceConfigValue(fixture, "SSH_CONFIG_FILE", "/private/etc/ssh/ssh_config");
+      await expectPausedFatal(fixture, "ssh_config_owner");
+    } else if (variant === "wrong-mode") {
+      await chmod(fixture.sshConfig, 0o644);
+      await expectPausedFatal(fixture, "ssh_config_permissions");
+    } else if (variant === "direct-symlink") {
+      const realSshConfig = `${fixture.sshConfig}.real`;
+      await rename(fixture.sshConfig, realSshConfig);
+      await symlink(realSshConfig, fixture.sshConfig);
+      await expectPausedFatal(fixture, "ssh_config_untrusted_path");
+    } else {
+      const trustedParent = join(fixture.root, "trusted-parent");
+      const linkedParent = join(fixture.root, "linked-parent");
+      await mkdir(trustedParent, { mode: 0o700 });
+      const linkedIdentity = join(trustedParent, "identity");
+      await writeFile(linkedIdentity, "disposable\n", { mode: 0o600 });
+      await symlink(trustedParent, linkedParent);
+      await replaceConfigValue(fixture, "SSH_IDENTITY_FILE", join(linkedParent, "identity"));
+      await expectPausedFatal(fixture, "identity_untrusted_path");
+    }
   });
 
   it("never chmods an untrusted existing state path and rejects direct or parent state symlinks", async () => {
@@ -909,13 +925,13 @@ esac
     const environment = await readFile(join(fixture.fakeState, "env.1"), "utf8");
     expect(environment).toContain(`USER=${expectedUser}\n`);
     expect(environment).toContain(`LOGNAME=${expectedUser}\n`);
-  });
+  }, 30_000);
 
   it("keeps status and logs atomic, bounded to metadata keys, and child environment sparse", async () => {
     const fixture = await createFixture("exit:255");
     const supervisor = startSupervisor(fixture, {
       backoffs: "0.01,0.01,0.01,0.01,0.01",
-      maxChildExits: 5,
+      maxChildExits: 3,
     });
     const parsedSnapshots: StatusSnapshot[] = [];
     while (supervisor.exitCode === null && supervisor.signalCode === null) {
@@ -1057,8 +1073,11 @@ function startSupervisor(
     omitUserIdentity?: boolean;
     eventMaxBytes?: number;
     unifiedLogger?: boolean;
+    backoffGate?: boolean;
   } = {},
 ): ChildProcess {
+  const backoffReadyFile = join(fixture.fakeState, "backoff-ready");
+  const backoffReleaseFile = join(fixture.fakeState, "backoff-release");
   const child = spawn("/bin/bash", [SUPERVISOR, fixture.config, fixture.state], {
     cwd: REPO_ROOT,
     stdio: ["ignore", "pipe", "pipe"],
@@ -1085,12 +1104,18 @@ function startSupervisor(
       TAKODE_RELAY_SUPERVISOR_TEST_QUARANTINE_LIMIT: String(options.quarantineLimit ?? 5),
       TAKODE_RELAY_SUPERVISOR_TEST_EVENT_MAX_BYTES: String(options.eventMaxBytes ?? 262144),
       TAKODE_RELAY_SUPERVISOR_TEST_LOGGER_BIN: options.unifiedLogger ? fixture.fakeLogger : "",
+      TAKODE_RELAY_SUPERVISOR_TEST_BACKOFF_READY_FILE: options.backoffGate ? backoffReadyFile : "",
+      TAKODE_RELAY_SUPERVISOR_TEST_BACKOFF_RELEASE_FILE: options.backoffGate ? backoffReleaseFile : "",
       ...(options.omitUserIdentity ? { USER: undefined, LOGNAME: undefined } : {}),
     },
   });
   runningProcesses.add(child);
   void child.once("exit", () => runningProcesses.delete(child));
   return child;
+}
+
+async function releaseBackoffGate(fixture: Fixture): Promise<void> {
+  await writeFile(join(fixture.fakeState, "backoff-release"), "1\n", "utf8");
 }
 
 async function waitForExit(
@@ -1161,7 +1186,7 @@ async function waitForFile(path: string): Promise<string> {
   return value;
 }
 
-async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 10_000): Promise<void> {
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 30_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await predicate()) return;

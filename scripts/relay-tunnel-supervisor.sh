@@ -52,6 +52,10 @@ TEST_HANDSHAKE_FAIL=${TAKODE_RELAY_SUPERVISOR_TEST_HANDSHAKE_FAIL:-0}
 TEST_HEALTH_RESULT=${TAKODE_RELAY_SUPERVISOR_TEST_HEALTH_RESULT:-}
 TEST_OWNER_INIT_DELAY=${TAKODE_RELAY_SUPERVISOR_TEST_OWNER_INIT_DELAY:-0}
 TEST_LOGGER_BIN=${TAKODE_RELAY_SUPERVISOR_TEST_LOGGER_BIN:-}
+TEST_BACKOFF_READY_FILE=${TAKODE_RELAY_SUPERVISOR_TEST_BACKOFF_READY_FILE:-}
+TEST_BACKOFF_RELEASE_FILE=${TAKODE_RELAY_SUPERVISOR_TEST_BACKOFF_RELEASE_FILE:-}
+TEST_BACKOFF_GATE_TICKS=${TAKODE_RELAY_SUPERVISOR_TEST_BACKOFF_GATE_TICKS:-200}
+TEST_BACKOFF_GATE_TICK_SECONDS=${TAKODE_RELAY_SUPERVISOR_TEST_BACKOFF_GATE_TICK_SECONDS:-0.01}
 CURRENT_UID=$($ID_BIN -u 2>/dev/null || printf '')
 RUNTIME_USER=${USER:-$($ID_BIN -un 2>/dev/null || true)}
 RUNTIME_LOGNAME=${LOGNAME:-$RUNTIME_USER}
@@ -80,6 +84,7 @@ OWNER_TOKEN=""
 OWNER_ACQUIRED=0
 OWNER_INODE=""
 OWNER_START_IDENTITY=""
+SELF_START_IDENTITY=""
 OWNER_METADATA_FILE=""
 OBSERVED_OWNER_PROTOCOL=""
 OBSERVED_OWNER_PHASE=""
@@ -177,39 +182,35 @@ path_inode() {
 }
 
 path_is_trusted_ancestry() {
-  local path relative old_ifs current component owner mode mode_number
+  local path
   path=$1
   absolute_path "$path" || return 1
   case "$path" in
     *//*|*/./*|*/../*|*/.|*/..|*[\*\?\[]*|*$'\n'*|*$'\r'*) return 1 ;;
   esac
-  relative=${path#/}
-  current=""
-  old_ifs=$IFS
-  IFS='/'
-  # Intentional field splitting uses slash only; wildcard characters were
-  # rejected above so components cannot expand through the filesystem.
-  # shellcheck disable=SC2086
-  set -- $relative
-  IFS=$old_ifs
-  for component in "$@"; do
-    current="${current}/${component}"
-    if [ -L "$current" ]; then return 1; fi
-    if [ -e "$current" ]; then
-      owner=$(file_owner_uid "$current") || return 1
-      if [ "$owner" != "$CURRENT_UID" ] && [ "$owner" != "0" ]; then return 1; fi
-      if [ -d "$current" ]; then
-        mode=$(file_mode "$current") || return 1
-        mode_number=$((8#$mode))
-        if [ $((mode_number & 0022)) -ne 0 ] && { [ "$owner" != "0" ] || [ $((mode_number & 01000)) -eq 0 ]; }; then
-          return 1
-        fi
-      fi
-    elif [ "$current" != "$path" ]; then
-      return 1
-    fi
-  done
-  return 0
+  "$PERL_BIN" -e '
+    use strict;
+    use warnings;
+    my ($path, $current_uid) = @ARGV;
+    exit 1 unless defined($path) && $path =~ m{\A/};
+    my @components = grep { length($_) } split(m{/}, $path);
+    my $current = "";
+    for my $component (@components) {
+      $current .= "/" . $component;
+      my @stat = lstat($current);
+      if (!@stat) {
+        exit($current eq $path ? 0 : 1);
+      }
+      exit 1 if -l _;
+      my $owner = $stat[4];
+      exit 1 if $owner != $current_uid && $owner != 0;
+      if (-d _) {
+        my $mode = $stat[2] & 07777;
+        exit 1 if ($mode & 0022) && !($owner == 0 && ($mode & 01000));
+      }
+    }
+    exit 0;
+  ' "$path" "$CURRENT_UID"
 }
 
 process_start_identity() {
@@ -289,7 +290,7 @@ verify_current_owner() {
 }
 
 verify_current_process_identity() {
-  [ "$(process_start_identity "$$" 2>/dev/null || true)" = "$OWNER_START_IDENTITY" ]
+  [ -n "$SELF_START_IDENTITY" ] && [ "$SELF_START_IDENTITY" = "$OWNER_START_IDENTITY" ]
 }
 
 atomic_write_lines() {
@@ -394,6 +395,15 @@ validate_event_sink_trust() {
   return 0
 }
 
+validate_event_append_trust() {
+  path_is_trusted_ancestry "$STATE_DIR" || return 1
+  [ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ] || return 1
+  [ "$(file_owner_uid "$STATE_DIR" 2>/dev/null || true)" = "$CURRENT_UID" ] || return 1
+  [ "$(file_mode "$STATE_DIR" 2>/dev/null || true)" = "700" ] || return 1
+  is_positive_integer "$EVENT_MAX_BYTES" && [ "$EVENT_MAX_BYTES" -ge 512 ] || return 1
+  event_file_is_trusted "$EVENT_FILE"
+}
+
 initialize_event_sink() {
   validate_event_sink_trust || return 1
   if [ ! -e "$EVENT_FILE" ]; then atomic_write_lines "$EVENT_FILE" || return 1; fi
@@ -421,8 +431,7 @@ rotate_event_sink() {
 append_event_sink() {
   local event_line=$1 current_size line_size
   verify_current_owner || return 1
-  validate_event_sink_trust || return 1
-  event_file_is_trusted "$EVENT_FILE" || return 1
+  validate_event_append_trust || return 1
   current_size=$(file_size "$EVENT_FILE") || return 1
   line_size=$((${#event_line} + 1))
   [ "$line_size" -le "$EVENT_MAX_BYTES" ] || return 1
@@ -634,7 +643,8 @@ wait_for_owner_metadata() {
 publish_owner_claim() {
   local claim claim_inode
   OWNER_TOKEN=$(printf '%s' "$$:$PPID:$(date +%s):$RANDOM" | "$SHASUM_BIN" -a 256 | awk '{print $1}')
-  OWNER_START_IDENTITY=$(process_start_identity "$$") || return 70
+  SELF_START_IDENTITY=${SELF_START_IDENTITY:-$(process_start_identity "$$")} || return 70
+  OWNER_START_IDENTITY=$SELF_START_IDENTITY
   claim="$STATE_DIR/.owner-claim.${OWNER_TOKEN}"
   : > "$claim" || return 70
   chmod 600 "$claim" || return 70
@@ -898,6 +908,22 @@ sleep_with_status() {
   COOLDOWN_COMPLETED=1
 }
 
+wait_for_test_backoff_gate() {
+  local tick
+  if [ "$TESTING" != "1" ] || [ -z "$TEST_BACKOFF_READY_FILE" ] || [ -z "$TEST_BACKOFF_RELEASE_FILE" ]; then
+    return 0
+  fi
+  printf '%s\n' "$ATTEMPT" > "$TEST_BACKOFF_READY_FILE" || return 70
+  chmod 600 "$TEST_BACKOFF_READY_FILE" 2>/dev/null || true
+  tick=0
+  while [ ! -e "$TEST_BACKOFF_RELEASE_FILE" ] && [ "$tick" -lt "$TEST_BACKOFF_GATE_TICKS" ]; do
+    sleep "$TEST_BACKOFF_GATE_TICK_SECONDS"
+    tick=$((tick + 1))
+  done
+  [ -e "$TEST_BACKOFF_RELEASE_FILE" ] || return 70
+  rm -f "$TEST_BACKOFF_RELEASE_FILE"
+}
+
 honor_persisted_cooldown() {
   local now until
   now=$(date +%s)
@@ -1088,6 +1114,7 @@ run_loop() {
       exit 0
     fi
     if [ "$COOLDOWN_COMPLETED" -eq 0 ]; then
+      wait_for_test_backoff_gate || return 70
       sleep "$backoff"
       if [ "$stable_reset" -eq 1 ]; then ATTEMPT=0; fi
     fi

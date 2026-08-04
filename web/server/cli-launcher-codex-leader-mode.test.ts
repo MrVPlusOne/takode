@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -20,6 +20,9 @@ describe("Codex leader compaction mode launch prep", () => {
 
   it("keeps delegate MCP for compact-mode leaders while disabling recycle guard config", async () => {
     const codexHome = await makeCodexHomeRoot();
+    const legacyCodexHome = await makeCodexHomeRoot();
+    const agentsSkillsHome = await makeCodexHomeRoot();
+    await mkdir(join(codexHome, "compact-leader"), { recursive: true });
     const spawn = await prepareCodexSpawn(
       "compact-leader",
       {
@@ -30,8 +33,12 @@ describe("Codex leader compaction mode launch prep", () => {
       {
         containerId: "container-1",
         codexHome,
+        codexAgentsSkillsHome: agentsSkillsHome,
+        codexHomePrepared: true,
+        codexLegacyHome: legacyCodexHome,
         codexLeaderCompactionMode: "compact",
         codexMaxContextLength: 545_000,
+        codexSpawnPrepYieldEveryMs: Number.POSITIVE_INFINITY,
         model: "takode-compact-leader",
         env: {
           COMPANION_AUTH_TOKEN: "secret-token",
