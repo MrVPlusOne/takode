@@ -39,6 +39,20 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Do not use `file://` URI schemes");
   });
 
+  it("instructs workers to batch commentary around meaningful milestones and write concise outcomes", () => {
+    const result = buildCompanionInstructions({ sessionNum: 42, backend: "codex" });
+
+    expect(result).toContain("## Worker Communication and Outcome Summaries");
+    expect(result).toContain("communicate in meaningful batches");
+    expect(result).toContain("Tool rows already expose operations");
+    expect(result).toContain("material finding or decision");
+    expect(result).toContain("completed implementation batch");
+    expect(result).toContain("verification result");
+    expect(result).toContain("sync result");
+    expect(result).toContain("what changed or was decided, why it matters");
+    expect(result).toContain("Keep detailed agent evidence separate");
+  });
+
   it("keeps quest IDs out of Takode-external durable names while preserving internal uses", () => {
     for (const backend of ["claude", "codex"] as const) {
       const result = buildCompanionInstructions({ sessionNum: 42, backend });

@@ -52,7 +52,7 @@ Every non-cancelled quest should finish in Memory. Final Memory owns final User 
 
 Final debrief metadata is mandatory for every completed non-cancelled quest. Completion without both a final debrief and a debrief TLDR is incomplete, including zero-tracked-change/data-artifact quests, worktree/Port completions, and leader-owned completion after Outcome Review. Use `--debrief-file` and `--debrief-tldr-file` on `quest complete`, `quest done`, or `quest transition --status done` as appropriate.
 
-For every completed non-cancelled quest, prefer structured final debrief metadata over using legacy notes as the outcome summary. If you complete a quest, use `--debrief-file` plus `--debrief-tldr-file`; if the leader controls completion, provide a `Final debrief draft:` and `Debrief TLDR draft:` in the handoff instead. The final debrief body should summarize the user-facing result, important verification, synced commits when relevant, and residual risks; existing `notes` remain for legacy closure details and cancellation reasons. The debrief TLDR should stay higher level and self-contained: issue or need, solution shape, why it works, and key decisions or findings. Routine synced SHAs, raw commit IDs, branch names, command lists or transcripts, raw paths, and verification mechanics belong in the body or structured metadata unless they are central to understanding the outcome. If commit metadata or a `Synced SHAs:` handoff already carries exact values, write the TLDR without the hashes.
+For every completed non-cancelled quest, prefer structured final debrief metadata over using legacy notes as the outcome summary. If you complete a quest, use `--debrief-file` plus `--debrief-tldr-file`; if the leader controls completion, provide a `Final debrief draft:` and `Debrief TLDR draft:` in the handoff instead. The final debrief body should summarize the user-facing result, important verification, synced commits when relevant, and residual risks; existing `notes` remain for legacy closure details and cancellation reasons. Include the concise human outcome: what changed or was decided, why it matters, the key mechanism or design decision, important validation limits or residual risks, and any genuine user action. The debrief TLDR should stay higher level and self-contained: issue or need, solution shape, why it works, and key decisions or findings. Routine synced SHAs, raw commit IDs, branch names, command lists or transcripts, raw paths, and verification mechanics belong in the body or structured metadata unless they are central to understanding the outcome. If commit metadata or a `Synced SHAs:` handoff already carries exact values, write the TLDR without the hashes.
 
 Metadata reconciliation is a final-scope accuracy check for the quest title, TLDR, and description. It is not permission to rewrite active scope or unfinished quests.
 
@@ -113,7 +113,7 @@ All three items are required before submitting; skeptic reviewers may verify eac
    - For long multi-topic summaries, write the full `Summary:` body first, then add `--tldr` or `--tldr-file` with one concise bullet or sentence for each major topic.
    - Prefer body first, TLDR second: `quest feedback q-N --text-file /tmp/summary.md --tldr-file /tmp/summary-tldr.md`.
    - For Quest Journey work, the current phase documentation entry should usually carry this detail; prefer a phase-scoped `quest feedback add q-N --text-file ... --tldr-file ... --kind phase-summary` entry over a duplicate flat summary.
-   - Briefly describe what changed, why it matters to the user or project, and what verification passed.
+   - Briefly describe what changed or was decided, why it matters to the user or project, the key mechanism or design decision, important validation limits or residual risks, any genuine user action, and what verification passed.
    - This should be the one substantive quest-level prose summary by default.
    - Write the summary as an outcome note, not a review or rework timeline.
    - This summary may also explain addressed human feedback when it clearly names what feedback was handled and how.
@@ -121,7 +121,7 @@ All three items are required before submitting; skeptic reviewers may verify eac
    - Before adding a new agent feedback entry, check `quest feedback latest q-N --author agent --full` to see whether the latest summary or worker update can be refreshed instead.
    - If the work was ported normally, rely on structured metadata for routine port information instead of adding a second long prose port comment.
    - Only add a second port-specific comment when the porting itself was exceptional and materially worth noting.
-   - Avoid review-process timelines, duplicate near-identical comments, and excessive commit-by-commit narration unless that detail is essential to understand the result.
+   - Avoid review-process timelines, duplicate near-identical comments, command-by-command narration, and excessive commit-by-commit detail unless that detail is essential to understand the result.
    - The goal: someone reading only the quest, not the session conversation, should understand what happened.
    - Treat this as a required worker deliverable before you report back that the quest is ready.
 

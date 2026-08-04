@@ -147,6 +147,8 @@ describe("index startup skill registration", () => {
     expect(skill).toContain("Source-Of-Truth Check");
     expect(skill).toContain("Avoid new project skills under legacy `.codex/skills`");
     expect(skill).toContain("Leader-specific deltas");
+    expect(skill).toContain("Workers should communicate at meaningful quest milestones");
+    expect(skill).toContain("concise user-facing outcome summaries");
     expect(skill).not.toContain("quest-journey-implement");
 
     for (const docs of [claudeDocs, agentsDocs]) {

@@ -144,12 +144,16 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(alignment.leaderBrief).toContain("Do not convert the Alignment note into a Work prompt");
     expect(work.assigneeBrief).toContain("worker-owned Work -> Memory transition");
     expect(work.assigneeBrief).toContain("Do not wait for the leader to restate the quest or prescribe an approach");
+    expect(work.assigneeBrief).toContain("Communicate in coherent batches");
+    expect(work.assigneeBrief).toContain("concise plain-language outcome section");
     expect(work.leaderBrief).toContain("separate quest with its own Alignment -> Work -> Memory flow");
     expect(work.leaderBrief).toContain("Leader-only deltas: none");
     expect(work.leaderBrief).not.toContain("Give the worker the exact approved scope");
     expect(checkpoint.leaderBrief).toContain("resume the same worker in `WORKING`");
     expect(checkpoint.leaderBrief).toContain("visible decision section before calling `takode notify`");
     expect(memory.assigneeBrief).toContain("exactly one memory statement");
+    expect(memory.assigneeBrief).toContain("plain-language user-facing outcome");
+    expect(memory.assigneeBrief).toContain("do not paste the whole phase note into the final debrief");
     expect(memory.leaderBrief).toContain("normal same-worker Memory owner");
   });
 

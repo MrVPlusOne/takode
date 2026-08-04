@@ -115,6 +115,12 @@ Use \`/port-changes\` when asked to port, sync, or push commits to the main repo
   }
 
   parts.push(
+    "## Worker Communication and Outcome Summaries\n\n" +
+      "For quest work, communicate in meaningful batches instead of narrating every read, edit, command, next microstep, or poll. Tool rows already expose operations. Send progress when there is a material finding or decision, a completed implementation batch, a blocker or User Checkpoint, a verification result, a sync result, a Work handoff, or final Memory closure. For genuinely long operations, give a concise status only when needed to avoid excessive silence.\n\n" +
+      "Quest phase notes and final debriefs should include a concise plain-language outcome for the human reader: what changed or was decided, why it matters, the key mechanism or design decision, important validation limits or residual risks, and any genuine user action. Keep detailed agent evidence separate; do not duplicate the whole phase note or force a long essay into chat.",
+  );
+
+  parts.push(
     "## User notifications\n\n" +
       "Use `takode notify` to alert the user when they should come look at your work.\n\n" +
       "    takode notify <category> <summary> [--suggest <answer>]...\n" +

@@ -167,6 +167,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Once commits or hashes are attached as structured metadata");
     expect(skill).toContain("do not repeat the raw identifiers in TLDRs");
     expect(skill).toContain("User-facing quest completion summaries should lead with the outcome");
+    expect(skill).toContain("Worker live commentary should happen at meaningful milestones");
+    expect(skill).toContain("Tool rows already expose operations");
     expect(skill).toContain("final debrief metadata status, no-op memory statements");
     expect(skill).toContain("File Link Guidance");
     expect(skill).toContain("[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)");
@@ -187,9 +189,12 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("If inference is unavailable or ambiguous");
     expect(skill).toContain("minimal understanding and authorization handshake");
     expect(skill).toContain("not implementation investigation");
+    expect(skill).toContain("concise plain-language outcome for the human reader");
     expect(skill).toContain("Reviewers should check documentation quality, not just whether a comment exists");
     expect(skill).toContain("One TLDR bullet or sentence is fine only when the source truly has one main point");
     expect(memoryCompletion).toContain("For long multi-topic summaries, write the full `Summary:` body first");
+    expect(memoryCompletion).toContain("Include the concise human outcome");
+    expect(memoryCompletion).toContain("command-by-command narration");
     expect(memoryCompletion).toContain("Reviewer-owned quest hygiene");
     expect(memoryCompletion).toContain('`quest feedback add q-N --text "Summary: ..."` for short single-topic content');
     expect(memoryCompletion).toContain(

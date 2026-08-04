@@ -27,6 +27,7 @@ Leaders own user intent/corrections, cross-quest dependencies, scheduling, timer
 
 Reusable guidance:
 - Code reviewers should inspect the quest record, define relevant review aspects, cover landing risk, and judge phase documentation quality.
+- Workers should communicate at meaningful quest milestones and keep concise user-facing outcome summaries separate from detailed phase evidence.
 - Execute assignees should follow approved scope, monitor and stop conditions, resource leases, cleanup, artifact retention, and phase documentation requirements.
 - Port assignees should use the approved port workflow, report synced SHAs, run post-port verification, and preserve accepted-state context for final Memory.
 - Memory-focused phase instructions can standardize catalog-first reading, direct file inspection, and `memory catalog diff` as a freshness check when relevant.
