@@ -292,13 +292,17 @@ function validateV2CompletionGitState(
   state: Partial<SessionState> | undefined,
   commitShas: string[] | undefined,
   memoryCommitShas: string[] | undefined,
+  options: { localOnly?: boolean } = {},
 ): string | undefined {
   if (!state) return "Cannot verify worker git state for v2 Memory completion.";
   if (state.git_status_refresh_error) return `Worker git state is uncertain: ${state.git_status_refresh_error}`;
   if (state.diff_stats_skipped_reason)
     return `Worker tracked-change state is uncertain: ${state.diff_stats_skipped_reason}`;
-  if (state.is_worktree && (state.git_ahead ?? 0) > 0) {
-    return "Worker worktree still has commits ahead of its comparison target; sync/Port before completion.";
+  if (!options.localOnly && state.is_worktree && (state.git_ahead ?? 0) > 0) {
+    return "Worker worktree is ahead of its comparison target; sync/Port before completion.";
+  }
+  if (!options.localOnly && state.is_worktree && (state.git_behind ?? 0) > 0) {
+    return "Worker worktree is behind its comparison target; refresh or sync before completion.";
   }
   const changedLines = (state.total_lines_added ?? 0) + (state.total_lines_removed ?? 0);
   const hasStructuredEvidence = (commitShas?.length ?? 0) > 0 || (memoryCommitShas?.length ?? 0) > 0;
@@ -332,6 +336,158 @@ export function createQuestRoutes(ctx: RouteContext) {
       onSessionNamedByQuest: (targetSessionId, title) =>
         (wsBridge as any).onSessionNamedByQuest?.(targetSessionId, title),
     });
+  };
+
+  type V2CompletionBody = {
+    commitShas?: unknown;
+    memoryCommitShas?: unknown;
+    debrief?: unknown;
+    debriefTldr?: unknown;
+    sessionId?: unknown;
+    v2CompletionSync?: unknown;
+  };
+
+  const guardV2MemoryCompletion = async (
+    questId: string,
+    currentQuest: QuestmasterTask,
+    auth: OptionalAuthResult,
+    body: V2CompletionBody,
+    targetSessionId: string,
+  ): Promise<Response | null> => {
+    const activeV2Rows = findActiveV2BoardRowsForQuest(questId, launcher, wsBridge);
+    if (activeV2Rows.length === 0) return null;
+    if (!auth)
+      return new Response(JSON.stringify({ error: "Authenticated v2 Memory completion is required." }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      });
+    if ("response" in auth) return auth.response;
+    if (activeV2Rows.length > 1) {
+      return new Response(
+        JSON.stringify({ error: "Multiple active v2 board rows exist for this quest; reconcile the board first." }),
+        { status: 409, headers: { "content-type": "application/json" } },
+      );
+    }
+    const [{ leaderSessionId, row }] = activeV2Rows;
+    const workerSessionId = row.worker;
+    const currentOwnerSessionId =
+      "sessionId" in currentQuest && typeof currentQuest.sessionId === "string" ? currentQuest.sessionId : "";
+    if (!workerSessionId || currentOwnerSessionId !== workerSessionId) {
+      return new Response(
+        JSON.stringify({ error: "v2 Memory completion requires the exact assigned and claimed worker." }),
+        { status: 409, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (auth.caller.reviewerOf !== undefined) {
+      return new Response(JSON.stringify({ error: "Reviewer sessions cannot complete v2 Memory quests." }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const callerIsAssignedWorker = auth.callerId === workerSessionId;
+    const callerIsOwningLeader = auth.caller.isOrchestrator === true && auth.callerId === leaderSessionId;
+    if (!callerIsAssignedWorker && !callerIsOwningLeader) {
+      return new Response(
+        JSON.stringify({ error: "Only the assigned worker or owning leader may complete v2 Memory." }),
+        { status: 403, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (targetSessionId && targetSessionId !== workerSessionId) {
+      return new Response(JSON.stringify({ error: "v2 Memory completion sessionId must match the assigned worker." }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if ((row.status ?? "").trim().toUpperCase() !== "MEMORY") {
+      return new Response(
+        JSON.stringify({
+          error: `v2 Memory completion requires board state MEMORY; current state is ${row.status ?? "unknown"}.`,
+        }),
+        { status: 409, headers: { "content-type": "application/json" } },
+      );
+    }
+    if ((row.waitForInput ?? []).length > 0) {
+      return new Response(
+        JSON.stringify({ error: "Cannot complete v2 Memory while a User Checkpoint is unresolved." }),
+        { status: 409, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (hasUnaddressedHumanFeedback(currentQuest)) {
+      return new Response(
+        JSON.stringify({ error: "Cannot complete v2 Memory while human feedback remains unaddressed." }),
+        { status: 409, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (typeof body.debrief !== "string" || !body.debrief.trim()) {
+      return new Response(JSON.stringify({ error: "Final debrief is required for v2 Memory completion." }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (!normalizeTldr(body.debriefTldr)) {
+      return new Response(JSON.stringify({ error: "Final debrief TLDR is required for v2 Memory completion." }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const memoryStatementCount = countFinalMemoryStatements(currentQuest, workerSessionId);
+    if (memoryStatementCount !== 1) {
+      return new Response(
+        JSON.stringify({
+          error: `v2 Memory completion requires exactly one final memory statement; found ${memoryStatementCount}.`,
+        }),
+        { status: 409, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (!hasCurrentWorkEvidence(currentQuest, workerSessionId)) {
+      return new Response(
+        JSON.stringify({ error: "v2 Memory completion requires accepted Work evidence from the assigned worker." }),
+        { status: 409, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    const refreshGit = (wsBridge as { refreshGitInfoPublic?: (sessionId: string) => Promise<boolean> })
+      .refreshGitInfoPublic;
+    if (!refreshGit) {
+      return new Response(JSON.stringify({ error: "Cannot refresh worker git state for v2 Memory completion." }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (!(await refreshGit.call(wsBridge, workerSessionId))) {
+      return new Response(JSON.stringify({ error: "Unable to refresh worker git state for v2 Memory completion." }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const workerBridgeSession = wsBridge.getSession(workerSessionId);
+    const workerState = workerBridgeSession?.state;
+    if (!workerState?.cwd) {
+      return new Response(JSON.stringify({ error: "Cannot verify worker git state for v2 Memory completion." }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const trackedStatus = (
+      await execCaptureStdoutAsync(`${SERVER_GIT_CMD} status --porcelain --untracked-files=no`, workerState.cwd)
+    ).trim();
+    if (trackedStatus) {
+      return new Response(
+        JSON.stringify({ error: "Worker has uncommitted tracked changes; clean or sync them before completion." }),
+        { status: 409, headers: { "content-type": "application/json" } },
+      );
+    }
+    const commitShas = Array.isArray(body.commitShas) ? body.commitShas : undefined;
+    const memoryCommitShas = Array.isArray(body.memoryCommitShas) ? body.memoryCommitShas : undefined;
+    const localOnly = body.v2CompletionSync === "local-clean";
+    const gitStateError = validateV2CompletionGitState(workerState, commitShas, memoryCommitShas, { localOnly });
+    if (gitStateError) {
+      return new Response(JSON.stringify({ error: gitStateError }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return null;
   };
   const claimedQuestEvent = (quest: QuestmasterTask) => ({
     id: quest.questId,
@@ -787,6 +943,14 @@ export function createQuestRoutes(ctx: RouteContext) {
       const questId = c.req.param("questId");
       const current = await questStore.getQuest(questId);
       if (!current) return c.json({ error: "Quest not found" }, 404);
+      if (body.status === "done") {
+        const bodySession = resolveSubmittedSessionId(body.sessionId, resolveId);
+        if (bodySession.raw && !bodySession.sessionId) {
+          return c.json({ error: `Unknown sessionId: ${bodySession.raw}` }, 400);
+        }
+        const v2GuardResponse = await guardV2MemoryCompletion(questId, current, auth, body, bodySession.sessionId);
+        if (v2GuardResponse) return v2GuardResponse;
+      }
       const guardResponse = guardStatusMutation(c, auth, current, body);
       if (guardResponse) return guardResponse;
       const { force: _force, reason: _reason, ...transitionInput } = body;
@@ -1023,74 +1187,14 @@ export function createQuestRoutes(ctx: RouteContext) {
     try {
       const currentQuest = await questStore.getQuest(c.req.param("questId"));
       if (!currentQuest) return c.json({ error: "Quest not found" }, 404);
-      const activeV2Rows = findActiveV2BoardRowsForQuest(c.req.param("questId"), launcher, wsBridge);
-      if (activeV2Rows.length > 0) {
-        if (!auth) return c.json({ error: "Authenticated v2 Memory completion is required." }, 403);
-        if (activeV2Rows.length > 1) {
-          return c.json(
-            { error: "Multiple active v2 board rows exist for this quest; reconcile the board first." },
-            409,
-          );
-        }
-        const [{ leaderSessionId, row }] = activeV2Rows;
-        const workerSessionId = row.worker;
-        const currentOwnerSessionId =
-          "sessionId" in currentQuest && typeof currentQuest.sessionId === "string" ? currentQuest.sessionId : "";
-        if (!workerSessionId || currentOwnerSessionId !== workerSessionId) {
-          return c.json({ error: "v2 Memory completion requires the exact assigned and claimed worker." }, 409);
-        }
-        if (auth.caller.reviewerOf !== undefined) {
-          return c.json({ error: "Reviewer sessions cannot complete v2 Memory quests." }, 403);
-        }
-        const callerIsAssignedWorker = auth.callerId === workerSessionId;
-        const callerIsOwningLeader = auth.caller.isOrchestrator === true && auth.callerId === leaderSessionId;
-        if (!callerIsAssignedWorker && !callerIsOwningLeader) {
-          return c.json({ error: "Only the assigned worker or owning leader may complete v2 Memory." }, 403);
-        }
-        if (targetSessionId && targetSessionId !== workerSessionId) {
-          return c.json({ error: "v2 Memory completion sessionId must match the assigned worker." }, 403);
-        }
-        if ((row.status ?? "").trim().toUpperCase() !== "MEMORY") {
-          return c.json(
-            { error: `v2 Memory completion requires board state MEMORY; current state is ${row.status ?? "unknown"}.` },
-            409,
-          );
-        }
-        if ((row.waitForInput ?? []).length > 0) {
-          return c.json({ error: "Cannot complete v2 Memory while a User Checkpoint is unresolved." }, 409);
-        }
-        if (hasUnaddressedHumanFeedback(currentQuest)) {
-          return c.json({ error: "Cannot complete v2 Memory while human feedback remains unaddressed." }, 409);
-        }
-        if (typeof body.debrief !== "string" || !body.debrief.trim()) {
-          return c.json({ error: "Final debrief is required for v2 Memory completion." }, 400);
-        }
-        if (!normalizeTldr(body.debriefTldr)) {
-          return c.json({ error: "Final debrief TLDR is required for v2 Memory completion." }, 400);
-        }
-        const memoryStatementCount = countFinalMemoryStatements(currentQuest, workerSessionId);
-        if (memoryStatementCount !== 1) {
-          return c.json(
-            {
-              error: `v2 Memory completion requires exactly one final memory statement; found ${memoryStatementCount}.`,
-            },
-            409,
-          );
-        }
-        if (!hasCurrentWorkEvidence(currentQuest, workerSessionId)) {
-          return c.json(
-            { error: "v2 Memory completion requires accepted Work evidence from the assigned worker." },
-            409,
-          );
-        }
-        const workerBridgeSession = wsBridge.getSession(workerSessionId);
-        const gitStateError = validateV2CompletionGitState(
-          workerBridgeSession?.state,
-          Array.isArray(body.commitShas) ? body.commitShas : undefined,
-          Array.isArray(body.memoryCommitShas) ? body.memoryCommitShas : undefined,
-        );
-        if (gitStateError) return c.json({ error: gitStateError }, 409);
-      }
+      const v2GuardResponse = await guardV2MemoryCompletion(
+        c.req.param("questId"),
+        currentQuest,
+        auth,
+        body,
+        targetSessionId,
+      );
+      if (v2GuardResponse) return v2GuardResponse;
       const guardResponse = guardStatusMutation(c, auth, currentQuest, body);
       if (guardResponse) return guardResponse;
       const currentOwnerSessionId =
@@ -1134,11 +1238,27 @@ export function createQuestRoutes(ctx: RouteContext) {
         cancelled?: boolean;
         debrief?: string;
         debriefTldr?: string;
+        sessionId?: string;
+        commitShas?: string[];
+        memoryCommitShas?: string[];
+        v2CompletionSync?: string;
         force?: boolean;
         reason?: string;
       };
       const current = await questStore.getQuest(c.req.param("questId"));
       if (!current) return c.json({ error: "Quest not found" }, 404);
+      const bodySession = resolveSubmittedSessionId(body.sessionId, resolveId);
+      if (bodySession.raw && !bodySession.sessionId) {
+        return c.json({ error: `Unknown sessionId: ${bodySession.raw}` }, 400);
+      }
+      const v2GuardResponse = await guardV2MemoryCompletion(
+        c.req.param("questId"),
+        current,
+        auth,
+        body,
+        bodySession.sessionId,
+      );
+      if (v2GuardResponse) return v2GuardResponse;
       const guardResponse = guardStatusMutation(c, auth, current, body);
       if (guardResponse) return guardResponse;
       const quest = await transitionQuestAndSync(
@@ -1148,6 +1268,9 @@ export function createQuestRoutes(ctx: RouteContext) {
           ...(body.notes ? { notes: body.notes } : {}),
           ...(body.debrief !== undefined ? { debrief: body.debrief } : {}),
           ...(body.debriefTldr !== undefined ? { debriefTldr: body.debriefTldr } : {}),
+          ...(bodySession.sessionId ? { sessionId: bodySession.sessionId } : {}),
+          ...(body.commitShas?.length ? { commitShas: body.commitShas } : {}),
+          ...(body.memoryCommitShas?.length ? { memoryCommitShas: body.memoryCommitShas } : {}),
           ...(body.cancelled ? { cancelled: true } : {}),
         },
         current,

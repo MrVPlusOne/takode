@@ -10,8 +10,8 @@ vi.mock("./env-manager.js", () => ({
   deleteEnv: vi.fn(() => Promise.resolve(undefined)),
 }));
 
+const mockExecSync = vi.hoisted(() => vi.fn((_cmd?: string) => "" as any));
 vi.mock("node:child_process", () => {
-  const execSyncMock = vi.fn((_cmd?: string) => "" as any);
   // exec mock: callback-based, delegates to execSync for consistent test behavior.
   // Attaches stdout/stderr to the error object so promisify(exec) can find them,
   // matching Node's custom exec promisify behavior.
@@ -19,7 +19,7 @@ vi.mock("node:child_process", () => {
     const cmd = args[0] as string;
     const callback = typeof args[1] === "function" ? args[1] : args[2];
     try {
-      const result = execSyncMock(cmd);
+      const result = mockExecSync(cmd);
       if (callback) callback(null, { stdout: result ?? "", stderr: "" });
     } catch (err) {
       const e = err as any;
@@ -32,7 +32,7 @@ vi.mock("node:child_process", () => {
     const callback = args.find((arg) => typeof arg === "function");
     if (callback) callback(null, { stdout: "", stderr: "" });
   });
-  return { execSync: execSyncMock, exec: execMock, execFile: execFileMock };
+  return { execSync: mockExecSync, exec: execMock, execFile: execFileMock };
 });
 
 const mockResolveBinary = vi.hoisted(() => vi.fn((_name: string) => null as string | null));
@@ -479,6 +479,7 @@ let timerManager: ReturnType<typeof createMockTimerManager>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockExecSync.mockReturnValue("");
   trafficStats.reset();
   _resetServerLoggerForTest();
   // Reset the LiteLLM model cache so each test starts clean.
@@ -1148,6 +1149,7 @@ describe("POST /api/quests/:questId/complete", () => {
       "worker-1": {
         id: "worker-1",
         state: {
+          cwd: "/repo",
           is_worktree: true,
           git_ahead: 0,
           total_lines_added: 0,
@@ -1332,6 +1334,99 @@ describe("POST /api/quests/:questId/complete", () => {
     const zeroAuth = installV2MemoryFixture();
     const zero = await postV2Complete({}, zeroAuth);
     expect(zero.status).toBe(200);
+  });
+
+  it("rejects dirty tracked git status even when commit metadata is present", async () => {
+    const auth = installV2MemoryFixture();
+    mockExecSync.mockReturnValueOnce(" M web/server/file.ts\n");
+
+    const res = await postV2Complete({ commitShas: ["abc1234"] }, auth);
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("uncommitted tracked changes") });
+    expect(questStore.completeQuest).not.toHaveBeenCalled();
+  });
+
+  it("allows explicit local-only clean v2 completion with structured accepted state", async () => {
+    const auth = installV2MemoryFixture({ workerState: { git_ahead: 2 } });
+
+    const res = await postV2Complete({ commitShas: ["abc1234"], v2CompletionSync: "local-clean" }, auth);
+
+    expect(res.status).toBe(200);
+  });
+
+  it("applies the same v2 Memory guard to transition-done route shapes before mutation", async () => {
+    const auth = installV2MemoryFixture({ quest: { feedback: [] } });
+    const transitionSpy = vi.spyOn(questStore, "transitionQuest");
+
+    const rejected = await app.request("/api/quests/q-1/transition", {
+      method: "POST",
+      headers: companionAuthHeaders(auth.callerId, auth.callerToken),
+      body: JSON.stringify({
+        status: "done",
+        debrief: "Completed the accepted work and final Memory closure.",
+        debriefTldr: "Accepted work is complete with final Memory closure.",
+      }),
+    });
+
+    expect(rejected.status).toBe(409);
+    expect(await rejected.json()).toMatchObject({
+      error: expect.stringContaining("exactly one final memory statement"),
+    });
+    expect(questStore.completeQuest).not.toHaveBeenCalled();
+    expect(transitionSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows transition-done after the shared v2 Memory guard passes", async () => {
+    const auth = installV2MemoryFixture();
+    const transitionSpy = vi.spyOn(questStore, "transitionQuest").mockResolvedValueOnce({
+      id: "q-1-v4",
+      questId: "q-1",
+      title: "Quest",
+      status: "done",
+      description: "Ready",
+      previousOwnerSessionIds: ["worker-1"],
+      verificationItems: [],
+      verificationInboxUnread: true,
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/transition", {
+      method: "POST",
+      headers: companionAuthHeaders(auth.callerId, auth.callerToken),
+      body: JSON.stringify({
+        status: "done",
+        debrief: "Completed the accepted work and final Memory closure.",
+        debriefTldr: "Accepted work is complete with final Memory closure.",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(transitionSpy).toHaveBeenCalledWith(
+      "q-1",
+      expect.objectContaining({
+        status: "done",
+        debrief: "Completed the accepted work and final Memory closure.",
+        debriefTldr: "Accepted work is complete with final Memory closure.",
+      }),
+    );
+  });
+
+  it("applies the same v2 Memory guard to deprecated done route shapes", async () => {
+    const auth = installV2MemoryFixture({ row: { waitForInput: ["n-1"] } });
+    const transitionSpy = vi.spyOn(questStore, "transitionQuest");
+
+    const res = await app.request("/api/quests/q-1/done", {
+      method: "POST",
+      headers: companionAuthHeaders(auth.callerId, auth.callerToken),
+      body: JSON.stringify({
+        debrief: "Completed the accepted work and final Memory closure.",
+        debriefTldr: "Accepted work is complete with final Memory closure.",
+      }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("User Checkpoint") });
+    expect(transitionSpy).not.toHaveBeenCalled();
   });
 
   it("allows an authenticated leader to complete on behalf of a worker session", async () => {
