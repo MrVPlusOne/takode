@@ -16,6 +16,7 @@ export interface ToolMsgGroup {
   toolName: string;
   items: ToolItem[];
   firstId: string;
+  mixedToolNames?: boolean;
 }
 
 export interface SubagentGroup {
@@ -55,12 +56,17 @@ function filterHiddenToolUseBlocks(msg: ChatMessage): ChatMessage | null {
   return { ...msg, contentBlocks: filtered };
 }
 
-/**
- * Get the dominant tool name if this message is "tool-only"
- * (assistant message whose contentBlocks are ALL tool_use of the same name).
- * Returns null if it has text/thinking or mixed tool types.
- */
-function getToolOnlyName(msg: ChatMessage, anchoredNotificationMessageIds?: ReadonlySet<string>): string | null {
+interface ToolOnlyGroup {
+  toolName: string;
+  items: ToolItem[];
+  mixedToolNames: boolean;
+}
+
+/** Extract a tool-only assistant message, including messages with mixed tool types. */
+function getToolOnlyGroup(
+  msg: ChatMessage,
+  anchoredNotificationMessageIds?: ReadonlySet<string>,
+): ToolOnlyGroup | null {
   if (msg.role !== "assistant") return null;
   if (msg.notification) return null;
   if (anchoredNotificationMessageIds?.has(msg.id)) return null;
@@ -70,26 +76,22 @@ function getToolOnlyName(msg: ChatMessage, anchoredNotificationMessageIds?: Read
   const blocks = msg.contentBlocks;
   if (!blocks || blocks.length === 0) return null;
 
-  let toolName: string | null = null;
+  const items: ToolItem[] = [];
   for (const b of blocks) {
     if (b.type === "text" && b.text.trim()) return null;
     if (b.type === "thinking") return null;
     if (b.type === "tool_use") {
-      if (toolName === null) toolName = b.name;
-      else if (toolName !== b.name) return null;
+      items.push({ id: b.id, name: b.name, input: b.input, messageId: msg.id });
+      continue;
     }
+    if (b.type !== "text") return null;
   }
-  return toolName;
-}
 
-function extractToolItems(msg: ChatMessage): ToolItem[] {
-  const blocks = msg.contentBlocks || [];
-  return blocks
-    .filter(
-      (b): b is ContentBlock & { type: "tool_use"; id: string; name: string; input: Record<string, unknown> } =>
-        b.type === "tool_use",
-    )
-    .map((b) => ({ id: b.id, name: b.name, input: b.input, messageId: msg.id }));
+  if (items.length === 0) return null;
+  const toolName = items[0].name;
+  const mixedToolNames = items.some((item) => item.name !== toolName);
+  if (mixedToolNames && items.some((item) => isSubagentToolName(item.name))) return null;
+  return { toolName, items, mixedToolNames };
 }
 
 /** Get Task tool_use IDs from a feed entry */
@@ -118,20 +120,27 @@ function groupToolMessages(messages: ChatMessage[], anchoredNotificationMessageI
   for (const originalMsg of messages) {
     const msg = filterHiddenToolUseBlocks(originalMsg);
     if (!msg) continue;
-    const toolName = getToolOnlyName(msg, anchoredNotificationMessageIds);
+    const toolGroup = getToolOnlyGroup(msg, anchoredNotificationMessageIds);
 
-    if (toolName) {
+    if (toolGroup) {
       const last = entries[entries.length - 1];
       // Never merge file-operation tools -- each gets its own standalone chip
-      if (!FILE_TOOL_NAMES.has(toolName) && last?.kind === "tool_msg_group" && last.toolName === toolName) {
-        last.items.push(...extractToolItems(msg));
+      if (
+        !toolGroup.mixedToolNames &&
+        !FILE_TOOL_NAMES.has(toolGroup.toolName) &&
+        last?.kind === "tool_msg_group" &&
+        !last.mixedToolNames &&
+        last.toolName === toolGroup.toolName
+      ) {
+        last.items.push(...toolGroup.items);
         continue;
       }
       entries.push({
         kind: "tool_msg_group",
-        toolName,
-        items: extractToolItems(msg),
+        toolName: toolGroup.toolName,
+        items: toolGroup.items,
         firstId: msg.id,
+        ...(toolGroup.mixedToolNames ? { mixedToolNames: true } : {}),
       });
     } else {
       entries.push({ kind: "message", msg });

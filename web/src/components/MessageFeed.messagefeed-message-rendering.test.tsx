@@ -541,10 +541,160 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.getByText("Read file, ran command")).toBeTruthy();
     expect(screen.queryByText("bun test")).toBeNull();
     expect(screen.getByText("Everything passes.")).toBeTruthy();
+    const compactRow = screen.getByTestId("compact-tool-activity").closest("[data-compact-tool-activity-row]");
+    expect(compactRow).toBeTruthy();
+    expect(compactRow?.querySelector(".rounded-full")).toBeNull();
+    expect(compactRow?.closest(".turn-container")?.className).toContain("sm:space-y-3");
 
     fireEvent.click(screen.getByRole("button", { name: /Show 2 tool calls/ }));
     expect(screen.getByText("bun test")).toBeTruthy();
     expect(screen.getByText("a.ts")).toBeTruthy();
+  });
+
+  it("merges a mixed tool message with the following tool-only message", () => {
+    // Codex can put Bash and Read blocks in one assistant payload, then emit another Read payload immediately after it.
+    const sid = "test-compact-mixed-tool-boundary";
+    mockStoreValues.compactToolActivity = true;
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Inspect the implementation" }),
+      makeMessage({
+        id: "tools-mixed",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "bash-1", name: "Bash", input: { command: "git status" } },
+          { type: "tool_use", id: "read-1", name: "Read", input: { file_path: "/src/a.ts" } },
+        ],
+      }),
+      makeMessage({
+        id: "tools-read",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "tool_use", id: "read-2", name: "Read", input: { file_path: "/src/b.ts" } }],
+      }),
+      makeMessage({ id: "a-final", role: "assistant", content: "Inspection complete." }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
+    expect(screen.getByText("Ran command, read files")).toBeTruthy();
+    expect(screen.queryByText("Read file")).toBeNull();
+  });
+
+  it("merges compact tools across feed entries that render no visible row", () => {
+    // Empty retained assistant payloads are not meaningful visual boundaries between adjacent tool activity.
+    const sid = "test-compact-tool-invisible-boundary";
+    mockStoreValues.compactToolActivity = true;
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Run the checks" }),
+      makeMessage({
+        id: "tools-bash",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "tool_use", id: "bash-1", name: "Bash", input: { command: "bun test" } }],
+      }),
+      makeMessage({ id: "empty-retained", role: "assistant", content: "" }),
+      makeMessage({
+        id: "tools-read",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "tool_use", id: "read-1", name: "Read", input: { file_path: "/src/a.ts" } }],
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
+    expect(screen.getByText("Ran command, read file")).toBeTruthy();
+  });
+
+  it("renders notification UI outside a compacted tool-only notify command", () => {
+    // Tool-only notify messages bypass MessageBubble, so the feed-level compact group must preserve the fallback panel.
+    const sid = "test-compact-tool-notification";
+    mockStoreValues.compactToolActivity = true;
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Tell me when it is ready" }),
+      makeMessage({
+        id: "notify-tool-message",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "notify-tool",
+            name: "Bash",
+            input: { command: 'takode notify review "Ready for review"' },
+          },
+        ],
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Ran command")).toBeTruthy();
+    expect(screen.queryByText('takode notify review "Ready for review"')).toBeNull();
+    expect(screen.getByText("Ready for review")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mark as reviewed" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Show 1 tool call/ }));
+    expect(screen.getAllByText("Ready for review")).toHaveLength(1);
+  });
+
+  it("collapses command runs on both sides of a visible thread transition", () => {
+    // Thread routing chips remain meaningful boundaries, but harmless notify-list calls inside each run still compact.
+    const sid = "test-compact-tools-around-thread-marker";
+    mockStoreValues.compactToolActivity = true;
+    const timestamp = 1_700_000_000_000;
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Inspect both thread segments", timestamp }),
+      makeMessage({
+        id: "tools-before",
+        role: "assistant",
+        content: "",
+        timestamp: timestamp + 1,
+        contentBlocks: [
+          { type: "tool_use", id: "notify-list", name: "Bash", input: { command: "takode notify list" } },
+          { type: "tool_use", id: "board-detail", name: "Bash", input: { command: "takode board detail q-1777" } },
+        ],
+      }),
+      makeMessage({
+        id: "thread-transition",
+        role: "system",
+        content: "",
+        timestamp: timestamp + 2,
+        metadata: {
+          threadTransitionMarker: {
+            type: "thread_transition_marker",
+            id: "thread-transition",
+            timestamp: timestamp + 2,
+            markerKey: "thread-transition:main->q-1777",
+            sourceThreadKey: "main",
+            threadKey: "q-1777",
+            questId: "q-1777",
+            transitionedAt: timestamp + 2,
+            reason: "route_switch",
+          },
+        },
+      }),
+      makeMessage({
+        id: "tools-after",
+        role: "assistant",
+        content: "",
+        timestamp: timestamp + 3,
+        contentBlocks: [
+          { type: "tool_use", id: "takode-list", name: "Bash", input: { command: "takode list" } },
+          { type: "tool_use", id: "quest-status", name: "Bash", input: { command: "quest status q-1777" } },
+        ],
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(2);
+    expect(screen.getAllByText("Ran 2 commands")).toHaveLength(2);
+    expect(screen.getByTestId("thread-transition-marker")).toBeTruthy();
+    expect(screen.queryByText("Terminal")).toBeNull();
   });
 
   it("renders user and assistant messages", () => {

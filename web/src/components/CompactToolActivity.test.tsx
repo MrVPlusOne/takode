@@ -20,6 +20,17 @@ describe("CompactToolActivity", () => {
     expect(summarizeToolActivity(MIXED_ACTIVITY)).toBe("Read files, ran command, searched for quietMode");
   });
 
+  it("includes the number of commands when a run contains several commands", () => {
+    // Counts make repeated command-only activity more informative without exposing individual previews.
+    expect(
+      summarizeToolActivity([
+        { id: "bash-1", name: "Bash", input: { command: "git status" } },
+        { id: "bash-2", name: "Bash", input: { command: "bun test" } },
+        { id: "bash-3", name: "Bash", input: { command: "git diff --check" } },
+      ]),
+    ).toBe("Ran 3 commands");
+  });
+
   it("keeps full tool details hidden until the summary is expanded", () => {
     // This verifies the core quiet-view contract: concise by default, with lossless details one click away.
     render(
@@ -36,8 +47,8 @@ describe("CompactToolActivity", () => {
     expect(screen.getByRole("button", { name: /Hide 4 tool calls/ }).getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("does not classify interactive or notification tools as passive activity", () => {
-    // Questions, plan review, and Takode notifications must remain visible because they can require user action.
+  it("keeps interactive tools visible while allowing notification commands to compact", () => {
+    // Notification panels render separately, so their underlying Bash command should remain passive tool activity.
     expect(isCompactToolActivityItem({ id: "ask", name: "AskUserQuestion", input: {} })).toBe(false);
     expect(isCompactToolActivityItem({ id: "plan", name: "ExitPlanMode", input: {} })).toBe(false);
     expect(
@@ -46,6 +57,6 @@ describe("CompactToolActivity", () => {
         name: "Bash",
         input: { command: "takode notify review --summary ready" },
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });

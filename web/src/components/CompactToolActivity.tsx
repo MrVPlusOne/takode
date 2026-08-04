@@ -25,8 +25,7 @@ export function isCompactToolActivityItem(item: CompactToolActivityItem): boolea
     return false;
   }
 
-  if (item.name !== "Bash") return true;
-  return !/(?:^|\s)takode\s+notify(?:\s|$)/.test(String(item.input.command ?? ""));
+  return true;
 }
 
 interface ActivityCategory {
@@ -78,7 +77,7 @@ function describeCategory(category: ActivityCategory): string {
   const count = category.items.length;
   const first = category.items[0];
   if (category.key === "read") return count === 1 ? "Read file" : "Read files";
-  if (category.key === "command") return count === 1 ? "Ran command" : "Ran commands";
+  if (category.key === "command") return count === 1 ? "Ran command" : `Ran ${count} commands`;
   if (category.key === "edit") return count === 1 ? "Edited file" : "Edited files";
   if (category.key === "image") return count === 1 ? "Viewed image" : "Viewed images";
   if (category.key === "tasks") return "Updated tasks";

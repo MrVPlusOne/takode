@@ -793,6 +793,39 @@ describe("sub-conclusions in collapsed turns", () => {
     expect(turn.responseEntry).toBeNull();
   });
 
+  it("keeps mixed tool-only assistant blocks in the feed grouping layer", () => {
+    // Mixed Bash/Read messages must not fall back to MessageBubble, or a following tool message cannot join the same run.
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "Inspect the files.", timestamp: 1 }),
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        timestamp: 2,
+        contentBlocks: [
+          { type: "tool_use", id: "tu-command", name: "Bash", input: { command: "git status" } },
+          { type: "tool_use", id: "tu-read-1", name: "Read", input: { file_path: "/a.ts" } },
+        ],
+      }),
+      makeMessage({
+        id: "a2",
+        role: "assistant",
+        content: "",
+        timestamp: 3,
+        contentBlocks: [{ type: "tool_use", id: "tu-read-2", name: "Read", input: { file_path: "/b.ts" } }],
+      }),
+    ];
+
+    const model = buildFeedModel(messages, false);
+
+    expect(model.entries.map((entry) => entry.kind)).toEqual(["message", "tool_msg_group", "tool_msg_group"]);
+    const mixedGroup = model.entries[1];
+    expect(mixedGroup?.kind).toBe("tool_msg_group");
+    if (mixedGroup?.kind !== "tool_msg_group") throw new Error("expected a mixed tool group");
+    expect(mixedGroup.mixedToolNames).toBe(true);
+    expect(mixedGroup.items.map((item) => item.name)).toEqual(["Bash", "Read"]);
+  });
+
   it("keeps a tool-only assistant message out of tool grouping when the store already has an anchored notification", () => {
     // q-568: during the lag window, the inbox notification can already be
     // anchored to the message before `msg.notification` lands on the assistant

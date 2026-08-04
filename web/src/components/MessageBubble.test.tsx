@@ -1384,6 +1384,29 @@ describe("MessageBubble - assistant messages", () => {
     expect(screen.getByText("Ready for review")).toBeTruthy();
   });
 
+  it("keeps notification UI visible outside a compacted notify command", () => {
+    // Compact mode hides the Bash chip, but the separately rendered notification panel must remain actionable.
+    useStore.setState({ compactToolActivity: true });
+    const msg = makeMessage({
+      id: "asst-compact-review-tool",
+      role: "assistant",
+      content: "",
+      contentBlocks: [
+        { type: "tool_use", id: "tu-compact-review", name: "Bash", input: { command: "takode notify review" } },
+      ],
+    });
+
+    render(<MessageBubble message={msg} sessionId="review-session" />);
+
+    expect(screen.getByText("Ran command")).toBeTruthy();
+    expect(screen.queryByText("takode notify review")).toBeNull();
+    expect(screen.getByText("Ready for review")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mark as reviewed" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Show 1 tool call/ }));
+    expect(screen.getAllByText("Ready for review")).toHaveLength(1);
+  });
+
   it("marks the matching review notification done from the in-message checkbox", async () => {
     const prevNotifications = useStore.getState().sessionNotifications;
     const initialNotifications = new Map(prevNotifications);

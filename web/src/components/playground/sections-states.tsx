@@ -31,8 +31,7 @@ import {
 import { PlaygroundSideChatStates } from "./SideChatPlaygroundStates.js";
 import { PlaygroundSidebarOverflowStates, PlaygroundUniversalSearchStates } from "./search-sidebar-states.js";
 import { PlaygroundUserMessageNavigatorSection } from "./PlaygroundUserMessageNavigatorSection.js";
-import { CompactToolActivity } from "../CompactToolActivity.js";
-import { ToolBlock } from "../ToolBlock.js";
+import { CompactToolMessageGroups } from "../ToolMessageGroup.js";
 import {
   Card,
   PlaygroundClaudeMdButton,
@@ -1054,26 +1053,25 @@ export function PlaygroundStateSections() {
         description="Compact mixed-tool activity and detailed same-tool groups, each expandable on demand"
       >
         <div className="space-y-4 max-w-3xl">
-          <Card label="Compact mixed activity (default chat view)">
-            <CompactToolActivity
-              items={[
-                { id: "compact-read", name: "Read", input: { file_path: "web/src/components/MessageFeed.tsx" } },
-                { id: "compact-bash", name: "Bash", input: { command: "bun --no-install run test" } },
-                { id: "compact-grep", name: "Grep", input: { pattern: "ToolMessageGroup", path: "web/src" } },
+          <Card label="Compact command activity without a message marker">
+            <CompactToolMessageGroups
+              groups={[
+                {
+                  kind: "tool_msg_group",
+                  toolName: "Bash",
+                  firstId: "compact-commands",
+                  items: [
+                    { id: "compact-notify-list", name: "Bash", input: { command: "takode notify list" } },
+                    { id: "compact-board", name: "Bash", input: { command: "takode board detail q-1777" } },
+                    { id: "compact-test", name: "Bash", input: { command: "bun --no-install run test" } },
+                  ],
+                },
               ]}
-            >
-              <ToolBlock
-                name="Read"
-                input={{ file_path: "web/src/components/MessageFeed.tsx" }}
-                toolUseId="compact-read"
-              />
-              <ToolBlock name="Bash" input={{ command: "bun --no-install run test" }} toolUseId="compact-bash" />
-              <ToolBlock
-                name="Grep"
-                input={{ pattern: "ToolMessageGroup", path: "web/src" }}
-                toolUseId="compact-grep"
-              />
-            </CompactToolActivity>
+              sessionId={MOCK_SESSION_ID}
+              isCodexSession={false}
+              activeCodexTerminalIds={new Set()}
+              onOpenCodexTerminal={() => {}}
+            />
           </Card>
           <Card label="Multi-item group (2 Terminal commands)">
             <PlaygroundToolGroup

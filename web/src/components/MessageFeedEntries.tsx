@@ -846,9 +846,16 @@ export const FeedEntries = memo(function FeedEntries({
         let j = i + 1;
         while (j < entries.length) {
           const candidate = entries[j];
-          if (candidate.kind !== "tool_msg_group" || !candidate.items.every(isCompactToolActivityItem)) break;
-          groups.push(candidate);
-          j++;
+          if (candidate.kind === "tool_msg_group" && candidate.items.every(isCompactToolActivityItem)) {
+            groups.push(candidate);
+            j++;
+            continue;
+          }
+          if (isInvisibleFeedEntry(candidate, suppressThreadSystemMarkers)) {
+            j++;
+            continue;
+          }
+          break;
         }
         result.push(
           <CompactToolMessageGroups
@@ -1798,7 +1805,7 @@ export const TurnEntries = memo(function TurnEntries({
                   <div
                     data-turn-id={turn.id}
                     data-feed-block-id={getTurnFeedBlockId(turn.id)}
-                    className="turn-container space-y-3 sm:space-y-5"
+                    className="turn-container space-y-2 sm:space-y-3"
                     data-user-turn={
                       isUserBoundaryEntry(turn.userEntry, userBoundarySourceSessionId) ? "true" : undefined
                     }

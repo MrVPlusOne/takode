@@ -1,10 +1,11 @@
 import { useState } from "react";
-import type { ToolMsgGroup } from "../hooks/use-feed-model.js";
+import type { ToolItem, ToolMsgGroup } from "../hooks/use-feed-model.js";
 import { CompactToolActivity } from "./CompactToolActivity.js";
 import { LiveCodexTerminalStub } from "./MessageFeedLiveActivity.js";
 import { getToolGroupFeedBlockId } from "./message-feed-utils.js";
+import { NotificationMarker } from "./NotificationMarker.js";
 import { PawTrailAvatar } from "./PawTrail.js";
-import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
+import { ToolBlock, getToolIcon, getToolLabel, parseTakodeNotifyCommand, ToolIcon } from "./ToolBlock.js";
 
 interface ToolMessageGroupProps {
   group: ToolMsgGroup;
@@ -12,6 +13,7 @@ interface ToolMessageGroupProps {
   isCodexSession: boolean;
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
+  suppressNotificationMarker?: boolean;
 }
 
 export function ToolMessageGroup(props: ToolMessageGroupProps) {
@@ -33,33 +35,35 @@ function ToolMessageGroupContent({
   isCodexSession,
   activeCodexTerminalIds,
   onOpenCodexTerminal,
+  suppressNotificationMarker,
 }: ToolMessageGroupProps) {
   const [open, setOpen] = useState(true);
   const iconType = getToolIcon(group.toolName);
   const label = getToolLabel(group.toolName);
   const count = group.items.length;
+  const itemProps = {
+    sessionId,
+    isCodexSession,
+    activeCodexTerminalIds,
+    onOpenCodexTerminal,
+    suppressNotificationMarker,
+  };
+
+  if (group.mixedToolNames) {
+    return (
+      <div className="flex flex-col gap-1.5" data-feed-block-id={getToolGroupFeedBlockId(group)}>
+        {group.items.map((item, index) => (
+          <ToolMessageItem key={item.id || index} item={item} {...itemProps} />
+        ))}
+      </div>
+    );
+  }
 
   if (count === 1) {
     const item = group.items[0];
-    const showLiveCodexTerminalStub = isCodexSession && item.name === "Bash" && activeCodexTerminalIds.has(item.id);
     return (
       <div data-feed-block-id={getToolGroupFeedBlockId(group)}>
-        {showLiveCodexTerminalStub ? (
-          <LiveCodexTerminalStub
-            sessionId={sessionId}
-            toolUseId={item.id}
-            input={item.input}
-            onInspect={() => onOpenCodexTerminal(item.id)}
-          />
-        ) : (
-          <ToolBlock
-            name={item.name}
-            input={item.input}
-            toolUseId={item.id}
-            sessionId={sessionId}
-            parentMessageId={item.messageId}
-          />
-        )}
+        <ToolMessageItem item={item} {...itemProps} />
       </div>
     );
   }
@@ -87,31 +91,54 @@ function ToolMessageGroupContent({
 
         {open && (
           <div className="border-t border-cc-border px-3 py-2 flex flex-col gap-1.5">
-            {group.items.map((item, index) =>
-              isCodexSession && item.name === "Bash" && activeCodexTerminalIds.has(item.id) ? (
-                <LiveCodexTerminalStub
-                  key={item.id || index}
-                  sessionId={sessionId}
-                  toolUseId={item.id}
-                  input={item.input}
-                  onInspect={() => onOpenCodexTerminal(item.id)}
-                />
-              ) : (
-                <ToolBlock
-                  key={item.id || index}
-                  name={item.name}
-                  input={item.input}
-                  toolUseId={item.id}
-                  sessionId={sessionId}
-                  parentMessageId={item.messageId}
-                  hideLabel={group.toolName === "Bash"}
-                />
-              ),
-            )}
+            {group.items.map((item, index) => (
+              <ToolMessageItem
+                key={item.id || index}
+                item={item}
+                sessionId={sessionId}
+                isCodexSession={isCodexSession}
+                activeCodexTerminalIds={activeCodexTerminalIds}
+                onOpenCodexTerminal={onOpenCodexTerminal}
+                hideLabel={group.toolName === "Bash"}
+              />
+            ))}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function ToolMessageItem({
+  item,
+  sessionId,
+  isCodexSession,
+  activeCodexTerminalIds,
+  onOpenCodexTerminal,
+  suppressNotificationMarker,
+  hideLabel = false,
+}: Omit<ToolMessageGroupProps, "group"> & { item: ToolItem; hideLabel?: boolean }) {
+  if (isCodexSession && item.name === "Bash" && activeCodexTerminalIds.has(item.id)) {
+    return (
+      <LiveCodexTerminalStub
+        sessionId={sessionId}
+        toolUseId={item.id}
+        input={item.input}
+        onInspect={() => onOpenCodexTerminal(item.id)}
+      />
+    );
+  }
+
+  return (
+    <ToolBlock
+      name={item.name}
+      input={item.input}
+      toolUseId={item.id}
+      sessionId={sessionId}
+      parentMessageId={item.messageId}
+      hideLabel={hideLabel}
+      suppressNotificationMarker={suppressNotificationMarker}
+    />
   );
 }
 
@@ -122,20 +149,31 @@ export function CompactToolMessageGroups({
   groups: ToolMsgGroup[];
 }) {
   const items = groups.flatMap((group) => group.items);
+  const inlineNotifications = items.flatMap((item) => {
+    if (item.name !== "Bash") return [];
+    const match = parseTakodeNotifyCommand(String(item.input.command ?? ""));
+    return match ? [{ ...match, messageId: item.messageId }] : [];
+  });
   return (
-    <div className="animate-[fadeSlideIn_0.2s_ease-out] flex items-start gap-2 sm:gap-3">
-      <PawTrailAvatar />
-      <div className="flex-1 min-w-0">
-        <CompactToolActivity
-          items={items}
-          sessionId={props.sessionId}
-          containedMessageIds={groups.map((group) => group.firstId)}
-        >
-          {groups.map((group) => (
-            <ToolMessageGroupContent key={group.firstId} group={group} {...props} />
-          ))}
-        </CompactToolActivity>
-      </div>
+    <div className="animate-[fadeSlideIn_0.2s_ease-out] min-w-0" data-compact-tool-activity-row>
+      <CompactToolActivity
+        items={items}
+        sessionId={props.sessionId}
+        containedMessageIds={groups.map((group) => group.firstId)}
+      >
+        {groups.map((group) => (
+          <ToolMessageGroupContent key={group.firstId} group={group} {...props} suppressNotificationMarker />
+        ))}
+      </CompactToolActivity>
+      {inlineNotifications.map((notification, index) => (
+        <div key={`${notification.messageId ?? "notify"}:${notification.category}:${index}`} className="mt-2">
+          <NotificationMarker
+            category={notification.category}
+            sessionId={props.sessionId}
+            messageId={notification.messageId}
+          />
+        </div>
+      ))}
     </div>
   );
 }

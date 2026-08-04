@@ -3,7 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { isSubagentToolName } from "../types.js";
 import { DiffViewer, formatFileHeaderPath } from "./DiffViewer.js";
 import { MarkdownContent } from "./MarkdownContent.js";
-import { NotificationMarker } from "./MessageBubble.js";
+import { NotificationMarker } from "./NotificationMarker.js";
 import { CodeCopyButton } from "./CodeCopyButton.js";
 import { Lightbox } from "./Lightbox.js";
 import { CollapseFooter } from "./CollapseFooter.js";
@@ -554,7 +554,7 @@ function stripLeadingEnvAssignments(command: string): string {
 }
 
 /** Parse `takode notify <category>` commands, extracting the notification category. */
-function parseTakodeNotifyCommand(command: string): { category: "needs-input" | "review" } | null {
+export function parseTakodeNotifyCommand(command: string): { category: "needs-input" | "review" } | null {
   const normalized = stripLeadingEnvAssignments(command);
   const match = normalized.match(/^takode\s+notify\s+(needs-input|review)(?=\s|$)/);
   if (!match) return null;

@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useCallback, useContext, useLayoutEffect, useEffect, memo } from "react";
 import type { ChatMessage, ContentBlock } from "../types.js";
 import { isSubagentToolName } from "../types.js";
-import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
+import { ToolBlock, getToolIcon, getToolLabel, parseTakodeNotifyCommand, ToolIcon } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { AssistantQuestQuizContent } from "./AssistantQuestQuizContent.js";
 import { HighlightedText } from "./HighlightedText.js";
@@ -1200,6 +1200,15 @@ function compactToolGroups(groups: GroupedBlock[]): RenderedGroupedBlock[] {
   return compacted;
 }
 
+function getInlineToolNotificationCategory(blocks: ContentBlock[]): "needs-input" | "review" | null {
+  for (const block of blocks) {
+    if (block.type !== "tool_use" || block.name !== "Bash") continue;
+    const match = parseTakodeNotifyCommand(String(block.input.command ?? ""));
+    if (match) return match.category;
+  }
+  return null;
+}
+
 function AssistantMessage({
   message,
   sessionId,
@@ -1237,7 +1246,9 @@ function AssistantMessage({
     return getSingleAnchoredNotification(s.sessionNotifications?.get(sessionId), message.id);
   });
   const resolvedNotification = message.notification ?? inboxAnchoredNotification;
-  const suppressToolNotificationMarker = !!resolvedNotification;
+  const compactInlineNotificationCategory =
+    compactToolActivity && !resolvedNotification ? getInlineToolNotificationCategory(blocks) : null;
+  const suppressToolNotificationMarker = !!resolvedNotification || !!compactInlineNotificationCategory;
   const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
   const starred = useFeedStarredMessage(sessionId, message);
   const starAction = useMessageStarActions(sessionId, message);
@@ -1400,6 +1411,15 @@ function AssistantMessage({
             category={resolvedNotification.category}
             summary={resolvedNotification.summary}
             notificationId={resolvedNotification.id}
+            sessionId={sessionId}
+            messageId={message.id}
+            currentThreadKey={currentThreadKey}
+            onSelectThread={onSelectThread}
+          />
+        )}
+        {compactInlineNotificationCategory && (
+          <NotificationMarker
+            category={compactInlineNotificationCategory}
             sessionId={sessionId}
             messageId={message.id}
             currentThreadKey={currentThreadKey}
