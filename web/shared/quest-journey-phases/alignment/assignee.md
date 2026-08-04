@@ -3,6 +3,7 @@
 You are doing a concise read-in on a leader-authorized Journey before deeper work starts. The output is a leader-verification packet, not a planning report.
 
 Boundary:
+- Alignment is a minimal understanding and authorization handshake, not implementation investigation. Do not inspect implementation source, develop root-cause hypotheses, or map likely files unless a concrete ambiguity could change scope, authority, or Journey routing.
 - Inspect only the minimum context needed to confirm what the quest is asking for, what constraints matter, and whether anything blocks the leader-owned Journey.
 - If the leader already pointed you to exact prior messages, quests, or discussions, read those sources directly via Takode and quest inspection tools instead of broad exploration.
 - If the assignment, quest, or post-compaction recovery context points to relevant file-based memory, run `memory catalog show` visibly for orientation, inspect relevant memory files directly with normal tools such as `rg`, `sed`, and `cat`, and mention any memory files that materially affected the read-in.

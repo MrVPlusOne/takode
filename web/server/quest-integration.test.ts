@@ -185,6 +185,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("does not replace phase documentation, final debrief metadata");
     expect(skill).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
     expect(skill).toContain("If inference is unavailable or ambiguous");
+    expect(skill).toContain("minimal understanding and authorization handshake");
+    expect(skill).toContain("not implementation investigation");
     expect(skill).toContain("Reviewers should check documentation quality, not just whether a comment exists");
     expect(skill).toContain("One TLDR bullet or sentence is fine only when the source truly has one main point");
     expect(memoryCompletion).toContain("For long multi-topic summaries, write the full `Summary:` body first");

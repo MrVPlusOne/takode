@@ -139,8 +139,14 @@ describe("Quest Journey v2 phase directory loading", () => {
     const memory = phases.find((phase) => phase.id === "memory")!;
 
     expect(alignment.assigneeBrief).toContain("leader-verification packet, not a planning report");
+    expect(alignment.assigneeBrief).toContain("minimal understanding and authorization handshake");
+    expect(alignment.assigneeBrief).toContain("not implementation investigation");
+    expect(alignment.leaderBrief).toContain("Do not convert the Alignment note into a Work prompt");
     expect(work.assigneeBrief).toContain("worker-owned Work -> Memory transition");
+    expect(work.assigneeBrief).toContain("Do not wait for the leader to restate the quest or prescribe an approach");
     expect(work.leaderBrief).toContain("separate quest with its own Alignment -> Work -> Memory flow");
+    expect(work.leaderBrief).toContain("Leader-only deltas: none");
+    expect(work.leaderBrief).not.toContain("Give the worker the exact approved scope");
     expect(checkpoint.leaderBrief).toContain("resume the same worker in `WORKING`");
     expect(checkpoint.leaderBrief).toContain("visible decision section before calling `takode notify`");
     expect(memory.assigneeBrief).toContain("exactly one memory statement");

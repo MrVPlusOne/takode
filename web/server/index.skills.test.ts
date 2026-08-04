@@ -211,6 +211,9 @@ describe("index startup skill registration", () => {
     expect(source).toContain("Send this only after authorization and board recording:");
     expect(source).not.toContain("Send this only after approval and board recording:");
     expect(source).toContain("Read this phase brief first:");
+    expect(source).toContain("default Work authorization is short");
+    expect(source).toContain("Leader-only deltas: none");
+    expect(source).toContain("Do not convert the worker-authored Alignment note into a Work prompt");
     expect(source).toContain("Provide only deltas the assignee cannot infer");
     expect(source).not.toContain("Memory command mechanics live in the relevant phase briefs");
 
@@ -220,9 +223,11 @@ describe("index startup skill registration", () => {
     expect(edgeCases).not.toContain("Read this reference only when");
 
     expect(phaseExamples).toContain("## Work");
+    expect(phaseExamples).toContain("Alignment approved. Proceed with Work");
+    expect(phaseExamples).toContain("Leader-only deltas: none");
+    expect(phaseExamples).toContain("When real leader-only deltas exist");
     expect(phaseExamples).toContain("## Memory");
     expect(phaseExamples).toContain("## Separate Review Quest");
-    expect(phaseExamples).toContain("Leader-specific deltas: <accepted refs");
     expect(phaseExamples).not.toContain("Read this reference only when");
 
     expect(worktreeRules).toContain("Do not silently narrow the gate to focused tests");

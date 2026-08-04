@@ -18,14 +18,20 @@ Leader-specific deltas: <exact prior messages, unusual boundary, memory files, o
 ## Work
 
 ```text
-Proceed with Work for [q-XX](quest:q-XX) inside the approved Alignment envelope.
+Alignment approved. Proceed with Work for [q-XX](quest:q-XX).
 
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/work/assignee.md`
 
-You own investigation, implementation, self-review, approved validation/execution, sync/push duties when authorized, and iterative fixes within the approved envelope. Keep one current Work note. If you need authority outside the envelope, stop for a User Checkpoint. When Work is complete, use `takode board work-to-memory q-XX --work-note <feedback-index>` only if the guard conditions are satisfied.
+Leader-only deltas: none.
+```
 
-Leader-specific deltas: <accepted refs, nonstandard verification, safety warning, exact source pointers, or preset checkpoint obligation>.
+When real leader-only deltas exist, keep them narrow:
+
+```text
+Leader-only deltas:
+- The user later rejected <option>.
+- [q-YY](quest:q-YY) is waiting on this result.
 ```
 
 ## User Checkpoint

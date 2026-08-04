@@ -11,6 +11,8 @@ Use this skill to decide where orchestration guidance belongs. Keep it as a plac
 
 Reusable workflow behavior belongs in reusable instructions. Leader handoffs should contain only context-dependent deltas that benefit from leader-specific knowledge.
 
+Leaders own user intent/corrections, cross-quest dependencies, scheduling, timers, external state, long-horizon obligations, safety, and authority decisions. Workers already own the quest record, attachments, linked sources, phase briefs, project guidance, their Alignment findings, and ordinary Work investigation. After Alignment, do not convert worker-authored findings into a second technical prompt.
+
 ## Placement Rubric
 
 | Guidance type | Put it here |
@@ -34,6 +36,7 @@ Leader-specific deltas:
 - A known stale live server, blocked resource lease, safety warning, or nonstandard validation plan.
 - The memory files or prior decisions the leader already inspected and found relevant.
 - Whether the assignee should complete the quest, draft final debrief metadata, route final Memory, or use compatibility Bookkeeping for targeted intermediate durable state.
+- A later user correction, cross-quest dependency, external-state change, scheduling constraint, or authority boundary that the worker cannot read from the quest, sources, phase briefs, or its own findings.
 
 ## Source-Of-Truth Check
 

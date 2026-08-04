@@ -281,7 +281,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Non-Memory phases should not add routine `memory update not needed` statements");
     expect(result).toContain("quest-backed updates should use `q-N`");
     expect(result).toContain("should not routinely add `commit:*` or `session:*` sources");
-    expect(result).toContain("provide only deltas the worker cannot infer");
+    expect(result).toContain("provide only leader-owned deltas the worker cannot infer");
+    expect(result).toContain("Leader context is a scarce long-horizon resource");
+    expect(result).toContain("Leader-only deltas: none");
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Escalate alignment back to the user only");
     expect(result).toContain("The worker may self-review");
@@ -334,6 +336,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Escalate alignment back to the user only");
     expect(result).toContain("Work is intentionally broader");
+    expect(result).toContain("do not synthesize a second technical prompt from the worker's findings");
     expect(result).toContain("worker-owned Work -> Memory transition");
     expect(result).toContain("delegate_task(task)");
     expect(result).toContain("inspectable forked transcript");
@@ -450,7 +453,9 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("worker-owned Work -> Memory");
     expect(result).toContain("final Memory's required memory statement");
     expect(result).toContain("If the actor's context was compacted during the phase");
-    expect(result).toContain("provide only deltas the worker cannot infer");
+    expect(result).toContain("provide only leader-owned deltas the worker cannot infer");
+    expect(result).toContain("Leader context is a scarce long-horizon resource");
+    expect(result).toContain("Leader-only deltas: none");
     expect(result).toContain("Work is intentionally broader");
     expect(result).toContain("Embedded review phases are not part of active Quest Journey v2");
     expect(result).toContain("Every completed non-cancelled quest ends in Memory");

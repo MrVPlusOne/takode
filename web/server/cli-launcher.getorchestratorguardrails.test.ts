@@ -437,6 +437,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("separate review quest");
     expect(guardrails).toContain("Every dispatched task follows Quest Journey v2");
     expect(guardrails).toContain("Work is intentionally broader");
+    expect(guardrails).toContain("Leader context is a scarce long-horizon resource");
+    expect(guardrails).toContain("Leader-only deltas: none");
     expect(guardrails).toContain("User Checkpoint is a durable pause state inside the same Work occurrence");
     expect(guardrails).toContain("self-contained packet with findings, named options, key tradeoffs");
     expect(guardrails).toContain("exact requested answer");
@@ -611,6 +613,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("write the authorized Journey to the board before or with dispatch");
     expect(guardrails).toContain("Follow the board-approved Quest Journey");
     expect(guardrails).toContain("Work is intentionally broader");
+    expect(guardrails).toContain("Leader context is a scarce long-horizon resource");
+    expect(guardrails).toContain("Leader-only deltas: none");
     expect(guardrails).toContain("USER_CHECKPOINTING");
     expect(guardrails).toContain("User Checkpoint");
     expect(guardrails).toContain("not a routine second user-approval gate");

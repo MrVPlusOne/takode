@@ -184,12 +184,14 @@ If prior memory may matter, use visible memory reads. Either inspect the relevan
 
 After Alignment, leaders own advancement. Treat the worker response as a compact leader-verification packet, not a planning document. Escalate to the user only for significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another real blocker. Otherwise advance to the next approved phase yourself.
 
+Do not convert the worker-authored Alignment note into a Work prompt. The worker already has the quest, source pointers, phase briefs, project guidance, and its own findings. After a clean Alignment, the default Work authorization is short: identify the Work phase brief and write `Leader-only deltas: none`. When real deltas exist, list only information that originates outside the worker's available context or changes user intent, authorization, dependencies, scheduling, safety, or external state.
+
 Every phase instruction must be phase-explicit:
 
 - Read the exact current phase leader brief yourself.
 - Include `Read this phase brief first:` and the exact assignee brief path from `takode phases`.
 - Authorize only the current v2 phase or checkpoint pause.
-- Provide only deltas the assignee cannot infer from the phase brief, quest record, current artifacts, or its own context: accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, exact prior messages, files or memory decisions already inspected, or explicit memory-writing assignment.
+- Provide only deltas the assignee cannot infer from the phase brief, quest record, current artifacts, or its own context: accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, exact prior messages, files or memory decisions already inspected, explicit memory-writing assignment, later user decisions, cross-quest dependencies, external-state changes, scheduling constraints, or authority boundaries.
 - Require phase documentation before reporting back.
 - Tell the assignee to keep the final chat handoff compact: point to the phase feedback index and include only the concise outcome/verdict plus urgent blockers, safety facts, or narrow phase-required exceptions.
 - Tell Alignment assignees to stop after the compact read-in.
