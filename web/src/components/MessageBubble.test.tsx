@@ -62,7 +62,12 @@ beforeEach(() => {
   writeClipboardTextMock.mockClear();
   starMessageMock.mockClear();
   unstarMessageMock.mockClear();
-  useStore.setState({ quests: [], questDetails: new Map(), questDetailEtags: new Map() });
+  useStore.setState({
+    quests: [],
+    questDetails: new Map(),
+    questDetailEtags: new Map(),
+    compactToolActivity: false,
+  });
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
     value: {
@@ -1893,6 +1898,46 @@ describe("MessageBubble - assistant messages", () => {
 // ─── groupContentBlocks behavior (tested indirectly through MessageBubble) ──
 
 describe("MessageBubble - content block grouping", () => {
+  it("collapses consecutive mixed tool blocks while leaving assistant text visible", () => {
+    // Compact mode should affect only the tool run between prose blocks, never the model's own explanation.
+    useStore.setState({ compactToolActivity: true });
+    const msg = makeMessage({
+      role: "assistant",
+      content: "",
+      contentBlocks: [
+        { type: "text", text: "I will inspect the implementation." },
+        { type: "tool_use", id: "tu-read", name: "Read", input: { file_path: "/a.ts" } },
+        { type: "tool_use", id: "tu-bash", name: "Bash", input: { command: "bun test" } },
+        { type: "tool_use", id: "tu-grep", name: "Grep", input: { pattern: "compact", path: "src" } },
+        { type: "text", text: "The focused tests pass." },
+      ],
+    });
+    render(<MessageBubble message={msg} />);
+
+    expect(screen.getByText("I will inspect the implementation.")).toBeTruthy();
+    expect(screen.getByText("The focused tests pass.")).toBeTruthy();
+    expect(screen.getByText("Read file, ran command, searched for compact")).toBeTruthy();
+    expect(screen.queryByText("bun test")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Show 3 tool calls/ }));
+    expect(screen.getByText("bun test")).toBeTruthy();
+    expect(screen.getByText("a.ts")).toBeTruthy();
+  });
+
+  it("keeps interactive tools visible in compact mode", () => {
+    // User-input tools are intentionally excluded from passive activity summaries.
+    useStore.setState({ compactToolActivity: true });
+    const msg = makeMessage({
+      role: "assistant",
+      content: "",
+      contentBlocks: [{ type: "tool_use", id: "tu-ask", name: "AskUserQuestion", input: { question: "Continue?" } }],
+    });
+    render(<MessageBubble message={msg} />);
+
+    expect(screen.queryByTestId("compact-tool-activity")).toBeNull();
+    expect(screen.getAllByText("Question").length).toBeGreaterThan(0);
+  });
+
   it("renders file-tool blocks as standalone chips without grouping", () => {
     // Edit/Write/Read tools are never grouped -- each gets its own standalone chip
     const msg = makeMessage({

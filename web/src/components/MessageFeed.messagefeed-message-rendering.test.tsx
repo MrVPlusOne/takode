@@ -103,6 +103,7 @@ vi.mock("../store.js", () => {
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
       sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
+      compactToolActivity: mockStoreValues.compactToolActivity ?? false,
     };
     return selector(state);
   };
@@ -428,6 +429,7 @@ function resetStore() {
   mockStoreValues.pendingCodexInputs = new Map();
   mockStoreValues.activeTaskTurnId = new Map();
   mockStoreValues.sdkSessions = [];
+  mockStoreValues.compactToolActivity = false;
 }
 
 /** Set explicit overrides for turn activity expansion per session.
@@ -512,6 +514,39 @@ function makeDomRect(height: number, width = 0): DOMRect {
 }
 
 describe("MessageFeed - message rendering", () => {
+  it("batches consecutive tool-only messages into one compact activity row", () => {
+    // Separate protocol messages should still read as one lightweight run until the user asks for details.
+    const sid = "test-compact-tool-run";
+    mockStoreValues.compactToolActivity = true;
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Inspect and verify" }),
+      makeMessage({
+        id: "tools-read",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "tool_use", id: "read-1", name: "Read", input: { file_path: "/src/a.ts" } }],
+      }),
+      makeMessage({
+        id: "tools-bash",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "tool_use", id: "bash-1", name: "Bash", input: { command: "bun test" } }],
+      }),
+      makeMessage({ id: "a-final", role: "assistant", content: "Everything passes." }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
+    expect(screen.getByText("Read file, ran command")).toBeTruthy();
+    expect(screen.queryByText("bun test")).toBeNull();
+    expect(screen.getByText("Everything passes.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Show 2 tool calls/ }));
+    expect(screen.getByText("bun test")).toBeTruthy();
+    expect(screen.getByText("a.ts")).toBeTruthy();
+  });
+
   it("renders user and assistant messages", () => {
     const sid = "test-render-msgs";
     setStoreMessages(sid, [

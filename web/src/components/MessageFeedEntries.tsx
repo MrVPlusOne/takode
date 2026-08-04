@@ -47,6 +47,8 @@ import { AttentionLedgerRow } from "./AttentionLedgerRow.js";
 import { isAttentionLedgerMessage } from "../utils/attention-records.js";
 import { DelegateTrace, extractDelegateId, useDelegateCommandTrace } from "./DelegateCommandTrace.js";
 import { parseSubagentResultText, SubagentResult } from "./SubagentResult.js";
+import { isCompactToolActivityItem } from "./CompactToolActivity.js";
+import { CompactToolMessageGroups, ToolMessageGroup } from "./ToolMessageGroup.js";
 
 function useExpandForScrollTarget(
   sessionId: string,
@@ -810,110 +812,6 @@ function formatThreadLabel(threadKey: string): string {
   return threadKey === "main" ? "Main" : `thread:${threadKey}`;
 }
 
-function ToolMessageGroup({
-  group,
-  sessionId,
-  isCodexSession,
-  activeCodexTerminalIds,
-  onOpenCodexTerminal,
-}: {
-  group: ToolMsgGroup;
-  sessionId: string;
-  isCodexSession: boolean;
-  activeCodexTerminalIds: Set<string>;
-  onOpenCodexTerminal: (toolUseId: string) => void;
-}) {
-  const [open, setOpen] = useState(true);
-  const iconType = getToolIcon(group.toolName);
-  const label = getToolLabel(group.toolName);
-  const count = group.items.length;
-
-  if (count === 1) {
-    const item = group.items[0];
-    const showLiveCodexTerminalStub = isCodexSession && item.name === "Bash" && activeCodexTerminalIds.has(item.id);
-    return (
-      <div className="animate-[fadeSlideIn_0.2s_ease-out]" data-feed-block-id={getToolGroupFeedBlockId(group)}>
-        <div className="flex items-start gap-2 sm:gap-3">
-          <PawTrailAvatar />
-          <div className="flex-1 min-w-0">
-            {showLiveCodexTerminalStub ? (
-              <LiveCodexTerminalStub
-                sessionId={sessionId}
-                toolUseId={item.id}
-                input={item.input}
-                onInspect={() => onOpenCodexTerminal(item.id)}
-              />
-            ) : (
-              <ToolBlock
-                name={item.name}
-                input={item.input}
-                toolUseId={item.id}
-                sessionId={sessionId}
-                parentMessageId={item.messageId}
-              />
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="animate-[fadeSlideIn_0.2s_ease-out]" data-feed-block-id={getToolGroupFeedBlockId(group)}>
-      <div className="flex items-start gap-2 sm:gap-3">
-        <PawTrailAvatar />
-        <div className="flex-1 min-w-0">
-          <div className="border border-cc-border rounded-[10px] overflow-hidden bg-cc-card">
-            <button
-              onClick={() => setOpen(!open)}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-cc-hover transition-colors cursor-pointer"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                className={`w-3 h-3 text-cc-muted transition-transform shrink-0 ${open ? "rotate-90" : ""}`}
-              >
-                <path d="M6 4l4 4-4 4" />
-              </svg>
-              <ToolIcon type={iconType} />
-              <span className="text-xs font-medium text-cc-fg">{label}</span>
-              <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 tabular-nums font-medium">
-                {count}
-              </span>
-            </button>
-
-            {open && (
-              <div className="border-t border-cc-border px-3 py-2 flex flex-col gap-1.5">
-                {group.items.map((item, i) =>
-                  isCodexSession && item.name === "Bash" && activeCodexTerminalIds.has(item.id) ? (
-                    <LiveCodexTerminalStub
-                      key={item.id || i}
-                      sessionId={sessionId}
-                      toolUseId={item.id}
-                      input={item.input}
-                      onInspect={() => onOpenCodexTerminal(item.id)}
-                    />
-                  ) : (
-                    <ToolBlock
-                      key={item.id || i}
-                      name={item.name}
-                      input={item.input}
-                      toolUseId={item.id}
-                      sessionId={sessionId}
-                      parentMessageId={item.messageId}
-                      hideLabel={group.toolName === "Bash"}
-                    />
-                  ),
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export const FeedEntries = memo(function FeedEntries({
   entries,
   sessionId,
@@ -935,6 +833,7 @@ export const FeedEntries = memo(function FeedEntries({
   onSelectThread?: (threadKey: string) => void;
   suppressThreadSystemMarkers?: boolean;
 }) {
+  const compactToolActivity = useStore((state) => state.compactToolActivity);
   const rendered = useMemo(() => {
     const result: React.ReactNode[] = [];
     let i = 0;
@@ -942,6 +841,28 @@ export const FeedEntries = memo(function FeedEntries({
     // `i` to a larger cursor, or returning. A skipped row must not spin render.
     while (i < entries.length) {
       const entry = entries[i];
+      if (compactToolActivity && entry.kind === "tool_msg_group" && entry.items.every(isCompactToolActivityItem)) {
+        const groups: ToolMsgGroup[] = [entry];
+        let j = i + 1;
+        while (j < entries.length) {
+          const candidate = entries[j];
+          if (candidate.kind !== "tool_msg_group" || !candidate.items.every(isCompactToolActivityItem)) break;
+          groups.push(candidate);
+          j++;
+        }
+        result.push(
+          <CompactToolMessageGroups
+            key={`compact-tools:${entry.firstId}`}
+            groups={groups}
+            sessionId={sessionId}
+            isCodexSession={isCodexSession}
+            activeCodexTerminalIds={activeCodexTerminalIds}
+            onOpenCodexTerminal={onOpenCodexTerminal}
+          />,
+        );
+        i = j;
+        continue;
+      }
       if (isApprovalEntry(entry)) {
         const batch: ChatMessage[] = [entry.msg];
         let j = i + 1;
@@ -1123,6 +1044,7 @@ export const FeedEntries = memo(function FeedEntries({
     return result;
   }, [
     activeCodexTerminalIds,
+    compactToolActivity,
     entries,
     isCodexSession,
     currentThreadKey,

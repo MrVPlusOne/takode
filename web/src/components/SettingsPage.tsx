@@ -73,6 +73,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const setNotificationDesktop = useStore((s) => s.setNotificationDesktop);
   const showUsageBars = useStore((s) => s.showUsageBars);
   const toggleShowUsageBars = useStore((s) => s.toggleShowUsageBars);
+  const compactToolActivity = useStore((s) => s.compactToolActivity);
+  const toggleCompactToolActivity = useStore((s) => s.toggleCompactToolActivity);
   const setChatMessageLineHeight = useStore((s) => s.setChatMessageLineHeight);
   const shortcutSettings = useStore((s) => s.shortcutSettings);
   const setShortcutsEnabled = useStore((s) => s.setShortcutsEnabled);
@@ -817,6 +819,16 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               >
                 <span>Expand Edit/Write Blocks</span>
                 <span className="text-xs text-cc-muted">{editBlocksExpanded ? "On" : "Off"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={toggleCompactToolActivity}
+                hidden={settingsSearch.rowHidden("appearance", "compact-tool-activity")}
+                title="Collapse consecutive tool calls into a concise summary that expands to the full details"
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+              >
+                <span>Compact Tool Activity</span>
+                <span className="text-xs text-cc-muted">{compactToolActivity ? "On" : "Off"}</span>
               </button>
               <div
                 hidden={settingsSearch.rowHidden("appearance", "chat-line-height")}

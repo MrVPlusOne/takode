@@ -38,6 +38,7 @@ import { shouldShowCompactGuidance } from "../utils/assistant-message-guidance.j
 import { isStarActionableMessage } from "../utils/starred-messages.js";
 import { useMessageStarActions } from "./use-message-star-actions.js";
 import { CodexAutoPauseRecoverySummary } from "./CodexAutoPauseRecoverySummary.js";
+import { CompactToolActivity, isCompactToolActivityItem, type CompactToolActivityItem } from "./CompactToolActivity.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
 
@@ -1137,6 +1138,10 @@ type GroupedBlock =
   | { kind: "content"; block: ContentBlock }
   | { kind: "tool_group"; name: string; items: ToolGroupItem[] };
 
+type RenderedGroupedBlock =
+  | GroupedBlock
+  | { kind: "tool_activity"; groups: Array<Extract<GroupedBlock, { kind: "tool_group" }>>; items: ToolGroupItem[] };
+
 function groupContentBlocks(blocks: ContentBlock[]): GroupedBlock[] {
   const groups: GroupedBlock[] = [];
 
@@ -1168,6 +1173,33 @@ function groupContentBlocks(blocks: ContentBlock[]): GroupedBlock[] {
   return groups;
 }
 
+function compactToolGroups(groups: GroupedBlock[]): RenderedGroupedBlock[] {
+  const compacted: RenderedGroupedBlock[] = [];
+  let index = 0;
+
+  while (index < groups.length) {
+    const group = groups[index];
+    if (group.kind !== "tool_group" || !group.items.every(isCompactToolActivityItem)) {
+      compacted.push(group);
+      index++;
+      continue;
+    }
+
+    const activityGroups: Array<Extract<GroupedBlock, { kind: "tool_group" }>> = [];
+    const items: ToolGroupItem[] = [];
+    while (index < groups.length) {
+      const candidate = groups[index];
+      if (candidate.kind !== "tool_group" || !candidate.items.every(isCompactToolActivityItem)) break;
+      activityGroups.push(candidate);
+      items.push(...candidate.items);
+      index++;
+    }
+    compacted.push({ kind: "tool_activity", groups: activityGroups, items });
+  }
+
+  return compacted;
+}
+
 function AssistantMessage({
   message,
   sessionId,
@@ -1192,6 +1224,11 @@ function AssistantMessage({
   );
 
   const grouped = useMemo(() => groupContentBlocks(blocks), [blocks]);
+  const compactToolActivity = useStore((state) => state.compactToolActivity);
+  const renderedGroups = useMemo(
+    () => (compactToolActivity ? compactToolGroups(grouped) : grouped),
+    [compactToolActivity, grouped],
+  );
   const hasTextBlock = blocks.some((b) => b.type === "text" && b.text.trim().length > 0);
   const hasThinkingBlock = blocks.some((b) => b.type === "thinking" && b.thinking.trim().length > 0);
   const shouldRenderContentFallback = message.content.trim().length > 0 && !hasTextBlock && !hasThinkingBlock;
@@ -1214,7 +1251,7 @@ function AssistantMessage({
   const hasTextContent = message.content || blocks.some((b) => b.type === "text" || b.type === "thinking");
   const firstContentGroupIndex = shouldRenderContentFallback
     ? -1
-    : grouped.findIndex((group) => group.kind === "content");
+    : renderedGroups.findIndex((group) => group.kind === "content");
   const showRailMarker = starred || !hidePaw;
   const unstarFromRail = starAction.actionable && starAction.starred ? starAction.toggleStarred : undefined;
 
@@ -1293,7 +1330,7 @@ function AssistantMessage({
             />
           </div>
         )}
-        {grouped.map((group, i) => {
+        {renderedGroups.map((group, i) => {
           if (group.kind === "content") {
             const renderedBlock = (
               <ContentBlockRenderer
@@ -1323,29 +1360,32 @@ function AssistantMessage({
             }
             return renderedBlock;
           }
-          // Single tool_use renders as before
-          if (group.items.length === 1) {
-            const item = group.items[0];
+          if (group.kind === "tool_activity") {
             return (
-              <ToolBlock
+              <CompactToolActivity
                 key={i}
-                name={item.name}
-                input={item.input}
-                toolUseId={item.id}
+                items={group.items as CompactToolActivityItem[]}
                 sessionId={sessionId}
-                parentMessageId={message.id}
-                suppressNotificationMarker={suppressToolNotificationMarker}
-                currentThreadKey={currentThreadKey}
-                onSelectThread={onSelectThread}
-              />
+                containedMessageIds={[message.id]}
+              >
+                {group.groups.map((detailGroup, detailIndex) => (
+                  <DetailedToolGroup
+                    key={`${detailGroup.items[0]?.id ?? detailIndex}`}
+                    group={detailGroup}
+                    sessionId={sessionId}
+                    parentMessageId={message.id}
+                    suppressNotificationMarker={suppressToolNotificationMarker}
+                    currentThreadKey={currentThreadKey}
+                    onSelectThread={onSelectThread}
+                  />
+                ))}
+              </CompactToolActivity>
             );
           }
-          // Grouped tool_uses
           return (
-            <ToolGroupBlock
+            <DetailedToolGroup
               key={i}
-              name={group.name}
-              items={group.items}
+              group={group}
               sessionId={sessionId}
               parentMessageId={message.id}
               suppressNotificationMarker={suppressToolNotificationMarker}
@@ -1370,6 +1410,50 @@ function AssistantMessage({
         {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
       </div>
     </div>
+  );
+}
+
+function DetailedToolGroup({
+  group,
+  sessionId,
+  parentMessageId,
+  suppressNotificationMarker,
+  currentThreadKey,
+  onSelectThread,
+}: {
+  group: Extract<GroupedBlock, { kind: "tool_group" }>;
+  sessionId?: string;
+  parentMessageId?: string;
+  suppressNotificationMarker: boolean;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  if (group.items.length === 1) {
+    const item = group.items[0];
+    return (
+      <ToolBlock
+        name={item.name}
+        input={item.input}
+        toolUseId={item.id}
+        sessionId={sessionId}
+        parentMessageId={parentMessageId}
+        suppressNotificationMarker={suppressNotificationMarker}
+        currentThreadKey={currentThreadKey}
+        onSelectThread={onSelectThread}
+      />
+    );
+  }
+
+  return (
+    <ToolGroupBlock
+      name={group.name}
+      items={group.items}
+      sessionId={sessionId}
+      parentMessageId={parentMessageId}
+      suppressNotificationMarker={suppressNotificationMarker}
+      currentThreadKey={currentThreadKey}
+      onSelectThread={onSelectThread}
+    />
   );
 }
 

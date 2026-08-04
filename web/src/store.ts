@@ -252,6 +252,8 @@ export const useStore = create<AppState>((set, get) => ({
   notificationSound: getInitialNotificationSound(),
   notificationDesktop: getInitialNotificationDesktop(),
   showUsageBars: typeof window !== "undefined" ? scopedGetItem("cc-show-usage") !== "false" : true,
+  compactToolActivity:
+    typeof window !== "undefined" ? localStorage.getItem("cc-compact-tool-activity") !== "false" : true,
   chatMessageLineHeight: getInitialChatMessageLineHeight(),
   shortcutSettings: getInitialShortcutSettings(),
   sidebarOpen: typeof window !== "undefined" ? isDesktopShellLayout(getInitialZoomLevel()) : true,
@@ -377,6 +379,16 @@ export const useStore = create<AppState>((set, get) => ({
       const next = !s.showUsageBars;
       scopedSetItem("cc-show-usage", String(next));
       return { showUsageBars: next };
+    }),
+  setCompactToolActivity: (v) => {
+    localStorage.setItem("cc-compact-tool-activity", String(v));
+    set({ compactToolActivity: v });
+  },
+  toggleCompactToolActivity: () =>
+    set((state) => {
+      const next = !state.compactToolActivity;
+      localStorage.setItem("cc-compact-tool-activity", String(next));
+      return { compactToolActivity: next };
     }),
   setChatMessageLineHeight: (lineHeight) => set({ chatMessageLineHeight: normalizeChatMessageLineHeight(lineHeight) }),
   setShortcutsEnabled: (enabled) =>
@@ -1883,6 +1895,8 @@ export const useStore = create<AppState>((set, get) => ({
       activeTab: "chat" as const,
       diffPanelSelectedFile: new Map(),
       feedScrollPosition: new Map(),
+      compactToolActivity:
+        typeof window !== "undefined" ? localStorage.getItem("cc-compact-tool-activity") !== "false" : true,
       chatMessageLineHeight: getInitialChatMessageLineHeight(),
       shortcutSettings: DEFAULT_SHORTCUT_SETTINGS,
       composerDrafts: new Map(),

@@ -170,6 +170,7 @@ export interface AppState {
   notificationSound: boolean;
   notificationDesktop: boolean;
   showUsageBars: boolean;
+  compactToolActivity: boolean;
   chatMessageLineHeight: number;
   shortcutSettings: import("./shortcuts.js").ShortcutSettings;
   sidebarOpen: boolean;
@@ -209,6 +210,8 @@ export interface AppState {
   toggleNotificationDesktop: () => void;
   setShowUsageBars: (v: boolean) => void;
   toggleShowUsageBars: () => void;
+  setCompactToolActivity: (v: boolean) => void;
+  toggleCompactToolActivity: () => void;
   setChatMessageLineHeight: (lineHeight: number) => void;
   setShortcutsEnabled: (enabled: boolean) => void;
   setShortcutPreset: (preset: import("./shortcuts.js").ShortcutPresetId) => void;

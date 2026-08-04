@@ -1196,6 +1196,15 @@ describe("recentlyRenamed", () => {
 // ─── UI state ───────────────────────────────────────────────────────────────
 
 describe("UI state", () => {
+  it("toggleCompactToolActivity: persists the global chat display preference", () => {
+    // Tool density is a browser display preference, so it should apply across server profiles without mutating sessions.
+    useStore.getState().setCompactToolActivity(true);
+    useStore.getState().toggleCompactToolActivity();
+
+    expect(useStore.getState().compactToolActivity).toBe(false);
+    expect(localStorage.getItem("cc-compact-tool-activity")).toBe("false");
+  });
+
   it("setColorTheme: updates colorTheme, darkMode, and persists to localStorage", () => {
     useStore.getState().setColorTheme("vscode-dark");
 

@@ -10,6 +10,7 @@ interface MockStoreState {
   notificationSound: boolean;
   notificationDesktop: boolean;
   showUsageBars: boolean;
+  compactToolActivity: boolean;
   chatMessageLineHeight: number;
   shortcutSettings: {
     enabled: boolean;
@@ -24,6 +25,7 @@ interface MockStoreState {
   toggleNotificationSound: ReturnType<typeof vi.fn>;
   setNotificationDesktop: ReturnType<typeof vi.fn>;
   toggleShowUsageBars: ReturnType<typeof vi.fn>;
+  toggleCompactToolActivity: ReturnType<typeof vi.fn>;
   setChatMessageLineHeight: ReturnType<typeof vi.fn>;
   setShortcutsEnabled: ReturnType<typeof vi.fn>;
   setShortcutPreset: ReturnType<typeof vi.fn>;
@@ -42,6 +44,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     notificationSound: true,
     notificationDesktop: false,
     showUsageBars: false,
+    compactToolActivity: true,
     chatMessageLineHeight: 1.45,
     shortcutSettings: {
       enabled: false,
@@ -56,6 +59,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     toggleNotificationSound: vi.fn(),
     setNotificationDesktop: vi.fn(),
     toggleShowUsageBars: vi.fn(),
+    toggleCompactToolActivity: vi.fn(),
     setChatMessageLineHeight: vi.fn(),
     setShortcutsEnabled: vi.fn(),
     setShortcutPreset: vi.fn(),
@@ -1252,6 +1256,21 @@ describe("SettingsPage", () => {
     expect(appearanceSection).toBeVisible();
     expect(within(appearanceSection).getByLabelText("Chat Message Line Height")).toBeVisible();
     expect(settingsSection("Notifications")).not.toBeVisible();
+  });
+
+  it("exposes compact tool activity as the searchable quiet-view preference", async () => {
+    // The user-facing setting should be discoverable by the informal mode name and wire to the local display action.
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "quiet mode" } });
+
+    const appearanceSection = settingsSection("Appearance & Display");
+    const toggle = within(appearanceSection).getByRole("button", { name: /Compact Tool Activity/ });
+    expect(toggle).toBeVisible();
+    expect(within(toggle).getByText("On")).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(mockState.toggleCompactToolActivity).toHaveBeenCalledTimes(1);
   });
 
   it("exposes Codex leader mode without restoring legacy budget controls", async () => {
