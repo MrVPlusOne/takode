@@ -33,13 +33,6 @@ interface PhaseItem {
   durationUnavailable?: boolean;
 }
 
-interface LegacyMigrationItem {
-  key: string;
-  label: string;
-  note?: string;
-  durationLabel?: string;
-}
-
 const MUTED_DOT_CLASS = "border-cc-muted/35 bg-cc-muted/15";
 const MUTED_LABEL_CLASS = "text-cc-muted/65";
 const VERTICAL_JOURNEY_PHASES_BEFORE = 5;
@@ -137,30 +130,6 @@ function phasePurposeClassName(item: PhaseItem, kind: "authored"): string {
   if (item.state === "completed") return "text-cc-muted/65";
   if (item.state === "proposed") return "text-cc-fg/90";
   return "text-cc-fg/85";
-}
-
-function getLegacyMigrationItems(journey: QuestJourneyPlanState): LegacyMigrationItem[] {
-  return (journey.v2Migration?.legacyPhases ?? []).flatMap((record) => {
-    if (!record.note && !record.timing) return [];
-    const phaseLabel = record.phaseId
-      ? (getQuestJourneyPhase(record.phaseId)?.label ?? record.phaseId)
-      : (record.rawPhaseId ?? "Unknown legacy phase");
-    const occurrenceSuffix = record.phaseOccurrence > 1 ? ` #${record.phaseOccurrence}` : "";
-    const durationLabel =
-      record.timing?.startedAt && record.timing.endedAt
-        ? formatQuestJourneyDuration(record.timing.endedAt - record.timing.startedAt)
-        : record.timing?.startedAt
-          ? "open"
-          : undefined;
-    return [
-      {
-        key: `${record.index}:${record.rawPhaseId ?? record.phaseId ?? "unknown"}`,
-        label: `${record.phasePosition}. ${phaseLabel}${occurrenceSuffix}`,
-        ...(record.note ? { note: record.note } : {}),
-        ...(durationLabel ? { durationLabel } : {}),
-      },
-    ];
-  });
 }
 
 function journeyTimelineLabel(mode: JourneyPresentationMode): string {
@@ -354,7 +323,6 @@ function VerticalJourney({
       : unavailableDurationCount > 0
         ? "Duration unavailable"
         : undefined;
-  const legacyItems = getLegacyMigrationItems(journey);
   return (
     <div
       className={`min-w-0 max-w-full overflow-hidden rounded-md border border-cc-border bg-cc-hover/20 p-2 ${className ?? ""}`.trim()}
@@ -470,24 +438,6 @@ function VerticalJourney({
           );
         })}
       </ol>
-      {legacyItems.length > 0 && (
-        <div className="mt-2 min-w-0 border-t border-cc-border/60 pt-2" data-testid="quest-journey-legacy-history">
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">
-            Legacy v1 History
-          </div>
-          <ol className="space-y-1">
-            {legacyItems.map((item) => (
-              <li key={item.key} className="min-w-0 text-[10px] leading-snug text-cc-muted">
-                <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
-                  <span className="shrink-0 font-medium text-cc-muted/90">{item.label}</span>
-                  {item.durationLabel && <span className="shrink-0 text-cc-muted/70">{item.durationLabel}</span>}
-                </div>
-                {item.note && <div className="mt-0.5 break-words [overflow-wrap:anywhere]">{item.note}</div>}
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
     </div>
   );
 }

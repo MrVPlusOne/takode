@@ -284,7 +284,7 @@ System-interrupted worker \`turn_end\` herd events are actionable but not always
 
 ## Quest Journey
 
-Every dispatched task follows Quest Journey v2: \`alignment -> work -> memory\`. User Checkpoint is a durable pause state inside the same Work occurrence, not a separate default handoff. The work board (\`takode board show\`) tracks proposed or active Journeys, current state, worker state, wait-for state, and next required action in compact routine output. Use \`takode board show --full\` for full-board Journey paths and authored phase notes, or \`takode board detail q-N\` for one quest's full Journey, notes, migration metadata, timing history, and revision metadata.
+Every dispatched task follows Quest Journey v2: \`alignment -> work -> memory\`. User Checkpoint is a durable pause state inside the same Work occurrence, not a separate default handoff. The work board (\`takode board show\`) tracks proposed or active Journeys, current state, worker state, wait-for state, and next required action in compact routine output. Use \`takode board show --full\` for full-board Journey paths and authored phase notes, or \`takode board detail q-N\` for one quest's full Journey, notes, legacy compatibility labels, timing history, and revision metadata.
 
 \`PROPOSED\` and \`QUEUED\` are pre-phase board states. Use natural prose for the normal lightweight approval surface when not using a proposed row, then make the approved Journey durable on the board before or with dispatch using \`takode board set --worker ... --phases alignment,work,memory\`. When an approval-hold proposed row is useful, use \`takode board propose --summary ...\` as the approval surface and later promote it with \`takode board promote ...\`.
 
@@ -315,7 +315,7 @@ ${renderBuiltInQuestJourneyPhaseTable()}
 - If independent review is genuinely needed, create a separate review quest instead of embedding a reviewer phase.
 - For investigation, design, or zero-tracked-change quests, Work still produces the accepted artifact or finding and final Memory still closes durable state.
 
-Read \`quest-journey.md\` from the \`takode-orchestration\` skill for full v2 transition details, Work autonomy, User Checkpoint pause/resume, worker-owned Work -> Memory, Memory closure, and startup migration behavior.
+Read \`quest-journey.md\` from the \`takode-orchestration\` skill for full v2 transition details, Work autonomy, User Checkpoint pause/resume, worker-owned Work -> Memory, Memory closure, and legacy-row compatibility behavior.
 
 ## Worker Selection
 

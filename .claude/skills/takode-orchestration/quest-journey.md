@@ -6,7 +6,7 @@ Quest Journey v2 has one active workflow:
 
 `user-checkpoint` is a durable pause state for decisions inside the same Work occurrence. It is not a separate default phase handoff and does not create a new worker. Legacy v1 phase IDs such as `explore`, `implement`, `code-review`, `execute`, `outcome-review`, `port`, and `bookkeeping` are historical-read compatibility only. Do not dispatch or propose them for new active work.
 
-The work board (`takode board show`) tracks proposed rows, queued rows, active state, worker assignment, human-input waits, timing, and next action. Use `takode board show --full` for full board inspection and `takode board detail q-N` for one row's Journey, notes, migration metadata, and timing history.
+The work board (`takode board show`) tracks proposed rows, queued rows, active state, worker assignment, human-input waits, timing, and next action. Use `takode board show --full` for full board inspection and `takode board detail q-N` for one row's Journey, notes, legacy compatibility labels, and timing history.
 
 ## Active Phase Catalog
 
@@ -83,18 +83,11 @@ takode board work-to-memory q-12 --work-note 3
 
 Use `takode board propose --summary ... --phases alignment,work,memory` when pre-dispatch approval should be durable on the board. Use `QUEUED --wait-for ...` only for pre-active scheduling/dependency waits. Use `--wait-for-input` only for active/proposed rows intentionally paused on a same-session needs-input notification.
 
-Legacy v1 phase IDs are rejected for new active rows and revisions. Completed historical runs, phase notes, and migration metadata remain readable.
+Legacy v1 phase IDs are rejected for new active rows and revisions. Existing persisted legacy rows, completed historical runs, phase notes, and timings remain readable exactly as stored so they can finish without a rewrite.
 
 ## Startup Cutover
 
-Server startup reseeds only v2 live phase directories, removes obsolete live v1 phase directories, installs/symlinks current skills, and idempotently migrates persisted active board rows:
-
-- Alignment/Planning -> Alignment.
-- User Checkpoint -> User Checkpoint pause over Work.
-- Memory -> Memory.
-- Explore/Implement/Code Review/Mental Simulation/Execute/Outcome Review/Port/Bookkeeping -> Work.
-
-Migration preserves legacy phase history in row migration metadata and appends v2 context instead of rewriting historical Questmaster runs or feedback. Rows with reviewer-only or no safe worker are queued for leader attention instead of guessing.
+Server startup reseeds only v2 live phase directories, removes obsolete live v1 phase directories, and installs/symlinks current skills. It does not rewrite persisted board rows merely to adopt v2. Existing legacy rows finish through compatibility readers; new rows use v2 only.
 
 Existing sessions adopt v2 only after server restart plus relaunch/recycle with regenerated injected instructions. Rereading a phase file alone is not enough.
 

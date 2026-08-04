@@ -352,7 +352,7 @@ describe("takode board output modes", () => {
     }
   });
 
-  it("shows migrated legacy notes separately from active v2 notes in board detail", async () => {
+  it("shows existing legacy row notes and timings under their stored phase labels in board detail", async () => {
     const server = createServer((req, res) => {
       const method = req.method || "";
       const url = req.url || "";
@@ -374,46 +374,16 @@ describe("takode board output modes", () => {
             board: [
               {
                 questId: "q-77",
-                title: "Migrated board row",
-                status: "WORKING",
+                title: "Legacy board row",
+                status: "PORTING",
                 createdAt: 1,
                 updatedAt: 2,
                 journey: {
-                  phaseIds: ["alignment", "work", "memory"],
-                  activePhaseIndex: 1,
-                  currentPhaseId: "work",
-                  phaseNotes: { "1": "Active v2 Work migration summary" },
-                  phaseTimings: { "1": { startedAt: 9000 } },
-                  v2Migration: {
-                    version: 2,
-                    migratedAt: 9000,
-                    fromPhaseIds: ["alignment", "implement", "code-review", "port", "memory"],
-                    legacyPhases: [
-                      {
-                        index: 2,
-                        phasePosition: 3,
-                        phaseOccurrence: 1,
-                        phaseId: "code-review",
-                        note: "Old review note",
-                      },
-                      {
-                        index: 4,
-                        phasePosition: 5,
-                        phaseOccurrence: 1,
-                        rawPhaseId: "definitely-not-a-phase",
-                        diagnostic: "unknown or malformed legacy phase id",
-                        note: "Unknown legacy note",
-                      },
-                      {
-                        index: 3,
-                        phasePosition: 4,
-                        phaseOccurrence: 1,
-                        phaseId: "port",
-                        note: "Old port note",
-                        timing: { startedAt: 1000, endedAt: 2000 },
-                      },
-                    ],
-                  },
+                  phaseIds: ["alignment", "implement", "code-review", "port", "memory"],
+                  activePhaseIndex: 3,
+                  currentPhaseId: "port",
+                  phaseNotes: { "2": "Old review note", "3": "Old port note", "4": "Old memory note" },
+                  phaseTimings: { "3": { startedAt: 1000, endedAt: 2000 } },
                 },
               },
             ],
@@ -439,13 +409,15 @@ describe("takode board output modes", () => {
       });
 
       expect(detail.status).toBe(0);
-      expect(detail.stdout).toContain("note[2] Work: Active v2 Work migration summary");
-      expect(detail.stdout).toContain("legacy note[3] Code Review: Old review note");
-      expect(detail.stdout).toContain("legacy note[4] Port: Old port note");
-      expect(detail.stdout).toContain("legacy note[5] definitely-not-a-phase: Unknown legacy note");
-      expect(detail.stdout).toContain("legacy phase[4] Port:");
-      expect(detail.stdout).not.toContain("note[3] Memory: Old review note");
-      expect(detail.stdout).not.toContain("legacy note[5] Memory: Unknown legacy note");
+      expect(detail.stdout).toContain(
+        "journey: 1. Alignment -> 2. Implement -> 3. Code Review -> [4. Port] -> 5. Memory",
+      );
+      expect(detail.stdout).toContain("note[3] Code Review: Old review note");
+      expect(detail.stdout).toContain("note[4] Port: Old port note");
+      expect(detail.stdout).toContain("note[5] Memory: Old memory note");
+      expect(detail.stdout).toContain("phase[4] Port:");
+      expect(detail.stdout).not.toContain("legacy note");
+      expect(detail.stdout).not.toContain("Active v2 Work migration summary");
     } finally {
       server.close();
     }

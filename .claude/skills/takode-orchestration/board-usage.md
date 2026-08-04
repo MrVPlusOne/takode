@@ -70,7 +70,7 @@ takode board set q-12 --status WORKING --clear-wait-for-input
 - Memory normally stays with the same worker and completes the quest after durable closure.
 - Independent review is a separate quest, not an embedded board phase.
 - Do not create or revise rows with legacy v1 phase IDs such as `implement`, `code-review`, `port`, or `execute`.
-- Use `takode board show --full` for full board inspection and `takode board detail q-N` for one row's timing, notes, migration metadata, and revision details.
+- Use `takode board show --full` for full board inspection and `takode board detail q-N` for one row's timing, notes, legacy compatibility labels, and revision details.
 - Do not restate current board rows in chat after updating the board; the UI already shows them live.
 
 ## Work To Memory Guard
@@ -81,4 +81,4 @@ Leaders can still inspect or intervene, but routine Work completion should not r
 
 ## Historical Rows
 
-Startup migration maps old active rows to v2 and records the legacy state in migration metadata. Historical Quest Detail timelines and old phase notes remain readable. If a row is paused because the old assignment was reviewer-only or no safe worker was available, inspect the row and assign a real worker before continuing.
+Existing legacy rows are preserved as stored for compatibility: their phase IDs, notes, timings, statuses, and ownership remain readable and can finish their recorded Journey. New or materially revised rows must use active v2 phases only.

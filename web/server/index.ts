@@ -67,7 +67,6 @@ import * as envManager from "./env-manager.js";
 import { ensureQuestmasterIntegration } from "./quest-integration.js";
 import { ensureTakodeIntegration } from "./takode-integration.js";
 import { ensureBuiltInQuestJourneyPhaseData } from "./quest-journey-phases.js";
-import { migrateQuestJourneyV2BoardRows } from "./quest-journey-v2-migration.js";
 import { ensureSkillSymlinks } from "./skill-symlink.js";
 import { runPreListenStartupReadiness } from "./startup-readiness.js";
 import { recreateWorktreeIfMissing } from "./migration.js";
@@ -237,19 +236,6 @@ await runPreListenStartupReadiness(
 );
 await launcher.restoreFromDisk();
 await wsBridge.restoreFromDisk();
-{
-  const migration = migrateQuestJourneyV2BoardRows(bridgeAny.sessions.values(), {
-    getSessionInfo: (sessionId) => launcher.getSession(sessionId),
-    persistSession: (session) => wsBridge.persistSessionSync(session.id),
-  });
-  if (migration.migratedRows.length > 0) {
-    serverLog.info("Migrated Quest Journey board rows to v2", {
-      migratedRows: migration.migratedRows.length,
-      pausedRows: migration.pausedRows.length,
-      changedSessions: migration.changedSessions.length,
-    });
-  }
-}
 projectModelProvenanceMigrationFamilies(launcher, wsBridge, modelProvenanceMigrationAcknowledgementStore);
 {
   const defaultMemorySessionSpaceSlug = normalizeMemorySessionSpaceSlug(launcher.getMemorySessionSpaceSlug());

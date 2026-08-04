@@ -275,20 +275,6 @@ describe("QuestDetailPanel", () => {
                   "1": "",
                   "2": "Prepare durable closure after Work",
                 },
-                v2Migration: {
-                  version: 2,
-                  migratedAt: 10_000,
-                  fromPhaseIds: ["alignment", "implement", "code-review", "port", "memory"],
-                  legacyPhases: [
-                    {
-                      index: 2,
-                      phasePosition: 3,
-                      phaseOccurrence: 1,
-                      phaseId: "code-review",
-                      note: "Legacy Code Review note remains historical",
-                    },
-                  ],
-                },
               },
             },
           ],
@@ -313,9 +299,7 @@ describe("QuestDetailPanel", () => {
     expect(within(timeline).getByText("Alignment").closest("li")).toHaveAttribute("data-phase-state", "completed");
     expect(within(timeline).queryByText(/Make approved code, docs/)).not.toBeInTheDocument();
     expect(within(timeline).queryAllByTestId("quest-journey-phase-purpose")).toHaveLength(2);
-    expect(within(timeline).getByTestId("quest-journey-legacy-history")).toHaveTextContent(
-      "Legacy Code Review note remains historical",
-    );
+    expect(within(timeline).queryByTestId("quest-journey-legacy-history")).toBeNull();
     expect(within(timeline).getByText("current")).toBeInTheDocument();
     expect(within(timeline).getByText("Memory").closest("li")).toHaveAttribute("data-phase-color", "cyan");
     expect(screen.getByTestId("quest-detail-journey-section").parentElement).toHaveClass("overflow-y-auto");

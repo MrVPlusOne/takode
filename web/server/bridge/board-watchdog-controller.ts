@@ -9,6 +9,7 @@ import {
   isQuestJourneyOptionalUserCheckpoint,
   isQuestWaitForBlockingState,
   normalizeQuestJourneyPlan,
+  normalizeKnownQuestJourneyPhaseIds,
   normalizeQuestJourneyPhaseIds,
   type BoardQueueWarning,
   type QuestJourneyPhaseId,
@@ -306,7 +307,7 @@ export function buildBoardCompletionSummary(rows: BoardRow[]): string {
 }
 
 function getBoardRowPhaseIds(row: Pick<BoardRow, "journey" | "noCode">): QuestJourneyPhaseId[] {
-  const explicitPhaseIds = normalizeQuestJourneyPhaseIds(row.journey?.phaseIds);
+  const explicitPhaseIds = normalizeKnownQuestJourneyPhaseIds(row.journey?.phaseIds);
   if (explicitPhaseIds.length > 0) return explicitPhaseIds;
   return row.noCode === true ? [...LEGACY_NO_CODE_COMPAT_PHASE_IDS] : [...DEFAULT_QUEST_JOURNEY_PHASE_IDS];
 }
@@ -343,7 +344,10 @@ function hasBoardJourneyPhasePlanRevision(
   incoming: BoardRow["journey"] | undefined,
 ): boolean {
   if (!existing || !incoming?.phaseIds) return false;
-  return normalizeQuestJourneyPhaseIds(incoming.phaseIds).join("\0") !== (existing.phaseIds ?? []).join("\0");
+  return (
+    normalizeQuestJourneyPhaseIds(incoming.phaseIds).join("\0") !==
+    normalizeKnownQuestJourneyPhaseIds(existing.phaseIds).join("\0")
+  );
 }
 
 function getTimedBoardJourneyPhaseIndex(

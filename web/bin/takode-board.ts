@@ -347,17 +347,6 @@ function formatBoardPhaseNoteLines(row: BoardRow): string[] {
   return entries;
 }
 
-function formatBoardLegacyMigrationNoteLines(row: BoardRow): string[] {
-  return (row.journey?.v2Migration?.legacyPhases ?? []).flatMap((record) => {
-    if (!record.note) return [];
-    const phaseLabel = record.phaseId
-      ? (getQuestJourneyPhase(record.phaseId)?.label ?? record.phaseId)
-      : (record.rawPhaseId ?? "Unknown");
-    const occurrence = record.phaseOccurrence > 1 ? ` occurrence ${record.phaseOccurrence}` : "";
-    return [`legacy note[${record.phasePosition}] ${phaseLabel}${occurrence}: ${record.note}`];
-  });
-}
-
 function formatBoardPhaseSkipReasonLines(row: BoardRow): string[] {
   const entries = Object.entries(row.journey?.phaseSkipReasons ?? {})
     .map(([rawIndex, reason]) => {
@@ -473,19 +462,6 @@ function formatBoardPhaseTimingLines(row: BoardRow): string[] {
     .filter((line): line is string => line !== null);
 }
 
-function formatBoardLegacyMigrationTimingLines(row: BoardRow): string[] {
-  return (row.journey?.v2Migration?.legacyPhases ?? []).flatMap((record) => {
-    if (!record.timing) return [];
-    const phaseLabel = record.phaseId
-      ? (getQuestJourneyPhase(record.phaseId)?.label ?? record.phaseId)
-      : (record.rawPhaseId ?? "Unknown");
-    const occurrence = record.phaseOccurrence > 1 ? ` occurrence ${record.phaseOccurrence}` : "";
-    const started = record.timing.startedAt ? formatTimestampCompact(record.timing.startedAt) : "not started";
-    const ended = record.timing.endedAt ? formatTimestampCompact(record.timing.endedAt) : "open";
-    return [`legacy phase[${record.phasePosition}] ${phaseLabel}${occurrence}: ${started} -> ${ended}`];
-  });
-}
-
 function printBoardDetailText(
   row: BoardRow,
   opts?: {
@@ -504,10 +480,8 @@ function printBoardDetailText(
   });
   const journeyPathLine = formatBoardJourneyPathLine(row);
   const noteLines = formatBoardPhaseNoteLines(row);
-  const legacyNoteLines = formatBoardLegacyMigrationNoteLines(row);
   const skipLines = formatBoardPhaseSkipReasonLines(row);
   const timingLines = formatBoardPhaseTimingLines(row);
-  const legacyTimingLines = formatBoardLegacyMigrationTimingLines(row);
   const rowStatus = opts?.rowSessionStatuses?.[row.questId];
 
   console.log(`${row.questId} -- ${row.title || "(untitled)"}`);
@@ -520,10 +494,6 @@ function printBoardDetailText(
     console.log("notes:");
     for (const line of noteLines) console.log(`  ${line}`);
   }
-  if (legacyNoteLines.length > 0) {
-    console.log("legacy notes:");
-    for (const line of legacyNoteLines) console.log(`  ${line}`);
-  }
   if (skipLines.length > 0) {
     console.log("skips:");
     for (const line of skipLines) console.log(`  ${line}`);
@@ -531,10 +501,6 @@ function printBoardDetailText(
   if (timingLines.length > 0) {
     console.log("history:");
     for (const line of timingLines) console.log(`  ${line}`);
-  }
-  if (legacyTimingLines.length > 0) {
-    console.log("legacy history:");
-    for (const line of legacyTimingLines) console.log(`  ${line}`);
   }
   if (row.journey?.revisionCount || row.journey?.revisionReason || row.journey?.revisedAt) {
     console.log("revision:");

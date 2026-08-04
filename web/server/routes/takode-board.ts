@@ -13,6 +13,7 @@ import {
   isQuestJourneyOptionalUserCheckpoint,
   isValidQuestId,
   isValidWaitForRef,
+  normalizeKnownQuestJourneyPhaseIds,
   normalizeQuestJourneyPhaseIds,
   normalizeQuestJourneyPlan,
   rebaseQuestJourneyPhaseNotes,
@@ -576,7 +577,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       if (!existingRow || existingRow.status?.trim().toUpperCase() !== "PROPOSED") {
         return c.json({ error: "Presenting a Journey requires an existing proposed Journey row." }, 400);
       }
-      const existingPhaseIds = normalizeQuestJourneyPhaseIds(existingRow.journey?.phaseIds ?? []);
+      const existingPhaseIds = normalizeKnownQuestJourneyPhaseIds(existingRow.journey?.phaseIds ?? []);
       if (existingRow.journey?.mode !== "proposed" || existingPhaseIds.length === 0) {
         return c.json({ error: "Presenting a Journey requires an existing proposed Journey row with phases." }, 400);
       }
@@ -678,7 +679,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
 
     let typedPhaseIds: QuestJourneyPhaseId[] | undefined;
-    const existingPhaseIds = normalizeQuestJourneyPhaseIds(existingJourney?.phaseIds ?? []);
+    const existingPhaseIds = normalizeKnownQuestJourneyPhaseIds(existingJourney?.phaseIds ?? []);
     if (existingJourney && Array.isArray(body.phases)) {
       return c.json(
         {
@@ -1202,7 +1203,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
         : undefined;
 
     const existingJourney = existingRow.journey;
-    const existingPhaseIds = normalizeQuestJourneyPhaseIds(existingJourney.phaseIds ?? []);
+    const existingPhaseIds = normalizeKnownQuestJourneyPhaseIds(existingJourney.phaseIds ?? []);
     const existingMode: QuestJourneyLifecycleMode =
       normalizeJourneyMode(existingJourney.mode) ??
       ((existingRow.status || "").trim().toUpperCase() === "PROPOSED" ? "proposed" : "active");
