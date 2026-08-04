@@ -19,7 +19,7 @@ Commands:
   reassign <id> --session <worker> --reason <text> [--json]
                                                          Leader-only audited ownership reassignment
   complete <id> [--items "c1,c2" | --items-file <path>|-] [--session <sid>] [--commit <sha>] [--commits "s1,s2"] [--memory-commit <sha>] [--memory-commits "s1,s2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]
-                                                         Mark done and submit optional User review checks
+                                                         Mark done; --force is owning-leader recovery only
   done   <id> [--notes "..." | --notes-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled] [--force --reason <text>] [--json]
                                                          Mark as done/cancelled
   cancel <id> [--notes "reason" | --notes-file <path>|-] [--force --reason <text>] [--json]
@@ -90,6 +90,7 @@ Safer rich-text input:
   quest edit q-2 --clear-follow-up-of
   quest claim q-1 --force --reason "board assigned this phase to me"
   quest reassign q-1 --session 42 --reason "stale previous worker"
+  quest complete q-1 --force --reason "worker archived after accepted Memory evidence"
   quest feedback q-1 --text-file note.md --tldr-file note-tldr.md
   quest quiz set q-1 --items-file quiz.json
   quest quiz show q-1

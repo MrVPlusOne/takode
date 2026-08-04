@@ -1,6 +1,7 @@
 import { getQuest } from "../server/quest-store.js";
 import type { QuestmasterTask } from "../server/quest-types.js";
 import { evaluateQuestStatusMutationGuard } from "../server/quest-status-guard.js";
+import { QUEST_LEADER_RECOVERY_WARNING_HEADER } from "../server/quest-recovery.js";
 
 export type QuestStatusMutationOverride = {
   force: boolean;
@@ -14,6 +15,7 @@ export type QuestStatusMutationDeps = {
   die: (message: string) => never;
   flag: (name: string) => boolean;
   option: (name: string) => string | undefined;
+  warn?: (message: string) => void;
 };
 
 export function parseQuestStatusMutationOverride(deps: QuestStatusMutationDeps): QuestStatusMutationOverride {
@@ -63,6 +65,8 @@ export async function postQuestStatusMutation(
       const err = await res.json().catch(() => ({ error: res.statusText }));
       deps.die((err as { error: string }).error || res.statusText);
     }
+    const warning = res.headers.get(QUEST_LEADER_RECOVERY_WARNING_HEADER);
+    if (warning) deps.warn?.(warning);
     return (await res.json()) as QuestmasterTask;
   } catch (e) {
     const error = e as Error;

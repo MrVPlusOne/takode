@@ -187,6 +187,7 @@ import * as serverLoggerModule from "./server-logger.js";
 import * as envManager from "./env-manager.js";
 import * as gitUtils from "./git-utils.js";
 import * as questStore from "./quest-store.js";
+import { QUEST_LEADER_RECOVERY_WARNING_HEADER } from "./quest-recovery.js";
 import { QUEST_TLDR_WARNING_HEADER } from "./quest-tldr.js";
 import * as sessionNames from "./session-names.js";
 import * as settingsManager from "./settings-manager.js";
@@ -708,6 +709,142 @@ describe("POST /api/quests/:questId/transition", () => {
       "q-1",
       expect.objectContaining({ status: "done", debrief: "Final outcome.", debriefTldr: "Final TLDR." }),
     );
+  });
+
+  it.each([
+    { label: "missing", workerSession: undefined, expectedWorkerState: { known: false } },
+    {
+      label: "archived",
+      workerSession: { sessionId: "worker-1", archived: true },
+      expectedWorkerState: { known: true, archived: true },
+    },
+  ])("allows owning-leader forced completion recovery for $label workers", async ({
+    workerSession,
+    expectedWorkerState,
+  }) => {
+    launcher.listSessions.mockReturnValue([{ sessionId: "leader-1", isOrchestrator: true }]);
+    launcher.getSession.mockImplementation((sessionId: string) => {
+      if (sessionId === "leader-1") return { sessionId, isOrchestrator: true };
+      if (sessionId === "worker-1") return workerSession;
+      return undefined;
+    });
+    bridge._sessions["leader-1"] = {
+      id: "leader-1",
+      board: new Map([
+        [
+          "q-1",
+          {
+            questId: "q-1",
+            title: "Quest",
+            worker: "worker-1",
+            status: "MEMORY",
+            journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 2 },
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        ],
+      ]),
+    };
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v2",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+      sessionId: "worker-1",
+      leaderSessionId: "leader-1",
+    } as any);
+    vi.spyOn(questStore, "completeQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "done",
+      createdAt: Date.now(),
+      description: "Ready",
+      verificationItems: [],
+      completedAt: Date.now(),
+      previousOwnerSessionIds: ["worker-1"],
+      leaderSessionId: "leader-1",
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/complete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-companion-session-id": "leader-1",
+        "x-companion-auth-token": "tok",
+      },
+      body: JSON.stringify({
+        verificationItems: [],
+        force: true,
+        reason: "worker unavailable after accepted Memory",
+        debrief: "Final outcome.",
+        debriefTldr: "Final TLDR.",
+        commitShas: ["abc1234"],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get(QUEST_LEADER_RECOVERY_WARNING_HEADER)).toContain("Leader recovery used by leader-1");
+    expect(questStore.completeQuest).toHaveBeenCalledWith(
+      "q-1",
+      [],
+      expect.objectContaining({
+        commitShas: ["abc1234"],
+        debrief: "Final outcome.",
+        debriefTldr: "Final TLDR.",
+        recoveryEvent: expect.objectContaining({
+          operation: "leader_complete",
+          actorSessionId: "leader-1",
+          reason: "worker unavailable after accepted Memory",
+          previousOwnerSessionId: "worker-1",
+          previousLeaderSessionId: "leader-1",
+          workerState: expect.objectContaining(expectedWorkerState),
+          boardRows: [expect.objectContaining({ leaderSessionId: "leader-1", status: "MEMORY" })],
+          bypassedChecks: expect.arrayContaining([
+            "v2 Memory completion guard and worker git/worktree checks were bypassed by owning-leader force",
+          ]),
+        }),
+      }),
+    );
+    expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1");
+  });
+
+  it("rejects non-leader forced completion recovery before mutation", async () => {
+    launcher.getSession.mockImplementation((sessionId: string) => ({
+      sessionId,
+      isOrchestrator: false,
+    }));
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v2",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+      sessionId: "worker-1",
+      leaderSessionId: "leader-1",
+    } as any);
+    const completeSpy = vi.spyOn(questStore, "completeQuest");
+
+    const res = await app.request("/api/quests/q-1/complete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-companion-session-id": "worker-2",
+        "x-companion-auth-token": "tok",
+      },
+      body: JSON.stringify({ verificationItems: [], force: true, reason: "take over" }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({
+      error: "Leader recovery requires the authenticated owning leader.",
+    });
+    expect(completeSpy).not.toHaveBeenCalled();
   });
 
   it("warns authenticated agents when final debrief TLDR includes likely raw commit bookkeeping", async () => {

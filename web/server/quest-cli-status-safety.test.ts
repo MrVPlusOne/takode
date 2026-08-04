@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
+import { QUEST_LEADER_RECOVERY_WARNING_HEADER } from "./quest-recovery.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -221,6 +222,83 @@ describe("quest CLI status safety", () => {
       });
     } finally {
       server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("prints compact server leader-recovery warnings for forced completion", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-complete-force-warning-http-"));
+    const authDir = getSessionAuthDir(tmp);
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
+    const server = createServer(async (req, res) => {
+      if (req.method === "GET" && req.url === "/api/quests/q-1") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "in_progress", sessionId: "worker-1" }));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/quests/q-1/complete") {
+        await readJson(req);
+        res.writeHead(200, {
+          "content-type": "application/json",
+          [QUEST_LEADER_RECOVERY_WARNING_HEADER]: "Leader recovery used by leader-1; audit recorded 2 checks.",
+        });
+        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "done", verificationItems: [] }));
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    writeFileSync(
+      authPath,
+      JSON.stringify({ sessionId: "leader-1", authToken: "file-token", port, serverId: "test-server-id" }),
+      "utf-8",
+    );
+
+    try {
+      const result = await runQuest(
+        ["complete", "q-1", "--force", "--reason", "worker unavailable"],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          COMPANION_PORT: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("Warning: Leader recovery used by leader-1");
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses local filesystem fallback for forced completion recovery", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-complete-force-local-refuse-"));
+
+    try {
+      const result = await runQuest(
+        ["complete", "q-1", "--force", "--reason", "worker unavailable"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: "leader-1",
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("quest complete --force requires Companion server auth");
+    } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
   });

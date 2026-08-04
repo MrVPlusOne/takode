@@ -1,5 +1,6 @@
 import type { QuestmasterTask } from "./quest-types.js";
 import { normalizeQuestQuizItems } from "./quest-quiz.js";
+import { normalizeQuestRecoveryEvents } from "./quest-recovery.js";
 import { normalizeQuestOwnership } from "./quest-store-helpers.js";
 import { normalizeQuestRelationships, stripDerivedQuestRelationships } from "./quest-relationships.js";
 
@@ -26,5 +27,8 @@ export function normalizeLiveQuest(quest: QuestmasterTask): QuestmasterTask {
   const quizItems = normalizeQuestQuizItems(normalized.quizItems);
   if (quizItems) normalized.quizItems = quizItems;
   else delete normalized.quizItems;
+  const recoveryEvents = normalizeQuestRecoveryEvents((normalized as { recoveryEvents?: unknown }).recoveryEvents);
+  if (recoveryEvents.length > 0) normalized.recoveryEvents = recoveryEvents;
+  else delete normalized.recoveryEvents;
   return normalized;
 }

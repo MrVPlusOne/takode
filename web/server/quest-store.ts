@@ -3,22 +3,23 @@ import { readdir, readFile, writeFile, unlink, mkdir, rm, stat, rename } from "n
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
-import type {
-  QuestmasterTask,
-  QuestCreateInput,
-  QuestPatchInput,
-  QuestTransitionInput,
-  QuestImage,
-  QuestVerificationItem,
-  QuestIdea,
-  QuestRefined,
-  QuestInProgress,
-  QuestDone,
-  QuestHistoryView,
-  QuestOwnershipEventDraft,
-  QuestStoreMigrationReport,
+import {
+  hasQuestReviewMetadata,
+  type QuestmasterTask,
+  type QuestCreateInput,
+  type QuestPatchInput,
+  type QuestTransitionInput,
+  type QuestImage,
+  type QuestVerificationItem,
+  type QuestIdea,
+  type QuestRefined,
+  type QuestInProgress,
+  type QuestDone,
+  type QuestHistoryView,
+  type QuestOwnershipEventDraft,
+  type QuestRecoveryEventDraft,
+  type QuestStoreMigrationReport,
 } from "./quest-types.js";
-import { hasQuestReviewMetadata } from "./quest-types.js";
 import { getName } from "./session-names.js";
 import { normalizeTldr } from "./quest-tldr.js";
 import { normalizeQuestQuizItems } from "./quest-quiz.js";
@@ -48,10 +49,10 @@ import {
 } from "./quest-relationships.js";
 import { applyQuestPatch } from "./quest-store-patch.js";
 import { appendOwnershipEvent, archivedOwnerTakeoverEvent } from "./quest-ownership.js";
+import { appendQuestRecoveryEvent } from "./quest-recovery.js";
 import { normalizeQuestSessionSpaceSlug } from "./quest-session-space.js";
 import { normalizeLiveQuest } from "./quest-store-normalize.js";
 import { assertSafeQuestmasterTestRoot, recordQuestStoreMutationBackup } from "./quest-backup-store.js";
-
 // ─── Paths ───────────────────────────────────────────────────────────────────
 
 const COMPANION_DIR = join(homedir(), ".companion");
@@ -1287,7 +1288,8 @@ function buildTransitionedQuest(
     !input.cancelled &&
     !(targetStatus === "done" && hasQuestReviewMetadata(current)) &&
     input.tldr === undefined &&
-    input.ownershipEvent === undefined
+    input.ownershipEvent === undefined &&
+    input.recoveryEvent === undefined
   ) {
     return current;
   }
@@ -1303,6 +1305,7 @@ function buildTransitionedQuest(
   const currentActiveSessionId = getActiveSessionId(current);
   const currentPreviousOwners = getPreviousOwnerSessionIds(current);
   const ownershipEvents = appendOwnershipEvent(current.ownershipEvents, input.ownershipEvent, now);
+  const recoveryEvents = appendQuestRecoveryEvent(current.recoveryEvents, input.recoveryEvent, now);
   const leaderSessionId = input.leaderSessionId?.trim() || getLeaderSessionId(current);
   const relationships =
     input.relationships !== undefined
@@ -1326,6 +1329,7 @@ function buildTransitionedQuest(
     ...(relationships ? { relationships } : {}),
     ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
     ...(ownershipEvents?.length ? { ownershipEvents } : {}),
+    ...(recoveryEvents?.length ? { recoveryEvents } : {}),
     ...(currentJourneyRuns?.length ? { journeyRuns: currentJourneyRuns } : {}),
     ...(quizItems ? { quizItems } : {}),
     ...(currentFeedback?.length ? { feedback: currentFeedback } : {}),
@@ -1765,6 +1769,7 @@ export async function completeQuest(
     sessionId?: string;
     debrief?: string;
     debriefTldr?: string;
+    recoveryEvent?: QuestRecoveryEventDraft;
   },
 ): Promise<QuestmasterTask | null> {
   return transitionQuest(questId, {
@@ -1776,6 +1781,7 @@ export async function completeQuest(
     ...(opts?.memoryCommitShas?.length ? { memoryCommitShas: opts.memoryCommitShas } : {}),
     ...(opts?.debrief !== undefined ? { debrief: opts.debrief } : {}),
     ...(opts?.debriefTldr !== undefined ? { debriefTldr: opts.debriefTldr } : {}),
+    ...(opts?.recoveryEvent ? { recoveryEvent: opts.recoveryEvent } : {}),
   });
 }
 

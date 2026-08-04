@@ -139,6 +139,7 @@ export interface QuestImage {
 }
 
 export type QuestOwnershipOperation = "force_claim" | "reassign" | "archived_owner_takeover";
+export type QuestRecoveryOperation = "leader_complete";
 
 export interface QuestOwnershipEvent {
   operation: QuestOwnershipOperation;
@@ -152,6 +153,48 @@ export interface QuestOwnershipEvent {
 }
 
 export type QuestOwnershipEventDraft = Omit<QuestOwnershipEvent, "ts">;
+
+export interface QuestRecoveryBoardSnapshot {
+  leaderSessionId: string;
+  status?: string;
+  workerSessionId?: string;
+  phaseIds?: QuestJourneyPhaseId[];
+  activePhaseIndex?: number;
+  waitForInputCount?: number;
+}
+
+export interface QuestRecoveryWorkerSnapshot {
+  sessionId: string;
+  known: boolean;
+  archived?: boolean;
+  hasBridgeSession?: boolean;
+  hasCwd?: boolean;
+  gitStatusKnown?: boolean;
+}
+
+export interface QuestRecoverySuppliedMetadata {
+  verificationItemCount: number;
+  commitShas: string[];
+  memoryCommitShas: string[];
+  hasDebrief: boolean;
+  hasDebriefTldr: boolean;
+}
+
+export interface QuestRecoveryEvent {
+  operation: QuestRecoveryOperation;
+  actorSessionId: string;
+  reason: string;
+  ts: number;
+  previousStatus: QuestStatus;
+  previousOwnerSessionId?: string;
+  previousLeaderSessionId?: string;
+  boardRows: QuestRecoveryBoardSnapshot[];
+  workerState?: QuestRecoveryWorkerSnapshot;
+  supplied: QuestRecoverySuppliedMetadata;
+  bypassedChecks: string[];
+}
+
+export type QuestRecoveryEventDraft = Omit<QuestRecoveryEvent, "ts">;
 
 // ─── Base fields shared by all stages ────────────────────────────────────────
 
@@ -185,6 +228,8 @@ interface QuestBase {
   previousOwnerSessionIds?: string[];
   /** Append-only audit trail for explicit or compatibility ownership takeovers. */
   ownershipEvents?: QuestOwnershipEvent[];
+  /** Append-only audit trail for explicit leader recovery escape hatches. */
+  recoveryEvents?: QuestRecoveryEvent[];
   /** Current/relevant orchestrating leader session for feedback routing, when known. */
   leaderSessionId?: string;
   /** Ordered synced commit SHAs associated with this quest's verification handoff. */
@@ -394,6 +439,8 @@ export interface QuestTransitionInput {
   leaderSessionId?: string;
   /** Optional ownership audit event to append when the active owner changes. */
   ownershipEvent?: QuestOwnershipEventDraft;
+  /** Optional leader recovery audit event to append for explicit escape hatches. */
+  recoveryEvent?: QuestRecoveryEventDraft;
   /** Human-review checklist. Accepts strings (normalized to {text, checked:false}) or full objects. */
   verificationItems?: (QuestVerificationItem | string)[];
   /** Ordered synced commit SHAs to attach at verification handoff. */

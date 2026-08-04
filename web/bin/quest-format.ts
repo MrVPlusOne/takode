@@ -1,4 +1,4 @@
-import type { QuestmasterTask, QuestOwnershipEvent } from "../server/quest-types.js";
+import type { QuestmasterTask, QuestOwnershipEvent, QuestRecoveryEvent } from "../server/quest-types.js";
 import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "../server/quest-types.js";
 import type { SessionMetadata } from "./quest-session-metadata.js";
 import { normalizeTldr } from "../server/quest-tldr.js";
@@ -181,6 +181,7 @@ function formatMetadataLines(
       lines.push(`  - ${formatOwnershipEvent(event, sessionMetadata, options)}`);
     }
   }
+  lines.push(...formatRecoveryEventLines(q, sessionMetadata, options));
   if ("claimedAt" in q) {
     lines.push(`Claimed:     ${timeAgo((q as { claimedAt: number }).claimedAt)}`);
   }
@@ -340,6 +341,25 @@ function formatOwnershipEvent(
   const next = formatSessionLabel(event.newOwnerSessionId, sessionMetadata, labelOptions);
   const actor = formatSessionLabel(event.actorSessionId, sessionMetadata, labelOptions);
   return `${event.operation} ${timeAgo(event.ts)}: ${previous} -> ${next} by ${actor}; reason: ${event.reason}`;
+}
+
+function formatRecoveryEventLines(
+  q: QuestmasterTask,
+  sessionMetadata: Map<string, SessionMetadata> | undefined,
+  options: FormatQuestOptions | undefined,
+): string[] {
+  const events = (q as { recoveryEvents?: QuestRecoveryEvent[] }).recoveryEvents;
+  if (!events?.length) return [];
+  return [
+    `Recovery:    ${events.length} event(s)`,
+    ...events.slice(-3).map((event) => {
+      const actor = formatSessionLabel(event.actorSessionId, sessionMetadata, { ...options, preferSessionNum: true });
+      return (
+        `  - ${event.operation} ${timeAgo(event.ts)} by ${actor}; ` +
+        `bypassed/unavailable checks: ${event.bypassedChecks.length}; reason: ${event.reason}`
+      );
+    }),
+  ];
 }
 
 export function formatSessionLabel(
@@ -519,6 +539,7 @@ function formatQuestDetailFull(
       lines.push(`  - ${formatOwnershipEvent(event, sessionMetadata, options)}`);
     }
   }
+  lines.push(...formatRecoveryEventLines(q, sessionMetadata, options));
   if ("claimedAt" in q) {
     lines.push(`Claimed:     ${timeAgo((q as { claimedAt: number }).claimedAt)}`);
   }

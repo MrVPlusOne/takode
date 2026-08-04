@@ -27,6 +27,14 @@ describe("quest skill ownership docs", () => {
     expect(docs).toContain("archived_owner_takeover");
   });
 
+  it("documents owning-leader completion recovery as an audited exception", () => {
+    const docs = readTemplate("quest-skill-docs.md");
+
+    expect(docs).toContain("Owning-leader completion recovery is a future escape hatch, not the nominal path");
+    expect(docs).toContain("Prefer ordinary worker completion or `quest reassign`");
+    expect(docs).toContain("records an explicit recovery audit event");
+  });
+
   it("documents Questmaster data safety for destructive helpers", () => {
     const docs = readTemplate("quest-skill-docs.md");
 

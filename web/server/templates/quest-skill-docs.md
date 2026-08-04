@@ -346,11 +346,13 @@ printf '%s\n' 'Port summary: commit abc123 ...' 'Treat `foo $(bar)` as literal t
 | `--debrief-file <path>` | Read final debrief text from a file, or use `-` to read from stdin |
 | `--debrief-tldr "..."` | Human-readable TLDR metadata for long final debriefs |
 | `--debrief-tldr-file <path>` | Read final debrief TLDR metadata from a file, or use `-` to read from stdin |
-| `--force` | Override the status-change ownership guard; requires `--reason` |
-| `--reason <text>` | Required with `--force`; explain why the caller is intentionally overriding the leader/owner guard |
+| `--force` | Owning-leader recovery escape hatch for exceptional completion when ordinary worker completion is impractical; requires `--reason` and Companion auth |
+| `--reason <text>` | Required with `--force`; explain why the owning leader is intentionally recovering the quest |
 | `--json` | Output JSON |
 
 Every completed non-cancelled quest must have both final debrief metadata and debrief TLDR metadata. A completion handoff that cannot provide both is incomplete: the owner should draft them before `quest complete` / `quest done`, ask the leader to supply them, or route final Memory to reconstruct them from accepted evidence. User review checks are optional; an empty list is normal when no user action remains.
+
+Owning-leader completion recovery is a future escape hatch, not the nominal path. Before `quest complete --force --reason ...`, leaders should inspect Work and Memory phase notes, feedback and User Checkpoints, review checks, final debrief metadata, code and memory commit metadata, and selected target sync state. Prefer ordinary worker completion or `quest reassign` when substantive Work or Memory remains. The server records an explicit recovery audit event with caller, reason, prior quest/board/worker state, supplied debrief and commit metadata, and bypassed or unavailable checks, and emits a compact warning.
 
 ### quest done <id> [flags]
 | Flag | Description |

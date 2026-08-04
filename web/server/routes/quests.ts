@@ -1,7 +1,12 @@
 import { Hono, type Context } from "hono";
 import { createHash } from "node:crypto";
 import * as questStore from "../quest-store.js";
-import type { QuestAutocompleteCandidate, QuestFeedbackEntry, QuestmasterTask } from "../quest-types.js";
+import type {
+  QuestAutocompleteCandidate,
+  QuestFeedbackEntry,
+  QuestRecoveryEventDraft,
+  QuestmasterTask,
+} from "../quest-types.js";
 import { hasQuestReviewMetadata } from "../quest-types.js";
 import {
   buildQuestListPreview,
@@ -29,6 +34,7 @@ import {
   type QuestBoardRowCandidate,
 } from "../quest-phase-docs.js";
 import { evaluateQuestStatusMutationGuard, getQuestStatusOwnerSessionIds } from "../quest-status-guard.js";
+import { formatLeaderRecoveryWarning, QUEST_LEADER_RECOVERY_WARNING_HEADER } from "../quest-recovery.js";
 import { getQuestSessionSpaceCandidates } from "../quest-session-space.js";
 import type { MemoryRepoOptions } from "../workstream-memory-types.js";
 import { refreshGitInfoPublic as refreshGitInfoPublicController } from "../bridge/session-git-state.js";
@@ -570,6 +576,97 @@ export function createQuestRoutes(ctx: RouteContext) {
   };
 
   const ownershipReason = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+
+  const buildLeaderCompletionRecoveryEvent = (
+    quest: QuestmasterTask,
+    auth: OptionalAuthResult,
+    body: {
+      force?: unknown;
+      reason?: unknown;
+      debrief?: unknown;
+      debriefTldr?: unknown;
+      commitShas?: unknown;
+      memoryCommitShas?: unknown;
+    },
+    items: import("../quest-types.js").QuestVerificationItem[],
+    activeV2Rows: Array<{ leaderSessionId: string; row: BoardRow }>,
+  ): QuestRecoveryEventDraft | Response | null => {
+    if (body.force !== true) return null;
+    const reason = ownershipReason(body.reason);
+    if (!auth || "response" in auth) {
+      return new Response(JSON.stringify({ error: "Leader recovery requires Companion session auth." }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (!reason) {
+      return new Response(JSON.stringify({ error: "Leader recovery requires --reason <text>." }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const owningLeaderIds = new Set<string>(activeV2Rows.map((row) => row.leaderSessionId));
+    if (quest.leaderSessionId) owningLeaderIds.add(quest.leaderSessionId);
+    if (auth.caller.isOrchestrator !== true || !owningLeaderIds.has(auth.callerId)) {
+      return new Response(JSON.stringify({ error: "Leader recovery requires the authenticated owning leader." }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const previousOwnerSessionId =
+      "sessionId" in quest && typeof quest.sessionId === "string"
+        ? quest.sessionId
+        : (quest.previousOwnerSessionIds?.[quest.previousOwnerSessionIds.length - 1] ?? "");
+    const workerInfo = previousOwnerSessionId ? launcher.getSession(previousOwnerSessionId) : undefined;
+    const workerBridgeSession = previousOwnerSessionId ? wsBridge.getSession(previousOwnerSessionId) : undefined;
+    return {
+      operation: "leader_complete",
+      actorSessionId: auth.callerId,
+      reason,
+      previousStatus: quest.status,
+      ...(previousOwnerSessionId ? { previousOwnerSessionId } : {}),
+      ...(quest.leaderSessionId ? { previousLeaderSessionId: quest.leaderSessionId } : {}),
+      boardRows: activeV2Rows.map(({ leaderSessionId, row }) => ({
+        leaderSessionId,
+        ...(row.status ? { status: row.status } : {}),
+        ...(row.worker ? { workerSessionId: row.worker } : {}),
+        ...(row.journey?.phaseIds?.length ? { phaseIds: row.journey.phaseIds } : {}),
+        ...(typeof row.journey?.activePhaseIndex === "number"
+          ? { activePhaseIndex: row.journey.activePhaseIndex }
+          : {}),
+        ...(row.waitForInput?.length ? { waitForInputCount: row.waitForInput.length } : {}),
+      })),
+      ...(previousOwnerSessionId
+        ? {
+            workerState: {
+              sessionId: previousOwnerSessionId,
+              known: !!workerInfo,
+              ...(workerInfo?.archived === true ? { archived: true } : {}),
+              ...(workerBridgeSession ? { hasBridgeSession: true } : {}),
+              ...(workerBridgeSession?.state?.cwd ? { hasCwd: true } : {}),
+              ...(workerBridgeSession?.state?.git_status_refreshed_at ? { gitStatusKnown: true } : {}),
+            },
+          }
+        : {}),
+      supplied: {
+        verificationItemCount: items.length,
+        commitShas: Array.isArray(body.commitShas)
+          ? body.commitShas.filter((sha): sha is string => typeof sha === "string")
+          : [],
+        memoryCommitShas: Array.isArray(body.memoryCommitShas)
+          ? body.memoryCommitShas.filter((sha): sha is string => typeof sha === "string")
+          : [],
+        hasDebrief: typeof body.debrief === "string" && body.debrief.trim().length > 0,
+        hasDebriefTldr: !!normalizeTldr(body.debriefTldr),
+      },
+      bypassedChecks: [
+        "ordinary worker-owned completion was unavailable by explicit leader recovery",
+        ...(activeV2Rows.length > 0
+          ? ["v2 Memory completion guard and worker git/worktree checks were bypassed by owning-leader force"]
+          : []),
+      ],
+    };
+  };
 
   const activeOwnerSessionId = (quest: QuestmasterTask | null): string | null =>
     quest && "sessionId" in quest && typeof quest.sessionId === "string" ? quest.sessionId : null;
@@ -1233,13 +1330,13 @@ export function createQuestRoutes(ctx: RouteContext) {
     try {
       const currentQuest = await questStore.getQuest(c.req.param("questId"));
       if (!currentQuest) return c.json({ error: "Quest not found" }, 404);
-      const v2GuardResponse = await guardV2MemoryCompletion(
-        c.req.param("questId"),
-        currentQuest,
-        auth,
-        body,
-        targetSessionId,
-      );
+      const activeV2Rows = findActiveV2BoardRowsForQuest(c.req.param("questId"), launcher, wsBridge);
+      const recoveryEventOrResponse = buildLeaderCompletionRecoveryEvent(currentQuest, auth, body, items, activeV2Rows);
+      if (recoveryEventOrResponse instanceof Response) return recoveryEventOrResponse;
+      const recoveryEvent = recoveryEventOrResponse ?? undefined;
+      const v2GuardResponse = recoveryEvent
+        ? null
+        : await guardV2MemoryCompletion(c.req.param("questId"), currentQuest, auth, body, targetSessionId);
       if (v2GuardResponse) return v2GuardResponse;
       const guardResponse = guardStatusMutation(c, auth, currentQuest, body);
       if (guardResponse) return guardResponse;
@@ -1255,6 +1352,7 @@ export function createQuestRoutes(ctx: RouteContext) {
         ...(targetSessionId ? { sessionId: targetSessionId } : {}),
         ...(typeof body.debrief === "string" ? { debrief: body.debrief } : {}),
         ...(typeof body.debriefTldr === "string" ? { debriefTldr: body.debriefTldr } : {}),
+        ...(recoveryEvent ? { recoveryEvent } : {}),
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       syncDoneQuestBoardState(c.req.param("questId"), quest);
@@ -1269,6 +1367,7 @@ export function createQuestRoutes(ctx: RouteContext) {
         setClaimedQuest(reviewOwnerSessionId, claimedQuestEvent(quest));
       }
       setDebriefTldrWarningHeaderForAgentWrite(c, auth, body.debrief, body.debriefTldr);
+      if (recoveryEvent) c.header(QUEST_LEADER_RECOVERY_WARNING_HEADER, formatLeaderRecoveryWarning(recoveryEvent));
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);

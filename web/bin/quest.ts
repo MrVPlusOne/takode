@@ -1130,6 +1130,9 @@ async function cmdComplete(): Promise<void> {
     warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
     return;
   }
+  if (override.force) {
+    die("Leader recovery via quest complete --force requires Companion server auth.");
+  }
 
   // Fallback: direct filesystem (no browser notification)
   try {
@@ -1880,7 +1883,7 @@ function ownershipCommandDeps() {
 }
 
 function statusMutationCommandDeps() {
-  return { companionAuthHeaders, companionPort, currentSessionId, die, flag, option };
+  return { companionAuthHeaders, companionPort, currentSessionId, die, flag, option, warn };
 }
 
 // ─── Main ───────────────────────────────────────────────────────────────────
