@@ -69,6 +69,7 @@ import { ensureTakodeIntegration } from "./takode-integration.js";
 import { ensureBuiltInQuestJourneyPhaseData } from "./quest-journey-phases.js";
 import { migrateQuestJourneyV2BoardRows } from "./quest-journey-v2-migration.js";
 import { ensureSkillSymlinks } from "./skill-symlink.js";
+import { runPreListenStartupReadiness } from "./startup-readiness.js";
 import { recreateWorktreeIfMissing } from "./migration.js";
 import { access } from "node:fs/promises";
 import { RelaunchQueue } from "./relaunch-queue.js";
@@ -84,6 +85,16 @@ import type { ServerWebSocket } from "bun";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = process.env.__COMPANION_PACKAGE_ROOT || resolve(__dirname, "..");
+const STARTUP_SKILL_SYMLINKS = [
+  "takode-orchestration",
+  "leader-dispatch",
+  "confirm",
+  "self-groom",
+  "reviewer-groom",
+  "skeptic-review",
+  "worktree-rules",
+  "random-memory-ideas",
+];
 
 import { DEFAULT_PORT_DEV, DEFAULT_PORT_PROD, RESTART_EXIT_CODE } from "./constants.js";
 import { createLogger, flushServerLogger, initServerLogger } from "./server-logger.js";
@@ -215,6 +226,15 @@ launcher.setEnvResolver(async (slug) => {
   const env = await envManager.getEnv(slug);
   return env?.variables ?? null;
 });
+await runPreListenStartupReadiness(
+  {
+    ensureQuestmasterIntegration,
+    ensureTakodeIntegration,
+    ensureBuiltInQuestJourneyPhaseData,
+    ensureSkillSymlinks,
+  },
+  { port, packageRoot, startupSkillSlugs: STARTUP_SKILL_SYMLINKS },
+);
 await launcher.restoreFromDisk();
 await wsBridge.restoreFromDisk();
 {
@@ -986,21 +1006,6 @@ await timerManager.startAll();
 
 // ── Global resource leases ─────────────────────────────────────────────────
 await resourceLeaseManager.startAll();
-
-// ── Questmaster CLI integration ─────────────────────────────────────────────
-await ensureQuestmasterIntegration(port, packageRoot);
-await ensureTakodeIntegration(packageRoot);
-await ensureBuiltInQuestJourneyPhaseData({ packageRoot });
-await ensureSkillSymlinks([
-  "takode-orchestration",
-  "leader-dispatch",
-  "confirm",
-  "self-groom",
-  "reviewer-groom",
-  "skeptic-review",
-  "worktree-rules",
-  "random-memory-ideas",
-]);
 
 const startupInjectedRelaunchSessionIds = new Set<string>();
 async function captureStartupInjectedRelaunches<T>(operation: () => Promise<T>): Promise<T> {

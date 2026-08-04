@@ -79,9 +79,9 @@ describe("index startup skill registration", () => {
   it("registers canonical startup skills without stale hardcoded slugs", async () => {
     // If a nonexistent project skill is reintroduced here, startup will recreate
     // warning spam and potentially broken symlink state. Guard the actual
-    // ensureSkillSymlinks(...) registration list in index.ts directly.
+    // STARTUP_SKILL_SYMLINKS registration list in index.ts directly.
     const source = await readFile(INDEX_PATH, "utf-8");
-    const match = source.match(/ensureSkillSymlinks\(\[([\s\S]*?)\]\);/);
+    const match = source.match(/STARTUP_SKILL_SYMLINKS = \[([\s\S]*?)\];/);
     expect(match).toBeTruthy();
 
     const registered = [...match![1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]);
