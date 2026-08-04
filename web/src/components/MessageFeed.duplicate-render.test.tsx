@@ -4,6 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockScrollIntoView = vi.fn();
 const mockScrollTo = vi.fn();
+const mockGetSessionNotifications = vi.hoisted(() => vi.fn());
 const mediaState = { touchDevice: false };
 const mockStoreValues: Record<string, unknown> = {};
 
@@ -40,6 +41,14 @@ vi.mock("remark-gfm", () => ({
 
 vi.mock("../ws.js", () => ({
   sendToSession: vi.fn(() => true),
+}));
+
+vi.mock("../api.js", () => ({
+  api: {
+    getSessionNotifications: mockGetSessionNotifications,
+    markNotificationDone: vi.fn(async () => ({ ok: true })),
+    sendNeedsInputResponse: vi.fn(async () => ({ ok: true, delivery: "sent" })),
+  },
 }));
 
 vi.mock("../store.js", () => {
@@ -109,6 +118,13 @@ vi.mock("../store.js", () => {
     removePendingUserUpload: vi.fn(),
     updatePendingUserUpload: vi.fn(),
     focusComposer: vi.fn(),
+    setSessionNotifications: (sessionId: string, notifications: unknown[]) => {
+      const current = (mockStoreValues.sessionNotifications as Map<string, unknown[]> | undefined) ?? new Map();
+      const next = new Map(current);
+      if (notifications.length === 0) next.delete(sessionId);
+      else next.set(sessionId, notifications);
+      mockStoreValues.sessionNotifications = next;
+    },
   });
   return {
     useStore,
@@ -123,7 +139,7 @@ vi.mock("../store.js", () => {
   };
 });
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ChatMessage, SessionAttentionRecord } from "../types.js";
 import { MessageFeed } from "./MessageFeed.js";
 
@@ -168,11 +184,36 @@ function makeJourneyFinishedRecord(overrides: Partial<SessionAttentionRecord> = 
   };
 }
 
+function makeNeedsInputRecord(overrides: Partial<SessionAttentionRecord> = {}): SessionAttentionRecord {
+  const createdAt = overrides.createdAt ?? Date.now();
+  return {
+    id: "notification:n-q983",
+    leaderSessionId: "leader-1",
+    type: "needs_input",
+    source: { kind: "notification", id: "n-q983", questId: "q-983", messageId: null },
+    questId: "q-983",
+    threadKey: "q-983",
+    title: "Approve q-983 dispatch plan",
+    summary: "Approve q-983 dispatch plan",
+    actionLabel: "Answer",
+    priority: "needs_input",
+    state: "unresolved",
+    createdAt,
+    updatedAt: createdAt,
+    route: { threadKey: "q-983", questId: "q-983" },
+    chipEligible: true,
+    ledgerEligible: true,
+    dedupeKey: "notification:n-q983",
+    ...overrides,
+  };
+}
+
 describe("MessageFeed duplicate rendering regression", () => {
   beforeEach(() => {
     for (const key of Object.keys(mockStoreValues)) delete mockStoreValues[key];
     mockScrollIntoView.mockReset();
     mockScrollTo.mockReset();
+    mockGetSessionNotifications.mockReset();
   });
 
   it("renders a notification-bearing assistant message only once when a herd event follows it", () => {
@@ -727,7 +768,7 @@ describe("MessageFeed duplicate rendering regression", () => {
     expect(screen.queryByText("Unrelated live Main tail")).toBeNull();
   });
 
-  it("still uses a synthetic owner-thread row for genuinely unanchored needs-input notifications", () => {
+  it("renders an unanchored owner-thread needs-input notification as the full decision panel", () => {
     const sid = "test-owner-thread-unanchored-fallback";
     setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Prepare the dispatch plan." })]);
     setStoreNotifications(sid, [
@@ -739,14 +780,141 @@ describe("MessageFeed duplicate rendering regression", () => {
         threadKey: "q-983",
         questId: "q-983",
         summary: "Approve q-983 dispatch plan",
+        suggestedAnswers: ["approve", "revise"],
         done: false,
       },
     ]);
 
     render(<MessageFeed sessionId={sid} threadKey="q-983" />);
 
-    expect(screen.getByTestId("attention-ledger-row").getAttribute("data-attention-type")).toBe("needs_input");
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+    expect(screen.getByTestId("needs-input-decision-row").getAttribute("data-attention-type")).toBe("needs_input");
     expect(screen.getByText("Approve q-983 dispatch plan")).toBeTruthy();
+    expect(screen.getByTestId("notification-answer-actions")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use suggested answer: approve" })).toBeTruthy();
+    expect(screen.getByLabelText("Answer for Approve q-983 dispatch plan")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reply" })).toBeTruthy();
+    expect(screen.queryByText("Needs attention")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Answer" })).toBeNull();
+  });
+
+  it("renders a stale herd-anchor owner-thread needs-input notification as the full decision panel", () => {
+    const sid = "test-owner-thread-stale-herd-anchor-decision-panel";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "herd-turn-end",
+        role: "user",
+        content: "1 event from 1 session\n\n#1590 | turn_end | ✓ 2m 54s | tools: 30",
+        timestamp: 120,
+        agentSource: { sessionId: "herd-events" },
+        metadata: { threadRefs: [{ threadKey: "q-983", questId: "q-983", source: "explicit" }] },
+      }),
+    ]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-q983",
+        category: "needs-input",
+        timestamp: Date.now(),
+        messageId: "herd-turn-end",
+        threadKey: "q-983",
+        questId: "q-983",
+        summary: "Choose q-983 implementation option",
+        questions: [{ prompt: "Which option should q-983 take?", suggestedAnswers: ["Small fix", "Broader redesign"] }],
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-983" />);
+
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+    expect(screen.getByTestId("needs-input-decision-row")).toBeTruthy();
+    expect(screen.getByText("Which option should q-983 take?")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use suggested answer: Small fix" })).toBeTruthy();
+    expect(screen.queryByText("Needs attention")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Answer" })).toBeNull();
+  });
+
+  it("loads missing owner-thread needs-input details before rendering the decision panel", async () => {
+    const sid = "test-owner-thread-needs-input-detail-hydration";
+    const liveNotification = {
+      id: "n-q983",
+      category: "needs-input" as const,
+      timestamp: Date.now(),
+      messageId: null,
+      threadKey: "q-983",
+      questId: "q-983",
+      summary: "Choose q-983 implementation option",
+      questions: [{ prompt: "Which option should q-983 take?", suggestedAnswers: ["Small fix", "Broader redesign"] }],
+      done: false,
+    };
+    mockGetSessionNotifications.mockResolvedValueOnce([liveNotification]);
+    setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Prepare the dispatch plan." })]);
+    mockStoreValues.sessionAttentionRecords = new Map([
+      [
+        sid,
+        [
+          makeNeedsInputRecord({
+            id: "notification:n-q983",
+            source: { kind: "notification", id: "n-q983", questId: "q-983", messageId: null },
+            title: "Choose q-983 implementation option",
+            summary: "Choose q-983 implementation option",
+            route: { threadKey: "q-983", questId: "q-983" },
+          }),
+        ],
+      ],
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-983" />);
+
+    expect(screen.getByText("Loading decision details...")).toBeTruthy();
+    expect(screen.queryByText("Needs attention")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Answer" })).toBeNull();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Use suggested answer: Small fix" })).toBeTruthy());
+    expect(mockGetSessionNotifications).toHaveBeenCalledWith(sid);
+    expect(screen.getByText("Which option should q-983 take?")).toBeTruthy();
+    expect(screen.getByLabelText("Answer for Which option should q-983 take?")).toBeTruthy();
+  });
+
+  it("shows a retryable owner-thread needs-input detail error instead of an abstract action row", async () => {
+    const sid = "test-owner-thread-needs-input-detail-retry";
+    mockGetSessionNotifications.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce([
+      {
+        id: "n-q983",
+        category: "needs-input",
+        timestamp: Date.now(),
+        messageId: null,
+        threadKey: "q-983",
+        questId: "q-983",
+        summary: "Choose q-983 implementation option",
+        suggestedAnswers: ["Small fix"],
+        done: false,
+      },
+    ]);
+    setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Prepare the dispatch plan." })]);
+    mockStoreValues.sessionAttentionRecords = new Map([
+      [
+        sid,
+        [
+          makeNeedsInputRecord({
+            source: { kind: "notification", id: "n-q983", questId: "q-983", messageId: null },
+            title: "Choose q-983 implementation option",
+            summary: "Choose q-983 implementation option",
+          }),
+        ],
+      ],
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-983" />);
+
+    await screen.findByText("Decision details could not be loaded.");
+    expect(screen.queryByText("Needs attention")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Answer" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Use suggested answer: Small fix" })).toBeTruthy());
+    expect(mockGetSessionNotifications).toHaveBeenCalledTimes(2);
   });
 
   it("renders needs-input notify tool calls as normal commands beside the generated notification chip", () => {

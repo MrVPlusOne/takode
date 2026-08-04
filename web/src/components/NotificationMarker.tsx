@@ -10,7 +10,10 @@ import {
   runAfterNotificationOwnerThreadSelected,
 } from "../utils/notification-thread.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
-import { getNotificationSourceContext } from "../utils/notification-source-context.js";
+import {
+  getNotificationSourceContext,
+  shouldShowNeedsInputQuestionPrompt,
+} from "../utils/notification-source-context.js";
 import { NeedsInputAnswerField } from "./NeedsInputAnswerField.js";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
@@ -269,9 +272,13 @@ export function NotificationMarker({
         >
           {questionViews.map((question, index) => (
             <div key={question.key} className="space-y-1.5" data-testid="notification-question-block">
-              {questionViews.length > 1 && (
+              {shouldShowNeedsInputQuestionPrompt({
+                prompt: question.prompt,
+                title: label,
+                questionCount: questionViews.length,
+              }) && (
                 <div className="text-[10px] leading-snug text-cc-attention">
-                  <span className="text-cc-muted">{index + 1}. </span>
+                  {questionViews.length > 1 && <span className="text-cc-muted">{index + 1}. </span>}
                   {question.prompt}
                 </div>
               )}

@@ -1,5 +1,6 @@
 import { NotificationChip } from "../NotificationChip.js";
 import { GlobalNeedsInputMenu } from "../GlobalNeedsInputMenu.js";
+import { MessageFeed } from "../MessageFeed.js";
 import { TimerChip } from "../TimerWidget.js";
 import { useStore } from "../../store.js";
 import { Card, Section } from "./shared.js";
@@ -232,6 +233,36 @@ function seedGlobalNeedsInputData() {
   ]);
 }
 
+function seedOwnerThreadNeedsInputPanel() {
+  const now = Date.now();
+  useStore.setState({
+    messages: new Map([["playground-owner-needs-input", []]]),
+    sessionNotifications: new Map([
+      [
+        "playground-owner-needs-input",
+        [
+          {
+            id: "n-owner-panel",
+            category: "needs-input" as const,
+            summary: "Choose q-1793 decision-panel fallback",
+            questions: [
+              {
+                prompt: "Which owner-thread fallback should render while the source message is unavailable?",
+                suggestedAnswers: ["Show decision panel", "Retry detail load", "Keep abstract chip"],
+              },
+            ],
+            timestamp: now - 45_000,
+            messageId: null,
+            threadKey: "q-1793",
+            questId: "q-1793",
+            done: false,
+          },
+        ],
+      ],
+    ]),
+  });
+}
+
 export function PlaygroundNotificationInboxSection() {
   return (
     <Section
@@ -284,6 +315,25 @@ export function PlaygroundNotificationInboxSection() {
             <p className="text-[10px] text-cc-muted">
               Shows the top-bar aggregate for unresolved needs-input notifications, with quiet source-context navigation
               and review or unread-style activity excluded. Muted prompts appear as a secondary backlog.
+            </p>
+          </div>
+        </Card>
+
+        <Card label="Owner-thread needs-input decision row">
+          <div className="p-3 space-y-2">
+            <button
+              type="button"
+              onClick={seedOwnerThreadNeedsInputPanel}
+              className="text-xs font-medium px-3 py-1.5 rounded-md border border-cc-attention-border bg-cc-attention-bg hover:bg-cc-attention-bg/80 text-cc-attention transition-colors cursor-pointer"
+            >
+              Seed owner-thread panel
+            </button>
+            <div className="h-72 overflow-hidden rounded-lg border border-cc-border bg-cc-bg">
+              <MessageFeed sessionId="playground-owner-needs-input" threadKey="q-1793" />
+            </div>
+            <p className="text-[10px] text-cc-muted">
+              Owner quest threads render the full needs-input decision panel for unanchored or stale-anchor
+              notifications, preserving suggested answers, custom response, voice control, and Reply.
             </p>
           </div>
         </Card>

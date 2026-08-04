@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { api } from "../api.js";
 import { useStore } from "../store.js";
-import type { SessionAttentionRecord } from "../types.js";
+import type { SessionAttentionRecord, SessionNotification } from "../types.js";
 import {
   ALL_THREADS_KEY,
   MAIN_THREAD_KEY,
@@ -8,6 +9,7 @@ import {
   normalizeThreadKey,
 } from "../utils/thread-projection.js";
 import { CatPawAvatar } from "./CatIcons.js";
+import { NotificationMarker } from "./NotificationMarker.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 
 type AttentionRecord = SessionAttentionRecord;
@@ -101,6 +103,19 @@ export function AttentionLedgerRow({
     ? formatThreadAttachmentMovementSummary(threadAttachmentSummary)
     : null;
   const movementDetails = threadAttachmentSummary?.details ?? [];
+  const needsInputDecision = buildNeedsInputDecisionProps(record, isActive);
+
+  if (needsInputDecision) {
+    return (
+      <NeedsInputDecisionLedgerRow
+        record={record}
+        sessionId={sessionId}
+        notificationId={needsInputDecision.notificationId}
+        currentThreadKey={currentThreadKey}
+        onSelectThread={onSelectThread}
+      />
+    );
+  }
 
   return (
     <div
@@ -195,6 +210,109 @@ export function AttentionLedgerRow({
             }`}
           >
             {record.actionLabel}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function buildNeedsInputDecisionProps(record: AttentionRecord, isActive: boolean): { notificationId: string } | null {
+  if (!isActive) return null;
+  if (record.source.kind !== "notification") return null;
+  if (record.type !== "needs_input" || record.priority !== "needs_input") return null;
+  if (!record.source.id) return null;
+  return { notificationId: record.source.id };
+}
+
+function NeedsInputDecisionLedgerRow({
+  record,
+  sessionId,
+  notificationId,
+  currentThreadKey,
+  onSelectThread,
+}: {
+  record: AttentionRecord;
+  sessionId: string;
+  notificationId: string;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "error">("idle");
+  const notification = useStore((s) =>
+    s.sessionNotifications
+      .get(sessionId)
+      ?.find((entry) => entry.id === notificationId && entry.category === "needs-input"),
+  );
+  const summary = record.summary.trim() || record.title.trim() || "Needs input";
+  const loadDetails = useCallback(() => {
+    setLoadState("loading");
+    api
+      .getSessionNotifications(sessionId)
+      .then((notifications) => {
+        const actionable = notifications.filter(
+          (entry): entry is SessionNotification => entry.category === "needs-input" || entry.category === "review",
+        );
+        useStore.getState().setSessionNotifications(sessionId, actionable);
+        const found = actionable.some((entry) => entry.id === notificationId && entry.category === "needs-input");
+        setLoadState(found ? "idle" : "error");
+      })
+      .catch(() => {
+        setLoadState("error");
+      });
+  }, [notificationId, sessionId]);
+
+  useEffect(() => {
+    if (notification || loadState !== "idle") return;
+    loadDetails();
+  }, [loadDetails, loadState, notification]);
+
+  if (notification && notification.done) return null;
+
+  if (notification) {
+    return (
+      <div
+        data-testid="needs-input-decision-row"
+        data-notification-id={notificationId}
+        data-attention-type={record.type}
+      >
+        <NotificationMarker
+          category="needs-input"
+          summary={notification.summary ?? summary}
+          notificationId={notification.id}
+          sessionId={sessionId}
+          messageId={record.route.messageId || notification.messageId || undefined}
+          currentThreadKey={currentThreadKey}
+          onSelectThread={onSelectThread}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="rounded-lg border border-cc-attention-border bg-cc-attention-bg px-3 py-2.5 text-cc-attention"
+      data-testid="needs-input-decision-row"
+      data-notification-id={notificationId}
+      data-attention-type={record.type}
+    >
+      <div className="flex min-w-0 items-start gap-2.5">
+        <span className="mt-0.5 shrink-0 text-amber-300" aria-hidden="true">
+          <AttentionStateIcon state="unresolved" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-cc-fg">{summary}</div>
+          <p className="mt-1 text-xs leading-relaxed text-cc-muted">
+            {loadState === "error" ? "Decision details could not be loaded." : "Loading decision details..."}
+          </p>
+        </div>
+        {loadState === "error" && (
+          <button
+            type="button"
+            onClick={loadDetails}
+            className="shrink-0 rounded-md border border-cc-attention-border bg-cc-attention-bg px-2.5 py-1 text-xs font-medium text-cc-attention transition-colors hover:bg-cc-attention-bg/80 cursor-pointer"
+          >
+            Retry
           </button>
         )}
       </div>

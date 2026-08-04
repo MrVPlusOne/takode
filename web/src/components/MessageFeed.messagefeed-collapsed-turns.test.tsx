@@ -1034,17 +1034,20 @@ describe("MessageFeed - collapsed turns", () => {
         messageId: null,
         threadKey: "q-983",
         questId: "q-983",
+        suggestedAnswers: ["approve", "revise"],
         done: false,
       },
     ]);
 
     render(<MessageFeed sessionId={sid} threadKey="q-983" />);
 
-    const row = screen.getByTestId("attention-ledger-row");
-    expect(row.getAttribute("data-attention-state")).toBe("unresolved");
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+    const row = screen.getByTestId("needs-input-decision-row");
     expect(row.getAttribute("data-attention-type")).toBe("needs_input");
     expect(screen.getByText("Approve the implementation direction")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Answer" })).toBeTruthy();
+    expect(screen.getByTestId("notification-answer-actions")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use suggested answer: approve" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Answer" })).toBeNull();
   });
 
   it("does not duplicate anchored owner-thread needs-input notifications as synthetic ledger rows", () => {
