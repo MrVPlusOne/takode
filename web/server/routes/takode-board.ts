@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import * as questStore from "../quest-store.js";
 import {
+  DEFAULT_QUEST_JOURNEY_PHASE_IDS,
   canonicalizeQuestJourneyPhaseId,
   FREE_WORKER_WAIT_FOR_TOKEN,
   getQuestJourneyCurrentPhaseIndex,
@@ -39,6 +40,7 @@ import {
 } from "../bridge/board-watchdog-controller.js";
 import { QUEST_JOURNEY_STATES, type BoardRow } from "../session-types.js";
 import type { RouteContext } from "./context.js";
+import type { QuestmasterTask } from "../quest-types.js";
 
 interface PhaseNoteEdit {
   index: number;
@@ -53,6 +55,65 @@ interface BoardProposalReviewPayload {
   presentedAt: number;
   summary?: string;
   scheduling?: Record<string, unknown>;
+}
+
+function resolveCurrentWorkFeedback(args: {
+  quest: QuestmasterTask;
+  authorSessionId: string;
+  requestedIndex?: number;
+}): { index: number } | { error: string } {
+  const feedback = args.quest.feedback ?? [];
+  const candidateEntries = feedback
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry, index }) => {
+      if (args.requestedIndex !== undefined && index !== args.requestedIndex) return false;
+      return (
+        entry.author === "agent" &&
+        entry.authorSessionId === args.authorSessionId &&
+        entry.phaseId === "work" &&
+        (entry.kind === "phase_summary" || entry.kind === undefined) &&
+        entry.text.trim().length >= 80
+      );
+    });
+  const latest = candidateEntries.at(-1);
+  if (latest) return { index: latest.index };
+  if (args.requestedIndex !== undefined) {
+    return { error: `Feedback #${args.requestedIndex} is not a current Work phase note by this worker.` };
+  }
+  return {
+    error: "A current Work phase note by the assigned worker is required before Work can transition to Memory.",
+  };
+}
+
+function findAssignedBoardRowsForWorker(args: {
+  wsBridge: RouteContext["wsBridge"];
+  launcher: RouteContext["launcher"];
+  workerSessionId: string;
+  questId: string;
+}): Array<{ leaderSessionId: string; row: BoardRow }> {
+  const normalizedQuestId = args.questId.toLowerCase();
+  const bridgeCompat = args.wsBridge as {
+    findAssignedBoardRowsForWorker?: (
+      workerSessionId: string,
+      questId: string,
+    ) => Array<{ leaderSessionId: string; row: BoardRow }>;
+  };
+  if (typeof bridgeCompat.findAssignedBoardRowsForWorker === "function") {
+    return bridgeCompat.findAssignedBoardRowsForWorker(args.workerSessionId, args.questId);
+  }
+  const matches: Array<{ leaderSessionId: string; row: BoardRow }> = [];
+  for (const launcherSession of args.launcher.listSessions?.() ?? []) {
+    const sessionId = launcherSession.sessionId ?? (launcherSession as { id?: string }).id;
+    if (!sessionId) continue;
+    const bridgeSession = args.wsBridge.getSession(sessionId);
+    if (!bridgeSession?.board) continue;
+    const row = [...bridgeSession.board.values()].find(
+      (candidate: BoardRow) =>
+        candidate.questId.toLowerCase() === normalizedQuestId && candidate.worker === args.workerSessionId,
+    );
+    if (row) matches.push({ leaderSessionId: bridgeSession.id, row });
+  }
+  return matches;
 }
 
 function normalizeJourneyMode(value: unknown): QuestJourneyLifecycleMode | undefined {
@@ -253,6 +314,117 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
   }
 
+  api.post("/takode/board/work-to-memory", async (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+    if (auth.caller.reviewerOf !== undefined) {
+      return c.json({ error: "Reviewer sessions cannot use the worker-owned Work -> Memory transition." }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const questId = typeof body.questId === "string" ? body.questId.trim() : "";
+    if (!questId) return c.json({ error: "questId is required" }, 400);
+    if (!isValidQuestId(questId)) {
+      return c.json({ error: `Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)` }, 400);
+    }
+    const workFeedbackIndex =
+      typeof body.workFeedbackIndex === "number" && Number.isInteger(body.workFeedbackIndex)
+        ? body.workFeedbackIndex
+        : undefined;
+    if (body.workFeedbackIndex !== undefined && workFeedbackIndex === undefined) {
+      return c.json({ error: "workFeedbackIndex must be an integer when provided." }, 400);
+    }
+
+    const quest = await questStore.getQuest(questId).catch(() => null);
+    if (!quest) return c.json({ error: `Quest not found: ${questId}` }, 404);
+    if (quest.status !== "in_progress" || !("sessionId" in quest) || quest.sessionId !== auth.callerId) {
+      return c.json(
+        { error: "Only the assigned worker that has claimed this in-progress quest may transition Work to Memory." },
+        403,
+      );
+    }
+
+    const matches = findAssignedBoardRowsForWorker({
+      wsBridge,
+      launcher,
+      workerSessionId: auth.callerId,
+      questId,
+    });
+    if (matches.length === 0) {
+      return c.json({ error: "No active board row assigns this quest to the authenticated worker." }, 404);
+    }
+    if (matches.length > 1) {
+      return c.json(
+        {
+          error:
+            "Multiple active board rows assign this quest to the worker; ask the leader to reconcile the board first.",
+        },
+        409,
+      );
+    }
+
+    const [{ leaderSessionId, row }] = matches;
+    const normalizedStatus = (row.status ?? "").trim().toUpperCase();
+    if (normalizedStatus !== "WORKING") {
+      return c.json(
+        { error: `Work -> Memory requires board state WORKING; current state is ${row.status ?? "unknown"}.` },
+        409,
+      );
+    }
+    if ((row.waitForInput ?? []).length > 0) {
+      return c.json({ error: "Cannot transition to Memory while a User Checkpoint is unresolved." }, 409);
+    }
+
+    const workNote = resolveCurrentWorkFeedback({
+      quest,
+      authorSessionId: auth.callerId,
+      ...(workFeedbackIndex !== undefined ? { requestedIndex: workFeedbackIndex } : {}),
+    });
+    if ("error" in workNote) return c.json({ error: workNote.error }, 409);
+
+    const leaderSession = wsBridge.getSession(leaderSessionId);
+    if (!leaderSession) return c.json({ error: "Leader board session is unavailable." }, 409);
+    const currentJourney = normalizeQuestJourneyPlan(row.journey, row.status);
+    const phaseIds =
+      currentJourney.phaseIds.includes("memory") && currentJourney.phaseIds.includes("work")
+        ? currentJourney.phaseIds
+        : [...DEFAULT_QUEST_JOURNEY_PHASE_IDS];
+    const memoryIndex = phaseIds.indexOf("memory");
+    if (memoryIndex < 0) return c.json({ error: "The active v2 Journey does not contain Memory." }, 409);
+
+    const board = upsertBoardRowController(
+      leaderSession,
+      {
+        questId: row.questId,
+        status: "MEMORY",
+        worker: row.worker,
+        workerNum: row.workerNum,
+        journey: {
+          ...currentJourney,
+          mode: "active",
+          phaseIds,
+          activePhaseIndex: memoryIndex,
+          currentPhaseId: "memory",
+        },
+      },
+      workBoardStateDeps,
+    );
+
+    return c.json({
+      ok: true,
+      questId: row.questId,
+      leaderSessionId,
+      previousState: row.status,
+      newState: "MEMORY",
+      workFeedbackIndex: workNote.index,
+      board,
+      rowSessionStatuses: await buildBoardRowSessionStatuses(board),
+      queueWarnings: getBoardQueueWarningsController(leaderSession, boardWatchdogDeps),
+      workerSlotUsage: getBoardWorkerSlotUsageController(leaderSessionId, boardWatchdogDeps),
+      resolvedSessionDeps: resolveSessionDeps(board),
+    });
+  });
+
   api.get("/sessions/:id/board", async (c) => {
     const auth = authenticateTakodeCaller(c);
     if ("response" in auth) return auth.response;
@@ -303,7 +475,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       return c.json(
         {
           error:
-            "Board no-code markers were removed. Model zero-tracked-change work with explicit phases that omit `port` but still end in `memory`.",
+            "Board no-code markers were removed. Use the active v2 Alignment -> Work -> Memory flow; Work owns tracked sync duties when needed.",
         },
         400,
       );
@@ -454,6 +626,15 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     let firstPlannedPhaseState: string | undefined;
     const explicitStatus = typeof body.status === "string" ? body.status.trim() || undefined : undefined;
     const explicitStatusUpper = explicitStatus?.toUpperCase();
+    if (explicitStatusUpper && !(QUEST_JOURNEY_STATES as readonly string[]).includes(explicitStatusUpper)) {
+      return c.json(
+        {
+          error:
+            "Invalid active Quest Journey state. Active v2 states are PROPOSED, QUEUED, PLANNING, WORKING, USER_CHECKPOINTING, and MEMORY. Legacy v1 states are historical-read only.",
+        },
+        400,
+      );
+    }
     const explicitStatusPhase = getQuestJourneyPhaseForState(explicitStatus ?? null)?.id;
     const requestedMode = normalizeJourneyMode(body.journeyMode);
     if (body.journeyMode !== undefined && !requestedMode) {
@@ -516,7 +697,12 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       }
       const invalid = getInvalidQuestJourneyPhaseIds(phaseIds);
       if (invalid.length > 0) {
-        return c.json({ error: `Invalid Quest Journey phase(s): ${invalid.join(", ")}` }, 400);
+        return c.json(
+          {
+            error: `Invalid Quest Journey phase(s): ${invalid.join(", ")}. Active v2 phases are alignment, work, user-checkpoint, and memory; legacy v1 phase IDs are historical-read only.`,
+          },
+          400,
+        );
       }
       typedPhaseIds = normalizeQuestJourneyPhaseIds(phaseIds) as QuestJourneyPhaseId[];
       const sequenceError = validateQuestJourneyPhaseSequence(typedPhaseIds);
@@ -537,7 +723,8 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
           400,
         );
       }
-      if (explicitStatusPhase && !typedPhaseIds.includes(explicitStatusPhase)) {
+      const checkpointPausesWork = explicitStatusPhase === "user-checkpoint" && typedPhaseIds.includes("work");
+      if (explicitStatusPhase && !typedPhaseIds.includes(explicitStatusPhase) && !checkpointPausesWork) {
         return c.json(
           {
             error: `Status ${body.status} does not match the revised phase plan. Include its phase in --phases or change --status.`,
@@ -602,7 +789,13 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       explicitActivePhaseIndex !== null && explicitActivePhaseIndex < resolvedPhaseIds.length
         ? resolvedPhaseIds[explicitActivePhaseIndex]
         : undefined;
-    if (explicitStatusPhase && explicitActivePhaseId && explicitStatusPhase !== explicitActivePhaseId) {
+    const explicitCheckpointPausesWork = explicitStatusPhase === "user-checkpoint" && explicitActivePhaseId === "work";
+    if (
+      explicitStatusPhase &&
+      explicitActivePhaseId &&
+      explicitStatusPhase !== explicitActivePhaseId &&
+      !explicitCheckpointPausesWork
+    ) {
       return c.json(
         {
           error: `activePhaseIndex ${explicitActivePhaseIndex} points to ${explicitActivePhaseId}, which does not match status ${body.status}.`,

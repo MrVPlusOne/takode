@@ -33,7 +33,7 @@ import {
   validateQuestJourneyUserCheckpointNotes,
 } from "../shared/quest-journey.ts";
 
-export const BOARD_HELP = `Usage: takode board [show|detail|set|revise|propose|promote|note|advance|rm] ...
+export const BOARD_HELP = `Usage: takode board [show|detail|set|revise|propose|promote|note|work-to-memory|advance|rm] ...
 
 Quest Journey work board for the current leader session.
 
@@ -45,6 +45,8 @@ Subcommands:
   propose <quest-id>      Create a proposed Journey row
   promote <quest-id>      Promote a proposed Journey row into execution
   note <quest-id>         Add or clear a per-phase Journey note
+  work-to-memory <quest-id>
+                          Worker-owned transition from Work to Memory
   advance <quest-id>      Move a quest to the next Journey state
   rm <quest-id> [...]     Remove quests from the active board
 
@@ -53,16 +55,15 @@ Examples:
   takode board show --full
   takode board detail q-12
   takode board set q-12 --status PLANNING
-  takode board set q-12 --phases planning,implement,code-review,port,memory --preset full-code
-  takode board set q-12 --phases planning,explore,outcome-review,memory --preset investigation
-  takode board set q-12 --phases planning,implement,outcome-review,code-review,port,memory --preset cli-rollout
-  takode board revise q-12 --from-position 5 --expect-phase memory --phases user-checkpoint,memory
-  takode board set q-12 --status MENTAL_SIMULATING --active-phase-position 5
-  takode board propose q-12 --phases alignment,implement,code-review,port,memory --summary "Approve the goal, constraints, and scheduling for this proposed Journey." --preset full-code --wait-for-input 3
+  takode board set q-12 --phases alignment,work,memory --preset v2-work
+  takode board revise q-12 --from-position 2 --expect-phase work --phases work,memory
+  takode board set q-12 --status WORKING --active-phase-position 2
+  takode board propose q-12 --phases alignment,work,memory --summary "Approve the goal, constraints, and scheduling for this proposed Journey." --preset v2-work --wait-for-input 3
   takode board promote q-12 --worker 5
   takode board note q-12 3 --text "Inspect only the follow-up diff"
+  takode board work-to-memory q-12 --work-note 4
   takode board set q-12 --status QUEUED --wait-for ${FREE_WORKER_WAIT_FOR_TOKEN}
-  takode board set q-12 --status IMPLEMENTING --wait-for-input 3,4
+  takode board set q-12 --status USER_CHECKPOINTING --wait-for-input 3,4
   takode board set q-12 --clear-wait-for-input
   takode board set q-12 --worker 5 --wait-for q-7,#9
   takode board advance q-12 --skip-optional-checkpoint "Explore found no user-visible tradeoffs"
@@ -81,26 +82,27 @@ export const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <ses
 Add or update a board row for a quest. Use this to create the initial Journey; once a row already has a Journey, use takode board revise for phase-plan changes.
 
 Quest Journey phases:
-  --phases planning,explore,user-checkpoint,implement,code-review,mental-simulation,execute,outcome-review,port,memory,bookkeeping
+  --phases alignment,work,memory
+  --phases alignment,work,user-checkpoint,work,memory  # only for preset checkpoint pauses
   --journey-file <path|-> reads { phases: [{ id, note? }] } JSON for initial Journey creation
   --preset <id> labels the planned phase sequence; use with --phases
   --active-phase-position <n> pins the active occurrence for repeated phases using a 1-based phase position
   --wait-for-input links active rows to same-session needs-input notifications by ID (for example 3 or n-3)
   --clear-wait-for-input removes any existing linked needs-input wait state
 
-Do not create an initial adjacent \`explore -> implement\` Journey; use \`implement\` directly for normal fixes, or \`explore -> user-checkpoint -> implement\` when Explore may need user steering. After a legitimate Explore completes, takode board revise may route the remaining active Journey directly to \`implement\` when findings reveal a clear low-risk repo-local fix that needs no user choice. User Checkpoints remain required when explicitly requested or when the decision truly needs input. Optional non-checkpoint phases are removed or added through takode board revise, not a generic skip command.
+Quest Journey v2 has one active workflow: Alignment -> Work -> Memory. User Checkpoint is a durable pause/resume inside Work for decisions outside the approved envelope. Legacy v1 phase IDs are historical-read only and are rejected for new active rows.
 
-Zero-tracked-change work uses the same board model: choose explicit phases that omit \`port\` but still end in \`memory\` instead of using a special no-code board flag.
+Zero-tracked-change work still ends in Memory. Work owns any necessary sync/push duties for tracked changes inside the approved envelope.
 `;
 
 export const BOARD_REVISE_HELP = `Usage: takode board revise <quest-id> --from-position <n> --expect-phase <id> (--phases <ids> | --journey-file <path|->) [--preset <id>] [--full|--verbose] [--json]
 
 Replace an existing Journey suffix. Phase positions are 1-based in CLI usage. The existing phase at --from-position must match --expect-phase, so repeated phases and stale position references fail closed.
 
-After a legitimate Explore completes, revising the immediate post-Explore suffix to start with implement is allowed when findings reveal a clear low-risk repo-local fix within existing intent and no user choice is needed. Before dropping the immediate post-Explore User Checkpoint, consider whether the Explore was genuinely needed, the fix is clear and in scope, and no product/policy/user-visible tradeoff, risky external effect, or scope expansion needs user choice.
+Replace only current or future active v2 phases. Legacy v1 phase IDs are historical-read only and cannot be introduced by revise.
 
 Use --journey-file when the replacement suffix needs notes:
-  { "phases": [{ "id": "user-checkpoint", "note": "Approve the design before Memory." }, { "id": "memory" }] }
+  { "phases": [{ "id": "work", "note": "Preserve the approved safety boundary." }, { "id": "memory" }] }
 `;
 
 export const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] --summary <text> (--phases <ids> | --journey-file <path|->) [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]
@@ -127,6 +129,11 @@ export const BOARD_ADVANCE_HELP = `Usage: takode board advance <quest-id> [--ski
 Advance a quest to the next Quest Journey state. Advancing from the final planned phase removes the row, even when that Journey never included \`port\`.
 
 Use --skip-optional-checkpoint only when the next phase is a User Checkpoint with an approved optional phase note and the concrete skip condition has been satisfied. The reason is recorded on the board row.
+`;
+
+export const BOARD_WORK_TO_MEMORY_HELP = `Usage: takode board work-to-memory <quest-id> [--work-note <feedback-index>] [--full|--verbose] [--json]
+
+Authenticated worker-owned transition from Work to Memory. The caller must be the assigned worker, must have claimed the quest, must have a current Work phase note, and the board row must have no unresolved User Checkpoint.
 `;
 
 export const BOARD_RM_HELP = `Usage: takode board rm <quest-id> [<quest-id> ...] [--full|--verbose] [--json]
@@ -861,7 +868,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       const invalid = getInvalidQuestJourneyPhaseIds(phases);
       if (invalid.length > 0) {
         err(
-          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- use planning, explore, user-checkpoint, implement, code-review, mental-simulation, execute, outcome-review, port, memory, or bookkeeping`,
+          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- active v2 phases are alignment, work, user-checkpoint, and memory`,
         );
       }
       body.phases = normalizeQuestJourneyPhaseIds(phases);
@@ -910,9 +917,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     const isPromoteCommand = sub === "promote";
     const activePhasePosition = parseIntegerFlag(flags, "active-phase-position", "active phase position");
     if (flags["no-code"] === true || flags["code-change"] === true) {
-      err(
-        "Board no-code flags were removed. Model zero-tracked-change work with an explicit phase plan that omits `port` but still ends in `memory`.",
-      );
+      err("Board no-code flags were removed. Use the active v2 Alignment -> Work -> Memory flow.");
     }
 
     const body: Record<string, unknown> = { questId };
@@ -978,7 +983,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       const invalid = getInvalidQuestJourneyPhaseIds(phases);
       if (invalid.length > 0) {
         err(
-          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- use planning, explore, user-checkpoint, implement, code-review, mental-simulation, execute, outcome-review, port, memory, or bookkeeping`,
+          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- active v2 phases are alignment, work, user-checkpoint, and memory`,
         );
       }
       body.phases = normalizeQuestJourneyPhaseIds(phases);
@@ -1175,9 +1180,43 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
   }
 
   if (sub === "advance-no-groom") {
-    err(
-      "`takode board advance-no-groom` was removed. Use an explicit phase plan that omits `port` but still ends in `memory`, then advance with `takode board advance`.",
-    );
+    err("`takode board advance-no-groom` was removed. Use the active v2 Alignment -> Work -> Memory flow.");
+  }
+
+  if (sub === "work-to-memory") {
+    const questId = args[1];
+    const usage = BOARD_WORK_TO_MEMORY_HELP.trim();
+    if (!questId) err(usage);
+    if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
+    const flags = parseFlags(args.slice(2));
+    const workFeedbackIndex = parseIntegerFlag(flags, "work-note", "Work feedback index");
+    if (workFeedbackIndex !== undefined && workFeedbackIndex < 0) err("--work-note must be a non-negative integer.");
+    const result = (await apiPost(base, "/takode/board/work-to-memory", {
+      questId,
+      ...(workFeedbackIndex !== undefined ? { workFeedbackIndex } : {}),
+    })) as {
+      ok: true;
+      questId: string;
+      previousState?: string;
+      newState: string;
+      workFeedbackIndex: number;
+      board: BoardRow[];
+      resolvedSessionDeps?: string[];
+      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
+      queueWarnings?: BoardQueueWarning[];
+      workerSlotUsage?: { used: number; limit: number };
+    };
+    const operation = `${result.questId}: ${result.previousState ?? "WORKING"} -> ${result.newState} (Work note #${result.workFeedbackIndex})`;
+    outputBoardMutation(result.board, flags.json === true, {
+      affectedQuestIds: [result.questId],
+      operation,
+      fullOutput: wantsFullBoardOutput(flags),
+      resolvedSessionDeps: new Set(result.resolvedSessionDeps ?? []),
+      rowSessionStatuses: result.rowSessionStatuses,
+      queueWarnings: result.queueWarnings,
+      workerSlotUsage: result.workerSlotUsage,
+    });
+    return;
   }
 
   if (sub === "advance") {

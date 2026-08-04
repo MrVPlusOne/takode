@@ -187,7 +187,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Board no-code flags were removed");
-    expect(result.stderr).toContain("still ends in `memory`");
+    expect(result.stderr).toContain("Alignment -> Work -> Memory");
     expect(capturedBodies).toHaveLength(0);
   });
 
@@ -200,7 +200,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Board no-code flags were removed");
-    expect(result.stderr).toContain("still ends in `memory`");
+    expect(result.stderr).toContain("Alignment -> Work -> Memory");
     expect(capturedBodies).toHaveLength(0);
   });
 
@@ -213,9 +213,9 @@ describe("takode board set --worker auto-clears waitFor", () => {
         "--worker",
         "3",
         "--phases",
-        "planning,implement,code-review",
+        "alignment,work,memory",
         "--preset",
-        "lightweight-code",
+        "v2-work",
         "--port",
         String(port),
       ],
@@ -230,8 +230,8 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(capturedBodies).toHaveLength(1);
     expect(capturedBodies[0].worker).toBe("worker-session-abc");
     expect(capturedBodies[0].workerNum).toBe(3);
-    expect(capturedBodies[0].phases).toEqual(["alignment", "implement", "code-review"]);
-    expect(capturedBodies[0].presetId).toBe("lightweight-code");
+    expect(capturedBodies[0].phases).toEqual(["alignment", "work", "memory"]);
+    expect(capturedBodies[0].presetId).toBe("v2-work");
   });
 
   it("posts proposed Journey rows with explicit proposal mode and approval hold", async () => {
@@ -244,7 +244,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
         summary: "Approve the proposal goal, tradeoff, and scheduling.",
         journey: {
           mode: "proposed",
-          phaseIds: ["alignment", "implement", "code-review", "port", "memory"],
+          phaseIds: ["alignment", "work", "memory"],
         },
       },
     };
@@ -255,9 +255,9 @@ describe("takode board set --worker auto-clears waitFor", () => {
         "propose",
         "q-1",
         "--phases",
-        "alignment,implement,code-review,port,memory",
+        "alignment,work,memory",
         "--preset",
-        "full-code",
+        "v2-work",
         "--summary",
         "Approve the proposal goal, tradeoff, and scheduling.",
         "--wait-for-input",
@@ -277,8 +277,8 @@ describe("takode board set --worker auto-clears waitFor", () => {
       questId: "q-1",
       journeyMode: "proposed",
       status: "PROPOSED",
-      phases: ["alignment", "implement", "code-review", "port", "memory"],
-      presetId: "full-code",
+      phases: ["alignment", "work", "memory"],
+      presetId: "v2-work",
       waitForInput: ["n-3"],
       presentation: {
         summary: "Approve the proposal goal, tradeoff, and scheduling.",
@@ -322,7 +322,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
     );
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("adjacent `explore -> implement`");
+    expect(result.stderr).toContain("Invalid Quest Journey phase(s)");
     expect(capturedBodies).toHaveLength(0);
   });
 
@@ -333,14 +333,12 @@ describe("takode board set --worker auto-clears waitFor", () => {
       specPath,
       JSON.stringify({
         title: "Draft proposal workflow",
-        presetId: "proposal-flow",
+        presetId: "v2-work",
         phases: [
           { id: "alignment" },
-          { id: "explore", note: "Classify the noisy log source before implementation." },
-          { id: "user-checkpoint", note: "Present classification options before implementation." },
-          { id: "implement" },
-          { id: "code-review", note: "" },
-          { id: "port" },
+          { id: "work", note: "Classify the noisy log source during Work." },
+          { id: "user-checkpoint", note: "Present classification options before Work resumes." },
+          { id: "memory", note: "" },
         ],
         presentation: {
           summary: "Proposed Journey for approval",
@@ -374,15 +372,13 @@ describe("takode board set --worker auto-clears waitFor", () => {
       title: "Draft proposal workflow",
       journeyMode: "proposed",
       status: "PROPOSED",
-      phases: ["alignment", "explore", "user-checkpoint", "implement", "code-review", "port"],
-      presetId: "proposal-flow",
+      phases: ["alignment", "work", "user-checkpoint", "memory"],
+      presetId: "v2-work",
       phaseNoteEdits: [
         { index: 0, note: null },
-        { index: 1, note: "Classify the noisy log source before implementation." },
-        { index: 2, note: "Present classification options before implementation." },
+        { index: 1, note: "Classify the noisy log source during Work." },
+        { index: 2, note: "Present classification options before Work resumes." },
         { index: 3, note: null },
-        { index: 4, note: null },
-        { index: 5, note: null },
       ],
       presentation: {
         summary: "Approve the proposed goal and scheduling.",
@@ -401,9 +397,9 @@ describe("takode board set --worker auto-clears waitFor", () => {
       JSON.stringify({
         phases: [
           { id: "alignment" },
-          { id: "explore" },
+          { id: "work" },
           { id: "user-checkpoint", note: "Optional checkpoint." },
-          { id: "implement" },
+          { id: "memory" },
         ],
       }),
     );
@@ -555,8 +551,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
     // The CLI cannot infer persisted history, so the server remains authoritative for suffix rejection text.
     nextBoardError = {
       status: 400,
-      error:
-        "Quest Journey phases cannot contain adjacent `explore -> implement`. Implement already includes ordinary investigation.",
+      error: "Server-side v2 revision rejection",
     };
 
     const result = await runTakode(
@@ -567,9 +562,9 @@ describe("takode board set --worker auto-clears waitFor", () => {
         "--from-position",
         "5",
         "--expect-phase",
-        "port",
+        "memory",
         "--phases",
-        "explore,implement,port",
+        "work,memory",
         "--port",
         String(port),
       ],
@@ -581,11 +576,11 @@ describe("takode board set --worker auto-clears waitFor", () => {
     );
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("adjacent `explore -> implement`");
+    expect(result.stderr).toContain("Server-side v2 revision rejection");
     expect(capturedBodies[0]).toMatchObject({
       fromIndex: 4,
-      expectedPhaseId: "port",
-      phases: ["explore", "implement", "port"],
+      expectedPhaseId: "memory",
+      phases: ["work", "memory"],
     });
   });
 
@@ -594,21 +589,13 @@ describe("takode board set --worker auto-clears waitFor", () => {
       board: [
         {
           questId: "q-1",
-          status: "MENTAL_SIMULATING",
+          status: "USER_CHECKPOINTING",
           createdAt: 1,
           updatedAt: 2,
           journey: {
-            phaseIds: [
-              "alignment",
-              "implement",
-              "mental-simulation",
-              "implement",
-              "mental-simulation",
-              "code-review",
-              "port",
-            ],
+            phaseIds: ["alignment", "work", "user-checkpoint", "work", "user-checkpoint", "work", "memory"],
             activePhaseIndex: 4,
-            currentPhaseId: "mental-simulation",
+            currentPhaseId: "user-checkpoint",
           },
         },
       ],
@@ -620,11 +607,11 @@ describe("takode board set --worker auto-clears waitFor", () => {
         "set",
         "q-1",
         "--status",
-        "MENTAL_SIMULATING",
+        "USER_CHECKPOINTING",
         "--active-phase-position",
         "5",
         "--phases",
-        "alignment,implement,mental-simulation,implement,mental-simulation,code-review,port",
+        "alignment,work,user-checkpoint,work,user-checkpoint,work,memory",
         "--full",
         "--port",
         String(port),
@@ -639,12 +626,12 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(result.status).toBe(0);
     expect(capturedBodies[0]).toMatchObject({
       questId: "q-1",
-      status: "MENTAL_SIMULATING",
+      status: "USER_CHECKPOINTING",
       activePhaseIndex: 4,
-      phases: ["alignment", "implement", "mental-simulation", "implement", "mental-simulation", "code-review", "port"],
+      phases: ["alignment", "work", "user-checkpoint", "work", "user-checkpoint", "work", "memory"],
     });
     expect(result.stdout).toContain(
-      "journey: 1. Alignment -> 2. Implement -> 3. Mental Simulation -> 4. Implement -> [5. Mental Simulation] -> 6. Code Review -> 7. Port",
+      "journey: 1. Alignment -> 2. Work -> 3. User Checkpoint -> 4. Work -> [5. User Checkpoint] -> 6. Work -> 7. Memory",
     );
   });
 
@@ -653,7 +640,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
       phaseNoteRebaseWarnings: [
         {
           previousIndex: 4,
-          previousPhaseId: "mental-simulation",
+          previousPhaseId: "user-checkpoint",
           previousOccurrence: 1,
           note: "Replay turns 116/120/121/122-123 before dispatching this phase",
         },
@@ -668,9 +655,9 @@ describe("takode board set --worker auto-clears waitFor", () => {
         "--from-position",
         "5",
         "--expect-phase",
-        "mental-simulation",
+        "user-checkpoint",
         "--phases",
-        "port",
+        "memory",
         "--port",
         String(port),
       ],
@@ -684,10 +671,10 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(result.status).toBe(0);
     expect(capturedBodies[0]).toMatchObject({
       fromIndex: 4,
-      expectedPhaseId: "mental-simulation",
-      phases: ["port"],
+      expectedPhaseId: "user-checkpoint",
+      phases: ["memory"],
     });
-    expect(result.stdout).toContain("Mental Simulation occurrence 1 was dropped during revision");
+    expect(result.stdout).toContain("User Checkpoint occurrence 1 was dropped during revision");
     expect(result.stdout).toContain("Replay turns 116/120/121/122-123 before dispatching this phase");
   });
 
@@ -801,6 +788,6 @@ describe("takode board set --worker auto-clears waitFor", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Board no-code flags were removed");
-    expect(result.stderr).toContain("still ends in `memory`");
+    expect(result.stderr).toContain("Alignment -> Work -> Memory");
   });
 });

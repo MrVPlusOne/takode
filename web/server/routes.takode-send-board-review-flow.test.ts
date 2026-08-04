@@ -703,10 +703,7 @@ describe("Takode server-authoritative auth", () => {
     launcher.getSessionNum.mockImplementation((id: string) => sessions[id]?.sessionNum);
     bridge.isBackendConnected.mockImplementation((id: string) => id === "worker-1" || id === "reviewer-1");
     bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-1",
-        { questId: "q-1", worker: "worker-1", workerNum: 11, status: "IMPLEMENTING", createdAt: 1, updatedAt: 1 },
-      ],
+      ["q-1", { questId: "q-1", worker: "worker-1", workerNum: 11, status: "WORKING", createdAt: 1, updatedAt: 1 }],
       ["q-2", { questId: "q-2", worker: "worker-2", workerNum: 22, status: "PLANNING", createdAt: 2, updatedAt: 2 }],
     ]);
 
@@ -718,7 +715,7 @@ describe("Takode server-authoritative auth", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
       board: [
-        { questId: "q-1", worker: "worker-1", workerNum: 11, status: "IMPLEMENTING" },
+        { questId: "q-1", worker: "worker-1", workerNum: 11, status: "WORKING" },
         { questId: "q-2", worker: "worker-2", workerNum: 22, status: "PLANNING" },
       ],
       queueWarnings: [],
@@ -774,7 +771,7 @@ describe("Takode server-authoritative auth", () => {
       completedAt: 30,
       journey: {
         mode: "active",
-        phaseIds: ["alignment", "implement", "memory"],
+        phaseIds: ["alignment", "work", "memory"],
         activePhaseIndex: 2,
         currentPhaseId: "memory",
       },
@@ -866,7 +863,7 @@ describe("Takode server-authoritative auth", () => {
       headers: authHeaders("orch-1", "tok-1"),
       body: JSON.stringify({
         questId: "q-9",
-        status: "IMPLEMENTING",
+        status: "WORKING",
         waitForInput: ["7", "n-2", "n-7"],
       }),
     });
@@ -876,7 +873,7 @@ describe("Takode server-authoritative auth", () => {
       board: [
         {
           questId: "q-9",
-          status: "IMPLEMENTING",
+          status: "WORKING",
           waitForInput: ["n-2", "n-7"],
         },
       ],
@@ -918,8 +915,8 @@ describe("Takode server-authoritative auth", () => {
       body: JSON.stringify({
         questId: "q-9",
         journeyMode: "proposed",
-        phases: ["alignment", "implement", "code-review", "port"],
-        presetId: "full-code",
+        phases: ["alignment", "work", "memory"],
+        presetId: "v2-work",
         presentation: {
           summary: "Approve the proposed goal, constraints, and scheduling.",
         },
@@ -936,7 +933,7 @@ describe("Takode server-authoritative auth", () => {
           waitForInput: ["n-3"],
           journey: {
             mode: "proposed",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
+            phaseIds: ["alignment", "work", "memory"],
             presentation: {
               state: "presented",
               summary: "Approve the proposed goal, constraints, and scheduling.",
@@ -961,7 +958,7 @@ describe("Takode server-authoritative auth", () => {
       body: JSON.stringify({
         questId: "q-9",
         journeyMode: "proposed",
-        phases: ["alignment", "implement", "code-review", "port"],
+        phases: ["alignment", "work", "memory"],
         presentation: {
           summary: "   ",
         },
@@ -984,7 +981,7 @@ describe("Takode server-authoritative auth", () => {
       headers: authHeaders("orch-1", "tok-1"),
       body: JSON.stringify({
         questId: "q-9",
-        status: "IMPLEMENTING",
+        status: "WORKING",
         waitFor: ["q-1"],
       }),
     });
@@ -1008,7 +1005,7 @@ describe("Takode server-authoritative auth", () => {
         {
           questId: "q-9",
           title: "Implement board lifecycle",
-          status: "IMPLEMENTING",
+          status: "WORKING",
           waitForInput: ["n-1", "n-2"],
           createdAt: 1,
           updatedAt: 1,
@@ -1067,7 +1064,7 @@ describe("Takode server-authoritative auth", () => {
         title: "Implement board lifecycle",
         worker: "worker-1",
         workerNum: 11,
-        status: "IMPLEMENTING",
+        status: "WORKING",
       }),
     });
 
@@ -1097,7 +1094,7 @@ describe("Takode server-authoritative auth", () => {
         {
           questId: "q-9",
           title: "Implement board lifecycle",
-          status: "IMPLEMENTING",
+          status: "WORKING",
           waitFor: ["q-1"],
           createdAt: 1,
           updatedAt: 1,
@@ -1119,7 +1116,7 @@ describe("Takode server-authoritative auth", () => {
       board: [
         {
           questId: "q-9",
-          status: "IMPLEMENTING",
+          status: "WORKING",
           waitForInput: ["n-2"],
         },
       ],
@@ -1139,7 +1136,7 @@ describe("Takode server-authoritative auth", () => {
         {
           questId: "q-9",
           title: "Implement board lifecycle",
-          status: "IMPLEMENTING",
+          status: "WORKING",
           waitForInput: ["n-1", "n-2"],
           createdAt: 1,
           updatedAt: 1,
@@ -1168,9 +1165,9 @@ describe("Takode server-authoritative auth", () => {
   it("promotes a proposed Journey into active execution without redefining phases", async () => {
     setupTakodeSessions();
     const proposedJourney = {
-      presetId: "full-code",
+      presetId: "v2-work",
       mode: "proposed" as const,
-      phaseIds: ["alignment", "implement", "code-review", "port"] as QuestJourneyPhaseId[],
+      phaseIds: ["alignment", "work", "memory"] as QuestJourneyPhaseId[],
     };
     bridge._sessions["orch-1"].board = new Map([
       [
@@ -1213,7 +1210,7 @@ describe("Takode server-authoritative auth", () => {
           status: "PLANNING",
           journey: {
             mode: "active",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
+            phaseIds: ["alignment", "work", "memory"],
             activePhaseIndex: 0,
             currentPhaseId: "alignment",
           },
@@ -1234,11 +1231,11 @@ describe("Takode server-authoritative auth", () => {
           createdAt: 1,
           updatedAt: 1,
           journey: {
-            presetId: "full-code",
+            presetId: "v2-work",
             mode: "proposed",
-            phaseIds: ["alignment", "explore", "implement", "code-review", "port"],
+            phaseIds: ["alignment", "work", "memory"],
             phaseNotes: {
-              "1": "Classify the noisy log source before implementation.",
+              "1": "Classify the noisy log source during Work.",
             },
           },
         },
@@ -1299,9 +1296,9 @@ describe("Takode server-authoritative auth", () => {
           createdAt: 1,
           updatedAt: 1,
           journey: {
-            presetId: "full-code",
+            presetId: "v2-work",
             mode: "proposed",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
+            phaseIds: ["alignment", "work", "memory"],
           },
         },
       ],
@@ -1324,7 +1321,7 @@ describe("Takode server-authoritative auth", () => {
           status: "PLANNING",
           journey: {
             mode: "active",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
+            phaseIds: ["alignment", "work", "memory"],
             activePhaseIndex: 0,
             currentPhaseId: "alignment",
           },
@@ -1340,9 +1337,9 @@ describe("Takode server-authoritative auth", () => {
   it("promotes the latest proposed Journey even when an older presentation is stale", async () => {
     setupTakodeSessions();
     const proposedJourney = {
-      presetId: "full-code",
+      presetId: "v2-work",
       mode: "proposed" as const,
-      phaseIds: ["alignment", "implement", "code-review", "port"] as QuestJourneyPhaseId[],
+      phaseIds: ["alignment", "work", "memory"] as QuestJourneyPhaseId[],
     };
     bridge._sessions["orch-1"].board = new Map([
       [
@@ -1418,9 +1415,9 @@ describe("Takode server-authoritative auth", () => {
   it("marks a presented proposal stale when the draft changes", async () => {
     setupTakodeSessions();
     const proposedJourney = {
-      presetId: "full-code",
+      presetId: "v2-work",
       mode: "proposed" as const,
-      phaseIds: ["alignment", "implement", "code-review", "port"] as QuestJourneyPhaseId[],
+      phaseIds: ["alignment", "work", "memory"] as QuestJourneyPhaseId[],
     };
     bridge._sessions["orch-1"].board = new Map([
       [
@@ -1484,9 +1481,9 @@ describe("Takode server-authoritative auth", () => {
           createdAt: 1,
           updatedAt: 1,
           journey: {
-            presetId: "full-code",
+            presetId: "v2-work",
             mode: "proposed",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
+            phaseIds: ["alignment", "work", "memory"],
           },
         },
       ],
@@ -1588,13 +1585,13 @@ describe("Takode server-authoritative auth", () => {
         {
           questId: "q-9",
           title: "Implement board lifecycle",
-          status: "IMPLEMENTING",
+          status: "WORKING",
           createdAt: 1,
           updatedAt: 1,
           journey: {
-            presetId: "full-code",
+            presetId: "v2-work",
             mode: "active",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
+            phaseIds: ["alignment", "work", "memory"],
             activePhaseIndex: 1,
           },
         },
@@ -1616,7 +1613,7 @@ describe("Takode server-authoritative auth", () => {
       error: expect.stringContaining("requires an existing proposed Journey row"),
     });
     expect(bridge._sessions["orch-1"].board.get("q-9")).toMatchObject({
-      status: "IMPLEMENTING",
+      status: "WORKING",
       journey: {
         mode: "active",
         activePhaseIndex: 1,
@@ -1636,8 +1633,8 @@ describe("Takode server-authoritative auth", () => {
           createdAt: 1,
           updatedAt: 1,
           journey: {
-            presetId: "investigation",
-            phaseIds: ["alignment", "explore", "outcome-review"],
+            presetId: "v2-work",
+            phaseIds: ["alignment", "work", "memory"],
             nextLeaderAction: "stale outcome review action",
           },
         },
@@ -1657,8 +1654,8 @@ describe("Takode server-authoritative auth", () => {
           questId: "q-9",
           status: "PLANNING",
           journey: {
-            presetId: "investigation",
-            phaseIds: ["alignment", "explore", "outcome-review"],
+            presetId: "v2-work",
+            phaseIds: ["alignment", "work", "memory"],
             currentPhaseId: "alignment",
             nextLeaderAction: expect.stringContaining("alignment leader brief"),
           },
@@ -1682,7 +1679,7 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
-  it("rejects empty planned phase lists instead of falling back to the full-code sequence", async () => {
+  it("rejects empty planned phase lists instead of falling back to the v2 default sequence", async () => {
     setupTakodeSessions();
 
     const res = await app.request("/api/sessions/orch-1/board", {
@@ -1706,11 +1703,12 @@ describe("Takode server-authoritative auth", () => {
           questId: "q-9",
           title: "Investigate board lifecycle",
           journey: {
-            presetId: "investigation",
-            phaseIds: ["alignment", "explore", "outcome-review"],
-            currentPhaseId: "outcome-review",
+            presetId: "v2-work",
+            phaseIds: ["alignment", "work", "memory"],
+            currentPhaseId: "memory",
+            activePhaseIndex: 2,
           },
-          status: "OUTCOME_REVIEWING",
+          status: "MEMORY",
           createdAt: 1,
           updatedAt: 1,
         },
@@ -1725,7 +1723,7 @@ describe("Takode server-authoritative auth", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
       removed: true,
-      previousState: "OUTCOME_REVIEWING",
+      previousState: "MEMORY",
       board: [],
       completedCount: 1,
     });
@@ -1740,9 +1738,10 @@ describe("Takode server-authoritative auth", () => {
           questId: "q-9",
           title: "Investigate board lifecycle",
           journey: {
-            presetId: "investigation",
-            phaseIds: ["alignment", "explore", "outcome-review"],
-            currentPhaseId: "outcome-review",
+            presetId: "v2-work",
+            phaseIds: ["alignment", "work", "memory"],
+            currentPhaseId: "memory",
+            activePhaseIndex: 2,
             nextLeaderAction: "stale outcome review action",
           },
           status: "PLANNING",
@@ -1764,7 +1763,7 @@ describe("Takode server-authoritative auth", () => {
     expect(bridge._sessions["orch-1"].board.get("q-9")).toMatchObject({
       status: "PLANNING",
       journey: {
-        currentPhaseId: "outcome-review",
+        currentPhaseId: "memory",
       },
     });
   });
@@ -1777,7 +1776,7 @@ describe("Takode server-authoritative auth", () => {
         {
           questId: "q-9",
           title: "Implement board lifecycle",
-          status: "IMPLEMENTING",
+          status: "WORKING",
           createdAt: 1,
           updatedAt: 1,
         },
@@ -1812,6 +1811,6 @@ describe("Takode server-authoritative auth", () => {
     expect(responseBody).toMatchObject({
       error: expect.stringContaining("Board no-code markers were removed"),
     });
-    expect(responseBody.error).toContain("still end in `memory`");
+    expect(responseBody.error).toContain("Alignment -> Work -> Memory");
   });
 });

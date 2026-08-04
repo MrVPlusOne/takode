@@ -396,18 +396,7 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       ? advanceBoardRowController(
           bridge.getSession(sessionId)!,
           questId,
-          [
-            "QUEUED",
-            "PLANNING",
-            "EXPLORING",
-            "IMPLEMENTING",
-            "CODE_REVIEWING",
-            "MENTAL_SIMULATING",
-            "EXECUTING",
-            "OUTCOME_REVIEWING",
-            "BOOKKEEPING",
-            "PORTING",
-          ],
+          ["QUEUED", "PLANNING", "WORKING", "USER_CHECKPOINTING", "MEMORY"],
           workBoardStateDeps,
         )
       : null;
@@ -700,7 +689,7 @@ describe("board stall warnings", () => {
       title: "Investigate stall warning",
       worker: workerId,
       workerNum: 2,
-      status: opts?.blocked ? "QUEUED" : opts?.reviewer ? (opts.reviewStage ?? "CODE_REVIEWING") : "IMPLEMENTING",
+      status: opts?.blocked ? "QUEUED" : opts?.reviewer ? (opts.reviewStage ?? "CODE_REVIEWING") : "WORKING",
       ...(opts?.blocked ? { waitFor: ["#9"] } : {}),
       updatedAt: now - 5 * 60_000,
     });
@@ -728,7 +717,7 @@ describe("board stall warnings", () => {
     questId: string,
     worker: string,
     workerNum: number,
-    status = "IMPLEMENTING",
+    status = "WORKING",
   ) {
     bridge.upsertBoardRow(leaderId, {
       questId,
@@ -808,7 +797,7 @@ describe("board stall warnings", () => {
       title: "Investigate delayed stall drop",
       worker: workerId,
       workerNum: 12,
-      status: opts.status ?? "IMPLEMENTING",
+      status: opts.status ?? "WORKING",
       updatedAt: now - 5 * 60_000,
     });
 
@@ -887,7 +876,7 @@ describe("board stall warnings", () => {
 
     bridge.upsertBoardRow(leaderId, {
       questId: "q-1",
-      status: "PORTING",
+      status: "MEMORY",
       updatedAt: Date.now(),
     });
 
@@ -1052,13 +1041,13 @@ describe("board stall warnings", () => {
 
     bridge.upsertBoardRow(leaderId, {
       questId: "q-1",
-      status: "PORTING",
+      status: "MEMORY",
       updatedAt: Date.now(),
     });
 
     bridge.injectUserMessage(
       leaderId,
-      "1 event from 1 session\n\n#12 | board_stalled | q-1 Investigate delayed stall drop | IMPLEMENTING | worker disconnected | stalled 4m",
+      "1 event from 1 session\n\n#12 | board_stalled | q-1 Investigate delayed stall drop | WORKING | worker disconnected | stalled 4m",
       {
         sessionId: "herd-events",
         sessionLabel: "Herd Events",
@@ -1075,8 +1064,8 @@ describe("board stall warnings", () => {
             data: {
               questId: "q-1",
               title: "Investigate delayed stall drop",
-              stage: "IMPLEMENTING",
-              signature: "q-1|IMPLEMENTING|disconnected",
+              stage: "WORKING",
+              signature: "q-1|WORKING|disconnected",
               workerStatus: "disconnected",
               reviewerStatus: "missing",
               stalledForMs: 240_000,
@@ -1086,7 +1075,7 @@ describe("board stall warnings", () => {
           } as any,
         ],
         renderedLines: [
-          "#12 | board_stalled | q-1 Investigate delayed stall drop | IMPLEMENTING | worker disconnected | stalled 4m",
+          "#12 | board_stalled | q-1 Investigate delayed stall drop | WORKING | worker disconnected | stalled 4m",
         ],
       },
     );
@@ -1119,8 +1108,8 @@ describe("board stall warnings", () => {
       data: {
         questId: "q-1",
         title: "Investigate delayed stall drop",
-        stage: "IMPLEMENTING",
-        signature: "q-1|IMPLEMENTING|disconnected",
+        stage: "WORKING",
+        signature: "q-1|WORKING|disconnected",
         workerStatus: "disconnected",
         reviewerStatus: "missing",
         stalledForMs: 240_000,
@@ -1243,8 +1232,8 @@ describe("board stall warnings", () => {
       data: {
         questId: "q-1",
         title: "Investigate delayed stall drop",
-        stage: "IMPLEMENTING",
-        signature: "q-1|IMPLEMENTING|disconnected",
+        stage: "WORKING",
+        signature: "q-1|WORKING|disconnected",
         workerStatus: "disconnected",
         reviewerStatus: "missing",
         stalledForMs: 240_000,
@@ -1311,7 +1300,7 @@ describe("board stall warnings", () => {
     bridge.upsertBoardRow(leaderId, {
       questId: "q-1",
       waitForInput: ["n-1"],
-      status: "IMPLEMENTING",
+      status: "WORKING",
       updatedAt: Date.now() - 5 * 60_000,
     });
 
@@ -1442,7 +1431,7 @@ describe("board stall warnings", () => {
     bridge.upsertBoardRow(leaderId, {
       questId: "q-99",
       title: "Completed dependency without worker",
-      status: "PORTING",
+      status: "MEMORY",
       updatedAt: Date.now() - 120_000,
     });
     bridge.removeBoardRows(leaderId, ["q-99"]);
@@ -1603,7 +1592,7 @@ describe("board stall warnings", () => {
       title: "Explicit dependency",
       worker: "worker-extra-1",
       workerNum: 4,
-      status: "IMPLEMENTING",
+      status: "WORKING",
       updatedAt: Date.now() - 60_000,
     });
     bridge.upsertBoardRow(leaderId, {
@@ -1634,7 +1623,7 @@ describe("board stall warnings", () => {
     dispatcher.destroy();
   });
 
-  it("warns when a review-stage row has a stalled reviewer", async () => {
+  it("does not emit embedded reviewer-stage warnings in v2", async () => {
     const { leaderId, dispatcher } = setupBoardStallHarness({ reviewer: true });
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
 
@@ -1645,15 +1634,13 @@ describe("board stall warnings", () => {
     const herdCalls = injectSpy.mock.calls.filter(
       ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
     );
-    expect(herdCalls).toHaveLength(1);
-    expect(herdCalls[0][1]).toContain("reviewer disconnected");
-    expect(herdCalls[0][1]).toContain("re-dispatch code review");
+    expect(herdCalls).toHaveLength(0);
 
     injectSpy.mockRestore();
     dispatcher.destroy();
   });
 
-  it("classifies a live outcome reviewer as idle instead of disconnected", async () => {
+  it("does not classify embedded outcome reviewer stalls in v2", async () => {
     const { leaderId, dispatcher } = setupBoardStallHarness({
       reviewer: true,
       reviewStage: "OUTCOME_REVIEWING",
@@ -1668,15 +1655,13 @@ describe("board stall warnings", () => {
     const herdCalls = injectSpy.mock.calls.filter(
       ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
     );
-    expect(herdCalls).toHaveLength(1);
-    expect(herdCalls[0][1]).toContain("reviewer idle");
-    expect(herdCalls[0][1]).not.toContain("reviewer disconnected");
+    expect(herdCalls).toHaveLength(0);
 
     injectSpy.mockRestore();
     dispatcher.destroy();
   });
 
-  it("warns when a review-stage row has no attached reviewer", async () => {
+  it("does not emit missing-reviewer warnings for legacy review-stage rows in v2", async () => {
     const { leaderId, dispatcher } = setupBoardStallHarness({ reviewer: false });
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
 
@@ -1693,9 +1678,7 @@ describe("board stall warnings", () => {
     const herdCalls = injectSpy.mock.calls.filter(
       ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
     );
-    expect(herdCalls).toHaveLength(1);
-    expect(herdCalls[0][1]).toContain("reviewer missing");
-    expect(herdCalls[0][1]).toContain("attach code reviewer");
+    expect(herdCalls).toHaveLength(0);
 
     injectSpy.mockRestore();
     dispatcher.destroy();
@@ -1712,7 +1695,7 @@ describe("board stall warnings", () => {
       title: "Already finished quest",
       worker: workerId,
       workerNum: 2,
-      status: "IMPLEMENTING",
+      status: "WORKING",
       updatedAt: now - 5 * 60_000,
     });
     bridge.persistSessionSync(leaderId);

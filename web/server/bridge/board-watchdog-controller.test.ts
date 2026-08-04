@@ -178,7 +178,7 @@ describe("Quest Journey board phase timing", () => {
       {
         questId: "q-1016",
         status: "PLANNING",
-        journey: { phaseIds: ["alignment", "implement"] },
+        journey: { phaseIds: ["alignment", "work", "memory"] },
       },
       deps,
     );
@@ -191,7 +191,7 @@ describe("Quest Journey board phase timing", () => {
     const advanced = advanceBoardRow(session, "q-1016", QUEST_JOURNEY_STATES, deps);
 
     expect(advanced).toEqual(
-      expect.objectContaining({ removed: false, previousState: "PLANNING", newState: "IMPLEMENTING" }),
+      expect.objectContaining({ removed: false, previousState: "PLANNING", newState: "WORKING" }),
     );
     expect(getBoard(session)[0]?.journey?.phaseTimings).toEqual({
       "0": { startedAt: 1_000, endedAt: 61_000 },
@@ -199,19 +199,30 @@ describe("Quest Journey board phase timing", () => {
     });
 
     vi.setSystemTime(new Date(181_000));
+    const memory = advanceBoardRow(session, "q-1016", QUEST_JOURNEY_STATES, deps);
+
+    expect(memory).toEqual(expect.objectContaining({ removed: false, previousState: "WORKING", newState: "MEMORY" }));
+    expect(getBoard(session)[0]?.journey?.phaseTimings).toEqual({
+      "0": { startedAt: 1_000, endedAt: 61_000 },
+      "1": { startedAt: 61_000, endedAt: 181_000 },
+      "2": { startedAt: 181_000 },
+    });
+
+    vi.setSystemTime(new Date(241_000));
     const completed = advanceBoardRow(session, "q-1016", QUEST_JOURNEY_STATES, deps);
 
-    expect(completed).toEqual(expect.objectContaining({ removed: true, previousState: "IMPLEMENTING" }));
-    expect(getCompletedBoard(session)[0]?.completedAt).toBe(181_000);
+    expect(completed).toEqual(expect.objectContaining({ removed: true, previousState: "MEMORY" }));
+    expect(getCompletedBoard(session)[0]?.completedAt).toBe(241_000);
     expect(getCompletedBoard(session)[0]?.journey?.phaseTimings).toEqual({
       "0": { startedAt: 1_000, endedAt: 61_000 },
       "1": { startedAt: 61_000, endedAt: 181_000 },
+      "2": { startedAt: 181_000, endedAt: 241_000 },
     });
   });
 
   it("tracks repeated phases by phase position instead of phase id", () => {
     // Repeated Journey phases are separate occurrences; keying by position avoids
-    // collapsing two Implement phases into one timing bucket.
+    // collapsing two Work phases into one timing bucket.
     const session = createSession();
     const deps = createDeps();
 
@@ -220,9 +231,9 @@ describe("Quest Journey board phase timing", () => {
       session,
       {
         questId: "q-1017",
-        status: "IMPLEMENTING",
+        status: "WORKING",
         journey: {
-          phaseIds: ["implement", "code-review", "implement"],
+          phaseIds: ["work", "user-checkpoint", "work"],
           activePhaseIndex: 0,
         },
       },
@@ -249,9 +260,9 @@ describe("Quest Journey board phase timing", () => {
       session,
       {
         questId: "q-1040",
-        status: "EXPLORING",
+        status: "WORKING",
         journey: {
-          phaseIds: ["explore", "user-checkpoint", "implement"],
+          phaseIds: ["work", "user-checkpoint", "memory"],
           activePhaseIndex: 0,
         },
       },
@@ -261,11 +272,11 @@ describe("Quest Journey board phase timing", () => {
     const advanced = advanceBoardRow(session, "q-1040", QUEST_JOURNEY_STATES, deps);
 
     expect(advanced).toEqual(
-      expect.objectContaining({ removed: false, previousState: "EXPLORING", newState: "USER_CHECKPOINTING" }),
+      expect.objectContaining({ removed: false, previousState: "WORKING", newState: "USER_CHECKPOINTING" }),
     );
     expect(getBoard(session)[0]?.journey).toMatchObject({
-      activePhaseIndex: 1,
-      currentPhaseId: "user-checkpoint",
+      activePhaseIndex: 0,
+      currentPhaseId: "work",
     });
   });
 
@@ -277,12 +288,12 @@ describe("Quest Journey board phase timing", () => {
       session,
       {
         questId: "q-1041",
-        status: "EXPLORING",
+        status: "WORKING",
         journey: {
-          phaseIds: ["explore", "user-checkpoint", "implement"],
+          phaseIds: ["work", "user-checkpoint", "memory"],
           activePhaseIndex: 0,
           phaseNotes: {
-            "1": "Optional: skip if Explore confirms implementation has no user-visible tradeoff.",
+            "1": "Optional: skip if Work confirms there is no user-visible tradeoff.",
           },
         },
       },
@@ -292,11 +303,11 @@ describe("Quest Journey board phase timing", () => {
     const advanced = advanceBoardRow(session, "q-1041", QUEST_JOURNEY_STATES, deps);
 
     expect(advanced).toEqual(
-      expect.objectContaining({ removed: false, previousState: "EXPLORING", newState: "USER_CHECKPOINTING" }),
+      expect.objectContaining({ removed: false, previousState: "WORKING", newState: "USER_CHECKPOINTING" }),
     );
     expect(getBoard(session)[0]?.journey).toMatchObject({
-      activePhaseIndex: 1,
-      currentPhaseId: "user-checkpoint",
+      activePhaseIndex: 0,
+      currentPhaseId: "work",
     });
   });
 
@@ -308,12 +319,12 @@ describe("Quest Journey board phase timing", () => {
       session,
       {
         questId: "q-1042",
-        status: "EXPLORING",
+        status: "WORKING",
         journey: {
-          phaseIds: ["explore", "user-checkpoint", "implement"],
+          phaseIds: ["work", "user-checkpoint", "memory"],
           activePhaseIndex: 0,
           phaseNotes: {
-            "1": "May be skipped if Explore confirms implementation has no user-visible tradeoff.",
+            "1": "May be skipped if Work confirms there is no user-visible tradeoff.",
           },
         },
       },
@@ -321,24 +332,22 @@ describe("Quest Journey board phase timing", () => {
     );
 
     const advanced = advanceBoardRow(session, "q-1042", QUEST_JOURNEY_STATES, deps, {
-      skipOptionalUserCheckpointReason: "Explore found no user-visible tradeoff.",
+      skipOptionalUserCheckpointReason: "Work found no user-visible tradeoff.",
     });
 
-    expect(advanced).toEqual(
-      expect.objectContaining({ removed: false, previousState: "EXPLORING", newState: "IMPLEMENTING" }),
-    );
+    expect(advanced).toEqual(expect.objectContaining({ removed: false, previousState: "WORKING", newState: "MEMORY" }));
     expect(getBoard(session)[0]?.journey).toMatchObject({
       activePhaseIndex: 2,
-      currentPhaseId: "implement",
+      currentPhaseId: "memory",
       phaseSkipReasons: {
-        "1": "Explore found no user-visible tradeoff.",
+        "1": "Work found no user-visible tradeoff.",
       },
     });
   });
 
   it("rebases the current open timing when a revision inserts a phase before the current phase", () => {
-    // The old Implement timing must move to the revised Implement position;
-    // otherwise the inserted Explore phase would display time the board never spent there.
+    // The old Work timing must move to the revised Work position; otherwise
+    // the inserted checkpoint would display time the board never spent there.
     const session = createSession();
     const deps = createDeps();
 
@@ -348,7 +357,7 @@ describe("Quest Journey board phase timing", () => {
       {
         questId: "q-1018",
         status: "PLANNING",
-        journey: { phaseIds: ["alignment", "implement", "code-review"] },
+        journey: { phaseIds: ["alignment", "work", "memory"] },
       },
       deps,
     );
@@ -360,11 +369,11 @@ describe("Quest Journey board phase timing", () => {
       session,
       {
         questId: "q-1018",
-        status: "IMPLEMENTING",
+        status: "WORKING",
         journey: {
-          phaseIds: ["alignment", "explore", "implement", "code-review"],
+          phaseIds: ["alignment", "user-checkpoint", "work", "memory"],
           activePhaseIndex: 2,
-          revisionReason: "Add Explore before review",
+          revisionReason: "Add a checkpoint before Work continues",
         },
       },
       deps,
@@ -387,9 +396,9 @@ describe("Quest Journey board phase timing", () => {
       session,
       {
         questId: "q-1019",
-        status: "IMPLEMENTING",
+        status: "WORKING",
         journey: {
-          phaseIds: ["alignment", "implement", "code-review", "implement"],
+          phaseIds: ["alignment", "work", "user-checkpoint", "work"],
           activePhaseIndex: 3,
         },
       },
@@ -401,11 +410,11 @@ describe("Quest Journey board phase timing", () => {
       session,
       {
         questId: "q-1019",
-        status: "IMPLEMENTING",
+        status: "WORKING",
         journey: {
-          phaseIds: ["alignment", "implement", "code-review", "explore", "implement"],
+          phaseIds: ["alignment", "work", "user-checkpoint", "memory", "work"],
           activePhaseIndex: 4,
-          revisionReason: "Add Explore before the repeated Implement",
+          revisionReason: "Add Memory before the repeated Work",
         },
       },
       deps,
@@ -579,7 +588,7 @@ describe("done quest board reconciliation", () => {
       updatedAt: 2,
       journey: {
         mode: "active",
-        phaseIds: ["alignment", "implement", "memory"],
+        phaseIds: ["alignment", "work", "memory"],
         activePhaseIndex: 2,
         currentPhaseId: "memory",
         phaseTimings: {
@@ -595,8 +604,8 @@ describe("done quest board reconciliation", () => {
       updatedAt: 4,
       journey: {
         mode: "active",
-        phaseIds: ["alignment", "memory"],
-        activePhaseIndex: 1,
+        phaseIds: ["alignment", "work", "memory"],
+        activePhaseIndex: 2,
         currentPhaseId: "memory",
       },
     });

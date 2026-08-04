@@ -19,6 +19,7 @@ import {
   BOARD_REVISE_HELP,
   BOARD_RM_HELP,
   BOARD_SET_HELP,
+  BOARD_WORK_TO_MEMORY_HELP,
 } from "./takode-board.js";
 import { SPAWN_FLAG_USAGE } from "./takode-orchestration-commands.js";
 import { PERMISSION_GET_HELP, PERMISSION_HELP, PERMISSION_SET_HELP } from "./takode-permission-commands.js";
@@ -402,12 +403,12 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
         console.log(BOARD_PROMOTE_HELP);
       } else if (sub === "note") {
         console.log(BOARD_NOTE_HELP);
+      } else if (sub === "work-to-memory") {
+        console.log(BOARD_WORK_TO_MEMORY_HELP);
       } else if (sub === "advance") {
         console.log(BOARD_ADVANCE_HELP);
       } else if (sub === "advance-no-groom") {
-        console.log(
-          "`takode board advance-no-groom` was removed. Use an explicit phase plan that omits `port` but still ends in `memory`, then advance with `takode board advance`.",
-        );
+        console.log("`takode board advance-no-groom` was removed. Use the active v2 Alignment -> Work -> Memory flow.");
       } else if (sub === "rm") {
         console.log(BOARD_RM_HELP);
       } else {

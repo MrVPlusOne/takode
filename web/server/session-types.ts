@@ -1785,6 +1785,11 @@ export interface TakodeTurnEndEventData {
   /** Explicit route for the user message that drove this turn, when known. */
   threadKey?: string;
   questId?: string;
+  phaseNote?: {
+    phaseId?: string;
+    index?: number;
+    tldr?: string;
+  };
 }
 
 export interface TakodeWorkerStreamEventData
@@ -1799,6 +1804,7 @@ export interface TakodeWorkerStreamEventData
     | "turn_source"
     | "threadKey"
     | "questId"
+    | "phaseNote"
   > {
   reason?: "checkpoint";
 }

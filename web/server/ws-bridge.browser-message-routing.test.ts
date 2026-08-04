@@ -917,10 +917,10 @@ describe("Browser message routing", () => {
       {
         questId: "q-1455",
         title: "Restore active quest rows in leader session hover",
-        status: "IMPLEMENTING",
+        status: "WORKING",
         createdAt: 1,
         updatedAt: 2,
-        journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
+        journey: { mode: "active", phaseIds: ["alignment", "work", "memory"], currentPhaseId: "work" },
       },
     ];
 
@@ -938,7 +938,7 @@ describe("Browser message routing", () => {
       expect.objectContaining({ questId: "q-1455", title: "Restore active quest rows in leader session hover" }),
     ]);
     expect(activity?.session.leaderActivePhaseSummary).toEqual([
-      expect.objectContaining({ label: "Implement", count: 1, tone: "phase" }),
+      expect.objectContaining({ label: "Work", count: 1, tone: "phase" }),
     ]);
   });
 

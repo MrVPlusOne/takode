@@ -3,7 +3,7 @@
 You are performing final non-project-tracked durable-state closure for a substantively accepted quest.
 
 Boundary:
-- Confirm the accepted result is already substantively complete and synced when tracked project work required Port.
+- Confirm the accepted result is already substantively complete and synced when tracked project work required Work-owned sync/push.
 - Settle final debrief metadata and debrief TLDR metadata, or provide concise drafts if the leader will complete the quest. Final debrief TLDRs should not repeat raw commits/hashes already attached as structured quest metadata, recorded in a Port `Synced SHAs:` line, or present in the full debrief/verification detail; describe the user-facing outcome and accepted state instead.
 - Generate or refresh quest quiz metadata when it would help the human retain the important mental model from the quest. Use `quest quiz set <quest-id> --items-file <path|->` to attach concise question/answer pairs. Write quiz items from the quest record and accepted scope so they are self-contained without requiring the user to remember earlier side discussions.
   - Prompt active recall of major work/change, new discoveries, and critical related background knowledge surfaced by the agent during the quest: implementation mechanisms, root causes, validation limits, failure modes, operational procedures, surprising facts, reusable lessons, and meaningful interface/protocol/command/syntax/invocation details when remembering them would help the user operate, debug, or evaluate the accepted result later.
@@ -17,7 +17,7 @@ Boundary:
 - Triage durable memory: consistency with existing file-based memory, memory writes or explicit deferrals, stale-memory checks, and one memory statement.
 - Clean up or record non-project-tracked durable state: external artifact records, thread/timer/notification cleanup, dependency notes, current-state handoffs, and follow-up proposals when needed.
 - Do not edit tracked project files. If tracked docs, skills, prompts, phase briefs, code, tests, templates, fixtures, changelog, notebooks, or other project repo files need changes, stop and route the gap back to the leader for Implement/Code Review/Port or a follow-up quest.
-- Do not port, self-review, run expensive Execute work, or change quest status unless explicitly assigned.
+- Do not perform new project-tracked Work. If you are the assigned Memory owner, you may complete the quest after durable-state closure, final debrief metadata, User review checks, quest metadata reconciliation, and the memory statement are settled.
 
 File-based memory:
 - Run `memory catalog show` first. Use `memory catalog diff` as a freshness check when you need to know what changed since this session last saw the catalog.

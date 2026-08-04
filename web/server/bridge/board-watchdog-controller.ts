@@ -34,22 +34,7 @@ import { markCodexAutoPauseRecoverySuppressed } from "./codex-auto-pause-recover
 type SessionLike = any;
 
 const BOARD_STALL_THRESHOLD_MS = 3 * 60_000;
-const REVIEW_BOARD_STALL_STAGES = new Set([
-  "CODE_REVIEWING",
-  "MENTAL_SIMULATING",
-  "OUTCOME_REVIEWING",
-  "GROOM_REVIEWING",
-]);
-const WORKER_OWNED_BOARD_STAGES = new Set([
-  "PLANNING",
-  "EXPLORING",
-  "IMPLEMENTING",
-  "EXECUTING",
-  "USER_CHECKPOINTING",
-  "PORTING",
-  "MEMORY",
-  "BOOKKEEPING",
-]);
+const WORKER_OWNED_BOARD_STAGES = new Set(["PLANNING", "USER_CHECKPOINTING", "WORKING", "MEMORY"]);
 
 type BoardStallStatus = "running" | "idle" | "disconnected" | "missing";
 
@@ -109,11 +94,7 @@ export interface AdvanceBoardRowOptions {
 
 type BoardSessionsLike = Map<string, SessionLike>;
 
-const LEGACY_NO_CODE_COMPAT_PHASE_IDS = [
-  "alignment",
-  "implement",
-  "code-review",
-] as const satisfies readonly QuestJourneyPhaseId[];
+const LEGACY_NO_CODE_COMPAT_PHASE_IDS = ["alignment", "work"] as const satisfies readonly QuestJourneyPhaseId[];
 
 export function getBoard(session: SessionLike): BoardRow[] {
   for (const row of session.board.values() as Iterable<BoardRow>) {
@@ -1019,7 +1000,7 @@ export function advanceBoardRow(
 
   const previousRowForTiming = cloneBoardRowForTiming(row);
   const now = Date.now();
-  row.status = currentIdx === -1 ? states[0] : states[currentIdx + 1];
+  row.status = currentIdx === -1 ? "QUEUED" : states[currentIdx + 1];
   row.journey = normalizeBoardRowJourneyPlan(row, row.status);
   applyBoardWaitStateInvariant(row);
   applyQuestJourneyPhaseTiming(row, previousRowForTiming, now);
@@ -1042,8 +1023,7 @@ export function advanceBoardRowNoGroom(
 
   const previousState = row.status;
   return {
-    error:
-      "The no-code board shortcut was removed. Model zero-tracked-change work with an explicit Quest Journey that omits `port` but still ends in `memory`, then use standard board advance.",
+    error: "The no-code board shortcut was removed. Use the active v2 Alignment -> Work -> Memory flow.",
     previousState,
   };
 }
@@ -1329,8 +1309,7 @@ function getBoardStalledAffectedSessionIds(
 
 function isReviewerBoardStalledEvent(event: TakodeEvent): boolean {
   if (event.event !== "board_stalled") return false;
-  const stage = (event.data.stage || "").trim().toUpperCase();
-  return REVIEW_BOARD_STALL_STAGES.has(stage) || event.data.reason.toLowerCase().startsWith("reviewer ");
+  return event.data.reason.toLowerCase().startsWith("reviewer ");
 }
 
 function retireBoardDispatchState(session: SessionLike, questId: string, deps: BoardWatchdogDeps): void {
@@ -1505,61 +1484,14 @@ function buildBoardStallCandidate(
       reason: `worker ${workerRuntime.status}`,
       action:
         stage === "PLANNING"
-          ? "inspect worker; review plan or re-dispatch"
-          : stage === "EXPLORING"
-            ? "inspect worker; review findings or revise the Journey"
-            : stage === "IMPLEMENTING"
-              ? "inspect worker; resume or re-dispatch before review"
-              : stage === "EXECUTING"
-                ? "inspect worker; review monitor state or stop conditions"
-                : stage === "USER_CHECKPOINTING"
-                  ? "inspect worker; publish checkpoint, notify user, or revise the Journey"
-                  : stage === "PORTING"
-                    ? "inspect worker; resume port or advance to Memory after sync"
-                    : stage === "MEMORY"
-                      ? "inspect worker; finish durable-state closure or re-dispatch"
-                      : "inspect worker; refresh shared state or re-dispatch",
-    };
-  }
-
-  if (stage === "CODE_REVIEWING" || stage === "MENTAL_SIMULATING" || stage === "OUTCOME_REVIEWING") {
-    if (reviewerSessionId) {
-      if (reviewerRuntime.hasActiveTimer || reviewerRuntime.status === "running") return null;
-      return {
-        signature: `${row.questId}|${stage}|reviewer|${reviewerRuntime.status}`,
-        sourceSessionId: workerSessionId || reviewerSessionId,
-        questId: row.questId,
-        title,
-        stage,
-        workerStatus: workerRuntime.status,
-        reviewerStatus: reviewerRuntime.status,
-        stalledSince: stalledSinceFrom(workerRuntime.lastActivityAt, reviewerRuntime.lastActivityAt),
-        reason: `reviewer ${reviewerRuntime.status}`,
-        action:
-          stage === "CODE_REVIEWING"
-            ? "inspect reviewer; re-dispatch code review if needed"
-            : stage === "MENTAL_SIMULATING"
-              ? "inspect reviewer; re-dispatch mental simulation if needed"
-              : "inspect reviewer; re-dispatch outcome review if needed",
-      };
-    }
-    if (!workerSessionId || workerRuntime.hasActiveTimer || workerRuntime.status === "running") return null;
-    return {
-      signature: `${row.questId}|${stage}|reviewer-missing|${workerRuntime.status}`,
-      sourceSessionId: workerSessionId,
-      questId: row.questId,
-      title,
-      stage,
-      workerStatus: workerRuntime.status,
-      reviewerStatus: "missing",
-      stalledSince: stalledSinceFrom(workerRuntime.lastActivityAt),
-      reason: "reviewer missing",
-      action:
-        stage === "CODE_REVIEWING"
-          ? "attach code reviewer"
-          : stage === "MENTAL_SIMULATING"
-            ? "attach mental-simulation reviewer"
-            : "attach outcome reviewer",
+          ? "inspect worker; approve Alignment or re-dispatch"
+          : stage === "WORKING"
+            ? "inspect worker; answer blockers, resume Work, or re-dispatch"
+            : stage === "USER_CHECKPOINTING"
+              ? "inspect worker; publish checkpoint, notify user, or resume Work after a decision"
+              : stage === "MEMORY"
+                ? "inspect worker; finish durable-state closure or re-dispatch"
+                : "inspect worker; migrate or reconcile this legacy board state",
     };
   }
 

@@ -49,7 +49,17 @@ export interface QuestJourneyPhasePathOptions {
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const QUEST_JOURNEY_PHASE_DIRNAME = "quest-journey-phases";
 const QUEST_JOURNEY_PHASE_DISPLAY_ROOT = "~/.companion/quest-journey-phases";
-const DEPRECATED_QUEST_JOURNEY_PHASE_DATA_DIRS = ["planning"];
+const DEPRECATED_QUEST_JOURNEY_PHASE_DATA_DIRS = [
+  "planning",
+  "explore",
+  "implement",
+  "code-review",
+  "mental-simulation",
+  "execute",
+  "outcome-review",
+  "port",
+  "bookkeeping",
+];
 
 function resolvePackageRoot(options?: QuestJourneyPhasePathOptions): string {
   return options?.packageRoot

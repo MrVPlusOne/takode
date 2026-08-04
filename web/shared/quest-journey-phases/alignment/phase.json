@@ -6,5 +6,5 @@
   "assigneeRole": "worker",
   "contract": "Do a concise leader-verification read-in covering concrete understanding, key constraints, real ambiguities or questions, blockers or surprises, and Journey-revision evidence.",
   "nextLeaderAction": "read the alignment leader brief, send the alignment-only instruction, then review the worker read-in for leader approval, routing, or necessary user escalation",
-  "aliases": ["planning"]
+  "aliases": []
 }

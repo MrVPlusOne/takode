@@ -1586,13 +1586,13 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     bridge.upsertBoardRow(sid, {
       questId: "q-1",
       title: "Investigate delayed stall drop",
-      status: "PORTING",
+      status: "MEMORY",
       updatedAt: Date.now(),
     });
 
     const delivery = bridge.injectUserMessage(
       sid,
-      "1 event from 1 session\n\n#12 | board_stalled | q-1 Investigate delayed stall drop | IMPLEMENTING | worker disconnected | stalled 4m",
+      "1 event from 1 session\n\n#12 | board_stalled | q-1 Investigate delayed stall drop | WORKING | worker disconnected | stalled 4m",
       {
         sessionId: "herd-events",
         sessionLabel: "Herd Events",
@@ -1609,8 +1609,8 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
             data: {
               questId: "q-1",
               title: "Investigate delayed stall drop",
-              stage: "IMPLEMENTING",
-              signature: "q-1|IMPLEMENTING|disconnected",
+              stage: "WORKING",
+              signature: "q-1|WORKING|disconnected",
               workerStatus: "disconnected",
               reviewerStatus: "missing",
               stalledForMs: 240_000,
@@ -1620,7 +1620,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
           } as any,
         ],
         renderedLines: [
-          "#12 | board_stalled | q-1 Investigate delayed stall drop | IMPLEMENTING | worker disconnected | stalled 4m",
+          "#12 | board_stalled | q-1 Investigate delayed stall drop | WORKING | worker disconnected | stalled 4m",
         ],
       },
     );
@@ -1669,7 +1669,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     bridge.upsertBoardRow(sid, {
       questId: "q-1",
       title: "Stale stall row",
-      status: "PORTING",
+      status: "MEMORY",
       updatedAt: now,
     });
     bridge.upsertBoardRow(sid, {
@@ -1677,7 +1677,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
       title: "Live stall row",
       worker: "worker-live",
       workerNum: 22,
-      status: "IMPLEMENTING",
+      status: "WORKING",
       updatedAt: now - 5 * 60_000,
     });
 
@@ -1691,8 +1691,8 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
       data: {
         questId: "q-1",
         title: "Stale stall row",
-        stage: "IMPLEMENTING",
-        signature: "q-1|IMPLEMENTING|disconnected",
+        stage: "WORKING",
+        signature: "q-1|WORKING|disconnected",
         workerStatus: "disconnected",
         reviewerStatus: "missing",
         stalledForMs: 240_000,
@@ -1710,8 +1710,8 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
       data: {
         questId: "q-2",
         title: "Live stall row",
-        stage: "IMPLEMENTING",
-        signature: "q-2|IMPLEMENTING|disconnected",
+        stage: "WORKING",
+        signature: "q-2|WORKING|disconnected",
         workerStatus: "disconnected",
         reviewerStatus: "missing",
         stalledForMs: 240_000,

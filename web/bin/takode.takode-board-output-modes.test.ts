@@ -83,15 +83,15 @@ describe("takode board output modes", () => {
             board: [
               {
                 questId: "q-420",
-                title: "Recover reviewer visibility",
+                title: "Recover worker visibility",
                 worker: "worker-558",
                 workerNum: 558,
-                status: "CODE_REVIEWING",
+                status: "WORKING",
                 waitFor: ["#560"],
                 journey: {
-                  phaseIds: ["alignment", "implement", "code-review", "port"],
-                  activePhaseIndex: 2,
-                  revisionReason: "Need another pass before port",
+                  phaseIds: ["alignment", "work", "memory"],
+                  activePhaseIndex: 1,
+                  revisionReason: "Need another Work pass before Memory",
                 },
                 createdAt: 1,
                 updatedAt: 2,
@@ -126,9 +126,9 @@ describe("takode board output modes", () => {
 
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("#558 idle / #560 running");
-      expect(result.stdout).toContain("read the code-review leader brief");
+      expect(result.stdout).toContain("review the Work note for blockers or checkpoint needs");
       expect(result.stdout).not.toContain("revised:");
-      expect(result.stdout).not.toContain("Need another pass before port");
+      expect(result.stdout).not.toContain("Need another Work pass before Memory");
     } finally {
       server.close();
     }
@@ -371,21 +371,13 @@ describe("takode board output modes", () => {
               {
                 questId: "q-720",
                 title: "Repeated simulation loop",
-                status: "MENTAL_SIMULATING",
+                status: "USER_CHECKPOINTING",
                 createdAt: 1,
                 updatedAt: 2,
                 journey: {
-                  phaseIds: [
-                    "alignment",
-                    "implement",
-                    "mental-simulation",
-                    "implement",
-                    "mental-simulation",
-                    "code-review",
-                    "port",
-                  ],
+                  phaseIds: ["alignment", "work", "user-checkpoint", "work", "user-checkpoint", "work", "memory"],
                   activePhaseIndex: 4,
-                  currentPhaseId: "mental-simulation",
+                  currentPhaseId: "user-checkpoint",
                 },
               },
             ],
@@ -412,7 +404,7 @@ describe("takode board output modes", () => {
 
       expect(result.status).toBe(0);
       expect(result.stdout).toContain(
-        "journey: 1. Alignment -> 2. Implement -> 3. Mental Simulation -> 4. Implement -> [5. Mental Simulation] -> 6. Code Review -> 7. Port",
+        "journey: 1. Alignment -> 2. Work -> 3. User Checkpoint -> 4. Work -> [5. User Checkpoint] -> 6. Work -> 7. Memory",
       );
     } finally {
       server.close();

@@ -1,45 +1,44 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_QUEST_JOURNEY_PHASE_IDS,
   FREE_WORKER_WAIT_FOR_TOKEN,
-  canonicalizeQuestJourneyPhaseId,
+  QUEST_JOURNEY_HINTS,
+  QUEST_JOURNEY_PHASES,
+  canonicalizeKnownQuestJourneyPhaseId,
+  canonicalizeKnownQuestJourneyState,
   canonicalizeQuestJourneyLifecycleMode,
+  canonicalizeQuestJourneyPhaseId,
   canonicalizeQuestJourneyState,
   formatQuestJourneyDuration,
   formatQuestJourneyText,
   formatWaitForRefLabel,
+  getInvalidQuestJourneyPhaseIds,
   getQuestJourneyCurrentPhaseId,
   getQuestJourneyCurrentPhaseIndex,
-  getQuestJourneyPhaseDurationMs,
   getQuestJourneyPhase,
+  getQuestJourneyPhaseDurationMs,
   getQuestJourneyPhaseForState,
   getQuestJourneyProposalSignature,
   getQuestJourneyTotalElapsedMs,
   getWaitForRefKind,
+  isLegacyQuestJourneyPhaseId,
+  isQuestJourneyOptionalUserCheckpoint,
   isQuestWaitForBlockingState,
   isValidQuestId,
   isValidWaitForRef,
-  isQuestJourneyOptionalUserCheckpoint,
+  normalizeKnownQuestJourneyPhaseIds,
   normalizeQuestJourneyPhaseIds,
   normalizeQuestJourneyPlan,
-  QUEST_JOURNEY_PHASES,
-  DEFAULT_QUEST_JOURNEY_PHASE_IDS,
-  QUEST_JOURNEY_HINTS,
+  rebaseQuestJourneyPhaseNotes,
   reviseQuestJourneySuffix,
   validateQuestJourneyCompletedPrefixRevision,
   validateQuestJourneyPhaseSequence,
-  validateQuestJourneyPhaseSequenceMutation,
   validateQuestJourneyPersistedPhaseOccurrences,
   validateQuestJourneyUserCheckpointNotes,
   validateQuestJourneyUserCheckpointRemoval,
-  rebaseQuestJourneyPhaseNotes,
-  type QuestJourneyPhaseId,
 } from "./quest-journey.js";
 
-const VALID_PHASE_IDS = ["alignment", "mental-simulation", "port"] as const satisfies readonly QuestJourneyPhaseId[];
-// @ts-expect-error compile-time guard: invalid phase ids must not widen to string
-const INVALID_PHASE_IDS = ["planning", "not-a-phase"] as const satisfies readonly QuestJourneyPhaseId[];
-
-describe("isValidQuestId", () => {
+describe("quest and wait-for refs", () => {
   it.each(["q-1", "q-42", "q-999", "Q-1"])("accepts valid quest ID: %j", (id) => {
     expect(isValidQuestId(id)).toBe(true);
   });
@@ -47,913 +46,251 @@ describe("isValidQuestId", () => {
   it.each(["42", "#5", "q-", "foo", "q-abc", ""])("rejects invalid quest ID: %j", (id) => {
     expect(isValidQuestId(id)).toBe(false);
   });
-});
 
-describe("isValidWaitForRef", () => {
-  it.each(["q-1", "q-42", "q-999", "Q-1"])("accepts valid quest ref: %j", (ref) => {
+  it.each(["q-1", "#42", FREE_WORKER_WAIT_FOR_TOKEN, "FREE-WORKER"])("accepts wait-for ref: %j", (ref) => {
     expect(isValidWaitForRef(ref)).toBe(true);
   });
 
-  it.each(["#1", "#42", "#332"])("accepts valid session ref: %j", (ref) => {
-    expect(isValidWaitForRef(ref)).toBe(true);
-  });
-
-  it.each([FREE_WORKER_WAIT_FOR_TOKEN, "FREE-WORKER"])("accepts free-worker ref: %j", (ref) => {
-    expect(isValidWaitForRef(ref)).toBe(true);
-  });
-
-  it.each(["42", "foo", "q-", "#", "#abc", "session-5", "", "q-1,#5"])("rejects invalid wait-for ref: %j", (ref) => {
+  it.each(["42", "foo", "q-", "#", "#abc", "q-1,#5"])("rejects invalid wait-for ref: %j", (ref) => {
     expect(isValidWaitForRef(ref)).toBe(false);
   });
-});
 
-describe("getWaitForRefKind", () => {
-  it.each([
-    ["q-9", "quest"],
-    ["#22", "session"],
-    [FREE_WORKER_WAIT_FOR_TOKEN, "free-worker"],
-    ["oops", "invalid"],
-  ])("classifies %j as %j", (ref, expected) => {
-    expect(getWaitForRefKind(ref)).toBe(expected);
-  });
-});
-
-describe("formatWaitForRefLabel", () => {
-  it("humanizes the free-worker token while preserving other refs", () => {
+  it("classifies and formats wait-for refs", () => {
+    expect(getWaitForRefKind("q-9")).toBe("quest");
+    expect(getWaitForRefKind("#22")).toBe("session");
+    expect(getWaitForRefKind(FREE_WORKER_WAIT_FOR_TOKEN)).toBe("free-worker");
+    expect(getWaitForRefKind("oops")).toBe("invalid");
     expect(formatWaitForRefLabel(FREE_WORKER_WAIT_FOR_TOKEN)).toBe("free worker");
-    expect(formatWaitForRefLabel("q-12")).toBe("q-12");
-    expect(formatWaitForRefLabel("#4")).toBe("#4");
   });
 });
 
-describe("formatQuestJourneyText", () => {
-  it("replaces embedded enum tokens with human-facing quest journey labels", () => {
-    expect(formatQuestJourneyText("advanced q-42 to PLANNING")).toBe("advanced q-42 to Alignment");
-    expect(formatQuestJourneyText("left q-42 as PROPOSED")).toBe("left q-42 as Proposed");
-    expect(formatQuestJourneyText("advanced q-42 to CODE_REVIEWING")).toBe("advanced q-42 to Code Review");
-    expect(formatQuestJourneyText("paused q-42 at USER_CHECKPOINTING")).toBe("paused q-42 at User Checkpoint");
-    expect(formatQuestJourneyText("moved from SKEPTIC_REVIEWING to PORTING")).toBe("moved from Code Review to Port");
+describe("active v2 phase catalog", () => {
+  it("exposes only the v2 active phase library", () => {
+    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.id)).toEqual(["alignment", "work", "user-checkpoint", "memory"]);
+    expect(DEFAULT_QUEST_JOURNEY_PHASE_IDS).toEqual(["alignment", "work", "memory"]);
+    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.boardState)).toEqual([
+      "PLANNING",
+      "WORKING",
+      "USER_CHECKPOINTING",
+      "MEMORY",
+    ]);
   });
 
-  it("leaves unrelated text unchanged", () => {
-    expect(formatQuestJourneyText("advanced q-42 to CUSTOM_STATUS")).toBe("advanced q-42 to CUSTOM_STATUS");
+  it("rejects legacy phase ids for active plans while preserving known historical metadata", () => {
+    expect(canonicalizeQuestJourneyPhaseId("work")).toBe("work");
+    expect(canonicalizeQuestJourneyPhaseId("implement")).toBeNull();
+    expect(canonicalizeQuestJourneyPhaseId("planning")).toBeNull();
+    expect(getInvalidQuestJourneyPhaseIds(["alignment", "implement", "memory"])).toEqual(["implement"]);
+
+    expect(canonicalizeKnownQuestJourneyPhaseId("planning")).toBe("alignment");
+    expect(canonicalizeKnownQuestJourneyPhaseId("implement")).toBe("implement");
+    expect(canonicalizeKnownQuestJourneyPhaseId("porting")).toBe("port");
+    expect(normalizeKnownQuestJourneyPhaseIds(["planning", "implementation", "porting"])).toEqual([
+      "alignment",
+      "implement",
+      "port",
+    ]);
+    expect(isLegacyQuestJourneyPhaseId("port")).toBe(true);
+  });
+
+  it("keeps legacy states readable but active state canonicalization v2-only", () => {
+    expect(canonicalizeQuestJourneyState("WORKING")).toBe("WORKING");
+    expect(canonicalizeQuestJourneyState("IMPLEMENTING")).toBe("WORKING");
+    expect(canonicalizeQuestJourneyState("CODE_REVIEWING")).toBeNull();
+    expect(canonicalizeKnownQuestJourneyState("CODE_REVIEWING")).toBe("CODE_REVIEWING");
+    expect(canonicalizeKnownQuestJourneyState("SKEPTIC_REVIEWING")).toBe("CODE_REVIEWING");
+    expect(formatQuestJourneyText("moved from IMPLEMENTING to WORKING")).toBe("moved from Implement to Work");
+  });
+
+  it("maps active and historical states to display metadata", () => {
+    expect(getQuestJourneyPhaseForState("WORKING")?.id).toBe("work");
+    expect(getQuestJourneyPhaseForState("IMPLEMENTING")?.id).toBe("implement");
+    expect(getQuestJourneyPhaseForState("CODE_REVIEWING")?.label).toBe("Code Review");
+    expect(getQuestJourneyPhaseForState("PROPOSED")).toBeNull();
+    expect(getQuestJourneyPhase("work")?.nextLeaderAction).toContain("Work note");
+    expect(getQuestJourneyPhase("port")?.nextLeaderAction).toBe("historical phase only");
   });
 });
 
-describe("phase alias compatibility", () => {
-  it("maps legacy phase names and bookkeeping candidates to canonical ids", () => {
-    expect(canonicalizeQuestJourneyPhaseId("planning")).toBe("alignment");
-    expect(canonicalizeQuestJourneyPhaseId("implementation")).toBe("implement");
-    expect(canonicalizeQuestJourneyPhaseId("skeptic-review")).toBe("code-review");
-    expect(canonicalizeQuestJourneyPhaseId("reviewer-groom")).toBe("code-review");
-    expect(canonicalizeQuestJourneyPhaseId("user-decision")).toBe("user-checkpoint");
-    expect(canonicalizeQuestJourneyPhaseId("state-update")).toBe("bookkeeping");
-    expect(canonicalizeQuestJourneyPhaseId("stream-update")).toBe("bookkeeping");
-    expect(canonicalizeQuestJourneyPhaseId("final-memory")).toBe("memory");
-    expect(canonicalizeQuestJourneyPhaseId("porting")).toBe("port");
-  });
-
-  it("maps legacy review states to the canonical review state", () => {
-    expect(canonicalizeQuestJourneyState("SKEPTIC_REVIEWING")).toBe("CODE_REVIEWING");
-    expect(canonicalizeQuestJourneyState("GROOM_REVIEWING")).toBe("CODE_REVIEWING");
-  });
-
-  it("normalizes legacy phase sequences into the new library while preserving repeats", () => {
-    expect(
-      normalizeQuestJourneyPhaseIds([
-        "planning",
-        "implementation",
-        "skeptic-review",
-        "reviewer-groom",
-        "porting",
-        "implementation",
-      ]),
-    ).toEqual(["alignment", "implement", "code-review", "code-review", "port", "implement"]);
-  });
-
-  it("rejects adjacent Explore to Implement while preserving other Explore routes", () => {
-    expect(validateQuestJourneyPhaseSequence(["alignment", "explore", "implement"])).toContain(
-      "adjacent `explore -> implement`",
+describe("active Journey validation and normalization", () => {
+  it("validates only active v2 phases for new plans", () => {
+    expect(validateQuestJourneyPhaseSequence(["alignment", "work", "memory"])).toBeUndefined();
+    expect(validateQuestJourneyPhaseSequence(["alignment", "implement", "memory"])).toContain(
+      "Legacy v1 phase IDs are historical-read only",
     );
-    expect(
-      validateQuestJourneyPhaseSequence(["alignment", "explore", "implement"], {
-        allowedAdjacentExploreImplementIndex: 1,
-      }),
-    ).toBeUndefined();
-    expect(
-      validateQuestJourneyPhaseSequence(["alignment", "explore", "implement"], {
-        allowedAdjacentExploreImplementIndex: 0,
-      }),
-    ).toContain("adjacent `explore -> implement`");
-    expect(validateQuestJourneyPhaseSequence(["alignment", "implement", "code-review"])).toBeUndefined();
-    expect(validateQuestJourneyPhaseSequence(["explore", "user-checkpoint", "implement"])).toBeUndefined();
-    expect(validateQuestJourneyPhaseSequence(["explore", "execute", "outcome-review"])).toBeUndefined();
+    expect(validateQuestJourneyPersistedPhaseOccurrences(["alignment", "implement", "port"])).toBeUndefined();
+    expect(validateQuestJourneyPersistedPhaseOccurrences(["alignment", "unknown"])).toContain("repair required");
   });
 
-  it("accepts only unchanged historical Explore to Implement occurrences during active mutations", () => {
-    // The admitted pair ends at the current Implement occurrence. Keeping it in place is valid,
-    // while treating Implement as future or moving the pair to another occurrence is not.
-    const existingPlan = {
-      mode: "active" as const,
-      phaseIds: ["alignment", "explore", "implement", "code-review", "port"] as QuestJourneyPhaseId[],
-      activePhaseIndex: 2,
-      currentPhaseId: "implement" as const,
-    };
+  it("normalizes default v2 plans and checkpoint pause over Work", () => {
+    expect(normalizeQuestJourneyPlan(undefined, "WORKING")).toMatchObject({
+      presetId: "v2-work",
+      phaseIds: ["alignment", "work", "memory"],
+      activePhaseIndex: 1,
+      currentPhaseId: "work",
+      nextLeaderAction: expect.stringContaining("Work note"),
+    });
 
     expect(
-      validateQuestJourneyPhaseSequenceMutation({
-        existingPlan,
-        existingStatus: "IMPLEMENTING",
-        nextPhaseIds: existingPlan.phaseIds,
-      }),
-    ).toBeUndefined();
-    expect(
-      validateQuestJourneyPhaseSequenceMutation({
-        existingPlan: { ...existingPlan, activePhaseIndex: 1, currentPhaseId: "explore" },
-        existingStatus: "EXPLORING",
-        nextPhaseIds: existingPlan.phaseIds,
-      }),
-    ).toContain("adjacent `explore -> implement`");
-    expect(
-      validateQuestJourneyPhaseSequenceMutation({
-        existingPlan,
-        existingStatus: "IMPLEMENTING",
-        nextPhaseIds: ["explore", "implement", "alignment", "code-review", "port"],
-      }),
-    ).toContain("adjacent `explore -> implement`");
+      normalizeQuestJourneyPlan(
+        { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+        "USER_CHECKPOINTING",
+      ),
+    ).toMatchObject({
+      phaseIds: ["alignment", "work", "memory"],
+      activePhaseIndex: 1,
+      currentPhaseId: "work",
+    });
   });
 
-  it("fails closed when raw persisted occurrences cannot preserve positions", () => {
-    // Unknown occurrences must not be filtered into a manufactured adjacent pair.
-    for (const phaseIds of [
-      ["alignment", "explore", "legacy-invalid", "implement", "code-review"],
-      ["alignment", "legacy-invalid", "explore", "implement", "code-review"],
-    ]) {
-      expect(validateQuestJourneyPersistedPhaseOccurrences(phaseIds)).toContain("repair required");
-      expect(
-        validateQuestJourneyPhaseSequenceMutation({
-          existingPlan: {
-            mode: "active",
-            phaseIds: phaseIds as QuestJourneyPhaseId[],
-            activePhaseIndex: 3,
-            currentPhaseId: "implement",
-          },
-          existingStatus: "IMPLEMENTING",
-          nextPhaseIds: ["alignment", "explore", "implement", "code-review"],
-        }),
-      ).toContain("repair required");
-    }
-  });
-
-  it("accepts aliases when canonicalization preserves every occurrence position", () => {
-    // Each alias maps one-to-one, so the historical pair retains the same raw positions.
-    expect(
-      validateQuestJourneyPhaseSequenceMutation({
-        existingPlan: {
-          mode: "active",
-          phaseIds: ["planning", "explore", "implementation", "skeptic-review"] as QuestJourneyPhaseId[],
-          activePhaseIndex: 2,
-          currentPhaseId: "implement",
+  it("normalizes proposed rows without active phase semantics", () => {
+    const normalized = normalizeQuestJourneyPlan(
+      {
+        presetId: "proposal",
+        mode: "proposed",
+        phaseIds: ["alignment", "work", "memory"],
+        activePhaseIndex: 1,
+        currentPhaseId: "work",
+        presentation: {
+          state: "presented",
+          signature: "old",
+          presentedAt: 123,
+          summary: "Approve this Journey.",
         },
-        existingStatus: "IMPLEMENTING",
-        nextPhaseIds: ["alignment", "explore", "implement", "code-review"],
+      },
+      "PROPOSED",
+    );
+    expect(normalized).toMatchObject({
+      mode: "proposed",
+      phaseIds: ["alignment", "work", "memory"],
+      nextLeaderAction: expect.stringContaining("promote"),
+      presentation: { state: "presented", presentedAt: 123, summary: "Approve this Journey." },
+    });
+    expect(normalized.activePhaseIndex).toBeUndefined();
+    expect(getQuestJourneyProposalSignature(normalized)).toBe(
+      '{"presetId":"proposal","phaseIds":["alignment","work","memory"],"phaseNotes":{}}',
+    );
+  });
+
+  it("keeps only in-range notes and timings", () => {
+    const normalized = normalizeQuestJourneyPlan({
+      phaseIds: ["alignment", "work", "memory"],
+      phaseNotes: { "0": "Align", "1": "Work", "5": "drop" },
+      phaseTimings: {
+        "0": { startedAt: 1000, endedAt: 2000 },
+        "1": { startedAt: 2000 },
+        "5": { startedAt: 9999 },
+      },
+    });
+    expect(normalized.phaseNotes).toEqual({ "0": "Align", "1": "Work" });
+    expect(normalized.phaseTimings).toEqual({ "0": { startedAt: 1000, endedAt: 2000 }, "1": { startedAt: 2000 } });
+    expect(getQuestJourneyPhaseDurationMs(normalized, 0, 5000)).toBe(1000);
+    expect(getQuestJourneyPhaseDurationMs(normalized, 1, 5000)).toBe(3000);
+    expect(getQuestJourneyTotalElapsedMs(normalized, 5000)).toBe(4000);
+  });
+
+  it("treats Memory as downstream-unblocking while active", () => {
+    expect(isQuestWaitForBlockingState("WORKING")).toBe(true);
+    expect(isQuestWaitForBlockingState("MEMORY")).toBe(false);
+    expect(QUEST_JOURNEY_HINTS.WORKING).toContain("Work note");
+  });
+});
+
+describe("Journey revision helpers", () => {
+  it("rebases notes by matching phase occurrences", () => {
+    expect(
+      rebaseQuestJourneyPhaseNotes(
+        { "0": "first alignment", "2": "final memory" },
+        ["alignment", "work", "memory"],
+        ["alignment", "work", "user-checkpoint", "work", "memory"],
+      ),
+    ).toEqual({
+      phaseNotes: { "0": "first alignment", "4": "final memory" },
+      warnings: [],
+    });
+  });
+
+  it("revises future v2 suffixes without rewriting completed prefixes", () => {
+    expect(
+      reviseQuestJourneySuffix({
+        existingPhaseIds: ["alignment", "work", "memory"],
+        fromIndex: 1,
+        expectedPhaseId: "work",
+        replacementPhaseIds: ["work", "user-checkpoint", "work", "memory"],
+      }),
+    ).toMatchObject({
+      phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+      warnings: [],
+    });
+
+    expect(
+      validateQuestJourneyCompletedPrefixRevision({
+        existingPlan: {
+          phaseIds: ["alignment", "work", "memory"],
+          activePhaseIndex: 1,
+          currentPhaseId: "work",
+        },
+        existingStatus: "WORKING",
+        nextPhaseIds: ["work", "memory"],
+      }),
+    ).toContain("Completed Journey phase occurrences cannot be revised in place");
+  });
+
+  it("requires concrete optional checkpoint notes before skip semantics", () => {
+    expect(
+      validateQuestJourneyUserCheckpointNotes(["work", "user-checkpoint", "work"], {
+        "1": "Optional: skip if Work confirms there is no user-visible tradeoff.",
       }),
     ).toBeUndefined();
-  });
-
-  it("requires repair when a repeated phase makes historical provenance ambiguous", () => {
-    // Without an active occurrence index, the validator cannot identify which Implement bounds history.
     expect(
-      validateQuestJourneyPhaseSequenceMutation({
-        existingPlan: {
-          mode: "active",
-          phaseIds: ["alignment", "explore", "implement", "code-review", "explore", "implement", "port"],
-          currentPhaseId: "implement",
-        },
-        existingStatus: "IMPLEMENTING",
-        nextPhaseIds: ["alignment", "explore", "implement", "code-review", "explore", "implement", "port"],
-      }),
-    ).toContain("repair required");
-  });
-
-  it("keeps future repeated Explore to Implement occurrences strict", () => {
-    // A valid earlier historical pair must not grant the same allowance to a newly rewritten cycle.
-    const existingPlan = {
-      mode: "active" as const,
-      phaseIds: [
-        "alignment",
-        "explore",
-        "implement",
-        "code-review",
-        "explore",
-        "user-checkpoint",
-        "implement",
-        "port",
-      ] as QuestJourneyPhaseId[],
-      activePhaseIndex: 3,
-      currentPhaseId: "code-review" as const,
-    };
-
-    expect(
-      validateQuestJourneyPhaseSequenceMutation({
-        existingPlan,
-        existingStatus: "CODE_REVIEWING",
-        nextPhaseIds: ["alignment", "explore", "implement", "code-review", "explore", "implement", "port"],
-      }),
-    ).toContain("adjacent `explore -> implement`");
-  });
-
-  it("does not grandfather adjacent Explore to Implement in proposed rows", () => {
-    // Proposal validation remains strict even if malformed persisted metadata claims an active position.
-    expect(
-      validateQuestJourneyPhaseSequenceMutation({
-        existingPlan: {
-          mode: "proposed",
-          phaseIds: ["alignment", "explore", "implement", "code-review"],
-          activePhaseIndex: 2,
-          currentPhaseId: "implement",
-        },
-        existingStatus: "PROPOSED",
-        nextPhaseIds: ["alignment", "explore", "implement", "code-review"],
-      }),
-    ).toContain("adjacent `explore -> implement`");
-  });
-
-  it("requires concrete optional User Checkpoint notes before allowing skip semantics", () => {
-    expect(
-      validateQuestJourneyUserCheckpointNotes(["explore", "user-checkpoint", "implement"], undefined),
-    ).toBeUndefined();
-    expect(
-      validateQuestJourneyUserCheckpointNotes(["explore", "user-checkpoint", "implement"], {
+      validateQuestJourneyUserCheckpointNotes(["work", "user-checkpoint", "work"], {
         "1": "Optional checkpoint.",
       }),
     ).toContain("Optional User Checkpoints require");
     expect(
-      validateQuestJourneyUserCheckpointNotes(["explore", "user-checkpoint", "implement"], {
-        "1": "Optional: skip if Explore confirms the fix is mechanical and no user tradeoff remains.",
-      }),
-    ).toBeUndefined();
-    expect(
-      validateQuestJourneyUserCheckpointNotes(["explore", "user-checkpoint", "implement"], {
-        "1": "This User Checkpoint may be skipped if Explore finds no user-facing tradeoff.",
-      }),
-    ).toBeUndefined();
-    expect(
-      validateQuestJourneyUserCheckpointNotes(["explore", "user-checkpoint", "implement"], {
-        "1": "User explicitly requested this checkpoint; optional if findings are small.",
-      }),
-    ).toContain("User Checkpoints are mandatory by default");
-    expect(
       isQuestJourneyOptionalUserCheckpoint(
-        ["explore", "user-checkpoint", "implement"],
-        {
-          "1": "This User Checkpoint may be skipped if Explore finds no user-facing tradeoff.",
-        },
+        ["work", "user-checkpoint", "work"],
+        { "1": "This User Checkpoint may be skipped if Work finds no user-facing tradeoff." },
         1,
       ),
     ).toBe(true);
   });
 
-  it("rejects removing mandatory User Checkpoints but allows explicitly optional ones", () => {
+  it("rejects removing mandatory checkpoints but allows explicitly optional ones", () => {
     expect(
       validateQuestJourneyUserCheckpointRemoval(
-        ["alignment", "explore", "user-checkpoint", "implement"],
-        ["alignment", "explore", "implement"],
+        ["alignment", "work", "user-checkpoint", "work", "memory"],
+        ["alignment", "work", "work", "memory"],
         undefined,
       ),
     ).toContain("Optional User Checkpoints require");
     expect(
       validateQuestJourneyUserCheckpointRemoval(
-        ["alignment", "explore", "user-checkpoint", "implement"],
-        ["alignment", "explore", "implement"],
-        undefined,
-        { allowedRemovedUserCheckpointIndex: 2 },
-      ),
-    ).toBeUndefined();
-    expect(
-      validateQuestJourneyUserCheckpointRemoval(
-        ["alignment", "explore", "user-checkpoint", "implement"],
-        ["alignment", "explore", "implement"],
-        {
-          "2": "User explicitly requested this checkpoint before implementation.",
-        },
-        { allowedRemovedUserCheckpointIndex: 2 },
-      ),
-    ).toContain("explicitly user-requested or required");
-    expect(
-      validateQuestJourneyUserCheckpointRemoval(
-        ["alignment", "explore", "user-checkpoint", "implement"],
-        ["alignment", "explore", "implement"],
-        undefined,
-        { allowedRemovedUserCheckpointIndex: 1 },
-      ),
-    ).toContain("Optional User Checkpoints require");
-    expect(
-      validateQuestJourneyUserCheckpointRemoval(
-        ["alignment", "explore", "user-checkpoint", "implement"],
-        ["alignment", "explore", "implement"],
-        {
-          "2": "Optional: skip if Explore confirms there are no user-visible tradeoffs.",
-        },
-      ),
-    ).toBeUndefined();
-  });
-
-  it("rejects removing an earlier mandatory User Checkpoint while preserving a later checkpoint", () => {
-    expect(
-      validateQuestJourneyUserCheckpointRemoval(
-        ["explore", "user-checkpoint", "implement", "user-checkpoint", "port"],
-        ["explore", "implement", "user-checkpoint", "port"],
-        {
-          "3": "Optional: skip if the follow-up review finds no user-facing tradeoff.",
-        },
-      ),
-    ).toContain("Optional User Checkpoints require");
-    expect(
-      validateQuestJourneyUserCheckpointRemoval(
-        ["explore", "user-checkpoint", "implement", "user-checkpoint", "port"],
-        ["explore", "implement", "user-checkpoint", "port"],
-        {
-          "1": "This User Checkpoint may be skipped if Explore finds no user-facing tradeoff.",
-        },
+        ["alignment", "work", "user-checkpoint", "work", "memory"],
+        ["alignment", "work", "work", "memory"],
+        { "2": "Optional: skip when Work confirms no user-visible tradeoff remains." },
       ),
     ).toBeUndefined();
   });
 });
 
-describe("QUEST_JOURNEY_HINTS", () => {
-  it("describes the normal phase-driven review and port actions", () => {
-    expect(QUEST_JOURNEY_HINTS.PROPOSED).toContain("promote");
-    expect(QUEST_JOURNEY_HINTS.CODE_REVIEWING).toContain("reviewer result");
-    expect(QUEST_JOURNEY_HINTS.PORTING).toContain("sync confirmation");
-    expect(QUEST_JOURNEY_HINTS.MEMORY).toContain("final Memory owner");
-  });
-});
-
-describe("canonicalizeQuestJourneyLifecycleMode", () => {
-  it.each([
-    ["active", "active"],
-    [" proposed ", "proposed"],
-  ])("normalizes %j", (input, expected) => {
-    expect(canonicalizeQuestJourneyLifecycleMode(input)).toBe(expected);
+describe("durations and lifecycle mode", () => {
+  it("normalizes lifecycle mode", () => {
+    expect(canonicalizeQuestJourneyLifecycleMode("active")).toBe("active");
+    expect(canonicalizeQuestJourneyLifecycleMode(" proposed ")).toBe("proposed");
+    expect(canonicalizeQuestJourneyLifecycleMode("other")).toBeNull();
   });
 
-  it("rejects unknown lifecycle modes", () => {
-    expect(canonicalizeQuestJourneyLifecycleMode("queued")).toBeNull();
-  });
-});
-
-describe("Quest Journey phases", () => {
-  it("represents the new durable phase library without human verification", () => {
-    expect(DEFAULT_QUEST_JOURNEY_PHASE_IDS).toEqual(["alignment", "implement", "code-review", "port", "memory"]);
-    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.id)).toEqual([
-      "alignment",
-      "explore",
-      "implement",
-      "code-review",
-      "mental-simulation",
-      "execute",
-      "outcome-review",
-      "user-checkpoint",
-      "port",
-      "memory",
-      "bookkeeping",
-    ]);
-    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.boardState)).toEqual([
-      "PLANNING",
-      "EXPLORING",
-      "IMPLEMENTING",
-      "CODE_REVIEWING",
-      "MENTAL_SIMULATING",
-      "EXECUTING",
-      "OUTCOME_REVIEWING",
-      "USER_CHECKPOINTING",
-      "PORTING",
-      "MEMORY",
-      "BOOKKEEPING",
-    ]);
-    expect(QUEST_JOURNEY_PHASES.find((phase) => phase.id === "code-review")?.aliases).toEqual([
-      "skeptic-review",
-      "reviewer-groom",
-    ]);
-    expect(QUEST_JOURNEY_PHASES.find((phase) => phase.id === "port")?.aliases).toEqual(["porting"]);
+  it("formats durations", () => {
+    expect(formatQuestJourneyDuration(9_000)).toBe("9s");
+    expect(formatQuestJourneyDuration(2 * 60_000)).toBe("2m");
+    expect(formatQuestJourneyDuration(3 * 60 * 60_000 + 5 * 60_000)).toBe("3h 5m");
   });
 
-  it("maps board states to current phases and next leader actions", () => {
-    expect(getQuestJourneyPhaseForState("IMPLEMENTING")?.id).toBe("implement");
-    expect(getQuestJourneyPhaseForState("PROPOSED")).toBeNull();
-    expect(getQuestJourneyPhaseForState("PLANNING")?.id).toBe("alignment");
-    expect(getQuestJourneyPhaseForState("SKEPTIC_REVIEWING")?.id).toBe("code-review");
-    expect(getQuestJourneyPhaseForState("USER_CHECKPOINTING")?.id).toBe("user-checkpoint");
-    expect(getQuestJourneyPhase("bookkeeping")?.boardState).toBe("BOOKKEEPING");
-    expect(getQuestJourneyPhase("memory")?.boardState).toBe("MEMORY");
-    expect(getQuestJourneyPhaseForState("MEMORY")?.id).toBe("memory");
-    expect(getQuestJourneyPhase("alignment")?.nextLeaderAction).toContain("leader approval");
-    expect(getQuestJourneyPhase("alignment")?.nextLeaderAction).toContain("user escalation");
-    expect(normalizeQuestJourneyPlan(undefined, "MEMORY")).toEqual(
-      expect.objectContaining({
-        mode: "active",
-        phaseIds: DEFAULT_QUEST_JOURNEY_PHASE_IDS,
-        activePhaseIndex: 4,
-        currentPhaseId: "memory",
-        nextLeaderAction: expect.stringContaining("final Memory owner"),
-      }),
-    );
-  });
-
-  it("treats final Memory as downstream-unblocking while still active", () => {
-    expect(isQuestWaitForBlockingState("PORTING")).toBe(true);
-    expect(isQuestWaitForBlockingState("MEMORY")).toBe(false);
-    expect(isQuestWaitForBlockingState("BOOKKEEPING")).toBe(true);
-  });
-
-  it("encodes the implement, execute, and outcome-review responsibility split", () => {
-    expect(getQuestJourneyPhase("implement")).toEqual(
-      expect.objectContaining({
-        assigneeRole: "worker",
-        color: { name: "green", accent: "#4ade80" },
-        contract: expect.stringContaining("root-cause analysis"),
-        nextLeaderAction: expect.stringContaining("next review, execute, port, or memory phase"),
-      }),
-    );
-    expect(getQuestJourneyPhase("execute")).toEqual(
-      expect.objectContaining({
-        assigneeRole: "worker",
-        contract: expect.stringContaining("approval-gated operations"),
-        nextLeaderAction: expect.stringContaining("direct leader acceptance"),
-      }),
-    );
-    expect(getQuestJourneyPhase("outcome-review")).toEqual(
-      expect.objectContaining({
-        assigneeRole: "reviewer",
-        contract: expect.stringContaining("Reviewer-owned acceptance judgment"),
-        nextLeaderAction: expect.stringContaining("route to implement, execute, alignment"),
-      }),
-    );
-    expect(getQuestJourneyPhase("outcome-review")).toEqual(
-      expect.objectContaining({
-        contract: expect.stringContaining("independent judgment materially reduces risk"),
-        nextLeaderAction: expect.stringContaining("route to implement, execute, alignment"),
-      }),
-    );
-  });
-
-  it("defines user-checkpoint as an intermediate user decision phase", () => {
-    expect(getQuestJourneyPhase("user-checkpoint")).toEqual(
-      expect.objectContaining({
-        assigneeRole: "worker",
-        boardState: "USER_CHECKPOINTING",
-        contract: expect.stringContaining("required mid-Journey user decision"),
-        nextLeaderAction: expect.stringContaining("notify the user"),
-        aliases: expect.arrayContaining(["user-decision", "decision-checkpoint", "user-approval"]),
-      }),
-    );
-    expect(getQuestJourneyPhase("user-checkpoint")?.contract).toContain("not treat this as a terminal phase");
-    expect(QUEST_JOURNEY_HINTS.USER_CHECKPOINTING).toContain("revise the remaining Journey");
-  });
-
-  it("loads explicit UI color metadata from every phase definition", () => {
-    for (const phase of QUEST_JOURNEY_PHASES) {
-      expect(phase.color.name).toEqual(expect.any(String));
-      expect(phase.color.accent).toMatch(/^#[0-9a-f]{6}$/i);
-    }
-    expect(getQuestJourneyPhase("code-review")?.color).toEqual({ name: "violet", accent: "#a78bfa" });
-  });
-
-  it("defines alignment as a concise verification read-in phase and explore as the deeper investigation phase", () => {
-    expect(getQuestJourneyPhase("alignment")).toEqual(
-      expect.objectContaining({
-        contract: expect.stringContaining("concise leader-verification read-in"),
-        nextLeaderAction: expect.stringContaining("worker read-in"),
-      }),
-    );
-    expect(getQuestJourneyPhase("alignment")?.contract).toContain("key constraints");
-    expect(getQuestJourneyPhase("explore")).toEqual(
-      expect.objectContaining({
-        contract: expect.stringContaining("routing is genuinely unknown"),
-        nextLeaderAction: expect.stringContaining("user-checkpoint"),
-      }),
-    );
-  });
-
-  it("keeps custom planned phases while deriving the current phase from board state", () => {
-    expect(
-      normalizeQuestJourneyPlan({ presetId: "ops", phaseIds: ["planning", "explore", "execute"] }, "PLANNING"),
-    ).toEqual(
-      expect.objectContaining({
-        presetId: "ops",
-        phaseIds: ["alignment", "explore", "execute"],
-        activePhaseIndex: 0,
-        currentPhaseId: "alignment",
-      }),
-    );
-  });
-
-  it("realigns custom planned phases to an explicit reset status and refreshes the next action", () => {
-    expect(
-      normalizeQuestJourneyPlan(
-        {
-          presetId: "investigation",
-          phaseIds: ["planning", "explore", "outcome-review"],
-          currentPhaseId: "outcome-review",
-          nextLeaderAction: "stale outcome review action",
-        },
-        "PLANNING",
-      ),
-    ).toEqual(
-      expect.objectContaining({
-        phaseIds: ["alignment", "explore", "outcome-review"],
-        activePhaseIndex: 0,
-        currentPhaseId: "alignment",
-        nextLeaderAction: getQuestJourneyPhase("alignment")?.nextLeaderAction,
-      }),
-    );
-  });
-
-  it("clears stale current phase bookkeeping when an explicit reset moves the row back to queued", () => {
-    const normalized = normalizeQuestJourneyPlan(
-      {
-        presetId: "investigation",
-        phaseIds: ["planning", "explore", "outcome-review"],
-        currentPhaseId: "outcome-review",
-        nextLeaderAction: "stale outcome review action",
-      },
-      "QUEUED",
-    );
-
-    expect(normalized).toEqual(
-      expect.objectContaining({
-        mode: "active",
-        phaseIds: ["alignment", "explore", "outcome-review"],
-      }),
-    );
-    expect(normalized).not.toHaveProperty("activePhaseIndex");
-    expect(normalized).not.toHaveProperty("currentPhaseId");
-    expect(normalized).not.toHaveProperty("nextLeaderAction");
-  });
-
-  it("preserves revision metadata on normalized plans", () => {
-    expect(
-      normalizeQuestJourneyPlan(
-        {
-          presetId: "cli-rollout",
-          phaseIds: ["implement", "outcome-review", "code-review", "port"],
-          currentPhaseId: "implement",
-          revisionReason: "Need outcome evidence before final review",
-          revisedAt: 123,
-          revisionCount: 2,
-        },
-        "IMPLEMENTING",
-      ),
-    ).toEqual(
-      expect.objectContaining({
-        phaseIds: ["implement", "outcome-review", "code-review", "port"],
-        activePhaseIndex: 0,
-        currentPhaseId: "implement",
-        revisionReason: "Need outcome evidence before final review",
-        revisedAt: 123,
-        revisionCount: 2,
-      }),
-    );
-  });
-
-  it("keeps repeated phases and tracks progress by active phase index", () => {
-    const normalized = normalizeQuestJourneyPlan(
-      {
-        phaseIds: ["alignment", "implement", "code-review", "implement", "code-review", "port"],
-        activePhaseIndex: 3,
-        currentPhaseId: "implement",
-      },
-      "IMPLEMENTING",
-    );
-
-    expect(normalized).toEqual(
-      expect.objectContaining({
-        phaseIds: ["alignment", "implement", "code-review", "implement", "code-review", "port"],
-        activePhaseIndex: 3,
-        currentPhaseId: "implement",
-      }),
-    );
-    expect(getQuestJourneyCurrentPhaseIndex(normalized, "IMPLEMENTING")).toBe(3);
-    expect(getQuestJourneyCurrentPhaseId(normalized, "IMPLEMENTING")).toBe("implement");
-  });
-
-  it("does not guess the active occurrence for repeated phases without an explicit index", () => {
-    const normalized = normalizeQuestJourneyPlan(
-      {
-        phaseIds: [
-          "alignment",
-          "implement",
-          "mental-simulation",
-          "implement",
-          "mental-simulation",
-          "code-review",
-          "port",
-        ],
-        currentPhaseId: "mental-simulation",
-      },
-      "MENTAL_SIMULATING",
-    );
-
-    expect(normalized).toEqual(
-      expect.objectContaining({
-        phaseIds: [
-          "alignment",
-          "implement",
-          "mental-simulation",
-          "implement",
-          "mental-simulation",
-          "code-review",
-          "port",
-        ],
-      }),
-    );
-    expect(normalized).not.toHaveProperty("activePhaseIndex");
-    expect(normalized).not.toHaveProperty("currentPhaseId");
-    expect(getQuestJourneyCurrentPhaseIndex(normalized, "MENTAL_SIMULATING")).toBeUndefined();
-  });
-
-  it("normalizes proposed Journeys without active phase semantics", () => {
-    expect(
-      normalizeQuestJourneyPlan(
-        {
-          mode: "proposed",
-          phaseIds: ["alignment", "implement", "code-review", "port"],
-          activePhaseIndex: 1,
-          currentPhaseId: "implement",
-          nextLeaderAction: "stale implement action",
-        },
-        "PROPOSED",
-      ),
-    ).toEqual(
-      expect.objectContaining({
-        mode: "proposed",
-        phaseIds: ["alignment", "implement", "code-review", "port"],
-        nextLeaderAction: QUEST_JOURNEY_HINTS.PROPOSED,
-      }),
-    );
-  });
-
-  it("preserves proposed Journey presentation metadata and computes stable proposal signatures", () => {
-    const normalized = normalizeQuestJourneyPlan(
-      {
-        mode: "proposed",
-        presetId: "proposal-flow",
-        phaseIds: ["alignment", "implement"],
-        phaseNotes: {
-          "1": "Build the draft and present paths.",
-        },
-        presentation: {
-          state: "presented",
-          signature: "old-signature",
-          presentedAt: 123,
-          summary: "Proposed Journey for approval",
-          scheduling: { intent: "dispatch-after-approval" },
-        },
-      },
-      "PROPOSED",
-    );
-
-    expect(normalized.presentation).toEqual({
-      state: "presented",
-      signature: "old-signature",
-      presentedAt: 123,
-      summary: "Proposed Journey for approval",
-      scheduling: { intent: "dispatch-after-approval" },
-    });
-    expect(getQuestJourneyProposalSignature(normalized)).toBe(
-      JSON.stringify({
-        presetId: "proposal-flow",
-        phaseIds: ["alignment", "implement"],
-        phaseNotes: { "1": "Build the draft and present paths." },
-      }),
-    );
-  });
-
-  it("keeps only valid in-range phase notes", () => {
-    expect(
-      normalizeQuestJourneyPlan({
-        phaseIds: ["alignment", "implement", "code-review"],
-        phaseNotes: {
-          "0": "Start with exact source links",
-          "2": "Inspect only the follow-up diff",
-          "5": "drop this",
-        },
-      }),
-    ).toEqual(
-      expect.objectContaining({
-        phaseNotes: {
-          "0": "Start with exact source links",
-          "2": "Inspect only the follow-up diff",
-        },
-      }),
-    );
-  });
-
-  it("keeps only valid in-range phase timings", () => {
-    expect(
-      normalizeQuestJourneyPlan(
-        {
-          phaseIds: ["alignment", "implement", "code-review"],
-          phaseTimings: {
-            "0": { startedAt: 1000, endedAt: 61000 },
-            "1": { startedAt: 61000 },
-            "2": { startedAt: -1, endedAt: 90000 },
-            "3": { endedAt: 91000 },
-            "4": { startedAt: 1000, endedAt: 2000 },
-          },
-        },
-        "IMPLEMENTING",
-      ),
-    ).toEqual(
-      expect.objectContaining({
-        phaseTimings: {
-          "0": { startedAt: 1000, endedAt: 61000 },
-          "1": { startedAt: 61000 },
-        },
-      }),
-    );
-  });
-
-  it("formats phase durations and sums known Journey timing", () => {
-    const plan = normalizeQuestJourneyPlan(
-      {
-        phaseIds: ["alignment", "implement", "code-review"],
-        activePhaseIndex: 1,
-        phaseTimings: {
-          "0": { startedAt: 1000, endedAt: 61000 },
-          "1": { startedAt: 61000 },
-        },
-      },
-      "IMPLEMENTING",
-    );
-
-    expect(getQuestJourneyPhaseDurationMs(plan, 0, 181000)).toBe(60000);
-    expect(getQuestJourneyPhaseDurationMs(plan, 1, 181000)).toBe(120000);
-    expect(getQuestJourneyPhaseDurationMs(plan, 1, 181000, { allowOpenEnded: false })).toBeUndefined();
-    expect(getQuestJourneyPhaseDurationMs(plan, 2, 181000)).toBeUndefined();
-    expect(getQuestJourneyTotalElapsedMs(plan, 181000)).toBe(180000);
-    expect(formatQuestJourneyDuration(45_000)).toBe("45s");
-    expect(formatQuestJourneyDuration(180_000)).toBe("3m");
-    expect(formatQuestJourneyDuration(5_400_000)).toBe("1h 30m");
-    expect(formatQuestJourneyDuration(176_400_000)).toBe("2d 1h");
-  });
-
-  it("rebases phase notes by phase occurrence instead of raw index", () => {
-    expect(
-      rebaseQuestJourneyPhaseNotes(
-        {
-          "4": "Replay turns 116/120/121/122-123 before dispatching this phase",
-        },
-        ["alignment", "implement", "code-review", "implement", "mental-simulation", "port"],
-        ["alignment", "implement", "code-review", "implement", "code-review", "mental-simulation", "port"],
-      ),
-    ).toEqual({
-      phaseNotes: {
-        "5": "Replay turns 116/120/121/122-123 before dispatching this phase",
-      },
-      warnings: [],
-    });
-  });
-
-  it("surfaces dropped phase notes when a revised Journey removes the target occurrence", () => {
-    expect(
-      rebaseQuestJourneyPhaseNotes(
-        {
-          "4": "Replay turns 116/120/121/122-123 before dispatching this phase",
-        },
-        ["alignment", "implement", "code-review", "implement", "mental-simulation", "port"],
-        ["alignment", "implement", "code-review", "implement", "port"],
-      ),
-    ).toEqual({
-      warnings: [
-        {
-          previousIndex: 4,
-          previousPhaseId: "mental-simulation",
-          previousOccurrence: 1,
-          note: "Replay turns 116/120/121/122-123 before dispatching this phase",
-        },
-      ],
-    });
-  });
-
-  it("keeps notes attached to the matching repeated-phase occurrence", () => {
-    expect(
-      rebaseQuestJourneyPhaseNotes(
-        {
-          "4": "Inspect only the follow-up diff",
-        },
-        ["alignment", "implement", "code-review", "implement", "code-review", "port"],
-        ["alignment", "implement", "code-review", "implement", "mental-simulation", "code-review", "port"],
-      ),
-    ).toEqual({
-      phaseNotes: {
-        "5": "Inspect only the follow-up diff",
-      },
-      warnings: [],
-    });
-  });
-
-  it("fails closed when suffix revision expected phase does not match the current plan", () => {
-    expect(
-      reviseQuestJourneySuffix({
-        existingPhaseIds: ["alignment", "implement", "code-review", "port"],
-        fromIndex: 2,
-        expectedPhaseId: "memory",
-        replacementPhaseIds: ["outcome-review", "code-review", "port"],
-      }),
-    ).toMatchObject({
-      error: expect.stringContaining("expected phase Memory at position 3"),
-      warnings: [],
-    });
-  });
-
-  it("allows active Journey revisions that preserve the completed prefix", () => {
-    expect(
-      validateQuestJourneyCompletedPrefixRevision({
-        existingPlan: {
-          mode: "active",
-          phaseIds: ["alignment", "implement", "code-review", "port"],
-          activePhaseIndex: 2,
-        },
-        existingStatus: "CODE_REVIEWING",
-        nextPhaseIds: ["alignment", "implement", "code-review", "mental-simulation", "port"],
-      }),
-    ).toBeUndefined();
-  });
-
-  it("rejects active Journey revisions that rewrite completed phase occurrences", () => {
-    expect(
-      validateQuestJourneyCompletedPrefixRevision({
-        existingPlan: {
-          mode: "active",
-          phaseIds: ["alignment", "implement", "code-review", "port"],
-          activePhaseIndex: 2,
-        },
-        existingStatus: "CODE_REVIEWING",
-        nextPhaseIds: ["implement", "code-review", "port"],
-      }),
-    ).toMatch("Completed Journey phase occurrences cannot be revised in place");
-  });
-
-  it("rejects phase note edits against completed phase occurrences", () => {
-    expect(
-      validateQuestJourneyCompletedPrefixRevision({
-        existingPlan: {
-          mode: "active",
-          phaseIds: ["alignment", "implement", "code-review", "port"],
-          activePhaseIndex: 2,
-        },
-        existingStatus: "CODE_REVIEWING",
-        phaseNoteEditIndices: [1],
-      }),
-    ).toMatch("Completed Journey phase notes cannot be revised in place");
-  });
-
-  it("rejects ambiguous legacy active Journeys whose completed boundary cannot be inferred", () => {
-    expect(
-      validateQuestJourneyCompletedPrefixRevision({
-        existingPlan: {
-          mode: "active",
-          phaseIds: ["alignment", "implement", "code-review", "implement", "port"],
-          currentPhaseId: "implement",
-        },
-        existingStatus: "IMPLEMENTING",
-        nextPhaseIds: ["alignment", "implement", "code-review", "implement", "mental-simulation", "port"],
-      }),
-    ).toMatch("completed phase boundary cannot be inferred");
-  });
-
-  it("uses an explicit active phase index to repair ambiguous legacy active Journeys", () => {
-    // Legacy rows can lack activePhaseIndex when a phase repeats; the supplied
-    // next active index is the repair signal that defines the completed boundary.
-    expect(
-      validateQuestJourneyCompletedPrefixRevision({
-        existingPlan: {
-          mode: "active",
-          phaseIds: ["alignment", "implement", "code-review", "implement", "port"],
-          currentPhaseId: "implement",
-        },
-        existingStatus: "IMPLEMENTING",
-        nextActivePhaseIndex: 3,
-      }),
-    ).toBeUndefined();
-  });
-
-  it("still protects completed occurrences when repairing an ambiguous legacy active Journey", () => {
-    // The repair signal should only disambiguate the boundary; it must not permit
-    // callers to rewrite the phase occurrences before that boundary.
-    expect(
-      validateQuestJourneyCompletedPrefixRevision({
-        existingPlan: {
-          mode: "active",
-          phaseIds: ["alignment", "implement", "code-review", "implement", "port"],
-          currentPhaseId: "implement",
-        },
-        existingStatus: "IMPLEMENTING",
-        nextActivePhaseIndex: 3,
-        nextPhaseIds: ["alignment", "explore", "code-review", "implement", "port"],
-      }),
-    ).toMatch("Completed Journey phase occurrences cannot be revised in place");
+  it("returns current phase helpers", () => {
+    const plan = { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" } as const;
+    expect(normalizeQuestJourneyPhaseIds(["alignment", "work", "memory"])).toEqual(["alignment", "work", "memory"]);
+    expect(getQuestJourneyCurrentPhaseIndex(plan, "WORKING")).toBe(1);
+    expect(getQuestJourneyCurrentPhaseId(plan, "WORKING")).toBe("work");
   });
 });

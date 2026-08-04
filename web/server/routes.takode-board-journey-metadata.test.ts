@@ -18,8 +18,10 @@ interface TestSession {
 let app: Hono;
 let session: TestSession;
 let sessions: Map<string, TestSession>;
+let authCallerId = "leader-1";
+let authCaller: Record<string, unknown> = { sessionId: "leader-1", isOrchestrator: true };
 
-function createSession(id = "orch-1"): TestSession {
+function createSession(id = "leader-1"): TestSession {
   return {
     id,
     state: {},
@@ -38,20 +40,29 @@ function getBoardRows(sessionId: string): BoardRow[] {
 
 function createRouteApp(): Hono {
   const api = new Hono();
+  const wsBridge = {
+    getSession: vi.fn((sessionId: string) => sessions.get(sessionId) ?? null),
+    completeDoneBoardRowsForQuest: vi.fn(() => []),
+    findAssignedBoardRowsForWorker: vi.fn((workerSessionId: string, questId: string) =>
+      [...sessions.values()].flatMap((leader) => {
+        const row = [...leader.board.values()].find(
+          (candidate) => candidate.questId === questId && candidate.worker === workerSessionId,
+        );
+        return row ? [{ leaderSessionId: leader.id, row }] : [];
+      }),
+    ),
+  };
   registerTakodeBoardRoutes(api, {
     launcher: {} as any,
-    wsBridge: {
-      getSession: vi.fn((sessionId: string) => sessions.get(sessionId) ?? null),
-      completeDoneBoardRowsForQuest: vi.fn(() => []),
-    } as any,
+    wsBridge: wsBridge as any,
     authenticateTakodeCaller: vi.fn(() => ({
-      callerId: "orch-1",
-      caller: { sessionId: "orch-1" },
+      callerId: authCallerId,
+      caller: authCaller,
     })) as any,
     resolveId: vi.fn((raw: string) => raw),
     boardWatchdogDeps: {
       getLauncherSessionInfo: vi.fn((sessionId: string) => ({
-        isOrchestrator: sessionId === "orch-1",
+        isOrchestrator: sessionId === "leader-1",
         lastActivityAt: 0,
       })),
       getSession: vi.fn((sessionId: string) => sessions.get(sessionId)),
@@ -81,18 +92,20 @@ function createRouteApp(): Hono {
 function setupTakodeSessions(): void {
   session = createSession();
   sessions = new Map([[session.id, session]]);
+  authCallerId = "leader-1";
+  authCaller = { sessionId: "leader-1", isOrchestrator: true };
   app = createRouteApp();
 }
 
 async function postBoard(body: Record<string, unknown>): Promise<Response> {
-  return app.request("/sessions/orch-1/board", {
+  return app.request("/sessions/leader-1/board", {
     method: "POST",
     body: JSON.stringify(body),
   });
 }
 
-async function postBoardRevise(questId: string, body: Record<string, unknown>): Promise<Response> {
-  return app.request(`/sessions/orch-1/board/${questId}/revise`, {
+async function postWorkerMemory(body: Record<string, unknown>): Promise<Response> {
+  return app.request("/takode/board/work-to-memory", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -105,293 +118,165 @@ describe("Takode board Journey metadata route", () => {
     setupTakodeSessions();
   });
 
-  it("stores lightweight planned phases and cached quest TLDR metadata on board rows", async () => {
+  it("stores the active v2 phase plan and cached quest TLDR metadata on board rows", async () => {
     vi.mocked(questStore.getQuest).mockResolvedValueOnce({
       id: "q-9",
-      title: "Improve Journey Started chip",
+      questId: "q-9",
+      title: "Improve Journey chip",
       status: "refined",
-      tldr: "Make Journey Started chips easier to scan.",
+      tldr: "Make Journey chips easier to scan.",
     } as any);
 
     const res = await postBoard({
       questId: "q-9",
       status: "PLANNING",
-      phases: ["planning", "implement", "port"],
-      presetId: "lightweight",
+      phases: ["alignment", "work", "memory"],
+      presetId: "v2-work",
     });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          title: "Improve Journey Started chip",
-          questTldr: "Make Journey Started chips easier to scan.",
-          status: "PLANNING",
-          journey: {
-            presetId: "lightweight",
-            phaseIds: ["alignment", "implement", "port"],
-            currentPhaseId: "alignment",
-            nextLeaderAction: expect.stringContaining("alignment leader brief"),
-          },
-        },
-      ],
+    const stored = session.board.get("q-9")!;
+    expect(stored.title).toBe("Improve Journey chip");
+    expect(stored.questTldr).toBe("Make Journey chips easier to scan.");
+    expect(stored.journey).toMatchObject({
+      presetId: "v2-work",
+      phaseIds: ["alignment", "work", "memory"],
+      activePhaseIndex: 0,
+      currentPhaseId: "alignment",
     });
   });
 
-  it("initializes a phase-planned active board row to the first planned phase when status is omitted", async () => {
-    const res = await postBoard({
+  it("rejects legacy v1 phases and states for new active rows", async () => {
+    const legacyPhase = await postBoard({
+      questId: "q-9",
+      phases: ["alignment", "implement", "memory"],
+    });
+    expect(legacyPhase.status).toBe(400);
+    expect(await legacyPhase.json()).toMatchObject({
+      error: expect.stringContaining("legacy v1 phase IDs are historical-read only"),
+    });
+
+    const legacyStatus = await postBoard({
+      questId: "q-9",
+      status: "IMPLEMENTING",
+      phases: ["alignment", "work", "memory"],
+    });
+    expect(legacyStatus.status).toBe(400);
+    expect(await legacyStatus.json()).toMatchObject({
+      error: expect.stringContaining("Invalid active Quest Journey state"),
+    });
+  });
+
+  it("links and clears active User Checkpoint waits without changing the Work occurrence", async () => {
+    session.notifications.push({ id: "n-4", category: "needs-input", done: false });
+    await postBoard({
       questId: "q-9",
       worker: "worker-1",
-      workerNum: 11,
-      phases: ["planning", "implement", "code-review"],
-      presetId: "lightweight-code",
+      status: "WORKING",
+      phases: ["alignment", "work", "memory"],
+      activePhaseIndex: 1,
     });
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          worker: "worker-1",
-          workerNum: 11,
-          status: "PLANNING",
-          journey: {
-            presetId: "lightweight-code",
-            phaseIds: ["alignment", "implement", "code-review"],
-            currentPhaseId: "alignment",
-          },
-        },
-      ],
-    });
-  });
-
-  it("stores per-phase Journey notes keyed by phase occurrence", async () => {
-    session.board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "PROPOSED",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "rework-loop",
-            mode: "proposed",
-            phaseIds: ["alignment", "implement", "code-review", "implement", "code-review", "port"],
-          },
-        },
-      ],
-    ]);
-
-    const res = await postBoard({
+    const pause = await postBoard({
       questId: "q-9",
-      phaseNoteEdits: [
-        { index: 2, note: "focus on stream migration behavior" },
-        { index: 4, note: "inspect only the follow-up diff" },
-      ],
+      status: "USER_CHECKPOINTING",
+      activePhaseIndex: 1,
+      waitForInput: ["n-4"],
     });
+    expect(pause.status).toBe(200);
+    expect(session.board.get("q-9")?.journey?.currentPhaseId).toBe("work");
+    expect(session.board.get("q-9")?.waitForInput).toEqual(["n-4"]);
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          journey: {
-            phaseNotes: {
-              "2": "focus on stream migration behavior",
-              "4": "inspect only the follow-up diff",
-            },
-          },
-        },
-      ],
-    });
-  });
-
-  it("rebases phase notes by phase occurrence when revising a Journey", async () => {
-    session.board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "PROPOSED",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "rework-loop",
-            mode: "proposed",
-            phaseIds: ["alignment", "implement", "code-review", "implement", "mental-simulation", "port"],
-            phaseNotes: {
-              "4": "Replay turns 116/120/121/122-123 before dispatching this phase",
-            },
-          },
-        },
-      ],
-    ]);
-
-    const res = await postBoardRevise("q-9", {
-      fromIndex: 4,
-      expectedPhaseId: "mental-simulation",
-      phases: ["code-review", "mental-simulation", "port"],
-      presetId: "rework-loop",
-    });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          status: "PROPOSED",
-          journey: {
-            phaseIds: [
-              "alignment",
-              "implement",
-              "code-review",
-              "implement",
-              "code-review",
-              "mental-simulation",
-              "port",
-            ],
-            phaseNotes: {
-              "5": "Replay turns 116/120/121/122-123 before dispatching this phase",
-            },
-          },
-        },
-      ],
-    });
-  });
-
-  it("clears omitted and empty spec notes before presenting a revised proposed Journey", async () => {
-    session.board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "PROPOSED",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "proposal-flow",
-            mode: "proposed",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
-            phaseNotes: {
-              "0": "Old verbose alignment note",
-              "1": "Old verbose implementation note",
-              "2": "Old verbose review note",
-              "3": "Old verbose port note",
-            },
-          },
-        },
-      ],
-    ]);
-
-    const reviseRes = await postBoardRevise("q-9", {
-      fromIndex: 0,
-      expectedPhaseId: "alignment",
-      phases: ["alignment", "implement", "code-review", "port"],
-      presetId: "proposal-flow",
-      // This is the server payload emitted by takode board revise --journey-file:
-      // every replacement suffix phase occurrence can carry or clear concise notes.
-      phaseNoteEdits: [
-        { index: 0, note: "Confirm the approval surface and scope." },
-        { index: 1, note: "" },
-        { index: 2, note: null },
-        { index: 3, note: null },
-      ],
-    });
-
-    expect(reviseRes.status).toBe(200);
-    const reviseBody = await reviseRes.json();
-    expect(reviseBody).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          status: "PROPOSED",
-          journey: {
-            phaseNotes: {
-              "0": "Confirm the approval surface and scope.",
-            },
-          },
-        },
-      ],
-    });
-    expect(reviseBody.board[0].journey.phaseNotes).toEqual({
-      "0": "Confirm the approval surface and scope.",
-    });
-
-    const presentRes = await postBoard({
+    const resume = await postBoard({
       questId: "q-9",
-      presentProposal: true,
+      status: "WORKING",
+      activePhaseIndex: 1,
+      clearWaitForInput: true,
     });
+    expect(resume.status).toBe(200);
+    expect(session.board.get("q-9")?.journey?.currentPhaseId).toBe("work");
+    expect(session.board.get("q-9")?.waitForInput).toBeUndefined();
+  });
 
-    expect(presentRes.status).toBe(200);
-    const presentBody = await presentRes.json();
-    expect(presentBody).toMatchObject({
-      proposalReview: {
-        questId: "q-9",
-        journey: {
-          phaseNotes: {
-            "0": "Confirm the approval surface and scope.",
-          },
-        },
+  it("allows the authenticated assigned and claimed worker to move Work to Memory", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      title: "Quest",
+      worker: "worker-1",
+      workerNum: 5,
+      status: "WORKING",
+      journey: {
+        phaseIds: ["alignment", "work", "memory"],
+        activePhaseIndex: 1,
+        currentPhaseId: "work",
       },
+      createdAt: 1,
+      updatedAt: 2,
     });
-    expect(presentBody.proposalReview.journey.phaseNotes).toEqual({
-      "0": "Confirm the approval surface and scope.",
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    vi.mocked(questStore.getQuest).mockResolvedValueOnce({
+      id: "q-9",
+      questId: "q-9",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          kind: "phase_summary",
+          phaseId: "work",
+          text: "Work note with enough detail to count as current and useful for final Memory handoff.",
+          ts: 10,
+        },
+      ],
+    } as any);
+
+    const res = await postWorkerMemory({ questId: "q-9", workFeedbackIndex: 0 });
+
+    expect(res.status).toBe(200);
+    expect(session.board.get("q-9")?.status).toBe("MEMORY");
+    expect(session.board.get("q-9")?.journey).toMatchObject({
+      activePhaseIndex: 2,
+      currentPhaseId: "memory",
+    });
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      questId: "q-9",
+      previousState: "WORKING",
+      newState: "MEMORY",
+      workFeedbackIndex: 0,
     });
   });
 
-  it("returns explicit warnings when a Journey revision drops unmappable phase notes", async () => {
-    session.board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "PROPOSED",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "rework-loop",
-            mode: "proposed",
-            phaseIds: ["alignment", "implement", "code-review", "implement", "mental-simulation", "port"],
-            phaseNotes: {
-              "4": "Replay turns 116/120/121/122-123 before dispatching this phase",
-            },
-          },
-        },
-      ],
-    ]);
-
-    const res = await postBoardRevise("q-9", {
-      fromIndex: 4,
-      expectedPhaseId: "mental-simulation",
-      phases: ["port"],
-      presetId: "rework-loop",
+  it("rejects Work to Memory when checkpoint wait or Work note proof is missing", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      waitForInput: ["n-2"],
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 1,
+      updatedAt: 2,
     });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    vi.mocked(questStore.getQuest).mockResolvedValue({
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [],
+    } as any);
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          status: "PROPOSED",
-          journey: {
-            phaseIds: ["alignment", "implement", "code-review", "implement", "port"],
-          },
-        },
-      ],
-      phaseNoteRebaseWarnings: [
-        {
-          previousIndex: 4,
-          previousPhaseId: "mental-simulation",
-          previousOccurrence: 1,
-          note: "Replay turns 116/120/121/122-123 before dispatching this phase",
-        },
-      ],
-    });
+    const checkpoint = await postWorkerMemory({ questId: "q-9" });
+    expect(checkpoint.status).toBe(409);
+    expect(await checkpoint.json()).toMatchObject({ error: expect.stringContaining("User Checkpoint") });
+
+    session.board.get("q-9")!.waitForInput = undefined;
+    const missingNote = await postWorkerMemory({ questId: "q-9" });
+    expect(missingNote.status).toBe(409);
+    expect(await missingNote.json()).toMatchObject({ error: expect.stringContaining("Work phase note") });
   });
 });

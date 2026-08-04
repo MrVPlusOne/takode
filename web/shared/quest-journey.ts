@@ -2,17 +2,10 @@
  * Quest Journey state machine constants.
  * Shared between server (session-types.ts) and CLI (takode.ts).
  */
-import bookkeepingPhase from "./quest-journey-phases/bookkeeping/phase.json";
-import codeReviewPhase from "./quest-journey-phases/code-review/phase.json";
-import executePhase from "./quest-journey-phases/execute/phase.json";
-import explorePhase from "./quest-journey-phases/explore/phase.json";
-import implementPhase from "./quest-journey-phases/implement/phase.json";
 import memoryPhase from "./quest-journey-phases/memory/phase.json";
-import mentalSimulationPhase from "./quest-journey-phases/mental-simulation/phase.json";
-import outcomeReviewPhase from "./quest-journey-phases/outcome-review/phase.json";
 import alignmentPhase from "./quest-journey-phases/alignment/phase.json";
-import portPhase from "./quest-journey-phases/port/phase.json";
 import userCheckpointPhase from "./quest-journey-phases/user-checkpoint/phase.json";
+import workPhase from "./quest-journey-phases/work/phase.json";
 
 /** Regex pattern for valid quest IDs: q-NNN (case-insensitive). */
 export const QUEST_ID_PATTERN = /^q-\d+$/i;
@@ -64,19 +57,24 @@ export const QUEST_JOURNEY_STATES = [
   "PROPOSED",
   "QUEUED",
   "PLANNING",
+  "WORKING",
+  "USER_CHECKPOINTING",
+  "MEMORY",
+] as const;
+
+export type QuestJourneyState = (typeof QUEST_JOURNEY_STATES)[number];
+export const LEGACY_QUEST_JOURNEY_STATES = [
   "EXPLORING",
   "IMPLEMENTING",
   "CODE_REVIEWING",
   "MENTAL_SIMULATING",
   "EXECUTING",
   "OUTCOME_REVIEWING",
-  "USER_CHECKPOINTING",
   "PORTING",
-  "MEMORY",
   "BOOKKEEPING",
 ] as const;
-
-export type QuestJourneyState = (typeof QUEST_JOURNEY_STATES)[number];
+export type LegacyQuestJourneyState = (typeof LEGACY_QUEST_JOURNEY_STATES)[number];
+export type KnownQuestJourneyState = QuestJourneyState | LegacyQuestJourneyState;
 export const QUEST_JOURNEY_LIFECYCLE_MODES = ["active", "proposed"] as const;
 export type QuestJourneyLifecycleMode = (typeof QUEST_JOURNEY_LIFECYCLE_MODES)[number];
 export type QuestJourneyPresentationState = "draft" | "presented";
@@ -86,27 +84,28 @@ export type QuestJourneyPresentationState = "draft" | "presented";
  * assemble into a Quest Journey and are backed by canonical phase.json files.
  */
 export type QuestJourneyAssigneeRole = "worker" | "reviewer";
-const QUEST_JOURNEY_PHASE_IDS = [
-  "alignment",
+const ACTIVE_QUEST_JOURNEY_PHASE_IDS = ["alignment", "work", "user-checkpoint", "memory"] as const;
+
+const LEGACY_QUEST_JOURNEY_PHASE_IDS = [
   "explore",
   "implement",
   "code-review",
   "mental-simulation",
   "execute",
   "outcome-review",
-  "user-checkpoint",
   "port",
-  "memory",
   "bookkeeping",
 ] as const;
 
-export type QuestJourneyPhaseId = (typeof QUEST_JOURNEY_PHASE_IDS)[number];
+export type ActiveQuestJourneyPhaseId = (typeof ACTIVE_QUEST_JOURNEY_PHASE_IDS)[number];
+export type LegacyQuestJourneyPhaseId = (typeof LEGACY_QUEST_JOURNEY_PHASE_IDS)[number];
+export type QuestJourneyPhaseId = ActiveQuestJourneyPhaseId | LegacyQuestJourneyPhaseId;
 
 export interface QuestJourneyPhase {
   id: QuestJourneyPhaseId;
   label: string;
   color: QuestJourneyPhaseColor;
-  boardState: QuestJourneyState;
+  boardState: KnownQuestJourneyState;
   assigneeRole: QuestJourneyAssigneeRole;
   contract: string;
   nextLeaderAction: string;
@@ -153,7 +152,7 @@ function parseQuestJourneyPhaseColor(value: QuestJourneyPhaseFile["color"]): Que
   return { name, accent };
 }
 
-function defineQuestJourneyPhase<Id extends QuestJourneyPhaseId>(
+function defineQuestJourneyPhase<Id extends ActiveQuestJourneyPhaseId>(
   expectedId: Id,
   phase: QuestJourneyPhaseFile,
 ): QuestJourneyPhase & { id: Id } {
@@ -172,35 +171,125 @@ function defineQuestJourneyPhase<Id extends QuestJourneyPhaseId>(
 
 export const QUEST_JOURNEY_PHASES: readonly QuestJourneyPhase[] = [
   defineQuestJourneyPhase("alignment", alignmentPhase),
-  defineQuestJourneyPhase("explore", explorePhase),
-  defineQuestJourneyPhase("implement", implementPhase),
-  defineQuestJourneyPhase("code-review", codeReviewPhase),
-  defineQuestJourneyPhase("mental-simulation", mentalSimulationPhase),
-  defineQuestJourneyPhase("execute", executePhase),
-  defineQuestJourneyPhase("outcome-review", outcomeReviewPhase),
+  defineQuestJourneyPhase("work", workPhase),
   defineQuestJourneyPhase("user-checkpoint", userCheckpointPhase),
-  defineQuestJourneyPhase("port", portPhase),
   defineQuestJourneyPhase("memory", memoryPhase),
-  defineQuestJourneyPhase("bookkeeping", bookkeepingPhase),
 ];
 
-export const DEFAULT_QUEST_JOURNEY_PRESET_ID = "full-code";
+const LEGACY_QUEST_JOURNEY_PHASES: readonly QuestJourneyPhase[] = [
+  {
+    id: "explore",
+    label: "Explore",
+    color: { name: "amber", accent: "#fbbf24" },
+    boardState: "EXPLORING",
+    assigneeRole: "worker",
+    contract: "Historical v1 investigation phase. Active v2 Work owns ordinary investigation and routing.",
+    nextLeaderAction: "historical phase only",
+    aliases: [],
+  },
+  {
+    id: "implement",
+    label: "Implement",
+    color: { name: "green", accent: "#4ade80" },
+    boardState: "IMPLEMENTING",
+    assigneeRole: "worker",
+    contract:
+      "Historical v1 implementation phase. Active v2 Work owns implementation, validation, sync, and iteration.",
+    nextLeaderAction: "historical phase only",
+    aliases: ["implementation"],
+  },
+  {
+    id: "code-review",
+    label: "Code Review",
+    color: { name: "violet", accent: "#a78bfa" },
+    boardState: "CODE_REVIEWING",
+    assigneeRole: "reviewer",
+    contract: "Historical v1 embedded review phase. Active v2 uses separate review quests when needed.",
+    nextLeaderAction: "historical phase only",
+    aliases: ["skeptic-review", "reviewer-groom"],
+  },
+  {
+    id: "mental-simulation",
+    label: "Mental Simulation",
+    color: { name: "fuchsia", accent: "#e879f9" },
+    boardState: "MENTAL_SIMULATING",
+    assigneeRole: "reviewer",
+    contract:
+      "Historical v1 scenario-review phase. Active v2 Work owns self-review and may propose a separate review quest.",
+    nextLeaderAction: "historical phase only",
+    aliases: [],
+  },
+  {
+    id: "execute",
+    label: "Execute",
+    color: { name: "orange", accent: "#fb923c" },
+    boardState: "EXECUTING",
+    assigneeRole: "worker",
+    contract:
+      "Historical v1 execution phase. Active v2 Work owns approved execution inside the authorization envelope.",
+    nextLeaderAction: "historical phase only",
+    aliases: [],
+  },
+  {
+    id: "outcome-review",
+    label: "Outcome Review",
+    color: { name: "cyan", accent: "#22d3ee" },
+    boardState: "OUTCOME_REVIEWING",
+    assigneeRole: "reviewer",
+    contract: "Historical v1 outcome-review phase. Active v2 uses separate review quests when needed.",
+    nextLeaderAction: "historical phase only",
+    aliases: [],
+  },
+  {
+    id: "port",
+    label: "Port",
+    color: { name: "blue", accent: "#60a5fa" },
+    boardState: "PORTING",
+    assigneeRole: "worker",
+    contract: "Historical v1 Port phase. Active v2 Work owns sync/push duties when authorized.",
+    nextLeaderAction: "historical phase only",
+    aliases: ["porting"],
+  },
+  {
+    id: "bookkeeping",
+    label: "Bookkeeping",
+    color: { name: "yellow", accent: "#fde047" },
+    boardState: "BOOKKEEPING",
+    assigneeRole: "worker",
+    contract: "Historical v1 compatibility bookkeeping phase. Active v2 final Memory owns durable closure.",
+    nextLeaderAction: "historical phase only",
+    aliases: ["state-update", "stream-update"],
+  },
+];
+
+export const KNOWN_QUEST_JOURNEY_PHASES: readonly QuestJourneyPhase[] = [
+  ...QUEST_JOURNEY_PHASES,
+  ...LEGACY_QUEST_JOURNEY_PHASES,
+];
+
+export const DEFAULT_QUEST_JOURNEY_PRESET_ID = "v2-work";
 export const DEFAULT_QUEST_JOURNEY_PHASE_IDS = [
   "alignment",
-  "implement",
-  "code-review",
-  "port",
+  "work",
   "memory",
 ] as const satisfies readonly QuestJourneyPhaseId[];
 
 const QUEST_JOURNEY_PHASE_ALIAS_MAP: Record<string, QuestJourneyPhaseId> = Object.fromEntries(
   QUEST_JOURNEY_PHASES.flatMap((phase) => phase.aliases.map((alias) => [alias, phase.id])),
 ) as Record<string, QuestJourneyPhaseId>;
+const KNOWN_QUEST_JOURNEY_PHASE_ALIAS_MAP: Record<string, QuestJourneyPhaseId> = Object.fromEntries([
+  ["planning", "alignment"],
+  ...KNOWN_QUEST_JOURNEY_PHASES.flatMap((phase) => phase.aliases.map((alias) => [alias, phase.id] as const)),
+]) as Record<string, QuestJourneyPhaseId>;
 
 const QUEST_JOURNEY_STATE_ALIAS_MAP = {
+  IMPLEMENTING: "WORKING",
+} as const satisfies Partial<Record<string, QuestJourneyState>>;
+
+const KNOWN_QUEST_JOURNEY_STATE_ALIAS_MAP = {
   SKEPTIC_REVIEWING: "CODE_REVIEWING",
   GROOM_REVIEWING: "CODE_REVIEWING",
-} as const satisfies Record<string, QuestJourneyState>;
+} as const satisfies Partial<Record<string, KnownQuestJourneyState>>;
 
 export interface QuestJourneyPlanState {
   /** Built-in preset or custom plan identifier. */
@@ -229,6 +318,20 @@ export interface QuestJourneyPlanState {
   revisedAt?: number;
   /** Number of explicit Journey revisions recorded on this row. */
   revisionCount?: number;
+  /** One-time v2 cutover record for active rows migrated from legacy v1 phases. */
+  v2Migration?: QuestJourneyV2MigrationRecord;
+}
+
+export interface QuestJourneyV2MigrationRecord {
+  version: 2;
+  migratedAt: number;
+  fromStatus?: string;
+  fromPhaseIds?: QuestJourneyPhaseId[];
+  fromActivePhaseIndex?: number;
+  fromCurrentPhaseId?: QuestJourneyPhaseId;
+  fromPhaseNotes?: Record<string, string>;
+  fromPhaseTimings?: Record<string, QuestJourneyPhaseTiming>;
+  pausedReason?: string;
 }
 
 export interface QuestJourneyPhaseTiming {
@@ -330,19 +433,30 @@ export const QUEST_JOURNEY_PHASE_PROVENANCE_REPAIR_REQUIRED_ERROR =
   "Quest Journey repair required: the current phase occurrence boundary cannot be determined positionally. Pin the active phase occurrence before changing this row.";
 
 export const QUEST_JOURNEY_PHASE_BY_ID: Record<QuestJourneyPhaseId, QuestJourneyPhase> = Object.fromEntries(
-  QUEST_JOURNEY_PHASES.map((phase) => [phase.id, phase]),
+  KNOWN_QUEST_JOURNEY_PHASES.map((phase) => [phase.id, phase]),
 ) as Record<QuestJourneyPhaseId, QuestJourneyPhase>;
 
 export const QUEST_JOURNEY_PHASE_ID_BY_STATE = Object.fromEntries(
-  QUEST_JOURNEY_PHASES.map((phase) => [phase.boardState, phase.id]),
-) as Partial<Record<QuestJourneyState, QuestJourneyPhaseId>>;
+  KNOWN_QUEST_JOURNEY_PHASES.map((phase) => [phase.boardState, phase.id]),
+) as Partial<Record<KnownQuestJourneyState, QuestJourneyPhaseId>>;
 
-export function canonicalizeQuestJourneyPhaseId(value?: string | null): QuestJourneyPhaseId | null {
+export function canonicalizeQuestJourneyPhaseId(value?: string | null): ActiveQuestJourneyPhaseId | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if ((ACTIVE_QUEST_JOURNEY_PHASE_IDS as readonly string[]).includes(normalized)) {
+    return normalized as ActiveQuestJourneyPhaseId;
+  }
+  const alias = QUEST_JOURNEY_PHASE_ALIAS_MAP[normalized as keyof typeof QUEST_JOURNEY_PHASE_ALIAS_MAP];
+  return alias && isActiveQuestJourneyPhaseId(alias) ? alias : null;
+}
+
+export function canonicalizeKnownQuestJourneyPhaseId(value?: string | null): QuestJourneyPhaseId | null {
   if (!value) return null;
   const normalized = value.trim().toLowerCase();
   if (!normalized) return null;
   if (normalized in QUEST_JOURNEY_PHASE_BY_ID) return normalized as QuestJourneyPhaseId;
-  return QUEST_JOURNEY_PHASE_ALIAS_MAP[normalized as keyof typeof QUEST_JOURNEY_PHASE_ALIAS_MAP] ?? null;
+  return KNOWN_QUEST_JOURNEY_PHASE_ALIAS_MAP[normalized as keyof typeof KNOWN_QUEST_JOURNEY_PHASE_ALIAS_MAP] ?? null;
 }
 
 export function canonicalizeQuestJourneyState(value?: string | null): QuestJourneyState | null {
@@ -351,6 +465,17 @@ export function canonicalizeQuestJourneyState(value?: string | null): QuestJourn
   if (!normalized) return null;
   if ((QUEST_JOURNEY_STATES as readonly string[]).includes(normalized)) return normalized as QuestJourneyState;
   return QUEST_JOURNEY_STATE_ALIAS_MAP[normalized as keyof typeof QUEST_JOURNEY_STATE_ALIAS_MAP] ?? null;
+}
+
+export function canonicalizeKnownQuestJourneyState(value?: string | null): KnownQuestJourneyState | null {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  if (!normalized) return null;
+  if ((QUEST_JOURNEY_STATES as readonly string[]).includes(normalized)) return normalized as QuestJourneyState;
+  if ((LEGACY_QUEST_JOURNEY_STATES as readonly string[]).includes(normalized)) {
+    return normalized as LegacyQuestJourneyState;
+  }
+  return KNOWN_QUEST_JOURNEY_STATE_ALIAS_MAP[normalized as keyof typeof KNOWN_QUEST_JOURNEY_STATE_ALIAS_MAP] ?? null;
 }
 
 export function canonicalizeQuestJourneyLifecycleMode(value?: string | null): QuestJourneyLifecycleMode | null {
@@ -362,11 +487,25 @@ export function canonicalizeQuestJourneyLifecycleMode(value?: string | null): Qu
 export function normalizeQuestJourneyPhaseIds(values?: readonly string[] | null): QuestJourneyPhaseId[] {
   return (values ?? [])
     .map((value) => canonicalizeQuestJourneyPhaseId(value))
+    .filter((phaseId): phaseId is ActiveQuestJourneyPhaseId => phaseId !== null);
+}
+
+export function normalizeKnownQuestJourneyPhaseIds(values?: readonly string[] | null): QuestJourneyPhaseId[] {
+  return (values ?? [])
+    .map((value) => canonicalizeKnownQuestJourneyPhaseId(value))
     .filter((phaseId): phaseId is QuestJourneyPhaseId => phaseId !== null);
 }
 
 export function isQuestJourneyPhaseId(value: string): value is QuestJourneyPhaseId {
   return canonicalizeQuestJourneyPhaseId(value) !== null;
+}
+
+export function isActiveQuestJourneyPhaseId(value: string): value is ActiveQuestJourneyPhaseId {
+  return (ACTIVE_QUEST_JOURNEY_PHASE_IDS as readonly string[]).includes(value);
+}
+
+export function isLegacyQuestJourneyPhaseId(value: string): value is LegacyQuestJourneyPhaseId {
+  return (LEGACY_QUEST_JOURNEY_PHASE_IDS as readonly string[]).includes(value);
 }
 
 export function getInvalidQuestJourneyPhaseIds(values: readonly string[]): string[] {
@@ -377,7 +516,7 @@ export function validateQuestJourneyPersistedPhaseOccurrences(values: unknown): 
   if (!Array.isArray(values)) return QUEST_JOURNEY_PHASE_REPAIR_REQUIRED_ERROR;
 
   for (const [index, value] of values.entries()) {
-    if (typeof value === "string" && canonicalizeQuestJourneyPhaseId(value) !== null) continue;
+    if (typeof value === "string" && canonicalizeKnownQuestJourneyPhaseId(value) !== null) continue;
     return `${QUEST_JOURNEY_PHASE_REPAIR_REQUIRED_ERROR} Invalid occurrence position: ${index + 1}.`;
   }
 
@@ -393,7 +532,7 @@ export function validateQuestJourneyPersistedPhaseMutation(
   if (occurrenceError) return occurrenceError;
 
   const phaseIds = (plan.phaseIds as unknown[]).map(
-    (phaseId) => canonicalizeQuestJourneyPhaseId(phaseId as string) as QuestJourneyPhaseId,
+    (phaseId) => canonicalizeKnownQuestJourneyPhaseId(phaseId as string) as QuestJourneyPhaseId,
   );
   const mode = canonicalizeQuestJourneyLifecycleMode(plan.mode);
   const normalizedStatus = typeof status === "string" ? status.trim().toUpperCase() : "";
@@ -412,6 +551,10 @@ export function validateQuestJourneyPhaseSequence(
   values: readonly string[],
   options: QuestJourneyPhaseSequenceValidationOptions = {},
 ): string | undefined {
+  const invalid = getInvalidQuestJourneyPhaseIds(values);
+  if (invalid.length > 0) {
+    return `Invalid active Quest Journey phase(s): ${invalid.join(", ")}. Active v2 phases are alignment, work, user-checkpoint, and memory. Legacy v1 phase IDs are historical-read only.`;
+  }
   const phaseIds = normalizeQuestJourneyPhaseIds(values);
   const allowedIndices = new Set(options.allowedAdjacentExploreImplementIndices ?? []);
   if (options.allowedAdjacentExploreImplementIndex !== undefined) {
@@ -433,7 +576,9 @@ export function validateQuestJourneyPhaseSequenceMutation(
   const provenanceError = validateQuestJourneyPersistedPhaseMutation(mutation.existingPlan, mutation.existingStatus);
   if (provenanceError) return provenanceError;
   const existingPhaseIds = Array.isArray(rawExistingPhaseIds)
-    ? rawExistingPhaseIds.map((phaseId) => canonicalizeQuestJourneyPhaseId(phaseId as string) as QuestJourneyPhaseId)
+    ? rawExistingPhaseIds.map(
+        (phaseId) => canonicalizeKnownQuestJourneyPhaseId(phaseId as string) as QuestJourneyPhaseId,
+      )
     : [];
   const nextPhaseIds = normalizeQuestJourneyPhaseIds(mutation.nextPhaseIds);
   const existingMode = canonicalizeQuestJourneyLifecycleMode(mutation.existingPlan?.mode);
@@ -574,17 +719,17 @@ function isUserCheckpointRequiredNote(note: string | undefined): boolean {
 }
 
 export function getQuestJourneyPhase(phaseId?: string | null): QuestJourneyPhase | null {
-  const canonical = canonicalizeQuestJourneyPhaseId(phaseId);
+  const canonical = canonicalizeKnownQuestJourneyPhaseId(phaseId);
   return canonical ? QUEST_JOURNEY_PHASE_BY_ID[canonical] : null;
 }
 
 export function getQuestJourneyPhaseForState(status?: string | null): QuestJourneyPhase | null {
-  const canonical = canonicalizeQuestJourneyState(status);
+  const canonical = canonicalizeKnownQuestJourneyState(status);
   return canonical ? getQuestJourneyPhase(QUEST_JOURNEY_PHASE_ID_BY_STATE[canonical] ?? null) : null;
 }
 
 export function isQuestWaitForBlockingState(status?: string | null): boolean {
-  return canonicalizeQuestJourneyState(status) !== "MEMORY";
+  return canonicalizeKnownQuestJourneyState(status) !== "MEMORY";
 }
 
 export function getQuestJourneyPhaseIndices(
@@ -936,6 +1081,45 @@ function normalizeQuestJourneyProposalPresentation(
   };
 }
 
+function normalizeQuestJourneyV2MigrationRecord(
+  migration: QuestJourneyPlanState["v2Migration"] | undefined,
+): QuestJourneyPlanState["v2Migration"] | undefined {
+  if (!migration || typeof migration !== "object" || migration.version !== 2) return undefined;
+  const migratedAt = normalizeQuestJourneyTimestamp(migration.migratedAt);
+  if (!migratedAt) return undefined;
+  const fromPhaseIds = normalizeKnownQuestJourneyPhaseIds(migration.fromPhaseIds);
+  const fromPhaseNotes = normalizeQuestJourneyPhaseNotes(migration.fromPhaseNotes, fromPhaseIds.length);
+  const fromPhaseTimings = normalizeQuestJourneyPhaseTimings(
+    migration.fromPhaseTimings as Record<string, unknown> | undefined,
+    fromPhaseIds.length,
+  );
+  const fromActivePhaseIndex =
+    typeof migration.fromActivePhaseIndex === "number" &&
+    Number.isInteger(migration.fromActivePhaseIndex) &&
+    migration.fromActivePhaseIndex >= 0 &&
+    migration.fromActivePhaseIndex < fromPhaseIds.length
+      ? migration.fromActivePhaseIndex
+      : undefined;
+  const fromCurrentPhaseId = canonicalizeKnownQuestJourneyPhaseId(migration.fromCurrentPhaseId);
+  const pausedReason =
+    typeof migration.pausedReason === "string" && migration.pausedReason.trim()
+      ? migration.pausedReason.trim()
+      : undefined;
+  const fromStatus =
+    typeof migration.fromStatus === "string" && migration.fromStatus.trim() ? migration.fromStatus.trim() : undefined;
+  return {
+    version: 2,
+    migratedAt,
+    ...(fromStatus ? { fromStatus } : {}),
+    ...(fromPhaseIds.length > 0 ? { fromPhaseIds } : {}),
+    ...(fromActivePhaseIndex !== undefined ? { fromActivePhaseIndex } : {}),
+    ...(fromCurrentPhaseId ? { fromCurrentPhaseId } : {}),
+    ...(fromPhaseNotes ? { fromPhaseNotes } : {}),
+    ...(fromPhaseTimings ? { fromPhaseTimings } : {}),
+    ...(pausedReason ? { pausedReason } : {}),
+  };
+}
+
 export function getQuestJourneyProposalSignature(plan: Partial<QuestJourneyPlanState> | undefined): string {
   const phaseIds = normalizeQuestJourneyPhaseIds(plan?.phaseIds);
   const phaseNotes = normalizeQuestJourneyPhaseNotes(plan?.phaseNotes, phaseIds.length);
@@ -961,6 +1145,13 @@ function normalizeQuestJourneyActivePhaseIndex(
   const statusPhaseId = getQuestJourneyPhaseForState(status)?.id;
   const plannedCurrentPhaseId = getQuestJourneyPhase(plan?.currentPhaseId)?.id;
   const normalizedStatus = typeof status === "string" ? status.trim().toUpperCase() : "";
+
+  if (normalizedStatus === "USER_CHECKPOINTING") {
+    if (plannedCurrentPhaseId === "work") return getUniqueQuestJourneyPhaseIndex(phaseIds, "work");
+    if (explicitIndex !== undefined && phaseIds[explicitIndex] === "work") return explicitIndex;
+    const workIndex = getUniqueQuestJourneyPhaseIndex(phaseIds, "work");
+    if (workIndex !== undefined) return workIndex;
+  }
 
   if (statusPhaseId) {
     if (explicitIndex !== undefined && phaseIds[explicitIndex] === statusPhaseId) return explicitIndex;
@@ -1007,6 +1198,7 @@ export function normalizeQuestJourneyPlan(
     nonEmptyPhaseIds.length,
   );
   const presentation = normalizeQuestJourneyProposalPresentation(plan?.presentation);
+  const v2Migration = normalizeQuestJourneyV2MigrationRecord(plan?.v2Migration);
   const activePhaseIndex =
     mode === "proposed" ? undefined : normalizeQuestJourneyActivePhaseIndex(plan, nonEmptyPhaseIds, status);
   const currentPhaseId =
@@ -1028,6 +1220,7 @@ export function normalizeQuestJourneyPlan(
     ...(phaseSkipReasons ? { phaseSkipReasons } : {}),
     ...(phaseTimings ? { phaseTimings } : {}),
     ...(presentation ? { presentation } : {}),
+    ...(v2Migration ? { v2Migration } : {}),
     ...(nextLeaderAction ? { nextLeaderAction } : {}),
     ...(plan?.revisionReason ? { revisionReason: plan.revisionReason } : {}),
     ...(plan?.revisedAt ? { revisedAt: plan.revisedAt } : {}),
@@ -1040,32 +1233,33 @@ export interface QuestJourneyPresentation {
 }
 
 /** Human-facing labels for quest phases in the UI. Color lives on phase metadata. */
-export const QUEST_JOURNEY_PRESENTATION: Record<QuestJourneyState, QuestJourneyPresentation> = {
+export const QUEST_JOURNEY_PRESENTATION: Record<KnownQuestJourneyState, QuestJourneyPresentation> = {
   PROPOSED: { label: "Proposed" },
   QUEUED: { label: "Queued" },
   PLANNING: { label: "Alignment" },
+  WORKING: { label: "Work" },
+  USER_CHECKPOINTING: { label: "User Checkpoint" },
+  MEMORY: { label: "Memory" },
   EXPLORING: { label: "Explore" },
   IMPLEMENTING: { label: "Implement" },
   CODE_REVIEWING: { label: "Code Review" },
   MENTAL_SIMULATING: { label: "Mental Simulation" },
   EXECUTING: { label: "Execute" },
   OUTCOME_REVIEWING: { label: "Outcome Review" },
-  USER_CHECKPOINTING: { label: "User Checkpoint" },
   PORTING: { label: "Port" },
-  MEMORY: { label: "Memory" },
   BOOKKEEPING: { label: "Bookkeeping" },
 };
 
 /** Returns the UI presentation metadata for a known quest-journey state. */
 export function getQuestJourneyPresentation(status?: string | null): QuestJourneyPresentation | null {
-  const canonical = canonicalizeQuestJourneyState(status);
+  const canonical = canonicalizeKnownQuestJourneyState(status);
   return canonical ? QUEST_JOURNEY_PRESENTATION[canonical] : null;
 }
 
 /** Replace embedded quest-journey enum tokens in freeform text with human labels. */
 export function formatQuestJourneyText(text: string): string {
   return text.replace(
-    /\b(PROPOSED|QUEUED|PLANNING|EXPLORING|IMPLEMENTING|CODE_REVIEWING|MENTAL_SIMULATING|EXECUTING|OUTCOME_REVIEWING|USER_CHECKPOINTING|BOOKKEEPING|PORTING|MEMORY|SKEPTIC_REVIEWING|GROOM_REVIEWING)\b/g,
+    /\b(PROPOSED|QUEUED|PLANNING|WORKING|USER_CHECKPOINTING|MEMORY|EXPLORING|IMPLEMENTING|CODE_REVIEWING|MENTAL_SIMULATING|EXECUTING|OUTCOME_REVIEWING|BOOKKEEPING|PORTING|SKEPTIC_REVIEWING|GROOM_REVIEWING)\b/g,
     (match) => getQuestJourneyPresentation(match)?.label ?? match,
   );
 }
@@ -1075,15 +1269,16 @@ export const QUEST_JOURNEY_HINTS: Record<string, string> = {
   PROPOSED: "present or revise the proposed Journey, then promote it after approval",
   QUEUED: "dispatch to a worker",
   PLANNING: QUEST_JOURNEY_PHASE_BY_ID.alignment.nextLeaderAction,
+  WORKING: QUEST_JOURNEY_PHASE_BY_ID.work.nextLeaderAction,
+  USER_CHECKPOINTING: QUEST_JOURNEY_PHASE_BY_ID["user-checkpoint"].nextLeaderAction,
+  MEMORY: QUEST_JOURNEY_PHASE_BY_ID.memory.nextLeaderAction,
   EXPLORING: QUEST_JOURNEY_PHASE_BY_ID.explore.nextLeaderAction,
   IMPLEMENTING: QUEST_JOURNEY_PHASE_BY_ID.implement.nextLeaderAction,
   CODE_REVIEWING: QUEST_JOURNEY_PHASE_BY_ID["code-review"].nextLeaderAction,
   MENTAL_SIMULATING: QUEST_JOURNEY_PHASE_BY_ID["mental-simulation"].nextLeaderAction,
   EXECUTING: QUEST_JOURNEY_PHASE_BY_ID.execute.nextLeaderAction,
   OUTCOME_REVIEWING: QUEST_JOURNEY_PHASE_BY_ID["outcome-review"].nextLeaderAction,
-  USER_CHECKPOINTING: QUEST_JOURNEY_PHASE_BY_ID["user-checkpoint"].nextLeaderAction,
   PORTING: QUEST_JOURNEY_PHASE_BY_ID.port.nextLeaderAction,
-  MEMORY: QUEST_JOURNEY_PHASE_BY_ID.memory.nextLeaderAction,
   BOOKKEEPING: QUEST_JOURNEY_PHASE_BY_ID.bookkeeping.nextLeaderAction,
   SKEPTIC_REVIEWING: QUEST_JOURNEY_PHASE_BY_ID["code-review"].nextLeaderAction,
   GROOM_REVIEWING: QUEST_JOURNEY_PHASE_BY_ID["code-review"].nextLeaderAction,

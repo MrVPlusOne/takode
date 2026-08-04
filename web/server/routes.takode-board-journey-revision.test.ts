@@ -1,1354 +1,248 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
-
-// Mock env-manager and git-utils modules before any imports
-vi.mock("./env-manager.js", () => ({
-  listEnvs: vi.fn(() => Promise.resolve([])),
-  getEnv: vi.fn(() => Promise.resolve(null)),
-  getEffectiveImage: vi.fn(() => Promise.resolve(null)),
-  createEnv: vi.fn(() => Promise.resolve(undefined)),
-  updateEnv: vi.fn(() => Promise.resolve(undefined)),
-  deleteEnv: vi.fn(() => Promise.resolve(undefined)),
-}));
-
-vi.mock("node:child_process", () => {
-  const execSyncMock = vi.fn((_cmd?: string) => "" as any);
-  // exec mock: callback-based, delegates to execSync for consistent test behavior.
-  // Attaches stdout/stderr to the error object so promisify(exec) can find them,
-  // matching Node's custom exec promisify behavior.
-  const execMock = vi.fn((...args: any[]) => {
-    const cmd = args[0] as string;
-    const callback = typeof args[1] === "function" ? args[1] : args[2];
-    try {
-      const result = execSyncMock(cmd);
-      if (callback) callback(null, { stdout: result ?? "", stderr: "" });
-    } catch (err) {
-      const e = err as any;
-      if (e.stdout === undefined) e.stdout = "";
-      if (e.stderr === undefined) e.stderr = "";
-      if (callback) callback(err, { stdout: e.stdout ?? "", stderr: e.stderr ?? "" });
-    }
-  });
-  return { execSync: execSyncMock, exec: execMock };
-});
-
-const mockResolveBinary = vi.hoisted(() => vi.fn((_name: string) => null as string | null));
-const mockExpandTilde = vi.hoisted(() => vi.fn((p: string) => p)); // pass-through by default
-const mockCaptureUserShellEnv = vi.hoisted(() => vi.fn((_varNames: string[]) => ({}) as Record<string, string>));
-vi.mock("./path-resolver.js", () => ({
-  resolveBinary: mockResolveBinary,
-  expandTilde: mockExpandTilde,
-  captureUserShellEnv: mockCaptureUserShellEnv,
-}));
-
-vi.mock("node:fs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs")>();
-  return {
-    ...actual,
-    existsSync: vi.fn(() => true),
-    readFileSync: vi.fn(() => ""),
-  };
-});
-
-vi.mock("node:fs/promises", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs/promises")>();
-  return {
-    ...actual,
-    readFile: vi.fn((...args: Parameters<typeof actual.readFile>) => actual.readFile(...args)),
-    stat: vi.fn((...args: Parameters<typeof actual.stat>) => actual.stat(...args)),
-    access: vi.fn(async () => {}), // default: file exists (no throw)
-  };
-});
-
-vi.mock("./git-utils.js", () => ({
-  getRepoInfo: vi.fn(() => null),
-  getRepoInfoAsync: vi.fn(async () => null),
-  listBranches: vi.fn(() => []),
-  listBranchesAsync: vi.fn(async () => []),
-  listWorktrees: vi.fn(() => []),
-  listWorktreesAsync: vi.fn(async () => []),
-  ensureWorktree: vi.fn(),
-  ensureWorktreeAsync: vi.fn(),
-  gitFetch: vi.fn(() => ({ success: true, output: "" })),
-  gitFetchAsync: vi.fn(async () => ({ success: true, output: "" })),
-  gitPull: vi.fn(() => ({ success: true, output: "" })),
-  gitPullAsync: vi.fn(async () => ({ success: true, output: "" })),
-  checkoutBranch: vi.fn(),
-  checkoutBranchAsync: vi.fn(async () => {}),
-  removeWorktree: vi.fn(),
-  removeWorktreeAsync: vi.fn(async () => ({ removed: true })),
-  isWorktreeDirty: vi.fn(() => false),
-  isWorktreeDirtyAsync: vi.fn(async () => false),
-  archiveBranchAsync: vi.fn(async () => true),
-  resolveDefaultBranch: vi.fn(() => "main"),
-  getBranchStatus: vi.fn(() => ({ ahead: 0, behind: 0 })),
-  deleteArchivedRefAsync: vi.fn(async () => {}),
-}));
-
-vi.mock("./session-names.js", () => ({
-  getName: vi.fn(() => undefined),
-  setName: vi.fn(),
-  getAllNames: vi.fn(() => ({})),
-  removeName: vi.fn(),
-  getNextLeaderNumber: vi.fn(() => 1),
-  _resetForTest: vi.fn(),
-}));
-
-vi.mock("./settings-manager.js", () => ({
-  getSettings: vi.fn(() => ({
-    serverName: "",
-    serverId: "",
-    pushoverUserKey: "",
-    pushoverApiToken: "",
-    pushoverDelaySeconds: 30,
-    pushoverEnabled: true,
-    pushoverEventFilters: { needsInput: true, review: true, error: true },
-    pushoverBaseUrl: "",
-    claudeBinary: "",
-    codexBinary: "",
-    maxKeepAlive: 0,
-    heavyRepoModeEnabled: false,
-    autoApprovalEnabled: false,
-    autoApprovalModel: "haiku",
-    autoApprovalMaxConcurrency: 4,
-    autoApprovalTimeoutSeconds: 45,
-    namerConfig: { backend: "claude" },
-    autoNamerEnabled: true,
-    transcriptionConfig: {
-      apiKey: "",
-      baseUrl: "https://api.openai.com/v1",
-      enhancementEnabled: true,
-      enhancementModel: "gpt-5-mini",
-    },
-    editorConfig: { editor: "none" },
-    defaultClaudeBackend: "claude",
-    sleepInhibitorEnabled: false,
-    sleepInhibitorDurationMinutes: 5,
-    questmasterViewMode: "cards",
-    updatedAt: 0,
-  })),
-  updateSettings: vi.fn((patch) => ({
-    serverName: "",
-    serverId: "",
-    pushoverUserKey: patch.pushoverUserKey ?? "",
-    pushoverApiToken: patch.pushoverApiToken ?? "",
-    pushoverDelaySeconds: patch.pushoverDelaySeconds ?? 30,
-    pushoverEnabled: patch.pushoverEnabled ?? true,
-    pushoverEventFilters: patch.pushoverEventFilters ?? { needsInput: true, review: true, error: true },
-    pushoverBaseUrl: patch.pushoverBaseUrl ?? "",
-    claudeBinary: patch.claudeBinary ?? "",
-    codexBinary: patch.codexBinary ?? "",
-    maxKeepAlive: patch.maxKeepAlive ?? 0,
-    heavyRepoModeEnabled: patch.heavyRepoModeEnabled ?? false,
-    autoApprovalEnabled: patch.autoApprovalEnabled ?? false,
-    autoApprovalModel: patch.autoApprovalModel ?? "haiku",
-    autoApprovalMaxConcurrency: patch.autoApprovalMaxConcurrency ?? 4,
-    autoApprovalTimeoutSeconds: patch.autoApprovalTimeoutSeconds ?? 45,
-    namerConfig: patch.namerConfig ?? { backend: "claude" },
-    autoNamerEnabled: patch.autoNamerEnabled ?? true,
-    transcriptionConfig: patch.transcriptionConfig ?? {
-      apiKey: "",
-      baseUrl: "https://api.openai.com/v1",
-      enhancementEnabled: true,
-      enhancementModel: "gpt-5-mini",
-    },
-    editorConfig: patch.editorConfig ?? { editor: "none" },
-    defaultClaudeBackend: patch.defaultClaudeBackend ?? "claude",
-    sleepInhibitorEnabled: patch.sleepInhibitorEnabled ?? false,
-    sleepInhibitorDurationMinutes: patch.sleepInhibitorDurationMinutes ?? 5,
-    questmasterViewMode: patch.questmasterViewMode ?? "cards",
-    updatedAt: Date.now(),
-  })),
-  getServerName: vi.fn(() => ""),
-  setServerName: vi.fn(),
-  getServerId: vi.fn(() => "test-server-id"),
-  getClaudeUserDefaultModel: vi.fn(async () => ""),
-}));
-
-const mockGetUsageLimits = vi.hoisted(() => vi.fn());
-vi.mock("./usage-limits.js", () => ({
-  getUsageLimits: mockGetUsageLimits,
-}));
-
 import { Hono } from "hono";
-import { execSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
-import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
-import { _resetModelCache } from "./routes/system.js";
-import { trafficStats } from "./traffic-stats.js";
-import { _resetServerLoggerForTest, createLogger, initServerLogger } from "./server-logger.js";
-import * as serverLoggerModule from "./server-logger.js";
-import * as envManager from "./env-manager.js";
-import * as gitUtils from "./git-utils.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { registerTakodeBoardRoutes } from "./routes/takode-board.js";
+import type { BoardRow } from "./session-types.js";
 import * as questStore from "./quest-store.js";
-import * as sessionNames from "./session-names.js";
-import * as settingsManager from "./settings-manager.js";
-import * as transcriptionEnhancer from "./transcription-enhancer.js";
-import { containerManager } from "./container-manager.js";
-import { getQuestJourneyProposalSignature, type QuestJourneyPhaseId } from "../shared/quest-journey.js";
 
-// ─── Mock factories ──────────────────────────────────────────────────────────
-
-function createMockLauncher() {
-  return {
-    launch: vi.fn(() => ({
-      sessionId: "session-1",
-      state: "starting",
-      cwd: "/test",
-      createdAt: Date.now(),
-    })),
-    kill: vi.fn(async () => true),
-    isAlive: vi.fn(() => true),
-    relaunch: vi.fn(async () => ({ ok: true })),
-    relaunchWithResumeAt: vi.fn(async () => ({ ok: true })),
-    listSessions: vi.fn(() => []),
-    getSession: vi.fn(),
-    setArchived: vi.fn(),
-    setWorktreeCleanupState: vi.fn(),
-    updateWorktree: vi.fn(),
-    removeSession: vi.fn(),
-    getOrchestratorGuardrails: vi.fn(() => "# Takode — Cross-Session Orchestration\n..."),
-    getPort: vi.fn(() => 3456),
-    verifySessionAuthToken: vi.fn(() => true),
-    herdSessions: vi.fn(() => ({ herded: [], notFound: [], conflicts: [], reassigned: [], leaders: [] })),
-    unherdSession: vi.fn(() => false),
-    getHerdedSessions: vi.fn(() => []),
-    // resolveSessionId: pass-through for exact UUIDs (used by resolveId helper in routes)
-    resolveSessionId: vi.fn((id: string) => id),
-    getSessionNum: vi.fn(() => undefined),
-  } as any;
+interface TestSession {
+  id: string;
+  state: Record<string, unknown>;
+  board: Map<string, BoardRow>;
+  completedBoard: Map<string, BoardRow>;
+  notifications: Array<Record<string, unknown>>;
+  boardDispatchStates: Map<string, Record<string, unknown>>;
+  boardStallStates: Map<string, Record<string, unknown>>;
+  attentionRecords: Array<Record<string, unknown>>;
 }
-
-function createMockBridge() {
-  return {
-    _sessions: {} as Record<string, any>,
-    _vscodeSelectionState: null as any,
-    _vscodeWindows: [] as any[],
-    closeSession: vi.fn(),
-    getSession: vi.fn(function (this: any, sessionId: string) {
-      if (sessionId in this._sessions) return this._sessions[sessionId];
-      const stateEntries = this.getAllSessions();
-      const stateEntry = Array.isArray(stateEntries)
-        ? stateEntries.find((entry: any) => entry?.session_id === sessionId || entry?.sessionId === sessionId)
-        : null;
-      const messageHistory = this.getMessageHistory(sessionId) ?? [];
-      if (!stateEntry && messageHistory.length === 0) {
-        return null;
-      }
-      return {
-        id: sessionId,
-        state: stateEntry?.state ?? stateEntry ?? {},
-        messageHistory,
-        notifications: [],
-        pendingPermissions: new Map(),
-        taskHistory: [],
-        keywords: [],
-        lastReadAt: 0,
-        attentionReason: null,
-        isGenerating: false,
-      };
-    }),
-    getOrCreateSession: vi.fn(),
-    getAllSessions: vi.fn(() => []),
-    refreshWorktreeGitStateForSnapshot: vi.fn(async () => null),
-    getLastUserMessage: vi.fn(() => undefined),
-    isBackendConnected: vi.fn(() => false),
-    markWorktree: vi.fn(),
-    applyInitialSessionState: vi.fn(),
-    setDiffBaseBranch: vi.fn(() => true),
-    refreshGitInfoPublic: vi.fn(async () => true),
-    onSessionArchived: vi.fn(),
-    onSessionUnarchived: vi.fn(),
-    persistSessionById: vi.fn(),
-    broadcastToSession: vi.fn(),
-    broadcastGlobal: vi.fn(),
-    getVsCodeSelectionState: vi.fn(function (this: any) {
-      return this._vscodeSelectionState;
-    }),
-    updateVsCodeSelectionState: vi.fn(function (this: any, state: any) {
-      this._vscodeSelectionState = state;
-      return true;
-    }),
-    getVsCodeWindowStates: vi.fn(function (this: any) {
-      return this._vscodeWindows;
-    }),
-    upsertVsCodeWindowState: vi.fn(function (this: any, state: any) {
-      const next = {
-        ...state,
-        workspaceRoots: [...(state.workspaceRoots ?? [])],
-        lastSeenAt: 9999,
-      };
-      this._vscodeWindows = [...this._vscodeWindows.filter((window: any) => window.sourceId !== state.sourceId), next];
-      return next;
-    }),
-    pollVsCodeOpenFileCommands: vi.fn(() => []),
-    resolveVsCodeOpenFileResult: vi.fn(() => true),
-    requestVsCodeOpenFile: vi.fn(async () => ({ sourceId: "window-a", commandId: "cmd-1" })),
-    addTaskEntry: vi.fn(),
-    updateQuestTaskEntries: vi.fn(),
-    removeBoardRowFromAll: vi.fn(),
-    prepareSessionForRevert: vi.fn(
-      (sessionId: string, truncateIdx: number, options?: { clearCodexState?: boolean }) => {
-        const session = bridge.getOrCreateSession.mock.results.at(-1)?.value;
-        if (!session) return null;
-        session.messageHistory = session.messageHistory.slice(0, truncateIdx);
-        session.frozenCount = Math.min(session.frozenCount ?? 0, session.messageHistory.length);
-        session.assistantAccumulator?.clear?.();
-        session.pendingMessages = [];
-        session.lastOutboundUserNdjson = null;
-        session.userMessageIdsThisTurn = [];
-        session.queuedTurnStarts = 0;
-        session.queuedTurnReasons = [];
-        session.queuedTurnUserMessageIds = [];
-        session.queuedTurnInterruptSources = [];
-        session.interruptedDuringTurn = false;
-        session.interruptSourceDuringTurn = null;
-        session.isGenerating = false;
-        session.generationStartedAt = null;
-        session.disconnectWasGenerating = false;
-        session.seamlessReconnect = false;
-        session.toolStartTimes?.clear?.();
-        session.toolProgressOutput?.clear?.();
-        session.dropReplayHistoryAfterRevert = session.backendType === "claude" || session.backendType === "claude-sdk";
-        session.pendingPermissions?.clear?.();
-        session.eventBuffer = [];
-        session.awaitingCompactSummary = false;
-        session.claudeCompactBoundarySeen = false;
-        session.compactedDuringTurn = false;
-        session.forceCompactPending = false;
-        if (session.state) session.state.is_compacting = false;
-        if (options?.clearCodexState) {
-          session.pendingCodexTurns = [];
-          session.pendingCodexInputs = [];
-          session.pendingCodexRollback = null;
-          session.pendingCodexRollbackError = null;
-          if (session.optimisticRunningTimer) session.optimisticRunningTimer = null;
-          bridge.broadcastToSession(sessionId, { type: "codex_pending_inputs", inputs: [] });
-        }
-        bridge.broadcastToSession(sessionId, { type: "permissions_cleared" });
-        return session;
-      },
-    ),
-    beginCodexRollback: vi.fn(
-      (sessionId: string, plan: { numTurns: number; truncateIdx: number; clearCodexState: boolean }) => {
-        const session = bridge.getOrCreateSession.mock.results.at(-1)?.value;
-        const adapter = session?.codexAdapter;
-        if (adapter?.isConnected?.() && adapter.rollbackTurns) {
-          return {
-            promise: adapter.rollbackTurns(plan.numTurns).then(() => {
-              const reverted = bridge.prepareSessionForRevert(sessionId, plan.truncateIdx, {
-                clearCodexState: plan.clearCodexState,
-              });
-              bridge.persistSessionSync(sessionId);
-              bridge.broadcastToSession(sessionId, { type: "message_history", messages: reverted.messageHistory });
-              bridge.broadcastToSession(sessionId, { type: "status_change", status: "idle" });
-            }),
-            requiresRelaunch: false,
-          };
-        }
-        return { promise: Promise.resolve(), requiresRelaunch: true };
-      },
-    ),
-    persistSessionSync: vi.fn(),
-    getMessageHistory: vi.fn(() => []),
-    getToolResult: vi.fn(() => null),
-    injectUserMessage: vi.fn(() => "sent" as const),
-    emitTakodeEvent: vi.fn(),
-    subscribeTakodeEvents: vi.fn(() => () => {}),
-    routeExternalPermissionResponse: vi.fn(),
-    routeExternalInterrupt: vi.fn(async () => {}),
-    routeBrowserMessage: vi.fn(function (this: any, session: any, msg: any) {
-      if (msg?.type === "permission_response") {
-        return this.routeExternalPermissionResponse(
-          session,
-          {
-            type: "permission_response",
-            request_id: msg.request_id,
-            behavior: msg.behavior,
-            ...(msg.updated_input ? { updated_input: msg.updated_input } : {}),
-            ...(msg.message ? { message: msg.message } : {}),
-          },
-          msg.actorSessionId,
-        );
-      }
-      if (msg?.type === "interrupt") {
-        return this.routeExternalInterrupt(session, msg.interruptSource);
-      }
-      return undefined;
-    }),
-    getTrafficStatsSnapshot: vi.fn(() => ({
-      windowStartedAt: 1000,
-      capturedAt: 2000,
-      totals: { messages: 1, payloadBytes: 10, wireBytes: 10 },
-      buckets: [],
-      sessions: {},
-      historySyncBreakdown: {
-        totals: {
-          requests: 0,
-          frozenDeltaBytes: 0,
-          hotMessagesBytes: 0,
-          frozenDeltaMessages: 0,
-          hotMessagesCount: 0,
-        },
-        sessions: {},
-      },
-      toolResultFetches: {
-        totals: { requests: 0, repeatedRequests: 0, payloadBytes: 0, errorRequests: 0 },
-        sessions: {},
-        topRepeated: [],
-      },
-    })),
-    resetTrafficStats: vi.fn(),
-  } as any;
-}
-
-function ensureBridgeSession(
-  bridge: ReturnType<typeof createMockBridge>,
-  sessionId: string,
-  overrides: Record<string, unknown> = {},
-) {
-  return (bridge._sessions[sessionId] = {
-    id: sessionId,
-    state: {},
-    browserSockets: new Set(),
-    messageHistory: [],
-    notifications: [],
-    pendingPermissions: new Map(),
-    taskHistory: [],
-    keywords: [],
-    lastReadAt: 0,
-    attentionReason: null,
-    isGenerating: false,
-    ...overrides,
-  });
-}
-
-function createMockStore() {
-  return {
-    setArchived: vi.fn(async () => true),
-    flushAll: vi.fn(async () => {}),
-  } as any;
-}
-
-function createMockRecorder() {
-  return {
-    getRecordingsDir: vi.fn(() => "/tmp/companion-recordings"),
-    isGloballyEnabled: vi.fn(() => true),
-    getMaxLines: vi.fn(() => 500000),
-    isRecording: vi.fn(() => true),
-    getRecordingStatus: vi.fn(() => ({ filePath: "/tmp/companion-recordings/session-1.jsonl" })),
-    enableForSession: vi.fn(),
-    disableForSession: vi.fn(),
-    listRecordings: vi.fn(async () => []),
-  } as any;
-}
-
-function createMockTimerManager() {
-  return {
-    createTimer: vi.fn(),
-    listTimers: vi.fn(() => []),
-    cancelTimer: vi.fn(async () => true),
-    cancelAllTimers: vi.fn(async () => {}),
-  } as any;
-}
-
-function createMockTracker() {
-  return {
-    addMapping: vi.fn(),
-    getBySession: vi.fn(() => null),
-    removeBySession: vi.fn(),
-    isWorktreeInUse: vi.fn(() => false),
-  } as any;
-}
-
-// ─── Test setup ──────────────────────────────────────────────────────────────
 
 let app: Hono;
-let launcher: ReturnType<typeof createMockLauncher>;
-let bridge: ReturnType<typeof createMockBridge>;
-let sessionStore: ReturnType<typeof createMockStore>;
-let tracker: ReturnType<typeof createMockTracker>;
-let recorder: ReturnType<typeof createMockRecorder>;
-let timerManager: ReturnType<typeof createMockTimerManager>;
+let session: TestSession;
+let sessions: Map<string, TestSession>;
 
-beforeEach(() => {
-  vi.clearAllMocks();
-  trafficStats.reset();
-  _resetServerLoggerForTest();
-  // Reset the LiteLLM model cache so each test starts clean.
-  _resetModelCache();
-  vi.spyOn(questStore, "getQuest").mockResolvedValue(null);
-  // Stub global fetch to prevent LiteLLM proxy calls in tests.
-  // Model endpoint tests exercise the fallback path (models_cache.json).
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(() => Promise.reject(new Error("no proxy in tests"))),
-  );
-  launcher = createMockLauncher();
-  bridge = createMockBridge();
-  sessionStore = createMockStore();
-  tracker = createMockTracker();
-  recorder = createMockRecorder();
-  timerManager = createMockTimerManager();
-  app = new Hono();
-  const terminalManager = { getInfo: () => null, spawn: () => "", kill: () => {} } as any;
-  app.route(
-    "/api",
-    createRoutes(
-      launcher,
-      bridge,
-      sessionStore,
-      tracker,
-      terminalManager,
-      undefined,
-      recorder,
-      undefined,
-      timerManager,
-    ),
-  );
-
-  // Default no-op mocks for container workspace isolation (called during container session creation)
-  vi.spyOn(containerManager, "copyWorkspaceToContainer").mockResolvedValue(undefined);
-  vi.spyOn(containerManager, "reseedGitAuth").mockImplementation(() => {});
-});
-
-// ─── Sessions ────────────────────────────────────────────────────────────────
-
-// ─── SSE Session Creation Streaming ──────────────────────────────────────────
-/** Parse an SSE response body into an array of {event, data} objects */
-async function parseSSE(res: Response): Promise<{ event: string; data: string }[]> {
-  const text = await res.text();
-  const events: { event: string; data: string }[] = [];
-  // SSE frames are separated by double newlines
-  for (const block of text.split("\n\n")) {
-    const trimmed = block.trim();
-    if (!trimmed) continue;
-    let event = "message";
-    let data = "";
-    for (const line of trimmed.split("\n")) {
-      if (line.startsWith("event:")) event = line.slice(6).trim();
-      else if (line.startsWith("data:")) data = line.slice(5).trim();
-    }
-    if (data) events.push({ event, data });
-  }
-  return events;
+function createSession(id = "leader-1"): TestSession {
+  return {
+    id,
+    state: {},
+    board: new Map(),
+    completedBoard: new Map(),
+    notifications: [],
+    boardDispatchStates: new Map(),
+    boardStallStates: new Map(),
+    attentionRecords: [],
+  };
 }
 
-describe("Takode server-authoritative auth", () => {
-  function authHeaders(sessionId: string, token: string): Record<string, string> {
-    return {
-      "x-companion-session-id": sessionId,
-      "x-companion-auth-token": token,
-      "Content-Type": "application/json",
-    };
-  }
+function getBoardRows(sessionId: string): BoardRow[] {
+  return [...(sessions.get(sessionId)?.board.values() ?? [])];
+}
 
-  function setupTakodeSessions() {
-    const sessions: Record<string, any> = {
-      "orch-1": {
-        sessionId: "orch-1",
-        state: "running",
-        cwd: "/repo",
-        createdAt: Date.now(),
-        isOrchestrator: true,
+function createRouteApp(): Hono {
+  const api = new Hono();
+  registerTakodeBoardRoutes(api, {
+    launcher: {} as any,
+    wsBridge: {
+      getSession: vi.fn((sessionId: string) => sessions.get(sessionId) ?? null),
+      completeDoneBoardRowsForQuest: vi.fn(() => []),
+      findAssignedBoardRowsForWorker: vi.fn(() => []),
+    } as any,
+    authenticateTakodeCaller: vi.fn(() => ({
+      callerId: "leader-1",
+      caller: { sessionId: "leader-1", isOrchestrator: true },
+    })) as any,
+    resolveId: vi.fn((raw: string) => raw),
+    boardWatchdogDeps: {
+      getLauncherSessionInfo: vi.fn((sessionId: string) => ({
+        isOrchestrator: sessionId === "leader-1",
+        lastActivityAt: 0,
+      })),
+      getSession: vi.fn((sessionId: string) => sessions.get(sessionId)),
+      listSessions: vi.fn(() => []),
+      resolveSessionId: vi.fn((ref: string) => (sessions.has(ref) ? ref : undefined)),
+      timerCount: vi.fn(() => 0),
+      backendConnected: vi.fn(() => true),
+      getBoard: vi.fn((sessionId: string) => getBoardRows(sessionId)),
+      emitTakodeEvent: vi.fn(),
+      markNotificationDone: vi.fn(() => true),
+      isSessionIdle: vi.fn(() => true),
+    },
+    workBoardStateDeps: {
+      getBoardDispatchableSignature: vi.fn(() => null),
+      markNotificationDone: vi.fn(() => true),
+      broadcastBoard: vi.fn(),
+      broadcastAttentionRecords: vi.fn(),
+      persistSession: vi.fn(),
+      notifyReview: vi.fn(),
+    },
+    buildBoardRowSessionStatuses: vi.fn(async () => ({})),
+    resolveSessionDeps: vi.fn(() => []),
+  });
+  return api;
+}
+
+function setupTakodeSessions(): void {
+  session = createSession();
+  sessions = new Map([[session.id, session]]);
+  app = createRouteApp();
+}
+
+async function postBoard(body: Record<string, unknown>): Promise<Response> {
+  return app.request("/sessions/leader-1/board", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+async function postRevise(questId: string, body: Record<string, unknown>): Promise<Response> {
+  return app.request(`/sessions/leader-1/board/${questId}/revise`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+describe("Takode board Journey v2 revision route", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(questStore, "getQuest").mockResolvedValue(null);
+    setupTakodeSessions();
+  });
+
+  it("rejects legacy v1 phase IDs in new active and proposed rows", async () => {
+    const active = await postBoard({
+      questId: "q-9",
+      phases: ["alignment", "implement", "code-review"],
+    });
+    expect(active.status).toBe(400);
+    expect(await active.json()).toMatchObject({
+      error: expect.stringContaining("legacy v1 phase IDs are historical-read only"),
+    });
+
+    const proposed = await postBoard({
+      questId: "q-9",
+      status: "PROPOSED",
+      journeyMode: "proposed",
+      phases: ["alignment", "implement", "code-review"],
+      presentation: { summary: "Approve the proposed Journey." },
+    });
+    expect(proposed.status).toBe(400);
+    expect(await proposed.json()).toMatchObject({
+      error: expect.stringContaining("legacy v1 phase IDs are historical-read only"),
+    });
+  });
+
+  it("preserves completed v2 prefix and records revision metadata", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      status: "WORKING",
+      createdAt: 1,
+      updatedAt: 2,
+      journey: {
+        mode: "active",
+        presetId: "v2-work",
+        phaseIds: ["alignment", "work", "memory"],
+        activePhaseIndex: 1,
+        currentPhaseId: "work",
+        phaseNotes: { "1": "Current Work note." },
       },
-      "worker-1": {
-        sessionId: "worker-1",
-        state: "running",
-        cwd: "/repo/w1",
-        createdAt: Date.now(),
-        herdedBy: "orch-1",
-      },
-      "worker-2": {
-        sessionId: "worker-2",
-        state: "running",
-        cwd: "/repo/w2",
-        createdAt: Date.now(),
-      },
-    };
-    launcher.getSession.mockImplementation((id: string) => sessions[id]);
-    launcher.listSessions.mockReturnValue(Object.values(sessions));
-    launcher.resolveSessionId.mockImplementation((id: string) => (sessions[id] ? id : null));
-    launcher.verifySessionAuthToken.mockImplementation(
-      (id: string, token: string) => id === "orch-1" && token === "tok-1",
-    );
-    bridge._sessions = Object.fromEntries(
-      Object.keys(sessions).map((sessionId) => [
-        sessionId,
-        {
-          id: sessionId,
-          state: {},
-          board: new Map(),
-          completedBoard: new Map(),
-          boardDispatchStates: new Map(),
-          messageHistory: [],
-          notifications: [],
-          pendingPermissions: new Map(),
-          taskHistory: [],
-          keywords: [],
-          lastReadAt: 0,
-          attentionReason: null,
-          isGenerating: false,
-        },
-      ]),
-    );
-    bridge.getSession.mockImplementation((sessionId: string) => bridge._sessions[sessionId] ?? null);
-    return sessions;
-  }
-
-  function postBoardRevise(questId: string, body: Record<string, unknown>) {
-    return app.request(`/api/sessions/orch-1/board/${questId}/revise`, {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify(body),
-    });
-  }
-
-  function installHistoricalExploreImplementRow() {
-    bridge._sessions["orch-1"].notifications = [{ id: "n-16", category: "needs-input", done: false }];
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Preserve historical Explore routing",
-          worker: "worker-1",
-          status: "IMPLEMENTING",
-          createdAt: 1,
-          updatedAt: 8,
-          journey: {
-            presetId: "post-explore-implement",
-            mode: "active",
-            phaseIds: ["alignment", "explore", "implement", "code-review", "port", "memory"],
-            activePhaseIndex: 2,
-            currentPhaseId: "implement",
-            phaseTimings: {
-              "0": { startedAt: 1, endedAt: 2 },
-              "1": { startedAt: 3, endedAt: 4 },
-              "2": { startedAt: 5 },
-            },
-            revisionReason: "Explore found a clear repo-local fix with no user choice.",
-            revisedAt: 6,
-            revisionCount: 1,
-          },
-        },
-      ],
-    ]);
-  }
-
-  function installLegacyRepeatedExecuteRow() {
-    bridge._sessions["orch-1"].notifications = [{ id: "n-16", category: "needs-input", done: false }];
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Recover repeated Journey phase",
-          status: "EXECUTING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "execute-loop",
-            mode: "active",
-            phaseIds: ["alignment", "execute", "user-checkpoint", "execute", "user-checkpoint", "explore"],
-            currentPhaseId: "execute",
-          },
-        },
-      ],
-    ]);
-  }
-
-  it("rejects adjacent Explore to Implement in direct board-setting paths", async () => {
-    setupTakodeSessions();
-
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        phases: ["alignment", "explore", "implement", "code-review"],
-        presetId: "invalid-explore",
-      }),
     });
 
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("adjacent `explore -> implement`"),
-    });
-  });
-
-  it("rejects adjacent Explore to Implement when drafting proposed Journey rows", async () => {
-    setupTakodeSessions();
-
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        journeyMode: "proposed",
-        phases: ["alignment", "explore", "implement", "code-review"],
-        presetId: "invalid-proposal",
-      }),
-    });
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("adjacent `explore -> implement`"),
-    });
-  });
-
-  it("allows Explore paths that route through a User Checkpoint before Implement", async () => {
-    setupTakodeSessions();
-
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        phases: ["alignment", "explore", "user-checkpoint", "implement", "code-review"],
-        presetId: "explore-checkpoint",
-        phaseNoteEdits: [{ index: 2, note: "Present findings before implementation." }],
-      }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          journey: {
-            phaseIds: ["alignment", "explore", "user-checkpoint", "implement", "code-review"],
-            phaseNotes: {
-              "2": "Present findings before implementation.",
-            },
-          },
-        },
-      ],
-    });
-  });
-
-  it("allows completed Explore revisions to route directly to Implement", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "EXPLORING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "explore-checkpoint",
-            mode: "active",
-            phaseIds: ["alignment", "explore", "user-checkpoint", "implement", "code-review", "port"],
-            activePhaseIndex: 1,
-            currentPhaseId: "explore",
-            phaseNotes: {
-              "2": "Present findings if Explore reveals a user decision.",
-            },
-          },
-        },
-      ],
-    ]);
-
-    const res = await postBoardRevise("q-9", {
-      fromIndex: 2,
-      expectedPhaseId: "user-checkpoint",
-      phases: ["implement", "code-review", "port"],
-      presetId: "post-explore-implement",
-      revisionReason: "Explore found a clear repo-local fix within existing scope; no user choice is needed.",
-    });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          status: "EXPLORING",
-          journey: {
-            presetId: "post-explore-implement",
-            phaseIds: ["alignment", "explore", "implement", "code-review", "port"],
-            activePhaseIndex: 1,
-            currentPhaseId: "explore",
-            revisionReason: "Explore found a clear repo-local fix within existing scope; no user choice is needed.",
-            revisionCount: 1,
-          },
-        },
-      ],
-    });
-  });
-
-  it("keeps a legally admitted historical Explore to Implement row operable", async () => {
-    setupTakodeSessions();
-    installHistoricalExploreImplementRow();
-
-    // Notes, assignment, wait state, and status updates all share the general board mutation route.
-    // They must not re-litigate an unchanged historical adjacency that ends at the current occurrence.
-    const noteRes = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        phaseNoteEdits: [{ index: 3, note: "Review the focused historical-transition regression." }],
-      }),
-    });
-    expect(noteRes.status).toBe(200);
-
-    const workerRes = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({ questId: "q-9", worker: "worker-2" }),
-    });
-    expect(workerRes.status).toBe(200);
-
-    const waitRes = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({ questId: "q-9", waitForInput: ["n-16"] }),
-    });
-    expect(waitRes.status).toBe(200);
-
-    const statusRes = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({ questId: "q-9", status: "CODE_REVIEWING", activePhaseIndex: 3 }),
-    });
-    expect(statusRes.status).toBe(200);
-    expect(await statusRes.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          worker: "worker-2",
-          status: "CODE_REVIEWING",
-          journey: {
-            phaseIds: ["alignment", "explore", "implement", "code-review", "port", "memory"],
-            activePhaseIndex: 3,
-            currentPhaseId: "code-review",
-            revisionCount: 2,
-            phaseNotes: { "3": "Review the focused historical-transition regression." },
-            phaseTimings: {
-              "0": { startedAt: 1, endedAt: 2 },
-              "1": { startedAt: 3, endedAt: 4 },
-              "2": { startedAt: 5, endedAt: expect.any(Number) },
-              "3": { startedAt: expect.any(Number) },
-            },
-          },
-        },
-      ],
-    });
-
-    const reviseRes = await postBoardRevise("q-9", {
-      fromIndex: 4,
-      expectedPhaseId: "port",
-      phases: ["explore", "user-checkpoint", "implement", "code-review", "port", "memory"],
-      presetId: "fresh-feedback-cycle",
-      phaseNoteEdits: [{ index: 1, note: "Present findings if the repeated Explore reveals a user choice." }],
-    });
-    expect(reviseRes.status).toBe(200);
-    expect(await reviseRes.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          status: "CODE_REVIEWING",
-          journey: {
-            phaseIds: [
-              "alignment",
-              "explore",
-              "implement",
-              "code-review",
-              "explore",
-              "user-checkpoint",
-              "implement",
-              "code-review",
-              "port",
-              "memory",
-            ],
-            activePhaseIndex: 3,
-            currentPhaseId: "code-review",
-            revisionCount: 3,
-            phaseTimings: {
-              "0": { startedAt: 1, endedAt: 2 },
-              "1": { startedAt: 3, endedAt: 4 },
-            },
-          },
-        },
-      ],
-    });
-
-    const repeatedExploreAdvance = await app.request("/api/sessions/orch-1/board/q-9/advance", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-    });
-    expect(repeatedExploreAdvance.status).toBe(200);
-    expect(await repeatedExploreAdvance.json()).toMatchObject({
-      newState: "EXPLORING",
-      board: [
-        {
-          questId: "q-9",
-          journey: { activePhaseIndex: 4, currentPhaseId: "explore", revisionCount: 3 },
-        },
-      ],
-    });
-  });
-
-  it("rejects every mutation before malformed raw occurrences can shift history", async () => {
-    // Exercise both ways filtering could manufacture provenance: an unknown occurrence between
-    // Explore/Implement and one before the pair. Every route must leave the raw row byte-for-byte equivalent.
-    for (const phaseIds of [
-      ["alignment", "explore", "legacy-invalid", "implement", "code-review", "port", "memory"],
-      ["alignment", "legacy-invalid", "explore", "implement", "code-review", "port", "memory"],
-    ]) {
-      setupTakodeSessions();
-      installHistoricalExploreImplementRow();
-      const row = bridge._sessions["orch-1"].board.get("q-9");
-      row.journey.phaseIds = phaseIds;
-      row.journey.activePhaseIndex = 3;
-      row.journey.currentPhaseId = "implement";
-      row.journey.phaseNotes = { "4": "Keep this note on the same raw occurrence." };
-      row.journey.phaseTimings = {
-        "0": { startedAt: 1, endedAt: 2 },
-        "1": { startedAt: 3, endedAt: 4 },
-        "2": { startedAt: 5, endedAt: 6 },
-        "3": { startedAt: 7 },
-      };
-      const snapshot = structuredClone(row);
-
-      const mutations: Array<() => Response | Promise<Response>> = [
-        () =>
-          app.request("/api/sessions/orch-1/board", {
-            method: "POST",
-            headers: authHeaders("orch-1", "tok-1"),
-            body: JSON.stringify({
-              questId: "q-9",
-              phaseNoteEdits: [{ index: 4, note: "Do not apply this note." }],
-            }),
-          }),
-        () =>
-          app.request("/api/sessions/orch-1/board", {
-            method: "POST",
-            headers: authHeaders("orch-1", "tok-1"),
-            body: JSON.stringify({ questId: "q-9", worker: "worker-2" }),
-          }),
-        () =>
-          app.request("/api/sessions/orch-1/board", {
-            method: "POST",
-            headers: authHeaders("orch-1", "tok-1"),
-            body: JSON.stringify({ questId: "q-9", waitForInput: ["n-16"] }),
-          }),
-        () =>
-          app.request("/api/sessions/orch-1/board", {
-            method: "POST",
-            headers: authHeaders("orch-1", "tok-1"),
-            body: JSON.stringify({ questId: "q-9", status: "CODE_REVIEWING", activePhaseIndex: 4 }),
-          }),
-        () =>
-          app.request("/api/sessions/orch-1/board/q-9/advance", {
-            method: "POST",
-            headers: authHeaders("orch-1", "tok-1"),
-          }),
-        () =>
-          postBoardRevise("q-9", {
-            fromIndex: 4,
-            expectedPhaseId: "code-review",
-            phases: ["explore", "user-checkpoint", "implement", "port", "memory"],
-          }),
-      ];
-
-      for (const mutate of mutations) {
-        const res = await mutate();
-        expect(res.status).toBe(409);
-        expect(await res.json()).toMatchObject({ error: expect.stringContaining("repair required") });
-        expect(bridge._sessions["orch-1"].board.get("q-9")).toEqual(snapshot);
-      }
-    }
-  });
-
-  it("accepts position-preserving aliases on a historical row", async () => {
-    // Aliases may canonicalize, but occurrence-indexed notes and timings must remain attached.
-    setupTakodeSessions();
-    installHistoricalExploreImplementRow();
-    const row = bridge._sessions["orch-1"].board.get("q-9");
-    row.journey.phaseIds = ["planning", "explore", "implementation", "skeptic-review", "port", "memory"];
-    row.journey.phaseNotes = { "3": "Review the same canonical occurrence." };
-
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({ questId: "q-9", worker: "worker-2" }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          worker: "worker-2",
-          journey: {
-            phaseIds: ["alignment", "explore", "implement", "code-review", "port", "memory"],
-            activePhaseIndex: 2,
-            phaseNotes: { "3": "Review the same canonical occurrence." },
-            phaseTimings: {
-              "0": { startedAt: 1, endedAt: 2 },
-              "1": { startedAt: 3, endedAt: 4 },
-              "2": { startedAt: 5 },
-            },
-          },
-        },
-      ],
-    });
-  });
-
-  it("rejects a new future repeated Explore to Implement adjacency on a historical row", async () => {
-    // The earlier admitted pair is occurrence-specific; rewriting a later suffix cannot borrow it.
-    setupTakodeSessions();
-    installHistoricalExploreImplementRow();
-    bridge._sessions["orch-1"].board.get("q-9").status = "CODE_REVIEWING";
-    bridge._sessions["orch-1"].board.get("q-9").journey.activePhaseIndex = 3;
-    bridge._sessions["orch-1"].board.get("q-9").journey.currentPhaseId = "code-review";
-
-    const res = await postBoardRevise("q-9", {
-      fromIndex: 4,
-      expectedPhaseId: "port",
-      phases: ["explore", "implement", "port", "memory"],
-      presetId: "invalid-repeated-explore",
-    });
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ error: expect.stringContaining("adjacent `explore -> implement`") });
-  });
-
-  it("preserves stale suffix revision errors on a historical row", async () => {
-    // Historical validation must not mask optimistic-concurrency errors from --expect-phase.
-    setupTakodeSessions();
-    installHistoricalExploreImplementRow();
-    bridge._sessions["orch-1"].board.get("q-9").status = "CODE_REVIEWING";
-    bridge._sessions["orch-1"].board.get("q-9").journey.activePhaseIndex = 3;
-    bridge._sessions["orch-1"].board.get("q-9").journey.currentPhaseId = "code-review";
-
-    const res = await postBoardRevise("q-9", {
-      fromIndex: 4,
-      expectedPhaseId: "memory",
-      phases: ["explore", "user-checkpoint", "implement", "port", "memory"],
-    });
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("Revision expected phase Memory at position 5"),
-    });
-  });
-
-  it("rejects completed Explore revisions that remove an explicitly required immediate User Checkpoint", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "EXPLORING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "explore-checkpoint",
-            mode: "active",
-            phaseIds: ["alignment", "explore", "user-checkpoint", "implement", "code-review", "port"],
-            activePhaseIndex: 1,
-            currentPhaseId: "explore",
-            phaseNotes: {
-              "2": "User explicitly requested this checkpoint before implementation.",
-            },
-          },
-        },
-      ],
-    ]);
-
-    const res = await postBoardRevise("q-9", {
-      fromIndex: 2,
-      expectedPhaseId: "user-checkpoint",
-      phases: ["implement", "code-review", "port"],
-      presetId: "post-explore-implement",
-    });
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("explicitly user-requested or required"),
-    });
-  });
-
-  it("rejects completed Explore revisions that also remove unrelated mandatory User Checkpoints", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "EXPLORING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "explore-checkpoint",
-            mode: "active",
-            phaseIds: ["alignment", "explore", "user-checkpoint", "implement", "user-checkpoint", "port"],
-            activePhaseIndex: 1,
-            currentPhaseId: "explore",
-            phaseNotes: {
-              "2": "Present findings if Explore reveals a user decision.",
-              "4": "Required approval before porting the external artifact.",
-            },
-          },
-        },
-      ],
-    ]);
-
-    const res = await postBoardRevise("q-9", {
-      fromIndex: 2,
-      expectedPhaseId: "user-checkpoint",
-      phases: ["implement", "port"],
-      presetId: "post-explore-implement",
-    });
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("Optional User Checkpoints require"),
-    });
-  });
-
-  it("rejects optional User Checkpoints without a concrete skip-condition note", async () => {
-    setupTakodeSessions();
-
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        phases: ["alignment", "explore", "user-checkpoint", "implement"],
-        presetId: "optional-checkpoint",
-        phaseNoteEdits: [{ index: 2, note: "Optional checkpoint." }],
-      }),
-    });
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("Optional User Checkpoints require"),
-    });
-  });
-
-  it("accepts may-be-skipped optional User Checkpoint notes with a concrete condition", async () => {
-    setupTakodeSessions();
-
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        phases: ["alignment", "explore", "user-checkpoint", "implement"],
-        presetId: "optional-checkpoint",
-        phaseNoteEdits: [
-          { index: 2, note: "This User Checkpoint may be skipped if Explore finds no user-facing tradeoff." },
-        ],
-      }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          journey: {
-            phaseNotes: {
-              "2": "This User Checkpoint may be skipped if Explore finds no user-facing tradeoff.",
-            },
-          },
-        },
-      ],
-    });
-  });
-
-  it("rejects removing an earlier mandatory repeated User Checkpoint while preserving a later one", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "PLANNING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            mode: "active",
-            phaseIds: ["alignment", "user-checkpoint", "implement", "user-checkpoint", "port"],
-            activePhaseIndex: 0,
-            currentPhaseId: "alignment",
-            phaseNotes: {
-              "3": "Optional: skip if the follow-up review finds no user-facing tradeoff.",
-            },
-          },
-        },
-      ],
-    ]);
-
-    const res = await postBoardRevise("q-9", {
-      fromIndex: 1,
-      expectedPhaseId: "user-checkpoint",
-      phases: ["implement", "user-checkpoint", "port"],
-      presetId: "remove-first-checkpoint",
-    });
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("Optional User Checkpoints require"),
-    });
-  });
-
-  it("rejects direct board-setting skips over optional User Checkpoints without a recorded reason", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "EXPLORING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            mode: "active",
-            phaseIds: ["explore", "user-checkpoint", "implement"],
-            activePhaseIndex: 0,
-            currentPhaseId: "explore",
-            phaseNotes: {
-              "1": "This User Checkpoint may be skipped if Explore finds no user-facing tradeoff.",
-            },
-          },
-        },
-      ],
-    ]);
-
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        status: "IMPLEMENTING",
-        activePhaseIndex: 2,
-      }),
-    });
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("without recording"),
-    });
-  });
-
-  it("preserves completed phases and records revision metadata without requiring a reason", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "IMPLEMENTING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "full-code",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
-            activePhaseIndex: 1,
-            currentPhaseId: "implement",
-          },
-        },
-      ],
-    ]);
-
-    const res = await postBoardRevise("q-9", {
-      fromIndex: 2,
-      expectedPhaseId: "code-review",
-      phases: ["outcome-review", "code-review", "port"],
-      presetId: "cli-rollout",
-    });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          status: "IMPLEMENTING",
-          journey: {
-            presetId: "cli-rollout",
-            phaseIds: ["alignment", "implement", "outcome-review", "code-review", "port"],
-            activePhaseIndex: 1,
-            currentPhaseId: "implement",
-            revisionCount: 1,
-          },
-        },
-      ],
-    });
-  });
-
-  it("rejects Journey revision when expected phase does not match the revision point", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "IMPLEMENTING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "full-code",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
-            activePhaseIndex: 1,
-            currentPhaseId: "implement",
-          },
-        },
-      ],
-    ]);
-
-    const res = await postBoardRevise("q-9", {
+    const res = await postRevise("q-9", {
       fromIndex: 2,
       expectedPhaseId: "memory",
-      phases: ["outcome-review", "code-review", "port"],
+      phases: ["user-checkpoint", "work", "memory"],
+      revisionReason: "Work found a required user decision before durable closure.",
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          status: "WORKING",
+          journey: {
+            phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+            activePhaseIndex: 1,
+            currentPhaseId: "work",
+            revisionReason: "Work found a required user decision before durable closure.",
+            revisionCount: 1,
+          },
+        },
+      ],
+    });
+  });
+
+  it("keeps proposed v2 rows revisable before promotion", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      status: "PROPOSED",
+      waitForInput: ["n-3"],
+      createdAt: 1,
+      updatedAt: 2,
+      journey: {
+        mode: "proposed",
+        presetId: "v2-work",
+        phaseIds: ["alignment", "work", "memory"],
+        presentation: { state: "presented", summary: "Approve the draft.", presentedAt: 1, signature: "old" },
+      },
+    });
+
+    const res = await postRevise("q-9", {
+      fromIndex: 0,
+      expectedPhaseId: "alignment",
+      status: "PROPOSED",
+      journeyMode: "proposed",
+      phases: ["alignment", "work", "user-checkpoint", "memory"],
+      phaseNoteEdits: [{ index: 2, note: "Ask before publishing the external artifact." }],
+      presentation: { summary: "Approve the updated draft." },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          status: "PROPOSED",
+          journey: {
+            mode: "proposed",
+            phaseIds: ["alignment", "work", "user-checkpoint", "memory"],
+            phaseNotes: { "2": "Ask before publishing the external artifact." },
+            presentation: { state: "draft" },
+          },
+        },
+      ],
+    });
+  });
+
+  it("rejects optional User Checkpoints without concrete skip conditions", async () => {
+    const res = await postBoard({
+      questId: "q-9",
+      phases: ["alignment", "work", "user-checkpoint", "memory"],
+      phaseNoteEdits: [{ index: 2, note: "Optional checkpoint." }],
     });
 
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("expected phase Memory at position 3"),
+      error: expect.stringContaining("Optional User Checkpoints require"),
     });
   });
 
-  it("rejects Journey revision from the active current phase", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "IMPLEMENTING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "full-code",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
-            activePhaseIndex: 1,
-            currentPhaseId: "implement",
-          },
-        },
-      ],
-    ]);
+  it("rejects attempts to mutate completed v2 phase occurrences", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      status: "WORKING",
+      createdAt: 1,
+      updatedAt: 2,
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "work", "memory"],
+        activePhaseIndex: 1,
+        currentPhaseId: "work",
+      },
+    });
 
-    const res = await postBoardRevise("q-9", {
+    const res = await postRevise("q-9", {
       fromIndex: 1,
-      expectedPhaseId: "implement",
-      phases: ["outcome-review", "code-review", "port"],
+      expectedPhaseId: "work",
+      phases: ["user-checkpoint", "work", "memory"],
     });
 
     expect(res.status).toBe(400);
@@ -1357,570 +251,28 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
-  it("rejects set --phases against an existing Journey row", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "IMPLEMENTING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "full-code",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
-            activePhaseIndex: 1,
-            currentPhaseId: "implement",
-          },
-        },
-      ],
-    ]);
-
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        phases: ["alignment", "implement", "outcome-review", "port"],
-      }),
+  it("requires activePhaseIndex when repeated Work occurrence is ambiguous", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      status: "WORKING",
+      createdAt: 1,
+      updatedAt: 2,
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+        currentPhaseId: "work",
+      },
     });
 
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("Use takode board revise"),
-    });
-  });
-
-  it("rejects revisions that mutate completed phase occurrences", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "CODE_REVIEWING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "full-code",
-            mode: "active",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
-            activePhaseIndex: 2,
-            currentPhaseId: "code-review",
-          },
-        },
-      ],
-    ]);
-
-    const res = await postBoardRevise("q-9", {
-      fromIndex: 0,
-      expectedPhaseId: "alignment",
-      phases: ["implement", "code-review", "port"],
-      presetId: "rewritten-history",
-    });
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("Completed Journey phase occurrences cannot be revised in place"),
-    });
-  });
-
-  it("rejects phase note edits against completed phase occurrences", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "CODE_REVIEWING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "full-code",
-            mode: "active",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
-            activePhaseIndex: 2,
-            currentPhaseId: "code-review",
-          },
-        },
-      ],
-    ]);
-
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        phaseNoteEdits: [{ index: 1, note: "Rewrite completed implementation notes" }],
-      }),
-    });
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("Completed Journey phase notes cannot be revised in place"),
-    });
-  });
-
-  it("rejects active boundary changes into the completed prefix", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "CODE_REVIEWING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "full-code",
-            mode: "active",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
-            activePhaseIndex: 2,
-            currentPhaseId: "code-review",
-          },
-        },
-      ],
-    ]);
-
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        status: "IMPLEMENTING",
-        activePhaseIndex: 1,
-      }),
-    });
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("completed phase position"),
-    });
-  });
-
-  it("fails closed when a legacy active row has an ambiguous completed boundary", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "IMPLEMENTING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "legacy-rework-loop",
-            mode: "active",
-            phaseIds: ["alignment", "implement", "code-review", "implement", "port"],
-            currentPhaseId: "implement",
-          },
-        },
-      ],
-    ]);
-
-    const res = await postBoardRevise("q-9", {
-      fromIndex: 4,
-      expectedPhaseId: "port",
-      phases: ["mental-simulation", "port"],
-      presetId: "legacy-rework-loop",
+    const res = await postRevise("q-9", {
+      fromIndex: 2,
+      expectedPhaseId: "user-checkpoint",
+      phases: ["alignment", "work", "user-checkpoint", "work", "memory"],
     });
 
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({
       error: expect.stringContaining("completed phase boundary cannot be inferred"),
-    });
-  });
-
-  it("repairs a legacy repeated active row by pinning the active phase occurrence", async () => {
-    setupTakodeSessions();
-    installLegacyRepeatedExecuteRow();
-
-    // Legacy rows may know only the repeated current phase ID; this verifies the explicit
-    // occurrence pin used by `takode board set --active-phase-position 4`.
-    const pinRes = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        activePhaseIndex: 3,
-      }),
-    });
-
-    expect(pinRes.status).toBe(200);
-    expect(await pinRes.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          status: "EXECUTING",
-          journey: {
-            activePhaseIndex: 3,
-            currentPhaseId: "execute",
-          },
-        },
-      ],
-    });
-
-    // After the row is pinned, future phase notes, normal advance, and another explicit
-    // active-boundary move should no longer require removing and recreating the board row.
-    const noteRes = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        phaseNoteEdits: [{ index: 4, note: "Checkpoint before the follow-up diagnosis." }],
-      }),
-    });
-    expect(noteRes.status).toBe(200);
-
-    const advanceRes = await app.request("/api/sessions/orch-1/board/q-9/advance", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-    });
-    expect(advanceRes.status).toBe(200);
-    expect(await advanceRes.json()).toMatchObject({
-      previousState: "EXECUTING",
-      newState: "USER_CHECKPOINTING",
-      board: [
-        {
-          questId: "q-9",
-          status: "USER_CHECKPOINTING",
-          journey: {
-            activePhaseIndex: 4,
-            currentPhaseId: "user-checkpoint",
-            phaseNotes: {
-              "4": "Checkpoint before the follow-up diagnosis.",
-            },
-          },
-        },
-      ],
-    });
-
-    const moveRes = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        status: "EXPLORING",
-        activePhaseIndex: 5,
-        waitForInput: ["n-16"],
-      }),
-    });
-
-    expect(moveRes.status).toBe(200);
-    expect(await moveRes.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          status: "EXPLORING",
-          waitForInput: ["n-16"],
-          journey: {
-            activePhaseIndex: 5,
-            currentPhaseId: "explore",
-          },
-        },
-      ],
-    });
-  });
-
-  it("allows an explicit move from a legacy repeated phase to the next active occurrence", async () => {
-    setupTakodeSessions();
-    installLegacyRepeatedExecuteRow();
-
-    // This is the one-step recovery shape used when the leader already knows the
-    // newly active occurrence after a repeated phase.
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        status: "USER_CHECKPOINTING",
-        activePhaseIndex: 4,
-        waitForInput: ["n-16"],
-      }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          status: "USER_CHECKPOINTING",
-          waitForInput: ["n-16"],
-          journey: {
-            activePhaseIndex: 4,
-            currentPhaseId: "user-checkpoint",
-          },
-        },
-      ],
-    });
-  });
-
-  it.each([
-    [
-      "delete completed occurrences",
-      {
-        phases: ["code-review", "port"],
-        presetId: "delete-history",
-      },
-    ],
-    [
-      "reorder completed occurrences",
-      {
-        phases: ["implement", "alignment", "code-review", "port"],
-        presetId: "reorder-history",
-      },
-    ],
-    [
-      "renote completed occurrences",
-      {
-        phases: ["alignment", "implement", "code-review", "port"],
-        presetId: "renote-history",
-        phaseNoteEdits: [{ index: 1, note: "Rewrite already-executed implementation phase" }],
-      },
-    ],
-    [
-      "convert an active Journey back to draft state",
-      {
-        phases: ["alignment", "implement", "code-review", "port"],
-        presetId: "draft-history",
-      },
-    ],
-  ])("rejects active-to-proposed Journey rewrites that %s", async (_label, proposalPatch) => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "CODE_REVIEWING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "full-code",
-            mode: "active",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
-            activePhaseIndex: 2,
-            currentPhaseId: "code-review",
-            phaseNotes: {
-              "1": "Existing implementation note",
-            },
-          },
-        },
-      ],
-    ]);
-
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        journeyMode: "proposed",
-        status: "PROPOSED",
-        ...proposalPatch,
-      }),
-    });
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("Active Journey rows cannot be converted back to proposed drafts"),
-    });
-    expect(bridge._sessions["orch-1"].board.get("q-9")).toMatchObject({
-      status: "CODE_REVIEWING",
-      journey: {
-        mode: "active",
-        phaseIds: ["alignment", "implement", "code-review", "port"],
-        activePhaseIndex: 2,
-        phaseNotes: {
-          "1": "Existing implementation note",
-        },
-      },
-    });
-  });
-
-  it("keeps existing proposed rows revisable through board revise before execution", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "PROPOSED",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "draft",
-            mode: "proposed",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
-            phaseNotes: {
-              "1": "Old draft implementation note",
-            },
-          },
-        },
-      ],
-    ]);
-
-    const res = await postBoardRevise("q-9", {
-      fromIndex: 0,
-      expectedPhaseId: "alignment",
-      phases: ["alignment", "explore", "user-checkpoint", "implement", "port"],
-      presetId: "revised-draft",
-      phaseNoteEdits: [
-        { index: 1, note: "Explore the draft before implementation" },
-        { index: 2, note: "Present findings before implementation." },
-      ],
-    });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          status: "PROPOSED",
-          journey: {
-            mode: "proposed",
-            phaseIds: ["alignment", "explore", "user-checkpoint", "implement", "port"],
-            phaseNotes: {
-              "1": "Explore the draft before implementation",
-              "2": "Present findings before implementation.",
-            },
-          },
-        },
-      ],
-    });
-  });
-  it("preserves repeated active phase occurrences by index when revising a Journey", async () => {
-    setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          status: "IMPLEMENTING",
-          createdAt: 1,
-          updatedAt: 1,
-          journey: {
-            presetId: "rework-loop",
-            mode: "active",
-            phaseIds: ["alignment", "implement", "code-review", "implement", "code-review", "port"],
-            activePhaseIndex: 3,
-            currentPhaseId: "implement",
-          },
-        },
-      ],
-    ]);
-
-    const res = await postBoardRevise("q-9", {
-      fromIndex: 4,
-      expectedPhaseId: "code-review",
-      phases: ["code-review", "mental-simulation", "port"],
-      presetId: "rework-loop",
-    });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          status: "IMPLEMENTING",
-          journey: {
-            activePhaseIndex: 3,
-            currentPhaseId: "implement",
-            phaseIds: [
-              "alignment",
-              "implement",
-              "code-review",
-              "implement",
-              "code-review",
-              "mental-simulation",
-              "port",
-            ],
-          },
-        },
-      ],
-    });
-  });
-
-  it("accepts an explicit active phase index for repeated active phases", async () => {
-    setupTakodeSessions();
-
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        status: "MENTAL_SIMULATING",
-        activePhaseIndex: 4,
-        phases: [
-          "alignment",
-          "implement",
-          "mental-simulation",
-          "implement",
-          "mental-simulation",
-          "code-review",
-          "port",
-        ],
-        presetId: "simulation-loop",
-      }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      board: [
-        {
-          questId: "q-9",
-          status: "MENTAL_SIMULATING",
-          journey: {
-            activePhaseIndex: 4,
-            currentPhaseId: "mental-simulation",
-            phaseIds: [
-              "alignment",
-              "implement",
-              "mental-simulation",
-              "implement",
-              "mental-simulation",
-              "code-review",
-              "port",
-            ],
-          },
-        },
-      ],
-    });
-  });
-
-  it("rejects repeated active statuses without an explicit active phase index", async () => {
-    setupTakodeSessions();
-
-    const res = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        status: "MENTAL_SIMULATING",
-        phases: [
-          "alignment",
-          "implement",
-          "mental-simulation",
-          "implement",
-          "mental-simulation",
-          "code-review",
-          "port",
-        ],
-        presetId: "simulation-loop",
-      }),
-    });
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("active occurrence is ambiguous"),
     });
   });
 });

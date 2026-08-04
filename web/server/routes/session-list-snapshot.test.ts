@@ -383,10 +383,10 @@ describe("buildEnrichedSessionsSnapshot", () => {
           {
             questId: "q-1",
             title: "Implement metadata hydration",
-            status: "IMPLEMENTING",
+            status: "WORKING",
             createdAt: 1,
             updatedAt: 10,
-            journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
+            journey: { mode: "active", phaseIds: ["alignment", "work", "memory"], currentPhaseId: "work" },
           },
         ],
         [
@@ -397,7 +397,7 @@ describe("buildEnrichedSessionsSnapshot", () => {
             status: "QUEUED",
             createdAt: 2,
             updatedAt: 20,
-            journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "alignment" },
+            journey: { mode: "active", phaseIds: ["alignment", "work", "memory"], currentPhaseId: "alignment" },
           },
         ],
       ]),
@@ -410,7 +410,7 @@ describe("buildEnrichedSessionsSnapshot", () => {
         {
           questId: "q-1",
           title: "Implement metadata hydration",
-          status: "IMPLEMENTING",
+          status: "WORKING",
         },
         {
           questId: "q-2",
@@ -419,7 +419,7 @@ describe("buildEnrichedSessionsSnapshot", () => {
         },
       ],
       leaderActivePhaseSummary: [
-        { label: "Implement", count: 1, tone: "phase" },
+        { label: "Work", count: 1, tone: "phase" },
         { label: "Queued", count: 1, tone: "status" },
       ],
     });

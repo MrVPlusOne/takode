@@ -132,7 +132,10 @@ describe("takode watch deprecation", () => {
   });
 
   it.each([
-    [["board", "--help"], "Usage: takode board [show|detail|set|revise|propose|promote|note|advance|rm] ..."],
+    [
+      ["board", "--help"],
+      "Usage: takode board [show|detail|set|revise|propose|promote|note|work-to-memory|advance|rm] ...",
+    ],
     [["board", "set", "--help"], "Usage: takode board set <quest-id>"],
     [["board", "advance", "--help"], "Usage: takode board advance <quest-id>"],
     [["board", "advance-no-groom", "--help"], "`takode board advance-no-groom` was removed."],
@@ -173,8 +176,7 @@ describe("takode watch deprecation", () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("was removed");
-    expect(result.stdout).toContain("omits `port`");
-    expect(result.stdout).toContain("still ends in `memory`");
+    expect(result.stdout).toContain("Alignment -> Work -> Memory");
   });
 
   it("keeps unknown commands with --help as an error", async () => {

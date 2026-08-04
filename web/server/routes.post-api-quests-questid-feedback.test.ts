@@ -1138,17 +1138,16 @@ describe("POST /api/quests/:questId/feedback", () => {
             questId: "q-1",
             worker: "worker-1",
             workerNum: 12,
-            status: "IMPLEMENTING",
+            status: "WORKING",
             createdAt: 10,
             updatedAt: 20,
             journey: {
-              phaseIds: ["alignment", "explore", "implement", "code-review"],
-              activePhaseIndex: 2,
-              currentPhaseId: "implement",
+              phaseIds: ["alignment", "work", "memory"],
+              activePhaseIndex: 1,
+              currentPhaseId: "work",
               phaseTimings: {
-                "0": { startedAt: 100, endedAt: 200 },
-                "1": { startedAt: 200, endedAt: 500 },
-                "2": { startedAt: 500 },
+                "0": { startedAt: 100, endedAt: 500 },
+                "1": { startedAt: 500 },
               },
             },
           },
@@ -1208,15 +1207,18 @@ describe("POST /api/quests/:questId/feedback", () => {
     };
     expect(patch.feedback[0]).toMatchObject({
       kind: "phase_summary",
-      phaseId: "implement",
-      phasePosition: 3,
+      phaseId: "work",
+      phasePosition: 2,
       tldr: "Implemented phase docs",
     });
     expect(patch.journeyRuns?.[0]?.runId).toBe("board-leader-1-10");
-    expect(patch.journeyRuns?.[0]?.phaseOccurrences[2]?.occurrenceId).toBe("board-leader-1-10:p3");
-    expect(patch.journeyRuns?.[0]?.phaseOccurrences[0]).toMatchObject({ startedAt: 100, completedAt: 200 });
-    expect(patch.journeyRuns?.[0]?.phaseOccurrences[1]).toMatchObject({ startedAt: 200, completedAt: 500 });
-    expect(patch.journeyRuns?.[0]?.phaseOccurrences[2]).toMatchObject({ startedAt: 500 });
+    expect(patch.journeyRuns?.[0]?.phaseOccurrences[1]?.occurrenceId).toBe("board-leader-1-10:p2");
+    expect(patch.journeyRuns?.[0]?.phaseOccurrences[0]).toMatchObject({ startedAt: 100, completedAt: 500 });
+    expect(patch.journeyRuns?.[0]?.phaseOccurrences[1]).toMatchObject({ startedAt: 500 });
+    expect(patch.journeyRuns?.[0]?.phaseOccurrences[2]).toMatchObject({
+      phaseId: "memory",
+      status: "pending",
+    });
     expect(patch.journeyRuns?.[0]?.phaseOccurrences[2]?.completedAt).toBeUndefined();
   });
 
