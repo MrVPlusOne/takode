@@ -159,7 +159,7 @@ export function PlaygroundQuestStatusPanelDemo({ variant }: { variant: "claimed"
           waitForInput: ["n-17"],
           updatedAt: Date.now() - 60000,
           journey: {
-            phaseIds: ["alignment", "explore", "mental-simulation", "implement", "code-review", "port"],
+            phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
             mode: "proposed",
           },
         },

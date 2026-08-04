@@ -127,7 +127,7 @@ describe("BoardTable", () => {
       {
         questId: "q-335",
         title: "Show completed time",
-        status: "PORTING",
+        status: "MEMORY",
         waitFor: ["q-999"],
         updatedAt: completedAt,
         completedAt,
@@ -205,13 +205,13 @@ describe("BoardTable", () => {
     const board: BoardRowData[] = [
       {
         questId: "q-1",
-        status: "IMPLEMENTING",
+        status: "WORKING",
         journey: {
-          presetId: "full-code",
-          phaseIds: ["alignment", "implement", "code-review", "port"],
-          currentPhaseId: "implement",
-          phaseNotes: { "2": "Inspect only the follow-up diff" },
-          revisionReason: "Need code review before port",
+          presetId: "v2-work",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "work",
+          phaseNotes: { "1": "Inspect only the follow-up diff" },
+          revisionReason: "Need a checkpoint before Memory",
         },
         updatedAt: 1,
       },
@@ -221,8 +221,8 @@ describe("BoardTable", () => {
 
     const summary = screen.getByTestId("quest-journey-compact-summary");
     expect(summary).toHaveAttribute("data-journey-mode", "active");
-    expect(within(summary).getByText("Implement")).toBeInTheDocument();
-    expect(within(summary).getByText("2/4")).toBeInTheDocument();
+    expect(within(summary).getByText("Work")).toBeInTheDocument();
+    expect(within(summary).getByText("2/3")).toBeInTheDocument();
     expect(within(summary).getByText("1 note")).toBeInTheDocument();
     expect(summary).not.toHaveAttribute("title");
     expect(screen.queryByText("Alignment")).not.toBeInTheDocument();
@@ -233,20 +233,12 @@ describe("BoardTable", () => {
     const board: BoardRowData[] = [
       {
         questId: "q-720",
-        status: "MENTAL_SIMULATING",
+        status: "USER_CHECKPOINTING",
         journey: {
-          presetId: "simulation-loop",
-          phaseIds: [
-            "alignment",
-            "implement",
-            "mental-simulation",
-            "implement",
-            "mental-simulation",
-            "code-review",
-            "port",
-          ],
+          presetId: "checkpoint-loop",
+          phaseIds: ["alignment", "work", "user-checkpoint", "work", "user-checkpoint", "work", "memory"],
           activePhaseIndex: 4,
-          currentPhaseId: "mental-simulation",
+          currentPhaseId: "user-checkpoint",
         },
         updatedAt: 1,
       },
@@ -255,7 +247,7 @@ describe("BoardTable", () => {
     render(<BoardTable board={board} />);
 
     const summary = screen.getByTestId("quest-journey-compact-summary");
-    expect(within(summary).getByText("Mental Simulation")).toBeInTheDocument();
+    expect(within(summary).getByText("User Checkpoint")).toBeInTheDocument();
     expect(within(summary).getByText("5/7")).toBeInTheDocument();
   });
 
@@ -266,10 +258,10 @@ describe("BoardTable", () => {
         status: "PROPOSED",
         journey: {
           mode: "proposed",
-          presetId: "full-code",
-          phaseIds: ["alignment", "implement", "code-review", "port"],
+          presetId: "v2-work",
+          phaseIds: ["alignment", "work", "memory"],
           activePhaseIndex: 1,
-          currentPhaseId: "implement",
+          currentPhaseId: "work",
         },
         updatedAt: 1,
       },
@@ -281,9 +273,9 @@ describe("BoardTable", () => {
     expect(summary).toHaveAttribute("data-journey-mode", "proposed");
     expect(within(summary).getByText("Proposed")).toBeInTheDocument();
     expect(within(summary).getByTestId("quest-journey-compact-sequence")).toHaveTextContent(
-      "Alignment -> Implement -> Code Review -> Port",
+      "Alignment -> Work -> Memory",
     );
-    expect(within(summary).getByText("4 phases")).toBeInTheDocument();
+    expect(within(summary).getByText("3 phases")).toBeInTheDocument();
   });
 
   it("shows the full Journey preview on Work Board Journey hover", async () => {
@@ -304,8 +296,8 @@ describe("BoardTable", () => {
         status: "PROPOSED",
         journey: {
           mode: "proposed",
-          presetId: "full-code",
-          phaseIds: ["alignment", "implement", "code-review"],
+          presetId: "v2-work",
+          phaseIds: ["alignment", "work", "memory"],
           phaseNotes: {
             "0": "",
             "1": "Build the compact preview UI",
@@ -322,8 +314,8 @@ describe("BoardTable", () => {
     expect(within(card).getByText("q-924")).toBeInTheDocument();
     expect(within(card).getByText("Make Journey UI useful")).toBeInTheDocument();
     expect(within(card).getByText("Alignment")).toBeInTheDocument();
-    expect(within(card).getByText("Implement")).toBeInTheDocument();
-    expect(within(card).getByText("Code Review")).toBeInTheDocument();
+    expect(within(card).getByText("Work")).toBeInTheDocument();
+    expect(within(card).getByText("Memory")).toBeInTheDocument();
     expect(within(card).getByText("Build the compact preview UI")).toHaveAttribute("data-purpose-kind", "authored");
     expect(within(card).getByText("Build the compact preview UI")).toHaveClass("ml-[1.375rem]");
     expect(within(card).queryByText(/Do a lightweight read-in/)).not.toBeInTheDocument();
@@ -348,12 +340,12 @@ describe("BoardTable", () => {
       {
         questId: "q-1016",
         title: "Fallback title",
-        status: "IMPLEMENTING",
+        status: "WORKING",
         journey: {
           mode: "active",
-          phaseIds: ["alignment", "implement", "code-review"],
+          phaseIds: ["alignment", "work", "memory"],
           activePhaseIndex: 1,
-          currentPhaseId: "implement",
+          currentPhaseId: "work",
           phaseTimings: {
             "0": { startedAt: 1_000, endedAt: 61_000 },
             "1": { startedAt: 61_000, endedAt: 181_000 },
@@ -390,12 +382,12 @@ describe("BoardTable", () => {
       {
         questId: "q-953",
         title: "Use noninteractive Git editors",
-        status: "PORTING",
+        status: "MEMORY",
         journey: {
           mode: "active",
-          presetId: "full-code",
-          phaseIds: ["alignment", "implement", "code-review", "port"],
-          currentPhaseId: "port",
+          presetId: "v2-work",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "memory",
         },
         updatedAt: 2,
         completedAt: 3,
@@ -583,7 +575,7 @@ describe("BoardTable", () => {
     const board: BoardRowData[] = [
       {
         questId: "q-1",
-        status: "IMPLEMENTING",
+        status: "WORKING",
         waitForInput: ["n-3", "n-8"],
         waitFor: ["q-2"],
         updatedAt: 1,
@@ -599,9 +591,9 @@ describe("BoardTable", () => {
 
   it("orders active rows by journey status priority first", () => {
     const ordered = orderBoardRows([
-      { questId: "q-1", status: "PORTING", updatedAt: 1 },
+      { questId: "q-1", status: "MEMORY", updatedAt: 1 },
       { questId: "q-2", status: "QUEUED", updatedAt: 2 },
-      { questId: "q-3", status: "IMPLEMENTING", updatedAt: 3 },
+      { questId: "q-3", status: "WORKING", updatedAt: 3 },
     ]);
 
     expect(ordered.map((row) => row.questId)).toEqual(["q-1", "q-3", "q-2"]);
@@ -609,9 +601,9 @@ describe("BoardTable", () => {
 
   it("orders rows by recency within the same status when there are no dependencies", () => {
     const ordered = orderBoardRows([
-      { questId: "q-1", status: "IMPLEMENTING", updatedAt: 1_000 },
-      { questId: "q-2", status: "IMPLEMENTING", updatedAt: 5_000 },
-      { questId: "q-3", status: "IMPLEMENTING", updatedAt: 3_000 },
+      { questId: "q-1", status: "WORKING", updatedAt: 1_000 },
+      { questId: "q-2", status: "WORKING", updatedAt: 5_000 },
+      { questId: "q-3", status: "WORKING", updatedAt: 3_000 },
     ]);
 
     expect(ordered.map((row) => row.questId)).toEqual(["q-2", "q-3", "q-1"]);

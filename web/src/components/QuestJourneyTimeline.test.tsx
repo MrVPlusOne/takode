@@ -4,16 +4,7 @@ import "@testing-library/jest-dom";
 import type { QuestJourneyPhaseId, QuestJourneyPlanState } from "../../shared/quest-journey.js";
 import { QuestJourneyPreviewCard, QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 
-const PHASE_CYCLE: QuestJourneyPhaseId[] = [
-  "alignment",
-  "explore",
-  "implement",
-  "code-review",
-  "user-checkpoint",
-  "port",
-  "execute",
-  "outcome-review",
-];
+const PHASE_CYCLE: QuestJourneyPhaseId[] = ["alignment", "work", "user-checkpoint", "work", "memory"];
 
 function longJourney(overrides: Partial<QuestJourneyPlanState> = {}): QuestJourneyPlanState {
   const phaseIds = Array.from({ length: 38 }, (_, index) => PHASE_CYCLE[index % PHASE_CYCLE.length]);
@@ -35,58 +26,60 @@ function visiblePhaseIndexes(container: HTMLElement): number[] {
 describe("QuestJourneyTimeline vertical clamping", () => {
   it("clamps long active vertical Journeys around the current phase and expands omitted blocks inline", () => {
     const journey = longJourney({
+      currentPhaseId: longJourney().phaseIds[22],
+      activePhaseIndex: 22,
       phaseNotes: {
-        "14": "Hidden earlier boundary note",
-        "15": "Visible earlier boundary note",
-        "30": "Visible later boundary note",
-        "31": "Hidden later boundary note",
+        "16": "Hidden earlier boundary note",
+        "17": "Visible earlier boundary note",
+        "32": "Visible later boundary note",
+        "33": "Hidden later boundary note",
       },
       phaseTimings: {
-        "15": { startedAt: 1_000, endedAt: 61_000 },
+        "17": { startedAt: 1_000, endedAt: 61_000 },
       },
     });
 
     render(<QuestJourneyTimeline journey={journey} status="USER_CHECKPOINTING" variant="vertical" />);
 
     const timeline = screen.getByTestId("quest-journey-timeline");
-    expect(visiblePhaseIndexes(timeline)).toEqual(Array.from({ length: 16 }, (_, index) => index + 15));
-    expect(timeline.querySelector('li[data-phase-index="20"]')).toHaveAttribute("data-phase-current", "true");
+    expect(visiblePhaseIndexes(timeline)).toEqual(Array.from({ length: 16 }, (_, index) => index + 17));
+    expect(timeline.querySelector('li[data-phase-index="22"]')).toHaveAttribute("data-phase-current", "true");
     expect(timeline).toHaveTextContent("38 phases · Partial 1m");
     expect(within(timeline).getByTestId("quest-journey-phase-duration")).toHaveTextContent("1m");
     expect(within(timeline).queryByText("duration unavailable")).toBeNull();
-    expect(within(timeline).getByRole("button", { name: "Show 15 earlier phases" })).toBeInTheDocument();
-    expect(within(timeline).getByRole("button", { name: "Show 7 later phases" })).toBeInTheDocument();
+    expect(within(timeline).getByRole("button", { name: "Show 17 earlier phases" })).toBeInTheDocument();
+    expect(within(timeline).getByRole("button", { name: "Show 5 later phases" })).toBeInTheDocument();
     expect(within(timeline).queryByText("Hidden earlier boundary note")).toBeNull();
     expect(within(timeline).getByText("Visible earlier boundary note")).toBeInTheDocument();
     expect(within(timeline).getByText("Visible later boundary note")).toBeInTheDocument();
     expect(within(timeline).queryByText("Hidden later boundary note")).toBeNull();
 
-    fireEvent.click(within(timeline).getByRole("button", { name: "Show 15 earlier phases" }));
+    fireEvent.click(within(timeline).getByRole("button", { name: "Show 17 earlier phases" }));
     expect(visiblePhaseIndexes(timeline).slice(0, 16)).toEqual(Array.from({ length: 16 }, (_, index) => index));
-    expect(within(timeline).getByRole("button", { name: "Hide 15 earlier phases" })).toBeInTheDocument();
+    expect(within(timeline).getByRole("button", { name: "Hide 17 earlier phases" })).toBeInTheDocument();
     expect(within(timeline).getByText("Hidden earlier boundary note")).toBeInTheDocument();
 
-    fireEvent.click(within(timeline).getByRole("button", { name: "Show 7 later phases" }));
-    expect(visiblePhaseIndexes(timeline).slice(-7)).toEqual([31, 32, 33, 34, 35, 36, 37]);
-    expect(within(timeline).getByRole("button", { name: "Hide 7 later phases" })).toBeInTheDocument();
+    fireEvent.click(within(timeline).getByRole("button", { name: "Show 5 later phases" }));
+    expect(visiblePhaseIndexes(timeline).slice(-5)).toEqual([33, 34, 35, 36, 37]);
+    expect(within(timeline).getByRole("button", { name: "Hide 5 later phases" })).toBeInTheDocument();
     expect(within(timeline).getByText("Hidden later boundary note")).toBeInTheDocument();
   });
 
   it("clamps prior phases even when the whole Journey fits the nominal visible row limit", () => {
     const phaseIds: QuestJourneyPhaseId[] = [
       "alignment",
-      "implement",
-      "code-review",
-      "execute",
-      "implement",
-      "code-review",
-      "execute",
-      "implement",
-      "code-review",
-      "execute",
-      "implement",
-      "code-review",
-      "execute",
+      "work",
+      "user-checkpoint",
+      "work",
+      "user-checkpoint",
+      "work",
+      "user-checkpoint",
+      "work",
+      "user-checkpoint",
+      "work",
+      "user-checkpoint",
+      "work",
+      "memory",
     ];
 
     render(
@@ -94,14 +87,14 @@ describe("QuestJourneyTimeline vertical clamping", () => {
         journey={{
           mode: "active",
           phaseIds,
-          currentPhaseId: "code-review",
+          currentPhaseId: "work",
           activePhaseIndex: 11,
           phaseNotes: {
             "5": "Sixth previous phase should be hidden by default.",
             "6": "First visible previous phase.",
           },
         }}
-        status="CODE_REVIEWING"
+        status="WORKING"
         variant="vertical"
       />,
     );
@@ -124,7 +117,7 @@ describe("QuestJourneyTimeline vertical clamping", () => {
     render(
       <QuestJourneyTimeline
         journey={{ mode: "active", phaseIds, currentPhaseId: phaseIds[2], activePhaseIndex: 2 }}
-        status="IMPLEMENTING"
+        status="USER_CHECKPOINTING"
         variant="vertical"
       />,
     );
@@ -152,15 +145,15 @@ describe("QuestJourneyTimeline vertical clamping", () => {
       <QuestJourneyPreviewCard
         journey={{
           mode: "active",
-          phaseIds: ["alignment", "implement", "code-review", "port"],
-          currentPhaseId: "implement",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "work",
         }}
-        status="IMPLEMENTING"
+        status="WORKING"
       />,
     );
 
     const preview = screen.getByTestId("quest-journey-preview-card");
-    expect(visiblePhaseIndexes(preview)).toEqual([0, 1, 2, 3]);
+    expect(visiblePhaseIndexes(preview)).toEqual([0, 1, 2]);
     expect(within(preview).queryByTestId("quest-journey-omitted-phases")).toBeNull();
   });
 });

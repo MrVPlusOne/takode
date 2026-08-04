@@ -192,7 +192,7 @@ afterEach(() => {
 
 describe("WorkBoardBar", () => {
   const BOARD_DATA: BoardRowData[] = [
-    { questId: "q-1", status: "IMPLEMENTING", title: "Fix bug", updatedAt: 1 },
+    { questId: "q-1", status: "WORKING", title: "Fix bug", updatedAt: 1 },
     { questId: "q-2", status: "QUEUED", title: "Add feature", updatedAt: 2 },
   ];
 
@@ -245,7 +245,7 @@ describe("WorkBoardBar", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     // Each status segment renders separately with its color class
-    expect(getByText("1 Implement")).toBeInTheDocument();
+    expect(getByText("1 Work")).toBeInTheDocument();
     expect(getByText("1 Queued")).toBeInTheDocument();
     // Item count should show total
     expect(getByText("2 items")).toBeInTheDocument();
@@ -412,7 +412,7 @@ describe("WorkBoardBar", () => {
     // first-position server-open reconciliation, avoiding a visible jump.
     const boardRows: BoardRowData[] = [];
     const nextBoardRows: BoardRowData[] = [
-      { questId: "q-new", status: "IMPLEMENTING", title: "Newly surfaced quest", updatedAt: 10 },
+      { questId: "q-new", status: "WORKING", title: "Newly surfaced quest", updatedAt: 10 },
     ];
     const threadRows = [
       { threadKey: "q-new", questId: "q-new", title: "Newly surfaced quest", messageCount: 1 },
@@ -471,14 +471,14 @@ describe("WorkBoardBar", () => {
 
   it("keeps stale auto-surfaced board tabs behind server-open tabs when only updatedAt changes", () => {
     const initialRows: BoardRowData[] = [
-      { questId: "q-open-a", status: "IMPLEMENTING", title: "Existing open thread A", updatedAt: 50 },
+      { questId: "q-open-a", status: "WORKING", title: "Existing open thread A", updatedAt: 50 },
       { questId: "q-open-b", status: "REVIEWING", title: "Existing open thread B", updatedAt: 40 },
       { questId: "q-old", status: "QUEUED", title: "Older auto-surfaced quest", updatedAt: 10 },
     ];
     const updatedRows: BoardRowData[] = [
-      { questId: "q-open-a", status: "IMPLEMENTING", title: "Existing open thread A", updatedAt: 50 },
+      { questId: "q-open-a", status: "WORKING", title: "Existing open thread A", updatedAt: 50 },
       { questId: "q-open-b", status: "REVIEWING", title: "Existing open thread B", updatedAt: 40 },
-      { questId: "q-old", status: "IMPLEMENTING", title: "Older auto-surfaced quest", updatedAt: 99 },
+      { questId: "q-old", status: "WORKING", title: "Older auto-surfaced quest", updatedAt: 99 },
     ];
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
@@ -541,11 +541,11 @@ describe("WorkBoardBar", () => {
             {
               questId: "q-1",
               title: "Fix tab hover preview",
-              status: "IMPLEMENTING",
+              status: "WORKING",
               worker: "worker-1",
               workerNum: 11,
               updatedAt: 2,
-              journey: { mode: "active", phaseIds: ["alignment", "implement", "code-review"] },
+              journey: { mode: "active", phaseIds: ["alignment", "work", "memory"] },
             },
           ],
         ],
@@ -585,18 +585,18 @@ describe("WorkBoardBar", () => {
   it("clamps repeated-phase Journey previews in quest thread-tab hovers", async () => {
     const phaseIds: QuestJourneyPhaseId[] = [
       "alignment",
-      "implement",
-      "code-review",
-      "execute",
-      "implement",
-      "code-review",
-      "execute",
-      "implement",
-      "code-review",
-      "execute",
-      "implement",
-      "code-review",
-      "execute",
+      "work",
+      "user-checkpoint",
+      "work",
+      "user-checkpoint",
+      "work",
+      "user-checkpoint",
+      "work",
+      "user-checkpoint",
+      "work",
+      "user-checkpoint",
+      "work",
+      "memory",
     ];
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
@@ -620,17 +620,17 @@ describe("WorkBoardBar", () => {
             {
               questId: "q-1134",
               title: "Try repeated Journey preview",
-              status: "CODE_REVIEWING",
+              status: "WORKING",
               updatedAt: 2,
               journey: {
                 mode: "active",
                 phaseIds,
-                currentPhaseId: "code-review",
+                currentPhaseId: "work",
                 activePhaseIndex: 11,
                 phaseNotes: {
                   "5": "Sixth previous phase hidden by default.",
                   "6": "First visible previous phase.",
-                  "11": "Current repeated review phase.",
+                  "11": "Current repeated Work phase.",
                 },
               },
             },
@@ -849,10 +849,10 @@ describe("WorkBoardBar", () => {
 
     const implementingTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     const implementingTitle = within(implementingTab).getByTestId("thread-tab-title");
-    expect(implementingTitle).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("IMPLEMENTING"));
+    expect(implementingTitle).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("WORKING"));
     expect(implementingTitle).toHaveTextContent("q-1");
     expect(implementingTitle).toHaveTextContent("Fix bug");
-    expect(within(implementingTab).queryByText("Implement")).not.toBeInTheDocument();
+    expect(within(implementingTab).queryByText("Work")).not.toBeInTheDocument();
 
     const queuedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
     expect(within(queuedTab).getByTestId("thread-tab-title")).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
@@ -1029,7 +1029,7 @@ describe("WorkBoardBar", () => {
     expect(within(activeTab).getByTestId("thread-tab-active-output-indicator")).toBeInTheDocument();
     expect(within(activeTab).getByTestId("thread-tab-title")).toHaveAttribute(
       "data-title-color",
-      getPhaseThreadTabTitleColor("IMPLEMENTING"),
+      getPhaseThreadTabTitleColor("WORKING"),
     );
     expect(within(activeTab).getByTestId("thread-tab-title").getAttribute("style") ?? "").not.toContain("animation");
 
@@ -1074,10 +1074,10 @@ describe("WorkBoardBar", () => {
 
     const implementingTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     const implementingTitle = within(implementingTab).getByTestId("thread-tab-title");
-    expect(implementingTitle).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("IMPLEMENTING"));
+    expect(implementingTitle).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("WORKING"));
     expect(implementingTitle).toHaveTextContent("q-1");
     expect(implementingTitle).toHaveTextContent("Fix bug");
-    expect(within(implementingTab).queryByText("Implement")).not.toBeInTheDocument();
+    expect(within(implementingTab).queryByText("Work")).not.toBeInTheDocument();
 
     const queuedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
     const queuedTitle = within(queuedTab).getByTestId("thread-tab-title");
@@ -1090,12 +1090,12 @@ describe("WorkBoardBar", () => {
     const completed: BoardRowData[] = [
       {
         questId: "q-3",
-        status: "PORTING",
+        status: "MEMORY",
         title: "Finished work",
         journey: {
-          presetId: "full-code",
-          phaseIds: ["alignment", "implement", "code-review", "port"],
-          currentPhaseId: "port",
+          presetId: "v2-work",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "memory",
         },
         updatedAt: 3,
         completedAt: 3,
@@ -1114,19 +1114,19 @@ describe("WorkBoardBar", () => {
     const completedTitle = within(completedTab).getByTestId("thread-tab-title");
     expect(completedTitle).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
     expect(completedTitle).not.toHaveStyle({
-      color: getPhaseColor("PORTING"),
+      color: getPhaseColor("MEMORY"),
     });
   });
 
   it("uses done gray for completed active-board rows that still carry their final phase", () => {
     const completedActiveRow: BoardRowData = {
       questId: "q-3",
-      status: "PORTING",
+      status: "MEMORY",
       title: "Recently finished work",
       journey: {
-        presetId: "full-code",
-        phaseIds: ["alignment", "implement", "code-review", "port"],
-        currentPhaseId: "port",
+        presetId: "v2-work",
+        phaseIds: ["alignment", "work", "memory"],
+        currentPhaseId: "memory",
       },
       updatedAt: 4,
       completedAt: 4,
@@ -1142,7 +1142,7 @@ describe("WorkBoardBar", () => {
     const completedTitle = within(completedTab).getByTestId("thread-tab-title");
     expect(completedTitle).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
     expect(completedTitle).not.toHaveStyle({
-      color: getPhaseColor("PORTING"),
+      color: getPhaseColor("MEMORY"),
     });
   });
 
@@ -1152,8 +1152,8 @@ describe("WorkBoardBar", () => {
       status: "USER_CHECKPOINTING",
       title: "Repeated Journey",
       journey: {
-        presetId: "full-code",
-        phaseIds: ["alignment", "explore", "user-checkpoint", "implement"],
+        presetId: "v2-work",
+        phaseIds: ["alignment", "work", "user-checkpoint", "work"],
         currentPhaseId: "user-checkpoint",
         activePhaseIndex: 2,
       },
@@ -1161,12 +1161,12 @@ describe("WorkBoardBar", () => {
     };
     const repeatedCompleted: BoardRowData = {
       questId: "q-3",
-      status: "PORTING",
+      status: "MEMORY",
       title: "Repeated Journey",
       journey: {
-        presetId: "full-code",
-        phaseIds: ["alignment", "implement", "code-review", "port"],
-        currentPhaseId: "port",
+        presetId: "v2-work",
+        phaseIds: ["alignment", "work", "memory"],
+        currentPhaseId: "memory",
         activePhaseIndex: 3,
       },
       updatedAt: 3,
@@ -1219,10 +1219,10 @@ describe("WorkBoardBar", () => {
     const { getByTestId } = render(<WorkBoardBar sessionId="s1" />);
 
     const summary = getByTestId("workboard-phase-summary");
-    expect(summary).toHaveTextContent("1 Implement");
+    expect(summary).toHaveTextContent("1 Work");
     expect(summary).toHaveTextContent("1 Queued");
-    expect(within(summary).getByText("1 Implement")).toHaveStyle({
-      color: getPhaseColor("IMPLEMENTING"),
+    expect(within(summary).getByText("1 Work")).toHaveStyle({
+      color: getPhaseColor("WORKING"),
     });
   });
 
@@ -1255,7 +1255,7 @@ describe("WorkBoardBar", () => {
     expect(bell).not.toHaveClass("animate-pulse");
     const activeTitle = within(needsInputTab).getByTestId("thread-tab-title");
     expect(activeTitle).toHaveAttribute("data-active-output", "true");
-    expect(activeTitle).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("IMPLEMENTING"));
+    expect(activeTitle).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("WORKING"));
     expect(activeTitle.getAttribute("style") ?? "").not.toContain("animation");
     expect(activeTitle).not.toHaveClass("border");
     expect(activeTitle).not.toHaveClass("bg-sky-400/10");
@@ -1623,9 +1623,7 @@ describe("WorkBoardBar", () => {
   it("only makes server-open quest/thread tab surfaces reorderable", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([
-        ["s1", [{ questId: "q-2", status: "IMPLEMENTING", title: "Auto surfaced", updatedAt: 2 }]],
-      ]),
+      sessionBoards: new Map([["s1", [{ questId: "q-2", status: "WORKING", title: "Auto surfaced", updatedAt: 2 }]]]),
       quests: [
         { questId: "q-1", title: "Open tab", status: "in_progress" } as QuestmasterTask,
         { questId: "q-2", title: "Auto surfaced", status: "in_progress" } as QuestmasterTask,
@@ -1893,7 +1891,7 @@ describe("WorkBoardBar", () => {
     const { getByTestId } = view;
 
     expect(getByTestId("workboard-other-button")).toHaveTextContent("1Other");
-    expect(getByTestId("workboard-phase-summary")).toHaveTextContent("1 Implement, 1 Queued");
+    expect(getByTestId("workboard-phase-summary")).toHaveTextContent("1 Work, 1 Queued");
     expect(view.queryByTestId("workboard-off-board-threads")).not.toBeInTheDocument();
     fireEvent.click(getByTestId("workboard-other-button"));
     view.rerender(

@@ -1294,8 +1294,10 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
       // Quest status change during this turn
       const qc = evt.data.questChange;
       const questStr = qc ? ` | ${qc.questId}: ${qc.from} → ${qc.to}` : "";
+      const questIdStr = !qc && evt.data.questId ? ` | ${evt.data.questId}` : "";
+      const phaseNoteStr = formatPhaseNoteSummary(evt.data.phaseNote);
 
-      const statusLine = `${label} | turn_end | ${success} ${duration}${compacted}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${resultPreview}${ageSuffix}`;
+      const statusLine = `${label} | turn_end | ${success} ${duration}${compacted}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${questIdStr}${phaseNoteStr}${resultPreview}${ageSuffix}`;
 
       // Auto-inject peek-style activity summary between events
       const activity = buildActivityForEvent(evt, options);
@@ -1316,7 +1318,9 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
       const userMsgStr = um ? ` | ${um.count} user msg${um.count === 1 ? "" : "s"} [${um.ids.join(", ")}]` : "";
       const qc = evt.data.questChange;
       const questStr = qc ? ` | ${qc.questId}: ${qc.from} → ${qc.to}` : "";
-      const statusLine = `${label} | worker_stream | checkpoint ${duration}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${resultPreview}${ageSuffix}`;
+      const questIdStr = !qc && evt.data.questId ? ` | ${evt.data.questId}` : "";
+      const phaseNoteStr = formatPhaseNoteSummary(evt.data.phaseNote);
+      const statusLine = `${label} | worker_stream | checkpoint ${duration}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${questIdStr}${phaseNoteStr}${resultPreview}${ageSuffix}`;
       const activity = buildActivityForEvent(evt, options);
       if (activity) {
         return `${statusLine}\n${activity}`;
@@ -1489,6 +1493,8 @@ function buildActivityForEvent(evt: TakodeEvent, options?: FormatBatchOptions): 
     startIdx: range.from,
     deduplicatedFrom,
     leaderSessionId: options.leaderSessionId,
+    maxLines: evt.event === "turn_end" ? 4 : 6,
+    includeHiddenToolSummary: false,
   });
   return activity.text || null;
 }
@@ -1740,6 +1746,14 @@ function formatToolCounts(tools: Record<string, number> | undefined): string {
   if (!tools || Object.keys(tools).length === 0) return "";
   const total = Object.values(tools).reduce((sum, count) => sum + count, 0);
   return ` | tools: ${total}`;
+}
+
+function formatPhaseNoteSummary(note: { phaseId?: string; index?: number; tldr?: string } | undefined): string {
+  if (!note) return "";
+  const phase = note.phaseId ? `${note.phaseId} ` : "";
+  const index = typeof note.index === "number" && Number.isInteger(note.index) ? `#${note.index}` : "note";
+  const tldr = note.tldr?.trim() ? ` ${truncate(note.tldr.trim(), 160)}` : "";
+  return ` | phase-note: ${phase}${index}${tldr}`;
 }
 
 function truncate(s: string, max: number): string {

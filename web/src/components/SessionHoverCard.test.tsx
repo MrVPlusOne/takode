@@ -1227,14 +1227,14 @@ describe("SessionHoverCard", () => {
             questId: "q-200",
             status: "PLANNING",
             updatedAt: Date.now(),
-            journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "alignment" },
+            journey: { mode: "active", phaseIds: ["alignment", "work", "memory"], currentPhaseId: "alignment" },
           },
           {
             questId: "q-100",
             title: "Implement the leader hover active quest list with a title long enough to truncate",
-            status: "IMPLEMENTING",
+            status: "WORKING",
             updatedAt: Date.now() - 60_000,
-            journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
+            journey: { mode: "active", phaseIds: ["alignment", "work", "memory"], currentPhaseId: "work" },
           },
         ],
       ],
@@ -1276,9 +1276,9 @@ describe("SessionHoverCard", () => {
       expect(rows[0]).toHaveAttribute("data-quest-id", "q-100");
       expect(rows[0]).toHaveAttribute("data-phase-color", "green");
       expect(rows[0]).toHaveAttribute("data-title-color", "normal");
-      const implementPhase = within(rows[0]).getByTestId("session-hover-active-quest-phase");
-      expect(implementPhase).toHaveTextContent("Implement");
-      expect(implementPhase).toHaveAttribute("style", "color: var(--color-cc-phase-green, #4ade80);");
+      const workPhase = within(rows[0]).getByTestId("session-hover-active-quest-phase");
+      expect(workPhase).toHaveTextContent("Work");
+      expect(workPhase).toHaveAttribute("style", "color: var(--color-cc-phase-green, #4ade80);");
       const implementTitle = within(rows[0]).getByText(
         "Implement the leader hover active quest list with a title long enough to truncate",
       );

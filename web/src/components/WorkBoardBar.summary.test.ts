@@ -11,14 +11,14 @@ describe("boardSummary", () => {
 
   it("summarises a single status with the phase metadata color", () => {
     const board: BoardRowData[] = [
-      { questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 },
-      { questId: "q-2", status: "IMPLEMENTING", updatedAt: 2 },
+      { questId: "q-1", status: "WORKING", updatedAt: 1 },
+      { questId: "q-2", status: "WORKING", updatedAt: 2 },
     ];
     expect(boardSummary(board, 0)).toEqual([
       {
-        text: "2 Implement",
+        text: "2 Work",
         className: "text-cc-fg",
-        style: { color: getPhaseColor("IMPLEMENTING") },
+        style: { color: getPhaseColor("WORKING") },
       },
     ]);
   });
@@ -27,47 +27,42 @@ describe("boardSummary", () => {
     const board: BoardRowData[] = [
       {
         questId: "q-1",
-        status: "IMPLEMENTING",
+        status: "WORKING",
         journey: {
-          presetId: "full-code",
-          phaseIds: ["alignment", "implement", "code-review", "port"],
-          currentPhaseId: "implement",
+          presetId: "v2-work",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "work",
         },
         updatedAt: 1,
       },
     ];
     expect(boardSummary(board, 0)).toEqual([
       {
-        text: "1 Implement",
+        text: "1 Work",
         className: "text-cc-fg",
-        style: { color: getPhaseColor("IMPLEMENTING") },
+        style: { color: getPhaseColor("WORKING") },
       },
     ]);
   });
 
   it("summarises multiple statuses with distinct colors", () => {
     const board: BoardRowData[] = [
-      { questId: "q-1", status: "PORTING", updatedAt: 1 },
-      { questId: "q-2", status: "CODE_REVIEWING", updatedAt: 2 },
-      { questId: "q-3", status: "IMPLEMENTING", updatedAt: 3 },
-      { questId: "q-4", status: "IMPLEMENTING", updatedAt: 4 },
+      { questId: "q-1", status: "MEMORY", updatedAt: 1 },
+      { questId: "q-2", status: "WORKING", updatedAt: 2 },
+      { questId: "q-3", status: "WORKING", updatedAt: 3 },
+      { questId: "q-4", status: "WORKING", updatedAt: 4 },
     ];
     const result = boardSummary(board, 0);
     expect(result).toEqual([
       {
-        text: "1 Port",
+        text: "1 Memory",
         className: "text-cc-fg",
-        style: { color: getPhaseColor("PORTING") },
+        style: { color: getPhaseColor("MEMORY") },
       },
       {
-        text: "1 Code Review",
+        text: "3 Work",
         className: "text-cc-fg",
-        style: { color: getPhaseColor("CODE_REVIEWING") },
-      },
-      {
-        text: "2 Implement",
-        className: "text-cc-fg",
-        style: { color: getPhaseColor("IMPLEMENTING") },
+        style: { color: getPhaseColor("WORKING") },
       },
     ]);
   });
@@ -86,12 +81,12 @@ describe("boardSummary", () => {
   });
 
   it("includes completed count as muted segment", () => {
-    const board: BoardRowData[] = [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }];
+    const board: BoardRowData[] = [{ questId: "q-1", status: "WORKING", updatedAt: 1 }];
     expect(boardSummary(board, 3)).toEqual([
       {
-        text: "1 Implement",
+        text: "1 Work",
         className: "text-cc-fg",
-        style: { color: getPhaseColor("IMPLEMENTING") },
+        style: { color: getPhaseColor("WORKING") },
       },
       { text: "3 Completed", className: "text-cc-muted" },
     ]);

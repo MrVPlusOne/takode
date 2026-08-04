@@ -474,7 +474,7 @@ describe("Playground", () => {
       "border-amber-400/60",
       "border-cc-primary/70",
     );
-    expect(workBoardBar.getByTestId("workboard-phase-summary")).toHaveTextContent("1 Code Review");
+    expect(workBoardBar.getByTestId("workboard-phase-summary")).toHaveTextContent("1 Work");
     const mainTitle = within(workBoardBar.getByTestId("thread-main-tab")).getByTestId("thread-tab-title");
     expect(mainTitle).toHaveAttribute("data-active-output", "false");
     expect(
@@ -559,14 +559,14 @@ describe("Playground", () => {
       Array.from(journey.querySelectorAll("li[data-phase-index]")).map((row) =>
         Number(row.getAttribute("data-phase-index")),
       ),
-    ).toEqual([6, 7, 8, 9, 10, 11, 12]);
-    expect(within(journey).queryByText("Sixth previous phase hidden by default in tab hover previews.")).toBeNull();
+    ).toEqual([2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(within(journey).getByText("Sixth previous phase hidden by default in tab hover previews.")).toBeTruthy();
     expect(within(journey).getByText("First visible previous phase for the tab hover clamp.")).toBeTruthy();
-    expect(within(journey).getByRole("button", { name: "Show 6 earlier phases" })).toBeTruthy();
+    expect(within(journey).getByRole("button", { name: "Show 2 earlier phases" })).toBeTruthy();
     expect(within(hoverCard).getByTestId("quest-hover-worker-session")).toHaveTextContent("Worker");
-    expect(within(hoverCard).getByTestId("quest-hover-reviewer-session")).toHaveTextContent("Reviewer");
+    expect(within(hoverCard).queryByTestId("quest-hover-reviewer-session")).toBeNull();
     expect(within(hoverCard).getByRole("link", { name: "Worker #5 Clear Mesa" })).toBeTruthy();
-    expect(within(hoverCard).getByRole("link", { name: "Reviewer #6 Review Lead" })).toBeTruthy();
+    expect(within(hoverCard).queryByRole("link", { name: "Reviewer #6 Review Lead" })).toBeNull();
 
     fireEvent.click(workBoardBar.getByRole("button", { name: "Quest thread" }));
     const selectedActiveQuestTab = workBoardBar
@@ -642,10 +642,10 @@ describe("Playground", () => {
     expect(banner).toHaveClass("py-1");
     expect(within(banner).getByTestId("quest-thread-meta-strip")).toHaveClass("flex-[1_1_auto]");
     expect(within(banner).getByTestId("quest-thread-participant-strip")).toHaveClass("inline-flex");
-    expect(within(banner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Code Review");
+    expect(within(banner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Work");
     expect(within(banner).getByTestId("quest-journey-compact-summary")).not.toHaveTextContent("note");
     expect(within(banner).getByLabelText("Worker #1321 Clear Mesa")).toBeTruthy();
-    expect(within(banner).getByLabelText("Reviewer #1306 Review Lead")).toBeTruthy();
+    expect(within(banner).queryByLabelText("Reviewer #1306 Review Lead")).toBeNull();
     expect(within(banner).getByTestId("quest-thread-commit-button")).toHaveTextContent("2 commits");
     const queuedBanner = screen.getAllByTestId("quest-thread-banner")[1];
     expect(within(queuedBanner).getByTestId("quest-thread-queued-status-chip")).toHaveTextContent(
@@ -657,6 +657,8 @@ describe("Playground", () => {
     fireEvent.click(within(banner).getByTestId("quest-thread-journey-hover-target"));
     const hoverCard = screen.getByTestId("quest-thread-journey-hover-card");
     expect(hoverCard).toBeTruthy();
-    expect(within(hoverCard).getByTestId("quest-journey-preview-card")).toHaveTextContent("Visual outcome review");
+    expect(within(hoverCard).getByTestId("quest-journey-preview-card")).toHaveTextContent(
+      "Work owns implementation, validation, and sync evidence.",
+    );
   });
 });

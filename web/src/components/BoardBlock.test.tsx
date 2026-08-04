@@ -77,10 +77,10 @@ describe("BoardBlock", () => {
   it("formats embedded quest journey enum labels in the operation header", () => {
     const board: BoardRowData[] = [{ questId: "q-42", title: "Quest", updatedAt: 1 }];
 
-    render(<BoardBlock board={board} operation="advanced q-42 to CODE_REVIEWING" defaultOpen />);
+    render(<BoardBlock board={board} operation="advanced q-42 to USER_CHECKPOINTING" defaultOpen />);
 
-    expect(screen.getByText("advanced q-42 to Code Review")).toBeInTheDocument();
-    expect(screen.queryByText(/CODE_REVIEWING/)).toBeNull();
+    expect(screen.getByText("advanced q-42 to User Checkpoint")).toBeInTheDocument();
+    expect(screen.queryByText(/USER_CHECKPOINTING/)).toBeNull();
   });
 
   it("starts collapsed even when the board has a tool command", () => {
@@ -146,7 +146,7 @@ describe("BoardBlock", () => {
           summary: longSummary,
           journey: {
             mode: "proposed",
-            phaseIds: ["alignment", "implement", "code-review"],
+            phaseIds: ["alignment", "work", "memory"],
             phaseNotes: {
               "1": "Build the draft and present paths.",
             },

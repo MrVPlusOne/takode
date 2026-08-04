@@ -855,18 +855,17 @@ export function usePlaygroundSeed() {
         title: "Finish data-flow cleanup",
         worker: "playground-thread-worker",
         workerNum: 1321,
-        status: "CODE_REVIEWING",
+        status: "WORKING",
         updatedAt: Date.now() - 120_000,
         createdAt: Date.now() - 240_000,
         journey: {
           mode: "active",
-          phaseIds: ["alignment", "implement", "code-review"],
-          activePhaseIndex: 2,
-          currentPhaseId: "code-review",
+          phaseIds: ["alignment", "work", "memory"],
+          activePhaseIndex: 1,
+          currentPhaseId: "work",
           phaseTimings: {
             "0": { startedAt: Date.now() - 240_000, endedAt: Date.now() - 180_000 },
-            "1": { startedAt: Date.now() - 180_000, endedAt: Date.now() - 120_000 },
-            "2": { startedAt: Date.now() - 120_000 },
+            "1": { startedAt: Date.now() - 180_000 },
           },
         },
       },
@@ -877,7 +876,7 @@ export function usePlaygroundSeed() {
         waitFor: ["q-961"],
         updatedAt: Date.now() - 90_000,
         createdAt: Date.now() - 210_000,
-        journey: { mode: "active", phaseIds: ["alignment", "implement", "code-review"] },
+        journey: { mode: "active", phaseIds: ["alignment", "work", "memory"] },
       },
       {
         questId: "q-963",
@@ -886,7 +885,7 @@ export function usePlaygroundSeed() {
         waitForInput: ["playground-missing-user-decision"],
         updatedAt: Date.now() - 60_000,
         createdAt: Date.now() - 180_000,
-        journey: { mode: "active", phaseIds: ["alignment", "implement", "code-review"] },
+        journey: { mode: "active", phaseIds: ["alignment", "work", "memory"] },
       },
       {
         questId: "q-965",
@@ -895,18 +894,13 @@ export function usePlaygroundSeed() {
         waitForInput: ["playground-routed-source-decision"],
         updatedAt: Date.now() - 24_000,
         createdAt: Date.now() - 150_000,
-        journey: { mode: "active", phaseIds: ["alignment", "implement", "code-review"] },
+        journey: { mode: "active", phaseIds: ["alignment", "work", "memory"] },
       },
     ]);
     store.setSessionBoardRowStatuses(PLAYGROUND_THREAD_PANEL_SESSION_ID, {
       "q-961": {
         worker: { sessionId: "playground-thread-worker", sessionNum: 1321, name: "Clear Mesa", status: "running" },
-        reviewer: {
-          sessionId: "playground-thread-reviewer",
-          sessionNum: 1306,
-          name: "Review Lead",
-          status: "idle",
-        },
+        reviewer: null,
       },
       "q-962": {
         worker: { sessionId: "playground-thread-worker-queued", sessionNum: 1320, status: "idle" },
@@ -921,19 +915,18 @@ export function usePlaygroundSeed() {
       {
         questId: "q-964",
         title: "Finish completed Journey display",
-        status: "PORTING",
+        status: "MEMORY",
         updatedAt: Date.now() - 30_000,
         completedAt: Date.now() - 20_000,
         createdAt: Date.now() - 150_000,
         journey: {
           mode: "active",
-          phaseIds: ["alignment", "implement", "code-review", "port"],
-          currentPhaseId: "port",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "memory",
           phaseTimings: {
             "0": { startedAt: Date.now() - 150_000, endedAt: Date.now() - 120_000 },
             "1": { startedAt: Date.now() - 120_000, endedAt: Date.now() - 80_000 },
-            "2": { startedAt: Date.now() - 80_000, endedAt: Date.now() - 40_000 },
-            "3": { startedAt: Date.now() - 40_000, endedAt: Date.now() - 20_000 },
+            "2": { startedAt: Date.now() - 80_000, endedAt: Date.now() - 20_000 },
           },
         },
       },
@@ -1430,16 +1423,16 @@ export function usePlaygroundSeed() {
       {
         questId: "q-play-1",
         title: "Refine leader banner controls",
-        status: "IMPLEMENTING",
+        status: "WORKING",
         updatedAt: Date.now() - 120_000,
-        journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
+        journey: { mode: "active", phaseIds: ["alignment", "work", "memory"], currentPhaseId: "work" },
       },
       {
         questId: "q-play-2",
         title: "Review sidebar phase summaries",
-        status: "CODE_REVIEWING",
+        status: "MEMORY",
         updatedAt: Date.now() - 60_000,
-        journey: { mode: "active", phaseIds: ["implement", "code-review"], currentPhaseId: "code-review" },
+        journey: { mode: "active", phaseIds: ["alignment", "work", "memory"], currentPhaseId: "memory" },
       },
     ]);
 

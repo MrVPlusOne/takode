@@ -3,16 +3,7 @@ import type { QuestJourneyPhaseId } from "../../../shared/quest-journey.js";
 import { useStore } from "../../store.js";
 import { QuestmasterPage } from "../QuestmasterPage.js";
 
-const JOURNEY_PHASE_CYCLE: QuestJourneyPhaseId[] = [
-  "alignment",
-  "explore",
-  "implement",
-  "code-review",
-  "user-checkpoint",
-  "port",
-  "execute",
-  "outcome-review",
-];
+const JOURNEY_PHASE_CYCLE: QuestJourneyPhaseId[] = ["alignment", "work", "user-checkpoint", "work", "memory"];
 
 function buildLongJourneyPhaseIds(): QuestJourneyPhaseId[] {
   return Array.from({ length: 38 }, (_, index) => JOURNEY_PHASE_CYCLE[index % JOURNEY_PHASE_CYCLE.length]);
@@ -34,7 +25,7 @@ export function PlaygroundQuestmasterCompactDemo() {
           title: "Simplify Questmaster compact status",
           worker: "playground-questmaster-worker",
           workerNum: 902,
-          status: "IMPLEMENTING",
+          status: "WORKING",
           updatedAt: now - 15_000,
           journey: {
             mode: "active",

@@ -46,6 +46,8 @@ export interface FormatActivityOptions {
   startIdx: number;
   /** Max output lines before tail-priority truncation (default: 15). */
   maxLines?: number;
+  /** Include a one-line hidden tool aggregate when assistant tool calls were omitted. */
+  includeHiddenToolSummary?: boolean;
   /** Messages with idx < deduplicatedFrom are skipped as already emitted. */
   deduplicatedFrom?: number;
   /** Current leader session id for automatic herd events. */
@@ -137,7 +139,7 @@ export function formatActivitySummaryDetailed(
     allLines.push(...visibleLines);
   }
 
-  if (hiddenToolCounts.size > 0) {
+  if (hiddenToolCounts.size > 0 && options.includeHiddenToolSummary !== false) {
     if (allLines.length === 0) {
       allLines.push({
         line: formatToolOnlyPlaceholder(firstHiddenToolIdx ?? startIdx, lastHiddenToolIdx ?? startIdx),

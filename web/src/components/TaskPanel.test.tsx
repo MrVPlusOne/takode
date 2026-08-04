@@ -412,14 +412,14 @@ describe("TaskPanel", () => {
               title: "Port accepted quest status",
               worker: "worker-2",
               workerNum: 12,
-              status: "PORTING",
+              status: "MEMORY",
               waitForInput: ["n-4"],
               updatedAt: 10,
               journey: {
-                phaseIds: ["alignment", "implement", "code-review", "port"],
+                phaseIds: ["alignment", "work", "memory"],
                 mode: "active",
-                currentPhaseId: "port",
-                activePhaseIndex: 3,
+                currentPhaseId: "memory",
+                activePhaseIndex: 2,
               },
             },
           ],
@@ -433,8 +433,8 @@ describe("TaskPanel", () => {
     expect(screen.getByText("Port accepted quest status")).toBeInTheDocument();
     expect(screen.getByText("Waiting for input: n-4")).toBeInTheDocument();
     expect(screen.getByTestId("quest-journey-compact-summary")).toHaveAttribute("data-journey-mode", "active");
-    expect(screen.getByText("Port")).toBeInTheDocument();
-    expect(screen.getByText("4/4")).toBeInTheDocument();
+    expect(screen.getByText("Memory")).toBeInTheDocument();
+    expect(screen.getByText("3/3")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "#12" })).toBeInTheDocument();
   });
 

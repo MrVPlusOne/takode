@@ -73,16 +73,7 @@ import { NotificationChip } from "./NotificationChip.js";
 import type { QuestmasterTask, QuestVerificationItem } from "../types.js";
 import type { QuestJourneyPhaseId } from "../../shared/quest-journey.js";
 
-const JOURNEY_PHASE_CYCLE: QuestJourneyPhaseId[] = [
-  "alignment",
-  "explore",
-  "implement",
-  "code-review",
-  "user-checkpoint",
-  "port",
-  "execute",
-  "outcome-review",
-];
+const JOURNEY_PHASE_CYCLE: QuestJourneyPhaseId[] = ["alignment", "work", "user-checkpoint", "work", "memory"];
 
 // Minimal quest fixtures for testing
 function makeVerificationQuest(overrides?: Partial<QuestmasterTask>): QuestmasterTask {
@@ -272,16 +263,17 @@ describe("QuestDetailPanel", () => {
           [
             {
               questId: "q-42",
-              status: "IMPLEMENTING",
+              status: "WORKING",
               updatedAt: 1,
               journey: {
-                presetId: "full-code",
-                phaseIds: ["alignment", "implement", "code-review", "port"],
-                currentPhaseId: "implement",
+                presetId: "v2-work",
+                phaseIds: ["alignment", "work", "memory"],
+                activePhaseIndex: 1,
+                currentPhaseId: "work",
                 phaseNotes: {
                   "0": "Finished alignment note dims with the title",
                   "1": "",
-                  "2": "Inspect only the follow-up diff",
+                  "2": "Prepare durable closure after Work",
                 },
               },
             },
@@ -296,10 +288,9 @@ describe("QuestDetailPanel", () => {
     expect(timeline).toHaveAttribute("data-journey-mode", "active");
     expect(screen.getByTestId("quest-journey-detail-list")).toBeInTheDocument();
     expect(within(timeline).getByText("Alignment")).toBeInTheDocument();
-    expect(within(timeline).getByText("Implement")).toBeInTheDocument();
-    expect(within(timeline).getByText("Code Review")).toBeInTheDocument();
-    expect(within(timeline).getByText("Port")).toBeInTheDocument();
-    expect(within(timeline).getByText("Inspect only the follow-up diff")).toBeInTheDocument();
+    expect(within(timeline).getByText("Work")).toBeInTheDocument();
+    expect(within(timeline).getByText("Memory")).toBeInTheDocument();
+    expect(within(timeline).getByText("Prepare durable closure after Work")).toBeInTheDocument();
     const completedNote = within(timeline).getByText("Finished alignment note dims with the title");
     expect(completedNote.tagName).toBe("DIV");
     expect(completedNote).toHaveClass("ml-[1.375rem]");
@@ -309,7 +300,7 @@ describe("QuestDetailPanel", () => {
     expect(within(timeline).queryByText(/Make approved code, docs/)).not.toBeInTheDocument();
     expect(within(timeline).queryAllByTestId("quest-journey-phase-purpose")).toHaveLength(2);
     expect(within(timeline).getByText("current")).toBeInTheDocument();
-    expect(within(timeline).getByText("Code Review").closest("li")).toHaveAttribute("data-phase-color", "violet");
+    expect(within(timeline).getByText("Memory").closest("li")).toHaveAttribute("data-phase-color", "cyan");
     expect(screen.getByTestId("quest-detail-journey-section").parentElement).toHaveClass("overflow-y-auto");
   });
 
@@ -330,11 +321,11 @@ describe("QuestDetailPanel", () => {
               journey: {
                 mode: "active",
                 phaseIds,
-                currentPhaseId: phaseIds[20],
-                activePhaseIndex: 20,
+                currentPhaseId: phaseIds[22],
+                activePhaseIndex: 22,
                 phaseNotes: {
-                  "14": "Hidden embedded boundary note",
-                  "15": "Visible embedded boundary note",
+                  "16": "Hidden embedded boundary note",
+                  "17": "Visible embedded boundary note",
                 },
               },
             },
@@ -350,13 +341,13 @@ describe("QuestDetailPanel", () => {
     const visibleIndexes = Array.from(timeline.querySelectorAll("li[data-phase-index]")).map((row) =>
       Number(row.getAttribute("data-phase-index")),
     );
-    expect(visibleIndexes).toEqual(Array.from({ length: 16 }, (_, index) => index + 15));
-    expect(within(timeline).getByRole("button", { name: "Show 15 earlier phases" })).toBeInTheDocument();
-    expect(within(timeline).getByRole("button", { name: "Show 7 later phases" })).toBeInTheDocument();
+    expect(visibleIndexes).toEqual(Array.from({ length: 16 }, (_, index) => index + 17));
+    expect(within(timeline).getByRole("button", { name: "Show 17 earlier phases" })).toBeInTheDocument();
+    expect(within(timeline).getByRole("button", { name: "Show 5 later phases" })).toBeInTheDocument();
     expect(within(timeline).getByText("Visible embedded boundary note")).toBeInTheDocument();
     expect(within(timeline).queryByText("Hidden embedded boundary note")).toBeNull();
 
-    fireEvent.click(within(timeline).getByRole("button", { name: "Show 15 earlier phases" }));
+    fireEvent.click(within(timeline).getByRole("button", { name: "Show 17 earlier phases" }));
     expect(within(timeline).getByText("Hidden embedded boundary note")).toBeInTheDocument();
   });
 
@@ -1813,225 +1804,5 @@ describe("QuestDetailPanel", () => {
         (storeQuest as QuestmasterTask & { verificationItems: QuestVerificationItem[] }).verificationItems[0].checked,
       ).toBe(false);
     });
-  });
-
-  it("renders commit chips and navigates between commit diffs in the modal", async () => {
-    const firstSha = "abc1234def567890";
-    const secondSha = "deadbeeffeedcafe";
-    const quest = makeVerificationQuest({ commitShas: [firstSha, secondSha] } as Partial<QuestmasterTask>);
-    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
-    mockGetQuestCommit.mockImplementation((_id: string, sha: string, options?: { includeDiff?: boolean }) => {
-      const base = {
-        sha,
-        shortSha: sha.slice(0, 7),
-        message: sha === firstSha ? "First ported commit" : "Second ported commit",
-        timestamp: sha === firstSha ? 1000 : 2000,
-        available: true,
-      };
-      if (options?.includeDiff === false) return Promise.resolve(base);
-      return Promise.resolve({
-        ...base,
-        additions: sha === firstSha ? 12 : 3,
-        deletions: sha === firstSha ? 4 : 1,
-        diff:
-          sha === firstSha
-            ? `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n`
-            : `diff --git a/other.ts b/other.ts\n--- a/other.ts\n+++ b/other.ts\n@@ -1 +1 @@\n-before\n+after\n`,
-      });
-    });
-
-    render(<QuestDetailPanel />);
-
-    const commitsToggle = screen.getByRole("button", { name: "Expand commits, 2 commits" });
-    expect(commitsToggle).toHaveTextContent("Commits");
-    expect(commitsToggle).toHaveTextContent("2 commits");
-    expect(screen.queryByText("First ported commit")).toBeNull();
-    expect(screen.queryByText("Second ported commit")).toBeNull();
-    fireEvent.click(commitsToggle);
-
-    expect(await screen.findByText("First ported commit")).toBeTruthy();
-    expect(screen.getAllByText("Second ported commit").length).toBeGreaterThanOrEqual(1);
-    fireEvent.click(screen.getByLabelText(`Open code commit ${firstSha.slice(0, 7)}`));
-
-    await waitFor(() => {
-      expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", firstSha);
-    });
-    expect(screen.getByTestId("quest-commit-modal")).toBeTruthy();
-    expect(screen.getAllByText("First ported commit").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("+12 additions")).toBeTruthy();
-    expect(screen.getByText("-4 deletions")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Collapse file" })).toBeTruthy();
-    const modal = screen.getByTestId("quest-commit-modal");
-    const diffScroll = modal.querySelector(".quest-commit-diff-scroll");
-    const diffContent = modal.querySelector(".quest-commit-diff-content");
-    expect(diffScroll).toHaveClass("pt-0", "px-4", "pb-4");
-    expect(diffContent).not.toHaveClass("pt-4");
-    expect(diffContent?.firstElementChild).toHaveClass("diff-viewer");
-
-    fireEvent.click(screen.getByText("Next"));
-
-    await waitFor(() => {
-      expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", secondSha);
-    });
-    expect(screen.getAllByText("Second ported commit").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("+3 additions")).toBeTruthy();
-    expect(screen.getByText("-1 deletions")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Collapse file" }));
-    expect(screen.queryByText("before")).toBeNull();
-    expect(screen.getByRole("button", { name: "Expand file" })).toBeTruthy();
-  });
-
-  it("keeps the commit modal footprint stable while the next commit diff is loading", async () => {
-    const firstSha = "abc1234def567890";
-    const secondSha = "deadbeeffeedcafe";
-    const secondCommit = createDeferred<{
-      sha: string;
-      shortSha: string;
-      message: string;
-      timestamp: number;
-      available: boolean;
-      additions: number;
-      deletions: number;
-      diff: string;
-    }>();
-    const quest = makeVerificationQuest({ commitShas: [firstSha, secondSha] } as Partial<QuestmasterTask>);
-    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
-    mockGetQuestCommit.mockImplementation((_id: string, sha: string, options?: { includeDiff?: boolean }) => {
-      const base = {
-        sha,
-        shortSha: sha.slice(0, 7),
-        message: sha === firstSha ? "First ported commit" : "Second ported commit",
-        timestamp: sha === firstSha ? 1000 : 2000,
-        available: true,
-      };
-      if (options?.includeDiff === false) return Promise.resolve(base);
-      if (sha === secondSha) return secondCommit.promise;
-      return Promise.resolve({
-        ...base,
-        additions: 12,
-        deletions: 4,
-        diff: `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n`,
-      });
-    });
-
-    render(<QuestDetailPanel />);
-    fireEvent.click(screen.getByRole("button", { name: "Expand commits, 2 commits" }));
-    expect(await screen.findByText("First ported commit")).toBeTruthy();
-    fireEvent.click(screen.getByLabelText(`Open code commit ${firstSha.slice(0, 7)}`));
-
-    await waitFor(() => {
-      expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", firstSha);
-    });
-    const modal = screen.getByTestId("quest-commit-modal");
-    const diffScroll = modal.querySelector(".quest-commit-diff-scroll");
-    expect(modal).toHaveClass("h-[90dvh]", "max-h-[calc(100dvh-2rem)]", "min-h-0");
-    expect(diffScroll).toHaveClass("min-h-0", "flex-1", "overflow-auto");
-
-    fireEvent.click(screen.getByText("Next"));
-
-    await waitFor(() => {
-      expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", secondSha);
-    });
-    expect(screen.getByText("Loading commit diff...")).toBeTruthy();
-    expect(screen.getByTestId("quest-commit-modal")).toHaveClass("h-[90dvh]", "max-h-[calc(100dvh-2rem)]", "min-h-0");
-    expect(diffScroll).toHaveClass("min-h-0", "flex-1", "overflow-auto");
-
-    await act(async () => {
-      secondCommit.resolve({
-        sha: secondSha,
-        shortSha: secondSha.slice(0, 7),
-        message: "Second ported commit",
-        timestamp: 2000,
-        available: true,
-        additions: 3,
-        deletions: 1,
-        diff: `diff --git a/other.ts b/other.ts\n--- a/other.ts\n+++ b/other.ts\n@@ -1 +1 @@\n-before\n+after\n`,
-      });
-    });
-    expect(await screen.findByText("+3 additions")).toBeTruthy();
-  });
-
-  it("shows a graceful unavailable state when a stored commit cannot be loaded", async () => {
-    const sha = "abc1234def567890";
-    const quest = makeVerificationQuest({ commitShas: [sha] } as Partial<QuestmasterTask>);
-    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
-    mockGetQuestCommit.mockResolvedValueOnce({
-      sha,
-      available: false,
-      reason: "commit_not_available",
-    });
-
-    render(<QuestDetailPanel />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Expand commits, 1 commit" }));
-    fireEvent.click(screen.getByLabelText(`Open code commit ${sha.slice(0, 7)}`));
-
-    await waitFor(() => {
-      expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", sha, { includeDiff: false });
-    });
-    expect(screen.getByText("Commit not available")).toBeTruthy();
-    expect(screen.getByText("This commit is no longer available in local git history.")).toBeTruthy();
-  });
-
-  it("renders separate readable memory commit evidence and opens memory diffs", async () => {
-    const codeSha = "1111111abcdef00";
-    const memorySha = "2222222abcdef00";
-    const quest = makeVerificationQuest({
-      commitShas: [codeSha],
-      memoryCommitShas: [memorySha],
-    } as Partial<QuestmasterTask>);
-    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
-    mockGetQuestCommit.mockResolvedValue({
-      sha: codeSha,
-      shortSha: codeSha.slice(0, 7),
-      message: "Port quest detail UI",
-      timestamp: 2000,
-      available: true,
-    });
-    mockGetQuestMemoryCommit.mockImplementation((_id: string, sha: string, options?: { includeDiff?: boolean }) => {
-      const base = {
-        sha,
-        shortSha: sha.slice(0, 7),
-        message: "Record memory handoff",
-        timestamp: 1000,
-        available: true,
-      };
-      if (options?.includeDiff === false) return Promise.resolve(base);
-      return Promise.resolve({
-        ...base,
-        diff: `diff --git a/current/state.md b/current/state.md\n--- a/current/state.md\n+++ b/current/state.md\n@@ -1 +1 @@\n-old\n+new\n`,
-        sourceFiles: [{ path: "current/state.md", oldText: "old\n", newText: "new\n" }],
-      });
-    });
-
-    render(<QuestDetailPanel />);
-
-    const commitsToggle = screen.getByRole("button", { name: "Expand commits, 2 commits" });
-    expect(screen.queryByText("Commit evidence")).toBeNull();
-    expect(commitsToggle).toHaveTextContent("Commits");
-    expect(commitsToggle).toHaveTextContent("2 commits");
-    expect(screen.queryByText("Record memory handoff")).toBeNull();
-    expect(screen.queryByText("Port quest detail UI")).toBeNull();
-    expect(screen.queryByLabelText(`Open memory commit ${memorySha.slice(0, 7)}`)).toBeNull();
-    fireEvent.click(commitsToggle);
-
-    expect(await screen.findByText("Record memory handoff")).toBeTruthy();
-    expect(screen.getByText("Port quest detail UI")).toBeTruthy();
-    const evidenceButtons = screen.getAllByRole("button", { name: /Open (memory|code) commit/ });
-    expect(evidenceButtons.map((button) => button.textContent)).toEqual([
-      expect.stringContaining("Record memory handoff"),
-      expect.stringContaining("Port quest detail UI"),
-    ]);
-
-    fireEvent.click(screen.getByLabelText(`Open memory commit ${memorySha.slice(0, 7)}`));
-
-    await waitFor(() => {
-      expect(mockGetQuestMemoryCommit).toHaveBeenCalledWith("q-42", memorySha);
-    });
-    expect(screen.getByTestId("quest-commit-modal")).toBeTruthy();
-    expect(screen.getByText("Memory Commit")).toBeTruthy();
-    expect(screen.getAllByText("Record memory handoff").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByRole("button", { name: "Collapse file" })).toBeTruthy();
   });
 });

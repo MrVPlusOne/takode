@@ -304,36 +304,30 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
 export function PlaygroundOverviewSections() {
   const compactQuestThreadBannerRows: Array<{ label: string; threadKey: string; row: QuestThreadBannerRow }> = [
     {
-      label: "Active reviewer phase",
+      label: "Active Work phase",
       threadKey: "q-961",
       row: {
         threadKey: "q-961",
         questId: "q-961",
         title: "Finish data-flow cleanup",
-        boardStatus: "CODE_REVIEWING",
+        boardStatus: "WORKING",
         commitShas: ["abc1234def5678", "def5678abc1234"],
         section: "active" as const,
         journey: {
           mode: "active" as const,
-          phaseIds: ["alignment", "implement", "outcome-review", "code-review"],
-          currentPhaseId: "code-review",
-          phaseNotes: { "2": "Visual outcome review runs before code review." },
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "work",
+          phaseNotes: { "1": "Work owns implementation, validation, and sync evidence." },
         },
         rowStatus: {
           worker: { sessionId: "playground-thread-worker", sessionNum: 1321, name: "Clear Mesa", status: "running" },
-          reviewer: {
-            sessionId: "playground-thread-reviewer",
-            sessionNum: 1306,
-            name: "Review Lead",
-            status: "idle",
-          },
         },
         boardRow: {
           questId: "q-961",
           title: "Finish data-flow cleanup",
           worker: "playground-thread-worker",
           workerNum: 1321,
-          status: "CODE_REVIEWING",
+          status: "WORKING",
           createdAt: 1,
           updatedAt: 2,
         },
@@ -351,8 +345,8 @@ export function PlaygroundOverviewSections() {
         section: "active" as const,
         journey: {
           mode: "active" as const,
-          phaseIds: ["alignment", "implement", "execute"],
-          currentPhaseId: "implement",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "work",
         },
         boardRow: {
           questId: "q-968",
@@ -374,9 +368,9 @@ export function PlaygroundOverviewSections() {
         section: "done" as const,
         journey: {
           mode: "active" as const,
-          phaseIds: ["alignment", "implement", "outcome-review", "code-review", "port"],
-          currentPhaseId: "port",
-          phaseNotes: { "2": "Visual outcome review before code review." },
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "memory",
+          phaseNotes: { "1": "Work completed with verification evidence.", "2": "Memory closed durable state." },
         },
         boardRow: { questId: "q-964", title: "Finish completed Journey display", worker: "worker-964", updatedAt: 1 },
         rowStatus: {
@@ -393,18 +387,17 @@ export function PlaygroundOverviewSections() {
         questId: "q-966",
         title: "Polish current quest banner chips",
         status: "in_progress",
-        boardStatus: "IMPLEMENTING",
+        boardStatus: "WORKING",
         section: "active" as const,
         leaderSessionId: "playground-thread-panel-wait-for",
         leaderSessionNum: 1286,
         journey: {
           mode: "active" as const,
-          phaseIds: ["alignment", "implement", "code-review"],
-          currentPhaseId: "implement",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "work",
         },
         rowStatus: {
           worker: { sessionId: "playground-worker-banner", sessionNum: 1364, status: "idle" },
-          reviewer: { sessionId: "playground-worker-banner-reviewer", sessionNum: 1365, status: "idle" },
         },
       },
     },

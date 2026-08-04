@@ -123,16 +123,7 @@ function openPlaygroundQuestDetail() {
   useStore.getState().openQuestOverlay("q-42");
 }
 
-const PLAYGROUND_PHASE_CYCLE = [
-  "alignment",
-  "explore",
-  "implement",
-  "code-review",
-  "user-checkpoint",
-  "port",
-  "execute",
-  "outcome-review",
-] as const;
+const PLAYGROUND_PHASE_CYCLE = ["alignment", "user-checkpoint", "work", "memory"] as const;
 
 function buildPlaygroundJourneyRuns(now: number) {
   return [

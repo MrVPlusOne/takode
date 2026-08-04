@@ -1007,7 +1007,7 @@ export function PlaygroundInteractiveSections() {
           <Card label="Board with items">
             <BoardBlock
               defaultOpen
-              operation="advanced q-42 to IMPLEMENTING"
+              operation="advanced q-42 to WORKING"
               queueWarnings={[
                 {
                   questId: "q-61",
@@ -1022,7 +1022,7 @@ export function PlaygroundInteractiveSections() {
                   title: "Fix mobile sidebar overflow",
                   worker: "abc123",
                   workerNum: 5,
-                  status: "IMPLEMENTING",
+                  status: "WORKING",
                   waitForInput: ["n-3", "n-4"],
                   updatedAt: Date.now() - 60000,
                 },
@@ -1058,13 +1058,14 @@ export function PlaygroundInteractiveSections() {
                 status: "PROPOSED",
                 presentedAt: Date.now() - 30000,
                 summary:
-                  "Goal / Acceptance: approve a proposal flow with non-standard exploration before implementation. Scheduling: wait for the current approval prompt, then promote the proposed row.",
+                  "Goal / Acceptance: approve a proposal flow with a preset checkpoint inside Work. Scheduling: wait for the current approval prompt, then promote the proposed row.",
                 journey: {
                   mode: "proposed",
-                  presetId: "proposal-flow",
-                  phaseIds: ["alignment", "explore", "implement", "code-review"],
+                  presetId: "v2-work",
+                  phaseIds: ["alignment", "work", "user-checkpoint", "memory"],
                   phaseNotes: {
-                    "1": "Trace CLI, server, and UI paths before code.",
+                    "1": "Trace CLI, server, and UI paths during Work.",
+                    "2": "Pause for the preset decision before Work resumes.",
                   },
                   presentation: {
                     state: "presented",
@@ -1081,8 +1082,8 @@ export function PlaygroundInteractiveSections() {
                   waitForInput: ["n-3"],
                   journey: {
                     mode: "proposed",
-                    presetId: "proposal-flow",
-                    phaseIds: ["alignment", "explore", "implement", "code-review"],
+                    presetId: "v2-work",
+                    phaseIds: ["alignment", "work", "user-checkpoint", "memory"],
                   },
                   updatedAt: Date.now() - 30000,
                 },
@@ -1112,7 +1113,8 @@ export function PlaygroundInteractiveSections() {
                   const now = Date.now();
                   const mediumRepeatedJourneyPhaseIds: QuestJourneyPhaseId[] = [
                     "alignment",
-                    ...Array.from({ length: 4 }, () => ["implement", "code-review", "execute"] as const).flat(),
+                    ...Array.from({ length: 4 }, () => ["work", "user-checkpoint"] as const).flat(),
+                    "memory",
                   ];
                   const boardData: BoardRowData[] = [
                     {
@@ -1120,14 +1122,14 @@ export function PlaygroundInteractiveSections() {
                       title: "Fix mobile sidebar overflow",
                       worker: "abc123",
                       workerNum: 5,
-                      status: "CODE_REVIEWING",
+                      status: "WORKING",
                       waitForInput: ["n-3"],
                       updatedAt: now - 60000,
                       journey: {
                         mode: "active" as const,
                         phaseIds: mediumRepeatedJourneyPhaseIds,
-                        currentPhaseId: "code-review",
-                        activePhaseIndex: 11,
+                        currentPhaseId: "work",
+                        activePhaseIndex: 7,
                         phaseNotes: {
                           "5": "Sixth previous phase hidden by default in tab hover previews.",
                           "6": "First visible previous phase for the tab hover clamp.",
@@ -1144,7 +1146,7 @@ export function PlaygroundInteractiveSections() {
                       updatedAt: now - 30000,
                       journey: {
                         mode: "proposed" as const,
-                        phaseIds: ["alignment", "implement", "code-review", "port"],
+                        phaseIds: ["alignment", "work", "memory"],
                       },
                     },
                     {
@@ -1155,7 +1157,7 @@ export function PlaygroundInteractiveSections() {
                       updatedAt: now,
                       journey: {
                         mode: "proposed" as const,
-                        phaseIds: ["alignment", "explore", "implement", "execute", "port"],
+                        phaseIds: ["alignment", "work", "user-checkpoint", "memory"],
                       },
                     },
                   ];
@@ -1169,12 +1171,6 @@ export function PlaygroundInteractiveSections() {
                         sessionNum: 5,
                         name: "Clear Mesa",
                         status: "running",
-                      },
-                      reviewer: {
-                        sessionId: "playground-board-reviewer",
-                        sessionNum: 6,
-                        name: "Review Lead",
-                        status: "idle",
                       },
                     },
                     "q-55": {
@@ -1219,8 +1215,8 @@ export function PlaygroundInteractiveSections() {
                       completedAt: now - 110000,
                       journey: {
                         mode: "active" as const,
-                        phaseIds: ["alignment", "implement", "execute", "code-review", "port"],
-                        currentPhaseId: "port",
+                        phaseIds: ["alignment", "work", "memory"],
+                        currentPhaseId: "memory",
                       },
                     },
                   ]);

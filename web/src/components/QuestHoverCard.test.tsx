@@ -5,16 +5,7 @@ import type { QuestJourneyPhaseId } from "../../shared/quest-journey.js";
 import type { QuestmasterTask } from "../types.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
 
-const PHASE_CYCLE: QuestJourneyPhaseId[] = [
-  "alignment",
-  "explore",
-  "implement",
-  "code-review",
-  "user-checkpoint",
-  "port",
-  "execute",
-  "outcome-review",
-];
+const PHASE_CYCLE: QuestJourneyPhaseId[] = ["alignment", "work", "user-checkpoint", "work", "memory"];
 
 function anchorRect(): DOMRect {
   return {
@@ -59,13 +50,13 @@ describe("QuestHoverCard", () => {
             {
               questId: "q-77",
               title: "Finish hover Journey",
-              status: "PORTING",
+              status: "MEMORY",
               updatedAt: completedAt,
               completedAt,
               journey: {
                 mode: "active",
-                phaseIds: ["alignment", "implement", "code-review", "port"],
-                currentPhaseId: "port",
+                phaseIds: ["alignment", "work", "memory"],
+                currentPhaseId: "memory",
               },
             },
           ],
@@ -104,7 +95,7 @@ describe("QuestHoverCard", () => {
         {
           runId: "run-1",
           source: "board",
-          phaseIds: ["alignment", "implement"],
+          phaseIds: ["alignment", "work"],
           status: "active",
           createdAt: 1,
           updatedAt: 4,
@@ -119,7 +110,7 @@ describe("QuestHoverCard", () => {
             },
             {
               occurrenceId: "run-1:p2",
-              phaseId: "implement",
+              phaseId: "work",
               phaseIndex: 1,
               phasePosition: 2,
               phaseOccurrence: 1,
@@ -143,12 +134,12 @@ describe("QuestHoverCard", () => {
         {
           author: "agent",
           kind: "phase_summary",
-          text: "Full implementation detail should stay out of the compact hover preview.",
-          tldr: "Implementation TLDR.",
+          text: "Full Work detail should stay out of the compact hover preview.",
+          tldr: "Work TLDR.",
           ts: 4,
           journeyRunId: "run-1",
           phaseOccurrenceId: "run-1:p2",
-          phaseId: "implement",
+          phaseId: "work",
           phasePosition: 2,
         },
       ],
@@ -164,9 +155,9 @@ describe("QuestHoverCard", () => {
     expect(summary.textContent).toContain("Summary");
     expect(summary.textContent).toContain("Description scan text.");
     expect(progress.textContent).toContain("Latest Phase");
-    expect(progress.textContent).toContain("Implement / phase 2");
-    expect(progress.textContent).toContain("Implementation TLDR.");
-    expect(progress.textContent).not.toContain("Full implementation detail");
+    expect(progress.textContent).toContain("Work / phase 2");
+    expect(progress.textContent).toContain("Work TLDR.");
+    expect(progress.textContent).not.toContain("Full Work detail");
     expect(summary.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(progress.compareDocumentPosition(journey) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -189,7 +180,7 @@ describe("QuestHoverCard", () => {
         {
           runId: "run-1",
           source: "board",
-          phaseIds: ["implement"],
+          phaseIds: ["work"],
           status: "completed",
           createdAt: 1,
           updatedAt: 4,
@@ -197,7 +188,7 @@ describe("QuestHoverCard", () => {
           phaseOccurrences: [
             {
               occurrenceId: "run-1:p1",
-              phaseId: "implement",
+              phaseId: "work",
               phaseIndex: 0,
               phasePosition: 1,
               phaseOccurrence: 1,
@@ -210,12 +201,12 @@ describe("QuestHoverCard", () => {
         {
           author: "agent",
           kind: "phase_summary",
-          text: "Implementation detail.",
-          tldr: "Implementation phase TLDR.",
+          text: "Work detail.",
+          tldr: "Work phase TLDR.",
           ts: 4,
           journeyRunId: "run-1",
           phaseOccurrenceId: "run-1:p1",
-          phaseId: "implement",
+          phaseId: "work",
           phasePosition: 1,
         },
       ],
@@ -226,7 +217,7 @@ describe("QuestHoverCard", () => {
     const progress = within(screen.getByTestId("quest-hover-card")).getByTestId("quest-hover-progress-tldr");
     expect(progress.textContent).toContain("Final Debrief");
     expect(progress.textContent).toContain("Final debrief TLDR.");
-    expect(progress.textContent).not.toContain("Implementation phase TLDR.");
+    expect(progress.textContent).not.toContain("Work phase TLDR.");
   });
 
   it("clamps long Journey previews around the current phase with inline expansion", () => {
@@ -256,12 +247,12 @@ describe("QuestHoverCard", () => {
               journey: {
                 mode: "active",
                 phaseIds,
-                currentPhaseId: phaseIds[20],
-                activePhaseIndex: 20,
+                currentPhaseId: phaseIds[22],
+                activePhaseIndex: 22,
                 phaseNotes: {
-                  "14": "Hidden hover note",
-                  "15": "Visible hover boundary note",
-                  "30": "Visible later hover boundary note",
+                  "16": "Hidden hover note",
+                  "17": "Visible hover boundary note",
+                  "32": "Visible later hover boundary note",
                 },
               },
             },
@@ -276,9 +267,9 @@ describe("QuestHoverCard", () => {
     const visibleIndexes = Array.from(journey.querySelectorAll("li[data-phase-index]")).map((row) =>
       Number(row.getAttribute("data-phase-index")),
     );
-    expect(visibleIndexes).toEqual(Array.from({ length: 16 }, (_, index) => index + 15));
-    expect(within(journey).getByRole("button", { name: "Show 15 earlier phases" })).toBeTruthy();
-    expect(within(journey).getByRole("button", { name: "Show 7 later phases" })).toBeTruthy();
+    expect(visibleIndexes).toEqual(Array.from({ length: 16 }, (_, index) => index + 17));
+    expect(within(journey).getByRole("button", { name: "Show 17 earlier phases" })).toBeTruthy();
+    expect(within(journey).getByRole("button", { name: "Show 5 later phases" })).toBeTruthy();
     expect(within(journey).getByText("Visible hover boundary note")).toBeTruthy();
     expect(within(journey).getByText("Visible later hover boundary note")).toBeTruthy();
     expect(within(journey).queryByText("Hidden hover note")).toBeNull();
@@ -308,7 +299,7 @@ describe("QuestHoverCard", () => {
               updatedAt: 2,
               journey: {
                 mode: "active",
-                phaseIds: ["alignment", "explore", "execute"],
+                phaseIds: ["alignment", "work", "memory"],
               },
             },
           ],
@@ -353,9 +344,9 @@ describe("QuestHoverCard", () => {
           [
             {
               questId: "q-42",
-              status: "IMPLEMENTING",
+              status: "WORKING",
               updatedAt: 2,
-              journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
+              journey: { mode: "active", phaseIds: ["alignment", "work", "memory"], currentPhaseId: "work" },
             },
           ],
         ],

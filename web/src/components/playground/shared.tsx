@@ -138,7 +138,7 @@ export function PlaygroundCollapsedBoardCommand() {
         {
           questId: "q-1429",
           title: "Make workboard tool calls collapse like terminal commands",
-          status: "IMPLEMENTING",
+          status: "WORKING",
           updatedAt: Date.now() - 30000,
         },
       ]}
@@ -1555,12 +1555,12 @@ export function PlaygroundHoverCrossLinkDemo({ text }: { text: string }) {
           title: hoverQuest.title,
           worker: "playground-hover-worker",
           workerNum: 566,
-          status: "IMPLEMENTING",
+          status: "WORKING",
           updatedAt: Date.now() - 60000,
           journey: {
             mode: "active",
-            phaseIds: ["alignment", "implement", "code-review"],
-            currentPhaseId: "implement",
+            phaseIds: ["alignment", "work", "memory"],
+            currentPhaseId: "work",
           },
         },
         {
@@ -1570,7 +1570,7 @@ export function PlaygroundHoverCrossLinkDemo({ text }: { text: string }) {
           updatedAt: Date.now() - 30000,
           journey: {
             mode: "active",
-            phaseIds: ["alignment", "implement", "code-review"],
+            phaseIds: ["alignment", "work", "memory"],
             currentPhaseId: "alignment",
           },
         },
