@@ -250,7 +250,7 @@ describe("takode access control", () => {
           to: 4,
         }),
       );
-      expect(requestUrls).toEqual(["/api/takode/me", "/api/sessions/153/messages?count=2&until=4"]);
+      expect(requestUrls).toEqual(["/api/sessions/153/messages?count=2&until=4"]);
     } finally {
       server.close();
     }

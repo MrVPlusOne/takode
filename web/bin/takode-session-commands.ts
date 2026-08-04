@@ -50,7 +50,7 @@ export async function handleList(base: string, args: string[]): Promise<void> {
   const showTasks = flags.tasks === true;
   const jsonMode = flags.json === true;
 
-  const sessions = (await apiGet(base, "/takode/sessions")) as Array<{
+  const sessions = (await apiGet(base, "/takode/sessions", { auth: "optional" })) as Array<{
     sessionId: string;
     sessionNum?: number | null;
     name?: string;
@@ -399,7 +399,7 @@ export async function handleInfo(base: string, args: string[]): Promise<void> {
   assertKnownFlags(flags, INFO_ALLOWED_FLAGS, INFO_USAGE);
   const jsonMode = flags.json === true;
   const jsonOptions = resolveSessionInfoJsonOptions(flags, { jsonMode });
-  const data = await fetchSessionInfo(base, sessionRef);
+  const data = await fetchSessionInfo(base, sessionRef, { auth: "optional" });
 
   if (jsonMode) {
     console.log(JSON.stringify(buildSessionInfoJson(data, jsonOptions), null, 2));
@@ -620,7 +620,7 @@ export async function handleTasks(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args.slice(1));
   const jsonMode = flags.json === true;
 
-  const data = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/tasks`)) as {
+  const data = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/tasks`, { auth: "optional" })) as {
     sessionId: string;
     sessionNum: number;
     sessionName: string;

@@ -1368,7 +1368,7 @@ export async function handleSearch(base: string, args: string[]): Promise<void> 
   const showAll = flags.all === true;
   const jsonMode = flags.json === true;
 
-  const sessions = (await apiGet(base, "/takode/sessions")) as Array<{
+  const sessions = (await apiGet(base, "/takode/sessions", { auth: "optional" })) as Array<{
     sessionId: string;
     sessionNum?: number;
     name?: string;
@@ -1393,7 +1393,7 @@ export async function handleSearch(base: string, args: string[]): Promise<void> 
   if (!showAll) {
     params.set("includeArchived", "false");
   }
-  const searchResp = (await apiGet(base, `/sessions/search?${params.toString()}`)) as {
+  const searchResp = (await apiGet(base, `/sessions/search?${params.toString()}`, { auth: "optional" })) as {
     query: string;
     tookMs: number;
     totalMatches: number;

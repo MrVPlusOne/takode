@@ -715,6 +715,25 @@ describe("Takode server-authoritative auth", () => {
     expect(json.pendingTimerCount).toBe(1);
   });
 
+  it("allows sessionless takode message views while still rejecting invalid auth", async () => {
+    setupTakodeSessions();
+    bridge.getMessageHistory.mockReturnValue([]);
+
+    const sessionless = await app.request("/api/sessions/worker-1/messages", { method: "GET" });
+    expect(sessionless.status).toBe(200);
+    expect(await sessionless.json()).toMatchObject({
+      sn: -1,
+      name: "worker-1",
+      mode: "default",
+    });
+
+    const invalid = await app.request("/api/sessions/worker-1/messages", {
+      method: "GET",
+      headers: authHeaders("orch-1", "spoofed"),
+    });
+    expect(invalid.status).toBe(403);
+  });
+
   it("includes pendingTimerCount in takode scan message views", async () => {
     setupTakodeSessions();
     timerManager.listTimers.mockImplementation((sessionId: string) => (sessionId === "worker-1" ? [{ id: "t4" }] : []));

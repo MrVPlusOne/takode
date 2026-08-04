@@ -214,6 +214,10 @@ export function createTakodeRoutes(ctx: RouteContext) {
   const api = new Hono();
   const bridgeAny = ctx.wsBridge as any;
   const { launcher, wsBridge, authenticateTakodeCaller, resolveId, timerManager, pushoverNotifier } = ctx;
+  const rejectInvalidOptionalTakodeAuth = (c: Parameters<RouteContext["authenticateCompanionCallerOptional"]>[0]) => {
+    const auth = ctx.authenticateCompanionCallerOptional(c);
+    return auth && "response" in auth ? auth.response : null;
+  };
   type BridgeSession = NonNullable<ReturnType<typeof wsBridge.getSession>>;
   type LeaderAnswerTarget =
     | {
@@ -673,8 +677,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
   });
 
   api.get("/takode/sessions", async (c) => {
-    const auth = authenticateTakodeCaller(c);
-    if ("response" in auth) return auth.response;
+    const authError = rejectInvalidOptionalTakodeAuth(c);
+    if (authError) return authError;
     const enriched = await buildEnrichedSessions((session) => session.hidden !== true);
     return c.json(enriched);
   });
@@ -682,8 +686,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
   // ─── Takode: Session Info ──────────────────────────────────
 
   api.get("/sessions/:id/info", async (c) => {
-    const auth = authenticateTakodeCaller(c);
-    if ("response" in auth) return auth.response;
+    const authError = rejectInvalidOptionalTakodeAuth(c);
+    if (authError) return authError;
 
     const sessionId = resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
@@ -864,8 +868,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
   // ─── Takode: Message Peek & Read ────────────────────────────
 
   api.get("/sessions/:id/messages", (c) => {
-    const auth = authenticateTakodeCaller(c);
-    if ("response" in auth) return auth.response;
+    const authError = rejectInvalidOptionalTakodeAuth(c);
+    if (authError) return authError;
 
     const sessionId = resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
@@ -990,8 +994,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
   });
 
   api.get("/sessions/:id/messages/:idx", (c) => {
-    const auth = authenticateTakodeCaller(c);
-    if ("response" in auth) return auth.response;
+    const authError = rejectInvalidOptionalTakodeAuth(c);
+    if (authError) return authError;
 
     const sessionId = resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
@@ -1033,8 +1037,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
   // ─── Takode: Grep (within-session search) ────────────────────
 
   api.get("/sessions/:id/grep", (c) => {
-    const auth = authenticateTakodeCaller(c);
-    if ("response" in auth) return auth.response;
+    const authError = rejectInvalidOptionalTakodeAuth(c);
+    if (authError) return authError;
 
     const sessionId = resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
@@ -1066,8 +1070,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
   // ─── Takode: Export (dump session to text) ───────────────────
 
   api.get("/sessions/:id/export", (c) => {
-    const auth = authenticateTakodeCaller(c);
-    if ("response" in auth) return auth.response;
+    const authError = rejectInvalidOptionalTakodeAuth(c);
+    if (authError) return authError;
 
     const sessionId = resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);

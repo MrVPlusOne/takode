@@ -256,9 +256,26 @@ export function takodeAuthHeaders(extra?: Record<string, string>): Record<string
   };
 }
 
-export async function apiGet(base: string, path: string): Promise<unknown> {
+function takodeOptionalAuthHeaders(extra?: Record<string, string>): Record<string, string> {
+  const creds = getCredentials();
+  if (!creds) return { ...extra };
+  return {
+    [TAKODE_SESSION_ID_HEADER]: creds.sessionId,
+    [TAKODE_AUTH_TOKEN_HEADER]: creds.authToken,
+    ...extra,
+  };
+}
+
+export type ApiAuthMode = "required" | "optional";
+
+function takodeRequestHeaders(auth: ApiAuthMode, extra?: Record<string, string>): Record<string, string> {
+  if (auth === "optional") return takodeOptionalAuthHeaders(extra);
+  return takodeAuthHeaders(extra);
+}
+
+export async function apiGet(base: string, path: string, options: { auth?: ApiAuthMode } = {}): Promise<unknown> {
   const res = await fetch(`${base}${path}`, {
-    headers: takodeAuthHeaders(),
+    headers: takodeRequestHeaders(options.auth ?? "required"),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
@@ -608,8 +625,12 @@ export type CodexPendingDeliveryDiagnosticsDetails = CodexPendingDeliveryDiagnos
   }>;
 };
 
-export async function fetchSessionInfo(base: string, sessionRef: string): Promise<TakodeSessionInfo> {
-  return apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/info`) as Promise<TakodeSessionInfo>;
+export async function fetchSessionInfo(
+  base: string,
+  sessionRef: string,
+  options: { auth?: ApiAuthMode } = {},
+): Promise<TakodeSessionInfo> {
+  return apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/info`, options) as Promise<TakodeSessionInfo>;
 }
 
 export type SessionInfoJsonOptions = {

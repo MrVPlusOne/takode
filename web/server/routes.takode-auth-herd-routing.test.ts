@@ -587,11 +587,17 @@ describe("Takode server-authoritative auth", () => {
     return sessions;
   }
 
-  it("denies spoofed token and allows authenticated takode list scope for workers and orchestrators", async () => {
+  it("allows sessionless takode list while still denying spoofed auth tokens", async () => {
     setupTakodeSessions();
     launcher.verifySessionAuthToken.mockImplementation(
       (id: string, token: string) => (id === "orch-1" && token === "tok-1") || (id === "worker-2" && token === "tok-2"),
     );
+
+    const sessionless = await app.request("/api/takode/sessions", { method: "GET" });
+    expect(sessionless.status).toBe(200);
+    const sessionlessJson = await sessionless.json();
+    expect(Array.isArray(sessionlessJson)).toBe(true);
+    expect(sessionlessJson).toHaveLength(3);
 
     const denied = await app.request("/api/takode/sessions", {
       method: "GET",

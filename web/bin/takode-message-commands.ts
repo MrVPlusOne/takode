@@ -873,7 +873,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
     if (includeContext) params.set("context", "true");
     appendThreadQueryParam(params, threadKey);
     const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
-    const data = await apiGet(base, path);
+    const data = await apiGet(base, path, { auth: "optional" });
     if (jsonMode) {
       console.log(JSON.stringify(data, null, 2));
       return;
@@ -889,7 +889,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
     if (includeContext) params.set("context", "true");
     appendThreadQueryParam(params, threadKey);
     const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
-    const data = await apiGet(base, path);
+    const data = await apiGet(base, path, { auth: "optional" });
     if (jsonMode) {
       console.log(JSON.stringify(data, null, 2));
       return;
@@ -900,7 +900,9 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
 
   // Resolve --task N to a message range via the tasks endpoint
   if (taskNum !== undefined) {
-    const tasksData = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/tasks`)) as {
+    const tasksData = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/tasks`, {
+      auth: "optional",
+    })) as {
       tasks: Array<{ taskNum: number; startIdx: number; endIdx: number }>;
     };
     const task = tasksData.tasks.find((t) => t.taskNum === taskNum);
@@ -911,7 +913,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
     if (includeContext) params.set("context", "true");
     appendThreadQueryParam(params, threadKey);
     const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
-    const data = await apiGet(base, path);
+    const data = await apiGet(base, path, { auth: "optional" });
     if (jsonMode) {
       console.log(JSON.stringify(data, null, 2));
       return;
@@ -933,7 +935,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
     appendThreadQueryParam(params, threadKey);
     path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
 
-    const data = await apiGet(base, path);
+    const data = await apiGet(base, path, { auth: "optional" });
     if (jsonMode) {
       console.log(JSON.stringify(data, null, 2));
       return;
@@ -947,7 +949,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
     appendThreadQueryParam(params, threadKey);
     path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
 
-    const data = await apiGet(base, path);
+    const data = await apiGet(base, path, { auth: "optional" });
     if (jsonMode) {
       console.log(JSON.stringify(data, null, 2));
       return;
@@ -961,7 +963,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
     const qs = params.toString();
     path = `/sessions/${encodeURIComponent(sessionRef)}/messages${qs ? `?${qs}` : ""}`;
 
-    const data = await apiGet(base, path);
+    const data = await apiGet(base, path, { auth: "optional" });
     if (jsonMode) {
       console.log(JSON.stringify(data, null, 2));
       return;
@@ -991,6 +993,7 @@ export async function handleRead(base: string, args: string[]): Promise<void> {
   const data = await apiGet(
     base,
     `/sessions/${encodeURIComponent(sessionRef)}/messages/${encodeURIComponent(msgIdx)}${qs}`,
+    { auth: "optional" },
   );
 
   if (jsonMode) {
@@ -1100,10 +1103,9 @@ export async function handleScan(base: string, args: string[]): Promise<void> {
     // Probe total turns to compute backward offset
     const probeParams = new URLSearchParams({ scan: "turns", fromTurn: "0", turnCount: "0" });
     appendThreadQueryParam(probeParams, threadKey);
-    const probe = (await apiGet(
-      base,
-      `/sessions/${encodeURIComponent(sessionRef)}/messages?${probeParams}`,
-    )) as PeekTurnScanResponse;
+    const probe = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/messages?${probeParams}`, {
+      auth: "optional",
+    })) as PeekTurnScanResponse;
     fromTurn = Math.max(0, probe.totalTurns - turnCount);
   }
 
@@ -1115,7 +1117,7 @@ export async function handleScan(base: string, args: string[]): Promise<void> {
   if (includeContext) params.set("context", "true");
   appendThreadQueryParam(params, threadKey);
   const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
-  const data = (await apiGet(base, path)) as PeekTurnScanResponse;
+  const data = (await apiGet(base, path, { auth: "optional" })) as PeekTurnScanResponse;
 
   if (jsonMode) {
     console.log(JSON.stringify(data, null, 2));
@@ -1219,7 +1221,9 @@ export async function handleGrep(base: string, args: string[]): Promise<void> {
   const params = new URLSearchParams({ q: query, limit: String(limit) });
   if (typeFilter) params.set("type", typeFilter);
   appendThreadQueryParam(params, threadKey);
-  const data = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/grep?${params}`)) as {
+  const data = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/grep?${params}`, {
+    auth: "optional",
+  })) as {
     sessionId: string;
     sessionNum: number;
     query: string;
@@ -1275,7 +1279,7 @@ export async function handleExport(base: string, args: string[]): Promise<void> 
   const filePath = args.filter((a) => !a.startsWith("--"))[1];
   if (!sessionRef || !filePath) err("Usage: takode export <session> <path>");
 
-  const data = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/export`)) as {
+  const data = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/export`, { auth: "optional" })) as {
     sessionId: string;
     totalMessages: number;
     totalTurns: number;

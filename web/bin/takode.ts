@@ -51,6 +51,11 @@ import {
   handleTimers,
 } from "./takode-session-commands.js";
 
+type CommandAccess = {
+  requireOrchestrator?: boolean;
+  allowSessionlessRead?: boolean;
+};
+
 async function ensureTakodeAccess(base: string, options?: { requireOrchestrator?: boolean }): Promise<void> {
   const me = (await apiGet(base, "/takode/me")) as { isOrchestrator?: boolean };
   if (options?.requireOrchestrator && me.isOrchestrator !== true) {
@@ -64,20 +69,20 @@ const args = stripGlobalFlags(rawArgs);
 const base = getBase(rawArgs);
 
 try {
-  const commandAccess = new Map<string, { requireOrchestrator?: boolean }>([
-    ["list", {}],
-    ["search", {}],
-    ["info", {}],
+  const commandAccess = new Map<string, CommandAccess>([
+    ["list", { allowSessionlessRead: true }],
+    ["search", { allowSessionlessRead: true }],
+    ["info", { allowSessionlessRead: true }],
     ["leader-context-resume", {}],
     ["file-resolve", {}],
-    ["tasks", {}],
+    ["tasks", { allowSessionlessRead: true }],
     ["timers", {}],
-    ["scan", {}],
-    ["peek", {}],
-    ["read", {}],
-    ["grep", {}],
+    ["scan", { allowSessionlessRead: true }],
+    ["peek", { allowSessionlessRead: true }],
+    ["read", { allowSessionlessRead: true }],
+    ["grep", { allowSessionlessRead: true }],
     ["logs", {}],
-    ["export", {}],
+    ["export", { allowSessionlessRead: true }],
     ["send", { requireOrchestrator: true }],
     ["pause", { requireOrchestrator: true }],
     ["unpause", { requireOrchestrator: true }],
@@ -131,7 +136,7 @@ try {
     process.exit(0);
   }
   const access = command ? commandAccess.get(command) : undefined;
-  if (access) {
+  if (access && !access.allowSessionlessRead) {
     await ensureTakodeAccess(base, access);
   }
 
