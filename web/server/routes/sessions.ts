@@ -1179,7 +1179,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     return c.json(enriched);
   });
   registerArchivedSessionPageRoute(api, sessionSnapshotDeps);
-  registerSessionSearchRoute(api, { launcher, wsBridge });
+  registerSessionSearchRoute(api, { launcher, wsBridge, authenticateCompanionCallerOptional });
   registerGlobalStarredMessageSearchRoute(api, { launcher, wsBridge });
   registerSessionMessageSearchRoute(api, { launcher, wsBridge, resolveId });
   registerSessionStarredMessagesRoute(api, { launcher, wsBridge, resolveId });
@@ -1907,8 +1907,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
     resolveId,
     worktreeTracker,
   });
-  // ─── Task History (table of contents) ──────────────────────
   api.get("/sessions/:id/tasks", (c) => {
+    const auth = authenticateCompanionCallerOptional(c);
+    if (auth && "response" in auth) return auth.response;
     const sessionId = resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
 
@@ -1919,7 +1920,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const sessionNum = launcher.getSessionNum(sessionId) ?? -1;
     const sessionName = sessionNames.getName(sessionId) || sessionId.slice(0, 8);
 
-    // Build a message ID → array index lookup map for all user messages
     const idToIdx = new Map<string, number>();
     for (let i = 0; i < messageHistory.length; i++) {
       const msg = messageHistory[i];

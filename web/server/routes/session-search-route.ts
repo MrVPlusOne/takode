@@ -1,13 +1,15 @@
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import type { CliLauncher } from "../cli-launcher.js";
 import * as sessionNames from "../session-names.js";
 import { searchSessionDocuments, type SessionSearchDocument } from "../session-search.js";
 import type { WsBridge } from "../ws-bridge.js";
 import { buildLeaderActivePhaseSummaryForSnapshot } from "./session-list-snapshot.js";
+import type { OptionalAuthResult } from "./context.js";
 
 export interface SessionSearchRouteDeps {
   launcher: CliLauncher;
   wsBridge: WsBridge;
+  authenticateCompanionCallerOptional: (c: Context) => OptionalAuthResult;
 }
 
 export function parseIncludeArchived(rawValue: string | undefined): boolean {
@@ -16,8 +18,11 @@ export function parseIncludeArchived(rawValue: string | undefined): boolean {
 }
 
 export function registerSessionSearchRoute(api: Hono, deps: SessionSearchRouteDeps): void {
-  const { launcher, wsBridge } = deps;
+  const { launcher, wsBridge, authenticateCompanionCallerOptional } = deps;
   api.get("/sessions/search", (c) => {
+    const auth = authenticateCompanionCallerOptional(c);
+    if (auth && "response" in auth) return auth.response;
+
     const rawQuery = (c.req.query("q") || "").trim();
     if (!rawQuery) {
       return c.json({ error: "q is required" }, 400);

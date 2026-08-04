@@ -534,6 +534,14 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
   return events;
 }
 
+function authHeaders(sessionId: string, token: string): Record<string, string> {
+  return {
+    "x-companion-session-id": sessionId,
+    "x-companion-auth-token": token,
+    "Content-Type": "application/json",
+  };
+}
+
 describe("GET /api/sessions/search", () => {
   it("does not expose the removed broad aggregate search route", async () => {
     const res = await app.request("/api/search?q=needle", { method: "GET" });
@@ -544,6 +552,28 @@ describe("GET /api/sessions/search", () => {
     const res = await app.request("/api/sessions/search", { method: "GET" });
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "q is required" });
+  });
+
+  it("allows missing auth but rejects invalid auth headers", async () => {
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "s-active", state: "running", cwd: "/active", createdAt: 1, archived: false },
+      { sessionId: "caller", state: "running", cwd: "/caller", createdAt: 2, archived: false },
+    ]);
+    launcher.getSession.mockImplementation((id: string) =>
+      id === "caller" ? { sessionId: "caller", state: "running", cwd: "/caller", createdAt: 2 } : null,
+    );
+    launcher.verifySessionAuthToken.mockImplementation(() => false);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({ "s-active": "Needle active" });
+
+    const sessionless = await app.request("/api/sessions/search?q=needle", { method: "GET" });
+    expect(sessionless.status).toBe(200);
+    expect((await sessionless.json()).totalMatches).toBeGreaterThanOrEqual(1);
+
+    const invalid = await app.request("/api/sessions/search?q=needle", {
+      method: "GET",
+      headers: authHeaders("caller", "spoofed"),
+    });
+    expect(invalid.status).toBe(403);
   });
 
   it("searches metadata + user messages and includes archived sessions by default", async () => {
@@ -813,5 +843,58 @@ describe("GET /api/sessions/search", () => {
     expect(json.results[0]).toMatchObject({
       matchedField: "session_number",
     });
+  });
+});
+
+describe("GET /api/sessions/:id/tasks", () => {
+  function setupTaskSession() {
+    const sessions = {
+      "s-task": { sessionId: "s-task", state: "running", cwd: "/task", createdAt: 1 },
+      caller: { sessionId: "caller", state: "running", cwd: "/caller", createdAt: 2 },
+    };
+    launcher.getSession.mockImplementation((id: string) => (sessions as Record<string, any>)[id] ?? null);
+    launcher.getSessionNum.mockImplementation((id: string) => (id === "s-task" ? 153 : undefined));
+    bridge._sessions["s-task"] = {
+      id: "s-task",
+      state: {},
+      messageHistory: [
+        { type: "user_message", id: "u-1", content: "start task", timestamp: 1_000 },
+        { type: "assistant", message: { content: [{ type: "text", text: "working" }] }, timestamp: 1_100 },
+      ],
+      taskHistory: [
+        {
+          title: "Inspect task history",
+          action: "name",
+          timestamp: 1_000,
+          triggerMessageId: "u-1",
+          source: "namer",
+        },
+      ],
+      notifications: [],
+      pendingPermissions: new Map(),
+      keywords: [],
+      lastReadAt: 0,
+      attentionReason: null,
+      isGenerating: false,
+    };
+  }
+
+  it("allows missing auth but rejects invalid auth headers", async () => {
+    setupTaskSession();
+    launcher.verifySessionAuthToken.mockImplementation(() => false);
+
+    const sessionless = await app.request("/api/sessions/s-task/tasks", { method: "GET" });
+    expect(sessionless.status).toBe(200);
+    expect(await sessionless.json()).toMatchObject({
+      sessionId: "s-task",
+      sessionNum: 153,
+      tasks: [expect.objectContaining({ title: "Inspect task history", startIdx: 0, endIdx: 1 })],
+    });
+
+    const invalid = await app.request("/api/sessions/s-task/tasks", {
+      method: "GET",
+      headers: authHeaders("caller", "spoofed"),
+    });
+    expect(invalid.status).toBe(403);
   });
 });
