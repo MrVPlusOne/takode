@@ -1080,6 +1080,7 @@ describe("POST /api/quests/:questId/complete", () => {
       row?: Record<string, unknown>;
       quest?: Record<string, unknown>;
       workerState?: Record<string, unknown>;
+      workerLauncher?: Record<string, unknown>;
       completeQuest?: Record<string, unknown>;
     } = {},
   ) {
@@ -1097,7 +1098,12 @@ describe("POST /api/quests/:questId/complete", () => {
       state: "running",
       cwd: "/repo",
       archived: false,
+      isWorktree: true,
+      repoRoot: "/repo",
+      branch: "feature",
+      actualBranch: "feature-wt-1",
       ...(options.callerReviewerOf !== undefined ? { reviewerOf: options.callerReviewerOf } : {}),
+      ...(options.workerLauncher ?? {}),
     };
     launcher.listSessions.mockReturnValue([leaderSession, workerSession] as any);
     launcher.getSession.mockImplementation((sid: string) => {
@@ -1373,17 +1379,46 @@ describe("POST /api/quests/:questId/complete", () => {
     expect(questStore.completeQuest).not.toHaveBeenCalled();
   });
 
-  it("allows explicit local-only clean v2 completion with structured accepted state", async () => {
+  it("rejects remote-backed worktree completion when the caller self-selects local-clean", async () => {
     const auth = installV2MemoryFixture({ workerState: { git_ahead: 2 } });
 
     const res = await postV2Complete({ commitShas: ["abc1234"], v2CompletionSync: "local-clean" }, auth);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("ahead") });
+    expect(questStore.completeQuest).not.toHaveBeenCalled();
   });
 
-  it("allows explicit local-only clean non-worktree v2 completion without remote-backed sync classification", async () => {
+  it("rejects remote-backed non-worktree completion when the caller self-selects local-clean", async () => {
     const auth = installV2MemoryFixture({
-      workerState: { is_worktree: false, git_ahead: 2, git_behind: 1, git_default_branch: "", diff_base_branch: "" },
+      workerState: { is_worktree: false, git_ahead: 2, git_behind: 1 },
+    });
+
+    const res = await postV2Complete({ commitShas: ["abc1234"], v2CompletionSync: "local-clean" }, auth);
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("ahead") });
+    expect(questStore.completeQuest).not.toHaveBeenCalled();
+  });
+
+  it("allows server-proven local-only clean v2 completion with structured accepted state", async () => {
+    const auth = installV2MemoryFixture({
+      workerLauncher: {
+        worktreePortTarget: {
+          repoRoot: "/repo",
+          branch: "leader-local-wt-1",
+          worktreePath: "/worktrees/repo/leader-local-wt-1",
+          sourceSessionNum: 7,
+        },
+      },
+      workerState: {
+        is_worktree: true,
+        git_ahead: 2,
+        git_behind: 1,
+        git_default_branch: "",
+        diff_base_branch: "",
+        total_lines_added: 4,
+      },
     });
 
     const res = await postV2Complete({ commitShas: ["abc1234"], v2CompletionSync: "local-clean" }, auth);

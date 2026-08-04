@@ -20,6 +20,7 @@ import type { OptionalAuthResult, RouteContext } from "./context.js";
 import { isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
 import { isLegacyQuestJourneyPhaseId, normalizeKnownQuestJourneyPhaseIds } from "../../shared/quest-journey.js";
 import type { BoardRow, SessionState } from "../session-types.js";
+import type { SdkSessionInfo } from "../session-info.js";
 import { normalizeTldr, QUEST_TLDR_WARNING_HEADER, tldrWarningForContent } from "../quest-tldr.js";
 import {
   QUEST_PHASE_DOCUMENTATION_WARNING_HEADER,
@@ -288,6 +289,23 @@ function hasUnaddressedHumanFeedback(quest: QuestmasterTask): boolean {
   return (quest.feedback ?? []).some((entry) => entry.author === "human" && entry.addressed !== true);
 }
 
+function hasServerAuthorizedLocalCompletionTarget(
+  state: Partial<SessionState> | undefined,
+  launcherSession: Pick<SdkSessionInfo, "isWorktree" | "worktreePortTarget"> | undefined,
+): boolean {
+  const target = launcherSession?.worktreePortTarget;
+  return (
+    state?.is_worktree === true &&
+    launcherSession?.isWorktree === true &&
+    typeof target?.repoRoot === "string" &&
+    target.repoRoot.trim().length > 0 &&
+    typeof target.branch === "string" &&
+    target.branch.trim().length > 0 &&
+    typeof target.worktreePath === "string" &&
+    target.worktreePath.trim().length > 0
+  );
+}
+
 function validateV2CompletionGitState(
   state: Partial<SessionState> | undefined,
   commitShas: string[] | undefined,
@@ -488,7 +506,9 @@ export function createQuestRoutes(ctx: RouteContext) {
     }
     const commitShas = Array.isArray(body.commitShas) ? body.commitShas : undefined;
     const memoryCommitShas = Array.isArray(body.memoryCommitShas) ? body.memoryCommitShas : undefined;
-    const localOnly = body.v2CompletionSync === "local-clean";
+    const localOnly =
+      body.v2CompletionSync === "local-clean" &&
+      hasServerAuthorizedLocalCompletionTarget(workerState, launcher.getSession(workerSessionId));
     const gitStateError = validateV2CompletionGitState(workerState, commitShas, memoryCommitShas, { localOnly });
     if (gitStateError) {
       return new Response(JSON.stringify({ error: gitStateError }), {
