@@ -1070,6 +1070,270 @@ describe("POST /api/quests/:questId/complete", () => {
     };
   }
 
+  function installV2MemoryFixture(
+    options: {
+      callerId?: string;
+      callerToken?: string;
+      callerIsLeader?: boolean;
+      callerReviewerOf?: number;
+      row?: Record<string, unknown>;
+      quest?: Record<string, unknown>;
+      workerState?: Record<string, unknown>;
+      completeQuest?: Record<string, unknown>;
+    } = {},
+  ) {
+    const callerId = options.callerId ?? "worker-1";
+    const callerToken = options.callerToken ?? "tok";
+    const leaderSession = {
+      sessionId: "leader-1",
+      state: "running",
+      cwd: "/test",
+      archived: false,
+      isOrchestrator: true,
+    };
+    const workerSession = {
+      sessionId: "worker-1",
+      state: "running",
+      cwd: "/repo",
+      archived: false,
+      ...(options.callerReviewerOf !== undefined ? { reviewerOf: options.callerReviewerOf } : {}),
+    };
+    launcher.listSessions.mockReturnValue([leaderSession, workerSession] as any);
+    launcher.getSession.mockImplementation((sid: string) => {
+      if (sid === "leader-1") return leaderSession as any;
+      if (sid === "worker-1") return workerSession as any;
+      if (sid === "other-worker")
+        return { sessionId: "other-worker", state: "running", cwd: "/repo", archived: false } as any;
+      if (sid === "other-leader") {
+        return {
+          sessionId: "other-leader",
+          state: "running",
+          cwd: "/test",
+          archived: false,
+          isOrchestrator: true,
+        } as any;
+      }
+      return undefined;
+    });
+    launcher.verifySessionAuthToken.mockImplementation(
+      (sid: string, token: string) => sid === callerId && token === callerToken,
+    );
+    bridge._sessions = {
+      "leader-1": {
+        id: "leader-1",
+        board: new Map([
+          [
+            "q-1",
+            {
+              questId: "q-1",
+              worker: "worker-1",
+              workerNum: 7,
+              status: "MEMORY",
+              journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 2, currentPhaseId: "memory" },
+              createdAt: 1,
+              updatedAt: 2,
+              ...(options.row ?? {}),
+            },
+          ],
+        ]),
+        completedBoard: new Map(),
+        notifications: [],
+        pendingPermissions: new Map(),
+        taskHistory: [],
+        keywords: [],
+        attentionRecords: [],
+        messageHistory: [],
+        browserSockets: new Set(),
+      },
+      "worker-1": {
+        id: "worker-1",
+        state: {
+          is_worktree: true,
+          git_ahead: 0,
+          total_lines_added: 0,
+          total_lines_removed: 0,
+          git_status_refresh_error: null,
+          diff_stats_skipped_reason: null,
+          ...(options.workerState ?? {}),
+        },
+        notifications: [],
+        pendingPermissions: new Map(),
+        taskHistory: [],
+        keywords: [],
+        attentionRecords: [],
+        messageHistory: [],
+        browserSockets: new Set(),
+      },
+    };
+    const quest = {
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "worker-1",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "work",
+          kind: "phase_summary",
+          text: "Accepted Work evidence with enough detail to satisfy the v2 completion guard before Memory closure.",
+          ts: 1,
+        },
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "memory",
+          kind: "phase_summary",
+          text: "Final Memory closure.\n\nmemory update not needed: no durable cross-quest learning.",
+          ts: 2,
+        },
+      ],
+      ...(options.quest ?? {}),
+    };
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce(quest as any);
+    vi.spyOn(questStore, "completeQuest").mockResolvedValueOnce({
+      ...quest,
+      status: "done",
+      verificationItems: [],
+      verificationInboxUnread: true,
+      ...(options.completeQuest ?? {}),
+    } as any);
+    return { callerId, callerToken };
+  }
+
+  async function postV2Complete(
+    body: Record<string, unknown> = {},
+    auth: { callerId: string; callerToken: string } = { callerId: "worker-1", callerToken: "tok" },
+  ) {
+    return app.request("/api/quests/q-1/complete", {
+      method: "POST",
+      headers: companionAuthHeaders(auth.callerId, auth.callerToken),
+      body: JSON.stringify({
+        verificationItems: [],
+        debrief: "Completed the accepted work and final Memory closure.",
+        debriefTldr: "Accepted work is complete with final Memory closure.",
+        ...body,
+      }),
+    });
+  }
+
+  it("allows the assigned worker to complete an active v2 Memory row with final evidence", async () => {
+    const auth = installV2MemoryFixture({
+      workerState: { total_lines_added: 12, total_lines_removed: 1 },
+    });
+
+    const res = await postV2Complete({ commitShas: ["abc1234"] }, auth);
+
+    expect(res.status).toBe(200);
+    expect(questStore.completeQuest).toHaveBeenCalledWith("q-1", [], {
+      commitShas: ["abc1234"],
+      memoryCommitShas: undefined,
+      debrief: "Completed the accepted work and final Memory closure.",
+      debriefTldr: "Accepted work is complete with final Memory closure.",
+    });
+    expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1");
+  });
+
+  it("allows the owning leader to complete v2 Memory on behalf of the assigned worker", async () => {
+    const auth = installV2MemoryFixture({ callerId: "leader-1", callerToken: "leader-token" });
+
+    const res = await postV2Complete({ sessionId: "worker-1", memoryCommitShas: ["def5678"] }, auth);
+
+    expect(res.status).toBe(200);
+    expect(questStore.completeQuest).toHaveBeenCalledWith("q-1", [], {
+      commitShas: undefined,
+      memoryCommitShas: ["def5678"],
+      sessionId: "worker-1",
+      debrief: "Completed the accepted work and final Memory closure.",
+      debriefTldr: "Accepted work is complete with final Memory closure.",
+    });
+  });
+
+  it.each([
+    ["wrong worker", { callerId: "other-worker", callerToken: "tok" }, {}, 403],
+    ["reviewer caller", { callerId: "worker-1", callerToken: "tok" }, { callerReviewerOf: 7 }, 403],
+    ["other leader", { callerId: "other-leader", callerToken: "tok" }, { callerIsLeader: true }, 403],
+  ])("rejects v2 Memory completion from %s", async (_label, auth, fixture, status) => {
+    installV2MemoryFixture(fixture as any);
+    launcher.verifySessionAuthToken.mockImplementation(
+      (sid: string, token: string) => sid === auth.callerId && token === auth.callerToken,
+    );
+
+    const res = await postV2Complete({}, auth);
+
+    expect(res.status).toBe(status);
+    expect(questStore.completeQuest).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "wrong phase",
+      {
+        row: {
+          status: "WORKING",
+          journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+        },
+      },
+      "MEMORY",
+    ],
+    ["unresolved checkpoint", { row: { waitForInput: ["n-1"] } }, "User Checkpoint"],
+    ["missing debrief", {}, "Final debrief", { debrief: "" }],
+    ["missing debrief TLDR", {}, "Final debrief TLDR", { debriefTldr: "" }],
+    [
+      "unaddressed feedback",
+      { quest: { feedback: [{ author: "human", text: "Please fix", ts: 1, addressed: false }] } },
+      "human feedback",
+    ],
+    ["missing memory statement", { quest: { feedback: [] } }, "exactly one final memory statement"],
+    [
+      "duplicate memory statements",
+      {
+        quest: {
+          feedback: [
+            {
+              author: "agent",
+              authorSessionId: "worker-1",
+              phaseId: "work",
+              kind: "phase_summary",
+              text: "Accepted Work evidence with enough detail to satisfy the v2 completion guard before Memory closure.",
+              ts: 1,
+            },
+            {
+              author: "agent",
+              authorSessionId: "worker-1",
+              phaseId: "memory",
+              kind: "phase_summary",
+              text: "memory updated: abc\nmemory update not needed: duplicate",
+              ts: 2,
+            },
+          ],
+        },
+      },
+      "exactly one final memory statement",
+    ],
+    ["dirty tracked changes", { workerState: { total_lines_added: 5 } }, "tracked changes"],
+    ["ahead worktree", { workerState: { git_ahead: 1 } }, "ahead"],
+    ["uncertain git state", { workerState: { git_status_refresh_error: "status failed" } }, "uncertain"],
+  ])("rejects v2 Memory completion with %s", async (_label, fixture, errorText, body?: Record<string, unknown>) => {
+    const auth = installV2MemoryFixture(fixture as any);
+
+    const res = await postV2Complete(body ?? {}, auth);
+
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining(errorText) });
+    expect(questStore.completeQuest).not.toHaveBeenCalled();
+  });
+
+  it("preserves zero-tracked-change v2 completion", async () => {
+    const zeroAuth = installV2MemoryFixture();
+    const zero = await postV2Complete({}, zeroAuth);
+    expect(zero.status).toBe(200);
+  });
+
   it("allows an authenticated leader to complete on behalf of a worker session", async () => {
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1-v3",

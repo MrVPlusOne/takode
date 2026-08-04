@@ -4,6 +4,7 @@ import {
   canonicalizeKnownQuestJourneyPhaseId,
   canonicalizeKnownQuestJourneyState,
   isLegacyQuestJourneyPhaseId,
+  normalizeKnownQuestJourneyPhaseIds,
   normalizeQuestJourneyPlan,
   type QuestJourneyV2LegacyPhaseRecord,
   type QuestJourneyPhaseTiming,
@@ -105,7 +106,7 @@ function migrateQuestJourneyV2BoardRow(
   const fromCurrentPhaseId =
     fromActivePhaseIndex !== undefined
       ? phaseAnalysis.phaseIdsByPosition[fromActivePhaseIndex]
-      : canonicalizeKnownQuestJourneyPhaseId(row.journey?.currentPhaseId);
+      : (canonicalizeKnownQuestJourneyPhaseId(row.journey?.currentPhaseId) ?? undefined);
   const malformedReason = getMalformedRowReason(status, normalizedStatus, phaseAnalysis);
   const workerSafety =
     normalizedStatus === "PROPOSED" || normalizedStatus === "QUEUED" || malformedReason

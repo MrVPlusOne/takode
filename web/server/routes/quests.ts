@@ -18,6 +18,8 @@ import {
 import { broadcastQuestUpdate } from "./quest-helpers.js";
 import type { OptionalAuthResult, RouteContext } from "./context.js";
 import { isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
+import { isLegacyQuestJourneyPhaseId, normalizeKnownQuestJourneyPhaseIds } from "../../shared/quest-journey.js";
+import type { BoardRow, SessionState } from "../session-types.js";
 import { normalizeTldr, QUEST_TLDR_WARNING_HEADER, tldrWarningForContent } from "../quest-tldr.js";
 import {
   QUEST_PHASE_DOCUMENTATION_WARNING_HEADER,
@@ -32,6 +34,7 @@ import type { MemoryRepoOptions } from "../workstream-memory-types.js";
 const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
 const MAX_DIFF_BYTES = 512 * 1024;
 const SUMMARY_FEEDBACK_PREFIXES = ["summary:", "refreshed summary:"];
+const FINAL_MEMORY_STATEMENT_RE = /^memory (updated|update deferred|update not needed):\s*\S.*$/gim;
 
 function normalizeRequestedCommitSha(value: string): string | null {
   const sha = value.trim().toLowerCase();
@@ -228,6 +231,81 @@ function resolveSubmittedSessionId(
   const raw = typeof rawSessionId === "string" ? rawSessionId.trim() : "";
   if (!raw) return { raw: "", sessionId: "" };
   return { raw, sessionId: resolveId(raw) ?? "" };
+}
+
+function isActiveV2JourneyRow(row: BoardRow): boolean {
+  const status = (row.status ?? "").trim().toUpperCase();
+  if (status === "PROPOSED" || status === "QUEUED") return false;
+  const phaseIds = normalizeKnownQuestJourneyPhaseIds(row.journey?.phaseIds);
+  return phaseIds.length > 0 && phaseIds.every((phaseId) => !isLegacyQuestJourneyPhaseId(phaseId));
+}
+
+function findActiveV2BoardRowsForQuest(
+  questId: string,
+  launcher: RouteContext["launcher"],
+  wsBridge: RouteContext["wsBridge"],
+): Array<{ leaderSessionId: string; row: BoardRow }> {
+  const normalizedQuestId = questId.toLowerCase();
+  const rows: Array<{ leaderSessionId: string; row: BoardRow }> = [];
+  const visited = new Set<string>();
+  const candidateSessionIds = [
+    ...launcher.listSessions().map((session) => session.sessionId),
+    ...Object.keys((wsBridge as { _sessions?: Record<string, unknown> })._sessions ?? {}),
+  ];
+  for (const sessionId of candidateSessionIds) {
+    if (!sessionId || visited.has(sessionId)) continue;
+    visited.add(sessionId);
+    const bridgeSession = wsBridge.getSession(sessionId);
+    if (!bridgeSession?.board) continue;
+    const row = [...bridgeSession.board.values()].find(
+      (candidate: BoardRow) => candidate.questId.toLowerCase() === normalizedQuestId && isActiveV2JourneyRow(candidate),
+    );
+    if (row) rows.push({ leaderSessionId: bridgeSession.id, row });
+  }
+  return rows;
+}
+
+function countFinalMemoryStatements(quest: QuestmasterTask, workerSessionId: string): number {
+  return (quest.feedback ?? [])
+    .filter(
+      (entry) => entry.author === "agent" && entry.authorSessionId === workerSessionId && entry.phaseId === "memory",
+    )
+    .reduce((count, entry) => count + [...entry.text.matchAll(FINAL_MEMORY_STATEMENT_RE)].length, 0);
+}
+
+function hasCurrentWorkEvidence(quest: QuestmasterTask, workerSessionId: string): boolean {
+  return (quest.feedback ?? []).some(
+    (entry) =>
+      entry.author === "agent" &&
+      entry.authorSessionId === workerSessionId &&
+      entry.phaseId === "work" &&
+      (entry.kind === "phase_summary" || entry.kind === undefined) &&
+      entry.text.trim().length >= 80,
+  );
+}
+
+function hasUnaddressedHumanFeedback(quest: QuestmasterTask): boolean {
+  return (quest.feedback ?? []).some((entry) => entry.author === "human" && entry.addressed !== true);
+}
+
+function validateV2CompletionGitState(
+  state: Partial<SessionState> | undefined,
+  commitShas: string[] | undefined,
+  memoryCommitShas: string[] | undefined,
+): string | undefined {
+  if (!state) return "Cannot verify worker git state for v2 Memory completion.";
+  if (state.git_status_refresh_error) return `Worker git state is uncertain: ${state.git_status_refresh_error}`;
+  if (state.diff_stats_skipped_reason)
+    return `Worker tracked-change state is uncertain: ${state.diff_stats_skipped_reason}`;
+  if (state.is_worktree && (state.git_ahead ?? 0) > 0) {
+    return "Worker worktree still has commits ahead of its comparison target; sync/Port before completion.";
+  }
+  const changedLines = (state.total_lines_added ?? 0) + (state.total_lines_removed ?? 0);
+  const hasStructuredEvidence = (commitShas?.length ?? 0) > 0 || (memoryCommitShas?.length ?? 0) > 0;
+  if (changedLines > 0 && !hasStructuredEvidence) {
+    return "Worker has tracked changes but completion did not include code or memory commit metadata.";
+  }
+  return undefined;
 }
 
 export function createQuestRoutes(ctx: RouteContext) {
@@ -945,6 +1023,74 @@ export function createQuestRoutes(ctx: RouteContext) {
     try {
       const currentQuest = await questStore.getQuest(c.req.param("questId"));
       if (!currentQuest) return c.json({ error: "Quest not found" }, 404);
+      const activeV2Rows = findActiveV2BoardRowsForQuest(c.req.param("questId"), launcher, wsBridge);
+      if (activeV2Rows.length > 0) {
+        if (!auth) return c.json({ error: "Authenticated v2 Memory completion is required." }, 403);
+        if (activeV2Rows.length > 1) {
+          return c.json(
+            { error: "Multiple active v2 board rows exist for this quest; reconcile the board first." },
+            409,
+          );
+        }
+        const [{ leaderSessionId, row }] = activeV2Rows;
+        const workerSessionId = row.worker;
+        const currentOwnerSessionId =
+          "sessionId" in currentQuest && typeof currentQuest.sessionId === "string" ? currentQuest.sessionId : "";
+        if (!workerSessionId || currentOwnerSessionId !== workerSessionId) {
+          return c.json({ error: "v2 Memory completion requires the exact assigned and claimed worker." }, 409);
+        }
+        if (auth.caller.reviewerOf !== undefined) {
+          return c.json({ error: "Reviewer sessions cannot complete v2 Memory quests." }, 403);
+        }
+        const callerIsAssignedWorker = auth.callerId === workerSessionId;
+        const callerIsOwningLeader = auth.caller.isOrchestrator === true && auth.callerId === leaderSessionId;
+        if (!callerIsAssignedWorker && !callerIsOwningLeader) {
+          return c.json({ error: "Only the assigned worker or owning leader may complete v2 Memory." }, 403);
+        }
+        if (targetSessionId && targetSessionId !== workerSessionId) {
+          return c.json({ error: "v2 Memory completion sessionId must match the assigned worker." }, 403);
+        }
+        if ((row.status ?? "").trim().toUpperCase() !== "MEMORY") {
+          return c.json(
+            { error: `v2 Memory completion requires board state MEMORY; current state is ${row.status ?? "unknown"}.` },
+            409,
+          );
+        }
+        if ((row.waitForInput ?? []).length > 0) {
+          return c.json({ error: "Cannot complete v2 Memory while a User Checkpoint is unresolved." }, 409);
+        }
+        if (hasUnaddressedHumanFeedback(currentQuest)) {
+          return c.json({ error: "Cannot complete v2 Memory while human feedback remains unaddressed." }, 409);
+        }
+        if (typeof body.debrief !== "string" || !body.debrief.trim()) {
+          return c.json({ error: "Final debrief is required for v2 Memory completion." }, 400);
+        }
+        if (!normalizeTldr(body.debriefTldr)) {
+          return c.json({ error: "Final debrief TLDR is required for v2 Memory completion." }, 400);
+        }
+        const memoryStatementCount = countFinalMemoryStatements(currentQuest, workerSessionId);
+        if (memoryStatementCount !== 1) {
+          return c.json(
+            {
+              error: `v2 Memory completion requires exactly one final memory statement; found ${memoryStatementCount}.`,
+            },
+            409,
+          );
+        }
+        if (!hasCurrentWorkEvidence(currentQuest, workerSessionId)) {
+          return c.json(
+            { error: "v2 Memory completion requires accepted Work evidence from the assigned worker." },
+            409,
+          );
+        }
+        const workerBridgeSession = wsBridge.getSession(workerSessionId);
+        const gitStateError = validateV2CompletionGitState(
+          workerBridgeSession?.state,
+          Array.isArray(body.commitShas) ? body.commitShas : undefined,
+          Array.isArray(body.memoryCommitShas) ? body.memoryCommitShas : undefined,
+        );
+        if (gitStateError) return c.json({ error: gitStateError }, 409);
+      }
       const guardResponse = guardStatusMutation(c, auth, currentQuest, body);
       if (guardResponse) return guardResponse;
       const currentOwnerSessionId =
