@@ -397,6 +397,14 @@ describe("takode board output modes", () => {
                         note: "Old review note",
                       },
                       {
+                        index: 4,
+                        phasePosition: 5,
+                        phaseOccurrence: 1,
+                        rawPhaseId: "definitely-not-a-phase",
+                        diagnostic: "unknown or malformed legacy phase id",
+                        note: "Unknown legacy note",
+                      },
+                      {
                         index: 3,
                         phasePosition: 4,
                         phaseOccurrence: 1,
@@ -434,8 +442,10 @@ describe("takode board output modes", () => {
       expect(detail.stdout).toContain("note[2] Work: Active v2 Work migration summary");
       expect(detail.stdout).toContain("legacy note[3] Code Review: Old review note");
       expect(detail.stdout).toContain("legacy note[4] Port: Old port note");
+      expect(detail.stdout).toContain("legacy note[5] definitely-not-a-phase: Unknown legacy note");
       expect(detail.stdout).toContain("legacy phase[4] Port:");
       expect(detail.stdout).not.toContain("note[3] Memory: Old review note");
+      expect(detail.stdout).not.toContain("legacy note[5] Memory: Unknown legacy note");
     } finally {
       server.close();
     }

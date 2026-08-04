@@ -342,6 +342,7 @@ export interface QuestJourneyV2LegacyPhaseRecord {
   phaseOccurrence: number;
   phaseId?: QuestJourneyPhaseId;
   rawPhaseId?: string;
+  diagnostic?: string;
   note?: string;
   timing?: QuestJourneyPhaseTiming;
 }
@@ -1153,6 +1154,8 @@ function normalizeQuestJourneyV2LegacyPhaseRecords(value: unknown): QuestJourney
     const rawPhaseId =
       typeof record.rawPhaseId === "string" && record.rawPhaseId.trim() ? record.rawPhaseId.trim() : undefined;
     const note = typeof record.note === "string" && record.note.trim() ? record.note.trim() : undefined;
+    const diagnostic =
+      typeof record.diagnostic === "string" && record.diagnostic.trim() ? record.diagnostic.trim() : undefined;
     const timing = normalizeQuestJourneyPhaseTimings(
       record.timing ? { [String(index)]: record.timing } : undefined,
       index + 1,
@@ -1173,6 +1176,7 @@ function normalizeQuestJourneyV2LegacyPhaseRecords(value: unknown): QuestJourney
       phaseOccurrence,
       ...(phaseId ? { phaseId } : {}),
       ...(rawPhaseId ? { rawPhaseId } : {}),
+      ...(diagnostic ? { diagnostic } : {}),
       ...(note ? { note } : {}),
       ...(timing ? { timing } : {}),
     });

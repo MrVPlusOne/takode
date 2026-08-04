@@ -332,7 +332,8 @@ describe("migrateQuestJourneyV2BoardRows", () => {
             status: "IMPLEMENTING",
             journey: {
               phaseIds: ["alignment", "definitely-not-a-phase", "memory"] as never,
-              phaseNotes: { "1": "Unknown phase note" },
+              phaseNotes: { "1": "Unknown phase note", "2": "Valid memory note" },
+              phaseTimings: { "1": { startedAt: 1000 }, "2": { startedAt: 2000 } },
             },
           }),
         ]),
@@ -345,9 +346,28 @@ describe("migrateQuestJourneyV2BoardRows", () => {
       expect(migrated.get("q-bad-state")?.journey?.v2Migration?.diagnostic).toContain("unknown legacy board state");
       expect(migrated.get("q-bad-phase")).toMatchObject({ status: "QUEUED", waitFor: ["free-worker"] });
       expect(migrated.get("q-bad-phase")?.journey?.v2Migration?.diagnostic).toContain("unknown or malformed");
-      expect(migrated.get("q-bad-phase")?.journey?.v2Migration?.legacyPhases).toEqual(
-        expect.arrayContaining([expect.objectContaining({ rawPhaseId: "definitely-not-a-phase" })]),
+      const badPhaseLegacy = migrated.get("q-bad-phase")?.journey?.v2Migration?.legacyPhases ?? [];
+      expect(badPhaseLegacy).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            index: 1,
+            phasePosition: 2,
+            rawPhaseId: "definitely-not-a-phase",
+            diagnostic: "unknown or malformed legacy phase id",
+            note: "Unknown phase note",
+            timing: { startedAt: 1000 },
+          }),
+          expect.objectContaining({
+            index: 2,
+            phasePosition: 3,
+            phaseId: "memory",
+            rawPhaseId: "memory",
+            note: "Valid memory note",
+            timing: { startedAt: 2000 },
+          }),
+        ]),
       );
+      expect(badPhaseLegacy.find((record) => record.index === 1)?.phaseId).toBeUndefined();
       expect(summary.pausedRows).toHaveLength(2);
     });
   });

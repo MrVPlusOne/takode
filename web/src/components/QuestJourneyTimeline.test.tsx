@@ -175,6 +175,14 @@ describe("QuestJourneyTimeline vertical clamping", () => {
             legacyPhases: [
               { index: 2, phasePosition: 3, phaseOccurrence: 1, phaseId: "code-review", note: "Old review note" },
               {
+                index: 4,
+                phasePosition: 5,
+                phaseOccurrence: 1,
+                rawPhaseId: "definitely-not-a-phase",
+                diagnostic: "unknown or malformed legacy phase id",
+                note: "Unknown legacy note",
+              },
+              {
                 index: 3,
                 phasePosition: 4,
                 phaseOccurrence: 1,
@@ -198,6 +206,9 @@ describe("QuestJourneyTimeline vertical clamping", () => {
     expect(within(timeline).getByText("Old review note")).toBeInTheDocument();
     expect(within(timeline).getByText("4. Port")).toBeInTheDocument();
     expect(within(timeline).getByText("Old port note")).toBeInTheDocument();
+    expect(within(timeline).getByText("5. definitely-not-a-phase")).toBeInTheDocument();
+    expect(within(timeline).getByText("Unknown legacy note")).toBeInTheDocument();
+    expect(within(timeline).queryByText("5. Memory")).toBeNull();
     expect(within(timeline).getByText("1m")).toBeInTheDocument();
   });
 });

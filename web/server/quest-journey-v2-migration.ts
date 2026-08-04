@@ -3,9 +3,7 @@ import {
   FREE_WORKER_WAIT_FOR_TOKEN,
   canonicalizeKnownQuestJourneyPhaseId,
   canonicalizeKnownQuestJourneyState,
-  getQuestJourneyCurrentPhaseIndex,
   isLegacyQuestJourneyPhaseId,
-  normalizeKnownQuestJourneyPhaseIds,
   normalizeQuestJourneyPlan,
   type QuestJourneyV2LegacyPhaseRecord,
   type QuestJourneyPhaseTiming,
@@ -85,26 +83,29 @@ function migrateQuestJourneyV2BoardRow(
   const status = row.status?.trim().toUpperCase();
   const normalizedStatus = canonicalizeKnownQuestJourneyState(status);
   const phaseAnalysis = analyzePersistedPhaseIds(row.journey?.phaseIds);
-  const existingPhaseIds = phaseAnalysis.phaseIds;
+  const existingPhaseIds = phaseAnalysis.validPhaseIds;
+  const legacyPhaseIdsComplete = phaseAnalysis.phaseIdsByPosition.every((phaseId) => phaseId !== undefined);
   const alreadyV2 =
     row.journey?.v2Migration?.version === 2 ||
     (!!normalizedStatus &&
       ["PROPOSED", "QUEUED", "PLANNING", "WORKING", "USER_CHECKPOINTING", "MEMORY"].includes(normalizedStatus) &&
+      legacyPhaseIdsComplete &&
       existingPhaseIds.length > 0 &&
       existingPhaseIds.every((phaseId) => !isLegacyQuestJourneyPhaseId(phaseId)));
   if (alreadyV2) return null;
 
-  const phaseIds = existingPhaseIds.length > 0 ? existingPhaseIds : DEFAULT_V2_PHASE_IDS;
   const rawActivePhaseIndex = row.journey?.activePhaseIndex;
   const fromActivePhaseIndex =
     typeof rawActivePhaseIndex === "number" &&
     Number.isInteger(rawActivePhaseIndex) &&
     rawActivePhaseIndex >= 0 &&
-    rawActivePhaseIndex < phaseIds.length
+    rawActivePhaseIndex < phaseAnalysis.phaseIdsByPosition.length
       ? rawActivePhaseIndex
-      : getQuestJourneyCurrentPhaseIndex(row.journey, row.status);
+      : undefined;
   const fromCurrentPhaseId =
-    fromActivePhaseIndex !== undefined ? phaseIds[fromActivePhaseIndex] : row.journey?.currentPhaseId;
+    fromActivePhaseIndex !== undefined
+      ? phaseAnalysis.phaseIdsByPosition[fromActivePhaseIndex]
+      : canonicalizeKnownQuestJourneyPhaseId(row.journey?.currentPhaseId);
   const malformedReason = getMalformedRowReason(status, normalizedStatus, phaseAnalysis);
   const workerSafety =
     normalizedStatus === "PROPOSED" || normalizedStatus === "QUEUED" || malformedReason
@@ -112,7 +113,7 @@ function migrateQuestJourneyV2BoardRow(
       : getWorkerSafety(row.worker, deps);
   const pausedReason = malformedReason ?? workerSafety.pausedReason;
   const target = resolveMigratedTarget(normalizedStatus, fromCurrentPhaseId, pausedReason);
-  const legacyPhases = buildLegacyPhaseRecords(row, phaseAnalysis.rawPhaseIds, existingPhaseIds);
+  const legacyPhases = buildLegacyPhaseRecords(row, phaseAnalysis.rawPhaseIds, phaseAnalysis.phaseIdsByPosition);
   const phaseNotes = buildMigratedPhaseNotes(row, target.activePhaseIndex, fromActivePhaseIndex, target.pausedReason);
   const phaseTimings = buildMigratedPhaseTimings(row, target.activePhaseIndex, fromActivePhaseIndex, now);
 
@@ -174,23 +175,32 @@ function getWorkerSafety(workerId: string | undefined, deps: QuestJourneyV2Migra
 }
 
 function analyzePersistedPhaseIds(value: unknown): {
-  phaseIds: QuestJourneyPhaseId[];
+  validPhaseIds: QuestJourneyPhaseId[];
+  phaseIdsByPosition: Array<QuestJourneyPhaseId | undefined>;
   rawPhaseIds: string[];
   invalidReason?: string;
 } {
-  if (value === undefined) return { phaseIds: [], rawPhaseIds: [] };
+  if (value === undefined) return { validPhaseIds: [], phaseIdsByPosition: [], rawPhaseIds: [] };
   if (!Array.isArray(value)) {
-    return { phaseIds: [], rawPhaseIds: [], invalidReason: "legacy Journey phase list is not an array" };
+    return {
+      validPhaseIds: [],
+      phaseIdsByPosition: [],
+      rawPhaseIds: [],
+      invalidReason: "legacy Journey phase list is not an array",
+    };
   }
   const rawPhaseIds = value.map((entry) => (typeof entry === "string" ? entry.trim() : ""));
-  const phaseIds = rawPhaseIds.flatMap((entry) => {
-    const phaseId = canonicalizeKnownQuestJourneyPhaseId(entry);
-    return phaseId ? [phaseId] : [];
-  });
-  if (rawPhaseIds.some((entry) => !entry) || phaseIds.length !== rawPhaseIds.length) {
-    return { phaseIds, rawPhaseIds, invalidReason: "legacy Journey phase list contains unknown or malformed phases" };
+  const phaseIdsByPosition = rawPhaseIds.map((entry) => canonicalizeKnownQuestJourneyPhaseId(entry) ?? undefined);
+  const validPhaseIds = phaseIdsByPosition.filter((phaseId): phaseId is QuestJourneyPhaseId => phaseId !== undefined);
+  if (rawPhaseIds.some((entry) => !entry) || validPhaseIds.length !== rawPhaseIds.length) {
+    return {
+      validPhaseIds,
+      phaseIdsByPosition,
+      rawPhaseIds,
+      invalidReason: "legacy Journey phase list contains unknown or malformed phases",
+    };
   }
-  return { phaseIds, rawPhaseIds };
+  return { validPhaseIds, phaseIdsByPosition, rawPhaseIds };
 }
 
 function getMalformedRowReason(
@@ -288,11 +298,11 @@ function getSemanticallyMappedActiveTiming(
 function buildLegacyPhaseRecords(
   row: BoardRow,
   rawPhaseIds: readonly string[],
-  phaseIds: readonly QuestJourneyPhaseId[],
+  phaseIdsByPosition: readonly (QuestJourneyPhaseId | undefined)[],
 ): QuestJourneyV2LegacyPhaseRecord[] {
   const maxIndex = Math.max(
     rawPhaseIds.length,
-    phaseIds.length,
+    phaseIdsByPosition.length,
     ...Object.keys(row.journey?.phaseNotes ?? {})
       .map((key) => Number.parseInt(key, 10) + 1)
       .filter(Number.isFinite),
@@ -303,7 +313,7 @@ function buildLegacyPhaseRecords(
   const occurrences = new Map<string, number>();
   const records: QuestJourneyV2LegacyPhaseRecord[] = [];
   for (let index = 0; index < maxIndex; index += 1) {
-    const phaseId = phaseIds[index];
+    const phaseId = phaseIdsByPosition[index];
     const rawPhaseId = rawPhaseIds[index];
     const occurrenceKey = phaseId ?? rawPhaseId ?? "unknown";
     const phaseOccurrence = (occurrences.get(occurrenceKey) ?? 0) + 1;
@@ -316,6 +326,8 @@ function buildLegacyPhaseRecords(
       phaseOccurrence,
       ...(phaseId ? { phaseId } : {}),
       ...(rawPhaseId ? { rawPhaseId } : {}),
+      ...(!phaseId && rawPhaseId ? { diagnostic: "unknown or malformed legacy phase id" } : {}),
+      ...(!phaseId && !rawPhaseId ? { diagnostic: "missing legacy phase id" } : {}),
       ...(note ? { note } : {}),
       ...(timing ? { timing } : {}),
     });
