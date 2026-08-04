@@ -331,7 +331,19 @@ export interface QuestJourneyV2MigrationRecord {
   fromCurrentPhaseId?: QuestJourneyPhaseId;
   fromPhaseNotes?: Record<string, string>;
   fromPhaseTimings?: Record<string, QuestJourneyPhaseTiming>;
+  legacyPhases?: QuestJourneyV2LegacyPhaseRecord[];
+  diagnostic?: string;
   pausedReason?: string;
+}
+
+export interface QuestJourneyV2LegacyPhaseRecord {
+  index: number;
+  phasePosition: number;
+  phaseOccurrence: number;
+  phaseId?: QuestJourneyPhaseId;
+  rawPhaseId?: string;
+  note?: string;
+  timing?: QuestJourneyPhaseTiming;
 }
 
 export interface QuestJourneyPhaseTiming {
@@ -1093,6 +1105,7 @@ function normalizeQuestJourneyV2MigrationRecord(
     migration.fromPhaseTimings as Record<string, unknown> | undefined,
     fromPhaseIds.length,
   );
+  const legacyPhases = normalizeQuestJourneyV2LegacyPhaseRecords(migration.legacyPhases);
   const fromActivePhaseIndex =
     typeof migration.fromActivePhaseIndex === "number" &&
     Number.isInteger(migration.fromActivePhaseIndex) &&
@@ -1105,6 +1118,8 @@ function normalizeQuestJourneyV2MigrationRecord(
     typeof migration.pausedReason === "string" && migration.pausedReason.trim()
       ? migration.pausedReason.trim()
       : undefined;
+  const diagnostic =
+    typeof migration.diagnostic === "string" && migration.diagnostic.trim() ? migration.diagnostic.trim() : undefined;
   const fromStatus =
     typeof migration.fromStatus === "string" && migration.fromStatus.trim() ? migration.fromStatus.trim() : undefined;
   return {
@@ -1116,8 +1131,53 @@ function normalizeQuestJourneyV2MigrationRecord(
     ...(fromCurrentPhaseId ? { fromCurrentPhaseId } : {}),
     ...(fromPhaseNotes ? { fromPhaseNotes } : {}),
     ...(fromPhaseTimings ? { fromPhaseTimings } : {}),
+    ...(legacyPhases.length > 0 ? { legacyPhases } : {}),
+    ...(diagnostic ? { diagnostic } : {}),
     ...(pausedReason ? { pausedReason } : {}),
   };
+}
+
+function normalizeQuestJourneyV2LegacyPhaseRecords(value: unknown): QuestJourneyV2LegacyPhaseRecord[] {
+  if (!Array.isArray(value)) return [];
+  const records: QuestJourneyV2LegacyPhaseRecord[] = [];
+  for (const rawRecord of value) {
+    if (!rawRecord || typeof rawRecord !== "object" || Array.isArray(rawRecord)) continue;
+    const record = rawRecord as Record<string, unknown>;
+    const index =
+      typeof record.index === "number" && Number.isInteger(record.index) && record.index >= 0
+        ? record.index
+        : undefined;
+    if (index === undefined) continue;
+    const phaseId =
+      typeof record.phaseId === "string" ? canonicalizeKnownQuestJourneyPhaseId(record.phaseId) : undefined;
+    const rawPhaseId =
+      typeof record.rawPhaseId === "string" && record.rawPhaseId.trim() ? record.rawPhaseId.trim() : undefined;
+    const note = typeof record.note === "string" && record.note.trim() ? record.note.trim() : undefined;
+    const timing = normalizeQuestJourneyPhaseTimings(
+      record.timing ? { [String(index)]: record.timing } : undefined,
+      index + 1,
+    )?.[String(index)];
+    const phasePosition =
+      typeof record.phasePosition === "number" && Number.isInteger(record.phasePosition) && record.phasePosition > 0
+        ? record.phasePosition
+        : index + 1;
+    const phaseOccurrence =
+      typeof record.phaseOccurrence === "number" &&
+      Number.isInteger(record.phaseOccurrence) &&
+      record.phaseOccurrence > 0
+        ? record.phaseOccurrence
+        : 1;
+    records.push({
+      index,
+      phasePosition,
+      phaseOccurrence,
+      ...(phaseId ? { phaseId } : {}),
+      ...(rawPhaseId ? { rawPhaseId } : {}),
+      ...(note ? { note } : {}),
+      ...(timing ? { timing } : {}),
+    });
+  }
+  return records.sort((a, b) => a.index - b.index);
 }
 
 export function getQuestJourneyProposalSignature(plan: Partial<QuestJourneyPlanState> | undefined): string {

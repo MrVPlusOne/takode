@@ -352,6 +352,95 @@ describe("takode board output modes", () => {
     }
   });
 
+  it("shows migrated legacy notes separately from active v2 notes in board detail", async () => {
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-board-migration", isOrchestrator: true }));
+        return;
+      }
+
+      if (
+        method === "GET" &&
+        (url === "/api/sessions/leader-board-migration/board?resolve=true" ||
+          url === "/api/sessions/leader-board-migration/board?resolve=true&include_completed=true")
+      ) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            board: [
+              {
+                questId: "q-77",
+                title: "Migrated board row",
+                status: "WORKING",
+                createdAt: 1,
+                updatedAt: 2,
+                journey: {
+                  phaseIds: ["alignment", "work", "memory"],
+                  activePhaseIndex: 1,
+                  currentPhaseId: "work",
+                  phaseNotes: { "1": "Active v2 Work migration summary" },
+                  phaseTimings: { "1": { startedAt: 9000 } },
+                  v2Migration: {
+                    version: 2,
+                    migratedAt: 9000,
+                    fromPhaseIds: ["alignment", "implement", "code-review", "port", "memory"],
+                    legacyPhases: [
+                      {
+                        index: 2,
+                        phasePosition: 3,
+                        phaseOccurrence: 1,
+                        phaseId: "code-review",
+                        note: "Old review note",
+                      },
+                      {
+                        index: 3,
+                        phasePosition: 4,
+                        phaseOccurrence: 1,
+                        phaseId: "port",
+                        note: "Old port note",
+                        timing: { startedAt: 1000, endedAt: 2000 },
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+            rowSessionStatuses: {},
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const detail = await runTakode(["board", "detail", "q-77", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-board-migration",
+        COMPANION_AUTH_TOKEN: "auth-board-migration",
+      });
+
+      expect(detail.status).toBe(0);
+      expect(detail.stdout).toContain("note[2] Work: Active v2 Work migration summary");
+      expect(detail.stdout).toContain("legacy note[3] Code Review: Old review note");
+      expect(detail.stdout).toContain("legacy note[4] Port: Old port note");
+      expect(detail.stdout).toContain("legacy phase[4] Port:");
+      expect(detail.stdout).not.toContain("note[3] Memory: Old review note");
+    } finally {
+      server.close();
+    }
+  });
+
   it("shows the active repeated phase occurrence in the full board show output", async () => {
     const server = createServer((req, res) => {
       const method = req.method || "";

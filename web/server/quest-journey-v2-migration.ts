@@ -7,6 +7,7 @@ import {
   isLegacyQuestJourneyPhaseId,
   normalizeKnownQuestJourneyPhaseIds,
   normalizeQuestJourneyPlan,
+  type QuestJourneyV2LegacyPhaseRecord,
   type QuestJourneyPhaseTiming,
   type QuestJourneyPhaseId,
   type QuestJourneyState,
@@ -83,7 +84,8 @@ function migrateQuestJourneyV2BoardRow(
 ): { row: BoardRow; summary: QuestJourneyV2MigratedRowSummary } | null {
   const status = row.status?.trim().toUpperCase();
   const normalizedStatus = canonicalizeKnownQuestJourneyState(status);
-  const existingPhaseIds = normalizeKnownQuestJourneyPhaseIds(row.journey?.phaseIds);
+  const phaseAnalysis = analyzePersistedPhaseIds(row.journey?.phaseIds);
+  const existingPhaseIds = phaseAnalysis.phaseIds;
   const alreadyV2 =
     row.journey?.v2Migration?.version === 2 ||
     (!!normalizedStatus &&
@@ -103,11 +105,16 @@ function migrateQuestJourneyV2BoardRow(
       : getQuestJourneyCurrentPhaseIndex(row.journey, row.status);
   const fromCurrentPhaseId =
     fromActivePhaseIndex !== undefined ? phaseIds[fromActivePhaseIndex] : row.journey?.currentPhaseId;
+  const malformedReason = getMalformedRowReason(status, normalizedStatus, phaseAnalysis);
   const workerSafety =
-    normalizedStatus === "PROPOSED" || normalizedStatus === "QUEUED" ? {} : getWorkerSafety(row.worker, deps);
-  const target = resolveMigratedTarget(normalizedStatus, fromCurrentPhaseId, workerSafety.pausedReason);
-  const phaseNotes = buildMigratedPhaseNotes(row, target.activePhaseIndex, target.pausedReason);
-  const phaseTimings = buildMigratedPhaseTimings(row, target.activePhaseIndex, now);
+    normalizedStatus === "PROPOSED" || normalizedStatus === "QUEUED" || malformedReason
+      ? {}
+      : getWorkerSafety(row.worker, deps);
+  const pausedReason = malformedReason ?? workerSafety.pausedReason;
+  const target = resolveMigratedTarget(normalizedStatus, fromCurrentPhaseId, pausedReason);
+  const legacyPhases = buildLegacyPhaseRecords(row, phaseAnalysis.rawPhaseIds, existingPhaseIds);
+  const phaseNotes = buildMigratedPhaseNotes(row, target.activePhaseIndex, fromActivePhaseIndex, target.pausedReason);
+  const phaseTimings = buildMigratedPhaseTimings(row, target.activePhaseIndex, fromActivePhaseIndex, now);
 
   const migratedRow: BoardRow = {
     ...row,
@@ -119,7 +126,7 @@ function migrateQuestJourneyV2BoardRow(
     journey: normalizeQuestJourneyPlan(
       {
         presetId: "v2-migrated",
-        mode: "active",
+        mode: target.status === "PROPOSED" ? "proposed" : "active",
         phaseIds: DEFAULT_V2_PHASE_IDS,
         ...(target.activePhaseIndex !== undefined ? { activePhaseIndex: target.activePhaseIndex } : {}),
         ...(target.activePhaseIndex !== undefined
@@ -131,11 +138,13 @@ function migrateQuestJourneyV2BoardRow(
           version: 2,
           migratedAt: now,
           ...(row.status ? { fromStatus: row.status } : {}),
-          ...(phaseIds.length > 0 ? { fromPhaseIds: phaseIds } : {}),
+          ...(existingPhaseIds.length > 0 ? { fromPhaseIds: existingPhaseIds } : {}),
           ...(fromActivePhaseIndex !== undefined ? { fromActivePhaseIndex } : {}),
           ...(fromCurrentPhaseId ? { fromCurrentPhaseId } : {}),
           ...(row.journey?.phaseNotes ? { fromPhaseNotes: row.journey.phaseNotes } : {}),
           ...(row.journey?.phaseTimings ? { fromPhaseTimings: row.journey.phaseTimings } : {}),
+          ...(legacyPhases.length > 0 ? { legacyPhases } : {}),
+          ...(malformedReason ? { diagnostic: malformedReason } : {}),
           ...(target.pausedReason ? { pausedReason: target.pausedReason } : {}),
         },
       },
@@ -164,6 +173,36 @@ function getWorkerSafety(workerId: string | undefined, deps: QuestJourneyV2Migra
   return {};
 }
 
+function analyzePersistedPhaseIds(value: unknown): {
+  phaseIds: QuestJourneyPhaseId[];
+  rawPhaseIds: string[];
+  invalidReason?: string;
+} {
+  if (value === undefined) return { phaseIds: [], rawPhaseIds: [] };
+  if (!Array.isArray(value)) {
+    return { phaseIds: [], rawPhaseIds: [], invalidReason: "legacy Journey phase list is not an array" };
+  }
+  const rawPhaseIds = value.map((entry) => (typeof entry === "string" ? entry.trim() : ""));
+  const phaseIds = rawPhaseIds.flatMap((entry) => {
+    const phaseId = canonicalizeKnownQuestJourneyPhaseId(entry);
+    return phaseId ? [phaseId] : [];
+  });
+  if (rawPhaseIds.some((entry) => !entry) || phaseIds.length !== rawPhaseIds.length) {
+    return { phaseIds, rawPhaseIds, invalidReason: "legacy Journey phase list contains unknown or malformed phases" };
+  }
+  return { phaseIds, rawPhaseIds };
+}
+
+function getMalformedRowReason(
+  status: string | undefined,
+  normalizedStatus: string | null,
+  phaseAnalysis: ReturnType<typeof analyzePersistedPhaseIds>,
+): string | undefined {
+  if (phaseAnalysis.invalidReason) return phaseAnalysis.invalidReason;
+  if (status && !normalizedStatus) return `unknown legacy board state: ${status}`;
+  return undefined;
+}
+
 function resolveMigratedTarget(
   status: string | null,
   currentPhaseId: QuestJourneyPhaseId | undefined,
@@ -187,10 +226,11 @@ function resolveMigratedTarget(
 function buildMigratedPhaseNotes(
   row: BoardRow,
   activePhaseIndex: number | undefined,
+  fromActivePhaseIndex: number | undefined,
   pausedReason: string | undefined,
 ): Record<string, string> | undefined {
-  if (activePhaseIndex === undefined) return row.journey?.phaseNotes;
-  const existing = row.journey?.phaseNotes?.[String(activePhaseIndex)]?.trim();
+  if (activePhaseIndex === undefined) return undefined;
+  const mappedLegacyNote = getSemanticallyMappedActiveNote(row, activePhaseIndex, fromActivePhaseIndex);
   const summary = [
     "Migrated to Quest Journey v2. Legacy phase history is preserved in journey.v2Migration; continue with the active v2 Work/Memory flow.",
     pausedReason ? `Paused for leader attention: ${pausedReason}.` : "",
@@ -198,25 +238,89 @@ function buildMigratedPhaseNotes(
     .filter(Boolean)
     .join(" ");
   return {
-    ...(row.journey?.phaseNotes ?? {}),
-    [String(activePhaseIndex)]: existing ? `${existing}\n\n${summary}` : summary,
+    [String(activePhaseIndex)]: mappedLegacyNote ? `${mappedLegacyNote}\n\n${summary}` : summary,
   };
 }
 
 function buildMigratedPhaseTimings(
   row: BoardRow,
   activePhaseIndex: number | undefined,
+  fromActivePhaseIndex: number | undefined,
   now: number,
 ): Record<string, QuestJourneyPhaseTiming> | undefined {
-  if (activePhaseIndex === undefined) return row.journey?.phaseTimings;
-  const timings = { ...(row.journey?.phaseTimings ?? {}) };
+  if (activePhaseIndex === undefined) return undefined;
+  const mappedLegacyTiming = getSemanticallyMappedActiveTiming(row, activePhaseIndex, fromActivePhaseIndex);
+  const timings: Record<string, QuestJourneyPhaseTiming> = {};
   const activeKey = String(activePhaseIndex);
-  const activeTiming = timings[activeKey];
   timings[activeKey] = {
-    startedAt: activeTiming?.startedAt ?? now,
-    ...(activeTiming?.endedAt ? { endedAt: activeTiming.endedAt } : {}),
+    startedAt: mappedLegacyTiming?.startedAt ?? now,
+    ...(mappedLegacyTiming?.endedAt ? { endedAt: mappedLegacyTiming.endedAt } : {}),
   };
   return timings;
+}
+
+function getSemanticallyMappedActiveNote(
+  row: BoardRow,
+  activePhaseIndex: number,
+  fromActivePhaseIndex: number | undefined,
+): string | undefined {
+  if (fromActivePhaseIndex === undefined) return undefined;
+  const activePhaseId = DEFAULT_V2_PHASE_IDS[activePhaseIndex];
+  const fromPhaseId = canonicalizeKnownQuestJourneyPhaseId(row.journey?.phaseIds?.[fromActivePhaseIndex]);
+  if (activePhaseId !== "alignment" && activePhaseId !== "memory") return undefined;
+  if (activePhaseId !== fromPhaseId) return undefined;
+  return row.journey?.phaseNotes?.[String(fromActivePhaseIndex)]?.trim() || undefined;
+}
+
+function getSemanticallyMappedActiveTiming(
+  row: BoardRow,
+  activePhaseIndex: number,
+  fromActivePhaseIndex: number | undefined,
+): QuestJourneyPhaseTiming | undefined {
+  if (fromActivePhaseIndex === undefined) return undefined;
+  const activePhaseId = DEFAULT_V2_PHASE_IDS[activePhaseIndex];
+  const fromPhaseId = canonicalizeKnownQuestJourneyPhaseId(row.journey?.phaseIds?.[fromActivePhaseIndex]);
+  if (activePhaseId !== "alignment" && activePhaseId !== "memory") return undefined;
+  if (activePhaseId !== fromPhaseId) return undefined;
+  return row.journey?.phaseTimings?.[String(fromActivePhaseIndex)];
+}
+
+function buildLegacyPhaseRecords(
+  row: BoardRow,
+  rawPhaseIds: readonly string[],
+  phaseIds: readonly QuestJourneyPhaseId[],
+): QuestJourneyV2LegacyPhaseRecord[] {
+  const maxIndex = Math.max(
+    rawPhaseIds.length,
+    phaseIds.length,
+    ...Object.keys(row.journey?.phaseNotes ?? {})
+      .map((key) => Number.parseInt(key, 10) + 1)
+      .filter(Number.isFinite),
+    ...Object.keys(row.journey?.phaseTimings ?? {})
+      .map((key) => Number.parseInt(key, 10) + 1)
+      .filter(Number.isFinite),
+  );
+  const occurrences = new Map<string, number>();
+  const records: QuestJourneyV2LegacyPhaseRecord[] = [];
+  for (let index = 0; index < maxIndex; index += 1) {
+    const phaseId = phaseIds[index];
+    const rawPhaseId = rawPhaseIds[index];
+    const occurrenceKey = phaseId ?? rawPhaseId ?? "unknown";
+    const phaseOccurrence = (occurrences.get(occurrenceKey) ?? 0) + 1;
+    occurrences.set(occurrenceKey, phaseOccurrence);
+    const note = row.journey?.phaseNotes?.[String(index)]?.trim();
+    const timing = row.journey?.phaseTimings?.[String(index)];
+    records.push({
+      index,
+      phasePosition: index + 1,
+      phaseOccurrence,
+      ...(phaseId ? { phaseId } : {}),
+      ...(rawPhaseId ? { rawPhaseId } : {}),
+      ...(note ? { note } : {}),
+      ...(timing ? { timing } : {}),
+    });
+  }
+  return records;
 }
 
 export function hasLegacyQuestJourneyBoardRow(row: Pick<BoardRow, "status" | "journey">): boolean {
