@@ -16,6 +16,8 @@ Before proposing quest text, explicitly check whether the new or refined quest i
 
 When a follow-up relationship is relevant, include it in the approval surface as a dedicated line such as `Relationship: follow-up of [q-1023](quest:q-1023)`. After the user confirms, persist it when creating the quest with `quest create ... --follow-up-of q-1023`, or when refining an existing quest with `quest edit q-N --follow-up-of q-1023`. If a relationship was recorded by mistake, use `quest edit q-N --clear-follow-up-of`.
 
+The quest record itself must be self-contained enough for a future worker or user to understand the necessary background without opening every linked predecessor. Keep it concise, but define non-obvious terms, state the current problem or need, name the desired outcome and important constraints, and explain how a true follow-up differs from or builds on its predecessor. Links, screenshots, phase notes, and prior messages should enrich the record, not substitute for the minimum background needed to understand the quest.
+
 ## Scope
 
 Use `/quest-design` before:

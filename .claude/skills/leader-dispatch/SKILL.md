@@ -45,6 +45,8 @@ Keep the top-level checklist open for routine dispatch. Load references only whe
 
 For creation plus dispatch that needs approval, one confirmation can approve the quest text, Journey, and scheduling plan. Keep chat concise and decision-oriented; put detailed evidence and worker grounding into the quest record.
 
+The quest record must still stand alone after the concise approval packet. When the work depends on a prior quest, log, screenshot, or discussion, include enough local background for a new worker or future user to understand the problem, desired outcome, non-obvious terms, important constraints, and how a true follow-up differs from or builds on its predecessor without opening every link.
+
 Use this shape as a menu, not a form:
 
 - **Proposed Quest**: title, tags when useful, and true follow-up relationship when relevant.

@@ -235,6 +235,9 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("full approval workflow lives in the existing `quest-design` skill");
     expect(skill).toContain("combined quest/Journey approval rules");
     expect(skill).toContain("follow-up relationship guidance");
+    expect(skill).toContain("Quest descriptions for refined-and-later work must be self-contained enough");
+    expect(skill).toContain("how a true follow-up differs from or builds on its predecessor");
+    expect(skill).toContain("Links, screenshots, phase notes, and prior messages should enrich the description");
     expect(skill).toContain("Operations that do not require `/quest-design`");
     expect(skill).toContain("Adding human or agent feedback to an existing quest");
     expect(skill).toContain("Routine progress bookkeeping after approved work");
@@ -242,6 +245,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Ask clarifying questions until the goal, scope, and non-goals are clear enough");
     expect(skill).toContain("Draft the refined title, description, and tags, then invoke `/quest-design`");
     expect(skill).toContain("include `Relationship: follow-up of [q-M](quest:q-M)`");
+    expect(skill).toContain("Description: clear, actionable, and self-contained");
+    expect(skill).toContain("define non-obvious terms");
     expect(skill).toContain("Wait for user confirmation or correction");
     expect(skill).toContain('[--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"]');
     expect(skill).toContain('[--follow-up-of "q-1,q-2" | --clear-follow-up-of]');
