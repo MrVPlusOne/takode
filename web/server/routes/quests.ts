@@ -298,11 +298,20 @@ function validateV2CompletionGitState(
   if (state.git_status_refresh_error) return `Worker git state is uncertain: ${state.git_status_refresh_error}`;
   if (state.diff_stats_skipped_reason)
     return `Worker tracked-change state is uncertain: ${state.diff_stats_skipped_reason}`;
-  if (!options.localOnly && state.is_worktree && (state.git_ahead ?? 0) > 0) {
-    return "Worker worktree is ahead of its comparison target; sync/Port before completion.";
-  }
-  if (!options.localOnly && state.is_worktree && (state.git_behind ?? 0) > 0) {
-    return "Worker worktree is behind its comparison target; refresh or sync before completion.";
+  if (!options.localOnly) {
+    const comparisonTarget = (state.diff_base_branch || state.git_default_branch || "").trim();
+    if (!comparisonTarget) {
+      return "Worker git comparison target is uncertain; refresh or sync before completion.";
+    }
+    if (!Number.isFinite(state.git_ahead) || !Number.isFinite(state.git_behind)) {
+      return "Worker git sync state is uncertain; refresh before completion.";
+    }
+    if (state.git_ahead !== 0) {
+      return "Worker checkout is ahead of its comparison target; sync/Port before completion.";
+    }
+    if (state.git_behind !== 0) {
+      return "Worker checkout is behind its comparison target; refresh or sync before completion.";
+    }
   }
   const changedLines = (state.total_lines_added ?? 0) + (state.total_lines_removed ?? 0);
   const hasStructuredEvidence = (commitShas?.length ?? 0) > 0 || (memoryCommitShas?.length ?? 0) > 0;

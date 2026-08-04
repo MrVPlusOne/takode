@@ -1150,8 +1150,13 @@ describe("POST /api/quests/:questId/complete", () => {
         id: "worker-1",
         state: {
           cwd: "/repo",
+          git_branch: "feature",
+          git_default_branch: "origin/feature",
+          diff_base_branch: "origin/feature",
+          git_head_sha: "abc1234",
           is_worktree: true,
           git_ahead: 0,
+          git_behind: 0,
           total_lines_added: 0,
           total_lines_removed: 0,
           git_status_refresh_error: null,
@@ -1320,6 +1325,19 @@ describe("POST /api/quests/:questId/complete", () => {
     ["dirty tracked changes", { workerState: { total_lines_added: 5 } }, "tracked changes"],
     ["ahead worktree", { workerState: { git_ahead: 1 } }, "ahead"],
     ["uncertain git state", { workerState: { git_status_refresh_error: "status failed" } }, "uncertain"],
+    ["missing remote-backed sync counts", { workerState: { is_worktree: false, git_ahead: undefined } }, "sync state"],
+    [
+      "missing remote-backed comparison target",
+      { workerState: { is_worktree: false, git_default_branch: "", diff_base_branch: "" } },
+      "comparison target",
+    ],
+    ["ahead non-worktree remote-backed branch", { workerState: { is_worktree: false, git_ahead: 1 } }, "ahead"],
+    ["behind non-worktree remote-backed branch", { workerState: { is_worktree: false, git_behind: 1 } }, "behind"],
+    [
+      "uncertain non-worktree remote-backed branch",
+      { workerState: { is_worktree: false, diff_stats_skipped_reason: "refresh budget" } },
+      "uncertain",
+    ],
   ])("rejects v2 Memory completion with %s", async (_label, fixture, errorText, body?: Record<string, unknown>) => {
     const auth = installV2MemoryFixture(fixture as any);
 
@@ -1336,6 +1354,14 @@ describe("POST /api/quests/:questId/complete", () => {
     expect(zero.status).toBe(200);
   });
 
+  it("allows clean synced non-worktree remote-backed v2 completion", async () => {
+    const auth = installV2MemoryFixture({ workerState: { is_worktree: false, git_ahead: 0, git_behind: 0 } });
+
+    const res = await postV2Complete({}, auth);
+
+    expect(res.status).toBe(200);
+  });
+
   it("rejects dirty tracked git status even when commit metadata is present", async () => {
     const auth = installV2MemoryFixture();
     mockExecSync.mockReturnValueOnce(" M web/server/file.ts\n");
@@ -1349,6 +1375,16 @@ describe("POST /api/quests/:questId/complete", () => {
 
   it("allows explicit local-only clean v2 completion with structured accepted state", async () => {
     const auth = installV2MemoryFixture({ workerState: { git_ahead: 2 } });
+
+    const res = await postV2Complete({ commitShas: ["abc1234"], v2CompletionSync: "local-clean" }, auth);
+
+    expect(res.status).toBe(200);
+  });
+
+  it("allows explicit local-only clean non-worktree v2 completion without remote-backed sync classification", async () => {
+    const auth = installV2MemoryFixture({
+      workerState: { is_worktree: false, git_ahead: 2, git_behind: 1, git_default_branch: "", diff_base_branch: "" },
+    });
 
     const res = await postV2Complete({ commitShas: ["abc1234"], v2CompletionSync: "local-clean" }, auth);
 
