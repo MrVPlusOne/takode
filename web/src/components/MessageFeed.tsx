@@ -311,7 +311,7 @@ export function MessageFeed({
     [sessionNotifications],
   );
   const { turns } = useFeedModel(messages, {
-    leaderMode: false,
+    leaderMode: collapseLeaderThreadActivity,
     frozenCount,
     frozenRevision,
     anchoredNotificationMessageIds,

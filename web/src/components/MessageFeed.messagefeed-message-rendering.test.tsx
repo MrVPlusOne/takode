@@ -31,6 +31,10 @@ beforeAll(() => {
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import type { ChatMessage, SessionNotification } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
+import {
+  THREAD_OUTCOME_REMINDER_SOURCE_ID,
+  THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+} from "../../shared/thread-outcome-reminder.js";
 
 // Mock react-markdown to avoid ESM issues in tests
 vi.mock("react-markdown", () => ({
@@ -514,6 +518,73 @@ function makeDomRect(height: number, width = 0): DOMRect {
 }
 
 describe("MessageFeed - message rendering", () => {
+  it("hides model-only reminder acknowledgements in collapsed selected leader threads", () => {
+    // Thread Outcome/Status and Routing reminders are model-only workflow nudges.
+    // Their follow-up acknowledgement should stay inside collapsed activity,
+    // while the preceding substantive user-triggered summary remains visible.
+    const sid = "test-leader-reminder-summary-hidden";
+    const threadRef = { threadKey: "q-1791", questId: "q-1791", source: "explicit" as const };
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "u1",
+        role: "user",
+        content: "Coordinate q-1791",
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-substantive",
+        role: "assistant",
+        content: "q-1791 Work is ready for review after focused validation.",
+        metadata: { leaderUserMessage: true, threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "u-reminder",
+        role: "user",
+        content: "Thread outcome reminder: mark every touched leader thread with a fresh outcome before idling.",
+        agentSource: {
+          sessionId: THREAD_OUTCOME_REMINDER_SOURCE_ID,
+          sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+        },
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-tool",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-status", name: "Bash", input: { command: "takode status q-1791" } },
+        ],
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-reminder-ack",
+        role: "assistant",
+        content: "Handled the reminder and refreshed the thread status.",
+        metadata: { leaderUserMessage: true, threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "u2",
+        role: "user",
+        content: "Thanks, continue",
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-current",
+        role: "assistant",
+        content: "Continuing with the next step.",
+        metadata: { leaderUserMessage: true, threadRefs: [threadRef] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1791" />);
+
+    expect(screen.getByText("q-1791 Work is ready for review after focused validation.")).toBeTruthy();
+    expect(screen.getByText("Leader activity")).toBeTruthy();
+    expect(screen.queryByText("Handled the reminder and refreshed the thread status.")).toBeNull();
+    expect(screen.getByText("Continuing with the next step.")).toBeTruthy();
+  });
+
   it("batches consecutive tool-only messages into one compact activity row", () => {
     // Separate protocol messages should still read as one lightweight run until the user asks for details.
     const sid = "test-compact-tool-run";

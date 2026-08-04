@@ -4,6 +4,14 @@ import { renderHook } from "@testing-library/react";
 import type { ChatMessage, SessionAttentionRecord } from "../types.js";
 import { buildFeedModel, useFeedModel, summarizeHerdEvents } from "./use-feed-model.js";
 import { buildFeedSections } from "../components/message-feed-sections.js";
+import {
+  THREAD_OUTCOME_REMINDER_SOURCE_ID,
+  THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+} from "../../shared/thread-outcome-reminder.js";
+import {
+  THREAD_ROUTING_REMINDER_SOURCE_ID,
+  THREAD_ROUTING_REMINDER_SOURCE_LABEL,
+} from "../../shared/thread-routing-reminder.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { id: string; role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -587,6 +595,109 @@ describe("leader mode segment-local needs-input preview selection", () => {
 
     expect(collapsedEntryIds(turn)).toEqual(["a-notify", "a-waiting"]);
     expect(entryIds(turn.agentEntries)).toEqual([]);
+  });
+});
+
+describe("leader mode model-only reminder collapsed preview selection", () => {
+  it.each([
+    [THREAD_OUTCOME_REMINDER_SOURCE_ID, THREAD_OUTCOME_REMINDER_SOURCE_LABEL],
+    [THREAD_ROUTING_REMINDER_SOURCE_ID, THREAD_ROUTING_REMINDER_SOURCE_LABEL],
+  ])("hides plain leader summaries after %s trigger turns", (sourceId, sourceLabel) => {
+    // Model-only reminder turns often end with acknowledgement prose; that prose
+    // should stay in expanded activity instead of becoming the collapsed summary.
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "coordinate the quest", timestamp: 1 }),
+      makeVisibleLeaderMessage("a-before-reminder", "The user-triggered work is ready for review.", 2),
+      makeInjectedUserMessage("u-reminder", `[${sourceLabel}] Missing thread outcome.`, 3, sourceId, sourceLabel),
+      makeMessage({
+        id: "a-reminder-tool",
+        role: "assistant",
+        content: "",
+        timestamp: 4,
+        contentBlocks: [{ type: "tool_use", id: "reminder-tool", name: "Bash", input: { command: "takode status" } }],
+      }),
+      makeVisibleLeaderMessage(
+        "a-reminder-ack",
+        "Handled the reminder and corrected the thread status bookkeeping.",
+        5,
+      ),
+    ];
+
+    const model = buildFeedModel(messages, true);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["a-before-reminder", "activity"]);
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-before-reminder"]);
+    expect(entryIds(turn.agentEntries)).toContain("a-reminder-ack");
+  });
+
+  it.each([
+    ["timer reminder", "timer:t1", "Timer t1"],
+    ["another agent", "agent-session-1", "#12 Worker"],
+    ["herd event", "herd-events", "Herd Events"],
+    ["recovery prompt", "system:restart-continuation:prep-1", "System"],
+  ])("keeps visible leader summaries after %s trigger turns", (_name, sourceId, sourceLabel) => {
+    // Non-model-only injections are legitimate requests for work, so their
+    // follow-up leader summaries must keep the normal collapsed-preview path.
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "watch the next event", timestamp: 1 }),
+      makeInjectedUserMessage("u-trigger", "Legitimate request for follow-up action.", 2, sourceId, sourceLabel),
+      makeVisibleLeaderMessage("a-status", "Handled the new request and reported the outcome.", 3),
+    ];
+
+    const model = buildFeedModel(messages, true);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["activity", "a-status"]);
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-status"]);
+    expect(entryIds(turn.agentEntries)).not.toContain("a-status");
+  });
+
+  it("keeps direct user-triggered leader summaries visible in the next collapsed turn", () => {
+    // Human messages are real turn boundaries, not generated reminder activity.
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "first request", timestamp: 1 }),
+      makeVisibleLeaderMessage("a-first", "First request is complete.", 2),
+      makeMessage({ id: "u2", role: "user", content: "second request", timestamp: 3 }),
+      makeVisibleLeaderMessage("a-second", "Second direct request is complete.", 4),
+    ];
+
+    const model = buildFeedModel(messages, true);
+
+    expect(model.turns).toHaveLength(2);
+    expect(collapsedEntryIds(model.turns[0])).toEqual(["a-first"]);
+    expect(collapsedEntryIds(model.turns[1])).toEqual(["a-second"]);
+  });
+
+  it("keeps notification-backed checkpoints visible after model-only reminders", () => {
+    // Checkpoints/needs-input prompts remain user-facing even when they follow a
+    // reminder, and their ordinary waiting status should use existing rules.
+    const checkpointMessage = makeVisibleLeaderMessage("a-checkpoint", "Checkpoint is ready for your decision.", 3);
+    checkpointMessage.notification = {
+      id: "needs-input-1",
+      category: "needs-input",
+      timestamp: 3,
+      summary: "Choose the checkpoint path",
+    };
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "coordinate checkpoint", timestamp: 1 }),
+      makeInjectedUserMessage(
+        "u-reminder",
+        "[Thread outcome reminder] Missing outcome marker.",
+        2,
+        THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+      ),
+      checkpointMessage,
+      makeVisibleLeaderMessage("a-waiting", "Waiting on confirmation before dispatch.", 4),
+    ];
+
+    const model = buildFeedModel(messages, true);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["activity", "a-checkpoint", "a-waiting"]);
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-checkpoint", "a-waiting"]);
+    expect(entryIds(turn.agentEntries)).not.toContain("a-checkpoint");
   });
 });
 

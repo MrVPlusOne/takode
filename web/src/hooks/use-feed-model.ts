@@ -3,6 +3,8 @@ import { isSubagentToolName, type ChatMessage, type ContentBlock, type SessionAt
 import { EVENT_HEADER_RE } from "../utils/herd-event-parser.js";
 import { recordFeedRenderSnapshot } from "../utils/frontend-perf-recorder.js";
 import { isInjectedEventMessage } from "../utils/injected-event-message.js";
+import { THREAD_OUTCOME_REMINDER_SOURCE_ID } from "../../shared/thread-outcome-reminder.js";
+import { THREAD_ROUTING_REMINDER_SOURCE_ID } from "../../shared/thread-routing-reminder.js";
 
 export interface ToolItem {
   id: string;
@@ -641,6 +643,50 @@ function isApprovalCreatedBookkeepingEntry(entry: FeedEntry): boolean {
   return isApprovalCreatedBookkeepingText(messageText(entry.msg));
 }
 
+const MODEL_ONLY_REMINDER_SOURCE_IDS = new Set([THREAD_OUTCOME_REMINDER_SOURCE_ID, THREAD_ROUTING_REMINDER_SOURCE_ID]);
+
+function isModelOnlyReminderSource(sourceId: string | undefined): boolean {
+  return sourceId != null && MODEL_ONLY_REMINDER_SOURCE_IDS.has(sourceId);
+}
+
+function isPlainLeaderUserMessageEntry(entry: FeedEntry): boolean {
+  return (
+    entry.kind === "message" &&
+    entry.msg.role === "assistant" &&
+    entry.msg.metadata?.leaderUserMessage === true &&
+    !entry.msg.notification &&
+    !entry.msg.metadata?.attentionRecord
+  );
+}
+
+function filterCollapsedVisibleEntriesForModelOnlyReminderSegments(
+  rawAgentEntries: FeedEntry[],
+  visibleEntries: FeedEntry[],
+  leaderMode: boolean,
+): FeedEntry[] {
+  if (!leaderMode || visibleEntries.length === 0) return visibleEntries;
+
+  const visibleEntryKeys = new Set(visibleEntries.map(getEntryId));
+  const retainedVisibleEntryKeys = new Set<string>();
+  let modelOnlyReminderSegment = false;
+
+  for (const entry of rawAgentEntries) {
+    if (entry.kind === "message" && entry.msg.role === "user" && entry.msg.agentSource?.sessionId) {
+      modelOnlyReminderSegment = isModelOnlyReminderSource(entry.msg.agentSource.sessionId);
+    }
+
+    const key = getEntryId(entry);
+    if (!visibleEntryKeys.has(key)) continue;
+
+    if (modelOnlyReminderSegment && isPlainLeaderUserMessageEntry(entry)) continue;
+
+    retainedVisibleEntryKeys.add(key);
+    if (entryHasNeedsInputSignal(entry)) modelOnlyReminderSegment = false;
+  }
+
+  return visibleEntries.filter((entry) => retainedVisibleEntryKeys.has(getEntryId(entry)));
+}
+
 function scoreNeedsInputPreviewCandidate(entry: FeedEntry): number {
   if (entry.kind !== "message" || entry.msg.role !== "assistant") return Number.NEGATIVE_INFINITY;
 
@@ -847,9 +893,14 @@ function makeTurn(
       notificationEntryCandidates.push(e);
     }
   }
-  const notificationEntries = filterCollapsedVisibleEntriesForNeedsInputBookkeeping(
+  const reminderFilteredEntries = filterCollapsedVisibleEntriesForModelOnlyReminderSegments(
     rawAgentEntries,
     notificationEntryCandidates,
+    leaderMode,
+  );
+  const notificationEntries = filterCollapsedVisibleEntriesForNeedsInputBookkeeping(
+    rawAgentEntries,
+    reminderFilteredEntries,
     leaderMode,
   );
 
