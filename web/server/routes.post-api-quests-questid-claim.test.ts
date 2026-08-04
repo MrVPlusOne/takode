@@ -227,6 +227,12 @@ function createMockLauncher() {
 function createMockBridge() {
   return {
     _sessions: {} as Record<string, any>,
+    _gitStateDeps: {
+      refreshGitInfo: vi.fn(async () => {}),
+      broadcastSessionUpdate: vi.fn(),
+      broadcastDiffTotals: vi.fn(),
+      persistSession: vi.fn(),
+    },
     _vscodeSelectionState: null as any,
     _vscodeWindows: [] as any[],
     closeSession: vi.fn(),
@@ -256,12 +262,14 @@ function createMockBridge() {
     getOrCreateSession: vi.fn(),
     getAllSessions: vi.fn(() => []),
     refreshWorktreeGitStateForSnapshot: vi.fn(async () => null),
+    getSessionGitStateDeps: vi.fn(function (this: any) {
+      return this._gitStateDeps;
+    }),
     getLastUserMessage: vi.fn(() => undefined),
     isBackendConnected: vi.fn(() => false),
     markWorktree: vi.fn(),
     applyInitialSessionState: vi.fn(),
     setDiffBaseBranch: vi.fn(() => true),
-    refreshGitInfoPublic: vi.fn(async () => true),
     onSessionArchived: vi.fn(),
     onSessionUnarchived: vi.fn(),
     persistSessionById: vi.fn(),
@@ -1082,6 +1090,7 @@ describe("POST /api/quests/:questId/complete", () => {
       workerState?: Record<string, unknown>;
       workerLauncher?: Record<string, unknown>;
       completeQuest?: Record<string, unknown>;
+      trackedStatus?: string;
     } = {},
   ) {
     const callerId = options.callerId ?? "worker-1";
@@ -1125,6 +1134,11 @@ describe("POST /api/quests/:questId/complete", () => {
     launcher.verifySessionAuthToken.mockImplementation(
       (sid: string, token: string) => sid === callerId && token === callerToken,
     );
+    if (options.trackedStatus !== undefined) {
+      mockExecSync.mockImplementation((cmd?: string) =>
+        cmd?.includes("status --porcelain") ? (options.trackedStatus ?? "") : "",
+      );
+    }
     bridge._sessions = {
       "leader-1": {
         id: "leader-1",
@@ -1154,6 +1168,10 @@ describe("POST /api/quests/:questId/complete", () => {
       },
       "worker-1": {
         id: "worker-1",
+        worktreeStateFingerprint: "",
+        diffStatsDirty: false,
+        backendSocket: null,
+        codexAdapter: null,
         state: {
           cwd: "/repo",
           git_branch: "feature",
@@ -1242,6 +1260,8 @@ describe("POST /api/quests/:questId/complete", () => {
     const res = await postV2Complete({ commitShas: ["abc1234"] }, auth);
 
     expect(res.status).toBe(200);
+    expect(bridge.getSessionGitStateDeps).toHaveBeenCalled();
+    expect(bridge.refreshWorktreeGitStateForSnapshot).not.toHaveBeenCalled();
     expect(questStore.completeQuest).toHaveBeenCalledWith("q-1", [], {
       commitShas: ["abc1234"],
       memoryCommitShas: undefined,
@@ -1249,6 +1269,19 @@ describe("POST /api/quests/:questId/complete", () => {
       debriefTldr: "Accepted work is complete with final Memory closure.",
     });
     expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1");
+  });
+
+  it("fails closed when the authoritative git refresh path is unavailable", async () => {
+    const auth = installV2MemoryFixture();
+    bridge.getSessionGitStateDeps.mockReturnValueOnce(undefined);
+
+    const res = await postV2Complete({ commitShas: ["abc1234"] }, auth);
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      error: "Cannot refresh worker git state for v2 Memory completion.",
+    });
+    expect(questStore.completeQuest).not.toHaveBeenCalled();
   });
 
   it("allows the owning leader to complete v2 Memory on behalf of the assigned worker", async () => {
@@ -1328,7 +1361,7 @@ describe("POST /api/quests/:questId/complete", () => {
       },
       "exactly one final memory statement",
     ],
-    ["dirty tracked changes", { workerState: { total_lines_added: 5 } }, "tracked changes"],
+    ["dirty tracked changes", { trackedStatus: " M web/server/file.ts\n" }, "tracked changes"],
     ["ahead worktree", { workerState: { git_ahead: 1 } }, "ahead"],
     ["uncertain git state", { workerState: { git_status_refresh_error: "status failed" } }, "uncertain"],
     ["missing remote-backed sync counts", { workerState: { is_worktree: false, git_ahead: undefined } }, "sync state"],
@@ -1341,7 +1374,7 @@ describe("POST /api/quests/:questId/complete", () => {
     ["behind non-worktree remote-backed branch", { workerState: { is_worktree: false, git_behind: 1 } }, "behind"],
     [
       "uncertain non-worktree remote-backed branch",
-      { workerState: { is_worktree: false, diff_stats_skipped_reason: "refresh budget" } },
+      { workerState: { is_worktree: false, git_status_refresh_error: "refresh budget" } },
       "uncertain",
     ],
   ])("rejects v2 Memory completion with %s", async (_label, fixture, errorText, body?: Record<string, unknown>) => {
@@ -1370,7 +1403,9 @@ describe("POST /api/quests/:questId/complete", () => {
 
   it("rejects dirty tracked git status even when commit metadata is present", async () => {
     const auth = installV2MemoryFixture();
-    mockExecSync.mockReturnValueOnce(" M web/server/file.ts\n");
+    mockExecSync.mockImplementation((cmd?: string) =>
+      cmd?.includes("status --porcelain --untracked-files=no") ? " M web/server/file.ts\n" : "",
+    );
 
     const res = await postV2Complete({ commitShas: ["abc1234"] }, auth);
 
@@ -1498,6 +1533,39 @@ describe("POST /api/quests/:questId/complete", () => {
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ error: expect.stringContaining("User Checkpoint") });
     expect(transitionSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows deprecated done after the shared v2 Memory guard passes", async () => {
+    const auth = installV2MemoryFixture();
+    const transitionSpy = vi.spyOn(questStore, "transitionQuest").mockResolvedValueOnce({
+      id: "q-1-v4",
+      questId: "q-1",
+      title: "Quest",
+      status: "done",
+      description: "Ready",
+      previousOwnerSessionIds: ["worker-1"],
+      verificationItems: [],
+      verificationInboxUnread: true,
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/done", {
+      method: "POST",
+      headers: companionAuthHeaders(auth.callerId, auth.callerToken),
+      body: JSON.stringify({
+        debrief: "Completed the accepted work and final Memory closure.",
+        debriefTldr: "Accepted work is complete with final Memory closure.",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(transitionSpy).toHaveBeenCalledWith(
+      "q-1",
+      expect.objectContaining({
+        status: "done",
+        debrief: "Completed the accepted work and final Memory closure.",
+        debriefTldr: "Accepted work is complete with final Memory closure.",
+      }),
+    );
   });
 
   it("allows an authenticated leader to complete on behalf of a worker session", async () => {

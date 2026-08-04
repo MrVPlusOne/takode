@@ -31,6 +31,7 @@ import {
 import { evaluateQuestStatusMutationGuard, getQuestStatusOwnerSessionIds } from "../quest-status-guard.js";
 import { getQuestSessionSpaceCandidates } from "../quest-session-space.js";
 import type { MemoryRepoOptions } from "../workstream-memory-types.js";
+import { refreshGitInfoPublic as refreshGitInfoPublicController } from "../bridge/session-git-state.js";
 
 const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
 const MAX_DIFF_BYTES = 512 * 1024;
@@ -313,9 +314,6 @@ function validateV2CompletionGitState(
   options: { localOnly?: boolean } = {},
 ): string | undefined {
   if (!state) return "Cannot verify worker git state for v2 Memory completion.";
-  if (state.git_status_refresh_error) return `Worker git state is uncertain: ${state.git_status_refresh_error}`;
-  if (state.diff_stats_skipped_reason)
-    return `Worker tracked-change state is uncertain: ${state.diff_stats_skipped_reason}`;
   if (!options.localOnly) {
     const comparisonTarget = (state.diff_base_branch || state.git_default_branch || "").trim();
     if (!comparisonTarget) {
@@ -331,6 +329,9 @@ function validateV2CompletionGitState(
       return "Worker checkout is behind its comparison target; refresh or sync before completion.";
     }
   }
+  if (state.git_status_refresh_error) return `Worker git state is uncertain: ${state.git_status_refresh_error}`;
+  if (state.diff_stats_skipped_reason)
+    return `Worker tracked-change state is uncertain: ${state.diff_stats_skipped_reason}`;
   const changedLines = (state.total_lines_added ?? 0) + (state.total_lines_removed ?? 0);
   const hasStructuredEvidence = (commitShas?.length ?? 0) > 0 || (memoryCommitShas?.length ?? 0) > 0;
   if (changedLines > 0 && !hasStructuredEvidence) {
@@ -343,6 +344,7 @@ export function createQuestRoutes(ctx: RouteContext) {
   const api = new Hono();
   const { launcher, wsBridge, imageStore, authenticateCompanionCallerOptional, execCaptureStdoutAsync, resolveId } =
     ctx;
+  const bridgeAny = wsBridge as any;
 
   const setClaimedQuest = (
     sessionId: string,
@@ -473,16 +475,31 @@ export function createQuestRoutes(ctx: RouteContext) {
       );
     }
 
-    const refreshGit = (wsBridge as { refreshGitInfoPublic?: (sessionId: string) => Promise<boolean> })
-      .refreshGitInfoPublic;
-    if (!refreshGit) {
+    const refreshGit = async (sessionId: string): Promise<boolean> => {
+      const session = wsBridge.getSession(sessionId);
+      const deps = bridgeAny.getSessionGitStateDeps?.();
+      if (session && deps) {
+        try {
+          await refreshGitInfoPublicController(session as any, deps, {
+            broadcastUpdate: true,
+            notifyPoller: true,
+            force: true,
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return (
+        (await bridgeAny.refreshGitInfoPublic?.(sessionId, {
+          broadcastUpdate: true,
+          notifyPoller: true,
+          force: true,
+        })) ?? false
+      );
+    };
+    if (!(await refreshGit(workerSessionId))) {
       return new Response(JSON.stringify({ error: "Cannot refresh worker git state for v2 Memory completion." }), {
-        status: 409,
-        headers: { "content-type": "application/json" },
-      });
-    }
-    if (!(await refreshGit.call(wsBridge, workerSessionId))) {
-      return new Response(JSON.stringify({ error: "Unable to refresh worker git state for v2 Memory completion." }), {
         status: 409,
         headers: { "content-type": "application/json" },
       });
