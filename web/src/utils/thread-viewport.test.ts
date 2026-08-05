@@ -27,6 +27,7 @@ describe("leader session viewport storage", () => {
       scrollTop: 100,
       scrollHeight: 800,
       isAtBottom: false,
+      anchorMessageId: "message-main",
       anchorTurnId: "turn-main",
       anchorOffsetTop: 12,
       lastSeenContentBottom: 760,
@@ -47,6 +48,7 @@ describe("leader session viewport storage", () => {
     });
 
     expect(readLeaderViewportPosition("s1", "main")?.anchorTurnId).toBe("turn-main");
+    expect(readLeaderViewportPosition("s1", "main")?.anchorMessageId).toBe("message-main");
     expect(readLeaderViewportPosition("s1", "all")?.anchorTurnId).toBe("turn-all");
     expect(readLeaderViewportPosition("s1", "q-941")?.anchorTurnId).toBe("turn-quest");
     expect(localStorage.getItem("test-server:cc-leader-session-view:s1")).toContain(getFeedViewportKey("s1", "all"));

@@ -277,6 +277,140 @@ describe("MessageFeed thread viewport restoration", () => {
     }
   });
 
+  it("snapshots the visible message as the leader viewport anchor", () => {
+    // Long turns can contain several message rows. Saving the concrete visible
+    // message keeps return navigation anchored to the exact content, not just
+    // the beginning of the host turn.
+    const sid = "test-visible-message-anchor-snapshot";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-anchor", role: "user", content: "Earlier request" }),
+      makeMessage({ id: "a-visible", role: "assistant", content: "Visible answer" }),
+    ]);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollHeight");
+    const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollTop");
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 2000 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "scrollTop", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 500 : 0;
+      },
+      set() {},
+    });
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this instanceof HTMLElement && this.dataset.messageId === "u-anchor") {
+        return DOMRect.fromRect({ x: 0, y: -180, width: 600, height: 40 });
+      }
+      if (this instanceof HTMLElement && this.dataset.messageId === "a-visible") {
+        return DOMRect.fromRect({ x: 0, y: 50, width: 600, height: 80 });
+      }
+      if (this instanceof HTMLDivElement && this.classList.contains("overflow-y-auto")) {
+        return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 400 });
+      }
+      return originalRect.call(this);
+    };
+
+    try {
+      render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+      requestThreadViewportSnapshot(sid);
+
+      const stored = readLeaderViewportPosition(sid, "main");
+      expect(stored?.anchorMessageId).toBe("a-visible");
+      expect(stored?.anchorTurnId).toBe("u-anchor");
+      expect(stored?.anchorOffsetTop).toBe(50);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
+      else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;
+      if (originalScrollTop) Object.defineProperty(HTMLDivElement.prototype, "scrollTop", originalScrollTop);
+      else delete (HTMLDivElement.prototype as { scrollTop?: unknown }).scrollTop;
+    }
+  });
+
+  it("restores a saved message anchor inside a long selected-thread turn", async () => {
+    // Restoring only the turn anchor can land at the start of a long turn,
+    // which is materially earlier than the content the user was reading.
+    const sid = "test-restore-message-anchor-inside-long-turn";
+    const windowMessages = [
+      makeMessage({ id: "u-anchor", role: "user", content: "Long request", historyIndex: 1 }),
+      makeMessage({ id: "a-visible", role: "assistant", content: "Exact visible answer", historyIndex: 2 }),
+    ];
+    setStoreMessages(sid, []);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.threadWindows = new Map([[sid, new Map([["q-941", makeThreadWindow({ item_count: 2 })]])]]);
+    mockStoreValues.threadWindowMessages = new Map([[sid, new Map([["q-941", windowMessages]])]]);
+    persistLeaderViewportPosition(sid, "q-941", {
+      scrollTop: 999,
+      scrollHeight: 3000,
+      isAtBottom: false,
+      anchorMessageId: "a-visible",
+      anchorTurnId: "u-anchor",
+      anchorOffsetTop: 80,
+    });
+
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollHeight");
+    const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollTop");
+    const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "clientHeight");
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    let scrollTopValue = 0;
+    Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 3000 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "clientHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 700 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "scrollTop", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? scrollTopValue : 0;
+      },
+      set(value) {
+        scrollTopValue = value as number;
+      },
+    });
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this instanceof HTMLElement && this.dataset.messageId === "a-visible") {
+        return DOMRect.fromRect({ x: 0, y: 1450, width: 600, height: 100 });
+      }
+      if (this instanceof HTMLElement && this.dataset.turnId === "u-anchor") {
+        return DOMRect.fromRect({ x: 0, y: 300, width: 600, height: 1300 });
+      }
+      if (this instanceof HTMLDivElement && this.classList.contains("overflow-y-auto")) {
+        return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 700 });
+      }
+      return originalRect.call(this);
+    };
+
+    try {
+      render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+
+      await waitFor(() => expect(scrollTopValue).toBe(1370));
+      expect(screen.getByText("Exact visible answer")).toBeTruthy();
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
+      else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;
+      if (originalScrollTop) Object.defineProperty(HTMLDivElement.prototype, "scrollTop", originalScrollTop);
+      else delete (HTMLDivElement.prototype as { scrollTop?: unknown }).scrollTop;
+      if (originalClientHeight) Object.defineProperty(HTMLDivElement.prototype, "clientHeight", originalClientHeight);
+      else delete (HTMLDivElement.prototype as { clientHeight?: unknown }).clientHeight;
+    }
+  });
+
   it("defaults missing leader viewport state to the latest bottom", () => {
     const sid = "test-missing-leader-viewport-bottom";
     setStoreMessages(sid, [

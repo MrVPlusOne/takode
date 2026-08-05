@@ -556,11 +556,12 @@ export function MessageFeed({
   const persistFeedViewport = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
-    const anchor = findVisibleTurnAnchor(container);
+    const anchor = findVisibleFeedAnchor(container);
     const position = {
       scrollTop: container.scrollTop,
       scrollHeight: container.scrollHeight,
       isAtBottom: autoFollowEnabledRef.current && isNearBottom.current,
+      anchorMessageId: anchor?.messageId ?? null,
       anchorTurnId: anchor?.turnId ?? null,
       anchorOffsetTop: anchor?.offsetTop,
       lastSeenContentBottom: lastSeenContentBottomRef.current ?? getRealContentBottom(),
@@ -569,7 +570,7 @@ export function MessageFeed({
     if (isLeaderSession) {
       persistLeaderViewportPosition(sessionId, normalizedThreadKey, position);
     }
-  }, [findVisibleTurnAnchor, getRealContentBottom, isLeaderSession, normalizedThreadKey, sessionId, viewportKey]);
+  }, [findVisibleFeedAnchor, getRealContentBottom, isLeaderSession, normalizedThreadKey, sessionId, viewportKey]);
 
   // Save scroll position on unmount. Uses useLayoutEffect so the cleanup runs
   // in the layout phase — BEFORE the new component's effects try to restore,
@@ -797,6 +798,28 @@ export function MessageFeed({
       return false;
     },
     [markProgrammaticScroll],
+  );
+
+  const restoreSavedViewportAnchor = useCallback(
+    (pos: FeedViewportPosition) => {
+      if (pos.anchorMessageId) {
+        if (
+          restoreFeedAnchor({
+            messageId: pos.anchorMessageId,
+            turnId: null,
+            offsetTop: pos.anchorOffsetTop ?? 0,
+          })
+        ) {
+          return true;
+        }
+        if (pos.anchorTurnId && restoreTurnAnchor(pos.anchorTurnId, 0)) {
+          return true;
+        }
+        return false;
+      }
+      return pos.anchorTurnId ? restoreTurnAnchor(pos.anchorTurnId, pos.anchorOffsetTop ?? 0) : false;
+    },
+    [restoreFeedAnchor, restoreTurnAnchor],
   );
 
   const snapshotViewportAnchor = useCallback(
@@ -1259,16 +1282,16 @@ export function MessageFeed({
     const restoredViewport = restoredViewportRef.current;
     const container = containerRef.current;
     if (restoredViewport?.key === restoreKey && restoredViewport.container === container) return;
-    if (messages.length === 0 && pos?.anchorTurnId) return;
+    if (messages.length === 0 && (pos?.anchorMessageId || pos?.anchorTurnId)) return;
     const desiredSectionWindowStart =
       !isWindowedFeed && pos?.anchorTurnId ? getSectionWindowStartForTurnId(pos.anchorTurnId) : null;
     if (!isWindowedFeed && desiredSectionWindowStart !== sectionWindowStart) {
       setSectionWindowStart(desiredSectionWindowStart);
       return;
     }
-    if (pos && !pos.isAtBottom && pos.anchorTurnId) {
+    if (pos && !pos.isAtBottom && (pos.anchorMessageId || pos.anchorTurnId)) {
       if (selectedFeedWindowEnabled && !activeThreadWindow) return;
-      if (restoreTurnAnchor(pos.anchorTurnId!, pos.anchorOffsetTop ?? 0)) {
+      if (restoreSavedViewportAnchor(pos)) {
         autoFollowEnabledRef.current = false;
         isNearBottom.current = false;
         setShowScrollButton(true);
@@ -1306,7 +1329,7 @@ export function MessageFeed({
     messages.length,
     normalizedThreadKey,
     restoreSavedScrollPosition,
-    restoreTurnAnchor,
+    restoreSavedViewportAnchor,
     savedViewportRestoreKey,
     scrollToBottom,
     sectionWindowStart,

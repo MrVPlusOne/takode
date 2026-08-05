@@ -25,6 +25,7 @@ export function getSavedViewportRestoreKey(viewportKey: string, pos: FeedViewpor
     pos.isAtBottom ? "bottom" : "position",
     pos.scrollTop,
     pos.scrollHeight,
+    pos.anchorMessageId ?? "",
     pos.anchorTurnId ?? "",
     pos.anchorOffsetTop ?? "",
     pos.lastSeenContentBottom ?? "",

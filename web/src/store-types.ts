@@ -356,6 +356,7 @@ export interface AppState {
       scrollTop: number;
       scrollHeight: number;
       isAtBottom: boolean;
+      anchorMessageId?: string | null;
       anchorTurnId?: string | null;
       anchorOffsetTop?: number;
       lastSeenContentBottom?: number | null;
@@ -367,6 +368,7 @@ export interface AppState {
       scrollTop: number;
       scrollHeight: number;
       isAtBottom: boolean;
+      anchorMessageId?: string | null;
       anchorTurnId?: string | null;
       anchorOffsetTop?: number;
       lastSeenContentBottom?: number | null;

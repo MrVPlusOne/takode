@@ -7,6 +7,7 @@ export interface FeedViewportPosition {
   scrollTop: number;
   scrollHeight: number;
   isAtBottom: boolean;
+  anchorMessageId?: string | null;
   anchorTurnId?: string | null;
   anchorOffsetTop?: number;
   lastSeenContentBottom?: number | null;
@@ -149,6 +150,7 @@ function normalizeViewportPosition(value: unknown): FeedViewportPosition | null 
     scrollTop,
     scrollHeight,
     isAtBottom: record.isAtBottom === true,
+    anchorMessageId: typeof record.anchorMessageId === "string" ? record.anchorMessageId : null,
     anchorTurnId: typeof record.anchorTurnId === "string" ? record.anchorTurnId : null,
     ...(anchorOffsetTop != null ? { anchorOffsetTop } : {}),
     ...(lastSeenContentBottom != null ? { lastSeenContentBottom } : {}),
