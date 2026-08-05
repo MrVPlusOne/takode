@@ -653,11 +653,12 @@ describe("board stall warnings", () => {
       ),
       getSessionNum: vi.fn((id: string) => launcherSessions.get(id)?.sessionNum),
       listSessions: vi.fn(() => Array.from(launcherSessions.values())),
-      resolveSessionId: vi.fn((ref: string) => {
-        if (ref === "2") return workerId;
-        if (ref === "3") return reviewerId;
-        return null;
-      }),
+      resolveSessionId: vi.fn(
+        (ref: string) =>
+          Array.from(launcherSessions.values()).find(
+            (session: any) => String(session.sessionNum) === ref && !session.archived,
+          )?.sessionId ?? null,
+      ),
     };
     bridge.setLauncher(launcherMock as any);
     bridge.setTimerManager({
@@ -1498,6 +1499,85 @@ describe("board stall warnings", () => {
     );
     expect(leaderSession.attentionReason).toBeNull();
 
+    dispatcher.destroy();
+  });
+
+  it("delivers dispatchable reminders for session dependencies owned by another leader", async () => {
+    const { leaderId, dispatcher, launcherSessions } = setupBoardStallHarness();
+    const injectSpy = vi.spyOn(bridge, "injectUserMessage");
+    const externalLeaderId = "external-board-leader";
+    const externalWorkerId = "external-worker-completed";
+    const leaderSession = (bridge as any).sessions.get(leaderId);
+
+    leaderSession.messageHistory.push({
+      type: "assistant",
+      message: { id: "leader-board-note-external", content: [{ type: "text", text: "Queued external wait noted." }] },
+      timestamp: Date.now(),
+    });
+    launcherSessions.set(externalLeaderId, {
+      sessionId: externalLeaderId,
+      sessionNum: 87,
+      isOrchestrator: true,
+      backendType: "codex",
+      cwd: "/repo",
+      lastActivityAt: Date.now() - 60_000,
+    });
+    launcherSessions.set(externalWorkerId, {
+      sessionId: externalWorkerId,
+      sessionNum: 88,
+      herdedBy: externalLeaderId,
+      backendType: "codex",
+      cwd: "/repo",
+      lastActivityAt: Date.now() - 60_000,
+    });
+    dispatcher.setupForOrchestrator(externalLeaderId);
+    const externalLeaderCli = makeCliSocket(externalLeaderId);
+    bridge.handleCLIOpen(externalLeaderCli, externalLeaderId);
+    bridge.handleCLIMessage(externalLeaderCli, makeInitMsg({ session_id: "cli-external-board-leader" }));
+    const externalWorkerCli = makeCliSocket(externalWorkerId);
+    bridge.handleCLIOpen(externalWorkerCli, externalWorkerId);
+    bridge.handleCLIMessage(externalWorkerCli, makeInitMsg({ session_id: "cli-external-worker-completed" }));
+
+    bridge.upsertBoardRow(leaderId, {
+      questId: "q-8",
+      title: "External dependency follow-up",
+      status: "QUEUED",
+      waitFor: ["#88"],
+      updatedAt: Date.now() - 60_000,
+    });
+
+    bridge.startStuckSessionWatchdog();
+    vi.advanceTimersByTime(31_000);
+    await Promise.resolve();
+
+    const herdCalls = injectSpy.mock.calls.filter(
+      ([sessionId, content, source]) =>
+        sessionId === leaderId && source?.sessionId === "herd-events" && String(content).includes("q-8"),
+    );
+    expect(herdCalls).toHaveLength(1);
+    expect(herdCalls[0][1]).toContain("board_dispatchable");
+    expect(herdCalls[0][1]).toContain("q-8");
+    expect(herdCalls[0][1]).toContain("wait-for resolved (#88)");
+    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-8 can be dispatched now"))).toBe(
+      false,
+    );
+    expect(
+      injectSpy.mock.calls.some(
+        ([sessionId, content, source]) =>
+          sessionId === externalLeaderId && source?.sessionId === "herd-events" && String(content).includes("q-8"),
+      ),
+    ).toBe(false);
+
+    dispatcher.onOrchestratorTurnEnd(leaderId);
+    vi.advanceTimersByTime(60_000);
+    await Promise.resolve();
+    const repeated = injectSpy.mock.calls.filter(
+      ([sessionId, content, source]) =>
+        sessionId === leaderId && source?.sessionId === "herd-events" && String(content).includes("q-8"),
+    );
+    expect(repeated).toHaveLength(1);
+
+    injectSpy.mockRestore();
     dispatcher.destroy();
   });
 

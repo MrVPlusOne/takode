@@ -75,6 +75,12 @@ export interface BoardWatchdogDeps {
   backendConnected: (session: SessionLike) => boolean;
   getBoard: (sessionId: string) => BoardRow[];
   emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) => void;
+  emitTakodeEventForOrchestrator?: (
+    orchestratorSessionId: string,
+    sourceSessionId: string,
+    type: string,
+    data: Record<string, unknown>,
+  ) => void;
   injectLeaderBoardDispatchableReminder?: (leaderSessionId: string, candidate: BoardDispatchableCandidate) => void;
   markNotificationDone: (sessionId: string, notifId: string, done: boolean) => boolean;
   isSessionIdle: (sessionId: string) => boolean;
@@ -1152,13 +1158,18 @@ export function sweepBoardDispatchableWarnings(
       if (!current || current.warnedAt) continue;
       const sourceSessionId = findBoardDispatchSourceSessionId(session, row, deps);
       if (sourceSessionId) {
-        deps.emitTakodeEvent(sourceSessionId, "board_dispatchable", {
+        const data = {
           questId: candidate.questId,
           ...(candidate.title ? { title: candidate.title } : {}),
           signature: candidate.signature,
           summary: candidate.summary,
           ...(candidate.action ? { action: candidate.action } : {}),
-        });
+        };
+        if (deps.emitTakodeEventForOrchestrator) {
+          deps.emitTakodeEventForOrchestrator(session.id, sourceSessionId, "board_dispatchable", data);
+        } else {
+          deps.emitTakodeEvent(sourceSessionId, "board_dispatchable", data);
+        }
       } else {
         deps.injectLeaderBoardDispatchableReminder?.(session.id, candidate);
       }

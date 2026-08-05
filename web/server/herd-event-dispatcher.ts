@@ -356,6 +356,31 @@ export class HerdEventDispatcher {
     );
   }
 
+  emitTakodeEventForOrchestrator<E extends TakodeEventType>(
+    orchId: string,
+    sessionId: string,
+    event: E,
+    data: TakodeEventDataByType[E],
+    actorSessionId?: string,
+  ): void {
+    const takodeEvent = {
+      id: this.takodeEventNextId++,
+      event,
+      sessionId,
+      sessionNum: this.runtime?.getSessionNum?.(sessionId) ?? -1,
+      sessionName: this.runtime?.getSessionName?.(sessionId) ?? sessionId.slice(0, 8),
+      ts: Date.now(),
+      data,
+      ...(actorSessionId ? { actorSessionId } : {}),
+    } as TakodeEventFor<E>;
+    this.takodeEventLog.push(takodeEvent);
+    if (this.takodeEventLog.length > HerdEventDispatcher.TAKODE_EVENT_LOG_LIMIT) {
+      this.takodeEventLog.shift();
+    }
+    this.ensureInboxForOrchestrator(orchId);
+    this.onWorkerEvent(orchId, takodeEvent);
+  }
+
   subscribeTakodeEvents(
     sessions: Set<string>,
     callback: (event: TakodeEvent) => void,
@@ -472,6 +497,39 @@ export class HerdEventDispatcher {
       inbox.unsubscribe = this.wsBridge.subscribeTakodeEvents(workerIds, (evt) => this.onWorkerEvent(orchId, evt));
       this.inboxes.set(orchId, inbox);
     }
+  }
+
+  private ensureInboxForOrchestrator(orchId: string): HerdInbox {
+    const workerIds = new Set(this.launcher.getHerdedSessions(orchId).map((worker) => worker.sessionId));
+    const existing = this.inboxes.get(orchId);
+    if (existing) {
+      if (setsEqual(existing.workerIds, workerIds)) return existing;
+      existing.unsubscribe?.();
+      existing.workerIds = workerIds;
+      existing.unsubscribe =
+        workerIds.size > 0
+          ? this.wsBridge.subscribeTakodeEvents(workerIds, (evt) => this.onWorkerEvent(orchId, evt))
+          : null;
+      return existing;
+    }
+
+    const inbox: HerdInbox = {
+      entries: [],
+      nextSeq: 0,
+      inFlightUpTo: null,
+      confirmedUpTo: 0,
+      unsubscribe:
+        workerIds.size > 0
+          ? this.wsBridge.subscribeTakodeEvents(workerIds, (evt) => this.onWorkerEvent(orchId, evt))
+          : null,
+      debounceTimer: null,
+      workerIds,
+      deliveryHistory: [],
+      recentEventKeys: new Map(),
+      lastEmittedMsgTo: new Map(),
+    };
+    this.inboxes.set(orchId, inbox);
+    return inbox;
   }
 
   /** Clean up subscriptions and timers for an orchestrator. */

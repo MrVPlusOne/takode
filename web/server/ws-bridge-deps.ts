@@ -1104,6 +1104,18 @@ export function getBoardWatchdogDeps(host: any) {
     getBoard: (sessionId: string) => getBoardForSessionController(host.sessions, sessionId),
     emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
       host.emitTakodeEvent(sessionId, type as TakodeEventType, data as any),
+    emitTakodeEventForOrchestrator: (
+      orchestratorSessionId: string,
+      sourceSessionId: string,
+      type: string,
+      data: Record<string, unknown>,
+    ) =>
+      host.herdEventDispatcher?.emitTakodeEventForOrchestrator(
+        orchestratorSessionId,
+        sourceSessionId,
+        type as TakodeEventType,
+        data as any,
+      ),
     injectLeaderBoardDispatchableReminder: (
       sessionId: string,
       candidate: { questId: string; title?: string; summary: string; action?: string },
