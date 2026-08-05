@@ -128,9 +128,10 @@ Worker slots are limited to five. Reviewer sessions do not use worker slots, and
 
 When all worker slots are used, compare active board work to your herd. If ready work is blocked only by completed/off-board workers waiting in review, do not treat that as a real capacity blocker:
 
-- Prefer `takode spawn --replace-worktree-worker <session> ...` for an owned completed worktree worker when the new worker belongs in the same repo/base-branch worktree.
+- Prefer `takode spawn --replace-worktree-worker <session> ...` for an owned completed worktree worker when the new worker belongs in the same repo/base-branch worktree. A clean worktree that is only behind the current target/base branch is safe to reclaim when normal capacity rules allow.
 - If replacement is ineligible, archive the completed worker least likely to be reused.
-- Never archive proactively. Archiving a worktree worker deletes unsynced worktree state, so reclaim capacity only after anything worth keeping has been committed, ported, or otherwise preserved.
+- Never archive proactively. Archiving a worktree worker deletes unsynced worktree state, so reclaim capacity only after uncommitted changes and commits genuinely ahead of the current target have been committed, ported, or otherwise preserved.
+- Do not infer dirty state from the worktree badge or treat every displayed ahead count as proof of unported work. `takode info` and sidebar counts may use a session diff base that differs from the live replacement preflight base. If counts are surprising, use replacement preflight or explicit current target-ref verification as the safety authority; never discard uncertain state.
 
 For approved Work that needs a shared lease, dispatch the worker into Work and let the worker run the documented lease acquire flow. Do not externally queue already-approved Work merely because a lease is currently held.
 

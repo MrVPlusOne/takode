@@ -506,6 +506,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
     expect(guardrails).toContain("ported, committed, or otherwise synced");
+    expect(guardrails).toContain("allows clean behind-only worktrees");
+    expect(guardrails).toContain("commits genuinely ahead of the current target/base branch");
+    expect(guardrails).toContain("takode info` and sidebar counts may use a different session diff base");
+    expect(guardrails).toContain("replacement preflight or explicit current target-ref verification");
     expect(guardrails).toContain("Every active phase needs durable quest documentation");
     expect(guardrails).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
     expect(guardrails).toContain("Phase-note TLDRs should be 1-5 scan-friendly bullets or sentences");
@@ -648,6 +652,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
     expect(guardrails).toContain("ported, committed, or otherwise synced");
+    expect(guardrails).toContain("allows clean behind-only worktrees");
+    expect(guardrails).toContain("commits genuinely ahead of the current target/base branch");
+    expect(guardrails).toContain("takode info` and sidebar counts may use a different session diff base");
+    expect(guardrails).toContain("replacement preflight or explicit current target-ref verification");
     expect(guardrails).toContain("Every active phase needs durable quest documentation");
     expect(guardrails).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
     expect(guardrails).toContain("Phase-note TLDRs should be 1-5 scan-friendly bullets or sentences");
