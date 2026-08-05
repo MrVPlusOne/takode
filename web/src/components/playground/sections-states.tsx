@@ -1,4 +1,4 @@
-import { CodexThinkingInline, MessageBubble, HerdEventMessage } from "../MessageBubble.js";
+import { CodexThinkingInline, MessageBubble } from "../MessageBubble.js";
 import { SideChatPanel } from "../SideChatPanel.js";
 import { DiffViewer } from "../DiffViewer.js";
 import { MarkdownContent } from "../MarkdownContent.js";
@@ -31,12 +31,12 @@ import {
 import { PlaygroundSideChatStates } from "./SideChatPlaygroundStates.js";
 import { PlaygroundSidebarOverflowStates, PlaygroundUniversalSearchStates } from "./search-sidebar-states.js";
 import { PlaygroundUserMessageNavigatorSection } from "./PlaygroundUserMessageNavigatorSection.js";
+import { PlaygroundHerdEventStates } from "./HerdEventPlaygroundStates.js";
 import { CompactToolMessageGroups } from "../ToolMessageGroup.js";
 import {
   Card,
   PlaygroundClaudeMdButton,
   PlaygroundFolderPicker,
-  PlaygroundHerdEventDemo,
   PlaygroundSectionGroup,
   PlaygroundSelectionContextMenu,
   PlaygroundDelegateTaskGroup,
@@ -1288,63 +1288,7 @@ export function PlaygroundStateSections() {
           </Card>
         </div>
       </Section>
-      <Section
-        title="Herd Event Chips"
-        description="Herd events render as compact expandable chips. When the session number resolves, that token links to the worker session while the rest of the chip still expands inline."
-      >
-        <div className="space-y-4 max-w-3xl">
-          <Card label="Collapsed batch chip">
-            <div className="py-2 pl-9">
-              <button className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono-code leading-snug border border-amber-500/20 bg-amber-500/5 cursor-pointer hover:bg-amber-500/10 hover:border-amber-500/30 transition-colors text-cc-muted">
-                <span className="text-amber-500/50 shrink-0 text-[10px]">◇</span>
-                <span>4 herd updates · 11:44 AM – 11:55 AM</span>
-                <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 text-cc-muted/40 shrink-0">
-                  <path d="M6 3l5 5-5 5V3z" />
-                </svg>
-              </button>
-            </div>
-          </Card>
-          <Card label="Single event chip (no activity — click to expand header)">
-            <div className="py-2">
-              <HerdEventMessage
-                showTimestamp={false}
-                message={{
-                  id: "herd-no-activity-demo",
-                  role: "user",
-                  content: "1 event from 1 session\n\n#35 | session_archived (user-initiated) | 2s ago",
-                  timestamp: Date.now(),
-                  agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-                }}
-              />
-            </div>
-          </Card>
-          <Card label="Event chip with activity (click #8 to navigate, rest expands)">
-            <div className="py-2">
-              <PlaygroundHerdEventDemo
-                id="herd-chip-demo"
-                content={
-                  '1 event from 1 session\n\n#8 | turn_end | ✓ 15.3s | tools: 5 | [169]-[172] | "Fixed login validation"\n  [169] user: "Fix the login bug in auth.ts"\n  [172] ✓ "Fixed the login validation logic"\nTool Calls not shown above: 2 Read, 1 Grep, 1 Edit, 1 Bash.'
-                }
-              />
-            </div>
-          </Card>
-          <Card label="Event with key message content (markdown headings in activity)">
-            <div className="py-2">
-              <HerdEventMessage
-                showTimestamp={false}
-                message={{
-                  id: "herd-keymsg-demo",
-                  role: "user",
-                  content:
-                    "1 event from 1 session\n\n#287 | turn_end | ✓ 53.6s | tools: 15 | [1]-[22] | 1s ago\n  [1] asst: I'll load the required skills first.\n  [5] asst: Skills loaded. Now let me gather the evidence.\n  [22] asst: I now have all the evidence. Let me compile the review.\nTool Calls not shown above: 1 Read, 11 Bash, 3 Skill.\n## Skeptic Review: Session #286 / Quest q-180\n### Task\nFix the autonamer regex to handle edge cases.\n### Assessment\n**ACCEPT**: The work is thorough and the claims are honest.",
-                  timestamp: Date.now(),
-                  agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-                }}
-              />
-            </div>
-          </Card>
-        </div>
-      </Section>
+      <PlaygroundHerdEventStates />
       <Section
         title="Timer Messages"
         description="Timer injections render as lightweight inline event rows: fired timers are framed as reminders from an earlier note, while cancellations read as simpler muted events."

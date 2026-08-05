@@ -51,6 +51,7 @@ import type {
 } from "../session-types.js";
 import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
 import { getCodexPendingInputSizeLimit } from "../codex-pending-input-safety.js";
+import { getTakodeHerdEventBrowserMetadata } from "../herd-event-browser-metadata.js";
 import {
   markCodexAutoPauseRecoveryDiscarded,
   markCodexAutoPauseRecoveryFailed,
@@ -1221,6 +1222,7 @@ export function ingestUserMessage(
     const resolutionNotice = wasGenerating
       ? null
       : buildNeedsInputResolutionNoticeForDirectUserMessage(session, msg, deps);
+    const takodeHerdEvents = getTakodeHerdEventBrowserMetadata(msg.takodeHerdBatch);
     const userHistoryEntry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
       type: "user_message",
       content: msg.content,
@@ -1235,6 +1237,8 @@ export function ingestUserMessage(
       ...(explicitTarget?.questId ? { questId: explicitTarget.questId } : {}),
       ...(explicitThreadRef ? { threadRefs: [explicitThreadRef] } : {}),
       ...(msg.slackThreadId ? { slackThreadId: msg.slackThreadId } : {}),
+      ...(msg.takodeHerdBatch?.eventKeys?.length ? { takodeHerdEventKeys: msg.takodeHerdBatch.eventKeys } : {}),
+      ...(takodeHerdEvents?.length ? { takodeHerdEvents } : {}),
     };
     let userMsgHistoryIdx = -1;
     if (commit) {

@@ -986,6 +986,7 @@ export type BrowserIncomingMessageBase =
       slackThreadId?: string;
       threadRoutingError?: ThreadRoutingError;
       takodeHerdEventKeys?: string[];
+      takodeHerdEvents?: TakodeHerdEventBrowserMetadata[];
       threadOutcomeReminder?: ThreadOutcomeReminderSatisfaction;
     }
   | {
@@ -1913,6 +1914,14 @@ export interface TakodeHerdBatchSnapshot {
   events: TakodeEvent[];
   renderedLines: string[];
   eventKeys?: string[];
+}
+
+export interface TakodeHerdEventBrowserMetadata {
+  event: TakodeEventType;
+  sessionId: string;
+  sessionNum: number;
+  ts: number;
+  routine: boolean;
 }
 
 export interface TakodeEventDataByType {

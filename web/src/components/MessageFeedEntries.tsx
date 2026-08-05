@@ -48,7 +48,9 @@ import { isAttentionLedgerMessage } from "../utils/attention-records.js";
 import { DelegateTrace, extractDelegateId, useDelegateCommandTrace } from "./DelegateCommandTrace.js";
 import { parseSubagentResultText, SubagentResult } from "./SubagentResult.js";
 import { isCompactToolActivityItem } from "./CompactToolActivity.js";
-import { CompactToolMessageGroups, ToolMessageGroup } from "./ToolMessageGroup.js";
+import { ToolMessageGroup } from "./ToolMessageGroup.js";
+import { CompactFeedActivity, type CompactFeedActivitySegment } from "./CompactFeedActivity.js";
+import { isRoutineHerdEventMessage } from "../utils/herd-event-classification.js";
 
 function useExpandForScrollTarget(
   sessionId: string,
@@ -308,6 +310,10 @@ function getHerdBatchFeedBlockId(messageId: string): string {
 
 function isHerdEventEntry(entry: FeedEntry): entry is { kind: "message"; msg: ChatMessage } {
   return entry.kind === "message" && entry.msg.role === "user" && entry.msg.agentSource?.sessionId === "herd-events";
+}
+
+function isRoutineHerdEventEntry(entry: FeedEntry): entry is { kind: "message"; msg: ChatMessage } {
+  return isHerdEventEntry(entry) && isRoutineHerdEventMessage(entry.msg);
 }
 
 function isThreadSystemMarkerMessage(message: ChatMessage): boolean {
@@ -841,13 +847,36 @@ export const FeedEntries = memo(function FeedEntries({
     // `i` to a larger cursor, or returning. A skipped row must not spin render.
     while (i < entries.length) {
       const entry = entries[i];
-      if (compactToolActivity && entry.kind === "tool_msg_group" && entry.items.every(isCompactToolActivityItem)) {
-        const groups: ToolMsgGroup[] = [entry];
+      if (
+        compactToolActivity &&
+        ((entry.kind === "tool_msg_group" && entry.items.every(isCompactToolActivityItem)) ||
+          isRoutineHerdEventEntry(entry))
+      ) {
+        const segments: CompactFeedActivitySegment[] = [];
         let j = i + 1;
+        let pendingToolGroups: ToolMsgGroup[] = [];
+        let pendingHerdMessages: ChatMessage[] = [];
+        const flushToolGroups = () => {
+          if (pendingToolGroups.length > 0) segments.push({ kind: "tool", groups: pendingToolGroups });
+          pendingToolGroups = [];
+        };
+        const flushHerdMessages = () => {
+          if (pendingHerdMessages.length > 0) segments.push({ kind: "worker_event", messages: pendingHerdMessages });
+          pendingHerdMessages = [];
+        };
+        if (entry.kind === "tool_msg_group") pendingToolGroups.push(entry);
+        else pendingHerdMessages.push(entry.msg);
         while (j < entries.length) {
           const candidate = entries[j];
           if (candidate.kind === "tool_msg_group" && candidate.items.every(isCompactToolActivityItem)) {
-            groups.push(candidate);
+            flushHerdMessages();
+            pendingToolGroups.push(candidate);
+            j++;
+            continue;
+          }
+          if (isRoutineHerdEventEntry(candidate)) {
+            flushToolGroups();
+            pendingHerdMessages.push(candidate.msg);
             j++;
             continue;
           }
@@ -857,10 +886,12 @@ export const FeedEntries = memo(function FeedEntries({
           }
           break;
         }
+        flushToolGroups();
+        flushHerdMessages();
         result.push(
-          <CompactToolMessageGroups
-            key={`compact-tools:${entry.firstId}`}
-            groups={groups}
+          <CompactFeedActivity
+            key={`compact-activity:${entry.kind === "tool_msg_group" ? entry.firstId : entry.msg.id}`}
+            segments={segments}
             sessionId={sessionId}
             isCodexSession={isCodexSession}
             activeCodexTerminalIds={activeCodexTerminalIds}
@@ -883,10 +914,10 @@ export const FeedEntries = memo(function FeedEntries({
           continue;
         }
       }
-      if (isHerdEventEntry(entry)) {
+      if (isRoutineHerdEventEntry(entry)) {
         const batch: ChatMessage[] = [entry.msg];
         let j = i + 1;
-        while (j < entries.length && isHerdEventEntry(entries[j])) {
+        while (j < entries.length && isRoutineHerdEventEntry(entries[j])) {
           batch.push((entries[j] as { kind: "message"; msg: ChatMessage }).msg);
           j++;
         }

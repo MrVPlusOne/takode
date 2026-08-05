@@ -236,6 +236,8 @@ export function normalizeHistoryMessageToChatMessages(
         ...(typeof histMsg.client_msg_id === "string" ? { clientMsgId: histMsg.client_msg_id } : {}),
         ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
         ...(histMsg.agentSource ? { agentSource: histMsg.agentSource } : {}),
+        ...(histMsg.takodeHerdEventKeys?.length ? { takodeHerdEventKeys: histMsg.takodeHerdEventKeys } : {}),
+        ...(histMsg.takodeHerdEvents?.length ? { takodeHerdEvents: histMsg.takodeHerdEvents } : {}),
         ...(histMsg.threadOutcomeReminder ? { threadOutcomeReminder: histMsg.threadOutcomeReminder } : {}),
       },
     ];

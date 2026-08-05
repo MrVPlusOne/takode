@@ -12,6 +12,7 @@ import type {
   SessionState,
 } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
+import { getTakodeHerdEventBrowserMetadata } from "../herd-event-browser-metadata.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
 import {
   buildNeedsInputReminderHistoryEntry,
@@ -1340,6 +1341,7 @@ function commitPendingCodexInput(
     deps.broadcastToBrowsers(session, reminderHistoryEntry);
   }
   commitQueuedNeedsInputResolutionNoticeHistoryEntry(session, pending, deps);
+  const takodeHerdEvents = getTakodeHerdEventBrowserMetadata(pending.takodeHerdBatch);
   const userHistoryEntry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
     type: "user_message",
     content: pending.content,
@@ -1354,6 +1356,7 @@ function commitPendingCodexInput(
     ...(pending.questId ? { questId: pending.questId } : {}),
     ...(pending.threadRefs ? { threadRefs: pending.threadRefs } : {}),
     ...(pending.takodeHerdBatch?.eventKeys?.length ? { takodeHerdEventKeys: pending.takodeHerdBatch.eventKeys } : {}),
+    ...(takodeHerdEvents?.length ? { takodeHerdEvents } : {}),
   };
   session.messageHistory.push(userHistoryEntry);
   const userMsgHistoryIdx = session.messageHistory.length - 1;

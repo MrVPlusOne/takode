@@ -1340,6 +1340,8 @@ function handleParsedMessage(
         ...(typeof data.client_msg_id === "string" ? { clientMsgId: data.client_msg_id } : {}),
         ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
         ...(data.agentSource ? { agentSource: data.agentSource } : {}),
+        ...(data.takodeHerdEventKeys?.length ? { takodeHerdEventKeys: data.takodeHerdEventKeys } : {}),
+        ...(data.takodeHerdEvents?.length ? { takodeHerdEvents: data.takodeHerdEvents } : {}),
       };
       store.appendMessage(sessionId, userMsg);
       store.setSessionPreview(sessionId, formatReplyContentForPreview(data.content, data.replyContext).slice(0, 80));

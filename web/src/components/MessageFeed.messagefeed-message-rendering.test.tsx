@@ -375,6 +375,62 @@ function setStoreSdkSessionRole(sessionId: string, overrides: { isOrchestrator?:
   ];
 }
 
+function makeHerdEvent(
+  id: string,
+  content: string,
+  options: { eventKey?: string; eventType?: string; sessionNum?: number } = {},
+): ChatMessage {
+  return makeMessage({
+    id,
+    role: "user",
+    content,
+    agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+    ...(options.eventKey ? { takodeHerdEventKeys: [options.eventKey] } : {}),
+    ...(options.eventType
+      ? {
+          takodeHerdEvents: [
+            {
+              event: options.eventType as NonNullable<ChatMessage["takodeHerdEvents"]>[number]["event"],
+              sessionId: `worker-${options.sessionNum ?? 2444}`,
+              sessionNum: options.sessionNum ?? 2444,
+              ts: Date.now(),
+              routine: options.eventType === "turn_end" || options.eventType === "worker_stream",
+            },
+          ],
+        }
+      : {}),
+  });
+}
+
+function turnEndEventKey(overrides: { interrupted?: boolean; isError?: boolean; userMessageCount?: number } = {}) {
+  return [
+    "turn_end",
+    "worker-2444",
+    "stop",
+    "31300",
+    overrides.isError ? "true" : "",
+    overrides.interrupted ? "true" : "",
+    overrides.interrupted ? "system" : "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "q-1789",
+    "q-1789",
+    "Bash:5",
+    "Low remains healthy.",
+    "1160",
+    "1174",
+    "",
+    "",
+    "",
+    overrides.userMessageCount == null ? "" : String(overrides.userMessageCount),
+    "",
+    "leader",
+  ].join("|");
+}
+
 function setStoreScrollToTurn(sessionId: string, turnId: string) {
   const map = new Map();
   map.set(sessionId, turnId);
@@ -678,6 +734,73 @@ describe("MessageFeed - message rendering", () => {
 
     expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
     expect(screen.getByText("Ran command, read file")).toBeTruthy();
+  });
+
+  it("groups routine herd events into compact worker-event activity with full expanded details", () => {
+    // Producer-shaped herd metadata lets routine worker completion events hide
+    // behind the existing quiet activity summary without parsing prose.
+    const sid = "test-compact-worker-events";
+    mockStoreValues.compactToolActivity = true;
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Monitor worker progress" }),
+      makeMessage({
+        id: "tools-bash",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "tool_use", id: "bash-1", name: "Bash", input: { command: "takode scan 2444" } }],
+      }),
+      makeHerdEvent(
+        "herd-1",
+        '1 event from 1 session\n\n#2444 | turn_end | ok 31.3s | tools: 5 | [1160]-[1174]\n  [1174] asst: "Low remains healthy."',
+        { eventKey: turnEndEventKey() },
+      ),
+      makeHerdEvent(
+        "herd-2",
+        '1 event from 1 session\n\n#2444 | turn_end | ok 36.6s | tools: 5 | [1176]-[1190]\n  [1190] asst: "Monitoring continues."',
+        { eventKey: turnEndEventKey() },
+      ),
+      makeMessage({ id: "a-final", role: "assistant", content: "Worker is still healthy." }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
+    expect(screen.getByText("Ran command, 2 worker events")).toBeTruthy();
+    expect(screen.queryByText(/tools: 5/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Show 3 activity items/ }));
+
+    expect(screen.getByText(/takode scan 2444/)).toBeTruthy();
+    expect(screen.getAllByText(/#2444/)).toHaveLength(2);
+    expect(screen.getByText(/31\.3s.*tools: 5/)).toBeTruthy();
+    expect(screen.getByText(/Low remains healthy/)).toBeTruthy();
+    expect(screen.getByText("Worker is still healthy.")).toBeTruthy();
+  });
+
+  it("keeps actionable herd events out of routine worker-event compaction", () => {
+    // Interrupted/error worker events require leader recovery judgment, so they
+    // remain individually visible even when routine neighbors compact.
+    const sid = "test-actionable-worker-event-boundary";
+    mockStoreValues.compactToolActivity = true;
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Monitor worker progress" }),
+      makeHerdEvent("routine-herd", "1 event from 1 session\n\n#2444 | turn_end | ok 31.3s", {
+        eventKey: turnEndEventKey(),
+      }),
+      makeHerdEvent("interrupted-herd", "1 event from 1 session\n\n#2444 | turn_end | interrupted | recovery pending", {
+        eventKey: turnEndEventKey({ interrupted: true }),
+      }),
+      makeHerdEvent("permission-herd", "1 event from 1 session\n\n#2444 | permission_request | Bash needs approval", {
+        eventType: "permission_request",
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("1 worker event")).toBeTruthy();
+    expect(screen.getByText(/interrupted/)).toBeTruthy();
+    expect(screen.getByText(/permission_request/)).toBeTruthy();
+    expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
   });
 
   it("renders notification UI outside a compacted tool-only notify command", () => {

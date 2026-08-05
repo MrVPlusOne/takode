@@ -29,7 +29,7 @@ export function ToolMessageGroup(props: ToolMessageGroupProps) {
   );
 }
 
-function ToolMessageGroupContent({
+export function ToolMessageGroupContent({
   group,
   sessionId,
   isCodexSession,

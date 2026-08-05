@@ -60,7 +60,9 @@ describe("HerdEventMessage", () => {
     });
     render(<HerdEventMessage message={msg} showTimestamp={false} />);
 
-    expect(screen.getByText(/turn_end.*5\.0s/)).toBeTruthy();
+    expect(screen.getByText(/turn_end/)).toBeTruthy();
+    expect(screen.queryByText(/5\.0s/)).toBeNull();
+    expect(screen.queryByText(/tools: 1/)).toBeNull();
     expect(screen.queryByText(/Fix bug/)).toBeNull();
   });
 
@@ -73,6 +75,7 @@ describe("HerdEventMessage", () => {
     render(<HerdEventMessage message={msg} showTimestamp={false} />);
 
     fireEvent.click(screen.getByText(/turn_end/));
+    expect(screen.getByText(/5\.0s/)).toBeTruthy();
     expect(screen.getByText(/Fix bug/)).toBeTruthy();
     expect(screen.getByText(/Done/)).toBeTruthy();
   });
@@ -276,12 +279,14 @@ describe("HerdEventMessage", () => {
     });
     render(<HerdEventMessage message={msg} showTimestamp={false} />);
 
-    expect(screen.getByText(/5\.0s/)).toBeTruthy();
-    expect(screen.getByText(/3\.0s/)).toBeTruthy();
+    expect(screen.getAllByText(/turn_end/)).toHaveLength(2);
+    expect(screen.queryByText(/5\.0s/)).toBeNull();
+    expect(screen.queryByText(/3\.0s/)).toBeNull();
     expect(screen.queryByText(/First/)).toBeNull();
     expect(screen.queryByText(/Second/)).toBeNull();
 
-    fireEvent.click(screen.getByText(/5\.0s/));
+    fireEvent.click(screen.getAllByText(/turn_end/)[0]);
+    expect(screen.getByText(/5\.0s/)).toBeTruthy();
     expect(screen.getByText(/First/)).toBeTruthy();
     expect(screen.queryByText(/Second/)).toBeNull();
   });
@@ -319,11 +324,13 @@ describe("HerdEventMessage", () => {
 
     const buttons = screen.getAllByRole("button");
     expect(buttons).toHaveLength(1);
-    expect(screen.getByText(/turn_end.*53\.6s/)).toBeTruthy();
+    expect(screen.getByText(/turn_end/)).toBeTruthy();
+    expect(screen.queryByText(/53\.6s/)).toBeNull();
     expect(screen.queryByText("## Skeptic Review: Session #286")).toBeNull();
     expect(screen.queryByText("### Task")).toBeNull();
 
     fireEvent.click(buttons[0]);
+    expect(screen.getByText(/53\.6s/)).toBeTruthy();
     expect(screen.getByText(/Skeptic Review/)).toBeTruthy();
     expect(screen.getByText(/ACCEPT/)).toBeTruthy();
   });

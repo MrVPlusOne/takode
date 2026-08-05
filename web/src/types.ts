@@ -61,6 +61,7 @@ import type {
   ThreadRoutingError,
   PausedInboundMessage,
   SessionPauseState,
+  TakodeHerdEventBrowserMetadata,
 } from "../server/session-types.js";
 import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
 import { assertNever, isClaudeFamily } from "../server/session-types.js";
@@ -153,6 +154,7 @@ export type {
   ThreadRoutingError,
   PausedInboundMessage,
   SessionPauseState,
+  TakodeHerdEventBrowserMetadata,
   CodexAutoPauseHeldInput,
   CodexResultErrorAutoPauseState,
   CodexResultErrorFamily,
@@ -284,6 +286,10 @@ export interface ChatMessage {
   };
   /** Present when this user message was injected programmatically (e.g. via takode CLI or cron). */
   agentSource?: { sessionId: string; sessionLabel?: string };
+  /** Structured herd-event keys preserved from server delivery metadata. */
+  takodeHerdEventKeys?: string[];
+  /** Minimal browser-facing herd-event metadata for UI classification. */
+  takodeHerdEvents?: TakodeHerdEventBrowserMetadata[];
   /** State recorded when a Thread Outcome Reminder was later satisfied by a concrete outcome. */
   threadOutcomeReminder?: ThreadOutcomeReminderSatisfaction;
   /** Assistant message UUID from CLI, for revert support */

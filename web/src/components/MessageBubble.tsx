@@ -11,6 +11,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { StarredMessageRailMarker } from "./StarredMessageIndicator.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE, parseHerdEvents } from "../utils/herd-event-parser.js";
+import { getHerdEventHeaderSummary } from "../utils/herd-event-classification.js";
 import { useStore, getSessionSearchState, countUserPermissions } from "../store.js";
 import { sessionSearchMessageMatchesCategory } from "../store-session-search.js";
 import { formatVsCodeSelectionAttachmentLabel } from "../utils/vscode-context.js";
@@ -627,7 +628,14 @@ function TimerMessage({
 /** Compact inline rendering for herd event summaries — collapsed by default.
  *  Shows one-line event headers (#N | turn_end | ...) with a toggle chevron.
  *  Expanding reveals the full injected peek-style activity content. */
-export function HerdEventMessage({ message }: { message: ChatMessage; showTimestamp: boolean }) {
+export function HerdEventMessage({
+  message,
+  defaultExpanded = false,
+}: {
+  message: ChatMessage;
+  showTimestamp: boolean;
+  defaultExpanded?: boolean;
+}) {
   // The content is formatted by formatHerdEventBatch():
   // "N events from N sessions\n\n#34 | turn_end | ✓ 56.3s\n  [120] user: ...\n  [121] asst: ...\n#35 | ..."
   // Parse into events: each starts with a #N line (header) followed by indented activity lines.
@@ -645,7 +653,7 @@ export function HerdEventMessage({ message }: { message: ChatMessage; showTimest
   return (
     <div className="animate-[fadeSlideIn_0.2s_ease-out] space-y-1">
       {events.map((evt, i) => (
-        <HerdEventEntry key={i} header={evt.header} activity={evt.activity} />
+        <HerdEventEntry key={i} header={evt.header} activity={evt.activity} defaultExpanded={defaultExpanded} />
       ))}
     </div>
   );
@@ -661,10 +669,20 @@ function splitHerdEventHeader(header: string): { sessionLabel: string | null; re
  *  Every event is clickable. Collapsed: inline pill showing the event header
  *  (e.g. "#287 | turn_end | ✓ 53.6s"). Expanded: full content -- activity lines
  *  for turn_end events, or the untruncated header for other event types. */
-function HerdEventEntry({ header, activity }: { header: string; activity: string[] }) {
-  const [expanded, setExpanded] = useState(false);
+function HerdEventEntry({
+  header,
+  activity,
+  defaultExpanded = false,
+}: {
+  header: string;
+  activity: string[];
+  defaultExpanded?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const hasActivity = activity.some((line) => line.trim().length > 0);
   const { sessionLabel, remainder } = useMemo(() => splitHerdEventHeader(header), [header]);
+  const summaryHeader = useMemo(() => getHerdEventHeaderSummary(header), [header]);
+  const { remainder: summaryRemainder } = useMemo(() => splitHerdEventHeader(summaryHeader), [summaryHeader]);
   const sessions = useStore((s) => s.sessions);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const sessionNames = useStore((s) => s.sessionNames);
@@ -831,7 +849,7 @@ function HerdEventEntry({ header, activity }: { header: string; activity: string
           )
         ) : null}
         <span className={expanded ? "break-words min-w-0" : "truncate min-w-0 max-w-[60ch]"}>
-          {sessionLabel ? remainder : header}
+          {sessionLabel ? (expanded ? remainder : summaryRemainder) : expanded ? header : summaryHeader}
         </span>
         <svg
           viewBox="0 0 16 16"

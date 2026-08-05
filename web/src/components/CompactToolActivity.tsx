@@ -8,6 +8,7 @@ export interface CompactToolActivityItem {
   name: string;
   input: Record<string, unknown>;
   messageId?: string;
+  kind?: "tool" | "worker_event";
 }
 
 const MAX_SUMMARY_PARTS = 3;
@@ -34,6 +35,7 @@ interface ActivityCategory {
 }
 
 function getActivityCategory(item: CompactToolActivityItem): string {
+  if (item.kind === "worker_event") return "worker-event";
   const name = item.name.toLowerCase();
   if (name === "bash") {
     return parseFileReadCommand(String(item.input.command ?? "")) ? "read" : "command";
@@ -76,6 +78,7 @@ function conciseValue(value: unknown): string | null {
 function describeCategory(category: ActivityCategory): string {
   const count = category.items.length;
   const first = category.items[0];
+  if (category.key === "worker-event") return `${count} worker event${count === 1 ? "" : "s"}`;
   if (category.key === "read") return count === 1 ? "Read file" : "Read files";
   if (category.key === "command") return count === 1 ? "Ran command" : `Ran ${count} commands`;
   if (category.key === "edit") return count === 1 ? "Edited file" : "Edited files";
@@ -122,6 +125,9 @@ export function CompactToolActivity({
   const expandTargetId = useStore((state) => (sessionId ? state.expandAllInTurn.get(sessionId) : undefined));
   const summary = useMemo(() => summarizeToolActivity(items), [items]);
   const iconType = getToolIcon(items[0]?.name ?? "");
+  const itemKindLabel = items.some((item) => item.kind === "worker_event")
+    ? `activity item${items.length === 1 ? "" : "s"}`
+    : `tool call${items.length === 1 ? "" : "s"}`;
 
   useEffect(() => {
     if (expandTargetId && containedMessageIds.includes(expandTargetId)) setOpen(true);
@@ -135,8 +141,8 @@ export function CompactToolActivity({
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
-        aria-label={`${open ? "Hide" : "Show"} ${items.length} tool ${items.length === 1 ? "call" : "calls"}: ${summary}`}
-        title={`${open ? "Hide" : "Show"} ${items.length} tool ${items.length === 1 ? "call" : "calls"}`}
+        aria-label={`${open ? "Hide" : "Show"} ${items.length} ${itemKindLabel}: ${summary}`}
+        title={`${open ? "Hide" : "Show"} ${items.length} ${itemKindLabel}`}
         className="group flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] text-cc-muted transition-colors hover:bg-cc-hover/50 hover:text-cc-fg cursor-pointer"
       >
         <svg

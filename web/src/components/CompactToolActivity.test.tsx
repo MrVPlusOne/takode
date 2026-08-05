@@ -31,6 +31,16 @@ describe("CompactToolActivity", () => {
     ).toBe("Ran 3 commands");
   });
 
+  it("summarizes worker events as a compact activity category", () => {
+    expect(
+      summarizeToolActivity([
+        { id: "bash-1", name: "Bash", input: { command: "bun test" } },
+        { id: "worker-1", name: "SendMessage", kind: "worker_event", input: {} },
+        { id: "worker-2", name: "SendMessage", kind: "worker_event", input: {} },
+      ]),
+    ).toBe("Ran command, 2 worker events");
+  });
+
   it("keeps full tool details hidden until the summary is expanded", () => {
     // This verifies the core quiet-view contract: concise by default, with lossless details one click away.
     render(
@@ -45,6 +55,22 @@ describe("CompactToolActivity", () => {
     fireEvent.click(screen.getByRole("button", { name: /Show 4 tool calls/ }));
     expect(screen.getByText("Full command and result details")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Hide 4 tool calls/ }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("labels mixed worker-event activity without calling every item a tool call", () => {
+    render(
+      <CompactToolActivity
+        items={[
+          { id: "bash-1", name: "Bash", input: { command: "bun test" } },
+          { id: "worker-1", name: "SendMessage", kind: "worker_event", input: {} },
+        ]}
+      >
+        <div>Full worker-event details</div>
+      </CompactToolActivity>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Show 2 activity items/ }));
+    expect(screen.getByText("Full worker-event details")).toBeTruthy();
   });
 
   it("keeps interactive tools visible while allowing notification commands to compact", () => {
