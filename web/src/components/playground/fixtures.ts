@@ -569,6 +569,13 @@ export const MSG_USER: ChatMessage = {
   timestamp: Date.now() - 60000,
 };
 
+export const MSG_USER_UNAVAILABLE_TIME: ChatMessage = {
+  id: "msg-user-unavailable-time",
+  role: "user",
+  content: "Stable message row with an unavailable stored timestamp.",
+  timestamp: Number.NaN,
+};
+
 export const MSG_STARRED_USER: ChatMessage = {
   id: "msg-starred-user",
   role: "user",

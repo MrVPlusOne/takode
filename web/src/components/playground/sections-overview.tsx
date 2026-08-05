@@ -55,6 +55,7 @@ import {
   MSG_TASK_COMPLETED,
   MSG_TOOL_ERROR,
   MSG_USER,
+  MSG_USER_UNAVAILABLE_TIME,
   MSG_USER_AGENT,
   MSG_USER_IMAGE,
   MSG_USER_MARKDOWN,
@@ -821,6 +822,9 @@ export function PlaygroundOverviewSections() {
         <div className="space-y-4 max-w-3xl">
           <Card label="User message">
             <MessageBubble message={MSG_USER} />
+          </Card>
+          <Card label="User message (unavailable rail timestamp)">
+            <MessageBubble message={MSG_USER_UNAVAILABLE_TIME} />
           </Card>
           <Card label="Starred user message (side rail)">
             <MessageBubble message={MSG_STARRED_USER} sessionId={MOCK_SESSION_ID} />

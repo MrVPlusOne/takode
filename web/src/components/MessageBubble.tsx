@@ -9,6 +9,7 @@ import { CollapseFooter } from "./CollapseFooter.js";
 import { Lightbox } from "./Lightbox.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { StarredMessageRailMarker } from "./StarredMessageIndicator.js";
+import { MessageRailTimestampDot } from "./MessageRailTimestamp.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE, parseHerdEvents } from "../utils/herd-event-parser.js";
 import { getHerdEventHeaderSummary } from "../utils/herd-event-classification.js";
@@ -1024,6 +1025,7 @@ function UserMessage({
   const isCodex = useStore((s) => s.sessions.get(sessionId ?? "")?.backend_type === "codex");
   const starred = useFeedStarredMessage(sessionId, message);
   const starAction = useMessageStarActions(sessionId, message);
+  const showRailTimestamp = isStarActionableMessage(message);
   const messagesBySession = useStore((s) => s.messages);
   const sessionMessages = sessionId ? (messagesBySession.get(sessionId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES;
   const canRevert = useMemo(() => {
@@ -1058,13 +1060,20 @@ function UserMessage({
 
   return (
     <div className="relative flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out]">
-      {starred && (
-        <span className="absolute left-0 top-2.5 z-0 flex w-10 items-center sm:w-[calc(20%_-_0.375rem)] sm:max-w-40">
-          <StarredMessageRailMarker
-            side="user"
-            onUnstar={starAction.actionable && starAction.starred ? starAction.toggleStarred : undefined}
-          />
-          <span className="pointer-events-none ml-1 h-px min-w-0 flex-1 bg-gradient-to-r from-amber-300/30 to-amber-300/0" />
+      {showRailTimestamp && (
+        <span className="pointer-events-none absolute left-0 top-2.5 z-20 flex w-10 items-center sm:w-[calc(20%_-_0.375rem)] sm:max-w-40">
+          {starred ? (
+            <>
+              <StarredMessageRailMarker
+                side="user"
+                timestamp={message.timestamp}
+                onUnstar={starAction.actionable && starAction.starred ? starAction.toggleStarred : undefined}
+              />
+              <span className="pointer-events-none ml-1 h-px min-w-0 flex-1 bg-gradient-to-r from-amber-300/30 to-amber-300/0" />
+            </>
+          ) : (
+            <MessageRailTimestampDot side="user" timestamp={message.timestamp} />
+          )}
         </span>
       )}
       <div
@@ -1297,7 +1306,11 @@ function AssistantMessage({
     return (
       <div className={`group/msg relative flex items-start ${showRailMarker ? "gap-2 sm:gap-3" : ""}`}>
         {showRailMarker &&
-          (starred ? <StarredMessageRailMarker side="assistant" onUnstar={unstarFromRail} /> : <PawTrailAvatar />)}
+          (starred ? (
+            <StarredMessageRailMarker side="assistant" timestamp={message.timestamp} onUnstar={unstarFromRail} />
+          ) : (
+            <PawTrailAvatar timestamp={message.timestamp} />
+          ))}
         <div ref={contentRef} className="flex-1 min-w-0">
           {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
           {hasTextContent && (
@@ -1337,7 +1350,11 @@ function AssistantMessage({
   return (
     <div className={`group/msg relative flex items-start ${showRailMarker ? "gap-2 sm:gap-3" : ""}`}>
       {showRailMarker &&
-        (starred ? <StarredMessageRailMarker side="assistant" onUnstar={unstarFromRail} /> : <PawTrailAvatar />)}
+        (starred ? (
+          <StarredMessageRailMarker side="assistant" timestamp={message.timestamp} onUnstar={unstarFromRail} />
+        ) : (
+          <PawTrailAvatar timestamp={message.timestamp} />
+        ))}
       <div ref={contentRef} className="flex-1 min-w-0 space-y-3">
         {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
         {shouldRenderContentFallback && (

@@ -1,5 +1,6 @@
 import { createContext, useContext, useRef, useEffect, useState, useCallback, useMemo, useId } from "react";
 import { CatPawLeft } from "./CatIcons.js";
+import { MessageRailTimestampTrigger } from "./MessageRailTimestamp.js";
 
 /**
  * Counter state for sequential paw index assignment.
@@ -128,7 +129,7 @@ export function PawScrollProvider({
  * PawScrollProvider that drives updates via a single listener + rAF.
  * Style updates are written directly to DOM refs — no React re-renders.
  */
-export function PawTrailAvatar({ isStreaming }: { isStreaming?: boolean }) {
+export function PawTrailAvatar({ isStreaming, timestamp }: { isStreaming?: boolean; timestamp?: number }) {
   const componentId = useId();
   const counter = useContext(PawCounterContext);
   const [index] = useState(() => {
@@ -206,7 +207,7 @@ export function PawTrailAvatar({ isStreaming }: { isStreaming?: boolean }) {
     return scrollCtx.register(updateFn);
   }, [scrollCtx, isLeft]);
 
-  return (
+  const marker = (
     <div
       ref={outerRef}
       className="relative w-3.5 h-3.5 rounded-full bg-cc-primary/10 flex items-center justify-center shrink-0 mt-1.5"
@@ -219,5 +220,18 @@ export function PawTrailAvatar({ isStreaming }: { isStreaming?: boolean }) {
       {/* Dot — grows in as paw fades out */}
       <div ref={dotRef} className="w-1.5 h-1.5 rounded-full bg-cc-primary/50 pointer-events-none" />
     </div>
+  );
+
+  if (typeof timestamp !== "number") return marker;
+
+  return (
+    <MessageRailTimestampTrigger
+      timestamp={timestamp}
+      className="relative inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/35"
+      testId="message-time-assistant-rail"
+      ariaLabel="Message time"
+    >
+      {marker}
+    </MessageRailTimestampTrigger>
   );
 }

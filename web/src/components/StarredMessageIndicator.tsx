@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
+import { MessageRailTimestampTrigger } from "./MessageRailTimestamp.js";
 
 export function StarIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
   return (
@@ -9,8 +10,15 @@ export function StarIcon({ className = "h-3.5 w-3.5" }: { className?: string }) 
   );
 }
 
-export function StarredMessageRailMarker({ side, onUnstar }: { side: "assistant" | "user"; onUnstar?: () => void }) {
-  const buttonRef = useRef<HTMLButtonElement>(null);
+export function StarredMessageRailMarker({
+  side,
+  timestamp,
+  onUnstar,
+}: {
+  side: "assistant" | "user";
+  timestamp: number;
+  onUnstar?: () => void;
+}) {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const items = useMemo<ContextMenuItem[]>(
     () => [
@@ -23,41 +31,37 @@ export function StarredMessageRailMarker({ side, onUnstar }: { side: "assistant"
     ],
     [onUnstar],
   );
-  const className = `inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-md border border-amber-300/25 bg-amber-300/10 text-amber-200 shadow-[0_0_0_1px_rgba(251,191,36,0.05)] ${
+  const className = `pointer-events-auto relative inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-md border border-amber-300/25 bg-amber-300/10 text-amber-200 shadow-[0_0_0_1px_rgba(251,191,36,0.05)] ${
     side === "assistant" ? "mt-1.5" : ""
   }`;
 
   if (!onUnstar) {
     return (
-      <span
+      <MessageRailTimestampTrigger
+        timestamp={timestamp}
         className={className}
-        title="Starred message"
-        aria-label="Starred message"
-        data-testid={`starred-message-${side}-rail`}
+        testId={`starred-message-${side}-rail`}
+        ariaLabel="Starred message time"
       >
         <StarIcon className="h-3 w-3" />
-      </span>
+      </MessageRailTimestampTrigger>
     );
   }
 
   return (
     <span className="inline-flex shrink-0">
-      <button
-        ref={buttonRef}
-        type="button"
+      <MessageRailTimestampTrigger
         className={`${className} transition-colors hover:border-amber-300/45 hover:bg-amber-300/16 focus:outline-none focus:ring-2 focus:ring-amber-300/25`}
-        title="Starred message"
-        aria-label="Starred message actions"
-        data-testid={`starred-message-${side}-rail`}
-        onClick={(event) => {
-          event.stopPropagation();
-          const rect = buttonRef.current?.getBoundingClientRect();
-          if (!rect) return;
+        timestamp={timestamp}
+        testId={`starred-message-${side}-rail`}
+        ariaLabel="Starred message time"
+        onPrimaryClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
           setMenuPos({ x: rect.left, y: rect.bottom + 4 });
         }}
       >
         <StarIcon className="h-3 w-3" />
-      </button>
+      </MessageRailTimestampTrigger>
       {menuPos && <ContextMenu x={menuPos.x} y={menuPos.y} items={items} onClose={() => setMenuPos(null)} />}
     </span>
   );

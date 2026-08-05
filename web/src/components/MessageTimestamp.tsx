@@ -13,7 +13,12 @@ function formatMessageTime(timestamp: number): string {
   });
 }
 
-function formatMessageTimestamp(timestamp: number, now = new Date()): string {
+export function isValidMessageTimestamp(timestamp: number | undefined): timestamp is number {
+  if (typeof timestamp !== "number" || !Number.isFinite(timestamp) || timestamp <= 0) return false;
+  return !Number.isNaN(new Date(timestamp).getTime());
+}
+
+export function formatMessageTimestamp(timestamp: number, now = new Date()): string {
   const d = new Date(timestamp);
   if (Number.isNaN(d.getTime()) || Number.isNaN(now.getTime())) return "";
 
@@ -36,6 +41,20 @@ function formatMessageTimestamp(timestamp: number, now = new Date()): string {
   return `${dateText} ${timeText}`;
 }
 
+export function formatExactMessageTimestamp(timestamp: number): string {
+  const d = new Date(timestamp);
+  if (!isValidMessageTimestamp(timestamp)) return "";
+  return d.toLocaleString([], {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
+  });
+}
+
 function formatTurnDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return "";
   if (ms < 100) return "<0.1s";
@@ -49,7 +68,7 @@ function formatTurnDuration(ms: number): string {
 
 export function MessageTimestamp({ timestamp, turnDurationMs }: { timestamp: number; turnDurationMs?: number }) {
   const d = new Date(timestamp);
-  if (Number.isNaN(d.getTime())) return null;
+  if (!isValidMessageTimestamp(timestamp)) return null;
   const timestampText = formatMessageTimestamp(timestamp);
   if (!timestampText) return null;
   const durationText = typeof turnDurationMs === "number" ? formatTurnDuration(turnDurationMs) : "";

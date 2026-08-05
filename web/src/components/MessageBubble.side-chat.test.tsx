@@ -215,6 +215,10 @@ describe("MessageBubble Side Chat actions", () => {
     expect(trigger.className).toContain("w-6");
     expect(trigger).not.toHaveTextContent("Actions");
 
+    const railTimestamp = screen.getByTestId("message-time-assistant-rail");
+    await userEvent.tab();
+    expect(railTimestamp).toHaveFocus();
+
     await userEvent.tab();
     expect(trigger).toHaveFocus();
 
