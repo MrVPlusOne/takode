@@ -18,6 +18,7 @@ import type { InterruptSource as GenerationInterruptSource } from "./generation-
 import type { QuestLifecycleStatus } from "./quest-detector.js";
 import type {
   ActiveTurnRoute,
+  ActiveCodexReasoningPreview,
   BackendType,
   BoardRow,
   BrowserIncomingMessage,
@@ -198,6 +199,8 @@ export interface Session {
   questThreadRemindersThisTurn?: import("./quest-thread-reminder.js").QuestThreadReminderInjection[];
   /** Thread/quest route associated with the currently active turn, when known. */
   activeTurnRoute?: ActiveTurnRoute | null;
+  /** Volatile top-level Codex reasoning preview for the active turn. */
+  activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
   /** Number of follow-up turns queued while a current turn is still running. */
   queuedTurnStarts: number;
   /** Dispatch reasons for queued follow-up turns (aligned with queuedTurnStarts). */

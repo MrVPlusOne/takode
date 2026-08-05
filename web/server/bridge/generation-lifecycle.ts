@@ -1,5 +1,5 @@
 import { sessionTag } from "../session-tag.js";
-import type { ActiveTurnRoute, TakodeTurnEndEventData } from "../session-types.js";
+import type { ActiveCodexReasoningPreview, ActiveTurnRoute, TakodeTurnEndEventData } from "../session-types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 
 /** Reasons that indicate the turn ended due to recovery/error, not a normal result.
@@ -46,6 +46,7 @@ export interface GenerationLifecycleSession {
   userMessageIdsThisTurn: number[];
   questThreadRemindersThisTurn?: unknown[];
   activeTurnRoute?: ActiveTurnRoute | null;
+  activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
   queuedTurnStarts: number;
   queuedTurnReasons: string[];
   queuedTurnUserMessageIds: number[][];
@@ -217,6 +218,7 @@ export function markRunningFromUserDispatch<S extends GenerationLifecycleSession
     session.userMessageIdsThisTurn = [userMessageHistoryIndex];
   }
   session.activeTurnRoute = activeTurnRoute ?? null;
+  session.activeCodexReasoningPreview = null;
   if (!wasGenerating) {
     deps.broadcastStatus(session, "running");
   }
@@ -288,6 +290,7 @@ function startQueuedTurn<S extends GenerationLifecycleSession>(
   session.provisionalStuckRecovery = null;
   session.userMessageIdsThisTurn = [...entry.userMessageIds];
   session.activeTurnRoute = entry.activeTurnRoute;
+  session.activeCodexReasoningPreview = null;
   console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${turnReason})`);
   deps.recordGenerationStarted?.(session, turnReason);
   deps.emitTakodeEvent(session.id, "turn_start", {
@@ -375,6 +378,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.userMessageIdsThisTurn = [];
     session.questThreadRemindersThisTurn = [];
     session.activeTurnRoute = null;
+    session.activeCodexReasoningPreview = null;
     console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${reason})`);
     deps.recordGenerationStarted?.(session, reason);
 
@@ -407,6 +411,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.compactedDuringTurn = false;
     session.provisionalStuckRecovery = null;
     session.activeTurnRoute = null;
+    session.activeCodexReasoningPreview = null;
     if (!SUPPRESSED_TAKODE_TURN_END_REASONS.has(reason)) {
       deps.emitTakodeEvent(session.id, "turn_end", {
         reason,

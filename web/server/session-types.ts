@@ -378,6 +378,15 @@ export interface ActiveTurnRoute {
   questId?: string;
 }
 
+export interface ActiveCodexReasoningPreview {
+  text: string;
+  updatedAt: number;
+  turnId?: string | null;
+  threadKey?: string;
+  questId?: string;
+  truncated?: boolean;
+}
+
 export type SideChatContextStrategy = "native-fork" | "bounded-replay";
 
 export type SideChatFallbackReasonCode =
@@ -1128,6 +1137,7 @@ export type BrowserIncomingMessageBase =
       attentionReason?: "action" | "error" | "review" | null;
       generationStartedAt?: number | null;
       activeTurnRoute?: ActiveTurnRoute | null;
+      activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
       codexAutoPauseRecoveryTesting?: boolean;
       board?: BoardRow[];
       completedBoard?: BoardRow[];

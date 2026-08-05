@@ -39,6 +39,7 @@ import type { WsIncomingMessageContext } from "./ws-message-context.js";
 import { handleTranscriptionProgressMessage } from "./transcription-progress.js";
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { handleNotificationUpdateMessage } from "./ws-notification-handler.js";
+import { updateActiveCodexReasoningPreviewFromStream } from "./ws-active-codex-reasoning.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1014,6 +1015,7 @@ function handleParsedMessage(
             store.setStreamingThinking(sessionId, current + delta.thinking, parentToolUseId);
           }
         }
+        updateActiveCodexReasoningPreviewFromStream(sessionId, data, store);
 
         // message_delta → extract output token count
         if (evt.type === "message_delta") {
@@ -1357,6 +1359,7 @@ function handleParsedMessage(
       if ("activeTurnRoute" in data || data.status !== "running") {
         store.setActiveTurnRoute(sessionId, data.status === "running" ? data.activeTurnRoute : null);
       }
+      store.setActiveCodexReasoningPreview(sessionId, null);
       if (data.codexAutoPauseRecoveryTesting !== undefined || data.status !== "running") {
         store.updateSession(sessionId, {
           codex_result_error_auto_pause_recovery_testing: data.codexAutoPauseRecoveryTesting ?? false,
@@ -1487,6 +1490,10 @@ function handleParsedMessage(
       };
       store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
       store.setActiveTurnRoute(sessionId, data.sessionStatus === "running" ? data.activeTurnRoute : null);
+      store.setActiveCodexReasoningPreview(
+        sessionId,
+        data.sessionStatus === "running" ? (data.activeCodexReasoningPreview ?? null) : null,
+      );
       store.setCliConnected(sessionId, data.backendConnected);
       store.updateSession(sessionId, {
         codex_result_error_auto_pause_recovery_testing: data.codexAutoPauseRecoveryTesting ?? false,

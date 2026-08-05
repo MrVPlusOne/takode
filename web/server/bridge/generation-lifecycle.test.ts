@@ -177,6 +177,26 @@ describe("setGenerating(false) — queued turn handling", () => {
     expect(session.userMessageIdsThisTurn).toEqual([]);
   });
 
+  it("clears volatile Codex reasoning previews when turns start, end, or promote", () => {
+    deps = makeDeps({ isHerdedWorker: vi.fn(() => true) });
+    deps.sessions.set(session.id, session);
+    session.activeCodexReasoningPreview = { text: "stale reasoning", updatedAt: 1, threadKey: "main" };
+
+    markRunningFromUserDispatch(deps, session, "user_message", null, undefined, { threadKey: "main" });
+
+    expect(session.activeCodexReasoningPreview).toBeNull();
+    session.activeCodexReasoningPreview = { text: "current reasoning", updatedAt: 2, threadKey: "main" };
+    markRunningFromUserDispatch(deps, session, "queued_message", null, undefined, {
+      threadKey: "q-968",
+      questId: "q-968",
+    });
+
+    setGenerating(deps, session, false, "result");
+
+    expect(session.activeCodexReasoningPreview).toBeNull();
+    expect(session.activeTurnRoute).toEqual({ threadKey: "q-968", questId: "q-968" });
+  });
+
   it("keeps leader thread statuses when a new generation starts", () => {
     const broadcastSessionUpdate = vi.fn();
     session.state.leaderThreadStatuses = {

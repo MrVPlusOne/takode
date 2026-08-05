@@ -174,6 +174,47 @@ describe("handleMessage: state_snapshot", () => {
     expect(useStore.getState().askPermission.get("s1")).toBe(false);
   });
 
+  it("hydrates and clears the active Codex reasoning preview from authoritative snapshots", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "running",
+      permissionMode: "acceptEdits",
+      backendConnected: true,
+      uiMode: null,
+      askPermission: false,
+      activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
+      activeCodexReasoningPreview: {
+        text: "Inspecting thread routing",
+        updatedAt: 123,
+        threadKey: "q-975",
+        questId: "q-975",
+      },
+    });
+
+    expect(useStore.getState().activeCodexReasoningPreviews.get("s1")).toMatchObject({
+      text: "Inspecting thread routing",
+      threadKey: "q-975",
+    });
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "idle",
+      permissionMode: "acceptEdits",
+      backendConnected: true,
+      uiMode: null,
+      askPermission: false,
+      activeCodexReasoningPreview: {
+        text: "stale",
+        updatedAt: 124,
+      },
+    });
+
+    expect(useStore.getState().activeCodexReasoningPreviews.has("s1")).toBe(false);
+  });
+
   it("restores the authoritative recovery-testing projection on reconnect", () => {
     // Reconnect/restart must reconstruct testing from server turn ownership,
     // not a stale composer submit remembered by this browser.

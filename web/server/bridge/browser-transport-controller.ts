@@ -53,6 +53,7 @@ import {
   queueCodexAutoPausedInput,
 } from "../codex-result-error-auto-pause.js";
 import type {
+  ActiveCodexReasoningPreview,
   ActiveTurnRoute,
   BoardRow,
   BoardRowSessionStatus,
@@ -119,6 +120,7 @@ export interface BrowserTransportSessionLike {
   isGenerating?: boolean;
   userMessageIdsThisTurn?: number[];
   activeTurnRoute?: ActiveTurnRoute | null;
+  activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
   notifications: unknown[];
   attentionRecords: unknown[];
   notificationStatusVersion?: number;
@@ -977,9 +979,10 @@ export function sendStateSnapshot(
   const board = deps.getBoard(session.id) as BoardRow[];
   const completedBoard = deps.getCompletedBoard(session.id) as BoardRow[];
   const notificationStatus = getNotificationStatusSnapshot(session);
+  const sessionStatus = deriveSessionStatus(session, deps);
   sendToBrowser(ws, {
     type: "state_snapshot",
-    sessionStatus: deriveSessionStatus(session, deps),
+    sessionStatus,
     permissionMode: session.state.permissionMode,
     backendConnected: deps.backendConnected(session),
     backendState: deps.deriveBackendState(session),
@@ -990,6 +993,7 @@ export function sendStateSnapshot(
     attentionReason: session.attentionReason,
     generationStartedAt: session.generationStartedAt ?? null,
     activeTurnRoute: deriveActiveTurnRoute(session),
+    activeCodexReasoningPreview: sessionStatus === "running" ? (session.activeCodexReasoningPreview ?? null) : null,
     codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
     board,
     completedBoard,

@@ -40,6 +40,8 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
   streamingThinking.delete(sessionId);
   const streamingThinkingByParentToolUseId = new Map(s.streamingThinkingByParentToolUseId);
   streamingThinkingByParentToolUseId.delete(sessionId);
+  const activeCodexReasoningPreviews = new Map(s.activeCodexReasoningPreviews);
+  activeCodexReasoningPreviews.delete(sessionId);
   const streamingStartedAt = new Map(s.streamingStartedAt);
   streamingStartedAt.delete(sessionId);
   const streamingOutputTokens = new Map(s.streamingOutputTokens);
@@ -151,6 +153,7 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
     streamingByParentToolUseId,
     streamingThinking,
     streamingThinkingByParentToolUseId,
+    activeCodexReasoningPreviews,
     streamingStartedAt,
     streamingOutputTokens,
     streamingPausedDuration,

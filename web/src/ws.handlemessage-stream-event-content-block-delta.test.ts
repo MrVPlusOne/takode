@@ -188,6 +188,11 @@ describe("handleMessage: stream_event content_block_delta", () => {
   it("accumulates live codex thinking from thinking deltas", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
+    fireMessage({
+      type: "status_change",
+      status: "running",
+      activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
+    });
 
     fireMessage({
       type: "stream_event",
@@ -201,6 +206,11 @@ describe("handleMessage: stream_event content_block_delta", () => {
     });
 
     expect(useStore.getState().streamingThinking.get("s1")).toBe("Inspecting session state");
+    expect(useStore.getState().activeCodexReasoningPreviews.get("s1")).toMatchObject({
+      text: "Inspecting session state",
+      threadKey: "q-975",
+      questId: "q-975",
+    });
   });
 
   it("routes parented thinking into the matching subagent buffer", () => {
@@ -221,5 +231,6 @@ describe("handleMessage: stream_event content_block_delta", () => {
     const state = useStore.getState();
     expect(state.streamingThinking.has("s1")).toBe(false);
     expect(state.streamingThinkingByParentToolUseId.get("s1")?.get("agent-1")).toBe("Nested reasoning");
+    expect(state.activeCodexReasoningPreviews.has("s1")).toBe(false);
   });
 });

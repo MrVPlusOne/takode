@@ -155,6 +155,7 @@ export const useStore = create<AppState>((set, get) => ({
   streamingByParentToolUseId: new Map(),
   streamingThinking: new Map(),
   streamingThinkingByParentToolUseId: new Map(),
+  activeCodexReasoningPreviews: new Map(),
   streamingStartedAt: new Map(),
   streamingOutputTokens: new Map(),
   streamingPausedDuration: new Map(),
@@ -808,6 +809,17 @@ export const useStore = create<AppState>((set, get) => ({
       return { streamingThinking };
     }),
 
+  setActiveCodexReasoningPreview: (sessionId, preview) =>
+    set((s) => {
+      const activeCodexReasoningPreviews = new Map(s.activeCodexReasoningPreviews);
+      if (preview === null || preview.text.trim().length === 0) {
+        activeCodexReasoningPreviews.delete(sessionId);
+      } else {
+        activeCodexReasoningPreviews.set(sessionId, preview);
+      }
+      return { activeCodexReasoningPreviews };
+    }),
+
   setStreamingStats: (sessionId, stats) =>
     set((s) => {
       const streamingStartedAt = new Map(s.streamingStartedAt);
@@ -838,6 +850,8 @@ export const useStore = create<AppState>((set, get) => ({
       streamingThinking.delete(sessionId);
       const streamingThinkingByParentToolUseId = new Map(s.streamingThinkingByParentToolUseId);
       streamingThinkingByParentToolUseId.delete(sessionId);
+      const activeCodexReasoningPreviews = new Map(s.activeCodexReasoningPreviews);
+      activeCodexReasoningPreviews.delete(sessionId);
       const streamingStartedAt = new Map(s.streamingStartedAt);
       streamingStartedAt.delete(sessionId);
       const streamingOutputTokens = new Map(s.streamingOutputTokens);
@@ -851,6 +865,7 @@ export const useStore = create<AppState>((set, get) => ({
         streamingByParentToolUseId,
         streamingThinking,
         streamingThinkingByParentToolUseId,
+        activeCodexReasoningPreviews,
         streamingStartedAt,
         streamingOutputTokens,
         streamingPausedDuration,
@@ -883,6 +898,8 @@ export const useStore = create<AppState>((set, get) => ({
       streamingThinking.delete(sessionId);
       const streamingThinkingByParentToolUseId = new Map(s.streamingThinkingByParentToolUseId);
       streamingThinkingByParentToolUseId.delete(sessionId);
+      const activeCodexReasoningPreviews = new Map(s.activeCodexReasoningPreviews);
+      activeCodexReasoningPreviews.delete(sessionId);
       const streamingStartedAt = new Map(s.streamingStartedAt);
       streamingStartedAt.delete(sessionId);
       const streamingOutputTokens = new Map(s.streamingOutputTokens);
@@ -940,6 +957,7 @@ export const useStore = create<AppState>((set, get) => ({
         streamingByParentToolUseId,
         streamingThinking,
         streamingThinkingByParentToolUseId,
+        activeCodexReasoningPreviews,
         streamingStartedAt,
         streamingOutputTokens,
         streamingPausedDuration,
@@ -1844,6 +1862,7 @@ export const useStore = create<AppState>((set, get) => ({
       streamingByParentToolUseId: new Map(),
       streamingThinking: new Map(),
       streamingThinkingByParentToolUseId: new Map(),
+      activeCodexReasoningPreviews: new Map(),
       streamingStartedAt: new Map(),
       streamingOutputTokens: new Map(),
       streamingPausedDuration: new Map(),

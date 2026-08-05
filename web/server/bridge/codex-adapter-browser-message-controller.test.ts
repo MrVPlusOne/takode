@@ -15,6 +15,15 @@ type TestCodexSession = {
   toolProgressOutput: Map<string, string>;
   isGenerating: boolean;
   activeTurnRoute: ActiveTurnRoute | null;
+  activeCodexReasoningPreview?: {
+    text: string;
+    updatedAt: number;
+    turnId?: string | null;
+    threadKey?: string;
+    questId?: string;
+    truncated?: boolean;
+  } | null;
+  codexAdapter?: { getCurrentTurnId: () => string | null };
   notifications: SessionNotification[];
   notificationCounter: number;
   attentionReason: "action" | "error" | "review" | null;
@@ -319,6 +328,61 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       status: "running",
     });
     expect(broadcasts.filter((msg) => msg.type === "stream_event")).toHaveLength(2);
+  });
+
+  it("records a volatile active Codex reasoning preview from top-level thinking streams", async () => {
+    const session = makeSession();
+    session.activeTurnRoute = { threadKey: "q-975", questId: "q-975" };
+    session.codexAdapter = { getCurrentTurnId: () => "turn-1" };
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        event: { type: "content_block_start", content_block: { type: "thinking", thinking: "Inspecting " } },
+        parent_tool_use_id: null,
+      },
+      deps,
+    );
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "session state" } },
+        parent_tool_use_id: null,
+      },
+      deps,
+    );
+
+    expect(session.activeCodexReasoningPreview).toMatchObject({
+      text: "Inspecting session state",
+      turnId: "turn-1",
+      threadKey: "q-975",
+      questId: "q-975",
+    });
+    expect(broadcasts.filter((msg) => msg.type === "stream_event")).toHaveLength(2);
+  });
+
+  it("does not record parented subagent thinking as the active turn preview", async () => {
+    const session = makeSession();
+    session.activeTurnRoute = { threadKey: "q-975", questId: "q-975" };
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "Nested reasoning" } },
+        parent_tool_use_id: "agent-1",
+      },
+      deps,
+    );
+
+    expect(session.activeCodexReasoningPreview).toBeUndefined();
+    expect(broadcasts.filter((msg) => msg.type === "stream_event")).toHaveLength(1);
   });
 
   it("clears launcher service tier when adapter fallback updates Codex service tier to Standard", async () => {

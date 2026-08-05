@@ -1,4 +1,5 @@
 import type {
+  ActiveCodexReasoningPreview,
   ActiveTurnRoute,
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
@@ -36,6 +37,7 @@ import { isCodexLeaderRecycleMode } from "../../shared/codex-leader-compaction-m
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 const DELEGATE_LIVE_ACTIVITY_LIMIT = 800;
+const ACTIVE_CODEX_REASONING_PREVIEW_LIMIT = 4_000;
 
 type CodexBrowserMessageSessionLike = any;
 type CodexBrowserMessageAdapterLike = {
@@ -111,6 +113,66 @@ function maybeRecordDelegateLiveActivity(session: CodexBrowserMessageSessionLike
       timestamp,
     };
   }
+}
+
+function boundedReasoningPreview(text: string): Pick<ActiveCodexReasoningPreview, "text" | "truncated"> {
+  if (text.length <= ACTIVE_CODEX_REASONING_PREVIEW_LIMIT) return { text };
+  return {
+    text: text.slice(-ACTIVE_CODEX_REASONING_PREVIEW_LIMIT),
+    truncated: true,
+  };
+}
+
+function extractTopLevelThinkingStreamText(
+  msg: BrowserIncomingMessage,
+): { kind: "start" | "delta"; text: string } | null {
+  if (msg.type !== "stream_event" || msg.parent_tool_use_id !== null) return null;
+  const event = msg.event as
+    | {
+        type?: unknown;
+        content_block?: { type?: unknown; thinking?: unknown };
+        delta?: { type?: unknown; thinking?: unknown };
+      }
+    | undefined;
+  if (!event || typeof event !== "object") return null;
+  if (event.type === "content_block_start" && event.content_block?.type === "thinking") {
+    return {
+      kind: "start",
+      text: typeof event.content_block.thinking === "string" ? event.content_block.thinking : "",
+    };
+  }
+  if (event.type === "content_block_delta" && event.delta?.type === "thinking_delta") {
+    return {
+      kind: "delta",
+      text: typeof event.delta.thinking === "string" ? event.delta.thinking : "",
+    };
+  }
+  return null;
+}
+
+function updateActiveCodexReasoningPreviewFromStream(
+  session: CodexBrowserMessageSessionLike,
+  msg: BrowserIncomingMessage,
+): void {
+  const thinking = extractTopLevelThinkingStreamText(msg);
+  if (!thinking) return;
+  const existing = thinking.kind === "delta" ? session.activeCodexReasoningPreview?.text || "" : "";
+  const rawText = thinking.kind === "delta" ? existing + thinking.text : thinking.text;
+  if (rawText.trim().length === 0) {
+    session.activeCodexReasoningPreview = null;
+    return;
+  }
+  const route = session.activeTurnRoute ?? null;
+  const bounded = boundedReasoningPreview(rawText);
+  const turnId =
+    typeof session.codexAdapter?.getCurrentTurnId === "function" ? session.codexAdapter.getCurrentTurnId() : null;
+  session.activeCodexReasoningPreview = {
+    ...bounded,
+    updatedAt: Date.now(),
+    turnId,
+    ...(route?.threadKey ? { threadKey: route.threadKey } : {}),
+    ...(route?.questId ? { questId: route.questId } : {}),
+  };
 }
 
 function isLeaderSessionForAssistantRouting(
@@ -536,6 +598,7 @@ export async function handleCodexAdapterBrowserMessage(
   session.lastCliMessageAt = Date.now();
   deps.clearOptimisticRunningTimer(session, `codex_output:${msg.type}`);
   maybeRecordDelegateLiveActivity(session, msg);
+  updateActiveCodexReasoningPreviewFromStream(session, msg);
   if (session.state.codex_image_send_stage && (msg.type === "stream_event" || msg.type === "assistant")) {
     deps.setCodexImageSendStage(session, "responding", { persist: false });
   }

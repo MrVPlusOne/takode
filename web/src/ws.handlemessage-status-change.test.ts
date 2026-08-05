@@ -161,6 +161,25 @@ describe("handleMessage: status_change", () => {
     expect(useStore.getState().activeTurnRoutes.get("s1")).toBeNull();
   });
 
+  it("clears the active Codex reasoning preview on any status boundary", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    useStore.getState().setActiveCodexReasoningPreview("s1", {
+      text: "Checking routing metadata",
+      updatedAt: Date.now(),
+      threadKey: "q-975",
+      questId: "q-975",
+    });
+
+    fireMessage({
+      type: "status_change",
+      status: "running",
+      activeTurnRoute: { threadKey: "q-976", questId: "q-976" },
+    });
+
+    expect(useStore.getState().activeCodexReasoningPreviews.has("s1")).toBe(false);
+  });
+
   it("applies server-authored testing updates and clears omitted legacy terminal projections", () => {
     // Generic local running state is insufficient; only the server projection
     // may switch the auto-pause banner into its testing copy.

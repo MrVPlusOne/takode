@@ -72,6 +72,7 @@ vi.mock("../store.js", () => {
       streamingByParentToolUseId: mockStoreValues.streamingByParentToolUseId ?? new Map(),
       streamingThinking: mockStoreValues.streamingThinking ?? new Map(),
       streamingThinkingByParentToolUseId: mockStoreValues.streamingThinkingByParentToolUseId ?? new Map(),
+      activeCodexReasoningPreviews: mockStoreValues.activeCodexReasoningPreviews ?? new Map(),
       streamingStartedAt: mockStoreValues.streamingStartedAt ?? new Map(),
       streamingOutputTokens: mockStoreValues.streamingOutputTokens ?? new Map(),
       streamingPausedDuration: mockStoreValues.streamingPausedDuration ?? new Map(),
@@ -306,6 +307,15 @@ function setStoreActiveTurnRoute(sessionId: string, route: { threadKey: string; 
   mockStoreValues.activeTurnRoutes = routeMap;
 }
 
+function setStoreActiveCodexReasoningPreview(
+  sessionId: string,
+  preview: { text: string; updatedAt: number; threadKey?: string; questId?: string; truncated?: boolean } | null,
+) {
+  const previewMap = new Map();
+  if (preview) previewMap.set(sessionId, preview);
+  mockStoreValues.activeCodexReasoningPreviews = previewMap;
+}
+
 function setStoreSessionBackend(sessionId: string, backend: "claude" | "codex") {
   const map = new Map();
   map.set(sessionId, { backend_type: backend });
@@ -441,6 +451,9 @@ function resetStore() {
   mockStoreValues.historyWindows = new Map();
   mockStoreValues.streaming = new Map();
   mockStoreValues.streamingByParentToolUseId = new Map();
+  mockStoreValues.streamingThinking = new Map();
+  mockStoreValues.streamingThinkingByParentToolUseId = new Map();
+  mockStoreValues.activeCodexReasoningPreviews = new Map();
   mockStoreValues.streamingStartedAt = new Map();
   mockStoreValues.streamingOutputTokens = new Map();
   mockStoreValues.streamingPausedDuration = new Map();
@@ -579,6 +592,48 @@ describe("ElapsedTimer - generation stats bar", () => {
     render(<ElapsedTimer sessionId={sid} currentThreadKey="q-975" />);
 
     expect(screen.getByText("Active here")).toBeTruthy();
+  });
+
+  it("shows the active Codex reasoning preview in the floating chip for the matching route", () => {
+    const sid = "test-active-reasoning-preview";
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreActiveTurnRoute(sid, { threadKey: "q-975", questId: "q-975" });
+    setStoreActiveCodexReasoningPreview(sid, {
+      text: "Inspecting the current thread routing metadata",
+      updatedAt: Date.now(),
+      threadKey: "q-975",
+      questId: "q-975",
+    });
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+
+    render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="q-975" />);
+
+    expect(screen.getByTestId("active-codex-reasoning-preview").textContent).toBe(
+      "Inspecting the current thread routing metadata",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Active here/i }));
+    expect(screen.getByTestId("active-codex-reasoning-preview-detail").textContent).toBe(
+      "Inspecting the current thread routing metadata",
+    );
+  });
+
+  it("hides the active Codex reasoning preview when it does not match the active route", () => {
+    const sid = "test-active-reasoning-preview-mismatch";
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreActiveTurnRoute(sid, { threadKey: "q-975", questId: "q-975" });
+    setStoreActiveCodexReasoningPreview(sid, {
+      text: "Wrong tab reasoning",
+      updatedAt: Date.now(),
+      threadKey: "q-976",
+      questId: "q-976",
+    });
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+
+    render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="q-975" />);
+
+    expect(screen.queryByTestId("active-codex-reasoning-preview")).toBeNull();
   });
 
   it("labels running turns with the active quest when another thread is visible", () => {
