@@ -1062,11 +1062,18 @@ export function registerCodexAdapterRecoveryLifecycle(
     deps.persistSession(session);
   });
 
-  adapter.onTurnStarted((turnId: string) => {
+  adapter.onTurnStarted((turnId: string, source?: "local" | "codex_goal_continuation") => {
     if (session.codexAdapter !== adapter) return;
     recordCodexTurnStartedProof(session, turnId);
     const pending = deps.getCodexTurnAwaitingAck(session);
-    if (!pending) return;
+    if (!pending) {
+      if (source === "codex_goal_continuation" && !session.isGenerating) {
+        deps.setGenerating(session, true, "codex_goal_continuation");
+        deps.broadcastToBrowsers(session, { type: "status_change", status: "running" });
+        deps.persistSession(session);
+      }
+      return;
+    }
     const committedHistoryIndexes = commitPendingCodexInputs(
       session,
       pending.pendingInputIds ?? [pending.userMessageId],

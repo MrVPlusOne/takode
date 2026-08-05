@@ -31,7 +31,7 @@ export interface TurnStartFailedAwareAdapter {
 }
 
 export interface TurnStartedAwareAdapter {
-  onTurnStarted(cb: (turnId: string) => void): void;
+  onTurnStarted(cb: (turnId: string, source?: "local" | "codex_goal_continuation") => void): void;
 }
 
 export interface TurnSteeredAwareAdapter {

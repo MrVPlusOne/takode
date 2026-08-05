@@ -5,6 +5,7 @@ import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-ph
 import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 import type { ModelProvenanceMigration } from "./model-identity-contract.js";
 import type { CodexAutoPauseRecoveryLink, CodexAutoPauseRecoverySummary } from "./codex-auto-pause-types.js";
+import type { CodexGoalCapabilityState, CodexGoalState } from "./codex-goal.js";
 import type { LeaderProjectionSnapshot } from "./leader-projection-types.js";
 import type { SessionLifecycleBrowserMessage } from "./session-lifecycle-message.js";
 export type {
@@ -1419,6 +1420,10 @@ export interface SessionState {
   codex_reasoning_effort?: string;
   /** Codex app-server service tier selected for future turns. null/undefined means Standard. */
   codex_service_tier?: string | null;
+  /** Compact server-authoritative Codex Goal projection for the active thread. */
+  codex_goal?: CodexGoalState | null;
+  /** Fail-closed support state for the active Codex Goal protocol. */
+  codex_goal_capability?: CodexGoalCapabilityState;
   /** If this session was spawned by a cron job */
   cronJobId?: string;
   /** Human-readable name of the cron job that spawned this session */

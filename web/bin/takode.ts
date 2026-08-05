@@ -17,6 +17,7 @@ import {
   stripGlobalFlags,
 } from "./takode-core.js";
 import { handleFileResolve } from "./takode-file-resolve.js";
+import { handleGoal } from "./takode-goal-commands.js";
 import { printCommandHelp, printUsage } from "./takode-help.js";
 import { handleLease } from "./takode-lease.js";
 import { handleExport, handleGrep, handleLogs, handlePeek, handleRead, handleScan } from "./takode-message-commands.js";
@@ -86,6 +87,7 @@ try {
     ["send", { requireOrchestrator: true }],
     ["pause", { requireOrchestrator: true }],
     ["unpause", { requireOrchestrator: true }],
+    ["goal", { requireOrchestrator: true }],
     ["user-message", { requireOrchestrator: true }],
     ["thread", { requireOrchestrator: true }],
     ["rename", { requireOrchestrator: true }],
@@ -197,6 +199,9 @@ try {
       break;
     case "unpause":
       await handleUnpause(base, args);
+      break;
+    case "goal":
+      await handleGoal(base, args);
       break;
     case "user-message":
       await handleUserMessage(base, args);

@@ -44,6 +44,21 @@ import {
   unwrapShellWrappedCommand,
   type CodexResumeSnapshot,
 } from "./codex-adapter-utils.js";
+import {
+  codexGoalCapabilityPatch,
+  codexGoalStatePatch,
+  CODEX_GOAL_UNKNOWN_CAPABILITY,
+  normalizeCodexGoal,
+  type CodexGoalSetInput,
+  type CodexGoalSetMode,
+  type CodexGoalState,
+} from "./codex-goal.js";
+import { clearCodexGoal, refreshCodexGoal, setCodexGoal } from "./codex-adapter-goal-controller.js";
+import {
+  buildCodexTokenUsagePatch,
+  updateCodexRateLimits,
+  type CodexRateLimitSet,
+} from "./codex-adapter-session-updates.js";
 import { CodexApprovalManager } from "./codex-approval-manager.js";
 import { CodexItemEventManager } from "./codex-item-event-manager.js";
 import { JsonRpcTransport, isPidAlive } from "./codex-jsonrpc-transport.js";
@@ -63,7 +78,6 @@ import type {
   TurnStartFailedAwareAdapter,
   TurnStartFailureInfo,
 } from "./bridge/adapter-interface.js";
-import { computeContextTokensUsed, computeContextUsedPercent, type TokenUsage } from "./bridge/context-usage.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { CODEX_LOCAL_SLASH_COMMANDS } from "../shared/codex-slash-commands.js";
 import type {
@@ -102,7 +116,7 @@ export class CodexAdapter
   private disconnectCb: (() => void) | null = null;
   private initErrorCbs = new Set<(error: string) => void>();
   private turnStartFailedCb: ((msg: BrowserOutgoingMessage, info?: TurnStartFailureInfo) => void) | null = null;
-  private turnStartedCb: ((turnId: string) => void) | null = null;
+  private turnStartedCb: ((turnId: string, source?: "local" | "codex_goal_continuation") => void) | null = null;
   private turnSteeredCb: ((turnId: string, pendingInputIds: string[]) => void) | null = null;
   private turnSteerFailedCb: ((pendingInputIds: string[]) => void) | null = null;
 
@@ -167,13 +181,7 @@ export class CodexAdapter
   // Codex can publish multiple limit buckets (for example, "codex" and model-specific IDs).
   // Keep the latest values per limitId and prefer the canonical "codex" bucket for UI parity
   // with the official usage page.
-  private rateLimitsByLimitId = new Map<
-    string,
-    {
-      primary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;
-      secondary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;
-    }
-  >();
+  private rateLimitsByLimitId = new Map<string, CodexRateLimitSet>();
   private static readonly VALID_REASONING_EFFORTS = new Set("none minimal low medium high xhigh max ultra".split(" "));
 
   constructor(proc: Subprocess, sessionId: string, options: CodexAdapterOptions = {}) {
@@ -775,7 +783,7 @@ export class CodexAdapter
     this.turnStartFailedCb = cb;
   }
 
-  onTurnStarted(cb: (turnId: string) => void): void {
+  onTurnStarted(cb: (turnId: string, source?: "local" | "codex_goal_continuation") => void): void {
     this.turnStartedCb = cb;
   }
 
@@ -805,6 +813,25 @@ export class CodexAdapter
 
   getCurrentTurnId(): string | null {
     return this.currentTurnId;
+  }
+
+  async refreshGoal(): Promise<CodexGoalState | null> {
+    if (!this.threadId) throw new Error("No Codex thread started yet");
+    const result = await refreshCodexGoal(this.transport, this.threadId);
+    this.emit({ type: "session_update", session: result.patch });
+    return result.goal;
+  }
+
+  async setGoal(input: CodexGoalSetInput, mode: CodexGoalSetMode = "edit"): Promise<CodexGoalState | null> {
+    if (!this.threadId) throw new Error("No Codex thread started yet");
+    const result = await setCodexGoal(this.transport, this.threadId, input, mode);
+    this.emit({ type: "session_update", session: result.patch });
+    return result.goal;
+  }
+
+  async clearGoal(): Promise<void> {
+    if (!this.threadId) throw new Error("No Codex thread started yet");
+    this.emit({ type: "session_update", session: await clearCodexGoal(this.transport, this.threadId) });
   }
 
   handleProcessStderr(text: string): void {
@@ -943,6 +970,8 @@ export class CodexAdapter
         backend_type: "codex",
         model: this.options.model || "",
         codex_service_tier: normalizeCodexServiceTier(this.options.serviceTier),
+        codex_goal: null,
+        codex_goal_capability: CODEX_GOAL_UNKNOWN_CAPABILITY,
         cwd: this.options.cwd || "",
         tools: [],
         permissionMode: this.options.approvalMode || "suggest",
@@ -1481,7 +1510,7 @@ export class CodexAdapter
           this.itemEventManager.handleRawResponseItemCompleted(params);
           break;
         case "turn/started":
-          // Turn started, nothing to emit
+          this.handleTurnStarted(params);
           break;
         case "turn/completed":
           this.handleTurnCompleted(params);
@@ -1503,6 +1532,12 @@ export class CodexAdapter
           break;
         case "thread/tokenUsage/updated":
           this.handleTokenUsageUpdated(params);
+          break;
+        case "thread/goal/updated":
+          this.handleGoalUpdated(params);
+          break;
+        case "thread/goal/cleared":
+          this.handleGoalCleared(params);
           break;
         case "account/updated":
         case "account/login/completed":
@@ -1619,6 +1654,43 @@ export class CodexAdapter
         });
       }
     }
+  }
+
+  private handleTurnStarted(params: Record<string, unknown>): void {
+    const turn = params.turn as { id?: unknown } | undefined;
+    const turnId = typeof turn?.id === "string" ? turn.id : null;
+    if (!turnId) return;
+    const threadId = this.getThreadIdFromParams(params);
+    if (threadId && this.threadId && threadId !== this.threadId) return;
+    if (this.currentTurnId === turnId) return;
+    if (this.currentTurnId) return;
+    this.currentTurnId = turnId;
+    this.turnStartedCb?.(turnId, "codex_goal_continuation");
+  }
+
+  private handleGoalUpdated(params: Record<string, unknown>): void {
+    const goal = normalizeCodexGoal(params.goal ?? params.threadGoal ?? params);
+    if (!goal) return;
+    if (this.threadId && goal.threadId !== this.threadId) return;
+    this.emit({
+      type: "session_update",
+      session: {
+        ...codexGoalStatePatch(goal),
+        ...codexGoalCapabilityPatch("supported"),
+      },
+    });
+  }
+
+  private handleGoalCleared(params: Record<string, unknown>): void {
+    const threadId = this.getThreadIdFromParams(params);
+    if (threadId && this.threadId && threadId !== this.threadId) return;
+    this.emit({
+      type: "session_update",
+      session: {
+        ...codexGoalStatePatch(null),
+        ...codexGoalCapabilityPatch("supported"),
+      },
+    });
   }
 
   private handleTurnCompleted(params: Record<string, unknown>): void {
@@ -1773,67 +1845,8 @@ export class CodexAdapter
   }
 
   private updateRateLimits(data: Record<string, unknown>): void {
-    const normalizeLimit = (value: unknown) => {
-      if (!value || typeof value !== "object") return null;
-      const raw = value as Record<string, unknown>;
-      const usedRaw = Number(raw.usedPercent ?? 0);
-      // Codex has been observed to report this as either 0..100 or 0..1.
-      // Use strict < 1 to avoid treating usedPercent:1 (1%) as 0..1 format → 100%.
-      const normalizedPercent = Number.isFinite(usedRaw) ? (usedRaw > 0 && usedRaw < 1 ? usedRaw * 100 : usedRaw) : 0;
-      const usedPercent = Math.max(0, Math.min(100, normalizedPercent));
-      const windowDurationMins = Number(raw.windowDurationMins ?? 0);
-      let resetsAt = 0;
-      const rawResetsAt = raw.resetsAt;
-      if (typeof rawResetsAt === "number" && Number.isFinite(rawResetsAt)) {
-        resetsAt = rawResetsAt;
-      } else if (typeof rawResetsAt === "string") {
-        const asNumber = Number(rawResetsAt);
-        if (Number.isFinite(asNumber)) {
-          resetsAt = asNumber;
-        } else {
-          const asDateMs = Date.parse(rawResetsAt);
-          if (Number.isFinite(asDateMs)) resetsAt = asDateMs;
-        }
-      }
-      return {
-        usedPercent,
-        windowDurationMins: Number.isFinite(windowDurationMins) ? windowDurationMins : 0,
-        resetsAt,
-      };
-    };
-    const normalizeRateLimitSet = (value: unknown) => {
-      if (!value || typeof value !== "object") return null;
-      const raw = value as Record<string, unknown>;
-      return {
-        primary: normalizeLimit(raw.primary),
-        secondary: normalizeLimit(raw.secondary),
-      };
-    };
-
-    const direct = data?.rateLimits as Record<string, unknown> | undefined;
-    const directNormalized = normalizeRateLimitSet(direct);
-    const directLimitId = typeof direct?.limitId === "string" ? direct.limitId : null;
-    if (directLimitId && directNormalized) {
-      this.rateLimitsByLimitId.set(directLimitId, directNormalized);
-    }
-
-    const byId = data?.rateLimitsByLimitId as Record<string, unknown> | undefined;
-    if (byId && typeof byId === "object") {
-      for (const [limitId, limitData] of Object.entries(byId)) {
-        const parsed = normalizeRateLimitSet(limitData);
-        if (parsed) this.rateLimitsByLimitId.set(limitId, parsed);
-      }
-    }
-
-    this._rateLimits =
-      this.rateLimitsByLimitId.get("codex") ??
-      (directLimitId ? (this.rateLimitsByLimitId.get(directLimitId) ?? null) : null) ??
-      directNormalized ??
-      null;
-
+    this._rateLimits = updateCodexRateLimits(data, this.rateLimitsByLimitId);
     if (!this._rateLimits) return;
-
-    // Forward rate limits to browser for UI display
     this.emit({
       type: "session_update",
       session: {
@@ -1846,62 +1859,9 @@ export class CodexAdapter
   }
 
   private handleTokenUsageUpdated(params: Record<string, unknown>): void {
-    // Codex sends: { threadId, turnId, tokenUsage: {
-    //   total: { totalTokens, inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens },
-    //   last: { totalTokens, inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens },
-    //   modelContextWindow: 258400
-    // }}
-    // IMPORTANT: `total` is cumulative across all turns and can far exceed the context window.
-    // `last` is the most recent turn — its inputTokens reflects what's actually in context.
     const threadId = this.getThreadIdFromParams(params);
     if (threadId && this.threadId && threadId !== this.threadId) return;
-    const tokenUsage = params.tokenUsage as Record<string, unknown> | undefined;
-    if (!tokenUsage) return;
-
-    const total = tokenUsage.total as Record<string, number> | undefined;
-    const last = tokenUsage.last as Record<string, number> | undefined;
-    const contextWindow = tokenUsage.modelContextWindow as number | undefined;
-
-    const updates: Partial<SessionState> = {};
-
-    // Use last turn's input tokens for context usage — that's what's actually in
-    // the window. Adapts Codex field names to the shared TokenUsage interface.
-    if (last && contextWindow && contextWindow > 0) {
-      const usage: TokenUsage = {
-        input_tokens: last.inputTokens || 0,
-        cache_read_input_tokens: last.cachedInputTokens || 0,
-      };
-      const contextTokensUsed = computeContextTokensUsed(usage);
-      const pct = computeContextUsedPercent(usage, contextWindow);
-      if (typeof contextTokensUsed === "number") {
-        updates.codex_token_details = {
-          ...(updates.codex_token_details ?? {
-            inputTokens: total?.inputTokens || 0,
-            outputTokens: total?.outputTokens || 0,
-            cachedInputTokens: total?.cachedInputTokens || 0,
-            reasoningOutputTokens: total?.reasoningOutputTokens || 0,
-            modelContextWindow: contextWindow || 0,
-          }),
-          contextTokensUsed,
-        };
-      }
-      if (typeof pct === "number") {
-        updates.context_used_percent = pct;
-      }
-    }
-
-    // Forward cumulative token breakdown for display in the UI
-    if (total) {
-      updates.codex_token_details = {
-        contextTokensUsed: updates.codex_token_details?.contextTokensUsed,
-        inputTokens: total.inputTokens || 0,
-        outputTokens: total.outputTokens || 0,
-        cachedInputTokens: total.cachedInputTokens || 0,
-        reasoningOutputTokens: total.reasoningOutputTokens || 0,
-        modelContextWindow: contextWindow || 0,
-      };
-    }
-
+    const updates = buildCodexTokenUsagePatch(params);
     if (Object.keys(updates).length > 0) {
       this.emit({
         type: "session_update",

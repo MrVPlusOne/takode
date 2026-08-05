@@ -95,6 +95,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
   ]),
   createNavGroup("states", "States", "Streaming, grouped activity, and state-heavy component demos.", [
     "Side Chat",
+    "Codex Goal",
     "Composer — Voice Recording",
     "Streaming Indicator",
     "Tool Message Groups",

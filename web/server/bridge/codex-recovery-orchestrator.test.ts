@@ -125,7 +125,7 @@ function prepareLifecycleSession(session: CodexRecoveryOrchestratorSessionLike):
 function makeLifecycleAdapter(disconnectDiagnostics: Record<string, unknown> | null = null) {
   const callbacks = {
     sessionMeta: null as ((meta: any) => void) | null,
-    turnStarted: null as ((turnId: string) => void) | null,
+    turnStarted: null as ((turnId: string, source?: "local" | "codex_goal_continuation") => void) | null,
     turnSteered: null as ((turnId: string, pendingInputIds: string[]) => void) | null,
     turnSteerFailed: null as ((pendingInputIds: string[]) => void) | null,
     initError: null as ((error: string) => void) | null,
@@ -136,7 +136,7 @@ function makeLifecycleAdapter(disconnectDiagnostics: Record<string, unknown> | n
     onSessionMeta: vi.fn((callback: (meta: any) => void) => {
       callbacks.sessionMeta = callback;
     }),
-    onTurnStarted: vi.fn((callback: (turnId: string) => void) => {
+    onTurnStarted: vi.fn((callback: (turnId: string, source?: "local" | "codex_goal_continuation") => void) => {
       callbacks.turnStarted = callback;
     }),
     onTurnSteered: vi.fn((callback: (turnId: string, pendingInputIds: string[]) => void) => {
@@ -162,7 +162,8 @@ function makeLifecycleAdapter(disconnectDiagnostics: Record<string, unknown> | n
     rollbackTurns: vi.fn(async () => {}),
     emitDisconnect: () => callbacks.disconnect?.(),
     emitSessionMeta: (meta: any) => callbacks.sessionMeta?.(meta),
-    emitTurnStarted: (turnId: string) => callbacks.turnStarted?.(turnId),
+    emitTurnStarted: (turnId: string, source?: "local" | "codex_goal_continuation") =>
+      callbacks.turnStarted?.(turnId, source),
     emitTurnSteerFailed: (pendingInputIds: string[]) => callbacks.turnSteerFailed?.(pendingInputIds),
   };
 }
@@ -1314,6 +1315,24 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
       type: "session_update",
       session: { codex_result_error_auto_pause_recovery_testing: true },
     });
+  });
+
+  it("marks backend-owned Codex Goal continuations as running without a pending input", () => {
+    // Codex Goal can start a turn internally after a thread becomes idle. Takode
+    // must treat that backend-owned start as a real running turn even though no
+    // local pending input is waiting for acknowledgement.
+    const session = makeSession([]);
+    prepareLifecycleSession(session);
+    const adapter = makeLifecycleAdapter();
+    const deps = makeLifecycleDeps({ getCodexTurnAwaitingAck: vi.fn(() => null) });
+
+    session.codexAdapter = adapter as any;
+    registerCodexAdapterRecoveryLifecycle(session.id, session, adapter, deps);
+    adapter.emitTurnStarted("turn-goal-1", "codex_goal_continuation");
+
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, true, "codex_goal_continuation");
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, { type: "status_change", status: "running" });
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
   });
 
   it("collapses duplicate queued and backend-ack pending turns after recovery session_meta", () => {

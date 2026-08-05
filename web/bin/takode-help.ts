@@ -144,6 +144,12 @@ const UNPAUSE_HELP = `Usage: takode unpause <session> [--json]
 Resume a paused session and release held inbound work.
 `;
 
+const GOAL_HELP = `Usage: takode goal <session> show|refresh|pause|resume|clear [--json]
+       takode goal <session> set --text-file <path|-> [--budget <tokens>] [--replace] [--json]
+
+Show or manually control Codex Goal state for a Codex-backed session.
+`;
+
 const USER_MESSAGE_HELP = `Usage: takode user-message --text-file <path|-> [--json]
 
 Deprecated compatibility command. New leader thread routing uses mandatory [thread:main] / [thread:q-N] assistant prefixes instead.
@@ -340,6 +346,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "unpause":
       console.log(UNPAUSE_HELP);
       return true;
+    case "goal":
+      console.log(GOAL_HELP);
+      return true;
     case "user-message":
       console.log(USER_MESSAGE_HELP);
       return true;
@@ -503,6 +512,7 @@ Commands:
   send     Send a message to a herded session
   pause    Emergency-hold new inbound work for a session
   unpause  Resume a paused session and release held work
+  goal     Show or manually control Codex Goal state
   thread   Associate Main history entries with quest threads
   user-message  Deprecated compatibility publisher
   rename   Rename a session (e.g. takode rename 5 My Session Name)

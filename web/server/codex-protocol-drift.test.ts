@@ -67,6 +67,11 @@ describe("Codex adapter method drift vs upstream protocol snapshot", () => {
       // status. Used to surface connector degradation without treating it as
       // Codex process failure.
       "mcpServer/startupStatus/updated",
+      // Observed in newer Codex app-server Goal builds. Takode handles these
+      // with local drift-tolerant types until the pinned protocol snapshot is
+      // regenerated from an upstream version that includes Goal.
+      "thread/goal/updated",
+      "thread/goal/cleared",
     ]);
 
     const legacyServerRequests = new Set([
@@ -89,6 +94,14 @@ describe("Codex adapter method drift vs upstream protocol snapshot", () => {
       "codex-full-access",
       "codex-custom",
     ]);
+    const legacyClientMethods = new Set([
+      // Newer Codex app-server Goal RPCs. The pinned protocol snapshot in this
+      // repo predates them, so q-1800 uses narrow local protocol types and
+      // fail-closed unsupported/version fallback.
+      "thread/goal/get",
+      "thread/goal/set",
+      "thread/goal/clear",
+    ]);
 
     for (const method of handledNotifications) {
       expect(
@@ -106,7 +119,9 @@ describe("Codex adapter method drift vs upstream protocol snapshot", () => {
 
     for (const method of calledClientMethods) {
       expect(
-        upstreamClientRequests.has(method) || upstreamClientNotifications.has(method),
+        upstreamClientRequests.has(method) ||
+          upstreamClientNotifications.has(method) ||
+          legacyClientMethods.has(method),
         `Unhandled by upstream snapshot (client method): ${method}`,
       ).toBe(true);
     }

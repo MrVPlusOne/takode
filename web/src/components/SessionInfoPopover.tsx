@@ -25,6 +25,7 @@ import { SessionContextStats, SessionPayloadStats } from "./SessionPayloadStats.
 import { api, type SessionDirectoryOpenTarget } from "../api.js";
 import type { SdkSessionInfo, SessionLifecycleEvent, SessionState } from "../types.js";
 import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
+import { CodexGoalPanel } from "./CodexGoalPanel.js";
 import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
 import { formatContextWindowLabel } from "../utils/token-format.js";
 
@@ -466,6 +467,13 @@ export function SessionInfoPopover({
                 )}
               </div>
             </div>
+          )}
+          {isCodexSession && (
+            <CodexGoalPanel
+              sessionId={sessionId}
+              goal={session?.codex_goal ?? null}
+              capability={session?.codex_goal_capability}
+            />
           )}
           {cwd && (
             <div className="space-y-1.5">
