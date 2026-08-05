@@ -1102,6 +1102,26 @@ export function getBoardWatchdogDeps(host: any) {
     timerCount: (sessionId: string) => host.timerManager?.listTimers(sessionId).length ?? 0,
     backendConnected: (targetSession: unknown) => backendConnectedController(targetSession as Session),
     getBoard: (sessionId: string) => getBoardForSessionController(host.sessions, sessionId),
+    getBoardRowsForQuest: (questId: string) => {
+      const normalizedQuestId = questId.toLowerCase();
+      const rows: BoardRow[] = [];
+      for (const targetSession of host.sessions.values() as Iterable<Session>) {
+        for (const row of targetSession.board.values() as Iterable<BoardRow>) {
+          if (row.questId.toLowerCase() === normalizedQuestId) rows.push(row);
+        }
+      }
+      return rows;
+    },
+    getCompletedBoardRowsForQuest: (questId: string) => {
+      const normalizedQuestId = questId.toLowerCase();
+      const rows: BoardRow[] = [];
+      for (const targetSession of host.sessions.values() as Iterable<Session>) {
+        for (const row of targetSession.completedBoard.values() as Iterable<BoardRow>) {
+          if (row.questId.toLowerCase() === normalizedQuestId) rows.push(row);
+        }
+      }
+      return rows;
+    },
     emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
       host.emitTakodeEvent(sessionId, type as TakodeEventType, data as any),
     emitTakodeEventForOrchestrator: (

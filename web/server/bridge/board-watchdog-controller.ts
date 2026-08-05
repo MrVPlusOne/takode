@@ -74,6 +74,8 @@ export interface BoardWatchdogDeps {
   timerCount: (sessionId: string) => number;
   backendConnected: (session: SessionLike) => boolean;
   getBoard: (sessionId: string) => BoardRow[];
+  getBoardRowsForQuest?: (questId: string) => BoardRow[];
+  getCompletedBoardRowsForQuest?: (questId: string) => BoardRow[];
   emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) => void;
   emitTakodeEventForOrchestrator?: (
     orchestratorSessionId: string,
@@ -241,6 +243,12 @@ function clearBoardRowWaitForInputIds(row: BoardRow | null | undefined): string[
   const notificationIds = getBoardRowWaitForInputIds(row);
   if (row && notificationIds.length > 0) row.waitForInput = undefined;
   return notificationIds;
+}
+
+function arraysEqual<T>(left: readonly T[] | undefined, right: readonly T[] | undefined): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }
 
 function resolveRemovedBoardWaitForInputIds(
@@ -617,6 +625,7 @@ function completeBoardRowsForQuestInAllSessions(
   options: { queuedOnly: boolean },
 ): string[] {
   const completedInSessions: string[] = [];
+  const syncedSessionIds = new Set<string>();
   const normalizedQuestId = questId.toLowerCase();
 
   for (const session of sessions.values()) {
@@ -652,7 +661,17 @@ function completeBoardRowsForQuestInAllSessions(
     const completedBoard = getCompletedBoard(session);
     deps.broadcastBoard(session, board, completedBoard);
     deps.persistSession(session);
+    syncedSessionIds.add(session.id);
     completedInSessions.push(session.id);
+  }
+
+  for (const session of sessions.values()) {
+    const changed = clearResolvedQuestWaitFor(session, [questId]);
+    if (!changed || syncedSessionIds.has(session.id)) continue;
+    const board = getBoard(session);
+    const completedBoard = getCompletedBoard(session);
+    deps.broadcastBoard(session, board, completedBoard);
+    deps.persistSession(session);
   }
 
   return completedInSessions;
@@ -691,17 +710,22 @@ export function moveBoardRowToCompleted(session: SessionLike, questId: string): 
   return row;
 }
 
-export function clearResolvedQuestWaitFor(session: SessionLike, resolvedQuestIds: string[]): void {
+export function clearResolvedQuestWaitFor(session: SessionLike, resolvedQuestIds: string[]): boolean {
   const resolved = new Set(resolvedQuestIds.map((questId) => questId.toLowerCase()));
+  let changed = false;
   for (const row of session.board.values()) {
     if (!row.waitFor || row.waitFor.length === 0) continue;
     const nextWaitFor = row.waitFor.filter((dep: string) => !resolved.has(dep.toLowerCase()));
     const deduped = [...new Set<string>(nextWaitFor.map((dep: string) => dep.toLowerCase()))].map((dep) =>
       dep === FREE_WORKER_WAIT_FOR_TOKEN ? FREE_WORKER_WAIT_FOR_TOKEN : dep,
     );
-    row.waitFor = deduped.length > 0 ? deduped : [FREE_WORKER_WAIT_FOR_TOKEN];
+    const normalizedWaitFor = deduped.length > 0 ? deduped : [FREE_WORKER_WAIT_FOR_TOKEN];
+    if (arraysEqual(row.waitFor, normalizedWaitFor)) continue;
+    row.waitFor = normalizedWaitFor;
     session.board.set(row.questId, row);
+    changed = true;
   }
+  return changed;
 }
 
 export function commitBoard(session: SessionLike, deps: WorkBoardStateDeps): BoardRow[] {
@@ -853,6 +877,7 @@ export function removeBoardRowFromAllSessions(
   questId: string,
   deps: Pick<WorkBoardStateDeps, "broadcastBoard" | "persistSession" | "markNotificationDone">,
 ): void {
+  const syncedSessionIds = new Set<string>();
   for (const session of sessions.values()) {
     const hadActive = session.board.has(questId);
     const hadCompleted = session.completedBoard.has(questId);
@@ -871,7 +896,17 @@ export function removeBoardRowFromAllSessions(
       const completedBoard = getCompletedBoard(session);
       deps.broadcastBoard(session, board, completedBoard);
       deps.persistSession(session);
+      syncedSessionIds.add(session.id);
     }
+  }
+
+  for (const session of sessions.values()) {
+    const changed = clearResolvedQuestWaitFor(session, [questId]);
+    if (!changed || syncedSessionIds.has(session.id)) continue;
+    const board = getBoard(session);
+    const completedBoard = getCompletedBoard(session);
+    deps.broadcastBoard(session, board, completedBoard);
+    deps.persistSession(session);
   }
 }
 
@@ -1362,8 +1397,7 @@ function getBlockedBoardDeps(session: SessionLike, row: BoardRow, deps: BoardWat
         break;
       }
       case "quest": {
-        const dependencyRow = session.board.get(dep);
-        if (dependencyRow && isQuestWaitForBlockingState(dependencyRow.status)) blocked.push(dep);
+        if (isQuestDependencyBlocked(session, dep, deps)) blocked.push(dep);
         break;
       }
       case "free-worker":
@@ -1375,6 +1409,23 @@ function getBlockedBoardDeps(session: SessionLike, row: BoardRow, deps: BoardWat
     }
   }
   return blocked;
+}
+
+function getMatchingBoardRow(rows: Iterable<BoardRow>, normalizedQuestId: string): BoardRow | undefined {
+  for (const row of rows) {
+    if (row.questId.toLowerCase() === normalizedQuestId) return row;
+  }
+  return undefined;
+}
+
+function isQuestDependencyBlocked(session: SessionLike, questId: string, deps: BoardWatchdogDeps): boolean {
+  const normalizedQuestId = questId.toLowerCase();
+  const localRow = getMatchingBoardRow(session.board.values(), normalizedQuestId);
+  if (localRow) return isQuestWaitForBlockingState(localRow.status);
+  for (const row of deps.getBoardRowsForQuest?.(questId) ?? []) {
+    if (isQuestWaitForBlockingState(row.status)) return true;
+  }
+  return false;
 }
 
 function buildQueuedBoardWarning(
@@ -1421,8 +1472,20 @@ function resolveCompletedQuestWorkerSessionId(
   questId: string,
   deps: BoardWatchdogDeps,
 ): string | undefined {
-  const completedRow = session.completedBoard.get(questId);
-  return resolveBoardSessionId(completedRow?.worker, completedRow?.workerNum, deps);
+  const normalizedQuestId = questId.toLowerCase();
+  const localCompletedRow = getMatchingBoardRow(session.completedBoard.values(), normalizedQuestId);
+  const localCompletedSessionId = resolveBoardSessionId(localCompletedRow?.worker, localCompletedRow?.workerNum, deps);
+  if (localCompletedSessionId) return localCompletedSessionId;
+
+  for (const row of deps.getCompletedBoardRowsForQuest?.(questId) ?? []) {
+    const sessionId = resolveBoardSessionId(row.worker, row.workerNum, deps);
+    if (sessionId) return sessionId;
+  }
+  for (const row of deps.getBoardRowsForQuest?.(questId) ?? []) {
+    const sessionId = resolveBoardSessionId(row.worker, row.workerNum, deps);
+    if (sessionId) return sessionId;
+  }
+  return undefined;
 }
 
 function findBoardDispatchSourceSessionId(
