@@ -439,6 +439,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Work is intentionally broader");
     expect(guardrails).toContain("Leader context is a scarce long-horizon resource");
     expect(guardrails).toContain("Leader-only deltas: none");
+    expect(guardrails).toContain("Route implementation follow-ups to context-rich sources");
+    expect(guardrails).toContain("read-only technical clarification about an active or recently completed quest");
+    expect(guardrails).toContain("prefer a short Takode follow-up to the responsible worker");
+    expect(guardrails).toContain("accepted Work/Memory evidence before reopening source yourself");
+    expect(guardrails).toContain("Do not create a quest or authorize changes for a clarification");
     expect(guardrails).toContain("User Checkpoint is a durable pause state inside the same Work occurrence");
     expect(guardrails).toContain("self-contained packet with findings, named options, key tradeoffs");
     expect(guardrails).toContain("exact requested answer");
@@ -615,6 +620,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Work is intentionally broader");
     expect(guardrails).toContain("Leader context is a scarce long-horizon resource");
     expect(guardrails).toContain("Leader-only deltas: none");
+    expect(guardrails).toContain("Route implementation follow-ups to context-rich sources");
+    expect(guardrails).toContain("Do not create a quest or authorize changes for a clarification");
     expect(guardrails).toContain("USER_CHECKPOINTING");
     expect(guardrails).toContain("User Checkpoint");
     expect(guardrails).toContain("not a routine second user-approval gate");

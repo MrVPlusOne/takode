@@ -147,6 +147,10 @@ describe("index startup skill registration", () => {
     expect(skill).toContain("Source-Of-Truth Check");
     expect(skill).toContain("Avoid new project skills under legacy `.codex/skills`");
     expect(skill).toContain("Leader-specific deltas");
+    expect(skill).toContain("read-only implementation follow-ups");
+    expect(skill).toContain("consult the context-rich responsible worker");
+    expect(skill).toContain("accepted Work/Memory evidence before reopening source yourself");
+    expect(skill).toContain("Do not create a quest or authorize changes");
     expect(skill).toContain("Workers should communicate at meaningful quest milestones");
     expect(skill).toContain("concise user-facing outcome summaries");
     expect(skill).not.toContain("quest-journey-implement");
@@ -183,6 +187,9 @@ describe("index startup skill registration", () => {
     expect(topLevelSource).toContain("Otherwise fail closed, republish the exact packet");
     expect(topLevelSource).toContain("fresh explicit approval before external consequences");
     expect(topLevelSource).toContain("Harmless typo-only corrections can still proceed");
+    expect(topLevelSource).toContain("Route read-only implementation follow-ups to context-rich sources");
+    expect(topLevelSource).toContain("accepted Work/Memory evidence before reopening source yourself");
+    expect(topLevelSource).toContain("Do not create a quest or authorize changes for a clarification");
   });
 
   it("keeps leader dispatch hot path compact while preserving handoff references", async () => {
@@ -216,6 +223,10 @@ describe("index startup skill registration", () => {
     expect(source).toContain("default Work authorization is short");
     expect(source).toContain("Leader-only deltas: none");
     expect(source).toContain("Do not convert the worker-authored Alignment note into a Work prompt");
+    expect(source).toContain("For read-only implementation follow-ups");
+    expect(source).toContain("route to the context-rich source before re-deriving technical details");
+    expect(source).toContain("accepted Work/Memory note, before reopening source yourself");
+    expect(source).toContain("Do not create a new quest or authorize code changes for a clarification");
     expect(source).toContain("Provide only deltas the assignee cannot infer");
     expect(source).not.toContain("Memory command mechanics live in the relevant phase briefs");
 

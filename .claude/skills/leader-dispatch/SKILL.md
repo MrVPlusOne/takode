@@ -188,6 +188,8 @@ After Alignment, leaders own advancement. Treat the worker response as a compact
 
 Do not convert the worker-authored Alignment note into a Work prompt. The worker already has the quest, source pointers, phase briefs, project guidance, and its own findings. After a clean Alignment, the default Work authorization is short: identify the Work phase brief and write `Leader-only deltas: none`. When real deltas exist, list only information that originates outside the worker's available context or changes user intent, authorization, dependencies, scheduling, safety, or external state.
 
+For read-only implementation follow-ups on active or recently completed quests, route to the context-rich source before re-deriving technical details. Prefer a short Takode follow-up to the responsible worker, or inspect the accepted Work/Memory note, before reopening source yourself. Summarize the answer for the user. Answer directly when accepted durable evidence already states the fact, the worker is unavailable or no longer has relevant context, the question is about leader-owned intent/coordination/authority, urgency makes consultation impractical, or consultation would add latency without a context advantage. Do not create a new quest or authorize code changes for a clarification unless the user asks for investigation, implementation, validation, or external action.
+
 Every phase instruction must be phase-explicit:
 
 - Read the exact current phase leader brief yourself.

@@ -298,6 +298,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("provide only leader-owned deltas the worker cannot infer");
     expect(result).toContain("Leader context is a scarce long-horizon resource");
     expect(result).toContain("Leader-only deltas: none");
+    expect(result).toContain("Route implementation follow-ups to context-rich sources");
+    expect(result).toContain("read-only technical clarification about an active or recently completed quest");
+    expect(result).toContain("prefer a short Takode follow-up to the responsible worker");
+    expect(result).toContain("accepted Work/Memory evidence before reopening source yourself");
+    expect(result).toContain("Do not create a quest or authorize changes for a clarification");
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Escalate alignment back to the user only");
     expect(result).toContain("The worker may self-review");
@@ -351,6 +356,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Escalate alignment back to the user only");
     expect(result).toContain("Work is intentionally broader");
     expect(result).toContain("do not synthesize a second technical prompt from the worker's findings");
+    expect(result).toContain("Route implementation follow-ups to context-rich sources");
+    expect(result).toContain("prefer a short Takode follow-up to the responsible worker");
+    expect(result).toContain("accepted Work/Memory evidence before reopening source yourself");
     expect(result).toContain("worker-owned Work -> Memory transition");
     expect(result).toContain("delegate_task(task)");
     expect(result).toContain("inspectable forked transcript");
@@ -470,6 +478,8 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("provide only leader-owned deltas the worker cannot infer");
     expect(result).toContain("Leader context is a scarce long-horizon resource");
     expect(result).toContain("Leader-only deltas: none");
+    expect(result).toContain("Route implementation follow-ups to context-rich sources");
+    expect(result).toContain("Do not create a quest or authorize changes for a clarification");
     expect(result).toContain("Work is intentionally broader");
     expect(result).toContain("Embedded review phases are not part of active Quest Journey v2");
     expect(result).toContain("Every completed non-cancelled quest ends in Memory");

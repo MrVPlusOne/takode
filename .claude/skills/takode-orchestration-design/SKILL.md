@@ -13,6 +13,8 @@ Reusable workflow behavior belongs in reusable instructions. Leader handoffs sho
 
 Leaders own user intent/corrections, cross-quest dependencies, scheduling, timers, external state, long-horizon obligations, safety, and authority decisions. Workers already own the quest record, attachments, linked sources, phase briefs, project guidance, their Alignment findings, and ordinary Work investigation. After Alignment, do not convert worker-authored findings into a second technical prompt.
 
+Use the same source model for read-only implementation follow-ups. When the user asks a technical clarification about an active or recently completed quest, consult the context-rich responsible worker or accepted Work/Memory evidence before reopening source yourself. Then translate the answer for the user. Answer directly when the fact is already explicit in accepted durable notes, the worker is unavailable or lacks relevant context, the question is leader-owned intent/coordination/authority, urgency makes consultation impractical, or consultation would add latency without a context advantage. Do not create a quest or authorize changes for a read-only clarification unless the user asks for new investigation, implementation, validation, or external action.
+
 ## Placement Rubric
 
 | Guidance type | Put it here |
