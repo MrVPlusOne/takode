@@ -991,6 +991,113 @@ describe("Composer voice edit mode", () => {
     expect(screen.queryByText("Voice edit preview")).toBeNull();
   });
 
+  it("reruns a completed voice edit as append with the same audio while keeping the preview visible", async () => {
+    // A wrong edit-mode choice should be recoverable without re-recording, and
+    // the existing preview must remain visible while the append rerun is pending.
+    setupMockStore({ draftText: "Improve this introduction." });
+    const appendResult = deferred<VoiceTranscriptionResult>();
+    mockTranscribe
+      .mockResolvedValueOnce({
+        mode: "edit",
+        text: "Improved introduction.",
+        rawText: "make this clearer",
+        instructionText: "make this clearer",
+        backend: "openai",
+        enhanced: true,
+      })
+      .mockReturnValueOnce(appendResult.promise);
+
+    render(<Composer sessionId="s1" />);
+    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+    fireEvent.click(screen.getByLabelText("Voice input"));
+
+    await screen.findByText("Voice edit preview");
+    fireEvent.click(screen.getByRole("button", { name: "Rerun as append" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Rerunning as append...")).toBeTruthy();
+      expect(screen.getByText("Voice edit preview")).toBeTruthy();
+    });
+
+    expect(mockTranscribe).toHaveBeenCalledTimes(2);
+    expect(mockTranscribe.mock.calls[1][0]).toBe(mockTranscribe.mock.calls[0][0]);
+    expect(mockTranscribe.mock.calls[1][1]).toEqual(
+      expect.objectContaining({
+        mode: "append",
+        composerText: "Improve this introduction.",
+      }),
+    );
+
+    appendResult.resolve({ mode: "append", text: "Add one more detail.", backend: "openai", enhanced: true });
+
+    await waitFor(() => {
+      expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
+        "Improve this introduction. Add one more detail.",
+      );
+    });
+    expect(screen.queryByText("Voice edit preview")).toBeNull();
+    expect(screen.getByRole("button", { name: "Rerun as voice edit" })).toBeTruthy();
+  });
+
+  it("reruns a completed append result as voice edit with the same audio and restores the edit base text", async () => {
+    // Append changes the live draft immediately, so the alternate edit rerun must
+    // reuse the same blob while restoring the original base text for the diff.
+    setupMockStore({ draftText: "Original draft." });
+    mockGetSettings.mockResolvedValueOnce({
+      claudeDefaultModel: "",
+      transcriptionConfig: { voiceCaptureMode: "append" },
+    });
+    const editResult = deferred<VoiceTranscriptionResult>();
+    mockTranscribe
+      .mockResolvedValueOnce({
+        mode: "append",
+        text: "Appended note.",
+        backend: "openai",
+        enhanced: true,
+      })
+      .mockReturnValueOnce(editResult.promise);
+
+    render(<Composer sessionId="s1" />);
+    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+    fireEvent.click(screen.getByLabelText("Voice input"));
+
+    await waitFor(() => {
+      expect(textarea.value).toBe("Original draft. Appended note.");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Rerun as voice edit" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Voice append result ready")).toBeTruthy();
+      expect(screen.getByText("Rerunning as voice edit...")).toBeTruthy();
+    });
+
+    expect(mockTranscribe).toHaveBeenCalledTimes(2);
+    expect(mockTranscribe.mock.calls[1][0]).toBe(mockTranscribe.mock.calls[0][0]);
+    expect(mockTranscribe.mock.calls[1][1]).toEqual(
+      expect.objectContaining({
+        mode: "edit",
+        composerText: "Original draft.",
+      }),
+    );
+
+    editResult.resolve({
+      mode: "edit",
+      text: "Edited original draft.",
+      rawText: "rewrite it",
+      instructionText: "rewrite it",
+      backend: "openai",
+      enhanced: true,
+    });
+
+    await screen.findByText("Voice edit preview");
+    expect(textarea.value).toBe("Original draft.");
+    expect(screen.getByRole("button", { name: "Rerun as append" })).toBeTruthy();
+  });
+
   it("lets the user undo a pending voice edit and keep the original draft", async () => {
     setupMockStore({ draftText: "Keep this draft as-is." });
     mockTranscribe.mockResolvedValueOnce({

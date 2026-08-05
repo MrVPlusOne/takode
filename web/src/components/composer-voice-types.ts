@@ -13,6 +13,17 @@ export interface FailedTranscription {
   transcriptionThreadTitle?: string;
 }
 
+export interface AlternateVoiceRerun {
+  blob: Blob;
+  sourceMode: "edit" | "append";
+  composerText: string;
+  cursorContext: { before: string; after: string };
+  transcriptionThreadKey?: string;
+  transcriptionThreadTitle?: string;
+  status: "idle" | "running" | "error";
+  message?: string;
+}
+
 export interface VoiceLevelSample {
   time: number;
   level: number;

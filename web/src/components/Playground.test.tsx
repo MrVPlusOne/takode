@@ -213,6 +213,9 @@ describe("Playground", () => {
     const appendRecordingLabel = within(appendRow).getByText("Recording");
     expect(appendToggle.compareDocumentPosition(appendRecordingLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(appendRow).getByLabelText("Current and recent input level")).toBeTruthy();
+    expect(screen.getByText("Rerun as append")).toBeTruthy();
+    expect(screen.getByText("Rerun as voice edit")).toBeTruthy();
+    expect(screen.getByText("Rerunning as voice edit...")).toBeTruthy();
     // Full Playground rendering is intentionally broad documentation coverage;
     // in the aggregate suite it can exceed the default 10s jsdom budget.
   }, 20_000);

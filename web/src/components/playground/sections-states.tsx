@@ -799,7 +799,7 @@ export function PlaygroundStateSections() {
                 />
                 <div className="px-4 pb-3 pt-1">
                   <div className="rounded-xl border border-cc-primary/20 bg-cc-primary/5 p-3">
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
                         <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-cc-primary">
                           Voice edit preview
@@ -811,7 +811,10 @@ export function PlaygroundStateSections() {
                           </span>
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
+                        <button className="rounded-lg border border-cc-border px-3 py-1.5 text-xs font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg">
+                          Rerun as append
+                        </button>
                         <button className="rounded-lg border border-cc-border px-3 py-1.5 text-xs font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg">
                           Undo
                         </button>
@@ -828,6 +831,15 @@ export function PlaygroundStateSections() {
                         }
                         mode="compact"
                       />
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cc-border bg-cc-input-bg px-3 py-2">
+                      <span className="text-xs text-cc-muted">Voice append result ready</span>
+                      <div className="flex w-full flex-col items-start gap-1 sm:w-auto sm:items-end">
+                        <button className="rounded-lg border border-cc-border px-3 py-1.5 text-xs font-medium text-cc-muted opacity-50">
+                          Rerun as voice edit
+                        </button>
+                        <span className="text-[11px] text-cc-muted">Rerunning as voice edit...</span>
+                      </div>
                     </div>
                   </div>
                 </div>

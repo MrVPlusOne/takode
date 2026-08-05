@@ -38,7 +38,7 @@ import {
 } from "./composer-image-utils.js";
 import { collectPlainTakodeReferences, parseCodexModeSlashCommand } from "./composer-reference-utils.js";
 import { useComposerAutocomplete } from "./use-composer-autocomplete.js";
-import type { FailedTranscription, VoiceEditProposal } from "./composer-voice-types.js";
+import type { AlternateVoiceRerun, FailedTranscription, VoiceEditProposal } from "./composer-voice-types.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
 import { useComposerSessionView } from "./use-composer-session-view.js";
 import {
@@ -75,32 +75,18 @@ import {
   clearPendingUserUploadController,
   registerPendingUserUploadController,
 } from "../pending-user-upload-manager.js";
+import {
+  afterNextPaint,
+  calculateVoiceTranscriptionPhaseDurations,
+  createVoiceTranscriptionRequestId,
+  nowMs,
+} from "./composer-voice-transcription-utils.js";
 
 export { ReplyChip } from "./ReplyChip.js";
 
 const EMPTY_PENDING_USER_UPLOADS: PendingUserUpload[] = [];
 const EMPTY_COMPOSER_IMAGES: ComposerDraftImage[] = [];
 const VOICE_SHORTCUT_ACTIONS: readonly ShortcutActionId[] = ["voice_start", "voice_stop"];
-
-function nowMs(): number {
-  return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
-}
-
-function createVoiceTranscriptionRequestId(): string {
-  const random =
-    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2);
-  return `voice-${Date.now()}-${random}`;
-}
-
-function afterNextPaint(): Promise<number> {
-  return new Promise((resolve) => {
-    const finish = () => resolve(Date.now());
-    if (typeof requestAnimationFrame === "function") requestAnimationFrame(finish);
-    else setTimeout(finish, 0);
-  });
-}
 
 function eventKeyIsOnlyPressedModifier(
   event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
@@ -116,38 +102,6 @@ function eventUsesComboModifier(
   event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
 ): boolean {
   return (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) && !eventKeyIsOnlyPressedModifier(event);
-}
-
-function calculateVoiceTranscriptionPhaseDurations(
-  events: VoiceTranscriptionFrontendTimingEvent[],
-  totalElapsedMs: number,
-): Partial<Record<VoiceTranscriptionPhase, number>> {
-  const durations: Partial<Record<VoiceTranscriptionPhase, number>> = {};
-  let currentPhase: VoiceTranscriptionPhase | null = null;
-  let currentStartMs = 0;
-
-  for (const event of events) {
-    const eventElapsedMs = Math.max(0, event.elapsedMs);
-    if (event.phase === "complete" || event.phase === "error") {
-      if (currentPhase) {
-        durations[currentPhase] = (durations[currentPhase] ?? 0) + Math.max(0, eventElapsedMs - currentStartMs);
-        currentPhase = null;
-      }
-      continue;
-    }
-
-    if (event.phase === currentPhase) continue;
-    if (currentPhase) {
-      durations[currentPhase] = (durations[currentPhase] ?? 0) + Math.max(0, eventElapsedMs - currentStartMs);
-    }
-    currentPhase = event.phase;
-    currentStartMs = eventElapsedMs;
-  }
-
-  if (currentPhase) {
-    durations[currentPhase] = (durations[currentPhase] ?? 0) + Math.max(0, totalElapsedMs - currentStartMs);
-  }
-  return durations;
 }
 
 export function Composer({
@@ -198,6 +152,7 @@ export function Composer({
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [isImageDragOver, setIsImageDragOver] = useState(false);
   const [voiceEditProposal, setVoiceEditProposal] = useState<VoiceEditProposal | null>(null);
+  const [alternateVoiceRerun, setAlternateVoiceRerun] = useState<AlternateVoiceRerun | null>(null);
   const zoomLevel = useStore((s) => s.zoomLevel);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -364,6 +319,7 @@ export function Composer({
     voiceStartPendingRef.current = true;
     try {
       setFailedTranscription(null);
+      setAlternateVoiceRerun(null);
       const el = textareaRef.current;
       const cursorPos = el?.selectionStart ?? text.length;
       activeVoiceTranscriptionThreadKeyRef.current = transcriptionThreadKey;
@@ -385,6 +341,7 @@ export function Composer({
         setVoiceCaptureMode(mode);
         voiceEditBaseTextRef.current = text;
         setVoiceEditProposal(null);
+        setAlternateVoiceRerun(null);
       } else {
         voiceCaptureModeRef.current = "dictation";
         setVoiceCaptureMode("dictation");
@@ -417,6 +374,7 @@ export function Composer({
     contextThreadKey?: string,
     contextThreadTitle?: string,
     recordingTiming?: VoiceRecordingTiming,
+    source?: "alternate",
   ) {
     const requestId = createVoiceTranscriptionRequestId();
     const startedAt = nowMs();
@@ -530,10 +488,20 @@ export function Composer({
         });
         markApiResolved();
         applyVoiceResult(() => {
+          setText(composerText);
           setVoiceEditProposal({
             originalText: composerText,
             editedText,
             instructionText: instructionText || rawText || "",
+          });
+          setAlternateVoiceRerun({
+            blob,
+            sourceMode: "edit",
+            composerText,
+            cursorContext,
+            transcriptionThreadKey: contextThreadKey,
+            transcriptionThreadTitle: contextThreadTitle,
+            status: "idle",
           });
         });
       } else if (mode === "append") {
@@ -549,6 +517,15 @@ export function Composer({
         applyVoiceResult(() => {
           setText(before + separator + appendText + after);
           setVoiceEditProposal(null);
+          setAlternateVoiceRerun({
+            blob,
+            sourceMode: "append",
+            composerText,
+            cursorContext,
+            transcriptionThreadKey: contextThreadKey,
+            transcriptionThreadTitle: contextThreadTitle,
+            status: "idle",
+          });
         });
       } else {
         const { text: transcript } = await api.transcribe(blob, {
@@ -559,20 +536,33 @@ export function Composer({
         applyVoiceResult(() => {
           setText(transcript);
           setVoiceEditProposal(null);
+          setAlternateVoiceRerun(null);
         });
       }
     } catch (err) {
       status = "error";
       const message = err instanceof Error ? err.message : "Transcription failed";
-      setVoiceError(message);
-      setFailedTranscription({
-        blob,
-        mode,
-        composerText,
-        cursorContext,
-        transcriptionThreadKey: contextThreadKey,
-        transcriptionThreadTitle: contextThreadTitle,
-      });
+      if (source === "alternate") {
+        setAlternateVoiceRerun((current) =>
+          current?.blob === blob
+            ? {
+                ...current,
+                status: "error",
+                message,
+              }
+            : current,
+        );
+      } else {
+        setVoiceError(message);
+        setFailedTranscription({
+          blob,
+          mode,
+          composerText,
+          cursorContext,
+          transcriptionThreadKey: contextThreadKey,
+          transcriptionThreadTitle: contextThreadTitle,
+        });
+      }
     } finally {
       const completedAt = Date.now();
       const totalElapsedMs = Math.max(0, nowMs() - startedAt);
@@ -651,6 +641,28 @@ export function Composer({
     );
   }, [failedTranscription, sessionId, setVoiceError]);
 
+  const rerunAlternateVoiceMode = useCallback(async () => {
+    if (!alternateVoiceRerun || alternateVoiceRerun.status === "running") return;
+    const targetMode = alternateVoiceRerun.sourceMode === "edit" ? "append" : "edit";
+    setVoiceError(null);
+    setFailedTranscription(null);
+    setAlternateVoiceRerun({
+      ...alternateVoiceRerun,
+      status: "running",
+      message: undefined,
+    });
+    await performTranscription(
+      alternateVoiceRerun.blob,
+      targetMode,
+      alternateVoiceRerun.composerText,
+      alternateVoiceRerun.cursorContext,
+      alternateVoiceRerun.transcriptionThreadKey,
+      alternateVoiceRerun.transcriptionThreadTitle,
+      undefined,
+      "alternate",
+    );
+  }, [alternateVoiceRerun, setVoiceError]);
+
   const toggleVoiceUnsupportedInfo = useCallback(
     (expandComposerOnReveal = false) => {
       if (!voiceUnsupportedMessage) return;
@@ -692,6 +704,7 @@ export function Composer({
   useEffect(() => {
     setVoiceEditProposal(null);
     setFailedTranscription(null);
+    setAlternateVoiceRerun(null);
     setVoiceError(null);
     voiceCaptureModeRef.current = "dictation";
     setVoiceCaptureMode("dictation");
@@ -889,6 +902,7 @@ export function Composer({
     if (!voiceEditProposal) return;
     setText(voiceEditProposal.editedText);
     setVoiceEditProposal(null);
+    setAlternateVoiceRerun(null);
     textareaRef.current?.focus();
   }, [setText, voiceEditProposal]);
 
@@ -896,6 +910,7 @@ export function Composer({
     if (!voiceEditProposal) return;
     setText(voiceEditProposal.originalText);
     setVoiceEditProposal(null);
+    setAlternateVoiceRerun(null);
     textareaRef.current?.focus();
   }, [setText, voiceEditProposal]);
 
@@ -946,6 +961,7 @@ export function Composer({
       });
       store.removePermission(sessionId, pendingAskUserPerm.request_id);
       store.clearComposerDraft(sessionId);
+      setAlternateVoiceRerun(null);
       closeAutocompleteMenus();
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       if (isTouchDevice()) textareaRef.current?.blur();
@@ -977,6 +993,7 @@ export function Composer({
         });
         if (!switched) return;
         store.clearComposerDraft(sessionId);
+        setAlternateVoiceRerun(null);
         closeAutocompleteMenus();
         if (textareaRef.current) textareaRef.current.style.height = "auto";
         if (isTouchDevice()) textareaRef.current?.blur();
@@ -1052,6 +1069,7 @@ export function Composer({
         },
       });
       store.clearComposerDraft(sessionId);
+      setAlternateVoiceRerun(null);
       store.setReplyContext(sessionId, null);
       clearComposerUi();
 
@@ -1096,6 +1114,7 @@ export function Composer({
     // (server-authoritative model — browsers never add user messages locally)
     store.requestBottomAlignOnNextUserMessage(sessionId);
     store.clearComposerDraft(sessionId);
+    setAlternateVoiceRerun(null);
     finalizeReplyNotification();
     store.setReplyContext(sessionId, null);
 
@@ -1239,6 +1258,9 @@ export function Composer({
     const cursorPos = e.target.selectionStart;
     if (voiceEditProposal) {
       setVoiceEditProposal(null);
+    }
+    if (alternateVoiceRerun) {
+      setAlternateVoiceRerun(null);
     }
     setText(newText);
     const ta = e.target;
@@ -1840,6 +1862,7 @@ export function Composer({
                 voiceError={voiceError}
                 failedTranscription={failedTranscription}
                 voiceEditProposal={voiceEditProposal}
+                alternateVoiceRerun={alternateVoiceRerun}
                 replyContext={replyContext ?? null}
                 vscodeSelectionLabel={
                   vscodeSelectionPayload ? formatVsCodeSelectionAttachmentLabel(vscodeSelectionPayload) : null
@@ -1857,6 +1880,7 @@ export function Composer({
                 }}
                 onAcceptVoiceEdit={acceptVoiceEdit}
                 onUndoVoiceEdit={undoVoiceEdit}
+                onRerunAlternateVoiceMode={rerunAlternateVoiceMode}
                 onDismissUnsupportedInfo={() => setVoiceUnsupportedInfoOpen(false)}
                 onDismissReply={() => useStore.getState().setReplyContext(sessionId, null)}
                 onDismissVsCodeSelection={() => useStore.getState().dismissVsCodeSelection(currentVsCodeSelectionKey)}

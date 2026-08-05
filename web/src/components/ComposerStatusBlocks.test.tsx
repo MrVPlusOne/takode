@@ -31,6 +31,7 @@ function renderStatusBlocks(overrides: Partial<Parameters<typeof ComposerStatusB
     voiceError: null,
     failedTranscription: null,
     voiceEditProposal: null,
+    alternateVoiceRerun: null,
     replyContext: null,
     vscodeSelectionLabel: "Composer.tsx:12-14",
     vscodeSelectionSummary: "3 lines selected",
@@ -39,6 +40,7 @@ function renderStatusBlocks(overrides: Partial<Parameters<typeof ComposerStatusB
     onDismissVoiceError: vi.fn(),
     onAcceptVoiceEdit: vi.fn(),
     onUndoVoiceEdit: vi.fn(),
+    onRerunAlternateVoiceMode: vi.fn(),
     onDismissUnsupportedInfo: vi.fn(),
     onDismissReply: vi.fn(),
     onDismissVsCodeSelection: vi.fn(),
@@ -140,6 +142,55 @@ describe("ComposerStatusBlocks voice recording controls", () => {
 
     expect(screen.getByText("Finalizing...")).toBeTruthy();
     expect(screen.queryByText("Transcribing...")).toBeNull();
+  });
+
+  it("shows the opposite-mode action on voice edit previews", async () => {
+    // Voice edit results keep their diff visible while offering the exact other
+    // mode, so the user can recover from choosing edit instead of append.
+    const props = renderStatusBlocks({
+      voiceEditProposal: {
+        originalText: "Draft",
+        editedText: "Edited draft",
+        instructionText: "rewrite it",
+      },
+      alternateVoiceRerun: {
+        blob: new Blob(["voice"], { type: "audio/webm" }),
+        sourceMode: "edit",
+        composerText: "Draft",
+        cursorContext: { before: "Draft", after: "" },
+        status: "idle",
+      },
+      vscodeSelectionLabel: null,
+      vscodeSelectionSummary: null,
+      vscodeSelectionTitle: null,
+    });
+
+    expect(screen.getByText("Voice edit preview")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Rerun as append" }));
+
+    expect(props.onRerunAlternateVoiceMode).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows disabled alternate rerun status for append results in flight", () => {
+    // Append results have no diff card, so the standalone result row owns the
+    // loading state while preventing duplicate alternate requests.
+    renderStatusBlocks({
+      isTranscribing: true,
+      alternateVoiceRerun: {
+        blob: new Blob(["voice"], { type: "audio/webm" }),
+        sourceMode: "append",
+        composerText: "Draft",
+        cursorContext: { before: "Draft", after: "" },
+        status: "running",
+      },
+      vscodeSelectionLabel: null,
+      vscodeSelectionSummary: null,
+      vscodeSelectionTitle: null,
+    });
+
+    expect(screen.getByText("Voice append result ready")).toBeTruthy();
+    expect(screen.getByText("Rerunning as voice edit...")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Rerun as voice edit" }).hasAttribute("disabled")).toBe(true);
   });
 });
 
