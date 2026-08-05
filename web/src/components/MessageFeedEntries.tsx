@@ -163,7 +163,7 @@ function TurnSummaryStats({
         <>
           {(hasMessages || hasTools || hasAgents) && <span className={separatorClass}>·</span>}
           <span>
-            {stats.herdEventCount} herd event{stats.herdEventCount !== 1 ? "s" : ""}
+            {stats.herdEventCount} worker event{stats.herdEventCount !== 1 ? "s" : ""}
           </span>
         </>
       )}
@@ -1172,17 +1172,27 @@ function CollapsedTurnRows({
         return (
           <div key={row.key} className="px-2.5 py-2 sm:px-3">
             <HidePawContext.Provider value={true}>
-              <FeedEntries
-                entries={[row.entry]}
-                sessionId={sessionId}
-                currentThreadKey={currentThreadKey}
-                minuteBoundaryLabels={minuteBoundaryLabels}
-                isCodexSession={isCodexSession}
-                activeCodexTerminalIds={activeCodexTerminalIds}
-                onOpenCodexTerminal={onOpenCodexTerminal}
-                onSelectThread={onSelectThread}
-                suppressThreadSystemMarkers
-              />
+              {isRoutineHerdEventEntry(row.entry) ? (
+                <CompactFeedActivity
+                  segments={[{ kind: "worker_event", messages: [row.entry.msg] }]}
+                  sessionId={sessionId}
+                  isCodexSession={isCodexSession}
+                  activeCodexTerminalIds={activeCodexTerminalIds}
+                  onOpenCodexTerminal={onOpenCodexTerminal}
+                />
+              ) : (
+                <FeedEntries
+                  entries={[row.entry]}
+                  sessionId={sessionId}
+                  currentThreadKey={currentThreadKey}
+                  minuteBoundaryLabels={minuteBoundaryLabels}
+                  isCodexSession={isCodexSession}
+                  activeCodexTerminalIds={activeCodexTerminalIds}
+                  onOpenCodexTerminal={onOpenCodexTerminal}
+                  onSelectThread={onSelectThread}
+                  suppressThreadSystemMarkers
+                />
+              )}
             </HidePawContext.Provider>
           </div>
         );

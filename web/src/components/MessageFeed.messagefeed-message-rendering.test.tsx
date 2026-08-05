@@ -378,13 +378,19 @@ function setStoreSdkSessionRole(sessionId: string, overrides: { isOrchestrator?:
 function makeHerdEvent(
   id: string,
   content: string,
-  options: { eventKey?: string; eventType?: string; sessionNum?: number } = {},
+  options: {
+    eventKey?: string;
+    eventType?: string;
+    sessionNum?: number;
+    metadata?: ChatMessage["metadata"];
+  } = {},
 ): ChatMessage {
   return makeMessage({
     id,
     role: "user",
     content,
     agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+    ...(options.metadata ? { metadata: options.metadata } : {}),
     ...(options.eventKey ? { takodeHerdEventKeys: [options.eventKey] } : {}),
     ...(options.eventType
       ? {
@@ -639,6 +645,47 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.getByText("Leader activity")).toBeTruthy();
     expect(screen.queryByText("Handled the reminder and refreshed the thread status.")).toBeNull();
     expect(screen.getByText("Continuing with the next step.")).toBeTruthy();
+  });
+
+  it("renders routine herd events as compact worker activity inside collapsed selected leader turns", () => {
+    // Rework regression for q-1799 feedback #3: in the live selected-thread
+    // shape, representative leader prose can split collapsed segments. A
+    // routine herd event in that segment must still render as compact worker
+    // activity, not as a standalone amber herd chip.
+    const sid = "test-selected-thread-routine-herd-collapsed-row";
+    const threadRef = { threadKey: "q-1799", questId: "q-1799", source: "explicit" as const };
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Close q-1799", metadata: { threadRefs: [threadRef] } }),
+      makeHerdEvent("herd-1", "1 event from 1 session\n\n#2455 | turn_end | ok 1m 30s", {
+        eventKey: turnEndEventKey(),
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-summary",
+        role: "assistant",
+        content: "The herd-event grouping and compact chip UI is implemented.",
+        metadata: { leaderUserMessage: true, threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "tools-memory",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "cmd-1", name: "Bash", input: { command: "quest show q-1799" } },
+          { type: "tool_use", id: "cmd-2", name: "Bash", input: { command: "quest complete q-1799" } },
+        ],
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({ id: "u2", role: "user", content: "Review another quest", metadata: { threadRefs: [threadRef] } }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1799" />);
+
+    expect(screen.getByText("1 worker event")).toBeTruthy();
+    expect(screen.getByText("The herd-event grouping and compact chip UI is implemented.")).toBeTruthy();
+    expect(screen.queryByText("#2455")).toBeNull();
+    expect(screen.queryByText("turn_end")).toBeNull();
   });
 
   it("batches consecutive tool-only messages into one compact activity row", () => {

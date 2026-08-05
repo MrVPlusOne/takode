@@ -416,10 +416,13 @@ function countEntryStats(entries: FeedEntry[]): {
           lastText = text;
         }
       } else {
-        // Non-assistant messages (e.g. user, system) count as messages
-        messages++;
         // Track herd orchestration event injections
-        if (msg.agentSource?.sessionId === "herd-events") herdEvents++;
+        if (msg.agentSource?.sessionId === "herd-events") {
+          herdEvents++;
+        } else {
+          // Non-assistant messages (e.g. user, system) count as messages
+          messages++;
+        }
       }
     } else if (entry.kind === "tool_msg_group") {
       // Tool results — only count as tools, not messages
