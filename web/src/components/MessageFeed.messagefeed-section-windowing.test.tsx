@@ -104,6 +104,7 @@ vi.mock("../store.js", () => {
       scrollToTurnId: mockStoreValues.scrollToTurnId ?? new Map(),
       clearScrollToTurn: mockClearScrollToTurn,
       scrollToMessageId: mockStoreValues.scrollToMessageId ?? new Map(),
+      pendingScrollToMessageId: mockStoreValues.pendingScrollToMessageId ?? new Map(),
       clearScrollToMessage: mockClearScrollToMessage,
       clearPendingScrollToMessageId: mockClearPendingScrollToMessageId,
       expandAllInTurn: mockStoreValues.expandAllInTurn ?? new Map(),
@@ -541,6 +542,7 @@ function resetStore() {
   mockStoreValues.threadWindowMessages = new Map();
   mockStoreValues.threadWindowRefreshRevisions = new Map();
   mockStoreValues.threadWindowAppliedRevisions = new Map();
+  mockStoreValues.feedScrollPosition = new Map();
   mockStoreValues.toolProgress = new Map();
   mockStoreValues.toolResults = new Map();
   mockStoreValues.toolStartTimestamps = new Map();
@@ -549,6 +551,7 @@ function resetStore() {
   mockStoreValues.backgroundAgentNotifs = new Map();
   mockStoreValues.scrollToTurnId = new Map();
   mockStoreValues.scrollToMessageId = new Map();
+  mockStoreValues.pendingScrollToMessageId = new Map();
   mockStoreValues.expandAllInTurn = new Map();
   mockStoreValues.bottomAlignNextUserMessage = new Set();
   mockStoreValues.sessionTaskHistory = new Map();
@@ -1215,8 +1218,38 @@ describe("MessageFeed section windowing", () => {
     expect(screen.getByText("Starred target outside the current window")).toBeTruthy();
     expect(mockClearScrollToMessage).toHaveBeenCalledWith(sid);
     expect(mockClearPendingScrollToMessageId).toHaveBeenCalledWith(sid);
-    const scrollTarget = mockScrollIntoView.mock.contexts.at(-1) as HTMLElement | undefined;
-    expect(scrollTarget?.getAttribute("data-message-id")).toBe(target.id);
+    expect(mockSetFeedScrollPosition).toHaveBeenCalledWith(
+      `${sid}:thread:main`,
+      expect.objectContaining({ anchorMessageId: target.id }),
+    );
+  });
+
+  it("uses a pending route message id for the initial selected Main window request", async () => {
+    // A stable /msg/<id>?thread=main route can arrive before the selected Main
+    // window has hydrated. The first request must be target-centered so the
+    // route target is not consumed by a default latest window.
+    const sid = "test-initial-main-target-window";
+    const target = makeMessage({ id: "u-old-target", role: "user", content: "Old target", timestamp: 10 });
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreMessages(sid, [target]);
+    mockStoreValues.pendingScrollToMessageId = new Map([[sid, target.id]]);
+    mockStoreValues.scrollToMessageId = new Map([[sid, target.id]]);
+
+    render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+    await flushFeedObservers();
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({
+        type: "thread_window_request",
+        thread_key: "main",
+        target_message_id: target.id,
+      }),
+    );
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({ type: "thread_window_request", thread_key: "main", target_message_id: undefined }),
+    );
   });
 
   // Non-Main selected leader threads follow the same stale-but-visible path; the

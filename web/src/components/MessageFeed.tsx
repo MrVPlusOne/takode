@@ -23,6 +23,7 @@ import {
   type FeedViewportPosition,
   getFeedViewportKey,
   persistLeaderViewportPosition,
+  readLeaderViewportPosition,
 } from "../utils/thread-viewport.js";
 import {
   CodexTerminalInspector,
@@ -91,6 +92,17 @@ import { useMessageFeedUserNavigationTargets, useUserMessageNavigation } from ".
 import { getMissingScrollTargetWindowAction, type PendingTargetWindowRequest } from "./message-feed-scroll-target.js";
 import { useThreadWindowRequester } from "./message-feed-thread-window-request.js";
 import { flashMessageFeedTarget } from "./message-feed-target-highlight.js";
+import { getRouteMessageTargetForThread } from "./message-feed-route-target.js";
+import { findMessageFeedScrollTarget, scrollMessageFeedTargetIntoView } from "./message-feed-target-scroll.js";
+import {
+  findVisibleFeedAnchorInContainer,
+  findVisibleMessageAnchorInContainer,
+  findVisibleTurnAnchorInContainer,
+  getViewportAnchorOffset,
+  isViewportAnchorAtSavedOffset,
+  schedulePostLayoutViewportAnchorRestore,
+  type FeedViewportAnchor,
+} from "./message-feed-viewport-anchor.js";
 import { markHistoryReceiveRenderCommitted } from "../utils/frontend-perf-recorder.js";
 import { MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
 import {
@@ -112,7 +124,6 @@ export {
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
 } from "./message-feed-sections.js";
-
 const LIVE_ACTIVITY_RAIL_DWELL_MS = 5_000;
 const FEED_EXTRA_SCROLL_SLACK_PX = 12;
 const FLOATING_STATUS_SPACER_MARGIN_PX = 4;
@@ -124,20 +135,6 @@ const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 const SECTION_WINDOW_TRIGGER_PX = 96;
 const SECTION_BOUNDARY_CONTROL_CLASS =
   "inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card/80 px-3 py-1.5 text-xs text-cc-muted";
-
-// ─── Expand-on-scroll-target hook ───────────────────────────────────────────
-// Used by collapsible containers (SubagentContainer, ApprovalBatchGroup,
-// HerdEventBatchGroup) to auto-expand when a scroll-to-message target
-// is inside them. The expandAllInTurn store signal holds the target message
-// ID; if any of the container's message IDs match, it forces open.
-
-interface FeedViewportAnchor {
-  messageId: string | null;
-  turnId: string | null;
-  offsetTop: number;
-}
-
-// ─── Main Feed ───────────────────────────────────────────────────────────────
 
 export function MessageFeed({
   sessionId,
@@ -196,6 +193,16 @@ export function MessageFeed({
     selectedFeedWindowEnabled &&
     selectedFeedWindow !== null &&
     selectedThreadWindowRevision < threadWindowRefreshRevision;
+  const scrollToMessageId = useStore((s) => s.scrollToMessageId.get(sessionId));
+  const pendingScrollToMessageId = useStore((s) => s.pendingScrollToMessageId?.get(sessionId));
+  const routeScrollToMessageId = useMemo(
+    () => getRouteMessageTargetForThread(normalizedThreadKey),
+    [normalizedThreadKey],
+  );
+  const savedViewportTargetMessageId =
+    savedScrollPos && !savedScrollPos.isAtBottom
+      ? (savedScrollPos.anchorMessageId ?? savedScrollPos.anchorTurnId ?? null)
+      : null;
   const [pendingInitialThreadWindowKey, setPendingInitialThreadWindowKey] = useState<string | null>(null);
   const connectionStatus = useStore((s) => s.connectionStatus?.get(sessionId) ?? "disconnected");
   const sessionNotifications = useStore((s) => s.sessionNotifications?.get(sessionId));
@@ -288,6 +295,7 @@ export function MessageFeed({
   const isTouch = useMemo(() => isTouchDevice(), []);
   const taskTurnOffsetsRef = useRef<TurnOffsetIndex[]>([]);
   const restoredViewportRef = useRef<{ key: string; container: HTMLDivElement | null } | null>(null);
+  const restoredViewportScopeRef = useRef(`${sessionId}:${normalizedThreadKey}`);
   const overlayViewportRef = useRef<HTMLDivElement>(null);
   const lastViewportAnchorRef = useRef<{
     viewportKey: string;
@@ -298,10 +306,25 @@ export function MessageFeed({
   const pendingSectionLoadKeyRef = useRef<string | null>(null);
   const pendingTargetWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
   const pendingViewportAnchorWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
+  const pendingExactViewportRestoreRef = useRef<{
+    restoreKey: string;
+    position: FeedViewportPosition;
+  } | null>(null);
 
   useLayoutEffect(() => {
     markHistoryReceiveRenderCommitted(sessionId);
   }, [allMessages, historyLoading, historyWindow, leaderProjection, selectedFeedWindow, sessionId]);
+
+  useLayoutEffect(() => {
+    const scope = `${sessionId}:${normalizedThreadKey}`;
+    if (restoredViewportScopeRef.current === scope) return;
+    restoredViewportScopeRef.current = scope;
+    restoredViewportRef.current = null;
+    lastViewportAnchorRef.current = null;
+    pendingTargetWindowRequestRef.current = null;
+    pendingViewportAnchorWindowRequestRef.current = null;
+    pendingExactViewportRestoreRef.current = null;
+  }, [normalizedThreadKey, sessionId]);
 
   const codexTerminalEntries = useMemo(
     () => (isCodexSession ? collectCodexTerminalEntries(messages, toolResults, toolProgress, toolStartTimestamps) : []),
@@ -418,53 +441,8 @@ export function MessageFeed({
     return () => clearTimeout(timeout);
   }, [activeCodexTerminalEntries, activeLiveSubagentEntries]);
 
-  const findVisibleTurnAnchor = useCallback((container: HTMLDivElement) => {
-    const containerRect = container.getBoundingClientRect();
-    const turns = container.querySelectorAll<HTMLElement>("[data-turn-id]");
-    for (const turn of turns) {
-      const rect = turn.getBoundingClientRect();
-      if (rect.bottom > containerRect.top && rect.top < containerRect.bottom) {
-        return {
-          turnId: turn.dataset.turnId ?? null,
-          offsetTop: rect.top - containerRect.top,
-        };
-      }
-    }
-    return null;
-  }, []);
-
-  const findVisibleFeedAnchor = useCallback((container: HTMLDivElement): FeedViewportAnchor | null => {
-    const containerRect = container.getBoundingClientRect();
-    const findFirstVisible = (selector: string) => {
-      const elements = container.querySelectorAll<HTMLElement>(selector);
-      for (const element of elements) {
-        const rect = element.getBoundingClientRect();
-        if (rect.bottom > containerRect.top && rect.top < containerRect.bottom) {
-          return { element, rect };
-        }
-      }
-      return null;
-    };
-
-    const visibleMessage = findFirstVisible("[data-message-id]");
-    if (visibleMessage) {
-      const turn = visibleMessage.element.closest<HTMLElement>("[data-turn-id]");
-      return {
-        messageId: visibleMessage.element.dataset.messageId ?? null,
-        turnId: turn?.dataset.turnId ?? null,
-        offsetTop: visibleMessage.rect.top - containerRect.top,
-      };
-    }
-
-    const visibleTurn = findFirstVisible("[data-turn-id]");
-    if (!visibleTurn) return null;
-
-    return {
-      messageId: null,
-      turnId: visibleTurn.element.dataset.turnId ?? null,
-      offsetTop: visibleTurn.rect.top - containerRect.top,
-    };
-  }, []);
+  const findVisibleTurnAnchor = useCallback(findVisibleTurnAnchorInContainer, []);
+  const findVisibleFeedAnchor = useCallback(findVisibleFeedAnchorInContainer, []);
 
   const markProgrammaticScroll = useCallback((top: number) => {
     programmaticScrollTargetRef.current = top;
@@ -557,7 +535,18 @@ export function MessageFeed({
   const persistFeedViewport = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
-    const anchor = findVisibleFeedAnchor(container);
+    const pendingExactRestore = pendingExactViewportRestoreRef.current;
+    if (pendingExactRestore) {
+      if (!isViewportAnchorAtSavedOffset(container, pendingExactRestore.position)) return;
+      pendingExactViewportRestoreRef.current = null;
+    }
+    const previousPosition =
+      (isLeaderSession ? readLeaderViewportPosition(sessionId, normalizedThreadKey) : null) ??
+      useStore.getState().feedScrollPosition.get(viewportKey);
+    const previousAnchorId = previousPosition?.anchorMessageId ?? null;
+    const anchor =
+      (previousAnchorId ? findVisibleMessageAnchorInContainer(container, previousAnchorId) : null) ??
+      findVisibleFeedAnchor(container);
     const position = {
       scrollTop: container.scrollTop,
       scrollHeight: container.scrollHeight,
@@ -573,9 +562,6 @@ export function MessageFeed({
     }
   }, [findVisibleFeedAnchor, getRealContentBottom, isLeaderSession, normalizedThreadKey, sessionId, viewportKey]);
 
-  // Save scroll position on unmount. Uses useLayoutEffect so the cleanup runs
-  // in the layout phase — BEFORE the new component's effects try to restore,
-  // avoiding the race where useEffect cleanup runs too late.
   useLayoutEffect(() => {
     return () => {
       persistFeedViewport();
@@ -674,12 +660,24 @@ export function MessageFeed({
   useEffect(() => {
     if (!selectedFeedWindowEnabled) return;
     if (activeThreadWindow && !selectedThreadWindowNeedsRefresh) return;
-    requestThreadWindow(-1);
+    requestThreadWindow(
+      -1,
+      undefined,
+      scrollToMessageId ??
+        pendingScrollToMessageId ??
+        routeScrollToMessageId ??
+        savedViewportTargetMessageId ??
+        undefined,
+    );
   }, [
     activeThreadWindow,
     connectionStatus,
     missingSelectedWindowHasContext,
+    pendingScrollToMessageId,
     requestThreadWindow,
+    routeScrollToMessageId,
+    savedViewportTargetMessageId,
+    scrollToMessageId,
     selectedFeedWindowEnabled,
     selectedThreadWindowNeedsRefresh,
   ]);
@@ -693,14 +691,11 @@ export function MessageFeed({
     pendingSectionLoadKeyRef.current = null;
     setPendingSectionLoadDirection(null);
   }, [activeHistoryWindow, activeThreadWindow, sectionWindowStart]);
-  // Collapsible turn IDs: all turns with agent content are collapsible (including the last).
-  // Stats and text preview recompute as new messages stream in.
   const collapsibleTurnIds = useMemo(
     () => visibleTurns.filter((t) => t.agentEntries.length > 0).map((t) => t.id),
     [visibleTurns],
   );
 
-  // Sync collapsible turn IDs to the store so the Composer can render the global toggle
   useEffect(() => {
     useStore.getState().setCollapsibleTurnIds(sessionId, collapsibleTurnIds);
   }, [sessionId, collapsibleTurnIds]);
@@ -732,8 +727,6 @@ export function MessageFeed({
     },
     [latestVisibleSectionStartIndex, sections],
   );
-
-  // ─── Scroll management ─────────────────────────────────────────────────
 
   const restoreTurnAnchor = useCallback(
     (anchorTurnId: string, anchorOffsetTop = 0) => {
@@ -1274,10 +1267,8 @@ export function MessageFeed({
     } else if (!isProgrammaticScroll && scrollingDown && nearNewerBoundary) {
       triggerSectionLoadNearBoundary("newer");
     }
-    // Only trigger a re-render when the button state actually changes
     const shouldShow = !nearBottom || !autoFollowEnabledRef.current;
     setShowScrollButton((prev) => (prev === shouldShow ? prev : shouldShow));
-    // Track active scrolling for mobile FAB auto-hide
     setIsScrolling(true);
     clearTimeout(scrollTimeoutRef.current);
     scrollTimeoutRef.current = setTimeout(() => setIsScrolling(false), 1500);
@@ -1298,9 +1289,6 @@ export function MessageFeed({
     }
   }
 
-  // Restore scroll position synchronously before the first paint.
-  // useLayoutEffect runs before the browser paints, preventing the flash
-  // where the feed appears at scrollTop=0 for one frame before jumping.
   useLayoutEffect(() => {
     if (showConversationLoading) return;
     const pos = readSavedViewportPosition({
@@ -1322,18 +1310,31 @@ export function MessageFeed({
     }
     if (pos && !pos.isAtBottom && (pos.anchorMessageId || pos.anchorTurnId)) {
       if (selectedFeedWindowEnabled && !activeThreadWindow) return;
+      pendingExactViewportRestoreRef.current = { restoreKey, position: pos };
+      const anchorOffsetBeforeRestore = getViewportAnchorOffset(containerRef.current, pos);
       if (restoreSavedViewportAnchor(pos)) {
         pendingViewportAnchorWindowRequestRef.current = null;
         autoFollowEnabledRef.current = false;
         isNearBottom.current = false;
         setShowScrollButton(true);
+        schedulePostLayoutViewportAnchorRestore({
+          container: containerRef,
+          position: pos,
+          offsetBeforeRestore: anchorOffsetBeforeRestore,
+          restore: restoreSavedViewportAnchor,
+          onSettled: () => {
+            pendingExactViewportRestoreRef.current = null;
+          },
+        });
       } else if (requestViewportAnchorWindowIfMissing(pos, restoreKey)) {
         return;
       } else if (restoreSavedScrollPosition(pos)) {
+        pendingExactViewportRestoreRef.current = null;
         autoFollowEnabledRef.current = false;
         isNearBottom.current = false;
         setShowScrollButton(true);
       } else {
+        pendingExactViewportRestoreRef.current = null;
         scrollToBottom("auto");
       }
     } else if (pos && !pos.isAtBottom) {
@@ -1543,14 +1544,12 @@ export function MessageFeed({
     viewportLayoutSignature,
   ]);
 
-  // Scroll-to-turn: triggered from the Session Tasks panel
   const scrollToTurnId = useStore((s) => s.scrollToTurnId.get(sessionId));
   const clearScrollToTurn = useStore((s) => s.clearScrollToTurn);
   useEffect(() => {
     if (!scrollToTurnId) return;
     clearScrollToTurn(sessionId);
     autoFollowEnabledRef.current = false;
-    // Expand the target turn's activity if needed.
     const overrides = useStore.getState().turnActivityOverrides.get(sessionId);
     const isExpanded = overrides?.get(scrollToTurnId);
     if (isExpanded !== true) {
@@ -1574,10 +1573,6 @@ export function MessageFeed({
     scheduleScroll();
   }, [clearScrollToTurn, ensureSectionForTurnVisible, scrollToTurnId, sessionId]);
 
-  // Scroll-to-message: triggered from deep links, search navigation, and QuestmasterPage.
-  // Finds the turn containing the target message, focuses it (expand target,
-  // collapse all others except last), expands collapsed groups, and scrolls to the element.
-  const scrollToMessageId = useStore((s) => s.scrollToMessageId.get(sessionId));
   const expandAllInTurnTarget = useStore((s) => s.expandAllInTurn.get(sessionId));
   const clearScrollToMessage = useStore((s) => s.clearScrollToMessage);
   const clearPendingScrollToMessageId = useStore((s) => s.clearPendingScrollToMessageId);
@@ -1586,9 +1581,6 @@ export function MessageFeed({
     if (!scrollToMessageId) return;
     autoFollowEnabledRef.current = false;
 
-    // Find which turn contains this message. Check both regular messages and
-    // tool_msg_group entries (tool-use-only assistant messages get grouped into
-    // tool_msg_group by the feed model, so their IDs only appear in firstId).
     const targetTurn = turns.find(
       (t) =>
         t.allEntries.some(
@@ -1616,8 +1608,6 @@ export function MessageFeed({
       }
       clearScrollToMessage(sessionId);
       clearPendingScrollToMessageId(sessionId);
-      // Target message genuinely not in turns (e.g. compacted out of history).
-      // Fall back to scrolling to the most recent content rather than doing nothing.
       const lastTurn = turns[turns.length - 1];
       if (lastTurn) {
         useStore.getState().focusTurn(sessionId, lastTurn.id);
@@ -1630,29 +1620,45 @@ export function MessageFeed({
       return;
     }
     pendingTargetWindowRequestRef.current = null;
-    clearScrollToMessage(sessionId);
-    clearPendingScrollToMessageId(sessionId);
 
-    // Focus: expand target turn, all others revert to defaults (last expanded, rest collapsed)
     useStore.getState().focusTurn(sessionId, targetTurn.id);
     const sectionChanged = ensureSectionForTurnVisible(targetTurn.id);
 
-    // Wait for DOM to settle, then scroll to the specific message
+    let scrollAttempts = 0;
     const scheduleScroll = () => {
       requestAnimationFrame(() => {
         const el = containerRef.current;
         if (!el) return;
-        // Try data-message-id first (regular messages), then data-feed-block-id
-        // with tool-group: prefix (tool-use-only messages grouped into tool_msg_group).
-        const target =
-          el.querySelector(`[data-message-id="${escapeSelectorValue(scrollToMessageId)}"]`) ||
-          el.querySelector(`[data-feed-block-id="tool-group:${escapeSelectorValue(scrollToMessageId)}"]`);
-        if (target) {
-          target.scrollIntoView({ behavior: "smooth", block: "center" });
-          flashMessageFeedTarget(target as HTMLElement);
+        const targetElement = findMessageFeedScrollTarget(el, scrollToMessageId);
+        if (targetElement) {
+          scrollMessageFeedTargetIntoView({
+            container: el,
+            target: targetElement,
+            targetMessageId: scrollToMessageId,
+            targetTurnId: targetTurn.id,
+            sessionId,
+            threadKey: normalizedThreadKey,
+            viewportKey,
+            isLeaderSession,
+            lastSeenContentBottom: lastSeenContentBottomRef.current,
+            getRealContentBottom,
+            markProgrammaticScroll,
+            setShowScrollButton,
+            setFeedScrollPosition: useStore.getState().setFeedScrollPosition,
+            refs: { lastScrollTop: lastScrollTopRef, autoFollowEnabled: autoFollowEnabledRef, isNearBottom },
+          });
+          flashMessageFeedTarget(targetElement);
+          clearScrollToMessage(sessionId);
+          clearPendingScrollToMessageId(sessionId);
+          clearExpandAllInTurn(sessionId);
+        } else if (scrollAttempts < 5) {
+          scrollAttempts += 1;
+          scheduleScroll();
+        } else {
+          clearScrollToMessage(sessionId);
+          clearPendingScrollToMessageId(sessionId);
+          clearExpandAllInTurn(sessionId);
         }
-        // Clear expand-all signal after DOM has settled
-        clearExpandAllInTurn(sessionId);
       });
     };
     if (sectionChanged) {
@@ -1665,22 +1671,20 @@ export function MessageFeed({
     clearPendingScrollToMessageId,
     clearScrollToMessage,
     ensureSectionForTurnVisible,
+    getRealContentBottom,
+    isLeaderSession,
+    markProgrammaticScroll,
     normalizedThreadKey,
     requestThreadWindow,
     scrollToMessageId,
     selectedFeedWindowEnabled,
     selectedThreadWindowRevision,
     sessionId,
+    setShowScrollButton,
     turns,
+    viewportKey,
   ]);
 
-  // Track which task outline chip should be highlighted based on scroll position.
-  // The reference line is near the container top (with a small offset to avoid
-  // edge-triggering). The last task-trigger turn whose top has scrolled past
-  // this line is the active task — matching the chip-click behavior which
-  // scrolls the trigger to the top of the viewport.
-  // Uses a scroll listener instead of IntersectionObserver so the callback
-  // fires on every scroll frame, not just on intersection threshold crossings.
   const taskHistory = useStore((s) => s.sessionTaskHistory.get(sessionId));
   const setActiveTaskTurnId = useStore((s) => s.setActiveTaskTurnId);
   const taskTriggerIds = useMemo(
@@ -1765,8 +1769,6 @@ export function MessageFeed({
       cancelAnimationFrame(rafId);
     };
   }, [firstTaskTurnId, sessionId, setActiveTaskTurnId, taskHistory, visibleTurns]);
-
-  // ─── Render ──────────────────────────────────────────────────────────────
 
   const showSelectedWindowLoading = shouldShowSelectedThreadWindowLoading({
     messageCount: messages.length,

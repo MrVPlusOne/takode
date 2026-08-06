@@ -75,6 +75,7 @@ vi.mock("../store.js", () => {
       scrollToTurnId: new Map(),
       clearScrollToTurn: vi.fn(),
       scrollToMessageId: new Map(),
+      pendingScrollToMessageId: new Map(),
       clearScrollToMessage: vi.fn(),
       expandAllInTurn: new Map(),
       clearExpandAllInTurn: vi.fn(),
