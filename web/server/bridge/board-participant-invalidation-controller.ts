@@ -12,7 +12,7 @@ type ReviewerLifecycleMessage = Extract<
 >;
 
 type PendingInvalidationState = {
-  byLeader: Map<string, Map<string, number>>;
+  byLeader: Map<string, Map<string, number | string>>;
   timer: ReturnType<typeof setTimeout> | null;
 };
 
@@ -38,6 +38,18 @@ function matchingActiveRows(host: any, leaderSessionId: string, reviewerOf: numb
   );
 }
 
+function matchingWorkerRows(
+  host: any,
+  leaderSessionId: string,
+  workerSessionId: string,
+  workerNum?: number,
+): BoardRow[] {
+  return getBoardForSession(host.sessions, leaderSessionId).filter((row) => {
+    if (row.worker === workerSessionId) return true;
+    return typeof workerNum === "number" && effectiveBoardWorkerNum(host, row) === workerNum;
+  });
+}
+
 function flushPendingInvalidations(host: any, state: PendingInvalidationState): void {
   state.timer = null;
   const pending = [...state.byLeader.entries()];
@@ -48,7 +60,9 @@ function flushPendingInvalidations(host: any, state: PendingInvalidationState): 
     if (!session) continue;
     const board = getBoardForSession(host.sessions, leaderSessionId);
     const stillRelevant = board.some(
-      (row) => questWorkers.get(row.questId.toLowerCase()) === effectiveBoardWorkerNum(host, row),
+      (row) =>
+        questWorkers.get(row.questId.toLowerCase()) === effectiveBoardWorkerNum(host, row) ||
+        questWorkers.get(row.questId.toLowerCase()) === row.worker,
     );
     if (!stillRelevant) continue;
     const completedBoard = getCompletedBoardForSession(host.sessions, leaderSessionId);
@@ -76,8 +90,33 @@ function scheduleRelationInvalidation(host: any, leaderSessionId: string, review
     state = { byLeader: new Map(), timer: null };
     pendingInvalidations.set(host, state);
   }
-  const questWorkers = state.byLeader.get(leaderSessionId) ?? new Map<string, number>();
+  const questWorkers = state.byLeader.get(leaderSessionId) ?? new Map<string, number | string>();
   for (const row of rows) questWorkers.set(row.questId.toLowerCase(), reviewerOf);
+  state.byLeader.set(leaderSessionId, questWorkers);
+  if (state.timer) return;
+  state.timer = setTimeout(() => flushPendingInvalidations(host, state!), INVALIDATION_DELAY_MS);
+  const timerWithUnref = state.timer as ReturnType<typeof setTimeout> & { unref?: () => void };
+  timerWithUnref.unref?.();
+}
+
+export function scheduleBoardParticipantRefreshForSession(host: any, participantSessionId: string): void {
+  const launcherSession = host.launcher?.getSession?.(participantSessionId);
+  const leaderSessionId = launcherSession?.herdedBy;
+  if (typeof leaderSessionId !== "string" || !leaderSessionId) return;
+  const workerNum = typeof launcherSession?.sessionNum === "number" ? launcherSession.sessionNum : undefined;
+  const rows = matchingWorkerRows(host, leaderSessionId, participantSessionId, workerNum);
+  if (rows.length === 0) return;
+
+  let state = pendingInvalidations.get(host);
+  if (!state) {
+    state = { byLeader: new Map(), timer: null };
+    pendingInvalidations.set(host, state);
+  }
+  const questWorkers = state.byLeader.get(leaderSessionId) ?? new Map<string, number | string>();
+  for (const row of rows) {
+    const rowWorkerNum = effectiveBoardWorkerNum(host, row);
+    questWorkers.set(row.questId.toLowerCase(), typeof rowWorkerNum === "number" ? rowWorkerNum : participantSessionId);
+  }
   state.byLeader.set(leaderSessionId, questWorkers);
   if (state.timer) return;
   state.timer = setTimeout(() => flushPendingInvalidations(host, state!), INVALIDATION_DELAY_MS);

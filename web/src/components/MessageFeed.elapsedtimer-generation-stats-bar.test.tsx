@@ -104,6 +104,8 @@ vi.mock("../store.js", () => {
       backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
       sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
+      sessionBoards: mockStoreValues.sessionBoards ?? new Map(),
+      sessionBoardRowStatuses: mockStoreValues.sessionBoardRowStatuses ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
     };
     return selector(state);
@@ -316,6 +318,11 @@ function setStoreActiveCodexReasoningPreview(
   mockStoreValues.activeCodexReasoningPreviews = previewMap;
 }
 
+function setStoreBoardProjection(sessionId: string, board: unknown[], rowSessionStatuses: Record<string, unknown>) {
+  mockStoreValues.sessionBoards = new Map([[sessionId, board]]);
+  mockStoreValues.sessionBoardRowStatuses = new Map([[sessionId, rowSessionStatuses]]);
+}
+
 function setStoreSessionBackend(sessionId: string, backend: "claude" | "codex") {
   const map = new Map();
   map.set(sessionId, { backend_type: backend });
@@ -474,6 +481,8 @@ function resetStore() {
   mockStoreValues.sessionTaskHistory = new Map();
   mockStoreValues.pendingCodexInputs = new Map();
   mockStoreValues.activeTaskTurnId = new Map();
+  mockStoreValues.sessionBoards = new Map();
+  mockStoreValues.sessionBoardRowStatuses = new Map();
   mockStoreValues.sdkSessions = [];
 }
 
@@ -634,6 +643,37 @@ describe("ElapsedTimer - generation stats bar", () => {
     render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="q-975" />);
 
     expect(screen.queryByTestId("active-codex-reasoning-preview")).toBeNull();
+  });
+
+  it("shows a matching active worker Codex reasoning preview in the leader floating chip", () => {
+    const sid = "test-leader-worker-reasoning-preview";
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 9000);
+    setStoreActiveTurnRoute(sid, { threadKey: "q-975", questId: "q-975" });
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+    setStoreBoardProjection(sid, [{ questId: "q-975", worker: "worker-1", workerNum: 2463, updatedAt: 1 }], {
+      "q-975": {
+        worker: {
+          sessionId: "worker-1",
+          sessionNum: 2463,
+          status: "running",
+          activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
+          generationStartedAt: Date.now() - 12_000,
+          activeCodexReasoningPreview: {
+            text: "Checking the Journey handoff state",
+            updatedAt: Date.now(),
+            threadKey: "q-975",
+            questId: "q-975",
+          },
+        },
+        reviewer: null,
+      },
+    });
+
+    render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="q-1802" />);
+
+    expect(screen.getByText("Active in q-975")).toBeTruthy();
+    expect(screen.getByTestId("active-codex-reasoning-preview").textContent).toBe("Checking the Journey handoff state");
   });
 
   it("labels running turns with the active quest when another thread is visible", () => {

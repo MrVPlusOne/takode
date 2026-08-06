@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { broadcastGlobalAndScheduleBoardParticipantRefresh } from "./bridge/board-participant-invalidation-controller.js";
+import {
+  broadcastGlobalAndScheduleBoardParticipantRefresh,
+  scheduleBoardParticipantRefreshForSession,
+} from "./bridge/board-participant-invalidation-controller.js";
 import { buildBoardRowSessionStatuses } from "./board-row-session-status.js";
 import { maybeBroadcastGlobalSessionActivityUpdate } from "./ws-bridge-deps.js";
 import { WsBridge } from "./ws-bridge.js";
@@ -238,6 +241,31 @@ describe("targeted board participant invalidation", () => {
     expect(host.getBoardRowSessionStatuses).not.toHaveBeenCalled();
   });
 
+  it("publishes an active worker board projection refresh for its leader", () => {
+    const { host, leader } = makeHarness();
+
+    scheduleBoardParticipantRefreshForSession(host, "worker-1");
+    expect(boardUpdates(host)).toHaveLength(0);
+    flushInvalidations();
+
+    expect(boardUpdates(host)).toEqual([
+      [
+        leader,
+        expect.objectContaining({
+          type: "board_updated",
+          board: [expect.objectContaining({ questId: "q-1761", worker: "worker-1" })],
+          rowSessionStatuses: {
+            "q-1761": {
+              worker: expect.objectContaining({ sessionId: "worker-1", name: "Current Worker" }),
+              reviewer: null,
+            },
+          },
+        }),
+        { skipBuffer: true, skipGlobalActivity: true },
+      ],
+    ]);
+  });
+
   it("keeps reconnect status on the existing global session-activity path", () => {
     const { host } = makeHarness();
     const reviewerSession = {
@@ -305,6 +333,47 @@ describe("board participant names", () => {
     expect(statuses["q-1761"]).toMatchObject({
       worker: { name: "Authoritative Worker" },
       reviewer: { name: "Authoritative Reviewer" },
+    });
+  });
+
+  it("includes live active worker Codex reasoning metadata", () => {
+    const statuses = buildBoardRowSessionStatuses(
+      [
+        {
+          questId: "q-1761",
+          worker: "worker-1",
+          workerNum: 2402,
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+      [
+        {
+          sessionId: "worker-1",
+          sessionNum: 2402,
+          state: "running",
+          cliConnected: true,
+          activeTurnRoute: { threadKey: "q-1761", questId: "q-1761" },
+          generationStartedAt: 123,
+          activeCodexReasoningPreview: {
+            text: "Inspecting row state",
+            updatedAt: 456,
+            threadKey: "q-1761",
+            questId: "q-1761",
+          },
+        },
+      ],
+    );
+
+    expect(statuses["q-1761"].worker).toMatchObject({
+      sessionId: "worker-1",
+      status: "running",
+      activeTurnRoute: { threadKey: "q-1761", questId: "q-1761" },
+      generationStartedAt: 123,
+      activeCodexReasoningPreview: {
+        text: "Inspecting row state",
+        threadKey: "q-1761",
+      },
     });
   });
 });

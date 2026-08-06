@@ -807,6 +807,9 @@ export interface BoardParticipantStatus {
   sessionNum?: number | null;
   name?: string;
   status: "running" | "idle" | "disconnected" | "archived";
+  activeTurnRoute?: ActiveTurnRoute | null;
+  activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
+  generationStartedAt?: number | null;
 }
 
 export interface BoardRowSessionStatus {

@@ -1059,6 +1059,8 @@ export function getCodexAdapterBrowserMessageDeps(host: any) {
       completedTurn: CodexOutboundTurn | null,
       interrupted?: boolean,
     ) => host.handleCodexResultErrorAutoPause(targetSession as Session, msg, completedTurn, interrupted),
+    broadcastBoardParticipantRefresh: (targetSession: unknown) =>
+      host.scheduleBoardParticipantRefresh?.((targetSession as Session).id),
     syncSideChatParent: (targetSession: unknown) => host.syncSideChatRecordForChild?.(targetSession as Session),
   };
 }
@@ -1478,6 +1480,7 @@ export function getGenerationLifecycleDeps(host: any) {
         activeTurnRoute: status === "running" ? deriveActiveTurnRouteBrowserTransportController(session) : null,
         codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
       });
+      host.scheduleBoardParticipantRefresh?.(session.id);
     },
     broadcastSessionUpdate: (session: Session, update: Record<string, unknown>) => {
       host.broadcastToBrowsers(session, {

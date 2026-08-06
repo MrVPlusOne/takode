@@ -153,14 +153,14 @@ function extractTopLevelThinkingStreamText(
 function updateActiveCodexReasoningPreviewFromStream(
   session: CodexBrowserMessageSessionLike,
   msg: BrowserIncomingMessage,
-): void {
+): boolean {
   const thinking = extractTopLevelThinkingStreamText(msg);
-  if (!thinking) return;
+  if (!thinking) return false;
   const existing = thinking.kind === "delta" ? session.activeCodexReasoningPreview?.text || "" : "";
   const rawText = thinking.kind === "delta" ? existing + thinking.text : thinking.text;
   if (rawText.trim().length === 0) {
     session.activeCodexReasoningPreview = null;
-    return;
+    return true;
   }
   const route = session.activeTurnRoute ?? null;
   const bounded = boundedReasoningPreview(rawText);
@@ -173,6 +173,7 @@ function updateActiveCodexReasoningPreviewFromStream(
     ...(route?.threadKey ? { threadKey: route.threadKey } : {}),
     ...(route?.questId ? { questId: route.questId } : {}),
   };
+  return true;
 }
 
 function isLeaderSessionForAssistantRouting(
@@ -534,6 +535,7 @@ export interface CodexAdapterBrowserMessageDeps {
     completedTurn: CodexOutboundTurn | null,
     interrupted?: boolean,
   ) => Promise<void> | void;
+  broadcastBoardParticipantRefresh?: (session: CodexBrowserMessageSessionLike) => void;
   syncSideChatParent?: (session: CodexBrowserMessageSessionLike) => void;
 }
 
@@ -598,7 +600,8 @@ export async function handleCodexAdapterBrowserMessage(
   session.lastCliMessageAt = Date.now();
   deps.clearOptimisticRunningTimer(session, `codex_output:${msg.type}`);
   maybeRecordDelegateLiveActivity(session, msg);
-  updateActiveCodexReasoningPreviewFromStream(session, msg);
+  const activeReasoningPreviewChanged = updateActiveCodexReasoningPreviewFromStream(session, msg);
+  if (activeReasoningPreviewChanged) deps.broadcastBoardParticipantRefresh?.(session);
   if (session.state.codex_image_send_stage && (msg.type === "stream_event" || msg.type === "assistant")) {
     deps.setCodexImageSendStage(session, "responding", { persist: false });
   }

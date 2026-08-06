@@ -342,7 +342,10 @@ import {
   getGenerationLifecycleDeps as getGenerationLifecycleDepsController,
   maybeBroadcastGlobalSessionActivityUpdate,
 } from "./ws-bridge-deps.js";
-import { broadcastGlobalAndScheduleBoardParticipantRefresh } from "./bridge/board-participant-invalidation-controller.js";
+import {
+  broadcastGlobalAndScheduleBoardParticipantRefresh,
+  scheduleBoardParticipantRefreshForSession,
+} from "./bridge/board-participant-invalidation-controller.js";
 
 const BOARD_STALL_THRESHOLD_MS = 3 * 60_000;
 
@@ -1383,9 +1386,21 @@ export class WsBridge {
           state: cliConnected && bridgeSession?.isGenerating ? "running" : session.state,
           cliConnected,
           name: this.sessionNameGetter?.(session.sessionId),
+          activeTurnRoute:
+            cliConnected && bridgeSession?.isGenerating
+              ? deriveActiveTurnRouteBrowserTransportController(bridgeSession)
+              : null,
+          activeCodexReasoningPreview:
+            cliConnected && bridgeSession?.isGenerating ? (bridgeSession.activeCodexReasoningPreview ?? null) : null,
+          generationStartedAt:
+            cliConnected && bridgeSession?.isGenerating ? (bridgeSession.generationStartedAt ?? null) : null,
         };
       }),
     );
+  }
+
+  scheduleBoardParticipantRefresh(sessionId: string): void {
+    scheduleBoardParticipantRefreshForSession(this, sessionId);
   }
 
   /** Is any transport attached (even if still initializing)? */

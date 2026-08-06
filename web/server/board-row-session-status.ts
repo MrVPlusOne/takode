@@ -1,4 +1,10 @@
-import type { BoardParticipantStatus, BoardRow, BoardRowSessionStatus } from "./session-types.js";
+import type {
+  ActiveCodexReasoningPreview,
+  ActiveTurnRoute,
+  BoardParticipantStatus,
+  BoardRow,
+  BoardRowSessionStatus,
+} from "./session-types.js";
 
 type BoardSessionLike = {
   sessionId: string;
@@ -8,6 +14,9 @@ type BoardSessionLike = {
   state?: string | null;
   cliConnected?: boolean;
   name?: string;
+  activeTurnRoute?: ActiveTurnRoute | null;
+  activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
+  generationStartedAt?: number | null;
 };
 
 export function deriveBoardParticipantRuntimeStatus(
@@ -19,11 +28,19 @@ export function deriveBoardParticipantRuntimeStatus(
 }
 
 function toBoardParticipantStatus(session: BoardSessionLike): BoardParticipantStatus {
+  const status = deriveBoardParticipantRuntimeStatus(session);
   return {
     sessionId: session.sessionId,
     sessionNum: session.sessionNum,
     name: session.name,
-    status: deriveBoardParticipantRuntimeStatus(session),
+    status,
+    ...(status === "running" && session.activeTurnRoute ? { activeTurnRoute: session.activeTurnRoute } : {}),
+    ...(status === "running" && session.activeCodexReasoningPreview
+      ? { activeCodexReasoningPreview: session.activeCodexReasoningPreview }
+      : {}),
+    ...(status === "running" && typeof session.generationStartedAt === "number"
+      ? { generationStartedAt: session.generationStartedAt }
+      : {}),
   };
 }
 

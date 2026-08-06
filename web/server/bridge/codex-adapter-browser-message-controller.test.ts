@@ -336,6 +336,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     session.codexAdapter = { getCurrentTurnId: () => "turn-1" };
     const broadcasts: BrowserIncomingMessage[] = [];
     const deps = makeDeps(broadcasts);
+    deps.broadcastBoardParticipantRefresh = vi.fn();
 
     await handleCodexAdapterBrowserMessage(
       session,
@@ -362,6 +363,8 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       threadKey: "q-975",
       questId: "q-975",
     });
+    expect(deps.broadcastBoardParticipantRefresh).toHaveBeenCalledTimes(2);
+    expect(deps.broadcastBoardParticipantRefresh).toHaveBeenCalledWith(session);
     expect(broadcasts.filter((msg) => msg.type === "stream_event")).toHaveLength(2);
   });
 
