@@ -217,15 +217,15 @@ function crossThreadActivityMarker({
   };
 }
 
-function turnEndEventKey() {
+function turnEndEventKey(overrides: { interrupted?: boolean } = {}) {
   return [
     "turn_end",
     "worker-2455",
     "stop",
     "24000",
     "",
-    "",
-    "",
+    overrides.interrupted ? "true" : "",
+    overrides.interrupted ? "system" : "",
     "",
     "",
     "",
@@ -246,24 +246,10 @@ function turnEndEventKey() {
   ].join("|");
 }
 
-function boardStalledEventKey() {
-  return [
-    "board_stalled",
-    "worker-2455",
-    "q-1799",
-    "WORKING",
-    "q-1799:work:worker-disconnected",
-    "worker disconnected",
-    "",
-    "worker disconnected",
-    "inspect worker",
-  ].join("|");
-}
-
 function makeHerdEvent(
   id: string,
   content: string,
-  eventKey: string,
+  eventKey: string | null,
   threadRef: { threadKey: string; questId: string; source: "explicit" },
 ): ChatMessage {
   return makeMessage({
@@ -271,7 +257,7 @@ function makeHerdEvent(
     role: "user",
     content,
     agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
-    takodeHerdEventKeys: [eventKey],
+    ...(eventKey ? { takodeHerdEventKeys: [eventKey] } : {}),
     metadata: { threadRefs: [threadRef] },
   });
 }
@@ -616,11 +602,10 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.getAllByRole("button", { name: "Answer" })).toHaveLength(2);
   });
 
-  it("compacts producer-shaped selected-thread herd events around leader prose", () => {
-    // Regression for q-1799 feedback #8/#9: the live selected thread can
-    // interleave routine herd delivery with representative leader prose. Those
-    // herd events should render as worker-event activity rows, not standalone
-    // amber chips.
+  it("compacts producer-shaped selected-thread herd and work-board event chips around leader prose", () => {
+    // Regression for q-1799 feedback #13/#14: collapsed leader turns should
+    // hide chip-style herd/work-board events inside worker activity summaries,
+    // while preserving leader prose and real decision UI as visible rows.
     const sid = "test-q1799-selected-thread-producer-herd-events";
     const threadRef = { threadKey: "q-1799", questId: "q-1799", source: "explicit" as const };
     const transition = transitionMarker({
@@ -640,15 +625,21 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
         metadata: { leaderUserMessage: true, threadRefs: [threadRef] },
       }),
       makeHerdEvent(
-        "herd-turn-before",
-        "1 event from 1 session\n\n#2455 | turn_end | ok 46s",
-        turnEndEventKey(),
+        "herd-interrupted-1",
+        "1 event from 1 session\n\n#2455 | turn_end | interrupted",
+        turnEndEventKey({ interrupted: true }),
         threadRef,
       ),
       makeHerdEvent(
-        "herd-board",
-        "1 event from 1 session\n\n#2455 | board_stalled | worker disconnected",
-        boardStalledEventKey(),
+        "herd-interrupted-2",
+        "1 event from 1 session\n\n#2463 | turn_end | interrupted",
+        turnEndEventKey({ interrupted: true }),
+        threadRef,
+      ),
+      makeHerdEvent(
+        "herd-interrupted-3",
+        "1 event from 1 session\n\n#2455 | turn_end | interrupted",
+        turnEndEventKey({ interrupted: true }),
         threadRef,
       ),
       makeMessage({
@@ -664,9 +655,15 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
         metadata: { leaderUserMessage: true, threadRefs: [threadRef] },
       }),
       makeHerdEvent(
-        "herd-turn-after",
-        "1 event from 1 session\n\n#2455 | turn_end | ok 24s",
-        turnEndEventKey(),
+        "herd-session-error",
+        "1 event from 1 session\n\n#2455 | session_error | provider authentication failed",
+        null,
+        threadRef,
+      ),
+      makeHerdEvent(
+        "herd-board-dispatchable",
+        "1 event from work board\n\nWork Board | board_dispatchable | q-1801 Show message times from rail markers | q-1801 can be dispatched now | next: Archive or reuse a reclaimable completed worker",
+        null,
         threadRef,
       ),
       makeMessage({
@@ -683,11 +680,13 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.getByText("Alignment approved; authorizing focused Work.")).toBeTruthy();
     expect(screen.getByText("The worker resumed after recovery and is finishing closure.")).toBeTruthy();
     expect(screen.getByText("The screenshot-shaped regression is fixed.")).toBeTruthy();
+    expect(screen.getByText("3 worker events")).toBeTruthy();
     expect(screen.getByText("2 worker events")).toBeTruthy();
-    expect(screen.getByText("1 worker event")).toBeTruthy();
     expect(screen.queryByText("#2455")).toBeNull();
     expect(screen.queryByText("turn_end")).toBeNull();
-    expect(screen.queryByText("board_stalled")).toBeNull();
+    expect(screen.queryByText("session_error")).toBeNull();
+    expect(screen.queryByText("board_dispatchable")).toBeNull();
+    expect(screen.queryByText(/1 event from work board/)).toBeNull();
   });
 
   it("renders an asynchronously resolved quest quiz inside a selected thread window", async () => {

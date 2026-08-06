@@ -270,6 +270,20 @@ describe("HerdEventMessage", () => {
     expect(chip.closest("div")!.querySelector("pre")).toBeNull();
   });
 
+  it("renders work-board dispatchable event headers as chips", () => {
+    const msg = makeMessage({
+      role: "user",
+      content:
+        "1 event from work board\n\nWork Board | board_dispatchable | q-1801 Show message times | q-1801 can be dispatched now | next: reuse worker",
+      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+    });
+    render(<HerdEventMessage message={msg} showTimestamp={false} />);
+
+    expect(screen.getByText(/Work Board/)).toBeTruthy();
+    expect(screen.getByText(/board_dispatchable/)).toBeTruthy();
+    expect(screen.queryByText(/1 event from work board/)).toBeNull();
+  });
+
   it("renders multiple events with independent collapse state", () => {
     const msg = makeMessage({
       role: "user",
@@ -392,6 +406,20 @@ describe("parseHerdEvents", () => {
     expect(events[1].header).toMatch(/permission_request/);
     expect(events[0].activity).toHaveLength(1);
     expect(events[1].activity).toHaveLength(0);
+  });
+
+  it("parses work-board event headers", () => {
+    const content = [
+      "1 event from work board",
+      "",
+      "Work Board | board_dispatchable | q-1801 Show message times | q-1801 can be dispatched now",
+    ].join("\n");
+
+    const events = parseHerdEvents(content);
+    expect(events).toHaveLength(1);
+    expect(events[0].header).toBe(
+      "Work Board | board_dispatchable | q-1801 Show message times | q-1801 can be dispatched now",
+    );
   });
 
   it("returns empty array for empty content", () => {

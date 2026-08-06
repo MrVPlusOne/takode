@@ -827,9 +827,9 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.getByText("Worker is still healthy.")).toBeTruthy();
   });
 
-  it("keeps actionable herd events out of routine worker-event compaction", () => {
-    // Interrupted/error worker events require leader recovery judgment, so they
-    // remain individually visible even when routine neighbors compact.
+  it("compacts interrupted herd chips while preserving permission decisions", () => {
+    // Interrupted worker-event chips are compacted into activity, but actual
+    // permission/decision UI remains visible outside the quiet worker summary.
     const sid = "test-actionable-worker-event-boundary";
     mockStoreValues.compactToolActivity = true;
     setStoreMessages(sid, [
@@ -847,8 +847,8 @@ describe("MessageFeed - message rendering", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("1 worker event")).toBeTruthy();
-    expect(screen.getByText(/interrupted/)).toBeTruthy();
+    expect(screen.getByText("2 worker events")).toBeTruthy();
+    expect(screen.queryByText(/interrupted/)).toBeNull();
     expect(screen.getByText(/permission_request/)).toBeTruthy();
     expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
   });

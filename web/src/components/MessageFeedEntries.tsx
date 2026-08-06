@@ -50,7 +50,7 @@ import { parseSubagentResultText, SubagentResult } from "./SubagentResult.js";
 import { isCompactToolActivityItem } from "./CompactToolActivity.js";
 import { ToolMessageGroup } from "./ToolMessageGroup.js";
 import { CompactFeedActivity, type CompactFeedActivitySegment } from "./CompactFeedActivity.js";
-import { isRoutineHerdEventMessage } from "../utils/herd-event-classification.js";
+import { isCompactableHerdEventMessage } from "../utils/herd-event-classification.js";
 
 function useExpandForScrollTarget(
   sessionId: string,
@@ -312,8 +312,8 @@ function isHerdEventEntry(entry: FeedEntry): entry is { kind: "message"; msg: Ch
   return entry.kind === "message" && entry.msg.role === "user" && entry.msg.agentSource?.sessionId === "herd-events";
 }
 
-function isRoutineHerdEventEntry(entry: FeedEntry): entry is { kind: "message"; msg: ChatMessage } {
-  return isHerdEventEntry(entry) && isRoutineHerdEventMessage(entry.msg);
+function isCompactableHerdEventEntry(entry: FeedEntry): entry is { kind: "message"; msg: ChatMessage } {
+  return isHerdEventEntry(entry) && isCompactableHerdEventMessage(entry.msg);
 }
 
 function isThreadSystemMarkerMessage(message: ChatMessage): boolean {
@@ -850,7 +850,7 @@ export const FeedEntries = memo(function FeedEntries({
       if (
         compactToolActivity &&
         ((entry.kind === "tool_msg_group" && entry.items.every(isCompactToolActivityItem)) ||
-          isRoutineHerdEventEntry(entry))
+          isCompactableHerdEventEntry(entry))
       ) {
         const segments: CompactFeedActivitySegment[] = [];
         let j = i + 1;
@@ -874,7 +874,7 @@ export const FeedEntries = memo(function FeedEntries({
             j++;
             continue;
           }
-          if (isRoutineHerdEventEntry(candidate)) {
+          if (isCompactableHerdEventEntry(candidate)) {
             flushToolGroups();
             pendingHerdMessages.push(candidate.msg);
             j++;
@@ -914,10 +914,10 @@ export const FeedEntries = memo(function FeedEntries({
           continue;
         }
       }
-      if (isRoutineHerdEventEntry(entry)) {
+      if (isCompactableHerdEventEntry(entry)) {
         const batch: ChatMessage[] = [entry.msg];
         let j = i + 1;
-        while (j < entries.length && isRoutineHerdEventEntry(entries[j])) {
+        while (j < entries.length && isCompactableHerdEventEntry(entries[j])) {
           batch.push((entries[j] as { kind: "message"; msg: ChatMessage }).msg);
           j++;
         }
@@ -1172,7 +1172,7 @@ function CollapsedTurnRows({
         return (
           <div key={row.key} className="px-2.5 py-2 sm:px-3">
             <HidePawContext.Provider value={true}>
-              {isRoutineHerdEventEntry(row.entry) ? (
+              {isCompactableHerdEventEntry(row.entry) ? (
                 <CompactFeedActivity
                   segments={[{ kind: "worker_event", messages: [row.entry.msg] }]}
                   sessionId={sessionId}

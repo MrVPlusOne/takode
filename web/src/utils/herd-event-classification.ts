@@ -3,10 +3,24 @@ import { parseHerdEvents } from "./herd-event-parser.js";
 
 const ROUTINE_STRUCTURED_EVENT_TYPES = new Set(["turn_end", "worker_stream", "board_stalled"]);
 const ROUTINE_LEGACY_TEXT_EVENT_TYPES = new Set(["turn_end", "worker_stream"]);
+const DECISION_EVENT_TYPES = new Set(["permission_request", "notification_needs_input"]);
 
 function parseHeaderEventType(header: string): string | null {
   const parts = header.split("|").map((part) => part.trim());
   return parts.length >= 2 ? parts[1] || null : null;
+}
+
+function getStructuredEventKeyTypes(keys: string[] | undefined): string[] {
+  return (keys ?? []).map((key) => key.split("|")[0]?.trim()).filter((eventType): eventType is string => !!eventType);
+}
+
+function getHerdEventTypes(message: ChatMessage): string[] {
+  if (message.takodeHerdEvents?.length) return message.takodeHerdEvents.map((event) => event.event);
+  const keyTypes = getStructuredEventKeyTypes(message.takodeHerdEventKeys);
+  if (keyTypes.length > 0) return keyTypes;
+  return parseHerdEvents(message.content)
+    .map((event) => parseHeaderEventType(event.header))
+    .filter((eventType): eventType is string => eventType !== null);
 }
 
 function isRoutineEventKey(key: string): boolean {
@@ -73,6 +87,14 @@ export function isRoutineHerdEventMessage(message: ChatMessage): boolean {
     events.length > 0 &&
     events.every((event) => ROUTINE_LEGACY_TEXT_EVENT_TYPES.has(parseHeaderEventType(event.header) ?? ""))
   );
+}
+
+export function isCompactableHerdEventMessage(message: ChatMessage): boolean {
+  const count = getHerdEventCount(message);
+  if (count === 0) return false;
+  const eventTypes = getHerdEventTypes(message);
+  if (eventTypes.length !== count) return false;
+  return eventTypes.every((eventType) => !DECISION_EVENT_TYPES.has(eventType));
 }
 
 export function makeWorkerEventActivityItems(messages: ChatMessage[]) {

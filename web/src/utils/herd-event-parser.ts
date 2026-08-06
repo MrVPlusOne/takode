@@ -7,9 +7,10 @@
  */
 
 /** Matches a real event header: "#<number> | <event_type> | ..."
+ *  or work-board event headers such as "Work Board | board_dispatchable | ...".
  *  Distinguishes from markdown headings like "## Skeptic Review" which are
  *  key message content that belongs to the preceding event's activity. */
-export const EVENT_HEADER_RE = /^#\d+\s*\|/;
+export const EVENT_HEADER_RE = /^(?:#\d+|Work Board)\s*\|/;
 
 export interface HerdEventParsed {
   header: string;
@@ -26,6 +27,7 @@ export interface HerdEventParsed {
  *    "  [170] asst: Edit: auth.ts\n"         <- activity line
  *    "## Skeptic Review\n### Task\n..."      <- key message content (NOT an event header)
  *    "#6 | permission_request | ...\n"       <- next event header
+ *    "Work Board | board_dispatchable | ...\n" <- work-board event header
  *
  *  The batch header ("N events from N sessions") is safely excluded because
  *  it appears before any #N | ... line, so events.length === 0 at that point. */
