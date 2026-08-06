@@ -52,11 +52,13 @@ export function SessionInfoPopover({
   onClose,
   anchorElement,
   onConfigure,
+  initialSection,
 }: {
   sessionId: string;
   onClose: () => void;
   anchorElement?: HTMLElement | null;
   onConfigure?: (sessionId: string) => void;
+  initialSection?: "codex-goal" | null;
 }) {
   const session = useStore((s) => s.sessions.get(sessionId));
   const sdkSession = useStore((s) => s.sdkSessions.find((x) => x.sessionId === sessionId));
@@ -473,6 +475,7 @@ export function SessionInfoPopover({
               sessionId={sessionId}
               goal={session?.codex_goal ?? null}
               capability={session?.codex_goal_capability}
+              autoFocusObjective={initialSection === "codex-goal"}
             />
           )}
           {cwd && (

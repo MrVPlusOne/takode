@@ -36,8 +36,13 @@ import {
   nextPendingUploadId,
   readFileAsBase64,
 } from "./composer-image-utils.js";
-import { collectPlainTakodeReferences, parseCodexModeSlashCommand } from "./composer-reference-utils.js";
+import {
+  collectPlainTakodeReferences,
+  isCodexGoalSlashCommand,
+  parseCodexModeSlashCommand,
+} from "./composer-reference-utils.js";
 import { useComposerAutocomplete } from "./use-composer-autocomplete.js";
+import { openSessionInfo } from "./session-info-events.js";
 import type { AlternateVoiceRerun, FailedTranscription, VoiceEditProposal } from "./composer-voice-types.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
 import { useComposerSessionView } from "./use-composer-session-view.js";
@@ -985,6 +990,17 @@ export function Composer({
     // Codex local slash shortcuts for mode switching.
     // These must not be sent as normal user turns.
     if (isCodex) {
+      if (isCodexGoalSlashCommand(msg)) {
+        useStore.getState().setSessionInfoOpenSessionId?.(sessionId);
+        openSessionInfo({ sessionId, section: "codex-goal" });
+        store.clearComposerDraft(sessionId);
+        closeAutocompleteMenus();
+        if (textareaRef.current) textareaRef.current.style.height = "auto";
+        if (isTouchDevice()) textareaRef.current?.blur();
+        else textareaRef.current?.focus();
+        return;
+      }
+
       const targetMode = parseCodexModeSlashCommand(msg);
       if (targetMode) {
         const switched = sendToSession(sessionId, {

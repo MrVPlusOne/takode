@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { codexGoalApi } from "../api/codex-goal.js";
 import type { SessionState } from "../types.js";
 
@@ -42,20 +42,33 @@ export function CodexGoalPanel({
   sessionId,
   goal,
   capability,
+  autoFocusObjective = false,
 }: {
   sessionId: string;
   goal: Goal;
   capability: Capability;
+  autoFocusObjective?: boolean;
 }) {
+  const objectiveRef = useRef<HTMLTextAreaElement | null>(null);
   const [draft, setDraft] = useState(goal?.objective ?? "");
   const [budgetDraft, setBudgetDraft] = useState(goal?.tokenBudget ? String(goal.tokenBudget) : "");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const unsupported = capability?.state === "unsupported";
 
   useEffect(() => {
     setDraft(goal?.objective ?? "");
     setBudgetDraft(goal?.tokenBudget ? String(goal.tokenBudget) : "");
   }, [goal?.objective, goal?.tokenBudget]);
+
+  useEffect(() => {
+    if (!autoFocusObjective || unsupported) return;
+    const raf = requestAnimationFrame(() => {
+      objectiveRef.current?.focus();
+      objectiveRef.current?.select();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [autoFocusObjective, unsupported]);
 
   const budgetValue = useMemo(() => {
     if (!budgetDraft.trim()) return null;
@@ -75,7 +88,6 @@ export function CodexGoalPanel({
     }
   }
 
-  const unsupported = capability?.state === "unsupported";
   const controlsDisabled = !!busy || unsupported;
   const canSubmit = draft.trim().length > 0 && !Number.isNaN(budgetValue);
 
@@ -149,6 +161,7 @@ export function CodexGoalPanel({
       )}
 
       <textarea
+        ref={objectiveRef}
         className="h-16 w-full resize-none rounded-md border border-cc-border bg-cc-input px-2 py-1.5 text-xs text-cc-fg outline-none focus:border-cc-primary/60"
         value={draft}
         disabled={unsupported}

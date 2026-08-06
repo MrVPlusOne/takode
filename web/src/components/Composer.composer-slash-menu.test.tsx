@@ -135,6 +135,7 @@ const mockSetPreviousPermissionMode = vi.fn();
 const mockSetSessionPreview = vi.fn();
 const mockSetAskPermission = vi.fn();
 const mockRequestBottomAlignOnNextUserMessage = vi.fn();
+const mockSetSessionInfoOpenSessionId = vi.fn();
 
 // Shared listener set for mock store reactivity
 const mockStoreListeners = new Set<{
@@ -325,6 +326,7 @@ function setupMockStore(
     setPreviousPermissionMode: mockSetPreviousPermissionMode,
     setSessionPreview: mockSetSessionPreview,
     setAskPermission: mockSetAskPermission,
+    setSessionInfoOpenSessionId: mockSetSessionInfoOpenSessionId,
     requestBottomAlignOnNextUserMessage: mockRequestBottomAlignOnNextUserMessage,
     pendingUserUploads: new Map(),
     zoomLevel,
@@ -635,6 +637,47 @@ describe("Composer slash menu", () => {
     expect(screen.getByText("/custom")).toBeTruthy();
     expect(screen.getByText("/compact")).toBeTruthy();
     expect(screen.getByText("/status")).toBeTruthy();
+    expect(screen.getByText("/goal")).toBeTruthy();
+  });
+
+  it("filters Codex local slash commands to /goal for /goa", () => {
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        slash_commands: [],
+        skills: [],
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "/goa" } });
+
+    expect(screen.getByText("/goal")).toBeTruthy();
+    expect(screen.queryByText("/status")).toBeNull();
+  });
+
+  it("opens the existing Codex Goal panel for /goal instead of sending a model turn", () => {
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        model: "gpt-5.6-sol",
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "/goal " } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    expect(mockSetSessionInfoOpenSessionId).toHaveBeenCalledWith("s1");
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "user_message",
+        content: expect.stringMatching(/^\/goal/),
+      }),
+    );
   });
 
   it("keeps built-in slash commands ahead of skills even when the draft mentions a recent skill", () => {

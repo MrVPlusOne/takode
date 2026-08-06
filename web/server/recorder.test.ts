@@ -53,6 +53,19 @@ function createFakeRecording(dir: string, filename: string, entryCount: number, 
   return filePath;
 }
 
+async function waitForFileLines(filePath: string, expectedLines: number): Promise<string[]> {
+  const deadline = Date.now() + 1000;
+  let lastLines: string[] = [];
+
+  while (Date.now() < deadline) {
+    lastLines = readFileSync(filePath, "utf-8").trim().split("\n");
+    if (lastLines.length >= expectedLines) return lastLines;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  return lastLines;
+}
+
 // ─── SessionRecorder ─────────────────────────────────────────────────────────
 
 describe("SessionRecorder", () => {
@@ -79,10 +92,10 @@ describe("SessionRecorder", () => {
     const rec = new SessionRecorder("sess-2", "claude", "/project", tempDir);
     rec.record("in", rawMsg, "cli");
     rec.close();
-    // flush() is async (uses fs.promises.appendFile) — wait for the write to complete
-    await new Promise((r) => setTimeout(r, 50));
+    // flush() is async (uses fs.promises.appendFile); wait for the expected lines
+    // instead of relying on a fixed delay that can flake under full-suite load.
+    const lines = await waitForFileLines(rec.filePath, 2);
 
-    const lines = readFileSync(rec.filePath, "utf-8").trim().split("\n");
     expect(lines.length).toBe(2);
 
     const entry = JSON.parse(lines[1]);
@@ -105,9 +118,8 @@ describe("SessionRecorder", () => {
     rec.record("out", "msg2", "cli");
     rec.record("in", "msg3", "browser");
     rec.close();
-    await new Promise((r) => setTimeout(r, 50));
+    const lines = await waitForFileLines(rec.filePath, 4);
 
-    const lines = readFileSync(rec.filePath, "utf-8").trim().split("\n");
     expect(lines.length).toBe(4);
 
     const entries = lines.slice(1).map((l) => JSON.parse(l));
@@ -121,9 +133,8 @@ describe("SessionRecorder", () => {
     rec.record("in", "hello", "cli");
     rec.record("out", "world", "browser");
     rec.close();
-    await new Promise((r) => setTimeout(r, 50));
+    const lines = await waitForFileLines(rec.filePath, 3);
 
-    const lines = readFileSync(rec.filePath, "utf-8").trim().split("\n");
     const e1 = JSON.parse(lines[1]);
     const e2 = JSON.parse(lines[2]);
 
@@ -137,8 +148,7 @@ describe("SessionRecorder", () => {
     const rec = new SessionRecorder("sess-5", "claude", "/cwd", tempDir);
     rec.record("in", "before-close", "cli");
     rec.close();
-    // Wait for the async flush triggered by close() to complete
-    await new Promise((r) => setTimeout(r, 50));
+    await waitForFileLines(rec.filePath, 2);
     rec.record("in", "after-close", "cli");
 
     const lines = readFileSync(rec.filePath, "utf-8").trim().split("\n");
@@ -343,7 +353,7 @@ describe("RecorderManager", () => {
     mgr.record("sess-2", "in", "msg", "cli", "codex", "/cwd");
     // Flush buffered entries to disk before reading
     mgr.closeAll();
-    await new Promise((r) => setTimeout(r, 50));
+    await Promise.all(readDirSafe(tempDir).map((filename) => waitForFileLines(join(tempDir, filename), 2)));
 
     const recordings = await mgr.listRecordings();
     expect(recordings.length).toBe(2);

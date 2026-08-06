@@ -15,6 +15,11 @@ import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
 import { activeBoardSummarySegments } from "./leader-board-summary.js";
 import { LeaderWorkboardControlButton, SummarySegments } from "./leader-workboard-controls.js";
 import { useQuestCodeCommitShas } from "./QuestCommitDiffView.js";
+import {
+  OPEN_SESSION_INFO_EVENT,
+  type OpenSessionInfoEventDetail,
+  type SessionInfoSection,
+} from "./session-info-events.js";
 import type { BoardRowData } from "./BoardTable.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 
@@ -201,6 +206,7 @@ export function TopBar({
       ? questDiffCommitState.commitShas.length
       : diffChrome.changedFilesCount;
   const [infoOpen, setInfoOpen] = useState(false);
+  const [infoInitialSection, setInfoInitialSection] = useState<SessionInfoSection | null>(null);
   const [configureSessionId, setConfigureSessionId] = useState<string | null>(null);
   const sessionInfoAnchorRef = useRef<HTMLDivElement | null>(null);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
@@ -215,6 +221,17 @@ export function TopBar({
     setSessionInfoOpenSessionId(openSessionId);
     return () => setSessionInfoOpenSessionId(null);
   }, [infoOpen, isSessionView, currentSessionId, setSessionInfoOpenSessionId]);
+
+  useEffect(() => {
+    const handleOpenSessionInfo = (event: Event) => {
+      const detail = (event as CustomEvent<OpenSessionInfoEventDetail>).detail;
+      if (!detail || detail.sessionId !== currentSessionId || !isSessionView) return;
+      setInfoInitialSection(detail.section ?? null);
+      setInfoOpen(true);
+    };
+    window.addEventListener(OPEN_SESSION_INFO_EVENT, handleOpenSessionInfo);
+    return () => window.removeEventListener(OPEN_SESSION_INFO_EVENT, handleOpenSessionInfo);
+  }, [currentSessionId, isSessionView]);
 
   // Load quests on mount and keep the badge count fresh. The quest_list_updated
   // WebSocket broadcast only reaches browsers with an active session WS connection,
@@ -352,7 +369,10 @@ export function TopBar({
         {currentSessionId && (
           <div ref={sessionInfoAnchorRef} className="flex items-center gap-1.5 min-w-0">
             <button
-              onClick={() => setInfoOpen(!infoOpen)}
+              onClick={() => {
+                setInfoInitialSection(null);
+                setInfoOpen(!infoOpen);
+              }}
               className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
             >
               <div className="[&>div]:mt-0 shrink-0">
@@ -471,7 +491,11 @@ export function TopBar({
             {infoOpen && currentSessionId && (
               <SessionInfoPopover
                 sessionId={currentSessionId}
-                onClose={() => setInfoOpen(false)}
+                initialSection={infoInitialSection}
+                onClose={() => {
+                  setInfoInitialSection(null);
+                  setInfoOpen(false);
+                }}
                 anchorElement={sessionInfoAnchorRef.current}
                 onConfigure={(targetSessionId) => {
                   setConfigureSessionId(targetSessionId);

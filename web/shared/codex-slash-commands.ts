@@ -8,4 +8,5 @@ export const CODEX_LOCAL_SLASH_COMMANDS = [
   "custom",
   "compact",
   "status",
+  "goal",
 ] as const;

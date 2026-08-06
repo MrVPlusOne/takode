@@ -31,11 +31,17 @@ vi.mock("./SessionInfoPopover.js", () => ({
   SessionInfoPopover: ({
     anchorElement,
     onConfigure,
+    initialSection,
   }: {
     anchorElement?: HTMLElement | null;
     onConfigure?: (sessionId: string) => void;
+    initialSection?: string | null;
   }) => (
-    <div data-testid="session-info-popover" data-anchor-present={anchorElement ? "true" : "false"}>
+    <div
+      data-testid="session-info-popover"
+      data-anchor-present={anchorElement ? "true" : "false"}
+      data-initial-section={initialSection ?? ""}
+    >
       <button type="button" data-testid="mock-session-info-configure" onClick={() => onConfigure?.("s1")}>
         Configure Session
       </button>
@@ -909,6 +915,20 @@ describe("TopBar", () => {
     await waitFor(() => {
       expect(storeState.setSessionInfoOpenSessionId).toHaveBeenLastCalledWith(null);
     });
+  });
+
+  it("opens session info focused on Codex Goal from the composer slash event", async () => {
+    render(<TopBar />);
+
+    window.dispatchEvent(
+      new CustomEvent("takode:open-session-info", {
+        detail: { sessionId: "s1", section: "codex-goal" },
+      }),
+    );
+
+    const popover = await screen.findByTestId("session-info-popover");
+    expect(popover).toHaveAttribute("data-initial-section", "codex-goal");
+    expect(storeState.setSessionInfoOpenSessionId).toHaveBeenLastCalledWith("s1");
   });
 
   it("removes the duplicate title-bar copy and right-side session info buttons", () => {
