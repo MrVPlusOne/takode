@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
-import { MessageRailTimestampTrigger } from "./MessageRailTimestamp.js";
 
 export function StarIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
   return (
@@ -10,15 +9,7 @@ export function StarIcon({ className = "h-3.5 w-3.5" }: { className?: string }) 
   );
 }
 
-export function StarredMessageRailMarker({
-  side,
-  timestamp,
-  onUnstar,
-}: {
-  side: "assistant" | "user";
-  timestamp: number;
-  onUnstar?: () => void;
-}) {
+export function StarredMessageRailMarker({ side, onUnstar }: { side: "assistant" | "user"; onUnstar?: () => void }) {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const items = useMemo<ContextMenuItem[]>(
     () => [
@@ -37,31 +28,33 @@ export function StarredMessageRailMarker({
 
   if (!onUnstar) {
     return (
-      <MessageRailTimestampTrigger
-        timestamp={timestamp}
+      <span
         className={className}
-        testId={`starred-message-${side}-rail`}
-        ariaLabel="Starred message time"
+        data-testid={`starred-message-${side}-rail`}
+        aria-label="Starred message"
+        title="Starred message"
       >
         <StarIcon className="h-3 w-3" />
-      </MessageRailTimestampTrigger>
+      </span>
     );
   }
 
   return (
     <span className="inline-flex shrink-0">
-      <MessageRailTimestampTrigger
+      <button
+        type="button"
         className={`${className} transition-colors hover:border-amber-300/45 hover:bg-amber-300/16 focus:outline-none focus:ring-2 focus:ring-amber-300/25`}
-        timestamp={timestamp}
-        testId={`starred-message-${side}-rail`}
-        ariaLabel="Starred message time"
-        onPrimaryClick={(event) => {
+        data-testid={`starred-message-${side}-rail`}
+        aria-label="Starred message options"
+        title="Starred message options"
+        onClick={(event) => {
+          event.stopPropagation();
           const rect = event.currentTarget.getBoundingClientRect();
           setMenuPos({ x: rect.left, y: rect.bottom + 4 });
         }}
       >
         <StarIcon className="h-3 w-3" />
-      </MessageRailTimestampTrigger>
+      </button>
       {menuPos && <ContextMenu x={menuPos.x} y={menuPos.y} items={items} onClose={() => setMenuPos(null)} />}
     </span>
   );

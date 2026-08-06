@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useMemo, useState, type MouseEvent, type RefObject } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { ChatMessage, ComposerDraftImage, SdkSessionInfo } from "../types.js";
@@ -7,6 +7,7 @@ import { generateReplyPreview } from "../utils/reply-preview.js";
 import { absoluteUrlForHash, routeSessionRefForId, sessionMessageHash } from "../utils/routing.js";
 import { createComposerDraftImage } from "./composer-image-utils.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
+import { MessageTimestampMenuTrigger } from "./MessageRailTimestamp.js";
 import { useSideChatActionState } from "./SideChatControls.js";
 import { useMessageStarActions } from "./use-message-star-actions.js";
 
@@ -68,7 +69,6 @@ export function UserMessageMenu({
 }) {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [copied, setCopied] = useState(false);
-  const btnRef = useRef<HTMLButtonElement>(null);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const starAction = useMessageStarActions(sessionId, message);
 
@@ -106,14 +106,17 @@ export function UserMessageMenu({
     }
   }, [sessionId, message.id, message.content, message.images]);
 
-  const toggle = useCallback(() => {
-    if (menuPos) {
-      setMenuPos(null);
-    } else {
-      const rect = btnRef.current?.getBoundingClientRect();
-      if (rect) setMenuPos({ x: rect.left, y: rect.bottom + 4 });
-    }
-  }, [menuPos]);
+  const toggle = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      if (menuPos) {
+        setMenuPos(null);
+      } else {
+        const rect = event.currentTarget.getBoundingClientRect();
+        setMenuPos({ x: rect.left, y: rect.bottom + 4 });
+      }
+    },
+    [menuPos],
+  );
 
   const items = useMemo(() => {
     const list: ContextMenuItem[] = [{ label: "Copy message", onClick: handleCopy }];
@@ -136,13 +139,15 @@ export function UserMessageMenu({
 
   return (
     <div className="shrink-0 self-start mt-1">
-      <button
-        ref={btnRef}
+      <MessageTimestampMenuTrigger
+        timestamp={message.timestamp}
+        testId="message-time-user-menu"
+        ariaLabel="Message options"
+        title="Message options"
         onClick={toggle}
         className={`p-1 rounded hover:bg-cc-hover transition-all cursor-pointer ${
           menuPos || copied ? "opacity-100" : "opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100"
         }`}
-        title="Message options"
       >
         {copied ? (
           <svg
@@ -161,7 +166,7 @@ export function UserMessageMenu({
             <circle cx="13" cy="8" r="1.5" />
           </svg>
         )}
-      </button>
+      </MessageTimestampMenuTrigger>
       {menuPos && <ContextMenu x={menuPos.x} y={menuPos.y} items={items} onClose={() => setMenuPos(null)} />}
     </div>
   );
@@ -182,7 +187,6 @@ export function AssistantMessageMenu({
 }) {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const btnRef = useRef<HTMLButtonElement>(null);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const starAction = useMessageStarActions(sessionId, message);
   const sideChatAction = useSideChatActionState({
@@ -233,14 +237,17 @@ export function AssistantMessageMenu({
     store.setReplyContext(sessionId, { messageId: message.id, previewText });
   }, [message, sessionId]);
 
-  const toggle = useCallback(() => {
-    if (menuPos) {
-      setMenuPos(null);
-    } else {
-      const rect = btnRef.current?.getBoundingClientRect();
-      if (rect) setMenuPos({ x: rect.left, y: rect.bottom + 4 });
-    }
-  }, [menuPos]);
+  const toggle = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      if (menuPos) {
+        setMenuPos(null);
+      } else {
+        const rect = event.currentTarget.getBoundingClientRect();
+        setMenuPos({ x: rect.left, y: rect.bottom + 4 });
+      }
+    },
+    [menuPos],
+  );
 
   const items = useMemo<ContextMenuItem[]>(() => {
     const list: ContextMenuItem[] = [];
@@ -299,12 +306,13 @@ export function AssistantMessageMenu({
         data-message-action-menu-placement="first-line"
         data-message-action-menu-row
       >
-        <button
-          ref={btnRef}
+        <MessageTimestampMenuTrigger
+          timestamp={message.timestamp}
+          testId="message-time-assistant-menu"
           onClick={toggle}
           className="inline-flex h-6 w-6 touch-manipulation items-center justify-center rounded-md border border-cc-border bg-cc-card/80 text-cc-muted shadow-sm transition-colors hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/40"
           title="Message options"
-          aria-label="Message options"
+          ariaLabel="Message options"
         >
           {copied ? (
             <svg
@@ -323,7 +331,7 @@ export function AssistantMessageMenu({
               <circle cx="13" cy="8" r="1.5" />
             </svg>
           )}
-        </button>
+        </MessageTimestampMenuTrigger>
       </span>
       {menuPos && <ContextMenu x={menuPos.x} y={menuPos.y} items={items} onClose={() => setMenuPos(null)} />}
     </>

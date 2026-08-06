@@ -823,10 +823,10 @@ export function PlaygroundOverviewSections() {
           <Card label="User message">
             <MessageBubble message={MSG_USER} />
           </Card>
-          <Card label="User message (unavailable rail timestamp)">
+          <Card label="User message (unavailable menu timestamp)">
             <MessageBubble message={MSG_USER_UNAVAILABLE_TIME} />
           </Card>
-          <Card label="Starred user message (side rail)">
+          <Card label="Starred user message (side rail star)">
             <MessageBubble message={MSG_STARRED_USER} sessionId={MOCK_SESSION_ID} />
           </Card>
           <Card label="User message with Markdown (conservative subset)">
@@ -892,7 +892,7 @@ export function PlaygroundOverviewSections() {
           <Card label="Assistant message (markdown)">
             <MessageBubble message={MSG_ASSISTANT} />
           </Card>
-          <Card label="Starred assistant message (rail marker)">
+          <Card label="Starred assistant message (rail star)">
             <MessageBubble message={MSG_STARRED_ASSISTANT} sessionId={MOCK_SESSION_ID} />
           </Card>
           <Card label="Assistant completion quiz">

@@ -32,8 +32,6 @@ vi.mock("remark-gfm", () => ({ default: {} }));
 import { MessageBubble } from "./MessageBubble.js";
 import { formatExactMessageTimestamp } from "./MessageTimestamp.js";
 import { useStore } from "../store.js";
-import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
-import type { BrowserIncomingMessage } from "../types.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -68,7 +66,7 @@ function setStarredMessage(message: ChatMessage, sessionId = "star-session") {
   });
 }
 
-describe("MessageBubble rail timestamp affordances", () => {
+describe("MessageBubble timestamp menu affordances", () => {
   beforeEach(() => {
     unstarMessageMock.mockClear();
     useStore.setState({
@@ -80,92 +78,74 @@ describe("MessageBubble rail timestamp affordances", () => {
     });
   });
 
-  it("shows the exact stored time from the ordinary user rail marker", () => {
-    // Stable user rows get a rail timestamp affordance even when they are not starred.
+  it("shows the exact stored time from the ordinary user message menu trigger", () => {
+    // User rows should use the existing right-side menu trigger, not a new assistant-style rail dot.
     const ts = new Date(2026, 6, 25, 17, 22, 13).getTime();
-    const msg = makeMessage({ id: "user-time-rail", role: "user", content: "With rail timestamp", timestamp: ts });
+    const msg = makeMessage({ id: "user-time-menu", role: "user", content: "With menu timestamp", timestamp: ts });
     render(<MessageBubble message={msg} />);
 
-    fireEvent.mouseEnter(screen.getByTestId("message-time-user-rail"));
+    expect(screen.queryByTestId("message-time-user-rail")).toBeNull();
+    fireEvent.mouseEnter(screen.getByTestId("message-time-user-menu"));
 
     expect(screen.getByRole("tooltip").textContent).toContain(formatExactMessageTimestamp(ts));
   });
 
-  it("shows an unavailable rail timestamp state instead of guessing from an invalid stored time", () => {
-    // Invalid timestamps still expose a truthful affordance rather than deriving a neighboring time.
+  it("shows an unavailable menu timestamp state instead of guessing from an invalid stored time", () => {
+    // Invalid timestamps keep the menu affordance truthful without restoring a rail marker.
     const msg = makeMessage({ id: "user-time-invalid", role: "user", content: "Bad timestamp", timestamp: Number.NaN });
     render(<MessageBubble message={msg} />);
 
     expect(screen.queryByTestId("message-timestamp")).toBeNull();
-    fireEvent.mouseEnter(screen.getByTestId("message-time-user-rail"));
+    fireEvent.mouseEnter(screen.getByTestId("message-time-user-menu"));
 
     expect(screen.getByRole("tooltip").textContent).toContain("Time unavailable");
-  });
-
-  it("does not add a rail timestamp marker to fallback-normalized user rows", () => {
-    // Fallback IDs are not stable enough for rail affordances or star actions.
-    const [msg] = normalizeHistoryMessageToChatMessages(
-      {
-        type: "user_message",
-        content: "Legacy user row without a raw stable id",
-        timestamp: Date.now(),
-      } satisfies BrowserIncomingMessage,
-      12,
-    );
-
-    render(<MessageBubble message={msg} sessionId="star-session" />);
-
     expect(screen.queryByTestId("message-time-user-rail")).toBeNull();
   });
 
-  it("pins timestamp details from a starred user rail marker on coarse-pointer tap without opening the unstar menu", () => {
-    // Mobile/coarse-pointer taps use the same rail marker for timestamp inspection, avoiding accidental unstar menus.
-    const originalMatchMedia = window.matchMedia;
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      writable: true,
-      value: vi.fn().mockImplementation(() => ({
-        matches: true,
-        media: "(hover: none), (pointer: coarse)",
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      })),
-    });
+  it("preserves the user message menu click action while closing the timestamp tooltip", () => {
+    // Hover/focus is timestamp inspection; click still opens the normal message options menu.
+    const ts = new Date(2026, 6, 25, 17, 22, 13).getTime();
+    const msg = makeMessage({ id: "user-time-click", role: "user", content: "Open options", timestamp: ts });
+    render(<MessageBubble message={msg} sessionId="menu-session" />);
+
+    const trigger = screen.getByTestId("message-time-user-menu");
+    fireEvent.mouseEnter(trigger);
+    expect(screen.getByRole("tooltip").textContent).toContain(formatExactMessageTimestamp(ts));
+
+    fireEvent.click(trigger);
+
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(screen.getByText("Copy message")).toBeTruthy();
+  });
+
+  it("keeps starred user rail markers as unstar controls instead of timestamp triggers", () => {
+    // The side rail star remains actionable, but timestamp inspection moves to the message menu.
     const ts = new Date(2026, 6, 25, 17, 22, 13).getTime();
     const msg = makeMessage({
-      id: "user-star-touch",
+      id: "user-star-menu",
       role: "user",
-      content: "Quick time check",
+      content: "Quick unstar",
       timestamp: ts,
       historyIndex: 3,
     });
     setStarredMessage(msg);
+    render(<MessageBubble message={msg} sessionId="star-session" />);
 
-    try {
-      render(<MessageBubble message={msg} sessionId="star-session" />);
+    const rail = screen.getByTestId("starred-message-user-rail");
+    fireEvent.mouseEnter(rail);
+    expect(screen.queryByRole("tooltip")).toBeNull();
 
-      fireEvent.click(screen.getByTestId("starred-message-user-rail"));
+    fireEvent.click(rail);
+    fireEvent.click(screen.getByText("Unstar message"));
 
-      expect(screen.queryByText("Unstar message")).toBeNull();
-      expect(screen.getByRole("tooltip").textContent).toContain(formatExactMessageTimestamp(ts));
-    } finally {
-      Object.defineProperty(window, "matchMedia", {
-        configurable: true,
-        writable: true,
-        value: originalMatchMedia,
-      });
-    }
+    expect(unstarMessageMock).toHaveBeenCalledWith("star-session", "user-star-menu");
   });
 
-  it("shows exact timestamp details from the assistant leading rail marker on hover", () => {
-    // Assistant paw/dot rail markers expose the stored timestamp without changing inline timestamp text.
+  it("shows exact timestamp details from the assistant message menu trigger on focus", () => {
+    // Assistant rows keep their leading paw/star rail visuals, but the menu trigger owns the timestamp popover.
     const ts = new Date(2026, 6, 25, 17, 22, 13).getTime();
     const msg = makeMessage({
-      id: "assistant-time-rail",
+      id: "assistant-time-menu",
       role: "assistant",
       content: "Timed response",
       timestamp: ts,
@@ -173,16 +153,17 @@ describe("MessageBubble rail timestamp affordances", () => {
     });
     render(<MessageBubble message={msg} />);
 
-    fireEvent.mouseEnter(screen.getByTestId("message-time-assistant-rail"));
+    expect(screen.queryByTestId("message-time-assistant-rail")).toBeNull();
+    fireEvent.focus(screen.getByTestId("message-time-assistant-menu"));
 
     expect(screen.getByRole("tooltip").textContent).toContain(formatExactMessageTimestamp(ts));
   });
 
-  it("shows exact timestamp details from a starred assistant rail marker on focus while preserving unstar click behavior", () => {
-    // Keyboard focus reveals time; ordinary activation still opens the existing star action menu on fine pointers.
+  it("keeps starred assistant rail markers as unstar controls while the menu trigger shows time", () => {
+    // Starred assistant rail clicks still open Unstar; timestamp details come from the right-side menu.
     const ts = new Date(2026, 6, 25, 17, 22, 13).getTime();
     const msg = makeMessage({
-      id: "assistant-starred-time-rail",
+      id: "assistant-starred-time-menu",
       role: "assistant",
       content: "Save this answer",
       timestamp: ts,
@@ -193,11 +174,14 @@ describe("MessageBubble rail timestamp affordances", () => {
 
     const rail = screen.getByTestId("starred-message-assistant-rail");
     fireEvent.focus(rail);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    fireEvent.focus(screen.getByTestId("message-time-assistant-menu"));
     expect(screen.getByRole("tooltip").textContent).toContain(formatExactMessageTimestamp(ts));
 
     fireEvent.click(rail);
     fireEvent.click(screen.getByText("Unstar message"));
 
-    expect(unstarMessageMock).toHaveBeenCalledWith("star-session", "assistant-starred-time-rail");
+    expect(unstarMessageMock).toHaveBeenCalledWith("star-session", "assistant-starred-time-menu");
   });
 });
