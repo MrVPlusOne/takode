@@ -570,7 +570,7 @@ function entryIsCollapsedVisible(
     ((entry.msg.role === "assistant" &&
       (entry.msg.notification != null ||
         anchoredNotificationMessageIds?.has(entry.msg.id) === true ||
-        (leaderMode && entry.msg.metadata?.leaderUserMessage === true))) ||
+        (leaderMode && (entry.msg.metadata?.leaderUserMessage === true || isThreadStatusSummaryMessage(entry.msg))))) ||
       shouldShowAttentionRecordInCollapsedTurn(entry.msg.metadata?.attentionRecord))
   );
 }
@@ -652,11 +652,19 @@ function isModelOnlyReminderSource(sourceId: string | undefined): boolean {
   return sourceId != null && MODEL_ONLY_REMINDER_SOURCE_IDS.has(sourceId);
 }
 
-function isPlainLeaderUserMessageEntry(entry: FeedEntry): boolean {
+function isThreadStatusSummaryMessage(msg: ChatMessage): boolean {
+  return (
+    msg.role === "assistant" &&
+    (msg.metadata?.threadStatusMarkers?.length ?? 0) > 0 &&
+    messageText(msg).trim().length > 0
+  );
+}
+
+function isPlainLeaderCollapsedSummaryEntry(entry: FeedEntry): boolean {
   return (
     entry.kind === "message" &&
     entry.msg.role === "assistant" &&
-    entry.msg.metadata?.leaderUserMessage === true &&
+    (entry.msg.metadata?.leaderUserMessage === true || isThreadStatusSummaryMessage(entry.msg)) &&
     !entry.msg.notification &&
     !entry.msg.metadata?.attentionRecord
   );
@@ -681,7 +689,7 @@ function filterCollapsedVisibleEntriesForModelOnlyReminderSegments(
     const key = getEntryId(entry);
     if (!visibleEntryKeys.has(key)) continue;
 
-    if (modelOnlyReminderSegment && isPlainLeaderUserMessageEntry(entry)) continue;
+    if (modelOnlyReminderSegment && isPlainLeaderCollapsedSummaryEntry(entry)) continue;
 
     retainedVisibleEntryKeys.add(key);
     if (entryHasNeedsInputSignal(entry)) modelOnlyReminderSegment = false;

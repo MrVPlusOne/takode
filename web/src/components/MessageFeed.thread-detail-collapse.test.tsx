@@ -28,6 +28,10 @@ beforeAll(() => {
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ChatMessage, SessionAttentionRecord, ThreadTransitionMarker } from "../types.js";
+import {
+  THREAD_ROUTING_REMINDER_SOURCE_ID,
+  THREAD_ROUTING_REMINDER_SOURCE_LABEL,
+} from "../../shared/thread-routing-reminder.js";
 
 vi.mock("react-markdown", () => ({
   default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
@@ -260,6 +264,19 @@ function makeHerdEvent(
     ...(eventKey ? { takodeHerdEventKeys: [eventKey] } : {}),
     metadata: { threadRefs: [threadRef] },
   });
+}
+
+function makeThreadReadyStatus(messageId: string, timestamp: number) {
+  return {
+    kind: "ready" as const,
+    label: "Thread Ready" as const,
+    threadKey: "q-1814",
+    questId: "q-1814",
+    summary: "revised Slack draft ready",
+    messageId,
+    timestamp,
+    updatedAt: timestamp,
+  };
 }
 
 function setStoreMessages(sessionId: string, msgs: ChatMessage[]) {
@@ -687,6 +704,84 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.queryByText("session_error")).toBeNull();
     expect(screen.queryByText("board_dispatchable")).toBeNull();
     expect(screen.queryByText(/1 event from work board/)).toBeNull();
+  });
+
+  it("keeps final status-bearing leader prose visible before a routing-reminder resend", () => {
+    // Live q-1814 regression: the Thread Ready chip was visible but the final
+    // Slack-draft prose was hidden inside the compact activity group. The
+    // representative message should be the original user-triggered completion
+    // prose, not the reminder-triggered duplicate.
+    const sid = "test-leader-status-prose-before-routing-reminder";
+    const threadRef = { threadKey: "q-1814", questId: "q-1814", source: "explicit" as const };
+    const readyStatus = makeThreadReadyStatus("a-final-draft", 5);
+    mockStoreValues.sessions = new Map([
+      [sid, { isOrchestrator: true, leaderThreadStatuses: { "q-1814": readyStatus } }],
+    ]);
+    mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "u1",
+        role: "user",
+        content: "Please make the wording more natural and give me both metric tables.",
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeHerdEvent("h-complete", "#2444 | turn_end | ok | q-1814: in_progress -> done", turnEndEventKey(), threadRef),
+      makeMessage({
+        id: "a-pulling-draft",
+        role: "assistant",
+        content: "The revised draft and both metric tables are ready. I’m pulling the exact text for review.",
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-tool",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "quest-feedback", name: "Bash", input: { command: "quest feedback show q-1814 5" } },
+        ],
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-final-draft",
+        role: "assistant",
+        content:
+          "Yes. The percentage table is `normalized_score >= 0.5`.\n\n**Recommendation:** use the failure-inclusive average-score table in the main post.\n\n### Message 1\n~~~text\nQuick update on our conversation-seeded synthetic coding-QA pipeline.\n~~~",
+        metadata: { threadRefs: [threadRef], threadStatusMarkers: [readyStatus] },
+      }),
+      makeMessage({
+        id: "u-routing-reminder",
+        role: "user",
+        content: "[Thread routing reminder] Missing thread marker on visible leader text.",
+        agentSource: {
+          sessionId: THREAD_ROUTING_REMINDER_SOURCE_ID,
+          sessionLabel: THREAD_ROUTING_REMINDER_SOURCE_LABEL,
+        },
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-reminder-resend",
+        role: "assistant",
+        content:
+          "The percentage table is `normalized_score >= 0.5`.\n\n**Recommendation:** use failure-inclusive average score in the main post.",
+        metadata: {
+          threadRefs: [threadRef],
+          threadStatusMarkers: [makeThreadReadyStatus("a-reminder-resend", 7)],
+        },
+      }),
+      makeMessage({
+        id: "u2",
+        role: "user",
+        content: "Please point me to the chaiflow artifacts.",
+        metadata: { threadRefs: [threadRef] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1814" />);
+
+    expect(screen.getByText(/use the failure-inclusive average-score table/)).toBeTruthy();
+    expect(screen.getAllByText("Leader activity").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Thread Ready for thread:q-1814: revised Slack draft ready")).toBeTruthy();
+    expect(screen.queryByText(/use failure-inclusive average score in the main post/)).toBeNull();
   });
 
   it("renders an asynchronously resolved quest quiz inside a selected thread window", async () => {

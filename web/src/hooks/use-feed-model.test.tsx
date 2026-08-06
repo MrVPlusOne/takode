@@ -75,6 +75,19 @@ function makeVisibleLeaderMessage(id: string, content: string, timestamp: number
   });
 }
 
+function makeThreadReadyStatus(messageId: string, timestamp: number) {
+  return {
+    kind: "ready" as const,
+    label: "Thread Ready" as const,
+    threadKey: "q-1814",
+    questId: "q-1814",
+    summary: "revised Slack draft ready",
+    messageId,
+    timestamp,
+    updatedAt: timestamp,
+  };
+}
+
 function makeAssistantMessage(id: string, content: string, timestamp: number): ChatMessage {
   return makeMessage({
     id,
@@ -667,6 +680,69 @@ describe("leader mode model-only reminder collapsed preview selection", () => {
     expect(model.turns).toHaveLength(2);
     expect(collapsedEntryIds(model.turns[0])).toEqual(["a-first"]);
     expect(collapsedEntryIds(model.turns[1])).toEqual(["a-second"]);
+  });
+
+  it("keeps the final substantive status-bearing leader prose visible before a reminder resend", () => {
+    // Regression for the live q-1814 shape: a normal completion turn ended
+    // with substantial leader prose plus a Thread Ready marker, then a routing
+    // reminder triggered a duplicate resend. The original final prose must stay
+    // visible, while the reminder-triggered duplicate remains activity.
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "revise the Slack draft", timestamp: 1 }),
+      makeHerdEvent("h-complete", "#2444 | turn_end | ok | q-1814: in_progress -> done", 2),
+      makeMessage({
+        id: "a-pulling-draft",
+        role: "assistant",
+        content: "The revised draft and both metric tables are ready. I’m pulling the exact text for review.",
+        timestamp: 3,
+      }),
+      makeMessage({
+        id: "a-tool",
+        role: "assistant",
+        content: "",
+        timestamp: 4,
+        contentBlocks: [
+          { type: "tool_use", id: "quest-feedback", name: "Bash", input: { command: "quest feedback show q-1814 5" } },
+        ],
+      }),
+      makeMessage({
+        id: "a-final-draft",
+        role: "assistant",
+        content:
+          "Yes. The percentage table is `normalized_score >= 0.5`.\n\n**Recommendation:** use the failure-inclusive average-score table in the main post.\n\n### Message 1\n~~~text\nQuick update on our conversation-seeded synthetic coding-QA pipeline.\n~~~",
+        timestamp: 5,
+        metadata: {
+          threadRefs: [{ threadKey: "q-1814", questId: "q-1814", source: "explicit" }],
+          threadStatusMarkers: [makeThreadReadyStatus("a-final-draft", 5)],
+        },
+      }),
+      makeInjectedUserMessage(
+        "u-routing-reminder",
+        "[Thread routing reminder] Missing thread marker on visible leader text.",
+        6,
+        THREAD_ROUTING_REMINDER_SOURCE_ID,
+        THREAD_ROUTING_REMINDER_SOURCE_LABEL,
+      ),
+      makeMessage({
+        id: "a-reminder-resend",
+        role: "assistant",
+        content:
+          "The percentage table is `normalized_score >= 0.5`.\n\n**Recommendation:** use failure-inclusive average score in the main post.",
+        timestamp: 7,
+        metadata: {
+          threadRefs: [{ threadKey: "q-1814", questId: "q-1814", source: "explicit" }],
+          threadStatusMarkers: [makeThreadReadyStatus("a-reminder-resend", 7)],
+        },
+      }),
+      makeMessage({ id: "u2", role: "user", content: "Point me to the artifacts", timestamp: 8 }),
+    ];
+
+    const model = buildFeedModel(messages, true);
+
+    expect(model.turns).toHaveLength(2);
+    expect(collapsedEntryIds(model.turns[0])).toEqual(["activity", "a-final-draft", "activity"]);
+    expect(entryIds(model.turns[0].notificationEntries)).toEqual(["a-final-draft"]);
+    expect(entryIds(model.turns[0].agentEntries)).toContain("a-reminder-resend");
   });
 
   it("keeps notification-backed checkpoints visible after model-only reminders", () => {
