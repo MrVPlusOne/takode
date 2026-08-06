@@ -400,7 +400,10 @@ function makeHerdEvent(
               sessionId: `worker-${options.sessionNum ?? 2444}`,
               sessionNum: options.sessionNum ?? 2444,
               ts: Date.now(),
-              routine: options.eventType === "turn_end" || options.eventType === "worker_stream",
+              routine:
+                options.eventType === "turn_end" ||
+                options.eventType === "worker_stream" ||
+                options.eventType === "board_stalled",
             },
           ],
         }

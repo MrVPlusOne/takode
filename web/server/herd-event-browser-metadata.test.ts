@@ -23,6 +23,23 @@ function batch(events: TakodeEvent[]): TakodeHerdBatchSnapshot {
   return { events, renderedLines: events.map((event) => `#${event.sessionNum} | ${event.event}`) };
 }
 
+function boardStalledEvent(): TakodeEvent {
+  return {
+    id: 2,
+    event: "board_stalled",
+    sessionId: "worker-1",
+    sessionNum: 2444,
+    sessionName: "Worker",
+    ts: 2,
+    data: {
+      questId: "q-1799",
+      stage: "WORKING",
+      stalledForMs: 240_000,
+      reason: "worker disconnected",
+    },
+  };
+}
+
 describe("getTakodeHerdEventBrowserMetadata", () => {
   it("marks normal worker turn_end events as routine", () => {
     expect(getTakodeHerdEventBrowserMetadata(batch([turnEndEvent()]))).toEqual([
@@ -36,5 +53,11 @@ describe("getTakodeHerdEventBrowserMetadata", () => {
     );
 
     expect(metadata?.map((event) => event.routine)).toEqual([false, false]);
+  });
+
+  it("marks board stalled events as routine browser activity", () => {
+    expect(getTakodeHerdEventBrowserMetadata(batch([boardStalledEvent()]))).toEqual([
+      { event: "board_stalled", sessionId: "worker-1", sessionNum: 2444, ts: 2, routine: true },
+    ]);
   });
 });

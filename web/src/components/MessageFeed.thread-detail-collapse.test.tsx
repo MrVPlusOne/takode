@@ -217,6 +217,65 @@ function crossThreadActivityMarker({
   };
 }
 
+function turnEndEventKey() {
+  return [
+    "turn_end",
+    "worker-2455",
+    "stop",
+    "24000",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "q-1799",
+    "q-1799",
+    "Bash:2",
+    "Work finished.",
+    "100",
+    "120",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "leader",
+  ].join("|");
+}
+
+function boardStalledEventKey() {
+  return [
+    "board_stalled",
+    "worker-2455",
+    "q-1799",
+    "WORKING",
+    "q-1799:work:worker-disconnected",
+    "worker disconnected",
+    "",
+    "worker disconnected",
+    "inspect worker",
+  ].join("|");
+}
+
+function makeHerdEvent(
+  id: string,
+  content: string,
+  eventKey: string,
+  threadRef: { threadKey: string; questId: string; source: "explicit" },
+): ChatMessage {
+  return makeMessage({
+    id,
+    role: "user",
+    content,
+    agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+    takodeHerdEventKeys: [eventKey],
+    metadata: { threadRefs: [threadRef] },
+  });
+}
+
 function setStoreMessages(sessionId: string, msgs: ChatMessage[]) {
   const map = new Map();
   map.set(sessionId, msgs);
@@ -555,6 +614,80 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.getByText("approve q-1268 latency instrumentation rework plan")).toBeTruthy();
     expect(screen.getByText("approve q-1210 thread-title voice context rework plan")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Answer" })).toHaveLength(2);
+  });
+
+  it("compacts producer-shaped selected-thread herd events around leader prose", () => {
+    // Regression for q-1799 feedback #8/#9: the live selected thread can
+    // interleave routine herd delivery with representative leader prose. Those
+    // herd events should render as worker-event activity rows, not standalone
+    // amber chips.
+    const sid = "test-q1799-selected-thread-producer-herd-events";
+    const threadRef = { threadKey: "q-1799", questId: "q-1799", source: "explicit" as const };
+    const transition = transitionMarker({
+      id: "transition-q1799-q1802",
+      sourceThreadKey: "q-1799",
+      threadKey: "q-1802",
+      questId: "q-1802",
+    });
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Resume q-1799", metadata: { threadRefs: [threadRef] } }),
+      makeMessage({
+        id: "a-align",
+        role: "assistant",
+        content: "Alignment approved; authorizing focused Work.",
+        metadata: { leaderUserMessage: true, threadRefs: [threadRef] },
+      }),
+      makeHerdEvent(
+        "herd-turn-before",
+        "1 event from 1 session\n\n#2455 | turn_end | ok 46s",
+        turnEndEventKey(),
+        threadRef,
+      ),
+      makeHerdEvent(
+        "herd-board",
+        "1 event from 1 session\n\n#2455 | board_stalled | worker disconnected",
+        boardStalledEventKey(),
+        threadRef,
+      ),
+      makeMessage({
+        id: transition.id,
+        role: "system",
+        content: "Work continued from thread:q-1799 to thread:q-1802",
+        metadata: { threadRefs: [threadRef], threadTransitionMarker: transition },
+      }),
+      makeMessage({
+        id: "a-recovery",
+        role: "assistant",
+        content: "The worker resumed after recovery and is finishing closure.",
+        metadata: { leaderUserMessage: true, threadRefs: [threadRef] },
+      }),
+      makeHerdEvent(
+        "herd-turn-after",
+        "1 event from 1 session\n\n#2455 | turn_end | ok 24s",
+        turnEndEventKey(),
+        threadRef,
+      ),
+      makeMessage({
+        id: "a-done",
+        role: "assistant",
+        content: "The screenshot-shaped regression is fixed.",
+        metadata: { leaderUserMessage: true, threadRefs: [threadRef] },
+      }),
+      makeMessage({ id: "u2", role: "user", content: "Move to another task", metadata: { threadRefs: [threadRef] } }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1799" />);
+
+    expect(screen.getByText("Alignment approved; authorizing focused Work.")).toBeTruthy();
+    expect(screen.getByText("The worker resumed after recovery and is finishing closure.")).toBeTruthy();
+    expect(screen.getByText("The screenshot-shaped regression is fixed.")).toBeTruthy();
+    expect(screen.getByText("2 worker events")).toBeTruthy();
+    expect(screen.getByText("1 worker event")).toBeTruthy();
+    expect(screen.queryByText("#2455")).toBeNull();
+    expect(screen.queryByText("turn_end")).toBeNull();
+    expect(screen.queryByText("board_stalled")).toBeNull();
   });
 
   it("renders an asynchronously resolved quest quiz inside a selected thread window", async () => {

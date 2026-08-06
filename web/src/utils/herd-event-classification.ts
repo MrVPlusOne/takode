@@ -1,7 +1,8 @@
 import type { ChatMessage } from "../types.js";
 import { parseHerdEvents } from "./herd-event-parser.js";
 
-const ROUTINE_EVENT_TYPES = new Set(["turn_end", "worker_stream"]);
+const ROUTINE_STRUCTURED_EVENT_TYPES = new Set(["turn_end", "worker_stream", "board_stalled"]);
+const ROUTINE_LEGACY_TEXT_EVENT_TYPES = new Set(["turn_end", "worker_stream"]);
 
 function parseHeaderEventType(header: string): string | null {
   const parts = header.split("|").map((part) => part.trim());
@@ -36,6 +37,9 @@ function isRoutineEventKey(key: string): boolean {
     const turnSource = parts[14] ?? "";
     return (!Number.isFinite(userMessageCount) || userMessageCount === 0) && turnSource !== "user";
   }
+  if (eventType === "board_stalled") {
+    return true;
+  }
   return false;
 }
 
@@ -58,13 +62,16 @@ export function isRoutineHerdEventMessage(message: ChatMessage): boolean {
   if (message.takodeHerdEvents?.length) {
     return (
       message.takodeHerdEvents.length === count &&
-      message.takodeHerdEvents.every((event) => event.routine === true && ROUTINE_EVENT_TYPES.has(event.event))
+      message.takodeHerdEvents.every(
+        (event) => event.routine === true && ROUTINE_STRUCTURED_EVENT_TYPES.has(event.event),
+      )
     );
   }
   if (hasStructuredEventMetadata(message)) return false;
   const events = parseHerdEvents(message.content);
   return (
-    events.length > 0 && events.every((event) => ROUTINE_EVENT_TYPES.has(parseHeaderEventType(event.header) ?? ""))
+    events.length > 0 &&
+    events.every((event) => ROUTINE_LEGACY_TEXT_EVENT_TYPES.has(parseHeaderEventType(event.header) ?? ""))
   );
 }
 

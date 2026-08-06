@@ -16,6 +16,9 @@ function isRoutineBrowserHerdEvent(event: TakodeEvent): boolean {
   if (event.event === "worker_stream") {
     return !event.data.userMsgs?.count && event.data.turn_source !== "user";
   }
+  if (event.event === "board_stalled") {
+    return true;
+  }
   return false;
 }
 
