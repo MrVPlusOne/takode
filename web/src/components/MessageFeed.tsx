@@ -297,6 +297,7 @@ export function MessageFeed({
   } | null>(null);
   const pendingSectionLoadKeyRef = useRef<string | null>(null);
   const pendingTargetWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
+  const pendingViewportAnchorWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
 
   useLayoutEffect(() => {
     markHistoryReceiveRenderCommitted(sessionId);
@@ -822,6 +823,36 @@ export function MessageFeed({
     [restoreFeedAnchor, restoreTurnAnchor],
   );
 
+  const requestViewportAnchorWindowIfMissing = useCallback(
+    (pos: FeedViewportPosition, restoreKey: string) => {
+      if (!selectedFeedWindowEnabled || !activeThreadWindow) return false;
+      const targetMessageId = pos.anchorMessageId ?? pos.anchorTurnId;
+      if (!targetMessageId) return false;
+
+      const requestKey = `${normalizedThreadKey}:${restoreKey}:${targetMessageId}`;
+      const action = getMissingScrollTargetWindowAction({
+        pending: pendingViewportAnchorWindowRequestRef.current,
+        requestKey,
+        revision: selectedThreadWindowRevision,
+      });
+      if (action.kind === "request") {
+        if (!requestThreadWindow(-1, undefined, targetMessageId)) return false;
+        pendingViewportAnchorWindowRequestRef.current = action.pending;
+        return true;
+      }
+      if (action.kind === "wait") return true;
+      pendingViewportAnchorWindowRequestRef.current = null;
+      return false;
+    },
+    [
+      activeThreadWindow,
+      normalizedThreadKey,
+      requestThreadWindow,
+      selectedFeedWindowEnabled,
+      selectedThreadWindowRevision,
+    ],
+  );
+
   const snapshotViewportAnchor = useCallback(
     (container: HTMLDivElement) => {
       lastViewportAnchorRef.current = {
@@ -1292,9 +1323,12 @@ export function MessageFeed({
     if (pos && !pos.isAtBottom && (pos.anchorMessageId || pos.anchorTurnId)) {
       if (selectedFeedWindowEnabled && !activeThreadWindow) return;
       if (restoreSavedViewportAnchor(pos)) {
+        pendingViewportAnchorWindowRequestRef.current = null;
         autoFollowEnabledRef.current = false;
         isNearBottom.current = false;
         setShowScrollButton(true);
+      } else if (requestViewportAnchorWindowIfMissing(pos, restoreKey)) {
+        return;
       } else if (restoreSavedScrollPosition(pos)) {
         autoFollowEnabledRef.current = false;
         isNearBottom.current = false;
@@ -1330,10 +1364,12 @@ export function MessageFeed({
     normalizedThreadKey,
     restoreSavedScrollPosition,
     restoreSavedViewportAnchor,
+    requestViewportAnchorWindowIfMissing,
     savedViewportRestoreKey,
     scrollToBottom,
     sectionWindowStart,
     selectedFeedWindowEnabled,
+    selectedThreadWindowRevision,
     sessionId,
     showConversationLoading,
     viewportKey,

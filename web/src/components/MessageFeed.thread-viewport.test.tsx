@@ -89,6 +89,8 @@ vi.mock("../store.js", () => {
       sessionSearch: new Map(),
       threadWindows: mockStoreValues.threadWindows ?? new Map(),
       threadWindowMessages: mockStoreValues.threadWindowMessages ?? new Map(),
+      threadWindowRefreshRevisions: mockStoreValues.threadWindowRefreshRevisions ?? new Map(),
+      threadWindowAppliedRevisions: mockStoreValues.threadWindowAppliedRevisions ?? new Map(),
     };
     return selector(state);
   };
@@ -175,6 +177,8 @@ beforeEach(() => {
   mockStoreValues.sdkSessions = [];
   mockStoreValues.threadWindows = new Map();
   mockStoreValues.threadWindowMessages = new Map();
+  mockStoreValues.threadWindowRefreshRevisions = new Map();
+  mockStoreValues.threadWindowAppliedRevisions = new Map();
 });
 
 describe("MessageFeed thread viewport restoration", () => {
@@ -890,6 +894,143 @@ describe("MessageFeed thread viewport restoration", () => {
         expect(replacementContainer.scrollTop).toBe(1570);
       });
       expect(screen.getByText("Saved anchor request")).toBeTruthy();
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
+      else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;
+      if (originalScrollTop) Object.defineProperty(HTMLDivElement.prototype, "scrollTop", originalScrollTop);
+      else delete (HTMLDivElement.prototype as { scrollTop?: unknown }).scrollTop;
+      if (originalClientHeight) Object.defineProperty(HTMLDivElement.prototype, "clientHeight", originalClientHeight);
+      else delete (HTMLDivElement.prototype as { clientHeight?: unknown }).clientHeight;
+    }
+  });
+
+  it("requests the saved Main anchor window before falling back to proportional scroll", async () => {
+    // Reopened q-1794 regression: a live leader Main Thread can reopen with a
+    // valid saved anchor outside the currently hydrated thread window. Restore
+    // must request the anchor-centered window instead of consuming the saved
+    // state against older visible content and landing far above the target.
+    const sid = "test-main-anchor-window-before-fallback";
+    const olderWindowMessages = [
+      makeMessage({ id: "u-q1812", role: "user", content: "q-1812 request", historyIndex: 80 }),
+      makeMessage({ id: "a-q1812-error", role: "assistant", content: "Recovery error region", historyIndex: 81 }),
+    ];
+    const targetWindowMessages = [
+      makeMessage({ id: "u-q1813", role: "user", content: "q-1813 request", historyIndex: 120 }),
+      makeMessage({ id: "a-q1813-answer", role: "assistant", content: "Completed q-1813 answer", historyIndex: 121 }),
+    ];
+    setStoreMessages(sid, []);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.threadWindows = new Map([
+      [
+        sid,
+        new Map([
+          [
+            "main",
+            makeThreadWindow({
+              thread_key: "main",
+              from_item: 80,
+              item_count: 12,
+              total_items: 140,
+              has_older_items: true,
+              has_newer_items: true,
+              source_history_length: 140,
+            }),
+          ],
+        ]),
+      ],
+    ]);
+    mockStoreValues.threadWindowMessages = new Map([[sid, new Map([["main", olderWindowMessages]])]]);
+    mockStoreValues.threadWindowAppliedRevisions = new Map([[sid, new Map([["main", 1]])]]);
+    persistLeaderViewportPosition(sid, "main", {
+      scrollTop: 2400,
+      scrollHeight: 6400,
+      isAtBottom: false,
+      anchorMessageId: "a-q1813-answer",
+      anchorTurnId: "u-q1813",
+      anchorOffsetTop: 96,
+    });
+
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollHeight");
+    const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollTop");
+    const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "clientHeight");
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    let scrollTopValue = 0;
+    Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 6400 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "clientHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 846 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "scrollTop", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? scrollTopValue : 0;
+      },
+      set(value) {
+        scrollTopValue = value as number;
+      },
+    });
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this instanceof HTMLElement && this.dataset.messageId === "a-q1813-answer") {
+        return DOMRect.fromRect({ x: 0, y: 1520, width: 600, height: 180 });
+      }
+      if (this instanceof HTMLElement && this.dataset.turnId === "u-q1813") {
+        return DOMRect.fromRect({ x: 0, y: 1320, width: 600, height: 420 });
+      }
+      if (this instanceof HTMLDivElement && this.classList.contains("overflow-y-auto")) {
+        return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 846 });
+      }
+      return originalRect.call(this);
+    };
+
+    try {
+      const { rerender } = render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+      await waitFor(() =>
+        expect(mockSendToSession).toHaveBeenCalledWith(
+          sid,
+          expect.objectContaining({
+            type: "thread_window_request",
+            thread_key: "main",
+            target_message_id: "a-q1813-answer",
+          }),
+        ),
+      );
+      expect(scrollTopValue).toBe(0);
+      expect(screen.getByText("Recovery error region")).toBeTruthy();
+
+      mockStoreValues.threadWindows = new Map([
+        [
+          sid,
+          new Map([
+            [
+              "main",
+              makeThreadWindow({
+                thread_key: "main",
+                from_item: 116,
+                item_count: 12,
+                total_items: 140,
+                has_older_items: true,
+                has_newer_items: true,
+                source_history_length: 140,
+              }),
+            ],
+          ]),
+        ],
+      ]);
+      mockStoreValues.threadWindowMessages = new Map([[sid, new Map([["main", targetWindowMessages]])]]);
+      mockStoreValues.threadWindowAppliedRevisions = new Map([[sid, new Map([["main", 2]])]]);
+      rerender(<MessageFeed sessionId={sid} threadKey="main" />);
+
+      await waitFor(() => expect(scrollTopValue).toBe(1424));
+      expect(screen.getByText("Completed q-1813 answer")).toBeTruthy();
     } finally {
       HTMLElement.prototype.getBoundingClientRect = originalRect;
       if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
