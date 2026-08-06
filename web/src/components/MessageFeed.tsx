@@ -633,6 +633,7 @@ export function MessageFeed({
     leaderProjectionSourceHistoryLength: leaderProjection?.sourceHistoryLength ?? 0,
   });
   const { turnStates, toggleTurn } = useCollapsePolicy({
+    autoCollapseReadyThreadKey: collapseLeaderThreadActivity ? normalizedThreadKey : null,
     sessionId,
     turns: visibleTurns,
   });

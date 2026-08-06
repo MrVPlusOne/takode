@@ -266,13 +266,24 @@ function makeHerdEvent(
   });
 }
 
-function makeThreadReadyStatus(messageId: string, timestamp: number) {
+function makeThreadStatus(
+  messageId: string,
+  timestamp: number,
+  overrides: {
+    kind?: "ready" | "waiting";
+    label?: "Thread Ready" | "Thread Waiting";
+    questId?: string;
+    summary?: string;
+    threadKey?: string;
+  } = {},
+) {
+  const kind = overrides.kind ?? "ready";
   return {
-    kind: "ready" as const,
-    label: "Thread Ready" as const,
-    threadKey: "q-1814",
-    questId: "q-1814",
-    summary: "revised Slack draft ready",
+    kind,
+    label: overrides.label ?? (kind === "ready" ? "Thread Ready" : "Thread Waiting"),
+    threadKey: overrides.threadKey ?? "q-1814",
+    questId: overrides.questId ?? overrides.threadKey ?? "q-1814",
+    summary: overrides.summary ?? "revised Slack draft ready",
     messageId,
     timestamp,
     updatedAt: timestamp,
@@ -713,7 +724,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     // prose, not the reminder-triggered duplicate.
     const sid = "test-leader-status-prose-before-routing-reminder";
     const threadRef = { threadKey: "q-1814", questId: "q-1814", source: "explicit" as const };
-    const readyStatus = makeThreadReadyStatus("a-final-draft", 5);
+    const readyStatus = makeThreadStatus("a-final-draft", 5);
     mockStoreValues.sessions = new Map([
       [sid, { isOrchestrator: true, leaderThreadStatuses: { "q-1814": readyStatus } }],
     ]);
@@ -765,7 +776,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
           "The percentage table is `normalized_score >= 0.5`.\n\n**Recommendation:** use failure-inclusive average score in the main post.",
         metadata: {
           threadRefs: [threadRef],
-          threadStatusMarkers: [makeThreadReadyStatus("a-reminder-resend", 7)],
+          threadStatusMarkers: [makeThreadStatus("a-reminder-resend", 7)],
         },
       }),
       makeMessage({
@@ -782,6 +793,109 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.getAllByText("Leader activity").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Thread Ready for thread:q-1814: revised Slack draft ready")).toBeTruthy();
     expect(screen.queryByText(/use failure-inclusive average score in the main post/)).toBeNull();
+  });
+
+  it("auto-collapses the latest selected leader turn when its thread becomes Ready", () => {
+    // Regression coverage for q-1816: a Ready final turn has no following user
+    // boundary yet, but should still use the collapsed representative preview.
+    const sid = "test-leader-ready-final-turn-auto-collapse";
+    const threadRef = { threadKey: "q-1636", questId: "q-1636", source: "explicit" as const };
+    const readyStatus = makeThreadStatus("a-final", 5, {
+      questId: "q-1636",
+      summary: "Copilot feedback and CI resolved",
+      threadKey: "q-1636",
+    });
+    mockStoreValues.sessions = new Map([
+      [sid, { isOrchestrator: true, leaderThreadStatuses: { "q-1636": readyStatus } }],
+    ]);
+    mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "u1",
+        role: "user",
+        content: "Close q-1636",
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeHerdEvent("h-complete", "#2212 | turn_end | ok | q-1636: in_progress -> done", turnEndEventKey(), threadRef),
+      makeMessage({
+        id: "a-setup",
+        role: "assistant",
+        content: "[q-1636](quest:q-1636) is complete. I’m checking final status metadata.",
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-tool",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "quest-status", name: "Bash", input: { command: "quest status q-1636" } },
+        ],
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-final",
+        role: "assistant",
+        content: "[q-1636](quest:q-1636) is complete and off the board.\n\nMemory updated: `a4649cb`.",
+        metadata: { threadRefs: [threadRef], threadStatusMarkers: [readyStatus] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1636" />);
+
+    expect(screen.getByText(/\[q-1636\]\(quest:q-1636\) is complete and off the board/)).toBeTruthy();
+    expect(screen.getByLabelText("Thread Ready for thread:q-1636: Copilot feedback and CI resolved")).toBeTruthy();
+    expect(screen.getAllByText("Leader activity").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/checking final status metadata/)).toBeNull();
+    expect(screen.queryByText("quest status q-1636")).toBeNull();
+
+    fireEvent.click(screen.getAllByText("Leader activity")[0]!.closest("button")!);
+    expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", false);
+  });
+
+  it("does not auto-collapse the latest selected leader turn for Waiting status", () => {
+    const sid = "test-leader-waiting-final-turn-stays-expanded";
+    const threadRef = { threadKey: "q-1636", questId: "q-1636", source: "explicit" as const };
+    const waitingStatus = makeThreadStatus("a-final", 5, {
+      kind: "waiting",
+      label: "Thread Waiting",
+      questId: "q-1636",
+      summary: "waiting on reviewer pass",
+      threadKey: "q-1636",
+    });
+    mockStoreValues.sessions = new Map([
+      [sid, { isOrchestrator: true, leaderThreadStatuses: { "q-1636": waitingStatus } }],
+    ]);
+    mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "u1",
+        role: "user",
+        content: "Continue q-1636",
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-tool",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "quest-status", name: "Bash", input: { command: "quest status q-1636" } },
+        ],
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-final",
+        role: "assistant",
+        content: "Waiting on reviewer pass before closing q-1636.",
+        metadata: { threadRefs: [threadRef], threadStatusMarkers: [waitingStatus] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1636" />);
+
+    expect(screen.queryByText("Leader activity")).toBeNull();
+    expect(screen.getByText("quest status q-1636")).toBeTruthy();
+    expect(screen.getByText("Waiting on reviewer pass before closing q-1636.")).toBeTruthy();
+    expect(screen.getByLabelText("Thread Waiting for thread:q-1636: waiting on reviewer pass")).toBeTruthy();
   });
 
   it("renders an asynchronously resolved quest quiz inside a selected thread window", async () => {

@@ -8,17 +8,20 @@ import { useCollapsePolicy } from "./use-collapse-policy.js";
 
 const storeMocks = vi.hoisted(() => ({
   overridesBySession: new Map<string, Map<string, boolean>>(),
+  sessions: new Map<string, { leaderThreadStatuses?: Record<string, unknown> }>(),
   toggleTurnActivity: vi.fn(),
 }));
 
 vi.mock("../store.js", () => ({
   useStore: (
     selector: (state: {
+      sessions: typeof storeMocks.sessions;
       turnActivityOverrides: Map<string, Map<string, boolean>>;
       toggleTurnActivity: typeof storeMocks.toggleTurnActivity;
     }) => unknown,
   ) =>
     selector({
+      sessions: storeMocks.sessions,
       turnActivityOverrides: storeMocks.overridesBySession,
       toggleTurnActivity: storeMocks.toggleTurnActivity,
     }),
@@ -42,10 +45,11 @@ function makeInjectedUserMessage(id: string, content: string, sessionId: string,
   });
 }
 
-function getLeaderCollapseStates(messages: ChatMessage[]) {
+function getLeaderCollapseStates(messages: ChatMessage[], autoCollapseReadyThreadKey?: string | null) {
   const model = buildFeedModel(messages, true);
   const { result } = renderHook(() =>
     useCollapsePolicy({
+      autoCollapseReadyThreadKey,
       sessionId: "leader-session",
       turns: model.turns,
     }),
@@ -60,6 +64,7 @@ function getLeaderCollapseStates(messages: ChatMessage[]) {
 describe("useCollapsePolicy", () => {
   beforeEach(() => {
     storeMocks.overridesBySession.clear();
+    storeMocks.sessions.clear();
     storeMocks.toggleTurnActivity.mockClear();
   });
 
@@ -111,5 +116,39 @@ describe("useCollapsePolicy", () => {
       { turnId: "u1", defaultExpanded: false, isActivityExpanded: false },
       { turnId: "u2", defaultExpanded: true, isActivityExpanded: true },
     ]);
+  });
+
+  it("collapses the current selected leader turn when it carries the current Ready status", () => {
+    const readyStatus = {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "q-1636",
+      questId: "q-1636",
+      summary: "complete",
+      messageId: "a-ready",
+      timestamp: 3,
+      updatedAt: 3,
+    } as const;
+    storeMocks.sessions.set("leader-session", { leaderThreadStatuses: { "q-1636": readyStatus } });
+
+    const states = getLeaderCollapseStates(
+      [
+        makeMessage({ id: "u1", role: "user", content: "close q-1636", timestamp: 1 }),
+        makeMessage({ id: "a-private", role: "assistant", content: "Checking final state.", timestamp: 2 }),
+        makeMessage({
+          id: "a-ready",
+          role: "assistant",
+          content: "q-1636 is complete.",
+          timestamp: 3,
+          metadata: {
+            threadRefs: [{ threadKey: "q-1636", questId: "q-1636", source: "explicit" }],
+            threadStatusMarkers: [readyStatus],
+          },
+        }),
+      ],
+      "q-1636",
+    );
+
+    expect(states).toEqual([{ turnId: "u1", defaultExpanded: false, isActivityExpanded: false }]);
   });
 });
