@@ -697,11 +697,19 @@ describe("CodexAdapter", () => {
         m.type === "assistant" &&
         (m as { message: { content: Array<{ type: string }> } }).message.content.some((b) => b.type === "thinking"),
     );
-    expect(thinkingMsgs.length).toBeGreaterThanOrEqual(1);
+    const thinkingStarts = messages.filter(
+      (m) =>
+        m.type === "stream_event" &&
+        (m as { event: { type: string; content_block?: { type?: string; thinking?: string } } }).event?.type ===
+          "content_block_start" &&
+        (m as { event: { content_block?: { type?: string } } }).event.content_block?.type === "thinking",
+    );
+    expect(thinkingMsgs).toHaveLength(0);
+    expect(thinkingStarts).toHaveLength(1);
     expect(onDisconnect).not.toHaveBeenCalled();
   });
 
-  it("measures thinking_time_ms per summary from the previous completed message", async () => {
+  it("does not emit durable assistant rows for top-level reasoning summaries", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
@@ -721,9 +729,6 @@ describe("CodexAdapter", () => {
     stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_1" } } }) + "\n");
     await tick();
 
-    // First reasoning summary arrives after a measurable gap from turn/start.
-    // Real delay needed here — this test validates wall-clock thinking_time_ms measurement.
-    await new Promise((r) => setTimeout(r, 80));
     stdout.push(
       JSON.stringify({
         method: "item/started",
@@ -739,8 +744,6 @@ describe("CodexAdapter", () => {
     );
     await tick();
 
-    // Second reasoning summary arrives shortly after the first one completed.
-    await new Promise((r) => setTimeout(r, 20));
     stdout.push(
       JSON.stringify({
         method: "item/started",
@@ -760,17 +763,13 @@ describe("CodexAdapter", () => {
       (m) =>
         m.type === "assistant" &&
         (m as { message: { content: Array<{ type: string }> } }).message.content.some((b) => b.type === "thinking"),
-    ) as Array<{ message: { content: Array<{ type: string; thinking_time_ms?: number }> } }>;
+    );
+    const thinkingStops = messages.filter(
+      (m) => m.type === "stream_event" && (m as { event: { type: string } }).event?.type === "content_block_stop",
+    );
 
-    expect(reasoningAssistants.length).toBeGreaterThanOrEqual(2);
-    const firstThinking = reasoningAssistants[0].message.content.find((b) => b.type === "thinking");
-    const secondThinking = reasoningAssistants[1].message.content.find((b) => b.type === "thinking");
-    const firstMs = firstThinking?.thinking_time_ms ?? -1;
-    const secondMs = secondThinking?.thinking_time_ms ?? -1;
-
-    expect(firstMs).toBeGreaterThanOrEqual(60);
-    expect(secondMs).toBeGreaterThanOrEqual(10);
-    expect(secondMs).toBeLessThan(firstMs);
+    expect(reasoningAssistants).toHaveLength(0);
+    expect(thinkingStops.length).toBeGreaterThanOrEqual(2);
   });
 
   it("emits live reasoning summary deltas as thinking stream events", async () => {

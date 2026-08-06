@@ -176,35 +176,40 @@ function updateActiveCodexReasoningPreviewFromStream(
   return true;
 }
 
-function extractTopLevelAssistantThinkingText(msg: BrowserIncomingMessage): string {
-  if (msg.type !== "assistant" || msg.parent_tool_use_id !== null) return "";
+function isTopLevelThinkingOnlyAssistant(msg: BrowserIncomingMessage): boolean {
+  if (msg.type !== "assistant" || msg.parent_tool_use_id !== null) return false;
   const content = Array.isArray(msg.message?.content) ? msg.message.content : [];
-  return content
-    .map((block) => (block?.type === "thinking" && typeof block.thinking === "string" ? block.thinking : ""))
-    .filter(Boolean)
-    .join("\n")
-    .trim();
+  return content.length > 0 && content.every((block) => block?.type === "thinking");
 }
 
-function updateActiveCodexReasoningPreviewFromAssistant(
-  session: CodexBrowserMessageSessionLike,
-  msg: BrowserIncomingMessage,
-): boolean {
-  if (!session.isGenerating) return false;
-  const rawText = extractTopLevelAssistantThinkingText(msg);
-  if (!rawText) return false;
-  const route = session.activeTurnRoute ?? null;
-  const bounded = boundedReasoningPreview(rawText);
-  const turnId =
-    typeof session.codexAdapter?.getCurrentTurnId === "function" ? session.codexAdapter.getCurrentTurnId() : null;
-  session.activeCodexReasoningPreview = {
-    ...bounded,
-    updatedAt: Date.now(),
-    turnId,
-    ...(route?.threadKey ? { threadKey: route.threadKey } : {}),
-    ...(route?.questId ? { questId: route.questId } : {}),
-  };
+function clearActiveCodexReasoningPreview(session: CodexBrowserMessageSessionLike): boolean {
+  if (!session.activeCodexReasoningPreview) return false;
+  session.activeCodexReasoningPreview = null;
   return true;
+}
+
+function shouldClearActiveCodexReasoningPreviewForNonReasoningActivity(msg: BrowserIncomingMessage): boolean {
+  if (msg.type === "stream_event") {
+    if (msg.parent_tool_use_id !== null) return false;
+    const event = msg.event as
+      | {
+          type?: unknown;
+          content_block?: { type?: unknown };
+          delta?: { type?: unknown };
+        }
+      | undefined;
+    if (!event || typeof event !== "object") return false;
+    if (event.type === "content_block_start") {
+      return event.content_block?.type !== "thinking";
+    }
+    if (event.type === "content_block_delta") {
+      return event.delta?.type === "text_delta";
+    }
+    return false;
+  }
+  if (msg.type !== "assistant" || msg.parent_tool_use_id !== null) return false;
+  const content = Array.isArray(msg.message?.content) ? msg.message.content : [];
+  return content.some((block) => block?.type !== "thinking");
 }
 
 function broadcastActiveCodexReasoningPreview(
@@ -643,10 +648,12 @@ export async function handleCodexAdapterBrowserMessage(
   session.lastCliMessageAt = Date.now();
   deps.clearOptimisticRunningTimer(session, `codex_output:${msg.type}`);
   maybeRecordDelegateLiveActivity(session, msg);
-  const activeReasoningPreviewChanged =
-    updateActiveCodexReasoningPreviewFromStream(session, msg) ||
-    updateActiveCodexReasoningPreviewFromAssistant(session, msg);
-  if (activeReasoningPreviewChanged) {
+  const activeReasoningPreviewChanged = updateActiveCodexReasoningPreviewFromStream(session, msg);
+  const activeReasoningPreviewCleared =
+    !activeReasoningPreviewChanged &&
+    shouldClearActiveCodexReasoningPreviewForNonReasoningActivity(msg) &&
+    clearActiveCodexReasoningPreview(session);
+  if (activeReasoningPreviewChanged || activeReasoningPreviewCleared) {
     broadcastActiveCodexReasoningPreview(session, deps);
     deps.broadcastBoardParticipantRefresh?.(session);
   }
@@ -757,6 +764,8 @@ export async function handleCodexAdapterBrowserMessage(
       }
     }
     deps.persistSession(session);
+  } else if (msg.type === "assistant" && isTopLevelThinkingOnlyAssistant(msg)) {
+    outgoing = null;
   } else if (msg.type === "assistant") {
     const launcherInfo = deps.getLauncherSessionInfo(session.id);
     const isLeaderSession = isLeaderSessionForAssistantRouting(session, launcherInfo);

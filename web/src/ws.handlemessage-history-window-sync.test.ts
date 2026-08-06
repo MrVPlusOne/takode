@@ -612,6 +612,71 @@ describe("handleMessage: thread_window_sync", () => {
     ).toEqual([120, 121]);
   });
 
+  it("does not retain root thinking-only assistant entries in selected thread windows", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "thread_window_sync",
+      thread_key: "q-1802",
+      entries: [
+        {
+          history_index: 40,
+          message: {
+            type: "assistant",
+            timestamp: 1500,
+            threadKey: "q-1802",
+            questId: "q-1802",
+            threadRefs: [{ threadKey: "q-1802", questId: "q-1802", source: "explicit" }],
+            parent_tool_use_id: null,
+            message: {
+              id: "a-root-thinking-thread",
+              type: "message",
+              role: "assistant",
+              model: "gpt-5.6-sol",
+              content: [{ type: "thinking", thinking: "**Reviewing the route**\n\nBody" }],
+              stop_reason: null,
+              usage: { input_tokens: 5, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            },
+          },
+        },
+        {
+          history_index: 41,
+          message: {
+            type: "assistant",
+            timestamp: 2000,
+            threadKey: "q-1802",
+            questId: "q-1802",
+            threadRefs: [{ threadKey: "q-1802", questId: "q-1802", source: "explicit" }],
+            parent_tool_use_id: null,
+            message: {
+              id: "a-visible-thread",
+              type: "message",
+              role: "assistant",
+              model: "gpt-5.6-sol",
+              content: [{ type: "text", text: "Visible thread answer" }],
+              stop_reason: "end_turn",
+              usage: { input_tokens: 5, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            },
+          },
+        },
+      ],
+      window: {
+        thread_key: "q-1802",
+        from_item: 0,
+        item_count: 2,
+        total_items: 2,
+        source_history_length: 42,
+        section_item_count: 10,
+        visible_item_count: 2,
+      },
+    });
+
+    const windowMessages = useStore.getState().threadWindowMessages.get("s1")?.get("q-1802") ?? [];
+    expect(windowMessages.map((msg) => msg.id)).toEqual(["a-visible-thread"]);
+    expect(windowMessages.map((msg) => msg.content).join("\n")).not.toContain("Reviewing the route");
+  });
+
   it("hydrates historical result errors with neighbor timestamps in selected-feed windows", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

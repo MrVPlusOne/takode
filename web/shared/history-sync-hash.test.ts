@@ -114,6 +114,52 @@ describe("history-sync-hash", () => {
     expect(computeHistoryMessagesSyncHash(withNotif).hash).toBe(computeHistoryMessagesSyncHash(withoutNotif).hash);
   });
 
+  it("skips root thinking-only assistant history entries", () => {
+    const rootThinkingOnly: BrowserIncomingMessage[] = [
+      { type: "user_message", id: "u1", content: "hello", timestamp: 1000 },
+      {
+        type: "assistant",
+        message: {
+          id: "a-thinking-root",
+          type: "message",
+          role: "assistant",
+          model: "gpt-5.6-sol",
+          content: [{ type: "thinking", thinking: "**Checking route fields**\n\nBody" }],
+          stop_reason: null,
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: 1500,
+      },
+    ];
+    const withoutThinking: BrowserIncomingMessage[] = [
+      { type: "user_message", id: "u1", content: "hello", timestamp: 1000 },
+    ];
+
+    expect(computeHistoryMessagesSyncHash(rootThinkingOnly)).toEqual(computeHistoryMessagesSyncHash(withoutThinking));
+  });
+
+  it("counts parented thinking assistant history entries", () => {
+    const history: BrowserIncomingMessage[] = [
+      {
+        type: "assistant",
+        message: {
+          id: "a-thinking-parented",
+          type: "message",
+          role: "assistant",
+          model: "gpt-5.6-sol",
+          content: [{ type: "thinking", thinking: "Scoped subagent reasoning" }],
+          stop_reason: null,
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: "agent-1",
+        timestamp: 1500,
+      },
+    ];
+
+    expect(computeHistoryMessagesSyncHash(history).renderedCount).toBe(1);
+  });
+
   it("includes task_notification with summary", () => {
     const history: BrowserIncomingMessage[] = [
       { type: "user_message", id: "u1", content: "hello", timestamp: 1000 },

@@ -30,6 +30,12 @@ export function updateActiveCodexReasoningPreviewFromStream(
       }
     | undefined;
   if (!evt || typeof evt !== "object") return;
+  const isNonReasoningStart = evt.type === "content_block_start" && evt.content_block?.type !== "thinking";
+  const isTextDelta = evt.type === "content_block_delta" && evt.delta?.type === "text_delta";
+  if (isNonReasoningStart || isTextDelta) {
+    store.setActiveCodexReasoningPreview(sessionId, null);
+    return;
+  }
   const startText =
     evt.type === "content_block_start" && evt.content_block?.type === "thinking"
       ? typeof evt.content_block.thinking === "string"

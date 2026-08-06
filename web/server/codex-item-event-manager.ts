@@ -57,6 +57,7 @@ export class CodexItemEventManager {
 
   private reasoningTextByItemId = new Map<string, string>();
   private reasoningTimeFromLastMessageByItemId = new Map<string, number>();
+  private reasoningStreamStartedItemIds = new Set<string>();
   private lastMessageFinishedAt: number | null = null;
 
   private emittedToolUseIds = new Set<string>();
@@ -87,6 +88,7 @@ export class CodexItemEventManager {
     this.planSignatureByKey.clear();
     this.reasoningTextByItemId.clear();
     this.reasoningTimeFromLastMessageByItemId.clear();
+    this.reasoningStreamStartedItemIds.clear();
     this.emittedToolUseIds.clear();
     this.emittedToolUseInputsById.clear();
     this.emittedToolUseNamesById.clear();
@@ -236,6 +238,7 @@ export class CodexItemEventManager {
             },
             parent_tool_use_id: parentToolUseId,
           });
+          this.reasoningStreamStartedItemIds.add(item.id);
         }
         break;
       }
@@ -284,6 +287,18 @@ export class CodexItemEventManager {
 
     const current = this.reasoningTextByItemId.get(itemId) || "";
     this.reasoningTextByItemId.set(itemId, current + delta);
+    if (!this.reasoningStreamStartedItemIds.has(itemId)) {
+      this.emit({
+        type: "stream_event",
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "thinking", thinking: "" },
+        },
+        parent_tool_use_id: this.resolveParentToolUseId(params, itemId),
+      });
+      this.reasoningStreamStartedItemIds.add(itemId);
+    }
     this.emit({
       type: "stream_event",
       event: {
@@ -559,7 +574,20 @@ export class CodexItemEventManager {
           thinkingTimeMs = Math.max(0, completedAt - this.lastMessageFinishedAt);
         }
 
-        if (thinkingText) {
+        if (thinkingText && !this.reasoningStreamStartedItemIds.has(item.id)) {
+          this.emit({
+            type: "stream_event",
+            event: {
+              type: "content_block_start",
+              index: 0,
+              content_block: { type: "thinking", thinking: thinkingText },
+            },
+            parent_tool_use_id: parentToolUseId,
+          });
+          this.reasoningStreamStartedItemIds.add(item.id);
+        }
+
+        if (thinkingText && parentToolUseId) {
           this.emit({
             type: "assistant",
             message: {
@@ -585,6 +613,7 @@ export class CodexItemEventManager {
 
         this.reasoningTextByItemId.delete(item.id);
         this.reasoningTimeFromLastMessageByItemId.delete(item.id);
+        this.reasoningStreamStartedItemIds.delete(item.id);
         this.emit({
           type: "stream_event",
           event: {

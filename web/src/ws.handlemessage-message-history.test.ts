@@ -245,6 +245,83 @@ describe("handleMessage: message_history", () => {
     expect(useStore.getState().historyLoading.has("s1")).toBe(false);
   });
 
+  it("does not retain root thinking-only assistant history as chat messages", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "message_history",
+      messages: [
+        { type: "user_message", id: "u1", content: "Start work", timestamp: 1000 },
+        {
+          type: "assistant",
+          timestamp: 1500,
+          parent_tool_use_id: null,
+          message: {
+            id: "a-root-thinking",
+            type: "message",
+            role: "assistant",
+            model: "gpt-5.6-sol",
+            content: [{ type: "thinking", thinking: "**Clarifying state**\n\nThis body should not become history." }],
+            stop_reason: null,
+            usage: { input_tokens: 5, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+        },
+        {
+          type: "assistant",
+          timestamp: 2000,
+          parent_tool_use_id: null,
+          message: {
+            id: "a-visible",
+            type: "message",
+            role: "assistant",
+            model: "gpt-5.6-sol",
+            content: [{ type: "text", text: "Visible answer" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 5, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+        },
+      ],
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs.map((msg) => msg.id)).toEqual(["u1", "a-visible"]);
+    expect(msgs.map((msg) => msg.content).join("\n")).not.toContain("Clarifying state");
+  });
+
+  it("retains parented thinking-only assistant history as scoped chat messages", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "message_history",
+      messages: [
+        {
+          type: "assistant",
+          timestamp: 1500,
+          parent_tool_use_id: "agent-1",
+          message: {
+            id: "a-parented-thinking",
+            type: "message",
+            role: "assistant",
+            model: "gpt-5.6-sol",
+            content: [{ type: "thinking", thinking: "Scoped reasoning" }],
+            stop_reason: null,
+            usage: { input_tokens: 5, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+        },
+      ],
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({
+      id: "a-parented-thinking",
+      parentToolUseId: "agent-1",
+      contentBlocks: [{ type: "thinking", thinking: "Scoped reasoning" }],
+    });
+  });
+
   it("records message_history apply diagnostics for attach-history freeze analysis", async () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

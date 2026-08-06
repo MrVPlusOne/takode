@@ -70,6 +70,12 @@ function normalizeErrorText(msg: Extract<BrowserIncomingMessage, { type: "result
   return "An error occurred";
 }
 
+export function isRootThinkingOnlyAssistantHistoryEntry(message: BrowserIncomingMessage): boolean {
+  if (message.type !== "assistant" || message.parent_tool_use_id !== null) return false;
+  const content = Array.isArray(message.message?.content) ? message.message.content : [];
+  return content.length > 0 && content.every((block) => block.type === "thinking");
+}
+
 function fingerprintComparableEntry(entry: ComparableHistoryEntry): string {
   if (entry.id && !entry.mutable) {
     return `id:${entry.id}`;
@@ -111,6 +117,7 @@ function forEachComparableHistoryEntry(
       continue;
     }
     if (message.type === "assistant") {
+      if (isRootThinkingOnlyAssistantHistoryEntry(message)) continue;
       visitor(
         {
           id: message.message.id,

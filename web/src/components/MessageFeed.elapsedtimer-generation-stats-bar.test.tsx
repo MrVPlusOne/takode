@@ -143,6 +143,7 @@ import {
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
 } from "./MessageFeed.js";
+import { formatActiveReasoningStatusText } from "./MessageFeedStatus.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -609,7 +610,7 @@ describe("ElapsedTimer - generation stats bar", () => {
     setStoreStreamingStartedAt(sid, Date.now() - 5000);
     setStoreActiveTurnRoute(sid, { threadKey: "q-975", questId: "q-975" });
     setStoreActiveCodexReasoningPreview(sid, {
-      text: "Inspecting the current thread routing metadata",
+      text: "**Inspecting route metadata**\n\nThe detailed body should not appear in the chip.",
       updatedAt: Date.now(),
       threadKey: "q-975",
       questId: "q-975",
@@ -618,13 +619,17 @@ describe("ElapsedTimer - generation stats bar", () => {
 
     render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="q-975" />);
 
-    expect(screen.getByTestId("active-codex-reasoning-preview").textContent).toBe(
-      "Inspecting the current thread routing metadata",
-    );
+    expect(screen.getByTestId("active-codex-reasoning-preview").textContent).toBe("Inspecting route metadata");
+    expect(screen.queryByText(/detailed body/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Active here/i }));
-    expect(screen.getByTestId("active-codex-reasoning-preview-detail").textContent).toBe(
-      "Inspecting the current thread routing metadata",
+    expect(screen.getByTestId("active-codex-reasoning-preview-detail").textContent).toBe("Inspecting route metadata");
+  });
+
+  it("formats active Codex reasoning status as title-only or compact fallback", () => {
+    expect(formatActiveReasoningStatusText("**Improving UX for Debriefing**\n\nI'm noticing details.")).toBe(
+      "Improving UX for Debriefing",
     );
+    expect(formatActiveReasoningStatusText("No title available\nwith a body")).toBe("No title available with a body");
   });
 
   it("hides the active Codex reasoning preview when it does not match the active route", () => {

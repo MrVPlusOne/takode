@@ -1246,6 +1246,7 @@ function AssistantMessage({
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
+  const isCodexSession = useStore((s) => (sessionId ? s.sessions.get(sessionId)?.backend_type === "codex" : false));
   const blocks = (message.contentBlocks || []).filter(
     (block) => !(block.type === "tool_use" && isToolHiddenFromChat(block.name)),
   );
@@ -1258,6 +1259,12 @@ function AssistantMessage({
   );
   const hasTextBlock = blocks.some((b) => b.type === "text" && b.text.trim().length > 0);
   const hasThinkingBlock = blocks.some((b) => b.type === "thinking" && b.thinking.trim().length > 0);
+  const isRootCodexThinkingOnlyMessage =
+    isCodexSession &&
+    !message.parentToolUseId &&
+    !hasTextBlock &&
+    blocks.length > 0 &&
+    blocks.every((block) => block.type === "thinking");
   const shouldRenderContentFallback = message.content.trim().length > 0 && !hasTextBlock && !hasThinkingBlock;
   const inboxAnchoredNotification = useStore((s) => {
     if (!sessionId || message.notification || !message.id) return null;
@@ -1285,10 +1292,8 @@ function AssistantMessage({
   const unstarFromRail = starAction.actionable && starAction.starred ? starAction.toggleStarred : undefined;
 
   if (
-    blocks.length === 0 &&
-    !message.content.trim() &&
-    !resolvedNotification &&
-    assistantImagePreviewItems.length === 0
+    isRootCodexThinkingOnlyMessage ||
+    (blocks.length === 0 && !message.content.trim() && !resolvedNotification && assistantImagePreviewItems.length === 0)
   ) {
     return null;
   }

@@ -1758,6 +1758,7 @@ describe("MessageBubble - assistant messages", () => {
         role: "assistant",
         content: "",
         contentBlocks: [{ type: "thinking", thinking: thinkingText }],
+        parentToolUseId: "agent-1",
       });
       render(<MessageBubble message={msg} sessionId="codex-session" />);
 
@@ -1765,6 +1766,27 @@ describe("MessageBubble - assistant messages", () => {
       expect(screen.getByText(thinkingText)).toBeTruthy();
       expect(screen.queryByText(`${thinkingText.length} chars`)).toBeNull();
       expect(screen.queryByRole("button", { name: /expand thinking summary/i })).toBeNull();
+    } finally {
+      useStore.setState({ sessions: prevSessions });
+    }
+  });
+
+  it("does not render root codex thinking-only assistant messages as feed rows", () => {
+    const prevSessions = useStore.getState().sessions;
+    const nextSessions = new Map(prevSessions);
+    nextSessions.set("codex-session", { backend_type: "codex" } as any);
+    useStore.setState({ sessions: nextSessions });
+
+    try {
+      const msg = makeMessage({
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "thinking", thinking: "**Historical reasoning row**\n\nBody should not persist." }],
+      });
+      const { container } = render(<MessageBubble message={msg} sessionId="codex-session" />);
+
+      expect(container.textContent).toBe("");
+      expect(screen.queryByText(/Historical reasoning row/)).toBeNull();
     } finally {
       useStore.setState({ sessions: prevSessions });
     }
@@ -1783,6 +1805,7 @@ describe("MessageBubble - assistant messages", () => {
         role: "assistant",
         content: "",
         contentBlocks: [{ type: "thinking", thinking: thinkingText }],
+        parentToolUseId: "agent-1",
       });
       render(<MessageBubble message={msg} sessionId="codex-session" />);
 
@@ -1812,6 +1835,7 @@ describe("MessageBubble - assistant messages", () => {
         role: "assistant",
         content: "",
         contentBlocks: [{ type: "thinking", thinking: "Summary text", thinking_time_ms: 1200 }],
+        parentToolUseId: "agent-1",
       });
       render(<MessageBubble message={msg} sessionId="codex-session" />);
       expect(screen.getByText("Summary text (1.2 s)")).toBeTruthy();
@@ -1832,6 +1856,7 @@ describe("MessageBubble - assistant messages", () => {
         role: "assistant",
         content: "",
         contentBlocks: [{ type: "thinking", thinking: "**Checking route fields for reasoning effort**" }],
+        parentToolUseId: "agent-1",
       });
       render(<MessageBubble message={msg} sessionId="codex-session" />);
       expect(screen.getByText("Checking route fields for reasoning effort")).toBeTruthy();
@@ -1853,6 +1878,7 @@ describe("MessageBubble - assistant messages", () => {
         role: "assistant",
         content: thinkingText,
         contentBlocks: [{ type: "thinking", thinking: thinkingText }],
+        parentToolUseId: "agent-1",
       });
       render(<MessageBubble message={msg} sessionId="codex-session" />);
 

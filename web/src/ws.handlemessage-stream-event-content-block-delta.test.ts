@@ -213,6 +213,29 @@ describe("handleMessage: stream_event content_block_delta", () => {
     });
   });
 
+  it("clears active codex reasoning preview when non-reasoning output starts", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    fireMessage({
+      type: "status_change",
+      status: "running",
+      activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
+    });
+    fireMessage({
+      type: "stream_event",
+      event: { type: "content_block_start", content_block: { type: "thinking", thinking: "Reasoning trace" } },
+      parent_tool_use_id: null,
+    });
+
+    fireMessage({
+      type: "stream_event",
+      event: { type: "content_block_start", content_block: { type: "text", text: "" } },
+      parent_tool_use_id: null,
+    });
+
+    expect(useStore.getState().activeCodexReasoningPreviews.has("s1")).toBe(false);
+  });
+
   it("routes parented thinking into the matching subagent buffer", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

@@ -155,7 +155,7 @@ export function ElapsedTimer({
     previewMatchesActiveRoute(effectiveCodexReasoningPreview, effectiveActiveTurnRoute)
       ? effectiveCodexReasoningPreview
       : null;
-  const reasoningPreviewText = reasoningPreview ? collapsePreviewWhitespace(reasoningPreview.text) : "";
+  const reasoningPreviewText = reasoningPreview ? formatActiveReasoningStatusText(reasoningPreview.text) : "";
   const reasoningPreviewLabel = reasoningPreview?.truncated ? `...${reasoningPreviewText}` : reasoningPreviewText;
   const previewDetailOpen = !!reasoningPreview && (previewHoverOpen || previewPinnedOpen);
 
@@ -171,17 +171,17 @@ export function ElapsedTimer({
             ↓ {formatTokens(streamingOutputTokens ?? 0)}
           </span>
         )}
+        {reasoningPreview && (
+          <span
+            className="min-w-0 truncate text-cc-muted/80"
+            aria-live="polite"
+            aria-atomic="false"
+            data-testid="active-codex-reasoning-preview"
+          >
+            {reasoningPreviewLabel}
+          </span>
+        )}
       </span>
-      {reasoningPreview && (
-        <span
-          className="relative block w-full max-w-full truncate text-[10px] leading-3 text-cc-muted/80"
-          aria-live="polite"
-          aria-atomic="false"
-          data-testid="active-codex-reasoning-preview"
-        >
-          {reasoningPreviewLabel}
-        </span>
-      )}
       {isStuck && (
         <button
           onClick={handleRelaunch}
@@ -206,7 +206,7 @@ export function ElapsedTimer({
           <button
             type="button"
             onClick={() => onSelectThread(targetThreadKey)}
-            className={`${FLOATING_FEED_CHIP_CLASS} ${reasoningPreview ? "min-w-[min(18rem,calc(100vw-2.75rem))] flex-col items-start gap-0.5 py-1.5" : ""} cursor-pointer text-left transition-colors hover:border-white/14 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70`}
+            className={`${FLOATING_FEED_CHIP_CLASS} cursor-pointer text-left transition-colors hover:border-white/14 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70`}
             data-active-turn-target={targetThreadKey}
             aria-label={`Jump to active thread ${targetThreadKey}`}
             title={reasoningPreview ? reasoningPreviewText : `Jump to active thread ${targetThreadKey}`}
@@ -230,7 +230,7 @@ export function ElapsedTimer({
         >
           <button
             type="button"
-            className={`${FLOATING_FEED_CHIP_CLASS} min-w-[min(18rem,calc(100vw-2.75rem))] flex-col items-start gap-0.5 py-1.5 cursor-default text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70`}
+            className={`${FLOATING_FEED_CHIP_CLASS} cursor-default text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70`}
             data-active-turn-target=""
             title={reasoningPreviewText}
             aria-expanded={previewDetailOpen}
@@ -309,6 +309,15 @@ function ActiveReasoningPreviewDetail({ open, text }: { open: boolean; text: str
 
 function collapsePreviewWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
+}
+
+export function formatActiveReasoningStatusText(text: string): string {
+  const trimmed = text.trim();
+  const titleMatch = trimmed.match(/^\*\*([^\n*][^\n]*?)\*\*(?:\s|$)/);
+  if (titleMatch?.[1]?.trim()) {
+    return collapsePreviewWhitespace(titleMatch[1]);
+  }
+  return collapsePreviewWhitespace(trimmed);
 }
 
 function previewMatchesActiveRoute(

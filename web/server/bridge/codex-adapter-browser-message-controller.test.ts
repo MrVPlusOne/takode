@@ -388,7 +388,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(broadcasts.filter((msg) => msg.type === "stream_event")).toHaveLength(1);
   });
 
-  it("records root assistant thinking messages as the active turn preview", async () => {
+  it("does not persist root assistant thinking messages as feed rows", async () => {
     const session = makeSession();
     session.isGenerating = true;
     session.activeTurnRoute = { threadKey: "q-975", questId: "q-975" };
@@ -402,17 +402,39 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       deps,
     );
 
-    expect(session.activeCodexReasoningPreview).toMatchObject({
-      text: "Summarizing current options",
-      turnId: "turn-1",
+    expect(session.activeCodexReasoningPreview).toBeUndefined();
+    expect(session.messageHistory).toHaveLength(0);
+    expect(broadcasts).not.toContainEqual(expect.objectContaining({ type: "assistant" }));
+  });
+
+  it("clears active Codex reasoning preview when top-level assistant text starts", async () => {
+    const session = makeSession();
+    session.activeTurnRoute = { threadKey: "q-975", questId: "q-975" };
+    session.activeCodexReasoningPreview = {
+      text: "Previous reasoning",
+      updatedAt: 1,
       threadKey: "q-975",
       questId: "q-975",
-    });
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        event: { type: "content_block_start", content_block: { type: "text", text: "" } },
+        parent_tool_use_id: null,
+      },
+      deps,
+    );
+
+    expect(session.activeCodexReasoningPreview).toBeNull();
     expect(broadcasts).toContainEqual(
       expect.objectContaining({
         type: "status_change",
         status: "running",
-        activeCodexReasoningPreview: expect.objectContaining({ text: "Summarizing current options" }),
+        activeCodexReasoningPreview: null,
       }),
     );
   });

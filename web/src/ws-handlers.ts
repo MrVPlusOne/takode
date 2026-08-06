@@ -33,6 +33,7 @@ import {
   resolveCachedThreadWindowEntries,
 } from "./utils/history-window-cache.js";
 import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
+import { isRootThinkingOnlyAssistantHistoryEntry } from "../shared/history-sync-hash.js";
 import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
 import { applyThreadAttachmentUpdate } from "./thread-attachment-update-handler.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
@@ -444,6 +445,7 @@ function normalizeHistoryMessages(
     const historyIndex = startIndex + i;
     const fallbackTimestamp = fallbackTimestamps[i];
     if (histMsg.type === "assistant") {
+      if (isRootThinkingOnlyAssistantHistoryEntry(histMsg)) continue;
       const msg = histMsg.message;
       chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
       if (msg.content?.length) {
@@ -511,6 +513,7 @@ function normalizeThreadWindowEntries(
     const historyIndex = entry.history_index;
     const fallbackTimestamp = fallbackTimestamps[index];
     if (histMsg.type === "assistant") {
+      if (isRootThinkingOnlyAssistantHistoryEntry(histMsg)) continue;
       chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
       if (histMsg.message.content?.length) {
         extractTasksFromBlocks(sessionId, histMsg.message.content);
