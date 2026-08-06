@@ -88,6 +88,47 @@ function flushInvalidations() {
   vi.advanceTimersByTime(50);
 }
 
+describe("board row session status projection", () => {
+  it("keeps active row participant status when completed history has the same quest", () => {
+    // Board detail requests active rows plus completed history. The status map
+    // is keyed by quest id, so the active row must win over stale history.
+    const statuses = buildBoardRowSessionStatuses(
+      [
+        { questId: "q-1799", worker: "worker-new", workerNum: 2464, status: "PLANNING", createdAt: 2, updatedAt: 2 },
+        {
+          questId: "q-1799",
+          worker: "worker-archived",
+          workerNum: 2455,
+          status: "MEMORY",
+          completedAt: 100,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      [
+        {
+          sessionId: "worker-new",
+          sessionNum: 2464,
+          state: "connected",
+          cliConnected: true,
+        },
+        {
+          sessionId: "worker-archived",
+          sessionNum: 2455,
+          state: "exited",
+          archived: true,
+        },
+      ],
+    );
+
+    expect(statuses["q-1799"]?.worker).toEqual({
+      sessionId: "worker-new",
+      sessionNum: 2464,
+      status: "idle",
+    });
+  });
+});
+
 describe("targeted board participant invalidation", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());

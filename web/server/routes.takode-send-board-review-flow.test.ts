@@ -733,6 +733,61 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it("keeps active board row status ahead of completed duplicate history", async () => {
+    const sessions = setupTakodeSessions();
+    sessions["worker-1"].sessionNum = 2464;
+    sessions["worker-1"].state = "running";
+    sessions["worker-archived"] = {
+      sessionId: "worker-archived",
+      sessionNum: 2455,
+      state: "exited",
+      cwd: "/repo/old",
+      createdAt: Date.now(),
+      herdedBy: "orch-1",
+      archived: true,
+    };
+    launcher.listSessions.mockReturnValue(Object.values(sessions));
+    launcher.getSession.mockImplementation((id: string) => sessions[id]);
+    launcher.getSessionNum.mockImplementation((id: string) => sessions[id]?.sessionNum);
+    bridge.isBackendConnected.mockImplementation((id: string) => id === "worker-1");
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-1799",
+        { questId: "q-1799", worker: "worker-1", workerNum: 2464, status: "PLANNING", createdAt: 2, updatedAt: 2 },
+      ],
+    ]);
+    bridge._sessions["orch-1"].completedBoard = new Map([
+      [
+        "q-1799",
+        {
+          questId: "q-1799",
+          worker: "worker-archived",
+          workerNum: 2455,
+          status: "MEMORY",
+          createdAt: 1,
+          updatedAt: 1,
+          completedAt: 1,
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board?resolve=true&include_completed=true", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      board: [{ questId: "q-1799", worker: "worker-1", workerNum: 2464 }],
+      completedBoard: [{ questId: "q-1799", worker: "worker-archived", workerNum: 2455 }],
+      rowSessionStatuses: {
+        "q-1799": {
+          worker: { sessionId: "worker-1", sessionNum: 2464, status: "running" },
+        },
+      },
+    });
+  });
+
   it("archives done queued rows before returning takode board state", async () => {
     setupTakodeSessions();
     vi.spyOn(questStore, "getQuest").mockImplementation(async (questId: string) =>

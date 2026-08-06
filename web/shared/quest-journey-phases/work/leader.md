@@ -13,4 +13,5 @@ Leader responsibilities:
 
 Completion:
 - The assigned and claimed worker may use the worker-owned Work -> Memory transition only after the current Work note exists, unresolved checkpoints are settled, and the quest remains within the approved authorization envelope.
+- Treat a handoff with uncommitted changes, unsettled target sync/push, or missing final verification as incomplete Work even if the worker says "Work complete"; route the same worker back to Work with the exact missing facts.
 - Missing project-tracked work returns to Work; final Memory must not patch tracked implementation files.

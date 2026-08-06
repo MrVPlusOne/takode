@@ -63,6 +63,9 @@ export function buildBoardRowSessionStatuses(
 
   const statuses: Record<string, BoardRowSessionStatus> = {};
   for (const row of rows) {
+    // Callers pass active rows before completed history. Keep the active
+    // projection when both arrays contain the same quest.
+    if (statuses[row.questId]) continue;
     const workerSession =
       (row.worker ? sessionsById.get(row.worker) : undefined) ??
       (row.workerNum != null ? sessionsByNum.get(row.workerNum) : undefined);

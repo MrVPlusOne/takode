@@ -134,6 +134,78 @@ describe("takode board output modes", () => {
     }
   });
 
+  it("uses active row participant status for board detail when completed history duplicates a quest", async () => {
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-board-detail", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/leader-board-detail/board?resolve=true&include_completed=true") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            board: [
+              {
+                questId: "q-1799",
+                title: "Group herd chips",
+                worker: "worker-new",
+                workerNum: 2464,
+                status: "PLANNING",
+                createdAt: 2,
+                updatedAt: 2,
+              },
+            ],
+            completedBoard: [
+              {
+                questId: "q-1799",
+                title: "Old grouped chips run",
+                worker: "worker-archived",
+                workerNum: 2455,
+                status: "MEMORY",
+                completedAt: 1,
+                createdAt: 1,
+                updatedAt: 1,
+              },
+            ],
+            rowSessionStatuses: {
+              "q-1799": {
+                worker: { sessionId: "worker-new", sessionNum: 2464, status: "idle" },
+                reviewer: null,
+              },
+            },
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["board", "detail", "q-1799", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-board-detail",
+        COMPANION_AUTH_TOKEN: "auth-board-detail",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("worker/reviewer: #2464 idle / no reviewer");
+      expect(result.stdout).not.toContain("#2455");
+    } finally {
+      server.close();
+    }
+  });
+
   it("keeps default board show output human-first without embedded JSON", async () => {
     const server = createServer((req, res) => {
       const method = req.method || "";

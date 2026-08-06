@@ -20,4 +20,5 @@ Phase documentation:
 
 Transition to Memory:
 - Use the worker-owned Work -> Memory transition only when you are the assigned worker, you have claimed the quest, the Work note is current, no unresolved User Checkpoint remains, and required sync/verification/durable handoff facts are settled.
+- Do not call Work complete or hand off to Memory while tracked changes are uncommitted, unsynced to the selected target, unpushed when required, or missing the required final verification. Report that state as progress or a blocker, refresh the Work note with the remaining facts, and keep the row in Work.
 - Final Memory normally stays with you and completes the quest after durable-state closure. Memory must not edit project-tracked implementation files; missing project work returns to Work.
