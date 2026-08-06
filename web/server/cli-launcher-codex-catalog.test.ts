@@ -254,6 +254,153 @@ describe("Codex session catalog hardening", () => {
     });
   });
 
+  it("requests Codex reasoning summaries when the selected model supports them", async () => {
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const model = "gpt-5.6-sol";
+    await writeFile(configPath, `model = "${model}"\n`, "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: model,
+            supports_reasoning_summaries: true,
+            default_reasoning_summary: "none",
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    const result = await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+    });
+
+    expect(result.reasoningSummaryLaunchMode).toBe("auto");
+    const config = await readFile(configPath, "utf-8");
+    expect(config).not.toContain("model_reasoning_summary");
+  });
+
+  it("does not request Codex reasoning summaries when the selected model does not support them", async () => {
+    const codexHome = await makeCodexHome();
+    const model = "takode-no-summary-model";
+    await writeFile(join(codexHome, "config.toml"), `model = "${model}"\n`, "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: model,
+            supports_reasoning_summaries: false,
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    const result = await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+    });
+
+    expect(result.reasoningSummaryLaunchMode).toBeUndefined();
+  });
+
+  it("preserves an explicit disabled Codex reasoning summary setting", async () => {
+    const codexHome = await makeCodexHome();
+    const model = "gpt-5.6-sol";
+    await writeFile(
+      join(codexHome, "config.toml"),
+      [`model = "${model}"`, 'model_reasoning_summary = "none"', ""].join("\n"),
+      "utf-8",
+    );
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: model,
+            supports_reasoning_summaries: true,
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    const result = await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+    });
+
+    expect(result.reasoningSummaryLaunchMode).toBeUndefined();
+    const config = await readFile(join(codexHome, "config.toml"), "utf-8");
+    expect(config).toContain('model_reasoning_summary = "none"');
+  });
+
+  it("uses an explicit non-disabled Codex reasoning summary setting as the launch mode", async () => {
+    const codexHome = await makeCodexHome();
+    const model = "gpt-5.6-sol";
+    await writeFile(
+      join(codexHome, "config.toml"),
+      [`model = "${model}"`, 'model_reasoning_summary = "detailed"', ""].join("\n"),
+      "utf-8",
+    );
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({ models: [{ slug: model, supports_reasoning_summaries: false }] }),
+      "utf-8",
+    );
+
+    const result = await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+    });
+
+    expect(result.reasoningSummaryLaunchMode).toBe("detailed");
+    const config = await readFile(join(codexHome, "config.toml"), "utf-8");
+    expect(config).toContain('model_reasoning_summary = "detailed"');
+  });
+
+  it("requests Codex reasoning summaries from installed catalog metadata when session caches are stale", async () => {
+    const codexHome = await makeCodexHome();
+    const model = "gpt-5.6-sol";
+    await writeFile(join(codexHome, "config.toml"), `model = "${model}"\n`, "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: "gpt-5.5",
+            supports_reasoning_summaries: true,
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    const result = await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+      loadInstalledModelCatalog: async () => ({
+        source: "installed-cli",
+        models: [
+          {
+            value: model,
+            canonicalIdentity: model,
+            routeEntryFingerprint: "f".repeat(64),
+            label: "GPT-5.6-Sol",
+            description: "Latest frontier agentic coding model.",
+            supportsReasoningSummaries: true,
+          },
+        ],
+      }),
+    });
+
+    expect(result.reasoningSummaryLaunchMode).toBe("auto");
+  });
+
   it("disables Responses Lite for MAI LiteLLM leader catalog overrides", async () => {
     const codexHome = await makeCodexHome();
     const configPath = join(codexHome, "config.toml");

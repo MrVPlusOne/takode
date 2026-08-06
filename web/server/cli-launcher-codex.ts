@@ -37,6 +37,12 @@ import {
   type CodexLeaderRecycleThresholdResolution,
 } from "./codex-leader-recycle-threshold.js";
 import {
+  createCodexInstalledModelCatalogLoader,
+  readCodexModelCatalogEntry,
+  resolveCodexReasoningSummaryLaunchMode,
+  type CodexReasoningSummaryLaunchMode,
+} from "./codex-reasoning-summary-config.js";
+import {
   effectiveContextPercentFromModelEntry,
   leaderRecycleThresholdForUsableCapacity,
   rawContextWindowForUsableCapacity,
@@ -152,6 +158,7 @@ export interface CodexSpawnSpec {
   spawnEnv: Record<string, string | undefined>;
   spawnCwd: string | undefined;
   sandboxMode?: CodexSandboxMode;
+  reasoningSummary?: CodexReasoningSummaryLaunchMode;
   codexLeaderRecycleThresholdTokens?: number;
 }
 
@@ -690,19 +697,6 @@ function nonLeaderAutoCompactTokenLimitForUsableCapacity(usableContextWindow: nu
   return Math.max(1, Math.floor(usableContextWindow * 0.9));
 }
 
-async function readModelCatalogEntry(catalogPath: string, modelSlug: string): Promise<Record<string, any> | undefined> {
-  if (!(await fileExists(catalogPath))) return undefined;
-  try {
-    const parsed = JSON.parse(await readFile(catalogPath, "utf-8"));
-    if (!Array.isArray(parsed?.models)) return undefined;
-    const modelEntry = parsed.models.find((entry: any) => entry?.slug === modelSlug);
-    return modelEntry && typeof modelEntry === "object" ? modelEntry : undefined;
-  } catch (error) {
-    console.warn(`[cli-launcher] Failed to parse Codex model catalog ${catalogPath}:`, error);
-    return undefined;
-  }
-}
-
 async function resolveCodexLeaderRecycleThresholdForConfig(
   codexHome: string,
   configToml: string,
@@ -734,7 +728,7 @@ async function resolveCodexLeaderRecycleThresholdForConfig(
   ].filter((candidate, index, all): candidate is string => !!candidate && all.indexOf(candidate) === index);
 
   for (const sourceCatalogPath of sourceCatalogCandidates) {
-    const modelEntry = await readModelCatalogEntry(sourceCatalogPath, modelSlug);
+    const modelEntry = await readCodexModelCatalogEntry(sourceCatalogPath, modelSlug);
     const effectiveContextWindow = modelEntry ? effectiveContextWindowFromModelEntry(modelEntry) : undefined;
     if (effectiveContextWindow) {
       return {
@@ -910,7 +904,7 @@ async function scrubTakodeNonLeaderContextOverride(codexHome: string, configToml
   let shouldRemoveTopLevelAutoCompact = false;
   if (modelSlug && topLevelContextWindow) {
     const catalogPath = resolveConfigPathValue(codexHome, rawCatalogPath);
-    const modelEntry = await readModelCatalogEntry(catalogPath, modelSlug);
+    const modelEntry = await readCodexModelCatalogEntry(catalogPath, modelSlug);
     const catalogContextWindow =
       coercePositiveNumber(modelEntry?.context_window) || coercePositiveNumber(modelEntry?.max_context_window);
     shouldRemoveTopLevelContext = catalogContextWindow === topLevelContextWindow;
@@ -1455,6 +1449,8 @@ async function ensureCodexSessionConfig(
     codexContextCapacityTokens?: number;
     existingLeaderRecycleThresholdTokens?: number;
     model?: string;
+    codexBinary?: string;
+    loadInstalledModelCatalog?: () => Promise<import("./codex-model-catalog.js").CodexCatalogResult | null>;
     modelCatalogConfigPath?: string;
     takodeDelegateMcp?: {
       enabled: boolean;
@@ -1464,13 +1460,7 @@ async function ensureCodexSessionConfig(
     };
     timing?: CooperativeTiming;
   },
-): Promise<{
-  configToml: string;
-  modelCatalogJson?: string;
-  leaderRecycleThresholdTokens?: number;
-  leaderLaunchConfig?: CodexLeaderLaunchConfig;
-  contextLaunchConfig?: CodexContextLaunchConfig;
-}> {
+) {
   const configPath = join(codexHome, "config.toml");
   let current = "";
   try {
@@ -1560,11 +1550,27 @@ async function ensureCodexSessionConfig(
   if (options?.takodeDelegateMcp) {
     next = upsertTakodeDelegateMcpServer(next, options.takodeDelegateMcp);
   }
+  const reasoningSummaryLaunchMode = await resolveCodexReasoningSummaryLaunchMode({
+    codexHome,
+    configToml: next,
+    modelId,
+    generatedCatalogJson: modelCatalogJson,
+    legacyCodexHome: getLegacyCodexHome(),
+    loadInstalledModelCatalog:
+      options?.loadInstalledModelCatalog ?? createCodexInstalledModelCatalogLoader(options?.codexBinary),
+  });
   if (next !== current) {
     await writeFile(configPath, next, "utf-8");
     await options?.timing?.yieldIfDue("write Codex session config");
   }
-  return { configToml: next, modelCatalogJson, leaderRecycleThresholdTokens, leaderLaunchConfig, contextLaunchConfig };
+  return {
+    configToml: next,
+    modelCatalogJson,
+    leaderRecycleThresholdTokens,
+    leaderLaunchConfig,
+    contextLaunchConfig,
+    reasoningSummaryLaunchMode,
+  };
 }
 
 function renderContainerCodexFileWrite(path: string, contents: string, heredocMarker: string): string {
@@ -1705,6 +1711,7 @@ export async function prepareCodexSpawn(
     let resolvedLeaderRecycleThresholdTokens: number | undefined;
     let leaderLaunchConfig: CodexLeaderLaunchConfig | undefined;
     let contextLaunchConfig: CodexContextLaunchConfig | undefined;
+    let reasoningSummaryLaunchMode: CodexReasoningSummaryLaunchMode | undefined;
     let containerLeaderConfigToml: string | undefined;
     let containerModelCatalogJson: string | undefined;
     const containerModelCatalogPath = leaderRecycleLaunch
@@ -1737,6 +1744,7 @@ export async function prepareCodexSpawn(
           codexContextCapacityTokens: options.codexMaxContextLength,
           existingLeaderRecycleThresholdTokens: existingLeaderRecycleBudget(info),
           model: options.model,
+          codexBinary: binary,
           takodeDelegateMcp: buildTakodeDelegateMcpConfig(
             codexLeaderLaunch || options.env?.TAKODE_DELEGATE_ROLE === "child",
             options.env,
@@ -1747,6 +1755,7 @@ export async function prepareCodexSpawn(
       resolvedLeaderRecycleThresholdTokens = sessionConfig.leaderRecycleThresholdTokens;
       leaderLaunchConfig = sessionConfig.leaderLaunchConfig;
       contextLaunchConfig = sessionConfig.contextLaunchConfig;
+      reasoningSummaryLaunchMode = sessionConfig.reasoningSummaryLaunchMode;
     } else {
       if (!options.codexHomePrepared) {
         await timing.step("prepare container Codex home", () =>
@@ -1764,6 +1773,7 @@ export async function prepareCodexSpawn(
           codexContextCapacityTokens: options.codexMaxContextLength,
           existingLeaderRecycleThresholdTokens: existingLeaderRecycleBudget(info),
           model: options.model,
+          codexBinary: binary,
           modelCatalogConfigPath: containerModelCatalogPath,
           takodeDelegateMcp: buildTakodeDelegateMcpConfig(
             codexLeaderLaunch || options.env?.TAKODE_DELEGATE_ROLE === "child",
@@ -1777,6 +1787,7 @@ export async function prepareCodexSpawn(
       resolvedLeaderRecycleThresholdTokens = containerConfig.leaderRecycleThresholdTokens;
       leaderLaunchConfig = containerConfig.leaderLaunchConfig;
       contextLaunchConfig = containerConfig.contextLaunchConfig;
+      reasoningSummaryLaunchMode = containerConfig.reasoningSummaryLaunchMode;
     }
 
     const maiWrapperLaunchSpec =
@@ -1810,6 +1821,9 @@ export async function prepareCodexSpawn(
     }
     if (sandboxMode) {
       args.push("-s", sandboxMode);
+    }
+    if (reasoningSummaryLaunchMode) {
+      args.push("-c", `model_reasoning_summary=${reasoningSummaryLaunchMode}`);
     }
     appendCodexLeaderLaunchGuardArgs(args, leaderLaunchConfig);
     args.push("app-server");
@@ -1859,6 +1873,7 @@ export async function prepareCodexSpawn(
         spawnEnv: { ...process.env, PATH: containerSpawnPath },
         spawnCwd: undefined,
         sandboxMode,
+        reasoningSummary: reasoningSummaryLaunchMode,
         codexLeaderRecycleThresholdTokens: resolvedLeaderRecycleThresholdTokens,
       };
     }
@@ -1909,6 +1924,7 @@ export async function prepareCodexSpawn(
       }),
       spawnCwd: info.cwd,
       sandboxMode,
+      reasoningSummary: reasoningSummaryLaunchMode,
       codexLeaderRecycleThresholdTokens: resolvedLeaderRecycleThresholdTokens,
     };
   } finally {
@@ -1968,6 +1984,8 @@ export function _ensureCodexSessionConfigForTest(
     codexContextCapacityTokens?: number;
     existingLeaderRecycleThresholdTokens?: number;
     model?: string;
+    codexBinary?: string;
+    loadInstalledModelCatalog?: () => Promise<import("./codex-model-catalog.js").CodexCatalogResult | null>;
     modelCatalogConfigPath?: string;
     takodeDelegateMcp?: {
       enabled: boolean;
@@ -1977,11 +1995,6 @@ export function _ensureCodexSessionConfigForTest(
     };
     timing?: CooperativeTiming;
   },
-): Promise<{
-  configToml: string;
-  modelCatalogJson?: string;
-  leaderRecycleThresholdTokens?: number;
-  contextLaunchConfig?: CodexContextLaunchConfig;
-}> {
+) {
   return ensureCodexSessionConfig(codexHome, envVars, options);
 }

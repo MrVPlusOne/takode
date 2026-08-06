@@ -1359,7 +1359,10 @@ function handleParsedMessage(
       if ("activeTurnRoute" in data || data.status !== "running") {
         store.setActiveTurnRoute(sessionId, data.status === "running" ? data.activeTurnRoute : null);
       }
-      store.setActiveCodexReasoningPreview(sessionId, null);
+      store.setActiveCodexReasoningPreview(
+        sessionId,
+        data.status === "running" ? (data.activeCodexReasoningPreview ?? null) : null,
+      );
       if (data.codexAutoPauseRecoveryTesting !== undefined || data.status !== "running") {
         store.updateSession(sessionId, {
           codex_result_error_auto_pause_recovery_testing: data.codexAutoPauseRecoveryTesting ?? false,

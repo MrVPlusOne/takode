@@ -974,6 +974,7 @@ export type BrowserIncomingMessageBase =
       type: "status_change";
       status: "compacting" | "reverting" | "idle" | "running" | null;
       activeTurnRoute?: ActiveTurnRoute | null;
+      activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
       codexAutoPauseRecoveryTesting?: boolean;
     }
   | { type: "permissions_cleared" }

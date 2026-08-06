@@ -9,6 +9,8 @@ export interface CodexAdapterOptions {
   uiMode?: "plan" | "agent";
   sandbox?: "read-only" | "workspace-write" | "danger-full-access";
   reasoningEffort?: string;
+  /** Per-turn Codex app-server reasoning summary mode. Undefined preserves app-server defaults. */
+  reasoningSummary?: "auto" | "concise" | "detailed";
   /** Codex app-server service tier for future turns. null/undefined means Standard. */
   serviceTier?: string | null;
   /** If provided, resume an existing thread instead of starting a new one. */

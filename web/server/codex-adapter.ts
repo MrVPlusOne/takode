@@ -1140,6 +1140,9 @@ export class CodexAdapter
       cwd: this.options.cwd,
       serviceTier: normalizeCodexServiceTier(this.options.serviceTier),
     };
+    if (this.options.reasoningSummary) {
+      turnStartParams.summary = this.options.reasoningSummary;
+    }
     const collaborationMode = this.collaborationModeSupported
       ? buildCodexCollabMode(this.options, getDefaultModelForBackend("codex"), CodexAdapter.VALID_REASONING_EFFORTS)
       : null;
@@ -1245,6 +1248,9 @@ export class CodexAdapter
       cwd: this.options.cwd,
       serviceTier: normalizeCodexServiceTier(this.options.serviceTier),
     };
+    if (this.options.reasoningSummary) {
+      turnStartParams.summary = this.options.reasoningSummary;
+    }
     const collaborationMode = this.collaborationModeSupported
       ? buildCodexCollabMode(this.options, getDefaultModelForBackend("codex"), CodexAdapter.VALID_REASONING_EFFORTS)
       : null;

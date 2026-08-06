@@ -121,6 +121,35 @@ describe("CodexAdapter", () => {
     expect(allWritten).toContain("thr_123");
   });
 
+  it("forwards configured reasoning summary mode in turn/start params", async () => {
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "o4-mini",
+      reasoningSummary: "auto",
+    });
+
+    await initializeAdapter(stdout);
+
+    stdin.chunks = [];
+    adapter.sendBrowserMessage({ type: "user_message", content: "reasoning summary turn" });
+    await tick();
+
+    const turnStart = parseWrittenJsonLines(stdin.chunks).find((line) => line.method === "turn/start");
+    expect(turnStart?.params.summary).toBe("auto");
+  });
+
+  it("omits turn/start summary when no reasoning summary mode is configured", async () => {
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+
+    await initializeAdapter(stdout);
+
+    stdin.chunks = [];
+    adapter.sendBrowserMessage({ type: "user_message", content: "default summary turn" });
+    await tick();
+
+    const turnStart = parseWrittenJsonLines(stdin.chunks).find((line) => line.method === "turn/start");
+    expect(turnStart?.params.summary).toBeUndefined();
+  });
+
   it("uses thread/compact/start for a plain /compact command", async () => {
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
 
@@ -546,6 +575,56 @@ describe("CodexAdapter", () => {
     expect(turnStarts[0].params.collaborationMode.mode).toBe("plan");
     expect(turnStarts[0].params.collaborationMode.settings.developer_instructions).toBeUndefined();
     expect(turnStarts[1].params.collaborationMode).toBeUndefined();
+  });
+
+  it("preserves reasoning summary when retrying turn/start without collaborationMode", async () => {
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "gpt-5.3-codex",
+      approvalMode: "plan",
+      reasoningSummary: "auto",
+    });
+
+    await initializeAdapter(stdout);
+
+    stdin.chunks = [];
+    adapter.sendBrowserMessage({ type: "user_message", content: "summary fallback" });
+    await tick();
+
+    let turnStarts = parseWrittenJsonLines(stdin.chunks).filter((line) => line.method === "turn/start");
+    expect(turnStarts).toHaveLength(1);
+    stdout.push(
+      JSON.stringify({
+        id: turnStarts[0].id,
+        error: { code: -32602, message: "invalid params: unknown field `collaborationMode`" },
+      }) + "\n",
+    );
+    await tick();
+
+    turnStarts = parseWrittenJsonLines(stdin.chunks).filter((line) => line.method === "turn/start");
+    expect(turnStarts).toHaveLength(2);
+    expect(turnStarts[0].params.summary).toBe("auto");
+    expect(turnStarts[1].params.summary).toBe("auto");
+    expect(turnStarts[1].params.collaborationMode).toBeUndefined();
+  });
+
+  it("forwards configured reasoning summary mode in pending batch turn/start params", async () => {
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "o4-mini",
+      reasoningSummary: "concise",
+    });
+
+    await initializeAdapter(stdout);
+
+    stdin.chunks = [];
+    adapter.sendBrowserMessage({
+      type: "codex_start_pending",
+      pendingInputIds: ["pending-a"],
+      inputs: [{ content: "pending summary turn" }],
+    });
+    await tick();
+
+    const turnStart = parseWrittenJsonLines(stdin.chunks).find((line) => line.method === "turn/start");
+    expect(turnStart?.params.summary).toBe("concise");
   });
 
   it("sends text-only user inputs when attachment paths are included in the prompt", async () => {

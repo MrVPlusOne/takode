@@ -21,6 +21,8 @@ export interface CodexBackendModelInfo {
   routeEntryFingerprint: string;
   label: string;
   description: string;
+  supportsReasoningSummaries?: boolean;
+  defaultReasoningSummary?: string;
   contextWindow?: number;
   maxContextWindow?: number;
   effectiveContextWindowPercent?: number;
@@ -159,6 +161,12 @@ export function mapCodexCatalogModels(raw: unknown): CodexBackendModelInfo[] {
         routeEntryFingerprint: fingerprintModelRouteEntry(buildTakodeCatalogRouteEntry(slug)),
         label: typeof model.display_name === "string" && model.display_name.trim() ? model.display_name.trim() : slug,
         description: typeof model.description === "string" ? model.description : "",
+        supportsReasoningSummaries:
+          typeof model.supports_reasoning_summaries === "boolean" ? model.supports_reasoning_summaries : undefined,
+        defaultReasoningSummary:
+          typeof model.default_reasoning_summary === "string" && model.default_reasoning_summary.trim()
+            ? model.default_reasoning_summary.trim().toLowerCase()
+            : undefined,
         contextWindow: positiveInteger(model.context_window),
         maxContextWindow: positiveInteger(model.max_context_window),
         effectiveContextWindowPercent: positivePercent(model.effective_context_window_percent),

@@ -176,6 +176,49 @@ function updateActiveCodexReasoningPreviewFromStream(
   return true;
 }
 
+function extractTopLevelAssistantThinkingText(msg: BrowserIncomingMessage): string {
+  if (msg.type !== "assistant" || msg.parent_tool_use_id !== null) return "";
+  const content = Array.isArray(msg.message?.content) ? msg.message.content : [];
+  return content
+    .map((block) => (block?.type === "thinking" && typeof block.thinking === "string" ? block.thinking : ""))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function updateActiveCodexReasoningPreviewFromAssistant(
+  session: CodexBrowserMessageSessionLike,
+  msg: BrowserIncomingMessage,
+): boolean {
+  if (!session.isGenerating) return false;
+  const rawText = extractTopLevelAssistantThinkingText(msg);
+  if (!rawText) return false;
+  const route = session.activeTurnRoute ?? null;
+  const bounded = boundedReasoningPreview(rawText);
+  const turnId =
+    typeof session.codexAdapter?.getCurrentTurnId === "function" ? session.codexAdapter.getCurrentTurnId() : null;
+  session.activeCodexReasoningPreview = {
+    ...bounded,
+    updatedAt: Date.now(),
+    turnId,
+    ...(route?.threadKey ? { threadKey: route.threadKey } : {}),
+    ...(route?.questId ? { questId: route.questId } : {}),
+  };
+  return true;
+}
+
+function broadcastActiveCodexReasoningPreview(
+  session: CodexBrowserMessageSessionLike,
+  deps: CodexAdapterBrowserMessageDeps,
+): void {
+  deps.broadcastToBrowsers(session, {
+    type: "status_change",
+    status: "running",
+    activeTurnRoute: session.activeTurnRoute ?? null,
+    activeCodexReasoningPreview: session.activeCodexReasoningPreview ?? null,
+  });
+}
+
 function isLeaderSessionForAssistantRouting(
   session: CodexBrowserMessageSessionLike,
   launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
@@ -600,8 +643,13 @@ export async function handleCodexAdapterBrowserMessage(
   session.lastCliMessageAt = Date.now();
   deps.clearOptimisticRunningTimer(session, `codex_output:${msg.type}`);
   maybeRecordDelegateLiveActivity(session, msg);
-  const activeReasoningPreviewChanged = updateActiveCodexReasoningPreviewFromStream(session, msg);
-  if (activeReasoningPreviewChanged) deps.broadcastBoardParticipantRefresh?.(session);
+  const activeReasoningPreviewChanged =
+    updateActiveCodexReasoningPreviewFromStream(session, msg) ||
+    updateActiveCodexReasoningPreviewFromAssistant(session, msg);
+  if (activeReasoningPreviewChanged) {
+    broadcastActiveCodexReasoningPreview(session, deps);
+    deps.broadcastBoardParticipantRefresh?.(session);
+  }
   if (session.state.codex_image_send_stage && (msg.type === "stream_event" || msg.type === "assistant")) {
     deps.setCodexImageSendStage(session, "responding", { persist: false });
   }

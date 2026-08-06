@@ -388,6 +388,54 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(broadcasts.filter((msg) => msg.type === "stream_event")).toHaveLength(1);
   });
 
+  it("records root assistant thinking messages as the active turn preview", async () => {
+    const session = makeSession();
+    session.isGenerating = true;
+    session.activeTurnRoute = { threadKey: "q-975", questId: "q-975" };
+    session.codexAdapter = { getCurrentTurnId: () => "turn-1" };
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      makeAssistant([{ type: "thinking", thinking: "Summarizing current options" }]),
+      deps,
+    );
+
+    expect(session.activeCodexReasoningPreview).toMatchObject({
+      text: "Summarizing current options",
+      turnId: "turn-1",
+      threadKey: "q-975",
+      questId: "q-975",
+    });
+    expect(broadcasts).toContainEqual(
+      expect.objectContaining({
+        type: "status_change",
+        status: "running",
+        activeCodexReasoningPreview: expect.objectContaining({ text: "Summarizing current options" }),
+      }),
+    );
+  });
+
+  it("does not record parented assistant thinking messages as the active turn preview", async () => {
+    const session = makeSession();
+    session.isGenerating = true;
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+    const msg = makeAssistant([{ type: "thinking", thinking: "Nested summary" }]);
+    (msg as { parent_tool_use_id?: string }).parent_tool_use_id = "agent-1";
+
+    await handleCodexAdapterBrowserMessage(session, msg, deps);
+
+    expect(session.activeCodexReasoningPreview).toBeUndefined();
+    expect(broadcasts).not.toContainEqual(
+      expect.objectContaining({
+        type: "status_change",
+        activeCodexReasoningPreview: expect.anything(),
+      }),
+    );
+  });
+
   it("clears launcher service tier when adapter fallback updates Codex service tier to Standard", async () => {
     // A rejected Fast tier is cleared by the adapter through session_update.
     // The bridge must also clear launcher state, or a later Codex relaunch can

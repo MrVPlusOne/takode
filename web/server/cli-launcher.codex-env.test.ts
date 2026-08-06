@@ -142,6 +142,31 @@ it("passes Codex service tier through to adapter options", async () => {
   });
 });
 
+it("passes derived Codex reasoning summary mode through to adapter options", async () => {
+  const customHome = mkdtempSync(join(tempDir, "codex-home-"));
+  const sessionHome = join(customHome, "test-session-id");
+  mkdirSync(sessionHome, { recursive: true });
+  writeFileSync(join(sessionHome, "config.toml"), 'model = "gpt-5.6-sol"\n', "utf-8");
+  writeFileSync(
+    join(sessionHome, "models_cache.json"),
+    JSON.stringify({ models: [{ slug: "gpt-5.6-sol", supports_reasoning_summaries: true }] }),
+    "utf-8",
+  );
+
+  await launcher.launch({
+    backendType: "codex",
+    cwd: "/tmp/project",
+    codexSandbox: "workspace-write",
+    codexHome: customHome,
+    model: "gpt-5.6-sol",
+  });
+  await waitForSpawnCalls(1);
+
+  expect(mockCodexAdapterOptions[0]).toMatchObject({
+    reasoningSummary: "auto",
+  });
+});
+
 describe("Codex launch env", () => {
   it("enables Codex native multi-agent support in per-session config", async () => {
     const customHome = mkdtempSync(join(tempDir, "codex-home-test-"));

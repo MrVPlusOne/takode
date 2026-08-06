@@ -180,6 +180,27 @@ describe("handleMessage: status_change", () => {
     expect(useStore.getState().activeCodexReasoningPreviews.has("s1")).toBe(false);
   });
 
+  it("stores active Codex reasoning preview from running status updates", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "status_change",
+      status: "running",
+      activeTurnRoute: { threadKey: "main" },
+      activeCodexReasoningPreview: {
+        text: "Summarizing options",
+        updatedAt: 123,
+        threadKey: "main",
+      },
+    });
+
+    expect(useStore.getState().activeCodexReasoningPreviews.get("s1")).toMatchObject({
+      text: "Summarizing options",
+      threadKey: "main",
+    });
+  });
+
   it("applies server-authored testing updates and clears omitted legacy terminal projections", () => {
     // Generic local running state is insufficient; only the server projection
     // may switch the auto-pause banner into its testing copy.

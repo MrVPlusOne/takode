@@ -1243,6 +1243,7 @@ export class CliLauncher {
     let spawnEnv: Record<string, string | undefined>;
     let spawnCwd: string | undefined;
     let sandboxMode: "read-only" | "workspace-write" | "danger-full-access" | undefined;
+    let reasoningSummary: "auto" | "concise" | "detailed" | undefined;
     try {
       const binSettings = this.settingsGetter?.();
       const codexOptions = binSettings
@@ -1266,6 +1267,7 @@ export class CliLauncher {
       spawnEnv = spawnSpec.spawnEnv;
       spawnCwd = spawnSpec.spawnCwd;
       sandboxMode = spawnSpec.sandboxMode;
+      reasoningSummary = spawnSpec.reasoningSummary;
       if (typeof spawnSpec.codexLeaderRecycleThresholdTokens === "number") {
         info.codexLeaderRecycleThresholdTokens = spawnSpec.codexLeaderRecycleThresholdTokens;
       } else {
@@ -1343,6 +1345,7 @@ export class CliLauncher {
       requireResumeThreadId: options.requireResumeCliSessionId ? info.cliSessionId : undefined,
       sandbox: sandboxMode,
       reasoningEffort: options.codexReasoningEffort,
+      reasoningSummary,
       serviceTier: options.codexServiceTier ?? null,
       recorder: this.recorder ?? undefined,
       instructions: codexInstructions || undefined,

@@ -122,6 +122,16 @@ async function waitForCondition(predicate: () => boolean): Promise<void> {
   throw new Error("Condition was not met");
 }
 
+function codexConfigArgValue(cmdAndArgs: string[], key: string): string | undefined {
+  const prefix = `${key}=`;
+  for (let i = 0; i < cmdAndArgs.length - 1; i++) {
+    if (cmdAndArgs[i] !== "-c") continue;
+    const value = cmdAndArgs[i + 1];
+    if (value.startsWith(prefix)) return value.slice(prefix.length);
+  }
+  return undefined;
+}
+
 describe("Codex spawn preparation", () => {
   let tempDir: string;
   let codexHome: string;
@@ -411,6 +421,32 @@ describe("Codex spawn preparation", () => {
     expect(cmdAndArgs).toContain("model=gpt-5.6-sol");
     expect(cmdAndArgs).toContain("model_context_window=684211");
     expect(cmdAndArgs).toContain("model_auto_compact_token_limit=585000");
+  });
+
+  it("passes Codex reasoning summary auto mode when the selected model supports summaries", async () => {
+    // This requests Codex-owned summary events; the UI still renders only text
+    // that Codex actually emits for the active turn.
+    const sessionHome = join(codexHome, "test-session-id");
+    mkdirSync(sessionHome, { recursive: true });
+    writeFileSync(join(sessionHome, "config.toml"), 'model = "gpt-5.6-sol"\n', "utf-8");
+    writeFileSync(
+      join(sessionHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: "gpt-5.6-sol",
+            supports_reasoning_summaries: true,
+            default_reasoning_summary: "none",
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    await launchCodex({ model: "gpt-5.6-sol" });
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    expect(codexConfigArgValue(cmdAndArgs, "model_reasoning_summary")).toBe("auto");
   });
 
   it("builds host Codex PATH from enriched startup data without hot-path shell capture", async () => {

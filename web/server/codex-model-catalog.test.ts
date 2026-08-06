@@ -54,6 +54,8 @@ describe("Codex model catalog loading", () => {
               { effort: "ultra", description: "Maximum reasoning with delegation" },
             ],
             default_reasoning_level: "low",
+            supports_reasoning_summaries: true,
+            default_reasoning_summary: "none",
           }),
     }));
 
@@ -73,6 +75,8 @@ describe("Codex model catalog loading", () => {
         routeEntryFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
         label: "GPT-5.6-Sol",
         description: "Latest frontier agentic coding model.",
+        supportsReasoningSummaries: true,
+        defaultReasoningSummary: "none",
         contextWindow: 372000,
         maxContextWindow: 372000,
         effectiveContextWindowPercent: 95,
