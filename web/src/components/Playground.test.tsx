@@ -663,6 +663,10 @@ describe("Playground", () => {
     );
     expect(within(queuedBanner).queryByTestId("quest-thread-wait-pill")).not.toBeInTheDocument();
     expect(within(queuedBanner).queryByTestId("quest-journey-compact-summary")).not.toBeInTheDocument();
+    const staleQueuedDoneBanner = screen.getAllByTestId("quest-thread-banner")[2];
+    expect(within(staleQueuedDoneBanner).queryByTestId("quest-thread-queued-status-chip")).not.toBeInTheDocument();
+    expect(staleQueuedDoneBanner).not.toHaveTextContent("Queued, waiting for free worker");
+    expect(within(staleQueuedDoneBanner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Completed");
 
     fireEvent.click(within(banner).getByTestId("quest-thread-journey-hover-target"));
     const hoverCard = screen.getByTestId("quest-thread-journey-hover-card");

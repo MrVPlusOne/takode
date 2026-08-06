@@ -892,7 +892,7 @@ export function QuestThreadBanner({
   const isSessionBanner = variant === "session";
   const codeCommitState = useQuestCodeCommitShas(isSessionBanner ? null : questId, row?.commitShas);
   const showCommitAffordance = !isSessionBanner;
-  const waitCondition = waitConditionForBoardRow(row?.boardRow);
+  const waitCondition = row && isDoneThreadRow(row) ? null : waitConditionForBoardRow(row?.boardRow);
   const queuedWaitCondition = waitCondition?.kind === "queued" ? waitCondition : null;
   const inputWaitCondition = waitCondition?.kind === "user-input" ? waitCondition : null;
   const hasParticipantContext = isSessionBanner

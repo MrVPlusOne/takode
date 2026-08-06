@@ -209,4 +209,31 @@ describe("QuestThreadBanner commit affordance", () => {
       "Open q-968 recorded commit diffs, 0 commits",
     );
   });
+
+  it("suppresses stale queued wait metadata when the quest row is already done", () => {
+    const row: QuestThreadBannerRow = {
+      threadKey: "q-1812",
+      questId: "q-1812",
+      title: "Summarize Parsewave VaultScan Example",
+      status: "done",
+      boardStatus: "QUEUED",
+      section: "done",
+      journey: { mode: "active", phaseIds: ["alignment", "work", "memory"], currentPhaseId: "work" },
+      boardRow: {
+        questId: "q-1812",
+        title: "Summarize Parsewave VaultScan Example",
+        status: "QUEUED",
+        waitFor: ["free-worker"],
+        updatedAt: 1,
+      },
+    };
+
+    render(<QuestThreadBanner row={row} threadKey="q-1812" />);
+
+    const banner = screen.getByTestId("quest-thread-banner");
+    expect(banner).toHaveTextContent("q-1812");
+    expect(banner).toHaveTextContent("Summarize Parsewave VaultScan Example");
+    expect(within(banner).queryByTestId("quest-thread-queued-status-chip")).not.toBeInTheDocument();
+    expect(banner).not.toHaveTextContent("Queued, waiting for free worker");
+  });
 });

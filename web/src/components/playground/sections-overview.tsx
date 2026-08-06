@@ -359,6 +359,31 @@ export function PlaygroundOverviewSections() {
       },
     },
     {
+      label: "Stale queued after done",
+      threadKey: "q-1812",
+      row: {
+        threadKey: "q-1812",
+        questId: "q-1812",
+        title: "Clear stale queued thread header",
+        status: "done",
+        boardStatus: "QUEUED",
+        commitShas: [],
+        section: "done" as const,
+        journey: {
+          mode: "active" as const,
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "work",
+        },
+        boardRow: {
+          questId: "q-1812",
+          title: "Clear stale queued thread header",
+          status: "QUEUED",
+          waitFor: ["free-worker"],
+          updatedAt: 1,
+        },
+      },
+    },
+    {
       label: "Completed Journey",
       threadKey: "q-964",
       row: {
