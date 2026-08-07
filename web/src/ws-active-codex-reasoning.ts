@@ -1,20 +1,10 @@
 import type { ActiveCodexReasoningPreview, BrowserIncomingMessage } from "./types.js";
 import type { AppState } from "./store-types.js";
 
-const ACTIVE_CODEX_REASONING_PREVIEW_LIMIT = 4_000;
-
 type ActiveCodexReasoningStore = Pick<
   AppState,
   "activeCodexReasoningPreviews" | "activeTurnRoutes" | "setActiveCodexReasoningPreview"
 >;
-
-function boundedActiveCodexReasoningPreview(text: string): Pick<ActiveCodexReasoningPreview, "text" | "truncated"> {
-  if (text.length <= ACTIVE_CODEX_REASONING_PREVIEW_LIMIT) return { text };
-  return {
-    text: text.slice(-ACTIVE_CODEX_REASONING_PREVIEW_LIMIT),
-    truncated: true,
-  };
-}
 
 export function updateActiveCodexReasoningPreviewFromStream(
   sessionId: string,
@@ -49,17 +39,20 @@ export function updateActiveCodexReasoningPreviewFromStream(
         : ""
       : null;
   if (startText === null && deltaText === null) return;
-  const existing = deltaText !== null ? store.activeCodexReasoningPreviews.get(sessionId)?.text || "" : "";
+  if (deltaText !== null && !store.activeCodexReasoningPreviews.get(sessionId)?.text) return;
+  const existingPreview = store.activeCodexReasoningPreviews.get(sessionId);
+  const existing = deltaText !== null ? existingPreview!.text : "";
   const rawText = deltaText !== null ? existing + deltaText : startText || "";
   if (rawText.trim().length === 0) {
     store.setActiveCodexReasoningPreview(sessionId, null);
     return;
   }
   const activeTurnRoute = store.activeTurnRoutes.get(sessionId) ?? null;
+  const route = existingPreview ?? activeTurnRoute;
   store.setActiveCodexReasoningPreview(sessionId, {
-    ...boundedActiveCodexReasoningPreview(rawText),
+    text: rawText,
     updatedAt: Date.now(),
-    ...(activeTurnRoute?.threadKey ? { threadKey: activeTurnRoute.threadKey } : {}),
-    ...(activeTurnRoute?.questId ? { questId: activeTurnRoute.questId } : {}),
+    ...(route?.threadKey ? { threadKey: route.threadKey } : {}),
+    ...(route?.questId ? { questId: route.questId } : {}),
   });
 }

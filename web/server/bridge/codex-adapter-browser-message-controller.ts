@@ -37,8 +37,6 @@ import { isCodexLeaderRecycleMode } from "../../shared/codex-leader-compaction-m
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 const DELEGATE_LIVE_ACTIVITY_LIMIT = 800;
-const ACTIVE_CODEX_REASONING_PREVIEW_LIMIT = 4_000;
-
 type CodexBrowserMessageSessionLike = any;
 type CodexBrowserMessageAdapterLike = {
   sendBrowserMessage(msg: unknown): void;
@@ -115,14 +113,6 @@ function maybeRecordDelegateLiveActivity(session: CodexBrowserMessageSessionLike
   }
 }
 
-function boundedReasoningPreview(text: string): Pick<ActiveCodexReasoningPreview, "text" | "truncated"> {
-  if (text.length <= ACTIVE_CODEX_REASONING_PREVIEW_LIMIT) return { text };
-  return {
-    text: text.slice(-ACTIVE_CODEX_REASONING_PREVIEW_LIMIT),
-    truncated: true,
-  };
-}
-
 function extractTopLevelThinkingStreamText(
   msg: BrowserIncomingMessage,
 ): { kind: "start" | "delta"; text: string } | null {
@@ -156,18 +146,18 @@ function updateActiveCodexReasoningPreviewFromStream(
 ): boolean {
   const thinking = extractTopLevelThinkingStreamText(msg);
   if (!thinking) return false;
-  const existing = thinking.kind === "delta" ? session.activeCodexReasoningPreview?.text || "" : "";
+  if (thinking.kind === "delta" && !session.activeCodexReasoningPreview?.text) return false;
+  const existing = thinking.kind === "delta" ? session.activeCodexReasoningPreview.text : "";
   const rawText = thinking.kind === "delta" ? existing + thinking.text : thinking.text;
   if (rawText.trim().length === 0) {
     session.activeCodexReasoningPreview = null;
     return true;
   }
-  const route = session.activeTurnRoute ?? null;
-  const bounded = boundedReasoningPreview(rawText);
+  const route = session.activeReasoningAttributionRoute ?? session.activeTurnRoute ?? null;
   const turnId =
     typeof session.codexAdapter?.getCurrentTurnId === "function" ? session.codexAdapter.getCurrentTurnId() : null;
   session.activeCodexReasoningPreview = {
-    ...bounded,
+    text: rawText,
     updatedAt: Date.now(),
     turnId,
     ...(route?.threadKey ? { threadKey: route.threadKey } : {}),
@@ -357,10 +347,13 @@ function updateActiveTurnRouteFromLeaderAssistant(
   const nextRoute = activeTurnRouteFromThreadRoute(route);
   if (sameActiveTurnRoute(session.activeTurnRoute, nextRoute)) return;
   session.activeTurnRoute = nextRoute;
+  session.activeReasoningAttributionRoute = nextRoute;
+  session.activeCodexReasoningPreview = null;
   deps.broadcastToBrowsers(session, {
     type: "status_change",
     status: "running",
     activeTurnRoute: nextRoute,
+    activeCodexReasoningPreview: null,
   });
 }
 

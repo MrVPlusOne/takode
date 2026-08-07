@@ -47,7 +47,6 @@ export function ElapsedTimer({
   const streamingPauseStartedAt = useStore((s) => s.streamingPauseStartedAt.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const activeTurnRoute = useStore((s) => s.activeTurnRoutes?.get(sessionId));
-  const activeCodexReasoningPreview = useStore((s) => s.activeCodexReasoningPreviews?.get(sessionId));
   const sessionBoard = useStore((s) => s.sessionBoards?.get(sessionId));
   const rowSessionStatuses = useStore((s) => s.sessionBoardRowStatuses?.get(sessionId));
   const bridgeIsOrchestrator = useStore((s) => s.sessions?.get(sessionId)?.isOrchestrator === true);
@@ -65,7 +64,7 @@ export function ElapsedTimer({
   const isStuck = useStore((s) => s.sessionStuck.get(sessionId) ?? false);
   const isLeaderSession = bridgeIsOrchestrator || sdkIsOrchestrator;
   const leaderWorkerActivity = isLeaderSession
-    ? findLeaderWorkerActivity(sessionBoard, rowSessionStatuses, activeTurnRoute, currentThreadKey, sessionStatus)
+    ? findLeaderWorkerActivity(sessionBoard, rowSessionStatuses, activeTurnRoute, sessionStatus)
     : null;
   const effectiveSessionStatus =
     sessionStatus === "running" || leaderWorkerActivity ? ("running" as const) : sessionStatus;
@@ -76,8 +75,6 @@ export function ElapsedTimer({
   const effectiveActiveTurnRoute =
     sessionStatus === "running" ? activeTurnRoute : (leaderWorkerActivity?.activeTurnRoute ?? null);
   const [elapsed, setElapsed] = useState(0);
-  const [previewHoverOpen, setPreviewHoverOpen] = useState(false);
-  const [previewPinnedOpen, setPreviewPinnedOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -142,23 +139,6 @@ export function ElapsedTimer({
       : "text-cc-primary animate-pulse";
   const canNavigateActiveTurn =
     variant === "floating" && !!onSelectThread && !!activeTurnNavigationTarget && !isStuck && !effectivePauseStartedAt;
-  const effectiveCodexReasoningPreview =
-    activeCodexReasoningPreview?.text?.trim() &&
-    previewMatchesActiveRoute(activeCodexReasoningPreview, effectiveActiveTurnRoute)
-      ? activeCodexReasoningPreview
-      : leaderWorkerActivity?.preview;
-  const reasoningPreview =
-    effectiveSessionStatus === "running" &&
-    !isStuck &&
-    !effectivePauseStartedAt &&
-    effectiveCodexReasoningPreview?.text?.trim() &&
-    previewMatchesActiveRoute(effectiveCodexReasoningPreview, effectiveActiveTurnRoute)
-      ? effectiveCodexReasoningPreview
-      : null;
-  const reasoningPreviewText = reasoningPreview ? formatActiveReasoningStatusText(reasoningPreview.text) : "";
-  const reasoningPreviewLabel = reasoningPreview?.truncated ? `...${reasoningPreviewText}` : reasoningPreviewText;
-  const previewDetailOpen = !!reasoningPreview && (previewHoverOpen || previewPinnedOpen);
-
   const floatingChipContents = (
     <>
       <span className="pointer-events-none absolute inset-0 bg-cc-hover/20" />
@@ -169,16 +149,6 @@ export function ElapsedTimer({
         {(streamingOutputTokens ?? 0) > 0 && (
           <span className="hidden truncate text-cc-muted/70 sm:inline">
             ↓ {formatTokens(streamingOutputTokens ?? 0)}
-          </span>
-        )}
-        {reasoningPreview && (
-          <span
-            className="min-w-0 truncate text-cc-muted/80"
-            aria-live="polite"
-            aria-atomic="false"
-            data-testid="active-codex-reasoning-preview"
-          >
-            {reasoningPreviewLabel}
           </span>
         )}
       </span>
@@ -197,50 +167,17 @@ export function ElapsedTimer({
     if (canNavigateActiveTurn && onSelectThread && activeTurnNavigationTarget) {
       const targetThreadKey = activeTurnNavigationTarget;
       return (
-        <div
-          ref={rootRef}
-          className="pointer-events-auto relative"
-          onMouseEnter={() => setPreviewHoverOpen(true)}
-          onMouseLeave={() => setPreviewHoverOpen(false)}
-        >
+        <div ref={rootRef} className="pointer-events-auto relative">
           <button
             type="button"
             onClick={() => onSelectThread(targetThreadKey)}
             className={`${FLOATING_FEED_CHIP_CLASS} cursor-pointer text-left transition-colors hover:border-white/14 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70`}
             data-active-turn-target={targetThreadKey}
             aria-label={`Jump to active thread ${targetThreadKey}`}
-            title={reasoningPreview ? reasoningPreviewText : `Jump to active thread ${targetThreadKey}`}
-            onFocus={() => setPreviewHoverOpen(true)}
-            onBlur={() => setPreviewHoverOpen(false)}
+            title={`Jump to active thread ${targetThreadKey}`}
           >
             {floatingChipContents}
           </button>
-          <ActiveReasoningPreviewDetail open={previewDetailOpen} text={reasoningPreviewText} />
-        </div>
-      );
-    }
-
-    if (reasoningPreview) {
-      return (
-        <div
-          ref={rootRef}
-          className="pointer-events-auto relative"
-          onMouseEnter={() => setPreviewHoverOpen(true)}
-          onMouseLeave={() => setPreviewHoverOpen(false)}
-        >
-          <button
-            type="button"
-            className={`${FLOATING_FEED_CHIP_CLASS} cursor-default text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70`}
-            data-active-turn-target=""
-            title={reasoningPreviewText}
-            aria-expanded={previewDetailOpen}
-            onClick={() => setPreviewPinnedOpen((open) => !open)}
-            onFocus={() => setPreviewHoverOpen(true)}
-            onBlur={() => setPreviewHoverOpen(false)}
-          >
-            {floatingChipContents}
-          </button>
-          <ActiveReasoningPreviewDetail open={previewDetailOpen} text={reasoningPreviewText} />
         </div>
       );
     }
@@ -294,19 +231,6 @@ export function ElapsedTimer({
   );
 }
 
-function ActiveReasoningPreviewDetail({ open, text }: { open: boolean; text: string }) {
-  if (!open || !text) return null;
-  return (
-    <div
-      className="absolute bottom-full left-0 z-20 mb-2 max-h-40 w-[min(28rem,calc(100vw-1rem))] overflow-auto rounded-lg border border-cc-border bg-cc-card p-3 text-left text-[11px] leading-snug text-cc-muted shadow-xl"
-      data-testid="active-codex-reasoning-preview-detail"
-      role="status"
-    >
-      {text}
-    </div>
-  );
-}
-
 function collapsePreviewWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
@@ -337,7 +261,6 @@ function findLeaderWorkerActivity(
   board: BoardRowData[] | undefined,
   rowStatuses: Record<string, BoardRowSessionStatus> | undefined,
   activeTurnRoute: ActiveTurnRoute | null | undefined,
-  currentThreadKey: string,
   sessionStatus: string | null | undefined,
 ): {
   activeTurnRoute: ActiveTurnRoute;
@@ -354,16 +277,9 @@ function findLeaderWorkerActivity(
     const worker = rowStatuses[row.questId]?.worker;
     if (worker?.status !== "running") continue;
     const route = worker.activeTurnRoute ?? { threadKey: row.questId, questId: row.questId };
-    const preview =
-      worker.activeCodexReasoningPreview?.text?.trim() &&
-      previewMatchesActiveRoute(worker.activeCodexReasoningPreview, route)
-        ? worker.activeCodexReasoningPreview
-        : undefined;
-    if (sessionStatus === "running" && activeQuestId && !preview) return null;
-    if (!preview && normalizeThreadKey(route.threadKey) === normalizeThreadKey(currentThreadKey)) continue;
     return {
       activeTurnRoute: route,
-      ...(preview ? { preview } : {}),
+      ...(worker.activeCodexReasoningPreview ? { preview: worker.activeCodexReasoningPreview } : {}),
       ...(typeof worker.generationStartedAt === "number" ? { generationStartedAt: worker.generationStartedAt } : {}),
     };
   }

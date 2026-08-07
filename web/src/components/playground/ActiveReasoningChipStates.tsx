@@ -1,6 +1,9 @@
 import { useEffect } from "react";
 import { useStore } from "../../store.js";
 import { ElapsedTimer } from "../MessageFeedStatus.js";
+import { TurnEntries } from "../MessageFeedEntries.js";
+
+const NOOP = () => {};
 
 export function PlaygroundActiveReasoningChipStates() {
   useEffect(() => {
@@ -53,13 +56,13 @@ export function PlaygroundActiveReasoningChipStates() {
       activeTurnRoutes.set("playground-active-reasoning-long", { threadKey: "q-42", questId: "q-42" });
       activeTurnRoutes.set("playground-active-reasoning-updating", { threadKey: "q-88", questId: "q-88" });
       activeCodexReasoningPreviews.set("playground-active-reasoning-short", {
-        text: "**Checking route metadata**\n\nThe body is intentionally not shown in the chip.",
+        text: "**Checking route metadata**\n\nThe body now renders in the attributed thread row, not in the activity chip.",
         updatedAt: now,
         threadKey: "q-42",
         questId: "q-42",
       });
       activeCodexReasoningPreviews.set("playground-active-reasoning-long", {
-        text: "Comparing active turn route, browser-selected thread, and Codex reasoning stream without a title.",
+        text: "Comparing active turn route, browser-selected thread, and Codex reasoning stream without a title. This text uses the available message width and is not shortened by the activity chip.",
         updatedAt: now,
         threadKey: "q-42",
         questId: "q-42",
@@ -76,8 +79,8 @@ export function PlaygroundActiveReasoningChipStates() {
 
   const states = [
     { label: "No content", sessionId: "playground-active-reasoning-none", currentThreadKey: "q-42" },
-    { label: "Title only", sessionId: "playground-active-reasoning-short", currentThreadKey: "q-42" },
-    { label: "Fallback text", sessionId: "playground-active-reasoning-long", currentThreadKey: "q-42" },
+    { label: "Title and body", sessionId: "playground-active-reasoning-short", currentThreadKey: "q-42" },
+    { label: "Fallback body", sessionId: "playground-active-reasoning-long", currentThreadKey: "q-42" },
     { label: "Other route", sessionId: "playground-active-reasoning-updating", currentThreadKey: "q-42" },
   ];
 
@@ -86,7 +89,20 @@ export function PlaygroundActiveReasoningChipStates() {
       {states.map((state) => (
         <div key={state.sessionId} className="rounded-lg border border-cc-border bg-cc-bg p-3">
           <div className="mb-2 text-[10px] uppercase tracking-wide text-cc-muted">{state.label}</div>
-          <ElapsedTimer sessionId={state.sessionId} variant="floating" currentThreadKey={state.currentThreadKey} />
+          <div className="space-y-3">
+            <ElapsedTimer sessionId={state.sessionId} variant="floating" currentThreadKey={state.currentThreadKey} />
+            <TurnEntries
+              sections={[]}
+              sessionId={state.sessionId}
+              currentThreadKey={state.currentThreadKey}
+              leaderMode={false}
+              isCodexSession
+              activeCodexTerminalIds={new Set()}
+              onOpenCodexTerminal={NOOP}
+              turnStates={[]}
+              toggleTurn={NOOP}
+            />
+          </div>
         </div>
       ))}
     </div>

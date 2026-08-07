@@ -213,6 +213,26 @@ describe("handleMessage: stream_event content_block_delta", () => {
     });
   });
 
+  it("stores full codex reasoning text without Takode-side truncation", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    fireMessage({
+      type: "status_change",
+      status: "running",
+      activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
+    });
+    const longReasoning = `Start ${"x".repeat(4_500)} End`;
+
+    fireMessage({
+      type: "stream_event",
+      event: { type: "content_block_start", content_block: { type: "thinking", thinking: longReasoning } },
+      parent_tool_use_id: null,
+    });
+
+    expect(useStore.getState().activeCodexReasoningPreviews.get("s1")?.text).toBe(longReasoning);
+    expect(useStore.getState().activeCodexReasoningPreviews.get("s1")?.truncated).toBeUndefined();
+  });
+
   it("clears active codex reasoning preview when non-reasoning output starts", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
@@ -230,6 +250,33 @@ describe("handleMessage: stream_event content_block_delta", () => {
     fireMessage({
       type: "stream_event",
       event: { type: "content_block_start", content_block: { type: "text", text: "" } },
+      parent_tool_use_id: null,
+    });
+
+    expect(useStore.getState().activeCodexReasoningPreviews.has("s1")).toBe(false);
+  });
+
+  it("does not resurrect cleared codex reasoning from a late thinking delta", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    fireMessage({
+      type: "status_change",
+      status: "running",
+      activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
+    });
+    fireMessage({
+      type: "stream_event",
+      event: { type: "content_block_start", content_block: { type: "thinking", thinking: "Reasoning trace" } },
+      parent_tool_use_id: null,
+    });
+    fireMessage({
+      type: "stream_event",
+      event: { type: "content_block_start", content_block: { type: "text", text: "" } },
+      parent_tool_use_id: null,
+    });
+    fireMessage({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: " late" } },
       parent_tool_use_id: null,
     });
 

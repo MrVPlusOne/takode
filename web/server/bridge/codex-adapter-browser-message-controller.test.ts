@@ -368,6 +368,27 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(broadcasts.filter((msg) => msg.type === "stream_event")).toHaveLength(2);
   });
 
+  it("keeps the full Codex-exposed reasoning text without Takode-side truncation", async () => {
+    const session = makeSession();
+    session.activeTurnRoute = { threadKey: "q-975", questId: "q-975" };
+    const longReasoning = `Start ${"x".repeat(4_500)} End`;
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        event: { type: "content_block_start", content_block: { type: "thinking", thinking: longReasoning } },
+        parent_tool_use_id: null,
+      },
+      deps,
+    );
+
+    expect(session.activeCodexReasoningPreview?.text).toBe(longReasoning);
+    expect(session.activeCodexReasoningPreview?.truncated).toBeUndefined();
+  });
+
   it("does not record parented subagent thinking as the active turn preview", async () => {
     const session = makeSession();
     session.activeTurnRoute = { threadKey: "q-975", questId: "q-975" };
@@ -437,6 +458,40 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
         activeCodexReasoningPreview: null,
       }),
     );
+  });
+
+  it("does not resurrect cleared reasoning from a late top-level reasoning delta", async () => {
+    const session = makeSession();
+    session.activeTurnRoute = { threadKey: "q-975", questId: "q-975" };
+    session.activeCodexReasoningPreview = {
+      text: "Previous reasoning",
+      updatedAt: 1,
+      threadKey: "q-975",
+      questId: "q-975",
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        event: { type: "content_block_start", content_block: { type: "text", text: "" } },
+        parent_tool_use_id: null,
+      },
+      deps,
+    );
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: " late" } },
+        parent_tool_use_id: null,
+      },
+      deps,
+    );
+
+    expect(session.activeCodexReasoningPreview).toBeNull();
   });
 
   it("does not record parented assistant thinking messages as the active turn preview", async () => {

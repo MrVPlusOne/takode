@@ -143,6 +143,7 @@ import {
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
 } from "./MessageFeed.js";
+import { TurnEntries } from "./MessageFeedEntries.js";
 import { formatActiveReasoningStatusText } from "./MessageFeedStatus.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
@@ -604,7 +605,7 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.getByText("Active here")).toBeTruthy();
   });
 
-  it("shows the active Codex reasoning preview in the floating chip for the matching route", () => {
+  it("keeps reasoning text out of the floating activity chip", () => {
     const sid = "test-active-reasoning-preview";
     setStoreStatus(sid, "running");
     setStoreStreamingStartedAt(sid, Date.now() - 5000);
@@ -619,10 +620,9 @@ describe("ElapsedTimer - generation stats bar", () => {
 
     render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="q-975" />);
 
-    expect(screen.getByTestId("active-codex-reasoning-preview").textContent).toBe("Inspecting route metadata");
+    expect(screen.getByText("Active here")).toBeTruthy();
+    expect(screen.queryByTestId("active-codex-reasoning-preview")).toBeNull();
     expect(screen.queryByText(/detailed body/i)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Active here/i }));
-    expect(screen.getByTestId("active-codex-reasoning-preview-detail").textContent).toBe("Inspecting route metadata");
   });
 
   it("formats active Codex reasoning status as title-only or compact fallback", () => {
@@ -650,7 +650,7 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.queryByTestId("active-codex-reasoning-preview")).toBeNull();
   });
 
-  it("shows a matching active worker Codex reasoning preview in the leader floating chip", () => {
+  it("keeps projected worker reasoning text out of the leader floating chip", () => {
     const sid = "test-leader-worker-reasoning-preview";
     setStoreStatus(sid, "running");
     setStoreStreamingStartedAt(sid, Date.now() - 9000);
@@ -678,7 +678,127 @@ describe("ElapsedTimer - generation stats bar", () => {
     render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="q-1802" />);
 
     expect(screen.getByText("Active in q-975")).toBeTruthy();
-    expect(screen.getByTestId("active-codex-reasoning-preview").textContent).toBe("Checking the Journey handoff state");
+    expect(screen.queryByTestId("active-codex-reasoning-preview")).toBeNull();
+    expect(screen.queryByText("Checking the Journey handoff state")).toBeNull();
+  });
+
+  it("uses projected worker activity as active here when the selected thread matches", () => {
+    const sid = "test-leader-worker-active-here";
+    setStoreStatus(sid, "idle");
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+    setStoreBoardProjection(sid, [{ questId: "q-975", worker: "worker-1", workerNum: 2463, updatedAt: 1 }], {
+      "q-975": {
+        worker: {
+          sessionId: "worker-1",
+          sessionNum: 2463,
+          status: "running",
+          activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
+          generationStartedAt: Date.now() - 12_000,
+        },
+        reviewer: null,
+      },
+    });
+
+    render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="q-975" />);
+
+    expect(screen.getByText("Active here")).toBeTruthy();
+    expect(screen.queryByText("Active in main")).toBeNull();
+  });
+
+  it("renders direct active reasoning as a transient full-width thread row", () => {
+    const sid = "test-direct-reasoning-row";
+    setStoreActiveCodexReasoningPreview(sid, {
+      text: "**Considering UX for route mapping**\n\nI'm thinking about a new user experience for the full available message line without truncation.",
+      updatedAt: Date.now(),
+      threadKey: "q-975",
+      questId: "q-975",
+    });
+
+    render(
+      <TurnEntries
+        sections={[]}
+        sessionId={sid}
+        currentThreadKey="q-975"
+        leaderMode={false}
+        isCodexSession
+        activeCodexTerminalIds={new Set()}
+        onOpenCodexTerminal={vi.fn()}
+        turnStates={[]}
+        toggleTurn={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("active-codex-reasoning-thread-row")).toBeTruthy();
+    expect(screen.getByTestId("active-codex-reasoning-title").textContent).toBe("Considering UX for route mapping");
+    expect(screen.getByTestId("active-codex-reasoning-body").textContent).toContain(
+      "full available message line without truncation.",
+    );
+    expect(screen.queryByText(/\*\*Considering UX/)).toBeNull();
+  });
+
+  it("does not render active reasoning in a non-attributed selected thread", () => {
+    const sid = "test-direct-reasoning-row-mismatch";
+    setStoreActiveCodexReasoningPreview(sid, {
+      text: "**Considering UX**\n\nThread-specific body.",
+      updatedAt: Date.now(),
+      threadKey: "q-975",
+      questId: "q-975",
+    });
+
+    render(
+      <TurnEntries
+        sections={[]}
+        sessionId={sid}
+        currentThreadKey="q-976"
+        leaderMode={false}
+        isCodexSession
+        activeCodexTerminalIds={new Set()}
+        onOpenCodexTerminal={vi.fn()}
+        turnStates={[]}
+        toggleTurn={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("active-codex-reasoning-thread-row")).toBeNull();
+  });
+
+  it("renders projected worker reasoning in the matching leader thread row", () => {
+    const sid = "test-projected-reasoning-row";
+    setStoreBoardProjection(sid, [{ questId: "q-975", worker: "worker-1", workerNum: 2463, updatedAt: 1 }], {
+      "q-975": {
+        worker: {
+          sessionId: "worker-1",
+          sessionNum: 2463,
+          status: "running",
+          activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
+          generationStartedAt: Date.now() - 12_000,
+          activeCodexReasoningPreview: {
+            text: "**Checking the Journey handoff state**\n\nProjected worker body.",
+            updatedAt: Date.now(),
+            threadKey: "q-975",
+            questId: "q-975",
+          },
+        },
+        reviewer: null,
+      },
+    });
+
+    render(
+      <TurnEntries
+        sections={[]}
+        sessionId={sid}
+        currentThreadKey="q-975"
+        leaderMode
+        isCodexSession
+        activeCodexTerminalIds={new Set()}
+        onOpenCodexTerminal={vi.fn()}
+        turnStates={[]}
+        toggleTurn={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("active-codex-reasoning-title").textContent).toBe("Checking the Journey handoff state");
+    expect(screen.getByTestId("active-codex-reasoning-body").textContent).toBe("Projected worker body.");
   });
 
   it("labels running turns with the active quest when another thread is visible", () => {

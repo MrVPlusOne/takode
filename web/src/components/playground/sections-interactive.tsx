@@ -1810,7 +1810,7 @@ export function PlaygroundInteractiveSections() {
         description="Floating glassmorphic chip (like Purring indicator) that opens a modal with full timer details."
       >
         <div className="max-w-3xl space-y-4">
-          <Card label="Active Codex reasoning chip states">
+          <Card label="Active Codex reasoning thread states">
             <div className="p-3">
               <PlaygroundActiveReasoningChipStates />
             </div>

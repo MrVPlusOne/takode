@@ -46,6 +46,7 @@ export interface GenerationLifecycleSession {
   userMessageIdsThisTurn: number[];
   questThreadRemindersThisTurn?: unknown[];
   activeTurnRoute?: ActiveTurnRoute | null;
+  activeReasoningAttributionRoute?: ActiveTurnRoute | null;
   activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
   queuedTurnStarts: number;
   queuedTurnReasons: string[];
@@ -200,6 +201,7 @@ export function markRunningFromUserDispatch<S extends GenerationLifecycleSession
     restartOptimisticRunningTimer(deps, session, reason);
   }
   if (wasGenerating) {
+    const hadReasoningPreview = session.activeCodexReasoningPreview != null;
     const queuedTurnActiveRoutes = session.queuedTurnActiveRoutes ?? [];
     while (queuedTurnActiveRoutes.length < session.queuedTurnStarts) {
       queuedTurnActiveRoutes.push(null);
@@ -210,6 +212,9 @@ export function markRunningFromUserDispatch<S extends GenerationLifecycleSession
     session.queuedTurnInterruptSources.push(queuedInterruptSource);
     queuedTurnActiveRoutes.push(activeTurnRoute ?? null);
     session.queuedTurnActiveRoutes = queuedTurnActiveRoutes;
+    session.activeReasoningAttributionRoute = activeTurnRoute ?? null;
+    session.activeCodexReasoningPreview = null;
+    if (hadReasoningPreview) deps.broadcastStatus(session, "running");
     deps.persistSession(session);
     return "queued";
   }
@@ -218,6 +223,7 @@ export function markRunningFromUserDispatch<S extends GenerationLifecycleSession
     session.userMessageIdsThisTurn = [userMessageHistoryIndex];
   }
   session.activeTurnRoute = activeTurnRoute ?? null;
+  session.activeReasoningAttributionRoute = activeTurnRoute ?? null;
   session.activeCodexReasoningPreview = null;
   if (!wasGenerating) {
     deps.broadcastStatus(session, "running");
@@ -290,6 +296,7 @@ function startQueuedTurn<S extends GenerationLifecycleSession>(
   session.provisionalStuckRecovery = null;
   session.userMessageIdsThisTurn = [...entry.userMessageIds];
   session.activeTurnRoute = entry.activeTurnRoute;
+  session.activeReasoningAttributionRoute = entry.activeTurnRoute;
   session.activeCodexReasoningPreview = null;
   console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${turnReason})`);
   deps.recordGenerationStarted?.(session, turnReason);
@@ -378,6 +385,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.userMessageIdsThisTurn = [];
     session.questThreadRemindersThisTurn = [];
     session.activeTurnRoute = null;
+    session.activeReasoningAttributionRoute = null;
     session.activeCodexReasoningPreview = null;
     console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${reason})`);
     deps.recordGenerationStarted?.(session, reason);
@@ -411,6 +419,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.compactedDuringTurn = false;
     session.provisionalStuckRecovery = null;
     session.activeTurnRoute = null;
+    session.activeReasoningAttributionRoute = null;
     session.activeCodexReasoningPreview = null;
     if (!SUPPRESSED_TAKODE_TURN_END_REASONS.has(reason)) {
       deps.emitTakodeEvent(session.id, "turn_end", {
