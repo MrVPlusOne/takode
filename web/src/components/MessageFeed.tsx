@@ -92,17 +92,13 @@ import { useMessageFeedUserNavigationTargets, useUserMessageNavigation } from ".
 import { getMissingScrollTargetWindowAction, type PendingTargetWindowRequest } from "./message-feed-scroll-target.js";
 import { useThreadWindowRequester } from "./message-feed-thread-window-request.js";
 import { flashMessageFeedTarget } from "./message-feed-target-highlight.js";
-import { getRouteMessageTargetForThread } from "./message-feed-route-target.js";
-import { findMessageFeedScrollTarget, scrollMessageFeedTargetIntoView } from "./message-feed-target-scroll.js";
 import {
-  findVisibleFeedAnchorInContainer,
-  findVisibleMessageAnchorInContainer,
-  findVisibleTurnAnchorInContainer,
-  getViewportAnchorOffset,
-  isViewportAnchorAtSavedOffset,
-  schedulePostLayoutViewportAnchorRestore,
-  type FeedViewportAnchor,
-} from "./message-feed-viewport-anchor.js";
+  getInitialThreadWindowTarget,
+  getRouteMessageTargetForThread,
+  getSavedViewportTargetMessageId,
+} from "./message-feed-route-target.js";
+import { findMessageFeedScrollTarget, scrollMessageFeedTargetIntoView } from "./message-feed-target-scroll.js";
+import * as viewportAnchor from "./message-feed-viewport-anchor.js";
 import { markHistoryReceiveRenderCommitted } from "../utils/frontend-perf-recorder.js";
 import { MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
 import {
@@ -199,10 +195,7 @@ export function MessageFeed({
     () => getRouteMessageTargetForThread(normalizedThreadKey),
     [normalizedThreadKey],
   );
-  const savedViewportTargetMessageId =
-    savedScrollPos && !savedScrollPos.isAtBottom
-      ? (savedScrollPos.anchorMessageId ?? savedScrollPos.anchorTurnId ?? null)
-      : null;
+  const savedViewportTargetMessageId = getSavedViewportTargetMessageId(savedScrollPos);
   const [pendingInitialThreadWindowKey, setPendingInitialThreadWindowKey] = useState<string | null>(null);
   const connectionStatus = useStore((s) => s.connectionStatus?.get(sessionId) ?? "disconnected");
   const sessionNotifications = useStore((s) => s.sessionNotifications?.get(sessionId));
@@ -267,8 +260,6 @@ export function MessageFeed({
   const containerRef = useRef<HTMLDivElement>(null);
   const textSelection = useTextSelection(containerRef);
   const contentRootRef = useRef<HTMLDivElement>(null);
-  // Initialize isNearBottom from saved scroll position — if the user was scrolled
-  // up when they left this session, don't auto-scroll to bottom on re-mount.
   const autoFollowEnabledRef = useRef(savedScrollPos ? savedScrollPos.isAtBottom : true);
   const isNearBottom = useRef(savedScrollPos ? savedScrollPos.isAtBottom : true);
   const lastScrollTopRef = useRef(savedScrollPos?.scrollTop ?? 0);
@@ -301,7 +292,7 @@ export function MessageFeed({
     viewportKey: string;
     signature: string;
     wasAutoFollowing: boolean;
-    anchor: FeedViewportAnchor | null;
+    anchor: viewportAnchor.FeedViewportAnchor | null;
   } | null>(null);
   const pendingSectionLoadKeyRef = useRef<string | null>(null);
   const pendingTargetWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
@@ -441,8 +432,8 @@ export function MessageFeed({
     return () => clearTimeout(timeout);
   }, [activeCodexTerminalEntries, activeLiveSubagentEntries]);
 
-  const findVisibleTurnAnchor = useCallback(findVisibleTurnAnchorInContainer, []);
-  const findVisibleFeedAnchor = useCallback(findVisibleFeedAnchorInContainer, []);
+  const findVisibleTurnAnchor = useCallback(viewportAnchor.findVisibleTurnAnchorInContainer, []);
+  const findVisibleFeedAnchor = useCallback(viewportAnchor.findVisibleFeedAnchorInContainer, []);
 
   const markProgrammaticScroll = useCallback((top: number) => {
     programmaticScrollTargetRef.current = top;
@@ -537,16 +528,19 @@ export function MessageFeed({
     if (!container) return;
     const pendingExactRestore = pendingExactViewportRestoreRef.current;
     if (pendingExactRestore) {
-      if (!isViewportAnchorAtSavedOffset(container, pendingExactRestore.position)) return;
+      if (!viewportAnchor.isViewportAnchorAtSavedOffset(container, pendingExactRestore.position)) return;
       pendingExactViewportRestoreRef.current = null;
     }
     const previousPosition =
       (isLeaderSession ? readLeaderViewportPosition(sessionId, normalizedThreadKey) : null) ??
       useStore.getState().feedScrollPosition.get(viewportKey);
-    const previousAnchorId = previousPosition?.anchorMessageId ?? null;
+    const currentRouteTargetId = getRouteMessageTargetForThread(normalizedThreadKey);
     const anchor =
-      (previousAnchorId ? findVisibleMessageAnchorInContainer(container, previousAnchorId) : null) ??
-      findVisibleFeedAnchor(container);
+      viewportAnchor.findVisiblePreviousAnchorForPersistence({
+        container,
+        previousAnchorId: previousPosition?.anchorMessageId ?? null,
+        explicitTargetId: scrollToMessageId ?? pendingScrollToMessageId ?? currentRouteTargetId,
+      }) ?? findVisibleFeedAnchor(container);
     const position = {
       scrollTop: container.scrollTop,
       scrollHeight: container.scrollHeight,
@@ -560,7 +554,16 @@ export function MessageFeed({
     if (isLeaderSession) {
       persistLeaderViewportPosition(sessionId, normalizedThreadKey, position);
     }
-  }, [findVisibleFeedAnchor, getRealContentBottom, isLeaderSession, normalizedThreadKey, sessionId, viewportKey]);
+  }, [
+    findVisibleFeedAnchor,
+    getRealContentBottom,
+    isLeaderSession,
+    normalizedThreadKey,
+    pendingScrollToMessageId,
+    scrollToMessageId,
+    sessionId,
+    viewportKey,
+  ]);
 
   useLayoutEffect(() => {
     return () => {
@@ -664,11 +667,12 @@ export function MessageFeed({
     requestThreadWindow(
       -1,
       undefined,
-      scrollToMessageId ??
-        pendingScrollToMessageId ??
-        routeScrollToMessageId ??
-        savedViewportTargetMessageId ??
-        undefined,
+      getInitialThreadWindowTarget(
+        scrollToMessageId,
+        pendingScrollToMessageId,
+        routeScrollToMessageId,
+        savedViewportTargetMessageId,
+      ),
     );
   }, [
     activeThreadWindow,
@@ -766,7 +770,7 @@ export function MessageFeed({
   );
 
   const restoreFeedAnchor = useCallback(
-    (anchor: FeedViewportAnchor) => {
+    (anchor: viewportAnchor.FeedViewportAnchor) => {
       const container = containerRef.current;
       if (!container) return false;
 
@@ -1142,9 +1146,6 @@ export function MessageFeed({
 
     const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
     const targetTop = Math.max(0, Math.min(maxScrollTop, Math.ceil(targetBottom - container.clientHeight)));
-    // A long-lived subagent can keep mutating above newer bottom content. While
-    // auto-follow is enabled, never let those older updates yank the viewport
-    // upward; only move farther down toward the latest active content.
     const currentTop = Math.max(0, Math.min(maxScrollTop, container.scrollTop));
     const nextTargetTop = Math.max(currentTop, targetTop);
     if (Math.abs(container.scrollTop - nextTargetTop) > 1) {
@@ -1312,13 +1313,13 @@ export function MessageFeed({
     if (pos && !pos.isAtBottom && (pos.anchorMessageId || pos.anchorTurnId)) {
       if (selectedFeedWindowEnabled && !activeThreadWindow) return;
       pendingExactViewportRestoreRef.current = { restoreKey, position: pos };
-      const anchorOffsetBeforeRestore = getViewportAnchorOffset(containerRef.current, pos);
+      const anchorOffsetBeforeRestore = viewportAnchor.getViewportAnchorOffset(containerRef.current, pos);
       if (restoreSavedViewportAnchor(pos)) {
         pendingViewportAnchorWindowRequestRef.current = null;
         autoFollowEnabledRef.current = false;
         isNearBottom.current = false;
         setShowScrollButton(true);
-        schedulePostLayoutViewportAnchorRestore({
+        viewportAnchor.schedulePostLayoutViewportAnchorRestore({
           container: containerRef,
           position: pos,
           offsetBeforeRestore: anchorOffsetBeforeRestore,

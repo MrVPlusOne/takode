@@ -45,6 +45,25 @@ export function findVisibleMessageAnchorInContainer(
   };
 }
 
+export function isSystemErrorMessageAnchor(container: HTMLDivElement, messageId: string): boolean {
+  const target = container.querySelector<HTMLElement>(`[data-message-id="${escapeSelectorValue(messageId)}"]`);
+  return target?.dataset.messageRole === "system" && target.dataset.messageVariant === "error";
+}
+
+export function findVisiblePreviousAnchorForPersistence({
+  container,
+  previousAnchorId,
+  explicitTargetId,
+}: {
+  container: HTMLDivElement;
+  previousAnchorId: string | null;
+  explicitTargetId: string | null | undefined;
+}): FeedViewportAnchor | null {
+  if (!previousAnchorId) return null;
+  if (isSystemErrorMessageAnchor(container, previousAnchorId) && explicitTargetId !== previousAnchorId) return null;
+  return findVisibleMessageAnchorInContainer(container, previousAnchorId);
+}
+
 export function getViewportAnchorOffset(
   container: HTMLDivElement | null,
   position: FeedViewportPosition,
@@ -97,9 +116,12 @@ export function schedulePostLayoutViewportAnchorRestore({
 
 export function findVisibleFeedAnchorInContainer(container: HTMLDivElement): FeedViewportAnchor | null {
   const containerRect = container.getBoundingClientRect();
+  const isOrdinaryViewportAnchor = (element: HTMLElement) =>
+    !(element.dataset.messageRole === "system" && element.dataset.messageVariant === "error");
   const findFirstVisible = (selector: string) => {
     const elements = container.querySelectorAll<HTMLElement>(selector);
     for (const element of elements) {
+      if (!isOrdinaryViewportAnchor(element)) continue;
       const rect = element.getBoundingClientRect();
       if (rect.bottom > containerRect.top && rect.top < containerRect.bottom) {
         return { element, rect };

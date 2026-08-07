@@ -224,6 +224,7 @@ function GroupedErrorMessages({
       data-testid="grouped-error-message"
       data-message-id={first.id}
       data-message-role={first.role}
+      data-message-variant={first.variant}
       data-feed-block-id={getMessageFeedBlockId(first.id)}
       aria-label={`${countText}: ${first.content}`}
       className="space-y-1.5"
@@ -244,6 +245,7 @@ function GroupedErrorMessages({
           key={message.id}
           data-message-id={message.id}
           data-message-role={message.role}
+          data-message-variant={message.variant}
           data-feed-block-id={getMessageFeedBlockId(message.id)}
           aria-hidden="true"
           className="sr-only"
@@ -981,6 +983,7 @@ export const FeedEntries = memo(function FeedEntries({
               key={entry.msg.id}
               data-message-id={entry.msg.id}
               data-message-role={entry.msg.role}
+              data-message-variant={entry.msg.variant}
               data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
             >
               <AttentionLedgerRow
@@ -1040,6 +1043,7 @@ export const FeedEntries = memo(function FeedEntries({
             key={entry.msg.id}
             data-message-id={entry.msg.id}
             data-message-role={entry.msg.role}
+            data-message-variant={entry.msg.variant}
             data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
           >
             {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
@@ -1064,6 +1068,7 @@ export const FeedEntries = memo(function FeedEntries({
             key={entry.msg.id}
             data-message-id={entry.msg.id}
             data-message-role={entry.msg.role}
+            data-message-variant={entry.msg.variant}
             data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
           >
             {!isEmptyAssistantMessage(entry.msg) && (
