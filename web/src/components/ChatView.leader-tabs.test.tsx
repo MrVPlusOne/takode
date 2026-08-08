@@ -502,6 +502,33 @@ describe("ChatView leader open thread tabs", () => {
     expect(mockMessageFeedRenders).not.toHaveBeenCalledWith({ sessionId: "s1", threadKey: "main" });
   });
 
+  it("preserves an explicit leader thread route while session metadata is still hydrating", async () => {
+    window.location.hash = "#/session/s1?thread=q-941";
+    persistLeaderSelectedThreadKey("s1", "q-941");
+    resetStore({
+      sessions: new Map(),
+      sdkSessions: [],
+      messages: new Map(),
+      quests: [{ questId: "q-941", title: "Hydrating route", status: "in_progress" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" hasThreadRoute={true} routeThreadKey="q-941" />);
+    expect(window.location.hash).toBe("#/session/s1?thread=q-941");
+    expect(readLeaderSelectedThreadKey("s1")).toBe("q-941");
+
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-941"])),
+      messages: new Map([["s1", [threadMessage("q-941", 2)]]]),
+      quests: [{ questId: "q-941", title: "Hydrating route", status: "in_progress" }],
+    });
+    view.rerender(<ChatView sessionId="s1" hasThreadRoute={true} routeThreadKey="q-941" />);
+
+    const scope = within(view.container);
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
+    expect(window.location.hash).toBe("#/session/s1?thread=q-941");
+    expect(readLeaderSelectedThreadKey("s1")).toBe("q-941");
+  });
+
   it("falls back to Main when the browser-local selected tab is no longer server-open", async () => {
     persistLeaderSelectedThreadKey("s1", "q-999");
     resetStore({

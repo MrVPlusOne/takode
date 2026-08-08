@@ -1055,6 +1055,7 @@ export function ChatView({
     isArchived,
     serverReachable,
     isLeaderSession,
+    sessionMetadataKnown,
     historyLoading,
     hasKnownThreadSources,
     sessionNum,
@@ -1082,6 +1083,7 @@ export function ChatView({
         isArchived: sdkSession?.archived ?? false,
         serverReachable: s.serverReachable,
         isLeaderSession: sessionState?.isOrchestrator === true || sdkSession?.isOrchestrator === true,
+        sessionMetadataKnown: Boolean(sessionState || sdkSession),
         historyLoading: s.historyLoading.get(sessionId) ?? false,
         hasKnownThreadSources:
           s.messages.has(sessionId) ||
@@ -1503,6 +1505,7 @@ export function ChatView({
     const preserveMessageThreadRoute = hasMessageDeepLinkFromHash(liveHash) && routeThreadKey != null;
 
     if (!isLeaderSession) {
+      if (!sessionMetadataKnown) return;
       lastProcessedRouteThreadKeyRef.current = null;
       if (selectedThreadKey !== MAIN_THREAD_KEY) {
         setSelectedThreadKey(MAIN_THREAD_KEY);
@@ -1588,6 +1591,7 @@ export function ChatView({
     routeSyncEnabled,
     routeThreadKey,
     selectedThreadKey,
+    sessionMetadataKnown,
     sessionId,
     navigationThreadRows,
     openThreadTab,
