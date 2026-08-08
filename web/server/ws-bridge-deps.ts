@@ -827,6 +827,8 @@ export function getBrowserTransportDeps(host: any) {
         ws as ServerWebSocket<SocketData> | undefined,
         host.getBrowserRoutingDeps(),
       ),
+    pruneTakodeHerdBatch: (targetSession: unknown, batch: TakodeHerdBatchSnapshot | undefined) =>
+      pruneStaleBoardStalledHerdBatchController(targetSession as Session, batch, host.getBoardWatchdogDeps()),
     abortAutoApproval: (targetSession: unknown, requestId: string) =>
       host.abortAutoApproval(targetSession as Session, requestId),
     broadcastToBrowsers: (targetSession: unknown, browserMsg: BrowserIncomingMessage) =>
@@ -1140,15 +1142,44 @@ export function getBoardWatchdogDeps(host: any) {
       ),
     injectLeaderBoardDispatchableReminder: (
       sessionId: string,
-      candidate: { questId: string; title?: string; summary: string; action?: string },
+      candidate: {
+        questId: string;
+        title?: string;
+        signature: string;
+        rowUpdatedAt: number;
+        summary: string;
+        action?: string;
+      },
     ) => {
       const quest = candidate.title ? `${candidate.questId} ${candidate.title}` : candidate.questId;
       const action = candidate.action ? ` | next: ${candidate.action}` : "";
+      const renderedLine = `Work Board | board_dispatchable | ${quest} | ${candidate.summary}${action}`;
+      const takodeHerdBatch: TakodeHerdBatchSnapshot = {
+        events: [
+          {
+            id: -1,
+            event: "board_dispatchable",
+            sessionId: "work-board",
+            sessionNum: -1,
+            sessionName: "Work Board",
+            ts: Date.now(),
+            data: {
+              questId: candidate.questId,
+              ...(candidate.title ? { title: candidate.title } : {}),
+              signature: candidate.signature,
+              rowUpdatedAt: candidate.rowUpdatedAt,
+              summary: candidate.summary,
+              ...(candidate.action ? { action: candidate.action } : {}),
+            },
+          } as TakodeEvent,
+        ],
+        renderedLines: [renderedLine],
+      };
       host.injectUserMessage(
         sessionId,
-        `1 event from work board\n\nWork Board | board_dispatchable | ${quest} | ${candidate.summary}${action}`,
+        `1 event from work board\n\n${renderedLine}`,
         { sessionId: "herd-events", sessionLabel: "Herd Events" },
-        undefined,
+        takodeHerdBatch,
         { threadKey: candidate.questId.toLowerCase(), questId: candidate.questId },
       );
     },

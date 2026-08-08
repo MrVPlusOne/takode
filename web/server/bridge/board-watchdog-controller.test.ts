@@ -6,6 +6,7 @@ import {
   completeDoneBoardRowsForQuestInAllSessions,
   getBoard,
   getCompletedBoard,
+  pruneStaleBoardStalledHerdBatch,
   removeBoardRows,
   upsertBoardRow,
   type WorkBoardStateDeps,
@@ -55,6 +56,75 @@ describe("Work Board row merge", () => {
 
     expect(getBoard(session)[0]).toEqual(expect.objectContaining({ worker: "worker-new" }));
     expect(getBoard(session)[0]?.workerNum).toBeUndefined();
+  });
+});
+
+describe("Work Board stale herd batch pruning", () => {
+  it("drops board_dispatchable events when the queued row revision changed before delivery", () => {
+    const session = createSession();
+    const deps = {
+      ...createDeps(),
+      getLauncherSessionInfo: vi.fn(),
+      getSession: vi.fn(),
+      listSessions: vi.fn(() => []),
+      resolveSessionId: vi.fn(),
+      timerCount: vi.fn(() => 0),
+      backendConnected: vi.fn(() => true),
+      getBoard: vi.fn(() => Array.from(session.board.values())),
+      getBoardRowsForQuest: vi.fn(() => []),
+      getCompletedBoardRowsForQuest: vi.fn(() => []),
+      emitTakodeEvent: vi.fn(),
+      isSessionIdle: vi.fn(() => true),
+    };
+
+    upsertBoardRow(
+      session,
+      {
+        questId: "q-77",
+        title: "Queued transition",
+        status: "QUEUED",
+        waitFor: ["free-worker"],
+        updatedAt: 100,
+      },
+      createDeps(),
+    );
+    upsertBoardRow(
+      session,
+      {
+        questId: "q-77",
+        title: "Queued transition",
+        status: "PLANNING",
+        worker: "worker-1",
+        updatedAt: 200,
+      },
+      createDeps(),
+    );
+
+    const pruned = pruneStaleBoardStalledHerdBatch(
+      session,
+      {
+        events: [
+          {
+            id: -1,
+            event: "board_dispatchable",
+            sessionId: "work-board",
+            sessionNum: -1,
+            sessionName: "Work Board",
+            ts: 150,
+            data: {
+              questId: "q-77",
+              signature: "q-77|dispatchable|free-worker|free-worker-capacity:0/0/5",
+              rowUpdatedAt: 100,
+              summary: "q-77 can be dispatched now.",
+            },
+          },
+        ],
+        renderedLines: ["Work Board | board_dispatchable | q-77 | q-77 can be dispatched now."],
+      },
+      deps as any,
+    );
+
+    expect(pruned).toEqual({ changed: true, suppressedReasonCode: "stale_board_state" });
   });
 });
 

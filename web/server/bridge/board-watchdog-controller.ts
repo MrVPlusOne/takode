@@ -54,6 +54,7 @@ interface BoardStallCandidate {
 
 interface BoardDispatchableCandidate {
   signature: string;
+  rowUpdatedAt: number;
   questId: string;
   title?: string;
   summary: string;
@@ -1197,6 +1198,7 @@ export function sweepBoardDispatchableWarnings(
           questId: candidate.questId,
           ...(candidate.title ? { title: candidate.title } : {}),
           signature: candidate.signature,
+          rowUpdatedAt: candidate.rowUpdatedAt,
           summary: candidate.summary,
           ...(candidate.action ? { action: candidate.action } : {}),
         };
@@ -1265,7 +1267,7 @@ export function pruneStalePendingCodexHerdInputs(
   helpers.broadcastPendingCodexInputs(session);
   helpers.rebuildQueuedCodexPendingStartBatch(session);
   helpers.persistSession(session);
-  console.log(`[ws-bridge] Pruned stale queued board_stalled herd input(s) for session ${session.id} (${reason})`);
+  console.log(`[ws-bridge] Pruned stale queued board watchdog herd input(s) for session ${session.id} (${reason})`);
   return true;
 }
 
@@ -1296,7 +1298,7 @@ export function pruneStaleBoardStalledHerdBatch(
       suppressedByNewerTurn = true;
       continue;
     }
-    if (!isLiveBoardStalledEvent(session, event, deps)) {
+    if (!isLiveBoardWatchdogEvent(session, event, deps)) {
       changed = true;
       suppressedByStaleState = true;
       continue;
@@ -1523,6 +1525,7 @@ function buildBoardDispatchableCandidate(
       .map((dep) => dep.toLowerCase())
       .sort()
       .join(",")}${capacitySignature}`,
+    rowUpdatedAt: row.updatedAt,
     questId: row.questId,
     title: row.title?.trim() || undefined,
     summary: warning.summary,
@@ -1650,11 +1653,16 @@ function getBoardParticipantRuntime(
   return { status: "idle", lastActivityAt: launcherInfo?.lastActivityAt ?? 0, hasActiveTimer };
 }
 
-function isLiveBoardStalledEvent(session: SessionLike, event: TakodeEvent, deps: BoardWatchdogDeps): boolean {
-  if (event.event !== "board_stalled") return true;
+function isLiveBoardWatchdogEvent(session: SessionLike, event: TakodeEvent, deps: BoardWatchdogDeps): boolean {
+  if (event.event !== "board_stalled" && event.event !== "board_dispatchable") return true;
   const row = session.board.get(event.data.questId);
   if (!row) return false;
-  if (event.data.stage && row.status !== event.data.stage) return false;
+  if (event.event === "board_stalled") {
+    if (event.data.stage && row.status !== event.data.stage) return false;
+    if (!event.data.signature) return true;
+    return buildBoardStallCandidate(session, row, deps)?.signature === event.data.signature;
+  }
+  if (typeof event.data.rowUpdatedAt === "number" && row.updatedAt !== event.data.rowUpdatedAt) return false;
   if (!event.data.signature) return true;
-  return buildBoardStallCandidate(session, row, deps)?.signature === event.data.signature;
+  return buildBoardDispatchableCandidate(session, row, deps)?.signature === event.data.signature;
 }

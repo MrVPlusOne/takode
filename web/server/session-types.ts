@@ -1902,6 +1902,8 @@ export interface TakodeBoardDispatchableEventData {
   title?: string;
   /** Internal stability key used to drop stale queued dispatchable warnings. */
   signature?: string;
+  /** Board row updatedAt value when the dispatchable transition was observed. */
+  rowUpdatedAt?: number;
   summary: string;
   action?: string;
 }

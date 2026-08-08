@@ -144,7 +144,7 @@ export interface WsBridgeHandle {
       }
     | undefined;
   /** Current active board row for a leader session + quest ID, if any. */
-  getBoardRow?(sessionId: string, questId: string): { status?: string } | null;
+  getBoardRow?(sessionId: string, questId: string): { status?: string; updatedAt?: number } | null;
   /** Current live stall signature for a leader board row, if it is still stalled. */
   getBoardStallSignature?(sessionId: string, questId: string): string | null;
   /** Current live dispatchable signature for a queued leader board row, if it is still dispatchable. */
@@ -1185,10 +1185,14 @@ export class HerdEventDispatcher {
             !entry.event.data.signature ||
             this.wsBridge.getBoardStallSignature(orchId, entry.event.data.questId) === entry.event.data.signature);
       } else {
+        const rowUpdatedAtMatches =
+          typeof entry.event.data.rowUpdatedAt !== "number" || current.updatedAt === entry.event.data.rowUpdatedAt;
         keepEntry =
-          !this.wsBridge.getBoardDispatchableSignature ||
-          !entry.event.data.signature ||
-          this.wsBridge.getBoardDispatchableSignature(orchId, entry.event.data.questId) === entry.event.data.signature;
+          rowUpdatedAtMatches &&
+          (!this.wsBridge.getBoardDispatchableSignature ||
+            !entry.event.data.signature ||
+            this.wsBridge.getBoardDispatchableSignature(orchId, entry.event.data.questId) ===
+              entry.event.data.signature);
       }
       if (keepEntry) {
         keptEntries.push(entry);
@@ -1710,6 +1714,7 @@ function getStableHerdEventKey(event: TakodeEvent): string | null {
       event.sessionId,
       event.data.questId,
       event.data.signature,
+      event.data.rowUpdatedAt,
       event.data.summary,
       event.data.action,
     ]

@@ -187,9 +187,76 @@ describe("external quest wait-for dependencies", () => {
         leaderSessionId: ownerLeader.id,
         candidate: expect.objectContaining({
           questId: "q-31",
+          rowUpdatedAt: ownerLeader.board.get("q-31")?.updatedAt,
           summary: expect.stringContaining("worker slots are available"),
         }),
       }),
     ]);
+  });
+
+  it("emits one source-less dispatchable reminder per live queued transition", () => {
+    const { ownerLeader, watchdogDeps, workBoardStateDeps, injectedReminders } = makeHarness();
+
+    upsertBoardRow(
+      ownerLeader,
+      {
+        questId: "q-40",
+        title: "Capacity queued quest",
+        status: "QUEUED",
+        waitFor: ["free-worker"],
+        updatedAt: 10,
+      },
+      workBoardStateDeps,
+    );
+
+    sweepBoardDispatchableWarnings([ownerLeader], 20, watchdogDeps);
+    sweepBoardDispatchableWarnings([ownerLeader], 30, watchdogDeps);
+
+    expect(injectedReminders).toEqual([
+      expect.objectContaining({
+        leaderSessionId: ownerLeader.id,
+        candidate: expect.objectContaining({
+          questId: "q-40",
+          rowUpdatedAt: 10,
+          summary: expect.stringContaining("can be dispatched now"),
+        }),
+      }),
+    ]);
+
+    upsertBoardRow(
+      ownerLeader,
+      {
+        questId: "q-40",
+        title: "Capacity queued quest",
+        status: "QUEUED",
+        waitFor: ["#999"],
+        updatedAt: 40,
+      },
+      workBoardStateDeps,
+    );
+    sweepBoardDispatchableWarnings([ownerLeader], 50, watchdogDeps);
+
+    upsertBoardRow(
+      ownerLeader,
+      {
+        questId: "q-40",
+        title: "Capacity queued quest",
+        status: "QUEUED",
+        waitFor: ["free-worker"],
+        updatedAt: 60,
+      },
+      workBoardStateDeps,
+    );
+    sweepBoardDispatchableWarnings([ownerLeader], 70, watchdogDeps);
+
+    expect(injectedReminders).toHaveLength(2);
+    expect(injectedReminders[1]).toEqual(
+      expect.objectContaining({
+        candidate: expect.objectContaining({
+          questId: "q-40",
+          rowUpdatedAt: 60,
+        }),
+      }),
+    );
   });
 });

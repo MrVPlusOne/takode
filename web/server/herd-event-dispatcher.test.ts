@@ -1592,6 +1592,63 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
+  it("drops queued board_dispatchable events when the row revision has advanced", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    triggerEvent(
+      makeEvent({
+        event: "board_dispatchable",
+        data: {
+          questId: "q-77",
+          title: "Dispatch the queued follow-up",
+          signature: "dispatchable-sig-1",
+          rowUpdatedAt: 100,
+          summary: "q-77 can be dispatched now: wait-for resolved (q-76).",
+        },
+      }),
+    );
+
+    vi.mocked(bridge.getBoardRow!).mockReturnValue({ status: "QUEUED", updatedAt: 200 });
+    vi.mocked(bridge.getBoardDispatchableSignature!).mockReturnValue("dispatchable-sig-1");
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    dispatcher.onOrchestratorTurnEnd("orch-1");
+
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+
+    dispatcher.destroy();
+  });
+
+  it("suppresses duplicate board_dispatchable events for the same transition before delivery", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    const data = {
+      questId: "q-77",
+      title: "Dispatch the queued follow-up",
+      signature: "dispatchable-sig-1",
+      rowUpdatedAt: 100,
+      summary: "q-77 can be dispatched now: wait-for resolved (q-76).",
+      action: "Dispatch it now.",
+    };
+    triggerEvent(makeEvent({ id: 1, event: "board_dispatchable", data }));
+    triggerEvent(makeEvent({ id: 2, event: "board_dispatchable", data }));
+
+    vi.mocked(bridge.getBoardRow!).mockReturnValue({ status: "QUEUED", updatedAt: 100 });
+    vi.mocked(bridge.getBoardDispatchableSignature!).mockReturnValue("dispatchable-sig-1");
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    dispatcher.onOrchestratorTurnEnd("orch-1");
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][1]).toContain("1 event from 1 session");
+
+    dispatcher.destroy();
+  });
+
   it("delivers turn_end events without turn_source (backwards compatibility)", () => {
     // Events from older sessions that don't have turn_source should still be
     // delivered — absence of the field means "don't filter".

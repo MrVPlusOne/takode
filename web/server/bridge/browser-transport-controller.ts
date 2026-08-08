@@ -195,6 +195,10 @@ export interface BrowserTransportDeps {
     msg: BrowserOutgoingMessage,
     ws?: BrowserTransportSocketLike,
   ) => Promise<void> | void;
+  pruneTakodeHerdBatch?: (
+    session: BrowserTransportSessionLike,
+    batch: TakodeHerdBatchSnapshot | undefined,
+  ) => { batch?: TakodeHerdBatchSnapshot; content?: string; changed: boolean };
   abortAutoApproval: (session: BrowserTransportSessionLike, requestId: string) => void;
   broadcastToBrowsers: (session: BrowserTransportSessionLike, msg: BrowserIncomingMessage) => void;
   setAttentionAction: (session: BrowserTransportSessionLike) => void;
@@ -712,6 +716,20 @@ export function injectUserMessage(
     ...(threadRoute?.questId ? { questId: threadRoute.questId } : {}),
     ...(threadRoute?.threadRefs?.length ? { threadRefs: threadRoute.threadRefs } : {}),
   };
+  const routeHerdMessage = () => {
+    if (isHerdEventSource(agentSource) && takodeHerdBatch && deps.pruneTakodeHerdBatch) {
+      const pruned = deps.pruneTakodeHerdBatch(session, takodeHerdBatch);
+      if (pruned.changed) {
+        if (!pruned.content || !pruned.batch) return;
+        return deps.routeBrowserMessage(session, {
+          ...browserMessage,
+          content: pruned.content,
+          takodeHerdBatch: pruned.batch,
+        });
+      }
+    }
+    return deps.routeBrowserMessage(session, browserMessage);
+  };
 
   if (hadRouteInFlight) {
     if (isHerdEventSource(agentSource) && session.backendType === "codex") {
@@ -721,7 +739,7 @@ export function injectUserMessage(
         return "queued";
       }
       queuedKeys.add(queuedKey);
-      void enqueueSessionRoute(session.id, () => deps.routeBrowserMessage(session, browserMessage), deps)
+      void enqueueSessionRoute(session.id, routeHerdMessage, deps)
         .finally(() => {
           queuedKeys.delete(queuedKey);
           if (queuedKeys.size === 0) {
@@ -731,9 +749,9 @@ export function injectUserMessage(
         .catch(() => {});
       return "queued";
     }
-    void enqueueSessionRoute(session.id, () => deps.routeBrowserMessage(session, browserMessage), deps);
+    void enqueueSessionRoute(session.id, routeHerdMessage, deps);
   } else {
-    void deps.routeBrowserMessage(session, browserMessage);
+    void routeHerdMessage();
     if (isHerdEventSource(agentSource) && session.backendType === "codex") {
       const pending = session.pendingCodexInputs
         .slice(pendingCodexCountBefore)
