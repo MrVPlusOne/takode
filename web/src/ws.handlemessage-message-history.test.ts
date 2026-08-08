@@ -289,6 +289,41 @@ describe("handleMessage: message_history", () => {
     expect(msgs.map((msg) => msg.content).join("\n")).not.toContain("Clarifying state");
   });
 
+  it("strips root Codex thinking blocks from mixed assistant history messages", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "message_history",
+      messages: [
+        {
+          type: "assistant",
+          timestamp: 1500,
+          parent_tool_use_id: null,
+          message: {
+            id: "a-root-thinking-tool",
+            type: "message",
+            role: "assistant",
+            model: "gpt-5.6-sol",
+            content: [
+              { type: "thinking", thinking: "**Evaluating quest ideas**\n\nThis should not become a row." },
+              { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "quest list" } },
+            ],
+            stop_reason: null,
+            usage: { input_tokens: 5, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+        },
+      ],
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).not.toContain("Evaluating quest ideas");
+    expect(msgs[0].contentBlocks).toEqual([
+      { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "quest list" } },
+    ]);
+  });
+
   it("retains parented thinking-only assistant history as scoped chat messages", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });

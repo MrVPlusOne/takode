@@ -677,6 +677,56 @@ describe("handleMessage: thread_window_sync", () => {
     expect(windowMessages.map((msg) => msg.content).join("\n")).not.toContain("Reviewing the route");
   });
 
+  it("strips root Codex thinking blocks from mixed selected thread window entries", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "thread_window_sync",
+      thread_key: "q-1802",
+      entries: [
+        {
+          history_index: 40,
+          message: {
+            type: "assistant",
+            timestamp: 1500,
+            threadKey: "q-1802",
+            questId: "q-1802",
+            threadRefs: [{ threadKey: "q-1802", questId: "q-1802", source: "explicit" }],
+            parent_tool_use_id: null,
+            message: {
+              id: "a-root-thinking-tool-thread",
+              type: "message",
+              role: "assistant",
+              model: "gpt-5.6-sol",
+              content: [
+                { type: "thinking", thinking: "**Evaluating quest ideas**\n\nThis should not persist." },
+                { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "quest list" } },
+              ],
+              stop_reason: null,
+              usage: { input_tokens: 5, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            },
+          },
+        },
+      ],
+      window: {
+        thread_key: "q-1802",
+        from_item: 0,
+        item_count: 1,
+        total_items: 1,
+        source_history_length: 41,
+        section_item_count: 10,
+        visible_item_count: 1,
+      },
+    });
+
+    const [message] = useStore.getState().threadWindowMessages.get("s1")?.get("q-1802") ?? [];
+    expect(message?.content).not.toContain("Evaluating quest ideas");
+    expect(message?.contentBlocks).toEqual([
+      { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "quest list" } },
+    ]);
+  });
+
   it("hydrates historical result errors with neighbor timestamps in selected-feed windows", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

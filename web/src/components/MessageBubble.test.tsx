@@ -1792,6 +1792,56 @@ describe("MessageBubble - assistant messages", () => {
     }
   });
 
+  it("does not render root codex thinking blocks from mixed assistant messages", () => {
+    const prevSessions = useStore.getState().sessions;
+    const nextSessions = new Map(prevSessions);
+    nextSessions.set("codex-session", { backend_type: "codex" } as any);
+    useStore.setState({ sessions: nextSessions });
+
+    try {
+      const msg = makeMessage({
+        role: "assistant",
+        content: "**Evaluating quest ideas**\n\nI need to inspect the current task.",
+        contentBlocks: [
+          { type: "thinking", thinking: "**Evaluating quest ideas**\n\nI need to inspect the current task." },
+          { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "quest list" } },
+        ],
+      });
+      render(<MessageBubble message={msg} sessionId="codex-session" />);
+
+      expect(screen.queryByText(/Evaluating quest ideas/)).toBeNull();
+      expect(screen.queryByText(/I need to inspect the current task/)).toBeNull();
+      expect(screen.getByText("quest list")).toBeTruthy();
+    } finally {
+      useStore.setState({ sessions: prevSessions });
+    }
+  });
+
+  it("preserves root codex text while suppressing sibling thinking blocks", () => {
+    const prevSessions = useStore.getState().sessions;
+    const nextSessions = new Map(prevSessions);
+    nextSessions.set("codex-session", { backend_type: "codex" } as any);
+    useStore.setState({ sessions: nextSessions });
+
+    try {
+      const msg = makeMessage({
+        role: "assistant",
+        content: "**Hidden reasoning**\n\nVisible answer",
+        contentBlocks: [
+          { type: "thinking", thinking: "**Hidden reasoning**\n\nThis should not persist." },
+          { type: "text", text: "Visible answer" },
+        ],
+      });
+      render(<MessageBubble message={msg} sessionId="codex-session" />);
+
+      expect(screen.queryByText(/Hidden reasoning/)).toBeNull();
+      expect(screen.queryByText(/This should not persist/)).toBeNull();
+      expect(screen.getByText("Visible answer")).toBeTruthy();
+    } finally {
+      useStore.setState({ sessions: prevSessions });
+    }
+  });
+
   it("truncates long codex thinking summary with expandable ellipsis", () => {
     const thinkingText =
       "This is a much longer codex reasoning summary that should be truncated in preview mode until the user expands it via the ellipsis control at the end.";

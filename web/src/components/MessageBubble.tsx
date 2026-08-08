@@ -1247,9 +1247,13 @@ function AssistantMessage({
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
   const isCodexSession = useStore((s) => (sessionId ? s.sessions.get(sessionId)?.backend_type === "codex" : false));
-  const blocks = (message.contentBlocks || []).filter(
-    (block) => !(block.type === "tool_use" && isToolHiddenFromChat(block.name)),
-  );
+  const rawBlocks = message.contentBlocks || [];
+  const hasSuppressedRootCodexThinkingBlock =
+    isCodexSession && !message.parentToolUseId && rawBlocks.some((block) => block.type === "thinking");
+  const blocks = rawBlocks.filter((block) => {
+    if (block.type === "tool_use" && isToolHiddenFromChat(block.name)) return false;
+    return !(hasSuppressedRootCodexThinkingBlock && block.type === "thinking");
+  });
 
   const grouped = useMemo(() => groupContentBlocks(blocks), [blocks]);
   const compactToolActivity = useStore((state) => state.compactToolActivity);
@@ -1265,7 +1269,8 @@ function AssistantMessage({
     !hasTextBlock &&
     blocks.length > 0 &&
     blocks.every((block) => block.type === "thinking");
-  const shouldRenderContentFallback = message.content.trim().length > 0 && !hasTextBlock && !hasThinkingBlock;
+  const shouldRenderContentFallback =
+    message.content.trim().length > 0 && !hasTextBlock && !hasThinkingBlock && !hasSuppressedRootCodexThinkingBlock;
   const inboxAnchoredNotification = useStore((s) => {
     if (!sessionId || message.notification || !message.id) return null;
     return getSingleAnchoredNotification(s.sessionNotifications?.get(sessionId), message.id);
@@ -1284,7 +1289,9 @@ function AssistantMessage({
   );
 
   // Only show copy-message button when there's actual text content to copy
-  const hasTextContent = message.content || blocks.some((b) => b.type === "text" || b.type === "thinking");
+  const hasTextContent =
+    (message.content && !hasSuppressedRootCodexThinkingBlock) ||
+    blocks.some((b) => b.type === "text" || b.type === "thinking");
   const firstContentGroupIndex = shouldRenderContentFallback
     ? -1
     : renderedGroups.findIndex((group) => group.kind === "content");
@@ -1298,7 +1305,7 @@ function AssistantMessage({
     return null;
   }
 
-  if (blocks.length === 0 && message.content) {
+  if (blocks.length === 0 && message.content && shouldRenderContentFallback) {
     return (
       <div className={`group/msg relative flex items-start ${showRailMarker ? "gap-2 sm:gap-3" : ""}`}>
         {showRailMarker &&

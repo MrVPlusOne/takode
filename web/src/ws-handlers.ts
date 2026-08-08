@@ -79,6 +79,37 @@ function applyCliDisconnected(sessionId: string, reason: "idle_limit" | "broken"
   store.clearToolProgress(sessionId);
 }
 
+function isCodexSession(sessionId: string): boolean {
+  return useStore.getState().sessions.get(sessionId)?.backend_type === "codex";
+}
+
+function stripRootCodexThinkingBlocks(
+  sessionId: string,
+  parentToolUseId: string | null | undefined,
+  blocks: ContentBlock[],
+): ContentBlock[] {
+  if (parentToolUseId || !isCodexSession(sessionId)) return blocks;
+  return blocks.filter((block) => block.type !== "thinking");
+}
+
+function stripRootCodexThinkingMessage(sessionId: string, message: ChatMessage): ChatMessage | null {
+  const blocks = message.contentBlocks;
+  if (!blocks?.some((block) => block.type === "thinking")) return message;
+  const nextBlocks = stripRootCodexThinkingBlocks(sessionId, message.parentToolUseId, blocks);
+  if (nextBlocks === blocks) return message;
+  const nextContent = extractTextFromBlocks(nextBlocks);
+  if (
+    message.role === "assistant" &&
+    nextContent.trim().length === 0 &&
+    nextBlocks.length === 0 &&
+    !message.notification &&
+    !(message.images?.length || message.localImages?.length)
+  ) {
+    return null;
+  }
+  return { ...message, content: nextContent, contentBlocks: nextBlocks };
+}
+
 function clearRecoverableCodexInitErrors(sessionId: string): void {
   const store = useStore.getState();
   const messages = store.messages.get(sessionId);
@@ -447,7 +478,10 @@ function normalizeHistoryMessages(
     if (histMsg.type === "assistant") {
       if (isRootThinkingOnlyAssistantHistoryEntry(histMsg)) continue;
       const msg = histMsg.message;
-      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
+      for (const chatMessage of normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp })) {
+        const stripped = stripRootCodexThinkingMessage(sessionId, chatMessage);
+        if (stripped) chatMessages.push(stripped);
+      }
       if (msg.content?.length) {
         extractTasksFromBlocks(sessionId, msg.content);
         extractChangedFilesFromBlocks(sessionId, msg.content);
@@ -514,7 +548,10 @@ function normalizeThreadWindowEntries(
     const fallbackTimestamp = fallbackTimestamps[index];
     if (histMsg.type === "assistant") {
       if (isRootThinkingOnlyAssistantHistoryEntry(histMsg)) continue;
-      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
+      for (const chatMessage of normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp })) {
+        const stripped = stripRootCodexThinkingMessage(sessionId, chatMessage);
+        if (stripped) chatMessages.push(stripped);
+      }
       if (histMsg.message.content?.length) {
         extractTasksFromBlocks(sessionId, histMsg.message.content);
         extractChangedFilesFromBlocks(sessionId, histMsg.message.content);
@@ -889,7 +926,7 @@ function handleParsedMessage(
     case "assistant": {
       const msg = data.message;
       const normalized = normalizeLiveAssistantThreadMetadata(data);
-      const contentBlocks = normalized.content;
+      const contentBlocks = stripRootCodexThinkingBlocks(sessionId, data.parent_tool_use_id, normalized.content);
       const textContent = extractTextFromBlocks(contentBlocks);
       const chatMsg: ChatMessage = {
         id: msg.id,
@@ -912,7 +949,11 @@ function handleParsedMessage(
       const existingMsgs = store.messages.get(sessionId) || [];
       const existing = msg.id ? existingMsgs.find((m) => m.id === msg.id) : undefined;
       if (existing) {
-        const mergedBlocks = mergeContentBlocks(existing.contentBlocks || [], contentBlocks || []);
+        const mergedBlocks = stripRootCodexThinkingBlocks(
+          sessionId,
+          data.parent_tool_use_id,
+          mergeContentBlocks(existing.contentBlocks || [], contentBlocks || []),
+        );
         store.updateMessage(sessionId, msg.id!, {
           content: extractTextFromBlocks(mergedBlocks),
           contentBlocks: mergedBlocks,

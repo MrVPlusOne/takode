@@ -205,6 +205,57 @@ describe("handleMessage: assistant", () => {
     expect(state.sessionStatus.get("s1")).toBe("running");
   });
 
+  it("strips root Codex thinking blocks from live mixed assistant messages", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "assistant",
+      message: {
+        id: "msg-codex-thinking-tool",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [
+          { type: "thinking", thinking: "**Evaluating quest ideas**\n\nThis should stay transient only." },
+          { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "quest list" } },
+        ],
+        stop_reason: null,
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+    });
+
+    const [msg] = useStore.getState().messages.get("s1")!;
+    expect(msg.content).not.toContain("Evaluating quest ideas");
+    expect(msg.contentBlocks).toEqual([
+      { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "quest list" } },
+    ]);
+  });
+
+  it("preserves parented Codex thinking blocks from live assistant messages", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "assistant",
+      message: {
+        id: "msg-codex-parented-thinking",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [{ type: "thinking", thinking: "Scoped subagent reasoning" }],
+        stop_reason: null,
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: "agent-1",
+    });
+
+    const [msg] = useStore.getState().messages.get("s1")!;
+    expect(msg.parentToolUseId).toBe("agent-1");
+    expect(msg.contentBlocks).toEqual([{ type: "thinking", thinking: "Scoped subagent reasoning" }]);
+  });
+
   it("repairs live assistant thread prefixes when server metadata is missing", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
