@@ -2,14 +2,17 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  beginColdReplayFlushTiming,
   beginHistoryReceiveRenderTiming,
   beginThreadNavigationTiming,
   clearFrontendPerfSessionCorrelations,
   clearFrontendPerfEntries,
+  completeColdReplayFlushTiming,
   completeHistoryReceiveRenderTiming,
   exportFrontendPerfEntries,
   getFrontendPerfEntries,
   markHistoryReceiveRenderCommitted,
+  markColdReplayFlushCommitted,
   markThreadNavigationCommitted,
   recordFeedRenderSnapshot,
   recordFrontendPerfEntry,
@@ -154,6 +157,42 @@ describe("frontend perf recorder", () => {
         nextPaintDurationMs: 25,
         totalDurationMs: 40,
       }),
+    ]);
+  });
+
+  it("records cold replay apply, commit, and paint with metadata-only type counts", () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const now = vi.spyOn(performance, "now");
+
+    beginColdReplayFlushTiming({
+      sessionId: "s1",
+      eventCount: 600,
+      eventTypeCounts: { tool_progress: 400, stream_event: 200 },
+      startedAt: 10,
+    });
+    completeColdReplayFlushTiming({ sessionId: "s1", appliedAt: 30, applyDurationMs: 20 });
+    now.mockReturnValueOnce(40);
+    markColdReplayFlushCommitted("s1");
+    frames.shift()?.(50);
+    now.mockReturnValueOnce(70);
+    frames.shift()?.(60);
+
+    expect(getFrontendPerfEntries()).toEqual([
+      {
+        kind: "cold_replay_flush",
+        timestamp: expect.any(Number),
+        sessionId: "s1",
+        eventCount: 600,
+        eventTypeCounts: { tool_progress: 400, stream_event: 200 },
+        applyDurationMs: 20,
+        reactCommitDurationMs: 10,
+        nextPaintDurationMs: 30,
+        totalDurationMs: 60,
+      },
     ]);
   });
 

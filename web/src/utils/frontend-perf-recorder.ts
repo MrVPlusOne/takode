@@ -39,6 +39,17 @@ export type FrontendPerfEntry =
       totalDurationMs: number;
     }
   | {
+      kind: "cold_replay_flush";
+      timestamp: number;
+      sessionId: string;
+      eventCount: number;
+      eventTypeCounts: Record<string, number>;
+      applyDurationMs: number;
+      reactCommitDurationMs: number;
+      nextPaintDurationMs: number;
+      totalDurationMs: number;
+    }
+  | {
       kind: "event_replay";
       timestamp: number;
       sessionId: string;
@@ -169,7 +180,7 @@ export type FrontendPerfEntry =
       ok: boolean;
       deduped?: boolean;
       recoveryReason?: string;
-      applicationMode?: "patched" | "refetch_only" | "deduped";
+      applicationMode?: "patched" | "refetch_only" | "deduped" | "authoritative_noop";
       advisoryReason?: string;
       skippedLocalPatch?: boolean;
       replayed?: boolean;
@@ -262,6 +273,19 @@ interface PendingThreadNavigation {
 
 const pendingThreadNavigations = new Map<string, PendingThreadNavigation>();
 
+interface PendingColdReplayFlush {
+  sessionId: string;
+  eventCount: number;
+  eventTypeCounts: Record<string, number>;
+  startedAt: number;
+  appliedAt?: number;
+  applyDurationMs?: number;
+  committedAt?: number;
+  paintScheduled?: boolean;
+}
+
+const pendingColdReplayFlushes = new Map<string, PendingColdReplayFlush>();
+
 function perfNow(): number {
   return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
 }
@@ -302,6 +326,9 @@ function prunePendingCorrelations(now = perfNow()): void {
     const oldestSessionId = pendingThreadNavigations.keys().next().value as string | undefined;
     if (!oldestSessionId) break;
     pendingThreadNavigations.delete(oldestSessionId);
+  }
+  for (const [sessionId, pending] of pendingColdReplayFlushes) {
+    if (now - pending.startedAt > MAX_PENDING_CORRELATION_AGE_MS) pendingColdReplayFlushes.delete(sessionId);
   }
 }
 
@@ -420,11 +447,67 @@ export function markThreadNavigationCommitted(sessionId: string, threadKey: stri
   });
 }
 
+function scheduleColdReplayFlushPaint(pending: PendingColdReplayFlush): void {
+  if (pending.paintScheduled || pending.appliedAt === undefined || pending.committedAt === undefined) return;
+  pending.paintScheduled = true;
+  scheduleFrame(() => {
+    scheduleFrame(() => {
+      if (pendingColdReplayFlushes.get(pending.sessionId) !== pending) return;
+      const paintAt = perfNow();
+      const commitBase = Math.max(pending.appliedAt!, pending.committedAt!);
+      recordFrontendPerfEntry({
+        kind: "cold_replay_flush",
+        timestamp: Date.now(),
+        sessionId: pending.sessionId,
+        eventCount: pending.eventCount,
+        eventTypeCounts: pending.eventTypeCounts,
+        applyDurationMs: pending.applyDurationMs ?? 0,
+        reactCommitDurationMs: Math.max(0, pending.committedAt! - pending.appliedAt!),
+        nextPaintDurationMs: Math.max(0, paintAt - commitBase),
+        totalDurationMs: Math.max(0, paintAt - pending.startedAt),
+      });
+      if (pendingColdReplayFlushes.get(pending.sessionId) === pending) {
+        pendingColdReplayFlushes.delete(pending.sessionId);
+      }
+    });
+  });
+}
+
+export function beginColdReplayFlushTiming(input: {
+  sessionId: string;
+  eventCount: number;
+  eventTypeCounts: Record<string, number>;
+  startedAt: number;
+}): void {
+  prunePendingCorrelations(input.startedAt);
+  pendingColdReplayFlushes.set(input.sessionId, { ...input });
+}
+
+export function completeColdReplayFlushTiming(input: {
+  sessionId: string;
+  appliedAt: number;
+  applyDurationMs: number;
+}): void {
+  const pending = pendingColdReplayFlushes.get(input.sessionId);
+  if (!pending) return;
+  pending.appliedAt = input.appliedAt;
+  pending.applyDurationMs = input.applyDurationMs;
+  scheduleColdReplayFlushPaint(pending);
+}
+
+export function markColdReplayFlushCommitted(sessionId: string): void {
+  const pending = pendingColdReplayFlushes.get(sessionId);
+  if (!pending || pending.committedAt !== undefined) return;
+  pending.committedAt = perfNow();
+  scheduleColdReplayFlushPaint(pending);
+}
+
 export function clearFrontendPerfSessionCorrelations(sessionId: string): void {
   for (const receiveId of [...(pendingHistoryReceiveIdsBySession.get(sessionId) ?? [])]) {
     removePendingHistoryReceive(receiveId);
   }
   pendingThreadNavigations.delete(sessionId);
+  pendingColdReplayFlushes.delete(sessionId);
 }
 
 export function recordFrontendPerfEntry(entry: FrontendPerfEntry): void {
@@ -444,6 +527,7 @@ export function clearFrontendPerfEntries(): void {
   pendingHistoryReceives.clear();
   pendingHistoryReceiveIdsBySession.clear();
   pendingThreadNavigations.clear();
+  pendingColdReplayFlushes.clear();
 }
 
 export function exportFrontendPerfEntries(): string {

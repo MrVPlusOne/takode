@@ -334,7 +334,67 @@ describe("handleMessage: event_replay", () => {
     expect(lastWs.send).toHaveBeenCalledWith(JSON.stringify({ type: "session_ack", last_seq: 1 }));
   });
 
-  it("treats cold buffered thread attachment replay after an authoritative window as refetch-only", async () => {
+  it("records a dedicated metadata-only flush for a 600-event cold replay", async () => {
+    // Producer-shaped ceiling coverage: replay apply must be observable
+    // separately from state_snapshot without retaining event payload content.
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+    fireMessage({
+      type: "thread_window_sync",
+      thread_key: "q-1825",
+      entries: [],
+      window: {
+        thread_key: "q-1825",
+        from_item: 0,
+        item_count: 0,
+        total_items: 0,
+        source_history_length: 0,
+        section_item_count: 10,
+        visible_item_count: 30,
+      },
+    });
+    fireMessage({
+      type: "event_replay",
+      events: Array.from({ length: 600 }, (_, index) => ({
+        seq: index + 1,
+        message:
+          index < 400
+            ? {
+                type: "tool_progress",
+                tool_use_id: `tool-${index % 4}`,
+                tool_name: "Bash",
+                elapsed_time_seconds: index,
+              }
+            : { type: "status_change", status: "running" },
+      })),
+    });
+    fireMessage({ type: "state_snapshot", sessionStatus: "running", backendConnected: true });
+
+    const perf = await import("./utils/frontend-perf-recorder.js");
+    perf.markColdReplayFlushCommitted("s1");
+    while (frames.length > 0) frames.shift()?.(performance.now());
+
+    expect(perf.getFrontendPerfEntries()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "cold_replay_flush",
+          sessionId: "s1",
+          eventCount: 600,
+          eventTypeCounts: { tool_progress: 400, status_change: 200 },
+          applyDurationMs: expect.any(Number),
+          reactCommitDurationMs: expect.any(Number),
+          nextPaintDurationMs: expect.any(Number),
+        }),
+      ]),
+    );
+  });
+
+  it("treats cold buffered thread attachment replay after an authoritative window as an authoritative no-op", async () => {
     wsModule.connectSession("s1");
     lastWs.onopen?.(new Event("open"));
     lastWs.send.mockClear();
@@ -369,27 +429,7 @@ describe("handleMessage: event_replay", () => {
     const messages = useStore.getState().messages.get("s1") ?? [];
     expect(messages.find((message) => message.id === "u2")?.metadata?.threadRefs).toBeUndefined();
     expect(messages.some((message) => message.id === "marker-1")).toBe(false);
-    expect(lastWs.send).toHaveBeenCalledWith(
-      JSON.stringify({
-        type: "history_window_request",
-        from_turn: -1,
-        turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-        section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
-        visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
-      }),
-    );
-    expect(lastWs.send).toHaveBeenCalledWith(
-      JSON.stringify({
-        type: "thread_window_request",
-        thread_key: "q-1087",
-        from_item: -1,
-        item_count: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-        section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
-        visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
-      }),
-    );
+    expect(lastWs.send).not.toHaveBeenCalledWith(expect.stringContaining("window_request"));
 
     const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
     expect(getFrontendPerfEntries()).toEqual(
@@ -397,13 +437,13 @@ describe("handleMessage: event_replay", () => {
         expect.objectContaining({
           kind: "thread_attachment_update_apply",
           sessionId: "s1",
-          applicationMode: "refetch_only",
+          applicationMode: "authoritative_noop",
           advisoryReason: "cold_buffered_replay_after_authoritative_sync",
           skippedLocalPatch: true,
           replayed: true,
           coldBufferedReplay: true,
-          requestedHistoryWindowCount: 1,
-          requestedThreadWindowCount: 1,
+          requestedHistoryWindowCount: 0,
+          requestedThreadWindowCount: 0,
         }),
       ]),
     );

@@ -18,7 +18,13 @@ import {
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { buildLeaderProjectionSnapshot, toLeaderProjectionWireSnapshot } from "../../shared/leader-projection.js";
 import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
-import { buildThreadWindowSync, getThreadWindowItemCount } from "../../shared/thread-window.js";
+import {
+  buildThreadWindowSync,
+  getThreadWindowItemCount,
+  MAIN_THREAD_KEY,
+  normalizeSelectedFeedThreadKey,
+} from "../../shared/thread-window.js";
+import { isQuestThreadKey } from "../../shared/thread-routing.js";
 import { deriveWindowAvailability } from "../../shared/window-availability.js";
 import { sessionTag } from "../session-tag.js";
 import { findTurnBoundaries } from "../takode-messages.js";
@@ -71,6 +77,7 @@ import type {
   SessionTaskEntry,
   SessionState,
   LeaderProjectionInternalSnapshot,
+  InitialThreadWindowRequest,
   TakodeHerdBatchSnapshot,
   ToolResultPreview,
   VsCodeOpenFileCommand,
@@ -80,6 +87,13 @@ import type {
 
 type AgentSource = { sessionId: string; sessionLabel?: string };
 type ProgrammaticUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message" }>;
+
+type BrowserTransportSocketData = {
+  sessionId?: string;
+  subscribed?: boolean;
+  lastAckSeq?: number;
+  initialTreeGroupState?: Promise<BrowserTransportTreeGroupState | null>;
+};
 
 export interface ProgrammaticUserMessageOptions {
   deliveryContent?: ProgrammaticUserMessage["deliveryContent"];
@@ -280,19 +294,10 @@ export function handleBrowserOpen(
     type: "codex_pending_inputs",
     inputs: compactPendingCodexInputsForBrowser(session.pendingCodexInputs),
   } as BrowserIncomingMessage);
-  void deps
-    .getTreeGroupState()
-    .then((treeGroups) => {
-      sendToBrowser(ws, {
-        type: "tree_groups_update",
-        treeGroups: treeGroups.groups,
-        treeAssignments: treeGroups.assignments,
-        treeNodeOrder: treeGroups.nodeOrder,
-      } as BrowserIncomingMessage);
-    })
-    .catch((err) => {
-      console.warn("[ws-bridge] failed to send tree group state on connect:", err);
-    });
+  (ws.data as BrowserTransportSocketData).initialTreeGroupState = deps.getTreeGroupState().catch((err) => {
+    console.warn("[ws-bridge] failed to prepare tree group state on connect:", err);
+    return null;
+  });
   sendToBrowser(ws, {
     type: "vscode_selection_state",
     state: deps.getVsCodeSelectionState(),
@@ -509,6 +514,7 @@ export function handleBrowserProtocolMessage(
       msg.history_window_section_turn_count,
       msg.history_window_visible_section_count,
       msg.feed_window_sync_version,
+      msg.initial_thread_window,
       deps,
     ).then(() => true);
   }
@@ -1300,6 +1306,57 @@ function sendFeedWindowSyncIfSupported(
   sendToBrowser(ws, { type: "feed_window_sync", sync } as BrowserIncomingMessage);
 }
 
+function normalizeInitialThreadWindowRequest(
+  request: InitialThreadWindowRequest | undefined,
+  session: BrowserTransportSessionLike,
+  deps: Pick<BrowserTransportDeps, "getLauncherSessionInfo">,
+): InitialThreadWindowRequest | null {
+  if (!request || !isLeaderSession(session, deps)) return null;
+  const threadKey = normalizeSelectedFeedThreadKey(request.thread_key);
+  if (threadKey !== MAIN_THREAD_KEY && !isQuestThreadKey(threadKey)) return null;
+  if (
+    !Number.isFinite(request.from_item) ||
+    !Number.isFinite(request.item_count) ||
+    request.item_count <= 0 ||
+    !Number.isFinite(request.section_item_count) ||
+    request.section_item_count <= 0 ||
+    !Number.isFinite(request.visible_item_count) ||
+    request.visible_item_count <= 0
+  ) {
+    return null;
+  }
+  const targetMessageId = request.target_message_id?.trim();
+  const cachedWindowHash = request.cached_window_hash?.trim();
+  return {
+    thread_key: threadKey,
+    from_item: request.from_item < 0 ? -1 : Math.floor(request.from_item),
+    item_count: Math.max(1, Math.floor(request.item_count)),
+    section_item_count: Math.max(1, Math.floor(request.section_item_count)),
+    visible_item_count: Math.max(1, Math.floor(request.visible_item_count)),
+    ...(cachedWindowHash && !targetMessageId ? { cached_window_hash: cachedWindowHash } : {}),
+    ...(targetMessageId ? { target_message_id: targetMessageId } : {}),
+  };
+}
+
+async function sendInitialTreeGroupState(ws: BrowserTransportSocketLike): Promise<void> {
+  const data = (ws.data ??= {}) as BrowserTransportSocketData;
+  const pending = data.initialTreeGroupState;
+  delete data.initialTreeGroupState;
+  if (!pending) return;
+  try {
+    const treeGroups = await pending;
+    if (!treeGroups) return;
+    sendToBrowser(ws, {
+      type: "tree_groups_update",
+      treeGroups: treeGroups.groups,
+      treeAssignments: treeGroups.assignments,
+      treeNodeOrder: treeGroups.nodeOrder,
+    } as BrowserIncomingMessage);
+  } catch {
+    // Preparation already records the failure; socket cleanup is handled elsewhere.
+  }
+}
+
 export async function handleSessionSubscribe(
   session: BrowserTransportSessionLike,
   ws: BrowserTransportSocketLike | undefined,
@@ -1309,6 +1366,7 @@ export async function handleSessionSubscribe(
   historyWindowSectionTurnCount: number | undefined,
   historyWindowVisibleSectionCount: number | undefined,
   feedWindowSyncVersion: number | undefined,
+  initialThreadWindow: InitialThreadWindowRequest | undefined,
   deps: BrowserTransportDeps,
 ): Promise<void> {
   if (!ws) return;
@@ -1351,9 +1409,25 @@ export async function handleSessionSubscribe(
   }
   if (cleanedStale) deps.persistSession(session);
 
+  let replayEvents: BufferedBrowserEvent[] = [];
+  let sentInitialThreadWindow = false;
   if (lastAckSeq === 0) {
     sendLeaderProjectionSnapshot(session, ws, deps);
-    if (session.messageHistory.length > 0) {
+    const normalizedInitialThreadWindow = normalizeInitialThreadWindowRequest(initialThreadWindow, session, deps);
+    if (normalizedInitialThreadWindow) {
+      sendThreadWindowSync(session, ws, {
+        threadKey: normalizedInitialThreadWindow.thread_key,
+        fromItem: normalizedInitialThreadWindow.from_item,
+        itemCount: normalizedInitialThreadWindow.item_count,
+        sectionItemCount: normalizedInitialThreadWindow.section_item_count,
+        visibleItemCount: normalizedInitialThreadWindow.visible_item_count,
+        cachedWindowHash: normalizedInitialThreadWindow.cached_window_hash,
+        targetMessageId: normalizedInitialThreadWindow.target_message_id,
+        feedWindowSyncVersion,
+      });
+      sentInitialThreadWindow = true;
+      await yieldToEventLoop();
+    } else if (session.messageHistory.length > 0) {
       if (
         typeof historyWindowSectionTurnCount === "number" &&
         historyWindowSectionTurnCount > 0 &&
@@ -1376,12 +1450,9 @@ export async function handleSessionSubscribe(
       }
     }
     if (deriveSessionStatus(session, deps) === "running" && session.eventBuffer.length > 0) {
-      const transient = session.eventBuffer.filter(
+      replayEvents = session.eventBuffer.filter(
         (evt) => !isHistoryBackedEvent(evt.message as ReplayableBrowserIncomingMessage),
       );
-      if (transient.length > 0) {
-        sendToBrowser(ws, { type: "event_replay", events: transient } as BrowserIncomingMessage);
-      }
     }
   } else if (lastAckSeq < session.nextEventSeq - 1) {
     const earliest = session.eventBuffer[0]?.seq ?? session.nextEventSeq;
@@ -1394,15 +1465,18 @@ export async function handleSessionSubscribe(
       if (session.messageHistory.length > 0) {
         await sendHistorySync(session, ws, knownFrozenCount ?? 0, knownFrozenHash);
       }
-      const transientMissed = missedEvents.filter(
+      replayEvents = missedEvents.filter(
         (evt) => !isHistoryBackedEvent(evt.message as ReplayableBrowserIncomingMessage),
       );
-      if (transientMissed.length > 0) {
-        sendToBrowser(ws, { type: "event_replay", events: transientMissed } as BrowserIncomingMessage);
-      }
     } else if (missedEvents.length > 0) {
-      sendToBrowser(ws, { type: "event_replay", events: missedEvents } as BrowserIncomingMessage);
+      replayEvents = missedEvents;
     }
+  }
+
+  if (sentInitialThreadWindow) await sendInitialTreeGroupState(ws);
+  else void sendInitialTreeGroupState(ws);
+  if (replayEvents.length > 0) {
+    sendToBrowser(ws, { type: "event_replay", events: replayEvents } as BrowserIncomingMessage);
   }
 
   if (session.pendingPermissions.size > 0) {

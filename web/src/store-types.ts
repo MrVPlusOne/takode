@@ -58,6 +58,7 @@ export interface AppState {
   threadWindowMessages: Map<string, Map<string, ChatMessage[]>>;
   threadWindowRefreshRevisions: Map<string, number>;
   threadWindowAppliedRevisions: Map<string, Map<string, number>>;
+  pendingThreadWindowRequests: Map<string, string>;
   feedWindowSyncs: Map<string, FeedWindowSync>;
   threadFeedWindowSyncs: Map<string, Map<string, FeedWindowSync>>;
   leaderProjections: Map<string, LeaderProjectionSnapshot>;
@@ -260,6 +261,7 @@ export interface AppState {
     window: ThreadWindowState | null,
     messages?: ChatMessage[],
   ) => void;
+  setPendingThreadWindowRequest: (sessionId: string, threadKey: string | null) => void;
   setFeedWindowSync: (sessionId: string, sync: FeedWindowSync | null) => void;
   setPendingCodexInputs: (sessionId: string, inputs: PendingCodexInput[]) => void;
   updateMessage: (sessionId: string, msgId: string, updates: Partial<ChatMessage>) => void;

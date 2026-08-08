@@ -97,6 +97,7 @@ vi.mock("../store.js", () => {
       threadWindowMessages: mockStoreValues.threadWindowMessages ?? new Map(),
       threadWindowRefreshRevisions: mockStoreValues.threadWindowRefreshRevisions ?? new Map(),
       threadWindowAppliedRevisions: mockStoreValues.threadWindowAppliedRevisions ?? new Map(),
+      pendingThreadWindowRequests: mockStoreValues.pendingThreadWindowRequests ?? new Map(),
       feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
       turnActivityOverrides: mockStoreValues.turnActivityOverrides ?? new Map(),
       autoExpandedTurnIds: mockStoreValues.autoExpandedTurnIds ?? new Map(),
@@ -134,6 +135,13 @@ vi.mock("../store.js", () => {
     keepTurnExpanded: mockKeepTurnExpanded,
     clearBottomAlignOnNextUserMessage: mockClearBottomAlignOnNextUserMessage,
     setComposerDraft: mockSetComposerDraft,
+    pendingThreadWindowRequests: mockStoreValues.pendingThreadWindowRequests ?? new Map(),
+    setPendingThreadWindowRequest: (sessionId: string, threadKey: string | null) => {
+      const pending = new Map((mockStoreValues.pendingThreadWindowRequests as Map<string, string>) ?? []);
+      if (threadKey) pending.set(sessionId, threadKey);
+      else pending.delete(sessionId);
+      mockStoreValues.pendingThreadWindowRequests = pending;
+    },
     removePendingUserUpload: vi.fn(),
     updatePendingUserUpload: vi.fn(),
     focusComposer: vi.fn(),
@@ -1101,6 +1109,39 @@ describe("MessageFeed section windowing", () => {
 
     expect(screen.getByText("Persisted Main history tail")).toBeTruthy();
     expect(screen.queryByText("Start a conversation")).toBeNull();
+  });
+
+  it("does not duplicate the thread request already carried by session_subscribe", async () => {
+    const sid = "test-leader-subscribed-selected-window";
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreHistoryLoading(sid, true);
+    mockStoreValues.pendingThreadWindowRequests = new Map([[sid, "main"]]);
+
+    render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+    expect(screen.getByText("Loading conversation...")).toBeTruthy();
+    await flushFeedObservers();
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({ type: "thread_window_request", thread_key: "main" }),
+    );
+  });
+
+  it("does not duplicate an in-flight initial thread window request after rerender", async () => {
+    const sid = "test-leader-inflight-selected-window";
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreHistoryLoading(sid, true);
+
+    const { rerender } = render(<MessageFeed sessionId={sid} threadKey="main" />);
+    await flushFeedObservers();
+    rerender(<MessageFeed sessionId={sid} threadKey="main" />);
+    await flushFeedObservers();
+
+    expect(mockSendToSession).toHaveBeenCalledTimes(1);
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({ type: "thread_window_request", thread_key: "main" }),
+    );
   });
 
   // Authoritative session refreshes can invalidate selected leader windows, but

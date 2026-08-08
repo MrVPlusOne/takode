@@ -3,12 +3,78 @@ import type { BrowserIncomingMessage, BrowserOutgoingMessage, McpServerConfig, S
 import { createWsTransport } from "./ws-transport.js";
 import { createWsMessageHandler, resolveSessionFilePath } from "./ws-handlers.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
+import { normalizeLeaderOpenThreadTabsState } from "../shared/leader-open-thread-tabs.js";
+import { getThreadWindowItemCount } from "../shared/thread-window.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
+import { resolveInitialLeaderThreadKey } from "./utils/initial-leader-thread.js";
+import { getCachedThreadWindowHash } from "./utils/history-window-cache.js";
+import { messageIdFromHash, parseHash, resolveSessionIdFromRoute, threadRouteFromHash } from "./utils/routing.js";
+import { ALL_THREADS_KEY } from "./utils/thread-projection.js";
+import { readLeaderViewportPosition } from "./utils/thread-viewport.js";
 
 let handleIncomingMessage:
   | ((sessionId: string, data: BrowserIncomingMessage, context: WsIncomingMessageContext) => void)
   | null = null;
 let pendingVsCodeSelectionUpdate: Extract<BrowserOutgoingMessage, { type: "vscode_selection_update" }> | null = null;
+
+function getInitialLeaderThreadWindow(
+  sessionId: string,
+): Extract<BrowserOutgoingMessage, { type: "session_subscribe" }>["initial_thread_window"] {
+  const store = useStore.getState();
+  const sdkSession = store.sdkSessions.find((session) => session.sessionId === sessionId);
+  const bridgeSession = store.sessions.get(sessionId);
+  const isLeaderSession = bridgeSession?.isOrchestrator === true || sdkSession?.isOrchestrator === true;
+  if (!isLeaderSession) return undefined;
+
+  const route = typeof window === "undefined" ? null : parseHash(window.location.hash);
+  const routeSessionId =
+    route?.page === "session" ? resolveSessionIdFromRoute(route.sessionId, store.sdkSessions) : null;
+  const routeMatchesSession = routeSessionId === sessionId;
+  const threadRoute = routeMatchesSession
+    ? threadRouteFromHash(window.location.hash)
+    : { hasThreadParam: false, threadKey: null };
+  const threadKey = resolveInitialLeaderThreadKey({
+    sessionId,
+    isLeaderSession,
+    hasThreadRoute: threadRoute.hasThreadParam,
+    routeThreadKey: threadRoute.threadKey,
+    leaderOpenThreadTabs: normalizeLeaderOpenThreadTabsState(
+      bridgeSession?.leaderOpenThreadTabs ?? sdkSession?.leaderOpenThreadTabs,
+    ),
+  });
+  if (threadKey === ALL_THREADS_KEY) return undefined;
+
+  const existingWindow = store.threadWindows.get(sessionId)?.get(threadKey);
+  const sectionItemCount = existingWindow?.section_item_count ?? HISTORY_WINDOW_SECTION_TURN_COUNT;
+  const visibleItemCount = existingWindow?.visible_item_count ?? HISTORY_WINDOW_VISIBLE_SECTION_COUNT;
+  const itemCount = existingWindow?.item_count ?? getThreadWindowItemCount(visibleItemCount, sectionItemCount);
+  const savedViewport = readLeaderViewportPosition(sessionId, threadKey);
+  const targetMessageId =
+    store.scrollToMessageId.get(sessionId) ??
+    store.pendingScrollToMessageId.get(sessionId) ??
+    (routeMatchesSession ? messageIdFromHash(window.location.hash) : null) ??
+    (savedViewport?.isAtBottom ? null : (savedViewport?.anchorMessageId ?? savedViewport?.anchorTurnId ?? null));
+  const cachedWindowHash =
+    existingWindow && !targetMessageId
+      ? getCachedThreadWindowHash(sessionId, {
+          threadKey,
+          fromItem: existingWindow.from_item,
+          itemCount,
+          sectionItemCount,
+          visibleItemCount,
+        })
+      : undefined;
+
+  return {
+    thread_key: threadKey,
+    from_item: targetMessageId ? -1 : (existingWindow?.from_item ?? -1),
+    item_count: itemCount,
+    section_item_count: sectionItemCount,
+    visible_item_count: visibleItemCount,
+    ...(cachedWindowHash ? { cached_window_hash: cachedWindowHash } : {}),
+    ...(targetMessageId ? { target_message_id: targetMessageId } : {}),
+  };
+}
 
 const transport = createWsTransport({
   hasLocalMessages: (sessionId) => {
@@ -27,14 +93,23 @@ const transport = createWsTransport({
     const store = useStore.getState();
     if (store.pendingScrollToMessageIndex.get(sessionId) != null) return null;
     if (store.scrollToTurnId.get(sessionId)) return null;
-    if (store.pendingScrollToMessageId.get(sessionId)) return null;
+    if (store.pendingScrollToMessageId.get(sessionId) && !getInitialLeaderThreadWindow(sessionId)) return null;
     return {
       sectionTurnCount: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visibleSectionCount: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
     };
   },
+  getInitialThreadWindow: getInitialLeaderThreadWindow,
   onConnecting: (sessionId) => {
-    useStore.getState().setConnectionStatus(sessionId, "connecting");
+    const store = useStore.getState();
+    const initialThreadWindow = getInitialLeaderThreadWindow(sessionId);
+    store.setPendingThreadWindowRequest(
+      sessionId,
+      initialThreadWindow && !store.threadWindows.get(sessionId)?.has(initialThreadWindow.thread_key)
+        ? initialThreadWindow.thread_key
+        : null,
+    );
+    store.setConnectionStatus(sessionId, "connecting");
   },
   onConnected: (sessionId) => {
     useStore.getState().setConnectionStatus(sessionId, "connected");
@@ -46,7 +121,9 @@ const transport = createWsTransport({
     }
   },
   onDisconnected: (sessionId) => {
-    useStore.getState().setConnectionStatus(sessionId, "disconnected");
+    const store = useStore.getState();
+    store.setPendingThreadWindowRequest(sessionId, null);
+    store.setConnectionStatus(sessionId, "disconnected");
   },
   shouldReconnect: (sessionId) => {
     const store = useStore.getState();

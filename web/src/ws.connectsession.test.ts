@@ -76,6 +76,7 @@ beforeEach(async () => {
   listSessionsMock.mockResolvedValue([]);
   playNotificationSoundMock.mockReset();
   MockWebSocket.instances = [];
+  window.location.hash = "";
 
   const storeModule = await import("./store.js");
   useStore = storeModule.useStore;
@@ -218,6 +219,114 @@ describe("connectSession", () => {
         feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       }),
     );
+  });
+
+  it("includes the selected leader quest window in a cold subscribe", () => {
+    useStore.setState({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true } as any],
+    });
+    window.location.hash = "#/session/s1?thread=q-1825";
+
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    expect(lastWs.send).toHaveBeenCalledWith(
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        known_frozen_count: 0,
+        history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+        initial_thread_window: {
+          thread_key: "q-1825",
+          from_item: -1,
+          item_count: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+          section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+          visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+        },
+      }),
+    );
+    expect(useStore.getState().pendingThreadWindowRequests.get("s1")).toBe("q-1825");
+  });
+
+  it("keeps All Threads on the legacy bounded history subscribe", () => {
+    useStore.setState({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true } as any],
+    });
+    window.location.hash = "#/session/s1?thread=all";
+
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    expect(lastWs.send).toHaveBeenCalledWith(
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        known_frozen_count: 0,
+        history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+      }),
+    );
+    expect(useStore.getState().pendingThreadWindowRequests.has("s1")).toBe(false);
+  });
+
+  it("centers the initial leader window on a stable message target", () => {
+    useStore.setState({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true } as any],
+    });
+    useStore.getState().setPendingScrollToMessageId("s1", "message-42");
+    window.location.hash = "#/session/s1/msg/message-42?thread=q-1825";
+
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    const subscribe = JSON.parse(lastWs.send.mock.calls[0][0]);
+    expect(subscribe).toMatchObject({
+      type: "session_subscribe",
+      history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      initial_thread_window: {
+        thread_key: "q-1825",
+        from_item: -1,
+        target_message_id: "message-42",
+      },
+    });
+  });
+
+  it("reuses a verified cached selected-thread window hash on reconnect", async () => {
+    useStore.setState({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true } as any],
+    });
+    const window = {
+      thread_key: "main",
+      from_item: 7,
+      item_count: 12,
+      total_items: 20,
+      source_history_length: 100,
+      section_item_count: 4,
+      visible_item_count: 3,
+      window_hash: "window-hash",
+    };
+    const entries = [
+      { history_index: 7, message: { type: "user_message", id: "u7", content: "cached", timestamp: 7 } },
+    ] as any;
+    useStore.getState().setThreadWindow("s1", "main", window, []);
+    const { cacheThreadWindow } = await import("./utils/history-window-cache.js");
+    cacheThreadWindow("s1", window, entries);
+
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    const subscribe = JSON.parse(lastWs.send.mock.calls[0][0]);
+    expect(subscribe.initial_thread_window).toEqual({
+      thread_key: "main",
+      from_item: 7,
+      item_count: 12,
+      section_item_count: 4,
+      visible_item_count: 3,
+      cached_window_hash: "window-hash",
+    });
   });
 
   it("falls back to full-history subscribe when a pending message scroll needs absolute indexes", () => {

@@ -90,6 +90,26 @@ export function applyThreadAttachmentUpdate(
   }
 
   if (baseCheck.mode === "refetch_only") {
+    if (baseCheck.reason === "cold_buffered_replay_after_authoritative_sync") {
+      recordFrontendPerfEntry({
+        kind: "thread_attachment_update_apply",
+        timestamp: Date.now(),
+        sessionId,
+        ...stats,
+        requestedHistoryWindowCount: 0,
+        requestedThreadWindowCount: 0,
+        durationMs: perfNow() - startedAt,
+        ok: true,
+        applicationMode: "authoritative_noop",
+        advisoryReason: baseCheck.reason,
+        skippedLocalPatch: true,
+        replayed,
+        coldBufferedReplay,
+        updateHistoryLength: safeUpdate.historyLength,
+        knownAuthoritativeHistoryLength: baseCheck.knownAuthoritativeHistoryLength,
+      });
+      return;
+    }
     invalidateThreadAttachmentWindows(sessionId, safeUpdate.affectedThreadKeys);
     requestLatestMainWindow(sessionId, deps);
     const requestedThreadWindowCount = requestAffectedThreadWindows(sessionId, safeUpdate.affectedThreadKeys, deps);

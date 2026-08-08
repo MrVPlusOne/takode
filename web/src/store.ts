@@ -141,6 +141,7 @@ export const useStore = create<AppState>((set, get) => ({
   threadWindowMessages: new Map(),
   threadWindowRefreshRevisions: new Map(),
   threadWindowAppliedRevisions: new Map(),
+  pendingThreadWindowRequests: new Map(),
   feedWindowSyncs: new Map(),
   threadFeedWindowSyncs: new Map(),
   leaderProjections: new Map(),
@@ -664,6 +665,13 @@ export const useStore = create<AppState>((set, get) => ({
         threadWindowAppliedRevisions,
         ...clearThreadFeedWindowSyncState(s, sessionId, normalizedThreadKey),
       };
+    }),
+  setPendingThreadWindowRequest: (sessionId, threadKey) =>
+    set((s) => {
+      const pendingThreadWindowRequests = new Map(s.pendingThreadWindowRequests);
+      if (threadKey) pendingThreadWindowRequests.set(sessionId, threadKey);
+      else pendingThreadWindowRequests.delete(sessionId);
+      return { pendingThreadWindowRequests };
     }),
 
   setFeedWindowSync: (sessionId, sync) => set((s) => updateFeedWindowSyncState(s, sessionId, sync)),
@@ -1856,6 +1864,7 @@ export const useStore = create<AppState>((set, get) => ({
       threadWindowMessages: new Map(),
       threadWindowRefreshRevisions: new Map(),
       threadWindowAppliedRevisions: new Map(),
+      pendingThreadWindowRequests: new Map(),
       feedWindowSyncs: new Map(),
       threadFeedWindowSyncs: new Map(),
       streaming: new Map(),

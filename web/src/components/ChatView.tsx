@@ -64,6 +64,7 @@ import {
   readLeaderSelectedThreadKey,
   requestThreadViewportSnapshot,
 } from "../utils/thread-viewport.js";
+import { resolveInitialLeaderThreadKey } from "../utils/initial-leader-thread.js";
 import {
   buildAttentionRecords,
   isAttentionRecordActive,
@@ -71,7 +72,11 @@ import {
   parseQuestIdsFromReviewSummary,
 } from "../utils/attention-records.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
-import { beginThreadNavigationTiming, markThreadNavigationCommitted } from "../utils/frontend-perf-recorder.js";
+import {
+  beginThreadNavigationTiming,
+  markColdReplayFlushCommitted,
+  markThreadNavigationCommitted,
+} from "../utils/frontend-perf-recorder.js";
 import {
   placeOpenThreadTabKey,
   readOpenThreadTabKeys,
@@ -997,42 +1002,6 @@ function initialOpenThreadTabKeys(
   return leaderOpenThreadTabs?.orderedOpenThreadKeys ?? readOpenThreadTabKeys(sessionId);
 }
 
-function initialSelectedThreadKey({
-  sessionId,
-  isLeaderSession,
-  hasThreadRoute,
-  routeThreadKey,
-  leaderOpenThreadTabs,
-}: {
-  sessionId: string;
-  isLeaderSession: boolean;
-  hasThreadRoute?: boolean;
-  routeThreadKey?: string | null;
-  leaderOpenThreadTabs: LeaderOpenThreadTabsState | undefined;
-}): string {
-  if (!isLeaderSession) return MAIN_THREAD_KEY;
-  if (hasThreadRoute) {
-    if (!routeThreadKey) return MAIN_THREAD_KEY;
-    const normalizedRouteThreadKey = normalizeThreadKey(routeThreadKey);
-    if (normalizedRouteThreadKey === MAIN_THREAD_KEY || normalizedRouteThreadKey === ALL_THREADS_KEY) {
-      return normalizedRouteThreadKey;
-    }
-    return shouldPersistOpenThreadTab(normalizedRouteThreadKey) ? normalizedRouteThreadKey : MAIN_THREAD_KEY;
-  }
-
-  const restoredThreadKey = readLeaderSelectedThreadKey(sessionId);
-  if (!restoredThreadKey) return MAIN_THREAD_KEY;
-  const normalizedRestoredThreadKey = normalizeThreadKey(restoredThreadKey);
-  if (normalizedRestoredThreadKey === MAIN_THREAD_KEY || normalizedRestoredThreadKey === ALL_THREADS_KEY) {
-    return normalizedRestoredThreadKey;
-  }
-  if (!shouldPersistOpenThreadTab(normalizedRestoredThreadKey)) return MAIN_THREAD_KEY;
-  if (leaderOpenThreadTabs && !leaderOpenThreadTabs.orderedOpenThreadKeys.includes(normalizedRestoredThreadKey)) {
-    return MAIN_THREAD_KEY;
-  }
-  return normalizedRestoredThreadKey;
-}
-
 function stringArraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
@@ -1138,7 +1107,7 @@ export function ChatView({
     [leaderOpenThreadTabs],
   );
   const [selectedThreadKey, setSelectedThreadKey] = useState(() =>
-    initialSelectedThreadKey({
+    resolveInitialLeaderThreadKey({
       sessionId,
       isLeaderSession,
       hasThreadRoute,
@@ -1153,6 +1122,10 @@ export function ChatView({
     if (!isLeaderSession) return;
     markThreadNavigationCommitted(sessionId, normalizeThreadKey(selectedThreadKey));
   }, [isLeaderSession, selectedThreadKey, sessionId]);
+
+  useLayoutEffect(() => {
+    markColdReplayFlushCommitted(sessionId);
+  });
 
   useEffect(() => {
     const onOpen = (event: Event) => {

@@ -4,6 +4,7 @@ import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
 import { getThreadWindowItemCount } from "../../shared/thread-window.js";
 import { getCachedThreadWindowHash } from "../utils/history-window-cache.js";
 import { sendToSession } from "../ws.js";
+import { useStore } from "../store.js";
 import { DEFAULT_VISIBLE_SECTION_COUNT } from "./message-feed-sections.js";
 
 export function useThreadWindowRequester({
@@ -21,6 +22,10 @@ export function useThreadWindowRequester({
 }) {
   return useCallback(
     (fromItem: number, requestedItemCount?: number, targetMessageId?: string) => {
+      const store = useStore.getState();
+      if (!activeThreadWindow && store.pendingThreadWindowRequests?.get(sessionId) === normalizedThreadKey) {
+        return true;
+      }
       const itemCount = activeThreadWindow
         ? requestedItemCount ||
           activeThreadWindow.item_count ||
@@ -46,7 +51,10 @@ export function useThreadWindowRequester({
         ...(targetMessageId ? { target_message_id: targetMessageId } : {}),
         ...(cachedWindowHash && !targetMessageId ? { cached_window_hash: cachedWindowHash } : {}),
       });
-      if (delivered && !activeThreadWindow) setPendingInitialThreadWindowKey(normalizedThreadKey);
+      if (delivered && !activeThreadWindow) {
+        store.setPendingThreadWindowRequest?.(sessionId, normalizedThreadKey);
+        setPendingInitialThreadWindowKey(normalizedThreadKey);
+      }
       return delivered;
     },
     [activeThreadWindow, normalizedThreadKey, sectionTurnCount, sessionId, setPendingInitialThreadWindowKey],

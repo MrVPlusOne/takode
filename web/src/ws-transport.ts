@@ -1,9 +1,16 @@
-import type { BrowserIncomingMessage, BrowserOutgoingMessage, SdkSessionInfo } from "./types.js";
+import type {
+  BrowserIncomingMessage,
+  BrowserOutgoingMessage,
+  InitialThreadWindowRequest,
+  SdkSessionInfo,
+} from "./types.js";
 import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 import { scopedGetItem, scopedSetItem } from "./utils/scoped-storage.js";
 import {
+  beginColdReplayFlushTiming,
   beginHistoryReceiveRenderTiming,
   clearFrontendPerfSessionCorrelations,
+  completeColdReplayFlushTiming,
   completeHistoryReceiveRenderTiming,
   discardHistoryReceiveRenderTiming,
   recordFrontendPerfEntry,
@@ -55,6 +62,7 @@ export interface WsTransportCallbacks {
   getFreshHistoryWindow?: (
     sessionId: string,
   ) => { sectionTurnCount: number; visibleSectionCount: number } | null | undefined;
+  getInitialThreadWindow?: (sessionId: string) => InitialThreadWindowRequest | null | undefined;
   onMessage: (sessionId: string, data: BrowserIncomingMessage, context: WsIncomingMessageContext) => void;
   onConnecting?: (sessionId: string) => void;
   onConnected?: (sessionId: string) => void;
@@ -252,6 +260,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     const knownFrozenCount = hasLocalMessages ? callbacks.getKnownFrozenCount(sessionId) : 0;
     const knownFrozenHash = hasLocalMessages ? callbacks.getKnownFrozenHash(sessionId) : undefined;
     const freshWindow = !hasLocalMessages && !forceFullHistory ? callbacks.getFreshHistoryWindow?.(sessionId) : null;
+    const initialThreadWindow = freshWindow ? callbacks.getInitialThreadWindow?.(sessionId) : null;
     ws.send(
       JSON.stringify({
         type: "session_subscribe",
@@ -263,6 +272,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
               history_window_section_turn_count: Math.max(1, Math.floor(freshWindow.sectionTurnCount)),
               history_window_visible_section_count: Math.max(1, Math.floor(freshWindow.visibleSectionCount)),
               feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+              ...(initialThreadWindow ? { initial_thread_window: initialThreadWindow } : {}),
             }
           : {}),
       }),
@@ -285,7 +295,10 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   function handleParsedMessage(sessionId: string, message: SequencedIncomingMessage): void {
     if (
       coldSubscribeAwaitingSnapshot.has(sessionId) &&
-      (message.type === "message_history" || message.type === "history_sync" || message.type === "history_window_sync")
+      (message.type === "message_history" ||
+        message.type === "history_sync" ||
+        message.type === "history_window_sync" ||
+        message.type === "thread_window_sync")
     ) {
       coldSubscribeReceivedHistory.add(sessionId);
     }
@@ -346,8 +359,29 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     if (message.type === "state_snapshot") {
       const bufferedReplay = coldSubscribeBufferedReplay.get(sessionId) ?? [];
       if (message.sessionStatus === "running") {
+        const replayStartedAt = perfNow();
+        const eventTypeCounts: Record<string, number> = {};
+        for (const replayedMessage of bufferedReplay) {
+          eventTypeCounts[replayedMessage.type] = (eventTypeCounts[replayedMessage.type] ?? 0) + 1;
+        }
+        if (bufferedReplay.length > 0) {
+          beginColdReplayFlushTiming({
+            sessionId,
+            eventCount: bufferedReplay.length,
+            eventTypeCounts,
+            startedAt: replayStartedAt,
+          });
+        }
         for (const replayedMessage of bufferedReplay) {
           callbacks.onMessage(sessionId, replayedMessage, { source: "event_replay", coldBufferedReplay: true });
+        }
+        if (bufferedReplay.length > 0) {
+          const replayAppliedAt = perfNow();
+          completeColdReplayFlushTiming({
+            sessionId,
+            appliedAt: replayAppliedAt,
+            applyDurationMs: replayAppliedAt - replayStartedAt,
+          });
         }
       }
       clearColdSubscribeState(sessionId);

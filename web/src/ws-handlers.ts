@@ -1509,6 +1509,7 @@ function handleParsedMessage(
       // session and the optimistic loading placeholder should be cleared.
       store.markHistoryDelivered(sessionId);
       store.setHistoryLoading(sessionId, false);
+      store.setPendingThreadWindowRequest(sessionId, null);
       if (data.backendState !== undefined || data.backendError !== undefined) {
         store.updateSession(sessionId, {
           ...(data.backendState !== undefined ? { backend_state: data.backendState } : {}),
@@ -1974,6 +1975,9 @@ function handleParsedMessage(
       }
       const chatMessages = normalizeThreadWindowEntries(sessionId, sourceEntries);
       store.setThreadWindow(sessionId, data.thread_key, data.window, chatMessages);
+      if (store.pendingThreadWindowRequests.get(sessionId) === data.thread_key) {
+        store.setPendingThreadWindowRequest(sessionId, null);
+      }
       clearPendingUploadsCoveredByHistory(
         sessionId,
         sourceEntries.map((entry) => entry.message),

@@ -8,6 +8,7 @@ import type { CodexAutoPauseRecoveryLink, CodexAutoPauseRecoverySummary } from "
 import type { CodexGoalCapabilityState, CodexGoalState } from "./codex-goal.js";
 import type { LeaderProjectionSnapshot } from "./leader-projection-types.js";
 import type { SessionLifecycleBrowserMessage } from "./session-lifecycle-message.js";
+import type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState } from "./window-protocol-types.js";
 export type {
   CodexAutoPauseRecoveryLink,
   CodexAutoPauseRecoveryOutcome,
@@ -21,6 +22,7 @@ export type {
   LeaderProjectionThreadRow,
   LeaderProjectionThreadSummary,
 } from "./leader-projection-types.js";
+export type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState } from "./window-protocol-types.js";
 
 // Types for the WebSocket bridge between Claude Code CLI and the browser
 
@@ -646,6 +648,7 @@ export type BrowserOutgoingMessage =
       history_window_section_turn_count?: number;
       history_window_visible_section_count?: number;
       feed_window_sync_version?: number;
+      initial_thread_window?: InitialThreadWindowRequest;
     }
   | {
       type: "history_window_request";
@@ -815,32 +818,6 @@ export interface BoardParticipantStatus {
 export interface BoardRowSessionStatus {
   worker?: BoardParticipantStatus;
   reviewer?: BoardParticipantStatus | null;
-}
-
-export interface HistoryWindowState {
-  from_turn: number;
-  turn_count: number;
-  total_turns: number;
-  has_older_items?: boolean;
-  has_newer_items?: boolean;
-  /** Raw session.messageHistory index of the first message in this window. */
-  start_index?: number;
-  section_turn_count: number;
-  visible_section_count: number;
-  window_hash?: string;
-}
-
-export interface ThreadWindowState {
-  thread_key: string;
-  from_item: number;
-  item_count: number;
-  total_items: number;
-  has_older_items?: boolean;
-  has_newer_items?: boolean;
-  source_history_length: number;
-  section_item_count: number;
-  visible_item_count: number;
-  window_hash?: string;
 }
 
 export interface ThreadWindowEntry {

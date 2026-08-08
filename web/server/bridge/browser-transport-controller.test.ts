@@ -151,7 +151,7 @@ describe("archived session browser viewing", () => {
     const session = makeSession({ messageHistory: [] });
     (session as any).searchDataOnly = true;
 
-    await handleSessionSubscribe(session, ws, 0, 0, undefined, undefined, undefined, undefined, deps);
+    await handleSessionSubscribe(session, ws, 0, 0, undefined, undefined, undefined, undefined, undefined, deps);
 
     expect(deps.lazyLoadFullHistory).toHaveBeenCalledWith(session);
     expect(deps.recoverToolStartTimesFromHistory).not.toHaveBeenCalled();
@@ -1415,6 +1415,159 @@ describe("selected feed thread windows", () => {
   });
 });
 
+describe("initial selected thread subscribe", () => {
+  it("sends the selected window before tree state, transient replay, and the final snapshot", async () => {
+    const ws = { data: {}, send: vi.fn() };
+    const deps = makeInjectDeps({
+      getTreeGroupState: vi.fn(async () => ({
+        groups: [{ id: "group-1" }],
+        assignments: { "test-session": "group-1" },
+        nodeOrder: {},
+      })),
+    });
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true } as any,
+      isGenerating: true,
+      browserSockets: new Set(),
+      messageHistory: [
+        { type: "user_message", id: "u-main", content: "main", timestamp: 1 } as BrowserIncomingMessage,
+        {
+          type: "user_message",
+          id: "u-thread",
+          content: "selected",
+          timestamp: 2,
+          threadKey: "q-1825",
+          questId: "q-1825",
+          threadRefs: [{ threadKey: "q-1825", questId: "q-1825", source: "explicit" }],
+        } as BrowserIncomingMessage,
+      ],
+      eventBuffer: [
+        {
+          seq: 1,
+          message: {
+            type: "tool_progress",
+            tool_use_id: "tool-1",
+            tool_name: "Bash",
+            elapsed_time_seconds: 1,
+          },
+        },
+      ],
+    });
+
+    handleBrowserOpen(session, ws, deps);
+    ws.send.mockClear();
+    await handleSessionSubscribe(
+      session,
+      ws,
+      0,
+      0,
+      undefined,
+      10,
+      3,
+      FEED_WINDOW_SYNC_VERSION,
+      {
+        thread_key: "q-1825",
+        from_item: -1,
+        item_count: 30,
+        section_item_count: 10,
+        visible_item_count: 3,
+      },
+      deps,
+    );
+
+    const calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
+    const types = calls.map((message) => message.type);
+    expect(types).toEqual([
+      "leader_projection_snapshot",
+      "thread_window_sync",
+      "feed_window_sync",
+      "tree_groups_update",
+      "event_replay",
+      "timer_update",
+      "state_snapshot",
+    ]);
+    expect(calls[1]).toMatchObject({
+      type: "thread_window_sync",
+      thread_key: "q-1825",
+      entries: [expect.objectContaining({ message: expect.objectContaining({ id: "u-thread" }) })],
+    });
+    expect(types).not.toContain("history_window_sync");
+    expect(types).not.toContain("history_sync");
+  });
+
+  it("falls back to the legacy bounded history window for an unsupported initial thread", async () => {
+    const ws = { data: {}, send: vi.fn() };
+    const deps = makeInjectDeps();
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true } as any,
+      messageHistory: [{ type: "user_message", id: "u-main", content: "main", timestamp: 1 } as any],
+    });
+    handleBrowserOpen(session, ws, deps);
+    ws.send.mockClear();
+
+    await handleSessionSubscribe(
+      session,
+      ws,
+      0,
+      0,
+      undefined,
+      1,
+      1,
+      FEED_WINDOW_SYNC_VERSION,
+      {
+        thread_key: "all",
+        from_item: -1,
+        item_count: 1,
+        section_item_count: 1,
+        visible_item_count: 1,
+      },
+      deps,
+    );
+
+    const calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
+    expect(calls.some((message) => message.type === "history_window_sync")).toBe(true);
+    expect(calls.some((message) => message.type === "thread_window_sync")).toBe(false);
+  });
+
+  it("sends an authoritative empty Main thread window for an empty leader session", async () => {
+    const ws = { data: {}, send: vi.fn() };
+    const deps = makeInjectDeps();
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true } as any,
+      messageHistory: [],
+    });
+    handleBrowserOpen(session, ws, deps);
+    ws.send.mockClear();
+
+    await handleSessionSubscribe(
+      session,
+      ws,
+      0,
+      0,
+      undefined,
+      10,
+      3,
+      FEED_WINDOW_SYNC_VERSION,
+      {
+        thread_key: "main",
+        from_item: -1,
+        item_count: 30,
+        section_item_count: 10,
+        visible_item_count: 3,
+      },
+      deps,
+    );
+
+    const calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
+    expect(calls.find((message) => message.type === "thread_window_sync")).toMatchObject({
+      thread_key: "main",
+      entries: [],
+      window: { total_items: 0, item_count: 0, source_history_length: 0 },
+    });
+    expect(calls.some((message) => message.type === "history_window_sync")).toBe(false);
+  });
+});
+
 describe("programmatic user message injection", () => {
   it("routes direct composer user messages while a session is paused", async () => {
     const routeBrowserMessage = vi.fn();
@@ -1983,7 +2136,18 @@ describe("session subscribe timer sync", () => {
     const ws = { data: {}, send: vi.fn() } as any;
     const deps = makeInjectDeps({ listTimers: vi.fn(() => []) });
 
-    await handleSessionSubscribe(session, ws, 0, undefined, undefined, undefined, undefined, undefined, deps);
+    await handleSessionSubscribe(
+      session,
+      ws,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      deps,
+    );
 
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "timer_update", timers: [] }));
   });
