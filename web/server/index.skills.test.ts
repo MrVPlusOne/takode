@@ -150,6 +150,8 @@ describe("index startup skill registration", () => {
     expect(skill).toContain("read-only implementation follow-ups");
     expect(skill).toContain("consult the context-rich responsible worker");
     expect(skill).toContain("accepted Work/Memory evidence before reopening source yourself");
+    expect(skill).toContain("A tiny direct worker errand may also bypass quest lifecycle");
+    expect(skill).toContain("Fail closed to a normal quest when scope expands");
     expect(skill).toContain("Do not create a quest or authorize changes");
     expect(skill).toContain("Workers should communicate at meaningful quest milestones");
     expect(skill).toContain("concise user-facing outcome summaries");
@@ -175,6 +177,8 @@ describe("index startup skill registration", () => {
     ]);
 
     expect(source).toContain("`alignment -> work -> memory`");
+    expect(source).toContain("Quest Journey v2 has one active workflow for quest-backed work");
+    expect(source).toContain("Direct worker errands are not Quest Journey states");
     expect(source).toContain("| Work | `WORKING` |");
     expect(source).toContain("| User Checkpoint | `USER_CHECKPOINTING` |");
     expect(source).toContain("| Memory | `MEMORY` |");
@@ -188,6 +192,9 @@ describe("index startup skill registration", () => {
     expect(topLevelSource).toContain("fresh explicit approval before external consequences");
     expect(topLevelSource).toContain("Harmless typo-only corrections can still proceed");
     expect(topLevelSource).toContain("Route read-only implementation follow-ups to context-rich sources");
+    expect(topLevelSource).toContain("Use direct worker errands only for tiny context-rich follow-ups");
+    expect(topLevelSource).toContain("They create no quest, board row, claim, phase note, Memory closure");
+    expect(topLevelSource).toContain("promote to a normal quest/Journey");
     expect(topLevelSource).toContain("accepted Work/Memory evidence before reopening source yourself");
     expect(topLevelSource).toContain("Do not create a quest or authorize changes for a clarification");
   });
@@ -205,6 +212,7 @@ describe("index startup skill registration", () => {
     expect(source).toContain("references/edge-cases.md");
     expect(source).toContain("memory-specific handoff/completion deltas");
     expect(source).toContain("references/phase-handoff-examples.md");
+    expect(source).toContain("direct worker errand");
     expect(source).toContain("Dispatch Approval Rubric");
     expect(source).toContain("Direct create/dispatch is allowed only when");
     expect(source).toContain("Pre-dispatch approval is mandatory when");
@@ -224,6 +232,10 @@ describe("index startup skill registration", () => {
     expect(source).toContain("Leader-only deltas: none");
     expect(source).toContain("Do not convert the worker-authored Alignment note into a Work prompt");
     expect(source).toContain("For read-only implementation follow-ups");
+    expect(source).toContain("Direct Worker Errands");
+    expect(source).toContain("one-turn, context-rich, read-only follow-ups");
+    expect(source).toContain("The audit trail is the ordinary session/thread history");
+    expect(source).toContain("Fail closed");
     expect(source).toContain("route to the context-rich source before re-deriving technical details");
     expect(source).toContain("accepted Work/Memory note, before reopening source yourself");
     expect(source).toContain("Do not create a new quest or authorize code changes for a clarification");
@@ -236,6 +248,9 @@ describe("index startup skill registration", () => {
     expect(edgeCases).not.toContain("Read this reference only when");
 
     expect(phaseExamples).toContain("## Work");
+    expect(phaseExamples).toContain("## Direct Worker Errand");
+    expect(phaseExamples).toContain("Quick direct errand, not a Quest Journey");
+    expect(phaseExamples).toContain("promoted to a normal quest");
     expect(phaseExamples).toContain("Alignment approved. Proceed with Work");
     expect(phaseExamples).toContain("Leader-only deltas: none");
     expect(phaseExamples).toContain("When real leader-only deltas exist");

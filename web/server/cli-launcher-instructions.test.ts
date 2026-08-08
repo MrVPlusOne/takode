@@ -53,6 +53,17 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Keep detailed agent evidence separate");
   });
 
+  it("instructs workers to fail closed on direct errands that exceed the non-quest boundary", () => {
+    const result = buildCompanionInstructions({ sessionNum: 42, backend: "codex" });
+
+    expect(result).toContain("## Direct Worker Errands");
+    expect(result).toContain("one-turn, context-rich, read-only, bounded");
+    expect(result).toContain("drafts, explanations, narrow source lookups");
+    expect(result).toContain("do not claim or reopen a quest");
+    expect(result).toContain("mutate code/config/data/state");
+    expect(result).toContain("stop and tell the leader it should be promoted to a normal quest");
+  });
+
   it("keeps quest IDs out of Takode-external durable names while preserving internal uses", () => {
     for (const backend of ["claude", "codex"] as const) {
       const result = buildCompanionInstructions({ sessionNum: 42, backend });
@@ -269,7 +280,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("visible chat approval surface is for the user's decision, not worker grounding");
     expect(result).toContain("make it read like a TLDR for approval");
     expect(result).toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");
-    expect(result).toContain("Every dispatched task follows Quest Journey v2");
+    expect(result).toContain("Every quest-backed dispatched task follows Quest Journey v2");
+    expect(result).toContain("direct worker errand");
+    expect(result).toContain("one-turn, context-rich, read-only draft");
+    expect(result).toContain("otherwise create or reopen a normal quest");
     expect(result).toContain("alignment -> work -> memory");
     expect(result).toContain("Work owns the old middle phases");
     expect(result).toContain("worker-owned Work -> Memory");
@@ -397,8 +411,13 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Takode -- Cross-Session Orchestration");
     expect(result).toContain("## Durable Names in Handoffs");
     expect(result).toContain("Do not ask for a `q-N`-specific destination");
-    expect(result).toContain("Every dispatched task follows Quest Journey v2");
+    expect(result).toContain("Every quest-backed dispatched task follows Quest Journey v2");
     expect(result).toContain("alignment -> work -> memory");
+    expect(result).toContain("direct worker errand");
+    expect(result).toContain("one-turn, context-rich, read-only draft");
+    expect(result).toContain("otherwise create or reopen a normal quest");
+    expect(result).toContain("They create no quest, board row, claim, phase note, Memory closure");
+    expect(result).toContain("Fail closed to a normal quest");
     expect(result).toContain("Use `/quest-design` before creating or materially refining quest text");
     expect(result).toContain("explicitly check whether the quest is a true follow-up to earlier work");
     expect(result).toContain("Relationship: follow-up of [q-N](quest:q-N)");
@@ -479,6 +498,7 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Leader context is a scarce long-horizon resource");
     expect(result).toContain("Leader-only deltas: none");
     expect(result).toContain("Route implementation follow-ups to context-rich sources");
+    expect(result).toContain("Use a direct worker errand only for one-turn");
     expect(result).toContain("Do not create a quest or authorize changes for a clarification");
     expect(result).toContain("Work is intentionally broader");
     expect(result).toContain("Embedded review phases are not part of active Quest Journey v2");
@@ -505,6 +525,7 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("`~/.companion/quest-journey-phases/alignment/assignee.md`");
     expect(result).toContain("one confirmation can approve quest text, Journey, and dispatch plan");
     expect(result).not.toContain("Every dispatched task follows the **Quest Journey** lifecycle");
+    expect(result).not.toContain("Every dispatched task follows Quest Journey v2");
     expect(result).not.toContain("Every quest goes through the full journey");
   });
 

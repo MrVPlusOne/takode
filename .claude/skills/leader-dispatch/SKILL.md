@@ -1,11 +1,11 @@
 ---
 name: leader-dispatch
-description: "Dispatch workflow for leader/orchestrator sessions. Use when dispatching a quest to a worker, choosing which worker to assign, spawning new worker sessions, or deciding whether to reuse vs spawn. Triggers: 'dispatch', 'send quest', 'assign worker', 'spawn worker', 'which worker', 'reuse or spawn'."
+description: "Dispatch workflow for leader/orchestrator sessions. Use when dispatching a quest to a worker, choosing which worker to assign, spawning new worker sessions, deciding whether to reuse vs spawn, or deciding whether a tiny follow-up qualifies as a direct worker errand. Triggers: 'dispatch', 'send quest', 'assign worker', 'spawn worker', 'which worker', 'reuse or spawn', 'direct worker errand', 'quick follow-up'."
 ---
 
 # Leader Dispatch Workflow
 
-Use this skill before choosing a worker, spawning, reusing, queueing, or sending the first worker message for a quest.
+Use this skill before choosing a worker, spawning, reusing, queueing, or sending the first worker message for a quest. Also use it before deciding that a tiny context-rich follow-up can bypass quest lifecycle as a direct worker errand.
 
 This is the hot path. Keep worker grounding in the quest record, phase-specific behavior in the phase briefs, and CLI mechanics in `takode-orchestration` / `board-usage.md`.
 
@@ -16,7 +16,7 @@ This section is the visible reference catalog. Decide whether to open these file
 | Source | Read when | Skip when |
 |--------|-----------|-----------|
 | `references/edge-cases.md` | The dispatch involves human feedback rework, a stale worker/reviewer completion, user screenshots or generated image evidence, 413/payload-size recovery, user-facing links into unported worker/reviewer worktrees, or memory-specific handoff/completion deltas. | Routine quest creation, worker choice, initial Alignment dispatch, or ordinary phase advancement. |
-| `references/phase-handoff-examples.md` | You need concrete wording for a v2 phase handoff, Work rework instruction, User Checkpoint packet, Memory handoff, or separate review-quest dispatch. | You can write a short phase-explicit handoff from the current phase brief and quest-specific deltas. |
+| `references/phase-handoff-examples.md` | You need concrete wording for a v2 phase handoff, direct worker errand, Work rework instruction, User Checkpoint packet, Memory handoff, or separate review-quest dispatch. | You can write a short phase-explicit handoff or errand request from the current guidance and quest-specific deltas. |
 | `quest-design` | You are creating a quest, refining an `idea` quest, materially changing quest title/description/tags, or checking whether a true follow-up relationship needs approval and persistence. | The quest already exists/refined and you are only choosing a worker, advancing phases, or adding routine phase feedback. |
 | `takode-orchestration/quest-journey.md` | You need full v2 Journey transition rules, phase catalog semantics, Work autonomy, User Checkpoint pause/resume, worker-owned Work -> Memory, final Memory, or legacy-row compatibility behavior. | The current phase leader brief and board row are enough. |
 | `takode-orchestration/board-usage.md` | You need uncommon board syntax: proposed rows, promotion, `--wait-for`, `--wait-for-input`, optional checkpoint skip commands, full row detail, or direct board troubleshooting. | Routine `board show`, `board set`, `board advance`, or `board detail` is sufficient. |
@@ -27,6 +27,7 @@ Keep the top-level checklist open for routine dispatch. Load references only whe
 ## Non-Negotiables
 
 - **Leaders do not implement non-trivial changes.** Leaders create quests, dispatch, steer, review, and coordinate. Investigation and research are also worker work.
+- **Direct worker errands are narrow non-quest exceptions.** Use them only for one-turn, context-rich, read-only follow-ups that match the checklist below. They create no quest, board row, phase note, Memory closure, or new lifecycle state.
 - **Never run `quest claim` for worker work.** Workers claim quests when dispatched; leaders do not become owners of worker quests.
 - **Use `/quest-design` before quest creation or refinement.** Before creating a quest or refining an `idea` quest, use that skill to decide whether the quest text needs user confirmation or qualifies for the direct-dispatch path below.
 - **Use the three-path dispatch rubric.** Direct create/dispatch is allowed only for clear, low-risk, reversible repo-local work. Pre-dispatch approval is mandatory for risky, ambiguous, externally consequential, shared-resource, security/privacy, product/policy, or user-visible tradeoff work. Use a planned User Checkpoint when early phases are safe but a later decision or Execute phase needs user confirmation.
@@ -40,6 +41,30 @@ Keep the top-level checklist open for routine dispatch. Load references only whe
 - **Externally consequential User Checkpoints need fresh explicit approval.** A material edit alone is not approval. One fresh reply may make one exact substitution and explicitly approve the resulting packet only when its referent, every unchanged term, dependent parameters, monitor/stop conditions, safety implications, consequences, and tradeoffs remain unchanged and unambiguous, with no question or user choice left. Otherwise fail closed: publish a revised exact packet, keep the board in `USER_CHECKPOINTING`, and obtain fresh explicit approval before external consequences. Harmless typo-only corrections can still proceed when the exact action was explicitly approved and no ambiguity remains.
 - **Use shell-safe payload paths.** Use `--message-file`, `--stdin`, or quest `--*-file` flags for multiline or shell-like text. Do not paste backticks, `$(...)`, quotes, braces, logs, or copied commands into inline shell strings.
 - **Follow the board-approved Journey.** If risk or scope changes, revise the board explicitly instead of silently skipping phases.
+
+## Direct Worker Errands
+
+Before creating or reopening a quest, a leader may send a direct worker errand only when all of these are true:
+
+- An active or recently completed worker has a concrete context advantage over a fresh worker or the leader.
+- The request is read-only, bounded, reversible, and expected to complete in one worker turn.
+- The deliverable is a draft, explanation, narrow source lookup, translation, formatting pass, or clarification.
+- The leader can send the exact request and source pointer directly to the responsible worker.
+- The errand will not interrupt unrelated in-progress work or violate one-task-at-a-time discipline.
+- No code, config, data, durable state, Slack/external system, credential/security/privacy decision, shared resource, CI/validation run, durable artifact, user checkpoint, independent review, design/policy choice, broad or multi-source investigation, or cross-session handoff is needed.
+
+When the checklist passes, send the exact request/source to the context-rich worker with `takode send` and then translate or forward the result to the user. Do not create or reopen a quest, claim, board row, phase occurrence, Alignment note, Work note, Memory note, completion metadata, or new status. The audit trail is the ordinary session/thread history.
+
+Fail closed. If the worker discovers the request needs broader investigation, implementation, validation, mutation, durable state, ambiguity resolution, multiple turns, external consequences, review, or a durable handoff, it must stop and recommend promotion to a normal quest/Journey instead of silently expanding the errand.
+
+Positive examples:
+
+- After a completed parser-analysis quest, reuse its worker to read one linked Slack thread and draft a reply without posting it.
+- Ask a context-rich worker to explain one accepted implementation detail or retrieve one exact source pointer.
+
+Negative examples:
+
+- Any code change, plugin/config edit, CI validation, broad research, multi-source investigation, Slack posting, state mutation, product/design choice, security/credential decision, or deliverable that should survive in durable records.
 
 ## Approval Packet
 
@@ -189,7 +214,7 @@ After Alignment, leaders own advancement. Treat the worker response as a compact
 
 Do not convert the worker-authored Alignment note into a Work prompt. The worker already has the quest, source pointers, phase briefs, project guidance, and its own findings. After a clean Alignment, the default Work authorization is short: identify the Work phase brief and write `Leader-only deltas: none`. When real deltas exist, list only information that originates outside the worker's available context or changes user intent, authorization, dependencies, scheduling, safety, or external state.
 
-For read-only implementation follow-ups on active or recently completed quests, route to the context-rich source before re-deriving technical details. Prefer a short Takode follow-up to the responsible worker, or inspect the accepted Work/Memory note, before reopening source yourself. Summarize the answer for the user. Answer directly when accepted durable evidence already states the fact, the worker is unavailable or no longer has relevant context, the question is about leader-owned intent/coordination/authority, urgency makes consultation impractical, or consultation would add latency without a context advantage. Do not create a new quest or authorize code changes for a clarification unless the user asks for investigation, implementation, validation, or external action.
+For read-only implementation follow-ups on active or recently completed quests, route to the context-rich source before re-deriving technical details. Prefer a short Takode follow-up to the responsible worker, or inspect the accepted Work/Memory note, before reopening source yourself. Summarize the answer for the user. Answer directly when accepted durable evidence already states the fact, the worker is unavailable or no longer has relevant context, the question is about leader-owned intent/coordination/authority, urgency makes consultation impractical, or consultation would add latency without a context advantage. If the follow-up is a bounded draft, lookup, formatting pass, translation, explanation, or clarification that satisfies the direct worker errand checklist, use that non-quest path. Do not create a new quest or authorize code changes for a clarification unless the user asks for investigation, implementation, validation, or external action.
 
 Every phase instruction must be phase-explicit:
 

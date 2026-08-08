@@ -1,10 +1,10 @@
 # Quest Journey Lifecycle
 
-Quest Journey v2 has one active workflow:
+Quest Journey v2 has one active workflow for quest-backed work:
 
 `alignment -> work -> memory`
 
-`user-checkpoint` is a durable pause state for decisions inside the same Work occurrence. It is not a separate default phase handoff and does not create a new worker. Legacy v1 phase IDs such as `explore`, `implement`, `code-review`, `execute`, `outcome-review`, `port`, and `bookkeeping` are historical-read compatibility only. Do not dispatch or propose them for new active work.
+`user-checkpoint` is a durable pause state for decisions inside the same Work occurrence. It is not a separate default phase handoff and does not create a new worker. Direct worker errands are not Quest Journey states; they are narrow one-turn, context-rich, read-only follow-ups handled by `leader-dispatch` and promoted to a normal quest if scope expands. Legacy v1 phase IDs such as `explore`, `implement`, `code-review`, `execute`, `outcome-review`, `port`, and `bookkeeping` are historical-read compatibility only. Do not dispatch or propose them for new active work.
 
 The work board (`takode board show`) tracks proposed rows, queued rows, active state, worker assignment, human-input waits, timing, and next action. Use `takode board show --full` for full board inspection and `takode board detail q-N` for one row's Journey, notes, legacy compatibility labels, and timing history.
 
@@ -23,7 +23,7 @@ Historical v1 phase metadata remains available only so stored Quest Detail timel
 
 ## Authorization
 
-Before first dispatch, use `/leader-dispatch` to choose direct low-risk dispatch, pre-dispatch approval, or delayed approval through User Checkpoint. Direct dispatch is allowed only for clear, low-risk, reversible repo-local work with no material ambiguity, external side effect, security/privacy/global/shared-resource risk, product/policy choice, or user-level scheduling tradeoff.
+Before first dispatch, use `/leader-dispatch` to choose direct low-risk quest dispatch, pre-dispatch approval, delayed approval through User Checkpoint, or the narrower direct worker errand path. Direct quest dispatch is allowed only for clear, low-risk, reversible repo-local work with no material ambiguity, external side effect, security/privacy/global/shared-resource risk, product/policy choice, or user-level scheduling tradeoff.
 
 Initial dispatch authorizes Alignment only. After the worker's read-in, the leader either corrects/escalates or approves Work and Memory within a clear envelope. That envelope may include sync/push and approved operations, but it does not expand authority: project-specific safety, durable-data, permission, lease, cluster/job, credential/privacy/security, external-effect, strong verification, and no-force Git rules remain authoritative.
 

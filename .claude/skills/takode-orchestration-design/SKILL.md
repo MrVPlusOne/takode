@@ -13,7 +13,7 @@ Reusable workflow behavior belongs in reusable instructions. Leader handoffs sho
 
 Leaders own user intent/corrections, cross-quest dependencies, scheduling, timers, external state, long-horizon obligations, safety, and authority decisions. Workers already own the quest record, attachments, linked sources, phase briefs, project guidance, their Alignment findings, and ordinary Work investigation. After Alignment, do not convert worker-authored findings into a second technical prompt.
 
-Use the same source model for read-only implementation follow-ups. When the user asks a technical clarification about an active or recently completed quest, consult the context-rich responsible worker or accepted Work/Memory evidence before reopening source yourself. Then translate the answer for the user. Answer directly when the fact is already explicit in accepted durable notes, the worker is unavailable or lacks relevant context, the question is leader-owned intent/coordination/authority, urgency makes consultation impractical, or consultation would add latency without a context advantage. Do not create a quest or authorize changes for a read-only clarification unless the user asks for new investigation, implementation, validation, or external action.
+Use the same source model for read-only implementation follow-ups. When the user asks a technical clarification about an active or recently completed quest, consult the context-rich responsible worker or accepted Work/Memory evidence before reopening source yourself. Then translate the answer for the user. Answer directly when the fact is already explicit in accepted durable notes, the worker is unavailable or lacks relevant context, the question is leader-owned intent/coordination/authority, urgency makes consultation impractical, or consultation would add latency without a context advantage. A tiny direct worker errand may also bypass quest lifecycle when it is one-turn, context-rich, read-only, bounded, auditable in ordinary session/thread history, and needs no mutation, validation, durable artifact, external action, review, checkpoint, or handoff. Fail closed to a normal quest when scope expands. Do not create a quest or authorize changes for a read-only clarification unless the user asks for new investigation, implementation, validation, or external action.
 
 ## Placement Rubric
 
@@ -21,7 +21,7 @@ Use the same source model for read-only implementation follow-ups. When the user
 |---------------|-------------|
 | Behavior every assignee or reviewer in a phase should follow | The relevant assignee or leader phase brief |
 | Cross-cutting orchestration design principle | A focused skill or shared orchestration doc |
-| CLI command syntax, board flow, herd events, or phase transition mechanics | `takode-orchestration` docs or the relevant operational skill |
+| CLI command syntax, board flow, herd events, direct worker errand eligibility, or phase transition mechanics | `takode-orchestration` docs or the relevant operational skill |
 | Context-dependent facts, accepted refs, unusual risks, user decisions, stop conditions, artifact paths, or constraints | Quest description, quest feedback, or the leader's phase handoff |
 | Temporary instruction for one quest or one phase occurrence | Quest feedback or the dispatch message only |
 

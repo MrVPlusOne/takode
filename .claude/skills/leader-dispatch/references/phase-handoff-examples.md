@@ -15,6 +15,20 @@ Add or refresh the Alignment phase note with the concise read-in details. In fin
 Leader-specific deltas: <exact prior messages, unusual boundary, memory files, or safety warning>.
 ```
 
+## Direct Worker Errand
+
+Use this only when the `leader-dispatch` direct worker errand checklist passes. It is not a Quest Journey phase handoff.
+
+```text
+Quick direct errand, not a Quest Journey.
+
+Use your retained context from [q-XX](quest:q-XX) / <accepted note or source>. Please do only this bounded read-only task:
+- <exact draft, explanation, lookup, translation, formatting pass, or clarification request>
+- Source: <one exact message, thread, note, file, or artifact pointer>
+
+Do not claim or reopen a quest, write phase notes, mutate code/config/data/state, post externally, run validation, or create durable artifacts. If this needs broader investigation, implementation, validation, mutation, multiple turns, external consequences, review, or a durable handoff, stop and say it should be promoted to a normal quest.
+```
+
 ## Work
 
 ```text

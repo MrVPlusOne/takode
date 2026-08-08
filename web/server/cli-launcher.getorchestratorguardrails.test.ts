@@ -435,11 +435,15 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("recommended, not mandatory");
     expect(guardrails).toContain("After alignment approval, authorize Work and Memory");
     expect(guardrails).toContain("separate review quest");
-    expect(guardrails).toContain("Every dispatched task follows Quest Journey v2");
+    expect(guardrails).toContain("Every quest-backed dispatched task follows Quest Journey v2");
+    expect(guardrails).toContain("direct worker errand");
+    expect(guardrails).toContain("one-turn, context-rich, read-only draft");
+    expect(guardrails).toContain("otherwise create or reopen a normal quest");
     expect(guardrails).toContain("Work is intentionally broader");
     expect(guardrails).toContain("Leader context is a scarce long-horizon resource");
     expect(guardrails).toContain("Leader-only deltas: none");
     expect(guardrails).toContain("Route implementation follow-ups to context-rich sources");
+    expect(guardrails).toContain("Use a direct worker errand only for one-turn");
     expect(guardrails).toContain("read-only technical clarification about an active or recently completed quest");
     expect(guardrails).toContain("prefer a short Takode follow-up to the responsible worker");
     expect(guardrails).toContain("accepted Work/Memory evidence before reopening source yourself");
@@ -498,7 +502,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Use the scannable shape");
     expect(guardrails).toContain("optional sections should be omitted when they add no decision value");
     expect(guardrails).toContain("Fresh worker is the default");
-    expect(guardrails).toContain("Queue work on the board yourself with `--wait-for`");
+    expect(guardrails).toContain("Queue quest work on the board yourself with `--wait-for`");
     expect(guardrails).toContain("Work still produces the accepted artifact or finding");
     expect(guardrails).toContain("sync/push when authorized");
     expect(guardrails).toContain("worker-owned Work -> Memory transition");
@@ -625,6 +629,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Leader context is a scarce long-horizon resource");
     expect(guardrails).toContain("Leader-only deltas: none");
     expect(guardrails).toContain("Route implementation follow-ups to context-rich sources");
+    expect(guardrails).toContain("Use a direct worker errand only for one-turn");
     expect(guardrails).toContain("Do not create a quest or authorize changes for a clarification");
     expect(guardrails).toContain("USER_CHECKPOINTING");
     expect(guardrails).toContain("User Checkpoint");
@@ -647,7 +652,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Use the scannable shape");
     expect(guardrails).toContain("optional sections should be omitted when they add no decision value");
     expect(guardrails).toContain("Fresh worker is the default");
-    expect(guardrails).toContain("Queue work on the board yourself with `--wait-for`");
+    expect(guardrails).toContain("Queue quest work on the board yourself with `--wait-for`");
     expect(guardrails).toContain("Leaders do not own worker quests");
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
