@@ -1760,7 +1760,7 @@ describe("MessageFeed - scroll behavior", () => {
     expect(container.querySelector("pre.font-mono-code")).toBeNull();
   });
 
-  it("renders live codex thinking when no assistant text is streaming yet", () => {
+  it("withholds root codex thinking from the legacy footer when no assistant text is streaming yet", () => {
     const sid = "test-streaming-codex-thinking";
     setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Hello" })]);
     setStoreSessionBackend(sid, "codex");
@@ -1768,7 +1768,7 @@ describe("MessageFeed - scroll behavior", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("Checking session restore flow")).toBeTruthy();
+    expect(screen.queryByText("Checking session restore flow")).toBeNull();
   });
 
   it("withholds partial codex lines until a newline commits them", () => {

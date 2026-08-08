@@ -143,7 +143,7 @@ import {
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
 } from "./MessageFeed.js";
-import { TurnEntries } from "./MessageFeedEntries.js";
+import { FeedFooter, TurnEntries } from "./MessageFeedEntries.js";
 import { formatActiveReasoningStatusText } from "./MessageFeedStatus.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
@@ -705,7 +705,7 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.queryByText("Active in main")).toBeNull();
   });
 
-  it("renders direct active reasoning as a transient full-width thread row", () => {
+  it("renders direct active reasoning as a transient inline thread row", () => {
     const sid = "test-direct-reasoning-row";
     setStoreActiveCodexReasoningPreview(sid, {
       text: "**Considering UX for route mapping**\n\nI'm thinking about a new user experience for the full available message line without truncation.",
@@ -733,7 +733,26 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.getByTestId("active-codex-reasoning-body").textContent).toContain(
       "full available message line without truncation.",
     );
+    expect(screen.getByTestId("active-codex-reasoning-thread-row").textContent).toContain(
+      "Considering UX for route mapping I'm thinking",
+    );
+    expect(screen.queryByText("Reasoning")).toBeNull();
     expect(screen.queryByText(/\*\*Considering UX/)).toBeNull();
+  });
+
+  it("does not render root Codex streaming thinking through the legacy footer", () => {
+    const sid = "test-root-streaming-thinking-footer";
+    setStoreSessionBackend(sid, "codex");
+    setStoreStatus(sid, "running");
+    setStoreThinking(
+      sid,
+      "**Considering tool constraints**\n\nI need to look at the patch tool, which is currently long enough to trigger the old compact footer truncation.",
+    );
+
+    render(<FeedFooter sessionId={sid} visibleToolUseIds={new Set()} />);
+
+    expect(screen.queryByText(/\*\*Considering tool constraints/)).toBeNull();
+    expect(screen.queryByText(/I need to look at the patch tool/)).toBeNull();
   });
 
   it("does not render active reasoning in a non-attributed selected thread", () => {
@@ -799,6 +818,9 @@ describe("ElapsedTimer - generation stats bar", () => {
 
     expect(screen.getByTestId("active-codex-reasoning-title").textContent).toBe("Checking the Journey handoff state");
     expect(screen.getByTestId("active-codex-reasoning-body").textContent).toBe("Projected worker body.");
+    expect(screen.getByTestId("active-codex-reasoning-thread-row").textContent).toContain(
+      "Checking the Journey handoff state Projected worker body.",
+    );
   });
 
   it("labels running turns with the active quest when another thread is visible", () => {

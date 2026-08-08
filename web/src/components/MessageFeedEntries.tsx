@@ -864,26 +864,17 @@ function ActiveCodexReasoningThreadRow({ preview }: { preview: ActiveCodexReason
     >
       <PawTrailAvatar />
       <div className="min-w-0 flex-1 rounded-lg border border-cc-border/40 bg-cc-card/45 px-3 py-2.5 text-sm leading-relaxed text-cc-fg/90 shadow-[0_8px_24px_rgba(0,0,0,0.16)]">
-        <div className="mb-1 flex items-center gap-2 font-mono-code text-[11px] uppercase tracking-wide text-cc-muted/75">
-          <YarnBallDot className="text-cc-primary" />
-          <span>Reasoning</span>
-        </div>
-        {parsed.title && (
-          <div
-            className="mb-1 text-[15px] font-semibold leading-snug text-cc-fg"
-            data-testid="active-codex-reasoning-title"
-          >
-            {parsed.title}
-          </div>
-        )}
-        {body && (
-          <div
-            className="whitespace-pre-wrap break-words text-[14px] leading-relaxed text-cc-muted"
-            data-testid="active-codex-reasoning-body"
-          >
-            {body}
-          </div>
-        )}
+        <p className="whitespace-pre-wrap break-words text-[14px] leading-relaxed text-cc-muted">
+          {parsed.title && (
+            <>
+              <strong className="font-semibold text-cc-fg" data-testid="active-codex-reasoning-title">
+                {parsed.title}
+              </strong>
+              {body ? " " : null}
+            </>
+          )}
+          {body && <span data-testid="active-codex-reasoning-body">{body}</span>}
+        </p>
       </div>
     </div>
   );
@@ -1768,7 +1759,6 @@ export const FeedFooter = memo(function FeedFooter({
 }) {
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
   const rawStreamingText = useStore((s) => s.streaming.get(sessionId));
-  const rawThinkingText = useStore((s) => s.streamingThinking.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
   const streamingText = useMemo(
@@ -1814,17 +1804,6 @@ export const FeedFooter = memo(function FeedFooter({
             </div>
           );
         })()}
-
-      {isCodexSession && !rawStreamingText && rawThinkingText && (
-        <div className="animate-[fadeSlideIn_0.2s_ease-out]" data-feed-block-id={getFooterFeedBlockId("thinking")}>
-          <div className="flex items-start gap-3">
-            <PawTrailAvatar isStreaming />
-            <div className="flex-1 min-w-0">
-              <CodexThinkingInline text={rawThinkingText} />
-            </div>
-          </div>
-        </div>
-      )}
 
       {rawStreamingText && (
         <div

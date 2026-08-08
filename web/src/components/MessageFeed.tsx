@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { useStore } from "../store.js";
-import { CodexThinkingInline, HerdEventMessage, MessageBubble, isEmptyAssistantMessage } from "./MessageBubble.js";
+import { HerdEventMessage, MessageBubble, isEmptyAssistantMessage } from "./MessageBubble.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils/herd-event-parser.js";
 import { ToolBlock, getPreview, getToolIcon, getToolLabel, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
