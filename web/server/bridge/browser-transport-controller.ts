@@ -24,12 +24,22 @@ import {
   MAIN_THREAD_KEY,
   normalizeSelectedFeedThreadKey,
 } from "../../shared/thread-window.js";
-import { isQuestThreadKey } from "../../shared/thread-routing.js";
 import { deriveWindowAvailability } from "../../shared/window-availability.js";
 import { sessionTag } from "../session-tag.js";
+import { selectHistoryWindowRange } from "../history-window-selection.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
+import {
+  prepareBoundedConversationSubscribe,
+  boundedConversationSyncComplete,
+  normalizeInitialThreadWindowRequest,
+  recordBoundedConversationRequest,
+  recordBoundedConversationViewUpdate,
+  shouldDeliverBrowserEventToSocket,
+  type BoundedConversationView,
+  type BrowserConversationWindowSocketData,
+} from "./browser-conversation-window-policy.js";
 import { stripRecoveryDeliveryTransferMarker } from "./recovery-delivery-transfer-routing-context.js";
 import {
   classifyRecoveryDeliveryOwnership,
@@ -88,7 +98,7 @@ import type {
 type AgentSource = { sessionId: string; sessionLabel?: string };
 type ProgrammaticUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message" }>;
 
-type BrowserTransportSocketData = {
+type BrowserTransportSocketData = BrowserConversationWindowSocketData & {
   sessionId?: string;
   subscribed?: boolean;
   lastAckSeq?: number;
@@ -257,6 +267,7 @@ function isArchivedReadOnlyBrowserMessage(msg: BrowserOutgoingMessage): boolean 
     msg.type === "session_subscribe" ||
     msg.type === "history_window_request" ||
     msg.type === "thread_window_request" ||
+    msg.type === "conversation_view_update" ||
     msg.type === "session_ack" ||
     msg.type === "history_sync_mismatch" ||
     (msg as { type: string }).type === "ping"
@@ -268,13 +279,11 @@ export function handleBrowserOpen(
   ws: BrowserTransportSocketLike,
   deps: BrowserTransportDeps,
 ): void {
-  const data = (ws.data ??= {}) as {
-    sessionId?: string;
-    subscribed?: boolean;
-    lastAckSeq?: number;
-  };
+  const data = (ws.data ??= {}) as BrowserTransportSocketData;
   data.subscribed = false;
   data.lastAckSeq = 0;
+  data.boundedConversation = false;
+  delete data.conversationView;
   session.browserSockets.add(ws);
   console.log(
     `[ws-bridge] Browser connected for session ${sessionTag(session.id)} (${session.browserSockets.size} browsers)`,
@@ -520,24 +529,35 @@ export function handleBrowserProtocolMessage(
       msg.feed_window_sync_version,
       msg.initial_thread_window,
       deps,
+      msg.history_window_target_message_id,
+      msg.history_window_target_index,
+      msg.full_history_sync,
     ).then(() => true);
   }
 
   if (msg.type === "history_window_request") {
     if (!ws) return true;
+    const socketData = (ws.data ??= {}) as BrowserTransportSocketData;
+    recordBoundedConversationRequest(socketData, msg);
     sendHistoryWindowSync(session, ws, {
       fromTurn: msg.from_turn,
       turnCount: msg.turn_count,
       sectionTurnCount: msg.section_turn_count,
       visibleSectionCount: msg.visible_section_count,
       cachedWindowHash: msg.cached_window_hash,
+      targetMessageId: msg.target_message_id,
+      targetHistoryIndex: msg.target_history_index,
       feedWindowSyncVersion: msg.feed_window_sync_version,
     });
+    const complete = boundedConversationSyncComplete(socketData, session.nextEventSeq - 1);
+    if (complete) sendToBrowser(ws, complete);
     return true;
   }
 
   if (msg.type === "thread_window_request") {
     if (!ws) return true;
+    const socketData = (ws.data ??= {}) as BrowserTransportSocketData;
+    recordBoundedConversationRequest(socketData, msg);
     sendThreadWindowSync(session, ws, {
       threadKey: msg.thread_key,
       fromItem: msg.from_item,
@@ -548,6 +568,13 @@ export function handleBrowserProtocolMessage(
       targetMessageId: msg.target_message_id,
       feedWindowSyncVersion: msg.feed_window_sync_version,
     });
+    const complete = boundedConversationSyncComplete(socketData, session.nextEventSeq - 1);
+    if (complete) sendToBrowser(ws, complete);
+    return true;
+  }
+
+  if (msg.type === "conversation_view_update") {
+    if (ws) recordBoundedConversationViewUpdate((ws.data ??= {}) as BrowserTransportSocketData, msg);
     return true;
   }
 
@@ -1152,6 +1179,8 @@ export function sendHistoryWindowSync(
     sectionTurnCount: number;
     visibleSectionCount: number;
     cachedWindowHash?: string;
+    targetMessageId?: string;
+    targetHistoryIndex?: number;
     feedWindowSyncVersion?: number;
   },
 ): void {
@@ -1171,17 +1200,15 @@ export function sendHistoryWindowSync(
   let messages: BrowserIncomingMessage[] = session.messageHistory.slice();
 
   if (totalTurns > 0) {
-    const requestedFromTurn = Math.floor(options.fromTurn);
-    fromTurn =
-      requestedFromTurn < 0
-        ? Math.max(0, totalTurns - normalizedTurnCount)
-        : Math.max(0, Math.min(requestedFromTurn, totalTurns - 1));
-    const endTurnExclusive = Math.min(totalTurns, fromTurn + normalizedTurnCount);
-    turnCount = Math.max(0, endTurnExclusive - fromTurn);
-    startIdx = turns[fromTurn]?.startIdx ?? 0;
-    const lastTurn = turns[endTurnExclusive - 1];
-    const endIdx = lastTurn && lastTurn.endIdx >= 0 ? lastTurn.endIdx : Math.max(0, session.messageHistory.length - 1);
-    messages = session.messageHistory.slice(startIdx, endIdx + 1);
+    const selected = selectHistoryWindowRange({
+      messageHistory: session.messageHistory,
+      turns,
+      requestedFromTurn: Math.floor(options.fromTurn),
+      turnCount: normalizedTurnCount,
+      targetMessageId: options.targetMessageId,
+      targetHistoryIndex: options.targetHistoryIndex,
+    });
+    ({ fromTurn, turnCount, startIdx, messages } = selected);
   }
   messages = appendResolvedToolResultPreviewsForWindow(messages, session.messageHistory);
   const windowHash = computeHistoryPayloadSyncHash({ startIdx, messages });
@@ -1276,6 +1303,7 @@ export function sendThreadWindowSync(
     visibleItemCount: number;
     cachedWindowHash?: string;
     targetMessageId?: string;
+    targetHistoryIndex?: number;
     feedWindowSyncVersion?: number;
   },
 ): void {
@@ -1293,6 +1321,7 @@ export function sendThreadWindowSync(
     sectionItemCount: normalizedSectionItemCount,
     visibleItemCount: normalizedVisibleItemCount,
     targetMessageId: options.targetMessageId,
+    targetHistoryIndex: options.targetHistoryIndex,
   });
   const windowHash = computeHistoryPayloadSyncHash({
     threadKey: sync.threadKey,
@@ -1329,36 +1358,15 @@ function sendFeedWindowSyncIfSupported(
   sendToBrowser(ws, { type: "feed_window_sync", sync } as BrowserIncomingMessage);
 }
 
-function normalizeInitialThreadWindowRequest(
-  request: InitialThreadWindowRequest | undefined,
+async function sendBoundedConversationView(
   session: BrowserTransportSessionLike,
-  deps: Pick<BrowserTransportDeps, "getLauncherSessionInfo">,
-): InitialThreadWindowRequest | null {
-  if (!request || !isLeaderSession(session, deps)) return null;
-  const threadKey = normalizeSelectedFeedThreadKey(request.thread_key);
-  if (threadKey !== MAIN_THREAD_KEY && !isQuestThreadKey(threadKey)) return null;
-  if (
-    !Number.isFinite(request.from_item) ||
-    !Number.isFinite(request.item_count) ||
-    request.item_count <= 0 ||
-    !Number.isFinite(request.section_item_count) ||
-    request.section_item_count <= 0 ||
-    !Number.isFinite(request.visible_item_count) ||
-    request.visible_item_count <= 0
-  ) {
-    return null;
-  }
-  const targetMessageId = request.target_message_id?.trim();
-  const cachedWindowHash = request.cached_window_hash?.trim();
-  return {
-    thread_key: threadKey,
-    from_item: request.from_item < 0 ? -1 : Math.floor(request.from_item),
-    item_count: Math.max(1, Math.floor(request.item_count)),
-    section_item_count: Math.max(1, Math.floor(request.section_item_count)),
-    visible_item_count: Math.max(1, Math.floor(request.visible_item_count)),
-    ...(cachedWindowHash && !targetMessageId ? { cached_window_hash: cachedWindowHash } : {}),
-    ...(targetMessageId ? { target_message_id: targetMessageId } : {}),
-  };
+  ws: BrowserTransportSocketLike,
+  view: BoundedConversationView,
+  fullHistory = false,
+): Promise<void> {
+  if (fullHistory) return sendHistorySync(session, ws, 0, undefined);
+  if (view.kind === "thread") sendThreadWindowSync(session, ws, view.request);
+  else sendHistoryWindowSync(session, ws, view.request);
 }
 
 async function sendInitialTreeGroupState(ws: BrowserTransportSocketLike): Promise<void> {
@@ -1391,9 +1399,12 @@ export async function handleSessionSubscribe(
   feedWindowSyncVersion: number | undefined,
   initialThreadWindow: InitialThreadWindowRequest | undefined,
   deps: BrowserTransportDeps,
+  historyWindowTargetMessageId?: string,
+  historyWindowTargetIndex?: number,
+  explicitFullHistorySync?: boolean,
 ): Promise<void> {
   if (!ws) return;
-  const data = (ws.data ??= {}) as { subscribed?: boolean; lastAckSeq?: number };
+  const data = (ws.data ??= {}) as BrowserTransportSocketData;
   data.subscribed = true;
   const lastAckSeq = Number.isFinite(lastSeq) ? Math.max(0, Math.floor(lastSeq)) : 0;
   data.lastAckSeq = lastAckSeq;
@@ -1432,45 +1443,35 @@ export async function handleSessionSubscribe(
   }
   if (cleanedStale) deps.persistSession(session);
 
-  let replayEvents: BufferedBrowserEvent[] = [];
-  let sentInitialThreadWindow = false;
-  if (lastAckSeq === 0) {
+  const normalizedInitialThreadWindow = normalizeInitialThreadWindowRequest(
+    initialThreadWindow,
+    isLeaderSession(session, deps),
+  );
+  const prepared = prepareBoundedConversationSubscribe({
+    session,
+    socketData: data,
+    feedWindowSyncVersion,
+    initialThreadWindow: normalizedInitialThreadWindow,
+    historyWindowSectionTurnCount,
+    historyWindowVisibleSectionCount,
+    historyWindowTargetMessageId,
+    historyWindowTargetIndex,
+    lastAckSeq,
+    running: deriveSessionStatus(session, deps) === "running",
+    isHistoryBackedEvent,
+  });
+  const { boundedView, historyView, syncThroughSeq } = prepared;
+  let replayEvents = prepared.replayEvents;
+
+  if (boundedView) {
     sendLeaderProjectionSnapshot(session, ws, deps);
-    const normalizedInitialThreadWindow = normalizeInitialThreadWindowRequest(initialThreadWindow, session, deps);
-    if (normalizedInitialThreadWindow) {
-      sendThreadWindowSync(session, ws, {
-        threadKey: normalizedInitialThreadWindow.thread_key,
-        fromItem: normalizedInitialThreadWindow.from_item,
-        itemCount: normalizedInitialThreadWindow.item_count,
-        sectionItemCount: normalizedInitialThreadWindow.section_item_count,
-        visibleItemCount: normalizedInitialThreadWindow.visible_item_count,
-        cachedWindowHash: normalizedInitialThreadWindow.cached_window_hash,
-        targetMessageId: normalizedInitialThreadWindow.target_message_id,
-        feedWindowSyncVersion,
-      });
-      sentInitialThreadWindow = true;
-      await yieldToEventLoop();
-    } else if (session.messageHistory.length > 0) {
-      if (
-        typeof historyWindowSectionTurnCount === "number" &&
-        historyWindowSectionTurnCount > 0 &&
-        typeof historyWindowVisibleSectionCount === "number" &&
-        historyWindowVisibleSectionCount > 0
-      ) {
-        sendHistoryWindowSync(session, ws, {
-          fromTurn: Math.max(
-            0,
-            findTurnBoundaries(session.messageHistory).length -
-              getHistoryWindowTurnCount(historyWindowVisibleSectionCount, historyWindowSectionTurnCount),
-          ),
-          turnCount: getHistoryWindowTurnCount(historyWindowVisibleSectionCount, historyWindowSectionTurnCount),
-          sectionTurnCount: historyWindowSectionTurnCount,
-          visibleSectionCount: historyWindowVisibleSectionCount,
-          feedWindowSyncVersion,
-        });
-      } else {
-        await sendHistorySync(session, ws, knownFrozenCount ?? 0, knownFrozenHash);
-      }
+    await sendBoundedConversationView(session, ws, boundedView, explicitFullHistorySync);
+    await yieldToEventLoop();
+  } else if (lastAckSeq === 0) {
+    sendLeaderProjectionSnapshot(session, ws, deps);
+    if (session.messageHistory.length > 0) {
+      if (historyView) sendHistoryWindowSync(session, ws, historyView);
+      else await sendHistorySync(session, ws, knownFrozenCount ?? 0, knownFrozenHash);
     }
     if (deriveSessionStatus(session, deps) === "running" && session.eventBuffer.length > 0) {
       replayEvents = session.eventBuffer.filter(
@@ -1496,7 +1497,7 @@ export async function handleSessionSubscribe(
     }
   }
 
-  if (sentInitialThreadWindow) await sendInitialTreeGroupState(ws);
+  if (boundedView) await sendInitialTreeGroupState(ws);
   else void sendInitialTreeGroupState(ws);
   if (replayEvents.length > 0) {
     sendToBrowser(ws, { type: "event_replay", events: replayEvents } as BrowserIncomingMessage);
@@ -1513,6 +1514,9 @@ export async function handleSessionSubscribe(
 
   const timers = deps.listTimers(session.id);
   sendToBrowser(ws, { type: "timer_update", timers } as BrowserIncomingMessage);
+  if (boundedView) {
+    sendToBrowser(ws, { type: "conversation_sync_complete", through_seq: syncThroughSeq });
+  }
 
   deps.recomputeAndBroadcastHistoryBytes(session);
   sendStateSnapshot(session, ws, deps);
@@ -1566,7 +1570,8 @@ export function broadcastToBrowsers(
     );
   }
   const serStart = performance.now();
-  const json = JSON.stringify(sequenceEvent(session, msg, deps, options));
+  const sequenced = sequenceEvent(session, msg, deps, options);
+  const json = JSON.stringify(sequenced);
   const serMs = performance.now() - serStart;
   if (serMs > 50) {
     console.warn(
@@ -1579,7 +1584,21 @@ export function broadcastToBrowsers(
   let successfulFanout = 0;
   for (const ws of session.browserSockets) {
     const socket = ws as BrowserTransportSocketLike;
+    const socketData = (socket.data ??= {}) as BrowserTransportSocketData;
     try {
+      if (
+        socketData.boundedConversation &&
+        (msg.type === "message_history" || msg.type === "history_sync") &&
+        socketData.conversationView
+      ) {
+        sendBoundedConversationView(session, socket, socketData.conversationView);
+        sendToBrowser(socket, {
+          type: "conversation_sync_complete",
+          through_seq: Math.max(0, session.nextEventSeq - 1),
+        });
+        continue;
+      }
+      if (!shouldDeliverBrowserEventToSocket(session, msg, socketData)) continue;
       socket.send(json);
       successfulFanout++;
     } catch {

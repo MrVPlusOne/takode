@@ -182,6 +182,18 @@ function threadAttachmentUpdate(
 // Connection
 // ===========================================================================
 describe("handleMessage: event_replay", () => {
+  it("advances the reconnect watermark after bounded conversation synchronization", () => {
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+    lastWs.send.mockClear();
+
+    fireMessage({ type: "conversation_sync_complete", through_seq: 42 });
+    flushSeqState();
+
+    expect(localStorage.getItem("companion:last-seq:s1")).toBe("42");
+    expect(lastWs.send).toHaveBeenCalledWith(JSON.stringify({ type: "session_ack", last_seq: 42 }));
+  });
+
   it("replays sequenced stream events and stores latest seq", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
@@ -208,12 +220,10 @@ describe("handleMessage: event_replay", () => {
     expect(lastWs.send).toHaveBeenCalledWith(JSON.stringify({ type: "session_ack", last_seq: 1 }));
   });
 
-  it("batches replay ack and storage writes using the latest replayed seq", () => {
+  it("batches replay ack and storage writes using the latest replayed seq", async () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     lastWs.send.mockClear();
-    const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
-
     fireMessage({
       type: "event_replay",
       events: [
@@ -243,7 +253,10 @@ describe("handleMessage: event_replay", () => {
     expect(lastWs.send).toHaveBeenCalledTimes(1);
     expect(lastWs.send).toHaveBeenCalledWith(JSON.stringify({ type: "session_ack", last_seq: 2 }));
     expect(localStorage.getItem("companion:last-seq:s1")).toBe("2");
-    expect(setItemSpy.mock.calls.filter(([key]) => key === "companion:last-seq:s1")).toHaveLength(1);
+    const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
+    expect(getFrontendPerfEntries()).toContainEqual(
+      expect.objectContaining({ kind: "seq_storage_flush", writeCount: 1 }),
+    );
   });
 
   it("acks but skips stale transient replay after a cold authoritative history window", () => {

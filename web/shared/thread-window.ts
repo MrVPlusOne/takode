@@ -25,6 +25,7 @@ export interface BuildThreadWindowInput {
   sectionItemCount: number;
   visibleItemCount: number;
   targetMessageId?: string;
+  targetHistoryIndex?: number;
 }
 
 interface FeedItem {
@@ -66,9 +67,12 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
   const ranges = buildVisibleConversationRanges(items);
   const totalItems = ranges.length;
   const requestedFromItem = Math.floor(input.fromItem);
-  const targetRangeIndex = input.targetMessageId
-    ? findConversationRangeIndexForMessage(items, ranges, input.targetMessageId)
-    : null;
+  const targetRangeIndex = findConversationRangeIndexForTarget(
+    items,
+    ranges,
+    input.targetMessageId,
+    input.targetHistoryIndex,
+  );
   const initialFromItem =
     totalItems === 0
       ? 0
@@ -116,14 +120,16 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
   };
 }
 
-function findConversationRangeIndexForMessage(
+function findConversationRangeIndexForTarget(
   items: FeedItem[],
   ranges: ConversationRange[],
-  targetMessageId: string,
+  targetMessageId: string | undefined,
+  targetHistoryIndex: number | undefined,
 ): number | null {
-  const targetItemIndex = items.findIndex(
-    (item) => rawMessageId(item.entry.message, item.entry.history_index) === targetMessageId,
-  );
+  const targetItemIndex = items.findIndex((item) => {
+    if (targetMessageId && rawMessageId(item.entry.message, item.entry.history_index) === targetMessageId) return true;
+    return typeof targetHistoryIndex === "number" && item.entry.history_index === targetHistoryIndex;
+  });
   if (targetItemIndex < 0) return null;
   const rangeIndex = ranges.findIndex((range) => targetItemIndex >= range.startItem && targetItemIndex < range.endItem);
   return rangeIndex >= 0 ? rangeIndex : null;

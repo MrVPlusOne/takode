@@ -966,9 +966,42 @@ describe("MessageFeed section windowing", () => {
       turn_count: 8,
       section_turn_count: 2,
       visible_section_count: 3,
+      activate_view: true,
       feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
     });
     expect(screen.getByText("Loading older section...")).toBeTruthy();
+  });
+
+  it("announces a cached selected thread view so live server filtering follows warm tab switches", async () => {
+    const sid = "test-cached-thread-view-update";
+    const threadKey = "q-1831";
+    setStoreSessionState(sid, { isOrchestrator: true });
+    mockStoreValues.connectionStatus = new Map([[sid, "connected"]]);
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 4,
+      itemCount: 6,
+      totalItems: 12,
+      sectionItemCount: 2,
+      visibleItemCount: 3,
+      messages: [makeMessage({ id: "selected", role: "assistant", content: "selected", timestamp: 1 })],
+    });
+
+    render(<MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={2} />);
+
+    await waitFor(() =>
+      expect(mockSendToSession).toHaveBeenCalledWith(sid, {
+        type: "conversation_view_update",
+        view: "thread",
+        thread_key: threadKey,
+        from: 4,
+        count: 6,
+        section_count: 2,
+        visible_count: 3,
+        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+      }),
+    );
   });
 
   it("sends a cached history window hash with scroll-triggered server window requests", () => {
@@ -1008,6 +1041,7 @@ describe("MessageFeed section windowing", () => {
       turn_count: 8,
       section_turn_count: 2,
       visible_section_count: 3,
+      activate_view: true,
       feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       cached_window_hash: "cached-history-window",
     });
@@ -1039,6 +1073,7 @@ describe("MessageFeed section windowing", () => {
       turn_count: 12,
       section_turn_count: 2,
       visible_section_count: 3,
+      activate_view: true,
       feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
     });
     expect(screen.getByText("Loading newer section...")).toBeTruthy();

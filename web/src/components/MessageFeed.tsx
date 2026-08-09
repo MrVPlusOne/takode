@@ -73,8 +73,6 @@ import { useCollapsePolicy } from "../hooks/use-collapse-policy.js";
 import { useTextSelection } from "../hooks/useTextSelection.js";
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
-import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
-import { getCachedHistoryWindowHash } from "../utils/history-window-cache.js";
 import { buildFeedMessageModel, buildFeedWindowModel } from "../utils/feed-render-model.js";
 import {
   hasMissingSelectedThreadWindowContext,
@@ -86,6 +84,7 @@ import {
   useIdempotentState,
 } from "./message-feed-viewport-state.js";
 import { useMessageFeedSectionWindowLoaders } from "./message-feed-section-window-loaders.js";
+import { useMessageFeedBoundedConversation } from "./message-feed-bounded-conversation.js";
 import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
 import { useMessageFeedUserNavigationTargets, useUserMessageNavigation } from "./message-feed-user-navigation-hook.js";
 import { getMissingScrollTargetWindowAction, type PendingTargetWindowRequest } from "./message-feed-scroll-target.js";
@@ -915,26 +914,14 @@ export function MessageFeed({
     [ensureSectionForTurnVisible],
   );
 
-  const requestHistoryWindow = useCallback(
-    (fromTurn: number, turnCount: number, sectionTurnCount: number, visibleSectionCount: number) => {
-      const cachedWindowHash = getCachedHistoryWindowHash(sessionId, {
-        fromTurn,
-        turnCount,
-        sectionTurnCount,
-        visibleSectionCount,
-      });
-      return sendToSession(sessionId, {
-        type: "history_window_request",
-        from_turn: fromTurn,
-        turn_count: turnCount,
-        section_turn_count: sectionTurnCount,
-        visible_section_count: visibleSectionCount,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
-        ...(cachedWindowHash ? { cached_window_hash: cachedWindowHash } : {}),
-      });
-    },
-    [sessionId],
-  );
+  const { historyWindowRevision, requestHistoryWindow } = useMessageFeedBoundedConversation({
+    activeHistoryWindow,
+    activeThreadWindow,
+    connectionStatus,
+    normalizedThreadKey,
+    selectedFeedWindowEnabled,
+    sessionId,
+  });
 
   const { handleLoadNewerSection, handleLoadOlderSection } = useMessageFeedSectionWindowLoaders({
     activeThreadWindow,
@@ -1590,16 +1577,26 @@ export function MessageFeed({
         (t.userEntry?.kind === "message" && t.userEntry.msg.id === scrollToMessageId),
     );
     if (!targetTurn) {
-      if (selectedFeedWindowEnabled) {
+      if (selectedFeedWindowEnabled || activeHistoryWindow) {
         const key = `${normalizedThreadKey}:${scrollToMessageId}`;
         const action = getMissingScrollTargetWindowAction({
           pending: pendingTargetWindowRequestRef.current,
           requestKey: key,
-          revision: selectedThreadWindowRevision,
+          revision: selectedFeedWindowEnabled ? selectedThreadWindowRevision : historyWindowRevision,
         });
         if (action.kind === "request") {
           pendingTargetWindowRequestRef.current = action.pending;
-          requestThreadWindow(-1, undefined, scrollToMessageId);
+          if (selectedFeedWindowEnabled) {
+            requestThreadWindow(-1, undefined, scrollToMessageId);
+          } else if (activeHistoryWindow) {
+            requestHistoryWindow(
+              -1,
+              activeHistoryWindow.turn_count || sectionTurnCount * DEFAULT_VISIBLE_SECTION_COUNT,
+              activeHistoryWindow.section_turn_count,
+              activeHistoryWindow.visible_section_count,
+              scrollToMessageId,
+            );
+          }
           return;
         }
         if (action.kind === "wait") return;
@@ -1666,15 +1663,18 @@ export function MessageFeed({
     }
     scheduleScroll();
   }, [
+    activeHistoryWindow,
     clearExpandAllInTurn,
     clearPendingScrollToMessageId,
     clearScrollToMessage,
     ensureSectionForTurnVisible,
     getRealContentBottom,
+    historyWindowRevision,
     isLeaderSession,
     markProgrammaticScroll,
     normalizedThreadKey,
     requestThreadWindow,
+    requestHistoryWindow,
     scrollToMessageId,
     selectedFeedWindowEnabled,
     selectedThreadWindowRevision,

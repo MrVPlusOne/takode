@@ -54,8 +54,10 @@ function getInitialLeaderThreadWindow(
     store.pendingScrollToMessageId.get(sessionId) ??
     (routeMatchesSession ? messageIdFromHash(window.location.hash) : null) ??
     (savedViewport?.isAtBottom ? null : (savedViewport?.anchorMessageId ?? savedViewport?.anchorTurnId ?? null));
+  const targetHistoryIndex = store.pendingScrollToMessageIndex.get(sessionId);
+  const hasTarget = Boolean(targetMessageId) || typeof targetHistoryIndex === "number";
   const cachedWindowHash =
-    existingWindow && !targetMessageId
+    existingWindow && !hasTarget
       ? getCachedThreadWindowHash(sessionId, {
           threadKey,
           fromItem: existingWindow.from_item,
@@ -67,12 +69,33 @@ function getInitialLeaderThreadWindow(
 
   return {
     thread_key: threadKey,
-    from_item: targetMessageId ? -1 : (existingWindow?.from_item ?? -1),
+    from_item: hasTarget ? -1 : (existingWindow?.from_item ?? -1),
     item_count: itemCount,
     section_item_count: sectionItemCount,
     visible_item_count: visibleItemCount,
     ...(cachedWindowHash ? { cached_window_hash: cachedWindowHash } : {}),
     ...(targetMessageId ? { target_message_id: targetMessageId } : {}),
+    ...(typeof targetHistoryIndex === "number" ? { target_history_index: targetHistoryIndex } : {}),
+  };
+}
+
+function getInitialHistoryWindowTarget(sessionId: string): {
+  targetMessageId?: string;
+  targetHistoryIndex?: number;
+} {
+  const store = useStore.getState();
+  const threadWindow = getInitialLeaderThreadWindow(sessionId);
+  if (threadWindow?.target_message_id || typeof threadWindow?.target_history_index === "number") return {};
+  const route = typeof window === "undefined" ? null : parseHash(window.location.hash);
+  const routeSessionId =
+    route?.page === "session" ? resolveSessionIdFromRoute(route.sessionId, store.sdkSessions) : null;
+  const routeTarget = routeSessionId === sessionId ? messageIdFromHash(window.location.hash) : null;
+  const targetMessageId =
+    store.pendingScrollToMessageId.get(sessionId) ?? store.scrollToTurnId.get(sessionId) ?? routeTarget ?? undefined;
+  const targetHistoryIndex = store.pendingScrollToMessageIndex.get(sessionId);
+  return {
+    ...(targetMessageId ? { targetMessageId } : {}),
+    ...(typeof targetHistoryIndex === "number" ? { targetHistoryIndex } : {}),
   };
 }
 
@@ -90,13 +113,11 @@ const transport = createWsTransport({
     return useStore.getState().messageFrozenHashes.get(sessionId);
   },
   getFreshHistoryWindow: (sessionId) => {
-    const store = useStore.getState();
-    if (store.pendingScrollToMessageIndex.get(sessionId) != null) return null;
-    if (store.scrollToTurnId.get(sessionId)) return null;
-    if (store.pendingScrollToMessageId.get(sessionId) && !getInitialLeaderThreadWindow(sessionId)) return null;
+    const target = getInitialHistoryWindowTarget(sessionId);
     return {
       sectionTurnCount: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visibleSectionCount: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      ...target,
     };
   },
   getInitialThreadWindow: getInitialLeaderThreadWindow,
@@ -171,6 +192,10 @@ export function waitForConnection(sessionId: string): Promise<void> {
 
 export function sendToSession(sessionId: string, msg: BrowserOutgoingMessage): boolean {
   return transport.sendToSession(sessionId, msg);
+}
+
+export function requestFullHistorySync(sessionId: string): boolean {
+  return transport.requestFullHistorySync(sessionId);
 }
 
 export function sendVsCodeSelectionUpdate(

@@ -3,6 +3,7 @@
 import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 import type { BrowserIncomingMessage, SessionState } from "./types.js";
+import { persistLeaderSelectedThreadKey } from "./utils/thread-viewport.js";
 
 vi.mock("./utils/names.js", () => ({
   generateUniqueSessionName: vi.fn(() => "Test Session"),
@@ -103,6 +104,7 @@ function makeSession(id: string): SessionState {
     git_behind: 0,
     total_lines_added: 0,
     total_lines_removed: 0,
+    isOrchestrator: true,
   };
 }
 
@@ -110,9 +112,12 @@ function fireMessage(data: unknown) {
   lastWs.onmessage!({ data: JSON.stringify(data) });
 }
 
-function connectAndHydrateSession() {
+function connectAndHydrateSession(selectedThreadKey = "q-1087", active = true) {
+  useStore.setState({ currentSessionId: active ? "s1" : null });
+  persistLeaderSelectedThreadKey("s1", selectedThreadKey);
   wsModule.connectSession("s1");
   fireMessage({ type: "session_init", session: makeSession("s1") });
+  persistLeaderSelectedThreadKey("s1", selectedThreadKey);
   lastWs.send.mockClear();
 }
 
@@ -175,7 +180,7 @@ function setPatchSentinelMessages() {
     });
 }
 
-async function expectMalformedRecovery(input: { payload: unknown; recoveryReason: string; expectedSendCount: number }) {
+async function expectMalformedRecovery(input: { payload: unknown; recoveryReason: string }) {
   connectAndHydrateSession();
   setPatchSentinelMessages();
 
@@ -184,11 +189,11 @@ async function expectMalformedRecovery(input: { payload: unknown; recoveryReason
   const messages = useStore.getState().messages.get("s1") ?? [];
   expect(messages.find((message) => message.id === "u2")?.metadata?.threadRefs).toBeUndefined();
   expect(messages.some((message) => message.id === "marker-1")).toBe(false);
-  expect(lastWs.send).toHaveBeenCalledTimes(input.expectedSendCount);
+  expect(lastWs.send).toHaveBeenCalledTimes(1);
   expect(JSON.parse(lastWs.send.mock.calls[0]![0])).toMatchObject({
-    type: "history_window_request",
-    from_turn: -1,
-    turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+    type: "thread_window_request",
+    thread_key: "q-1087",
+    activate_view: true,
   });
 
   const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
@@ -199,8 +204,8 @@ async function expectMalformedRecovery(input: { payload: unknown; recoveryReason
         sessionId: "s1",
         ok: false,
         recoveryReason: input.recoveryReason,
-        requestedHistoryWindowCount: 1,
-        requestedThreadWindowCount: input.expectedSendCount - 1,
+        requestedHistoryWindowCount: 0,
+        requestedThreadWindowCount: 1,
       }),
     ]),
   );
@@ -253,22 +258,15 @@ describe("handleMessage: thread_attachment_update", () => {
     expect(useStore.getState().historyWindows.has("s1")).toBe(false);
     expect(useStore.getState().threadWindows.get("s1")?.has("q-1087")).toBeFalsy();
 
-    expect(lastWs.send).toHaveBeenCalledTimes(2);
+    expect(lastWs.send).toHaveBeenCalledTimes(1);
     expect(JSON.parse(lastWs.send.mock.calls[0]![0])).toEqual({
-      type: "history_window_request",
-      from_turn: -1,
-      turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-      section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
-      visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
-    });
-    expect(JSON.parse(lastWs.send.mock.calls[1]![0])).toEqual({
       type: "thread_window_request",
       thread_key: "q-1087",
       from_item: -1,
       item_count: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
       section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      activate_view: true,
       feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
     });
 
@@ -281,7 +279,7 @@ describe("handleMessage: thread_attachment_update", () => {
           updateCount: 1,
           markerCount: 1,
           changedMessageCount: 1,
-          requestedHistoryWindowCount: 1,
+          requestedHistoryWindowCount: 0,
           requestedThreadWindowCount: 1,
           ok: true,
         }),
@@ -312,7 +310,7 @@ describe("handleMessage: thread_attachment_update", () => {
     const messages = useStore.getState().messages.get("s1") ?? [];
     expect(messages.find((message) => message.id === "u2")?.metadata?.threadRefs).toBeUndefined();
     expect(messages.filter((message) => message.id === "marker-1")).toHaveLength(1);
-    expect(lastWs.send).toHaveBeenCalledTimes(2);
+    expect(lastWs.send).toHaveBeenCalledTimes(1);
     const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
     expect(getFrontendPerfEntries()).toEqual(
       expect.arrayContaining([
@@ -321,7 +319,7 @@ describe("handleMessage: thread_attachment_update", () => {
           applicationMode: "refetch_only",
           advisoryReason: "authoritative_marker_present",
           skippedLocalPatch: true,
-          requestedHistoryWindowCount: 1,
+          requestedHistoryWindowCount: 0,
           requestedThreadWindowCount: 1,
         }),
       ]),
@@ -344,7 +342,7 @@ describe("handleMessage: thread_attachment_update", () => {
     const messages = useStore.getState().messages.get("s1") ?? [];
     expect(messages.find((message) => message.id === "u2")?.metadata?.threadRefs).toBeUndefined();
     expect(messages.some((message) => message.id === "marker-1")).toBe(false);
-    expect(lastWs.send).toHaveBeenCalledTimes(2);
+    expect(lastWs.send).toHaveBeenCalledTimes(1);
     const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
     expect(getFrontendPerfEntries()).toEqual(
       expect.arrayContaining([
@@ -358,14 +356,14 @@ describe("handleMessage: thread_attachment_update", () => {
     );
   });
 
-  it("invalidates and refreshes both source and target thread tabs for live safe updates", () => {
-    connectAndHydrateSession();
+  it("invalidates source and target caches but refreshes only the visible thread", () => {
+    connectAndHydrateSession("q-1086");
     useStore
       .getState()
       .setMessages("s1", [{ id: "u2", role: "user", content: "move me", timestamp: 1001, historyIndex: 1 }], {
         frozenCount: 1,
       });
-    for (const threadKey of ["q-source", "q-1087"]) {
+    for (const threadKey of ["q-1086", "q-1087"]) {
       useStore.getState().setThreadWindow(
         "s1",
         threadKey,
@@ -385,30 +383,57 @@ describe("handleMessage: thread_attachment_update", () => {
 
     fireMessage(
       threadAttachmentUpdate({
-        affectedThreadKeys: ["q-source", "q-1087"],
+        affectedThreadKeys: ["q-1086", "q-1087"],
         updates: [
           {
             ...baseUpdate.updates[0]!,
-            source: { threadKey: "q-source", questId: "q-source" },
+            source: { threadKey: "q-1086", questId: "q-1086" },
           },
         ],
       }),
     );
 
-    expect(useStore.getState().threadWindows.get("s1")?.has("q-source")).toBeFalsy();
+    expect(useStore.getState().threadWindows.get("s1")?.has("q-1086")).toBeFalsy();
     expect(useStore.getState().threadWindows.get("s1")?.has("q-1087")).toBeFalsy();
-    expect(lastWs.send).toHaveBeenCalledTimes(3);
-    expect(lastWs.send.mock.calls.map(([raw]) => JSON.parse(raw).type)).toEqual([
-      "history_window_request",
-      "thread_window_request",
-      "thread_window_request",
-    ]);
-    expect(
-      lastWs.send.mock.calls
-        .slice(1)
-        .map(([raw]) => JSON.parse(raw).thread_key)
-        .sort(),
-    ).toEqual(["q-1087", "q-source"]);
+    expect(lastWs.send).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(lastWs.send.mock.calls[0]![0])).toMatchObject({
+      type: "thread_window_request",
+      thread_key: "q-1086",
+      activate_view: true,
+    });
+  });
+
+  it("does not passively fetch conversation windows for a background session", async () => {
+    connectAndHydrateSession("q-1087", false);
+    setPatchSentinelMessages();
+
+    fireMessage(threadAttachmentUpdate());
+
+    expect(lastWs.send).not.toHaveBeenCalled();
+    const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
+    expect(getFrontendPerfEntries()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "thread_attachment_update_apply",
+          requestedHistoryWindowCount: 0,
+          requestedThreadWindowCount: 0,
+        }),
+      ]),
+    );
+  });
+
+  it("refreshes only the explicitly viewed All Threads history window", () => {
+    connectAndHydrateSession("all");
+    setPatchSentinelMessages();
+
+    fireMessage(threadAttachmentUpdate());
+
+    expect(lastWs.send).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(lastWs.send.mock.calls[0]![0])).toMatchObject({
+      type: "history_window_request",
+      from_turn: -1,
+      activate_view: true,
+    });
   });
 
   it("deduplicates repeated updates by updateId", () => {
@@ -429,7 +454,7 @@ describe("handleMessage: thread_attachment_update", () => {
         .messages.get("s1")
         ?.filter((message) => message.id === "marker-1"),
     ).toHaveLength(1);
-    expect(lastWs.send).toHaveBeenCalledTimes(2);
+    expect(lastWs.send).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to bounded refresh requests for unsupported update versions without local patching", async () => {
@@ -444,7 +469,7 @@ describe("handleMessage: thread_attachment_update", () => {
         .messages.get("s1")
         ?.some((message) => message.id === "marker-1"),
     ).toBe(false);
-    expect(lastWs.send).toHaveBeenCalledTimes(2);
+    expect(lastWs.send).toHaveBeenCalledTimes(1);
     const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
     expect(getFrontendPerfEntries()).toEqual(
       expect.arrayContaining([
@@ -468,7 +493,6 @@ describe("handleMessage: thread_attachment_update", () => {
         updates: [{}],
       },
       recoveryReason: "unsupported_version",
-      expectedSendCount: 1,
     });
   });
 
@@ -477,19 +501,16 @@ describe("handleMessage: thread_attachment_update", () => {
       name: "missing affectedThreadKeys",
       overrides: { affectedThreadKeys: undefined },
       recoveryReason: "invalid_affected_thread_keys",
-      expectedSendCount: 2,
     },
     {
       name: "malformed updates[] entry",
       overrides: { updates: [null] },
       recoveryReason: "invalid_update_entry",
-      expectedSendCount: 2,
     },
     {
       name: "missing markers array",
       overrides: { updates: [{ target: { threadKey: "q-1087" }, changedMessages: [], markerHistoryIndices: [] }] },
       recoveryReason: "invalid_markers",
-      expectedSendCount: 2,
     },
     {
       name: "missing changedMessages array",
@@ -503,7 +524,6 @@ describe("handleMessage: thread_attachment_update", () => {
         ],
       },
       recoveryReason: "invalid_changed_messages",
-      expectedSendCount: 2,
     },
     {
       name: "invalid markerHistoryIndices",
@@ -518,7 +538,6 @@ describe("handleMessage: thread_attachment_update", () => {
         ],
       },
       recoveryReason: "invalid_marker_history_indices",
-      expectedSendCount: 2,
     },
     {
       name: "invalid changed-message record",
@@ -533,7 +552,6 @@ describe("handleMessage: thread_attachment_update", () => {
         ],
       },
       recoveryReason: "invalid_changed_message_record",
-      expectedSendCount: 2,
     },
   ])("recovers without throwing for malformed version-1 payloads: $name", async (testCase) => {
     await expectMalformedRecovery({
@@ -541,7 +559,6 @@ describe("handleMessage: thread_attachment_update", () => {
         testCase.overrides as Partial<Extract<BrowserIncomingMessage, { type: "thread_attachment_update" }>>,
       ),
       recoveryReason: testCase.recoveryReason,
-      expectedSendCount: testCase.expectedSendCount,
     });
   });
 });

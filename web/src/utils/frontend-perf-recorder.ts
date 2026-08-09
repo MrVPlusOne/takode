@@ -79,6 +79,9 @@ export type FrontendPerfEntry =
       phase: "connect" | "open" | "close" | "reconnect" | "subscribe";
       lastSeq?: number;
       forceFullHistory?: boolean;
+      selectedThreadKey?: string;
+      historyTurnCount?: number;
+      threadItemCount?: number;
     }
   | {
       kind: "feed_render";

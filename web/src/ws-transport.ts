@@ -59,9 +59,15 @@ export interface WsTransportCallbacks {
   hasLocalMessages: (sessionId: string) => boolean;
   getKnownFrozenCount: (sessionId: string) => number;
   getKnownFrozenHash: (sessionId: string) => string | undefined;
-  getFreshHistoryWindow?: (
-    sessionId: string,
-  ) => { sectionTurnCount: number; visibleSectionCount: number } | null | undefined;
+  getFreshHistoryWindow?: (sessionId: string) =>
+    | {
+        sectionTurnCount: number;
+        visibleSectionCount: number;
+        targetMessageId?: string;
+        targetHistoryIndex?: number;
+      }
+    | null
+    | undefined;
   getInitialThreadWindow?: (sessionId: string) => InitialThreadWindowRequest | null | undefined;
   onMessage: (sessionId: string, data: BrowserIncomingMessage, context: WsIncomingMessageContext) => void;
   onConnecting?: (sessionId: string) => void;
@@ -241,7 +247,13 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   function recordConnectionCycle(
     sessionId: string,
     phase: "connect" | "open" | "close" | "reconnect" | "subscribe",
-    extra?: { lastSeq?: number; forceFullHistory?: boolean },
+    extra?: {
+      lastSeq?: number;
+      forceFullHistory?: boolean;
+      selectedThreadKey?: string;
+      historyTurnCount?: number;
+      threadItemCount?: number;
+    },
   ): void {
     recordFrontendPerfEntry({ kind: "connection_cycle", timestamp: Date.now(), sessionId, phase, ...extra });
   }
@@ -259,26 +271,45 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     const lastSeq = hasLocalMessages ? getLastSeq(sessionId) : 0;
     const knownFrozenCount = hasLocalMessages ? callbacks.getKnownFrozenCount(sessionId) : 0;
     const knownFrozenHash = hasLocalMessages ? callbacks.getKnownFrozenHash(sessionId) : undefined;
-    const freshWindow = !hasLocalMessages && !forceFullHistory ? callbacks.getFreshHistoryWindow?.(sessionId) : null;
-    const initialThreadWindow = freshWindow ? callbacks.getInitialThreadWindow?.(sessionId) : null;
+    const freshWindow = callbacks.getFreshHistoryWindow?.(sessionId) ?? null;
+    const initialThreadWindow = callbacks.getInitialThreadWindow?.(sessionId) ?? null;
     ws.send(
       JSON.stringify({
         type: "session_subscribe",
         last_seq: lastSeq,
         known_frozen_count: Math.max(0, Math.floor(knownFrozenCount)),
         ...(knownFrozenHash ? { known_frozen_hash: knownFrozenHash } : {}),
+        ...(forceFullHistory ? { full_history_sync: true } : {}),
         ...(freshWindow
           ? {
               history_window_section_turn_count: Math.max(1, Math.floor(freshWindow.sectionTurnCount)),
               history_window_visible_section_count: Math.max(1, Math.floor(freshWindow.visibleSectionCount)),
+              ...(freshWindow.targetMessageId ? { history_window_target_message_id: freshWindow.targetMessageId } : {}),
+              ...(typeof freshWindow.targetHistoryIndex === "number"
+                ? { history_window_target_index: freshWindow.targetHistoryIndex }
+                : {}),
               feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
               ...(initialThreadWindow ? { initial_thread_window: initialThreadWindow } : {}),
             }
           : {}),
       }),
     );
-    recordConnectionCycle(sessionId, "subscribe", { lastSeq, forceFullHistory });
-    if (lastSeq === 0 && !forceFullHistory) {
+    recordConnectionCycle(sessionId, "subscribe", {
+      lastSeq,
+      forceFullHistory,
+      ...(initialThreadWindow
+        ? {
+            selectedThreadKey: initialThreadWindow.thread_key,
+            threadItemCount: initialThreadWindow.item_count,
+          }
+        : freshWindow
+          ? {
+              selectedThreadKey: "all",
+              historyTurnCount: freshWindow.sectionTurnCount * freshWindow.visibleSectionCount,
+            }
+          : {}),
+    });
+    if (freshWindow) {
       coldSubscribeAwaitingSnapshot.add(sessionId);
       coldSubscribeReceivedHistory.delete(sessionId);
       coldSubscribeBufferedReplay.delete(sessionId);
@@ -385,6 +416,12 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
         }
       }
       clearColdSubscribeState(sessionId);
+    }
+    if (message.type === "conversation_sync_complete") {
+      const throughSeq = Math.max(0, Math.floor(message.through_seq));
+      if (throughSeq > getLastSeq(sessionId)) setLastSeq(sessionId, throughSeq);
+      queueAckSeq(sessionId, throughSeq);
+      return;
     }
     callbacks.onMessage(sessionId, message, { source: "live" });
   }

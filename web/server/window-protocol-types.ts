@@ -32,4 +32,5 @@ export interface InitialThreadWindowRequest {
   visible_item_count: number;
   cached_window_hash?: string;
   target_message_id?: string;
+  target_history_index?: number;
 }

@@ -647,8 +647,11 @@ export type BrowserOutgoingMessage =
       known_frozen_hash?: string;
       history_window_section_turn_count?: number;
       history_window_visible_section_count?: number;
+      history_window_target_message_id?: string;
+      history_window_target_index?: number;
       feed_window_sync_version?: number;
       initial_thread_window?: InitialThreadWindowRequest;
+      full_history_sync?: boolean;
     }
   | {
       type: "history_window_request";
@@ -657,6 +660,9 @@ export type BrowserOutgoingMessage =
       section_turn_count: number;
       visible_section_count: number;
       cached_window_hash?: string;
+      target_message_id?: string;
+      target_history_index?: number;
+      activate_view?: boolean;
       feed_window_sync_version?: number;
     }
   | {
@@ -668,6 +674,18 @@ export type BrowserOutgoingMessage =
       visible_item_count: number;
       cached_window_hash?: string;
       target_message_id?: string;
+      activate_view?: boolean;
+      feed_window_sync_version?: number;
+    }
+  | {
+      type: "conversation_view_update";
+      view: "history" | "thread";
+      thread_key?: string;
+      from: number;
+      count: number;
+      section_count: number;
+      visible_count: number;
+      cached_window_hash?: string;
       feed_window_sync_version?: number;
     }
   | {
@@ -1024,6 +1042,7 @@ export type BrowserIncomingMessageBase =
       expected_full_hash: string;
     }
   | { type: "event_replay"; events: BufferedBrowserEvent[] }
+  | { type: "conversation_sync_complete"; through_seq: number }
   | { type: "session_name_update"; name: string; source?: "quest" }
   | { type: "session_task_history"; tasks: SessionTaskEntry[] }
   | { type: "pr_status_update"; pr: import("./github-pr.js").GitHubPRInfo | null; available: boolean }

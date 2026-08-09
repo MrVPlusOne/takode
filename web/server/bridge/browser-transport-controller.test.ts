@@ -26,7 +26,7 @@ import {
   sendThreadWindowSync,
   type BrowserTransportSessionLike,
 } from "./browser-transport-controller.js";
-import type { BackendType, BrowserIncomingMessage } from "../session-types.js";
+import type { BackendType, BrowserIncomingMessage, ReplayableBrowserIncomingMessage } from "../session-types.js";
 import { RecorderManager } from "../recorder.js";
 import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
 
@@ -1118,6 +1118,52 @@ describe("history window tool results", () => {
     ]);
   });
 
+  it("centers a bounded history window on an explicit message target", () => {
+    const send = vi.fn();
+    const messageHistory: BrowserIncomingMessage[] = [];
+    for (let turn = 0; turn < 10; turn++) {
+      messageHistory.push({
+        type: "user_message",
+        id: `u-${turn}`,
+        content: `turn ${turn}`,
+        timestamp: turn,
+      } as BrowserIncomingMessage);
+      messageHistory.push({
+        type: "result",
+        data: {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "",
+          duration_ms: 1,
+          duration_api_ms: 1,
+          num_turns: 1,
+          total_cost_usd: 0,
+          session_id: "test-session",
+        },
+      } as BrowserIncomingMessage);
+    }
+    const session = makeSession({ messageHistory });
+
+    sendHistoryWindowSync(
+      session,
+      { send },
+      {
+        fromTurn: -1,
+        turnCount: 3,
+        sectionTurnCount: 1,
+        visibleSectionCount: 3,
+        targetMessageId: "u-4",
+      },
+    );
+
+    const payload = JSON.parse(send.mock.calls[0][0]);
+    expect(payload.window).toMatchObject({ from_turn: 3, turn_count: 3, has_older_items: true, has_newer_items: true });
+    expect(payload.messages.some((message: BrowserIncomingMessage) => (message as { id?: string }).id === "u-4")).toBe(
+      true,
+    );
+  });
+
   it("sends additive feed_window_sync only when the browser advertises v1 support", () => {
     const send = vi.fn();
     const session = makeSession({
@@ -1428,6 +1474,8 @@ describe("initial selected thread subscribe", () => {
     const session = makeSession({
       state: { permissionMode: "default", isOrchestrator: true } as any,
       isGenerating: true,
+      activeTurnRoute: { threadKey: "q-1825", questId: "q-1825" },
+      nextEventSeq: 2,
       browserSockets: new Set(),
       messageHistory: [
         { type: "user_message", id: "u-main", content: "main", timestamp: 1 } as BrowserIncomingMessage,
@@ -1484,6 +1532,7 @@ describe("initial selected thread subscribe", () => {
       "tree_groups_update",
       "event_replay",
       "timer_update",
+      "conversation_sync_complete",
       "state_snapshot",
     ]);
     expect(calls[1]).toMatchObject({
@@ -1565,6 +1614,328 @@ describe("initial selected thread subscribe", () => {
       window: { total_items: 0, item_count: 0, source_history_length: 0 },
     });
     expect(calls.some((message) => message.type === "history_window_sync")).toBe(false);
+  });
+});
+
+describe("bounded conversation reconnect protocol", () => {
+  it("refreshes the selected thread on a soft reconnect without passive history_sync", async () => {
+    const ws = { data: {}, send: vi.fn() };
+    const deps = makeInjectDeps();
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true } as any,
+      browserSockets: new Set(),
+      nextEventSeq: 5,
+      messageHistory: [
+        {
+          type: "user_message",
+          id: "u-selected",
+          content: "selected",
+          timestamp: 1,
+          threadKey: "q-1831",
+          questId: "q-1831",
+          threadRefs: [{ threadKey: "q-1831", questId: "q-1831", source: "explicit" }],
+        } as BrowserIncomingMessage,
+        {
+          type: "assistant",
+          message: { id: "a-selected", role: "assistant", content: [{ type: "text", text: "reply" }] },
+          parent_tool_use_id: null,
+          threadKey: "q-1831",
+          questId: "q-1831",
+        } as BrowserIncomingMessage,
+      ],
+      eventBuffer: [
+        {
+          seq: 3,
+          message: {
+            type: "assistant",
+            message: { id: "a-selected", role: "assistant", content: [{ type: "text", text: "reply" }] },
+            parent_tool_use_id: null,
+            threadKey: "q-1831",
+            questId: "q-1831",
+          } as unknown as ReplayableBrowserIncomingMessage,
+        },
+        { seq: 4, message: { type: "status_change", status: "idle" } },
+      ],
+    });
+    handleBrowserOpen(session, ws, deps);
+    ws.send.mockClear();
+
+    await handleSessionSubscribe(
+      session,
+      ws,
+      2,
+      0,
+      undefined,
+      10,
+      3,
+      FEED_WINDOW_SYNC_VERSION,
+      {
+        thread_key: "q-1831",
+        from_item: -1,
+        item_count: 30,
+        section_item_count: 10,
+        visible_item_count: 3,
+      },
+      deps,
+    );
+
+    const calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
+    expect(calls.some((message) => message.type === "history_sync")).toBe(false);
+    expect(calls.find((message) => message.type === "thread_window_sync")).toMatchObject({
+      thread_key: "q-1831",
+      entries: expect.arrayContaining([
+        expect.objectContaining({ message: expect.objectContaining({ id: "u-selected" }) }),
+      ]),
+    });
+    expect(calls.find((message) => message.type === "event_replay")?.events).toEqual([
+      { seq: 4, message: { type: "status_change", status: "idle" } },
+    ]);
+    expect(calls.find((message) => message.type === "conversation_sync_complete")).toEqual({
+      type: "conversation_sync_complete",
+      through_seq: 4,
+    });
+  });
+
+  it("preserves history_sync for a legacy soft reconnect", async () => {
+    const ws = { data: {}, send: vi.fn() };
+    const deps = makeInjectDeps();
+    const assistant = {
+      type: "assistant",
+      message: { id: "a-legacy", role: "assistant", content: [{ type: "text", text: "legacy" }] },
+      parent_tool_use_id: null,
+    } as ReplayableBrowserIncomingMessage;
+    const session = makeSession({
+      browserSockets: new Set(),
+      nextEventSeq: 3,
+      messageHistory: [assistant],
+      eventBuffer: [{ seq: 2, message: assistant }],
+    });
+    handleBrowserOpen(session, ws, deps);
+    ws.send.mockClear();
+
+    await handleSessionSubscribe(session, ws, 1, 0, undefined, undefined, undefined, undefined, undefined, deps);
+
+    const calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
+    expect(calls.some((message) => message.type === "history_sync")).toBe(true);
+    expect(calls.some((message) => message.type === "conversation_sync_complete")).toBe(false);
+  });
+
+  it("keeps a capable socket bounded after an explicit full-history sync", async () => {
+    const ws = { data: {}, send: vi.fn() };
+    const deps = makeInjectDeps();
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true } as any,
+      browserSockets: new Set(),
+      messageHistory: [
+        { type: "user_message", id: "main-noise", content: "main", timestamp: 1 } as BrowserIncomingMessage,
+        {
+          type: "user_message",
+          id: "selected",
+          content: "selected",
+          timestamp: 2,
+          threadKey: "q-1831",
+          questId: "q-1831",
+          threadRefs: [{ threadKey: "q-1831", questId: "q-1831", source: "explicit" }],
+        } as BrowserIncomingMessage,
+      ],
+    });
+    handleBrowserOpen(session, ws, deps);
+    ws.send.mockClear();
+
+    await handleSessionSubscribe(
+      session,
+      ws,
+      0,
+      0,
+      undefined,
+      10,
+      3,
+      FEED_WINDOW_SYNC_VERSION,
+      {
+        thread_key: "q-1831",
+        from_item: -1,
+        item_count: 30,
+        section_item_count: 10,
+        visible_item_count: 3,
+      },
+      deps,
+      undefined,
+      undefined,
+      true,
+    );
+
+    expect(ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)).type)).toContain("history_sync");
+    expect(ws.data).toMatchObject({ boundedConversation: true });
+    ws.send.mockClear();
+
+    broadcastToBrowsers(session, { type: "message_history", messages: session.messageHistory }, deps);
+
+    const calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
+    expect(calls.map((message) => message.type)).toEqual([
+      "thread_window_sync",
+      "feed_window_sync",
+      "conversation_sync_complete",
+    ]);
+    expect(JSON.stringify(calls)).not.toContain("main-noise");
+  });
+
+  it("uses a bounded raw history window for a capable All Threads soft reconnect", async () => {
+    const ws = { data: {}, send: vi.fn() };
+    const deps = makeInjectDeps();
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true } as any,
+      browserSockets: new Set(),
+      nextEventSeq: 7,
+      messageHistory: Array.from({ length: 20 }, (_, index) => ({
+        type: "user_message",
+        id: `u-${index}`,
+        content: `message ${index}`,
+        timestamp: index,
+      })) as BrowserIncomingMessage[],
+    });
+    handleBrowserOpen(session, ws, deps);
+    ws.send.mockClear();
+
+    await handleSessionSubscribe(session, ws, 4, 0, undefined, 2, 2, FEED_WINDOW_SYNC_VERSION, undefined, deps);
+
+    const calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
+    expect(calls.some((message) => message.type === "history_sync")).toBe(false);
+    expect(calls.find((message) => message.type === "history_window_sync")?.messages.length).toBeLessThan(20);
+    expect(calls.find((message) => message.type === "conversation_sync_complete")?.through_seq).toBe(6);
+  });
+
+  it("delivers live conversation content only to the capable socket viewing its thread", async () => {
+    const first = { data: {}, send: vi.fn() };
+    const second = { data: {}, send: vi.fn() };
+    const deps = makeInjectDeps();
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true } as any,
+      browserSockets: new Set(),
+    });
+    handleBrowserOpen(session, first, deps);
+    handleBrowserOpen(session, second, deps);
+    const subscribe = (ws: typeof first, threadKey: string) =>
+      handleSessionSubscribe(
+        session,
+        ws,
+        0,
+        0,
+        undefined,
+        10,
+        3,
+        FEED_WINDOW_SYNC_VERSION,
+        {
+          thread_key: threadKey,
+          from_item: -1,
+          item_count: 30,
+          section_item_count: 10,
+          visible_item_count: 3,
+        },
+        deps,
+      );
+    await subscribe(first, "q-1831");
+    await subscribe(second, "q-9999");
+    first.send.mockClear();
+    second.send.mockClear();
+
+    broadcastToBrowsers(
+      session,
+      {
+        type: "assistant",
+        message: { id: "a-live", role: "assistant", content: [{ type: "text", text: "live" }] },
+        parent_tool_use_id: null,
+        threadKey: "q-1831",
+        questId: "q-1831",
+      } as BrowserIncomingMessage,
+      deps,
+    );
+    broadcastToBrowsers(session, { type: "session_update", session: { model: "updated" } }, deps);
+
+    expect(first.send.mock.calls.map(([raw]) => JSON.parse(String(raw)).type)).toEqual(["assistant", "session_update"]);
+    expect(second.send.mock.calls.map(([raw]) => JSON.parse(String(raw)).type)).toEqual(["session_update"]);
+
+    handleBrowserProtocolMessage(
+      session,
+      {
+        type: "conversation_view_update",
+        view: "thread",
+        thread_key: "q-1831",
+        from: 0,
+        count: 30,
+        section_count: 10,
+        visible_count: 3,
+        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+      },
+      second,
+      deps,
+    );
+    second.send.mockClear();
+    broadcastToBrowsers(
+      session,
+      {
+        type: "assistant",
+        message: { id: "a-live-2", role: "assistant", content: [{ type: "text", text: "live 2" }] },
+        parent_tool_use_id: null,
+        threadKey: "q-1831",
+        questId: "q-1831",
+      } as BrowserIncomingMessage,
+      deps,
+    );
+    expect(second.send.mock.calls.map(([raw]) => JSON.parse(String(raw)).type)).toEqual(["assistant"]);
+  });
+
+  it("translates an authoritative full-history broadcast into the capable socket's bounded view", async () => {
+    const ws = { data: {}, send: vi.fn() };
+    const deps = makeInjectDeps();
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true } as any,
+      browserSockets: new Set(),
+      messageHistory: [
+        { type: "user_message", id: "main-noise", content: "noise", timestamp: 1 } as BrowserIncomingMessage,
+        {
+          type: "user_message",
+          id: "selected",
+          content: "selected",
+          timestamp: 2,
+          threadKey: "q-1831",
+          questId: "q-1831",
+          threadRefs: [{ threadKey: "q-1831", questId: "q-1831", source: "explicit" }],
+        } as BrowserIncomingMessage,
+      ],
+    });
+    handleBrowserOpen(session, ws, deps);
+    await handleSessionSubscribe(
+      session,
+      ws,
+      0,
+      0,
+      undefined,
+      10,
+      3,
+      FEED_WINDOW_SYNC_VERSION,
+      {
+        thread_key: "q-1831",
+        from_item: -1,
+        item_count: 30,
+        section_item_count: 10,
+        visible_item_count: 3,
+      },
+      deps,
+    );
+    ws.send.mockClear();
+
+    broadcastToBrowsers(session, { type: "message_history", messages: session.messageHistory }, deps);
+
+    const calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
+    expect(calls.map((message) => message.type)).toEqual([
+      "thread_window_sync",
+      "feed_window_sync",
+      "conversation_sync_complete",
+    ]);
+    expect(calls[0].entries).toEqual([
+      expect.objectContaining({ message: expect.objectContaining({ id: "selected" }) }),
+    ]);
+    expect(JSON.stringify(calls)).not.toContain("main-noise");
   });
 });
 

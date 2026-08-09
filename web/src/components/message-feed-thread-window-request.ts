@@ -47,6 +47,7 @@ export function useThreadWindowRequester({
         item_count: itemCount,
         section_item_count: sectionItemCount,
         visible_item_count: visibleItemCount,
+        activate_view: true,
         feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
         ...(targetMessageId ? { target_message_id: targetMessageId } : {}),
         ...(cachedWindowHash && !targetMessageId ? { cached_window_hash: cachedWindowHash } : {}),

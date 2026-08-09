@@ -1463,6 +1463,29 @@ describe("thread window hydration", () => {
     expect(sync.window.has_newer_items).toBe(true);
   });
 
+  it("centers a thread window on a legacy raw history index when requested", () => {
+    const history: BrowserIncomingMessage[] = [];
+    for (let i = 0; i < 20; i++) {
+      history.push(user(`u${i}`, `message ${i}`));
+      history.push(assistant(`a${i}`, `answer ${i}`));
+    }
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: -1,
+      itemCount: 4,
+      sectionItemCount: 2,
+      visibleItemCount: 2,
+      targetHistoryIndex: 12,
+    });
+
+    expect(sync.window.from_item).toBe(4);
+    expect(sync.entries.map((entry) => entry.history_index)).toContain(12);
+    expect(sync.window.has_older_items).toBe(true);
+    expect(sync.window.has_newer_items).toBe(true);
+  });
+
   it("projects a server-authored recovery summary into its producer-shaped quest thread", () => {
     // The durable receipt carries ordinary server routing metadata and must not be frontend-invented or Main-leaking.
     const summary: BrowserIncomingMessage = {

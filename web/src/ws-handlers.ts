@@ -600,6 +600,7 @@ function requestUncachedHistoryWindow(
     turn_count: data.window.turn_count,
     section_turn_count: data.window.section_turn_count,
     visible_section_count: data.window.visible_section_count,
+    activate_view: true,
     feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
   });
 }
@@ -616,6 +617,7 @@ function requestUncachedThreadWindow(
     item_count: data.window.item_count,
     section_item_count: data.window.section_item_count,
     visible_item_count: data.window.visible_item_count,
+    activate_view: true,
     feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
   });
 }

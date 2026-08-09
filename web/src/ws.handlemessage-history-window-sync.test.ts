@@ -342,6 +342,7 @@ describe("handleMessage: history_window_sync", () => {
       turn_count: 150,
       section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      activate_view: true,
       feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
     });
   });
@@ -1064,6 +1065,7 @@ describe("handleMessage: thread_window_sync", () => {
       item_count: 10,
       section_item_count: 10,
       visible_item_count: 2,
+      activate_view: true,
       feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
     });
   });

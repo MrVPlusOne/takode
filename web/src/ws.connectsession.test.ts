@@ -176,6 +176,9 @@ describe("connectSession", () => {
         last_seq: 12,
         known_frozen_count: 1,
         known_frozen_hash: "abcd1234",
+        history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       }),
     );
   });
@@ -201,6 +204,23 @@ describe("connectSession", () => {
         feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       }),
     );
+  });
+
+  it("centers an All Threads deep link through the bounded history target", () => {
+    useStore.setState({ sdkSessions: [{ sessionId: "s1", isOrchestrator: true } as any] });
+    window.location.hash = "#/session/s1/msg/message-42?thread=all";
+
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    const subscribe = JSON.parse(lastWs.send.mock.calls[0][0]);
+    expect(subscribe).toMatchObject({
+      type: "session_subscribe",
+      last_seq: 0,
+      history_window_target_message_id: "message-42",
+      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+    });
+    expect(subscribe.initial_thread_window).toBeUndefined();
   });
 
   it("sends last_seq: 0 when localStorage has no entry", () => {
@@ -329,7 +349,7 @@ describe("connectSession", () => {
     });
   });
 
-  it("falls back to full-history subscribe when a pending message scroll needs absolute indexes", () => {
+  it("keeps a pending legacy message-index scroll on the bounded history subscribe", () => {
     useStore.getState().setPendingScrollToMessageIndex("s1", 42);
     wsModule.connectSession("s1");
 
@@ -340,8 +360,69 @@ describe("connectSession", () => {
         type: "session_subscribe",
         last_seq: 0,
         known_frozen_count: 0,
+        history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+        history_window_target_index: 42,
+        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       }),
     );
+  });
+
+  it("includes the selected leader thread on a soft reconnect with local messages", () => {
+    localStorage.setItem("companion:last-seq:s1", "17");
+    useStore.setState({ sdkSessions: [{ sessionId: "s1", isOrchestrator: true } as any] });
+    useStore.getState().setMessages("s1", [{ id: "existing", role: "user", content: "existing", timestamp: 1 }], {
+      frozenCount: 1,
+      frozenHash: "frozen-hash",
+    });
+    window.location.hash = "#/session/s1?thread=q-1831";
+
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    expect(JSON.parse(lastWs.send.mock.calls[0][0])).toMatchObject({
+      type: "session_subscribe",
+      last_seq: 17,
+      known_frozen_count: 1,
+      known_frozen_hash: "frozen-hash",
+      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+      initial_thread_window: { thread_key: "q-1831", from_item: -1 },
+    });
+  });
+
+  it("keeps bounded capability after an explicit full-history sync request", () => {
+    useStore.setState({ sdkSessions: [{ sessionId: "s1", isOrchestrator: true } as any] });
+    window.location.hash = "#/session/s1?thread=q-1831";
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+    lastWs.send.mockClear();
+
+    expect(wsModule.requestFullHistorySync("s1")).toBe(true);
+
+    expect(JSON.parse(lastWs.send.mock.calls[0][0])).toMatchObject({
+      type: "session_subscribe",
+      last_seq: 0,
+      full_history_sync: true,
+      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+      initial_thread_window: { thread_key: "q-1831" },
+    });
+  });
+
+  it("centers a leader legacy message-index link inside the selected bounded thread", () => {
+    useStore.setState({ sdkSessions: [{ sessionId: "s1", isOrchestrator: true } as any] });
+    useStore.getState().setPendingScrollToMessageIndex("s1", 42);
+    window.location.hash = "#/session/s1?thread=q-1831";
+
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    const subscribe = JSON.parse(lastWs.send.mock.calls[0][0]);
+    expect(subscribe.initial_thread_window).toMatchObject({
+      thread_key: "q-1831",
+      from_item: -1,
+      target_history_index: 42,
+    });
+    expect(subscribe.history_window_target_index).toBeUndefined();
   });
 
   it("treats windowed history as non-reusable and resubscribes fresh", () => {

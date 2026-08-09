@@ -11,6 +11,7 @@ import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-n
 import { invalidateHistoryWindowCache, invalidateThreadWindowCache } from "./utils/history-window-cache.js";
 import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
 import { isAllThreadsKey, isMainThreadKey, normalizeThreadKey } from "./utils/thread-projection.js";
+import { readLeaderSelectedThreadKey } from "./utils/thread-viewport.js";
 import type { WsMessageHandlerDeps } from "./ws-handlers.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
 
@@ -45,15 +46,14 @@ export function applyThreadAttachmentUpdate(
   if (!normalized.ok) {
     const affectedThreadKeys = normalized.affectedThreadKeys;
     invalidateThreadAttachmentWindows(sessionId, affectedThreadKeys);
-    requestLatestMainWindow(sessionId, deps);
-    const requestedThreadWindowCount = requestAffectedThreadWindows(sessionId, affectedThreadKeys, deps);
+    const requested = requestVisibleConversationWindow(sessionId, deps);
     recordFrontendPerfEntry({
       kind: "thread_attachment_update_apply",
       timestamp: Date.now(),
       sessionId,
       ...normalized.stats,
-      requestedHistoryWindowCount: 1,
-      requestedThreadWindowCount,
+      requestedHistoryWindowCount: requested.history,
+      requestedThreadWindowCount: requested.thread,
       durationMs: perfNow() - startedAt,
       ok: false,
       recoveryReason: normalized.recoveryReason,
@@ -111,15 +111,14 @@ export function applyThreadAttachmentUpdate(
       return;
     }
     invalidateThreadAttachmentWindows(sessionId, safeUpdate.affectedThreadKeys);
-    requestLatestMainWindow(sessionId, deps);
-    const requestedThreadWindowCount = requestAffectedThreadWindows(sessionId, safeUpdate.affectedThreadKeys, deps);
+    const requested = requestVisibleConversationWindow(sessionId, deps);
     recordFrontendPerfEntry({
       kind: "thread_attachment_update_apply",
       timestamp: Date.now(),
       sessionId,
       ...stats,
-      requestedHistoryWindowCount: 1,
-      requestedThreadWindowCount,
+      requestedHistoryWindowCount: requested.history,
+      requestedThreadWindowCount: requested.thread,
       durationMs: perfNow() - startedAt,
       ok: true,
       applicationMode: "refetch_only",
@@ -137,16 +136,15 @@ export function applyThreadAttachmentUpdate(
   invalidateThreadAttachmentWindows(sessionId, safeUpdate.affectedThreadKeys);
   patchLoadedThreadRefs(sessionId, safeUpdate);
   appendThreadAttachmentMarkers(sessionId, safeUpdate);
-  requestLatestMainWindow(sessionId, deps);
-  const requestedThreadWindowCount = requestAffectedThreadWindows(sessionId, safeUpdate.affectedThreadKeys, deps);
+  const requested = requestVisibleConversationWindow(sessionId, deps);
 
   recordFrontendPerfEntry({
     kind: "thread_attachment_update_apply",
     timestamp: Date.now(),
     sessionId,
     ...stats,
-    requestedHistoryWindowCount: 1,
-    requestedThreadWindowCount,
+    requestedHistoryWindowCount: requested.history,
+    requestedThreadWindowCount: requested.thread,
     durationMs: perfNow() - startedAt,
     ok: true,
     applicationMode: "patched",
@@ -349,43 +347,42 @@ function appendThreadAttachmentMarkers(sessionId: string, update: SafeThreadAtta
   }
 }
 
-function requestLatestMainWindow(sessionId: string, deps: WsMessageHandlerDeps): void {
+function requestVisibleConversationWindow(
+  sessionId: string,
+  deps: WsMessageHandlerDeps,
+): { history: number; thread: number } {
+  const store = useStore.getState();
+  if (store.currentSessionId !== sessionId) return { history: 0, thread: 0 };
+  const sdkSession = store.sdkSessions.find((session) => session.sessionId === sessionId);
+  const isLeader = store.sessions.get(sessionId)?.isOrchestrator === true || sdkSession?.isOrchestrator === true;
+  const selectedThreadKey = isLeader
+    ? normalizeThreadKey(readLeaderSelectedThreadKey(sessionId) ?? MAIN_THREAD_KEY)
+    : MAIN_THREAD_KEY;
+
+  if (isLeader && !isAllThreadsKey(selectedThreadKey)) {
+    deps.sendToSession(sessionId, {
+      type: "thread_window_request",
+      thread_key: selectedThreadKey,
+      from_item: -1,
+      item_count: getThreadWindowItemCount(HISTORY_WINDOW_VISIBLE_SECTION_COUNT, HISTORY_WINDOW_SECTION_TURN_COUNT),
+      section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      activate_view: true,
+      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+    });
+    return { history: 0, thread: 1 };
+  }
+
   deps.sendToSession(sessionId, {
     type: "history_window_request",
     from_turn: -1,
     turn_count: getHistoryWindowTurnCount(HISTORY_WINDOW_VISIBLE_SECTION_COUNT, HISTORY_WINDOW_SECTION_TURN_COUNT),
     section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
     visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+    activate_view: true,
     feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
   });
-}
-
-function requestAffectedThreadWindows(
-  sessionId: string,
-  affectedThreadKeys: string[],
-  deps: WsMessageHandlerDeps,
-): number {
-  let requested = 0;
-  for (const threadKey of uniqueThreadKeys(affectedThreadKeys)) {
-    if (isMainThreadKey(threadKey) || isAllThreadsKey(threadKey)) continue;
-    deps.sendToSession(sessionId, {
-      type: "thread_window_request",
-      thread_key: threadKey,
-      from_item: -1,
-      item_count: getThreadWindowItemCount(HISTORY_WINDOW_VISIBLE_SECTION_COUNT, HISTORY_WINDOW_SECTION_TURN_COUNT),
-      section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
-      visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
-    });
-    requested++;
-  }
-  return requested;
-}
-
-function threadWindowRequestCount(affectedThreadKeys: string[]): number {
-  return uniqueThreadKeys(affectedThreadKeys).filter(
-    (threadKey) => !isMainThreadKey(threadKey) && !isAllThreadsKey(threadKey),
-  ).length;
+  return { history: 1, thread: 0 };
 }
 
 function uniqueThreadKeys(threadKeys: string[]): string[] {
