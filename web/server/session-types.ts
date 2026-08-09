@@ -1016,6 +1016,7 @@ export type BrowserIncomingMessageBase =
   | {
       type: "history_sync";
       frozen_base_count: number;
+      frozen_base_history_index?: number;
       frozen_delta: BrowserIncomingMessage[];
       hot_messages: BrowserIncomingMessage[];
       frozen_count: number;

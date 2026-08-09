@@ -114,7 +114,8 @@ describe("history-sync-hash", () => {
     expect(computeHistoryMessagesSyncHash(withNotif).hash).toBe(computeHistoryMessagesSyncHash(withoutNotif).hash);
   });
 
-  it("skips root thinking-only assistant history entries", () => {
+  it("skips root thinking-only assistant history entries when Codex suppression is enabled", () => {
+    // Hash callers opt in only for Codex so rendered counts stay aligned without changing Claude history.
     const rootThinkingOnly: BrowserIncomingMessage[] = [
       { type: "user_message", id: "u1", content: "hello", timestamp: 1000 },
       {
@@ -136,7 +137,11 @@ describe("history-sync-hash", () => {
       { type: "user_message", id: "u1", content: "hello", timestamp: 1000 },
     ];
 
-    expect(computeHistoryMessagesSyncHash(rootThinkingOnly)).toEqual(computeHistoryMessagesSyncHash(withoutThinking));
+    expect(computeHistoryMessagesSyncHash(rootThinkingOnly).renderedCount).toBe(2);
+    const codexOptions = { suppressRootThinkingOnlyAssistant: true };
+    expect(computeHistoryMessagesSyncHash(rootThinkingOnly, 0, codexOptions)).toEqual(
+      computeHistoryMessagesSyncHash(withoutThinking, 0, codexOptions),
+    );
   });
 
   it("counts parented thinking assistant history entries", () => {
@@ -157,7 +162,9 @@ describe("history-sync-hash", () => {
       },
     ];
 
-    expect(computeHistoryMessagesSyncHash(history).renderedCount).toBe(1);
+    expect(computeHistoryMessagesSyncHash(history, 0, { suppressRootThinkingOnlyAssistant: true }).renderedCount).toBe(
+      1,
+    );
   });
 
   it("includes task_notification with summary", () => {
@@ -206,11 +213,38 @@ describe("history-sync-hash", () => {
     const prefix = computeHistoryPrefixSyncHash(history, 2);
     expect(prefix.renderedCount).toBe(2);
     expect(prefix.totalRenderedCount).toBe(3);
+    expect(prefix.sourceCount).toBe(2);
 
     const firstTwo = computeHistoryMessagesSyncHash(history.slice(0, 2));
     expect(prefix.hash).toBe(firstTwo.hash);
 
     expect(prefix.hash).not.toBe(full.hash);
+  });
+
+  it("maps a rendered Codex prefix count to its raw history boundary", () => {
+    // Incremental sync slices raw history, so a suppressed entry before the cached row must not shift that slice.
+    const history: BrowserIncomingMessage[] = [
+      {
+        type: "assistant",
+        message: {
+          id: "root-thinking",
+          type: "message",
+          role: "assistant",
+          model: "provider-model",
+          content: [{ type: "thinking", thinking: "Transient reasoning" }],
+          stop_reason: null,
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+      },
+      { type: "user_message", id: "u1", content: "cached visible row", timestamp: 1000 },
+      { type: "user_message", id: "u2", content: "new visible row", timestamp: 2000 },
+    ];
+
+    const prefix = computeHistoryPrefixSyncHash(history, 1, 0, { suppressRootThinkingOnlyAssistant: true });
+    expect(prefix.renderedCount).toBe(1);
+    expect(prefix.totalRenderedCount).toBe(2);
+    expect(prefix.sourceCount).toBe(2);
   });
 
   it("handles empty history", () => {

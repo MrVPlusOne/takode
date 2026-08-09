@@ -290,6 +290,7 @@ describe("handleMessage: message_history", () => {
   });
 
   it("strips root Codex thinking blocks from mixed assistant history messages", () => {
+    // Reconnect history may contain pre-fix mixed rows; keep their durable tool content without reviving root reasoning.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
 
@@ -322,6 +323,35 @@ describe("handleMessage: message_history", () => {
     expect(msgs[0].contentBlocks).toEqual([
       { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "quest list" } },
     ]);
+  });
+
+  it("preserves root Claude thinking during authoritative history replacement", () => {
+    // Root-thinking suppression is a Codex presentation rule; Claude history must remain reconnect-stable.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "claude" } });
+    const thinkingEntry = {
+      type: "assistant" as const,
+      timestamp: 1500,
+      parent_tool_use_id: null,
+      message: {
+        id: "a-claude-root-thinking",
+        type: "message" as const,
+        role: "assistant" as const,
+        model: "claude-sonnet",
+        content: [{ type: "thinking" as const, thinking: "Claude reasoning retained after reconnect" }],
+        stop_reason: null,
+        usage: { input_tokens: 5, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    };
+
+    fireMessage({ type: "message_history", messages: [thinkingEntry] });
+
+    const [msg] = useStore.getState().messages.get("s1")!;
+    expect(msg.contentBlocks).toEqual([{ type: "thinking", thinking: "Claude reasoning retained after reconnect" }]);
+    expect(computeHistoryMessagesSyncHash([thinkingEntry]).renderedCount).toBe(1);
+    expect(
+      computeHistoryMessagesSyncHash([thinkingEntry], 0, { suppressRootThinkingOnlyAssistant: true }).renderedCount,
+    ).toBe(0);
   });
 
   it("retains parented thinking-only assistant history as scoped chat messages", () => {

@@ -1085,7 +1085,10 @@ async function sendHistorySyncAttempt(
   clampFrozenCount(session);
   const frozenCount = session.frozenCount;
   const frozenHistory = session.messageHistory.slice(0, frozenCount);
-  const frozenPrefix = computeHistoryMessagesSyncHash(frozenHistory);
+  const historyHashOptions = {
+    suppressRootThinkingOnlyAssistant: session.backendType === "codex",
+  };
+  const frozenPrefix = computeHistoryMessagesSyncHash(frozenHistory, 0, historyHashOptions);
   if (normalizedKnownFrozenCount > frozenPrefix.renderedCount) {
     console.warn(
       `[history-sync] Invalid known_frozen_count=${normalizedKnownFrozenCount} ` +
@@ -1094,15 +1097,15 @@ async function sendHistorySyncAttempt(
     );
     return false;
   }
+  const knownPrefix = computeHistoryPrefixSyncHash(frozenHistory, normalizedKnownFrozenCount, 0, historyHashOptions);
   if (session.messageHistory.length === 0) return true;
   if (normalizedKnownFrozenCount > 0 && typeof knownFrozenHash === "string") {
-    const expectedPrefix = computeHistoryPrefixSyncHash(frozenHistory, normalizedKnownFrozenCount);
-    if (expectedPrefix.hash !== knownFrozenHash) {
+    if (knownPrefix.hash !== knownFrozenHash) {
       console.warn(
         `[history-sync] Frozen prefix hash mismatch for session ${sessionTag(session.id)} ` +
           `(count=${normalizedKnownFrozenCount}, authoritativeFrozen=${frozenPrefix.renderedCount}, ` +
           `serverHistoryLength=${session.messageHistory.length}, frozenCount=${frozenCount}) ` +
-          `expected=${expectedPrefix.hash} actual=${knownFrozenHash}; refusing incremental sync`,
+          `expected=${knownPrefix.hash} actual=${knownFrozenHash}; refusing incremental sync`,
       );
       return false;
     }
@@ -1111,8 +1114,9 @@ async function sendHistorySyncAttempt(
   const historySnapshot = session.messageHistory.slice();
   const isLargeHistory = historySnapshot.length > 500;
   if (isLargeHistory) await yieldToEventLoop();
-  const fullHistory = computeHistoryMessagesSyncHash(historySnapshot);
-  const frozenDelta = historySnapshot.slice(normalizedKnownFrozenCount, frozenCount);
+  const fullHistory = computeHistoryMessagesSyncHash(historySnapshot, 0, historyHashOptions);
+  const frozenBaseHistoryIndex = knownPrefix.sourceCount;
+  const frozenDelta = historySnapshot.slice(frozenBaseHistoryIndex, frozenCount);
   const hotMessages = historySnapshot.slice(frozenCount);
   if (isLargeHistory) await yieldToEventLoop();
 
@@ -1129,6 +1133,7 @@ async function sendHistorySyncAttempt(
   const payloadJson =
     `{"type":"history_sync"` +
     `,"frozen_base_count":${normalizedKnownFrozenCount}` +
+    `,"frozen_base_history_index":${frozenBaseHistoryIndex}` +
     `,"frozen_delta":${frozenDeltaJson}` +
     `,"hot_messages":${hotMessagesJson}` +
     `,"frozen_count":${frozenCount}` +

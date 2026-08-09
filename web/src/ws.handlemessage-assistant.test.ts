@@ -206,6 +206,7 @@ describe("handleMessage: assistant", () => {
   });
 
   it("strips root Codex thinking blocks from live mixed assistant messages", () => {
+    // Root summary blocks can share one provider message with a durable tool call; only the sibling tool is stored.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
 
@@ -234,6 +235,7 @@ describe("handleMessage: assistant", () => {
   });
 
   it("preserves parented Codex thinking blocks from live assistant messages", () => {
+    // Parented thinking is scoped subagent output, not the top-level transient reasoning presentation.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
 
@@ -254,6 +256,69 @@ describe("handleMessage: assistant", () => {
     const [msg] = useStore.getState().messages.get("s1")!;
     expect(msg.parentToolUseId).toBe("agent-1");
     expect(msg.contentBlocks).toEqual([{ type: "thinking", thinking: "Scoped subagent reasoning" }]);
+  });
+
+  it("does not retain a blank live message after suppressing root Codex thinking", () => {
+    // Pure top-level reasoning is represented only by volatile preview state, not a hidden durable feed item.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "assistant",
+      message: {
+        id: "msg-codex-thinking-only",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [{ type: "thinking", thinking: "Transient root reasoning" }],
+        stop_reason: null,
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+    });
+
+    expect(useStore.getState().messages.get("s1")).toEqual([]);
+  });
+
+  it("removes stale root Codex thinking when merging a same-ID assistant update", () => {
+    // A live update can merge with pre-fix browser state, so the merge boundary must sanitize both sides.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+    useStore.getState().appendMessage("s1", {
+      id: "msg-codex-merge",
+      role: "assistant",
+      content: "Stale root reasoning",
+      contentBlocks: [
+        { type: "thinking", thinking: "Stale root reasoning" },
+        { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "" } },
+      ],
+      parentToolUseId: null,
+      timestamp: 100,
+    });
+
+    fireMessage({
+      type: "assistant",
+      message: {
+        id: "msg-codex-merge",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [
+          { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "quest list" } },
+          { type: "text", text: "Visible answer" },
+        ],
+        stop_reason: null,
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+    });
+
+    const [msg] = useStore.getState().messages.get("s1")!;
+    expect(msg.contentBlocks).toEqual([
+      { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "quest list" } },
+      { type: "text", text: "Visible answer" },
+    ]);
+    expect(msg.content).toBe("Visible answer");
   });
 
   it("repairs live assistant thread prefixes when server metadata is missing", () => {

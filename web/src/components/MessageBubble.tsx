@@ -40,6 +40,7 @@ import { isStarActionableMessage } from "../utils/starred-messages.js";
 import { useMessageStarActions } from "./use-message-star-actions.js";
 import { CodexAutoPauseRecoverySummary } from "./CodexAutoPauseRecoverySummary.js";
 import { CompactToolActivity, isCompactToolActivityItem, type CompactToolActivityItem } from "./CompactToolActivity.js";
+import { stripRootCodexThinkingBlocks } from "../utils/assistant-content-blocks.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
 
@@ -94,6 +95,7 @@ export const MessageBubble = memo(function MessageBubble({
   currentThreadKey,
   onSelectThread,
   showSideChatActions = true,
+  backendType,
 }: {
   message: ChatMessage;
   sessionId?: string;
@@ -101,9 +103,14 @@ export const MessageBubble = memo(function MessageBubble({
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   showSideChatActions?: boolean;
+  backendType?: "claude" | "codex" | "claude-sdk";
 }) {
   // Search highlight state -- must be called unconditionally (hooks can't be after early returns)
   const searchHighlight = useMessageSearchHighlight(sessionId, message);
+  const storedBackendType = useStore((state) =>
+    message.role === "assistant" && sessionId ? state.sessions.get(sessionId)?.backend_type : undefined,
+  );
+  const isCodexSession = (backendType ?? storedBackendType) === "codex";
 
   if (message.role === "system") {
     if (message.metadata?.codexAutoPauseRecoverySummary) {
@@ -284,6 +291,20 @@ export const MessageBubble = memo(function MessageBubble({
   if (isEmptyAssistantMessage(message)) {
     return null;
   }
+  const rawAssistantBlocks = message.contentBlocks || [];
+  const visibleAssistantBlocks = stripRootCodexThinkingBlocks(
+    isCodexSession,
+    message.parentToolUseId,
+    rawAssistantBlocks,
+  );
+  if (
+    visibleAssistantBlocks !== rawAssistantBlocks &&
+    visibleAssistantBlocks.length === 0 &&
+    !message.notification &&
+    !(message.images?.length || message.localImages?.length)
+  ) {
+    return null;
+  }
 
   // Assistant message
   return (
@@ -296,6 +317,7 @@ export const MessageBubble = memo(function MessageBubble({
         currentThreadKey={currentThreadKey}
         onSelectThread={onSelectThread}
         showSideChatActions={showSideChatActions}
+        isCodexSession={isCodexSession}
       />
     </div>
   );
@@ -1235,6 +1257,7 @@ function AssistantMessage({
   currentThreadKey,
   onSelectThread,
   showSideChatActions,
+  isCodexSession,
 }: {
   message: ChatMessage;
   sessionId?: string;
@@ -1243,16 +1266,16 @@ function AssistantMessage({
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   showSideChatActions: boolean;
+  isCodexSession: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
-  const isCodexSession = useStore((s) => (sessionId ? s.sessions.get(sessionId)?.backend_type === "codex" : false));
   const rawBlocks = message.contentBlocks || [];
-  const hasSuppressedRootCodexThinkingBlock =
-    isCodexSession && !message.parentToolUseId && rawBlocks.some((block) => block.type === "thinking");
-  const blocks = rawBlocks.filter((block) => {
+  const visibleThinkingBlocks = stripRootCodexThinkingBlocks(isCodexSession, message.parentToolUseId, rawBlocks);
+  const hasSuppressedRootCodexThinkingBlock = visibleThinkingBlocks !== rawBlocks;
+  const blocks = visibleThinkingBlocks.filter((block) => {
     if (block.type === "tool_use" && isToolHiddenFromChat(block.name)) return false;
-    return !(hasSuppressedRootCodexThinkingBlock && block.type === "thinking");
+    return true;
   });
 
   const grouped = useMemo(() => groupContentBlocks(blocks), [blocks]);
@@ -1263,12 +1286,6 @@ function AssistantMessage({
   );
   const hasTextBlock = blocks.some((b) => b.type === "text" && b.text.trim().length > 0);
   const hasThinkingBlock = blocks.some((b) => b.type === "thinking" && b.thinking.trim().length > 0);
-  const isRootCodexThinkingOnlyMessage =
-    isCodexSession &&
-    !message.parentToolUseId &&
-    !hasTextBlock &&
-    blocks.length > 0 &&
-    blocks.every((block) => block.type === "thinking");
   const shouldRenderContentFallback =
     message.content.trim().length > 0 && !hasTextBlock && !hasThinkingBlock && !hasSuppressedRootCodexThinkingBlock;
   const inboxAnchoredNotification = useStore((s) => {
@@ -1299,8 +1316,10 @@ function AssistantMessage({
   const unstarFromRail = starAction.actionable && starAction.starred ? starAction.toggleStarred : undefined;
 
   if (
-    isRootCodexThinkingOnlyMessage ||
-    (blocks.length === 0 && !message.content.trim() && !resolvedNotification && assistantImagePreviewItems.length === 0)
+    blocks.length === 0 &&
+    (!message.content.trim() || hasSuppressedRootCodexThinkingBlock) &&
+    !resolvedNotification &&
+    assistantImagePreviewItems.length === 0
   ) {
     return null;
   }

@@ -759,6 +759,37 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.queryByText("Read file")).toBeNull();
   });
 
+  it("sanitizes stale root Codex reasoning before grouping sibling tools", () => {
+    // Already-hydrated pre-fix state can still carry reasoning in both content fields; it must not split the tool run.
+    const sid = "test-stale-root-reasoning-tool-group";
+    mockStoreValues.compactToolActivity = true;
+    setStoreSessionBackend(sid, "codex");
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Inspect the implementation" }),
+      makeMessage({
+        id: "tools-with-stale-reasoning",
+        role: "assistant",
+        content: "Stale root reasoning",
+        contentBlocks: [
+          { type: "thinking", thinking: "Stale root reasoning" },
+          { type: "tool_use", id: "bash-1", name: "Bash", input: { command: "git status" } },
+        ],
+      }),
+      makeMessage({
+        id: "tools-read",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "tool_use", id: "read-1", name: "Read", input: { file_path: "/src/a.ts" } }],
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
+    expect(screen.getByText("Ran command, read file")).toBeTruthy();
+    expect(screen.queryByText("Stale root reasoning")).toBeNull();
+  });
+
   it("merges compact tools across feed entries that render no visible row", () => {
     // Empty retained assistant payloads are not meaningful visual boundaries between adjacent tool activity.
     const sid = "test-compact-tool-invisible-boundary";

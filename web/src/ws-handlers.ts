@@ -41,6 +41,11 @@ import { handleTranscriptionProgressMessage } from "./transcription-progress.js"
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { handleNotificationUpdateMessage } from "./ws-notification-handler.js";
 import { updateActiveCodexReasoningPreviewFromStream } from "./ws-active-codex-reasoning.js";
+import {
+  mergeAssistantContentBlocks,
+  stripRootCodexThinkingBlocks,
+  stripRootCodexThinkingMessage,
+} from "./utils/assistant-content-blocks.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -81,33 +86,6 @@ function applyCliDisconnected(sessionId: string, reason: "idle_limit" | "broken"
 
 function isCodexSession(sessionId: string): boolean {
   return useStore.getState().sessions.get(sessionId)?.backend_type === "codex";
-}
-
-function stripRootCodexThinkingBlocks(
-  sessionId: string,
-  parentToolUseId: string | null | undefined,
-  blocks: ContentBlock[],
-): ContentBlock[] {
-  if (parentToolUseId || !isCodexSession(sessionId)) return blocks;
-  return blocks.filter((block) => block.type !== "thinking");
-}
-
-function stripRootCodexThinkingMessage(sessionId: string, message: ChatMessage): ChatMessage | null {
-  const blocks = message.contentBlocks;
-  if (!blocks?.some((block) => block.type === "thinking")) return message;
-  const nextBlocks = stripRootCodexThinkingBlocks(sessionId, message.parentToolUseId, blocks);
-  if (nextBlocks === blocks) return message;
-  const nextContent = extractTextFromBlocks(nextBlocks);
-  if (
-    message.role === "assistant" &&
-    nextContent.trim().length === 0 &&
-    nextBlocks.length === 0 &&
-    !message.notification &&
-    !(message.images?.length || message.localImages?.length)
-  ) {
-    return null;
-  }
-  return { ...message, content: nextContent, contentBlocks: nextBlocks };
 }
 
 function clearRecoverableCodexInitErrors(sessionId: string): void {
@@ -361,89 +339,6 @@ function refreshActiveSidebarSessions(params: {
   sessionMutationRefreshInFlight = refresh;
 }
 
-/** Merge content blocks from two versions of the same assistant message.
- *  Deduplicates tool_use blocks by their unique `id` and text/thinking
- *  blocks by content equality. Returns all unique blocks in order. */
-function mergeToolUseInputValues(
-  existing: Record<string, unknown>,
-  incoming: Record<string, unknown>,
-): Record<string, unknown> {
-  const merged: Record<string, unknown> = { ...existing };
-
-  for (const [key, value] of Object.entries(incoming)) {
-    if (value == null) continue;
-    if (typeof value === "string") {
-      if (value.trim().length > 0 || !(key in merged)) merged[key] = value;
-      continue;
-    }
-    if (Array.isArray(value)) {
-      if (value.length > 0 || !(key in merged)) merged[key] = value;
-      continue;
-    }
-    if (typeof value === "object") {
-      const previous = merged[key];
-      if (previous && typeof previous === "object" && !Array.isArray(previous)) {
-        merged[key] = mergeToolUseInputValues(previous as Record<string, unknown>, value as Record<string, unknown>);
-      } else if (!(key in merged) || Object.keys(value as Record<string, unknown>).length > 0) {
-        merged[key] = value;
-      }
-      continue;
-    }
-    merged[key] = value;
-  }
-
-  return merged;
-}
-
-function mergeContentBlocks(existing: ContentBlock[], incoming: ContentBlock[]): ContentBlock[] {
-  const seenToolIds = new Set<string>();
-  const toolIdToIndex = new Map<string, number>();
-  const seenTexts = new Set<string>();
-  const result: ContentBlock[] = [];
-
-  for (const block of existing) {
-    if (block.type === "tool_use" && block.id) {
-      seenToolIds.add(block.id);
-      toolIdToIndex.set(block.id, result.length);
-    } else if (block.type === "text") {
-      seenTexts.add(block.text);
-    } else if (block.type === "thinking") {
-      seenTexts.add(`thinking:${block.thinking}`);
-    }
-    result.push(block);
-  }
-
-  for (const block of incoming) {
-    if (block.type === "tool_use" && block.id) {
-      if (seenToolIds.has(block.id)) {
-        const idx = toolIdToIndex.get(block.id);
-        if (idx != null) {
-          const previous = result[idx];
-          if (previous?.type === "tool_use") {
-            result[idx] = {
-              ...previous,
-              name: block.name || previous.name,
-              input: mergeToolUseInputValues(previous.input || {}, block.input || {}),
-            };
-          }
-        }
-        continue;
-      }
-      seenToolIds.add(block.id);
-      toolIdToIndex.set(block.id, result.length);
-    } else if (block.type === "text") {
-      if (seenTexts.has(block.text)) continue;
-      seenTexts.add(block.text);
-    } else if (block.type === "thinking") {
-      if (seenTexts.has(`thinking:${block.thinking}`)) continue;
-      seenTexts.add(`thinking:${block.thinking}`);
-    }
-    result.push(block);
-  }
-
-  return result;
-}
-
 function normalizeHistoryMessages(
   sessionId: string,
   historyMessages: BrowserIncomingMessage[],
@@ -476,10 +371,10 @@ function normalizeHistoryMessages(
     const historyIndex = startIndex + i;
     const fallbackTimestamp = fallbackTimestamps[i];
     if (histMsg.type === "assistant") {
-      if (isRootThinkingOnlyAssistantHistoryEntry(histMsg)) continue;
+      if (isCodexSession(sessionId) && isRootThinkingOnlyAssistantHistoryEntry(histMsg)) continue;
       const msg = histMsg.message;
       for (const chatMessage of normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp })) {
-        const stripped = stripRootCodexThinkingMessage(sessionId, chatMessage);
+        const stripped = stripRootCodexThinkingMessage(isCodexSession(sessionId), chatMessage);
         if (stripped) chatMessages.push(stripped);
       }
       if (msg.content?.length) {
@@ -547,9 +442,9 @@ function normalizeThreadWindowEntries(
     const historyIndex = entry.history_index;
     const fallbackTimestamp = fallbackTimestamps[index];
     if (histMsg.type === "assistant") {
-      if (isRootThinkingOnlyAssistantHistoryEntry(histMsg)) continue;
+      if (isCodexSession(sessionId) && isRootThinkingOnlyAssistantHistoryEntry(histMsg)) continue;
       for (const chatMessage of normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp })) {
-        const stripped = stripRootCodexThinkingMessage(sessionId, chatMessage);
+        const stripped = stripRootCodexThinkingMessage(isCodexSession(sessionId), chatMessage);
         if (stripped) chatMessages.push(stripped);
       }
       if (histMsg.message.content?.length) {
@@ -926,7 +821,11 @@ function handleParsedMessage(
     case "assistant": {
       const msg = data.message;
       const normalized = normalizeLiveAssistantThreadMetadata(data);
-      const contentBlocks = stripRootCodexThinkingBlocks(sessionId, data.parent_tool_use_id, normalized.content);
+      const contentBlocks = stripRootCodexThinkingBlocks(
+        isCodexSession(sessionId),
+        data.parent_tool_use_id,
+        normalized.content,
+      );
       const textContent = extractTextFromBlocks(contentBlocks);
       const chatMsg: ChatMessage = {
         id: msg.id,
@@ -950,9 +849,9 @@ function handleParsedMessage(
       const existing = msg.id ? existingMsgs.find((m) => m.id === msg.id) : undefined;
       if (existing) {
         const mergedBlocks = stripRootCodexThinkingBlocks(
-          sessionId,
+          isCodexSession(sessionId),
           data.parent_tool_use_id,
-          mergeContentBlocks(existing.contentBlocks || [], contentBlocks || []),
+          mergeAssistantContentBlocks(existing.contentBlocks || [], contentBlocks || []),
         );
         store.updateMessage(sessionId, msg.id!, {
           content: extractTextFromBlocks(mergedBlocks),
@@ -970,7 +869,7 @@ function handleParsedMessage(
             : {}),
           ...(typeof data.turn_duration_ms === "number" ? { turnDurationMs: data.turn_duration_ms } : {}),
         });
-      } else {
+      } else if (contentBlocks.length > 0 || data.notification) {
         store.appendMessage(sessionId, chatMsg);
       }
       store.setStreaming(sessionId, null, data.parent_tool_use_id);
@@ -1943,7 +1842,7 @@ function handleParsedMessage(
       const { chatMessages: frozenDeltaMessages } = normalizeHistoryMessages(
         sessionId,
         data.frozen_delta,
-        data.frozen_base_count,
+        data.frozen_base_history_index ?? data.frozen_base_count,
       );
       const { chatMessages: hotMessages } = normalizeHistoryMessages(sessionId, data.hot_messages, data.frozen_count);
       const mergedMessages = [...frozenPrefix, ...frozenDeltaMessages, ...hotMessages];

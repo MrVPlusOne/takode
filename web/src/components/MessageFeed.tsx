@@ -74,7 +74,6 @@ import { useTextSelection } from "../hooks/useTextSelection.js";
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
-import { collectAnchoredNotificationMessageIds } from "../utils/anchored-notifications.js";
 import { getCachedHistoryWindowHash } from "../utils/history-window-cache.js";
 import { buildFeedMessageModel, buildFeedWindowModel } from "../utils/feed-render-model.js";
 import {
@@ -101,9 +100,9 @@ import { findMessageFeedScrollTarget, scrollMessageFeedTargetIntoView } from "./
 import * as viewportAnchor from "./message-feed-viewport-anchor.js";
 import { markHistoryReceiveRenderCommitted } from "../utils/frontend-perf-recorder.js";
 import { MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
+import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
 import {
   isUserBoundaryEntry,
-  useFeedModel,
   type FeedEntry,
   type SubagentBatch,
   type SubagentGroup,
@@ -321,15 +320,13 @@ export function MessageFeed({
     () => (isCodexSession ? collectCodexTerminalEntries(messages, toolResults, toolProgress, toolStartTimestamps) : []),
     [isCodexSession, messages, toolProgress, toolResults, toolStartTimestamps],
   );
-  const anchoredNotificationMessageIds = useMemo(
-    () => collectAnchoredNotificationMessageIds(sessionNotifications),
-    [sessionNotifications],
-  );
-  const { turns } = useFeedModel(messages, {
-    leaderMode: collapseLeaderThreadActivity,
+  const { turns } = useCodexSafeFeedModel({
+    messages,
     frozenCount,
+    isCodexSession,
+    leaderMode: collapseLeaderThreadActivity,
     frozenRevision,
-    anchoredNotificationMessageIds,
+    sessionNotifications,
     userBoundarySourceSessionId: herdingLeaderSessionId ?? null,
     perf: { sessionId, threadKey: normalizedThreadKey },
   });

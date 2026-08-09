@@ -764,6 +764,7 @@ export const MSG_ASSISTANT_THINKING_CODEX: ChatMessage = {
         "Need to fix Codex diff metrics not updating in chat header by routing Codex result events through the unified ws-bridge result handler and adding a regression test for total_lines updates.",
     },
   ],
+  parentToolUseId: "playground-subagent",
   timestamp: Date.now() - 39000,
 };
 
@@ -777,7 +778,27 @@ export const MSG_ASSISTANT_THINKING_CODEX_SHORT: ChatMessage = {
       thinking: "Checking route fields for reasoning effort.",
     },
   ],
+  parentToolUseId: "playground-subagent",
   timestamp: Date.now() - 38500,
+};
+
+export const MSG_ASSISTANT_ROOT_CODEX_THINKING_WITH_TOOL: ChatMessage = {
+  id: "msg-5d",
+  role: "assistant",
+  content: "**Hidden root reasoning**\n\nThis content belongs only in the transient routed row.",
+  contentBlocks: [
+    {
+      type: "thinking",
+      thinking: "**Hidden root reasoning**\n\nThis content belongs only in the transient routed row.",
+    },
+    {
+      type: "tool_use",
+      id: "tu-root-thinking-tool",
+      name: "Bash",
+      input: { command: "quest list --status refined" },
+    },
+  ],
+  timestamp: Date.now() - 38000,
 };
 
 export const MSG_SYSTEM: ChatMessage = {

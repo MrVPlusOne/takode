@@ -144,7 +144,12 @@ export function MessageLinkHoverCard({
               style={{ scrollbarGutter: "stable both-edges" }}
             >
               <HidePawContext.Provider value={true}>
-                <MessageBubble message={message} sessionId={session.id} showTimestamp={false} />
+                <MessageBubble
+                  message={message}
+                  sessionId={session.id}
+                  showTimestamp={false}
+                  backendType={session.backendType}
+                />
               </HidePawContext.Provider>
             </div>
           ) : (

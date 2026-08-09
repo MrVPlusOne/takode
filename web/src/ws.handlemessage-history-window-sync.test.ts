@@ -678,6 +678,7 @@ describe("handleMessage: thread_window_sync", () => {
   });
 
   it("strips root Codex thinking blocks from mixed selected thread window entries", () => {
+    // Selected-thread hydration must match live/full-history suppression without dropping the durable sibling tool.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
 
@@ -725,6 +726,91 @@ describe("handleMessage: thread_window_sync", () => {
     expect(message?.contentBlocks).toEqual([
       { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "quest list" } },
     ]);
+  });
+
+  it("preserves parented Codex thinking in selected thread windows", () => {
+    // Selected-window hydration must keep genuinely scoped subagent thinking while filtering only the root path.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "thread_window_sync",
+      thread_key: "main",
+      entries: [
+        {
+          history_index: 41,
+          message: {
+            type: "assistant",
+            timestamp: 1500,
+            parent_tool_use_id: "agent-1",
+            message: {
+              id: "a-parented-thinking-thread",
+              type: "message",
+              role: "assistant",
+              model: "gpt-5.6-sol",
+              content: [{ type: "thinking", thinking: "Scoped subagent reasoning" }],
+              stop_reason: null,
+              usage: { input_tokens: 5, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            },
+          },
+        },
+      ],
+      window: {
+        thread_key: "main",
+        from_item: 0,
+        item_count: 1,
+        total_items: 1,
+        source_history_length: 42,
+        section_item_count: 10,
+        visible_item_count: 1,
+      },
+    });
+
+    const [message] = useStore.getState().threadWindowMessages.get("s1")?.get("main") ?? [];
+    expect(message?.parentToolUseId).toBe("agent-1");
+    expect(message?.contentBlocks).toEqual([{ type: "thinking", thinking: "Scoped subagent reasoning" }]);
+  });
+
+  it("preserves root Claude thinking in selected thread windows", () => {
+    // The Codex-only suppression rule must not change Claude history when switching thread windows.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "claude" } });
+
+    fireMessage({
+      type: "thread_window_sync",
+      thread_key: "main",
+      entries: [
+        {
+          history_index: 42,
+          message: {
+            type: "assistant",
+            timestamp: 1500,
+            parent_tool_use_id: null,
+            message: {
+              id: "a-claude-thinking-thread",
+              type: "message",
+              role: "assistant",
+              model: "claude-sonnet",
+              content: [{ type: "thinking", thinking: "Claude root reasoning" }],
+              stop_reason: null,
+              usage: { input_tokens: 5, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            },
+          },
+        },
+      ],
+      window: {
+        thread_key: "main",
+        from_item: 0,
+        item_count: 1,
+        total_items: 1,
+        source_history_length: 43,
+        section_item_count: 10,
+        visible_item_count: 1,
+      },
+    });
+
+    const [message] = useStore.getState().threadWindowMessages.get("s1")?.get("main") ?? [];
+    expect(message?.contentBlocks).toEqual([{ type: "thinking", thinking: "Claude root reasoning" }]);
   });
 
   it("hydrates historical result errors with neighbor timestamps in selected-feed windows", () => {

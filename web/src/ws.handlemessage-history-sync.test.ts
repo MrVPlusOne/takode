@@ -269,6 +269,50 @@ describe("handleMessage: history_sync", () => {
     expect(useStore.getState().messageFrozenHashes.get("s1")).toBe("server-frozen-hash");
   });
 
+  it("uses the raw frozen base index when normalizing an incremental delta", () => {
+    // The rendered prefix count can be smaller than its raw index when an earlier Codex thinking row was suppressed.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+    useStore
+      .getState()
+      .setMessages(
+        "s1",
+        [{ id: "cached-visible", role: "user", content: "cached row", timestamp: 1000, historyIndex: 1 }],
+        { frozenCount: 1 },
+      );
+
+    fireMessage({
+      type: "history_sync",
+      frozen_base_count: 1,
+      frozen_base_history_index: 2,
+      frozen_delta: [
+        {
+          type: "assistant",
+          message: {
+            id: "new-visible",
+            type: "message",
+            role: "assistant",
+            model: "gpt-5.6-sol",
+            content: [{ type: "text", text: "new row" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 5, output_tokens: 3, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+          parent_tool_use_id: null,
+          timestamp: 2000,
+        },
+      ],
+      hot_messages: [],
+      frozen_count: 3,
+      expected_frozen_hash: "server-frozen-hash",
+      expected_full_hash: "server-full-hash",
+    });
+
+    const messages = useStore.getState().messages.get("s1")!;
+    expect(messages.map((message) => message.id)).toEqual(["cached-visible", "new-visible"]);
+    expect(messages[1]?.historyIndex).toBe(2);
+    expect(useStore.getState().messageFrozenCounts.get("s1")).toBe(2);
+  });
+
   it("clears the prior hot tail when history_sync hot_messages is empty", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

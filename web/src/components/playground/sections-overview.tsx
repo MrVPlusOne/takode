@@ -36,6 +36,7 @@ import {
   MSG_ASSISTANT_IMAGE_PREVIEW,
   MSG_ASSISTANT_LEADER_USER,
   MSG_ASSISTANT_QUEST_QUIZ,
+  MSG_ASSISTANT_ROOT_CODEX_THINKING_WITH_TOOL,
   MSG_ASSISTANT_THINKING,
   MSG_ASSISTANT_THINKING_CODEX,
   MSG_ASSISTANT_THINKING_CODEX_SHORT,
@@ -935,11 +936,14 @@ export function PlaygroundOverviewSections() {
           <Card label="Assistant message (thinking block)">
             <MessageBubble message={MSG_ASSISTANT_THINKING} />
           </Card>
-          <Card label="Assistant message (Codex thinking preview)">
+          <Card label="Assistant message (scoped Codex subagent thinking)">
             <MessageBubble message={MSG_ASSISTANT_THINKING_CODEX} sessionId={CODEX_DEMO_SESSION} />
           </Card>
-          <Card label="Assistant message (Codex thinking preview, short)">
+          <Card label="Assistant message (scoped Codex subagent thinking, short)">
             <MessageBubble message={MSG_ASSISTANT_THINKING_CODEX_SHORT} sessionId={CODEX_DEMO_SESSION} />
+          </Card>
+          <Card label="Assistant message (root Codex thinking suppressed, tool retained)">
+            <MessageBubble message={MSG_ASSISTANT_ROOT_CODEX_THINKING_WITH_TOOL} sessionId={CODEX_DEMO_SESSION} />
           </Card>
           <Card label="Tool result with error">
             <MessageBubble message={MSG_TOOL_ERROR} />

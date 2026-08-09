@@ -94,7 +94,8 @@ function foldFingerprints(fingerprints: Iterable<string>): string {
 function forEachComparableHistoryEntry(
   historyMessages: readonly BrowserIncomingMessage[],
   startIndex: number,
-  visitor: (entry: ComparableHistoryEntry, renderedIndex: number) => void,
+  visitor: (entry: ComparableHistoryEntry, renderedIndex: number, sourceIndex: number) => void,
+  options: { suppressRootThinkingOnlyAssistant?: boolean } = {},
 ): number {
   let renderedIndex = 0;
   for (let i = 0; i < historyMessages.length; i++) {
@@ -113,11 +114,12 @@ function forEachComparableHistoryEntry(
           timestamp: message.timestamp,
         },
         renderedIndex++,
+        i,
       );
       continue;
     }
     if (message.type === "assistant") {
-      if (isRootThinkingOnlyAssistantHistoryEntry(message)) continue;
+      if (options.suppressRootThinkingOnlyAssistant && isRootThinkingOnlyAssistantHistoryEntry(message)) continue;
       visitor(
         {
           id: message.message.id,
@@ -132,6 +134,7 @@ function forEachComparableHistoryEntry(
           timestamp: message.timestamp ?? null,
         },
         renderedIndex++,
+        i,
       );
       continue;
     }
@@ -145,6 +148,7 @@ function forEachComparableHistoryEntry(
           timestamp: null,
         },
         renderedIndex++,
+        i,
       );
       continue;
     }
@@ -160,6 +164,7 @@ function forEachComparableHistoryEntry(
           mutable: true,
         },
         renderedIndex++,
+        i,
       );
       continue;
     }
@@ -173,6 +178,7 @@ function forEachComparableHistoryEntry(
           timestamp: null,
         },
         renderedIndex++,
+        i,
       );
       continue;
     }
@@ -187,6 +193,7 @@ function forEachComparableHistoryEntry(
           timestamp: null,
         },
         renderedIndex++,
+        i,
       );
       continue;
     }
@@ -203,6 +210,7 @@ function forEachComparableHistoryEntry(
             timestamp: null,
           },
           renderedIndex++,
+          i,
         );
       }
       continue;
@@ -219,6 +227,7 @@ function forEachComparableHistoryEntry(
             timestamp: null,
           },
           renderedIndex++,
+          i,
         );
       }
     }
@@ -229,11 +238,17 @@ function forEachComparableHistoryEntry(
 export function computeHistoryMessagesSyncHash(
   historyMessages: readonly BrowserIncomingMessage[],
   startIndex = 0,
+  options: { suppressRootThinkingOnlyAssistant?: boolean } = {},
 ): { hash: string; renderedCount: number } {
   const fingerprints: string[] = [];
-  const renderedCount = forEachComparableHistoryEntry(historyMessages, startIndex, (entry) => {
-    fingerprints.push(fingerprintComparableEntry(entry));
-  });
+  const renderedCount = forEachComparableHistoryEntry(
+    historyMessages,
+    startIndex,
+    (entry) => {
+      fingerprints.push(fingerprintComparableEntry(entry));
+    },
+    options,
+  );
   return {
     hash: foldFingerprints(fingerprints),
     renderedCount,
@@ -248,17 +263,26 @@ export function computeHistoryPrefixSyncHash(
   historyMessages: readonly BrowserIncomingMessage[],
   renderedCount: number,
   startIndex = 0,
-): { hash: string; renderedCount: number; totalRenderedCount: number } {
+  options: { suppressRootThinkingOnlyAssistant?: boolean } = {},
+): { hash: string; renderedCount: number; totalRenderedCount: number; sourceCount: number } {
   const normalizedRenderedCount = Math.max(0, Math.floor(renderedCount));
   const fingerprints: string[] = [];
-  const totalRenderedCount = forEachComparableHistoryEntry(historyMessages, startIndex, (entry, renderedIndex) => {
-    if (renderedIndex < normalizedRenderedCount) {
-      fingerprints.push(fingerprintComparableEntry(entry));
-    }
-  });
+  let sourceCount = 0;
+  const totalRenderedCount = forEachComparableHistoryEntry(
+    historyMessages,
+    startIndex,
+    (entry, renderedIndex, sourceIndex) => {
+      if (renderedIndex < normalizedRenderedCount) {
+        fingerprints.push(fingerprintComparableEntry(entry));
+        sourceCount = sourceIndex + 1;
+      }
+    },
+    options,
+  );
   return {
     hash: foldFingerprints(fingerprints),
     renderedCount: Math.min(normalizedRenderedCount, totalRenderedCount),
     totalRenderedCount,
+    sourceCount,
   };
 }
