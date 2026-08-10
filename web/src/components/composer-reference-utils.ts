@@ -502,7 +502,3 @@ export function parseCodexModeSlashCommand(text: string): { permissionMode: Code
       return null;
   }
 }
-
-export function isCodexGoalSlashCommand(text: string): boolean {
-  return /^\/goal(?:\s+.*)?$/i.test(text.trim());
-}

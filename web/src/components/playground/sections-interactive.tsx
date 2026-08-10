@@ -240,53 +240,6 @@ export function PlaygroundInteractiveSections() {
             </div>
           </Card>
           <div className="mt-4" />
-          <Card label="Codex /goal slash autocomplete">
-            <div className="border-t border-cc-border bg-cc-card px-4 py-3">
-              <div className="relative rounded-[14px] border border-cc-border bg-cc-input-bg">
-                <div className="absolute left-2 right-2 bottom-full z-20 mb-1 rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg">
-                  <button
-                    type="button"
-                    className="flex w-full cursor-default items-center gap-2.5 bg-cc-hover px-3 py-2 text-left"
-                  >
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-cc-hover text-cc-muted">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="h-3.5 w-3.5"
-                      >
-                        <path d="M5 12L10 4" strokeLinecap="round" />
-                      </svg>
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <span className="text-[13px] font-medium text-cc-fg">/goal</span>
-                      <span className="ml-2 text-[11px] text-cc-muted">command</span>
-                    </div>
-                  </button>
-                </div>
-                <textarea
-                  readOnly
-                  value="/goa"
-                  rows={1}
-                  className="w-full resize-none bg-transparent px-4 pb-1 pt-3 font-sans-ui text-sm text-cc-fg"
-                  style={{ minHeight: "36px" }}
-                />
-                <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
-                  <div className="flex min-w-0 items-center gap-2 overflow-hidden text-[11px] text-cc-muted">
-                    <span className="rounded-md px-2 py-1 text-[12px] font-medium">Full access</span>
-                    <span className="truncate font-mono-code">gpt-5.6-sol</span>
-                  </div>
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-cc-primary text-white">
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
-                      <path d="M2 2.5L14 8 2 13.5 2 9.5 9 8 2 6.5Z" />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </Card>
-          <div className="mt-4" />
           <Card label="Claude permission selector menu">
             <PlaygroundComposerPermissionToolbar backend="claude" state="menu" />
           </Card>

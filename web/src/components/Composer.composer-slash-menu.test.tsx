@@ -590,7 +590,7 @@ describe("Composer slash menu", () => {
     setupMockStore({
       session: {
         backend_type: "codex",
-        slash_commands: [],
+        slash_commands: ["goal"],
         skills: [],
       },
     });
@@ -637,14 +637,16 @@ describe("Composer slash menu", () => {
     expect(screen.getByText("/custom")).toBeTruthy();
     expect(screen.getByText("/compact")).toBeTruthy();
     expect(screen.getByText("/status")).toBeTruthy();
-    expect(screen.getByText("/goal")).toBeTruthy();
+    expect(screen.queryByText("/goal")).toBeNull();
   });
 
-  it("filters Codex local slash commands to /goal for /goa", () => {
+  it("does not advertise the removed /goal browser shortcut", () => {
     setupMockStore({
       session: {
         backend_type: "codex",
-        slash_commands: [],
+        // Older persisted sessions can retain the former browser shortcut in
+        // their server-authored slash command projection until it refreshes.
+        slash_commands: ["goal"],
         skills: [],
       },
     });
@@ -653,11 +655,11 @@ describe("Composer slash menu", () => {
 
     fireEvent.change(textarea, { target: { value: "/goa" } });
 
-    expect(screen.getByText("/goal")).toBeTruthy();
+    expect(screen.queryByText("/goal")).toBeNull();
     expect(screen.queryByText("/status")).toBeNull();
   });
 
-  it("opens the existing Codex Goal panel for /goal instead of sending a model turn", () => {
+  it("treats /goal as normal input instead of opening Session Info", () => {
     setupMockStore({
       session: {
         backend_type: "codex",
@@ -667,15 +669,15 @@ describe("Composer slash menu", () => {
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")!;
 
-    fireEvent.change(textarea, { target: { value: "/goal " } });
+    fireEvent.change(textarea, { target: { value: "/goal" } });
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
 
-    expect(mockSetSessionInfoOpenSessionId).toHaveBeenCalledWith("s1");
-    expect(mockSendToSession).not.toHaveBeenCalledWith(
+    expect(mockSetSessionInfoOpenSessionId).not.toHaveBeenCalled();
+    expect(mockSendToSession).toHaveBeenCalledWith(
       "s1",
       expect.objectContaining({
         type: "user_message",
-        content: expect.stringMatching(/^\/goal/),
+        content: "/goal",
       }),
     );
   });

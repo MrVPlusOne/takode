@@ -33,7 +33,6 @@ import { PlaygroundSidebarOverflowStates, PlaygroundUniversalSearchStates } from
 import { PlaygroundUserMessageNavigatorSection } from "./PlaygroundUserMessageNavigatorSection.js";
 import { PlaygroundHerdEventStates } from "./HerdEventPlaygroundStates.js";
 import { PlaygroundCompactToolActivityStates } from "./CompactToolActivityPlaygroundStates.js";
-import { PlaygroundCodexGoalStates } from "./CodexGoalPlaygroundStates.js";
 import { CompactToolMessageGroups } from "../ToolMessageGroup.js";
 import {
   Card,
@@ -175,7 +174,6 @@ export function PlaygroundStateSections() {
         </div>
       </Section>
       <PlaygroundSideChatStates />
-      <PlaygroundCodexGoalStates />
 
       {/* ─── Composer — Voice Recording ──────────────────────────────── */}
       <Section

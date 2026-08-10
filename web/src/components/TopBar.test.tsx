@@ -31,17 +31,11 @@ vi.mock("./SessionInfoPopover.js", () => ({
   SessionInfoPopover: ({
     anchorElement,
     onConfigure,
-    initialSection,
   }: {
     anchorElement?: HTMLElement | null;
     onConfigure?: (sessionId: string) => void;
-    initialSection?: string | null;
   }) => (
-    <div
-      data-testid="session-info-popover"
-      data-anchor-present={anchorElement ? "true" : "false"}
-      data-initial-section={initialSection ?? ""}
-    >
+    <div data-testid="session-info-popover" data-anchor-present={anchorElement ? "true" : "false"}>
       <button type="button" data-testid="mock-session-info-configure" onClick={() => onConfigure?.("s1")}>
         Configure Session
       </button>
@@ -917,18 +911,19 @@ describe("TopBar", () => {
     });
   });
 
-  it("opens session info focused on Codex Goal from the composer slash event", async () => {
+  it("ignores the removed browser-only session info section event", () => {
     render(<TopBar />);
 
+    // A stale page or extension may still dispatch the old event; without the
+    // editor there must be no empty popover shell or retained section anchor.
     window.dispatchEvent(
       new CustomEvent("takode:open-session-info", {
         detail: { sessionId: "s1", section: "codex-goal" },
       }),
     );
 
-    const popover = await screen.findByTestId("session-info-popover");
-    expect(popover).toHaveAttribute("data-initial-section", "codex-goal");
-    expect(storeState.setSessionInfoOpenSessionId).toHaveBeenLastCalledWith("s1");
+    expect(screen.queryByTestId("session-info-popover")).not.toBeInTheDocument();
+    expect(storeState.setSessionInfoOpenSessionId).not.toHaveBeenCalledWith("s1");
   });
 
   it("removes the duplicate title-bar copy and right-side session info buttons", () => {

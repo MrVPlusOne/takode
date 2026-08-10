@@ -22,6 +22,17 @@ interface MockStoreState {
       codexMaxContextLength?: number;
       codex_reasoning_effort?: string;
       codex_leader_recycle_threshold_tokens?: number;
+      codex_goal?: {
+        threadId: string;
+        objective: string;
+        status: "active";
+        tokenBudget: number | null;
+        tokensUsed: number;
+        timeUsedSeconds: number;
+        createdAt: string | null;
+        updatedAt: string | null;
+      } | null;
+      codex_goal_capability?: { state: "supported"; checkedAt: number; error: null };
       claude_token_details?: { modelContextWindow?: number };
       claude_max_context_length?: number | null;
       claudeMaxContextLength?: number;
@@ -255,6 +266,34 @@ describe("SessionInfoPopover", () => {
 
     fireEvent.click(screen.getByTestId("session-info-configure-session"));
     expect(onConfigure).toHaveBeenCalledWith("s1");
+  });
+
+  it("does not render Codex Goal controls while preserving unrelated session details", () => {
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    // Keep an active server-authored Goal in the fixture so this regression
+    // guard proves UI removal does not require clearing or hiding backend state.
+    session.codex_goal = {
+      threadId: "thread-active",
+      objective: "Keep running safely",
+      status: "active",
+      tokenBudget: 120_000,
+      tokensUsed: 34_200,
+      timeUsedSeconds: 300,
+      createdAt: "2026-08-10T00:00:00.000Z",
+      updatedAt: "2026-08-10T00:05:00.000Z",
+    };
+    session.codex_goal_capability = { state: "supported", checkedAt: Date.now(), error: null };
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} onConfigure={() => {}} />);
+
+    expect(screen.queryByText("Codex Goal")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Codex Goal objective")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Codex Goal token budget")).not.toBeInTheDocument();
+    expect(screen.getByText("Reasoning")).toBeInTheDocument();
+    expect(screen.getByText("Working Directory")).toBeInTheDocument();
+    expect(screen.getByTestId("session-info-configure-session")).toBeInTheDocument();
   });
 
   it("labels launch settings as applying on resume when backend is disconnected but Takode is reachable", () => {

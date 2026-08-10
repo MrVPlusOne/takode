@@ -27,6 +27,12 @@ import {
   replaceAutocompleteRange,
   type ActiveAutocompleteRange,
 } from "./composer-autocomplete-ranges.js";
+
+const REMOVED_CODEX_BROWSER_SLASH_COMMANDS = new Set(["goal"]);
+
+function isRemovedCodexBrowserSlashCommand(name: string): boolean {
+  return REMOVED_CODEX_BROWSER_SLASH_COMMANDS.has(name.trim().replace(/^\/+/, "").toLowerCase());
+}
 import {
   DOLLAR_QUERY_PATTERN,
   REFERENCE_MENU_LIMIT,
@@ -256,7 +262,13 @@ export function useComposerAutocomplete({
     if (isCodex) {
       for (const cmd of CODEX_LOCAL_SLASH_COMMANDS) pushCommand(cmd, "command");
     }
-    for (const cmd of sessionView.slashCommands) pushCommand(cmd, "command");
+    for (const cmd of sessionView.slashCommands) {
+      // Existing sessions may retain commands published by an older Takode
+      // build. Keep removed browser-only shortcuts out of autocomplete even
+      // until that stale server-authored session projection is refreshed.
+      if (isCodex && isRemovedCodexBrowserSlashCommand(cmd)) continue;
+      pushCommand(cmd, "command");
+    }
     for (const skill of sessionView.skills) pushCommand(skill, "skill");
     return cmds;
   }, [isCodex, sessionView.skills, sessionView.slashCommands]);
