@@ -304,7 +304,6 @@ import type {
   TurnStartFailedAwareAdapter,
 } from "./bridge/adapter-interface.js";
 
-const MAX_ADAPTER_RELAUNCH_FAILURES = 3;
 const ADAPTER_FAILURE_RESET_WINDOW_MS = 120_000;
 const CODEX_INTENTIONAL_RELAUNCH_GUARD_MS = 15_000;
 const CODEX_RETRY_SAFE_RESUME_ITEM_TYPES: ReadonlySet<string> = new Set(["reasoning", "contextCompaction"]);

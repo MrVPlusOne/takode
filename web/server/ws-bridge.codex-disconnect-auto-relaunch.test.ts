@@ -855,7 +855,7 @@ describe("Codex disconnect auto-relaunch", () => {
     browser.send.mockClear();
     relaunchCb.mockClear();
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
       const adapter = makeCodexAdapterMock();
       bridge.attachCodexAdapter(sid, adapter as any);
       adapter.emitBrowserMessage({
@@ -865,12 +865,12 @@ describe("Codex disconnect auto-relaunch", () => {
       adapter.emitDisconnect();
     }
 
-    expect(relaunchCb).toHaveBeenCalledTimes(3);
+    expect(relaunchCb).toHaveBeenCalledTimes(5);
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const errorMessage = (calls as Array<{ type?: string; message?: string }>).find(
       (call) => call.type === "error",
     )?.message;
-    expect(errorMessage).toContain("Codex disconnected repeatedly after 3 automatic recovery attempts");
+    expect(errorMessage).toContain("Codex disconnected repeatedly after 5 automatic recovery attempts");
     expect(errorMessage).toContain("Adapter-disconnect auto-relaunch is paused");
     expect(errorMessage).toContain("Orchestrator sessions may also be woken by queued herd events when safe");
     expect(errorMessage).not.toContain("this session");

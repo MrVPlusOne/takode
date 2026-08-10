@@ -514,10 +514,10 @@ describe("ChatView backend banners", () => {
     expect(scope.queryByText("Session disconnected")).not.toBeInTheDocument();
   });
 
-  it("shows the recovery-suppressed banner and manual resume action", () => {
+  it("shows the recovery-suppressed banner and fresh-cycle reconnect action", () => {
     resetStore({
       sessions: new Map([
-        ["s1", { backend_state: "recovery_suppressed", backend_error: "Automatic recovery failed 3 times." }],
+        ["s1", { backend_state: "recovery_suppressed", backend_error: "Automatic recovery failed after 5 attempts." }],
       ]),
       cliConnected: new Map([["s1", false]]),
       cliEverConnected: new Map([["s1", true]]),
@@ -527,9 +527,9 @@ describe("ChatView backend banners", () => {
 
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
-    expect(scope.getByText("Automatic recovery failed 3 times.")).toBeInTheDocument();
+    expect(scope.getByText("Automatic recovery failed after 5 attempts.")).toBeInTheDocument();
     expectLiveBannerBetweenFeedAndComposer(view.container);
-    fireEvent.click(scope.getByRole("button", { name: "Resume" }));
+    fireEvent.click(scope.getByRole("button", { name: "Reconnect" }));
     expect(mockRelaunchSession).toHaveBeenCalledWith("s1");
   });
 

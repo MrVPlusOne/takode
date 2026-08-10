@@ -129,7 +129,13 @@ describe("Codex provider result recovery", () => {
   it("keeps nested init-error retries on the provider reconnect backoff", () => {
     expect(codexInitRecoveryRetryDelayMs("provider_result:model_backend_stream_error:attempt_1", 1)).toBe(30_000);
     expect(codexInitRecoveryRetryDelayMs("init_error:provider_result:model_backend_stream_error:attempt_1", 2)).toBe(
-      240_000,
+      60_000,
+    );
+    expect(codexInitRecoveryRetryDelayMs("init_error:provider_result:model_backend_stream_error:attempt_1", 3)).toBe(
+      90_000,
+    );
+    expect(codexInitRecoveryRetryDelayMs("init_error:provider_result:model_backend_stream_error:attempt_1", 4)).toBe(
+      120_000,
     );
   });
 

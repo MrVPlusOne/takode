@@ -259,6 +259,7 @@ export function SessionInfoPopover({
   const canOpenPathRows = Boolean(sessionVm?.isWorktree && sessionVm.repoRoot && sessionVm.repoRoot !== cwd);
   const recoverableConnectionPresentation = getRecoverableSessionConnectionPresentation({
     backendState: session?.backend_state,
+    reconnectProgress: session?.backend_reconnect,
     browserConnectionStatus,
     cliConnected,
     cliEverConnected,

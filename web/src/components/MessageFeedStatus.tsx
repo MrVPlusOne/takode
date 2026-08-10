@@ -297,6 +297,7 @@ export function RecoverableConnectionChip({ sessionId }: { sessionId: string }) 
   const serverReachable = useStore((s) => s.serverReachable ?? true);
   const presentation = getRecoverableSessionConnectionPresentation({
     backendState: session?.backend_state,
+    reconnectProgress: session?.backend_reconnect,
     browserConnectionStatus: connectionStatus,
     cliConnected,
     cliEverConnected,

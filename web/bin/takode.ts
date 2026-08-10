@@ -43,6 +43,7 @@ import {
   handleWorkerStream,
 } from "./takode-orchestration-commands.js";
 import { handlePermission } from "./takode-permission-commands.js";
+import { handleReconnect } from "./takode-reconnect.js";
 import { handleWorktreeCleanup } from "./takode-worktree-cleanup.js";
 import {
   handleInfo,
@@ -85,6 +86,7 @@ try {
     ["logs", {}],
     ["export", { allowSessionlessRead: true }],
     ["send", { requireOrchestrator: true }],
+    ["reconnect", { requireOrchestrator: true }],
     ["pause", { requireOrchestrator: true }],
     ["unpause", { requireOrchestrator: true }],
     ["goal", { requireOrchestrator: true }],
@@ -193,6 +195,9 @@ try {
       break;
     case "send":
       await handleSend(base, args);
+      break;
+    case "reconnect":
+      await handleReconnect(base, args);
       break;
     case "pause":
       await handlePause(base, args);

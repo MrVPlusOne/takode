@@ -1,3 +1,5 @@
+import type { BackendReconnectProgress } from "../types.js";
+
 export type BrowserConnectionStatus = "connecting" | "connected" | "disconnected";
 
 export type RecoverableSessionConnectionKind = "disconnected" | "reconnecting";
@@ -19,8 +21,14 @@ export interface RecoverableSessionConnectionPresentation {
   actionLabel: string;
 }
 
+function reconnectAttemptLabel(progress: BackendReconnectProgress | null | undefined): string {
+  if (!progress) return "Reconnecting";
+  return `Reconnecting (${progress.attempt}/${progress.maxAttempts})`;
+}
+
 export function getRecoverableSessionConnectionPresentation({
   backendState,
+  reconnectProgress,
   browserConnectionStatus,
   cliConnected,
   cliEverConnected,
@@ -28,6 +36,7 @@ export function getRecoverableSessionConnectionPresentation({
   serverReachable = true,
 }: {
   backendState?: string | null;
+  reconnectProgress?: BackendReconnectProgress | null;
   browserConnectionStatus: BrowserConnectionStatus;
   cliConnected: boolean;
   cliEverConnected: boolean;
@@ -38,10 +47,13 @@ export function getRecoverableSessionConnectionPresentation({
   if (backendState === "broken" || backendState === "recovery_suppressed") return null;
 
   if (backendState === "initializing" || backendState === "resuming" || backendState === "recovering") {
+    const label = reconnectAttemptLabel(reconnectProgress);
     return {
       kind: "reconnecting",
-      label: "Reconnecting",
-      detail: "Takode is reconnecting this session. You can keep working while backend delivery catches up.",
+      label,
+      detail: reconnectProgress
+        ? `Takode is reconnecting this session (attempt ${reconnectProgress.attempt} of ${reconnectProgress.maxAttempts}). You can keep working while backend delivery catches up.`
+        : "Takode is reconnecting this session. You can keep working while backend delivery catches up.",
       actionLabel: "Retry now",
     };
   }

@@ -18,6 +18,7 @@ import {
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { buildLeaderProjectionSnapshot, toLeaderProjectionWireSnapshot } from "../../shared/leader-projection.js";
 import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
+import { buildBackendStateSnapshot } from "./backend-state-snapshot.js";
 import {
   buildThreadWindowSync,
   getThreadWindowItemCount,
@@ -1037,9 +1038,7 @@ export function sendStateSnapshot(
     type: "state_snapshot",
     sessionStatus,
     permissionMode: session.state.permissionMode,
-    backendConnected: deps.backendConnected(session),
-    backendState: deps.deriveBackendState(session),
-    backendError: session.state.backend_error ?? null,
+    ...buildBackendStateSnapshot(session, deps),
     uiMode: session.state.uiMode ?? null,
     askPermission: session.state.askPermission ?? true,
     lastReadAt: session.lastReadAt,

@@ -255,6 +255,9 @@ function createMockBridge() {
     getLastUserMessage: vi.fn(() => undefined),
     isBackendConnected: vi.fn(() => false),
     markWorktree: vi.fn(),
+    beginCodexManualReconnectCycle: vi.fn(() => false),
+    clearCodexAutomaticRecoverySuppression: vi.fn(),
+    markCodexAutoRecoveryFailed: vi.fn(),
     applyInitialSessionState: vi.fn(),
     setDiffBaseBranch: vi.fn(() => true),
     refreshGitInfoPublic: vi.fn(async () => true),
@@ -544,6 +547,31 @@ describe("POST /api/sessions/:id/relaunch", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json).toEqual({ ok: true });
+    expect(launcher.relaunch).toHaveBeenCalledWith("s1");
+  });
+
+  it("starts a fresh bounded Codex reconnect cycle before manual relaunch", async () => {
+    launcher.getSession.mockReturnValue({
+      sessionId: "s1",
+      state: "exited",
+      cwd: "/test",
+      backendType: "codex",
+    });
+    launcher.relaunch.mockResolvedValue({ ok: true });
+    bridge.getSession.mockReturnValue({
+      id: "s1",
+      backendType: "codex",
+      state: { backend_state: "recovery_suppressed", backend_error: "exhausted" },
+    });
+
+    const res = await app.request("/api/sessions/s1/relaunch", { method: "POST" });
+
+    expect(res.status).toBe(200);
+    expect(bridge.getSession("s1").state).toMatchObject({
+      backend_state: "recovering",
+      backend_reconnect: { attempt: 1, maxAttempts: 5 },
+    });
+    expect(bridge.clearCodexAutomaticRecoverySuppression).not.toHaveBeenCalled();
     expect(launcher.relaunch).toHaveBeenCalledWith("s1");
   });
 

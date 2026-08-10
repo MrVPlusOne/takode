@@ -78,6 +78,7 @@ export interface CodexRecoveryOrchestratorSessionLike {
   state: Pick<
     SessionState,
     | "backend_state"
+    | "backend_reconnect"
     | "backend_type"
     | "cwd"
     | "model"
@@ -918,7 +919,7 @@ export function handleCodexAdapterInitError(
       deps.setPendingCodexInputsCancelable(session, pending.pendingInputIds ?? [pending.userMessageId], true);
     }
     deps.rebuildQueuedCodexPendingStartBatch(session);
-    const diagnostic = `Codex automatic recovery is paused after ${failures} failed attempts. Use Resume to retry manually.`;
+    const diagnostic = `Codex automatic recovery is paused after ${failures} failed attempts. Use Reconnect to start a fresh cycle.`;
     deps.setBackendState(session, "recovery_suppressed", diagnostic);
     retireCodexAutoPauseRecoveryTesting(session, deps);
     deps.emitTakodeEvent(session.id, "session_error", { error: diagnostic });
@@ -984,6 +985,10 @@ export function registerCodexAdapterRecoveryLifecycle(
     }
     if (meta.cliSessionId) {
       deps.setCliSessionIdFromMeta(session.id, meta.cliSessionId);
+    }
+    if (session.state.backend_reconnect) {
+      session.state.backend_reconnect = null;
+      deps.broadcastToBrowsers(session, { type: "session_update", session: { backend_reconnect: null } });
     }
     deps.setBackendState(session, "connected", null);
     const recyclePending = deps.getLauncherSessionInfo(session.id)?.codexLeaderRecyclePending;

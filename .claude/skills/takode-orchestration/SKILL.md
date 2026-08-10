@@ -364,6 +364,21 @@ printf '%s\n' 'Port summary: commit abc123 ...' 'Treat `foo $(bar)` as literal t
   quest feedback q-123 --text-file -
 ```
 
+### `takode reconnect <session...>` / `takode reconnect --all`
+
+Start a fresh bounded **process reconnect** cycle for selected or all workers currently herded by the leader, without sending a synthetic task message:
+
+```bash
+takode reconnect 2
+takode reconnect 2,3
+takode reconnect --all
+takode reconnect --all --json
+```
+
+The command is safe to use when a user asks a leader to reconnect its workers. It returns compact per-session results and skips sessions that are archived, unowned, already connected, already reconnecting, paused, or generating. A reconnect cycle can release a retained turn only when Takode's existing history proof says replay is side-effect safe. It does **not** increase the same-turn replay cap, silently change models, or clear result-error held background work that still requires a successful direct recovery probe.
+
+After five failed Codex process attempts, automatic reconnect pauses. Running `takode reconnect ...` starts a new five-attempt process cycle. Use `takode send` instead only when you also intend to give the worker new task or steering text.
+
 ### `takode herd <session> [<session> ...]`
 
 Claim worker sessions under your orchestrator. Each session can only have one leader.

@@ -66,6 +66,7 @@ import { scheduleWorktreeGitStateRefreshForSnapshot } from "./session-list-snaps
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
 import { normalizeAffectedThreadKey, normalizeNotifyThreadRoute } from "./takode-route-thread-helpers.js";
 import { buildCodexPendingDeliveryDiagnostics } from "../codex-pending-delivery-diagnostics.js";
+import { registerTakodeReconnectRoute } from "./takode-reconnect.js";
 
 const THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS = 100;
 const THREAD_ATTACHMENT_UPDATE_VERSION = 1;
@@ -653,6 +654,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       ),
     } as any);
 
+  registerTakodeReconnectRoute(api, ctx);
   registerTakodeNotificationResponseRoute(api, ctx, notificationPersistDeps);
   registerTakodeNotificationInboxRoutes(api, ctx, notificationPersistDeps);
 

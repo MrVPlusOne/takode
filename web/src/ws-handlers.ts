@@ -1458,6 +1458,7 @@ function handleParsedMessage(
         store.updateSession(sessionId, {
           ...(data.backendState !== undefined ? { backend_state: data.backendState } : {}),
           ...(data.backendError !== undefined ? { backend_error: data.backendError } : {}),
+          ...(data.backendReconnect !== undefined ? { backend_reconnect: data.backendReconnect } : {}),
         });
       }
       if (data.backendConnected) store.setCliEverConnected(sessionId);

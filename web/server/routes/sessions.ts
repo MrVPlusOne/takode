@@ -70,6 +70,7 @@ import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from
 import { registerSessionExtraRoutes } from "./session-extra-routes.js";
 import { applySessionDefaultsToCreateBody, SessionDefaultValidationError } from "../session-defaults-application.js";
 import { markOrchestratorSessionWithStartupContext } from "./orchestrator-startup-injection.js";
+import { relaunchSessionProcess } from "./session-process-relaunch.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -1590,8 +1591,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       }
     }
 
-    (wsBridge as any).clearCodexAutomaticRecoverySuppression?.(id);
-    const result = await launcher.relaunch(id);
+    const result = await relaunchSessionProcess(launcher, wsBridge, id);
     if (!result.ok) {
       const status =
         result.error && (result.error.includes("not found") || result.error.includes("Session not found")) ? 404 : 503;

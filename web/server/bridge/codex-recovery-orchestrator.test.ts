@@ -88,7 +88,7 @@ function makeRecoveryDeps(overrides: Record<string, unknown> = {}) {
     setGenerating: vi.fn(),
     hasCliRelaunchCallback: true,
     adapterFailureResetWindowMs: 120_000,
-    maxAdapterRelaunchFailures: 3,
+    maxAdapterRelaunchFailures: 5,
     ...overrides,
   } as any;
 }
@@ -1270,6 +1270,26 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
     vi.restoreAllMocks();
   });
 
+  it("clears reconnect progress for every browser after session metadata confirms recovery", () => {
+    const session = makeSession([]);
+    prepareLifecycleSession(session);
+    session.state.backend_state = "recovering";
+    session.state.backend_reconnect = { attempt: 3, maxAttempts: 5, cycleStartedAt: 100 };
+    const adapter = makeLifecycleAdapter();
+    const deps = makeLifecycleDeps();
+
+    session.codexAdapter = adapter as any;
+    registerCodexAdapterRecoveryLifecycle(session.id, session, adapter, deps);
+    adapter.emitSessionMeta({ cliSessionId: "thread-reconnected", model: "gpt-5.6-sol", cwd: "/repo" });
+
+    expect(session.state.backend_reconnect).toBeNull();
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "session_update",
+      session: { backend_reconnect: null },
+    });
+    expect(session.state.backend_state).toBe("connected");
+  });
+
   it("broadcasts testing only after the current manual recovery turn is backend-confirmed", () => {
     // The initial optimistic running transition is deliberately insufficient;
     // turn/start acknowledgement confirms the current server-owned manual turn.
@@ -1585,8 +1605,9 @@ describe("handleCodexAdapterInitError", () => {
     session.codexAdapter = adapter as any;
     session.pendingCodexTurns = [pending];
     (session as any).codexAutoRecoveryReason = "queued_user_message_adapter_missing";
-    (session as any).codexInitRecoveryFailures = 2;
-    const deps = makeLifecycleDeps({ maxAdapterRelaunchFailures: 3 });
+    (session as any).codexInitRecoveryFailures = 4;
+    session.state.backend_reconnect = { attempt: 5, maxAttempts: 5, cycleStartedAt: 100 };
+    const deps = makeLifecycleDeps({ maxAdapterRelaunchFailures: 5 });
 
     const result = handleCodexAdapterInitError(
       session.id,
@@ -1599,7 +1620,7 @@ describe("handleCodexAdapterInitError", () => {
     expect(result).toBe("broken");
     expect(session.state.backend_state).toBe("recovery_suppressed");
     expect((session.state as any).backend_error).toContain(
-      "Codex automatic recovery is paused after 3 failed attempts",
+      "Codex automatic recovery is paused after 5 failed attempts",
     );
     expect(pending.status).toBe("queued");
     expect(pending).toMatchObject({ turnTarget: null, autoPauseRecoveryTestingRetired: true });
@@ -1607,7 +1628,7 @@ describe("handleCodexAdapterInitError", () => {
     expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
     expect(deps.setAttentionError).not.toHaveBeenCalled();
     expect(deps.emitTakodeEvent).toHaveBeenCalledWith(session.id, "session_error", {
-      error: "Codex automatic recovery is paused after 3 failed attempts. Use Resume to retry manually.",
+      error: "Codex automatic recovery is paused after 5 failed attempts. Use Reconnect to start a fresh cycle.",
     });
     expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_recovery_suppressed");
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
@@ -1616,7 +1637,7 @@ describe("handleCodexAdapterInitError", () => {
     });
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "error",
-      message: "Codex automatic recovery is paused after 3 failed attempts. Use Resume to retry manually.",
+      message: "Codex automatic recovery is paused after 5 failed attempts. Use Reconnect to start a fresh cycle.",
     });
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "session_update",

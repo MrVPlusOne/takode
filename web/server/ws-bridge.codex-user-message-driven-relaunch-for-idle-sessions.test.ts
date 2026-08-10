@@ -617,7 +617,7 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
 
   it("suppresses automatic relaunch after repeated queued-work recovery failures", async () => {
     // Once automatic recovery has repeatedly failed, new queued user work stays
-    // durable but no longer relaunches the backend indefinitely. Manual Resume
+    // durable but no longer relaunches the backend indefinitely. Manual Reconnect
     // clears the suppression through the explicit relaunch route.
     const sid = "s-suppress-auto-recovery";
     const relaunchCb = vi.fn();
@@ -631,7 +631,7 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
     const browser = makeBrowserSocket(sid);
     const session = bridge.getOrCreateSession(sid, "codex");
     session.state.backend_state = "disconnected";
-    session.consecutiveAdapterFailures = 3;
+    session.consecutiveAdapterFailures = 5;
     bridge.handleBrowserOpen(browser, sid);
     relaunchCb.mockClear();
     browser.send.mockClear();

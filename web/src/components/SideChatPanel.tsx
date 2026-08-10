@@ -102,6 +102,7 @@ export function SideChatPanel({
   const permissionDenial = latestPermissionDenial(visibleMessages);
   const childConnectionPresentation = getRecoverableSessionConnectionPresentation({
     backendState: childSession?.backend_state,
+    reconnectProgress: childSession?.backend_reconnect,
     browserConnectionStatus: childConnectionStatus,
     cliConnected: childCliConnected,
     cliEverConnected: childCliEverConnected,

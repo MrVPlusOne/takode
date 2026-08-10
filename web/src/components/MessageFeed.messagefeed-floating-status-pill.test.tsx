@@ -650,16 +650,19 @@ describe("MessageFeed - floating status pill", () => {
   it("renders reconnecting as the same unobtrusive feed affordance", () => {
     const sid = "test-feed-reconnecting-chip";
     setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Recovering session" })]);
-    setStoreSessionState(sid, { backend_state: "recovering" });
+    setStoreSessionState(sid, {
+      backend_state: "recovering",
+      backend_reconnect: { attempt: 2, maxAttempts: 5, cycleStartedAt: 100 },
+    });
     setStoreConnectionState(sid);
 
     render(<MessageFeed sessionId={sid} />);
 
     const chip = screen.getByTestId("recoverable-connection-chip");
-    expect(chip).toHaveTextContent("Reconnecting");
+    expect(chip).toHaveTextContent("Reconnecting (2/5)");
     fireEvent.click(chip);
     expect(screen.getByTestId("recoverable-connection-detail")).toHaveTextContent(
-      "Takode is reconnecting this session. You can keep working while backend delivery catches up.",
+      "Takode is reconnecting this session (attempt 2 of 5). You can keep working while backend delivery catches up.",
     );
   });
 

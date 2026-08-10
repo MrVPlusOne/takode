@@ -102,6 +102,7 @@ import type {
   QuestmasterTask,
   SessionAttentionRecord,
   SessionNotification,
+  SessionState,
   SideChatRecord,
 } from "../types.js";
 
@@ -176,6 +177,7 @@ type LiveConnectionStatusBannerProps = {
     | "server-unreachable";
   backendState?: string;
   backendError?: string | null;
+  reconnectProgress?: SessionState["backend_reconnect"];
   hasEverConnected?: boolean;
   idlePaused?: boolean;
   isResumeMissingRolloutError?: boolean;
@@ -186,6 +188,7 @@ function LiveConnectionStatusBanner({
   status,
   backendState,
   backendError,
+  reconnectProgress,
   hasEverConnected = false,
   idlePaused = false,
   isResumeMissingRolloutError = false,
@@ -198,7 +201,7 @@ function LiveConnectionStatusBanner({
       : status === "websocket-disconnected"
         ? "Reconnecting to session..."
         : status === "recovery-suppressed"
-          ? (backendError ?? "Automatic recovery is paused. Resume manually to retry.")
+          ? (backendError ?? "Automatic recovery is paused. Reconnect to start a fresh cycle.")
           : status === "broken"
             ? (backendError ?? "CLI failed to recover. Relaunch to resume queued messages.")
             : status === "cli-disconnected"
@@ -206,7 +209,9 @@ function LiveConnectionStatusBanner({
                 ? "Session paused to stay within keep-alive limit"
                 : "Keep working here. Takode reconnects when delivery needs the backend."
               : backendState === "recovering"
-                ? "Recovering session..."
+                ? reconnectProgress
+                  ? `Reconnecting (${reconnectProgress.attempt}/${reconnectProgress.maxAttempts})...`
+                  : "Recovering session..."
                 : backendState === "resuming" || hasEverConnected
                   ? "Reconnecting session..."
                   : "Starting session...";
@@ -255,7 +260,9 @@ function LiveConnectionStatusBanner({
               ? "Start Fresh"
               : status === "broken"
                 ? "Relaunch"
-                : "Resume"}
+                : status === "recovery-suppressed"
+                  ? "Reconnect"
+                  : "Resume"}
           </button>
         )}
       </div>
@@ -1051,6 +1058,7 @@ export function ChatView({
     sessionPerms,
     connStatus,
     backendState,
+    backendReconnect,
     backendError,
     cliConnected,
     cliEverConnected,
@@ -1080,6 +1088,7 @@ export function ChatView({
         sessionPerms: s.pendingPermissions.get(sessionId),
         connStatus: s.connectionStatus.get(sessionId) ?? "disconnected",
         backendState: sessionState?.backend_state ?? "disconnected",
+        backendReconnect: sessionState?.backend_reconnect ?? null,
         backendError: sessionState?.backend_error ?? null,
         cliConnected: s.cliConnected.get(sessionId) ?? false,
         cliEverConnected: s.cliEverConnected.get(sessionId) ?? false,
@@ -1809,6 +1818,7 @@ export function ChatView({
           status={liveConnectionStatus}
           backendState={backendState}
           backendError={backendError}
+          reconnectProgress={backendReconnect}
           hasEverConnected={cliEverConnected}
           idlePaused={cliDisconnectReason === "idle_limit"}
           isResumeMissingRolloutError={isResumeMissingRolloutError}

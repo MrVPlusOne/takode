@@ -1142,6 +1142,7 @@ export type BrowserIncomingMessageBase =
       backendConnected: boolean;
       backendState?: SessionState["backend_state"];
       backendError?: string | null;
+      backendReconnect?: BackendReconnectProgress | null;
       uiMode: string | null;
       askPermission: boolean;
       lastReadAt?: number;
@@ -1289,6 +1290,15 @@ export interface StarredMessageRecord {
 
 export type CodexOutboundTurn = CodexOutboundTurnBase<BrowserOutgoingMessage>;
 
+export interface BackendReconnectProgress {
+  /** One-based process launch attempt currently in flight or most recently exhausted. */
+  attempt: number;
+  /** Fixed process launch budget for this reconnect cycle. */
+  maxAttempts: number;
+  /** Server timestamp for the first process launch in this cycle. */
+  cycleStartedAt: number;
+}
+
 export interface SessionState {
   session_id: string;
   /** Durable Takode session-group identity. Explicitly set to "default" when ungrouped. */
@@ -1315,6 +1325,8 @@ export interface SessionState {
     | "broken";
   /** Server-authored backend failure detail for disconnected/broken states. */
   backend_error?: string | null;
+  /** Server-authored Codex process reconnect progress. */
+  backend_reconnect?: BackendReconnectProgress | null;
   model: string;
   /** Server-owned historical warning for one-time unknown-provenance migration. */
   modelProvenanceMigration?: ModelProvenanceMigration;

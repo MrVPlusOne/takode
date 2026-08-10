@@ -1,8 +1,8 @@
 import { classifyCodexResultError } from "../codex-result-error-auto-pause.js";
+import { codexProviderResultReconnectRetryDelayMs } from "../codex-process-reconnect.js";
 import type { BrowserIncomingMessage, CLIResultMessage, CodexOutboundTurn } from "../session-types.js";
 
 export const CODEX_PROVIDER_RESULT_RECOVERY_MAX_ATTEMPTS = 2;
-const CODEX_PROVIDER_RESULT_INIT_RETRY_DELAYS_MS = [30_000, 240_000] as const;
 
 export type RecoverableCodexProviderFailureFamily = "model_backend_stream_error" | "copilot_auth_refresh_invalidated";
 
@@ -91,7 +91,7 @@ export function codexInitRecoveryRetryDelayMs(autoRecoveryReason: string, failur
   if (!isCodexProviderResultRecoveryReason(autoRecoveryReason)) {
     return Math.min(1_000 * failures, 10_000);
   }
-  return CODEX_PROVIDER_RESULT_INIT_RETRY_DELAYS_MS[failures - 1] ?? CODEX_PROVIDER_RESULT_INIT_RETRY_DELAYS_MS.at(-1)!;
+  return codexProviderResultReconnectRetryDelayMs(failures);
 }
 
 export function clearCodexInitRecoveryRuntimeState(session: object): void {

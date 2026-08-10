@@ -71,12 +71,17 @@ describe("session connection presentation", () => {
     expect(result.liveConnectionStatus).toBe("starting");
   });
 
-  it("presents real demand-driven recovery as unobtrusive reconnecting state", () => {
-    const result = classify({ backendState: "recovering", launcherState: "connected" });
+  it("presents real demand-driven recovery with server-authored attempt progress", () => {
+    const result = classify({
+      backendState: "recovering",
+      reconnectProgress: { attempt: 2, maxAttempts: 5, cycleStartedAt: 100 },
+      launcherState: "connected",
+    });
 
     expect(result.recoverableConnectionPresentation).toMatchObject({
       kind: "reconnecting",
-      label: "Reconnecting",
+      label: "Reconnecting (2/5)",
+      detail: expect.stringContaining("attempt 2 of 5"),
     });
     expect(result.liveConnectionStatus).toBeNull();
   });

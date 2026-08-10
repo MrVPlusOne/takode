@@ -1335,6 +1335,7 @@ export function usePlaygroundSeed() {
       backend_type: "codex",
       backend_state: "recovering",
       backend_error: null,
+      backend_reconnect: { attempt: 2, maxAttempts: 5, cycleStartedAt: Date.now() - 45_000 },
       model: "gpt-5.3-codex",
     });
     store.setConnectionStatus(PLAYGROUND_RECOVERING_SESSION_ID, "connected");
@@ -1373,7 +1374,9 @@ export function usePlaygroundSeed() {
       session_id: PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID,
       backend_type: "codex",
       backend_state: "recovery_suppressed",
-      backend_error: "Codex automatic recovery is paused after 3 failed attempts. Use Resume to retry manually.",
+      backend_error:
+        "Codex automatic recovery is paused after 5 failed attempts. Use Reconnect to start a fresh cycle.",
+      backend_reconnect: { attempt: 5, maxAttempts: 5, cycleStartedAt: Date.now() - 6 * 60_000 },
       model: "gpt-5.3-codex",
     });
     store.setConnectionStatus(PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID, "connected");

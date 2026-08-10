@@ -134,6 +134,17 @@ Options:
   --json        Output JSON
 `;
 
+const RECONNECT_HELP = `Usage: takode reconnect <session1,session2,...> [--json]
+       takode reconnect --all [--json]
+
+Start a fresh bounded process reconnect cycle for selected or all herded workers without sending a task message.
+Connected, generating, paused, archived, unowned, and already-reconnecting sessions are safely skipped.
+
+Options:
+  --all   Target every worker currently herded by this leader
+  --json  Output compact structured per-session results
+`;
+
 const PAUSE_HELP = `Usage: takode pause <session> [--json]
 
 Emergency-hold a session. New inbound work is held until \`takode unpause\`.
@@ -340,6 +351,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "send":
       console.log(SEND_HELP);
       return true;
+    case "reconnect":
+      console.log(RECONNECT_HELP);
+      return true;
     case "pause":
       console.log(PAUSE_HELP);
       return true;
@@ -510,6 +524,7 @@ Commands:
   logs     Query and tail structured server logs
   export   Export full session history to a text file
   send     Send a message to a herded session
+  reconnect  Reconnect selected or all herded workers without sending messages
   pause    Emergency-hold new inbound work for a session
   unpause  Resume a paused session and release held work
   goal     Show or manually control Codex Goal state
@@ -575,6 +590,8 @@ Examples:
   takode logs --session abc123 --pattern reconnect --follow
   takode export 1 /tmp/session-1.txt
   takode send 2 "Please add tests for the edge cases"
+  takode reconnect 2,3
+  takode reconnect --all
   printf 'Line 1\\nLine 2 with $HOME and \`code\`\\n' | takode send 2 --stdin
   takode set-base 1 origin/main
   takode refresh-branch 1

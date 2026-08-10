@@ -1,4 +1,8 @@
 import { sessionTag } from "../session-tag.js";
+import {
+  CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS,
+  CODEX_PROVIDER_RESULT_RECONNECT_TIMEOUT_MS,
+} from "../codex-process-reconnect.js";
 import { isCodexProviderResultRecoveryReason } from "./codex-provider-result-recovery.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { PersistedSession } from "../session-store.js";
@@ -848,6 +852,61 @@ export function setBackendState(
   });
 }
 
+export function setBackendReconnectProgress(
+  session: SessionLike,
+  progress: SessionState["backend_reconnect"],
+  deps: Pick<SessionRegistryDeps, "broadcastSessionUpdate">,
+): void {
+  const current = session.state.backend_reconnect ?? null;
+  const next = progress ?? null;
+  const changed =
+    current?.attempt !== next?.attempt ||
+    current?.maxAttempts !== next?.maxAttempts ||
+    current?.cycleStartedAt !== next?.cycleStartedAt;
+  session.state.backend_reconnect = next;
+  if (!changed) return;
+  deps.broadcastSessionUpdate?.(session, { backend_reconnect: next });
+}
+
+function markCodexReconnectAttempt(
+  session: SessionLike,
+  attempt: number,
+  maxAttempts: number,
+  deps: Pick<SessionRegistryDeps, "broadcastSessionUpdate">,
+): void {
+  const normalizedAttempt = Math.max(1, Math.min(Math.floor(attempt), maxAttempts));
+  const existing = session.state.backend_reconnect;
+  setBackendReconnectProgress(
+    session,
+    {
+      attempt: normalizedAttempt,
+      maxAttempts,
+      cycleStartedAt:
+        normalizedAttempt > 1 && typeof existing?.cycleStartedAt === "number" ? existing.cycleStartedAt : Date.now(),
+    },
+    deps,
+  );
+}
+
+export function beginCodexManualReconnectCycle(
+  session: SessionLike,
+  deps: Pick<SessionRegistryDeps, "persistSession" | "broadcastSessionUpdate" | "maxAdapterRelaunchFailures">,
+): boolean {
+  if (session.backendType !== "codex") return false;
+  const retryTimer = (session as any).codexInitRetryTimer as ReturnType<typeof setTimeout> | null | undefined;
+  if (retryTimer) clearTimeout(retryTimer);
+  (session as any).codexInitRetryTimer = null;
+  (session as any).consecutiveAdapterFailures = 0;
+  (session as any).lastAdapterFailureAt = null;
+  (session as any).codexInitRecoveryFailures = 0;
+  (session as any).codexAutoRecoveryReason = "manual_reconnect";
+  const maxAttempts = deps.maxAdapterRelaunchFailures ?? CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS;
+  markCodexReconnectAttempt(session, 1, maxAttempts, deps);
+  setBackendState(session, "recovering", null, deps);
+  deps.persistSession(session);
+  return true;
+}
+
 export function requestCodexAutoRecovery(
   session: SessionLike,
   reason: string,
@@ -869,18 +928,24 @@ export function requestCodexAutoRecovery(
   if (!deps.requestCliRelaunch) return false;
   if (launcherInfo?.archived || launcherInfo?.killedByIdleManager) return false;
   if (session.state.backend_state === "broken" || session.state.backend_state === "recovery_suppressed") return false;
-  const maxFailures = deps.maxAdapterRelaunchFailures ?? 3;
+  const maxFailures = deps.maxAdapterRelaunchFailures ?? CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS;
   if (reason !== "adapter_disconnect" && (session as any).consecutiveAdapterFailures >= maxFailures) {
     suppressCodexAutomaticRecovery(session, `automatic recovery suppressed after ${maxFailures} failed attempts`, deps);
     return false;
   }
   (session as any).codexAutoRecoveryReason = reason;
+  const recordedFailures = (session as any).consecutiveAdapterFailures ?? 0;
+  const nextAttempt = Math.min(
+    reason === "adapter_disconnect" ? Math.max(1, recordedFailures) : recordedFailures + 1,
+    maxFailures,
+  );
+  markCodexReconnectAttempt(session, nextAttempt, maxFailures, deps);
   setBackendState(session, "recovering", null, deps);
   deps.persistSession(session);
   console.log(`[ws-bridge] Requesting Codex auto-recovery for session ${sessionTag(session.id)} (${reason})`);
   deps.requestCliRelaunch(session.id);
   const recoveryTimeoutMs = isCodexProviderResultRecoveryReason(reason)
-    ? Math.max(deps.recoveryTimeoutMs ?? 30_000, 6 * 60 * 1000)
+    ? Math.max(deps.recoveryTimeoutMs ?? 30_000, CODEX_PROVIDER_RESULT_RECONNECT_TIMEOUT_MS)
     : (deps.recoveryTimeoutMs ?? 30_000);
   setTimeout(() => {
     if (session.state.backend_state !== "recovering") return;
@@ -892,7 +957,7 @@ export function requestCodexAutoRecovery(
     if (failures >= maxFailures) {
       suppressCodexAutomaticRecovery(
         session,
-        `Automatic recovery timed out ${failures} times. Use Resume to retry manually.`,
+        `Automatic recovery timed out after ${failures} attempts. Use Reconnect to start a fresh cycle.`,
         deps,
       );
     } else {
@@ -930,11 +995,11 @@ export function markCodexAutoRecoveryFailed(
   if (session.state.backend_state !== "recovering") return;
   if (deps.attached?.(session)) return;
   const failures = noteCodexAutomaticRecoveryFailure(session, deps);
-  const maxFailures = deps.maxAdapterRelaunchFailures ?? 3;
+  const maxFailures = deps.maxAdapterRelaunchFailures ?? CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS;
   if (failures >= maxFailures) {
     suppressCodexAutomaticRecovery(
       session,
-      `Automatic recovery failed ${failures} times. Use Resume to retry manually.`,
+      `Automatic recovery failed after ${failures} attempts. Use Reconnect to start a fresh cycle.`,
       deps,
     );
   } else {
@@ -962,6 +1027,7 @@ export function clearCodexAutomaticRecoverySuppression(
   (session as any).lastAdapterFailureAt = null;
   (session as any).codexInitRecoveryFailures = 0;
   (session as any).codexAutoRecoveryReason = null;
+  setBackendReconnectProgress(session, null, deps);
   if (session.state.backend_state === "recovery_suppressed") {
     setBackendState(session, "disconnected", null, deps);
   }
@@ -974,7 +1040,7 @@ function noteCodexAutomaticRecoveryFailure(
 ): number {
   const current =
     typeof (session as any).consecutiveAdapterFailures === "number" ? (session as any).consecutiveAdapterFailures : 0;
-  const failures = Math.min(current + 1, (deps.maxAdapterRelaunchFailures ?? 3) + 1);
+  const failures = Math.min(current + 1, (deps.maxAdapterRelaunchFailures ?? CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS) + 1);
   (session as any).consecutiveAdapterFailures = failures;
   (session as any).lastAdapterFailureAt = Date.now();
   return failures;

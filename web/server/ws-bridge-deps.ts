@@ -243,6 +243,7 @@ import {
 } from "./bridge/tool-result-recovery-controller.js";
 
 import type { QuestLifecycleStatus } from "./bridge/quest-detector.js";
+import { CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS } from "./codex-process-reconnect.js";
 import {
   clearOptimisticRunningTimer as clearOptimisticRunningTimerLifecycle,
   getQueuedTurnLifecycleEntries as getQueuedTurnLifecycleEntriesLifecycle,
@@ -284,6 +285,7 @@ import type {
 } from "./bridge/ws-bridge-session.js";
 
 const MAX_ADAPTER_RELAUNCH_FAILURES = 3;
+const MAX_CODEX_PROCESS_RECONNECT_ATTEMPTS = CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS;
 const ADAPTER_FAILURE_RESET_WINDOW_MS = 120_000;
 const CODEX_DISCONNECT_GRACE_MS = 15_000;
 const CODEX_INTENTIONAL_RELAUNCH_GUARD_MS = 15_000;
@@ -514,7 +516,7 @@ export function getSessionRegistryDeps(host: any) {
     attached: (targetSession: unknown) => backendAttachedController(targetSession as Session),
     getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
     recoveryTimeoutMs: CODEX_RECOVERY_TIMEOUT_MS,
-    maxAdapterRelaunchFailures: MAX_ADAPTER_RELAUNCH_FAILURES,
+    maxAdapterRelaunchFailures: MAX_CODEX_PROCESS_RECONNECT_ATTEMPTS,
     getHerdedSessionIds: (leaderId: string) =>
       host.launcher?.getHerdedSessions?.(leaderId)?.map((worker: { sessionId: string }) => worker.sessionId) ?? [],
     getSessionNum: (sessionId: string) => host.launcher?.getSessionNum?.(sessionId),
@@ -1505,7 +1507,7 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
       host.launcher?.logCodexProcessSnapshotForSession?.(sessionId, reason),
     codexDisconnectGraceMs: CODEX_DISCONNECT_GRACE_MS,
     adapterFailureResetWindowMs: ADAPTER_FAILURE_RESET_WINDOW_MS,
-    maxAdapterRelaunchFailures: MAX_ADAPTER_RELAUNCH_FAILURES,
+    maxAdapterRelaunchFailures: MAX_CODEX_PROCESS_RECONNECT_ATTEMPTS,
     hasCliRelaunchCallback: !!host.onCLIRelaunchNeeded,
     injectUserMessage: (
       sessionId: string,
