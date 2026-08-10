@@ -145,6 +145,7 @@ import {
 } from "./MessageFeed.js";
 import { FeedFooter, TurnEntries } from "./MessageFeedEntries.js";
 import { formatActiveReasoningStatusText } from "./MessageFeedStatus.js";
+import { MessageBubble } from "./MessageBubble.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -341,6 +342,20 @@ function setStoreSessionBackend(sessionId: string, backend: "claude" | "codex") 
   const map = new Map();
   map.set(sessionId, { backend_type: backend });
   mockStoreValues.sessions = map;
+}
+
+function reasoningDetailMessage(
+  id: string,
+  content: string,
+  status: "streaming" | "complete" = "complete",
+): ChatMessage {
+  return {
+    id,
+    role: "assistant",
+    content,
+    timestamp: 1,
+    metadata: { codexReasoningDetail: { status } },
+  };
 }
 
 function setStoreSessionState(sessionId: string, session: Record<string, unknown>) {
@@ -717,39 +732,27 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.queryByText("Active in main")).toBeNull();
   });
 
-  it("renders direct active reasoning as a transient inline thread row", () => {
-    const sid = "test-direct-reasoning-row";
-    setStoreActiveCodexReasoningPreview(sid, {
-      text: "**Considering UX for route mapping**\n\nI'm thinking about a new user experience for the full available message line without truncation.",
-      updatedAt: Date.now(),
-      threadKey: "q-975",
-      questId: "q-975",
-    });
-
+  it("renders a persistent reasoning detail collapsed by default and expands the full summary", () => {
     render(
-      <TurnEntries
-        sections={[]}
-        sessionId={sid}
-        currentThreadKey="q-975"
-        leaderMode={false}
-        isCodexSession
-        activeCodexTerminalIds={new Set()}
-        onOpenCodexTerminal={vi.fn()}
-        turnStates={[]}
-        toggleTurn={vi.fn()}
+      <MessageBubble
+        message={reasoningDetailMessage(
+          "reasoning-1",
+          "**Considering UX for route mapping**\n\nI'm thinking about a new user experience for the full available message line without truncation.",
+        )}
+        backendType="codex"
       />,
     );
 
-    expect(screen.getByTestId("active-codex-reasoning-thread-row")).toBeTruthy();
-    expect(screen.getByTestId("active-codex-reasoning-title").textContent).toBe("Considering UX for route mapping");
-    expect(screen.getByTestId("active-codex-reasoning-body").textContent).toContain(
+    const detail = screen.getByTestId("codex-reasoning-detail");
+    expect(detail.hasAttribute("open")).toBe(false);
+    expect(screen.getByTestId("codex-reasoning-title").textContent).toBe("Considering UX for route mapping");
+    expect(screen.queryByText(/\*\*Considering UX/)).toBeNull();
+
+    fireEvent.click(screen.getByText("Considering UX for route mapping"));
+    expect(detail.hasAttribute("open")).toBe(true);
+    expect(screen.getByTestId("codex-reasoning-body").textContent).toContain(
       "full available message line without truncation.",
     );
-    expect(screen.getByTestId("active-codex-reasoning-thread-row").textContent).toContain(
-      "Considering UX for route mapping I'm thinking",
-    );
-    expect(screen.queryByText("Reasoning")).toBeNull();
-    expect(screen.queryByText(/\*\*Considering UX/)).toBeNull();
   });
 
   it("does not render root Codex streaming thinking through the legacy footer", () => {
@@ -767,140 +770,62 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.queryByText(/I need to look at the patch tool/)).toBeNull();
   });
 
-  it("does not render active reasoning in a non-attributed selected thread", () => {
-    const sid = "test-direct-reasoning-row-mismatch";
-    setStoreActiveCodexReasoningPreview(sid, {
-      text: "**Considering UX**\n\nThread-specific body.",
-      updatedAt: Date.now(),
-      threadKey: "q-975",
-      questId: "q-975",
-    });
-
+  it("uses the approved generic Reasoning label for titleless official summaries", () => {
     render(
-      <TurnEntries
-        sections={[]}
-        sessionId={sid}
-        currentThreadKey="q-976"
-        leaderMode={false}
-        isCodexSession
-        activeCodexTerminalIds={new Set()}
-        onOpenCodexTerminal={vi.fn()}
-        turnStates={[]}
-        toggleTurn={vi.fn()}
+      <MessageBubble
+        message={reasoningDetailMessage("reasoning-titleless", "A body without a parseable provider title.")}
+        backendType="codex"
       />,
     );
 
-    expect(screen.queryByTestId("active-codex-reasoning-thread-row")).toBeNull();
+    expect(screen.getByTestId("codex-reasoning-title").textContent).toBe("Reasoning");
+    expect(screen.getByTestId("codex-reasoning-title").textContent).not.toContain("A body without");
   });
 
-  it("keeps independent retained reasoning rows scoped to their selected thread", () => {
-    const sid = "test-direct-reasoning-per-thread";
-    setStoreCodexReasoningPreviews(sid, [
-      { text: "**Main trace**\n\nMain body.", updatedAt: 1, threadKey: "main" },
-      { text: "**Quest trace**\n\nQuest body.", updatedAt: 2, threadKey: "q-975", questId: "q-975" },
-    ]);
-    const props = {
-      sections: [],
-      sessionId: sid,
-      leaderMode: true,
-      isCodexSession: true,
-      activeCodexTerminalIds: new Set<string>(),
-      onOpenCodexTerminal: vi.fn(),
-      turnStates: [],
-      toggleTurn: vi.fn(),
-    };
-    const view = render(<TurnEntries {...props} currentThreadKey="main" />);
-
-    expect(screen.getByTestId("active-codex-reasoning-title").textContent).toBe("Main trace");
-
-    view.rerender(<TurnEntries {...props} currentThreadKey="q-975" />);
-    expect(screen.getByTestId("active-codex-reasoning-title").textContent).toBe("Quest trace");
-  });
-
-  it("renders retained idle worker reasoning in the matching leader thread row", () => {
-    const sid = "test-projected-reasoning-row";
-    setStoreBoardProjection(sid, [{ questId: "q-975", worker: "worker-1", workerNum: 2463, updatedAt: 1 }], {
-      "q-975": {
-        worker: {
-          sessionId: "worker-1",
-          sessionNum: 2463,
-          status: "idle",
-          codexReasoningPreviews: [
-            {
-              text: "**Checking the Journey handoff state**\n\nProjected worker body.",
-              updatedAt: Date.now(),
-              threadKey: "q-975",
-              questId: "q-975",
-            },
-          ],
-        },
-        reviewer: null,
-      },
-    });
-
+  it("renders independent chronological reasoning details without merging their identities", () => {
     render(
-      <TurnEntries
-        sections={[]}
-        sessionId={sid}
-        currentThreadKey="q-975"
-        leaderMode
-        isCodexSession
-        activeCodexTerminalIds={new Set()}
-        onOpenCodexTerminal={vi.fn()}
-        turnStates={[]}
-        toggleTurn={vi.fn()}
+      <>
+        <MessageBubble message={reasoningDetailMessage("reasoning-main", "**Main trace**\n\nMain body.")} />
+        <MessageBubble message={reasoningDetailMessage("reasoning-quest", "**Quest trace**\n\nQuest body.")} />
+      </>,
+    );
+
+    expect(screen.getAllByTestId("codex-reasoning-detail")).toHaveLength(2);
+    expect(screen.getByText("Main trace")).toBeTruthy();
+    expect(screen.getByText("Quest trace")).toBeTruthy();
+  });
+
+  it("keeps a completed persistent reasoning detail available while the session is idle", () => {
+    const sid = "test-persistent-reasoning-idle";
+    setStoreStatus(sid, "idle");
+    render(
+      <MessageBubble
+        message={reasoningDetailMessage(
+          "reasoning-idle",
+          "**Checking the Journey handoff state**\n\nPersistent body after idle.",
+        )}
       />,
     );
 
-    expect(screen.getByTestId("active-codex-reasoning-title").textContent).toBe("Checking the Journey handoff state");
-    expect(screen.getByTestId("active-codex-reasoning-body").textContent).toBe("Projected worker body.");
-    expect(screen.getByTestId("active-codex-reasoning-thread-row").textContent).toContain(
-      "Checking the Journey handoff state Projected worker body.",
-    );
+    expect(screen.getByTestId("codex-reasoning-title").textContent).toBe("Checking the Journey handoff state");
   });
 
-  it("shows the newest retained row when direct and projected activity share a thread", () => {
-    const sid = "test-newest-direct-or-projected-reasoning";
-    setStoreActiveCodexReasoningPreview(sid, {
-      text: "**Older direct trace**\n\nDirect body.",
-      updatedAt: 10,
-      threadKey: "q-975",
-      questId: "q-975",
-    });
-    setStoreBoardProjection(sid, [{ questId: "q-975", worker: "worker-1", workerNum: 2463, updatedAt: 1 }], {
-      "q-975": {
-        worker: {
-          sessionId: "worker-1",
-          sessionNum: 2463,
-          status: "idle",
-          codexReasoningPreviews: [
-            {
-              text: "**Newer projected trace**\n\nProjected body.",
-              updatedAt: 20,
-              threadKey: "q-975",
-              questId: "q-975",
-            },
-          ],
-        },
-        reviewer: null,
-      },
-    });
-
-    render(
-      <TurnEntries
-        sections={[]}
-        sessionId={sid}
-        currentThreadKey="q-975"
-        leaderMode
-        isCodexSession
-        activeCodexTerminalIds={new Set()}
-        onOpenCodexTerminal={vi.fn()}
-        turnStates={[]}
-        toggleTurn={vi.fn()}
+  it("settles a streaming reasoning update into the same persistent row", () => {
+    const view = render(
+      <MessageBubble
+        message={reasoningDetailMessage("reasoning-live", "**Inspecting state**\n\nPartial", "streaming")}
       />,
     );
+    expect(screen.getAllByTestId("codex-reasoning-detail")).toHaveLength(1);
 
-    expect(screen.getByTestId("active-codex-reasoning-title").textContent).toBe("Newer projected trace");
+    view.rerender(
+      <MessageBubble
+        message={reasoningDetailMessage("reasoning-live", "**Inspecting state**\n\nComplete summary", "complete")}
+      />,
+    );
+    expect(screen.getAllByTestId("codex-reasoning-detail")).toHaveLength(1);
+    fireEvent.click(screen.getByText("Inspecting state"));
+    expect(screen.getByTestId("codex-reasoning-body").textContent).toBe("Complete summary");
   });
 
   it("labels running turns with the active quest when another thread is visible", () => {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { computeHistoryMessagesSyncHash, computeHistoryPrefixSyncHash } from "../../shared/history-sync-hash.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import { sendHistorySync, type BrowserTransportSessionLike } from "./browser-transport-controller.js";
+import { isHistoryBackedEvent } from "./replay-buffer-policy.js";
 
 const rootThinkingEntry = {
   type: "assistant",
@@ -65,6 +66,24 @@ describe("backend-aware history hashes", () => {
 
     const sync = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw))).find((msg) => msg.type === "history_sync");
     expect(sync.expected_frozen_hash).toBe(computeHistoryMessagesSyncHash([rootThinkingEntry]).hash);
+  });
+
+  it("hashes reasoning detail content as mutable even when its stable id is unchanged", () => {
+    const partial = {
+      type: "codex_reasoning_detail",
+      id: "codex-reasoning-r1",
+      text: "Partial",
+      status: "streaming",
+      timestamp: 10,
+      parent_tool_use_id: null,
+      threadKey: "q-1842",
+      questId: "q-1842",
+    } as const;
+    const complete = { ...partial, text: "Complete summary", status: "complete" as const };
+
+    expect(computeHistoryMessagesSyncHash([partial]).hash).not.toBe(computeHistoryMessagesSyncHash([complete]).hash);
+    expect(computeHistoryMessagesSyncHash([complete]).renderedCount).toBe(1);
+    expect(isHistoryBackedEvent(complete)).toBe(true);
   });
 
   it("slices Codex frozen deltas at the raw boundary after the cached rendered prefix", async () => {

@@ -41,6 +41,8 @@ import { useMessageStarActions } from "./use-message-star-actions.js";
 import { CodexAutoPauseRecoverySummary } from "./CodexAutoPauseRecoverySummary.js";
 import { CompactToolActivity, isCompactToolActivityItem, type CompactToolActivityItem } from "./CompactToolActivity.js";
 import { stripRootCodexThinkingBlocks } from "../utils/assistant-content-blocks.js";
+import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
+import { CodexReasoningDetail } from "./CodexReasoningDetail.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
 
@@ -111,6 +113,10 @@ export const MessageBubble = memo(function MessageBubble({
     message.role === "assistant" && sessionId ? state.sessions.get(sessionId)?.backend_type : undefined,
   );
   const isCodexSession = (backendType ?? storedBackendType) === "codex";
+
+  if (isCodexReasoningDetailMessage(message)) {
+    return <CodexReasoningDetail message={message} sessionId={sessionId} />;
+  }
 
   if (message.role === "system") {
     if (message.metadata?.codexAutoPauseRecoverySummary) {

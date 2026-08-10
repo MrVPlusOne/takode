@@ -394,6 +394,19 @@ export interface ActiveCodexReasoningPreview {
   truncated?: boolean;
 }
 
+export interface CodexReasoningDetailMessage {
+  type: "codex_reasoning_detail";
+  id: string;
+  text: string;
+  status: "streaming" | "complete";
+  timestamp: number;
+  parent_tool_use_id: string | null;
+  thinking_time_ms?: number;
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
+}
+
 export type SideChatContextStrategy = "native-fork" | "bounded-replay";
 
 export type SideChatFallbackReasonCode =
@@ -907,6 +920,7 @@ export type BrowserIncomingMessageBase =
       notification?: TakodeNotificationPayload;
       threadStatusMarkers?: LeaderThreadStatus[];
     }
+  | CodexReasoningDetailMessage
   | { type: "stream_event"; event: unknown; parent_tool_use_id: string | null }
   | { type: "result"; data: CLIResultMessage; interrupted?: boolean }
   | { type: "permission_request"; request: PermissionRequest }

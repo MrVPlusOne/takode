@@ -5,6 +5,7 @@ import { recordFeedRenderSnapshot } from "../utils/frontend-perf-recorder.js";
 import { isInjectedEventMessage } from "../utils/injected-event-message.js";
 import { THREAD_OUTCOME_REMINDER_SOURCE_ID } from "../../shared/thread-outcome-reminder.js";
 import { THREAD_ROUTING_REMINDER_SOURCE_ID } from "../../shared/thread-routing-reminder.js";
+import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
 
 export interface ToolItem {
   id: string;
@@ -400,6 +401,7 @@ function countEntryStats(entries: FeedEntry[]): {
   for (const entry of entries) {
     if (entry.kind === "message") {
       const msg = entry.msg;
+      if (isCodexReasoningDetailMessage(msg)) continue;
       if (msg.role === "assistant") {
         // Count tool_use blocks
         let entryTools = 0;
@@ -518,7 +520,12 @@ function extractSubConclusions(entries: FeedEntry[], excludedMessageIds: Set<str
   while (i < entries.length) {
     const entry = entries[i];
 
-    if (entry.kind === "message" && entry.msg.role === "assistant" && entry.msg.content?.trim()) {
+    if (
+      entry.kind === "message" &&
+      entry.msg.role === "assistant" &&
+      entry.msg.content?.trim() &&
+      !isCodexReasoningDetailMessage(entry.msg)
+    ) {
       // Messages already promoted into another collapsed-visible slot (for
       // example notificationEntries or responseEntry) must not also become a
       // sub-conclusion, or the same assistant message renders twice.
@@ -700,6 +707,7 @@ function filterCollapsedVisibleEntriesForModelOnlyReminderSegments(
 
 function scoreNeedsInputPreviewCandidate(entry: FeedEntry): number {
   if (entry.kind !== "message" || entry.msg.role !== "assistant") return Number.NEGATIVE_INFINITY;
+  if (isCodexReasoningDetailMessage(entry.msg)) return Number.NEGATIVE_INFINITY;
 
   const text = messageText(entry.msg);
   if (!text || isNeedsInputStatusText(text)) return Number.NEGATIVE_INFINITY;
@@ -926,7 +934,12 @@ function makeTurn(
     for (let i = rawAgentEntries.length - 1; i >= 0; i--) {
       const e = rawAgentEntries[i];
       if (notificationEntryKeys.has(getEntryId(e))) continue;
-      if (e.kind === "message" && e.msg.role === "assistant" && e.msg.content?.trim()) {
+      if (
+        e.kind === "message" &&
+        e.msg.role === "assistant" &&
+        e.msg.content?.trim() &&
+        !isCodexReasoningDetailMessage(e.msg)
+      ) {
         responseEntry = e;
         break;
       }

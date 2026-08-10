@@ -354,7 +354,7 @@ describe("handleMessage: message_history", () => {
     ).toBe(0);
   });
 
-  it("retains parented thinking-only assistant history as scoped chat messages", () => {
+  it("normalizes parented legacy thinking history into scoped reasoning details", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
 
@@ -383,8 +383,44 @@ describe("handleMessage: message_history", () => {
     expect(msgs[0]).toMatchObject({
       id: "a-parented-thinking",
       parentToolUseId: "agent-1",
-      contentBlocks: [{ type: "thinking", thinking: "Scoped reasoning" }],
+      content: "Scoped reasoning",
+      metadata: { codexReasoningDetail: { status: "complete" } },
     });
+    expect(msgs[0].contentBlocks).toBeUndefined();
+  });
+
+  it("hydrates persistent reasoning details from authoritative history", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "message_history",
+      messages: [
+        {
+          type: "codex_reasoning_detail",
+          id: "codex-reasoning-r1",
+          text: "**Reviewing history**\n\nFull official summary.",
+          status: "complete",
+          timestamp: 1500,
+          parent_tool_use_id: null,
+          threadKey: "q-1842",
+          questId: "q-1842",
+        },
+      ],
+    });
+
+    expect(useStore.getState().messages.get("s1")).toEqual([
+      expect.objectContaining({
+        id: "codex-reasoning-r1",
+        content: "**Reviewing history**\n\nFull official summary.",
+        historyIndex: 0,
+        metadata: {
+          threadKey: "q-1842",
+          questId: "q-1842",
+          codexReasoningDetail: { status: "complete" },
+        },
+      }),
+    ]);
   });
 
   it("records message_history apply diagnostics for attach-history freeze analysis", async () => {

@@ -51,10 +51,7 @@ import { isCompactToolActivityItem } from "./CompactToolActivity.js";
 import { ToolMessageGroup } from "./ToolMessageGroup.js";
 import { CompactFeedActivity, type CompactFeedActivitySegment } from "./CompactFeedActivity.js";
 import { isCompactableHerdEventMessage } from "../utils/herd-event-classification.js";
-import {
-  ActiveCodexReasoningThreadRow,
-  selectCodexReasoningPreviewForThread,
-} from "./ActiveCodexReasoningThreadRow.js";
+import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
 
 function useExpandForScrollTarget(
   sessionId: string,
@@ -1420,7 +1417,9 @@ function SubagentContainer({
   const isEffectivelyComplete = group.isBackground ? bgNotif != null : resultPreview != null || bgNotif != null;
   const isAbandoned = !isEffectivelyComplete && sessionStatus !== "running" && !group.isBackground;
 
-  const lastEntry = group.children[group.children.length - 1];
+  const lastEntry = [...group.children]
+    .reverse()
+    .find((entry) => entry.kind !== "message" || !isCodexReasoningDetailMessage(entry.msg));
   const lastPreview = useMemo(() => {
     if (!lastEntry) return "";
     if (lastEntry.kind === "tool_msg_group") {
@@ -1456,12 +1455,12 @@ function SubagentContainer({
       const text = streamingText.trim();
       return text.length > 120 ? text.slice(0, 120) + "..." : text;
     }
-    if (rawThinkingText) {
+    if (rawThinkingText && !isCodexSession) {
       const text = rawThinkingText.trim();
       return text.length > 120 ? text.slice(0, 120) + "..." : text;
     }
     return lastPreview;
-  }, [delegatePrompt, isDelegate, lastPreview, parsedResultPreview, rawThinkingText, streamingText]);
+  }, [delegatePrompt, isCodexSession, isDelegate, lastPreview, parsedResultPreview, rawThinkingText, streamingText]);
 
   const {
     trace: delegateTrace,
@@ -1549,7 +1548,11 @@ function SubagentContainer({
             </div>
           )}
 
-          {(childCount > 0 || delegateTraceCount > 0 || rawStreamingText || rawThinkingText || delegateTraceError) && (
+          {(childCount > 0 ||
+            delegateTraceCount > 0 ||
+            rawStreamingText ||
+            (rawThinkingText && !isCodexSession) ||
+            delegateTraceError) && (
             <div className="border-b border-cc-border/50">
               <SubagentSectionHeader
                 label="Activities"
@@ -1574,7 +1577,7 @@ function SubagentContainer({
                       Delegate trace unavailable: {delegateTraceError}
                     </div>
                   )}
-                  {rawThinkingText && (
+                  {rawThinkingText && !isCodexSession && (
                     <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2">
                       <CodexThinkingInline text={rawThinkingText} />
                     </div>
@@ -1628,7 +1631,7 @@ function SubagentContainer({
           {childCount === 0 &&
             delegateTraceCount === 0 &&
             !rawStreamingText &&
-            !rawThinkingText &&
+            !(rawThinkingText && !isCodexSession) &&
             !isEffectivelyComplete &&
             !isAbandoned && (
               <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-cc-muted">
@@ -1790,14 +1793,6 @@ export const TurnEntries = memo(function TurnEntries({
 }) {
   const turns = useMemo(() => sections.flatMap((section) => section.turns), [sections]);
   const currentThreadStatuses = useStore((s) => s.sessions.get(sessionId)?.leaderThreadStatuses);
-  const directReasoningPreview = useStore((s) =>
-    s.codexReasoningPreviews?.get(sessionId)?.get(normalizeThreadKey(currentThreadKey)),
-  );
-  const rowSessionStatuses = useStore((s) => s.sessionBoardRowStatuses?.get(sessionId));
-  const activeReasoningPreview = useMemo(
-    () => selectCodexReasoningPreviewForThread(currentThreadKey, directReasoningPreview, rowSessionStatuses),
-    [currentThreadKey, directReasoningPreview, rowSessionStatuses],
-  );
   const visibleThreadStatuses = useMemo(
     () => visibleCurrentThreadStatuses(currentThreadStatuses, currentThreadKey),
     [currentThreadKey, currentThreadStatuses],
@@ -1948,7 +1943,6 @@ export const TurnEntries = memo(function TurnEntries({
           </div>
         ));
       })()}
-      {activeReasoningPreview && <ActiveCodexReasoningThreadRow preview={activeReasoningPreview} />}
     </>
   );
 });

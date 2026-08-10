@@ -21,6 +21,24 @@ export function shouldBufferForReplay(msg: BrowserIncomingMessage): msg is Repla
   return shouldBufferForReplayWithContext(msg);
 }
 
+export function isHistoryBackedEvent(msg: ReplayableBrowserIncomingMessage): boolean {
+  return (
+    msg.type === "assistant" ||
+    msg.type === "codex_reasoning_detail" ||
+    msg.type === "result" ||
+    msg.type === "user_message" ||
+    msg.type === "codex_auto_pause_recovery_summary" ||
+    msg.type === "error" ||
+    msg.type === "tool_result_preview" ||
+    msg.type === "permission_request" ||
+    msg.type === "permission_denied" ||
+    msg.type === "permission_approved" ||
+    msg.type === "compact_boundary" ||
+    msg.type === "compact_summary" ||
+    msg.type === "compact_marker"
+  );
+}
+
 export function shouldBufferForReplayWithContext(
   msg: BrowserIncomingMessage,
   context?: { isLeaderSession?: boolean },

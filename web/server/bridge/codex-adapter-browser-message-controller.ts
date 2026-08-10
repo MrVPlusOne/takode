@@ -28,8 +28,11 @@ import { recordContextUsageHistory } from "./context-usage.js";
 import { markCodexAutoPauseRecoveryTurnCompleted } from "./codex-auto-pause-recovery-summary.js";
 import {
   appendThreadTransitionMarkerForRouteSwitch,
+  inferCurrentThreadRoute,
   normalizeThreadRoute,
+  routeFromHistoryEntry,
   type ThreadRouteMetadata,
+  withThreadRoute,
 } from "../thread-routing-metadata.js";
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
 import { isTerminalResultInterrupted } from "../result-interruption.js";
@@ -43,6 +46,7 @@ import {
   listCodexReasoningPreviews,
   retainCodexReasoningPreview,
 } from "./codex-reasoning-preview-state.js";
+import { upsertCodexReasoningDetail } from "./codex-reasoning-detail-state.js";
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 const DELEGATE_LIVE_ACTIVITY_LIMIT = 800;
@@ -255,6 +259,37 @@ function routeFromLeaderAssistantResult(routed: {
     ...(routed.questId ? { questId: routed.questId } : {}),
     ...(routed.threadRefs?.length ? { threadRefs: routed.threadRefs } : {}),
   };
+}
+
+function routeForReasoningParent(
+  session: CodexBrowserMessageSessionLike,
+  parentToolUseId: string,
+): ThreadRouteMetadata | null {
+  for (let index = session.messageHistory.length - 1; index >= 0; index--) {
+    const entry = session.messageHistory[index] as BrowserIncomingMessage;
+    if (entry.type !== "assistant") continue;
+    const ownsParent = entry.message.content?.some(
+      (block: ContentBlock) => block.type === "tool_use" && block.id === parentToolUseId,
+    );
+    if (!ownsParent) continue;
+    return routeFromHistoryEntry(entry) ?? inferCurrentThreadRoute(session.messageHistory.slice(0, index + 1));
+  }
+  return null;
+}
+
+function routeForCodexReasoningDetail(
+  session: CodexBrowserMessageSessionLike,
+  msg: Extract<BrowserIncomingMessage, { type: "codex_reasoning_detail" }>,
+): ThreadRouteMetadata {
+  if (msg.parent_tool_use_id) {
+    const parentRoute = routeForReasoningParent(session, msg.parent_tool_use_id);
+    if (parentRoute) return parentRoute;
+  }
+  const activeRoute = session.activeReasoningAttributionRoute ?? session.activeTurnRoute;
+  return (
+    normalizeThreadRoute(activeRoute?.threadKey, activeRoute?.questId) ??
+    inferCurrentThreadRoute(session.messageHistory)
+  );
 }
 
 function activeTurnRouteFromThreadRoute(route: ThreadRouteMetadata): ActiveTurnRoute {
@@ -664,6 +699,16 @@ export async function handleCodexAdapterBrowserMessage(
   deps.touchActivity(session.id);
   session.lastCliMessageAt = Date.now();
   deps.clearOptimisticRunningTimer(session, `codex_output:${msg.type}`);
+  if (msg.type === "codex_reasoning_detail") {
+    const routed = withThreadRoute(msg, routeForCodexReasoningDetail(session, msg));
+    const update = upsertCodexReasoningDetail(session, routed);
+    if (update.changed) {
+      deps.persistSession(session);
+      deps.syncSideChatParent?.(session);
+      deps.broadcastToBrowsers(session, update.message);
+    }
+    return;
+  }
   maybeRecordDelegateLiveActivity(session, msg);
   const activeReasoningPreviewChanged = updateActiveCodexReasoningPreviewFromStream(session, msg);
   if (activeReasoningPreviewChanged) {

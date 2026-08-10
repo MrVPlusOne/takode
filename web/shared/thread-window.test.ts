@@ -1514,4 +1514,34 @@ describe("thread window hydration", () => {
     expect(quest.entries.map((entry) => entry.message.type)).toContain("codex_auto_pause_recovery_summary");
     expect(main.entries.map((entry) => entry.message.type)).not.toContain("codex_auto_pause_recovery_summary");
   });
+
+  it("keeps reasoning details in chronological order only in their attributed thread", () => {
+    const reasoning: BrowserIncomingMessage = {
+      type: "codex_reasoning_detail",
+      id: "codex-reasoning-r1",
+      text: "**Inspecting route state**\n\nFull detail.",
+      status: "complete",
+      timestamp: 2,
+      parent_tool_use_id: null,
+      threadKey: "q-1842",
+      questId: "q-1842",
+      threadRefs: [{ threadKey: "q-1842", questId: "q-1842", source: "explicit" }],
+    };
+    const history = [
+      user("u1", "quest request", "q-1842"),
+      reasoning,
+      assistant("a1", "answer", { threadKey: "q-1842" }),
+    ];
+    const options = { fromItem: -1, itemCount: 10, sectionItemCount: 5, visibleItemCount: 2 };
+
+    const quest = buildThreadWindowSync({ messageHistory: history, threadKey: "q-1842", ...options });
+    const main = buildThreadWindowSync({ messageHistory: history, threadKey: "main", ...options });
+
+    expect(quest.entries.map((entry) => entry.message.type)).toEqual([
+      "user_message",
+      "codex_reasoning_detail",
+      "assistant",
+    ]);
+    expect(main.entries.map((entry) => entry.message.type)).not.toContain("codex_reasoning_detail");
+  });
 });

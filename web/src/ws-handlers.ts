@@ -13,6 +13,7 @@ import { generateUniqueSessionName } from "./utils/names.js";
 import { playNotificationSound } from "./utils/notification-sound.js";
 import {
   extractTextFromBlocks,
+  normalizeCodexReasoningDetailMessage,
   normalizeHistoryMessageToChatMessages,
   normalizeLiveAssistantThreadMetadata,
   normalizeLiveLeaderUserThreadMetadata,
@@ -47,6 +48,7 @@ import {
   stripRootCodexThinkingBlocks,
   stripRootCodexThinkingMessage,
 } from "./utils/assistant-content-blocks.js";
+import { convertLegacyParentedCodexThinkingMessage } from "./utils/codex-reasoning-detail.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -375,7 +377,8 @@ function normalizeHistoryMessages(
       if (isCodexSession(sessionId) && isRootThinkingOnlyAssistantHistoryEntry(histMsg)) continue;
       const msg = histMsg.message;
       for (const chatMessage of normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp })) {
-        const stripped = stripRootCodexThinkingMessage(isCodexSession(sessionId), chatMessage);
+        const converted = convertLegacyParentedCodexThinkingMessage(isCodexSession(sessionId), chatMessage);
+        const stripped = stripRootCodexThinkingMessage(isCodexSession(sessionId), converted);
         if (stripped) chatMessages.push(stripped);
       }
       if (msg.content?.length) {
@@ -388,7 +391,7 @@ function normalizeHistoryMessages(
       if (histToolStartTimes) {
         store.setToolStartTimestamps(sessionId, histToolStartTimes);
       }
-    } else if (histMsg.type === "user_message") {
+    } else if (histMsg.type === "user_message" || histMsg.type === "codex_reasoning_detail") {
       chatMessages.push(
         ...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, {
           fallbackTimestamp,
@@ -445,7 +448,8 @@ function normalizeThreadWindowEntries(
     if (histMsg.type === "assistant") {
       if (isCodexSession(sessionId) && isRootThinkingOnlyAssistantHistoryEntry(histMsg)) continue;
       for (const chatMessage of normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp })) {
-        const stripped = stripRootCodexThinkingMessage(isCodexSession(sessionId), chatMessage);
+        const converted = convertLegacyParentedCodexThinkingMessage(isCodexSession(sessionId), chatMessage);
+        const stripped = stripRootCodexThinkingMessage(isCodexSession(sessionId), converted);
         if (stripped) chatMessages.push(stripped);
       }
       if (histMsg.message.content?.length) {
@@ -816,6 +820,20 @@ function handleParsedMessage(
       break;
     }
 
+    case "codex_reasoning_detail": {
+      const message = normalizeCodexReasoningDetailMessage(data);
+      const existing = store.messages.get(sessionId)?.find((candidate) => candidate.id === message.id);
+      if (!existing) store.appendMessage(sessionId, message);
+      store.updateMessage(sessionId, message.id, {
+        content: message.content,
+        parentToolUseId: message.parentToolUseId,
+        metadata: message.metadata,
+      });
+      store.setStreamingThinking(sessionId, null, data.parent_tool_use_id);
+      if (data.status === "streaming") store.setSessionStatus(sessionId, "running");
+      break;
+    }
+
     case "vscode_selection_state": {
       store.setVsCodeSelectionContext(data.state);
       break;
@@ -830,7 +848,7 @@ function handleParsedMessage(
         normalized.content,
       );
       const textContent = extractTextFromBlocks(contentBlocks);
-      const chatMsg: ChatMessage = {
+      const chatMsg = convertLegacyParentedCodexThinkingMessage(isCodexSession(sessionId), {
         id: msg.id,
         role: "assistant",
         content: textContent,
@@ -843,7 +861,7 @@ function handleParsedMessage(
         cliUuid: (data as Record<string, unknown>).uuid as string | undefined,
         ...(data.notification ? { notification: data.notification } : {}),
         ...(normalized.metadata ? { metadata: normalized.metadata } : {}),
-      };
+      });
       // Server accumulates content blocks for same-ID messages (parallel tool calls).
       // If this ID already exists, merge content blocks rather than replace — this
       // handles both accumulated messages (server sends full set) and non-accumulated

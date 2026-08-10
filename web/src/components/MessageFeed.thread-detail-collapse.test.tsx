@@ -493,6 +493,33 @@ function seedAttentionNoticeTurn(sessionId: string) {
 }
 
 describe("MessageFeed - collapsed thread-detail markers", () => {
+  it("keeps reasoning details out of a collapsed turn and restores them for expanded audit", () => {
+    const sid = "test-collapsed-reasoning-detail-hidden";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Inspect the implementation", timestamp: 100 }),
+      makeMessage({
+        id: "reasoning-1",
+        role: "assistant",
+        content: "**Checking the route**\n\nFull provider summary.",
+        timestamp: 110,
+        metadata: { codexReasoningDetail: { status: "complete" } },
+      }),
+      makeMessage({ id: "a1", role: "assistant", content: "Final visible response", timestamp: 120 }),
+      makeMessage({ id: "u2", role: "user", content: "Next request", timestamp: 200 }),
+    ]);
+
+    const view = render(<MessageFeed sessionId={sid} />);
+    expect(screen.getByText("Final visible response")).toBeTruthy();
+    expect(screen.queryByText("Checking the route")).toBeNull();
+
+    setStoreTurnOverrides(sid, [["u1", true]]);
+    view.rerender(<MessageFeed sessionId={sid} />);
+    expect(screen.getByText("Checking the route")).toBeTruthy();
+    expect(screen.getByTestId("codex-reasoning-detail").hasAttribute("open")).toBe(false);
+    fireEvent.click(screen.getByText("Checking the route"));
+    expect(screen.getByTestId("codex-reasoning-body").textContent).toBe("Full provider summary.");
+  });
+
   it("hides thread-detail marker rows when their containing turn is collapsed", () => {
     // Thread-routing markers remain in producer-shaped message history, but
     // collapsed turns treat them as audit detail instead of always-visible

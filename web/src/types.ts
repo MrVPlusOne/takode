@@ -273,6 +273,10 @@ export interface ChatMessage {
     };
     attentionRecord?: SessionAttentionRecord;
     codexAutoPauseRecoverySummary?: CodexAutoPauseRecoverySummary;
+    codexReasoningDetail?: {
+      status: "streaming" | "complete";
+      thinkingTimeMs?: number;
+    };
     compactMarkerKind?: "compaction" | "session_recycled";
     threadStatusMarkers?: LeaderThreadStatus[];
     threadRoutingError?: ThreadRoutingError;

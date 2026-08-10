@@ -19,7 +19,7 @@ import {
 } from "./NeedsInputAnswerPreviews.js";
 import { PlaygroundQuestDetailModalSection } from "./PlaygroundQuestDetailModalSection.js";
 import { PlaygroundAutoPauseBannerStates } from "./AutoPausePlaygroundStates.js";
-import { PlaygroundActiveReasoningChipStates } from "./ActiveReasoningChipStates.js";
+import { PlaygroundReasoningDetailStates } from "./ReasoningDetailStates.js";
 import { PlaygroundQuestStatusPanelSection, PlaygroundQuestmasterCompactSection } from "./PlaygroundQuestSections.js";
 import {
   Card,
@@ -1757,18 +1757,25 @@ export function PlaygroundInteractiveSections() {
       <PlaygroundQuestStatusPanelSection />
       <PlaygroundQuestmasterCompactSection />
 
+      <Section
+        title="Codex Reasoning Details"
+        description="Persistent chronological summary details shown collapsed by default with full audit text on expansion."
+      >
+        <div className="max-w-3xl">
+          <Card label="Persistent reasoning detail states">
+            <div className="p-3">
+              <PlaygroundReasoningDetailStates />
+            </div>
+          </Card>
+        </div>
+      </Section>
+
       {/* ─── Timer Chip + Modal ──────────────────────────────────── */}
       <Section
         title="Timer Chip + Modal"
         description="Floating glassmorphic chip (like Purring indicator) that opens a modal with full timer details."
       >
         <div className="max-w-3xl space-y-4">
-          <Card label="Active Codex reasoning thread states">
-            <div className="p-3">
-              <PlaygroundActiveReasoningChipStates />
-            </div>
-          </Card>
-
           <Card label="Timer chip (floating pill)">
             <div className="p-3 space-y-2">
               <button

@@ -118,6 +118,29 @@ function forEachComparableHistoryEntry(
       );
       continue;
     }
+    if (message.type === "codex_reasoning_detail") {
+      visitor(
+        {
+          id: message.id,
+          role: "assistant",
+          content: message.text,
+          metadata: {
+            codexReasoningDetail: {
+              status: message.status,
+              thinkingTimeMs: message.thinking_time_ms,
+            },
+            threadKey: message.threadKey,
+            questId: message.questId,
+          },
+          parentToolUseId: message.parent_tool_use_id,
+          timestamp: message.timestamp,
+          mutable: true,
+        },
+        renderedIndex++,
+        i,
+      );
+      continue;
+    }
     if (message.type === "assistant") {
       if (options.suppressRootThinkingOnlyAssistant && isRootThinkingOnlyAssistantHistoryEntry(message)) continue;
       visitor(

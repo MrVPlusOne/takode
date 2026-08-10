@@ -679,6 +679,65 @@ describe("handleMessage: thread_window_sync", () => {
     expect(windowMessages.map((msg) => msg.content).join("\n")).not.toContain("Reviewing the route");
   });
 
+  it("hydrates persistent reasoning details in selected thread order", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "thread_window_sync",
+      thread_key: "q-1842",
+      entries: [
+        {
+          history_index: 40,
+          message: {
+            type: "codex_reasoning_detail",
+            id: "codex-reasoning-r1",
+            text: "**Inspecting selected history**\n\nFull detail.",
+            status: "complete",
+            timestamp: 1500,
+            parent_tool_use_id: null,
+            threadKey: "q-1842",
+            questId: "q-1842",
+          },
+        },
+      ],
+      window: {
+        thread_key: "q-1842",
+        from_item: 0,
+        item_count: 1,
+        total_items: 1,
+        source_history_length: 41,
+        section_item_count: 10,
+        visible_item_count: 2,
+      },
+    });
+
+    expect(useStore.getState().threadWindowMessages.get("s1")?.get("q-1842")).toEqual([
+      expect.objectContaining({
+        id: "codex-reasoning-r1",
+        historyIndex: 40,
+        metadata: expect.objectContaining({ codexReasoningDetail: { status: "complete" } }),
+      }),
+    ]);
+
+    fireMessage({
+      type: "codex_reasoning_detail",
+      id: "codex-reasoning-r1",
+      text: "**Inspecting selected history**\n\nUpdated live detail.",
+      status: "complete",
+      timestamp: 1500,
+      parent_tool_use_id: null,
+      threadKey: "q-1842",
+      questId: "q-1842",
+    });
+
+    expect(useStore.getState().threadWindowMessages.get("s1")?.get("q-1842")?.[0]).toMatchObject({
+      id: "codex-reasoning-r1",
+      content: "**Inspecting selected history**\n\nUpdated live detail.",
+      historyIndex: 40,
+    });
+  });
+
   it("strips root Codex thinking blocks from mixed selected thread window entries", () => {
     // Selected-thread hydration must match live/full-history suppression without dropping the durable sibling tool.
     wsModule.connectSession("s1");
@@ -770,7 +829,9 @@ describe("handleMessage: thread_window_sync", () => {
 
     const [message] = useStore.getState().threadWindowMessages.get("s1")?.get("main") ?? [];
     expect(message?.parentToolUseId).toBe("agent-1");
-    expect(message?.contentBlocks).toEqual([{ type: "thinking", thinking: "Scoped subagent reasoning" }]);
+    expect(message?.contentBlocks).toBeUndefined();
+    expect(message?.content).toBe("Scoped subagent reasoning");
+    expect(message?.metadata?.codexReasoningDetail?.status).toBe("complete");
   });
 
   it("preserves root Claude thinking in selected thread windows", () => {

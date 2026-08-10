@@ -224,20 +224,13 @@ export class CodexItemEventManager {
 
       case "reasoning": {
         const r = item as CodexReasoningItem;
-        this.reasoningTextByItemId.set(item.id, r.summary || r.content || "");
+        const reasoningText = r.summary || r.content || "";
+        this.reasoningTextByItemId.set(item.id, reasoningText);
         if (typeof this.lastMessageFinishedAt === "number") {
           this.reasoningTimeFromLastMessageByItemId.set(item.id, Math.max(0, Date.now() - this.lastMessageFinishedAt));
         }
-        if (r.summary || r.content) {
-          this.emit({
-            type: "stream_event",
-            event: {
-              type: "content_block_start",
-              index: 0,
-              content_block: { type: "thinking", thinking: r.summary || r.content || "" },
-            },
-            parent_tool_use_id: parentToolUseId,
-          });
+        if (reasoningText) {
+          this.emitReasoningDetail(item.id, reasoningText, "streaming", parentToolUseId);
           this.reasoningStreamStartedItemIds.add(item.id);
         }
         break;
@@ -287,27 +280,9 @@ export class CodexItemEventManager {
 
     const current = this.reasoningTextByItemId.get(itemId) || "";
     this.reasoningTextByItemId.set(itemId, current + delta);
-    if (!this.reasoningStreamStartedItemIds.has(itemId)) {
-      this.emit({
-        type: "stream_event",
-        event: {
-          type: "content_block_start",
-          index: 0,
-          content_block: { type: "thinking", thinking: "" },
-        },
-        parent_tool_use_id: this.resolveParentToolUseId(params, itemId),
-      });
-      this.reasoningStreamStartedItemIds.add(itemId);
-    }
-    this.emit({
-      type: "stream_event",
-      event: {
-        type: "content_block_delta",
-        index: 0,
-        delta: { type: "thinking_delta", thinking: delta },
-      },
-      parent_tool_use_id: this.resolveParentToolUseId(params, itemId),
-    });
+    const parentToolUseId = this.resolveParentToolUseId(params, itemId);
+    this.emitReasoningDetail(itemId, current + delta, "streaming", parentToolUseId);
+    this.reasoningStreamStartedItemIds.add(itemId);
   }
 
   handleAgentMessageDelta(params: Record<string, unknown>): void {
@@ -574,40 +549,8 @@ export class CodexItemEventManager {
           thinkingTimeMs = Math.max(0, completedAt - this.lastMessageFinishedAt);
         }
 
-        if (thinkingText && !this.reasoningStreamStartedItemIds.has(item.id)) {
-          this.emit({
-            type: "stream_event",
-            event: {
-              type: "content_block_start",
-              index: 0,
-              content_block: { type: "thinking", thinking: thinkingText },
-            },
-            parent_tool_use_id: parentToolUseId,
-          });
-          this.reasoningStreamStartedItemIds.add(item.id);
-        }
-
-        if (thinkingText && parentToolUseId) {
-          this.emit({
-            type: "assistant",
-            message: {
-              id: this.makeMessageId("reasoning", item.id),
-              type: "message",
-              role: "assistant",
-              model: this.options.model || "",
-              content: [
-                {
-                  type: "thinking",
-                  thinking: thinkingText,
-                  ...(thinkingTimeMs !== undefined ? { thinking_time_ms: thinkingTimeMs } : {}),
-                },
-              ],
-              stop_reason: null,
-              usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-            },
-            parent_tool_use_id: parentToolUseId,
-            timestamp: completedAt,
-          });
+        if (thinkingText) {
+          this.emitReasoningDetail(item.id, thinkingText, "complete", parentToolUseId, thinkingTimeMs);
           this.markMessageFinished(completedAt);
         }
 
@@ -1385,6 +1328,25 @@ export class CodexItemEventManager {
   private makeMessageId(kind: string, sourceId?: string): string {
     if (sourceId) return `codex-${kind}-${sourceId}`;
     return `codex-${kind}-${randomUUID()}`;
+  }
+
+  private emitReasoningDetail(
+    itemId: string,
+    text: string,
+    status: "streaming" | "complete",
+    parentToolUseId: string | null,
+    thinkingTimeMs?: number,
+  ): void {
+    if (!text.trim()) return;
+    this.emit({
+      type: "codex_reasoning_detail",
+      id: this.makeMessageId("reasoning", itemId),
+      text,
+      status,
+      timestamp: Date.now(),
+      parent_tool_use_id: parentToolUseId,
+      ...(thinkingTimeMs !== undefined ? { thinking_time_ms: thinkingTimeMs } : {}),
+    });
   }
 
   private extractCommandOutputDelta(params: Record<string, unknown>): string {

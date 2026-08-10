@@ -857,7 +857,7 @@ describe("MessageFeed - subagent grouping", () => {
     expect(screen.queryByText("Agent starting...")).toBeNull();
   });
 
-  it("renders live parented codex thinking inside the subagent card", () => {
+  it("keeps a parented Codex reasoning detail out of the collapsed card and available under Activities", () => {
     const sid = "test-subagent-thinking";
     setStoreMessages(sid, [
       makeMessage({
@@ -873,17 +873,25 @@ describe("MessageFeed - subagent grouping", () => {
           },
         ],
       }),
+      makeMessage({
+        id: "reasoning-child",
+        role: "assistant",
+        content: "**Summarizing the routing plan**\n\nFull scoped provider detail.",
+        parentToolUseId: "task-thinking",
+        metadata: { codexReasoningDetail: { status: "complete" } },
+      }),
     ]);
     setStoreSessionBackend(sid, "codex");
     setStoreStatus(sid, "running");
-    setStoreParentThinking(sid, { "task-thinking": "Summarizing the routing plan" });
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("Summarizing the routing plan")).toBeTruthy();
+    expect(screen.queryByText("Summarizing the routing plan")).toBeNull();
     fireEvent.click(screen.getByText("Inspect event routing"));
+    expect(screen.queryByText("Summarizing the routing plan")).toBeNull();
     fireEvent.click(screen.getByText("Activities"));
-    expect(screen.getAllByText("Summarizing the routing plan").length).toBeGreaterThan(0);
+    expect(screen.getByText("Summarizing the routing plan")).toBeTruthy();
+    expect(screen.queryByText("Full scoped provider detail.")).toBeNull();
     expect(screen.queryByText("Agent starting...")).toBeNull();
   });
 

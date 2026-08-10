@@ -30,7 +30,8 @@ import { sessionTag } from "../session-tag.js";
 import { selectHistoryWindowRange } from "../history-window-selection.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
-import { shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
+import { isHistoryBackedEvent, shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
+export { isHistoryBackedEvent } from "./replay-buffer-policy.js";
 import { codexReasoningSnapshotFields } from "./codex-reasoning-preview-state.js";
 import {
   prepareBoundedConversationSubscribe,
@@ -1539,23 +1540,6 @@ export function handleSessionAck(
     session.lastAckSeq = normalized;
     deps.persistSession(session);
   }
-}
-
-export function isHistoryBackedEvent(msg: ReplayableBrowserIncomingMessage): boolean {
-  return (
-    msg.type === "assistant" ||
-    msg.type === "result" ||
-    msg.type === "user_message" ||
-    msg.type === "codex_auto_pause_recovery_summary" ||
-    msg.type === "error" ||
-    msg.type === "tool_result_preview" ||
-    msg.type === "permission_request" ||
-    msg.type === "permission_denied" ||
-    msg.type === "permission_approved" ||
-    msg.type === "compact_boundary" ||
-    msg.type === "compact_summary" ||
-    msg.type === "compact_marker"
-  );
 }
 
 export function broadcastToBrowsers(

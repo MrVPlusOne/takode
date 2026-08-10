@@ -234,8 +234,8 @@ describe("handleMessage: assistant", () => {
     ]);
   });
 
-  it("preserves parented Codex thinking blocks from live assistant messages", () => {
-    // Parented thinking is scoped subagent output, not the top-level transient reasoning presentation.
+  it("normalizes legacy parented Codex thinking into the unified reasoning detail", () => {
+    // Existing subagent history can still replay the old assistant-thinking shape.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
 
@@ -255,11 +255,52 @@ describe("handleMessage: assistant", () => {
 
     const [msg] = useStore.getState().messages.get("s1")!;
     expect(msg.parentToolUseId).toBe("agent-1");
-    expect(msg.contentBlocks).toEqual([{ type: "thinking", thinking: "Scoped subagent reasoning" }]);
+    expect(msg.contentBlocks).toBeUndefined();
+    expect(msg.content).toBe("Scoped subagent reasoning");
+    expect(msg.metadata?.codexReasoningDetail).toEqual({ status: "complete" });
+  });
+
+  it("updates a live reasoning detail in place and preserves route metadata", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "codex_reasoning_detail",
+      id: "codex-reasoning-r1",
+      text: "**Inspecting state**\n\nPartial",
+      status: "streaming",
+      timestamp: 100,
+      parent_tool_use_id: null,
+      threadKey: "q-1842",
+      questId: "q-1842",
+    });
+    fireMessage({
+      type: "codex_reasoning_detail",
+      id: "codex-reasoning-r1",
+      text: "**Inspecting state**\n\nComplete summary",
+      status: "complete",
+      timestamp: 200,
+      parent_tool_use_id: null,
+      threadKey: "q-1842",
+      questId: "q-1842",
+    });
+
+    const messages = useStore.getState().messages.get("s1")!;
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      id: "codex-reasoning-r1",
+      content: "**Inspecting state**\n\nComplete summary",
+      timestamp: 100,
+      metadata: {
+        threadKey: "q-1842",
+        questId: "q-1842",
+        codexReasoningDetail: { status: "complete" },
+      },
+    });
   });
 
   it("does not retain a blank live message after suppressing root Codex thinking", () => {
-    // Pure top-level reasoning is represented only by volatile preview state, not a hidden durable feed item.
+    // Legacy root thinking is not an official detail message and remains suppressed.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
 

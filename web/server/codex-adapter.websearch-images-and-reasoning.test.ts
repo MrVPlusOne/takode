@@ -697,19 +697,13 @@ describe("CodexAdapter", () => {
         m.type === "assistant" &&
         (m as { message: { content: Array<{ type: string }> } }).message.content.some((b) => b.type === "thinking"),
     );
-    const thinkingStarts = messages.filter(
-      (m) =>
-        m.type === "stream_event" &&
-        (m as { event: { type: string; content_block?: { type?: string; thinking?: string } } }).event?.type ===
-          "content_block_start" &&
-        (m as { event: { content_block?: { type?: string } } }).event.content_block?.type === "thinking",
-    );
+    const reasoningDetails = messages.filter((m) => m.type === "codex_reasoning_detail");
     expect(thinkingMsgs).toHaveLength(0);
-    expect(thinkingStarts).toHaveLength(1);
+    expect(reasoningDetails).toHaveLength(1);
     expect(onDisconnect).not.toHaveBeenCalled();
   });
 
-  it("does not emit durable assistant rows for top-level reasoning summaries", async () => {
+  it("emits stable completed detail rows for top-level reasoning summaries", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
@@ -767,12 +761,17 @@ describe("CodexAdapter", () => {
     const thinkingStops = messages.filter(
       (m) => m.type === "stream_event" && (m as { event: { type: string } }).event?.type === "content_block_stop",
     );
+    const completedDetails = messages.filter((m) => m.type === "codex_reasoning_detail" && m.status === "complete");
 
     expect(reasoningAssistants).toHaveLength(0);
+    expect(completedDetails).toEqual([
+      expect.objectContaining({ id: "codex-reasoning-r_t1", text: "First summary" }),
+      expect.objectContaining({ id: "codex-reasoning-r_t2", text: "Second summary" }),
+    ]);
     expect(thinkingStops.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("emits live reasoning summary deltas as thinking stream events", async () => {
+  it("emits live reasoning summary updates under one stable detail id", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
@@ -794,23 +793,19 @@ describe("CodexAdapter", () => {
     );
     await tick();
 
-    expect(messages).toContainEqual(
+    expect(messages.filter((message) => message.type === "codex_reasoning_detail")).toEqual([
       expect.objectContaining({
-        type: "stream_event",
-        event: expect.objectContaining({
-          type: "content_block_start",
-          content_block: expect.objectContaining({ type: "thinking", thinking: "Inspecting " }),
-        }),
+        type: "codex_reasoning_detail",
+        id: "codex-reasoning-r_live",
+        text: "Inspecting ",
+        status: "streaming",
       }),
-    );
-    expect(messages).toContainEqual(
       expect.objectContaining({
-        type: "stream_event",
-        event: expect.objectContaining({
-          type: "content_block_delta",
-          delta: expect.objectContaining({ type: "thinking_delta", thinking: "session state" }),
-        }),
+        type: "codex_reasoning_detail",
+        id: "codex-reasoning-r_live",
+        text: "Inspecting session state",
+        status: "streaming",
       }),
-    );
+    ]);
   });
 });

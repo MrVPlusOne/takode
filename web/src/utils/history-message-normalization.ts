@@ -171,6 +171,27 @@ export function normalizeLiveLeaderUserThreadMetadata(
   };
 }
 
+export function normalizeCodexReasoningDetailMessage(
+  msg: Extract<BrowserIncomingMessage, { type: "codex_reasoning_detail" }>,
+  historyIndex?: number,
+): ChatMessage {
+  return {
+    id: msg.id,
+    role: "assistant",
+    content: msg.text,
+    timestamp: msg.timestamp,
+    parentToolUseId: msg.parent_tool_use_id,
+    ...(historyIndex !== undefined ? { historyIndex } : {}),
+    metadata: {
+      ...(existingThreadMetadataFromMessage(msg) ?? {}),
+      codexReasoningDetail: {
+        status: msg.status,
+        ...(msg.thinking_time_ms !== undefined ? { thinkingTimeMs: msg.thinking_time_ms } : {}),
+      },
+    },
+  };
+}
+
 function getReplaySensitiveBlockSignature(block: ContentBlock): string | null {
   if (block.type === "text") return `text:${block.text}`;
   if (block.type === "thinking") return `thinking:${block.thinking}`;
@@ -205,6 +226,10 @@ export function normalizeHistoryMessageToChatMessages(
     fallbackTimestamp,
     pendingLocalImagesByClientMsgId,
   } = options;
+
+  if (histMsg.type === "codex_reasoning_detail") {
+    return [normalizeCodexReasoningDetailMessage(histMsg, historyIndex)];
+  }
 
   if (histMsg.type === "user_message") {
     const stableMessageId = typeof histMsg.id === "string" && histMsg.id.trim().length > 0 ? histMsg.id : null;

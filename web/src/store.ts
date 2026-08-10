@@ -74,6 +74,7 @@ import {
 import { persistSidePanelStringSet, withMapEntry, withOptionalMapEntry } from "./store-map-utils.js";
 import { createQuestStoreSlice, resetQuestRefreshStateForTests } from "./store-quests.js";
 import { indexCodexReasoningPreviews } from "./utils/codex-reasoning-previews.js";
+import { updateMessageAcrossSources } from "./store-message-updates.js";
 
 // ─── Color Themes ───────────────────────────────────────────────────────────
 
@@ -690,24 +691,7 @@ export const useStore = create<AppState>((set, get) => ({
       return { pendingCodexInputs };
     }),
 
-  updateMessage: (sessionId, msgId, updates) =>
-    set((s) => {
-      const messages = new Map(s.messages);
-      const list = messages.get(sessionId);
-      if (!list) return s;
-      let updatedFrozen = false;
-      const frozenCount = s.messageFrozenCounts.get(sessionId) ?? 0;
-      const updated = list.map((m, index) => {
-        if (m.id !== msgId) return m;
-        if (index < frozenCount) updatedFrozen = true;
-        return { ...m, ...updates };
-      });
-      messages.set(sessionId, updated);
-      if (!updatedFrozen) return { messages };
-      const messageFrozenRevisions = new Map(s.messageFrozenRevisions);
-      messageFrozenRevisions.set(sessionId, (messageFrozenRevisions.get(sessionId) ?? 0) + 1);
-      return { messages, messageFrozenRevisions };
-    }),
+  updateMessage: (sessionId, msgId, updates) => set((s) => updateMessageAcrossSources(s, sessionId, msgId, updates)),
 
   updateQuestTitleInMessages: (sessionId, questId, newTitle) =>
     set((s) => {
