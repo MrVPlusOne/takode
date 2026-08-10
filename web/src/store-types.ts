@@ -67,7 +67,7 @@ export interface AppState {
   streamingByParentToolUseId: Map<string, Map<string, string>>;
   streamingThinking: Map<string, string>;
   streamingThinkingByParentToolUseId: Map<string, Map<string, string>>;
-  activeCodexReasoningPreviews: Map<string, ActiveCodexReasoningPreview>;
+  codexReasoningPreviews: Map<string, Map<string, ActiveCodexReasoningPreview>>;
   streamingStartedAt: Map<string, number>;
   streamingOutputTokens: Map<string, number>;
   streamingPausedDuration: Map<string, number>;
@@ -270,7 +270,7 @@ export interface AppState {
   commitMessagesAsFrozen: (sessionId: string) => void;
   setStreaming: (sessionId: string, text: string | null, parentToolUseId?: string | null) => void;
   setStreamingThinking: (sessionId: string, text: string | null, parentToolUseId?: string | null) => void;
-  setActiveCodexReasoningPreview: (sessionId: string, preview: ActiveCodexReasoningPreview | null) => void;
+  setCodexReasoningPreviews: (sessionId: string, previews: readonly ActiveCodexReasoningPreview[]) => void;
   setStreamingStats: (sessionId: string, stats: { startedAt?: number; outputTokens?: number } | null) => void;
   clearStreamingState: (sessionId: string) => void;
   resetSessionForAuthoritativeHistory: (

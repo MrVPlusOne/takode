@@ -1,5 +1,9 @@
 import { sessionTag } from "../session-tag.js";
 import type { ActiveCodexReasoningPreview, ActiveTurnRoute, TakodeTurnEndEventData } from "../session-types.js";
+import {
+  clearCodexReasoningPreviewForRoute,
+  type CodexReasoningPreviewsByThread,
+} from "./codex-reasoning-preview-state.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 
 /** Reasons that indicate the turn ended due to recovery/error, not a normal result.
@@ -48,6 +52,7 @@ export interface GenerationLifecycleSession {
   activeTurnRoute?: ActiveTurnRoute | null;
   activeReasoningAttributionRoute?: ActiveTurnRoute | null;
   activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
+  codexReasoningPreviews?: CodexReasoningPreviewsByThread;
   queuedTurnStarts: number;
   queuedTurnReasons: string[];
   queuedTurnUserMessageIds: number[][];
@@ -201,7 +206,8 @@ export function markRunningFromUserDispatch<S extends GenerationLifecycleSession
     restartOptimisticRunningTimer(deps, session, reason);
   }
   if (wasGenerating) {
-    const hadReasoningPreview = session.activeCodexReasoningPreview != null;
+    const hadActiveReasoningStream = session.activeCodexReasoningPreview != null;
+    const clearedRetainedPreview = clearCodexReasoningPreviewForRoute(session, activeTurnRoute);
     const queuedTurnActiveRoutes = session.queuedTurnActiveRoutes ?? [];
     while (queuedTurnActiveRoutes.length < session.queuedTurnStarts) {
       queuedTurnActiveRoutes.push(null);
@@ -214,7 +220,7 @@ export function markRunningFromUserDispatch<S extends GenerationLifecycleSession
     session.queuedTurnActiveRoutes = queuedTurnActiveRoutes;
     session.activeReasoningAttributionRoute = activeTurnRoute ?? null;
     session.activeCodexReasoningPreview = null;
-    if (hadReasoningPreview) deps.broadcastStatus(session, "running");
+    if (hadActiveReasoningStream || clearedRetainedPreview) deps.broadcastStatus(session, "running");
     deps.persistSession(session);
     return "queued";
   }
@@ -224,6 +230,7 @@ export function markRunningFromUserDispatch<S extends GenerationLifecycleSession
   }
   session.activeTurnRoute = activeTurnRoute ?? null;
   session.activeReasoningAttributionRoute = activeTurnRoute ?? null;
+  clearCodexReasoningPreviewForRoute(session, activeTurnRoute);
   session.activeCodexReasoningPreview = null;
   if (!wasGenerating) {
     deps.broadcastStatus(session, "running");

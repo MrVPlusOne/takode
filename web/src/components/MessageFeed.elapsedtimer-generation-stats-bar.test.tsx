@@ -72,7 +72,7 @@ vi.mock("../store.js", () => {
       streamingByParentToolUseId: mockStoreValues.streamingByParentToolUseId ?? new Map(),
       streamingThinking: mockStoreValues.streamingThinking ?? new Map(),
       streamingThinkingByParentToolUseId: mockStoreValues.streamingThinkingByParentToolUseId ?? new Map(),
-      activeCodexReasoningPreviews: mockStoreValues.activeCodexReasoningPreviews ?? new Map(),
+      codexReasoningPreviews: mockStoreValues.codexReasoningPreviews ?? new Map(),
       streamingStartedAt: mockStoreValues.streamingStartedAt ?? new Map(),
       streamingOutputTokens: mockStoreValues.streamingOutputTokens ?? new Map(),
       streamingPausedDuration: mockStoreValues.streamingPausedDuration ?? new Map(),
@@ -315,9 +315,21 @@ function setStoreActiveCodexReasoningPreview(
   sessionId: string,
   preview: { text: string; updatedAt: number; threadKey?: string; questId?: string; truncated?: boolean } | null,
 ) {
+  setStoreCodexReasoningPreviews(sessionId, preview ? [preview] : []);
+}
+
+function setStoreCodexReasoningPreviews(
+  sessionId: string,
+  previews: Array<{ text: string; updatedAt: number; threadKey?: string; questId?: string; truncated?: boolean }>,
+) {
   const previewMap = new Map();
-  if (preview) previewMap.set(sessionId, preview);
-  mockStoreValues.activeCodexReasoningPreviews = previewMap;
+  const threadPreviews = new Map();
+  for (const preview of previews) {
+    const threadKey = preview.threadKey ?? preview.questId;
+    if (threadKey) threadPreviews.set(threadKey, preview);
+  }
+  if (threadPreviews.size > 0) previewMap.set(sessionId, threadPreviews);
+  mockStoreValues.codexReasoningPreviews = previewMap;
 }
 
 function setStoreBoardProjection(sessionId: string, board: unknown[], rowSessionStatuses: Record<string, unknown>) {
@@ -462,7 +474,7 @@ function resetStore() {
   mockStoreValues.streamingByParentToolUseId = new Map();
   mockStoreValues.streamingThinking = new Map();
   mockStoreValues.streamingThinkingByParentToolUseId = new Map();
-  mockStoreValues.activeCodexReasoningPreviews = new Map();
+  mockStoreValues.codexReasoningPreviews = new Map();
   mockStoreValues.streamingStartedAt = new Map();
   mockStoreValues.streamingOutputTokens = new Map();
   mockStoreValues.streamingPausedDuration = new Map();
@@ -781,22 +793,46 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.queryByTestId("active-codex-reasoning-thread-row")).toBeNull();
   });
 
-  it("renders projected worker reasoning in the matching leader thread row", () => {
+  it("keeps independent retained reasoning rows scoped to their selected thread", () => {
+    const sid = "test-direct-reasoning-per-thread";
+    setStoreCodexReasoningPreviews(sid, [
+      { text: "**Main trace**\n\nMain body.", updatedAt: 1, threadKey: "main" },
+      { text: "**Quest trace**\n\nQuest body.", updatedAt: 2, threadKey: "q-975", questId: "q-975" },
+    ]);
+    const props = {
+      sections: [],
+      sessionId: sid,
+      leaderMode: true,
+      isCodexSession: true,
+      activeCodexTerminalIds: new Set<string>(),
+      onOpenCodexTerminal: vi.fn(),
+      turnStates: [],
+      toggleTurn: vi.fn(),
+    };
+    const view = render(<TurnEntries {...props} currentThreadKey="main" />);
+
+    expect(screen.getByTestId("active-codex-reasoning-title").textContent).toBe("Main trace");
+
+    view.rerender(<TurnEntries {...props} currentThreadKey="q-975" />);
+    expect(screen.getByTestId("active-codex-reasoning-title").textContent).toBe("Quest trace");
+  });
+
+  it("renders retained idle worker reasoning in the matching leader thread row", () => {
     const sid = "test-projected-reasoning-row";
     setStoreBoardProjection(sid, [{ questId: "q-975", worker: "worker-1", workerNum: 2463, updatedAt: 1 }], {
       "q-975": {
         worker: {
           sessionId: "worker-1",
           sessionNum: 2463,
-          status: "running",
-          activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
-          generationStartedAt: Date.now() - 12_000,
-          activeCodexReasoningPreview: {
-            text: "**Checking the Journey handoff state**\n\nProjected worker body.",
-            updatedAt: Date.now(),
-            threadKey: "q-975",
-            questId: "q-975",
-          },
+          status: "idle",
+          codexReasoningPreviews: [
+            {
+              text: "**Checking the Journey handoff state**\n\nProjected worker body.",
+              updatedAt: Date.now(),
+              threadKey: "q-975",
+              questId: "q-975",
+            },
+          ],
         },
         reviewer: null,
       },
@@ -821,6 +857,50 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.getByTestId("active-codex-reasoning-thread-row").textContent).toContain(
       "Checking the Journey handoff state Projected worker body.",
     );
+  });
+
+  it("shows the newest retained row when direct and projected activity share a thread", () => {
+    const sid = "test-newest-direct-or-projected-reasoning";
+    setStoreActiveCodexReasoningPreview(sid, {
+      text: "**Older direct trace**\n\nDirect body.",
+      updatedAt: 10,
+      threadKey: "q-975",
+      questId: "q-975",
+    });
+    setStoreBoardProjection(sid, [{ questId: "q-975", worker: "worker-1", workerNum: 2463, updatedAt: 1 }], {
+      "q-975": {
+        worker: {
+          sessionId: "worker-1",
+          sessionNum: 2463,
+          status: "idle",
+          codexReasoningPreviews: [
+            {
+              text: "**Newer projected trace**\n\nProjected body.",
+              updatedAt: 20,
+              threadKey: "q-975",
+              questId: "q-975",
+            },
+          ],
+        },
+        reviewer: null,
+      },
+    });
+
+    render(
+      <TurnEntries
+        sections={[]}
+        sessionId={sid}
+        currentThreadKey="q-975"
+        leaderMode
+        isCodexSession
+        activeCodexTerminalIds={new Set()}
+        onOpenCodexTerminal={vi.fn()}
+        turnStates={[]}
+        toggleTurn={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("active-codex-reasoning-title").textContent).toBe("Newer projected trace");
   });
 
   it("labels running turns with the active quest when another thread is visible", () => {

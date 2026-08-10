@@ -1,5 +1,6 @@
 import type {
   ActiveTurnRoute,
+  ActiveCodexReasoningPreview,
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
   CodexLeaderRecycleTrigger,
@@ -9,6 +10,7 @@ import type {
   SessionNotification,
   SessionState,
 } from "../session-types.js";
+import type { CodexReasoningPreviewsByThread } from "./codex-reasoning-preview-state.js";
 import type { MemoryCatalogInjectionBundle } from "../memory-catalog-injection-utils.js";
 import type { ModelAuthorityDecision } from "../model-identity-contract.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
@@ -73,6 +75,8 @@ export interface AdapterBrowserRoutingSessionLike {
   forceCompactPending: boolean;
   pendingStartupMemoryCatalogInjection?: boolean;
   isGenerating: boolean;
+  activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
+  codexReasoningPreviews?: CodexReasoningPreviewsByThread;
   backendSocket?: unknown;
   lastUserMessage?: string;
   lastUserMessageDateTag: string;

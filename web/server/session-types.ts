@@ -830,6 +830,7 @@ export interface BoardParticipantStatus {
   status: "running" | "idle" | "disconnected" | "archived";
   activeTurnRoute?: ActiveTurnRoute | null;
   activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
+  codexReasoningPreviews?: ActiveCodexReasoningPreview[];
   generationStartedAt?: number | null;
 }
 
@@ -970,6 +971,7 @@ export type BrowserIncomingMessageBase =
       status: "compacting" | "reverting" | "idle" | "running" | null;
       activeTurnRoute?: ActiveTurnRoute | null;
       activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
+      codexReasoningPreviews?: ActiveCodexReasoningPreview[];
       codexAutoPauseRecoveryTesting?: boolean;
     }
   | { type: "permissions_cleared" }
@@ -1139,6 +1141,7 @@ export type BrowserIncomingMessageBase =
       generationStartedAt?: number | null;
       activeTurnRoute?: ActiveTurnRoute | null;
       activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
+      codexReasoningPreviews?: ActiveCodexReasoningPreview[];
       codexAutoPauseRecoveryTesting?: boolean;
       board?: BoardRow[];
       completedBoard?: BoardRow[];

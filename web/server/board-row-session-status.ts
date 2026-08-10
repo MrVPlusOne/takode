@@ -16,6 +16,7 @@ type BoardSessionLike = {
   name?: string;
   activeTurnRoute?: ActiveTurnRoute | null;
   activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
+  codexReasoningPreviews?: ActiveCodexReasoningPreview[];
   generationStartedAt?: number | null;
 };
 
@@ -38,6 +39,7 @@ function toBoardParticipantStatus(session: BoardSessionLike): BoardParticipantSt
     ...(status === "running" && session.activeCodexReasoningPreview
       ? { activeCodexReasoningPreview: session.activeCodexReasoningPreview }
       : {}),
+    ...(session.codexReasoningPreviews?.length ? { codexReasoningPreviews: session.codexReasoningPreviews } : {}),
     ...(status === "running" && typeof session.generationStartedAt === "number"
       ? { generationStartedAt: session.generationStartedAt }
       : {}),

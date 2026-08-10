@@ -1064,6 +1064,42 @@ describe("direct user needs-input reminders", () => {
     );
   });
 
+  it.each([
+    { label: "direct user", agentSource: undefined },
+    { label: "Herd", agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" } },
+  ])("clears only the same-thread retained reasoning row for $label activity", ({ agentSource }) => {
+    // User and Herd messages are visible feed boundaries. Their authoritative
+    // routed thread may clear its row without disturbing another thread tab.
+    const session = makeSession();
+    session.backendType = "codex";
+    session.codexReasoningPreviews = {
+      "q-968": { text: "Same-thread reasoning", updatedAt: 1, threadKey: "q-968", questId: "q-968" },
+      "q-969": { text: "Other-thread reasoning", updatedAt: 2, threadKey: "q-969", questId: "q-969" },
+    };
+    const deps = makeDeps({ isOrchestrator: true });
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+
+    const routed = routeAdapterBrowserMessage(
+      session,
+      userMessage({
+        content: "Visible routed activity",
+        threadKey: "q-968",
+        questId: "q-968",
+        ...(agentSource ? { agentSource } : {}),
+      }),
+      null,
+      deps,
+    );
+
+    expect(routed).toBe(true);
+    expect(session.codexReasoningPreviews).toEqual({
+      "q-969": { text: "Other-thread reasoning", updatedAt: 2, threadKey: "q-969", questId: "q-969" },
+    });
+    expect(deps.broadcastStatusChange).toHaveBeenCalledWith(session, "idle");
+  });
+
   it("queues concise reply delivery content for Codex while preserving clean committed history", () => {
     const session = makeSession();
     session.backendType = "codex";

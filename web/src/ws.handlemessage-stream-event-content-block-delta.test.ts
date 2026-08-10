@@ -185,7 +185,8 @@ describe("handleMessage: stream_event content_block_delta", () => {
     expect(state.streamingByParentToolUseId.get("leader-1")?.get("agent-1")).toBe("Nested visible");
   });
 
-  it("accumulates live codex thinking from thinking deltas", () => {
+  it("accumulates live Codex thinking without inventing retained rows in the browser", () => {
+    // The server publishes routed retained rows separately; raw stream events only drive generic streaming buffers.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     fireMessage({
@@ -206,14 +207,10 @@ describe("handleMessage: stream_event content_block_delta", () => {
     });
 
     expect(useStore.getState().streamingThinking.get("s1")).toBe("Inspecting session state");
-    expect(useStore.getState().activeCodexReasoningPreviews.get("s1")).toMatchObject({
-      text: "Inspecting session state",
-      threadKey: "q-975",
-      questId: "q-975",
-    });
+    expect(useStore.getState().codexReasoningPreviews.has("s1")).toBe(false);
   });
 
-  it("stores full codex reasoning text without Takode-side truncation", () => {
+  it("stores full server-authored Codex reasoning text without Takode-side truncation", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     fireMessage({
@@ -224,16 +221,18 @@ describe("handleMessage: stream_event content_block_delta", () => {
     const longReasoning = `Start ${"x".repeat(4_500)} End`;
 
     fireMessage({
-      type: "stream_event",
-      event: { type: "content_block_start", content_block: { type: "thinking", thinking: longReasoning } },
-      parent_tool_use_id: null,
+      type: "status_change",
+      status: "running",
+      activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
+      codexReasoningPreviews: [{ text: longReasoning, updatedAt: 123, threadKey: "q-975", questId: "q-975" }],
     });
 
-    expect(useStore.getState().activeCodexReasoningPreviews.get("s1")?.text).toBe(longReasoning);
-    expect(useStore.getState().activeCodexReasoningPreviews.get("s1")?.truncated).toBeUndefined();
+    expect(useStore.getState().codexReasoningPreviews.get("s1")?.get("q-975")?.text).toBe(longReasoning);
+    expect(useStore.getState().codexReasoningPreviews.get("s1")?.get("q-975")?.truncated).toBeUndefined();
   });
 
-  it("clears active codex reasoning preview when non-reasoning output starts", () => {
+  it("does not let raw non-reasoning streams clear server-authored retained rows", () => {
+    // The matching server status update owns clear ordering after authoritative thread routing.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     fireMessage({
@@ -241,11 +240,11 @@ describe("handleMessage: stream_event content_block_delta", () => {
       status: "running",
       activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
     });
-    fireMessage({
-      type: "stream_event",
-      event: { type: "content_block_start", content_block: { type: "thinking", thinking: "Reasoning trace" } },
-      parent_tool_use_id: null,
-    });
+    useStore
+      .getState()
+      .setCodexReasoningPreviews("s1", [
+        { text: "Reasoning trace", updatedAt: 1, threadKey: "q-975", questId: "q-975" },
+      ]);
 
     fireMessage({
       type: "stream_event",
@@ -253,26 +252,16 @@ describe("handleMessage: stream_event content_block_delta", () => {
       parent_tool_use_id: null,
     });
 
-    expect(useStore.getState().activeCodexReasoningPreviews.has("s1")).toBe(false);
+    expect(useStore.getState().codexReasoningPreviews.get("s1")?.has("q-975")).toBe(true);
   });
 
-  it("does not resurrect cleared codex reasoning from a late thinking delta", () => {
+  it("does not invent a retained row from a late raw thinking delta", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     fireMessage({
       type: "status_change",
       status: "running",
       activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
-    });
-    fireMessage({
-      type: "stream_event",
-      event: { type: "content_block_start", content_block: { type: "thinking", thinking: "Reasoning trace" } },
-      parent_tool_use_id: null,
-    });
-    fireMessage({
-      type: "stream_event",
-      event: { type: "content_block_start", content_block: { type: "text", text: "" } },
-      parent_tool_use_id: null,
     });
     fireMessage({
       type: "stream_event",
@@ -280,7 +269,7 @@ describe("handleMessage: stream_event content_block_delta", () => {
       parent_tool_use_id: null,
     });
 
-    expect(useStore.getState().activeCodexReasoningPreviews.has("s1")).toBe(false);
+    expect(useStore.getState().codexReasoningPreviews.has("s1")).toBe(false);
   });
 
   it("routes parented thinking into the matching subagent buffer", () => {
@@ -301,6 +290,6 @@ describe("handleMessage: stream_event content_block_delta", () => {
     const state = useStore.getState();
     expect(state.streamingThinking.has("s1")).toBe(false);
     expect(state.streamingThinkingByParentToolUseId.get("s1")?.get("agent-1")).toBe("Nested reasoning");
-    expect(state.activeCodexReasoningPreviews.has("s1")).toBe(false);
+    expect(state.codexReasoningPreviews.has("s1")).toBe(false);
   });
 });

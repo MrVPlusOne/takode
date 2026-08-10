@@ -40,7 +40,6 @@ import type { WsIncomingMessageContext } from "./ws-message-context.js";
 import { handleTranscriptionProgressMessage } from "./transcription-progress.js";
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { handleNotificationUpdateMessage } from "./ws-notification-handler.js";
-import { updateActiveCodexReasoningPreviewFromStream } from "./ws-active-codex-reasoning.js";
 import {
   mergeAssistantContentBlocks,
   stripRootCodexThinkingBlocks,
@@ -960,8 +959,6 @@ function handleParsedMessage(
             store.setStreamingThinking(sessionId, current + delta.thinking, parentToolUseId);
           }
         }
-        updateActiveCodexReasoningPreviewFromStream(sessionId, data, store);
-
         // message_delta → extract output token count
         if (evt.type === "message_delta") {
           const usage = (evt as { usage?: { output_tokens?: number } }).usage;
@@ -1304,10 +1301,13 @@ function handleParsedMessage(
       if ("activeTurnRoute" in data || data.status !== "running") {
         store.setActiveTurnRoute(sessionId, data.status === "running" ? data.activeTurnRoute : null);
       }
-      store.setActiveCodexReasoningPreview(
-        sessionId,
-        data.status === "running" ? (data.activeCodexReasoningPreview ?? null) : null,
-      );
+      if (data.codexReasoningPreviews !== undefined) {
+        store.setCodexReasoningPreviews(sessionId, data.codexReasoningPreviews);
+      } else if (data.activeCodexReasoningPreview) {
+        // A legacy null active-turn field is a lifecycle boundary, not an
+        // authoritative clear under the retained per-thread contract.
+        store.setCodexReasoningPreviews(sessionId, [data.activeCodexReasoningPreview]);
+      }
       if (data.codexAutoPauseRecoveryTesting !== undefined || data.status !== "running") {
         store.updateSession(sessionId, {
           codex_result_error_auto_pause_recovery_testing: data.codexAutoPauseRecoveryTesting ?? false,
@@ -1438,9 +1438,9 @@ function handleParsedMessage(
       };
       store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
       store.setActiveTurnRoute(sessionId, data.sessionStatus === "running" ? data.activeTurnRoute : null);
-      store.setActiveCodexReasoningPreview(
+      store.setCodexReasoningPreviews(
         sessionId,
-        data.sessionStatus === "running" ? (data.activeCodexReasoningPreview ?? null) : null,
+        data.codexReasoningPreviews ?? (data.activeCodexReasoningPreview ? [data.activeCodexReasoningPreview] : []),
       );
       store.setCliConnected(sessionId, data.backendConnected);
       store.updateSession(sessionId, {

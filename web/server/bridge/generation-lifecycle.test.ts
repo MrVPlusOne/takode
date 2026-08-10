@@ -177,15 +177,23 @@ describe("setGenerating(false) — queued turn handling", () => {
     expect(session.userMessageIdsThisTurn).toEqual([]);
   });
 
-  it("clears volatile Codex reasoning previews when turns start, end, or promote", () => {
+  it("preserves retained Codex reasoning rows across turn boundaries and clears only same-thread user activity", () => {
     deps = makeDeps({ isHerdedWorker: vi.fn(() => true) });
     deps.sessions.set(session.id, session);
-    session.activeCodexReasoningPreview = { text: "stale reasoning", updatedAt: 1, threadKey: "main" };
+    session.codexReasoningPreviews = {
+      main: { text: "Main reasoning", updatedAt: 1, threadKey: "main" },
+      "q-968": { text: "Quest reasoning", updatedAt: 2, threadKey: "q-968", questId: "q-968" },
+    };
+    session.activeCodexReasoningPreview = { text: "Main reasoning", updatedAt: 1, threadKey: "main" };
 
     markRunningFromUserDispatch(deps, session, "user_message", null, undefined, { threadKey: "main" });
 
     expect(session.activeCodexReasoningPreview).toBeNull();
-    session.activeCodexReasoningPreview = { text: "current reasoning", updatedAt: 2, threadKey: "main" };
+    expect(session.codexReasoningPreviews).toEqual({
+      "q-968": { text: "Quest reasoning", updatedAt: 2, threadKey: "q-968", questId: "q-968" },
+    });
+    session.activeCodexReasoningPreview = { text: "Current reasoning", updatedAt: 3, threadKey: "main" };
+    session.codexReasoningPreviews.main = session.activeCodexReasoningPreview;
     markRunningFromUserDispatch(deps, session, "queued_message", null, undefined, {
       threadKey: "q-968",
       questId: "q-968",
@@ -195,6 +203,9 @@ describe("setGenerating(false) — queued turn handling", () => {
 
     expect(session.activeCodexReasoningPreview).toBeNull();
     expect(session.activeTurnRoute).toEqual({ threadKey: "q-968", questId: "q-968" });
+    expect(session.codexReasoningPreviews).toEqual({
+      main: { text: "Current reasoning", updatedAt: 3, threadKey: "main" },
+    });
   });
 
   it("keeps leader thread statuses when a new generation starts", () => {

@@ -182,6 +182,7 @@ import {
   trackCodexQuestCommands as trackCodexQuestCommandsController,
   closeSession as closeSessionController,
 } from "./bridge/session-registry-controller.js";
+import { codexReasoningSnapshotFields } from "./bridge/codex-reasoning-preview-state.js";
 import {
   createClaudeMessageHandlers as createClaudeMessageHandlersController,
   drainInlineQueuedClaudeTurns as drainInlineQueuedClaudeTurnsController,
@@ -1390,8 +1391,7 @@ export class WsBridge {
             cliConnected && bridgeSession?.isGenerating
               ? deriveActiveTurnRouteBrowserTransportController(bridgeSession)
               : null,
-          activeCodexReasoningPreview:
-            cliConnected && bridgeSession?.isGenerating ? (bridgeSession.activeCodexReasoningPreview ?? null) : null,
+          ...codexReasoningSnapshotFields(bridgeSession, cliConnected && !!bridgeSession?.isGenerating),
           generationStartedAt:
             cliConnected && bridgeSession?.isGenerating ? (bridgeSession.generationStartedAt ?? null) : null,
         };

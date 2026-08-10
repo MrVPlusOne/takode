@@ -30,6 +30,7 @@ import { selectHistoryWindowRange } from "../history-window-selection.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
+import { codexReasoningSnapshotFields } from "./codex-reasoning-preview-state.js";
 import {
   prepareBoundedConversationSubscribe,
   boundedConversationSyncComplete,
@@ -145,6 +146,7 @@ export interface BrowserTransportSessionLike {
   userMessageIdsThisTurn?: number[];
   activeTurnRoute?: ActiveTurnRoute | null;
   activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
+  codexReasoningPreviews?: import("./codex-reasoning-preview-state.js").CodexReasoningPreviewsByThread;
   notifications: unknown[];
   attentionRecords: unknown[];
   notificationStatusVersion?: number;
@@ -1044,7 +1046,7 @@ export function sendStateSnapshot(
     attentionReason: session.attentionReason,
     generationStartedAt: session.generationStartedAt ?? null,
     activeTurnRoute: deriveActiveTurnRoute(session),
-    activeCodexReasoningPreview: sessionStatus === "running" ? (session.activeCodexReasoningPreview ?? null) : null,
+    ...codexReasoningSnapshotFields(session, sessionStatus === "running"),
     codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
     board,
     completedBoard,

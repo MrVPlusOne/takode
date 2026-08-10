@@ -1,14 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
-import type {
-  ActiveCodexReasoningPreview,
-  BoardRowSessionStatus,
-  ChatMessage,
-  ContentBlock,
-  ThreadAttachmentMarker,
-  ThreadTransitionMarker,
-} from "../types.js";
+import type { ChatMessage, ContentBlock, ThreadAttachmentMarker, ThreadTransitionMarker } from "../types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { threadStatusKey } from "../../shared/thread-status-marker.js";
 import { isSubagentToolName } from "../types.js";
@@ -58,6 +51,10 @@ import { isCompactToolActivityItem } from "./CompactToolActivity.js";
 import { ToolMessageGroup } from "./ToolMessageGroup.js";
 import { CompactFeedActivity, type CompactFeedActivitySegment } from "./CompactFeedActivity.js";
 import { isCompactableHerdEventMessage } from "../utils/herd-event-classification.js";
+import {
+  ActiveCodexReasoningThreadRow,
+  selectCodexReasoningPreviewForThread,
+} from "./ActiveCodexReasoningThreadRow.js";
 
 function useExpandForScrollTarget(
   sessionId: string,
@@ -825,73 +822,6 @@ function formatThreadAttachmentDetail(marker: ThreadAttachmentMarker): string {
 
 function formatThreadLabel(threadKey: string): string {
   return threadKey === "main" ? "Main" : `thread:${threadKey}`;
-}
-
-function activeReasoningMatchesThread(
-  preview: Pick<ActiveCodexReasoningPreview, "threadKey" | "questId"> | null | undefined,
-  currentThreadKey: string,
-): boolean {
-  const current = normalizeThreadKey(currentThreadKey || "main");
-  if (!preview || current === "all") return false;
-  const previewThread = preview.threadKey ? normalizeThreadKey(preview.threadKey) : null;
-  if (previewThread && previewThread !== current) return false;
-  if (!previewThread && preview.questId && normalizeThreadKey(preview.questId) !== current) return false;
-  return !!previewThread || !!preview.questId;
-}
-
-function parseActiveReasoningText(text: string): { title: string | null; body: string } {
-  const trimmed = text.trim();
-  const titleMatch = trimmed.match(/^\*\*([^\n*][^\n]*?)\*\*(?:[ \t]*\n+|\s+|$)([\s\S]*)$/);
-  if (!titleMatch?.[1]?.trim()) return { title: null, body: trimmed };
-  return {
-    title: titleMatch[1].trim(),
-    body: (titleMatch[2] ?? "").trim(),
-  };
-}
-
-function ActiveCodexReasoningThreadRow({ preview }: { preview: ActiveCodexReasoningPreview }) {
-  const parsed = parseActiveReasoningText(preview.text);
-  const body = parsed.body || (parsed.title ? "" : preview.text.trim());
-  if (!parsed.title && !body) return null;
-
-  return (
-    <div
-      className="flex items-start gap-2 sm:gap-3"
-      data-testid="active-codex-reasoning-thread-row"
-      role="status"
-      aria-live="polite"
-      aria-atomic="false"
-    >
-      <PawTrailAvatar />
-      <div className="min-w-0 flex-1 rounded-lg border border-cc-border/40 bg-cc-card/45 px-3 py-2.5 text-sm leading-relaxed text-cc-fg/90 shadow-[0_8px_24px_rgba(0,0,0,0.16)]">
-        <p className="whitespace-pre-wrap break-words text-[14px] leading-relaxed text-cc-muted">
-          {parsed.title && (
-            <>
-              <strong className="font-semibold text-cc-fg" data-testid="active-codex-reasoning-title">
-                {parsed.title}
-              </strong>
-              {body ? " " : null}
-            </>
-          )}
-          {body && <span data-testid="active-codex-reasoning-body">{body}</span>}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function findProjectedWorkerReasoningPreview(
-  currentThreadKey: string,
-  rowStatuses: Record<string, BoardRowSessionStatus> | undefined,
-): ActiveCodexReasoningPreview | null {
-  for (const status of Object.values(rowStatuses ?? {})) {
-    const worker = status?.worker;
-    if (worker?.status !== "running") continue;
-    const preview = worker.activeCodexReasoningPreview;
-    if (!preview?.text?.trim()) continue;
-    if (activeReasoningMatchesThread(preview, currentThreadKey)) return preview;
-  }
-  return null;
 }
 
 export const FeedEntries = memo(function FeedEntries({
@@ -1860,17 +1790,14 @@ export const TurnEntries = memo(function TurnEntries({
 }) {
   const turns = useMemo(() => sections.flatMap((section) => section.turns), [sections]);
   const currentThreadStatuses = useStore((s) => s.sessions.get(sessionId)?.leaderThreadStatuses);
-  const directReasoningPreview = useStore((s) => s.activeCodexReasoningPreviews?.get(sessionId));
+  const directReasoningPreview = useStore((s) =>
+    s.codexReasoningPreviews?.get(sessionId)?.get(normalizeThreadKey(currentThreadKey)),
+  );
   const rowSessionStatuses = useStore((s) => s.sessionBoardRowStatuses?.get(sessionId));
-  const activeReasoningPreview = useMemo(() => {
-    if (
-      directReasoningPreview?.text?.trim() &&
-      activeReasoningMatchesThread(directReasoningPreview, currentThreadKey)
-    ) {
-      return directReasoningPreview;
-    }
-    return findProjectedWorkerReasoningPreview(currentThreadKey, rowSessionStatuses);
-  }, [currentThreadKey, directReasoningPreview, rowSessionStatuses]);
+  const activeReasoningPreview = useMemo(
+    () => selectCodexReasoningPreviewForThread(currentThreadKey, directReasoningPreview, rowSessionStatuses),
+    [currentThreadKey, directReasoningPreview, rowSessionStatuses],
+  );
   const visibleThreadStatuses = useMemo(
     () => visibleCurrentThreadStatuses(currentThreadStatuses, currentThreadKey),
     [currentThreadKey, currentThreadStatuses],

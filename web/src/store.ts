@@ -73,6 +73,7 @@ import {
 } from "./store-chat-display.js";
 import { persistSidePanelStringSet, withMapEntry, withOptionalMapEntry } from "./store-map-utils.js";
 import { createQuestStoreSlice, resetQuestRefreshStateForTests } from "./store-quests.js";
+import { indexCodexReasoningPreviews } from "./utils/codex-reasoning-previews.js";
 
 // ─── Color Themes ───────────────────────────────────────────────────────────
 
@@ -156,7 +157,7 @@ export const useStore = create<AppState>((set, get) => ({
   streamingByParentToolUseId: new Map(),
   streamingThinking: new Map(),
   streamingThinkingByParentToolUseId: new Map(),
-  activeCodexReasoningPreviews: new Map(),
+  codexReasoningPreviews: new Map(),
   streamingStartedAt: new Map(),
   streamingOutputTokens: new Map(),
   streamingPausedDuration: new Map(),
@@ -819,15 +820,16 @@ export const useStore = create<AppState>((set, get) => ({
       return { streamingThinking };
     }),
 
-  setActiveCodexReasoningPreview: (sessionId, preview) =>
+  setCodexReasoningPreviews: (sessionId, previews) =>
     set((s) => {
-      const activeCodexReasoningPreviews = new Map(s.activeCodexReasoningPreviews);
-      if (preview === null || preview.text.trim().length === 0) {
-        activeCodexReasoningPreviews.delete(sessionId);
+      const codexReasoningPreviews = new Map(s.codexReasoningPreviews);
+      const indexed = indexCodexReasoningPreviews(previews);
+      if (indexed.size === 0) {
+        codexReasoningPreviews.delete(sessionId);
       } else {
-        activeCodexReasoningPreviews.set(sessionId, preview);
+        codexReasoningPreviews.set(sessionId, indexed);
       }
-      return { activeCodexReasoningPreviews };
+      return { codexReasoningPreviews };
     }),
 
   setStreamingStats: (sessionId, stats) =>
@@ -860,8 +862,6 @@ export const useStore = create<AppState>((set, get) => ({
       streamingThinking.delete(sessionId);
       const streamingThinkingByParentToolUseId = new Map(s.streamingThinkingByParentToolUseId);
       streamingThinkingByParentToolUseId.delete(sessionId);
-      const activeCodexReasoningPreviews = new Map(s.activeCodexReasoningPreviews);
-      activeCodexReasoningPreviews.delete(sessionId);
       const streamingStartedAt = new Map(s.streamingStartedAt);
       streamingStartedAt.delete(sessionId);
       const streamingOutputTokens = new Map(s.streamingOutputTokens);
@@ -875,7 +875,6 @@ export const useStore = create<AppState>((set, get) => ({
         streamingByParentToolUseId,
         streamingThinking,
         streamingThinkingByParentToolUseId,
-        activeCodexReasoningPreviews,
         streamingStartedAt,
         streamingOutputTokens,
         streamingPausedDuration,
@@ -908,8 +907,6 @@ export const useStore = create<AppState>((set, get) => ({
       streamingThinking.delete(sessionId);
       const streamingThinkingByParentToolUseId = new Map(s.streamingThinkingByParentToolUseId);
       streamingThinkingByParentToolUseId.delete(sessionId);
-      const activeCodexReasoningPreviews = new Map(s.activeCodexReasoningPreviews);
-      activeCodexReasoningPreviews.delete(sessionId);
       const streamingStartedAt = new Map(s.streamingStartedAt);
       streamingStartedAt.delete(sessionId);
       const streamingOutputTokens = new Map(s.streamingOutputTokens);
@@ -967,7 +964,6 @@ export const useStore = create<AppState>((set, get) => ({
         streamingByParentToolUseId,
         streamingThinking,
         streamingThinkingByParentToolUseId,
-        activeCodexReasoningPreviews,
         streamingStartedAt,
         streamingOutputTokens,
         streamingPausedDuration,
@@ -1873,7 +1869,7 @@ export const useStore = create<AppState>((set, get) => ({
       streamingByParentToolUseId: new Map(),
       streamingThinking: new Map(),
       streamingThinkingByParentToolUseId: new Map(),
-      activeCodexReasoningPreviews: new Map(),
+      codexReasoningPreviews: new Map(),
       streamingStartedAt: new Map(),
       streamingOutputTokens: new Map(),
       streamingPausedDuration: new Map(),

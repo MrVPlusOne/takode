@@ -15,6 +15,7 @@ type TestCodexSession = {
   toolProgressOutput: Map<string, string>;
   isGenerating: boolean;
   activeTurnRoute: ActiveTurnRoute | null;
+  activeReasoningAttributionRoute?: ActiveTurnRoute | null;
   activeCodexReasoningPreview?: {
     text: string;
     updatedAt: number;
@@ -23,6 +24,7 @@ type TestCodexSession = {
     questId?: string;
     truncated?: boolean;
   } | null;
+  codexReasoningPreviews?: Record<string, NonNullable<TestCodexSession["activeCodexReasoningPreview"]>>;
   codexAdapter?: { getCurrentTurnId: () => string | null };
   notifications: SessionNotification[];
   notificationCounter: number;
@@ -389,6 +391,114 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(session.activeCodexReasoningPreview?.truncated).toBeUndefined();
   });
 
+  it("keeps independent latest reasoning rows for separate routed threads", async () => {
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+    session.activeTurnRoute = { threadKey: "q-975", questId: "q-975" };
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        event: { type: "content_block_start", content_block: { type: "thinking", thinking: "First thread" } },
+        parent_tool_use_id: null,
+      },
+      deps,
+    );
+    session.activeTurnRoute = { threadKey: "q-976", questId: "q-976" };
+    session.activeReasoningAttributionRoute = session.activeTurnRoute;
+    session.activeCodexReasoningPreview = null;
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        event: { type: "content_block_start", content_block: { type: "thinking", thinking: "Second thread" } },
+        parent_tool_use_id: null,
+      },
+      deps,
+    );
+
+    expect(session.codexReasoningPreviews).toMatchObject({
+      "q-975": { text: "First thread" },
+      "q-976": { text: "Second thread" },
+    });
+  });
+
+  it("preserves a retained row on empty reasoning start and provider completion while suppressing late deltas", async () => {
+    const session = makeSession();
+    session.activeTurnRoute = { threadKey: "q-975", questId: "q-975" };
+    session.codexReasoningPreviews = {
+      "q-975": { text: "Previous complete reasoning", updatedAt: 1, threadKey: "q-975", questId: "q-975" },
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        event: { type: "content_block_start", content_block: { type: "thinking", thinking: "" } },
+        parent_tool_use_id: null,
+      },
+      deps,
+    );
+    expect(session.codexReasoningPreviews["q-975"].text).toBe("Previous complete reasoning");
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      { type: "stream_event", event: { type: "content_block_stop" }, parent_tool_use_id: null },
+      deps,
+    );
+    expect(session.activeCodexReasoningPreview).toBeNull();
+    expect(session.codexReasoningPreviews["q-975"].text).toBe("Previous complete reasoning");
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: " stale" } },
+        parent_tool_use_id: null,
+      },
+      deps,
+    );
+    expect(session.codexReasoningPreviews["q-975"].text).toBe("Previous complete reasoning");
+  });
+
+  it("clears only authoritative non-duplicate assistant output in its routed thread", async () => {
+    const session = makeSession();
+    session.codexReasoningPreviews = {
+      "q-975": { text: "First thread", updatedAt: 1, threadKey: "q-975", questId: "q-975" },
+      "q-976": { text: "Second thread", updatedAt: 2, threadKey: "q-976", questId: "q-976" },
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      makeAssistant([{ type: "text", text: "[thread:q-976]\nVisible replacement" }], "fresh-output"),
+      deps,
+    );
+
+    expect(session.codexReasoningPreviews).toEqual({
+      "q-975": { text: "First thread", updatedAt: 1, threadKey: "q-975", questId: "q-975" },
+    });
+
+    session.codexReasoningPreviews["q-976"] = {
+      text: "New second thread",
+      updatedAt: 3,
+      threadKey: "q-976",
+      questId: "q-976",
+    };
+    await handleCodexAdapterBrowserMessage(
+      session,
+      makeAssistant([{ type: "text", text: "[thread:q-976]\nReplayed replacement" }], "replay-output"),
+      { ...deps, isDuplicateCodexAssistantReplay: () => true },
+    );
+
+    expect(session.codexReasoningPreviews["q-976"].text).toBe("New second thread");
+  });
+
   it("does not record parented subagent thinking as the active turn preview", async () => {
     const session = makeSession();
     session.activeTurnRoute = { threadKey: "q-975", questId: "q-975" };
@@ -428,7 +538,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(broadcasts).not.toContainEqual(expect.objectContaining({ type: "assistant" }));
   });
 
-  it("clears active Codex reasoning preview when top-level assistant text starts", async () => {
+  it("clears active Codex reasoning preview when routed assistant text becomes authoritative", async () => {
     const session = makeSession();
     session.activeTurnRoute = { threadKey: "q-975", questId: "q-975" };
     session.activeCodexReasoningPreview = {
@@ -442,11 +552,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
 
     await handleCodexAdapterBrowserMessage(
       session,
-      {
-        type: "stream_event",
-        event: { type: "content_block_start", content_block: { type: "text", text: "" } },
-        parent_tool_use_id: null,
-      },
+      makeAssistant([{ type: "text", text: "[thread:q-975]\nVisible replacement" }]),
       deps,
     );
 
@@ -474,11 +580,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
 
     await handleCodexAdapterBrowserMessage(
       session,
-      {
-        type: "stream_event",
-        event: { type: "content_block_start", content_block: { type: "text", text: "" } },
-        parent_tool_use_id: null,
-      },
+      makeAssistant([{ type: "text", text: "[thread:q-975]\nVisible replacement" }]),
       deps,
     );
     await handleCodexAdapterBrowserMessage(

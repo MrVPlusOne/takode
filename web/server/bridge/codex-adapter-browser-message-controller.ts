@@ -34,6 +34,11 @@ import {
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
 import { isTerminalResultInterrupted } from "../result-interruption.js";
 import { isCodexLeaderRecycleMode } from "../../shared/codex-leader-compaction-mode.js";
+import {
+  clearCodexReasoningPreviewForRoute,
+  listCodexReasoningPreviews,
+  retainCodexReasoningPreview,
+} from "./codex-reasoning-preview-state.js";
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 const DELEGATE_LIVE_ACTIVITY_LIMIT = 800;
@@ -146,24 +151,59 @@ function updateActiveCodexReasoningPreviewFromStream(
 ): boolean {
   const thinking = extractTopLevelThinkingStreamText(msg);
   if (!thinking) return false;
-  if (thinking.kind === "delta" && !session.activeCodexReasoningPreview?.text) return false;
-  const existing = thinking.kind === "delta" ? session.activeCodexReasoningPreview.text : "";
-  const rawText = thinking.kind === "delta" ? existing + thinking.text : thinking.text;
-  if (rawText.trim().length === 0) {
-    session.activeCodexReasoningPreview = null;
-    return true;
-  }
   const route = session.activeReasoningAttributionRoute ?? session.activeTurnRoute ?? null;
+  if (!route?.threadKey) {
+    session.activeCodexReasoningPreview = null;
+    return false;
+  }
   const turnId =
     typeof session.codexAdapter?.getCurrentTurnId === "function" ? session.codexAdapter.getCurrentTurnId() : null;
-  session.activeCodexReasoningPreview = {
-    text: rawText,
+  if (thinking.kind === "delta" && !session.activeCodexReasoningPreview) return false;
+  const existing = thinking.kind === "delta" ? session.activeCodexReasoningPreview.text : "";
+  const preview: ActiveCodexReasoningPreview = {
+    ...(thinking.kind === "delta" ? session.activeCodexReasoningPreview : {}),
+    text: thinking.kind === "delta" ? existing + thinking.text : thinking.text,
     updatedAt: Date.now(),
     turnId,
-    ...(route?.threadKey ? { threadKey: route.threadKey } : {}),
-    ...(route?.questId ? { questId: route.questId } : {}),
+    threadKey: route.threadKey,
+    ...(route.questId ? { questId: route.questId } : {}),
   };
+  session.activeCodexReasoningPreview = preview;
+  if (!preview.text.trim()) return false;
+  return retainCodexReasoningPreview(session, preview);
+}
+
+function retireCompletedCodexReasoningStream(
+  session: CodexBrowserMessageSessionLike,
+  msg: BrowserIncomingMessage,
+): void {
+  if (msg.type !== "stream_event" || msg.parent_tool_use_id !== null || !session.activeCodexReasoningPreview) return;
+  const event = msg.event as { type?: unknown } | undefined;
+  if (event?.type === "content_block_stop") {
+    // Completion retires only the delta accumulator. The retained thread row
+    // stays visible until authoritative visible content replaces it.
+    session.activeCodexReasoningPreview = null;
+  }
+}
+
+function clearCodexReasoningPreviewForVisibleActivity(
+  session: CodexBrowserMessageSessionLike,
+  route: ActiveTurnRoute | null | undefined,
+  deps: CodexAdapterBrowserMessageDeps,
+): boolean {
+  if (!clearCodexReasoningPreviewForRoute(session, route)) return false;
+  broadcastActiveCodexReasoningPreview(session, deps);
+  deps.broadcastBoardParticipantRefresh?.(session);
   return true;
+}
+
+function reasoningPreviewBroadcastFields(session: CodexBrowserMessageSessionLike) {
+  return {
+    activeCodexReasoningPreview: session.activeCodexReasoningPreview?.text?.trim()
+      ? session.activeCodexReasoningPreview
+      : null,
+    codexReasoningPreviews: listCodexReasoningPreviews(session),
+  };
 }
 
 function isTopLevelThinkingOnlyAssistant(msg: BrowserIncomingMessage): boolean {
@@ -172,32 +212,8 @@ function isTopLevelThinkingOnlyAssistant(msg: BrowserIncomingMessage): boolean {
   return content.length > 0 && content.every((block) => block?.type === "thinking");
 }
 
-function clearActiveCodexReasoningPreview(session: CodexBrowserMessageSessionLike): boolean {
-  if (!session.activeCodexReasoningPreview) return false;
-  session.activeCodexReasoningPreview = null;
-  return true;
-}
-
-function shouldClearActiveCodexReasoningPreviewForNonReasoningActivity(msg: BrowserIncomingMessage): boolean {
-  if (msg.type === "stream_event") {
-    if (msg.parent_tool_use_id !== null) return false;
-    const event = msg.event as
-      | {
-          type?: unknown;
-          content_block?: { type?: unknown };
-          delta?: { type?: unknown };
-        }
-      | undefined;
-    if (!event || typeof event !== "object") return false;
-    if (event.type === "content_block_start") {
-      return event.content_block?.type !== "thinking";
-    }
-    if (event.type === "content_block_delta") {
-      return event.delta?.type === "text_delta";
-    }
-    return false;
-  }
-  if (msg.type !== "assistant" || msg.parent_tool_use_id !== null) return false;
+function hasVisibleTopLevelNonReasoningActivity(msg: AssistantBrowserMessage): boolean {
+  if (msg.parent_tool_use_id !== null) return false;
   const content = Array.isArray(msg.message?.content) ? msg.message.content : [];
   return content.some((block) => block?.type !== "thinking");
 }
@@ -210,7 +226,7 @@ function broadcastActiveCodexReasoningPreview(
     type: "status_change",
     status: "running",
     activeTurnRoute: session.activeTurnRoute ?? null,
-    activeCodexReasoningPreview: session.activeCodexReasoningPreview ?? null,
+    ...reasoningPreviewBroadcastFields(session),
   });
 }
 
@@ -348,12 +364,15 @@ function updateActiveTurnRouteFromLeaderAssistant(
   if (sameActiveTurnRoute(session.activeTurnRoute, nextRoute)) return;
   session.activeTurnRoute = nextRoute;
   session.activeReasoningAttributionRoute = nextRoute;
+  // A route switch retires the current provider stream so late deltas cannot
+  // attach to a different thread. The retained row in the previous thread is
+  // intentionally left in place until that thread receives visible output.
   session.activeCodexReasoningPreview = null;
   deps.broadcastToBrowsers(session, {
     type: "status_change",
     status: "running",
     activeTurnRoute: nextRoute,
-    activeCodexReasoningPreview: null,
+    ...reasoningPreviewBroadcastFields(session),
   });
 }
 
@@ -642,13 +661,11 @@ export async function handleCodexAdapterBrowserMessage(
   deps.clearOptimisticRunningTimer(session, `codex_output:${msg.type}`);
   maybeRecordDelegateLiveActivity(session, msg);
   const activeReasoningPreviewChanged = updateActiveCodexReasoningPreviewFromStream(session, msg);
-  const activeReasoningPreviewCleared =
-    !activeReasoningPreviewChanged &&
-    shouldClearActiveCodexReasoningPreviewForNonReasoningActivity(msg) &&
-    clearActiveCodexReasoningPreview(session);
-  if (activeReasoningPreviewChanged || activeReasoningPreviewCleared) {
+  if (activeReasoningPreviewChanged) {
     broadcastActiveCodexReasoningPreview(session, deps);
     deps.broadcastBoardParticipantRefresh?.(session);
+  } else {
+    retireCompletedCodexReasoningStream(session, msg);
   }
   if (session.state.codex_image_send_stage && (msg.type === "stream_event" || msg.type === "assistant")) {
     deps.setCodexImageSendStage(session, "responding", { persist: false });
@@ -806,6 +823,9 @@ export async function handleCodexAdapterBrowserMessage(
         }
         deps.trackCodexQuestCommands(session, content);
         if (deps.isDuplicateCodexAssistantReplay(session, normalizedAssistant)) continue;
+        if (hasVisibleTopLevelNonReasoningActivity(normalizedAssistant)) {
+          clearCodexReasoningPreviewForVisibleActivity(session, segmentRoute, deps);
+        }
         const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
           session,
           routed.threadStatusMarkers,
@@ -934,6 +954,9 @@ export async function handleCodexAdapterBrowserMessage(
     if (deps.isDuplicateCodexAssistantReplay(session, normalizedAssistant)) {
       deps.syncSideChatParent?.(session);
       return;
+    }
+    if (hasVisibleTopLevelNonReasoningActivity(normalizedAssistant)) {
+      clearCodexReasoningPreviewForVisibleActivity(session, activeRouteFromAssistant, deps);
     }
     const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
       session,

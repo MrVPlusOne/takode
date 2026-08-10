@@ -377,7 +377,7 @@ describe("board participant names", () => {
     });
   });
 
-  it("includes live active worker Codex reasoning metadata", () => {
+  it("includes retained worker Codex reasoning metadata while idle", () => {
     const statuses = buildBoardRowSessionStatuses(
       [
         {
@@ -392,29 +392,24 @@ describe("board participant names", () => {
         {
           sessionId: "worker-1",
           sessionNum: 2402,
-          state: "running",
+          state: "idle",
           cliConnected: true,
-          activeTurnRoute: { threadKey: "q-1761", questId: "q-1761" },
-          generationStartedAt: 123,
-          activeCodexReasoningPreview: {
-            text: "Inspecting row state",
-            updatedAt: 456,
-            threadKey: "q-1761",
-            questId: "q-1761",
-          },
+          codexReasoningPreviews: [
+            {
+              text: "Inspecting row state",
+              updatedAt: 456,
+              threadKey: "q-1761",
+              questId: "q-1761",
+            },
+          ],
         },
       ],
     );
 
     expect(statuses["q-1761"].worker).toMatchObject({
       sessionId: "worker-1",
-      status: "running",
-      activeTurnRoute: { threadKey: "q-1761", questId: "q-1761" },
-      generationStartedAt: 123,
-      activeCodexReasoningPreview: {
-        text: "Inspecting row state",
-        threadKey: "q-1761",
-      },
+      status: "idle",
+      codexReasoningPreviews: [{ text: "Inspecting row state", threadKey: "q-1761" }],
     });
   });
 });

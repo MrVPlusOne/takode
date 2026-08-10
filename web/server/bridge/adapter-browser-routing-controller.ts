@@ -59,6 +59,7 @@ import {
 import { sessionTag } from "../session-tag.js";
 import type { BrowserTransportSessionLike, BrowserTransportSocketLike } from "./browser-transport-controller.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
+import { clearCodexReasoningPreviewForRoute } from "./codex-reasoning-preview-state.js";
 import { extractAskUserAnswers } from "./compaction-recovery.js";
 import { LONG_SLEEP_REMINDER_TEXT } from "./bash-sleep-policy.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
@@ -1742,6 +1743,14 @@ export function routeAdapterBrowserMessage(
       const normalized = normalizeAdapterUserMessage(session, msg, userImageRefs, deps);
       if (!normalized) return true;
       adapterMsg = normalized;
+    }
+    if (
+      session.backendType === "codex" &&
+      msg.type === "user_message" &&
+      ingested &&
+      clearCodexReasoningPreviewForRoute(session, activeTurnRouteFromIngestedUserMessage(ingested))
+    ) {
+      deps.broadcastStatusChange(session, session.isGenerating ? "running" : "idle");
     }
     let pendingTurnTarget: UserDispatchTurnTarget | null = null;
     if (

@@ -201,6 +201,7 @@ export interface Session {
   activeTurnRoute?: ActiveTurnRoute | null;
   /** Volatile top-level Codex reasoning preview for the active turn. */
   activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
+  codexReasoningPreviews?: import("./codex-reasoning-preview-state.js").CodexReasoningPreviewsByThread;
   /** Number of follow-up turns queued while a current turn is still running. */
   queuedTurnStarts: number;
   /** Dispatch reasons for queued follow-up turns (aligned with queuedTurnStarts). */

@@ -12,6 +12,7 @@ export function PlaygroundActiveReasoningChipStates() {
       "playground-active-reasoning-none",
       "playground-active-reasoning-short",
       "playground-active-reasoning-long",
+      "playground-active-reasoning-idle",
       "playground-active-reasoning-updating",
     ];
     useStore.setState((state) => {
@@ -19,7 +20,7 @@ export function PlaygroundActiveReasoningChipStates() {
       const sessionStatus = new Map(state.sessionStatus);
       const streamingStartedAt = new Map(state.streamingStartedAt);
       const activeTurnRoutes = new Map(state.activeTurnRoutes);
-      const activeCodexReasoningPreviews = new Map(state.activeCodexReasoningPreviews);
+      const codexReasoningPreviews = new Map(state.codexReasoningPreviews);
       for (const sessionId of sessionIds) {
         sessions.set(sessionId, {
           session_id: sessionId,
@@ -55,25 +56,65 @@ export function PlaygroundActiveReasoningChipStates() {
       activeTurnRoutes.set("playground-active-reasoning-short", { threadKey: "q-42", questId: "q-42" });
       activeTurnRoutes.set("playground-active-reasoning-long", { threadKey: "q-42", questId: "q-42" });
       activeTurnRoutes.set("playground-active-reasoning-updating", { threadKey: "q-88", questId: "q-88" });
-      activeCodexReasoningPreviews.set("playground-active-reasoning-short", {
-        text: "**Checking route metadata**\n\nThe body now renders in the attributed thread row, not in the activity chip.",
-        updatedAt: now,
-        threadKey: "q-42",
-        questId: "q-42",
-      });
-      activeCodexReasoningPreviews.set("playground-active-reasoning-long", {
-        text: "Comparing active turn route, browser-selected thread, and Codex reasoning stream without a title. This text uses the available message width and is not shortened by the activity chip.",
-        updatedAt: now,
-        threadKey: "q-42",
-        questId: "q-42",
-      });
-      activeCodexReasoningPreviews.set("playground-active-reasoning-updating", {
-        text: "**Inspecting current protocol fields**\n\nReplacing the previous trace.",
-        updatedAt: now,
-        threadKey: "q-88",
-        questId: "q-88",
-      });
-      return { sessions, sessionStatus, streamingStartedAt, activeTurnRoutes, activeCodexReasoningPreviews };
+      sessionStatus.set("playground-active-reasoning-idle", "idle");
+      activeTurnRoutes.set("playground-active-reasoning-idle", null);
+      codexReasoningPreviews.set(
+        "playground-active-reasoning-short",
+        new Map([
+          [
+            "q-42",
+            {
+              text: "**Checking route metadata**\n\nThe body now remains until visible q-42 output replaces it.",
+              updatedAt: now,
+              threadKey: "q-42",
+              questId: "q-42",
+            },
+          ],
+        ]),
+      );
+      codexReasoningPreviews.set(
+        "playground-active-reasoning-long",
+        new Map([
+          [
+            "q-42",
+            {
+              text: "Comparing active turn route, browser-selected thread, and Codex reasoning stream without a title. This text uses the available message width and is not shortened by the activity chip.",
+              updatedAt: now,
+              threadKey: "q-42",
+              questId: "q-42",
+            },
+          ],
+        ]),
+      );
+      codexReasoningPreviews.set(
+        "playground-active-reasoning-idle",
+        new Map([
+          [
+            "q-42",
+            {
+              text: "**Retained after turn completion**\n\nNo newer visible q-42 item has replaced this row.",
+              updatedAt: now,
+              threadKey: "q-42",
+              questId: "q-42",
+            },
+          ],
+        ]),
+      );
+      codexReasoningPreviews.set(
+        "playground-active-reasoning-updating",
+        new Map([
+          [
+            "q-88",
+            {
+              text: "**Inspecting current protocol fields**\n\nActivity in q-88 does not clear q-42.",
+              updatedAt: now,
+              threadKey: "q-88",
+              questId: "q-88",
+            },
+          ],
+        ]),
+      );
+      return { sessions, sessionStatus, streamingStartedAt, activeTurnRoutes, codexReasoningPreviews };
     });
   }, []);
 
@@ -81,6 +122,7 @@ export function PlaygroundActiveReasoningChipStates() {
     { label: "No content", sessionId: "playground-active-reasoning-none", currentThreadKey: "q-42" },
     { label: "Title and body", sessionId: "playground-active-reasoning-short", currentThreadKey: "q-42" },
     { label: "Fallback body", sessionId: "playground-active-reasoning-long", currentThreadKey: "q-42" },
+    { label: "Retained after idle", sessionId: "playground-active-reasoning-idle", currentThreadKey: "q-42" },
     { label: "Other route", sessionId: "playground-active-reasoning-updating", currentThreadKey: "q-42" },
   ];
 

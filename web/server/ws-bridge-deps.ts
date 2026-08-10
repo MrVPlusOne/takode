@@ -73,6 +73,7 @@ import {
 } from "./bridge/permission-pipeline.js";
 import { detectLongSleepBashCommand, LONG_SLEEP_REMINDER_TEXT } from "./bridge/bash-sleep-policy.js";
 import { getApprovalSummary, getDenialSummary } from "./bridge/permission-summaries.js";
+import { listCodexReasoningPreviews } from "./bridge/codex-reasoning-preview-state.js";
 import {
   cleanupBranchState as cleanupBranchStateIndex,
   invalidateSessionsSharingBranch as invalidateSessionsSharingBranchIndex,
@@ -1277,14 +1278,21 @@ export function getBrowserRoutingDeps(host: any) {
       trackUserMessageForTurnLifecycle(targetSession as Session, historyIndex, turnTarget),
     setGenerating: (targetSession: unknown, generating: boolean, reason: string) =>
       setGeneratingLifecycle(generationDeps, targetSession as Session, generating, reason),
-    broadcastStatusChange: (targetSession: unknown, status: "idle" | "running" | "compacting" | "reverting" | null) =>
-      host.broadcastToBrowsers(targetSession as Session, {
+    broadcastStatusChange: (targetSession: unknown, status: "idle" | "running" | "compacting" | "reverting" | null) => {
+      const session = targetSession as Session;
+      host.broadcastToBrowsers(session, {
         type: "status_change",
         status,
-        activeTurnRoute:
-          status === "running" ? deriveActiveTurnRouteBrowserTransportController(targetSession as Session) : null,
-        codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(targetSession as Session),
-      }),
+        activeTurnRoute: status === "running" ? deriveActiveTurnRouteBrowserTransportController(session) : null,
+        activeCodexReasoningPreview:
+          status === "running" && session.activeCodexReasoningPreview?.text?.trim()
+            ? session.activeCodexReasoningPreview
+            : null,
+        codexReasoningPreviews: listCodexReasoningPreviews(session),
+        codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
+      });
+      host.scheduleBoardParticipantRefresh?.(session.id);
+    },
     setCodexImageSendStage: (
       targetSession: unknown,
       stage: SessionState["codex_image_send_stage"],
@@ -1509,6 +1517,11 @@ export function getGenerationLifecycleDeps(host: any) {
         type: "status_change",
         status,
         activeTurnRoute: status === "running" ? deriveActiveTurnRouteBrowserTransportController(session) : null,
+        activeCodexReasoningPreview:
+          status === "running" && session.activeCodexReasoningPreview?.text?.trim()
+            ? session.activeCodexReasoningPreview
+            : null,
+        codexReasoningPreviews: listCodexReasoningPreviews(session),
         codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
       });
       host.scheduleBoardParticipantRefresh?.(session.id);

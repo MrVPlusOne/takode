@@ -161,26 +161,28 @@ describe("handleMessage: status_change", () => {
     expect(useStore.getState().activeTurnRoutes.get("s1")).toBeNull();
   });
 
-  it("clears the active Codex reasoning preview on any status boundary", () => {
+  it("preserves a routed Codex reasoning row across unrelated status and route boundaries", () => {
+    // Turn/status churn and activity routed to q-976 do not replace the latest visible q-975 row.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
-    useStore.getState().setActiveCodexReasoningPreview("s1", {
-      text: "Checking routing metadata",
-      updatedAt: Date.now(),
-      threadKey: "q-975",
-      questId: "q-975",
-    });
-
     fireMessage({
       type: "status_change",
       status: "running",
       activeTurnRoute: { threadKey: "q-976", questId: "q-976" },
+      codexReasoningPreviews: [
+        {
+          text: "Checking routing metadata",
+          updatedAt: Date.now(),
+          threadKey: "q-975",
+          questId: "q-975",
+        },
+      ],
     });
 
-    expect(useStore.getState().activeCodexReasoningPreviews.has("s1")).toBe(false);
+    expect(useStore.getState().codexReasoningPreviews.get("s1")?.get("q-975")?.text).toBe("Checking routing metadata");
   });
 
-  it("stores active Codex reasoning preview from running status updates", () => {
+  it("stores per-thread Codex reasoning previews from running status updates", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
@@ -188,17 +190,31 @@ describe("handleMessage: status_change", () => {
       type: "status_change",
       status: "running",
       activeTurnRoute: { threadKey: "main" },
-      activeCodexReasoningPreview: {
-        text: "Summarizing options",
-        updatedAt: 123,
-        threadKey: "main",
-      },
+      codexReasoningPreviews: [{ text: "Summarizing options", updatedAt: 123, threadKey: "main" }],
     });
 
-    expect(useStore.getState().activeCodexReasoningPreviews.get("s1")).toMatchObject({
+    expect(useStore.getState().codexReasoningPreviews.get("s1")?.get("main")).toMatchObject({
       text: "Summarizing options",
       threadKey: "main",
     });
+  });
+
+  it("does not treat a legacy null active-turn field as a retained-row clear", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    useStore
+      .getState()
+      .setCodexReasoningPreviews("s1", [
+        { text: "Retained across result", updatedAt: 123, threadKey: "q-975", questId: "q-975" },
+      ]);
+
+    fireMessage({
+      type: "status_change",
+      status: "idle",
+      activeCodexReasoningPreview: null,
+    });
+
+    expect(useStore.getState().codexReasoningPreviews.get("s1")?.get("q-975")?.text).toBe("Retained across result");
   });
 
   it("applies server-authored testing updates and clears omitted legacy terminal projections", () => {

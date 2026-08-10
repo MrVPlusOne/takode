@@ -174,7 +174,7 @@ describe("handleMessage: state_snapshot", () => {
     expect(useStore.getState().askPermission.get("s1")).toBe(false);
   });
 
-  it("hydrates and clears the active Codex reasoning preview from authoritative snapshots", () => {
+  it("hydrates per-thread Codex reasoning and preserves it across an idle snapshot", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
@@ -186,15 +186,17 @@ describe("handleMessage: state_snapshot", () => {
       uiMode: null,
       askPermission: false,
       activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
-      activeCodexReasoningPreview: {
-        text: "Inspecting thread routing",
-        updatedAt: 123,
-        threadKey: "q-975",
-        questId: "q-975",
-      },
+      codexReasoningPreviews: [
+        {
+          text: "Inspecting thread routing",
+          updatedAt: 123,
+          threadKey: "q-975",
+          questId: "q-975",
+        },
+      ],
     });
 
-    expect(useStore.getState().activeCodexReasoningPreviews.get("s1")).toMatchObject({
+    expect(useStore.getState().codexReasoningPreviews.get("s1")?.get("q-975")).toMatchObject({
       text: "Inspecting thread routing",
       threadKey: "q-975",
     });
@@ -206,13 +208,17 @@ describe("handleMessage: state_snapshot", () => {
       backendConnected: true,
       uiMode: null,
       askPermission: false,
-      activeCodexReasoningPreview: {
-        text: "stale",
-        updatedAt: 124,
-      },
+      codexReasoningPreviews: [
+        {
+          text: "Inspecting thread routing",
+          updatedAt: 123,
+          threadKey: "q-975",
+          questId: "q-975",
+        },
+      ],
     });
 
-    expect(useStore.getState().activeCodexReasoningPreviews.has("s1")).toBe(false);
+    expect(useStore.getState().codexReasoningPreviews.get("s1")?.has("q-975")).toBe(true);
   });
 
   it("restores the authoritative recovery-testing projection on reconnect", () => {
