@@ -1027,13 +1027,22 @@ export function createSettingsRoutes(ctx: RouteContext) {
     ) {
       return c.json({ error: 'codexLeaderCompactionMode must be "recycle" or "compact"' }, 400);
     }
-    if (parsedSessionDefaults && !isSupportedClaudeDefaultMaxContext(parsedSessionDefaults.claude.maxContextLength)) {
-      return c.json(
-        {
-          error: `sessionDefaults.claude.maxContextLength currently supports only ${CLAUDE_1M_CONTEXT_TOKENS} or empty`,
-        },
-        400,
-      );
+    if (parsedSessionDefaults) {
+      const invalidClaudeContextField = !isSupportedClaudeDefaultMaxContext(
+        parsedSessionDefaults.claude.maxContextLength,
+      )
+        ? "sessionDefaults.claude.maxContextLength"
+        : !isSupportedClaudeDefaultMaxContext(parsedSessionDefaults.leader.claude.maxContextLength)
+          ? "sessionDefaults.leader.claude.maxContextLength"
+          : null;
+      if (invalidClaudeContextField) {
+        return c.json(
+          {
+            error: `${invalidClaudeContextField} currently supports only ${CLAUDE_1M_CONTEXT_TOKENS} or empty`,
+          },
+          400,
+        );
+      }
     }
     if (body.leaderProfilePools !== undefined) {
       if (
@@ -1166,6 +1175,12 @@ export function createSettingsRoutes(ctx: RouteContext) {
     const settings = updateSettings(settingsPatch);
     if (normalizedServerSlug !== undefined && typeof launcher.setServerSlug === "function") {
       launcher.setServerSlug(settings.serverSlug);
+    }
+    if (parsedSessionDefaults) {
+      wsBridge.broadcastGlobal({
+        type: "settings_updated",
+        sessionDefaults: settings.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS,
+      });
     }
 
     return c.json(buildSettingsResponse(settings));

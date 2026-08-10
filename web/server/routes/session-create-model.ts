@@ -7,6 +7,7 @@ import {
 } from "../model-identity-contract.js";
 import { createModelProvenanceMigration } from "../cli-launcher-model-authority.js";
 import type { SessionBackend } from "./sessions-helpers.js";
+import { resolveSessionDefaultsForRole } from "../../shared/session-defaults.js";
 
 type SessionCreateModelLauncher = {
   getSession: (sessionId: string) => { backendType?: SessionBackend; model?: string } | undefined;
@@ -25,10 +26,12 @@ type ResolveSessionCreateModelOptions = {
 type SessionCreateModelBody = {
   createdBy?: unknown;
   model?: unknown;
+  role?: unknown;
+  isOrchestrator?: unknown;
 };
 
 type SessionCreateModelSettings = {
-  sessionDefaults?: { codex?: { model?: unknown } };
+  sessionDefaults?: unknown;
 };
 
 type SessionCreateModelResolverDeps = {
@@ -98,7 +101,13 @@ export function createSessionCreateModelResolver({
     resolveSessionCreateModel({
       backend,
       createdBy: body.createdBy,
-      configuredDefaultModel: backend === "codex" ? settings.sessionDefaults?.codex?.model : undefined,
+      configuredDefaultModel:
+        backend === "codex"
+          ? resolveSessionDefaultsForRole(
+              settings.sessionDefaults,
+              body.role === "orchestrator" || body.isOrchestrator === true ? "leader" : "worker",
+            ).codex.model
+          : undefined,
       getClaudeUserDefaultModel,
       launcher,
       requestedModel: backend === "codex" ? originalRequestedModel : body.model,

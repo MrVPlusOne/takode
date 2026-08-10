@@ -41,6 +41,7 @@ import {
 import { EnvManager } from "./EnvManager.js";
 import { FolderPicker } from "./FolderPicker.js";
 import { YarnBallSpinner } from "./CatIcons.js";
+import { resolveSessionDefaultsForRole } from "../../shared/session-defaults.js";
 
 // ─── Branch persistence helpers ─────────────────────────────────────────────
 
@@ -237,23 +238,27 @@ export function NewSessionModal({
     if (!nextSettingsDefaults) return;
     const targetKey = backendDefaultKey(targetBackend);
     const edits = defaultFieldEditedRef.current;
+    const effectiveDefaults = resolveSessionDefaultsForRole(
+      nextSettingsDefaults,
+      sessionRole === "leader" ? "leader" : "worker",
+    );
 
     if (!edits.model[targetKey]) {
-      setModel(nextSettingsDefaults[targetKey].model);
+      setModel(effectiveDefaults[targetKey].model);
     }
 
     if (targetKey === "codex") {
       if (!edits.codexInternetAccess) {
-        setCodexInternetAccess(nextSettingsDefaults.codex.internetAccess);
+        setCodexInternetAccess(effectiveDefaults.codex.internetAccess);
       }
       if (!edits.codexReasoningEffort) {
-        setCodexReasoningEffort(nextSettingsDefaults.codex.reasoningEffort);
+        setCodexReasoningEffort(effectiveDefaults.codex.reasoningEffort);
       }
       return;
     }
 
     if (!edits.claudePermissionMode) {
-      const nextMode = nextSettingsDefaults.claude.permissionMode || getDefaultMode("claude");
+      const nextMode = effectiveDefaults.claude.permissionMode || getDefaultMode("claude");
       setMode(nextMode);
       setAskPermission(deriveAskPermissionForMode("claude", nextMode));
     }
@@ -356,7 +361,7 @@ export function NewSessionModal({
   useEffect(() => {
     if (!open) return;
     applySettingsDefaultsForBackend(backend, settingsDefaults);
-  }, [open, backend, settingsDefaults]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, backend, sessionRole, settingsDefaults]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function updateMode(value: string, opts?: { userEdit?: boolean }) {
     if (opts?.userEdit) {

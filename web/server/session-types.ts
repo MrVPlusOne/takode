@@ -6,6 +6,7 @@ import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 import type { ModelProvenanceMigration } from "./model-identity-contract.js";
 import type { CodexAutoPauseRecoveryLink, CodexAutoPauseRecoverySummary } from "./codex-auto-pause-types.js";
 import type { CodexGoalCapabilityState, CodexGoalState } from "./codex-goal.js";
+import type { CodexAppReference, CodexSkillReference } from "./codex-reference-types.js";
 import type {
   CodexAutoPauseInputSourceKind,
   CodexOutboundTurnBase,
@@ -13,6 +14,7 @@ import type {
 } from "./codex-outbound-turn-types.js";
 import type { LeaderProjectionSnapshot } from "./leader-projection-types.js";
 import type { SessionLifecycleBrowserMessage } from "./session-lifecycle-message.js";
+import type { SessionDefaultsSettings } from "../shared/session-defaults.js";
 import type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState } from "./window-protocol-types.js";
 export type {
   CodexAutoPauseRecoveryLink,
@@ -35,6 +37,7 @@ export type {
   LeaderProjectionThreadSummary,
 } from "./leader-projection-types.js";
 export type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState } from "./window-protocol-types.js";
+export type { CodexAppReference, CodexSkillReference } from "./codex-reference-types.js";
 
 // Types for the WebSocket bridge between Claude Code CLI and the browser
 
@@ -65,18 +68,6 @@ export interface CLISystemStatusMessage {
   permissionMode?: string;
   uuid: string;
   session_id: string;
-}
-
-export interface CodexSkillReference {
-  name: string;
-  path: string;
-  description?: string;
-}
-
-export interface CodexAppReference {
-  id: string;
-  name: string;
-  description?: string | null;
 }
 
 export interface CLISystemCompactBoundaryMessage {
@@ -1178,6 +1169,7 @@ export type BrowserIncomingMessageBase =
   | { type: "session_stuck" }
   | { type: "session_unstuck" }
   | { type: "quest_list_updated" }
+  | { type: "settings_updated"; sessionDefaults: SessionDefaultsSettings }
   | {
       type: "session_quest_claimed";
       quest: {

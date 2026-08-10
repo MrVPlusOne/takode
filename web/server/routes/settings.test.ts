@@ -8,6 +8,7 @@ import { createSettingsRoutes } from "./settings.js";
 import { DEFAULT_SESSION_DEFAULTS } from "../../shared/session-defaults.js";
 
 let tempDir: string;
+const mockBroadcastGlobal = vi.fn();
 
 function createApp(): Hono {
   const app = new Hono();
@@ -18,7 +19,7 @@ function createApp(): Hono {
         listSessions: vi.fn(() => []),
         setServerSlug: vi.fn(),
       },
-      wsBridge: {},
+      wsBridge: { broadcastGlobal: mockBroadcastGlobal },
       sessionStore: { directory: tempDir },
       options: {},
       pushoverNotifier: undefined,
@@ -28,6 +29,7 @@ function createApp(): Hono {
 }
 
 beforeEach(async () => {
+  mockBroadcastGlobal.mockReset();
   tempDir = await mkdtemp(join(tmpdir(), "settings-route-test-"));
   _resetForTest(join(tempDir, "settings.json"));
 });
@@ -62,6 +64,7 @@ describe("settings routes", () => {
   it("accepts centralized session defaults settings updates", async () => {
     const app = createApp();
     const sessionDefaults = {
+      ...DEFAULT_SESSION_DEFAULTS,
       codex: {
         ...DEFAULT_SESSION_DEFAULTS.codex,
         model: "gpt-5.4",
@@ -89,6 +92,7 @@ describe("settings routes", () => {
     const body = await res.json();
     expect(body.sessionDefaults).toEqual(sessionDefaults);
     expect(getSettings().sessionDefaults).toEqual(sessionDefaults);
+    expect(mockBroadcastGlobal).toHaveBeenCalledWith({ type: "settings_updated", sessionDefaults });
   });
 
   it("rejects unsupported Claude max context defaults", async () => {
@@ -107,5 +111,29 @@ describe("settings routes", () => {
     expect(await res.json()).toMatchObject({
       error: "sessionDefaults.claude.maxContextLength currently supports only 1000000 or empty",
     });
+  });
+
+  it("rejects unsupported independent leader Claude max context defaults", async () => {
+    const app = createApp();
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionDefaults: {
+          ...DEFAULT_SESSION_DEFAULTS,
+          leaderUsesWorkerDefaults: false,
+          leader: {
+            ...DEFAULT_SESSION_DEFAULTS.leader,
+            claude: { ...DEFAULT_SESSION_DEFAULTS.leader.claude, maxContextLength: 200_000 },
+          },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: "sessionDefaults.leader.claude.maxContextLength currently supports only 1000000 or empty",
+    });
+    expect(mockBroadcastGlobal).not.toHaveBeenCalled();
   });
 });

@@ -173,3 +173,46 @@ describe("handleMessage: session_quest_claimed", () => {
     expect(state.questNamedSessions.has("s1")).toBe(false);
   });
 });
+
+describe("handleMessage: settings_updated", () => {
+  it("publishes server-authoritative session defaults for every open Settings page", () => {
+    // Settings pages are not session-owned store state, so the websocket fan-out uses a window event as the UI bridge.
+    const listener = vi.fn();
+    window.addEventListener("takode:session-defaults-updated", listener);
+    wsModule.connectSession("s1");
+
+    fireMessage({
+      type: "settings_updated",
+      sessionDefaults: {
+        codex: {
+          model: "worker-model",
+          serviceTier: null,
+          reasoningEffort: "",
+          internetAccess: false,
+          maxContextLength: null,
+          effectiveContextWindowPercent: 95,
+        },
+        claude: { model: "", permissionMode: "", reasoningEffort: "", maxContextLength: null },
+        leader: {
+          codex: {
+            model: "leader-model",
+            serviceTier: null,
+            reasoningEffort: "",
+            internetAccess: false,
+            maxContextLength: null,
+          },
+          claude: { model: "", permissionMode: "", reasoningEffort: "", maxContextLength: null },
+        },
+        leaderUsesWorkerDefaults: false,
+      },
+    });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((listener.mock.calls[0]?.[0] as CustomEvent).detail).toMatchObject({
+      codex: { model: "worker-model" },
+      leader: { codex: { model: "leader-model" } },
+      leaderUsesWorkerDefaults: false,
+    });
+    window.removeEventListener("takode:session-defaults-updated", listener);
+  });
+});

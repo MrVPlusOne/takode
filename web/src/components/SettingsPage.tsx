@@ -34,6 +34,7 @@ import {
 } from "../../shared/chat-display-settings.js";
 import {
   DEFAULT_SESSION_DEFAULTS,
+  SESSION_DEFAULTS_UPDATED_EVENT,
   normalizeSessionDefaults,
   type SessionDefaultsSettings,
 } from "../../shared/session-defaults.js";
@@ -324,6 +325,14 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   }, [isActive]);
 
   useEffect(() => {
+    const handleSessionDefaultsUpdate = (event: Event) => {
+      setSessionDefaults(normalizeSessionDefaults((event as CustomEvent<SessionDefaultsSettings>).detail));
+    };
+    window.addEventListener(SESSION_DEFAULTS_UPDATED_EVENT, handleSessionDefaultsUpdate);
+    return () => window.removeEventListener(SESSION_DEFAULTS_UPDATED_EVENT, handleSessionDefaultsUpdate);
+  }, []);
+
+  useEffect(() => {
     if (typeof document === "undefined") return;
     const handleVisibility = () => {
       setDocumentVisible(document.visibilityState === "visible");
@@ -334,6 +343,26 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []);
+
+  // Settings pages may not have a selected-session websocket. Poll the
+  // server-owned defaults so separate browsers converge even in that state.
+  useEffect(() => {
+    if (!isActive || !documentVisible) return;
+    let cancelled = false;
+    const pollSessionDefaults = () => {
+      api
+        .getSettings()
+        .then((settings) => {
+          if (!cancelled) setSessionDefaults(normalizeSessionDefaults(settings.sessionDefaults));
+        })
+        .catch(() => {});
+    };
+    const id = setInterval(pollSessionDefaults, 2_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [documentVisible, isActive]);
 
   // Poll caffeinate status every 5s when sleep inhibitor is enabled
   useEffect(() => {

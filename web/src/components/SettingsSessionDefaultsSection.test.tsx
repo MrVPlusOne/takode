@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { SettingsSessionDefaultsSection } from "./SettingsSessionDefaultsSection.js";
 import { DEFAULT_SESSION_DEFAULTS, type SessionDefaultsSettings } from "../../shared/session-defaults.js";
@@ -15,6 +15,7 @@ vi.mock("../api.js", () => ({
 }));
 
 const loadedDefaults: SessionDefaultsSettings = {
+  ...DEFAULT_SESSION_DEFAULTS,
   codex: {
     ...DEFAULT_SESSION_DEFAULTS.codex,
     model: "gpt-5.4",
@@ -31,6 +32,20 @@ const loadedDefaults: SessionDefaultsSettings = {
     reasoningEffort: "max",
     maxContextLength: 1000000,
   },
+  leader: {
+    codex: {
+      ...DEFAULT_SESSION_DEFAULTS.leader.codex,
+      model: "gpt-5.6-sol",
+      reasoningEffort: "ultra",
+      maxContextLength: 600000,
+    },
+    claude: {
+      ...DEFAULT_SESSION_DEFAULTS.leader.claude,
+      model: "claude-opus-4-6",
+      permissionMode: "bypassPermissions",
+    },
+  },
+  leaderUsesWorkerDefaults: true,
 };
 
 describe("SettingsSessionDefaultsSection", () => {
@@ -57,49 +72,97 @@ describe("SettingsSessionDefaultsSection", () => {
               ],
             },
           ]
-        : [{ value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5", description: "" }],
+        : [
+            { value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5", description: "" },
+            { value: "claude-opus-4-6", label: "Claude Opus 4.6", description: "" },
+          ],
     );
     mockUpdateSettings.mockImplementation(async (patch) => ({ sessionDefaults: patch.sessionDefaults }));
   });
 
-  it("loads backend-specific defaults and persists edits", async () => {
+  it("presents worker and leader defaults while keeping the context estimate global", async () => {
     render(<SettingsSessionDefaultsSection sessionDefaults={loadedDefaults} />);
 
     expect(await screen.findByRole("heading", { name: "Session Defaults" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByLabelText("Default Codex speed")).toHaveValue("priority"));
-    expect(screen.getByLabelText("Default Claude reasoning effort")).toHaveValue("max");
-    expect(screen.getByLabelText("Default Codex usable context capacity")).toHaveAttribute(
-      "placeholder",
-      "No override",
-    );
-    expect(screen.getByLabelText("Default Codex usable context percent")).toHaveValue(95);
-    expect(screen.getByLabelText("Default Claude max context length")).toHaveAttribute("placeholder", "No override");
-    expect(screen.getByText(/Desired usable Codex capacity in tokens/i)).toBeInTheDocument();
-    expect(screen.getByText(/Empty leaves the selected model\/backend default unchanged/i)).toBeInTheDocument();
-    expect(screen.getByText(/Targets 240 K tokens usable capacity/i)).toBeInTheDocument();
-    expect(screen.getByText(/requests about 267 K tokens raw context at 90%/i)).toBeInTheDocument();
-    expect(screen.getByText(/Optional Claude context window in tokens/i)).toBeInTheDocument();
-    expect(screen.getByText(/currently supported value: 1,000,000/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Worker Defaults" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Leader Defaults" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Global Context Estimate" })).toBeInTheDocument();
+    expect(screen.getAllByText("Usable context estimate")).toHaveLength(1);
+    expect(screen.getByLabelText("Codex usable context estimate percent")).toHaveValue(95);
+    expect(screen.getByLabelText("Worker defaults Codex model")).toHaveValue("gpt-5.4");
+    expect(screen.getByLabelText("Leader defaults Codex model")).toBeDisabled();
+    expect(screen.getByLabelText("Leader defaults Codex model")).toHaveValue("gpt-5.4");
+  });
 
-    fireEvent.change(screen.getByLabelText("Default Codex reasoning effort"), { target: { value: "medium" } });
-    fireEvent.change(screen.getByLabelText("Default Codex usable context percent"), { target: { value: "80" } });
+  it("retains independent leader values while shared defaults are re-enabled", async () => {
+    render(<SettingsSessionDefaultsSection sessionDefaults={loadedDefaults} />);
+    const shareToggle = screen.getByRole("checkbox", { name: "Use same as worker defaults" });
+
+    fireEvent.click(shareToggle);
+    await waitFor(() => expect(screen.getByLabelText("Leader defaults Codex model")).toHaveValue("gpt-5.6-sol"));
+    expect(screen.getByLabelText("Leader defaults Codex model")).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText("Leader defaults Codex reasoning effort"), { target: { value: "low" } });
+    fireEvent.click(shareToggle);
+    expect(screen.getByLabelText("Leader defaults Codex model")).toHaveValue("gpt-5.4");
+    fireEvent.click(screen.getByRole("button", { name: "Save Defaults" }));
+    await waitFor(() =>
+      expect(mockUpdateSettings).toHaveBeenCalledWith({
+        sessionDefaults: expect.objectContaining({
+          leaderUsesWorkerDefaults: true,
+          leader: expect.objectContaining({ codex: expect.objectContaining({ reasoningEffort: "low" }) }),
+        }),
+      }),
+    );
+    fireEvent.click(shareToggle);
+
+    expect(screen.getByLabelText("Leader defaults Codex model")).toHaveValue("gpt-5.6-sol");
+    expect(screen.getByLabelText("Leader defaults Codex reasoning effort")).toHaveValue("low");
+  });
+
+  it("persists both profiles, the sharing flag, and a single global context estimate", async () => {
+    render(<SettingsSessionDefaultsSection sessionDefaults={loadedDefaults} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Use same as worker defaults" }));
+    fireEvent.change(screen.getByLabelText("Leader defaults Claude permission mode"), {
+      target: { value: "plan" },
+    });
+    fireEvent.change(screen.getByLabelText("Codex usable context estimate percent"), { target: { value: "80" } });
     fireEvent.click(screen.getByRole("button", { name: "Save Defaults" }));
 
     await waitFor(() => {
       expect(mockUpdateSettings).toHaveBeenCalledWith({
         sessionDefaults: expect.objectContaining({
-          codex: expect.objectContaining({
-            effectiveContextWindowPercent: 80,
-            reasoningEffort: "medium",
-            serviceTier: "priority",
+          leaderUsesWorkerDefaults: false,
+          codex: expect.objectContaining({ effectiveContextWindowPercent: 80, model: "gpt-5.4" }),
+          leader: expect.objectContaining({
+            codex: expect.not.objectContaining({ effectiveContextWindowPercent: expect.anything() }),
+            claude: expect.objectContaining({ permissionMode: "plan" }),
           }),
-          claude: expect.objectContaining({ reasoningEffort: "max", maxContextLength: 1000000 }),
         }),
       });
     });
   });
 
-  it("warns instead of blocking when configured Codex context exceeds model metadata", async () => {
+  it("does not overwrite unsaved local edits when a server refresh arrives", async () => {
+    // SettingsPage polls for cross-browser consistency; an in-progress local form must not be destructively replaced.
+    const { rerender } = render(<SettingsSessionDefaultsSection sessionDefaults={loadedDefaults} />);
+    fireEvent.change(await screen.findByLabelText("Worker defaults Codex model"), {
+      target: { value: "gpt-5.6-sol" },
+    });
+
+    rerender(
+      <SettingsSessionDefaultsSection
+        sessionDefaults={{
+          ...loadedDefaults,
+          codex: { ...loadedDefaults.codex, model: "remote-model" },
+        }}
+      />,
+    );
+
+    expect(screen.getByLabelText("Worker defaults Codex model")).toHaveValue("gpt-5.6-sol");
+  });
+
+  it("warns instead of blocking when a role-specific Codex context exceeds model metadata", async () => {
     render(
       <SettingsSessionDefaultsSection
         sessionDefaults={{
@@ -109,27 +172,15 @@ describe("SettingsSessionDefaultsSection", () => {
       />,
     );
 
-    expect(await screen.findByText(/Selected model metadata reports 300 K tokens raw max/i)).toBeInTheDocument();
+    const workerControls = document.getElementById("worker-default-controls");
+    expect(workerControls).not.toBeNull();
+    expect(
+      await within(workerControls!).findByText(/Selected model metadata reports 300 K tokens raw max/i),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save Defaults" })).toBeEnabled();
   });
 
-  it("shows catalog Codex models and reasoning levels", async () => {
-    render(
-      <SettingsSessionDefaultsSection
-        sessionDefaults={{
-          ...loadedDefaults,
-          codex: { ...loadedDefaults.codex, model: "gpt-5.6-sol", reasoningEffort: "ultra" },
-        }}
-      />,
-    );
-
-    expect(await screen.findByRole("option", { name: "GPT-5.6-Sol" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Default Codex model")).toHaveValue("gpt-5.6-sol");
-    expect(screen.getByRole("option", { name: "Ultra" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Default Codex reasoning effort")).toHaveValue("ultra");
-  });
-
-  it("preserves unknown saved Codex model and reasoning strings in the selects", async () => {
+  it("preserves unknown saved worker Codex model and reasoning strings", async () => {
     render(
       <SettingsSessionDefaultsSection
         sessionDefaults={{
@@ -139,9 +190,13 @@ describe("SettingsSessionDefaultsSection", () => {
       />,
     );
 
-    expect(await screen.findByRole("option", { name: "gpt-future" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Default Codex model")).toHaveValue("gpt-future");
-    expect(screen.getByRole("option", { name: "Future Effort" })).toHaveValue("future_effort");
-    expect(screen.getByLabelText("Default Codex reasoning effort")).toHaveValue("future_effort");
+    const workerModel = await screen.findByLabelText("Worker defaults Codex model");
+    expect(within(workerModel).getByRole("option", { name: "gpt-future" })).toBeInTheDocument();
+    expect(workerModel).toHaveValue("gpt-future");
+    expect(
+      within(screen.getByLabelText("Worker defaults Codex reasoning effort")).getByRole("option", {
+        name: "Future Effort",
+      }),
+    ).toHaveValue("future_effort");
   });
 });

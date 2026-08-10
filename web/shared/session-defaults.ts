@@ -4,16 +4,21 @@ export const CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
 export const CODEX_LEADER_RECYCLE_BUFFER_TOKENS = 25_000;
 export const CLAUDE_1M_CONTEXT_TOKENS = 1_000_000;
 export const CLAUDE_1M_CONTEXT_BETA = "context-1m-2025-08-07";
+export const SESSION_DEFAULTS_UPDATED_EVENT = "takode:session-defaults-updated";
 
 export type CodexReasoningEffort = (typeof CODEX_REASONING_EFFORTS)[number];
 export type ClaudeReasoningEffort = (typeof CLAUDE_REASONING_EFFORTS)[number];
 
-export interface CodexSessionDefaults {
+export interface CodexSessionLaunchDefaults {
   model: string;
   serviceTier: string | null;
   reasoningEffort: CodexReasoningEffort | string;
   internetAccess: boolean;
   maxContextLength: number | null;
+}
+
+/** Worker-compatible Codex defaults also carry the single global preview estimate. */
+export interface CodexSessionDefaults extends CodexSessionLaunchDefaults {
   effectiveContextWindowPercent: number;
 }
 
@@ -24,26 +29,52 @@ export interface ClaudeSessionDefaults {
   maxContextLength: number | null;
 }
 
-export interface SessionDefaultsSettings {
-  codex: CodexSessionDefaults;
+export interface SessionRoleDefaults {
+  codex: CodexSessionLaunchDefaults;
   claude: ClaudeSessionDefaults;
 }
 
-export const DEFAULT_SESSION_DEFAULTS: SessionDefaultsSettings = {
-  codex: {
-    model: "",
-    serviceTier: null,
-    reasoningEffort: "",
-    internetAccess: false,
-    maxContextLength: null,
-    effectiveContextWindowPercent: CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
-  },
+/**
+ * The top-level codex/claude fields remain the worker defaults for compatibility
+ * with older Takode builds. Leader defaults deliberately omit the global Codex
+ * context-estimate percentage so display policy is not duplicated per role.
+ */
+export interface SessionDefaultsSettings {
+  codex: CodexSessionDefaults;
+  claude: ClaudeSessionDefaults;
+  leader: SessionRoleDefaults;
+  leaderUsesWorkerDefaults: boolean;
+}
+
+const DEFAULT_CODEX_LAUNCH_DEFAULTS: CodexSessionLaunchDefaults = {
+  model: "",
+  serviceTier: null,
+  reasoningEffort: "",
+  internetAccess: false,
+  maxContextLength: null,
+};
+
+export const DEFAULT_SESSION_ROLE_DEFAULTS: SessionRoleDefaults = {
+  codex: { ...DEFAULT_CODEX_LAUNCH_DEFAULTS },
   claude: {
     model: "",
     permissionMode: "",
     reasoningEffort: "",
     maxContextLength: null,
   },
+};
+
+export const DEFAULT_SESSION_DEFAULTS: SessionDefaultsSettings = {
+  codex: {
+    ...DEFAULT_CODEX_LAUNCH_DEFAULTS,
+    effectiveContextWindowPercent: CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
+  },
+  claude: { ...DEFAULT_SESSION_ROLE_DEFAULTS.claude },
+  leader: {
+    codex: { ...DEFAULT_SESSION_ROLE_DEFAULTS.codex },
+    claude: { ...DEFAULT_SESSION_ROLE_DEFAULTS.claude },
+  },
+  leaderUsesWorkerDefaults: true,
 };
 
 function stringOrEmpty(value: unknown): string {
@@ -78,31 +109,77 @@ function normalizeClaudeReasoningEffort(value: unknown): ClaudeReasoningEffort |
     : "";
 }
 
-export function normalizeSessionDefaults(value: unknown): SessionDefaultsSettings {
-  const raw = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-  const codex = raw.codex && typeof raw.codex === "object" ? (raw.codex as Record<string, unknown>) : {};
-  const claude = raw.claude && typeof raw.claude === "object" ? (raw.claude as Record<string, unknown>) : {};
-  const codexServiceTier = stringOrEmpty(codex.serviceTier);
-  const claudePermissionMode = stringOrEmpty(claude.permissionMode);
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function normalizeRoleDefaults(value: unknown, fallback: SessionRoleDefaults): SessionRoleDefaults {
+  const raw = objectRecord(value);
+  const codex = objectRecord(raw.codex);
+  const claude = objectRecord(raw.claude);
+  const codexServiceTier = stringOrEmpty(
+    codex.serviceTier === undefined ? fallback.codex.serviceTier : codex.serviceTier,
+  );
+  const claudePermissionMode = stringOrEmpty(claude.permissionMode ?? fallback.claude.permissionMode);
 
   return {
     codex: {
-      model: stringOrEmpty(codex.model),
+      model: stringOrEmpty(codex.model ?? fallback.codex.model),
       serviceTier: codexServiceTier || null,
-      reasoningEffort: normalizeCodexReasoningEffort(codex.reasoningEffort),
-      internetAccess: typeof codex.internetAccess === "boolean" ? codex.internetAccess : false,
-      maxContextLength: normalizePositiveIntegerOrNull(codex.maxContextLength),
-      effectiveContextWindowPercent: normalizePercent(
-        codex.effectiveContextWindowPercent,
-        CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
-      ),
+      reasoningEffort: normalizeCodexReasoningEffort(codex.reasoningEffort ?? fallback.codex.reasoningEffort),
+      internetAccess: typeof codex.internetAccess === "boolean" ? codex.internetAccess : fallback.codex.internetAccess,
+      maxContextLength:
+        codex.maxContextLength === undefined
+          ? fallback.codex.maxContextLength
+          : normalizePositiveIntegerOrNull(codex.maxContextLength),
     },
     claude: {
-      model: stringOrEmpty(claude.model),
+      model: stringOrEmpty(claude.model ?? fallback.claude.model),
       permissionMode: claudePermissionMode,
-      reasoningEffort: normalizeClaudeReasoningEffort(claude.reasoningEffort),
-      maxContextLength: normalizePositiveIntegerOrNull(claude.maxContextLength),
+      reasoningEffort: normalizeClaudeReasoningEffort(claude.reasoningEffort ?? fallback.claude.reasoningEffort),
+      maxContextLength:
+        claude.maxContextLength === undefined
+          ? fallback.claude.maxContextLength
+          : normalizePositiveIntegerOrNull(claude.maxContextLength),
     },
+  };
+}
+
+export function workerSessionRoleDefaults(settings: SessionDefaultsSettings): SessionRoleDefaults {
+  return {
+    codex: {
+      model: settings.codex.model,
+      serviceTier: settings.codex.serviceTier,
+      reasoningEffort: settings.codex.reasoningEffort,
+      internetAccess: settings.codex.internetAccess,
+      maxContextLength: settings.codex.maxContextLength,
+    },
+    claude: { ...settings.claude },
+  };
+}
+
+export function resolveSessionDefaultsForRole(value: unknown, role: "worker" | "leader"): SessionRoleDefaults {
+  const normalized = normalizeSessionDefaults(value);
+  if (role === "leader" && !normalized.leaderUsesWorkerDefaults) return normalized.leader;
+  return workerSessionRoleDefaults(normalized);
+}
+
+export function normalizeSessionDefaults(value: unknown): SessionDefaultsSettings {
+  const raw = objectRecord(value);
+  const legacyWorkerSource = raw.worker && typeof raw.worker === "object" ? raw.worker : raw;
+  const worker = normalizeRoleDefaults(legacyWorkerSource, DEFAULT_SESSION_ROLE_DEFAULTS);
+  const workerCodex = objectRecord(objectRecord(legacyWorkerSource).codex);
+  const effectiveContextWindowPercent = normalizePercent(
+    raw.codexEffectiveContextWindowPercent ?? workerCodex.effectiveContextWindowPercent,
+    CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
+  );
+  const leader = normalizeRoleDefaults(raw.leader, worker);
+
+  return {
+    codex: { ...worker.codex, effectiveContextWindowPercent },
+    claude: worker.claude,
+    leader,
+    leaderUsesWorkerDefaults: typeof raw.leaderUsesWorkerDefaults === "boolean" ? raw.leaderUsesWorkerDefaults : true,
   };
 }
 

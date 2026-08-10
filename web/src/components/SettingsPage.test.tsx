@@ -1246,6 +1246,21 @@ describe("SettingsPage", () => {
     expect(within(cliSection).getByLabelText("Claude Code")).not.toBeVisible();
   });
 
+  it("finds role-aware session defaults from worker and leader search terms", async () => {
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), {
+      target: { value: "leader defaults" },
+    });
+
+    const sessionsSection = settingsSection("Sessions");
+    expect(sessionsSection).toBeVisible();
+    expect(within(sessionsSection).getByRole("heading", { name: "Worker Defaults" })).toBeVisible();
+    expect(within(sessionsSection).getByRole("heading", { name: "Leader Defaults" })).toBeVisible();
+    expect(settingsSection("Notifications")).not.toBeVisible();
+  });
+
   it("finds chat line-height control from settings search", async () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
@@ -1406,5 +1421,33 @@ describe("SettingsPage", () => {
     expect(settingsSection("Session Namer")).toBeInTheDocument();
     expect(settingsSection("Voice Transcription")).toBeInTheDocument();
     expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+  });
+});
+
+describe("server-authoritative session defaults updates", () => {
+  it("refreshes the visible defaults when another browser saves settings", async () => {
+    // The websocket handler emits this event after the server broadcasts a successful settings write.
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("takode:session-defaults-updated", {
+          detail: {
+            ...DEFAULT_SESSION_DEFAULTS,
+            codex: { ...DEFAULT_SESSION_DEFAULTS.codex, model: "remote-worker-model" },
+            leaderUsesWorkerDefaults: false,
+            leader: {
+              codex: { ...DEFAULT_SESSION_DEFAULTS.leader.codex, model: "remote-leader-model" },
+              claude: DEFAULT_SESSION_DEFAULTS.leader.claude,
+            },
+          },
+        }),
+      );
+    });
+
+    expect(await screen.findByLabelText("Worker defaults Codex model")).toHaveValue("remote-worker-model");
+    expect(screen.getByLabelText("Leader defaults Codex model")).toHaveValue("remote-leader-model");
+    expect(screen.getByRole("checkbox", { name: "Use same as worker defaults" })).not.toBeChecked();
   });
 });

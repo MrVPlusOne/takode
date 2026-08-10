@@ -588,6 +588,7 @@ describe("POST /api/sessions/create", () => {
 
   it("applies centralized Codex session defaults when create fields are omitted", async () => {
     const restoreSettings = overrideSettingsForTest({
+      ...DEFAULT_SESSION_DEFAULTS,
       codex: {
         ...DEFAULT_SESSION_DEFAULTS.codex,
         model: "gpt-5.4",
@@ -623,8 +624,78 @@ describe("POST /api/sessions/create", () => {
     );
   });
 
+  it("applies independent leader Codex defaults for orchestrator creation", async () => {
+    const restoreSettings = overrideSettingsForTest({
+      ...DEFAULT_SESSION_DEFAULTS,
+      codex: { ...DEFAULT_SESSION_DEFAULTS.codex, model: "worker-model" },
+      leaderUsesWorkerDefaults: false,
+      leader: {
+        codex: {
+          ...DEFAULT_SESSION_DEFAULTS.leader.codex,
+          model: "leader-model",
+          serviceTier: "priority",
+          reasoningEffort: "ultra",
+          internetAccess: true,
+          maxContextLength: 600_000,
+        },
+        claude: DEFAULT_SESSION_DEFAULTS.leader.claude,
+      },
+    });
+
+    try {
+      const res = await app.request("/api/sessions/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ backend: "codex", cwd: "/test", role: "orchestrator" }),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      restoreSettings();
+    }
+
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "leader-model",
+        codexServiceTier: "priority",
+        codexReasoningEffort: "ultra",
+        codexInternetAccess: true,
+        codexMaxContextLength: 600_000,
+        isOrchestrator: true,
+      }),
+    );
+  });
+
+  it("dynamically uses current worker defaults for shared leader creation", async () => {
+    const restoreSettings = overrideSettingsForTest({
+      ...DEFAULT_SESSION_DEFAULTS,
+      codex: { ...DEFAULT_SESSION_DEFAULTS.codex, model: "current-worker-model", reasoningEffort: "high" },
+      leaderUsesWorkerDefaults: true,
+      leader: {
+        codex: { ...DEFAULT_SESSION_DEFAULTS.leader.codex, model: "retained-independent-model" },
+        claude: DEFAULT_SESSION_DEFAULTS.leader.claude,
+      },
+    });
+
+    try {
+      const res = await app.request("/api/sessions/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ backend: "codex", cwd: "/test", role: "orchestrator" }),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      restoreSettings();
+    }
+
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "current-worker-model", codexReasoningEffort: "high" }),
+    );
+    expect(launcher.launch).not.toHaveBeenCalledWith(expect.objectContaining({ model: "retained-independent-model" }));
+  });
+
   it("keeps explicit create fields ahead of centralized Codex defaults", async () => {
     const restoreSettings = overrideSettingsForTest({
+      ...DEFAULT_SESSION_DEFAULTS,
       codex: {
         ...DEFAULT_SESSION_DEFAULTS.codex,
         model: "gpt-5.4",
@@ -644,6 +715,7 @@ describe("POST /api/sessions/create", () => {
         body: JSON.stringify({
           backend: "codex",
           cwd: "/test",
+          role: "orchestrator",
           model: "gpt-5",
           codexServiceTier: null,
           codexReasoningEffort: "ultra",
@@ -669,6 +741,7 @@ describe("POST /api/sessions/create", () => {
 
   it("applies centralized Claude session defaults when create fields are omitted", async () => {
     const restoreSettings = overrideSettingsForTest({
+      ...DEFAULT_SESSION_DEFAULTS,
       codex: DEFAULT_SESSION_DEFAULTS.codex,
       claude: {
         ...DEFAULT_SESSION_DEFAULTS.claude,
@@ -698,6 +771,44 @@ describe("POST /api/sessions/create", () => {
         permissionMode: "acceptEdits",
         claudeReasoningEffort: "max",
         claudeMaxContextLength: 1_000_000,
+      }),
+    );
+  });
+
+  it("applies independent leader Claude defaults for orchestrator creation", async () => {
+    const restoreSettings = overrideSettingsForTest({
+      ...DEFAULT_SESSION_DEFAULTS,
+      leaderUsesWorkerDefaults: false,
+      leader: {
+        codex: DEFAULT_SESSION_DEFAULTS.leader.codex,
+        claude: {
+          ...DEFAULT_SESSION_DEFAULTS.leader.claude,
+          model: "claude-opus-4-6",
+          permissionMode: "bypassPermissions",
+          reasoningEffort: "high",
+          maxContextLength: 1_000_000,
+        },
+      },
+    });
+
+    try {
+      const res = await app.request("/api/sessions/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ backend: "claude", cwd: "/test", role: "orchestrator" }),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      restoreSettings();
+    }
+
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "claude-opus-4-6",
+        permissionMode: "bypassPermissions",
+        claudeReasoningEffort: "high",
+        claudeMaxContextLength: 1_000_000,
+        isOrchestrator: true,
       }),
     );
   });

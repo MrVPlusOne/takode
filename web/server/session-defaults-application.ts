@@ -4,6 +4,7 @@ import {
   CLAUDE_1M_CONTEXT_TOKENS,
   CLAUDE_REASONING_EFFORTS,
   DEFAULT_SESSION_DEFAULTS,
+  resolveSessionDefaultsForRole,
   isSafeCodexReasoningEffort,
   isSupportedClaudeDefaultMaxContext,
 } from "../shared/session-defaults.js";
@@ -45,10 +46,12 @@ export function applySessionDefaultsToCreateBody<T extends Record<string, unknow
   settings: CompanionSettings,
 ): T {
   const sessionDefaults = settings.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS;
+  const role = body.role === "orchestrator" || body.isOrchestrator === true ? "leader" : "worker";
+  const roleDefaults = resolveSessionDefaultsForRole(sessionDefaults, role);
   const next: Record<string, unknown> = { ...body };
 
   if (backend === "codex") {
-    const defaults = sessionDefaults.codex;
+    const defaults = roleDefaults.codex;
     if (next.model === undefined && defaults.model) next.model = defaults.model;
     if (next.codexInternetAccess === undefined) next.codexInternetAccess = defaults.internetAccess;
     if (next.codexReasoningEffort === undefined && defaults.reasoningEffort) {
@@ -59,7 +62,7 @@ export function applySessionDefaultsToCreateBody<T extends Record<string, unknow
       next.codexMaxContextLength = defaults.maxContextLength;
     }
   } else {
-    const defaults = sessionDefaults.claude;
+    const defaults = roleDefaults.claude;
     if (next.model === undefined && defaults.model) next.model = defaults.model;
     if (next.permissionMode === undefined && defaults.permissionMode) next.permissionMode = defaults.permissionMode;
     if (next.claudeReasoningEffort === undefined && defaults.reasoningEffort) {

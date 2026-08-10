@@ -113,7 +113,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     items: [
       {
         id: "session-defaults",
-        text: "Session Defaults model speed service tier reasoning effort internet max context permission mode",
+        text: "Session Defaults Worker Defaults Leader Defaults use same as worker model speed service tier reasoning effort internet max context permission mode global usable context estimate",
       },
       { id: "max-keep-alive", text: "Max Keep-Alive live CLI processes idle sessions" },
       { id: "heavy-repo", text: "Heavy Repo Mode cached session rows git metadata large repos slow filesystems" },

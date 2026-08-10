@@ -148,6 +148,7 @@ describe("settings-manager", () => {
   it("normalizes and persists centralized session defaults", async () => {
     const updated = updateSettings({
       sessionDefaults: {
+        ...DEFAULT_SESSION_DEFAULTS,
         codex: {
           model: "gpt-5.4",
           serviceTier: "priority",
@@ -180,12 +181,38 @@ describe("settings-manager", () => {
         reasoningEffort: "max",
         maxContextLength: 1_000_000,
       },
+      leader: DEFAULT_SESSION_DEFAULTS.leader,
+      leaderUsesWorkerDefaults: true,
     });
 
     await _flushForTest();
     const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(saved.sessionDefaults.codex.serviceTier).toBe("priority");
     expect(saved.sessionDefaults.claude.maxContextLength).toBe(1_000_000);
+  });
+
+  it("migrates legacy session defaults to worker values and shared leader behavior", () => {
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        sessionDefaults: {
+          codex: { model: "legacy-codex", effectiveContextWindowPercent: 91 },
+          claude: { model: "legacy-claude", permissionMode: "plan" },
+        },
+      }),
+    );
+    _resetForTest(settingsPath);
+
+    const migrated = getSettings().sessionDefaults!;
+    expect(migrated).toMatchObject({
+      codex: { model: "legacy-codex", effectiveContextWindowPercent: 91 },
+      claude: { model: "legacy-claude", permissionMode: "plan" },
+      leader: {
+        codex: { model: "legacy-codex" },
+        claude: { model: "legacy-claude", permissionMode: "plan" },
+      },
+      leaderUsesWorkerDefaults: true,
+    });
   });
 
   it("stores OpenAI API keys in a separate secrets file", async () => {

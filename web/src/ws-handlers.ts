@@ -35,6 +35,7 @@ import {
 import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 import { isRootThinkingOnlyAssistantHistoryEntry } from "../shared/history-sync-hash.js";
 import { isTerminalResultInterrupted } from "../shared/result-interruption.js";
+import { SESSION_DEFAULTS_UPDATED_EVENT } from "../shared/session-defaults.js";
 import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
 import { applyThreadAttachmentUpdate } from "./thread-attachment-update-handler.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
@@ -1702,6 +1703,11 @@ function handleParsedMessage(
       store.invalidateQuestAutocompleteCandidates();
       void store.refreshQuestAutocompleteCandidates({ force: true, background: true });
       void store.refreshQuestSummary({ force: true });
+      break;
+    }
+
+    case "settings_updated": {
+      window.dispatchEvent(new CustomEvent(SESSION_DEFAULTS_UPDATED_EVENT, { detail: data.sessionDefaults }));
       break;
     }
 

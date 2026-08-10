@@ -510,6 +510,62 @@ describe("NewSessionModal", () => {
     expect(createOpts.codexReasoningEffort).toBeUndefined();
   });
 
+  it("previews independent leader settings defaults when the role changes without sending them as overrides", async () => {
+    const user = userEvent.setup();
+    mockGetGlobalNewSessionDefaults.mockReturnValue({
+      backend: "codex",
+      model: "",
+      mode: "agent",
+      askPermission: true,
+      sessionRole: "worker",
+      envSlug: "",
+      cwd: "",
+      useWorktree: true,
+      codexInternetAccess: false,
+      codexReasoningEffort: "low",
+      codexPermissionMode: "default",
+    });
+    mockApi.getSettings.mockResolvedValue({
+      sessionDefaults: {
+        ...DEFAULT_SESSION_DEFAULTS,
+        codex: { ...DEFAULT_SESSION_DEFAULTS.codex, model: "gpt-5.4", reasoningEffort: "low" },
+        leaderUsesWorkerDefaults: false,
+        leader: {
+          codex: {
+            ...DEFAULT_SESSION_DEFAULTS.leader.codex,
+            model: "gpt-5.6-sol",
+            reasoningEffort: "ultra",
+            internetAccess: true,
+          },
+          claude: DEFAULT_SESSION_DEFAULTS.leader.claude,
+        },
+      },
+    });
+    mockApi.getBackendModels.mockResolvedValue([
+      { value: "gpt-5.4", label: "GPT-5.4" },
+      { value: "gpt-5.6-sol", label: "GPT-5.6-Sol", supportedReasoningLevels: [{ effort: "ultra" }] },
+    ]);
+
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    expect(await screen.findByRole("button", { name: /GPT-5\.4/ })).toBeInTheDocument();
+    await user.click(screen.getByTitle(/Leader session:/));
+    expect(await screen.findByRole("button", { name: /GPT-5\.6-Sol/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Ultra" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Internet" })).toHaveClass("text-cc-primary");
+
+    await user.click(screen.getByRole("button", { name: "Create Session" }));
+    await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalled());
+    expect(latestQueuedCreateOpts()).toEqual(
+      expect.objectContaining({
+        role: "orchestrator",
+        model: undefined,
+        codexInternetAccess: undefined,
+        codexReasoningEffort: undefined,
+      }),
+    );
+  });
+
   it("uses saved Codex settings defaults after switching backend instead of legacy local defaults", async () => {
     const user = userEvent.setup();
     mockGetGlobalNewSessionDefaults.mockReturnValue({
