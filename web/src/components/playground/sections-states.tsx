@@ -32,6 +32,7 @@ import { PlaygroundSideChatStates } from "./SideChatPlaygroundStates.js";
 import { PlaygroundSidebarOverflowStates, PlaygroundUniversalSearchStates } from "./search-sidebar-states.js";
 import { PlaygroundUserMessageNavigatorSection } from "./PlaygroundUserMessageNavigatorSection.js";
 import { PlaygroundHerdEventStates } from "./HerdEventPlaygroundStates.js";
+import { PlaygroundCompactToolActivityStates } from "./CompactToolActivityPlaygroundStates.js";
 import { PlaygroundCodexGoalStates } from "./CodexGoalPlaygroundStates.js";
 import { CompactToolMessageGroups } from "../ToolMessageGroup.js";
 import {
@@ -1060,6 +1061,8 @@ export function PlaygroundStateSections() {
           </Card>
         </div>
       </Section>
+
+      <PlaygroundCompactToolActivityStates />
 
       {/* ─── Tool Message Groups ──────────────────────────────── */}
       <Section

@@ -1792,6 +1792,70 @@ describe("MessageBubble - content block grouping", () => {
     expect(screen.getByText("a.ts")).toBeTruthy();
   });
 
+  it("counts producer-shaped large Bash and MCP runs without counting result state", () => {
+    // Results are keyed support data for the seven tool_use blocks, not additional activity items.
+    useStore.setState({
+      compactToolActivity: true,
+      toolResults: new Map([
+        [
+          "large-tool-session",
+          new Map([
+            [
+              "tu-bash-1",
+              {
+                tool_use_id: "tu-bash-1",
+                content: "command complete",
+                is_error: false,
+                total_size: 16,
+                is_truncated: false,
+              },
+            ],
+            [
+              "tu-mcp-1",
+              {
+                tool_use_id: "tu-mcp-1",
+                content: "search complete",
+                is_error: false,
+                total_size: 15,
+                is_truncated: false,
+              },
+            ],
+          ]),
+        ],
+      ]),
+    });
+    const contentBlocks: ContentBlock[] = [
+      ...Array.from(
+        { length: 4 },
+        (_, index): ContentBlock => ({
+          type: "tool_use",
+          id: `tu-bash-${index + 1}`,
+          name: "Bash",
+          input: { command: `echo ${index + 1}` },
+        }),
+      ),
+      ...Array.from(
+        { length: 3 },
+        (_, index): ContentBlock => ({
+          type: "tool_use",
+          id: `tu-mcp-${index + 1}`,
+          name: `mcp:slack:${index % 2 === 0 ? "search_messages" : "get_thread"}`,
+          input: { query: `evidence ${index + 1}` },
+        }),
+      ),
+    ];
+    const msg = makeMessage({ role: "assistant", content: "", contentBlocks });
+    render(<MessageBubble message={msg} sessionId="large-tool-session" />);
+
+    expect(screen.getByText("7 tool calls")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show 7 tool calls: 7 tool calls" })).toBeTruthy();
+    expect(screen.queryByText("echo 1")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show 7 tool calls: 7 tool calls" }));
+    expect(screen.getByText("echo 1")).toBeTruthy();
+    expect(screen.getAllByText("slack:search_messages").length).toBeGreaterThan(0);
+  });
+
   it("keeps interactive tools visible in compact mode", () => {
     // User-input tools are intentionally excluded from passive activity summaries.
     useStore.setState({ compactToolActivity: true });

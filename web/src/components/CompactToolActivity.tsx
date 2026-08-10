@@ -11,7 +11,11 @@ export interface CompactToolActivityItem {
   kind?: "tool" | "worker_event";
 }
 
-const MAX_SUMMARY_PARTS = 3;
+// Keep the fallback independent of viewport measurement so desktop/mobile and
+// live/replayed renders make the same decision from the activity model alone.
+const MAX_DESCRIPTIVE_TOOL_CALLS = 6;
+const MAX_DESCRIPTIVE_TOOL_CATEGORIES = 3;
+const MAX_DESCRIPTIVE_SUMMARY_LENGTH = 56;
 
 /** Return whether a tool can be safely hidden behind a passive activity summary. */
 export function isCompactToolActivityItem(item: CompactToolActivityItem): boolean {
@@ -68,6 +72,17 @@ function groupActivity(items: CompactToolActivityItem[]): ActivityCategory[] {
   return [...categories.values()];
 }
 
+function uniqueActivityItems(items: CompactToolActivityItem[]): CompactToolActivityItem[] {
+  const seenIds = new Set<string>();
+  return items.filter((item) => {
+    if (!item.id) return true;
+    const identity = `${item.kind ?? "tool"}:${item.id}`;
+    if (seenIds.has(identity)) return false;
+    seenIds.add(identity);
+    return true;
+  });
+}
+
 function conciseValue(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim().replace(/\s+/g, " ");
@@ -100,14 +115,46 @@ function lowercaseFirst(value: string): string {
   return value.length === 0 ? value : `${value[0].toLowerCase()}${value.slice(1)}`;
 }
 
+function joinSummaryParts(parts: string[]): string {
+  return parts.map((part, index) => (index === 0 ? part : lowercaseFirst(part))).join(", ");
+}
+
+function formatToolCallCount(count: number): string {
+  return `${count} tool call${count === 1 ? "" : "s"}`;
+}
+
+function shouldUseToolCountFallback(
+  toolCallCount: number,
+  toolCategoryCount: number,
+  descriptiveSummary: string,
+): boolean {
+  return (
+    toolCallCount > MAX_DESCRIPTIVE_TOOL_CALLS ||
+    toolCategoryCount > MAX_DESCRIPTIVE_TOOL_CATEGORIES ||
+    descriptiveSummary.length > MAX_DESCRIPTIVE_SUMMARY_LENGTH
+  );
+}
+
 /** Build the short, human-readable label shown for a collapsed run of tools. */
 export function summarizeToolActivity(items: CompactToolActivityItem[]): string {
-  const categories = groupActivity(items);
-  const visible = categories.slice(0, MAX_SUMMARY_PARTS).map(describeCategory);
-  if (categories.length > MAX_SUMMARY_PARTS) {
-    visible.push(`${categories.length - MAX_SUMMARY_PARTS} more`);
+  const uniqueItems = uniqueActivityItems(items);
+  const categories = groupActivity(uniqueItems);
+  const descriptiveSummary = joinSummaryParts(categories.map(describeCategory));
+  const toolCallCount = uniqueItems.filter((item) => item.kind !== "worker_event").length;
+  const toolCategoryCount = categories.filter((category) => category.key !== "worker-event").length;
+
+  if (!shouldUseToolCountFallback(toolCallCount, toolCategoryCount, descriptiveSummary)) {
+    return descriptiveSummary;
   }
-  return visible.map((part, index) => (index === 0 ? part : lowercaseFirst(part))).join(", ");
+
+  let includedToolCount = false;
+  const countSummaryParts = categories.flatMap((category) => {
+    if (category.key === "worker-event") return [describeCategory(category)];
+    if (includedToolCount) return [];
+    includedToolCount = true;
+    return [formatToolCallCount(toolCallCount)];
+  });
+  return joinSummaryParts(countSummaryParts);
 }
 
 export function CompactToolActivity({
@@ -123,17 +170,19 @@ export function CompactToolActivity({
 }) {
   const [open, setOpen] = useState(false);
   const expandTargetId = useStore((state) => (sessionId ? state.expandAllInTurn.get(sessionId) : undefined));
-  const summary = useMemo(() => summarizeToolActivity(items), [items]);
+  const uniqueItems = useMemo(() => uniqueActivityItems(items), [items]);
+  const summary = useMemo(() => summarizeToolActivity(uniqueItems), [uniqueItems]);
   const iconType = getToolIcon(items[0]?.name ?? "");
-  const itemKindLabel = items.some((item) => item.kind === "worker_event")
-    ? `activity item${items.length === 1 ? "" : "s"}`
-    : `tool call${items.length === 1 ? "" : "s"}`;
+  const itemCount = uniqueItems.length;
+  const itemKindLabel = uniqueItems.some((item) => item.kind === "worker_event")
+    ? `activity item${itemCount === 1 ? "" : "s"}`
+    : `tool call${itemCount === 1 ? "" : "s"}`;
 
   useEffect(() => {
     if (expandTargetId && containedMessageIds.includes(expandTargetId)) setOpen(true);
   }, [containedMessageIds, expandTargetId]);
 
-  if (items.length === 0) return null;
+  if (uniqueItems.length === 0) return null;
 
   return (
     <div data-testid="compact-tool-activity">
@@ -141,8 +190,8 @@ export function CompactToolActivity({
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
-        aria-label={`${open ? "Hide" : "Show"} ${items.length} ${itemKindLabel}: ${summary}`}
-        title={`${open ? "Hide" : "Show"} ${items.length} ${itemKindLabel}`}
+        aria-label={`${open ? "Hide" : "Show"} ${itemCount} ${itemKindLabel}: ${summary}`}
+        title={`${open ? "Hide" : "Show"} ${itemCount} ${itemKindLabel}`}
         className="group flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] text-cc-muted transition-colors hover:bg-cc-hover/50 hover:text-cc-fg cursor-pointer"
       >
         <svg
