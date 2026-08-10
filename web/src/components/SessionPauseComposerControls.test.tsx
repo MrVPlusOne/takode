@@ -208,6 +208,20 @@ describe("PausedInputChip", () => {
     expect(guidance.parentElement?.className).toContain("flex-wrap");
   });
 
+  it("explains terminal unsupported-model pauses without implying automatic model fallback", () => {
+    render(
+      <PausedInputChip
+        pause={null}
+        heldCount={0}
+        autoPausedHeldCount={1}
+        directComposerMessagesSend={true}
+        autoPause={makeAutoPauseState("model_not_supported")}
+      />,
+    );
+
+    expect(screen.getByText(/Cause: Selected model is unsupported at/)).toBeTruthy();
+  });
+
   it("renders held-idle when testing is false and removes the banner after authoritative pause clear", () => {
     const { rerender } = render(
       <PausedInputChip

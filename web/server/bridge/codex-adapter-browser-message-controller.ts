@@ -33,6 +33,10 @@ import {
 } from "../thread-routing-metadata.js";
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
 import { isTerminalResultInterrupted } from "../result-interruption.js";
+import {
+  decideCodexProviderResultRecovery,
+  prepareCodexTurnForProviderRecovery,
+} from "./codex-provider-result-recovery.js";
 import { isCodexLeaderRecycleMode } from "../../shared/codex-leader-compaction-mode.js";
 import {
   clearCodexReasoningPreviewForRoute,
@@ -595,6 +599,7 @@ export interface CodexAdapterBrowserMessageDeps {
     completedTurn: CodexOutboundTurn | null,
     interrupted?: boolean,
   ) => Promise<void> | void;
+  requestCodexProviderRecovery?: (session: CodexBrowserMessageSessionLike, reason: string) => boolean;
   broadcastBoardParticipantRefresh?: (session: CodexBrowserMessageSessionLike) => void;
   syncSideChatParent?: (session: CodexBrowserMessageSessionLike) => void;
 }
@@ -1008,7 +1013,13 @@ export async function handleCodexAdapterBrowserMessage(
     });
     session.consecutiveAdapterFailures = 0;
     session.lastAdapterFailureAt = null;
-    if (!deps.completeCodexTurnsForResult(session, outgoing.data, Date.now())) {
+    const providerRecovery = decideCodexProviderResultRecovery(
+      session,
+      outgoing.data as CLIResultMessage,
+      completedTurn,
+    );
+    const retainTurnForRetry = providerRecovery.kind === "recover" && providerRecovery.retryTurn && !!completedTurn;
+    if (!retainTurnForRetry && !deps.completeCodexTurnsForResult(session, outgoing.data, Date.now())) {
       deps.syncSideChatParent?.(session);
       return;
     }
@@ -1037,6 +1048,39 @@ export async function handleCodexAdapterBrowserMessage(
     );
     if (maybeAutoPause instanceof Promise) {
       await maybeAutoPause;
+    }
+    if (providerRecovery.kind === "recover") {
+      const originalTurnId = completedTurn?.turnId ?? null;
+      if (retainTurnForRetry && completedTurn) {
+        prepareCodexTurnForProviderRecovery(
+          completedTurn,
+          providerRecovery.family,
+          providerRecovery.attempt,
+          Date.now(),
+        );
+        deps.persistSession(session);
+      }
+      const recoveryRequested =
+        deps.requestCodexProviderRecovery?.(
+          session,
+          `provider_result:${providerRecovery.family}:attempt_${providerRecovery.attempt}`,
+        ) ?? false;
+      if (!recoveryRequested && retainTurnForRetry && completedTurn) {
+        completedTurn.turnId = originalTurnId;
+        deps.completeCodexTurnsForResult(session, outgoing.data, Date.now());
+        deps.persistSession(session);
+      }
+      if (!recoveryRequested) {
+        deps.broadcastToBrowsers(session, {
+          type: "error",
+          message:
+            "Codex provider recovery could not start. Session state and queued input remain preserved; use Resume to retry.",
+        });
+      }
+      return;
+    }
+    if (providerRecovery.kind === "terminal_model_not_supported" || providerRecovery.kind === "exhausted") {
+      return;
     }
     if (!session.isGenerating) {
       deps.queueCodexPendingStartBatch(session, "codex_turn_completed");

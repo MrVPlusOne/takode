@@ -83,6 +83,45 @@ describe("Codex result-error auto-pause", () => {
     expect(classifyCodexResultError(result({ result: rawResult }))).toBeNull();
   });
 
+  it("distinguishes corroborated auth-recovery model rejection from a genuinely unsupported model", () => {
+    const unsupported = result({
+      result: '{"error":{"message":"The requested model is not supported.","code":"model_not_supported"}}',
+    });
+    expect(classifyCodexResultError(unsupported)).toEqual({
+      family: "model_not_supported",
+      fingerprint: "model_not_supported:selected_model",
+      message: "The selected model was rejected as unsupported by the provider.",
+    });
+
+    expect(
+      classifyCodexResultError(
+        result({
+          ...unsupported,
+          codex_provider_failure_context: {
+            family: "copilot_auth_refresh_invalidated",
+            observedAt: 100,
+          },
+        }),
+      ),
+    ).toEqual({
+      family: "copilot_auth_refresh_invalidated",
+      fingerprint: "copilot_auth_refresh_invalidated:github_copilot",
+      message: "GitHub Copilot authentication became invalid while connectivity was recovering.",
+    });
+  });
+
+  it("pauses uncorroborated unsupported models immediately without suggesting silent fallback", () => {
+    const s = session();
+    const unsupported = result({
+      result: '{"error":{"message":"The requested model is not supported.","code":"model_not_supported"}}',
+    });
+    const outcome = noteCodexResultForAutoPause(s, unsupported, turn("automatic"), 100);
+
+    expect(outcome.pausedNow).toBe(true);
+    expect(outcome.diagnostic).toContain("Choose a supported model or verify provider routing");
+    expect(outcome.diagnostic).toContain("will not silently change models");
+  });
+
   it("stores and diagnoses Copilot auth refresh exhaustion without retaining raw or credential-like text", () => {
     const sentinel = "sentinel-api-key-value";
     const s = session();

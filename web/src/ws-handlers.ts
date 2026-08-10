@@ -34,6 +34,7 @@ import {
 } from "./utils/history-window-cache.js";
 import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 import { isRootThinkingOnlyAssistantHistoryEntry } from "../shared/history-sync-hash.js";
+import { isTerminalResultInterrupted } from "../shared/result-interruption.js";
 import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
 import { applyThreadAttachmentUpdate } from "./thread-attachment-update-handler.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
@@ -1009,7 +1010,7 @@ function handleParsedMessage(
       if (notifyOnResult && !document.hasFocus() && store.notificationDesktop) {
         sendBrowserNotification("Session completed", "Claude finished the task", sessionId);
       }
-      if (r.is_error && !data.interrupted) {
+      if (r.is_error && !isTerminalResultInterrupted(r, { explicitInterrupted: data.interrupted === true })) {
         const errorText = r.errors?.length ? r.errors.join(", ") : r.result || "An error occurred";
         const isContextLimit = errorText.toLowerCase().includes("prompt is too long");
 

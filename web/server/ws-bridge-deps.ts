@@ -1062,6 +1062,14 @@ export function getCodexAdapterBrowserMessageDeps(host: any) {
       completedTurn: CodexOutboundTurn | null,
       interrupted?: boolean,
     ) => host.handleCodexResultErrorAutoPause(targetSession as Session, msg, completedTurn, interrupted),
+    requestCodexProviderRecovery: (targetSession: unknown, reason: string) => {
+      const session = targetSession as Session;
+      const requested = host.requestCodexAutoRecovery(session, reason);
+      if (requested) {
+        markCodexIntentionalRelaunchController(session, reason, Math.max(CODEX_INTENTIONAL_RELAUNCH_GUARD_MS, 45_000));
+      }
+      return requested;
+    },
     broadcastBoardParticipantRefresh: (targetSession: unknown) =>
       host.scheduleBoardParticipantRefresh?.((targetSession as Session).id),
     syncSideChatParent: (targetSession: unknown) => host.syncSideChatRecordForChild?.(targetSession as Session),

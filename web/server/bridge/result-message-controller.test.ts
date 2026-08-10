@@ -240,6 +240,29 @@ describe("result-message-controller", () => {
     expect(deps.injectUserMessage).not.toHaveBeenCalled();
   });
 
+  it("marks Claude user-control diagnostics from errors[] as interrupted", () => {
+    // Claude WebSocket interruption diagnostics are observed in errors[] when
+    // the result field is absent; this producer shape previously leaked into chat.
+    const session = makeSession();
+    const deps = makeDeps();
+
+    handleResultMessage(
+      session,
+      makeResult({
+        subtype: "error_during_execution",
+        is_error: true,
+        result: undefined,
+        errors: ["[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use"],
+        stop_reason: "tool_use",
+      }),
+      deps,
+    );
+
+    expect(session.messageHistory.at(-1)).toEqual(expect.objectContaining({ type: "result", interrupted: true }));
+    expect(deps.onResultAttentionAndNotifications).not.toHaveBeenCalled();
+    expect(deps.validateLeaderThreadOutcomes).not.toHaveBeenCalled();
+  });
+
   it("skips leader-thread outcome validation for interrupted generation results", () => {
     const session = makeSession();
     const deps = makeDeps();

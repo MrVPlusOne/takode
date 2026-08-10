@@ -139,6 +139,30 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     now.mockRestore();
   });
 
+  it("suppresses legacy Claude user-control diagnostics even without a persisted interrupted flag", () => {
+    // Older live servers stored the diagnostic in errors[] before adding the
+    // top-level interrupted marker. Replaying that history must not recreate it.
+    const message: BrowserIncomingMessage = {
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        errors: ["[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use"],
+        duration_ms: 1,
+        duration_api_ms: 1,
+        num_turns: 0,
+        total_cost_usd: 0,
+        stop_reason: "tool_use",
+        uuid: "legacy-interrupt",
+        session_id: "session-1",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    };
+
+    expect(normalizeHistoryMessageToChatMessages(message, 43)).toEqual([]);
+  });
+
   it("preserves approved variant metadata for permission_approved messages", () => {
     const message: BrowserIncomingMessage = {
       type: "permission_approved",

@@ -612,6 +612,24 @@ describe("Codex recovery timeout (q-385)", () => {
     vi.useRealTimers();
   });
 
+  it("keeps provider-result recovery alive beyond the ordinary 30-second timeout", async () => {
+    // Result-level recovery uses delayed bounded retries while connectivity may
+    // still be down; the generic 30s timeout must not cancel that retry timer.
+    vi.useFakeTimers();
+    const sid = "s-provider-result-recovery-timeout";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({ getSession: vi.fn(() => ({ state: "exited" })) } as any);
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.state.backend_state = "disconnected";
+
+    (bridge as any).requestCodexAutoRecovery(session, "provider_result:model_backend_stream_error:attempt_1");
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(session.state.backend_state).toBe("recovering");
+    vi.useRealTimers();
+  });
+
   it("finalizes a recoverable Codex planning turn only when recovery times out", async () => {
     vi.useFakeTimers();
     const sid = "s-recovery-timeout-generating";

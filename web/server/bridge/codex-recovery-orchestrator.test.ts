@@ -1535,6 +1535,33 @@ describe("handleCodexAdapterInitError", () => {
     );
   });
 
+  it("spreads provider-result init retries across the bounded connectivity recovery window", () => {
+    // A laptop can remain offline longer than the ordinary 1s init retry.
+    // Provider-result recovery keeps the same finite attempt budget but waits
+    // 30s, then 4m, so connectivity can return without a manual resend.
+    vi.useFakeTimers();
+    const adapter = { id: "provider-adapter-1" };
+    const session = makeSession([]);
+    const pending = makePendingTurn();
+    session.codexAdapter = adapter as any;
+    session.state.backend_state = "resuming";
+    session.pendingCodexTurns = [pending];
+    (session as any).codexAutoRecoveryReason = "provider_result:model_backend_stream_error:attempt_1";
+    const deps = makeRecoveryDeps();
+
+    expect(
+      handleCodexAdapterInitError(session.id, session, adapter, "Codex initialization failed: Transport closed", deps),
+    ).toBe("retrying");
+
+    vi.advanceTimersByTime(29_999);
+    expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(deps.requestCodexAutoRecovery).toHaveBeenCalledWith(
+      session,
+      "init_error:provider_result:model_backend_stream_error:attempt_1",
+    );
+  });
+
   it("suppresses automatic recovery after the transient init retry budget is exhausted", () => {
     // Once the bounded retry budget is spent, queued work remains durable but
     // automatic relaunch pauses so users see a manual recovery path instead of

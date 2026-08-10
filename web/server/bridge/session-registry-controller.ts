@@ -1,4 +1,5 @@
 import { sessionTag } from "../session-tag.js";
+import { isCodexProviderResultRecoveryReason } from "./codex-provider-result-recovery.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { PersistedSession } from "../session-store.js";
 import type {
@@ -878,6 +879,9 @@ export function requestCodexAutoRecovery(
   deps.persistSession(session);
   console.log(`[ws-bridge] Requesting Codex auto-recovery for session ${sessionTag(session.id)} (${reason})`);
   deps.requestCliRelaunch(session.id);
+  const recoveryTimeoutMs = isCodexProviderResultRecoveryReason(reason)
+    ? Math.max(deps.recoveryTimeoutMs ?? 30_000, 6 * 60 * 1000)
+    : (deps.recoveryTimeoutMs ?? 30_000);
   setTimeout(() => {
     if (session.state.backend_state !== "recovering") return;
     if (deps.attached?.(session)) return;
@@ -905,7 +909,7 @@ export function requestCodexAutoRecovery(
     });
     deps.finalizeCodexRecoveringTurn?.(session, "recovery_timeout");
     deps.persistSession(session);
-  }, deps.recoveryTimeoutMs ?? 30000);
+  }, recoveryTimeoutMs);
   return true;
 }
 

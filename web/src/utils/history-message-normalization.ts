@@ -1,5 +1,6 @@
 import type { BrowserIncomingMessage, ContentBlock, ChatMessage } from "../types.js";
 import { formatThreadAttachmentMarkerSummary, formatThreadTransitionMarkerSummary } from "./thread-projection.js";
+import { isTerminalResultInterrupted } from "../../shared/result-interruption.js";
 import {
   parseCommandThreadComment,
   parseThreadTextPrefix,
@@ -453,7 +454,7 @@ export function normalizeHistoryMessageToChatMessages(
         },
       ];
     }
-    if (histMsg.interrupted) return [];
+    if (isTerminalResultInterrupted(result, { explicitInterrupted: histMsg.interrupted === true })) return [];
     const errorText = result.errors?.length ? result.errors.join(", ") : result.result || "An error occurred";
     return [
       {

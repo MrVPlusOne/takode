@@ -10,6 +10,12 @@
  */
 
 import { randomUUID } from "node:crypto";
+import {
+  clearCodexProviderFailureEvidence,
+  createCodexProviderFailureEvidenceState,
+  providerFailureContextForResult,
+  recordCodexProviderFailureStderr,
+} from "./codex-provider-failure-context.js";
 import type { Subprocess } from "bun";
 import {
   formatVsCodeSelectionPrompt,
@@ -136,6 +142,7 @@ export class CodexAdapter
   private recentRawMessages: string[] = [];
   private static readonly RAW_MESSAGE_RING_SIZE = 5;
   private processStderrLineBuffer = "";
+  private providerFailureEvidence = createCodexProviderFailureEvidenceState();
   private lastDisconnectDiagnostics: CodexAdapterDisconnectDiagnostics | null = null;
   private inFlightSkillRefreshes = new Map<string, CodexSkillRefreshDiagnostics>();
   private lastSkillRefreshDiagnostics: CodexSkillRefreshDiagnostics | null = null;
@@ -835,6 +842,7 @@ export class CodexAdapter
   }
 
   handleProcessStderr(text: string): void {
+    recordCodexProviderFailureStderr(this.providerFailureEvidence, text);
     for (const message of this.extractWriteStdinRouterFailuresFromStderrChunk(text)) {
       this.handleToolRouterFailureMessage(message);
     }
@@ -1795,10 +1803,17 @@ export class CodexAdapter
       stop_reason: args.status,
       usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       ...(typeof args.turnId === "string" ? { codex_turn_id: args.turnId } : {}),
+      ...(() => {
+        const context = providerFailureContextForResult(this.providerFailureEvidence, args.errorMessage);
+        return context ? { codex_provider_failure_context: context } : {};
+      })(),
       uuid: randomUUID(),
       session_id: this.sessionId,
     };
 
+    if (isSuccess) {
+      clearCodexProviderFailureEvidence(this.providerFailureEvidence);
+    }
     this.emit({ type: "result", data: result });
   }
 

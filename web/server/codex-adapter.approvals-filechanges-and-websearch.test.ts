@@ -1732,6 +1732,48 @@ describe("CodexAdapter", () => {
     expect(resultData.stop_reason).toBe(status);
   });
 
+  it("attaches sanitized recent auth-recovery evidence to misleading model_not_supported results", async () => {
+    // The August incident emitted model_not_supported while stderr carried the
+    // actual post-disconnect Copilot refresh-token failure. Preserve only the
+    // bounded family/timestamp, never raw auth text.
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "gpt-5.6-sol" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await tick();
+    await initializeAdapter(stdout);
+    adapter.handleProcessStderr(
+      "ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed ",
+    );
+    adapter.handleProcessStderr("because your refresh token was already used. Please log out and sign in again.\n");
+
+    stdout.push(
+      JSON.stringify({
+        method: "turn/completed",
+        params: {
+          turn: {
+            id: "turn_auth_recovery",
+            status: "failed",
+            items: [],
+            error: {
+              message: '{"error":{"message":"The requested model is not supported.","code":"model_not_supported"}}',
+            },
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const result = messages.find((message) => message.type === "result");
+    expect(result?.type).toBe("result");
+    if (result?.type !== "result") return;
+    expect(result.data.codex_provider_failure_context).toMatchObject({
+      family: "copilot_auth_refresh_invalidated",
+      observedAt: expect.any(Number),
+    });
+    expect(JSON.stringify(result.data.codex_provider_failure_context)).not.toContain("refresh token was already used");
+  });
+
   it("returns false for unsupported outgoing message types", async () => {
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
 

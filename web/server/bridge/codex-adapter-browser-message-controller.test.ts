@@ -292,6 +292,131 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(deps.freezeHistoryThroughCurrentTail).not.toHaveBeenCalled();
   });
 
+  it("retains and re-arms a proof-safe acknowledged turn before provider recovery relaunch", async () => {
+    const session = makeSession();
+    session.messageHistory.push({ type: "user_message", id: "input-1", content: "continue", timestamp: 1 });
+    const pending: any = {
+      adapterMsg: { type: "codex_start_pending", pendingInputIds: ["input-1"], inputs: [] },
+      userMessageId: "input-1",
+      pendingInputIds: ["input-1"],
+      userContent: "continue",
+      historyIndex: 0,
+      status: "backend_acknowledged",
+      dispatchCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      acknowledgedAt: 2,
+      turnTarget: "current",
+      lastError: null,
+      turnId: "turn-provider",
+      disconnectedAt: null,
+      resumeConfirmedAt: null,
+      autoPauseSourceKind: "manual",
+    };
+    (session as any).pendingCodexTurns = [pending];
+    const deps = makeDeps([]);
+    deps.requestCodexProviderRecovery = vi.fn(() => true);
+    const providerResult = makeResult("provider-result") as Extract<BrowserIncomingMessage, { type: "result" }>;
+    providerResult.data = {
+      ...providerResult.data,
+      subtype: "error_during_execution",
+      is_error: true,
+      result: "stream disconnected before completion: error sending request for url (https://example.test/responses)",
+      stop_reason: "failed",
+      codex_turn_id: "turn-provider",
+    };
+
+    await handleCodexAdapterBrowserMessage(session, providerResult, deps);
+
+    expect(deps.completeCodexTurnsForResult).not.toHaveBeenCalled();
+    expect(pending).toMatchObject({
+      status: "queued",
+      turnId: null,
+      providerRecoveryAttempts: 1,
+      providerRecoveryFamily: "model_backend_stream_error",
+      pendingInputIds: ["input-1"],
+    });
+    expect(deps.requestCodexProviderRecovery).toHaveBeenCalledWith(
+      session,
+      "provider_result:model_backend_stream_error:attempt_1",
+    );
+    expect(deps.dispatchQueuedCodexTurns).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the provider but does not replay a turn with assistant/tool evidence", async () => {
+    const session = makeSession();
+    session.messageHistory.push(
+      { type: "user_message", id: "input-1", content: "continue", timestamp: 1 },
+      makeAssistant([{ type: "tool_use", id: "tool-1", name: "Bash", input: { command: "echo done" } }]),
+    );
+    const pending: any = {
+      adapterMsg: { type: "codex_start_pending", pendingInputIds: ["input-1"], inputs: [] },
+      userMessageId: "input-1",
+      pendingInputIds: ["input-1"],
+      userContent: "continue",
+      historyIndex: 0,
+      status: "backend_acknowledged",
+      dispatchCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      acknowledgedAt: 2,
+      turnTarget: "current",
+      lastError: null,
+      turnId: "turn-provider",
+      disconnectedAt: null,
+      resumeConfirmedAt: null,
+    };
+    (session as any).pendingCodexTurns = [pending];
+    const deps = makeDeps([]);
+    deps.requestCodexProviderRecovery = vi.fn(() => true);
+    const providerResult = makeResult("provider-result-unsafe") as Extract<BrowserIncomingMessage, { type: "result" }>;
+    providerResult.data = {
+      ...providerResult.data,
+      subtype: "error_during_execution",
+      is_error: true,
+      result: "stream disconnected before completion: error sending request for url (https://example.test/responses)",
+      stop_reason: "failed",
+      codex_turn_id: "turn-provider",
+    };
+
+    await handleCodexAdapterBrowserMessage(session, providerResult, deps);
+
+    expect(deps.completeCodexTurnsForResult).toHaveBeenCalledTimes(1);
+    expect(pending.providerRecoveryAttempts).toBeUndefined();
+    expect(deps.requestCodexProviderRecovery).toHaveBeenCalledTimes(1);
+    expect(deps.dispatchQueuedCodexTurns).not.toHaveBeenCalled();
+  });
+
+  it("keeps uncorroborated model_not_supported terminal and skips automatic recovery", async () => {
+    const session = makeSession();
+    (session as any).pendingCodexTurns = [
+      { turnId: "turn-unsupported", historyIndex: -1, providerRecoveryAttempts: 0 },
+    ];
+    const deps = makeDeps([]);
+    deps.requestCodexProviderRecovery = vi.fn(() => true);
+    const unsupported = makeResult("unsupported-result") as Extract<BrowserIncomingMessage, { type: "result" }>;
+    unsupported.data = {
+      ...unsupported.data,
+      subtype: "error_during_execution",
+      is_error: true,
+      result: '{"error":{"message":"The requested model is not supported.","code":"model_not_supported"}}',
+      stop_reason: "failed",
+      codex_turn_id: "turn-unsupported",
+    };
+
+    await handleCodexAdapterBrowserMessage(session, unsupported, deps);
+
+    expect(deps.completeCodexTurnsForResult).toHaveBeenCalledTimes(1);
+    expect(deps.handleCodexResultErrorAutoPause).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ result: expect.stringContaining("model_not_supported") }),
+      expect.anything(),
+      false,
+    );
+    expect(deps.requestCodexProviderRecovery).not.toHaveBeenCalled();
+    expect(deps.dispatchQueuedCodexTurns).not.toHaveBeenCalled();
+  });
+
   it("records live streamed activity breadcrumbs for hidden delegate children", async () => {
     const session = makeSession() as TestCodexSession & {
       delegateLiveActivity?: { kind: string; label: string; text: string; status: string };

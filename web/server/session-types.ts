@@ -6,6 +6,11 @@ import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 import type { ModelProvenanceMigration } from "./model-identity-contract.js";
 import type { CodexAutoPauseRecoveryLink, CodexAutoPauseRecoverySummary } from "./codex-auto-pause-types.js";
 import type { CodexGoalCapabilityState, CodexGoalState } from "./codex-goal.js";
+import type {
+  CodexAutoPauseInputSourceKind,
+  CodexOutboundTurnBase,
+  CodexProviderFailureContext,
+} from "./codex-outbound-turn-types.js";
 import type { LeaderProjectionSnapshot } from "./leader-projection-types.js";
 import type { SessionLifecycleBrowserMessage } from "./session-lifecycle-message.js";
 import type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState } from "./window-protocol-types.js";
@@ -16,6 +21,13 @@ export type {
   CodexAutoPauseRecoveryReceipt,
   CodexAutoPauseRecoverySummary,
 } from "./codex-auto-pause-types.js";
+export type {
+  CodexAutoPauseInputSourceKind,
+  CodexOutboundTurnStatus,
+  CodexProviderFailureContext,
+  CodexProviderFailureContextFamily,
+  CodexProviderRecoveryFamily,
+} from "./codex-outbound-turn-types.js";
 export type {
   LeaderProjectionInternalSnapshot,
   LeaderProjectionSnapshot,
@@ -123,6 +135,8 @@ export interface CLIResultMessage {
   is_error: boolean;
   result?: string;
   errors?: string[];
+  /** Sanitized adapter-observed evidence that can disambiguate a misleading provider error. */
+  codex_provider_failure_context?: CodexProviderFailureContext;
   duration_ms: number;
   duration_api_ms: number;
   num_turns: number;
@@ -733,8 +747,11 @@ export interface SessionPauseState {
   lastQueuedAt?: number;
 }
 
-export type CodexResultErrorFamily = "model_backend_stream_error" | "copilot_auth_refresh_exhausted";
-export type CodexAutoPauseInputSourceKind = "manual" | "automatic";
+export type CodexResultErrorFamily =
+  | "model_backend_stream_error"
+  | "copilot_auth_refresh_exhausted"
+  | "copilot_auth_refresh_invalidated"
+  | "model_not_supported";
 
 export interface CodexAutoPauseHeldInput {
   id: string;
@@ -1267,13 +1284,6 @@ export function isClaudeFamily(backend: BackendType): boolean {
   return backend === "claude" || backend === "claude-sdk";
 }
 
-export type CodexOutboundTurnStatus =
-  | "queued"
-  | "dispatched"
-  | "backend_acknowledged"
-  | "completed"
-  | "blocked_broken_session";
-
 export interface StarredMessageRecord {
   messageId: string;
   role: "user" | "assistant";
@@ -1285,29 +1295,7 @@ export interface StarredMessageRecord {
   questId?: string;
 }
 
-export interface CodexOutboundTurn {
-  adapterMsg: BrowserOutgoingMessage;
-  userMessageId: string;
-  pendingInputIds?: string[];
-  userContent: string;
-  historyIndex: number;
-  status: CodexOutboundTurnStatus;
-  dispatchCount: number;
-  createdAt: number;
-  updatedAt: number;
-  acknowledgedAt: number | null;
-  turnTarget: "current" | "queued" | null;
-  lastError: string | null;
-  turnId: string | null;
-  disconnectedAt: number | null;
-  resumeConfirmedAt: number | null;
-  /** Server-only source classification used by Codex result-error auto-pause. */
-  autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
-  /** Correlations retained across acknowledgement, reconnect, and turn retry. */
-  autoPauseRecoveryLinks?: CodexAutoPauseRecoveryLink[];
-  /** Server-only marker that a non-result terminal path retired this recovery presentation owner. */
-  autoPauseRecoveryTestingRetired?: boolean;
-}
+export type CodexOutboundTurn = CodexOutboundTurnBase<BrowserOutgoingMessage>;
 
 export interface SessionState {
   session_id: string;

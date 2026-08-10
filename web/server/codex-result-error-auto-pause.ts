@@ -26,6 +26,9 @@ export const CODEX_RESULT_ERROR_AUTO_PAUSE_STREAK_WINDOW_MS = 10 * 60 * 1000;
 
 const MODEL_BACKEND_STREAM_ERROR_SUMMARY = "Model backend stream disconnected before completion.";
 const COPILOT_AUTH_REFRESH_EXHAUSTED_SUMMARY = "GitHub Copilot API-key refresh exhausted its retry budget.";
+const COPILOT_AUTH_REFRESH_INVALIDATED_SUMMARY =
+  "GitHub Copilot authentication became invalid while connectivity was recovering.";
+const MODEL_NOT_SUPPORTED_SUMMARY = "The selected model was rejected as unsupported by the provider.";
 
 export interface ClassifiedCodexResultError {
   family: CodexResultErrorFamily;
@@ -64,6 +67,23 @@ export function classifyCodexResultError(msg: CLIResultMessage): ClassifiedCodex
       family: "copilot_auth_refresh_exhausted",
       fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
       message: COPILOT_AUTH_REFRESH_EXHAUSTED_SUMMARY,
+    };
+  }
+
+  const modelNotSupported =
+    normalized.includes("model_not_supported") || normalized.includes("requested model is not supported");
+  if (modelNotSupported) {
+    if (msg.codex_provider_failure_context?.family === "copilot_auth_refresh_invalidated") {
+      return {
+        family: "copilot_auth_refresh_invalidated",
+        fingerprint: "copilot_auth_refresh_invalidated:github_copilot",
+        message: COPILOT_AUTH_REFRESH_INVALIDATED_SUMMARY,
+      };
+    }
+    return {
+      family: "model_not_supported",
+      fingerprint: "model_not_supported:selected_model",
+      message: MODEL_NOT_SUPPORTED_SUMMARY,
     };
   }
 
@@ -245,10 +265,19 @@ export function buildCodexAutoPauseDiagnostic(state: CodexResultErrorAutoPauseSt
   const heldCount = getCodexAutoPauseHeldInputCount(state);
   const heldSuffix =
     heldCount === 0 ? "No automatic inputs are currently held." : `${heldCount} automatic input(s) are held.`;
+  if (state.family === "model_not_supported") {
+    return (
+      "Automatic Codex input delivery paused because the provider rejected the selected model as unsupported. " +
+      `${heldSuffix} Choose a supported model or verify provider routing, then send a direct message to test it. ` +
+      "Takode will not silently change models or retry automatic work."
+    );
+  }
   const reason =
     state.family === "copilot_auth_refresh_exhausted"
       ? "GitHub Copilot API-key refresh exhausted its retries"
-      : `${state.streak} consecutive backend stream errors`;
+      : state.family === "copilot_auth_refresh_invalidated"
+        ? `${state.streak} consecutive provider authentication recovery errors`
+        : `${state.streak} consecutive backend stream errors`;
   return (
     `Automatic Codex input delivery paused because ${reason}. ` +
     `${heldSuffix} Send a direct composer message after fixing the backend to test recovery. ` +
@@ -257,7 +286,7 @@ export function buildCodexAutoPauseDiagnostic(state: CodexResultErrorAutoPauseSt
 }
 
 function getCodexResultErrorAutoPauseThreshold(family: CodexResultErrorFamily): number {
-  return family === "copilot_auth_refresh_exhausted"
+  return family === "copilot_auth_refresh_exhausted" || family === "model_not_supported"
     ? CODEX_COPILOT_AUTH_REFRESH_AUTO_PAUSE_THRESHOLD
     : CODEX_RESULT_ERROR_AUTO_PAUSE_THRESHOLD;
 }

@@ -49,7 +49,11 @@ export interface CodexAutoPauseRecoveryReceipt {
 }
 
 export interface CodexAutoPauseRecoverySummary {
-  family: "model_backend_stream_error" | "copilot_auth_refresh_exhausted";
+  family:
+    | "model_backend_stream_error"
+    | "copilot_auth_refresh_exhausted"
+    | "copilot_auth_refresh_invalidated"
+    | "model_not_supported";
   pausedAt: number;
   recoveryConfirmedAt: number;
   updatedAt: number;

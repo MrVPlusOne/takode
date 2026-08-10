@@ -56,6 +56,10 @@ function fixedAutoPauseCause(family: CodexResultErrorFamily): string {
   switch (family) {
     case "copilot_auth_refresh_exhausted":
       return "Copilot authentication refresh failed";
+    case "copilot_auth_refresh_invalidated":
+      return "Copilot authentication became invalid during recovery";
+    case "model_not_supported":
+      return "Selected model is unsupported";
     case "model_backend_stream_error":
       return "Model backend stream disconnected repeatedly";
     default:

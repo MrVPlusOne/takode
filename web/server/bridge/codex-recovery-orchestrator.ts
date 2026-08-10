@@ -51,6 +51,7 @@ import {
 } from "./codex-recovered-assistant-routing.js";
 import { consumeCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 import { handleTerminalTurnStartFailure } from "./codex-terminal-turn-start-failure.js";
+import { clearCodexInitRecoveryRuntimeState, codexInitRecoveryRetryDelayMs } from "./codex-provider-result-recovery.js";
 import {
   collectCodexAutoPauseRecoveryLinks,
   markCodexAutoPauseRecoveryDelivered,
@@ -69,7 +70,6 @@ export { clearCodexIntentionalRelaunch, markCodexIntentionalRelaunch } from "./c
 export { maybeFlushQueuedCodexMessages } from "./codex-queued-message-flush.js";
 const CODEX_RETRY_SAFE_RESUME_ITEM_TYPES: ReadonlySet<string> = new Set(["reasoning", "contextCompaction"]);
 const CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP = 2;
-const CODEX_INIT_RETRY_BASE_DELAY_MS = 1_000;
 type InterruptSource = "user" | "leader" | "system";
 type CodexRecoveryAdapterLike = any;
 export interface CodexRecoveryOrchestratorSessionLike {
@@ -856,14 +856,6 @@ export function trySteerPendingCodexInputs(
   return true;
 }
 
-function clearCodexInitRecoveryState(session: CodexRecoveryOrchestratorSessionLike): void {
-  const retryTimer = (session as any).codexInitRetryTimer as ReturnType<typeof setTimeout> | null | undefined;
-  if (retryTimer) clearTimeout(retryTimer);
-  (session as any).codexInitRetryTimer = null;
-  (session as any).codexInitRecoveryFailures = 0;
-  (session as any).codexAutoRecoveryReason = null;
-}
-
 export function handleCodexAdapterInitError(
   sessionId: string,
   session: CodexRecoveryOrchestratorSessionLike,
@@ -909,7 +901,7 @@ export function handleCodexAdapterInitError(
       deps.setBackendState(session, "recovering", null);
       broadcastCodexAutoPauseRecoveryTesting(session, deps);
       deps.broadcastToBrowsers(session, { type: "backend_disconnected" });
-      const delayMs = Math.min(CODEX_INIT_RETRY_BASE_DELAY_MS * failures, 10_000);
+      const delayMs = codexInitRecoveryRetryDelayMs(autoRecoveryReason, failures);
       (session as any).codexInitRetryTimer = setTimeout(() => {
         (session as any).codexInitRetryTimer = null;
         if (session.codexAdapter) return;
@@ -918,7 +910,7 @@ export function handleCodexAdapterInitError(
       deps.persistSession(session);
       return "retrying";
     }
-    clearCodexInitRecoveryState(session);
+    clearCodexInitRecoveryRuntimeState(session);
     if (pending) {
       pending.status = "queued";
       pending.lastError = error;
@@ -942,7 +934,7 @@ export function handleCodexAdapterInitError(
     return "broken";
   }
 
-  clearCodexInitRecoveryState(session);
+  clearCodexInitRecoveryRuntimeState(session);
   if ((session as any).pendingCodexRollback) {
     (session as any).pendingCodexRollbackError = error;
     (session as any).pendingCodexRollbackWaiter?.reject(new Error(error));
@@ -1003,7 +995,7 @@ export function registerCodexAdapterRecoveryLifecycle(
       deps.hydrateCodexResumedHistory(session, meta.resumeSnapshot);
       reconcileCodexResumedTurn(session, meta.resumeSnapshot, deps);
     }
-    clearCodexInitRecoveryState(session);
+    clearCodexInitRecoveryRuntimeState(session);
     broadcastCodexAutoPauseRecoveryTesting(session, deps);
     reconcileDuplicateCodexPendingTurns(session, "session_meta", deps);
     retryNonDrainableCodexHeadTurn(session, "session_meta_stale_ack_head", deps);

@@ -15,8 +15,8 @@ function playgroundPause(family: CodexResultErrorAutoPauseState["family"]): Code
   return {
     family,
     fingerprint: `${family}:playground-private-fingerprint`,
-    streak: family === "copilot_auth_refresh_exhausted" ? 1 : 3,
-    threshold: family === "copilot_auth_refresh_exhausted" ? 1 : 3,
+    streak: family === "copilot_auth_refresh_exhausted" || family === "model_not_supported" ? 1 : 3,
+    threshold: family === "copilot_auth_refresh_exhausted" || family === "model_not_supported" ? 1 : 3,
     pausedAt: NOW - 45_000,
     lastError: "PRIVATE RAW PROVIDER ERROR MUST NOT RENDER",
     lastErrorAt: NOW - 5_000,
@@ -53,6 +53,7 @@ function playgroundPause(family: CodexResultErrorAutoPauseState["family"]): Code
 
 const PLAYGROUND_COPILOT_PAUSE = playgroundPause("copilot_auth_refresh_exhausted");
 const PLAYGROUND_STREAM_PAUSE = playgroundPause("model_backend_stream_error");
+const PLAYGROUND_UNSUPPORTED_MODEL_PAUSE = playgroundPause("model_not_supported");
 
 function PlaygroundPauseFrame({
   autoPause,
@@ -95,6 +96,10 @@ export function PlaygroundAutoPauseBannerStates() {
         <div data-testid="playground-auto-pause-mobile-width" className="max-w-[320px]">
           <PlaygroundPauseFrame autoPause={PLAYGROUND_STREAM_PAUSE} testing />
         </div>
+      </Card>
+      <div className="mt-4" />
+      <Card label="Automatic recovery paused — unsupported selected model">
+        <PlaygroundPauseFrame autoPause={PLAYGROUND_UNSUPPORTED_MODEL_PAUSE} />
       </Card>
       <div className="mt-4" />
       <Card label="Failed recovery remains held">
