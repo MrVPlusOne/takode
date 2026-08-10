@@ -90,7 +90,10 @@ import {
   type LeaderOpenThreadTabsState,
   type LeaderThreadTabUpdate,
 } from "../../shared/leader-open-thread-tabs.js";
-import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
+import {
+  getLiveSessionConnectionStatus,
+  getRecoverableSessionConnectionPresentation,
+} from "../utils/recoverable-session-connection.js";
 import { findSessionQuestContextCandidate } from "../utils/session-quest-context.js";
 import type {
   BoardRowSessionStatus,
@@ -1052,6 +1055,7 @@ export function ChatView({
     cliConnected,
     cliEverConnected,
     cliDisconnectReason,
+    launcherState,
     isArchived,
     serverReachable,
     isLeaderSession,
@@ -1080,6 +1084,7 @@ export function ChatView({
         cliConnected: s.cliConnected.get(sessionId) ?? false,
         cliEverConnected: s.cliEverConnected.get(sessionId) ?? false,
         cliDisconnectReason: s.cliDisconnectReason.get(sessionId) ?? null,
+        launcherState: sdkSession?.state,
         isArchived: sdkSession?.archived ?? false,
         serverReachable: s.serverReachable,
         isLeaderSession: sessionState?.isOrchestrator === true || sdkSession?.isOrchestrator === true,
@@ -1649,39 +1654,18 @@ export function ChatView({
     idlePaused: cliDisconnectReason === "idle_limit",
     serverReachable,
   });
-  const showStartingBanner =
-    connStatus === "connected" &&
-    !cliConnected &&
-    backendState !== "broken" &&
-    backendState !== "recovery_suppressed" &&
-    !recoverableConnectionPresentation &&
-    (backendState === "initializing" ||
-      backendState === "resuming" ||
-      backendState === "recovering" ||
-      !cliEverConnected);
   const isResumeMissingRolloutError =
     backendError?.includes("could not be resumed because its local rollout is missing or unreadable") ?? false;
-  const liveConnectionStatus = !serverReachable
-    ? "server-unreachable"
-    : isArchived
-      ? null
-      : showStartingBanner
-        ? "starting"
-        : connStatus === "connected" && !cliConnected && backendState === "broken"
-          ? "broken"
-          : connStatus === "connected" && !cliConnected && backendState === "recovery_suppressed"
-            ? "recovery-suppressed"
-            : connStatus === "connected" &&
-                !cliConnected &&
-                cliEverConnected &&
-                !recoverableConnectionPresentation &&
-                backendState !== "initializing" &&
-                backendState !== "resuming" &&
-                backendState !== "recovering"
-              ? "cli-disconnected"
-              : connStatus === "disconnected"
-                ? "websocket-disconnected"
-                : null;
+  const liveConnectionStatus = getLiveSessionConnectionStatus({
+    backendState,
+    browserConnectionStatus: connStatus,
+    cliConnected,
+    cliEverConnected,
+    launcherState,
+    recoverableConnectionPresentation,
+    archived: isArchived,
+    serverReachable,
+  });
   return (
     <div className="relative flex flex-col h-full min-h-0">
       {preview ? (

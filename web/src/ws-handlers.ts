@@ -1917,6 +1917,7 @@ function handleParsedMessage(
       }
       const chatMessages = normalizeThreadWindowEntries(sessionId, sourceEntries);
       store.setThreadWindow(sessionId, data.thread_key, data.window, chatMessages);
+      if (sourceEntries.length > 0) store.setCliEverConnected(sessionId);
       if (store.pendingThreadWindowRequests.get(sessionId) === data.thread_key) {
         store.setPendingThreadWindowRequest(sessionId, null);
       }

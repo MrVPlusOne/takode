@@ -525,12 +525,14 @@ export const useStore = create<AppState>((set, get) => ({
               cliDisconnectReason.set(sessionId, null);
               cliDisconnectReasonChanged = true;
             }
-            if (!cliEverConnected.get(sessionId)) {
-              if (!cliEverConnectedChanged) cliEverConnected = new Map(cliEverConnected);
-              cliEverConnected.set(sessionId, true);
-              cliEverConnectedChanged = true;
-            }
           }
+        }
+        const hasHistoricalBackendEvidence =
+          session.cliConnected === true || Boolean(session.cliSessionId) || (session.agentTurnCount ?? 0) > 0;
+        if (hasHistoricalBackendEvidence && !cliEverConnected.get(sessionId)) {
+          if (!cliEverConnectedChanged) cliEverConnected = new Map(cliEverConnected);
+          cliEverConnected.set(sessionId, true);
+          cliEverConnectedChanged = true;
         }
 
         // Non-current sessions no longer keep a live chat socket open, so their

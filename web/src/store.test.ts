@@ -406,6 +406,26 @@ describe("Session management", () => {
     expect(state.cliDisconnectReason.get("other")).toBeNull();
   });
 
+  it("setSdkSessions: restores prior connection evidence for a disconnected persisted session", () => {
+    // After a server/browser restart, cliEverConnected is empty local state.
+    // The persisted CLI session id is server-authored proof that an exited
+    // historical session is disconnected, not a fresh launch still starting.
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "historical",
+        state: "exited",
+        cwd: "/historical",
+        createdAt: Date.now(),
+        cliSessionId: "provider-thread-1",
+        cliConnected: false,
+      },
+    ]);
+
+    const state = useStore.getState();
+    expect(state.cliConnected.get("historical")).toBe(false);
+    expect(state.cliEverConnected.get("historical")).toBe(true);
+  });
+
   it("setSdkSessions: clears stale non-current running state when the poll reports idle", () => {
     useStore.getState().setSessionStatus("other", "running");
 

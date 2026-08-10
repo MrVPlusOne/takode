@@ -2,6 +2,16 @@ export type BrowserConnectionStatus = "connecting" | "connected" | "disconnected
 
 export type RecoverableSessionConnectionKind = "disconnected" | "reconnecting";
 
+export type LauncherSessionState = "starting" | "connected" | "running" | "exited";
+
+export type LiveSessionConnectionStatus =
+  | "starting"
+  | "broken"
+  | "recovery-suppressed"
+  | "cli-disconnected"
+  | "websocket-disconnected"
+  | "server-unreachable";
+
 export interface RecoverableSessionConnectionPresentation {
   kind: RecoverableSessionConnectionKind;
   label: string;
@@ -44,4 +54,60 @@ export function getRecoverableSessionConnectionPresentation({
       : "You can keep working normally. Takode reconnects automatically when backend delivery is needed.",
     actionLabel: "Resume",
   };
+}
+
+export function getLiveSessionConnectionStatus({
+  backendState,
+  browserConnectionStatus,
+  cliConnected,
+  cliEverConnected,
+  launcherState,
+  recoverableConnectionPresentation,
+  archived = false,
+  serverReachable = true,
+}: {
+  backendState?: string | null;
+  browserConnectionStatus: BrowserConnectionStatus;
+  cliConnected: boolean;
+  cliEverConnected: boolean;
+  launcherState?: LauncherSessionState;
+  recoverableConnectionPresentation: RecoverableSessionConnectionPresentation | null;
+  archived?: boolean;
+  serverReachable?: boolean;
+}): LiveSessionConnectionStatus | null {
+  if (!serverReachable) return "server-unreachable";
+  if (archived) return null;
+
+  const activelyStarting =
+    backendState === "initializing" ||
+    backendState === "resuming" ||
+    backendState === "recovering" ||
+    (!cliEverConnected && launcherState === "starting");
+  if (
+    browserConnectionStatus === "connected" &&
+    !cliConnected &&
+    backendState !== "broken" &&
+    backendState !== "recovery_suppressed" &&
+    !recoverableConnectionPresentation &&
+    activelyStarting
+  ) {
+    return "starting";
+  }
+  if (browserConnectionStatus === "connected" && !cliConnected && backendState === "broken") return "broken";
+  if (browserConnectionStatus === "connected" && !cliConnected && backendState === "recovery_suppressed") {
+    return "recovery-suppressed";
+  }
+  if (
+    browserConnectionStatus === "connected" &&
+    !cliConnected &&
+    cliEverConnected &&
+    !recoverableConnectionPresentation &&
+    backendState !== "initializing" &&
+    backendState !== "resuming" &&
+    backendState !== "recovering"
+  ) {
+    return "cli-disconnected";
+  }
+  if (browserConnectionStatus === "disconnected") return "websocket-disconnected";
+  return null;
 }

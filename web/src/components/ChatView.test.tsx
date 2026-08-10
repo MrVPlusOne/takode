@@ -465,6 +465,7 @@ describe("ChatView backend banners", () => {
     // so the live chat-surface banner still needs to key off the first-connect path.
     resetStore({
       sessions: new Map([["s1", { backend_state: "disconnected", backend_error: null }]]),
+      sdkSessions: [{ sessionId: "s1", state: "starting", archived: false }],
       cliConnected: new Map([["s1", false]]),
       cliEverConnected: new Map(),
     });
@@ -534,9 +535,10 @@ describe("ChatView backend banners", () => {
 
   it("keeps ordinary backend disconnects out of the prominent banner path", () => {
     resetStore({
-      sessions: new Map([["s1", { backend_state: "connected", backend_error: null }]]),
+      sessions: new Map([["s1", { backend_state: "disconnected", backend_error: null }]]),
+      sdkSessions: [{ sessionId: "s1", state: "exited", archived: false }],
       cliConnected: new Map([["s1", false]]),
-      cliEverConnected: new Map([["s1", true]]),
+      cliEverConnected: new Map(),
       cliDisconnectReason: new Map([["s1", null]]),
       sessionStatus: new Map([["s1", null]]),
     });
@@ -544,6 +546,7 @@ describe("ChatView backend banners", () => {
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
     expect(scope.queryByTestId("live-connection-status-banner")).not.toBeInTheDocument();
+    expect(scope.queryByText("Starting session...")).not.toBeInTheDocument();
     expect(scope.getByTestId("message-feed")).toBeInTheDocument();
     expect(scope.getByTestId("composer")).toBeInTheDocument();
   });

@@ -611,6 +611,7 @@ describe("handleMessage: thread_window_sync", () => {
         ?.get("q-1040")
         ?.map((message) => message.historyIndex),
     ).toEqual([120, 121]);
+    expect(useStore.getState().cliEverConnected.get("s1")).toBe(true);
   });
 
   it("does not retain root thinking-only assistant entries in selected thread windows", () => {
