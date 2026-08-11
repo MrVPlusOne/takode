@@ -230,7 +230,16 @@ describe("Playground", () => {
     expect(screen.getByTestId("composer-permission-mode-popover")).toHaveTextContent(
       "Change permissions to Full access?",
     );
-  });
+    expect(screen.getByText("Codex model and effort selector")).toBeTruthy();
+    expect(screen.getByText("Codex model selector — narrow layout")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Model and effort: 5.6 Sol Ultra" }).length).toBeGreaterThan(0);
+    expect(screen.getByTestId("composer-model-summary-menu")).toHaveTextContent("Model");
+    expect(screen.getByTestId("composer-model-summary-menu")).toHaveTextContent("Effort");
+    expect(screen.getByTestId("composer-model-summary-menu")).toHaveTextContent("Speed");
+    expect(screen.getByTestId("composer-model-summary-menu")).toHaveTextContent("Reset to default");
+    // The full Playground is intentionally broad documentation coverage and
+    // can exceed the default jsdom budget in the aggregate suite.
+  }, 20_000);
 
   it("documents paused recovery guidance and completed terminal receipts", () => {
     // Message-related lifecycle states must remain inspectable without a live server or backend.

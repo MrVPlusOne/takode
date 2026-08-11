@@ -643,12 +643,13 @@ describe("Composer permission mode selector", () => {
     });
     render(<Composer sessionId="s1" />);
 
-    const modelSelector = screen.getByText("gpt-5.3-codex").closest("button");
+    const modelSelector = screen.getByRole("button", { name: "Model and effort: 5.3 Codex" });
     expect(modelSelector?.getAttribute("title")).toBe("Applies on resume");
     expect(modelSelector?.hasAttribute("disabled")).toBe(false);
 
     await userEvent.click(modelSelector!);
-    await userEvent.click(screen.getByText("High"));
+    await userEvent.click(screen.getByRole("menuitem", { name: /Effort/ }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "High" }));
 
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
       type: "set_codex_reasoning_effort",
@@ -668,7 +669,8 @@ describe("Composer permission mode selector", () => {
 
     const trigger = screen.getByTitle(/Model: gpt-5.3-codex; speed:/);
     await userEvent.click(trigger);
-    await userEvent.click(screen.getByText("High"));
+    await userEvent.click(screen.getByRole("menuitem", { name: /Effort/ }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "High" }));
 
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
       type: "set_codex_reasoning_effort",
@@ -689,7 +691,8 @@ describe("Composer permission mode selector", () => {
 
     const trigger = screen.getByTitle(/Model: gpt-5.4; speed:/);
     await userEvent.click(trigger);
-    await userEvent.click(screen.getByText("Extra high"));
+    await userEvent.click(screen.getByRole("menuitem", { name: /Effort/ }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Extra high" }));
 
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
       type: "set_codex_reasoning_effort",

@@ -27,6 +27,7 @@ import { CollapsedComposerBar, ComposerInputSurface } from "./ComposerSurface.js
 import { PausedInputChip, PauseOtherSourcesButton } from "./SessionPauseComposerControls.js";
 import { ComposerStatusBlocks } from "./ComposerStatusBlocks.js";
 import { useCodexModelOptions } from "./use-codex-model-options.js";
+import { useResetCodexModelSettings } from "./use-reset-codex-model-settings.js";
 import {
   createComposerDraftImage,
   ensureSupportedFormat,
@@ -799,6 +800,13 @@ export function Composer({
   const claudeModelOptions = useMemo(() => {
     return (dynamicClaudeModels || getModelsForBackend("claude")).filter((m) => m.value !== "");
   }, [dynamicClaudeModels]);
+  const resetCodexModelSettings = useResetCodexModelSettings({
+    sessionId,
+    isLeaderSession: sessionView.isLeaderSession,
+    model: sessionView.model,
+    reasoningEffort: codexReasoningEffort,
+    serviceTier: codexServiceTier,
+  });
   const sessionSelectionRoot = getVsCodeSelectionSessionRoot(sessionView.repoRoot, sessionView.cwd);
   const dismissedVsCodeSelectionKey = useStore((s) => s.dismissedVsCodeSelectionKey);
   const currentVsCodeSelectionKey = useMemo(
@@ -1931,6 +1939,7 @@ export function Composer({
                 onSelectCodexServiceTier={(serviceTier) =>
                   sendToSession(sessionId, { type: "set_codex_service_tier", serviceTier })
                 }
+                onResetCodexSettings={resetCodexModelSettings}
                 permissionOptions={permissionOptions}
                 permissionMode={permissionMode}
                 showPermissionDropdown={showPermissionDropdown}

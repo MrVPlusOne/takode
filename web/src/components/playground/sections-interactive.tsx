@@ -39,6 +39,29 @@ import {
 } from "./shared.js";
 
 const PLAYGROUND_FAST_SERVICE_TIER = { id: "priority", name: "Fast", description: "1.5x speed, increased usage" };
+const PLAYGROUND_CODEX_MODEL_OPTIONS = [
+  {
+    value: "gpt-5.6-sol",
+    label: "GPT-5.6-Sol",
+    icon: "●",
+    serviceTiers: [PLAYGROUND_FAST_SERVICE_TIER],
+    supportedReasoningLevels: [
+      { effort: "medium", description: "Balanced reasoning for everyday work." },
+      { effort: "ultra", description: "Maximum reasoning for difficult tasks." },
+    ],
+    defaultReasoningLevel: "medium",
+  },
+  {
+    value: "gpt-5.4-mini",
+    label: "GPT-5.4-Mini",
+    icon: "⚡",
+    supportedReasoningLevels: [
+      { effort: "low", description: "Fast, lightweight reasoning." },
+      { effort: "medium", description: "Balanced reasoning." },
+    ],
+    defaultReasoningLevel: "low",
+  },
+];
 
 function PlaygroundCollapseAllButton() {
   return (
@@ -102,6 +125,7 @@ function PlaygroundComposerPermissionToolbar({
           codexServiceTier={isCodex ? "priority" : null}
           codexFastServiceTier={isCodex ? (codexModelOptions[1]?.serviceTiers?.[0] ?? null) : null}
           onSelectCodexServiceTier={() => {}}
+          onResetCodexSettings={async () => {}}
           permissionOptions={isCodex ? CODEX_PERMISSION_MODES : CLAUDE_PERMISSION_MODES}
           permissionMode={isCodex ? "auto-review" : "acceptEdits"}
           showPermissionDropdown={state === "menu"}
@@ -138,6 +162,80 @@ function PlaygroundComposerPermissionToolbar({
           sendPressing={false}
         />
       </div>
+    </div>
+  );
+}
+
+function PlaygroundCodexModelToolbar({ narrow = false }: { narrow?: boolean }) {
+  const [model, setModel] = useState("gpt-5.6-sol");
+  const [effort, setEffort] = useState("ultra");
+  const [serviceTier, setServiceTier] = useState<string | null>("priority");
+  const [showModelDropdown, setShowModelDropdown] = useState(!narrow);
+  const modelDropdownRef = useRef<HTMLDivElement | null>(null);
+  const permissionDropdownRef = useRef<HTMLDivElement | null>(null);
+  const selectedModel = PLAYGROUND_CODEX_MODEL_OPTIONS.find((option) => option.value === model);
+  const fastTier = selectedModel?.serviceTiers?.[0] ?? null;
+
+  return (
+    <div className={`border-t border-cc-border bg-cc-card px-3 py-3 ${narrow ? "max-w-[330px]" : ""}`}>
+      <div className={`rounded-[14px] border border-cc-border bg-cc-input-bg ${showModelDropdown ? "pt-56" : "pt-10"}`}>
+        <ComposerMetaToolbar
+          sessionId={`playground-codex-model-${narrow ? "narrow" : "menu"}`}
+          sessionView={{ model, gitAhead: 0, gitBehind: 0 }}
+          isCodex={true}
+          isConnected={true}
+          canEditLaunchSettings={true}
+          imageUploadDisabled={false}
+          imageUploadTitle="Upload image"
+          showModelDropdown={showModelDropdown}
+          setShowModelDropdown={setShowModelDropdown}
+          modelDropdownRef={modelDropdownRef}
+          claudeModelOptions={[]}
+          codexModelOptions={PLAYGROUND_CODEX_MODEL_OPTIONS}
+          onSelectModel={setModel}
+          codexReasoningEffort={effort}
+          onSelectCodexReasoning={setEffort}
+          codexServiceTier={serviceTier}
+          codexFastServiceTier={fastTier}
+          onSelectCodexServiceTier={setServiceTier}
+          onResetCodexSettings={async () => {
+            setModel("gpt-5.6-sol");
+            setEffort("medium");
+            setServiceTier(null);
+          }}
+          permissionOptions={CODEX_PERMISSION_MODES}
+          permissionMode="default"
+          showPermissionDropdown={false}
+          setShowPermissionDropdown={() => {}}
+          permissionDropdownRef={permissionDropdownRef}
+          pendingPermissionMode={null}
+          onRequestPermissionMode={() => {}}
+          onCancelPermissionMode={() => {}}
+          onConfirmPermissionMode={() => {}}
+          collapseAllButton={<PlaygroundCollapseAllButton />}
+          pauseControl={null}
+          onOpenFilePicker={() => {}}
+          warmMicrophone={() => {}}
+          voiceSupported={true}
+          toggleVoiceUnsupportedInfo={() => {}}
+          handleMicClick={() => {}}
+          voiceButtonDisabled={false}
+          isPreparing={false}
+          isRecording={false}
+          voiceButtonTitle="Voice input"
+          canSend={false}
+          isRunning={false}
+          handleInterrupt={() => {}}
+          handleSend={() => {}}
+          sendButtonTitle="Send"
+          sendPressing={false}
+        />
+      </div>
+      <p className="mt-2 text-[11px] leading-snug text-cc-muted">
+        {narrow
+          ? "Narrow-width state: the friendly model and effort label truncates before essential composer actions."
+          : "Choose Model, Effort, and Speed independently. Selecting the Mini model removes Speed and narrows effort choices; Reset restores the playground defaults."}
+      </p>
     </div>
   );
 }
@@ -246,6 +344,14 @@ export function PlaygroundInteractiveSections() {
           <div className="mt-4" />
           <Card label="Codex permission change confirmation">
             <PlaygroundComposerPermissionToolbar backend="codex" state="popover" />
+          </Card>
+          <div className="mt-4" />
+          <Card label="Codex model and effort selector">
+            <PlaygroundCodexModelToolbar />
+          </Card>
+          <div className="mt-4" />
+          <Card label="Codex model selector — narrow layout">
+            <PlaygroundCodexModelToolbar narrow />
           </Card>
           <div className="mt-4" />
           <PlaygroundAutoPauseBannerStates />

@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import type { SessionState } from "../../server/session-types.js";
 import type { VoiceTranscriptionResult } from "../api.js";
 import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
+import { DEFAULT_SESSION_DEFAULTS } from "../../shared/session-defaults.js";
 
 // Polyfill scrollIntoView for jsdom
 Element.prototype.scrollIntoView = vi.fn();
@@ -717,7 +718,7 @@ describe("Composer basic rendering", () => {
     expect(screen.queryByText("-8")).toBeNull();
   });
 
-  it("renders the composer footer after the textarea with a model-only metadata chip", () => {
+  it("renders the composer footer after the textarea with a friendly model-and-effort chip", () => {
     setupMockStore({
       session: {
         backend_type: "codex",
@@ -739,9 +740,8 @@ describe("Composer basic rendering", () => {
     expect(Boolean(textarea && textarea.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(sendButton.closest('[data-testid="composer-footer-toolbar"]')).toBe(footer);
     expect(permissionSelector.closest('[data-testid="composer-footer-toolbar"]')).toBe(footer);
-    expect(within(meta).getByText("gpt-5.4")).toBeTruthy();
+    expect(within(meta).getByText("5.4 High")).toBeTruthy();
     expect(within(meta).queryByText("feature/composer-footer")).toBeNull();
-    expect(within(meta).queryByText("High")).toBeNull();
   });
 
   it("places pause controls in the composer footer and exposes held input state", async () => {
@@ -807,6 +807,7 @@ describe("Composer basic rendering", () => {
 
     const footer = screen.getByTestId("composer-footer-toolbar");
     await userEvent.click(screen.getByTitle(/Model: gpt-5.4; speed:/));
+    await userEvent.click(screen.getByRole("menuitem", { name: /Effort/ }));
     expectNoOverflowHiddenAncestorWithin(screen.getByTestId("composer-reasoning-menu"), footer);
   });
 
@@ -832,11 +833,64 @@ describe("Composer basic rendering", () => {
 
     await waitFor(() => expect(mockGetBackendModels).toHaveBeenCalledWith("codex"));
     await userEvent.click(screen.getByTitle(/Model: gpt-5.4; speed:/));
+    await userEvent.click(screen.getByRole("menuitem", { name: /Speed/ }));
     const menu = screen.getByTestId("composer-speed-menu");
     expect(within(menu).getByText("Standard")).toBeTruthy();
     expect(within(menu).getByText("Fast")).toBeTruthy();
 
     await userEvent.click(within(menu).getByText("Fast"));
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "set_codex_service_tier",
+      serviceTier: "priority",
+    });
+  });
+
+  it("resets Codex model settings from fresh role-aware server defaults", async () => {
+    // Reset must not hardcode frontend values: it reloads the server-owned
+    // defaults, resolves the current session role, and uses existing setting messages.
+    mockGetSettings.mockResolvedValue({
+      claudeDefaultModel: "",
+      sessionDefaults: {
+        ...DEFAULT_SESSION_DEFAULTS,
+        codex: {
+          ...DEFAULT_SESSION_DEFAULTS.codex,
+          model: "gpt-worker",
+          reasoningEffort: "low",
+          serviceTier: null,
+        },
+        leaderUsesWorkerDefaults: false,
+        leader: {
+          ...DEFAULT_SESSION_DEFAULTS.leader,
+          codex: {
+            ...DEFAULT_SESSION_DEFAULTS.leader.codex,
+            model: "gpt-leader",
+            reasoningEffort: "ultra",
+            serviceTier: "priority",
+          },
+        },
+      },
+    } as any);
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        isOrchestrator: true,
+        model: "gpt-5.4",
+        codex_reasoning_effort: "high",
+        codex_service_tier: null,
+        permissionMode: "plan",
+      },
+    });
+
+    render(<Composer sessionId="s1" />);
+    await userEvent.click(screen.getByTitle(/Model: gpt-5.4; speed:/));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Reset to default" }));
+
+    await waitFor(() => expect(mockGetSettings).toHaveBeenCalled());
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", { type: "set_model", model: "gpt-leader" });
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "set_codex_reasoning_effort",
+      effort: "ultra",
+    });
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
       type: "set_codex_service_tier",
       serviceTier: "priority",
