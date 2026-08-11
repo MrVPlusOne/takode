@@ -937,20 +937,12 @@ describe("reconcileCodexResumedTurn", () => {
     );
   });
 
-  it("retries an interrupted idle resume with only partial assistant text on first attempt", () => {
-    // q-1224: assistant-only interrupted/idle turns are safe to retry because
-    // no tool side effects occurred. The first resume should retry the pending
-    // turn instead of surfacing a diagnostic.
+  it("suppresses replay when an interrupted idle resume already contains assistant text", () => {
+    // Exact-once delivery: partial assistant output proves the user payload reached
+    // the model, so recovery must not inject the same payload as a fresh turn.
     const request = "prepare cartoon portrait icon variants from my reference images";
     const partial = "[thread:main] I read all three references and will frame this as a separate quest.";
-    const session = makeSession([
-      {
-        id: "input-1",
-        content: request,
-        timestamp: 1_000,
-        cancelable: false,
-      },
-    ]);
+    const session = makeSession([{ id: "input-1", content: request, timestamp: 1_000, cancelable: false }]);
     session.state.isOrchestrator = true;
     session.isGenerating = true;
     const pending = makePendingTurn();
@@ -958,7 +950,13 @@ describe("reconcileCodexResumedTurn", () => {
     pending.turnId = "turn-interrupted";
     pending.disconnectedAt = 2_000;
     session.pendingCodexTurns = [pending];
-    const deps = makeRecoveryDeps();
+    const deps = makeRecoveryDeps({
+      completeCodexTurn: vi.fn((targetSession, turn) => {
+        if (turn) turn.status = "completed";
+        targetSession.pendingCodexTurns = [];
+        return true;
+      }),
+    });
 
     reconcileCodexResumedTurn(
       session,
@@ -980,15 +978,15 @@ describe("reconcileCodexResumedTurn", () => {
       deps,
     );
 
-    expect(pending.status).toBe("queued");
-    expect(pending.turnId).toBeNull();
-    expect((pending as any).assistantOnlyResumeRetries).toBe(1);
-    expect(deps.dispatchQueuedCodexTurns).toHaveBeenCalledWith(session, "codex_retry_pending_turn");
-    expect(deps.setGenerating).not.toHaveBeenCalledWith(session, false, "codex_resume_incomplete_recovered_messages");
-    expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(session, expect.objectContaining({ type: "error" }));
+    expect(deps.dispatchQueuedCodexTurns).not.toHaveBeenCalledWith(session, "codex_retry_pending_turn");
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_resume_incomplete_recovered_messages");
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ type: "error", message: expect.stringContaining("Automatic retry was skipped") }),
+    );
   });
 
-  it("persists a routed leader diagnostic when assistant-only resume retry cap is exhausted", () => {
+  it("persists a routed leader diagnostic when assistant-only replay is suppressed", () => {
     const request = "prepare cartoon portrait icon variants from my reference images";
     const partial = "[thread:main] I read all three references and will frame this as a separate quest.";
     const session = makeSession([
@@ -1005,7 +1003,6 @@ describe("reconcileCodexResumedTurn", () => {
     pending.userContent = request;
     pending.turnId = "turn-interrupted";
     pending.disconnectedAt = 2_000;
-    (pending as any).assistantOnlyResumeRetries = 2;
     session.pendingCodexTurns = [pending];
     const deps = makeRecoveryDeps({
       completeCodexTurn: vi.fn((session: CodexRecoveryOrchestratorSessionLike, turn: CodexOutboundTurn | null) => {
@@ -1043,8 +1040,8 @@ describe("reconcileCodexResumedTurn", () => {
       sessionId: "system:codex-leader-recovery-diagnostic",
       sessionLabel: "Codex Recovery Diagnostic",
     });
-    expect(diagnostic.content).toContain("automatic recovery exhausted");
-    expect(diagnostic.content).toContain("No further automatic retry will run");
+    expect(diagnostic.content).toContain("automatic replay stopped");
+    expect(diagnostic.content).toContain("No automatic replay will run");
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, diagnostic);
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
       session,
@@ -1055,7 +1052,7 @@ describe("reconcileCodexResumedTurn", () => {
     );
   });
 
-  it("does not persist the leader diagnostic for non-orchestrator retry-cap exhaustion", () => {
+  it("does not persist the leader diagnostic for non-orchestrator replay suppression", () => {
     const request = "continue the work";
     const partial = "Recovered partial worker text.";
     const session = makeSession([{ id: "input-1", content: request, timestamp: 1_000, cancelable: false }]);
@@ -1064,7 +1061,6 @@ describe("reconcileCodexResumedTurn", () => {
     pending.userContent = request;
     pending.turnId = "turn-interrupted";
     pending.disconnectedAt = 2_000;
-    (pending as any).assistantOnlyResumeRetries = 2;
     session.pendingCodexTurns = [pending];
     const deps = makeRecoveryDeps({
       completeCodexTurn: vi.fn(
@@ -1118,50 +1114,152 @@ describe("reconcileCodexResumedTurn", () => {
     );
   });
 
-  it("increments assistant-only resume retry count across repeated resume cycles", () => {
-    // q-1224: verify the counter increments correctly across multiple
-    // resume attempts for the same pending turn.
+  it("suppresses a user-only resume retry when frozen hot-tail history proves local tool activity", () => {
     const request = "continue the work";
-    const session = makeSession([{ id: "input-1", content: request, timestamp: 1_000, cancelable: false }]);
-    session.state.isOrchestrator = true;
+    const session = makeSession([]);
+    session._frozenCount = 53;
+    session.messageHistory = [
+      { type: "user_message", id: "user-live", content: request, timestamp: 1_000, threadKey: "q-test" },
+      {
+        type: "assistant",
+        message: {
+          id: "tool-call",
+          type: "message",
+          role: "assistant",
+          model: "gpt-test",
+          content: [{ type: "tool_use", id: "call-1", name: "Bash", input: { command: "echo sanitized" } }],
+          stop_reason: null,
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: 1_100,
+      },
+      { type: "tool_result_preview", previews: [] },
+    ];
     session.isGenerating = true;
     const pending = makePendingTurn();
+    pending.userMessageId = "user-live";
+    pending.pendingInputIds = ["user-live"];
     pending.userContent = request;
-    pending.turnId = "turn-interrupted";
-    pending.disconnectedAt = 2_000;
+    pending.historyIndex = 53;
+    pending.status = "backend_acknowledged";
+    pending.turnTarget = "current";
+    pending.turnId = "turn-live";
     session.pendingCodexTurns = [pending];
-    const deps = makeRecoveryDeps();
+    const deps = makeRecoveryDeps({
+      completeCodexTurn: vi.fn((targetSession, turn) => {
+        if (turn) turn.status = "completed";
+        targetSession.pendingCodexTurns = [];
+        return true;
+      }),
+    });
 
+    reconcileCodexResumedTurn(
+      session,
+      {
+        threadId: "thread-live",
+        turnCount: 1,
+        threadStatus: "idle",
+        turns: [],
+        lastTurn: {
+          id: "turn-live",
+          status: "interrupted",
+          error: null,
+          items: [{ type: "userMessage", content: [{ type: "text", text: request }] }],
+        },
+      } as CodexResumeSnapshot,
+      deps,
+    );
+
+    expect(deps.dispatchQueuedCodexTurns).not.toHaveBeenCalledWith(session, "codex_retry_pending_turn");
+    expect(session.codexPendingDeliveryProofSignals?.at(-1)?.classification).toContain(
+      "retry_suppressed_model_activity",
+    );
+    expect(session.codexPendingDeliveryProofSignals?.at(-1)?.classification).toContain("owner=user-live");
+    expect(session.codexPendingDeliveryProofSignals?.at(-1)?.classification).toContain("route=q-test");
+  });
+
+  it("suppresses delayed replay of a committed herd/user bundle without duplicating needs-input history", () => {
+    const contents = ["herd one", "resolution notice", "urgent report", "herd two", "latest instruction"];
+    const session = makeSession([]);
+    session._frozenCount = 700;
+    session.messageHistory = contents.map((content, index) => ({
+      type: "user_message" as const,
+      id: `bundle-${index + 1}`,
+      content,
+      timestamp: 1_000 + index,
+      ...(index === 1
+        ? { agentSource: { sessionId: "system:needs-input-resolution", sessionLabel: "Needs Input Resolution" } }
+        : { agentSource: { sessionId: "herd-events", sessionLabel: "Herd" } }),
+      threadKey: "q-sanitized",
+      questId: "q-sanitized",
+    }));
+    session.messageHistory.push(
+      {
+        type: "assistant",
+        message: {
+          id: "bundle-tool",
+          type: "message",
+          role: "assistant",
+          model: "gpt-test",
+          content: [{ type: "tool_use", id: "call-bundle", name: "Bash", input: { command: "echo sanitized" } }],
+          stop_reason: null,
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: 1_100,
+      },
+      { type: "tool_result_preview", previews: [] },
+    );
+    session.pendingCodexInputs = [];
+    session.isGenerating = true;
+    const pending = makePendingTurn();
+    pending.userMessageId = "bundle-1";
+    pending.pendingInputIds = contents.map((_, index) => `bundle-${index + 1}`);
+    pending.userContent = contents.join("\n\n");
+    pending.adapterMsg = {
+      type: "codex_start_pending",
+      pendingInputIds: pending.pendingInputIds,
+      inputs: contents.map((content) => ({ content })),
+    };
+    pending.historyIndex = 700;
+    pending.status = "backend_acknowledged";
+    pending.turnTarget = "current";
+    pending.turnId = "turn-bundle";
+    session.pendingCodexTurns = [pending];
+    const deps = makeRecoveryDeps({
+      completeCodexTurn: vi.fn((targetSession, turn) => {
+        if (turn) turn.status = "completed";
+        targetSession.pendingCodexTurns = [];
+        return true;
+      }),
+    });
     const snapshot = {
-      threadId: "thread-history",
+      threadId: "thread-bundle",
       turnCount: 1,
       threadStatus: "idle",
       turns: [],
       lastTurn: {
-        id: "turn-interrupted",
+        id: "turn-bundle",
         status: "interrupted",
         error: null,
-        items: [
-          { type: "userMessage", content: [{ type: "text", text: request }] },
-          { type: "agentMessage", id: "item-1", text: "[thread:main] Starting work..." },
-        ],
+        items: [{ type: "userMessage", content: [{ type: "text", text: pending.userContent }] }],
       },
     } as CodexResumeSnapshot;
 
     reconcileCodexResumedTurn(session, snapshot, deps);
-    expect((pending as any).assistantOnlyResumeRetries).toBe(1);
-    expect(pending.status).toBe("queued");
+    reconcileCodexResumedTurn(session, snapshot, deps);
 
-    pending.status = "dispatched";
-    pending.turnId = "turn-interrupted-2";
-    pending.disconnectedAt = 3_000;
-    reconcileCodexResumedTurn(
-      session,
-      { ...snapshot, lastTurn: { ...snapshot.lastTurn!, id: "turn-interrupted-2" } },
-      deps,
-    );
-    expect((pending as any).assistantOnlyResumeRetries).toBe(2);
-    expect(pending.status).toBe("queued");
+    expect(deps.dispatchQueuedCodexTurns).not.toHaveBeenCalledWith(session, "codex_retry_pending_turn");
+    expect(session.messageHistory.filter((message) => message.type === "user_message")).toHaveLength(5);
+    expect(
+      session.messageHistory.filter(
+        (message) =>
+          message.type === "user_message" && message.agentSource?.sessionId === "system:needs-input-resolution",
+      ),
+    ).toHaveLength(1);
+    expect(session.codexPendingDeliveryProofSignals?.at(-1)?.classification).toContain("count=2");
+    expect(session.codexPendingDeliveryProofSignals?.at(-1)?.classification).toContain("route=q-sanitized");
   });
 
   it("keeps safe-complete recovery when final assistant text follows resumed tool output", () => {

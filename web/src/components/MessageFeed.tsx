@@ -78,6 +78,7 @@ import {
   hasMissingSelectedThreadWindowContext,
   shouldShowSelectedThreadWindowLoading,
 } from "./message-feed-selected-window.js";
+import { useSelectedThreadWindowRefresh } from "./message-feed-selected-thread-refresh.js";
 import {
   getSavedViewportRestoreKey,
   readSavedViewportPosition,
@@ -657,31 +658,21 @@ export function MessageFeed({
     setPendingInitialThreadWindowKey,
   });
 
-  useEffect(() => {
-    if (!selectedFeedWindowEnabled) return;
-    if (activeThreadWindow && !selectedThreadWindowNeedsRefresh) return;
-    requestThreadWindow(
-      -1,
-      undefined,
-      getInitialThreadWindowTarget(
-        scrollToMessageId,
-        pendingScrollToMessageId,
-        routeScrollToMessageId,
-        savedViewportTargetMessageId,
-      ),
-    );
-  }, [
+  useSelectedThreadWindowRefresh({
     activeThreadWindow,
     connectionStatus,
-    missingSelectedWindowHasContext,
-    pendingScrollToMessageId,
+    normalizedThreadKey,
     requestThreadWindow,
-    routeScrollToMessageId,
-    savedViewportTargetMessageId,
-    scrollToMessageId,
     selectedFeedWindowEnabled,
     selectedThreadWindowNeedsRefresh,
-  ]);
+    sessionId,
+    targetMessageId: getInitialThreadWindowTarget(
+      scrollToMessageId,
+      pendingScrollToMessageId,
+      routeScrollToMessageId,
+      savedViewportTargetMessageId,
+    ),
+  });
 
   useEffect(() => {
     if (selectedFeedWindowEnabled && !activeThreadWindow) return;

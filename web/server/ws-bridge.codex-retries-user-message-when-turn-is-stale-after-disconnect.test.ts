@@ -576,12 +576,11 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Codex retries user message when turn is stale after disconnect", () => {
-  // Regression: When Codex disconnects during compaction and is relaunched,
-  // the resumed thread reports idle but the last turn is inProgress. The
-  // bridge must retry the user message so work continues, not silently
-  // clear recovery and leave the session idle forever.
+  // Recovery must distinguish genuinely undelivered user-only turns from
+  // turns where assistant/tool activity proves that the payload already reached
+  // the model. Only the former may be replayed automatically.
 
-  it("retries user message when resumed turn is inProgress but thread is idle", async () => {
+  it("suppresses replay when idle inProgress resume contains assistant and tool activity", async () => {
     const sid = "s-stale-retry";
     const adapter1 = makeCodexAdapterMock();
     bridge.attachCodexAdapter(sid, adapter1 as any);
@@ -628,12 +627,17 @@ describe("Codex retries user message when turn is stale after disconnect", () =>
       },
     });
 
-    // The user message must be retried via the adapter (not silently cleared)
-    expect(adapter2.sendBrowserMessage).toHaveBeenCalled();
-    const firstRetryCall = adapter2.sendBrowserMessage.mock.calls[0];
-    expect(firstRetryCall).toBeDefined();
-    const retried = (firstRetryCall as unknown as [any])[0] as any;
-    expect(getCodexStartPendingInputs(retried)[0]?.content).toBe("implement the feature and run tests");
+    // The original payload already produced assistant/tool activity, so it must
+    // not be injected as a fresh user turn after reconnect.
+    expect(adapter2.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(getPendingCodexTurn(bridge.getSession(sid)!)).toBeNull();
+    const browserMessages = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+    expect(browserMessages).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("old user payload was not replayed"),
+      }),
+    );
   });
 
   it("keeps a user-only interrupted resume running after server-owned retry dispatch", async () => {

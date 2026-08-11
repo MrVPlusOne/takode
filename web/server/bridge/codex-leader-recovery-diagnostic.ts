@@ -3,7 +3,6 @@ import { routeFromHistoryEntry, type ThreadRouteMetadata } from "../thread-routi
 
 const CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID = "system:codex-leader-recovery-diagnostic";
 const CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL = "Codex Recovery Diagnostic";
-const CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP = 2;
 
 type CodexLeaderRecoveryDiagnosticSession = {
   messageHistory: BrowserIncomingMessage[];
@@ -47,8 +46,8 @@ export function leaderRouteFromRecoveredAssistant(
 
 function buildCodexLeaderRecoveryDiagnosticContent(): string {
   return [
-    "Codex recovery diagnostic: automatic recovery exhausted after the partial leader response above.",
-    `Takode retried the interrupted assistant-only turn ${CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP} times, but no final response was recovered.`,
-    "No further automatic retry will run to avoid duplicate side effects. Review the preceding partial response and continue or retry this thread if the intended outcome is still missing.",
+    "Codex recovery diagnostic: automatic replay stopped after the partial leader response above.",
+    "Takode already observed model activity for the original user delivery, so it did not inject that user payload again after recovery.",
+    "No automatic replay will run because it could duplicate side effects. Review the preceding partial response and send a new continuation instruction only if the intended outcome is still missing.",
   ].join("\n");
 }

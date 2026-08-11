@@ -127,6 +127,52 @@ describe("buildCodexPendingDeliveryDiagnostics", () => {
     ).toBe("recovery_suppressed");
   });
 
+  it("reports payload-free owner, route, and local model-activity evidence", () => {
+    const turn = makeTurn();
+    turn.historyIndex = 100;
+    const diagnostics = buildCodexPendingDeliveryDiagnostics(
+      makeSession({
+        _frozenCount: 100,
+        messageHistory: [
+          {
+            type: "user_message",
+            id: "input-1",
+            content: "hidden source content",
+            timestamp: 1_000,
+            threadKey: "q-sanitized",
+            questId: "q-sanitized",
+          },
+          {
+            type: "assistant",
+            message: {
+              id: "tool-call",
+              type: "message",
+              role: "assistant",
+              model: "gpt-test",
+              content: [{ type: "tool_use", id: "call-1", name: "Bash", input: { command: "hidden" } }],
+              stop_reason: null,
+              usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            },
+            parent_tool_use_id: null,
+            timestamp: 1_100,
+          },
+          { type: "tool_result_preview", previews: [] },
+        ],
+        pendingCodexTurns: [turn],
+      }),
+      { details: true },
+    );
+
+    expect(diagnostics.head).toMatchObject({
+      userMessageId: "input-1",
+      historyIndex: 100,
+      threadKey: "q-sanitized",
+      questId: "q-sanitized",
+      localActivity: { count: 2, kinds: ["tool_use", "tool_result"], firstHistoryIndex: 101, lastHistoryIndex: 102 },
+    });
+    expect(JSON.stringify(diagnostics)).not.toContain("hidden");
+  });
+
   it("retains a bounded payload-free proof signal trail", () => {
     const session = makeSession();
     for (let i = 0; i < 10; i++) {

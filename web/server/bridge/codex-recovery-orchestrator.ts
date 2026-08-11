@@ -57,6 +57,7 @@ import {
   markCodexAutoPauseRecoveryDelivered,
 } from "./codex-auto-pause-recovery-summary.js";
 import {
+  recordCodexReplaySuppressedProof,
   recordCodexResumeSnapshotProof,
   recordCodexTurnResultProof,
   recordCodexTurnStartedProof,
@@ -66,10 +67,17 @@ import {
   summarizePendingCodexInputs,
   summarizePendingCodexTurns,
 } from "./codex-recovery-diagnostics.js";
+import {
+  hasIncompleteRecoveredMessagesWithoutTerminalEvidence,
+  hasInterruptedAssistantOnlyRecoveryWithoutTerminalEvidence,
+  hasOnlyRetrySafeCodexResumedItems,
+  mergeCodexDeliveryActivity,
+  summarizeCodexResumeDeliveryActivity,
+  summarizeLocalCodexDeliveryActivity,
+  type CodexLocalDeliveryActivitySummary,
+} from "./codex-delivery-ownership.js";
 export { clearCodexIntentionalRelaunch, markCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 export { maybeFlushQueuedCodexMessages } from "./codex-queued-message-flush.js";
-const CODEX_RETRY_SAFE_RESUME_ITEM_TYPES: ReadonlySet<string> = new Set(["reasoning", "contextCompaction"]);
-const CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP = 2;
 type InterruptSource = "user" | "leader" | "system";
 type CodexRecoveryAdapterLike = any;
 export interface CodexRecoveryOrchestratorSessionLike {
@@ -87,6 +95,7 @@ export interface CodexRecoveryOrchestratorSessionLike {
     | "codex_result_error_auto_pause"
   >;
   messageHistory: BrowserIncomingMessage[];
+  _frozenCount?: number;
   notifications?: SessionNotification[];
   pendingMessages: string[];
   pendingCodexInputs: PendingCodexInput[];
@@ -1429,6 +1438,7 @@ export function reconcileCodexResumedTurn(
   }
   if (!lastTurn) {
     if (pending.turnId) {
+      if (suppressCodexReplayWhenDeliveryWasObserved(session, pending, "resume_no_last_turn", deps)) return;
       console.log(
         `[ws-bridge] Resumed Codex snapshot for session ${sessionTag(session.id)} has no lastTurn while pending turn ${pending.turnId} is in flight; retrying message`,
       );
@@ -1447,6 +1457,7 @@ export function reconcileCodexResumedTurn(
       snapshot.threadStatus === "idle" &&
       lastTurn.items.length === 0
     ) {
+      if (suppressCodexReplayWhenDeliveryWasObserved(session, pending, "resume_lost_turn_identity", deps)) return;
       console.log(
         `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} ` +
           "lost local turn identity after turn/start; thread is idle and turn has no items, retrying user message",
@@ -1455,6 +1466,7 @@ export function reconcileCodexResumedTurn(
       return;
     }
     if (pending.turnId && pending.turnId !== lastTurn.id) {
+      if (suppressCodexReplayWhenDeliveryWasObserved(session, pending, "resume_turn_id_mismatch", deps)) return;
       console.log(
         `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} does not match pending turn ${pending.turnId}; retrying message`,
       );
@@ -1477,22 +1489,31 @@ export function reconcileCodexResumedTurn(
   }
   const nonUserItems = lastTurn.items.filter((item) => item.type !== "userMessage");
   if (nonUserItems.length === 0) {
+    if (suppressCodexReplayWhenDeliveryWasObserved(session, pending, "resume_user_only", deps)) return;
     console.log(
-      `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} has only user input; retrying message`,
+      `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} has only user input and no local model activity; retrying message`,
     );
     retryPendingCodexTurn(session, pending, deps, { diagnoseDispatchFailure: true });
-    return;
-  }
-  if (lastTurn.status === "inProgress" && snapshot.threadStatus === "idle") {
-    console.log(
-      `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} reports inProgress but thread is idle; retrying user message`,
-    );
-    retryPendingCodexTurn(session, pending, deps);
     return;
   }
   const recoveredAgentMessages = recoverAgentMessagesFromResumedTurn(session, lastTurn, pending, deps);
   const recoveredAgents = recoveredAgentMessages.count;
   const synthesizedResults = deps.synthesizeCodexToolResultsFromResumedTurn(session, lastTurn, pending);
+  const observedActivity = mergeCodexDeliveryActivity(
+    summarizeLocalCodexDeliveryActivity(session, pending),
+    summarizeCodexResumeDeliveryActivity(nonUserItems),
+  );
+  if (lastTurn.status === "inProgress" && snapshot.threadStatus === "idle") {
+    if (observedActivity.count > 0) {
+      suppressCodexReplayForObservedActivity(session, pending, "resume_idle_inprogress", observedActivity, deps);
+      return;
+    }
+    console.log(
+      `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} reports inProgress but thread is idle with no model activity; retrying user message`,
+    );
+    retryPendingCodexTurn(session, pending, deps);
+    return;
+  }
   if (lastTurn.status === "inProgress") {
     if (recoveredAgents > 0 || synthesizedResults > 0) {
       session.consecutiveAdapterFailures = 0;
@@ -1519,23 +1540,12 @@ export function reconcileCodexResumedTurn(
   if (recoveredAgents > 0 && hasIncompleteRecoveredMessagesWithoutTerminalEvidence(lastTurn, snapshot.threadStatus)) {
     session.consecutiveAdapterFailures = 0;
     session.lastAdapterFailureAt = null;
-    let leaderRecoveryDiagnosticRoute: ThreadRouteMetadata | null = null;
-    if (hasInterruptedAssistantOnlyRecoveryWithoutTerminalEvidence(lastTurn, snapshot.threadStatus)) {
-      const retryCount = (pending as any).assistantOnlyResumeRetries ?? 0;
-      if (retryCount < CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP) {
-        (pending as any).assistantOnlyResumeRetries = retryCount + 1;
-        console.log(
-          `[ws-bridge] Retrying assistant-only interrupted Codex turn for session ${sessionTag(session.id)} ` +
-            `(attempt ${retryCount + 1}/${CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP})`,
-        );
-        retryPendingCodexTurn(session, pending, deps);
-        return;
-      }
-      console.warn(
-        `[ws-bridge] Assistant-only resume retry cap (${CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP}) exhausted for session ${sessionTag(session.id)}; falling back to diagnostic`,
-      );
-      leaderRecoveryDiagnosticRoute = recoveredAgentMessages.latestLeaderRoute;
-    }
+    const leaderRecoveryDiagnosticRoute = hasInterruptedAssistantOnlyRecoveryWithoutTerminalEvidence(
+      lastTurn,
+      snapshot.threadStatus,
+    )
+      ? recoveredAgentMessages.latestLeaderRoute
+      : null;
     completeRecoveredCodexTurnWithDiagnostic(
       session,
       pending,
@@ -1570,9 +1580,13 @@ export function reconcileCodexResumedTurn(
     deps.persistSession(session);
     return;
   }
+  if (observedActivity.count > 0) {
+    suppressCodexReplayForObservedActivity(session, pending, "resume_model_activity", observedActivity, deps);
+    return;
+  }
   if (hasOnlyRetrySafeCodexResumedItems(nonUserItems)) {
     console.log(
-      `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} contains reasoning-only items; retrying pending user message`,
+      `[ws-bridge] Resumed Codex turn ${lastTurn.id} contains only context-compaction metadata; retrying pending user message`,
     );
     retryPendingCodexTurn(session, pending, deps);
     return;
@@ -1618,6 +1632,39 @@ function clearGeneratingAfterRecoveredCompletedTurnIfIdle(
   deps.setGenerating(session, false, reason);
 }
 
+function suppressCodexReplayWhenDeliveryWasObserved(
+  session: CodexRecoveryOrchestratorSessionLike,
+  pending: CodexOutboundTurn,
+  replayCause: string,
+  deps: CodexRecoveryOrchestratorDeps,
+): boolean {
+  const activity = summarizeLocalCodexDeliveryActivity(session, pending);
+  if (activity.count === 0) return false;
+  suppressCodexReplayForObservedActivity(session, pending, replayCause, activity, deps);
+  return true;
+}
+
+function suppressCodexReplayForObservedActivity(
+  session: CodexRecoveryOrchestratorSessionLike,
+  pending: CodexOutboundTurn,
+  replayCause: string,
+  activity: CodexLocalDeliveryActivitySummary,
+  deps: CodexRecoveryOrchestratorDeps,
+): void {
+  recordCodexReplaySuppressedProof(session, pending, replayCause, activity);
+  console.warn(
+    `[ws-bridge] Suppressed Codex user-delivery replay for session ${sessionTag(session.id)} ` +
+      `(owner=${pending.userMessageId}, cause=${replayCause}, activity=${activity.kinds.join(",") || "unknown"}, count=${activity.count})`,
+  );
+  completeRecoveredCodexTurnWithDiagnostic(
+    session,
+    pending,
+    "codex_resume_replay_suppressed",
+    "Codex disconnected after Takode had already observed model activity for this user delivery. The old user payload was not replayed; send a new instruction only if you want to continue the interrupted work.",
+    deps,
+  );
+}
+
 function completeRecoveredCodexTurnWithDiagnostic(
   session: CodexRecoveryOrchestratorSessionLike,
   pending: CodexOutboundTurn,
@@ -1635,74 +1682,6 @@ function completeRecoveredCodexTurnWithDiagnostic(
   deps.maybeFlushQueuedCodexMessages(session, reason);
   deps.broadcastToBrowsers(session, { type: "error", message });
   deps.persistSession(session);
-}
-
-function hasIncompleteRecoveredMessagesWithoutTerminalEvidence(
-  turn: CodexResumeTurnSnapshot,
-  threadStatus?: string | null,
-): boolean {
-  return (
-    hasInterruptedAssistantOnlyRecoveryWithoutTerminalEvidence(turn, threadStatus) ||
-    hasRecoveredAssistantToolTailWithoutTerminalEvidence(turn.items)
-  );
-}
-
-function hasInterruptedAssistantOnlyRecoveryWithoutTerminalEvidence(
-  turn: CodexResumeTurnSnapshot,
-  threadStatus?: string | null,
-): boolean {
-  if (normalizeCodexStatus(turn.status) !== "interrupted") return false;
-  if (normalizeCodexStatus(threadStatus) !== "idle") return false;
-  if (turn.items.some(isCodexResumeTerminalEvidenceItem)) return false;
-  const nonUserItems = turn.items.filter((item) => item.type !== "userMessage");
-  return nonUserItems.length > 0 && nonUserItems.every(isRecoveredAgentMessageItem);
-}
-
-function hasRecoveredAssistantToolTailWithoutTerminalEvidence(items: Array<Record<string, unknown>>): boolean {
-  let lastAgentMessageIndex = -1;
-  for (let i = 0; i < items.length; i++) {
-    if (isRecoveredAgentMessageItem(items[i])) {
-      lastAgentMessageIndex = i;
-    }
-  }
-  if (lastAgentMessageIndex < 0) return false;
-
-  const tail = items.slice(lastAgentMessageIndex + 1);
-  if (!tail.some(isCodexResumeToolActivityItem)) return false;
-  return !tail.some(isCodexResumeTerminalEvidenceItem);
-}
-
-function normalizeCodexStatus(status: string | null | undefined): string {
-  return typeof status === "string" ? status.trim().toLowerCase() : "";
-}
-
-function isRecoveredAgentMessageItem(item: Record<string, unknown>): boolean {
-  if (item.type !== "agentMessage") return false;
-  return typeof item.text === "string" && item.text.trim().length > 0;
-}
-
-function isCodexResumeToolActivityItem(item: Record<string, unknown>): boolean {
-  const type = typeof item.type === "string" ? item.type.toLowerCase() : "";
-  return (
-    type.includes("command") ||
-    type.includes("tool") ||
-    type.includes("function") ||
-    type.includes("filechange") ||
-    type.includes("patch")
-  );
-}
-
-function isCodexResumeTerminalEvidenceItem(item: Record<string, unknown>): boolean {
-  const type = typeof item.type === "string" ? item.type.toLowerCase() : "";
-  return (
-    type === "result" ||
-    type === "turnresult" ||
-    type === "turn_result" ||
-    type === "taskcomplete" ||
-    type === "task_complete" ||
-    type.includes("taskcomplete") ||
-    type.includes("task_complete")
-  );
 }
 
 function recoverAgentMessagesFromResumedTurn(
@@ -1962,13 +1941,6 @@ export function clearStaleCodexCompactionState(
   deps.persistSession(session);
   console.warn(`[ws-bridge] Cleared stale Codex compaction state for session ${sessionTag(session.id)} (${reason})`);
   return true;
-}
-function hasOnlyRetrySafeCodexResumedItems(items: Array<Record<string, unknown>>): boolean {
-  if (items.length === 0) return false;
-  return items.every((item) => {
-    const itemType = typeof item.type === "string" ? item.type : "";
-    return CODEX_RETRY_SAFE_RESUME_ITEM_TYPES.has(itemType);
-  });
 }
 type QueuedTurnLifecycleEntry = {
   reason: string;

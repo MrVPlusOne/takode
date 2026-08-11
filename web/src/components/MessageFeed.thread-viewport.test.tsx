@@ -183,8 +183,10 @@ beforeEach(() => {
 });
 
 describe("MessageFeed thread viewport restoration", () => {
-  it("reuses producer-shaped cached Main and quest windows without requesting either during warm switches", () => {
-    // This uses the real MessageFeed cache/request effects; only transport delivery is mocked.
+  it("revalidates producer-shaped cached Main and quest windows during warm switches", () => {
+    // Cached unselected windows can miss routed live events because the server
+    // filters live traffic to the active socket view. Every real selection gets
+    // one bounded latest-window revalidation.
     const sid = "test-cached-warm-switches";
     const fixture = createSyntheticLargeLeaderFeedFixture();
     const makeWindow = (threadKey: string, itemCount: number): ThreadWindowState => ({
@@ -197,6 +199,7 @@ describe("MessageFeed thread viewport restoration", () => {
       source_history_length: fixture.selectedWindowSourceHistoryLength,
       section_item_count: 10,
       visible_item_count: 3,
+      window_hash: `cached-${threadKey}`,
     });
     setStoreMessages(sid, fixture.allMessages);
     mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
@@ -228,7 +231,18 @@ describe("MessageFeed thread viewport restoration", () => {
     );
     view.rerender(<MessageFeed key="main-return" sessionId={sid} threadKey="main" />);
 
-    expect(mockSendToSession).not.toHaveBeenCalledWith(sid, expect.objectContaining({ type: "thread_window_request" }));
+    const transportCalls = mockSendToSession.mock.calls as unknown as Array<
+      [string, { type?: string; thread_key?: string; cached_window_hash?: string }]
+    >;
+    const threadRequests = transportCalls
+      .filter(([, message]) => message.type === "thread_window_request")
+      .map(([, message]) => message);
+    expect(threadRequests.map((message) => message.thread_key)).toEqual(["main", SYNTHETIC_PRIMARY_THREAD_KEY, "main"]);
+    expect(threadRequests.map((message) => message.cached_window_hash)).toEqual([
+      "cached-main",
+      `cached-${SYNTHETIC_PRIMARY_THREAD_KEY}`,
+      "cached-main",
+    ]);
   });
 
   it("restores a browser-local persisted leader viewport when memory state is missing", async () => {

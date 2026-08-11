@@ -1,6 +1,10 @@
 import type { CodexResumeSnapshot } from "../codex-adapter.js";
 import { recordCodexPendingDeliveryProofSignal } from "../codex-pending-delivery-diagnostics.js";
-import type { CodexOutboundTurn, PendingCodexInput } from "../session-types.js";
+import type { BrowserIncomingMessage, CodexOutboundTurn, PendingCodexInput } from "../session-types.js";
+import {
+  getMessageAtAbsoluteHistoryIndex,
+  type CodexLocalDeliveryActivitySummary,
+} from "./codex-delivery-ownership.js";
 
 type ProofSignalSession = {
   codexPendingDeliveryProofSignals?: import("../session-types.js").CodexPendingDeliveryProofSignal[];
@@ -24,7 +28,10 @@ export function recordCodexResumeSnapshotProof(session: ProofSignalSession, snap
 }
 
 export function recordCodexTurnStartedProof(session: ProofSignalSession, turnId: string): void {
-  recordCodexPendingDeliveryProofSignal(session, { kind: "turn_started", turnId });
+  recordCodexPendingDeliveryProofSignal(session, {
+    kind: "turn_started",
+    turnId,
+  });
 }
 
 export function recordCodexTurnSteeredProof(
@@ -111,4 +118,36 @@ function classifyResumeSnapshotProof(snapshot: CodexResumeSnapshot): string {
   if (turnStatus === "inProgress") return "active_inprogress_last_turn";
   if (turnStatus) return `last_turn_${turnStatus}`;
   return "no_last_turn";
+}
+
+export function recordCodexReplaySuppressedProof(
+  session: ProofSignalSession & {
+    messageHistory: BrowserIncomingMessage[];
+    _frozenCount?: number;
+  },
+  pending: CodexOutboundTurn,
+  replayCause: string,
+  activity: CodexLocalDeliveryActivitySummary,
+): void {
+  const source = getMessageAtAbsoluteHistoryIndex(session, pending.historyIndex);
+  const route = source?.type === "user_message" ? (source.threadKey ?? "main") : "unknown";
+  const quest = source?.type === "user_message" ? (source.questId ?? "none") : "unknown";
+  const historyRange = `${activity.firstHistoryIndex ?? "none"}-${activity.lastHistoryIndex ?? "none"}`;
+  recordCodexPendingDeliveryProofSignal(session, {
+    kind: "resume_snapshot",
+    turnId: pending.turnId,
+    pendingInputCount: pending.pendingInputIds?.length ?? 1,
+    classification: [
+      "retry_suppressed_model_activity",
+      `cause=${replayCause}`,
+      `owner=${pending.userMessageId}`,
+      `delivery=${pending.status}`,
+      `history=${pending.historyIndex}`,
+      `activity=${activity.kinds.join(",") || "unknown"}`,
+      `count=${activity.count}`,
+      `range=${historyRange}`,
+      `route=${route}`,
+      `quest=${quest}`,
+    ].join(";"),
+  });
 }

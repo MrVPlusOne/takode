@@ -33,13 +33,16 @@ export function useThreadWindowRequester({
         : getThreadWindowItemCount(DEFAULT_VISIBLE_SECTION_COUNT, sectionTurnCount);
       const sectionItemCount = activeThreadWindow?.section_item_count ?? sectionTurnCount;
       const visibleItemCount = activeThreadWindow?.visible_item_count ?? DEFAULT_VISIBLE_SECTION_COUNT;
-      const cachedWindowHash = getCachedThreadWindowHash(sessionId, {
-        threadKey: normalizedThreadKey,
-        fromItem,
-        itemCount,
-        sectionItemCount,
-        visibleItemCount,
-      });
+      const cachedWindowHash =
+        fromItem < 0 && activeThreadWindow?.window_hash
+          ? activeThreadWindow.window_hash
+          : getCachedThreadWindowHash(sessionId, {
+              threadKey: normalizedThreadKey,
+              fromItem,
+              itemCount,
+              sectionItemCount,
+              visibleItemCount,
+            });
       const delivered = sendToSession(sessionId, {
         type: "thread_window_request",
         thread_key: normalizedThreadKey,

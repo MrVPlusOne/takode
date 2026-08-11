@@ -622,7 +622,7 @@ describe("Codex resumed-turn recovery", () => {
     expect(getPendingCodexTurn(session)).not.toBeNull();
   });
 
-  it("retries when resumed turn contains only reasoning items", async () => {
+  it("suppresses replay when resumed turn contains reasoning activity", async () => {
     const sid = "s1";
     const adapter1 = makeCodexAdapterMock();
     bridge.attachCodexAdapter(sid, adapter1 as any);
@@ -663,18 +663,16 @@ describe("Codex resumed-turn recovery", () => {
       },
     });
 
-    expect(adapter2.sendBrowserMessage).toHaveBeenCalled();
-    const reasoningRetryCalls = adapter2.sendBrowserMessage.mock.calls as any[];
-    const reasoningRetryMsg = reasoningRetryCalls[0]?.[0] as any;
-    expect(reasoningRetryMsg).toBeDefined();
-    expect(getCodexStartPendingInputs(reasoningRetryMsg)[0]?.content).toBe("plan this safely");
+    expect(adapter2.sendBrowserMessage).not.toHaveBeenCalled();
     const session = bridge.getSession(sid)!;
-    expect(getPendingCodexTurn(session)).not.toBeNull();
+    expect(getPendingCodexTurn(session)).toBeNull();
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const retrySkipError = calls.find(
-      (c: any) => c.type === "error" && typeof c.message === "string" && c.message.includes("non-text tool activity"),
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("old user payload was not replayed"),
+      }),
     );
-    expect(retrySkipError).toBeUndefined();
   });
 
   it("retries when resumed snapshot has no lastTurn for a pending in-flight turn", async () => {

@@ -576,11 +576,10 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Codex resumed-turn recovery", () => {
-  it("retries stale recovery when resumed turn is inProgress but thread is idle", async () => {
-    // When Codex CLI restarts, thread/resume may report the last turn as
-    // "inProgress" while the thread itself is "idle". The turn was running
-    // in the dead process and is now stale — the user message should be
-    // retried so work continues (not silently cleared).
+  it("suppresses stale recovery replay when idle inProgress turn has command activity", async () => {
+    // A stale idle/inProgress snapshot can still prove that the user payload
+    // reached command execution. Replaying it would duplicate model delivery
+    // and potentially repeat side effects.
     const sid = "s-idle-thread-stale-turn";
     const adapter1 = makeCodexAdapterMock();
     bridge.attachCodexAdapter(sid, adapter1 as any);
@@ -621,19 +620,14 @@ describe("Codex resumed-turn recovery", () => {
       },
     });
 
-    // User message must be retried via the adapter
-    expect(adapter2.sendBrowserMessage).toHaveBeenCalled();
-    const firstToolRetryCall = adapter2.sendBrowserMessage.mock.calls[0];
-    expect(firstToolRetryCall).toBeDefined();
-    const retried = (firstToolRetryCall as unknown as [any])[0] as any;
-    expect(getCodexStartPendingInputs(retried)[0]?.content).toBe("run a command");
-
-    // No "non-text tool activity" error sent
+    expect(adapter2.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(getPendingCodexTurn(bridge.getSession(sid)!)).toBeNull();
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(
-      calls.find(
-        (c: any) => c.type === "error" && typeof c.message === "string" && c.message.includes("non-text tool activity"),
-      ),
-    ).toBeUndefined();
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("old user payload was not replayed"),
+      }),
+    );
   });
 });

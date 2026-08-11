@@ -1,4 +1,14 @@
-import type { BrowserOutgoingMessage, CodexOutboundTurn, PendingCodexInput } from "./session-types.js";
+import type {
+  BrowserIncomingMessage,
+  BrowserOutgoingMessage,
+  CodexOutboundTurn,
+  PendingCodexInput,
+} from "./session-types.js";
+import {
+  getMessageAtAbsoluteHistoryIndex,
+  summarizeLocalCodexDeliveryActivity,
+  type CodexLocalDeliveryActivitySummary,
+} from "./bridge/codex-delivery-ownership.js";
 
 export type CodexPendingDeliveryBlockerReason =
   | "none"
@@ -41,6 +51,12 @@ export interface CodexPendingDeliveryHeadSummary {
   turnTarget: CodexOutboundTurn["turnTarget"] | null;
   dispatchCount: number | null;
   pendingInputCount: number;
+  userMessageId: string;
+  historyIndex: number;
+  threadKey: string | null;
+  questId: string | null;
+  lastError: string | null;
+  localActivity: CodexLocalDeliveryActivitySummary;
 }
 
 export interface CodexPendingDeliveryDiagnostics {
@@ -72,6 +88,8 @@ export interface CodexPendingDeliveryDiagnosticsSessionLike {
   pendingCodexTurns: CodexOutboundTurn[];
   codexFreshTurnRequiredUntilTurnId?: string | null;
   codexPendingDeliveryProofSignals?: CodexPendingDeliveryProofSignal[];
+  messageHistory?: BrowserIncomingMessage[];
+  _frozenCount?: number;
   codexAdapter?: {
     getCurrentTurnId?: () => string | null;
     isConnected?: () => boolean;
@@ -85,8 +103,16 @@ function getHeadPendingInputIds(head: CodexOutboundTurn | null): string[] {
   return head.pendingInputIds ?? [head.userMessageId];
 }
 
-function summarizeHead(head: CodexOutboundTurn | null): CodexPendingDeliveryHeadSummary | null {
+function summarizeHead(
+  session: CodexPendingDeliveryDiagnosticsSessionLike,
+  head: CodexOutboundTurn | null,
+): CodexPendingDeliveryHeadSummary | null {
   if (!head) return null;
+  const historySession = {
+    messageHistory: session.messageHistory ?? [],
+    _frozenCount: session._frozenCount,
+  };
+  const source = getMessageAtAbsoluteHistoryIndex(historySession, head.historyIndex);
   return {
     type: head.adapterMsg.type,
     status: head.status,
@@ -94,6 +120,12 @@ function summarizeHead(head: CodexOutboundTurn | null): CodexPendingDeliveryHead
     turnTarget: head.turnTarget ?? null,
     dispatchCount: head.dispatchCount ?? null,
     pendingInputCount: getHeadPendingInputIds(head).length,
+    userMessageId: head.userMessageId,
+    historyIndex: head.historyIndex,
+    threadKey: source?.type === "user_message" ? (source.threadKey ?? null) : null,
+    questId: source?.type === "user_message" ? (source.questId ?? null) : null,
+    lastError: head.lastError ?? null,
+    localActivity: summarizeLocalCodexDeliveryActivity(historySession, head),
   };
 }
 
@@ -153,8 +185,13 @@ export function buildCodexPendingDeliveryDiagnostics(
     backendState: session.state.backend_state ?? null,
     adapterConnected,
     isGenerating: session.isGenerating,
-    blockerReason: classifyBlocker({ session, currentTurnId, adapterConnected, head }),
-    head: summarizeHead(head),
+    blockerReason: classifyBlocker({
+      session,
+      currentTurnId,
+      adapterConnected,
+      head,
+    }),
+    head: summarizeHead(session, head),
   };
 
   if (!options.details) return diagnostics;
@@ -169,8 +206,12 @@ export function buildCodexPendingDeliveryDiagnostics(
 }
 
 export function recordCodexPendingDeliveryProofSignal(
-  session: { codexPendingDeliveryProofSignals?: CodexPendingDeliveryProofSignal[] },
-  signal: Omit<CodexPendingDeliveryProofSignal, "timestamp"> & { timestamp?: number },
+  session: {
+    codexPendingDeliveryProofSignals?: CodexPendingDeliveryProofSignal[];
+  },
+  signal: Omit<CodexPendingDeliveryProofSignal, "timestamp"> & {
+    timestamp?: number;
+  },
 ): void {
   const next: CodexPendingDeliveryProofSignal = {
     ...signal,
