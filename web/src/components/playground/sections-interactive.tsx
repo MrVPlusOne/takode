@@ -20,6 +20,7 @@ import {
 import { PlaygroundQuestDetailModalSection } from "./PlaygroundQuestDetailModalSection.js";
 import { PlaygroundAutoPauseBannerStates } from "./AutoPausePlaygroundStates.js";
 import { PlaygroundReasoningDetailStates } from "./ReasoningDetailStates.js";
+import { PlaygroundLeaderActivityStates } from "./LeaderActivityStates.js";
 import { PlaygroundQuestStatusPanelSection, PlaygroundQuestmasterCompactSection } from "./PlaygroundQuestSections.js";
 import {
   Card,
@@ -1871,6 +1872,19 @@ export function PlaygroundInteractiveSections() {
           <Card label="Persistent reasoning detail states">
             <div className="p-3">
               <PlaygroundReasoningDetailStates />
+            </div>
+          </Card>
+        </div>
+      </Section>
+
+      <Section
+        title="Leader And Worker Activity Chips"
+        description="Session-owned activity state: worker projection remains visible without turning an idle leader into a running session."
+      >
+        <div className="max-w-4xl">
+          <Card label="Leader and worker lifecycle boundaries">
+            <div className="p-3">
+              <PlaygroundLeaderActivityStates />
             </div>
           </Card>
         </div>

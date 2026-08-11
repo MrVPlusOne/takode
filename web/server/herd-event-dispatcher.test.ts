@@ -165,6 +165,32 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
+  it("delivers an active-worker permission event while the leader itself is idle", () => {
+    // Worker generation is represented by the worker event stream, not by the
+    // leader lifecycle. An active worker must not make an otherwise idle
+    // leader ineligible for herd delivery.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    triggerEvent(
+      makeEvent({
+        event: "permission_request",
+        sessionId: "worker-1",
+        data: { tool_name: "Bash" },
+      }),
+    );
+
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.isSessionIdle).toHaveBeenCalledWith("orch-1");
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0]?.[0]).toBe("orch-1");
+
+    dispatcher.destroy();
+  });
+
   it("batches rapid events within debounce window", () => {
     const { bridge, launcher } = createMocks();
     const dispatcher = new HerdEventDispatcher(bridge, launcher);

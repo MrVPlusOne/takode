@@ -174,6 +174,36 @@ describe("handleMessage: state_snapshot", () => {
     expect(useStore.getState().askPermission.get("s1")).toBe(false);
   });
 
+  it("keeps an idle leader idle when reconnect hydrates a running worker projection", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "idle",
+      permissionMode: "acceptEdits",
+      backendConnected: true,
+      uiMode: null,
+      askPermission: false,
+      board: [{ questId: "q-975", worker: "worker-1", workerNum: 2463, status: "WORKING" }],
+      rowSessionStatuses: {
+        "q-975": {
+          worker: {
+            sessionId: "worker-1",
+            sessionNum: 2463,
+            status: "running",
+            activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
+            generationStartedAt: 123,
+          },
+          reviewer: null,
+        },
+      },
+    });
+
+    expect(useStore.getState().sessionStatus.get("s1")).toBe("idle");
+    expect(useStore.getState().sessionBoardRowStatuses.get("s1")?.["q-975"]?.worker?.status).toBe("running");
+  });
+
   it("hydrates per-thread Codex reasoning and preserves it across an idle snapshot", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

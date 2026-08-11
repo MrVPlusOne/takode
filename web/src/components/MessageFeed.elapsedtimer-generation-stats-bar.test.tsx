@@ -709,8 +709,8 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.queryByText("Checking the Journey handoff state")).toBeNull();
   });
 
-  it("uses projected worker activity as active here when the selected thread matches", () => {
-    const sid = "test-leader-worker-active-here";
+  it("does not project matching worker activity into an idle leader chip", () => {
+    const sid = "test-idle-leader-active-worker-matching";
     setStoreStatus(sid, "idle");
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreBoardProjection(sid, [{ questId: "q-975", worker: "worker-1", workerNum: 2463, updatedAt: 1 }], {
@@ -728,8 +728,31 @@ describe("ElapsedTimer - generation stats bar", () => {
 
     render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="q-975" />);
 
-    expect(screen.getByText("Active here")).toBeTruthy();
-    expect(screen.queryByText("Active in main")).toBeNull();
+    expect(screen.queryByText("Active here")).toBeNull();
+    expect(screen.queryByText("Purring...")).toBeNull();
+  });
+
+  it("does not project cross-thread worker activity into an idle leader chip", () => {
+    const sid = "test-idle-leader-active-worker-other-thread";
+    setStoreStatus(sid, "idle");
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+    setStoreBoardProjection(sid, [{ questId: "q-975", worker: "worker-1", workerNum: 2463, updatedAt: 1 }], {
+      "q-975": {
+        worker: {
+          sessionId: "worker-1",
+          sessionNum: 2463,
+          status: "running",
+          activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
+          generationStartedAt: Date.now() - 12_000,
+        },
+        reviewer: null,
+      },
+    });
+
+    render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="main" />);
+
+    expect(screen.queryByText("Active in q-975")).toBeNull();
+    expect(screen.queryByText("Purring...")).toBeNull();
   });
 
   it("renders a persistent reasoning detail collapsed by default and expands the full summary", () => {

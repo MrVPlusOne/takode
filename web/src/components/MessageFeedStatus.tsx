@@ -4,14 +4,12 @@ import { useStore } from "../store.js";
 import { sendToSession } from "../ws.js";
 import type {
   ActiveTurnRoute,
-  BoardRowSessionStatus,
   ChatMessage,
   PendingCodexInput,
   PendingUserUpload,
   SdkSessionInfo,
   SessionState,
 } from "../types.js";
-import type { BoardRowData } from "./BoardTable.js";
 import { YarnBallDot } from "./CatIcons.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { NotificationChip } from "./NotificationChip.js";
@@ -47,8 +45,6 @@ export function ElapsedTimer({
   const streamingPauseStartedAt = useStore((s) => s.streamingPauseStartedAt.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const activeTurnRoute = useStore((s) => s.activeTurnRoutes?.get(sessionId));
-  const sessionBoard = useStore((s) => s.sessionBoards?.get(sessionId));
-  const rowSessionStatuses = useStore((s) => s.sessionBoardRowStatuses?.get(sessionId));
   const bridgeIsOrchestrator = useStore((s) => s.sessions?.get(sessionId)?.isOrchestrator === true);
   const bridgeClaimedQuestId = useStore((s) => s.sessions?.get(sessionId)?.claimedQuestId ?? null);
   const sdkIsOrchestrator = useStore(
@@ -63,37 +59,26 @@ export function ElapsedTimer({
   const reviewedQuestId = useStore((s) => findReviewedQuestId(sessionId, s.sdkSessions ?? [], s.sessions ?? new Map()));
   const isStuck = useStore((s) => s.sessionStuck.get(sessionId) ?? false);
   const isLeaderSession = bridgeIsOrchestrator || sdkIsOrchestrator;
-  const leaderWorkerActivity = isLeaderSession
-    ? findLeaderWorkerActivity(sessionBoard, rowSessionStatuses, activeTurnRoute, sessionStatus)
-    : null;
-  const effectiveSessionStatus =
-    sessionStatus === "running" || leaderWorkerActivity ? ("running" as const) : sessionStatus;
-  const effectiveStreamingStartedAt =
-    sessionStatus === "running" ? streamingStartedAt : leaderWorkerActivity?.generationStartedAt;
-  const effectivePauseStartedAt = sessionStatus === "running" ? streamingPauseStartedAt : undefined;
-  const effectivePausedDuration = sessionStatus === "running" ? streamingPausedDuration : 0;
-  const effectiveActiveTurnRoute =
-    sessionStatus === "running" ? activeTurnRoute : (leaderWorkerActivity?.activeTurnRoute ?? null);
   const [elapsed, setElapsed] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!effectiveStreamingStartedAt && effectiveSessionStatus !== "running") {
+    if (!streamingStartedAt && sessionStatus !== "running") {
       setElapsed(0);
       return;
     }
-    const start = effectiveStreamingStartedAt || Date.now();
+    const start = streamingStartedAt || Date.now();
     const calcElapsed = () => {
       const pauseOffset =
-        effectivePausedDuration + (effectivePauseStartedAt ? Date.now() - effectivePauseStartedAt : 0);
+        streamingPausedDuration + (streamingPauseStartedAt ? Date.now() - streamingPauseStartedAt : 0);
       return Math.max(0, Date.now() - start - pauseOffset);
     };
     setElapsed(calcElapsed());
     const interval = setInterval(() => setElapsed(calcElapsed()), 1000);
     return () => clearInterval(interval);
-  }, [effectiveStreamingStartedAt, effectiveSessionStatus, effectivePausedDuration, effectivePauseStartedAt]);
+  }, [streamingStartedAt, sessionStatus, streamingPausedDuration, streamingPauseStartedAt]);
 
-  const showTimer = effectiveSessionStatus === "running" && elapsed > 0;
+  const showTimer = sessionStatus === "running" && elapsed > 0;
 
   useLayoutEffect(() => {
     if (!onVisibleHeightChange) return;
@@ -118,15 +103,15 @@ export function ElapsedTimer({
   const handleRelaunch = () => {
     api.relaunchSession(sessionId).catch(() => {});
   };
-  const activeTurnNavigationTarget = leaderActiveTurnNavigationTarget(effectiveActiveTurnRoute, currentThreadKey, {
+  const activeTurnNavigationTarget = leaderActiveTurnNavigationTarget(activeTurnRoute, currentThreadKey, {
     isLeaderSession,
   });
 
   const label = isStuck
     ? "Session may be stuck"
-    : effectivePauseStartedAt
+    : streamingPauseStartedAt
       ? "Napping..."
-      : formatActiveTurnLabel(effectiveActiveTurnRoute, currentThreadKey, {
+      : formatActiveTurnLabel(activeTurnRoute, currentThreadKey, {
           isLeaderSession,
           isReviewerSession: sdkReviewerOf !== null,
           claimedQuestId: bridgeClaimedQuestId ?? sdkClaimedQuestId,
@@ -134,11 +119,11 @@ export function ElapsedTimer({
         });
   const dotColor = isStuck
     ? "text-cc-attention"
-    : effectivePauseStartedAt
+    : streamingPauseStartedAt
       ? "text-cc-attention"
       : "text-cc-primary animate-pulse";
   const canNavigateActiveTurn =
-    variant === "floating" && !!onSelectThread && !!activeTurnNavigationTarget && !isStuck && !effectivePauseStartedAt;
+    variant === "floating" && !!onSelectThread && !!activeTurnNavigationTarget && !isStuck && !streamingPauseStartedAt;
   const floatingChipContents = (
     <>
       <span className="pointer-events-none absolute inset-0 bg-cc-hover/20" />
@@ -242,48 +227,6 @@ export function formatActiveReasoningStatusText(text: string): string {
     return collapsePreviewWhitespace(titleMatch[1]);
   }
   return collapsePreviewWhitespace(trimmed);
-}
-
-function previewMatchesActiveRoute(
-  preview: { threadKey?: string; questId?: string },
-  activeTurnRoute: ActiveTurnRoute | null | undefined,
-): boolean {
-  if (!preview.threadKey && !preview.questId) return true;
-  if (!activeTurnRoute) return false;
-  const previewThread = preview.threadKey ? normalizeThreadKey(preview.threadKey) : null;
-  const activeThread = normalizeThreadKey(activeTurnRoute.threadKey);
-  if (previewThread && previewThread !== activeThread) return false;
-  if (preview.questId && activeTurnRoute.questId && preview.questId !== activeTurnRoute.questId) return false;
-  return true;
-}
-
-function findLeaderWorkerActivity(
-  board: BoardRowData[] | undefined,
-  rowStatuses: Record<string, BoardRowSessionStatus> | undefined,
-  activeTurnRoute: ActiveTurnRoute | null | undefined,
-  sessionStatus: string | null | undefined,
-): {
-  activeTurnRoute: ActiveTurnRoute;
-  preview?: NonNullable<BoardRowSessionStatus["worker"]>["activeCodexReasoningPreview"];
-  generationStartedAt?: number;
-} | null {
-  if (!board?.length || !rowStatuses) return null;
-  const activeQuestId = questIdFromRoute(activeTurnRoute);
-  const candidateRows =
-    sessionStatus === "running" && activeQuestId
-      ? board.filter((row) => normalizeQuestId(row.questId) === activeQuestId)
-      : board;
-  for (const row of candidateRows) {
-    const worker = rowStatuses[row.questId]?.worker;
-    if (worker?.status !== "running") continue;
-    const route = worker.activeTurnRoute ?? { threadKey: row.questId, questId: row.questId };
-    return {
-      activeTurnRoute: route,
-      ...(worker.activeCodexReasoningPreview ? { preview: worker.activeCodexReasoningPreview } : {}),
-      ...(typeof worker.generationStartedAt === "number" ? { generationStartedAt: worker.generationStartedAt } : {}),
-    };
-  }
-  return null;
 }
 
 export function RecoverableConnectionChip({ sessionId }: { sessionId: string }) {
