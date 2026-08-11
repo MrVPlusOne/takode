@@ -141,6 +141,9 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(alignment.assigneeBrief).toContain("leader-verification packet, not a planning report");
     expect(alignment.assigneeBrief).toContain("minimal understanding and authorization handshake");
     expect(alignment.assigneeBrief).toContain("not implementation investigation");
+    expect(alignment.assigneeBrief).toContain("A completed Alignment is not a user-input wait");
+    expect(alignment.assigneeBrief).toContain("Do **not** call `takode notify needs-input`");
+    expect(alignment.assigneeBrief).toContain("The ordinary `turn_end` event is the leader approval signal");
     expect(alignment.leaderBrief).toContain("Do not convert the Alignment note into a Work prompt");
     expect(work.assigneeBrief).toContain("worker-owned Work -> Memory transition");
     expect(work.assigneeBrief).toContain("Do not wait for the leader to restate the quest or prescribe an approach");

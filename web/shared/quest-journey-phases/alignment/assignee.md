@@ -12,6 +12,7 @@ Boundary:
 - Call out any significant ambiguity, scope change, evidence gap, user-visible tradeoff, or other blocking issue explicitly so the leader can decide whether user approval or Journey revision is needed.
 - Do not include broad implementation plans, exhaustive evidence inventories, routine file lists, long command or test details, or repeated quest history unless that detail explains a blocker, misunderstanding risk, or Journey-revision need.
 - Do not perform Work, Memory, checkpoint handling, or quest status changes during Alignment.
+- A completed Alignment is not a user-input wait. Do **not** call `takode notify needs-input`, ask for plan approval, or create another blocking prompt merely because leader approval is the next Journey step. Use needs-input only when a genuine missing-context question, material ambiguity, safety/authority concern, or blocker prevents Alignment from completing.
 
 Phase documentation:
 - Before reporting back, add or refresh a quest feedback entry documenting this phase when working on a quest. Prefer the phase-scoped primitive with current-phase inference: `quest feedback add q-N --text-file <body> --tldr-file <tldr> --kind phase-summary`.
@@ -26,7 +27,7 @@ Phase documentation:
 - Document the concrete understanding, key constraints, real ambiguities or questions, blockers or surprises, and any evidence that may justify leader-owned Journey revision. Avoid prewriting an implementation plan unless that plan is the blocker or Journey-revision evidence.
 
 Deliverable:
-- Add or refresh the Alignment note, then return only a compact pointer to that feedback index plus any blocker or Journey-revision fact that needs immediate leader routing. If the leader explicitly asks for the read-in in chat, keep it concise and avoid duplicating the phase note:
+- Add or refresh the Alignment note, return only a compact pointer to that feedback index plus any blocker or Journey-revision fact that needs immediate leader routing, then stop. The ordinary `turn_end` event is the leader approval signal; do not send a routine needs-input notification or approval request. If the leader explicitly asks for the read-in in chat, keep it concise and avoid duplicating the phase note:
   - `Concrete understanding:` what you believe the goal and constraints are
   - `Ambiguities:` anything still unclear or risky, including key constraints you may have missed
   - `Clarification questions:` only the questions that could materially change the leader's dispatch decision

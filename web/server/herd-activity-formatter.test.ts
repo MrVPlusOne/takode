@@ -124,6 +124,72 @@ describe("formatActivitySummary", () => {
     expect(result).toContain('[2] agent(#5): "agent dispatched"');
   });
 
+  it("omits huge structured Memory Catalog bodies while preserving the worker outcome", () => {
+    const catalogBody = `Memory catalog preloaded\n\n${"catalog-entry\n".repeat(2_500)}`;
+    const messages = [
+      userMsg(catalogBody, { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" }),
+      assistantMsg("Alignment is recorded at feedback index 0. No blocker or Journey revision is required."),
+    ];
+
+    const result = formatActivitySummary(messages, { startIdx: 1, maxLines: 4 });
+
+    expect(result.length).toBeLessThan(500);
+    expect(result).toContain("[1] injected context omitted from herd summary: Memory Catalog");
+    expect(result).toContain(`${catalogBody.length.toLocaleString("en-US")} chars`);
+    expect(result).not.toContain("catalog-entry");
+    expect(result).toContain("Alignment is recorded at feedback index 0");
+    expect(messages[0]).toMatchObject({ content: catalogBody });
+  });
+
+  it("aggregates structured startup and recovery context without hiding decisions or direct instructions", () => {
+    const large = "preloaded-body ".repeat(1_000);
+    const messages = [
+      userMsg(large, { sessionId: "system:leader-kickoff", sessionLabel: "Leader Kickoff" }),
+      userMsg(large, {
+        sessionId: "system:leader-skill-preload:quest",
+        sessionLabel: "Required leader skill preloaded: quest",
+      }),
+      userMsg(large, { sessionId: "system:compaction-recovery", sessionLabel: "Compaction Recovery" }),
+      userMsg(large, { sessionId: "system:restart-continuation:prep-1", sessionLabel: "System" }),
+      userMsg("Unresolved needs-input: choose the deployment target", {
+        sessionId: "system:needs-input-reminder",
+        sessionLabel: "Needs Input Reminder",
+      }),
+      userMsg("Leader delta: preserve permission decisions", { sessionId: "leader-1", sessionLabel: "#1 Leader" }),
+      permissionRequestMsg("Bash", "Run the bounded verification command"),
+      assistantMsg("Final worker outcome remains visible."),
+    ];
+
+    const result = formatActivitySummary(messages, { startIdx: 20, maxLines: 4, leaderSessionId: "leader-1" });
+
+    expect(result).toContain("[20]-[23] injected context omitted from herd summary");
+    expect(result).toContain("Leader Kickoff");
+    expect(result).toContain("Required leader skill preloaded: quest");
+    expect(result).toContain("Compaction Recovery");
+    expect(result).toContain("+1 more");
+    expect(result).not.toContain("preloaded-body");
+    expect(result).toContain("Unresolved needs-input: choose the deployment target");
+    expect(result).toContain("leader: ");
+    expect(result).toContain("⏸ permission Bash");
+    expect(result).toContain("Final worker outcome remains visible");
+  });
+
+  it("uses only exact safe legacy labels and keeps unknown system messages visible", () => {
+    const messages = [
+      userMsg("legacy catalog body", { sessionId: "system", sessionLabel: "Memory Catalog" }),
+      userMsg("same label from a real agent", { sessionId: "worker-1", sessionLabel: "Memory Catalog" }),
+      userMsg("important diagnostic", { sessionId: "system:unknown", sessionLabel: "System" }),
+      assistantMsg("done"),
+    ];
+
+    const result = formatActivitySummary(messages, { startIdx: 0 });
+
+    expect(result).toContain("Memory Catalog (19 chars)");
+    expect(result).not.toContain("legacy catalog body");
+    expect(result).toContain("same label from a real agent");
+    expect(result).toContain("important diagnostic");
+  });
+
   it("truncates leader-authored user messages with a short leader label", () => {
     const leaderInstruction =
       "Address the code-review finding, then stop and report back.\n\n" + "Read this phase brief. ".repeat(20);

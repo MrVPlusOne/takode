@@ -18,6 +18,60 @@ export const STANDARD_COMPACTION_RECOVERY_PREFIX =
 
 export const LEADER_KICKOFF_PREFIX = "[System] You are a leader session.";
 
+const RESTART_CONTINUATION_SOURCE_ID_PREFIX = "system:restart-continuation:";
+const OMITTED_HERD_CONTEXT_SOURCE_LABELS = new Set([
+  MEMORY_CATALOG_SOURCE_LABEL,
+  COMPACTION_RECOVERY_SOURCE_LABEL,
+  LEADER_KICKOFF_SOURCE_LABEL,
+]);
+
+export interface OmittedHerdContextSource {
+  sourceLabel: string;
+}
+
+/**
+ * Identify structured bootstrap/recovery context whose complete body belongs in
+ * the source session history, not in a leader-model herd activity summary.
+ * Decision-bearing reminders and diagnostics intentionally remain visible.
+ */
+export function getOmittedHerdContextSource(
+  agentSource:
+    | {
+        sessionId?: string;
+        sessionLabel?: string;
+      }
+    | undefined,
+): OmittedHerdContextSource | null {
+  const sourceId = agentSource?.sessionId;
+  if (sourceId === MEMORY_CATALOG_SOURCE_ID) {
+    return { sourceLabel: MEMORY_CATALOG_SOURCE_LABEL };
+  }
+  if (sourceId === COMPACTION_RECOVERY_SOURCE_ID) {
+    return { sourceLabel: COMPACTION_RECOVERY_SOURCE_LABEL };
+  }
+  if (sourceId === LEADER_KICKOFF_SOURCE_ID) {
+    return { sourceLabel: LEADER_KICKOFF_SOURCE_LABEL };
+  }
+  if (isLeaderSkillPreloadSourceId(sourceId)) {
+    return { sourceLabel: agentSource?.sessionLabel || LEADER_SKILL_PRELOAD_SOURCE_LABEL_PREFIX };
+  }
+  if (sourceId?.startsWith(RESTART_CONTINUATION_SOURCE_ID_PREFIX)) {
+    return { sourceLabel: "Restart Continuation" };
+  }
+
+  // Legacy persisted entries may lack the stable source id. Exact known labels
+  // are safe fallbacks; generic labels such as "System" are intentionally not.
+  const sourceLabel = agentSource?.sessionLabel;
+  const hasLegacySystemSource = !sourceId || sourceId === "system" || sourceId.startsWith("system:");
+  if (hasLegacySystemSource && sourceLabel && OMITTED_HERD_CONTEXT_SOURCE_LABELS.has(sourceLabel)) {
+    return { sourceLabel };
+  }
+  if (hasLegacySystemSource && sourceLabel?.startsWith(`${LEADER_SKILL_PRELOAD_SOURCE_LABEL_PREFIX}:`)) {
+    return { sourceLabel };
+  }
+  return null;
+}
+
 export function isSystemSourceId(sourceId: string | undefined): boolean {
   return sourceId === "system" || sourceId?.startsWith("system:") === true;
 }

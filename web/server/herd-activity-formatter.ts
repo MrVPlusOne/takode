@@ -12,6 +12,8 @@
  * - Tail-priority truncation: when output exceeds MAX_LINES, the TAIL (most recent
  *   messages) is preserved because it's the most diagnostic -- what happened right
  *   before the event. Layout: first line + skip marker + last (maxLines-1) lines.
+ * - Context-safe: structured bootstrap/recovery payload bodies stay only in the
+ *   source session history and become one tiny aggregate omission line here.
  * - Bounded: capped at MAX_LINES to prevent context bloat in the leader's conversation.
  *
  * Format conventions (shared with takode scan/peek):
@@ -25,6 +27,7 @@
 
 import type { BrowserIncomingMessage, ContentBlock } from "./session-types.js";
 import { formatCompactAgentLabel, formatQuotedContent } from "../shared/takode-constants.js";
+import { getOmittedHerdContextSource } from "../shared/injected-event-message.js";
 
 // ─── Constants ──────────────────────────────────────────────────────────────────
 
@@ -56,6 +59,12 @@ export interface FormatActivityOptions {
 
 export interface FormattedActivitySummary {
   text: string;
+}
+
+interface OmittedContextEntry {
+  idx: number;
+  sourceLabel: string;
+  contentChars: number;
 }
 
 /**
@@ -98,6 +107,7 @@ export function formatActivitySummaryDetailed(
   // are no longer force-included beyond the normal cap; direct user-message herd
   // events carry that context promptly.
   const visibleLines: Array<{ line: string; msgIdx: number }> = [];
+  const omittedContextEntries: OmittedContextEntry[] = [];
   const hiddenToolCounts = new Map<string, number>();
   let firstHiddenToolIdx: number | null = null;
   let lastHiddenToolIdx: number | null = null;
@@ -105,6 +115,16 @@ export function formatActivitySummaryDetailed(
     const msg = messages[i];
     const idx = startIdx + i;
     if (idx < deduplicatedFrom) continue;
+
+    const omittedContext = omittedHerdContextForMessage(msg);
+    if (omittedContext) {
+      omittedContextEntries.push({
+        idx,
+        sourceLabel: omittedContext.sourceLabel,
+        contentChars: msg.type === "user_message" ? msg.content.length : 0,
+      });
+      continue;
+    }
 
     const isKeyMessage = i === keyMessageIdx;
     const formatted = formatMessage(msg, idx, isKeyMessage, options.leaderSessionId);
@@ -123,6 +143,8 @@ export function formatActivitySummaryDetailed(
   }
 
   const allLines: Array<{ line: string; msgIdx: number }> = [];
+  const omittedContextLine = formatOmittedContextAggregateLine(omittedContextEntries);
+  if (omittedContextLine) allLines.push(omittedContextLine);
   if (visibleLines.length > maxLines) {
     const keptTail = maxLines > 0 ? visibleLines.slice(-maxLines) : [];
     const skipped = visibleLines.length - keptTail.length;
@@ -156,7 +178,8 @@ export function formatActivitySummaryDetailed(
 
   // Pass 2: final guard for total output size. Visible lines were already capped,
   // so this mostly protects pathological cases.
-  if (allLines.length <= maxLines + (hiddenToolCounts.size > 0 ? 1 : 0) + 1) {
+  const preservedSummaryLineCount = (hiddenToolCounts.size > 0 ? 1 : 0) + (omittedContextLine ? 1 : 0) + 1;
+  if (allLines.length <= maxLines + preservedSummaryLineCount) {
     return { text: allLines.map((l) => l.line).join("\n") };
   }
 
@@ -179,6 +202,7 @@ export function formatActivitySummaryDetailed(
 
 /** Message types worth including in the activity summary. */
 function isFormattable(msg: BrowserIncomingMessage): boolean {
+  if (omittedHerdContextForMessage(msg)) return false;
   return (
     msg.type === "user_message" ||
     msg.type === "assistant" ||
@@ -299,6 +323,31 @@ function findLastFormattableIndex(
     if (idx >= deduplicatedFrom) return i;
   }
   return -1;
+}
+
+function omittedHerdContextForMessage(msg: BrowserIncomingMessage): ReturnType<typeof getOmittedHerdContextSource> {
+  if (msg.type !== "user_message") return null;
+  return getOmittedHerdContextSource(msg.agentSource);
+}
+
+function formatOmittedContextAggregateLine(entries: OmittedContextEntry[]): { line: string; msgIdx: number } | null {
+  if (entries.length === 0) return null;
+  const firstIdx = entries[0].idx;
+  const lastIdx = entries[entries.length - 1].idx;
+  const range = firstIdx === lastIdx ? `[${firstIdx}]` : `[${firstIdx}]-[${lastIdx}]`;
+  const visible = entries.slice(0, 3);
+  const details = visible.map(
+    (entry) => `${truncate(entry.sourceLabel, 64)} (${entry.contentChars.toLocaleString("en-US")} chars)`,
+  );
+  if (entries.length > visible.length) {
+    const remaining = entries.slice(visible.length);
+    const remainingChars = remaining.reduce((sum, entry) => sum + entry.contentChars, 0);
+    details.push(`+${remaining.length} more (${remainingChars.toLocaleString("en-US")} chars)`);
+  }
+  return {
+    line: `${range} injected context omitted from herd summary: ${details.join(", ")}`,
+    msgIdx: firstIdx,
+  };
 }
 
 function formatHiddenToolAggregateLine(counts: Map<string, number>): string {
