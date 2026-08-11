@@ -127,6 +127,10 @@ function forEachComparableHistoryEntry(
           metadata: {
             codexReasoningDetail: {
               status: message.status,
+              reasoningTurnId: message.reasoning_turn_id,
+              reasoningItemOrdinal: message.reasoning_item_ordinal,
+              providerItemId: message.provider_item_id,
+              summaryIndex: message.summary_index,
               thinkingTimeMs: message.thinking_time_ms,
             },
             threadKey: message.threadKey,

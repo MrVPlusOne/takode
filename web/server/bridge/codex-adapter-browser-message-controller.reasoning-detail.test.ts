@@ -116,4 +116,51 @@ describe("Codex reasoning detail routing", () => {
       questId: "q-1842",
     });
   });
+
+  it("settles three live summary parts into three chronological history rows", async () => {
+    const session = makeSession();
+    const deps = makeDeps([]);
+    const parts = ["First summary", "Second summary", "Third summary"];
+
+    for (let summaryIndex = 0; summaryIndex < parts.length; summaryIndex++) {
+      const id = `codex-reasoning-turn-1-0-${summaryIndex}`;
+      await handleCodexAdapterBrowserMessage(
+        session,
+        {
+          type: "codex_reasoning_detail",
+          id,
+          text: parts[summaryIndex],
+          status: "streaming",
+          timestamp: 10 + summaryIndex,
+          parent_tool_use_id: null,
+          summary_index: summaryIndex,
+        },
+        deps,
+      );
+      await handleCodexAdapterBrowserMessage(
+        session,
+        {
+          type: "codex_reasoning_detail",
+          id,
+          text: parts[summaryIndex],
+          status: "complete",
+          timestamp: 20 + summaryIndex,
+          parent_tool_use_id: null,
+          summary_index: summaryIndex,
+        },
+        deps,
+      );
+    }
+
+    expect(session.messageHistory).toEqual(
+      parts.map((text, summaryIndex) =>
+        expect.objectContaining({
+          id: `codex-reasoning-turn-1-0-${summaryIndex}`,
+          text,
+          status: "complete",
+          summary_index: summaryIndex,
+        }),
+      ),
+    );
+  });
 });

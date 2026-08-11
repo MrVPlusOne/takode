@@ -275,6 +275,10 @@ export interface ChatMessage {
     codexAutoPauseRecoverySummary?: CodexAutoPauseRecoverySummary;
     codexReasoningDetail?: {
       status: "streaming" | "complete";
+      reasoningTurnId?: string;
+      reasoningItemOrdinal?: number;
+      providerItemId?: string;
+      summaryIndex?: number;
       thinkingTimeMs?: number;
     };
     compactMarkerKind?: "compaction" | "session_recycled";

@@ -47,4 +47,26 @@ describe("Codex reasoning detail state", () => {
       expect.objectContaining({ text: "Complete summary", status: "complete", timestamp: 10 }),
     ]);
   });
+
+  it("reuses the persisted identity for completion-only replay after an ordinal reset", () => {
+    const existing = {
+      ...detail("Second occurrence", "complete", 10),
+      id: "codex-reasoning-turn-1-1-0",
+      reasoning_turn_id: "turn-1",
+      reasoning_item_ordinal: 1,
+      provider_item_id: "completed-provider-item",
+      summary_index: 0,
+    };
+    const session = { messageHistory: [existing] as BrowserIncomingMessage[] };
+
+    const update = upsertCodexReasoningDetail(session, {
+      ...existing,
+      id: "codex-reasoning-turn-1-0-0",
+      reasoning_item_ordinal: 0,
+      timestamp: 20,
+    });
+
+    expect(update.changed).toBe(false);
+    expect(session.messageHistory).toEqual([existing]);
+  });
 });

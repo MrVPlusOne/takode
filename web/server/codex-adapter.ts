@@ -1492,10 +1492,14 @@ export class CodexAdapter
         case "item/fileChange/outputDelta":
           // Streaming file change output. Same as above.
           break;
-        case "item/reasoning/textDelta":
         case "item/reasoning/summaryTextDelta":
+          this.itemEventManager.handleReasoningSummaryDelta(params);
+          break;
         case "item/reasoning/summaryPartAdded":
-          this.itemEventManager.handleReasoningDelta(params);
+          this.itemEventManager.handleReasoningSummaryPartAdded(params);
+          break;
+        case "item/reasoning/textDelta":
+          // Raw reasoning content is not an official summary and must not be displayed.
           break;
         case "item/mcpToolCall/progress": {
           // MCP tool call progress — map to tool_progress
@@ -1718,6 +1722,7 @@ export class CodexAdapter
     const turnId = typeof turn?.id === "string" ? turn.id : null;
     if (turnId) {
       this.toolRouterErrorByTurnId.delete(turnId);
+      this.itemEventManager.finishReasoningTurn(turnId);
     }
     // Wake any callers waiting for the turn to end (e.g. interruptAndWaitForTurnEnd)
     for (const resolve of this.turnEndResolvers.splice(0)) resolve();

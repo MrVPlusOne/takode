@@ -6,6 +6,7 @@ import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 import type { ModelProvenanceMigration } from "./model-identity-contract.js";
 import type { CodexAutoPauseRecoveryLink, CodexAutoPauseRecoverySummary } from "./codex-auto-pause-types.js";
 import type { CodexGoalCapabilityState, CodexGoalState } from "./codex-goal.js";
+import type { ActiveCodexReasoningPreview, CodexReasoningDetailMessage } from "./codex-reasoning-types.js";
 import type { CodexAppReference, CodexSkillReference } from "./codex-reference-types.js";
 import type {
   CodexAutoPauseInputSourceKind,
@@ -38,6 +39,7 @@ export type {
 } from "./leader-projection-types.js";
 export type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState } from "./window-protocol-types.js";
 export type { CodexAppReference, CodexSkillReference } from "./codex-reference-types.js";
+export type { ActiveCodexReasoningPreview, CodexReasoningDetailMessage } from "./codex-reasoning-types.js";
 
 // Types for the WebSocket bridge between Claude Code CLI and the browser
 
@@ -383,28 +385,6 @@ export interface ThreadTransitionMarker {
 export interface ActiveTurnRoute {
   threadKey: string;
   questId?: string;
-}
-
-export interface ActiveCodexReasoningPreview {
-  text: string;
-  updatedAt: number;
-  turnId?: string | null;
-  threadKey?: string;
-  questId?: string;
-  truncated?: boolean;
-}
-
-export interface CodexReasoningDetailMessage {
-  type: "codex_reasoning_detail";
-  id: string;
-  text: string;
-  status: "streaming" | "complete";
-  timestamp: number;
-  parent_tool_use_id: string | null;
-  thinking_time_ms?: number;
-  threadKey?: string;
-  questId?: string;
-  threadRefs?: ThreadRef[];
 }
 
 export type SideChatContextStrategy = "native-fork" | "bounded-replay";

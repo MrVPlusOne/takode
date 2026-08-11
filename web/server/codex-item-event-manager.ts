@@ -23,6 +23,10 @@ import {
   safeKind,
   toSafeText,
 } from "./codex-adapter-utils.js";
+import {
+  CodexReasoningDetailAssembler,
+  type CodexReasoningDetailPartUpdate,
+} from "./codex-reasoning-detail-assembler.js";
 
 type EmitFn = (msg: BrowserIncomingMessage) => void;
 
@@ -55,9 +59,7 @@ export class CodexItemEventManager {
   private terminalInteractionToolUseSeq = 0;
   private planSignatureByKey = new Map<string, string>();
 
-  private reasoningTextByItemId = new Map<string, string>();
-  private reasoningTimeFromLastMessageByItemId = new Map<string, number>();
-  private reasoningStreamStartedItemIds = new Set<string>();
+  private readonly reasoningDetails = new CodexReasoningDetailAssembler();
   private lastMessageFinishedAt: number | null = null;
 
   private emittedToolUseIds = new Set<string>();
@@ -86,9 +88,7 @@ export class CodexItemEventManager {
     this.commandStartTimes.clear();
     this.commandOutputByItemId.clear();
     this.planSignatureByKey.clear();
-    this.reasoningTextByItemId.clear();
-    this.reasoningTimeFromLastMessageByItemId.clear();
-    this.reasoningStreamStartedItemIds.clear();
+    this.reasoningDetails.reset();
     this.emittedToolUseIds.clear();
     this.emittedToolUseInputsById.clear();
     this.emittedToolUseNamesById.clear();
@@ -104,6 +104,10 @@ export class CodexItemEventManager {
     this.parentToolUseIdByItemId.clear();
     this.pendingSubagentToolUsesByCallId.clear();
     this.lastMessageFinishedAt = null;
+  }
+
+  finishReasoningTurn(turnId: string): void {
+    this.reasoningDetails.finishTurn(turnId);
   }
 
   markMessageFinished(timestamp: number): void {
@@ -224,15 +228,19 @@ export class CodexItemEventManager {
 
       case "reasoning": {
         const r = item as CodexReasoningItem;
-        const reasoningText = r.summary || r.content || "";
-        this.reasoningTextByItemId.set(item.id, reasoningText);
-        if (typeof this.lastMessageFinishedAt === "number") {
-          this.reasoningTimeFromLastMessageByItemId.set(item.id, Math.max(0, Date.now() - this.lastMessageFinishedAt));
-        }
-        if (reasoningText) {
-          this.emitReasoningDetail(item.id, reasoningText, "streaming", parentToolUseId);
-          this.reasoningStreamStartedItemIds.add(item.id);
-        }
+        const thinkingTimeMs =
+          typeof this.lastMessageFinishedAt === "number"
+            ? Math.max(0, Date.now() - this.lastMessageFinishedAt)
+            : undefined;
+        this.emitReasoningDetailUpdates(
+          this.reasoningDetails.start({
+            turnId: toSafeText(params.turnId),
+            itemId: item.id,
+            summary: r.summary,
+            parentToolUseId,
+            thinkingTimeMs,
+          }),
+        );
         break;
       }
 
@@ -258,31 +266,31 @@ export class CodexItemEventManager {
     }
   }
 
-  handleReasoningDelta(params: Record<string, unknown>): void {
+  handleReasoningSummaryPartAdded(params: Record<string, unknown>): void {
     const itemId = params.itemId as string | undefined;
     if (!itemId) return;
+    this.reasoningDetails.addPart({
+      turnId: toSafeText(params.turnId),
+      itemId,
+      summaryIndex: params.summaryIndex,
+      parentToolUseId: this.resolveParentToolUseId(params, itemId),
+    });
+  }
 
-    if (!this.reasoningTextByItemId.has(itemId)) {
-      this.reasoningTextByItemId.set(itemId, "");
-    }
-
-    const delta =
-      typeof params.delta === "string"
-        ? params.delta
-        : typeof params.text === "string"
-          ? params.text
-          : params.part &&
-              typeof params.part === "object" &&
-              typeof (params.part as Record<string, unknown>).text === "string"
-            ? ((params.part as Record<string, unknown>).text as string)
-            : undefined;
+  handleReasoningSummaryDelta(params: Record<string, unknown>): void {
+    const itemId = params.itemId as string | undefined;
+    if (!itemId) return;
+    const delta = typeof params.delta === "string" ? params.delta : typeof params.text === "string" ? params.text : "";
     if (!delta) return;
-
-    const current = this.reasoningTextByItemId.get(itemId) || "";
-    this.reasoningTextByItemId.set(itemId, current + delta);
-    const parentToolUseId = this.resolveParentToolUseId(params, itemId);
-    this.emitReasoningDetail(itemId, current + delta, "streaming", parentToolUseId);
-    this.reasoningStreamStartedItemIds.add(itemId);
+    this.emitReasoningDetailUpdates(
+      this.reasoningDetails.appendDelta({
+        turnId: toSafeText(params.turnId),
+        itemId,
+        summaryIndex: params.summaryIndex,
+        delta,
+        parentToolUseId: this.resolveParentToolUseId(params, itemId),
+      }),
+    );
   }
 
   handleAgentMessageDelta(params: Record<string, unknown>): void {
@@ -540,23 +548,22 @@ export class CodexItemEventManager {
 
       case "reasoning": {
         const r = item as CodexReasoningItem;
-        const bufferedText = toSafeText(this.reasoningTextByItemId.get(item.id)).trim();
-        const fallbackText = toSafeText(r.summary ?? r.content ?? "").trim();
-        const thinkingText = bufferedText || fallbackText;
         const completedAt = Date.now();
-        let thinkingTimeMs = this.reasoningTimeFromLastMessageByItemId.get(item.id);
-        if (thinkingTimeMs === undefined && typeof this.lastMessageFinishedAt === "number") {
-          thinkingTimeMs = Math.max(0, completedAt - this.lastMessageFinishedAt);
-        }
-
-        if (thinkingText) {
-          this.emitReasoningDetail(item.id, thinkingText, "complete", parentToolUseId, thinkingTimeMs);
+        const thinkingTimeMs =
+          typeof this.lastMessageFinishedAt === "number"
+            ? Math.max(0, completedAt - this.lastMessageFinishedAt)
+            : undefined;
+        const updates = this.reasoningDetails.complete({
+          turnId: toSafeText(params.turnId),
+          itemId: item.id,
+          summary: r.summary,
+          parentToolUseId,
+          thinkingTimeMs,
+        });
+        this.emitReasoningDetailUpdates(updates);
+        if (updates.length > 0) {
           this.markMessageFinished(completedAt);
         }
-
-        this.reasoningTextByItemId.delete(item.id);
-        this.reasoningTimeFromLastMessageByItemId.delete(item.id);
-        this.reasoningStreamStartedItemIds.delete(item.id);
         this.emit({
           type: "stream_event",
           event: {
@@ -1330,23 +1337,22 @@ export class CodexItemEventManager {
     return `codex-${kind}-${randomUUID()}`;
   }
 
-  private emitReasoningDetail(
-    itemId: string,
-    text: string,
-    status: "streaming" | "complete",
-    parentToolUseId: string | null,
-    thinkingTimeMs?: number,
-  ): void {
-    if (!text.trim()) return;
-    this.emit({
-      type: "codex_reasoning_detail",
-      id: this.makeMessageId("reasoning", itemId),
-      text,
-      status,
-      timestamp: Date.now(),
-      parent_tool_use_id: parentToolUseId,
-      ...(thinkingTimeMs !== undefined ? { thinking_time_ms: thinkingTimeMs } : {}),
-    });
+  private emitReasoningDetailUpdates(updates: CodexReasoningDetailPartUpdate[]): void {
+    for (const update of updates) {
+      this.emit({
+        type: "codex_reasoning_detail",
+        id: this.makeMessageId("reasoning", update.sourceId),
+        text: update.text,
+        status: update.status,
+        timestamp: Date.now(),
+        parent_tool_use_id: update.parentToolUseId,
+        reasoning_turn_id: update.turnId,
+        reasoning_item_ordinal: update.itemOrdinal,
+        provider_item_id: update.providerItemId,
+        summary_index: update.summaryIndex,
+        ...(update.thinkingTimeMs !== undefined ? { thinking_time_ms: update.thinkingTimeMs } : {}),
+      });
+    }
   }
 
   private extractCommandOutputDelta(params: Record<string, unknown>): string {

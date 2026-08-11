@@ -726,14 +726,14 @@ describe("CodexAdapter", () => {
     stdout.push(
       JSON.stringify({
         method: "item/started",
-        params: { item: { type: "reasoning", id: "r_t1", summary: "First summary" } },
+        params: { turnId: "turn_1", item: { type: "reasoning", id: "r_t1", summary: ["First summary"] } },
       }) + "\n",
     );
     await tick();
     stdout.push(
       JSON.stringify({
         method: "item/completed",
-        params: { item: { type: "reasoning", id: "r_t1", summary: "First summary" } },
+        params: { turnId: "turn_1", item: { type: "reasoning", id: "r_t1", summary: ["First summary"] } },
       }) + "\n",
     );
     await tick();
@@ -741,14 +741,14 @@ describe("CodexAdapter", () => {
     stdout.push(
       JSON.stringify({
         method: "item/started",
-        params: { item: { type: "reasoning", id: "r_t2", summary: "Second summary" } },
+        params: { turnId: "turn_1", item: { type: "reasoning", id: "r_t2", summary: ["Second summary"] } },
       }) + "\n",
     );
     await tick();
     stdout.push(
       JSON.stringify({
         method: "item/completed",
-        params: { item: { type: "reasoning", id: "r_t2", summary: "Second summary" } },
+        params: { turnId: "turn_1", item: { type: "reasoning", id: "r_t2", summary: ["Second summary"] } },
       }) + "\n",
     );
     await tick();
@@ -765,8 +765,8 @@ describe("CodexAdapter", () => {
 
     expect(reasoningAssistants).toHaveLength(0);
     expect(completedDetails).toEqual([
-      expect.objectContaining({ id: "codex-reasoning-r_t1", text: "First summary" }),
-      expect.objectContaining({ id: "codex-reasoning-r_t2", text: "Second summary" }),
+      expect.objectContaining({ id: "codex-reasoning-turn_1-0-0", text: "First summary" }),
+      expect.objectContaining({ id: "codex-reasoning-turn_1-1-0", text: "Second summary" }),
     ]);
     expect(thinkingStops.length).toBeGreaterThanOrEqual(2);
   });
@@ -781,14 +781,14 @@ describe("CodexAdapter", () => {
     stdout.push(
       JSON.stringify({
         method: "item/started",
-        params: { item: { type: "reasoning", id: "r_live", summary: "Inspecting " } },
+        params: { turnId: "turn_live", item: { type: "reasoning", id: "r_live", summary: ["Inspecting "] } },
       }) + "\n",
     );
     await tick();
     stdout.push(
       JSON.stringify({
         method: "item/reasoning/summaryTextDelta",
-        params: { itemId: "r_live", delta: "session state" },
+        params: { turnId: "turn_live", itemId: "r_live", summaryIndex: 0, delta: "session state" },
       }) + "\n",
     );
     await tick();
@@ -796,16 +796,86 @@ describe("CodexAdapter", () => {
     expect(messages.filter((message) => message.type === "codex_reasoning_detail")).toEqual([
       expect.objectContaining({
         type: "codex_reasoning_detail",
-        id: "codex-reasoning-r_live",
+        id: "codex-reasoning-turn_live-0-0",
         text: "Inspecting ",
         status: "streaming",
       }),
       expect.objectContaining({
         type: "codex_reasoning_detail",
-        id: "codex-reasoning-r_live",
+        id: "codex-reasoning-turn_live-0-0",
         text: "Inspecting session state",
         status: "streaming",
       }),
     ]);
+  });
+
+  it("keeps producer summary parts separate when completion changes the item id", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+    await initializeAdapter(stdout);
+
+    const parts = [
+      "**Addressing BugPilot Issues**\n\nFirst body.",
+      "**Planning Cluster Access**\n\nSecond body.",
+      "**Requesting Worker Details**\n\nThird body.",
+    ];
+    stdout.push(
+      JSON.stringify({
+        method: "item/started",
+        params: { turnId: "turn_multi", item: { type: "reasoning", id: "stream-item", summary: [] } },
+      }) + "\n",
+    );
+    await tick();
+    stdout.push(
+      JSON.stringify({
+        method: "item/reasoning/textDelta",
+        params: { turnId: "turn_multi", itemId: "stream-item", delta: "hidden raw reasoning" },
+      }) + "\n",
+    );
+    await tick();
+    expect(messages.filter((message) => message.type === "codex_reasoning_detail")).toHaveLength(0);
+
+    for (let summaryIndex = 0; summaryIndex < parts.length; summaryIndex++) {
+      stdout.push(
+        JSON.stringify({
+          method: "item/reasoning/summaryPartAdded",
+          params: { turnId: "turn_multi", itemId: "stream-item", summaryIndex },
+        }) + "\n",
+      );
+      stdout.push(
+        JSON.stringify({
+          method: "item/reasoning/summaryTextDelta",
+          params: { turnId: "turn_multi", itemId: "stream-item", summaryIndex, delta: parts[summaryIndex] },
+        }) + "\n",
+      );
+      await tick();
+    }
+
+    stdout.push(
+      JSON.stringify({
+        method: "item/completed",
+        params: {
+          turnId: "turn_multi",
+          item: { type: "reasoning", id: "completed-item", summary: parts },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const details = messages.filter((message) => message.type === "codex_reasoning_detail");
+    expect(new Set(details.map((message) => message.id))).toEqual(
+      new Set(["codex-reasoning-turn_multi-0-0", "codex-reasoning-turn_multi-0-1", "codex-reasoning-turn_multi-0-2"]),
+    );
+    expect(details.filter((message) => message.status === "complete")).toEqual(
+      parts.map((text, summaryIndex) =>
+        expect.objectContaining({
+          id: `codex-reasoning-turn_multi-0-${summaryIndex}`,
+          summary_index: summaryIndex,
+          text,
+        }),
+      ),
+    );
+    expect(details.every((message) => parts.includes(message.text))).toBe(true);
   });
 });

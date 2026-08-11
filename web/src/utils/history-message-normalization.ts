@@ -186,6 +186,10 @@ export function normalizeCodexReasoningDetailMessage(
       ...(existingThreadMetadataFromMessage(msg) ?? {}),
       codexReasoningDetail: {
         status: msg.status,
+        ...(msg.reasoning_turn_id !== undefined ? { reasoningTurnId: msg.reasoning_turn_id } : {}),
+        ...(msg.reasoning_item_ordinal !== undefined ? { reasoningItemOrdinal: msg.reasoning_item_ordinal } : {}),
+        ...(msg.provider_item_id !== undefined ? { providerItemId: msg.provider_item_id } : {}),
+        ...(msg.summary_index !== undefined ? { summaryIndex: msg.summary_index } : {}),
         ...(msg.thinking_time_ms !== undefined ? { thinkingTimeMs: msg.thinking_time_ms } : {}),
       },
     },

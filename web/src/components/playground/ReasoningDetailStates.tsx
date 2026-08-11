@@ -18,24 +18,36 @@ const titled = reasoningMessage(
 );
 
 export function PlaygroundReasoningDetailStates() {
-  const states = [
-    { label: "Collapsed title", message: titled },
-    { label: "Expanded detail", message: titled, defaultOpen: true },
+  const states: Array<{ label: string; messages: ChatMessage[]; defaultOpen?: boolean }> = [
+    { label: "Collapsed title", messages: [titled] },
+    { label: "Expanded detail", messages: [titled], defaultOpen: true },
     {
       label: "Titleless fallback",
-      message: reasoningMessage(
-        "playground-reasoning-titleless",
-        "This official summary has no parseable provider title and uses the generic collapsed label.",
-        "complete",
-      ),
+      messages: [
+        reasoningMessage(
+          "playground-reasoning-titleless",
+          "This official summary has no parseable provider title and uses the generic collapsed label.",
+          "complete",
+        ),
+      ],
     },
     {
       label: "Streaming in place",
-      message: reasoningMessage(
-        "playground-reasoning-streaming",
-        "**Checking live state**\n\nThe same chronological row is still receiving provider summary text.",
-        "streaming",
-      ),
+      messages: [
+        reasoningMessage(
+          "playground-reasoning-streaming",
+          "**Checking live state**\n\nThe same chronological row is still receiving provider summary text.",
+          "streaming",
+        ),
+      ],
+    },
+    {
+      label: "Three producer summary parts",
+      messages: [
+        reasoningMessage("playground-reasoning-part-0", "**Addressing BugPilot Issues**\n\nFirst body.", "complete"),
+        reasoningMessage("playground-reasoning-part-1", "**Planning Cluster Access**\n\nSecond body.", "complete"),
+        reasoningMessage("playground-reasoning-part-2", "**Requesting Worker Details**\n\nThird body.", "complete"),
+      ],
     },
   ];
 
@@ -44,7 +56,11 @@ export function PlaygroundReasoningDetailStates() {
       {states.map((state) => (
         <div key={state.label} className="rounded-md border border-cc-border bg-cc-bg p-3">
           <div className="mb-2 text-[10px] uppercase tracking-wide text-cc-muted">{state.label}</div>
-          <CodexReasoningDetail message={state.message} defaultOpen={state.defaultOpen} />
+          <div className="space-y-2">
+            {state.messages.map((message) => (
+              <CodexReasoningDetail key={message.id} message={message} defaultOpen={state.defaultOpen} />
+            ))}
+          </div>
         </div>
       ))}
     </div>

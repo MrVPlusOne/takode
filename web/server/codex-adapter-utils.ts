@@ -674,8 +674,8 @@ export interface CodexImageViewItem extends CodexItem {
 
 export interface CodexReasoningItem extends CodexItem {
   type: "reasoning";
-  summary?: string;
-  content?: string;
+  summary?: unknown;
+  content?: unknown;
 }
 
 export interface CodexContextCompactionItem extends CodexItem {
