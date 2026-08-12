@@ -529,6 +529,72 @@ describe("assistant-message-controller", () => {
     expect(broadcasts.some((msg) => msg.type === "session_update")).toBe(false);
   });
 
+  it("clears a same-thread status when fresh routed tool activity begins", () => {
+    // Live q-1850 regression: a user posted a screenshot, then the leader's
+    // routed view_image tool appeared while the previous Ready footer remained.
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    session.state.leaderThreadStatuses = {
+      "q-1850": makeThreadStatus({ kind: "ready", threadKey: "q-1850", summary: "evidence matching explained" }),
+    };
+    session.messageHistory.push({
+      type: "user_message",
+      id: "fresh-user",
+      content: "Has this fix been deployed?",
+      timestamp: 20,
+      threadKey: "q-1850",
+      questId: "q-1850",
+    });
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(
+      session,
+      makeAssistant([{ type: "tool_use", id: "view-1", name: "view_image", input: { path: "/tmp/evidence.png" } }]),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    expect(session.state.leaderThreadStatuses?.["q-1850"]).toBeUndefined();
+    expect(broadcasts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "assistant", threadKey: "q-1850", questId: "q-1850" }),
+        expect.objectContaining({ type: "session_update", session: { leaderThreadStatuses: {} } }),
+      ]),
+    );
+  });
+
+  it("preserves another thread's status when routed tool activity begins", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    const existing = makeThreadStatus({ kind: "waiting", threadKey: "q-1850", summary: "waiting on worker" });
+    session.state.leaderThreadStatuses = { "q-1850": existing };
+    session.messageHistory.push({
+      type: "user_message",
+      id: "other-user",
+      content: "Inspect this screenshot",
+      timestamp: 20,
+      threadKey: "q-1851",
+      questId: "q-1851",
+    });
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(
+      session,
+      makeAssistant([{ type: "tool_use", id: "view-2", name: "view_image", input: { path: "/tmp/other.png" } }]),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    expect(session.state.leaderThreadStatuses).toEqual({ "q-1850": existing });
+    expect(broadcasts.some((msg) => msg.type === "session_update")).toBe(false);
+  });
+
   it("clears a same-thread status when fresh routed output has no marker", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;
@@ -552,6 +618,38 @@ describe("assistant-message-controller", () => {
         }),
       ]),
     );
+  });
+
+  it("clears only routed activity threads across a split leader response", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    const untouched = makeThreadStatus({ threadKey: "q-943", summary: "unrelated wait" });
+    session.state.leaderThreadStatuses = {
+      "q-941": makeThreadStatus({ threadKey: "q-941", summary: "old q-941" }),
+      "q-942": makeThreadStatus({ kind: "ready", threadKey: "q-942", summary: "old q-942" }),
+      "q-943": untouched,
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(
+      session,
+      makeAssistant([
+        { type: "text", text: "[thread:q-941]\nChecking q-941.\n---\n[thread:q-942]" },
+        { type: "tool_use", id: "view-split", name: "view_image", input: { path: "/tmp/q-942.png" } },
+      ]),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    expect(session.state.leaderThreadStatuses).toEqual({ "q-943": untouched });
+    expect(
+      broadcasts
+        .filter((msg) => msg.type === "assistant")
+        .map((msg) => (msg.type === "assistant" ? msg.threadKey : null)),
+    ).toEqual(["q-941", "q-942"]);
   });
 
   it("replaces a same-thread status when fresh routed output has a new marker", () => {

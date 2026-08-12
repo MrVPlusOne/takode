@@ -21,14 +21,17 @@ describe("Codex reasoning detail state", () => {
 
     expect(upsertCodexReasoningDetail(session, detail("Partial", "streaming", 10))).toMatchObject({
       changed: true,
+      activityChanged: true,
       inserted: true,
     });
     expect(upsertCodexReasoningDetail(session, detail("Partial summary", "streaming", 11))).toMatchObject({
       changed: true,
+      activityChanged: true,
       inserted: false,
     });
     expect(upsertCodexReasoningDetail(session, detail("Partial summary", "complete", 12))).toMatchObject({
       changed: true,
+      activityChanged: true,
       inserted: false,
     });
 
@@ -46,6 +49,18 @@ describe("Codex reasoning detail state", () => {
     expect(session.messageHistory).toEqual([
       expect.objectContaining({ text: "Complete summary", status: "complete", timestamp: 10 }),
     ]);
+  });
+
+  it("separates route-only replay enrichment from fresh reasoning activity", () => {
+    const session = { messageHistory: [detail("Complete", "complete", 10)] as BrowserIncomingMessage[] };
+
+    const update = upsertCodexReasoningDetail(session, {
+      ...detail("Complete", "complete", 20),
+      threadKey: "q-1851",
+      questId: "q-1851",
+    });
+
+    expect(update).toMatchObject({ changed: true, activityChanged: false, inserted: false });
   });
 
   it("reuses the persisted identity for completion-only replay after an ordinal reset", () => {

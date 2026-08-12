@@ -47,7 +47,7 @@ import {
   buildThreadRoutingReminderForCompletedTurn,
   extractLeaderThreadStatusMarkersFromContent,
   hasRouteableNonBashToolActivity,
-  hasLeaderVisibleTextContent,
+  hasLeaderRoutedActivityContent,
   normalizeLeaderAssistantRouting,
   splitLeaderAssistantContentAtThreadRouteBoundaries,
   updateLeaderThreadStatusesForAssistantOutput,
@@ -498,7 +498,7 @@ export function handleAssistantMessage(
           messageId: segmentMessageId,
           timestamp,
         },
-        hasLeaderVisibleTextContent(routed.content) ? route : undefined,
+        hasLeaderRoutedActivityContent(routed.content) ? route : undefined,
       );
       const threadStatusRecords = statusUpdate.records;
       const browserMsg: BrowserIncomingMessage = {
@@ -593,7 +593,7 @@ export function handleAssistantMessage(
           messageId: segmentMessageId,
           timestamp,
         },
-        hasLeaderVisibleTextContent(routed.content) ? route : undefined,
+        hasLeaderRoutedActivityContent(routed.content) ? route : undefined,
       );
       const threadStatusRecords = statusUpdate.records;
       const browserMsg: BrowserIncomingMessage = {
@@ -684,7 +684,7 @@ export function handleAssistantMessage(
         messageId: msgId,
         timestamp,
       },
-      hasLeaderVisibleTextContent(newBlocks) ? historyEntryRoute : undefined,
+      hasLeaderRoutedActivityContent(newBlocks) ? historyEntryRoute : undefined,
     );
     const threadStatusRecords = statusUpdate.records;
     if (threadStatusRecords.length > 0) {

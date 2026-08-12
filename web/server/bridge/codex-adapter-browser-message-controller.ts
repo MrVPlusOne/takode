@@ -14,7 +14,8 @@ import type { LeaderThreadStatus, ParsedThreadStatusMarker } from "../../shared/
 import { sessionTag } from "../session-tag.js";
 import {
   applyRecentThreadFallbackToLeaderAssistantRouting,
-  hasLeaderVisibleTextContent,
+  clearLeaderThreadStatusForActivity,
+  hasLeaderRoutedActivityContent,
   normalizeLeaderAssistantRouting,
   splitLeaderAssistantContentAtThreadRouteBoundaries,
   updateLeaderThreadStatusesForAssistantOutput,
@@ -703,8 +704,24 @@ export async function handleCodexAdapterBrowserMessage(
     const routed = withThreadRoute(msg, routeForCodexReasoningDetail(session, msg));
     const update = upsertCodexReasoningDetail(session, routed);
     if (update.changed) {
+      const hasCurrentThreadStatus = Object.keys(session.state.leaderThreadStatuses ?? {}).length > 0;
+      const launcherInfo = hasCurrentThreadStatus ? deps.getLauncherSessionInfo?.(session.id) : null;
+      const threadStatusChanged =
+        update.activityChanged &&
+        hasCurrentThreadStatus &&
+        isLeaderSessionForAssistantRouting(session, launcherInfo) &&
+        clearLeaderThreadStatusForActivity(session, routed, {
+          messageId: routed.id,
+          timestamp: routed.timestamp,
+        });
       deps.persistSession(session);
       deps.syncSideChatParent?.(session);
+      if (threadStatusChanged) {
+        deps.broadcastToBrowsers(session, {
+          type: "session_update",
+          session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
+        } as BrowserIncomingMessage);
+      }
       deps.broadcastToBrowsers(session, update.message);
     }
     return;
@@ -883,7 +900,7 @@ export async function handleCodexAdapterBrowserMessage(
             messageId: normalizedAssistant.message.id,
             timestamp,
           },
-          hasLeaderVisibleTextContent(normalizedAssistant.message.content) ? segmentRoute : undefined,
+          hasLeaderRoutedActivityContent(normalizedAssistant.message.content) ? segmentRoute : undefined,
         );
         const threadStatusRecords = statusUpdate.records;
         if (threadStatusRecords.length > 0) {
@@ -1015,7 +1032,7 @@ export async function handleCodexAdapterBrowserMessage(
         messageId: normalizedAssistant.message.id,
         timestamp: assistantTimestamp,
       },
-      hasLeaderVisibleTextContent(normalizedAssistant.message.content) ? activeRouteFromAssistant : undefined,
+      hasLeaderRoutedActivityContent(normalizedAssistant.message.content) ? activeRouteFromAssistant : undefined,
     );
     const threadStatusRecords = statusUpdate.records;
     if (threadStatusRecords.length > 0) {

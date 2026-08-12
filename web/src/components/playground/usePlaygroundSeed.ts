@@ -502,6 +502,16 @@ export function usePlaygroundSeed() {
     store.setHistoryLoading(PLAYGROUND_LOADING_SESSION_ID, true);
 
     const threadStatusTimestamp = Date.now() - 72_000;
+    const playgroundClearedReadyStatus: LeaderThreadStatus = {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "q-961",
+      questId: "q-961",
+      summary: "initial implementation answer complete",
+      messageId: "playground-thread-q961-ready",
+      timestamp: threadStatusTimestamp - 60_000,
+      updatedAt: threadStatusTimestamp - 60_000,
+    };
     const playgroundWaitingStatus: LeaderThreadStatus = {
       kind: "waiting",
       label: "Thread Waiting",
@@ -651,11 +661,22 @@ export function usePlaygroundSeed() {
         },
       }),
       makePlaygroundMessage({
+        id: "playground-thread-q961-ready",
+        role: "assistant",
+        content: "The initial q-961 answer is complete and remains in history.",
+        timestamp: Date.now() - 130_000,
+        historyIndex: 6,
+        metadata: {
+          threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }],
+          threadStatusMarkers: [playgroundClearedReadyStatus],
+        },
+      }),
+      makePlaygroundMessage({
         id: "playground-thread-q961",
         role: "assistant",
-        content: "Implementation is underway.",
+        content: "Fresh routed leader activity has started, so the old q-961 Ready footer is cleared.",
         timestamp: Date.now() - 120_000,
-        historyIndex: 6,
+        historyIndex: 7,
         metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -663,7 +684,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Tool calls and implementation notes are continuing in q-961.",
         timestamp: Date.now() - 110_000,
-        historyIndex: 7,
+        historyIndex: 8,
         metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -671,7 +692,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Queued until the dependency finishes.",
         timestamp: Date.now() - 90_000,
-        historyIndex: 8,
+        historyIndex: 9,
         metadata: { threadRefs: [{ threadKey: "q-962", questId: "q-962", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -679,7 +700,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Waiting for a free worker before dispatch.",
         timestamp: Date.now() - 60_000,
-        historyIndex: 9,
+        historyIndex: 10,
         metadata: { threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -687,7 +708,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "",
         timestamp: threadStatusTimestamp,
-        historyIndex: 10,
+        historyIndex: 11,
         metadata: {
           threadRefs: [
             { threadKey: "q-962", questId: "q-962", source: "explicit" },
@@ -701,7 +722,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "The scope confirmation was answered and should keep its resolved needs-input marker visible.",
         timestamp: Date.now() - 52_000,
-        historyIndex: 11,
+        historyIndex: 12,
         metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -710,7 +731,7 @@ export function usePlaygroundSeed() {
         content:
           "Older Thread Ready output remains in history, but its resolved notification marker should not render as a crossed-out stale chip.",
         timestamp: Date.now() - 44_000,
-        historyIndex: 12,
+        historyIndex: 13,
         metadata: { threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -718,7 +739,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Completed Journey is ready for review without active phase cues.",
         timestamp: Date.now() - 30_000,
-        historyIndex: 13,
+        historyIndex: 14,
         metadata: { threadRefs: [{ threadKey: "q-964", questId: "q-964", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -727,7 +748,7 @@ export function usePlaygroundSeed() {
         content:
           "Approval plan for q-965: run the focused worker, then hold at Code Review for the thumbnail evidence.",
         timestamp: Date.now() - 20_000,
-        historyIndex: 14,
+        historyIndex: 15,
       }),
     ]);
     const questProjectionMessages =

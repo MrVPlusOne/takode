@@ -1,5 +1,11 @@
 # Takode Changelog
 
+## 2026-08-12
+
+### Fixed
+
+- **Leader thread outcomes** -- Fresh same-thread leader text, tool activity, or reasoning clears stale Ready/Waiting footers while preserving historical markers, unread state, and unrelated threads
+
 ## 2026-08-10
 
 ### Added

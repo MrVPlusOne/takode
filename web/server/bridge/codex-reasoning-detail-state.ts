@@ -14,7 +14,7 @@ function mergeReasoningText(existing: string, incoming: string, incomingComplete
 export function upsertCodexReasoningDetail(
   session: CodexReasoningDetailSession,
   incoming: CodexReasoningDetailMessage,
-): { message: CodexReasoningDetailMessage; changed: boolean; inserted: boolean } {
+): { message: CodexReasoningDetailMessage; changed: boolean; activityChanged: boolean; inserted: boolean } {
   const index = session.messageHistory.findIndex((entry) => {
     if (entry.type !== "codex_reasoning_detail") return false;
     if (entry.id === incoming.id) return true;
@@ -32,7 +32,7 @@ export function upsertCodexReasoningDetail(
   });
   if (index < 0) {
     session.messageHistory.push(incoming);
-    return { message: incoming, changed: true, inserted: true };
+    return { message: incoming, changed: true, activityChanged: true, inserted: true };
   }
 
   const existing = session.messageHistory[index] as CodexReasoningDetailMessage;
@@ -54,16 +54,18 @@ export function upsertCodexReasoningDetail(
         ? { thinking_time_ms: existing.thinking_time_ms }
         : {}),
   };
-  const changed =
+  const activityChanged =
     message.text !== existing.text ||
     message.status !== existing.status ||
+    message.thinking_time_ms !== existing.thinking_time_ms;
+  const changed =
+    activityChanged ||
     message.threadKey !== existing.threadKey ||
     message.questId !== existing.questId ||
     message.reasoning_turn_id !== existing.reasoning_turn_id ||
     message.reasoning_item_ordinal !== existing.reasoning_item_ordinal ||
     message.provider_item_id !== existing.provider_item_id ||
-    message.summary_index !== existing.summary_index ||
-    message.thinking_time_ms !== existing.thinking_time_ms;
+    message.summary_index !== existing.summary_index;
   if (changed) session.messageHistory[index] = message;
-  return { message: changed ? message : existing, changed, inserted: false };
+  return { message: changed ? message : existing, changed, activityChanged, inserted: false };
 }

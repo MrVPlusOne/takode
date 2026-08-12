@@ -418,6 +418,10 @@ describe("Playground", () => {
       ),
     ).toBeNull();
     expect(screen.getByLabelText("Thread Ready for thread:q-963: dispatch plan is ready")).toBeTruthy();
+    expect(screen.getAllByText("The initial q-961 answer is complete and remains in history.").length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.queryByLabelText("Thread Ready for thread:q-961: initial implementation answer complete")).toBeNull();
 
     const questProjection = screen.getByTestId("playground-quest-thread-projection");
     expect(questProjection).toHaveTextContent("Work continued from thread:q-961 to thread:q-962");

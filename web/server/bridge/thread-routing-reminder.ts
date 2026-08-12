@@ -83,8 +83,11 @@ function mergeThreadRefs(existing: ThreadRef[] | undefined): ThreadRef[] | undef
   return refs.size > 0 ? [...refs.values()] : undefined;
 }
 
-export function hasLeaderVisibleTextContent(content: ContentBlock[]): boolean {
-  return content.some((block) => block.type === "text" && block.text.trim().length > 0);
+export function hasLeaderRoutedActivityContent(content: ContentBlock[]): boolean {
+  return content.some((block) => {
+    if (block.type === "text") return block.text.trim().length > 0;
+    return block.type === "tool_use" || block.type === "tool_result";
+  });
 }
 
 export function extractLeaderThreadStatusMarkersFromContent(content: ContentBlock[]): {
@@ -370,6 +373,22 @@ export function applyRecentThreadFallbackToLeaderAssistantRouting(
   };
 }
 
+export function clearLeaderThreadStatusForActivity(
+  session: LeaderThreadStatusSessionLike,
+  route: ThreadRouteMetadata | null | undefined,
+  anchor: { messageId: string; timestamp: number },
+): boolean {
+  if (!route) return false;
+  const key = routeKey(route);
+  const current = session.state.leaderThreadStatuses?.[key];
+  if (!current || current.messageId === anchor.messageId) return false;
+
+  const statuses = { ...(session.state.leaderThreadStatuses ?? {}) };
+  delete statuses[key];
+  session.state.leaderThreadStatuses = statuses;
+  return true;
+}
+
 export function recordLeaderThreadStatusMarkers(
   session: LeaderThreadStatusSessionLike,
   markers: ParsedThreadStatusMarker[] | undefined,
@@ -382,9 +401,9 @@ export function updateLeaderThreadStatusesForAssistantOutput(
   session: LeaderThreadStatusSessionLike,
   markers: ParsedThreadStatusMarker[] | undefined,
   anchor: { messageId: string; timestamp: number },
-  visibleOutputRoute?: ThreadRouteMetadata,
+  activityRoute?: ThreadRouteMetadata,
 ): LeaderThreadStatusUpdateResult {
-  if (!markers?.length && !visibleOutputRoute) return { records: [], changed: false };
+  if (!markers?.length && !activityRoute) return { records: [], changed: false };
 
   const statuses = { ...(session.state.leaderThreadStatuses ?? {}) };
   const records: LeaderThreadStatus[] = [];
@@ -408,8 +427,8 @@ export function updateLeaderThreadStatusesForAssistantOutput(
     changed = true;
   }
 
-  if (visibleOutputRoute) {
-    const touchedKey = routeKey(visibleOutputRoute);
+  if (activityRoute) {
+    const touchedKey = routeKey(activityRoute);
     const current = statuses[touchedKey];
     if (current && current.messageId !== anchor.messageId && !markerThreadKeys.has(touchedKey)) {
       delete statuses[touchedKey];
