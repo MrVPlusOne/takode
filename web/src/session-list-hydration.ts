@@ -16,6 +16,7 @@ export const SIDEBAR_SESSION_STALE_REFRESH_MS = 3 * 60_000;
 const FORCE_REFRESH_AFTER_HIDDEN_MS = 60_000;
 
 export interface HydrateSessionListOptions {
+  activeSnapshotRequestSequence?: number;
   preserveMissingArchived?: boolean;
   preserveMissingSessions?: boolean;
 }
@@ -27,6 +28,21 @@ export interface ActiveSessionMetadataRefreshOptions {
 
 let activeSessionMetadataRefreshInFlight: Promise<void> | null = null;
 let lastActiveSessionMetadataRefreshStartedAt = 0;
+let activeSessionListRequestSequence = 0;
+const authoritativeArchiveRequestFences = new Map<string, number>();
+
+export function beginActiveSessionListRequest(): number {
+  return ++activeSessionListRequestSequence;
+}
+
+export function applyAuthoritativeSessionArchive(sessionId: string, archivedAt?: number): void {
+  authoritativeArchiveRequestFences.set(sessionId, activeSessionListRequestSequence);
+  const updates: Partial<SdkSessionInfo> = { archived: true };
+  if (typeof archivedAt === "number") updates.archivedAt = archivedAt;
+  const store = useStore.getState();
+  store.updateSdkSession(sessionId, updates);
+  store.clearSessionAttention(sessionId);
+}
 
 export function hydrateSessionList(list: SdkSessionInfo[], options: HydrateSessionListOptions = {}): void {
   const store = useStore.getState();
@@ -34,7 +50,7 @@ export function hydrateSessionList(list: SdkSessionInfo[], options: HydrateSessi
   const nextSdkSessions = options.preserveMissingSessions
     ? mergePartialSnapshotWithExistingSessions(strippedList, store.sdkSessions)
     : options.preserveMissingArchived
-      ? mergeActiveSnapshotWithExistingArchived(strippedList, store.sdkSessions)
+      ? mergeActiveSnapshotWithExistingArchived(strippedList, store.sdkSessions, options.activeSnapshotRequestSequence)
       : strippedList;
   setSdkSessionsWithNotificationFreshness(nextSdkSessions);
 
@@ -115,6 +131,8 @@ export function installActiveSessionMetadataRefreshListeners(): () => void {
 export function _resetActiveSessionMetadataRefreshForTest(): void {
   activeSessionMetadataRefreshInFlight = null;
   lastActiveSessionMetadataRefreshStartedAt = 0;
+  activeSessionListRequestSequence = 0;
+  authoritativeArchiveRequestFences.clear();
 }
 
 function stripSearchMetadata(session: SdkSessionInfo): SdkSessionInfo {
@@ -130,10 +148,29 @@ function stripSearchMetadata(session: SdkSessionInfo): SdkSessionInfo {
 function mergeActiveSnapshotWithExistingArchived(
   activeSnapshot: SdkSessionInfo[],
   currentSessions: SdkSessionInfo[],
+  requestSequence?: number,
 ): SdkSessionInfo[] {
-  const activeIds = new Set(activeSnapshot.map((session) => session.sessionId));
+  const snapshotActiveIds = new Set(activeSnapshot.map((session) => session.sessionId));
+  const staleArchivedIds = new Set<string>();
+  if (requestSequence !== undefined) {
+    for (const session of currentSessions) {
+      if (!session.archived) continue;
+      const archiveFence = authoritativeArchiveRequestFences.get(session.sessionId);
+      if (archiveFence === undefined) continue;
+      if (requestSequence <= archiveFence) {
+        staleArchivedIds.add(session.sessionId);
+      } else if (snapshotActiveIds.has(session.sessionId)) {
+        authoritativeArchiveRequestFences.delete(session.sessionId);
+      }
+    }
+  }
+  const effectiveActiveSnapshot =
+    staleArchivedIds.size === 0
+      ? activeSnapshot
+      : activeSnapshot.filter((session) => !staleArchivedIds.has(session.sessionId));
+  const activeIds = new Set(effectiveActiveSnapshot.map((session) => session.sessionId));
   const preservedArchived = currentSessions.filter((session) => session.archived && !activeIds.has(session.sessionId));
-  return [...activeSnapshot, ...preservedArchived];
+  return [...effectiveActiveSnapshot, ...preservedArchived];
 }
 
 function mergePartialSnapshotWithExistingSessions(
@@ -237,8 +274,9 @@ function collectAttentionUpdate(
 
 async function runActiveSessionMetadataRefresh(options: ActiveSessionMetadataRefreshOptions): Promise<void> {
   try {
+    const requestSequence = beginActiveSessionListRequest();
     const list = await api.listSessions({ includeArchived: false });
-    hydrateSessionList(list, { preserveMissingArchived: true });
+    hydrateSessionList(list, { preserveMissingArchived: true, activeSnapshotRequestSequence: requestSequence });
   } catch (error) {
     console.warn("[sessions] active metadata refresh failed:", error);
   }

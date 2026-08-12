@@ -22,7 +22,7 @@ import {
 } from "../utils/backends.js";
 import { coalesceSessionViewModel } from "../utils/session-view-model.js";
 import { navigateToSession } from "../utils/navigation.js";
-import { hydrateSessionList } from "../session-list-hydration.js";
+import { beginActiveSessionListRequest, hydrateSessionList } from "../session-list-hydration.js";
 
 const EMPTY_TASKS: TaskItem[] = [];
 
@@ -806,10 +806,14 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
     async (workerId: string) => {
       try {
         await api.unherdSession(sessionId, workerId);
+        const requestSequence = beginActiveSessionListRequest();
         api
           .listSessions({ includeArchived: false })
           .then((sessions: SdkSessionInfo[]) => {
-            hydrateSessionList(sessions, { preserveMissingArchived: true });
+            hydrateSessionList(sessions, {
+              preserveMissingArchived: true,
+              activeSnapshotRequestSequence: requestSequence,
+            });
           })
           .catch(() => {});
       } catch (e) {
@@ -820,10 +824,14 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
   );
 
   const refreshSessions = useCallback(() => {
+    const requestSequence = beginActiveSessionListRequest();
     api
       .listSessions({ includeArchived: false })
       .then((sessions: SdkSessionInfo[]) => {
-        hydrateSessionList(sessions, { preserveMissingArchived: true });
+        hydrateSessionList(sessions, {
+          preserveMissingArchived: true,
+          activeSnapshotRequestSequence: requestSequence,
+        });
       })
       .catch(() => {});
   }, []);

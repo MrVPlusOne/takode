@@ -160,7 +160,12 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
 
     const actorId = getActorSessionId(authenticateCompanionCallerOptional(c));
     const worktreeResult = await archiveSingleSession(id, actorId);
-    return c.json({ ok: true, worktree: worktreeResult });
+    return c.json({
+      ok: true,
+      sessionId: id,
+      archivedAt: launcher.getSession(id)?.archivedAt,
+      worktree: worktreeResult,
+    });
   });
 
   api.post("/sessions/:id/archive-group", async (c) => {

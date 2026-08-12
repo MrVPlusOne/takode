@@ -36,6 +36,8 @@ import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import type { SdkSessionInfo } from "../types.js";
 import {
+  applyAuthoritativeSessionArchive,
+  beginActiveSessionListRequest,
   hydrateSessionList,
   refreshTreeGroups as hydrateTreeGroups,
   SIDEBAR_SESSION_POLL_INTERVAL_MS,
@@ -160,8 +162,9 @@ export function Sidebar() {
   const refreshSessionListNow = useCallback(
     async (refreshArchivedPage = false) => {
       try {
+        const requestSequence = beginActiveSessionListRequest();
         const list = await api.listSessions({ includeArchived: false });
-        hydrateSessionList(list, { preserveMissingArchived: true });
+        hydrateSessionList(list, { preserveMissingArchived: true, activeSnapshotRequestSequence: requestSequence });
         if (refreshArchivedPage) await loadArchivedSessionsPage({ reset: true });
       } catch (err) {
         console.warn("[sidebar] session refresh failed:", err);
@@ -193,8 +196,11 @@ export function Sidebar() {
       lastRefreshStartedAt = now;
       refreshInFlight = (async () => {
         try {
+          const requestSequence = beginActiveSessionListRequest();
           const list = await api.listSessions({ includeArchived: false });
-          if (active) hydrateSessionList(list, { preserveMissingArchived: true });
+          if (active) {
+            hydrateSessionList(list, { preserveMissingArchived: true, activeSnapshotRequestSequence: requestSequence });
+          }
         } catch (e) {
           console.warn("[sidebar] session poll failed:", e);
         } finally {
@@ -566,7 +572,8 @@ export function Sidebar() {
     try {
       disconnectSession(sessionId);
       useStore.getState().clearSessionAttention(sessionId);
-      await api.archiveSession(sessionId, force ? { force: true } : undefined);
+      const result = await api.archiveSession(sessionId, force ? { force: true } : undefined);
+      applyAuthoritativeSessionArchive(result.sessionId ?? sessionId, result.archivedAt);
     } catch {
       // best-effort
     }
@@ -604,8 +611,7 @@ export function Sidebar() {
         archivedIds = archiveGroupSuccessfulIds(leaderId, workers, result);
         const archivedAt = Date.now();
         for (const archivedId of archivedIds) {
-          useStore.getState().updateSdkSession(archivedId, { archived: true, archivedAt });
-          useStore.getState().clearSessionAttention(archivedId);
+          applyAuthoritativeSessionArchive(archivedId, archivedAt);
         }
       } catch {
         // best-effort

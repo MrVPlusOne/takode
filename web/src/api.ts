@@ -433,6 +433,13 @@ export interface ArchivedSessionSummaryResponse {
   total: number;
 }
 
+export interface ArchiveSessionResponse {
+  ok: boolean;
+  sessionId?: string;
+  archivedAt?: number;
+  worktree?: { status: "pending" | "done" | "failed"; path?: string };
+}
+
 export interface ArchiveGroupResponse {
   ok: boolean;
   archived: number;
@@ -1189,7 +1196,7 @@ export const api = {
     ),
 
   archiveSession: (sessionId: string, opts?: { force?: boolean }) =>
-    post(`/sessions/${encodeURIComponent(sessionId)}/archive`, opts),
+    post<ArchiveSessionResponse>(`/sessions/${encodeURIComponent(sessionId)}/archive`, opts),
 
   archiveGroup: (sessionId: string) =>
     post<ArchiveGroupResponse>(`/sessions/${encodeURIComponent(sessionId)}/archive-group`),

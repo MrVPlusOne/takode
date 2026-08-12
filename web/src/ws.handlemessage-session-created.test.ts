@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage } from "./types.js";
+import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage, SdkSessionInfo } from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 
@@ -195,6 +195,52 @@ describe("handleMessage: session_created", () => {
         }),
       ]),
     );
+  });
+
+  it("does not let an older session refresh resurrect a server-confirmed archive", async () => {
+    useStore
+      .getState()
+      .setSdkSessions([
+        { sessionId: "active-to-archive", state: "connected", cwd: "/tmp/a", createdAt: 1, archived: false },
+      ]);
+    let resolveStaleRefresh: (sessions: SdkSessionInfo[]) => void = () => {};
+    const staleRefresh = new Promise<SdkSessionInfo[]>((resolve) => {
+      resolveStaleRefresh = resolve;
+    });
+    listSessionsMock
+      .mockReturnValueOnce(staleRefresh)
+      .mockResolvedValueOnce([
+        { sessionId: "still-active", state: "connected", cwd: "/tmp/b", createdAt: 2, archived: false },
+      ]);
+
+    wsModule.connectSession("s-origin");
+    fireMessage({ type: "session_created", session_id: "new-session" });
+    vi.advanceTimersByTime(1000);
+    await Promise.resolve();
+    expect(listSessionsMock).toHaveBeenCalledTimes(1);
+
+    // The archive arrives while an older active-only snapshot is still in flight.
+    // Its stale response must not restore the archived row, and a trailing
+    // backend reconciliation must still run after the coalesced refresh.
+    fireMessage({ type: "session_archived", session_id: "active-to-archive", archivedAt: 1234 });
+    expect(useStore.getState().sdkSessions).toEqual([
+      expect.objectContaining({ sessionId: "active-to-archive", archived: true, archivedAt: 1234 }),
+    ]);
+
+    resolveStaleRefresh([
+      { sessionId: "active-to-archive", state: "connected", cwd: "/tmp/a", createdAt: 1, archived: false },
+    ]);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(listSessionsMock).toHaveBeenCalledTimes(2);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(useStore.getState().sdkSessions).toEqual([
+      expect.objectContaining({ sessionId: "still-active", archived: false }),
+      expect.objectContaining({ sessionId: "active-to-archive", archived: true, archivedAt: 1234 }),
+    ]);
   });
 
   it("records tree_groups_update diagnostics for spawn refresh bursts", async () => {

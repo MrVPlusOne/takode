@@ -14,6 +14,8 @@ vi.mock("./api.js", () => ({ api: mockApi }));
 import { useStore } from "./store.js";
 import {
   _resetActiveSessionMetadataRefreshForTest,
+  applyAuthoritativeSessionArchive,
+  beginActiveSessionListRequest,
   hydrateSessionList,
   installActiveSessionMetadataRefreshListeners,
   refreshActiveSessionMetadata,
@@ -95,6 +97,39 @@ describe("session list hydration", () => {
       "archived-page",
       "active",
       "archived-old",
+    ]);
+  });
+
+  it("fences stale active snapshots without overriding later backend truth", async () => {
+    useStore.getState().setSdkSessions([makeSdkSession("archive-target")]);
+    let resolveStaleSnapshot: (sessions: SdkSessionInfo[]) => void = () => {};
+    const staleSnapshot = new Promise<SdkSessionInfo[]>((resolve) => {
+      resolveStaleSnapshot = resolve;
+    });
+    mockApi.listSessions.mockReturnValueOnce(staleSnapshot);
+
+    const staleRequestSequence = beginActiveSessionListRequest();
+    const staleRequest = mockApi.listSessions({ includeArchived: false });
+    applyAuthoritativeSessionArchive("archive-target", 1234);
+    resolveStaleSnapshot([makeSdkSession("archive-target")]);
+    hydrateSessionList(await staleRequest, {
+      preserveMissingArchived: true,
+      activeSnapshotRequestSequence: staleRequestSequence,
+    });
+
+    // A response requested before the server-confirmed archive cannot resurrect
+    // the row, but a later backend snapshot can still authoritatively unarchive it.
+    expect(useStore.getState().sdkSessions).toEqual([
+      expect.objectContaining({ sessionId: "archive-target", archived: true, archivedAt: 1234 }),
+    ]);
+    mockApi.listSessions.mockResolvedValueOnce([makeSdkSession("archive-target")]);
+    const laterRequestSequence = beginActiveSessionListRequest();
+    hydrateSessionList(await mockApi.listSessions({ includeArchived: false }), {
+      preserveMissingArchived: true,
+      activeSnapshotRequestSequence: laterRequestSequence,
+    });
+    expect(useStore.getState().sdkSessions).toEqual([
+      expect.objectContaining({ sessionId: "archive-target", archived: false }),
     ]);
   });
 

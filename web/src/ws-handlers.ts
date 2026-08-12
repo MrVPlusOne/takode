@@ -26,7 +26,11 @@ import {
   shouldApplyAttentionReasonWithNotificationFreshness,
   summarizeNotificationStatus,
 } from "./notification-status.js";
-import { hydrateSessionList } from "./session-list-hydration.js";
+import {
+  applyAuthoritativeSessionArchive,
+  beginActiveSessionListRequest,
+  hydrateSessionList,
+} from "./session-list-hydration.js";
 import {
   cacheHistoryWindow,
   cacheThreadWindow,
@@ -58,6 +62,13 @@ const processedToolUseIds = new Map<string, Set<string>>();
 let sessionCreatedTimer: ReturnType<typeof setTimeout> | null = null;
 
 let sessionMutationRefreshInFlight: Promise<void> | null = null;
+type SessionMutationRefreshParams = {
+  sessionId: string;
+  createdSessionId?: string;
+  archivedSessionId?: string;
+  kind: "session_created_refresh" | "session_archived_refresh";
+};
+let queuedSessionMutationRefresh: SessionMutationRefreshParams | null = null;
 
 /** Delay transient backend_disconnected flips to avoid sidebar flicker during fast relaunches. */
 const CLI_DISCONNECT_DEBOUNCE_MS = 250;
@@ -276,18 +287,17 @@ function nextId(): string {
   return `msg-${Date.now()}-${++idCounter}`;
 }
 
-function refreshActiveSidebarSessions(params: {
-  sessionId: string;
-  createdSessionId?: string;
-  archivedSessionId?: string;
-  kind: "session_created_refresh" | "session_archived_refresh";
-}): void {
-  if (sessionMutationRefreshInFlight) return;
+function refreshActiveSidebarSessions(params: SessionMutationRefreshParams): void {
+  if (sessionMutationRefreshInFlight) {
+    queuedSessionMutationRefresh = params;
+    return;
+  }
   const startedAt = perfNow();
+  const requestSequence = beginActiveSessionListRequest();
   const refresh = api
     .listSessions({ includeArchived: false })
     .then((list) => {
-      hydrateSessionList(list, { preserveMissingArchived: true });
+      hydrateSessionList(list, { preserveMissingArchived: true, activeSnapshotRequestSequence: requestSequence });
       const durationMs = perfNow() - startedAt;
       if (params.kind === "session_created_refresh" && params.createdSessionId) {
         recordFrontendPerfEntry({
@@ -337,6 +347,9 @@ function refreshActiveSidebarSessions(params: {
     .finally(() => {
       if (sessionMutationRefreshInFlight === refresh) {
         sessionMutationRefreshInFlight = null;
+        const queuedRefresh = queuedSessionMutationRefresh;
+        queuedSessionMutationRefresh = null;
+        if (queuedRefresh) refreshActiveSidebarSessions(queuedRefresh);
       }
     });
   sessionMutationRefreshInFlight = refresh;
@@ -1364,10 +1377,7 @@ function handleParsedMessage(
     case "session_archived": {
       const archivedId = data.session_id;
       if (archivedId && typeof archivedId === "string") {
-        const updates: Partial<SdkSessionInfo> = { archived: true };
-        if (typeof data.archivedAt === "number") updates.archivedAt = data.archivedAt;
-        store.updateSdkSession(archivedId, updates);
-        store.clearSessionAttention(archivedId);
+        applyAuthoritativeSessionArchive(archivedId, data.archivedAt);
         refreshActiveSidebarSessions({
           sessionId,
           archivedSessionId: archivedId,

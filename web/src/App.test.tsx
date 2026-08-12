@@ -190,6 +190,7 @@ vi.mock("./ws.js", () => ({
 }));
 
 vi.mock("./session-list-hydration.js", () => ({
+  beginActiveSessionListRequest: vi.fn(() => 1),
   hydrateSessionList: vi.fn(),
   installActiveSessionMetadataRefreshListeners: vi.fn(() => vi.fn()),
 }));
@@ -814,7 +815,10 @@ describe("App hidden panels", () => {
         limit: 10,
       }),
     );
-    expect(hydrateSessionList).toHaveBeenNthCalledWith(1, [], { preserveMissingArchived: true });
+    expect(hydrateSessionList).toHaveBeenNthCalledWith(1, [], {
+      preserveMissingArchived: true,
+      activeSnapshotRequestSequence: 1,
+    });
     expect(hydrateSessionList).toHaveBeenNthCalledWith(2, [archivedSession], { preserveMissingSessions: true });
 
     view.rerender(<App />);

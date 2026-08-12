@@ -20,7 +20,11 @@ import { Sidebar } from "./components/Sidebar.js";
 import { ChatView } from "./components/ChatView.js";
 import { TopBar } from "./components/TopBar.js";
 import { EmptyState } from "./components/EmptyState.js";
-import { hydrateSessionList, installActiveSessionMetadataRefreshListeners } from "./session-list-hydration.js";
+import {
+  beginActiveSessionListRequest,
+  hydrateSessionList,
+  installActiveSessionMetadataRefreshListeners,
+} from "./session-list-hydration.js";
 import { TaskPanel } from "./components/TaskPanel.js";
 import { DiffPanel } from "./components/DiffPanel.js";
 import { QuestCodeCommitDiffPanel } from "./components/QuestCommitDiffView.js";
@@ -301,11 +305,15 @@ export default function App() {
     if (routeSessionId) return;
 
     let cancelled = false;
+    const requestSequence = beginActiveSessionListRequest();
     api
       .listSessions({ includeArchived: false })
       .then(async (sessions) => {
         if (cancelled) return;
-        hydrateSessionList(sessions, { preserveMissingArchived: true });
+        hydrateSessionList(sessions, {
+          preserveMissingArchived: true,
+          activeSnapshotRequestSequence: requestSequence,
+        });
         if (sessions.some((session) => session.sessionNum === Number(route.sessionId))) return;
         const archivedMatches = await api.searchSessions(`#${route.sessionId}`, {
           includeArchived: true,

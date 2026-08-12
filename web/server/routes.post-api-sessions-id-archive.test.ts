@@ -544,6 +544,9 @@ describe("POST /api/sessions/:id/archive", () => {
   }
 
   it("kills and archives the session", async () => {
+    launcher.getSession
+      .mockReturnValueOnce({ sessionId: "s1", archived: false })
+      .mockReturnValue({ sessionId: "s1", archived: true, archivedAt: 1234 });
     const res = await app.request("/api/sessions/s1/archive", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -552,14 +555,14 @@ describe("POST /api/sessions/:id/archive", () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toMatchObject({ ok: true });
+    expect(json).toMatchObject({ ok: true, sessionId: "s1", archivedAt: 1234 });
     expect(launcher.kill).toHaveBeenCalledWith("s1");
     expect(launcher.setArchived).toHaveBeenCalledWith("s1", true);
     expect(sessionStore.setArchived).toHaveBeenCalledWith("s1", true);
     expect(bridge.broadcastGlobal).toHaveBeenCalledWith({
       type: "session_archived",
       session_id: "s1",
-      archivedAt: undefined,
+      archivedAt: 1234,
     });
   });
 

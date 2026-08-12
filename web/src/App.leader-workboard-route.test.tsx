@@ -32,6 +32,7 @@ vi.mock("./ws.js", () => ({
 }));
 
 vi.mock("./session-list-hydration.js", () => ({
+  beginActiveSessionListRequest: vi.fn(() => 1),
   hydrateSessionList: vi.fn(),
   installActiveSessionMetadataRefreshListeners: vi.fn(() => vi.fn()),
 }));

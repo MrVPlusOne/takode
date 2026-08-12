@@ -993,6 +993,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
   it("non-leader archive button still archives immediately", async () => {
     const session = makeSession("s1", { model: "solo-session" });
     const sdk = makeSdkSession("s1", { model: "solo-session" });
+    mockApi.archiveSession.mockResolvedValueOnce({ ok: true, sessionId: "s1", archivedAt: 1234 });
     mockState = createMockState({
       sessions: new Map([["s1", session]]),
       sdkSessions: [sdk],
@@ -1006,6 +1007,8 @@ describe("Sidebar", { timeout: 10000 }, () => {
     await waitFor(() => {
       expect(mockApi.archiveSession).toHaveBeenCalledWith("s1", undefined);
     });
+    expect(mockState.updateSdkSession).toHaveBeenCalledWith("s1", { archived: true, archivedAt: 1234 });
+    expect(mockState.clearSessionAttention).toHaveBeenCalledWith("s1");
     expect(screen.queryByText(/detach 1 active worker session/i)).not.toBeInTheDocument();
   });
 
