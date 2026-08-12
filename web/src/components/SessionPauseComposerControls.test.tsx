@@ -87,6 +87,24 @@ describe("PauseOtherSourcesButton", () => {
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
+  it("uses theme-aware contrast tokens while paused", () => {
+    render(
+      <PauseOtherSourcesButton
+        isPaused={true}
+        heldCount={2}
+        busy={false}
+        directComposerMessagesSend={true}
+        onToggle={() => {}}
+      />,
+    );
+
+    const button = screen.getByTestId("composer-pause-sources-button");
+    expect(button.className).toContain("border-cc-attention/75");
+    expect(button.className).toContain("bg-cc-attention-bg");
+    expect(button.className).toContain("text-cc-attention-strong");
+    expect(button.className).not.toContain("text-amber-300");
+  });
+
   it("does not imply direct composer sends work while the session is disconnected", () => {
     render(
       <PauseOtherSourcesButton
@@ -163,7 +181,18 @@ describe("PausedInputChip", () => {
     );
 
     const pausedTime = new Date(autoPause.pausedAt!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    expect(screen.getByTestId("composer-paused-chip").textContent).toContain("Automatic inputs paused· 2 held");
+    const banner = screen.getByTestId("composer-paused-banner");
+    expect(banner.className).toContain("border-cc-attention/75");
+    expect(banner.className).toContain("bg-cc-attention-bg");
+    expect(banner.className).toContain("text-cc-fg");
+    expect(banner.className).not.toContain("text-amber-200");
+    const pausedChip = screen.getByTestId("composer-paused-chip");
+    expect(pausedChip.textContent).toContain("Automatic inputs paused· 2 held");
+    expect(pausedChip.className).toContain("text-cc-attention-strong");
+    const heldCountChip = screen.getByTestId("composer-held-count-chip");
+    expect(heldCountChip.className).toContain("border-cc-attention/45");
+    expect(heldCountChip.className).toContain("bg-cc-card/70");
+    expect(heldCountChip.className).toContain("text-cc-attention-strong");
     expect(screen.getByText(`Cause: Copilot authentication refresh failed at ${pausedTime}.`)).toBeTruthy();
     expect(screen.getByText("Send a direct message to test recovery.")).toBeTruthy();
     expect(
@@ -175,6 +204,8 @@ describe("PausedInputChip", () => {
 
     await userEvent.click(screen.getByTestId("composer-paused-chip"));
     const list = screen.getByTestId("composer-held-input-list");
+    expect(list.className).toContain("border-cc-attention/45");
+    expect(list.className).toContain("bg-cc-card/70");
     expect(list.textContent).toContain("Herd Events");
     expect(list.textContent).toContain("Held herd event");
     expect(list.textContent).toContain("x2");

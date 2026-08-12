@@ -113,14 +113,16 @@ export function PauseOtherSourcesButton({
         busy ? "cursor-wait opacity-60" : "cursor-pointer"
       } ${
         isPaused
-          ? "border border-amber-500/25 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15"
+          ? "border border-cc-attention/75 bg-cc-attention-bg text-cc-attention-strong hover:bg-cc-warning/15"
           : "text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
       }`}
     >
       {isPaused ? <PlayIcon /> : <PauseIcon />}
       <span className="hidden sm:inline">{isPaused ? "Resume sources" : "Pause sources"}</span>
       {isPaused && heldCount > 0 && (
-        <span className="rounded bg-amber-400/20 px-1.5 py-0.5 font-mono-code text-[10px]">{heldCount}</span>
+        <span className="rounded border border-cc-attention/45 bg-cc-card/70 px-1.5 py-0.5 font-mono-code text-[10px] text-cc-attention-strong">
+          {heldCount}
+        </span>
       )}
     </button>
   );
@@ -171,7 +173,10 @@ export function PausedInputChip({
 
   return (
     <div className="px-4 pt-2">
-      <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-200">
+      <div
+        data-testid="composer-paused-banner"
+        className="rounded-lg border border-cc-attention/75 bg-cc-attention-bg px-2.5 py-2 text-[11px] text-cc-fg"
+      >
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <button
             type="button"
@@ -179,11 +184,14 @@ export function PausedInputChip({
             onClick={() => setOpen((value) => !value)}
             aria-expanded={open}
             title={listTitle}
-            className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left font-medium text-amber-200 transition-colors hover:bg-amber-400/10 cursor-pointer"
+            className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-1 py-0.5 text-left font-medium text-cc-attention-strong transition-colors hover:bg-cc-warning/10"
           >
             <PauseIcon className="h-3.5 w-3.5 shrink-0" />
             <span className="shrink-0">{isAutoPause ? "Automatic inputs paused" : "Other sources paused"}</span>
-            <span className="rounded bg-amber-400/20 px-1.5 py-0.5 font-mono-code text-[10px]">
+            <span
+              data-testid="composer-held-count-chip"
+              className="rounded border border-cc-attention/45 bg-cc-card/70 px-1.5 py-0.5 font-mono-code text-[10px] text-cc-attention-strong"
+            >
               {isAutoPause ? `· ${compactLabel}` : label}
             </span>
           </button>
@@ -193,7 +201,7 @@ export function PausedInputChip({
               role="status"
               aria-live="polite"
               aria-atomic="true"
-              className="min-w-0 basis-full space-y-0.5 break-words text-amber-200/80 sm:pl-1"
+              className="min-w-0 basis-full space-y-0.5 break-words text-cc-fg sm:pl-1"
             >
               <p>{autoPauseCause}</p>
               {autoPauseRecoveryTesting ? (
@@ -206,7 +214,7 @@ export function PausedInputChip({
               )}
             </div>
           ) : (
-            <span className="min-w-0 flex-1 text-amber-200/80">
+            <span className="min-w-0 flex-1 text-cc-fg">
               {directComposerMessagesSend
                 ? "Direct composer messages still send. External input waits here."
                 : "Direct composer messages still need the session to resume. External input waits here."}
@@ -216,21 +224,23 @@ export function PausedInputChip({
         {open && (
           <div
             data-testid="composer-held-input-list"
-            className="mt-2 max-h-40 overflow-y-auto rounded-md border border-amber-400/15 bg-cc-bg/40"
+            className="mt-2 max-h-40 overflow-y-auto rounded-md border border-cc-attention/45 bg-cc-card/70"
           >
             {queued.length === 0 ? (
-              <div className="px-2.5 py-2 text-amber-100/70">No held input yet.</div>
+              <div className="px-2.5 py-2 text-cc-muted">No held input yet.</div>
             ) : (
               queued.map((item) => (
                 <div
                   key={item.id}
-                  className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2 border-t border-amber-400/10 px-2.5 py-2 first:border-t-0"
+                  className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2 border-t border-cc-attention/25 px-2.5 py-2 first:border-t-0"
                 >
-                  <span className="font-medium text-amber-100">{formatHeldSource(item, isAutoPause)}</span>
-                  <span className="min-w-0 truncate text-amber-100/80">{formatHeldPreview(item, isAutoPause)}</span>
-                  <span className="flex items-center gap-1 font-mono-code text-[10px] text-amber-100/60">
+                  <span className="font-medium text-cc-attention-strong">{formatHeldSource(item, isAutoPause)}</span>
+                  <span className="min-w-0 truncate text-cc-fg">{formatHeldPreview(item, isAutoPause)}</span>
+                  <span className="flex items-center gap-1 font-mono-code text-[10px] text-cc-muted">
                     {getHeldCount(item) > 1 && (
-                      <span className="rounded bg-amber-400/15 px-1">x{getHeldCount(item)}</span>
+                      <span className="rounded bg-cc-warning/15 px-1 text-cc-attention-strong">
+                        x{getHeldCount(item)}
+                      </span>
                     )}
                     {formatHeldTime(item)}
                   </span>

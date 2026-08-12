@@ -57,13 +57,15 @@ const PLAYGROUND_UNSUPPORTED_MODEL_PAUSE = playgroundPause("model_not_supported"
 
 function PlaygroundPauseFrame({
   autoPause,
+  stateId,
   testing = false,
 }: {
   autoPause: CodexResultErrorAutoPauseState;
+  stateId: string;
   testing?: boolean;
 }) {
   return (
-    <div className="border-t border-cc-border bg-cc-card px-4 py-3">
+    <div data-testid={`playground-auto-pause-${stateId}`} className="border-t border-cc-border bg-cc-card px-4 py-3">
       <div className="overflow-visible rounded-[14px] border border-cc-border bg-cc-input-bg">
         <PausedInputChip
           heldCount={0}
@@ -89,21 +91,21 @@ export function PlaygroundAutoPauseBannerStates() {
   return (
     <>
       <Card label="Automatic recovery paused — Copilot cause">
-        <PlaygroundPauseFrame autoPause={PLAYGROUND_COPILOT_PAUSE} />
+        <PlaygroundPauseFrame autoPause={PLAYGROUND_COPILOT_PAUSE} stateId="idle" />
       </Card>
       <div className="mt-4" />
       <Card label="Automatic recovery testing — repeated stream cause">
         <div data-testid="playground-auto-pause-mobile-width" className="max-w-[320px]">
-          <PlaygroundPauseFrame autoPause={PLAYGROUND_STREAM_PAUSE} testing />
+          <PlaygroundPauseFrame autoPause={PLAYGROUND_STREAM_PAUSE} stateId="testing" testing />
         </div>
       </Card>
       <div className="mt-4" />
       <Card label="Automatic recovery paused — unsupported selected model">
-        <PlaygroundPauseFrame autoPause={PLAYGROUND_UNSUPPORTED_MODEL_PAUSE} />
+        <PlaygroundPauseFrame autoPause={PLAYGROUND_UNSUPPORTED_MODEL_PAUSE} stateId="unsupported-model" />
       </Card>
       <div className="mt-4" />
       <Card label="Failed recovery remains held">
-        <PlaygroundPauseFrame autoPause={PLAYGROUND_COPILOT_PAUSE} />
+        <PlaygroundPauseFrame autoPause={PLAYGROUND_COPILOT_PAUSE} stateId="failed-held" />
       </Card>
     </>
   );

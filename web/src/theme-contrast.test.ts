@@ -173,6 +173,44 @@ describe("theme contrast tokens", () => {
     );
   });
 
+  it("keeps automatic-pause surfaces readable in every supported theme", () => {
+    const themes: Array<{ selector: string | null; label: string }> = [
+      { selector: null, label: "light" },
+      { selector: ".dark", label: "dark" },
+      { selector: ".dark.theme-vscode-dark", label: "VS Code dark" },
+    ];
+
+    for (const theme of themes) {
+      const token = (name: string) =>
+        theme.selector ? cssVariableForSelector(theme.selector, name) : cssVariable(name);
+      const inputBackground = colorToRgba(token("--color-cc-input-bg"));
+      const attentionSurface = blend(colorToRgba(token("--color-cc-attention-bg")), inputBackground);
+      const chipSurface = blend(withAlpha(token("--color-cc-card"), 0.7), attentionSurface);
+      const strongBorder = blend(withAlpha(token("--color-cc-attention"), 0.75), attentionSurface);
+
+      expect(
+        contrastRatio(token("--color-cc-attention-strong"), attentionSurface),
+        `${theme.label} pause title/icon contrast`,
+      ).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
+      expect(
+        contrastRatio(token("--color-cc-fg"), attentionSurface),
+        `${theme.label} pause guidance contrast`,
+      ).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
+      expect(
+        contrastRatio(token("--color-cc-attention-strong"), chipSurface),
+        `${theme.label} held chip contrast`,
+      ).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
+      expect(
+        contrastRatio(token("--color-cc-muted"), chipSurface),
+        `${theme.label} held metadata contrast`,
+      ).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
+      expect(
+        contrastRatio(strongBorder, attentionSurface),
+        `${theme.label} pause boundary contrast`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+  });
+
   it("keeps light Work Board thread-tab phase titles readable on non-selected tab backgrounds", () => {
     const nonSelectedTabOnCard = blend(
       withMultipliedAlpha(cssVariable("--color-cc-hover"), 0.3),

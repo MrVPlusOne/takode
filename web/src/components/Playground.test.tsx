@@ -259,6 +259,14 @@ describe("Playground", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByTestId("playground-auto-pause-mobile-width").className).toContain("max-w-[320px]");
+    for (const stateId of ["idle", "testing", "unsupported-model", "failed-held"]) {
+      const state = within(screen.getByTestId(`playground-auto-pause-${stateId}`));
+      const banner = state.getByTestId("composer-paused-banner");
+      expect(banner.className).toContain("border-cc-attention/75");
+      expect(banner.className).toContain("bg-cc-attention-bg");
+      expect(state.getByTestId("composer-paused-chip").className).toContain("text-cc-attention-strong");
+      expect(state.getByTestId("composer-auto-pause-guidance").className).toContain("text-cc-fg");
+    }
     expect(document.body.textContent).not.toContain("PRIVATE RAW PROVIDER ERROR");
     expect(document.body.textContent).not.toContain("PRIVATE HELD HERD PAYLOAD");
     expect(document.body.textContent).not.toContain("PRIVATE TRUSTED ROUTE LABEL");
