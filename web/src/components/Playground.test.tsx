@@ -58,6 +58,7 @@ vi.mock("remark-gfm", () => ({
 
 import { Playground } from "./Playground.js";
 import { PlaygroundSideChatStates } from "./playground/SideChatPlaygroundStates.js";
+import { PlaygroundReasoningDetailStates } from "./playground/ReasoningDetailStates.js";
 import { PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY } from "./playground/AutoPausePlaygroundStates.js";
 import { MOCK_SESSION_ID } from "./playground/fixtures.js";
 import { PlaygroundOverviewSections } from "./playground/sections-overview.js";
@@ -75,6 +76,25 @@ function PlaygroundOverviewOnly() {
 }
 
 describe("Playground", () => {
+  it("documents collapsed and expanded grouped reasoning-detail states", () => {
+    useStore.getState().reset();
+    render(<PlaygroundReasoningDetailStates />);
+
+    expect(screen.getByText("Grouped collapsed")).toBeInTheDocument();
+    expect(screen.getByText("Grouped expanded")).toBeInTheDocument();
+    const groups = screen.getAllByTestId("codex-reasoning-detail-group");
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).not.toHaveAttribute("open");
+    expect(groups[1]).toHaveAttribute("open");
+    expect(screen.getAllByText("3 summaries")).toHaveLength(2);
+    expect(screen.getAllByText("Preparing the final handoff")).toHaveLength(3);
+    expect(
+      within(groups[1])
+        .getAllByTestId("codex-reasoning-expanded-title")
+        .map((node) => node.textContent),
+    ).toEqual(["Addressing review feedback", "Planning validation coverage", "Preparing the final handoff"]);
+  });
+
   it("renders the real chat stack section with integrated chat components", () => {
     render(<Playground />);
 

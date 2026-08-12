@@ -29,8 +29,9 @@ beforeAll(() => {
 });
 
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
-import type { ChatMessage } from "../types.js";
+import type { BrowserIncomingMessage, ChatMessage } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
+import { normalizeCodexReasoningDetailMessage } from "../utils/history-message-normalization.js";
 
 // Mock react-markdown to avoid ESM issues in tests
 vi.mock("react-markdown", () => ({
@@ -143,7 +144,7 @@ import {
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
 } from "./MessageFeed.js";
-import { FeedFooter, TurnEntries } from "./MessageFeedEntries.js";
+import { FeedEntries, FeedFooter, TurnEntries } from "./MessageFeedEntries.js";
 import { formatActiveReasoningStatusText } from "./MessageFeedStatus.js";
 import { MessageBubble } from "./MessageBubble.js";
 
@@ -356,6 +357,51 @@ function reasoningDetailMessage(
     timestamp: 1,
     metadata: { codexReasoningDetail: { status } },
   };
+}
+
+function producerReasoningDetail(
+  id: string,
+  content: string,
+  options: {
+    status?: "streaming" | "complete";
+    threadKey?: string;
+    parentToolUseId?: string | null;
+    reasoningTurnId?: string;
+    summaryIndex?: number;
+    timestamp?: number;
+  } = {},
+): ChatMessage {
+  const threadKey = options.threadKey ?? "main";
+  const raw: Extract<BrowserIncomingMessage, { type: "codex_reasoning_detail" }> = {
+    type: "codex_reasoning_detail",
+    id,
+    text: content,
+    status: options.status ?? "complete",
+    timestamp: options.timestamp ?? 1,
+    parent_tool_use_id: options.parentToolUseId ?? null,
+    reasoning_turn_id: options.reasoningTurnId ?? "turn-reasoning-group",
+    summary_index: options.summaryIndex ?? 0,
+    threadKey,
+    ...(threadKey === "main" ? {} : { questId: threadKey }),
+  };
+  return normalizeCodexReasoningDetailMessage(raw);
+}
+
+function renderReasoningEntries(
+  entries: FeedEntry[],
+  options: { sessionId?: string; minuteBoundaryLabels?: Map<string, string> } = {},
+) {
+  return render(
+    <FeedEntries
+      entries={entries}
+      sessionId={options.sessionId ?? "reasoning-group-session"}
+      currentThreadKey="all"
+      minuteBoundaryLabels={options.minuteBoundaryLabels}
+      isCodexSession
+      activeCodexTerminalIds={new Set()}
+      onOpenCodexTerminal={vi.fn()}
+    />,
+  );
 }
 
 function setStoreSessionState(sessionId: string, session: Record<string, unknown>) {
@@ -816,6 +862,105 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.getAllByTestId("codex-reasoning-detail")).toHaveLength(2);
     expect(screen.getByText("Main trace")).toBeTruthy();
     expect(screen.getByText("Quest trace")).toBeTruthy();
+  });
+
+  it("groups consecutive producer-shaped reasoning details and expands their complete ordered history", () => {
+    const messages = [
+      producerReasoningDetail("reasoning-part-0", "**Inspecting state**\n\nFirst complete body.", {
+        summaryIndex: 0,
+      }),
+      producerReasoningDetail("reasoning-part-1", "**Checking boundaries**\n\nSecond complete body.", {
+        summaryIndex: 1,
+      }),
+      producerReasoningDetail("reasoning-part-2", "**Preparing handoff**\n\nThird complete body.", {
+        status: "streaming",
+        summaryIndex: 2,
+      }),
+    ];
+
+    const view = renderReasoningEntries(messages.map(makeFeedEntryMessage));
+
+    const group = screen.getByTestId("codex-reasoning-detail-group");
+    expect(group.hasAttribute("open")).toBe(false);
+    expect(screen.getByTestId("codex-reasoning-group-title").textContent).toBe("Preparing handoff");
+    expect(screen.getByTestId("codex-reasoning-group-count").textContent).toBe("3 summaries");
+    expect(screen.queryAllByTestId("codex-reasoning-detail")).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId("codex-reasoning-group-title"));
+
+    expect(group.hasAttribute("open")).toBe(true);
+    expect(screen.getAllByTestId("codex-reasoning-expanded-title").map((node) => node.textContent)).toEqual([
+      "Inspecting state",
+      "Checking boundaries",
+      "Preparing handoff",
+    ]);
+    expect(screen.getAllByTestId("codex-reasoning-body").map((node) => node.textContent)).toEqual([
+      "First complete body.",
+      "Second complete body.",
+      "Third complete body.",
+    ]);
+    expect(view.container.querySelector('[data-message-id="reasoning-part-1"]')).toBeTruthy();
+    expect(view.container.querySelector('[data-message-id="reasoning-part-2"]')).toBeTruthy();
+  });
+
+  it("preserves tool, route, and minute boundaries between reasoning details", () => {
+    const first = producerReasoningDetail("reasoning-before-tool", "**Before tool**\n\nFirst body.", {
+      summaryIndex: 0,
+    });
+    const second = producerReasoningDetail("reasoning-after-tool", "**After tool**\n\nSecond body.", {
+      summaryIndex: 1,
+    });
+    const toolBoundary: FeedEntry = {
+      kind: "tool_msg_group",
+      toolName: "Bash",
+      firstId: "tool-boundary",
+      items: [{ id: "tool-boundary-use", name: "Bash", input: { command: "printf boundary" } }],
+    };
+
+    const toolView = renderReasoningEntries([makeFeedEntryMessage(first), toolBoundary, makeFeedEntryMessage(second)]);
+    expect(screen.queryAllByTestId("codex-reasoning-detail-group")).toHaveLength(0);
+    expect(screen.getAllByTestId("codex-reasoning-detail")).toHaveLength(2);
+    toolView.unmount();
+
+    const routedA = producerReasoningDetail("reasoning-route-a", "**Route A**\n\nA.", {
+      threadKey: "q-100",
+      summaryIndex: 0,
+    });
+    const routedB = producerReasoningDetail("reasoning-route-b", "**Route B**\n\nB.", {
+      threadKey: "q-200",
+      summaryIndex: 1,
+    });
+    const routeView = renderReasoningEntries([makeFeedEntryMessage(routedA), makeFeedEntryMessage(routedB)]);
+    expect(screen.queryAllByTestId("codex-reasoning-detail-group")).toHaveLength(0);
+    expect(screen.getAllByTestId("codex-reasoning-detail")).toHaveLength(2);
+    routeView.unmount();
+
+    renderReasoningEntries([makeFeedEntryMessage(first), makeFeedEntryMessage(second)], {
+      minuteBoundaryLabels: new Map([[second.id, "12:01 PM"]]),
+    });
+    expect(screen.queryAllByTestId("codex-reasoning-detail-group")).toHaveLength(0);
+    expect(screen.getAllByTestId("codex-reasoning-detail")).toHaveLength(2);
+    expect(screen.getByTestId("minute-boundary-timestamp").textContent).toBe("12:01 PM");
+  });
+
+  it("opens a grouped reasoning run when navigation targets a retained member identity", async () => {
+    const sid = "test-reasoning-group-scroll-target";
+    const first = producerReasoningDetail("reasoning-target-0", "**First summary**\n\nFirst body.", {
+      summaryIndex: 0,
+    });
+    const second = producerReasoningDetail("reasoning-target-1", "**Target summary**\n\nTarget body.", {
+      summaryIndex: 1,
+    });
+    mockStoreValues.expandAllInTurn = new Map([[sid, second.id]]);
+
+    const view = renderReasoningEntries([makeFeedEntryMessage(first), makeFeedEntryMessage(second)], {
+      sessionId: sid,
+    });
+    await act(async () => Promise.resolve());
+
+    expect(screen.getByTestId("codex-reasoning-detail-group").hasAttribute("open")).toBe(true);
+    expect(view.container.querySelector(`[data-message-id="${second.id}"]`)).toBeTruthy();
+    expect(screen.getByText("Target body.")).toBeTruthy();
   });
 
   it("keeps a completed persistent reasoning detail available while the session is idle", () => {

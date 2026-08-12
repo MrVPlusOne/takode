@@ -51,7 +51,8 @@ import { isCompactToolActivityItem } from "./CompactToolActivity.js";
 import { ToolMessageGroup } from "./ToolMessageGroup.js";
 import { CompactFeedActivity, type CompactFeedActivitySegment } from "./CompactFeedActivity.js";
 import { isCompactableHerdEventMessage } from "../utils/herd-event-classification.js";
-import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
+import { canGroupCodexReasoningDetails, isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
+import { CodexReasoningDetailGroup } from "./CodexReasoningDetail.js";
 
 function useExpandForScrollTarget(
   sessionId: string,
@@ -903,6 +904,29 @@ export const FeedEntries = memo(function FeedEntries({
         );
         i = j;
         continue;
+      }
+      if (entry.kind === "message" && isCodexReasoningDetailMessage(entry.msg)) {
+        const batch: ChatMessage[] = [entry.msg];
+        let j = i + 1;
+        while (j < entries.length) {
+          const candidate = entries[j];
+          if (candidate.kind !== "message") break;
+          if (minuteBoundaryLabels?.has(candidate.msg.id)) break;
+          if (!canGroupCodexReasoningDetails(batch[batch.length - 1], candidate.msg)) break;
+          batch.push(candidate.msg);
+          j++;
+        }
+        if (batch.length >= 2) {
+          const markerLabel = minuteBoundaryLabels?.get(entry.msg.id);
+          result.push(
+            <div key={`reasoning-group:${entry.msg.id}`}>
+              {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
+              <CodexReasoningDetailGroup messages={batch} sessionId={sessionId} />
+            </div>,
+          );
+          i = j;
+          continue;
+        }
       }
       if (isApprovalEntry(entry)) {
         const batch: ChatMessage[] = [entry.msg];

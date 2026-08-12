@@ -1866,7 +1866,7 @@ export function PlaygroundInteractiveSections() {
 
       <Section
         title="Codex Reasoning Details"
-        description="Persistent chronological summary details shown collapsed by default with full audit text on expansion."
+        description="Persistent chronological summaries, including grouped adjacent runs that preview the newest title and expand to the complete ordered audit."
       >
         <div className="max-w-3xl">
           <Card label="Persistent reasoning detail states">

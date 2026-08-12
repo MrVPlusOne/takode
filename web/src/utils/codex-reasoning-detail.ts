@@ -16,6 +16,30 @@ export function parseCodexReasoningDetail(text: string): { title: string; body: 
   };
 }
 
+function reasoningDetailScopeKey(message: ChatMessage): string {
+  const metadata = message.metadata;
+  const threadRefs = [...(metadata?.threadRefs ?? [])]
+    .map((ref) => `${ref.threadKey}:${ref.questId ?? ""}`)
+    .sort()
+    .join(",");
+  return [
+    message.parentToolUseId ?? "",
+    metadata?.threadKey ?? "",
+    metadata?.questId ?? "",
+    threadRefs,
+    message.agentSource?.sessionId ?? "",
+    metadata?.codexReasoningDetail?.reasoningTurnId ?? "",
+  ].join("\u001f");
+}
+
+export function canGroupCodexReasoningDetails(current: ChatMessage, next: ChatMessage): boolean {
+  return (
+    isCodexReasoningDetailMessage(current) &&
+    isCodexReasoningDetailMessage(next) &&
+    reasoningDetailScopeKey(current) === reasoningDetailScopeKey(next)
+  );
+}
+
 export function convertLegacyParentedCodexThinkingMessage(isCodexSession: boolean, message: ChatMessage): ChatMessage {
   const blocks = message.contentBlocks ?? [];
   if (
