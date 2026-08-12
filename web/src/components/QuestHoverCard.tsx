@@ -19,9 +19,10 @@ import { useParticipantSessionStatusDotProps } from "./session-participant-statu
 import {
   QUEST_PARTICIPANT_CHIP_CLASS,
   QUEST_PARTICIPANT_NAME_CLASS,
-  QUEST_PARTICIPANT_ROLE_CLASS,
   QUEST_PARTICIPANT_SESSION_CLASS,
+  QUEST_REVIEWER_ROLE_CLASS,
 } from "./quest-participant-chip-style.js";
+import { SessionRoleLabel } from "./SessionRoleLabel.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 
@@ -384,7 +385,11 @@ function QuestHoverSessionChip({
       threadKey={threadKey}
     >
       {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
-      <span className={QUEST_PARTICIPANT_ROLE_CLASS}>{role}</span>
+      {role === "Leader" || role === "Worker" ? (
+        <SessionRoleLabel role={role} />
+      ) : (
+        <span className={QUEST_REVIEWER_ROLE_CLASS}>{role}</span>
+      )}
       <span className={QUEST_PARTICIPANT_SESSION_CLASS}>{displaySession}</span>
       {sessionName && <span className={QUEST_PARTICIPANT_NAME_CLASS}>{sessionName}</span>}
     </SessionInlineLink>

@@ -17,6 +17,8 @@ import { LeaderWorkboardControlButton, SummarySegments } from "./leader-workboar
 import { useQuestCodeCommitShas } from "./QuestCommitDiffView.js";
 import type { BoardRowData } from "./BoardTable.js";
 import type { LeaderWorkboardView } from "../store-types.js";
+import { QUEST_PARTICIPANT_CHIP_CLASS, QUEST_PARTICIPANT_SESSION_CLASS } from "./quest-participant-chip-style.js";
+import { SessionRoleLabel } from "./SessionRoleLabel.js";
 
 type TopBarState = ReturnType<typeof useStore.getState>;
 const EMPTY_LEADER_BOARD_ROWS: readonly BoardRowData[] = [];
@@ -356,6 +358,13 @@ export function TopBar({
                 setInfoOpen(!infoOpen);
               }}
               className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
+              aria-label={[
+                isCurrentLeaderSession ? "Leader" : null,
+                typeof sessionNum === "number" ? `#${sessionNum}` : null,
+                sessionName,
+              ]
+                .filter(Boolean)
+                .join(" ")}
             >
               <div className="[&>div]:mt-0 shrink-0">
                 <SessionStatusDot
@@ -368,11 +377,21 @@ export function TopBar({
                   activeTimerCount={activeTimerCount}
                 />
               </div>
-              {typeof sessionNum === "number" && (
-                <span className="text-[11px] font-medium text-cc-muted shrink-0" title={`Session #${sessionNum}`}>
-                  #{sessionNum}
-                </span>
-              )}
+              {typeof sessionNum === "number" &&
+                (isCurrentLeaderSession ? (
+                  <span
+                    className={`${QUEST_PARTICIPANT_CHIP_CLASS} shrink-0`}
+                    title={`Leader session #${sessionNum}`}
+                    data-testid="topbar-leader-session-chip"
+                  >
+                    <SessionRoleLabel role="Leader" />
+                    <span className={QUEST_PARTICIPANT_SESSION_CLASS}>#{sessionNum}</span>
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-medium text-cc-muted shrink-0" title={`Session #${sessionNum}`}>
+                    #{sessionNum}
+                  </span>
+                ))}
               {leaderProfilePortrait && (
                 <img
                   src={leaderProfilePortrait.smallUrl}
@@ -387,7 +406,7 @@ export function TopBar({
                 />
               )}
               {sessionName && (
-                <span className="text-[11px] font-medium truncate text-cc-fg" title={sessionName}>
+                <span className="min-w-0 truncate text-[11px] font-medium text-cc-fg" title={sessionName}>
                   {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
                 </span>
               )}

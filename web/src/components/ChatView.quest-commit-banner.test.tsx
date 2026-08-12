@@ -138,7 +138,10 @@ describe("QuestThreadBanner commit affordance", () => {
     render(<StoreQuestThreadBanner />);
 
     const banner = screen.getByTestId("quest-thread-banner");
-    expect(within(banner).getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
+    const workerChip = within(banner).getByLabelText("Worker #1321 Clear Mesa");
+    expect(workerChip).toHaveAttribute("href", "#session-1321");
+    expect(within(workerChip).getByText("Worker")).toHaveClass("max-[319px]:hidden");
+    expect(within(workerChip).getByTestId("session-role-icon-worker")).toBeInTheDocument();
     expect(within(banner).queryByLabelText(/^Reviewer #/)).not.toBeInTheDocument();
     expect(within(banner).getByTestId("quest-thread-commit-button")).toHaveTextContent("2 commits");
 

@@ -701,6 +701,13 @@ describe("Playground", () => {
     expect(within(banner).getByLabelText("Worker #1321 Clear Mesa")).toBeTruthy();
     expect(within(banner).queryByLabelText("Reviewer #1306 Review Lead")).toBeNull();
     expect(within(banner).getByTestId("quest-thread-commit-button")).toHaveTextContent("2 commits");
+    const mobileParticipantPreview = screen.getByTestId("playground-mobile-participant-labels");
+    const mobileParticipantBanners = within(mobileParticipantPreview).getAllByTestId("quest-thread-banner");
+    expect(within(mobileParticipantBanners[0]).getByText("Worker")).toHaveClass("max-[319px]:hidden");
+    expect(within(mobileParticipantBanners[0]).getByTestId("session-role-icon-worker")).toBeInTheDocument();
+    expect(within(mobileParticipantBanners[1]).getByText("Leader")).toHaveClass("max-[319px]:hidden");
+    expect(within(mobileParticipantBanners[1]).getByTestId("session-role-icon-leader")).toBeInTheDocument();
+
     const queuedBanner = screen.getAllByTestId("quest-thread-banner")[1];
     expect(within(queuedBanner).getByTestId("quest-thread-queued-status-chip")).toHaveTextContent(
       "Queued, waiting for #1801, q-1367, free worker",

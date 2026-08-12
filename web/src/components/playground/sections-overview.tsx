@@ -530,6 +530,24 @@ export function PlaygroundOverviewSections() {
             </div>
           ))}
         </div>
+        <div
+          data-testid="playground-mobile-participant-labels"
+          className="w-[320px] max-w-full overflow-hidden rounded-lg border border-cc-border bg-cc-card"
+        >
+          <div className="border-b border-cc-border/70 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">
+            Mobile 320px full role labels
+          </div>
+          <QuestThreadBanner
+            row={compactQuestThreadBannerRows[0].row}
+            threadKey={compactQuestThreadBannerRows[0].threadKey}
+          />
+          <QuestThreadBanner
+            row={compactQuestThreadBannerRows[compactQuestThreadBannerRows.length - 1].row}
+            threadKey={compactQuestThreadBannerRows[compactQuestThreadBannerRows.length - 1].threadKey}
+            variant="session"
+            currentSessionId="playground-worker-banner"
+          />
+        </div>
         <div className="grid max-w-5xl gap-4 lg:grid-cols-2">
           <div className="overflow-hidden rounded-xl border border-cc-border bg-cc-card h-[460px]">
             <ChatView sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} />

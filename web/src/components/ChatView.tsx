@@ -46,9 +46,9 @@ import { useParticipantSessionStatusDotProps } from "./session-participant-statu
 import {
   QUEST_PARTICIPANT_CHIP_CLASS,
   QUEST_PARTICIPANT_NAME_CLASS,
-  QUEST_PARTICIPANT_ROLE_CLASS,
   QUEST_PARTICIPANT_SESSION_CLASS,
 } from "./quest-participant-chip-style.js";
+import { SessionRoleLabel } from "./SessionRoleLabel.js";
 import { commitCountLabel } from "./QuestCommitEvidence.js";
 import { useQuestCodeCommitShas } from "./QuestCommitDiffView.js";
 import {
@@ -470,7 +470,7 @@ function QuestBannerParticipantChip({
   const content = (
     <>
       {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
-      <span className={QUEST_PARTICIPANT_ROLE_CLASS}>{role}</span>
+      <SessionRoleLabel role={role} />
       <span className={QUEST_PARTICIPANT_SESSION_CLASS}>{`#${sessionNum ?? "?"}`}</span>
       {showDisplayName && displayName && <span className={QUEST_PARTICIPANT_NAME_CLASS}>{displayName}</span>}
     </>
