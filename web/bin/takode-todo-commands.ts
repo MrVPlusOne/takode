@@ -66,6 +66,15 @@ function titleText(markdown: string, limit = 80): string {
   return plain.length > limit ? `${plain.slice(0, limit - 1)}…` : plain;
 }
 
+function derivedTitle(markdown: string): string {
+  return (
+    markdown
+      .split(/\r\n|\n|\r/)
+      .find((line) => line.trim())
+      ?.trim() ?? ""
+  );
+}
+
 function categoryMap(state: TodoState): Map<string, TodoCategory> {
   return new Map(state.categories.map((category) => [category.id, category]));
 }
@@ -92,23 +101,39 @@ function authorizationBody(flags: Record<string, string | boolean>): { authorize
 
 async function readItemInput(
   flags: Record<string, string | boolean>,
-  positionalTitle?: string,
-  options?: { requireTitle?: boolean },
+  positionalMarkdown?: string,
+  options?: { requireMarkdown?: boolean },
 ) {
-  const title =
-    (await readOptionalRichTextOption(flags, {
-      inlineFlag: "title",
-      fileFlag: "title-file",
-      label: "Title Markdown",
-    })) ?? positionalTitle;
-  if (options?.requireTitle && !title?.trim())
-    err("Title Markdown is required. Use a positional title, --title, or --title-file.");
+  const markdownOption = await readOptionalRichTextOption(flags, {
+    inlineFlag: "markdown",
+    fileFlag: "markdown-file",
+    label: "Markdown",
+  });
+  const title = await readOptionalRichTextOption(flags, {
+    inlineFlag: "title",
+    fileFlag: "title-file",
+    label: "Title Markdown",
+  });
   const details = await readOptionalRichTextOption(flags, {
     inlineFlag: "details",
     fileFlag: "details-file",
     label: "Details Markdown",
   });
-  return { titleMarkdown: title?.trim(), detailsMarkdown: details?.trim() };
+  const markdown = markdownOption ?? positionalMarkdown;
+  if (markdown !== undefined && (title !== undefined || details !== undefined)) {
+    err("Use --markdown/--markdown-file or legacy --title/--details inputs, not both.");
+  }
+  if (markdown !== undefined) {
+    if (!markdown.trim()) err("Markdown needs a non-empty title line.");
+    return { markdown };
+  }
+  if (options?.requireMarkdown && !title?.trim()) {
+    err("Markdown is required. Use positional Markdown, --markdown, --markdown-file, or legacy --title/--title-file.");
+  }
+  return {
+    ...(title !== undefined ? { titleMarkdown: title.trim() } : {}),
+    ...(details !== undefined ? { detailsMarkdown: details.trim() } : {}),
+  };
 }
 
 function validStatus(value: string | undefined): TodoStatus | undefined {
@@ -139,8 +164,9 @@ function printItems(items: TodoCompactItem[]): void {
 function printItem(item: TodoItem, category: TodoCategory | null): void {
   console.log(`${item.id}  ${item.status.toUpperCase()}${item.archivedAt ? "  ARCHIVED" : ""}`);
   console.log(`Category: ${category?.name ?? item.categoryId} (${item.categoryId})`);
-  console.log(`Title: ${item.titleMarkdown}`);
-  if (item.detailsMarkdown) console.log(`Details:\n${item.detailsMarkdown}`);
+  console.log(`Rank: ${item.rank}`);
+  console.log(`Markdown:
+${item.markdown}`);
   console.log(
     `Timestamps: created=${new Date(item.createdAt).toISOString()} updated=${new Date(item.updatedAt).toISOString()} statusChanged=${new Date(item.statusChangedAt).toISOString()}${item.completedAt ? ` completed=${new Date(item.completedAt).toISOString()}` : ""}${item.archivedAt ? ` archived=${new Date(item.archivedAt).toISOString()}` : ""}`,
   );
@@ -211,44 +237,65 @@ async function handleFind(base: string, flags: Record<string, string | boolean>)
   printItems(response.items);
 }
 
-async function handleAdd(base: string, positionalTitle: string | undefined, flags: Record<string, string | boolean>) {
+async function handleAdd(
+  base: string,
+  positionalMarkdown: string | undefined,
+  flags: Record<string, string | boolean>,
+) {
   assertKnownFlags(
     flags,
-    new Set(["title", "title-file", "details", "details-file", "category", "status", "authorized-by", "json"]),
-    "Usage: takode todo add [title] [--title-file <path|->] [--details-file <path|->] [--category <id|name>] [--status todo|doing|done] [--authorized-by <message-index>] [--json]",
+    new Set([
+      "markdown",
+      "markdown-file",
+      "title",
+      "title-file",
+      "details",
+      "details-file",
+      "category",
+      "status",
+      "before",
+      "after",
+      "authorized-by",
+      "json",
+    ]),
+    "Usage: takode todo add [markdown] [--markdown-file <path|->] [--category <id|name>] [--status todo|doing|done] [--before <td-id>|--after <td-id>] [--authorized-by <message-index>] [--json]",
   );
-  const input = await readItemInput(flags, positionalTitle, { requireTitle: true });
-  const categoryId = await resolveCategoryId(base, resolveStringFlag(flags, "category", "category"));
+  const input = await readItemInput(flags, positionalMarkdown, { requireMarkdown: true });
+  const category = resolveStringFlag(flags, "category", "category");
+  const categoryId = category ? await resolveCategoryId(base, category) : undefined;
   const status = validStatus(resolveStringFlag(flags, "status", "status"));
+  const beforeItemId = resolveStringFlag(flags, "before", "before item id");
+  const afterItemId = resolveStringFlag(flags, "after", "after item id");
+  if (beforeItemId && afterItemId) err("Use --before or --after, not both.");
   const response = (await apiPost(base, "/todos/items", {
     ...input,
-    categoryId,
+    ...(categoryId ? { categoryId } : {}),
     ...(status ? { status } : {}),
+    ...(beforeItemId ? { beforeItemId } : {}),
+    ...(afterItemId ? { afterItemId } : {}),
     ...authorizationBody(flags),
   })) as TodoStateMutationResponse;
   if (jsonOutput(flags, response.item)) return;
-  console.log(`Added ${response.item!.id} [${response.item!.status}] ${titleText(response.item!.titleMarkdown)}`);
+  console.log(
+    `Added ${response.item!.id} [${response.item!.status}] ${titleText(derivedTitle(response.item!.markdown))}`,
+  );
 }
 
 async function handleEdit(base: string, id: string | undefined, flags: Record<string, string | boolean>) {
-  if (!id)
-    err(
-      "Usage: takode todo edit <td-id> --title-file <path|->|--details-file <path|-> [--authorized-by <message-index>] [--json]",
-    );
+  if (!id) err("Usage: takode todo edit <td-id> --markdown-file <path|-> [--authorized-by <message-index>] [--json]");
   assertKnownFlags(
     flags,
-    new Set(["title", "title-file", "details", "details-file", "authorized-by", "json"]),
-    "Usage: takode todo edit <td-id> --title-file <path|->|--details-file <path|-> [--authorized-by <message-index>] [--json]",
+    new Set(["markdown", "markdown-file", "title", "title-file", "details", "details-file", "authorized-by", "json"]),
+    "Usage: takode todo edit <td-id> --markdown-file <path|-> [--authorized-by <message-index>] [--json]",
   );
   const input = await readItemInput(flags);
-  if (input.titleMarkdown === undefined && input.detailsMarkdown === undefined)
-    err("Provide --title/--title-file or --details/--details-file.");
+  if (Object.keys(input).length === 0) err("Provide --markdown/--markdown-file or a legacy --title/--details input.");
   const response = (await apiPatch(base, `/todos/items/${encodeURIComponent(id)}`, {
     ...input,
     ...authorizationBody(flags),
   })) as TodoStateMutationResponse;
   if (jsonOutput(flags, response.item)) return;
-  console.log(`Updated ${id}: ${titleText(response.item!.titleMarkdown)}`);
+  console.log(`Updated ${id}: ${titleText(derivedTitle(response.item!.markdown))}`);
 }
 
 async function simpleItemMutation(
@@ -260,15 +307,25 @@ async function simpleItemMutation(
 ) {
   if (!id)
     err(
-      `Usage: takode todo ${action} <td-id>${action === "status" ? " <todo|doing|done>" : action === "move" ? " <category>" : ""} [--authorized-by <message-index>] [--json]`,
+      `Usage: takode todo ${action} <td-id>${action === "status" ? " <todo|doing|done>" : action === "move" ? " [category] [--before <td-id>|--after <td-id>]" : ""} [--authorized-by <message-index>] [--json]`,
     );
-  assertKnownFlags(flags, new Set(["authorized-by", "json"]), TODO_USAGE);
-  let path = `/todos/items/${encodeURIComponent(id)}/${action}`;
-  let body: Record<string, unknown> = authorizationBody(flags);
+  assertKnownFlags(
+    flags,
+    action === "move" ? new Set(["before", "after", "authorized-by", "json"]) : new Set(["authorized-by", "json"]),
+    TODO_USAGE,
+  );
+  const path = `/todos/items/${encodeURIComponent(id)}/${action}`;
+  const body: Record<string, unknown> = authorizationBody(flags);
   if (action === "status") {
     body.status = validStatus(value);
   } else if (action === "move") {
-    body.categoryId = await resolveCategoryId(base, value);
+    const beforeItemId = resolveStringFlag(flags, "before", "before item id");
+    const afterItemId = resolveStringFlag(flags, "after", "after item id");
+    if (beforeItemId && afterItemId) err("Use --before or --after, not both.");
+    if (!value && !beforeItemId && !afterItemId) err("Move requires a category, --before, or --after.");
+    if (value) body.categoryId = await resolveCategoryId(base, value);
+    if (beforeItemId) body.beforeItemId = beforeItemId;
+    if (afterItemId) body.afterItemId = afterItemId;
   }
   const response = (await apiPost(base, path, body)) as TodoStateMutationResponse;
   if (jsonOutput(flags, response.item)) return;
@@ -350,13 +407,13 @@ function proposalSummary(proposal: TodoProposal): string {
   const mutation = proposal.mutation;
   switch (mutation.action) {
     case "item:add":
-      return `add ${titleText(mutation.input.titleMarkdown)}`;
+      return `add ${titleText(derivedTitle(mutation.input.markdown ?? mutation.input.titleMarkdown ?? ""))}`;
     case "item:edit":
       return `edit ${mutation.itemId}`;
     case "item:status":
       return `set ${mutation.itemId} ${mutation.status}`;
     case "item:move":
-      return `move ${mutation.itemId} to ${mutation.categoryId}`;
+      return mutation.categoryId ? `move ${mutation.itemId} to ${mutation.categoryId}` : `reorder ${mutation.itemId}`;
     case "item:archive":
     case "item:restore":
       return `${mutation.action.split(":")[1]} ${mutation.itemId}`;
@@ -378,21 +435,26 @@ async function buildProposalMutation(
   flags: Record<string, string | boolean>,
 ): Promise<TodoProposalMutation> {
   if (action === "add") {
-    const input = await readItemInput(flags, args[0], { requireTitle: true });
+    const input = await readItemInput(flags, args[0], { requireMarkdown: true });
+    const category = resolveStringFlag(flags, "category", "category");
+    const beforeItemId = resolveStringFlag(flags, "before", "before item id");
+    const afterItemId = resolveStringFlag(flags, "after", "after item id");
+    if (beforeItemId && afterItemId) err("Use --before or --after, not both.");
     return {
       action: "item:add",
       input: {
-        titleMarkdown: input.titleMarkdown!,
-        ...(input.detailsMarkdown ? { detailsMarkdown: input.detailsMarkdown } : {}),
-        categoryId: await resolveCategoryId(base, resolveStringFlag(flags, "category", "category")),
+        ...input,
+        ...(category ? { categoryId: await resolveCategoryId(base, category) } : {}),
         ...(validStatus(resolveStringFlag(flags, "status", "status"))
           ? { status: validStatus(resolveStringFlag(flags, "status", "status")) }
           : {}),
+        ...(beforeItemId ? { beforeItemId } : {}),
+        ...(afterItemId ? { afterItemId } : {}),
       },
     };
   }
   if (action === "edit") {
-    if (!args[0]) err("Usage: takode todo propose edit <td-id> --title-file|--details-file ...");
+    if (!args[0]) err("Usage: takode todo propose edit <td-id> --markdown-file ...");
     const input = await readItemInput(flags);
     return { action: "item:edit", itemId: args[0], input };
   }
@@ -401,8 +463,18 @@ async function buildProposalMutation(
     return { action: "item:status", itemId: args[0], status: validStatus(args[1])! };
   }
   if (action === "move") {
-    if (!args[0] || !args[1]) err("Usage: takode todo propose move <td-id> <category>");
-    return { action: "item:move", itemId: args[0], categoryId: await resolveCategoryId(base, args[1]) };
+    if (!args[0]) err("Usage: takode todo propose move <td-id> [category] [--before <td-id>|--after <td-id>]");
+    const beforeItemId = resolveStringFlag(flags, "before", "before item id");
+    const afterItemId = resolveStringFlag(flags, "after", "after item id");
+    if (beforeItemId && afterItemId) err("Use --before or --after, not both.");
+    if (!args[1] && !beforeItemId && !afterItemId) err("Move requires a category, --before, or --after.");
+    return {
+      action: "item:move",
+      itemId: args[0],
+      ...(args[1] ? { categoryId: await resolveCategoryId(base, args[1]) } : {}),
+      ...(beforeItemId ? { beforeItemId } : {}),
+      ...(afterItemId ? { afterItemId } : {}),
+    };
   }
   if (action === "archive" || action === "restore") {
     if (!args[0]) err(`Usage: takode todo propose ${action} <td-id>`);
@@ -476,7 +548,19 @@ async function handleProposal(
 
   assertKnownFlags(
     flags,
-    new Set(["title", "title-file", "details", "details-file", "category", "status", "json"]),
+    new Set([
+      "markdown",
+      "markdown-file",
+      "title",
+      "title-file",
+      "details",
+      "details-file",
+      "category",
+      "status",
+      "before",
+      "after",
+      "json",
+    ]),
     "Usage: takode todo propose <add|edit|status|move|archive|restore|category-create|category-rename|category-archive|category-restore> ... [--json]",
   );
   const mutation = await buildProposalMutation(base, action, rest, flags);

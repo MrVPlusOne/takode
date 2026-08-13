@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TodoState } from "../../shared/todo-types.js";
@@ -38,7 +38,7 @@ const provenance = {
 
 function makeState(revision = 1): TodoState {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     revision,
     updatedAt: revision * 100,
     nextItemId: 4,
@@ -52,8 +52,8 @@ function makeState(revision = 1): TodoState {
     items: [
       {
         id: "td-1",
-        titleMarkdown: "Reply to **Alice**",
-        detailsMarkdown: "[Thread](https://example.slack.com/thread)",
+        markdown: "Reply to **Alice**\n[Thread](https://example.slack.com/thread)",
+        rank: 1024,
         categoryId: "cat-1",
         status: "todo",
         createdAt: 100,
@@ -64,7 +64,8 @@ function makeState(revision = 1): TodoState {
       },
       {
         id: "td-2",
-        titleMarkdown: "Review result",
+        markdown: "Review result",
+        rank: 1024,
         categoryId: "cat-inbox",
         status: "doing",
         createdAt: 100,
@@ -75,7 +76,8 @@ function makeState(revision = 1): TodoState {
       },
       {
         id: "td-3",
-        titleMarkdown: "Finished",
+        markdown: "Finished",
+        rank: 1024,
         categoryId: "cat-inbox",
         status: "done",
         createdAt: 100,
@@ -89,7 +91,7 @@ function makeState(revision = 1): TodoState {
     proposals: [
       {
         id: "tp-1",
-        mutation: { action: "item:add", input: { titleMarkdown: "Read the result" } },
+        mutation: { action: "item:add", input: { markdown: "Read the result\nAgent context" } },
         status: "pending",
         createdAt: 100,
         updatedAt: 100,
@@ -107,7 +109,7 @@ beforeEach(() => {
 });
 
 describe("TodoListPanel", () => {
-  it("renders status counts, Markdown items, category grouping, and local Done grouping", async () => {
+  it("renders the lightweight category outline, derived Markdown title, and collapsed Done date section", async () => {
     render(<TodoListPanel />);
     expect(await screen.findByText("Personal To-dos")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Todo 1" })).toBeInTheDocument();
@@ -115,36 +117,85 @@ describe("TodoListPanel", () => {
     expect(screen.getByRole("button", { name: "Done 1" })).toBeInTheDocument();
     expect(screen.getAllByText("Slack").length).toBeGreaterThan(0);
     expect(screen.getByText("Reply to **Alice**")).toBeInTheDocument();
+    expect(screen.queryByText("[Thread](https://example.slack.com/thread)")).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Filter by status"), { target: { value: "done" } });
-    expect(await screen.findByText(/Done · Today/)).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Expand details for Reply to **Alice**"));
+    expect(screen.getByText("[Thread](https://example.slack.com/thread)")).toBeInTheDocument();
+    const doneSummary = screen.getByText(/Today/);
+    const doneSection = doneSummary.closest("details");
+    expect(doneSection).not.toHaveAttribute("open");
+    fireEvent.click(doneSummary);
+    expect(doneSection).toHaveAttribute("open");
     expect(screen.getByText("Finished")).toBeInTheDocument();
   });
 
-  it("applies only server-returned state after creating an item", async () => {
+  it("edits the exact raw Markdown body inline and applies only the returned server state", async () => {
     const next = makeState(2);
-    next.items.push({ ...next.items[0]!, id: "td-4", titleMarkdown: "New reminder", categoryId: "cat-inbox" });
+    next.items[0] = { ...next.items[0]!, markdown: "Updated title\nUpdated detail", updatedAt: 400 };
+    mocks.editTodoItem.mockResolvedValue({ state: next, item: next.items[0] });
+    render(<TodoListPanel />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Reply to **Alice**" }));
+    const editor = screen.getByLabelText("Edit Reply to **Alice**");
+    expect(editor).toHaveValue("Reply to **Alice**\n[Thread](https://example.slack.com/thread)");
+    fireEvent.change(editor, { target: { value: "Updated title\nUpdated detail" } });
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
+
+    await waitFor(() =>
+      expect(mocks.editTodoItem).toHaveBeenCalledWith("td-1", { markdown: "Updated title\nUpdated detail" }),
+    );
+    expect(await screen.findByText("Updated title")).toBeInTheDocument();
+  });
+
+  it("inserts a new item directly below the focused row with a keyboard interaction", async () => {
+    const next = makeState(2);
+    next.items.push({
+      ...next.items[0]!,
+      id: "td-4",
+      markdown: "New reminder\nContext",
+      rank: 2048,
+    });
     mocks.createTodoItem.mockResolvedValue({ state: next, item: next.items.at(-1) });
     render(<TodoListPanel />);
 
-    const input = await screen.findByLabelText("New to-do title");
-    fireEvent.change(input, { target: { value: "New reminder" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    const row = await screen.findByRole("button", { name: "Edit Reply to **Alice**" });
+    fireEvent.keyDown(row, { key: "Enter", altKey: true });
+    const editor = screen.getByLabelText("New to-do Markdown");
+    fireEvent.change(editor, { target: { value: "New reminder\nContext" } });
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
 
     await waitFor(() =>
       expect(mocks.createTodoItem).toHaveBeenCalledWith({
-        titleMarkdown: "New reminder",
-        detailsMarkdown: undefined,
-        categoryId: "cat-inbox",
+        markdown: "New reminder\nContext",
+        categoryId: "cat-1",
         status: "todo",
+        afterItemId: "td-1",
       }),
     );
     expect(await screen.findByText("New reminder")).toBeInTheDocument();
   });
 
+  it("completes in one click and exposes touch-friendly ordering/category controls in overflow", async () => {
+    const completed = makeState(2);
+    completed.items[0] = { ...completed.items[0]!, status: "done", completedAt: 500 };
+    mocks.setTodoItemStatus.mockResolvedValue({ state: completed, item: completed.items[0] });
+    mocks.moveTodoItem.mockResolvedValue({ state: makeState(2), item: makeState(2).items[0] });
+    render(<TodoListPanel />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Complete Reply to **Alice**" }));
+    await waitFor(() => expect(mocks.setTodoItemStatus).toHaveBeenCalledWith("td-1", "done"));
+
+    const more = screen.getByLabelText("More actions for Review result");
+    fireEvent.click(more);
+    const menu = more.parentElement!;
+    expect(within(menu).getByRole("button", { name: "Add item below" })).toBeInTheDocument();
+    fireEvent.change(within(menu).getByLabelText("Move td-2 to category"), { target: { value: "cat-1" } });
+    await waitFor(() => expect(mocks.moveTodoItem).toHaveBeenCalledWith("td-2", { categoryId: "cat-1" }));
+  });
+
   it("refetches after the server broadcasts a multi-browser invalidation", async () => {
     const next = makeState(2);
-    next.items[0] = { ...next.items[0]!, titleMarkdown: "Updated elsewhere" };
+    next.items[0] = { ...next.items[0]!, markdown: "Updated elsewhere" };
     mocks.getTodoState.mockResolvedValueOnce(makeState()).mockResolvedValueOnce(next);
     render(<TodoListPanel />);
     expect(await screen.findByText("Reply to **Alice**")).toBeInTheDocument();
@@ -154,11 +205,13 @@ describe("TodoListPanel", () => {
     expect(mocks.getTodoState).toHaveBeenCalledTimes(2);
   });
 
-  it("exposes proposal approval and conservative category archival controls", async () => {
+  it("keeps proposals and category administration behind the compact management drawer", async () => {
     mocks.resolveTodoProposal.mockResolvedValue({ state: { ...makeState(2), proposals: [] } });
     render(<TodoListPanel />);
     await screen.findByText("Personal To-dos");
 
+    fireEvent.click(screen.getByRole("button", { name: "Manage · 1" }));
+    expect(screen.getByTestId("todo-management-drawer")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "proposals (1)" }));
     expect(screen.getByText("Add “Read the result”")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
@@ -167,36 +220,5 @@ describe("TodoListPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "categories" }));
     const archiveButtons = screen.getAllByRole("button", { name: "Archive" });
     expect(archiveButtons.some((button) => button.hasAttribute("disabled"))).toBe(true);
-  });
-
-  it("restores archived categories before their archived items can return", async () => {
-    const archived = makeState();
-    archived.categories.push({
-      id: "cat-archived",
-      name: "Old list",
-      createdAt: 1,
-      updatedAt: 2,
-      archivedAt: 2,
-      createdBy: provenance,
-      lastModifiedBy: provenance,
-    });
-    mocks.getTodoState.mockResolvedValue(archived);
-    const restored = makeState(2);
-    restored.categories.push({
-      id: "cat-archived",
-      name: "Old list",
-      createdAt: 1,
-      updatedAt: 3,
-      createdBy: provenance,
-      lastModifiedBy: provenance,
-    });
-    mocks.restoreTodoCategory.mockResolvedValue({ state: restored, category: restored.categories.at(-1) });
-    render(<TodoListPanel />);
-    await screen.findByText("Personal To-dos");
-
-    fireEvent.click(screen.getByRole("button", { name: "categories" }));
-    expect(screen.getByText("Old list")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
-    await waitFor(() => expect(mocks.restoreTodoCategory).toHaveBeenCalledWith("cat-archived"));
   });
 });

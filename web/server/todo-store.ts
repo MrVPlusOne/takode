@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { constants, copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -14,6 +14,7 @@ import {
   type TodoItemCreateInput,
   type TodoItemEditInput,
   type TodoItemListFilters,
+  type TodoItemMoveInput,
   type TodoMutationProvenance,
   type TodoPrincipal,
   type TodoProposal,
@@ -21,13 +22,17 @@ import {
   type TodoState,
   type TodoStatus,
 } from "../shared/todo-types.js";
+import { combineLegacyTodoMarkdown, deriveTodoMarkdown, findTodoTitleBounds } from "../shared/todo-markdown.js";
 
 const DEFAULT_FILE = join(homedir(), ".companion", "todos", "todo-list.json");
 const INBOX_ID = "cat-inbox";
 const MAX_TITLE_LENGTH = 500;
-const MAX_DETAILS_LENGTH = 50_000;
+const MAX_LEGACY_DETAILS_LENGTH = 50_000;
+const MAX_MARKDOWN_LENGTH = MAX_TITLE_LENGTH + 1 + MAX_LEGACY_DETAILS_LENGTH;
 const MAX_CATEGORY_NAME_LENGTH = 120;
 const MAX_PROPOSALS = 1_000;
+const RANK_STEP = 1_024;
+const LEGACY_BACKUP_SUFFIX = ".schema-v1.backup";
 
 export class TodoStoreError extends Error {
   constructor(
@@ -54,7 +59,7 @@ function bootstrapProvenance(at: number): TodoMutationProvenance {
 function emptyState(now = Date.now()): TodoState {
   const provenance = bootstrapProvenance(now);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     revision: 0,
     updatedAt: now,
     nextItemId: 1,
@@ -96,33 +101,20 @@ function requireFiniteNumber(value: unknown, label: string): number {
   return value;
 }
 
-function normalizeLoadedState(value: unknown): TodoState {
-  const raw = requireObject(value, "To-do store");
-  if (raw.schemaVersion !== 1) {
-    throw new TodoStoreError(`Unsupported to-do schema version: ${String(raw.schemaVersion)}`, "unsupported_schema");
+function normalizeMarkdown(value: unknown): string {
+  if (typeof value !== "string") throw new TodoStoreError("Markdown is required", "invalid");
+  if (value.length > MAX_MARKDOWN_LENGTH) {
+    throw new TodoStoreError(`Markdown must be at most ${MAX_MARKDOWN_LENGTH} characters`, "invalid");
   }
-
-  const state = {
-    schemaVersion: 1 as const,
-    revision: requireFiniteNumber(raw.revision, "revision"),
-    updatedAt: requireFiniteNumber(raw.updatedAt, "updatedAt"),
-    nextItemId: requireFiniteNumber(raw.nextItemId, "nextItemId"),
-    nextCategoryId: requireFiniteNumber(raw.nextCategoryId, "nextCategoryId"),
-    nextProposalId: requireFiniteNumber(raw.nextProposalId, "nextProposalId"),
-    nextGrantId: requireFiniteNumber(raw.nextGrantId, "nextGrantId"),
-    categories: requireArray<TodoCategory>(raw.categories, "categories"),
-    items: requireArray<TodoItem>(raw.items, "items"),
-    proposals: requireArray<TodoProposal>(raw.proposals, "proposals"),
-    grants: requireArray<TodoGrant>(raw.grants, "grants"),
-  } satisfies TodoState;
-
-  if (!state.categories.some((category) => category.id === INBOX_ID)) {
-    throw new TodoStoreError("To-do store is missing the Inbox category", "corrupt_store");
+  const title = deriveTodoMarkdown(value).titleMarkdown;
+  if (!title) throw new TodoStoreError("Markdown needs a non-empty title line", "invalid");
+  if (title.length > MAX_TITLE_LENGTH) {
+    throw new TodoStoreError(`The derived title must be at most ${MAX_TITLE_LENGTH} characters`, "invalid");
   }
-  return state;
+  return value;
 }
 
-function normalizeTitle(value: unknown): string {
+function normalizeLegacyTitle(value: unknown): string {
   if (typeof value !== "string") throw new TodoStoreError("Title Markdown is required", "invalid");
   const title = value.trim();
   if (!title) throw new TodoStoreError("Title Markdown is required", "invalid");
@@ -133,15 +125,62 @@ function normalizeTitle(value: unknown): string {
   return title;
 }
 
-function normalizeDetails(value: unknown): string | undefined {
+function normalizeLegacyDetails(value: unknown): string | undefined {
   if (value == null || value === "") return undefined;
   if (typeof value !== "string") throw new TodoStoreError("Details Markdown must be a string", "invalid");
   const details = value.trim();
   if (!details) return undefined;
-  if (details.length > MAX_DETAILS_LENGTH) {
-    throw new TodoStoreError(`Details Markdown must be at most ${MAX_DETAILS_LENGTH} characters`, "invalid");
+  if (details.length > MAX_LEGACY_DETAILS_LENGTH) {
+    throw new TodoStoreError(`Details Markdown must be at most ${MAX_LEGACY_DETAILS_LENGTH} characters`, "invalid");
   }
   return details;
+}
+
+function hasOwn(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function resolveCreateMarkdown(input: TodoItemCreateInput): string {
+  const hasMarkdown = input.markdown !== undefined;
+  const hasLegacy = input.titleMarkdown !== undefined || hasOwn(input, "detailsMarkdown");
+  if (hasMarkdown && hasLegacy) {
+    throw new TodoStoreError("Use markdown or legacy title/details fields, not both", "invalid");
+  }
+  if (hasMarkdown) return normalizeMarkdown(input.markdown);
+  const title = normalizeLegacyTitle(input.titleMarkdown);
+  const details = normalizeLegacyDetails(input.detailsMarkdown);
+  return normalizeMarkdown(combineLegacyTodoMarkdown(title, details));
+}
+
+export function applyLegacyTodoMarkdownEdit(markdown: string, input: TodoItemEditInput): string {
+  const hasTitle = input.titleMarkdown !== undefined;
+  const hasDetails = hasOwn(input, "detailsMarkdown");
+  if (!hasTitle && !hasDetails) throw new TodoStoreError("No Markdown edit was provided", "invalid");
+
+  let next = markdown;
+  if (hasTitle) {
+    const bounds = findTodoTitleBounds(next);
+    if (!bounds) throw new TodoStoreError("Stored Markdown has no title line", "corrupt_store");
+    next = `${next.slice(0, bounds.start)}${normalizeLegacyTitle(input.titleMarkdown)}${next.slice(bounds.end)}`;
+  }
+  if (hasDetails) {
+    const bounds = findTodoTitleBounds(next);
+    if (!bounds) throw new TodoStoreError("Stored Markdown has no title line", "corrupt_store");
+    const details = normalizeLegacyDetails(input.detailsMarkdown);
+    const eol = bounds.eol || (next.includes("\r\n") ? "\r\n" : "\n");
+    next = details ? `${next.slice(0, bounds.end)}${eol}${details}` : next.slice(0, bounds.end);
+  }
+  return normalizeMarkdown(next);
+}
+
+function resolveEditMarkdown(current: string, input: TodoItemEditInput): string {
+  const hasMarkdown = input.markdown !== undefined;
+  const hasLegacy = input.titleMarkdown !== undefined || hasOwn(input, "detailsMarkdown");
+  if (hasMarkdown && hasLegacy) {
+    throw new TodoStoreError("Use markdown or legacy title/details fields, not both", "invalid");
+  }
+  if (hasMarkdown) return normalizeMarkdown(input.markdown);
+  return applyLegacyTodoMarkdownEdit(current, input);
 }
 
 function normalizeCategoryName(value: unknown): string {
@@ -212,6 +251,76 @@ function touchState(state: TodoState, now: number): void {
   state.updatedAt = now;
 }
 
+function orderSection(item: Pick<TodoItem, "categoryId" | "status" | "archivedAt">): string {
+  return `${item.categoryId}:${item.archivedAt ? "archived" : item.status === "done" ? "done" : "active"}`;
+}
+
+function compareRank(a: TodoItem, b: TodoItem): number {
+  return a.rank - b.rank || a.createdAt - b.createdAt || a.id.localeCompare(b.id);
+}
+
+function sectionItems(state: TodoState, descriptor: Pick<TodoItem, "categoryId" | "status" | "archivedAt">) {
+  const key = orderSection(descriptor);
+  return state.items.filter((item) => orderSection(item) === key).sort(compareRank);
+}
+
+function reindexSection(state: TodoState, descriptor: Pick<TodoItem, "categoryId" | "status" | "archivedAt">): void {
+  sectionItems(state, descriptor).forEach((item, index) => {
+    item.rank = (index + 1) * RANK_STEP;
+  });
+}
+
+function placeItem(
+  state: TodoState,
+  item: TodoItem,
+  position: Pick<TodoItemMoveInput, "beforeItemId" | "afterItemId">,
+): void {
+  if (position.beforeItemId && position.afterItemId) {
+    throw new TodoStoreError("Use beforeItemId or afterItemId, not both", "invalid");
+  }
+  if ((position.beforeItemId || position.afterItemId) && (item.archivedAt || item.status === "done")) {
+    throw new TodoStoreError("Only active Todo/Doing items can be manually reordered", "conflict");
+  }
+
+  const ordered = sectionItems(state, item).filter((candidate) => candidate.id !== item.id);
+  const referenceId = position.beforeItemId || position.afterItemId;
+  let index = ordered.length;
+  if (referenceId) {
+    if (referenceId === item.id) throw new TodoStoreError("An item cannot be positioned relative to itself", "invalid");
+    const reference = itemById(state, referenceId);
+    if (orderSection(reference) !== orderSection(item)) {
+      throw new TodoStoreError("Ordering references must be active items in the target category", "conflict");
+    }
+    const referenceIndex = ordered.findIndex((candidate) => candidate.id === reference.id);
+    if (referenceIndex < 0) throw new TodoStoreError(`Ordering reference not found: ${reference.id}`, "not_found");
+    index = referenceIndex + (position.afterItemId ? 1 : 0);
+  }
+  ordered.splice(index, 0, item);
+  ordered.forEach((candidate, candidateIndex) => {
+    candidate.rank = (candidateIndex + 1) * RANK_STEP;
+  });
+}
+
+function assignLegacyRanks(items: TodoItem[]): void {
+  const sections = new Map<string, TodoItem[]>();
+  for (const item of items) {
+    const key = orderSection(item);
+    const section = sections.get(key) ?? [];
+    section.push(item);
+    sections.set(key, section);
+  }
+  for (const [key, section] of sections) {
+    section.sort((a, b) => {
+      if (key.endsWith(":active") && a.status !== b.status) return a.status === "doing" ? -1 : 1;
+      if (key.endsWith(":done")) return (b.completedAt ?? b.updatedAt) - (a.completedAt ?? a.updatedAt);
+      return b.updatedAt - a.updatedAt || a.id.localeCompare(b.id);
+    });
+    section.forEach((item, index) => {
+      item.rank = (index + 1) * RANK_STEP;
+    });
+  }
+}
+
 function formatDateInTimeZone(epochMs: number, timeZone?: string): string {
   try {
     const parts = new Intl.DateTimeFormat("en-CA", {
@@ -225,6 +334,206 @@ function formatDateInTimeZone(epochMs: number, timeZone?: string): string {
   } catch {
     throw new TodoStoreError(`Invalid time zone: ${timeZone}`, "invalid");
   }
+}
+
+function migrateLegacyProposal(proposal: unknown, items: TodoItem[]): TodoProposal {
+  const raw = requireObject(proposal, "proposal");
+  const mutation = requireObject(raw.mutation, "proposal mutation");
+  const action = mutation.action;
+  let migratedMutation: TodoProposalMutation;
+  if (action === "item:add") {
+    const input = requireObject(mutation.input, "proposal add input");
+    const title = input.titleMarkdown;
+    const details = input.detailsMarkdown;
+    if (typeof title !== "string" || (details != null && typeof details !== "string")) {
+      throw new TodoStoreError("Legacy add proposal Markdown is invalid", "corrupt_store");
+    }
+    migratedMutation = {
+      action,
+      input: {
+        markdown: normalizeMarkdown(combineLegacyTodoMarkdown(title, details as string | null | undefined)),
+        ...(typeof input.categoryId === "string" ? { categoryId: input.categoryId } : {}),
+        ...(typeof input.status === "string" ? { status: normalizeStatus(input.status) } : {}),
+      },
+    };
+  } else if (action === "item:edit") {
+    if (typeof mutation.itemId !== "string")
+      throw new TodoStoreError("Legacy edit proposal item is invalid", "corrupt_store");
+    const item = items.find((candidate) => candidate.id === mutation.itemId);
+    if (!item) throw new TodoStoreError(`Legacy proposal item not found: ${mutation.itemId}`, "corrupt_store");
+    const input = requireObject(mutation.input, "proposal edit input");
+    const legacyEdit: TodoItemEditInput = {
+      ...(typeof input.titleMarkdown === "string" ? { titleMarkdown: input.titleMarkdown } : {}),
+      ...(hasOwn(input, "detailsMarkdown")
+        ? { detailsMarkdown: input.detailsMarkdown as string | null | undefined }
+        : {}),
+    };
+    migratedMutation = {
+      action,
+      itemId: item.id,
+      input: {
+        markdown: Object.keys(legacyEdit).length
+          ? applyLegacyTodoMarkdownEdit(item.markdown, legacyEdit)
+          : item.markdown,
+      },
+    };
+  } else if (
+    typeof action === "string" &&
+    [
+      "item:status",
+      "item:move",
+      "item:archive",
+      "item:restore",
+      "category:create",
+      "category:rename",
+      "category:archive",
+      "category:restore",
+    ].includes(action)
+  ) {
+    migratedMutation = clone(mutation) as unknown as TodoProposalMutation;
+  } else {
+    throw new TodoStoreError(`Unsupported legacy proposal action: ${String(action)}`, "corrupt_store");
+  }
+  return { ...(clone(raw) as unknown as TodoProposal), mutation: migratedMutation };
+}
+
+function migrateV1State(raw: Record<string, unknown>): TodoState {
+  const categories = requireArray<TodoCategory>(raw.categories, "categories");
+  const categoryIds = new Set<string>();
+  for (const [index, value] of categories.entries()) {
+    const category = requireObject(value, `categories[${index}]`);
+    if (typeof category.id !== "string" || !category.id) {
+      throw new TodoStoreError(`categories[${index}].id must be a non-empty string`, "corrupt_store");
+    }
+    if (categoryIds.has(category.id)) {
+      throw new TodoStoreError(`Duplicate category id: ${category.id}`, "corrupt_store");
+    }
+    categoryIds.add(category.id);
+    if (typeof category.name !== "string" || !category.name) {
+      throw new TodoStoreError(`categories[${index}].name must be a non-empty string`, "corrupt_store");
+    }
+    requireFiniteNumber(category.createdAt, `categories[${index}].createdAt`);
+    requireFiniteNumber(category.updatedAt, `categories[${index}].updatedAt`);
+  }
+  if (!categoryIds.has(INBOX_ID)) {
+    throw new TodoStoreError("To-do store is missing the Inbox category", "corrupt_store");
+  }
+
+  const legacyItems = requireArray<unknown>(raw.items, "items");
+  const itemIds = new Set<string>();
+  const items = legacyItems.map((value, index) => {
+    const item = requireObject(value, `items[${index}]`);
+    if (typeof item.id !== "string" || !item.id) {
+      throw new TodoStoreError(`items[${index}].id must be a non-empty string`, "corrupt_store");
+    }
+    if (itemIds.has(item.id)) throw new TodoStoreError(`Duplicate item id: ${item.id}`, "corrupt_store");
+    itemIds.add(item.id);
+    if (typeof item.categoryId !== "string" || !categoryIds.has(item.categoryId)) {
+      throw new TodoStoreError(`items[${index}] references an unknown category`, "corrupt_store");
+    }
+    if (typeof item.status !== "string" || !TODO_STATUSES.includes(item.status as TodoStatus)) {
+      throw new TodoStoreError(`items[${index}].status is invalid`, "corrupt_store");
+    }
+    requireFiniteNumber(item.createdAt, `items[${index}].createdAt`);
+    requireFiniteNumber(item.updatedAt, `items[${index}].updatedAt`);
+    requireFiniteNumber(item.statusChangedAt, `items[${index}].statusChangedAt`);
+    if (item.completedAt != null) requireFiniteNumber(item.completedAt, `items[${index}].completedAt`);
+    if (item.archivedAt != null) requireFiniteNumber(item.archivedAt, `items[${index}].archivedAt`);
+    if (typeof item.titleMarkdown !== "string") {
+      throw new TodoStoreError(`items[${index}].titleMarkdown must be a string`, "corrupt_store");
+    }
+    if (item.detailsMarkdown != null && typeof item.detailsMarkdown !== "string") {
+      throw new TodoStoreError(`items[${index}].detailsMarkdown must be a string`, "corrupt_store");
+    }
+    const { titleMarkdown, detailsMarkdown, ...rest } = item;
+    return {
+      ...(clone(rest) as Omit<TodoItem, "markdown" | "rank">),
+      markdown: normalizeMarkdown(
+        combineLegacyTodoMarkdown(titleMarkdown, detailsMarkdown as string | null | undefined),
+      ),
+      rank: 0,
+    } satisfies TodoItem;
+  });
+  assignLegacyRanks(items);
+
+  const state = {
+    schemaVersion: 2 as const,
+    revision: requireFiniteNumber(raw.revision, "revision"),
+    updatedAt: requireFiniteNumber(raw.updatedAt, "updatedAt"),
+    nextItemId: requireFiniteNumber(raw.nextItemId, "nextItemId"),
+    nextCategoryId: requireFiniteNumber(raw.nextCategoryId, "nextCategoryId"),
+    nextProposalId: requireFiniteNumber(raw.nextProposalId, "nextProposalId"),
+    nextGrantId: requireFiniteNumber(raw.nextGrantId, "nextGrantId"),
+    categories,
+    items,
+    proposals: requireArray<unknown>(raw.proposals, "proposals").map((proposal) =>
+      migrateLegacyProposal(proposal, items),
+    ),
+    grants: requireArray<TodoGrant>(raw.grants, "grants"),
+  } satisfies TodoState;
+  return state;
+}
+
+function normalizeLoadedState(value: unknown): { state: TodoState; migrated: boolean } {
+  const raw = requireObject(value, "To-do store");
+  if (raw.schemaVersion === 1) return { state: migrateV1State(raw), migrated: true };
+  if (raw.schemaVersion !== 2) {
+    throw new TodoStoreError(`Unsupported to-do schema version: ${String(raw.schemaVersion)}`, "unsupported_schema");
+  }
+
+  const state = {
+    schemaVersion: 2 as const,
+    revision: requireFiniteNumber(raw.revision, "revision"),
+    updatedAt: requireFiniteNumber(raw.updatedAt, "updatedAt"),
+    nextItemId: requireFiniteNumber(raw.nextItemId, "nextItemId"),
+    nextCategoryId: requireFiniteNumber(raw.nextCategoryId, "nextCategoryId"),
+    nextProposalId: requireFiniteNumber(raw.nextProposalId, "nextProposalId"),
+    nextGrantId: requireFiniteNumber(raw.nextGrantId, "nextGrantId"),
+    categories: requireArray<TodoCategory>(raw.categories, "categories"),
+    items: requireArray<TodoItem>(raw.items, "items"),
+    proposals: requireArray<TodoProposal>(raw.proposals, "proposals"),
+    grants: requireArray<TodoGrant>(raw.grants, "grants"),
+  } satisfies TodoState;
+
+  const categoryIds = new Set<string>();
+  for (const [index, value] of state.categories.entries()) {
+    const category = requireObject(value, `categories[${index}]`);
+    if (typeof category.id !== "string" || !category.id || categoryIds.has(category.id)) {
+      throw new TodoStoreError(`categories[${index}].id is invalid or duplicated`, "corrupt_store");
+    }
+    categoryIds.add(category.id);
+    if (typeof category.name !== "string" || !category.name) {
+      throw new TodoStoreError(`categories[${index}].name must be a non-empty string`, "corrupt_store");
+    }
+    requireFiniteNumber(category.createdAt, `categories[${index}].createdAt`);
+    requireFiniteNumber(category.updatedAt, `categories[${index}].updatedAt`);
+  }
+  if (!categoryIds.has(INBOX_ID)) {
+    throw new TodoStoreError("To-do store is missing the Inbox category", "corrupt_store");
+  }
+
+  const itemIds = new Set<string>();
+  for (const [index, item] of state.items.entries()) {
+    const rawItem = requireObject(item, `items[${index}]`);
+    if (typeof rawItem.id !== "string" || !rawItem.id || itemIds.has(rawItem.id)) {
+      throw new TodoStoreError(`items[${index}].id is invalid or duplicated`, "corrupt_store");
+    }
+    itemIds.add(rawItem.id);
+    if (typeof rawItem.categoryId !== "string" || !categoryIds.has(rawItem.categoryId)) {
+      throw new TodoStoreError(`items[${index}] references an unknown category`, "corrupt_store");
+    }
+    if (typeof rawItem.status !== "string" || !TODO_STATUSES.includes(rawItem.status as TodoStatus)) {
+      throw new TodoStoreError(`items[${index}].status is invalid`, "corrupt_store");
+    }
+    normalizeMarkdown(rawItem.markdown);
+    requireFiniteNumber(rawItem.rank, `items[${index}].rank`);
+    requireFiniteNumber(rawItem.createdAt, `items[${index}].createdAt`);
+    requireFiniteNumber(rawItem.updatedAt, `items[${index}].updatedAt`);
+    requireFiniteNumber(rawItem.statusChangedAt, `items[${index}].statusChangedAt`);
+    if (rawItem.completedAt != null) requireFiniteNumber(rawItem.completedAt, `items[${index}].completedAt`);
+    if (rawItem.archivedAt != null) requireFiniteNumber(rawItem.archivedAt, `items[${index}].archivedAt`);
+  }
+  return { state, migrated: false };
 }
 
 export function extractMarkdownLinkDestinations(markdown: string): string[] {
@@ -265,12 +574,34 @@ export class TodoStore {
 
   constructor(private filePath = DEFAULT_FILE) {}
 
+  private async ensureLegacyBackup(rawText: string): Promise<void> {
+    const backupPath = `${this.filePath}${LEGACY_BACKUP_SUFFIX}`;
+    try {
+      await copyFile(this.filePath, backupPath, constants.COPYFILE_EXCL);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
+      const existing = await readFile(backupPath, "utf-8");
+      if (existing !== rawText) {
+        throw new TodoStoreError(
+          `Legacy to-do backup already exists with different contents: ${backupPath}; refusing migration`,
+          "corrupt_store",
+        );
+      }
+    }
+  }
+
   private async ensureLoaded(): Promise<void> {
     if (this.state) return;
     if (!this.loadPromise) {
       this.loadPromise = (async () => {
         try {
-          this.state = normalizeLoadedState(JSON.parse(await readFile(this.filePath, "utf-8")));
+          const rawText = await readFile(this.filePath, "utf-8");
+          const loaded = normalizeLoadedState(JSON.parse(rawText));
+          if (loaded.migrated) {
+            await this.ensureLegacyBackup(rawText);
+            await this.persist(loaded.state);
+          }
+          this.state = loaded.state;
         } catch (error: unknown) {
           if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
             this.state = emptyState();
@@ -326,6 +657,7 @@ export class TodoStore {
     const state = await this.snapshot();
     const statuses = filters.statuses?.length ? new Set(filters.statuses) : null;
     const categories = filters.categoryIds?.length ? new Set(filters.categoryIds) : null;
+    const categoryOrder = new Map(state.categories.map((category, index) => [category.id, index]));
     const query = filters.search?.trim().toLocaleLowerCase() || "";
     return state.items
       .filter((item) => (filters.includeArchived ? true : !item.archivedAt))
@@ -335,14 +667,18 @@ export class TodoStore {
         if (!filters.completedOn) return true;
         return !!item.completedAt && formatDateInTimeZone(item.completedAt, filters.timeZone) === filters.completedOn;
       })
-      .filter((item) => {
-        if (!query) return true;
-        return markdownSearchText(`${item.titleMarkdown}\n${item.detailsMarkdown ?? ""}`).includes(query);
-      })
+      .filter((item) => !query || markdownSearchText(item.markdown).includes(query))
       .sort((a, b) => {
-        if (a.status === "done" && b.status === "done") return (b.completedAt ?? 0) - (a.completedAt ?? 0);
-        if (a.status !== b.status) return TODO_STATUSES.indexOf(a.status) - TODO_STATUSES.indexOf(b.status);
-        return b.updatedAt - a.updatedAt;
+        if (a.status === "done" && b.status !== "done") return 1;
+        if (a.status !== "done" && b.status === "done") return -1;
+        if (a.status === "done" && b.status === "done") {
+          const completion = (b.completedAt ?? 0) - (a.completedAt ?? 0);
+          if (completion) return completion;
+        }
+        const category =
+          (categoryOrder.get(a.categoryId) ?? Number.MAX_SAFE_INTEGER) -
+          (categoryOrder.get(b.categoryId) ?? Number.MAX_SAFE_INTEGER);
+        return category || compareRank(a, b);
       });
   }
 
@@ -357,9 +693,22 @@ export class TodoStore {
     const state = await this.snapshot();
     return state.items.filter((item) => {
       if (!includeArchived && item.archivedAt) return false;
-      const links = extractMarkdownLinkDestinations(`${item.titleMarkdown}\n${item.detailsMarkdown ?? ""}`);
-      return links.includes(target);
+      return extractMarkdownLinkDestinations(item.markdown).includes(target);
     });
+  }
+
+  private resolveCreateCategory(state: TodoState, input: TodoItemCreateInput): string {
+    const referenceId = input.beforeItemId || input.afterItemId;
+    if (input.beforeItemId && input.afterItemId) {
+      throw new TodoStoreError("Use beforeItemId or afterItemId, not both", "invalid");
+    }
+    const reference = referenceId ? itemById(state, referenceId) : null;
+    const categoryId = input.categoryId?.trim() || reference?.categoryId || INBOX_ID;
+    categoryById(state, categoryId);
+    if (reference && reference.categoryId !== categoryId) {
+      throw new TodoStoreError("Ordering reference is not in the target category", "conflict");
+    }
+    return categoryId;
   }
 
   async createItem(input: TodoItemCreateInput, provenance: TodoMutationProvenance): Promise<TodoItem> {
@@ -373,14 +722,12 @@ export class TodoStore {
     touch = true,
   ): TodoItem {
     const now = provenance.at;
-    const categoryId = input.categoryId?.trim() || INBOX_ID;
-    categoryById(state, categoryId);
+    const categoryId = this.resolveCreateCategory(state, input);
     const status = normalizeStatus(input.status);
-    const detailsMarkdown = normalizeDetails(input.detailsMarkdown);
     const item: TodoItem = {
       id: `td-${state.nextItemId++}`,
-      titleMarkdown: normalizeTitle(input.titleMarkdown),
-      ...(detailsMarkdown ? { detailsMarkdown } : {}),
+      markdown: resolveCreateMarkdown(input),
+      rank: 0,
       categoryId,
       status,
       createdAt: now,
@@ -391,65 +738,123 @@ export class TodoStore {
       lastModifiedBy: provenance,
     };
     state.items.push(item);
+    placeItem(state, item, input);
     if (touch) touchState(state, now);
+    return item;
+  }
+
+  private editItemInState(
+    state: TodoState,
+    itemId: string,
+    input: TodoItemEditInput,
+    provenance: TodoMutationProvenance,
+  ): TodoItem {
+    const item = itemById(state, itemId);
+    item.markdown = resolveEditMarkdown(item.markdown, input);
+    item.updatedAt = provenance.at;
+    item.lastModifiedBy = provenance;
     return item;
   }
 
   async editItem(itemId: string, input: TodoItemEditInput, provenance: TodoMutationProvenance): Promise<TodoItem> {
     return this.mutate((state) => {
-      const item = itemById(state, itemId);
-      if (input.titleMarkdown !== undefined) item.titleMarkdown = normalizeTitle(input.titleMarkdown);
-      if (input.detailsMarkdown !== undefined) {
-        const details = normalizeDetails(input.detailsMarkdown);
-        if (details) item.detailsMarkdown = details;
-        else delete item.detailsMarkdown;
-      }
-      item.updatedAt = provenance.at;
-      item.lastModifiedBy = provenance;
+      const item = this.editItemInState(state, itemId, input, provenance);
       touchState(state, provenance.at);
       return item;
     });
+  }
+
+  private setItemStatusInState(
+    state: TodoState,
+    itemId: string,
+    statusValue: unknown,
+    provenance: TodoMutationProvenance,
+  ): TodoItem {
+    const item = itemById(state, itemId);
+    const status = normalizeStatus(statusValue);
+    if (item.status !== status) {
+      const previous = clone(item);
+      item.status = status;
+      item.statusChangedAt = provenance.at;
+      if (status === "done") item.completedAt = provenance.at;
+      else delete item.completedAt;
+      if (orderSection(previous) !== orderSection(item)) {
+        reindexSection(state, previous);
+        placeItem(state, item, {});
+      }
+    }
+    item.updatedAt = provenance.at;
+    item.lastModifiedBy = provenance;
+    return item;
   }
 
   async setItemStatus(itemId: string, statusValue: unknown, provenance: TodoMutationProvenance): Promise<TodoItem> {
     return this.mutate((state) => {
-      const item = itemById(state, itemId);
-      const status = normalizeStatus(statusValue);
-      if (item.status !== status) {
-        item.status = status;
-        item.statusChangedAt = provenance.at;
-        if (status === "done") item.completedAt = provenance.at;
-        else delete item.completedAt;
-      }
-      item.updatedAt = provenance.at;
-      item.lastModifiedBy = provenance;
+      const item = this.setItemStatusInState(state, itemId, statusValue, provenance);
       touchState(state, provenance.at);
       return item;
     });
   }
 
-  async moveItem(itemId: string, categoryId: string, provenance: TodoMutationProvenance): Promise<TodoItem> {
+  private moveItemInState(
+    state: TodoState,
+    itemId: string,
+    input: TodoItemMoveInput,
+    provenance: TodoMutationProvenance,
+  ): TodoItem {
+    const item = itemById(state, itemId);
+    const previous = clone(item);
+    const referenceId = input.beforeItemId || input.afterItemId;
+    if (input.beforeItemId && input.afterItemId) {
+      throw new TodoStoreError("Use beforeItemId or afterItemId, not both", "invalid");
+    }
+    const reference = referenceId ? itemById(state, referenceId) : null;
+    const categoryId = input.categoryId?.trim() || reference?.categoryId || item.categoryId;
+    categoryById(state, categoryId);
+    if (reference && reference.categoryId !== categoryId) {
+      throw new TodoStoreError("Ordering reference is not in the target category", "conflict");
+    }
+    item.categoryId = categoryId;
+    if (orderSection(previous) !== orderSection(item)) reindexSection(state, previous);
+    placeItem(state, item, input);
+    item.updatedAt = provenance.at;
+    item.lastModifiedBy = provenance;
+    return item;
+  }
+
+  async moveItem(itemId: string, input: TodoItemMoveInput, provenance: TodoMutationProvenance): Promise<TodoItem> {
     return this.mutate((state) => {
-      const item = itemById(state, itemId);
-      categoryById(state, categoryId);
-      item.categoryId = categoryId;
-      item.updatedAt = provenance.at;
-      item.lastModifiedBy = provenance;
+      const item = this.moveItemInState(state, itemId, input, provenance);
       touchState(state, provenance.at);
       return item;
     });
+  }
+
+  private setItemArchivedInState(
+    state: TodoState,
+    itemId: string,
+    archived: boolean,
+    provenance: TodoMutationProvenance,
+  ): TodoItem {
+    const item = itemById(state, itemId);
+    const previous = clone(item);
+    if (archived) item.archivedAt = provenance.at;
+    else {
+      categoryById(state, item.categoryId);
+      delete item.archivedAt;
+    }
+    if (orderSection(previous) !== orderSection(item)) {
+      reindexSection(state, previous);
+      placeItem(state, item, {});
+    }
+    item.updatedAt = provenance.at;
+    item.lastModifiedBy = provenance;
+    return item;
   }
 
   async setItemArchived(itemId: string, archived: boolean, provenance: TodoMutationProvenance): Promise<TodoItem> {
     return this.mutate((state) => {
-      const item = itemById(state, itemId);
-      if (archived) item.archivedAt = provenance.at;
-      else {
-        categoryById(state, item.categoryId);
-        delete item.archivedAt;
-      }
-      item.updatedAt = provenance.at;
-      item.lastModifiedBy = provenance;
+      const item = this.setItemArchivedInState(state, itemId, archived, provenance);
       touchState(state, provenance.at);
       return item;
     });
@@ -599,13 +1004,86 @@ export class TodoStore {
     );
   }
 
+  private normalizeProposalMutation(state: TodoState, mutation: TodoProposalMutation): TodoProposalMutation {
+    switch (mutation.action) {
+      case "item:add": {
+        const categoryId = this.resolveCreateCategory(state, mutation.input);
+        const status = normalizeStatus(mutation.input.status);
+        const markdown = resolveCreateMarkdown(mutation.input);
+        const probe: TodoItem = {
+          id: "proposal-preview",
+          markdown,
+          rank: 0,
+          categoryId,
+          status,
+          createdAt: 0,
+          updatedAt: 0,
+          statusChangedAt: 0,
+          ...(status === "done" ? { completedAt: 0 } : {}),
+          createdBy: bootstrapProvenance(0),
+          lastModifiedBy: bootstrapProvenance(0),
+        };
+        if (mutation.input.beforeItemId || mutation.input.afterItemId) placeItem(clone(state), probe, mutation.input);
+        return {
+          action: "item:add",
+          input: {
+            markdown,
+            categoryId,
+            status,
+            ...(mutation.input.beforeItemId ? { beforeItemId: mutation.input.beforeItemId } : {}),
+            ...(mutation.input.afterItemId ? { afterItemId: mutation.input.afterItemId } : {}),
+          },
+        };
+      }
+      case "item:edit": {
+        const item = itemById(state, mutation.itemId);
+        return {
+          action: "item:edit",
+          itemId: item.id,
+          input: { markdown: resolveEditMarkdown(item.markdown, mutation.input) },
+        };
+      }
+      case "item:status":
+        itemById(state, mutation.itemId);
+        return { ...mutation, status: normalizeStatus(mutation.status) };
+      case "item:move": {
+        const draft = clone(state);
+        const item = this.moveItemInState(draft, mutation.itemId, mutation, bootstrapProvenance(0));
+        return {
+          action: "item:move",
+          itemId: item.id,
+          categoryId: item.categoryId,
+          ...(mutation.beforeItemId ? { beforeItemId: mutation.beforeItemId } : {}),
+          ...(mutation.afterItemId ? { afterItemId: mutation.afterItemId } : {}),
+        };
+      }
+      case "item:archive":
+      case "item:restore":
+        itemById(state, mutation.itemId);
+        return clone(mutation);
+      case "category:create":
+        normalizeCategoryName(mutation.input.name);
+        return clone(mutation);
+      case "category:rename":
+        categoryById(state, mutation.categoryId);
+        normalizeCategoryName(mutation.name);
+        return clone(mutation);
+      case "category:archive":
+        categoryById(state, mutation.categoryId);
+        return clone(mutation);
+      case "category:restore":
+        categoryById(state, mutation.categoryId, { allowArchived: true });
+        return clone(mutation);
+    }
+  }
+
   async createProposal(mutation: TodoProposalMutation, requestedBy: TodoActor): Promise<TodoProposal> {
     return this.mutate((state) => {
-      this.validateProposalMutation(state, mutation);
+      const normalizedMutation = this.normalizeProposalMutation(state, mutation);
       const now = Date.now();
       const proposal: TodoProposal = {
         id: `tp-${state.nextProposalId++}`,
-        mutation: clone(mutation),
+        mutation: normalizedMutation,
         status: "pending",
         createdAt: now,
         updatedAt: now,
@@ -624,47 +1102,6 @@ export class TodoStore {
       touchState(state, now);
       return proposal;
     });
-  }
-
-  private validateProposalMutation(state: TodoState, mutation: TodoProposalMutation): void {
-    switch (mutation.action) {
-      case "item:add":
-        normalizeTitle(mutation.input.titleMarkdown);
-        normalizeDetails(mutation.input.detailsMarkdown);
-        categoryById(state, mutation.input.categoryId?.trim() || INBOX_ID);
-        normalizeStatus(mutation.input.status);
-        return;
-      case "item:edit":
-        itemById(state, mutation.itemId);
-        if (mutation.input.titleMarkdown !== undefined) normalizeTitle(mutation.input.titleMarkdown);
-        if (mutation.input.detailsMarkdown !== undefined) normalizeDetails(mutation.input.detailsMarkdown);
-        return;
-      case "item:status":
-        itemById(state, mutation.itemId);
-        normalizeStatus(mutation.status);
-        return;
-      case "item:move":
-        itemById(state, mutation.itemId);
-        categoryById(state, mutation.categoryId);
-        return;
-      case "item:archive":
-      case "item:restore":
-        itemById(state, mutation.itemId);
-        return;
-      case "category:create":
-        normalizeCategoryName(mutation.input.name);
-        return;
-      case "category:rename":
-        categoryById(state, mutation.categoryId);
-        normalizeCategoryName(mutation.name);
-        return;
-      case "category:archive":
-        categoryById(state, mutation.categoryId);
-        return;
-      case "category:restore":
-        categoryById(state, mutation.categoryId, { allowArchived: true });
-        return;
-    }
   }
 
   async resolveProposal(
@@ -701,54 +1138,16 @@ export class TodoStore {
     switch (mutation.action) {
       case "item:add":
         return { item: this.createItemInState(state, mutation.input, provenance, false) };
-      case "item:edit": {
-        const item = itemById(state, mutation.itemId);
-        if (mutation.input.titleMarkdown !== undefined)
-          item.titleMarkdown = normalizeTitle(mutation.input.titleMarkdown);
-        if (mutation.input.detailsMarkdown !== undefined) {
-          const details = normalizeDetails(mutation.input.detailsMarkdown);
-          if (details) item.detailsMarkdown = details;
-          else delete item.detailsMarkdown;
-        }
-        item.updatedAt = provenance.at;
-        item.lastModifiedBy = provenance;
-        return { item };
-      }
-      case "item:status": {
-        const item = itemById(state, mutation.itemId);
-        const status = normalizeStatus(mutation.status);
-        if (item.status !== status) {
-          item.status = status;
-          item.statusChangedAt = provenance.at;
-          if (status === "done") item.completedAt = provenance.at;
-          else delete item.completedAt;
-        }
-        item.updatedAt = provenance.at;
-        item.lastModifiedBy = provenance;
-        return { item };
-      }
-      case "item:move": {
-        const item = itemById(state, mutation.itemId);
-        categoryById(state, mutation.categoryId);
-        item.categoryId = mutation.categoryId;
-        item.updatedAt = provenance.at;
-        item.lastModifiedBy = provenance;
-        return { item };
-      }
-      case "item:archive": {
-        const item = itemById(state, mutation.itemId);
-        item.archivedAt = provenance.at;
-        item.updatedAt = provenance.at;
-        item.lastModifiedBy = provenance;
-        return { item };
-      }
-      case "item:restore": {
-        const item = itemById(state, mutation.itemId);
-        delete item.archivedAt;
-        item.updatedAt = provenance.at;
-        item.lastModifiedBy = provenance;
-        return { item };
-      }
+      case "item:edit":
+        return { item: this.editItemInState(state, mutation.itemId, mutation.input, provenance) };
+      case "item:status":
+        return { item: this.setItemStatusInState(state, mutation.itemId, mutation.status, provenance) };
+      case "item:move":
+        return { item: this.moveItemInState(state, mutation.itemId, mutation, provenance) };
+      case "item:archive":
+        return { item: this.setItemArchivedInState(state, mutation.itemId, true, provenance) };
+      case "item:restore":
+        return { item: this.setItemArchivedInState(state, mutation.itemId, false, provenance) };
       case "category:create":
         return { category: this.createCategoryInState(state, mutation.input, provenance, false) };
       case "category:rename": {

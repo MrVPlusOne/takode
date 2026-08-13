@@ -2,6 +2,7 @@ import type {
   TodoGrantAction,
   TodoItemCreateInput,
   TodoItemEditInput,
+  TodoItemMoveInput,
   TodoPrincipal,
   TodoState,
   TodoStateMutationResponse,
@@ -40,10 +41,10 @@ export const todoApi = {
       body: { status },
     }),
 
-  moveTodoItem: (id: string, categoryId: string) =>
+  moveTodoItem: (id: string, input: TodoItemMoveInput) =>
     request<TodoStateMutationResponse>(`/todos/items/${encodeURIComponent(id)}/move`, {
       method: "POST",
-      body: { categoryId },
+      body: input,
     }),
 
   archiveTodoItem: (id: string) =>

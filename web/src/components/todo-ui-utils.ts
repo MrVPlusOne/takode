@@ -1,3 +1,4 @@
+import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
 import type { TodoCategory, TodoItem, TodoProposal, TodoStatus } from "../../shared/todo-types.js";
 
 export type TodoStatusFilter = "active" | TodoStatus | "all" | "archived";
@@ -41,9 +42,12 @@ export function filterTodoItems(
       return false;
     }
     if (options.categoryId !== "all" && item.categoryId !== options.categoryId) return false;
-    if (!query) return true;
-    return `${item.titleMarkdown}\n${item.detailsMarkdown ?? ""}`.toLocaleLowerCase().includes(query);
+    return !query || item.markdown.toLocaleLowerCase().includes(query);
   });
+}
+
+function compareRank(a: TodoItem, b: TodoItem): number {
+  return a.rank - b.rank || a.createdAt - b.createdAt || a.id.localeCompare(b.id);
 }
 
 export function groupActiveItemsByCategory(items: TodoItem[], categories: TodoCategory[]) {
@@ -62,14 +66,12 @@ export function groupActiveItemsByCategory(items: TodoItem[], categories: TodoCa
     .map(([categoryId, groupedItems]) => ({
       categoryId,
       categoryName: categories.find((category) => category.id === categoryId)?.name ?? categoryId,
-      items: groupedItems.sort((a, b) => {
-        if (a.status !== b.status) return a.status === "doing" ? -1 : 1;
-        return b.updatedAt - a.updatedAt;
-      }),
+      items: groupedItems.sort(compareRank),
     }));
 }
 
-export function groupDoneItemsByLocalDate(items: TodoItem[]) {
+export function groupDoneItemsByLocalDate(items: TodoItem[], categories: TodoCategory[] = []) {
+  const categoryOrder = new Map(categories.map((category, index) => [category.id, index]));
   const groups = new Map<string, TodoItem[]>();
   for (const item of items) {
     const key = localDateKey(item.completedAt ?? item.updatedAt);
@@ -79,24 +81,43 @@ export function groupDoneItemsByLocalDate(items: TodoItem[]) {
   }
   return [...groups.entries()]
     .sort(([a], [b]) => b.localeCompare(a))
-    .map(([dateKey, groupedItems]) => ({
-      dateKey,
-      label: localDateLabel(dateKey),
-      items: groupedItems.sort((a, b) => (b.completedAt ?? b.updatedAt) - (a.completedAt ?? a.updatedAt)),
-    }));
+    .map(([dateKey, groupedItems]) => {
+      const categoryGroups = new Map<string, TodoItem[]>();
+      for (const item of groupedItems) {
+        const group = categoryGroups.get(item.categoryId) ?? [];
+        group.push(item);
+        categoryGroups.set(item.categoryId, group);
+      }
+      const groupedCategories = [...categoryGroups.entries()]
+        .sort(
+          (a, b) =>
+            (categoryOrder.get(a[0]) ?? Number.MAX_SAFE_INTEGER) - (categoryOrder.get(b[0]) ?? Number.MAX_SAFE_INTEGER),
+        )
+        .map(([categoryId, grouped]) => ({
+          categoryId,
+          categoryName: categories.find((category) => category.id === categoryId)?.name ?? categoryId,
+          items: grouped.sort(compareRank),
+        }));
+      return {
+        dateKey,
+        label: localDateLabel(dateKey),
+        items: groupedCategories.flatMap((group) => group.items),
+        categories: groupedCategories,
+      };
+    });
 }
 
 export function todoProposalSummary(proposal: TodoProposal): string {
   const mutation = proposal.mutation;
   switch (mutation.action) {
     case "item:add":
-      return `Add “${mutation.input.titleMarkdown}”`;
+      return `Add “${deriveTodoMarkdown(mutation.input.markdown ?? mutation.input.titleMarkdown ?? "").titleMarkdown}”`;
     case "item:edit":
       return `Edit ${mutation.itemId}`;
     case "item:status":
       return `Move ${mutation.itemId} to ${mutation.status}`;
     case "item:move":
-      return `Move ${mutation.itemId} to ${mutation.categoryId}`;
+      return mutation.categoryId ? `Move ${mutation.itemId} to ${mutation.categoryId}` : `Reorder ${mutation.itemId}`;
     case "item:archive":
       return `Archive ${mutation.itemId}`;
     case "item:restore":

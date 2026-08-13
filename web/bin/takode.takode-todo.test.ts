@@ -5,7 +5,9 @@ import type { IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 
-type JsonObject = Record<string, unknown>;
+interface JsonObject {
+  [key: string]: unknown;
+}
 
 async function readJson(req: IncomingMessage): Promise<JsonObject> {
   let raw = "";
@@ -16,11 +18,7 @@ async function readJson(req: IncomingMessage): Promise<JsonObject> {
 async function runTakode(args: string[], port: number, stdin?: string) {
   const takodePath = fileURLToPath(new URL("./takode.ts", import.meta.url));
   const child = spawn(process.execPath, [takodePath, ...args, "--port", String(port)], {
-    env: {
-      ...process.env,
-      COMPANION_SESSION_ID: "worker-1",
-      COMPANION_AUTH_TOKEN: "auth-1",
-    },
+    env: { ...process.env, COMPANION_SESSION_ID: "worker-1", COMPANION_AUTH_TOKEN: "auth-1" },
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdin.end(stdin);
@@ -34,7 +32,7 @@ async function runTakode(args: string[], port: number, stdin?: string) {
 
 function snapshot() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     revision: 2,
     updatedAt: 200,
     nextItemId: 2,
@@ -60,8 +58,8 @@ function snapshot() {
 function item() {
   return {
     id: "td-1",
-    titleMarkdown: "[Reply to Alice](https://example.slack.com/thread)",
-    detailsMarkdown: "Private full detail",
+    markdown: "[Reply to Alice](https://example.slack.com/thread)\nPrivate full detail",
+    rank: 1024,
     categoryId: "cat-inbox",
     status: "doing",
     createdAt: 100,
@@ -73,7 +71,7 @@ function item() {
 }
 
 describe("takode todo", () => {
-  it("keeps default list output compact and compact JSON free of details/provenance", async () => {
+  it("keeps default list output and JSON compact while targeted show reveals the raw body", async () => {
     const server = createServer((req, res) => {
       if (req.url === "/api/takode/me") {
         res.writeHead(200, { "content-type": "application/json" });
@@ -86,7 +84,7 @@ describe("takode todo", () => {
             items: [
               {
                 id: "td-1",
-                titleMarkdown: item().titleMarkdown,
+                titleMarkdown: "[Reply to Alice](https://example.slack.com/thread)",
                 categoryId: "cat-inbox",
                 categoryName: "Inbox",
                 status: "doing",
@@ -99,6 +97,10 @@ describe("takode todo", () => {
           }),
         );
       }
+      if (req.url === "/api/todos/items/td-1") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ item: item(), category: snapshot().categories[0] }));
+      }
       res.writeHead(404).end();
     });
     server.listen(0);
@@ -110,37 +112,63 @@ describe("takode todo", () => {
       expect(plain.stdout).toContain("td-1");
       expect(plain.stdout).toContain("Reply to Alice");
       expect(plain.stdout).not.toContain("Private full detail");
-      expect(plain.stdout).not.toContain("lastModifiedBy");
 
       const json = await runTakode(["todo", "list", "--json"], port);
       expect(json.status).toBe(0);
       const parsed = JSON.parse(json.stdout);
       expect(parsed[0]).toMatchObject({ id: "td-1", categoryName: "Inbox", status: "doing" });
-      expect(parsed[0].detailsMarkdown).toBeUndefined();
+      expect(parsed[0].markdown).toBeUndefined();
+      expect(parsed[0].rank).toBeUndefined();
       expect(parsed[0].lastModifiedBy).toBeUndefined();
+
+      const show = await runTakode(["todo", "show", "td-1"], port);
+      expect(show.stdout).toContain("Markdown:\n[Reply to Alice]");
+      expect(show.stdout).toContain("Private full detail");
+      expect(show.stdout).toContain("Authorization: direct_message");
     } finally {
       server.close();
     }
   });
 
-  it("reads Markdown from stdin and sends exact direct-message provenance", async () => {
+  it("reads one Markdown object from stdin without trimming and sends exact authorization provenance", async () => {
     let received: JsonObject | null = null;
     const server = createServer(async (req, res) => {
       if (req.url === "/api/takode/me") {
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(JSON.stringify({ sessionId: "worker-1", isOrchestrator: false }));
       }
-      if (req.method === "GET" && req.url === "/api/todos/categories") {
+      if (req.method === "POST" && req.url === "/api/todos/items") {
+        received = await readJson(req);
+        const created = { ...item(), markdown: String(received.markdown), status: "todo" };
+        res.writeHead(201, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ state: { ...snapshot(), items: [created] }, item: created }));
+      }
+      res.writeHead(404).end();
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const markdown = "[Reply to the Slack thread](https://example.slack.com/thread)\n\nKeep this spacing\n";
+      const result = await runTakode(["todo", "add", "--markdown-file", "-", "--authorized-by", "42"], port, markdown);
+      expect(result.status).toBe(0);
+      expect(received).toMatchObject({ markdown, authorizedBy: 42 });
+      expect(result.stdout).toContain("Added td-1 [todo]");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("keeps legacy title/details flags as compatibility inputs", async () => {
+    let received: JsonObject | null = null;
+    const server = createServer(async (req, res) => {
+      if (req.url === "/api/takode/me") {
         res.writeHead(200, { "content-type": "application/json" });
-        return res.end(
-          JSON.stringify({
-            categories: snapshot().categories.map((category) => ({ ...category, activeItemCount: 0 })),
-          }),
-        );
+        return res.end(JSON.stringify({ sessionId: "worker-1", isOrchestrator: false }));
       }
       if (req.method === "POST" && req.url === "/api/todos/items") {
         received = await readJson(req);
-        const created = { ...item(), titleMarkdown: String(received.titleMarkdown), status: "todo" };
+        const created = { ...item(), markdown: "Legacy title\nLegacy details", status: "todo" };
         res.writeHead(201, { "content-type": "application/json" });
         return res.end(JSON.stringify({ state: { ...snapshot(), items: [created] }, item: created }));
       }
@@ -151,17 +179,37 @@ describe("takode todo", () => {
     const port = (server.address() as AddressInfo).port;
     try {
       const result = await runTakode(
-        ["todo", "add", "--title-file", "-", "--category", "Inbox", "--authorized-by", "42"],
+        ["todo", "add", "--title", "Legacy title", "--details", "Legacy details", "--authorized-by", "42"],
         port,
-        "[Reply to the Slack thread](https://example.slack.com/thread)\n",
       );
       expect(result.status).toBe(0);
-      expect(received).toMatchObject({
-        titleMarkdown: "[Reply to the Slack thread](https://example.slack.com/thread)",
-        categoryId: "cat-inbox",
-        authorizedBy: 42,
-      });
-      expect(result.stdout).toContain("Added td-1 [todo]");
+      expect(received).toMatchObject({ titleMarkdown: "Legacy title", detailsMarkdown: "Legacy details" });
+    } finally {
+      server.close();
+    }
+  });
+
+  it("sends ordering references through the compatible move command", async () => {
+    let received: JsonObject | null = null;
+    const server = createServer(async (req, res) => {
+      if (req.url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ sessionId: "worker-1", isOrchestrator: false }));
+      }
+      if (req.method === "POST" && req.url === "/api/todos/items/td-1/move") {
+        received = await readJson(req);
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ state: snapshot(), item: item() }));
+      }
+      res.writeHead(404).end();
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const result = await runTakode(["todo", "move", "td-1", "--before", "td-2", "--authorized-by", "42"], port);
+      expect(result.status).toBe(0);
+      expect(received).toMatchObject({ beforeItemId: "td-2", authorizedBy: 42 });
     } finally {
       server.close();
     }
@@ -172,14 +220,6 @@ describe("takode todo", () => {
       if (req.url === "/api/takode/me") {
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(JSON.stringify({ sessionId: "worker-1", isOrchestrator: false }));
-      }
-      if (req.method === "GET" && req.url === "/api/todos/categories") {
-        res.writeHead(200, { "content-type": "application/json" });
-        return res.end(
-          JSON.stringify({
-            categories: snapshot().categories.map((category) => ({ ...category, activeItemCount: 0 })),
-          }),
-        );
       }
       if (req.method === "POST" && req.url === "/api/todos/items") {
         res.writeHead(403, { "content-type": "application/json" });

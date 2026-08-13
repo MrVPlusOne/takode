@@ -9,6 +9,7 @@ import type {
   TodoStatus,
 } from "../../shared/todo-types.js";
 import { TODO_STATUSES } from "../../shared/todo-types.js";
+import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
 import * as cronStore from "../cron-store.js";
 import { authorizeTodoMutation, todoProposalActor } from "../todo-authorization.js";
 import { TODO_INBOX_CATEGORY_ID, TodoStoreError, todoStore, type TodoStore } from "../todo-store.js";
@@ -37,7 +38,7 @@ function errorResponse(c: Context, error: unknown): Response {
 function compactItem(item: TodoItem, state: TodoState): TodoCompactItem {
   return {
     id: item.id,
-    titleMarkdown: item.titleMarkdown,
+    titleMarkdown: deriveTodoMarkdown(item.markdown).titleMarkdown,
     categoryId: item.categoryId,
     categoryName: state.categories.find((category) => category.id === item.categoryId)?.name ?? item.categoryId,
     status: item.status,
@@ -251,8 +252,17 @@ export function createTodoRoutes(ctx: RouteContext, store: TodoStore = todoStore
   api.post("/todos/items", async (c) => {
     try {
       const body = await requestBody(c);
+      const referenceId =
+        typeof body.beforeItemId === "string" && body.beforeItemId.trim()
+          ? body.beforeItemId.trim()
+          : typeof body.afterItemId === "string" && body.afterItemId.trim()
+            ? body.afterItemId.trim()
+            : "";
+      const reference = referenceId ? await store.getItem(referenceId) : null;
       const categoryId =
-        typeof body.categoryId === "string" && body.categoryId.trim() ? body.categoryId.trim() : TODO_INBOX_CATEGORY_ID;
+        typeof body.categoryId === "string" && body.categoryId.trim()
+          ? body.categoryId.trim()
+          : (reference?.categoryId ?? TODO_INBOX_CATEGORY_ID);
       const auth = await authorize(c, ctx, store, body, "item:add", [categoryId]);
       if (!auth.ok) return auth.response;
       return withMutation(
@@ -262,10 +272,15 @@ export function createTodoRoutes(ctx: RouteContext, store: TodoStore = todoStore
         async () => ({
           item: await store.createItem(
             {
+              markdown: body.markdown,
               titleMarkdown: body.titleMarkdown,
-              detailsMarkdown: body.detailsMarkdown,
+              ...(Object.prototype.hasOwnProperty.call(body, "detailsMarkdown")
+                ? { detailsMarkdown: body.detailsMarkdown }
+                : {}),
               categoryId,
               status: body.status,
+              beforeItemId: body.beforeItemId,
+              afterItemId: body.afterItemId,
             },
             auth.provenance,
           ),
@@ -286,7 +301,13 @@ export function createTodoRoutes(ctx: RouteContext, store: TodoStore = todoStore
       return withMutation(c, ctx, store, async () => ({
         item: await store.editItem(
           item.id,
-          { titleMarkdown: body.titleMarkdown, detailsMarkdown: body.detailsMarkdown },
+          {
+            markdown: body.markdown,
+            titleMarkdown: body.titleMarkdown,
+            ...(Object.prototype.hasOwnProperty.call(body, "detailsMarkdown")
+              ? { detailsMarkdown: body.detailsMarkdown }
+              : {}),
+          },
           auth.provenance,
         ),
       }));
@@ -313,11 +334,25 @@ export function createTodoRoutes(ctx: RouteContext, store: TodoStore = todoStore
     try {
       const body = await requestBody(c);
       const item = await store.getItem(c.req.param("id"));
-      const categoryId = typeof body.categoryId === "string" ? body.categoryId.trim() : "";
+      const referenceId =
+        typeof body.beforeItemId === "string" && body.beforeItemId.trim()
+          ? body.beforeItemId.trim()
+          : typeof body.afterItemId === "string" && body.afterItemId.trim()
+            ? body.afterItemId.trim()
+            : "";
+      const reference = referenceId ? await store.getItem(referenceId) : null;
+      const categoryId =
+        typeof body.categoryId === "string" && body.categoryId.trim()
+          ? body.categoryId.trim()
+          : (reference?.categoryId ?? item.categoryId);
       const auth = await authorize(c, ctx, store, body, "item:move", [item.categoryId, categoryId]);
       if (!auth.ok) return auth.response;
       return withMutation(c, ctx, store, async () => ({
-        item: await store.moveItem(item.id, categoryId, auth.provenance),
+        item: await store.moveItem(
+          item.id,
+          { categoryId, beforeItemId: body.beforeItemId, afterItemId: body.afterItemId },
+          auth.provenance,
+        ),
       }));
     } catch (error) {
       return errorResponse(c, error);

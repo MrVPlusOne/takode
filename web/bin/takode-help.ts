@@ -285,11 +285,12 @@ Read commands:
   grant list|show <tg-id> [--include-archived] [--json]
 
 Mutation commands:
-  add [title] [--title-file <path|->] [--details-file <path|->] [--category <id|name>]
-      [--status todo|doing|done] [--authorized-by <human-message-index>] [--json]
-  edit <td-id> [--title-file <path|->] [--details-file <path|->] [--authorized-by <index>] [--json]
+  add [markdown] [--markdown-file <path|->] [--category <id|name>]
+      [--status todo|doing|done] [--before <td-id>|--after <td-id>]
+      [--authorized-by <human-message-index>] [--json]
+  edit <td-id> [--markdown-file <path|->] [--authorized-by <index>] [--json]
   status <td-id> <todo|doing|done> [--authorized-by <index>] [--json]
-  move <td-id> <category> [--authorized-by <index>] [--json]
+  move <td-id> [category] [--before <td-id>|--after <td-id>] [--authorized-by <index>] [--json]
   archive|restore <td-id> [--authorized-by <index>] [--json]
   category create|rename|archive|restore ... [--authorized-by <index>] [--json]
   propose <add|edit|status|move|archive|restore|category-create|category-rename|category-archive|category-restore> ...
@@ -301,8 +302,8 @@ Mutation commands:
 Authorization:
   Reads and proposals are allowed to authenticated Takode sessions. Real-list mutations require a direct human user-message index from the same session or a matching server-derived session/cron workflow grant. UI actions are user-authorized. Unauthorized commands fail closed; use \`takode todo propose ...\` instead.
 
-Markdown:
-  Prefer --title-file/--details-file (use \`-\` for stdin) when content contains links, backticks, quotes, or other shell-sensitive characters. Default list/find output is compact; show and explicit JSON reveal full detail.
+Markdown and ordering:
+  Each item is one Markdown body: the first non-empty line is its derived title and later lines are collapsible details. Prefer --markdown-file (use \`-\` for stdin) for links or shell-sensitive content. Legacy --title-file/--details-file inputs remain compatibility aliases. Use --before/--after for active Todo/Doing order; Done remains grouped by completion time. Default list/find output is compact; show and explicit JSON reveal the raw body and provenance.
 `;
 
 const TIMER_HELP = `Usage: takode timer <create|list|cancel> ...
@@ -616,7 +617,7 @@ Examples:
   takode tasks 1
   takode timers 1
   takode todo list
-  takode todo add --title-file - --category Inbox --authorized-by 42
+  takode todo add --markdown-file - --category Inbox --authorized-by 42
   takode scan 1
   takode scan 1 --from 50 --count 20
   takode peek 1

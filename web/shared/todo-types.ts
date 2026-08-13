@@ -59,10 +59,19 @@ export interface TodoCategory {
   lastModifiedBy: TodoMutationProvenance;
 }
 
+export interface TodoMarkdownParts {
+  /** First non-empty Markdown line, trimmed only for display. */
+  titleMarkdown: string;
+  /** Exact source after the title line when it contains non-whitespace. */
+  detailsMarkdown?: string;
+}
+
 export interface TodoItem {
   id: string;
-  titleMarkdown: string;
-  detailsMarkdown?: string;
+  /** Canonical authored source. Title/details are derived presentation only. */
+  markdown: string;
+  /** Durable order within the item's active or derived Done/category section. */
+  rank: number;
   categoryId: string;
   status: TodoStatus;
   createdAt: number;
@@ -87,16 +96,30 @@ export interface TodoGrant {
   lastModifiedBy: TodoMutationProvenance;
 }
 
+/**
+ * Canonical callers send `markdown`. The split fields remain accepted only as
+ * compatibility input for pre-v2 CLI/API clients and are never persisted.
+ */
 export interface TodoItemCreateInput {
-  titleMarkdown: string;
-  detailsMarkdown?: string;
+  markdown?: string;
+  titleMarkdown?: string;
+  detailsMarkdown?: string | null;
   categoryId?: string;
   status?: TodoStatus;
+  beforeItemId?: string;
+  afterItemId?: string;
 }
 
 export interface TodoItemEditInput {
+  markdown?: string;
   titleMarkdown?: string;
   detailsMarkdown?: string | null;
+}
+
+export interface TodoItemMoveInput {
+  categoryId?: string;
+  beforeItemId?: string;
+  afterItemId?: string;
 }
 
 export interface TodoCategoryCreateInput {
@@ -107,7 +130,7 @@ export type TodoProposalMutation =
   | { action: "item:add"; input: TodoItemCreateInput }
   | { action: "item:edit"; itemId: string; input: TodoItemEditInput }
   | { action: "item:status"; itemId: string; status: TodoStatus }
-  | { action: "item:move"; itemId: string; categoryId: string }
+  | ({ action: "item:move"; itemId: string } & TodoItemMoveInput)
   | { action: "item:archive"; itemId: string }
   | { action: "item:restore"; itemId: string }
   | { action: "category:create"; input: TodoCategoryCreateInput }
@@ -127,7 +150,7 @@ export interface TodoProposal {
 }
 
 export interface TodoState {
-  schemaVersion: 1;
+  schemaVersion: 2;
   revision: number;
   updatedAt: number;
   nextItemId: number;
@@ -151,6 +174,7 @@ export interface TodoItemListFilters {
 
 export interface TodoCompactItem {
   id: string;
+  /** Derived first non-empty line retained for compact-output compatibility. */
   titleMarkdown: string;
   categoryId: string;
   categoryName: string;
