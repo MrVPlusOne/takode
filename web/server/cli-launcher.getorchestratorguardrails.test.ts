@@ -389,6 +389,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("leader-dispatch");
     expect(guardrails).toContain("confirm");
     expect(guardrails).toContain("quest");
+    expect(guardrails).toContain("`leader-decision-communication`");
+    expect(guardrails).toContain("sole complete owner of decision-first wording");
     expect(guardrails).toContain("/quest-design");
     expect(guardrails).toContain("## Durable Names in Handoffs");
     expect(guardrails).toContain("keep quest IDs out of the Takode-external durable names");
@@ -454,6 +456,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("accepted Work/Memory evidence before reopening source yourself");
     expect(guardrails).toContain("Do not create a quest or authorize changes for a clarification");
     expect(guardrails).toContain("User Checkpoint is a durable pause state inside the same Work occurrence");
+    expect(guardrails).toContain("Apply `leader-decision-communication` before publishing");
     expect(guardrails).toContain("self-contained packet with findings, named options, key tradeoffs");
     expect(guardrails).toContain("exact requested answer");
     // Generated leader guardrails use neutral paired examples and retain conservative fallbacks.
@@ -597,6 +600,8 @@ describe("getOrchestratorGuardrails", () => {
   it("returns Codex guardrails without Claude-only or sub-agent guidance", () => {
     const guardrails = launcher.getOrchestratorGuardrails("codex");
     expect(guardrails).toContain("leader session");
+    expect(guardrails).toContain("`leader-decision-communication`");
+    expect(guardrails).toContain("sole complete owner of decision-first wording");
     expect(guardrails).toContain("Delegate all major work");
     expect(guardrails).toContain("delegate_task(task)");
     expect(guardrails).toContain("inspectable forked transcript");

@@ -3,6 +3,7 @@
 You are preparing a user decision checkpoint that pauses the current Work occurrence before the same worker continues.
 
 Boundary:
+- Apply the `leader-decision-communication` skill when separating publishable decision context from supporting evidence. Prepare a concise plain-language extract for the leader while keeping the complete technical or safety packet in phase documentation.
 - Present a self-contained decision packet needed for a user decision: findings, each named option, key tradeoffs, a recommendation, and the exact requested answer.
 - Use internally consistent, human-readable option labels; do not map labels in confusing ways such as making one option mean approval of another option.
 - State what user answer would unblock resuming Work. If the leader should offer notification shortcuts or answer options, include a visible decision section for the leader to publish before notify. Every shortcut option must be named and explained there with its meaning and relevant tradeoff; phase notes, private packets, notification summaries, labels/buttons, and "see feedback" references do not substitute. The section may be concise, but it must let the user choose each shortcut without opening hidden context.

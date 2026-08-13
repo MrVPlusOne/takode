@@ -162,7 +162,11 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(work.leaderBrief).toContain("Treat a handoff with uncommitted changes");
     expect(work.leaderBrief).not.toContain("Give the worker the exact approved scope");
     expect(checkpoint.leaderBrief).toContain("resume the same worker in `WORKING`");
+    expect(checkpoint.leaderBrief).toContain("`leader-decision-communication` skill");
+    expect(checkpoint.leaderBrief).toContain("supporting technical evidence in the phase note");
     expect(checkpoint.leaderBrief).toContain("visible decision section before calling `takode notify`");
+    expect(checkpoint.assigneeBrief).toContain("`leader-decision-communication` skill");
+    expect(checkpoint.assigneeBrief).toContain("complete technical or safety packet in phase documentation");
     expect(memory.assigneeBrief).toContain("exactly one memory statement");
     expect(memory.assigneeBrief).toContain("plain-language user-facing outcome");
     expect(memory.assigneeBrief).toContain("do not paste the whole phase note into the final debrief");

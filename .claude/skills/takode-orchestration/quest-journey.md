@@ -39,7 +39,7 @@ Independent review is no longer an embedded phase. When review materially reduce
 
 ## User Checkpoint
 
-Use User Checkpoint when Work needs user authority or judgment outside the approved envelope. The visible user prompt must be self-contained: findings, named options, key tradeoffs, recommendation, exact requested answer, and every notification shortcut explained in visible text before `takode notify needs-input` runs.
+Use User Checkpoint when Work needs user authority or judgment outside the approved envelope. Apply `leader-decision-communication` before publishing; it owns decision-first wording and the necessity filter. The visible user prompt must remain self-contained: findings, named options, key tradeoffs, recommendation, exact requested answer, and every notification shortcut explained in visible text before `takode notify needs-input` runs.
 
 Link the active board row to the unresolved notification with `--wait-for-input`. Do not answer the decision yourself. After the answer, clear the wait and resume the same worker's Work occurrence. For externally consequential actions, fail closed on edit-only replies, questions, ambiguous approval, changed safety/monitor/stop conditions, or any remaining choice: publish a revised exact packet and wait for fresh explicit approval.
 

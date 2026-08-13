@@ -201,7 +201,9 @@ describe("buildCompanionInstructions", () => {
     const result = buildCompanionInstructions({ sessionNum: 1, backend: "codex" });
     // Agents must make the actual question or decision visible before firing
     // the notification chip; otherwise the user sees an alert without context.
-    expect(result).toContain("first send the detailed question, decision options, or confirmation text");
+    expect(result).toContain("apply the `leader-decision-communication` skill first");
+    expect(result).toContain("material-detail necessity filter");
+    expect(result).toContain("Then send the detailed question, decision options, or confirmation text");
     expect(result).toContain("`[thread:main]` or `[thread:q-N]`");
     expect(result).toContain("standalone `---` line immediately before each later `[thread:main]` or `[thread:q-N]`");
     expect(result).toContain("normal worker and reviewer sessions use ordinary assistant text");
@@ -273,6 +275,8 @@ describe("getOrchestratorGuardrails", () => {
   it("returns claude-flavored guardrails by default", () => {
     const result = getOrchestratorGuardrails();
     expect(result).toContain("orchestrator agent");
+    expect(result).toContain("`leader-decision-communication`");
+    expect(result).toContain("sole complete owner of decision-first wording");
     expect(result).toContain("/quest-design");
     expect(result).toContain("true follow-up of earlier work");
     expect(result).toContain("Relationship: follow-up of [q-N](quest:q-N)");
@@ -300,6 +304,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Embedded review phases are not part of active Quest Journey v2");
     expect(result).toContain("separate review quest");
     expect(result).toContain("User Checkpoint pauses Work");
+    expect(result).toContain("Apply `leader-decision-communication` before publishing");
     expect(result).toContain("self-contained packet with findings, named options, key tradeoffs");
     expect(result).toContain("exact requested answer");
     // The generated prompt must preserve both the permissive exact case and every fail-closed boundary.
@@ -371,6 +376,8 @@ describe("getOrchestratorGuardrails", () => {
   it("returns codex-flavored guardrails for codex backend", () => {
     const result = getOrchestratorGuardrails("codex");
     expect(result).toContain("orchestrator leader session");
+    expect(result).toContain("`leader-decision-communication`");
+    expect(result).toContain("sole complete owner of decision-first wording");
     expect(result).toContain("/quest-design");
     expect(result).toContain("persist it with `--follow-up-of`");
     expect(result).toContain("## Durable Names in Handoffs");

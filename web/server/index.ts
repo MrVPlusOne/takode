@@ -87,6 +87,7 @@ const packageRoot = process.env.__COMPANION_PACKAGE_ROOT || resolve(__dirname, "
 const STARTUP_SKILL_SYMLINKS = [
   "takode-orchestration",
   "leader-dispatch",
+  "leader-decision-communication",
   "confirm",
   "self-groom",
   "reviewer-groom",

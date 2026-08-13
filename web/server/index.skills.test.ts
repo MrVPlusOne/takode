@@ -14,6 +14,16 @@ const ORCHESTRATION_DESIGN_SKILL_PATH = join(
   "takode-orchestration-design",
   "SKILL.md",
 );
+const LEADER_DECISION_COMMUNICATION_SKILL_PATH = join(
+  SERVER_DIR,
+  "..",
+  "..",
+  ".claude",
+  "skills",
+  "leader-decision-communication",
+  "SKILL.md",
+);
+const QUEST_DESIGN_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "quest-design", "SKILL.md");
 const SKEPTIC_REVIEW_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "skeptic-review", "SKILL.md");
 const WORKTREE_RULES_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "worktree-rules", "SKILL.md");
 const LEADER_DISPATCH_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "leader-dispatch", "SKILL.md");
@@ -57,6 +67,22 @@ const TAKODE_ORCHESTRATION_QUEST_JOURNEY_PATH = join(
 );
 const WORK_LEADER_BRIEF_PATH = join(SERVER_DIR, "..", "shared", "quest-journey-phases", "work", "leader.md");
 const WORK_ASSIGNEE_BRIEF_PATH = join(SERVER_DIR, "..", "shared", "quest-journey-phases", "work", "assignee.md");
+const USER_CHECKPOINT_LEADER_BRIEF_PATH = join(
+  SERVER_DIR,
+  "..",
+  "shared",
+  "quest-journey-phases",
+  "user-checkpoint",
+  "leader.md",
+);
+const USER_CHECKPOINT_ASSIGNEE_BRIEF_PATH = join(
+  SERVER_DIR,
+  "..",
+  "shared",
+  "quest-journey-phases",
+  "user-checkpoint",
+  "assignee.md",
+);
 const CLI_LAUNCHER_INSTRUCTIONS_PATH = join(SERVER_DIR, "cli-launcher-instructions.ts");
 const COMPACTION_RECOVERY_PROMPTS_PATH = join(SERVER_DIR, "compaction-recovery-prompts.ts");
 const QUEST_SKILL_TEMPLATE_PATH = join(SERVER_DIR, "templates", "quest-skill-docs.md");
@@ -93,6 +119,7 @@ describe("index startup skill registration", () => {
     expect(registered).not.toContain("cron-scheduling");
     expect(registered).toContain("takode-orchestration");
     expect(registered).toContain("leader-dispatch");
+    expect(registered).toContain("leader-decision-communication");
     expect(registered).toContain("confirm");
     expect(registered).not.toContain("quest-journey-planning");
     expect(registered).not.toContain("quest-journey-explore");
@@ -171,6 +198,105 @@ describe("index startup skill registration", () => {
     ).rejects.toThrow();
     await expect(
       access(join(REPO_ROOT, ".codex", "skills", "takode-orchestration-design", "SKILL.md")),
+    ).rejects.toThrow();
+  });
+
+  it("keeps decision-first leader communication in one focused skill", async () => {
+    const [
+      skill,
+      questDesign,
+      leaderDispatch,
+      orchestration,
+      journey,
+      checkpointLeader,
+      checkpointAssignee,
+      launcher,
+      claudeDocs,
+      agentsDocs,
+    ] = await Promise.all([
+      readFile(LEADER_DECISION_COMMUNICATION_SKILL_PATH, "utf-8"),
+      readFile(QUEST_DESIGN_SKILL_PATH, "utf-8"),
+      readFile(LEADER_DISPATCH_SKILL_PATH, "utf-8"),
+      readFile(TAKODE_ORCHESTRATION_SKILL_PATH, "utf-8"),
+      readFile(TAKODE_ORCHESTRATION_QUEST_JOURNEY_PATH, "utf-8"),
+      readFile(USER_CHECKPOINT_LEADER_BRIEF_PATH, "utf-8"),
+      readFile(USER_CHECKPOINT_ASSIGNEE_BRIEF_PATH, "utf-8"),
+      readFile(CLI_LAUNCHER_INSTRUCTIONS_PATH, "utf-8"),
+      readFile(join(REPO_ROOT, "CLAUDE.md"), "utf-8"),
+      readFile(join(REPO_ROOT, "AGENTS.md"), "utf-8"),
+    ]);
+
+    expect(skill).toContain("name: leader-decision-communication");
+    expect(skill).toContain("decision, approval, confirmation, clarification, proposal, action request");
+    expect(skill).toContain("material status update");
+    expect(skill).toContain("For a **status update with no user decision**");
+    expect(skill).toContain("Use familiar language");
+    expect(skill).toContain("Do not use a hard length limit");
+    expect(skill).toContain("The reference is not a substitute for the decision surface");
+    expect(skill).toContain("fresh explicit approval");
+    expect(skill).toContain("visible-prompt-before-notify");
+    expect(skill).toContain("interruption, replay, idempotence, and routing policy");
+
+    // Protect the plain-language decision-first order itself, not merely skill discovery.
+    const orderedMarkers = [
+      "**Problem or current state**",
+      "**Practical consequence**",
+      "**Recommendation**",
+      "**Choices and key tradeoffs**",
+      "**Exact requested answer**",
+    ];
+    let previousIndex = -1;
+    for (const marker of orderedMarkers) {
+      const markerIndex = skill.indexOf(marker);
+      expect(markerIndex).toBeGreaterThan(previousIndex);
+      previousIndex = markerIndex;
+    }
+    expect(skill).toContain("Can the user decide without understanding internal implementation?");
+    expect(skill).toContain("Two things block the test run");
+    expect(skill.indexOf("I recommend preparing the bundle")).toBeLessThan(skill.indexOf("Reply **Bundle: yes/no**"));
+
+    const completeRuleMarkers = [
+      "This skill is the authoritative owner of Takode's decision-first communication rule",
+      "## Choose the Message Shape",
+      "## Apply the Necessity Filter",
+      "Commands, hashes, internal paths, process or job identifiers",
+      "Can the user decide without understanding internal implementation?",
+    ];
+    const pointerOnlySources = [
+      questDesign,
+      leaderDispatch,
+      orchestration,
+      journey,
+      checkpointLeader,
+      checkpointAssignee,
+      launcher,
+    ];
+    for (const marker of completeRuleMarkers) {
+      expect(skill).toContain(marker);
+      for (const pointerOnlySource of pointerOnlySources) {
+        expect(pointerOnlySource).not.toContain(marker);
+      }
+    }
+    for (const pointerSource of pointerOnlySources) {
+      expect(pointerSource).toContain("leader-decision-communication");
+    }
+
+    // Existing checkpoint safety remains owned by its operational surfaces.
+    expect(checkpointLeader).toContain("visible decision section before calling `takode notify`");
+    expect(checkpointLeader).toContain("fresh explicit approval before external consequences");
+    expect(checkpointLeader).toContain("--wait-for-input");
+    expect(launcher).toContain("Do not fire the notification before the detailed text is visible");
+    expect(launcher).toContain("Link the affected active board row with `--wait-for-input`");
+
+    for (const docs of [claudeDocs, agentsDocs]) {
+      expect(docs).toContain("`leader-decision-communication`");
+      expect(docs).toContain(".claude/skills/leader-decision-communication/");
+    }
+    await expect(
+      access(join(REPO_ROOT, ".agents", "skills", "leader-decision-communication", "SKILL.md")),
+    ).rejects.toThrow();
+    await expect(
+      access(join(REPO_ROOT, ".codex", "skills", "leader-decision-communication", "SKILL.md")),
     ).rejects.toThrow();
   });
 

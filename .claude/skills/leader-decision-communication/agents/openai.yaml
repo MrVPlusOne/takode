@@ -1,0 +1,4 @@
+interface:
+  display_name: "Leader Decision Communication"
+  short_description: "Make leader decisions plain-language and decision-first"
+  default_prompt: "Use $leader-decision-communication to make this leader message decision-first, concise, and safe."
