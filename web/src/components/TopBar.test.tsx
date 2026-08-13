@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { LeaderWorkboardView } from "../store-types.js";
 
@@ -538,24 +538,24 @@ describe("TopBar", () => {
     expect(screen.getByText("Main Session")).toBeInTheDocument();
   });
 
-  it("shows the full leader role chip beside the session number", () => {
-    // Mobile and desktop share the same explicit role identity. Only a
-    // sub-320px CSS fallback may shorten the visible role to its initial.
+  it("keeps the leader identity compact in the TopBar", () => {
+    // The TopBar already pairs the session number with the leader profile and
+    // name, so it must not duplicate the quest-banner role chip treatment.
     resetStore({
       sessions: new Map([["s1", { cwd: "/repo", permissionMode: "acceptEdits", backend_type: "claude" }]]),
-      sessionNames: new Map([["s1", "Leader Session"]]),
-      sdkSessions: [{ sessionId: "s1", createdAt: 1, sessionNum: 111, name: "Leader Session", isOrchestrator: true }],
+      sessionNames: new Map([["s1", "Coordinator Session"]]),
+      sdkSessions: [
+        { sessionId: "s1", createdAt: 1, sessionNum: 111, name: "Coordinator Session", isOrchestrator: true },
+      ],
     });
 
     render(<TopBar />);
 
-    const chip = screen.getByTestId("topbar-leader-session-chip");
-    expect(within(chip).getByText("Leader")).toBeInTheDocument();
-    expect(within(chip).getByText("#111")).toBeInTheDocument();
-    expect(within(chip).getByTestId("session-role-icon-leader")).toBeInTheDocument();
-    expect(chip).toHaveClass("shrink-0");
-    expect(within(chip).getByText("Leader")).toHaveClass("max-[319px]:hidden");
-    expect(screen.getByRole("button", { name: "Leader #111 Leader Session" })).toBeInTheDocument();
+    const identityButton = screen.getByRole("button", { name: "Leader #111 Coordinator Session" });
+    expect(identityButton).toHaveTextContent("#111Coordinator Session");
+    expect(identityButton).not.toHaveTextContent("Leader");
+    expect(screen.queryByTestId("topbar-leader-session-chip")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("session-role-icon-leader")).not.toBeInTheDocument();
   });
 
   it("uses selected quest recorded commits as the diff button target in leader quest routes", () => {
