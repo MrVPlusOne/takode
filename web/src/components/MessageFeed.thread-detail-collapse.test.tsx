@@ -32,6 +32,10 @@ import {
   THREAD_ROUTING_REMINDER_SOURCE_ID,
   THREAD_ROUTING_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-routing-reminder.js";
+import {
+  THREAD_OUTCOME_REMINDER_SOURCE_ID,
+  THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+} from "../../shared/thread-outcome-reminder.js";
 
 vi.mock("react-markdown", () => ({
   default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
@@ -742,6 +746,93 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.queryByText("session_error")).toBeNull();
     expect(screen.queryByText("board_dispatchable")).toBeNull();
     expect(screen.queryByText(/1 event from work board/)).toBeNull();
+  });
+
+  it("keeps a substantive table visible before outcome-reminder activity and an empty Ready row", () => {
+    // Producer-shaped regression: the direct user response has no leader-only
+    // metadata, while the later model-only reminder emits reasoning, a
+    // whitespace-only Ready assistant row, and a worker event. Ready still
+    // auto-collapses the turn, but the table remains its representative.
+    const sid = "test-leader-table-before-empty-ready-row";
+    const threadRef = { threadKey: "q-1874", questId: "q-1874", source: "explicit" as const };
+    const otherThreadRef = { threadKey: "q-1869", questId: "q-1869", source: "explicit" as const };
+    const readyStatus = makeThreadStatus("a-ready", 7, {
+      questId: "q-1874",
+      summary: "shareable reviewer table ready",
+      threadKey: "q-1874",
+    });
+    mockStoreValues.sessions = new Map([
+      [sid, { isOrchestrator: true, leaderThreadStatuses: { "q-1874": readyStatus } }],
+    ]);
+    mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "u1",
+        role: "user",
+        content: "Regenerate the reviewer table with brief descriptions.",
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-progress",
+        role: "assistant",
+        content: "I’m formatting the reviewer assignments now.",
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-table",
+        role: "assistant",
+        content:
+          "| PR | Brief description | Suggested reviewer(s) |\n|---|---|---|\n| #68139 | Recover lost Responses API state | Qingyu + additional code owner required |",
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-other-thread",
+        role: "assistant",
+        content: "Unrelated cache preparation detail",
+        metadata: { threadRefs: [otherThreadRef] },
+      }),
+      makeMessage({
+        id: "u-outcome-reminder",
+        role: "user",
+        content: "[Thread outcome reminder] Mark the touched thread with a fresh outcome.",
+        agentSource: {
+          sessionId: THREAD_OUTCOME_REMINDER_SOURCE_ID,
+          sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+        },
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "a-reasoning",
+        role: "assistant",
+        content: "Marking quest readiness",
+        metadata: {
+          threadRefs: [threadRef],
+          codexReasoningDetail: { status: "complete" },
+        },
+      }),
+      makeMessage({
+        id: "a-ready",
+        role: "assistant",
+        content: " \n\t ",
+        contentBlocks: [{ type: "text", text: " \n\t " }],
+        metadata: { threadRefs: [threadRef], threadStatusMarkers: [readyStatus] },
+      }),
+      makeHerdEvent(
+        "h-memory-complete",
+        "#2504 | turn_end | ok | reviewer plan complete",
+        turnEndEventKey(),
+        threadRef,
+      ),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1874" />);
+
+    expect(screen.getByText(/Recover lost Responses API state/)).toBeTruthy();
+    expect(screen.getByLabelText("Thread Ready for thread:q-1874: shareable reviewer table ready")).toBeTruthy();
+    expect(screen.getAllByText("Leader activity").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/formatting the reviewer assignments/)).toBeNull();
+    expect(screen.queryByText("Marking quest readiness")).toBeNull();
+    expect(screen.queryByText("Unrelated cache preparation detail")).toBeNull();
   });
 
   it("keeps final status-bearing leader prose visible before a routing-reminder resend", () => {

@@ -577,7 +577,7 @@ function entryIsCollapsedVisible(
     ((entry.msg.role === "assistant" &&
       (entry.msg.notification != null ||
         anchoredNotificationMessageIds?.has(entry.msg.id) === true ||
-        (leaderMode && (entry.msg.metadata?.leaderUserMessage === true || isThreadStatusSummaryMessage(entry.msg))))) ||
+        (leaderMode && (isSubstantiveLeaderUserMessage(entry.msg) || isThreadStatusSummaryMessage(entry.msg))))) ||
       shouldShowAttentionRecordInCollapsedTurn(entry.msg.metadata?.attentionRecord))
   );
 }
@@ -659,6 +659,15 @@ function isModelOnlyReminderSource(sourceId: string | undefined): boolean {
   return sourceId != null && MODEL_ONLY_REMINDER_SOURCE_IDS.has(sourceId);
 }
 
+function isSubstantiveLeaderUserMessage(msg: ChatMessage): boolean {
+  return (
+    msg.role === "assistant" &&
+    msg.metadata?.leaderUserMessage === true &&
+    !isCodexReasoningDetailMessage(msg) &&
+    messageText(msg).trim().length > 0
+  );
+}
+
 function isThreadStatusSummaryMessage(msg: ChatMessage): boolean {
   return (
     msg.role === "assistant" &&
@@ -667,11 +676,49 @@ function isThreadStatusSummaryMessage(msg: ChatMessage): boolean {
   );
 }
 
+function isSubstantiveLeaderResponseEntry(entry: FeedEntry): boolean {
+  return (
+    entry.kind === "message" &&
+    entry.msg.role === "assistant" &&
+    !entry.msg.notification &&
+    !entry.msg.metadata?.attentionRecord &&
+    !isCodexReasoningDetailMessage(entry.msg) &&
+    messageText(entry.msg).trim().length > 0
+  );
+}
+
+function collectLeaderResponsesBeforeModelOnlyReminders(
+  rawAgentEntries: FeedEntry[],
+  hasUserBoundary: boolean,
+): Set<string> {
+  const representativeKeys = new Set<string>();
+  let eligibleSegment = hasUserBoundary;
+  let lastSubstantiveEntry: FeedEntry | null = null;
+
+  for (const entry of rawAgentEntries) {
+    if (entry.kind === "message" && entry.msg.role === "user" && entry.msg.agentSource?.sessionId) {
+      const isModelOnlyReminder = isModelOnlyReminderSource(entry.msg.agentSource.sessionId);
+      if (eligibleSegment && isModelOnlyReminder && lastSubstantiveEntry) {
+        representativeKeys.add(getEntryId(lastSubstantiveEntry));
+      }
+      eligibleSegment = !isModelOnlyReminder;
+      lastSubstantiveEntry = null;
+      continue;
+    }
+
+    if (eligibleSegment && isSubstantiveLeaderResponseEntry(entry)) {
+      lastSubstantiveEntry = entry;
+    }
+  }
+
+  return representativeKeys;
+}
+
 function isPlainLeaderCollapsedSummaryEntry(entry: FeedEntry): boolean {
   return (
     entry.kind === "message" &&
     entry.msg.role === "assistant" &&
-    (entry.msg.metadata?.leaderUserMessage === true || isThreadStatusSummaryMessage(entry.msg)) &&
+    (isSubstantiveLeaderUserMessage(entry.msg) || isThreadStatusSummaryMessage(entry.msg)) &&
     !entry.msg.notification &&
     !entry.msg.metadata?.attentionRecord
   );
@@ -906,9 +953,19 @@ function makeTurn(
   const s = countEntryStats(rawAgentEntries);
 
   // Extract messages with notification chips -- always visible like systemEntries.
+  // When a direct user/herd response is immediately followed by a model-only
+  // reminder, retain the last substantive response from the preceding segment
+  // as the collapsed representative. Empty route/status rows and reminder
+  // acknowledgements remain activity.
+  const preReminderRepresentativeKeys = leaderMode
+    ? collectLeaderResponsesBeforeModelOnlyReminders(rawAgentEntries, userEntry !== null)
+    : new Set<string>();
   const notificationEntryCandidates: FeedEntry[] = [];
   for (const e of rawAgentEntries) {
-    if (entryIsCollapsedVisible(e, leaderMode, anchoredNotificationMessageIds)) {
+    if (
+      preReminderRepresentativeKeys.has(getEntryId(e)) ||
+      entryIsCollapsedVisible(e, leaderMode, anchoredNotificationMessageIds)
+    ) {
       notificationEntryCandidates.push(e);
     }
   }

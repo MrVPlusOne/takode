@@ -682,6 +682,100 @@ describe("leader mode model-only reminder collapsed preview selection", () => {
     expect(collapsedEntryIds(model.turns[1])).toEqual(["a-second"]);
   });
 
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", " \n\t  "],
+  ])("keeps the last substantive normal response when the later Ready row is %s", (_variant, readyContent) => {
+    // Producer-shaped regression: a direct user response is followed by the
+    // model-only outcome reminder, reasoning/activity, and a Ready marker whose
+    // assistant payload contains no substantive prose. The earlier response is
+    // still the collapsed representative; empty route/status rows stay activity.
+    const readyStatus = {
+      ...makeThreadReadyStatus("a-ready", 7),
+      threadKey: "q-1874",
+      questId: "q-1874",
+      summary: "shareable reviewer table ready",
+    };
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "Regenerate the reviewer table", timestamp: 1 }),
+      makeAssistantMessage("a-progress", "I’m formatting the reviewer assignments now.", 2),
+      makeAssistantMessage(
+        "a-table",
+        "| PR | Brief description | Suggested reviewer(s) |\n|---|---|---|\n| #68139 | Recover lost Responses API state | Qingyu + additional code owner required |",
+        3,
+      ),
+      makeMessage({
+        id: "a-route-only",
+        role: "assistant",
+        content: " \n\t",
+        timestamp: 4,
+        contentBlocks: [{ type: "text", text: " \n\t" }],
+        metadata: { leaderUserMessage: true },
+      }),
+      makeInjectedUserMessage(
+        "u-outcome-reminder",
+        "[Thread outcome reminder] Mark the touched thread with a fresh outcome.",
+        5,
+        THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+      ),
+      makeMessage({
+        id: "a-reasoning",
+        role: "assistant",
+        content: "Marking quest readiness",
+        timestamp: 6,
+        metadata: { codexReasoningDetail: { status: "complete" } },
+      }),
+      makeMessage({
+        id: "a-ready",
+        role: "assistant",
+        content: readyContent,
+        timestamp: 7,
+        contentBlocks: [{ type: "text", text: readyContent }],
+        metadata: { threadStatusMarkers: [readyStatus] },
+      }),
+      makeHerdEvent("h-memory-complete", "#2504 | turn_end | ok | reviewer plan complete", 8),
+    ];
+
+    const model = buildFeedModel(messages, true);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["activity", "a-table", "activity"]);
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-table"]);
+    expect(entryIds(turn.agentEntries)).toEqual(
+      expect.arrayContaining(["a-progress", "a-route-only", "a-reasoning", "a-ready", "h-memory-complete"]),
+    );
+  });
+
+  it("does not infer a pre-reminder representative when the loaded turn has no trigger boundary", () => {
+    // A selected-window slice can start mid-turn. Without the originating user
+    // or injected-request boundary, plain assistant text must stay private
+    // rather than being guessed as a user-visible representative.
+    const messages: ChatMessage[] = [
+      makeAssistantMessage("a-window-tail", "Potentially private activity from before the loaded window.", 1),
+      makeInjectedUserMessage(
+        "u-outcome-reminder",
+        "[Thread outcome reminder] Mark the touched thread with a fresh outcome.",
+        2,
+        THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+      ),
+      makeMessage({
+        id: "a-ready",
+        role: "assistant",
+        content: "",
+        timestamp: 3,
+        metadata: { threadStatusMarkers: [makeThreadReadyStatus("a-ready", 3)] },
+      }),
+    ];
+
+    const turn = buildFeedModel(messages, true).turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["activity"]);
+    expect(entryIds(turn.notificationEntries)).toEqual([]);
+    expect(entryIds(turn.agentEntries)).toContain("a-window-tail");
+  });
+
   it("keeps the final substantive status-bearing leader prose visible before a reminder resend", () => {
     // Regression for the live q-1814 shape: a normal completion turn ended
     // with substantial leader prose plus a Thread Ready marker, then a routing
@@ -1250,6 +1344,38 @@ describe("useFeedModel", () => {
     expect(result.current.turns.map((turn) => turn.id)).toEqual(full.turns.map((turn) => turn.id));
     expect(result.current.turns[0].stats.herdEventCount).toBe(1);
     expect(entryIds(result.current.turns[0].allEntries)).toContain("h1");
+  });
+
+  it("recomputes the pre-reminder representative across the frozen/active boundary", () => {
+    // In production the completed direct response can already be frozen when
+    // the automatic reminder and empty Ready row arrive in the active tail.
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "Regenerate the reviewer table", timestamp: 1 }),
+      makeAssistantMessage("a-table", "| PR | Brief description | Suggested reviewer(s) |", 2),
+      makeInjectedUserMessage(
+        "u-outcome-reminder",
+        "[Thread outcome reminder] Mark the touched thread with a fresh outcome.",
+        3,
+        THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+      ),
+      makeMessage({
+        id: "a-ready",
+        role: "assistant",
+        content: " \n ",
+        timestamp: 4,
+        metadata: { threadStatusMarkers: [makeThreadReadyStatus("a-ready", 4)] },
+      }),
+    ];
+    const full = buildFeedModel(messages, true);
+
+    const { result } = renderHook(() =>
+      useFeedModel(messages, { leaderMode: true, frozenCount: 2, frozenRevision: 0 }),
+    );
+
+    expect(result.current.turns).toHaveLength(1);
+    expect(collapsedEntryIds(result.current.turns[0])).toEqual(collapsedEntryIds(full.turns[0]));
+    expect(entryIds(result.current.turns[0].notificationEntries)).toEqual(["a-table"]);
   });
 
   it("re-merges same-turn Codex leader activity with herd events across the frozen/active boundary", () => {
