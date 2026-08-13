@@ -137,36 +137,45 @@ describe("ComposerMetaToolbar Codex model selector", () => {
 
     const summary = screen.getByTestId("composer-model-summary-menu");
     expect(within(summary).getByText("5.6 Sol")).toBeTruthy();
-    expect(within(summary).getByRole("menuitem", { name: /Requested/ }).textContent).toContain("Ultra");
+    expect(within(summary).getByRole("menuitem", { name: /Effort/ }).textContent).toContain("Ultra");
     expect(within(summary).getByText("Fast")).toBeTruthy();
 
     await user.click(within(summary).getByRole("menuitem", { name: /Model/ }));
     const models = screen.getByTestId("composer-model-options-menu");
     await user.click(within(models).getByRole("menuitemradio", { name: /5.4 Mini/ }));
     expect(screen.getByTestId("composer-model-menu").dataset.codexPanel).toBe("summary");
-    expect(screen.getByRole("button", { name: "Model and effort: 5.4 Mini Ultra requested" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Model and effort: 5.4 Mini Ultra" })).toBeTruthy();
+    expect(screen.queryByTestId("composer-reasoning-warning")).toBeNull();
     expect(within(screen.getByTestId("composer-model-summary-menu")).queryByText("Speed")).toBeNull();
     expect(within(screen.getByTestId("composer-model-summary-menu")).getByText("Ultra (unavailable)")).toBeTruthy();
 
     await user.click(
-      within(screen.getByTestId("composer-model-summary-menu")).getByRole("menuitem", { name: /Requested/ }),
+      within(screen.getByTestId("composer-model-summary-menu")).getByRole("menuitem", { name: /Effort/ }),
     );
     const efforts = screen.getByTestId("composer-reasoning-menu");
     expect(within(efforts).getByRole("menuitemradio", { name: /Default \(Low\)/ })).toBeTruthy();
     expect(within(efforts).getByRole("menuitemradio", { name: /Quick reasoning/ })).toBeTruthy();
     await user.click(within(efforts).getByRole("menuitemradio", { name: /^Low Quick reasoning$/ }));
-    expect(screen.getByRole("button", { name: "Model and effort: 5.4 Mini Low requested" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Model and effort: 5.4 Mini Low" })).toBeTruthy();
   });
 
-  it("shows requested and effective effort separately when Codex reports a downgrade", async () => {
-    // A requested Ultra value must not be rendered as effective when Codex reports High.
+  it("keeps one effort selector and shows a compact warning when Codex reports a downgrade", async () => {
+    // Runtime authority still detects a High downgrade, but the normal control
+    // remains the selected Ultra value instead of becoming a second selector.
     render(<ToolbarHarness initialEffort="ultra" effectiveEffort="high" effectiveReported={true} />);
     const user = userEvent.setup();
-    expect(screen.getByRole("button", { name: "Model and effort: 5.6 Sol High · Ultra requested" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Model and effort: 5.6 Sol High · Ultra requested" }));
+    const trigger = screen.getByRole("button", { name: "Model and effort: 5.6 Sol Ultra" });
+    expect(trigger.getAttribute("title")).toBe(
+      "Model: gpt-5.6-sol; speed: Fast; Selected: Ultra; runtime: High (click to change)",
+    );
+    await user.click(trigger);
     const summary = screen.getByTestId("composer-model-summary-menu");
-    expect(within(summary).getByRole("menuitem", { name: /Requested/ }).textContent).toContain("Ultra");
-    expect(within(summary).getByTestId("composer-effective-reasoning").textContent).toContain("High");
+    expect(within(summary).getByRole("menuitem", { name: /Effort/ }).textContent).toContain("Ultra");
+    expect(within(summary).queryByText("Requested")).toBeNull();
+    expect(within(summary).queryByText("Effective")).toBeNull();
+    expect(within(summary).getByTestId("composer-reasoning-warning").textContent).toContain(
+      "Runtime is using High instead of Ultra.",
+    );
   });
 
   it("resets through the supplied authoritative callback and closes only after it succeeds", async () => {
@@ -205,7 +214,7 @@ describe("ComposerMetaToolbar Codex model selector", () => {
     const trigger = screen.getByRole("button", { name: "Model and effort: 5.6 Sol Ultra" });
 
     await user.click(trigger);
-    await user.click(screen.getByRole("menuitem", { name: /Requested/ }));
+    await user.click(screen.getByRole("menuitem", { name: /Effort/ }));
     await user.keyboard("{ArrowLeft}");
     expect(screen.getByTestId("composer-model-menu").dataset.codexPanel).toBe("summary");
     await user.keyboard("{Escape}");

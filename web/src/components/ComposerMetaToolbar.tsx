@@ -217,6 +217,7 @@ export function ComposerMetaToolbar({
     effective: codexEffectiveReasoningEffort,
     effectiveReported: codexEffectiveReasoningEffortReported,
     runtimeConnected: isConnected,
+    defaultRequested: defaultReasoningValue,
     defaultRequestedLabel: defaultReasoningLabel,
     labelForEffort: (effort) =>
       getCodexReasoningEffortOptions({
@@ -503,7 +504,7 @@ export function ComposerMetaToolbar({
                             onClick={() => openCodexPanel("effort", codexReasoningEffort || "default")}
                             className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left text-cc-fg transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none"
                           >
-                            <span className="text-sm font-medium">Requested</span>
+                            <span className="text-sm font-medium">Effort</span>
                             <span className="ml-auto max-w-[9.5rem] truncate text-sm text-cc-muted">
                               {selectedReasoningLabel}
                             </span>
@@ -512,16 +513,17 @@ export function ComposerMetaToolbar({
                             </span>
                           </button>
                         )}
-                        {hasReasoningChoices && (
-                          <div className="flex w-full items-center gap-3 px-3 py-2 text-left text-cc-fg">
-                            <span className="text-sm font-medium">Effective</span>
-                            <span
-                              data-testid="composer-effective-reasoning"
-                              className="ml-auto max-w-[9.5rem] truncate text-sm text-cc-muted"
-                              title={reasoningAuthority.title}
-                            >
-                              {reasoningAuthority.effectiveLabel}
+                        {reasoningAuthority.warningLabel && (
+                          <div
+                            data-testid="composer-reasoning-warning"
+                            role="status"
+                            className="mx-2 mb-1 flex items-start gap-2 rounded-md border border-cc-warning/25 bg-cc-warning/10 px-2.5 py-2 text-[11px] leading-snug text-cc-warning"
+                            title={reasoningAuthority.title}
+                          >
+                            <span aria-hidden="true" className="mt-px shrink-0 font-semibold">
+                              !
                             </span>
+                            <span>{reasoningAuthority.warningLabel}</span>
                           </div>
                         )}
                         {fastSupported && (

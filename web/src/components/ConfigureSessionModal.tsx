@@ -478,7 +478,7 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
               {isCodex ? (
                 <>
                   <div>
-                    <FieldLabel label="Requested reasoning effort" effect={fieldEffect(true)} />
+                    <FieldLabel label="Reasoning effort" effect={fieldEffect(true)} />
                     <select
                       aria-label="Session Codex reasoning effort"
                       value={form.codexReasoningEffort}

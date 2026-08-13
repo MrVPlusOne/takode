@@ -182,6 +182,7 @@ export function SessionInfoPopover({
     effective: codexEffectiveReasoningEffort,
     effectiveReported: codexEffectiveReasoningEffortReported,
     runtimeConnected: cliConnected,
+    defaultRequested: defaultReasoningValue,
     defaultRequestedLabel: defaultReasoningValue ? labelForReasoningEffort(defaultReasoningValue) : undefined,
     labelForEffort: labelForReasoningEffort,
   });
@@ -452,9 +453,8 @@ export function SessionInfoPopover({
           )}
           {isCodexSession && (
             <div className="space-y-1">
-              <span className="text-[11px] text-cc-muted/60">Reasoning</span>
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-cc-muted/60">Requested</span>
+                <span className="text-[11px] text-cc-muted/60">Reasoning</span>
                 <div className="relative" ref={reasoningDropdownRef}>
                   <button
                     onClick={() => setShowReasoningDropdown(!showReasoningDropdown)}
@@ -464,7 +464,7 @@ export function SessionInfoPopover({
                         ? "cursor-not-allowed opacity-30 text-cc-muted"
                         : "cursor-pointer text-cc-muted hover:text-cc-fg"
                     }`}
-                    title={reasoningTitle}
+                    title={`${reasoningTitle}. ${reasoningAuthority.title}`}
                   >
                     <span>
                       {codexReasoningOptions.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() ||
@@ -494,16 +494,19 @@ export function SessionInfoPopover({
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 text-[10px]">
-                <span className="text-cc-muted/60">Effective</span>
-                <span
-                  data-testid="session-info-effective-reasoning"
-                  className="text-cc-muted"
+              {reasoningAuthority.warningLabel && (
+                <div
+                  data-testid="session-info-reasoning-warning"
+                  role="status"
+                  className="flex items-start gap-1.5 rounded-md border border-cc-warning/25 bg-cc-warning/10 px-2 py-1.5 text-[10px] leading-snug text-cc-warning"
                   title={reasoningAuthority.title}
                 >
-                  {reasoningAuthority.effectiveLabel.toLowerCase()}
-                </span>
-              </div>
+                  <span aria-hidden="true" className="shrink-0 font-semibold">
+                    !
+                  </span>
+                  <span>{reasoningAuthority.warningLabel}</span>
+                </div>
+              )}
             </div>
           )}
           {cwd && (

@@ -1,7 +1,11 @@
+export type CodexReasoningRuntimeStatus = "unreported" | "reported" | "mismatch";
+
 export interface CodexReasoningAuthorityDisplay {
-  requestedLabel: string;
+  selectedLabel: string;
   effectiveLabel: string;
   triggerSuffix: string;
+  runtimeStatus: CodexReasoningRuntimeStatus;
+  warningLabel: string | null;
   title: string;
 }
 
@@ -10,37 +14,48 @@ export function buildCodexReasoningAuthorityDisplay(options: {
   effective: string | null | undefined;
   effectiveReported: boolean;
   runtimeConnected: boolean;
+  defaultRequested?: string;
   defaultRequestedLabel?: string;
   labelForEffort: (effort: string) => string;
 }): CodexReasoningAuthorityDisplay {
   const requested = options.requested?.trim().toLowerCase() || "";
   const effective = options.effective?.trim().toLowerCase() || "";
-  const requestedLabel = requested
-    ? options.labelForEffort(requested)
+  const defaultRequested = options.defaultRequested?.trim().toLowerCase() || "";
+  const selectedValue = requested || defaultRequested;
+  const selectedBaseLabel = selectedValue ? options.labelForEffort(selectedValue) : "Default";
+  const selectedLabel = requested
+    ? selectedBaseLabel
     : options.defaultRequestedLabel
       ? `${options.defaultRequestedLabel} (default)`
       : "Default";
+  const triggerSuffix = selectedValue ? selectedBaseLabel : "";
 
   if (!options.effectiveReported) {
-    const triggerSuffix = requested ? `${options.labelForEffort(requested)} requested` : "";
     return {
-      requestedLabel,
+      selectedLabel,
       effectiveLabel: "Unknown",
       triggerSuffix,
-      title: `Requested: ${requestedLabel}; effective runtime effort: unknown`,
+      runtimeStatus: "unreported",
+      warningLabel: null,
+      title: `Selected: ${selectedLabel}; runtime effort: not reported`,
     };
   }
 
   const effectiveBase = effective ? options.labelForEffort(effective) : "Default";
-  const effectiveLabel = options.runtimeConnected ? effectiveBase : `${effectiveBase} (last effective)`;
-  const requestedDiffers = requested !== effective;
-  const triggerSuffix = requestedDiffers ? `${effectiveLabel} · ${requestedLabel} requested` : effectiveLabel;
+  const effectiveLabel = options.runtimeConnected ? effectiveBase : `${effectiveBase} (last reported)`;
+  const runtimeStatus = selectedValue && selectedValue !== effective ? "mismatch" : "reported";
+  const runtimePrefix = options.runtimeConnected ? "Runtime" : "Last runtime";
+  const warningLabel =
+    runtimeStatus === "mismatch"
+      ? `${runtimePrefix} ${options.runtimeConnected ? "is using" : "used"} ${effectiveBase} instead of ${selectedBaseLabel}.`
+      : null;
+
   return {
-    requestedLabel,
+    selectedLabel,
     effectiveLabel,
     triggerSuffix,
-    title: requestedDiffers
-      ? `Effective: ${effectiveLabel}; requested: ${requestedLabel}`
-      : `Effective: ${effectiveLabel}`,
+    runtimeStatus,
+    warningLabel,
+    title: `Selected: ${selectedLabel}; ${runtimePrefix.toLowerCase()}: ${effectiveBase}`,
   };
 }

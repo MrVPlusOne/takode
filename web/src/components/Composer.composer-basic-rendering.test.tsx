@@ -740,7 +740,7 @@ describe("Composer basic rendering", () => {
     expect(Boolean(textarea && textarea.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(sendButton.closest('[data-testid="composer-footer-toolbar"]')).toBe(footer);
     expect(permissionSelector.closest('[data-testid="composer-footer-toolbar"]')).toBe(footer);
-    expect(within(meta).getByText("5.4 High requested")).toBeTruthy();
+    expect(within(meta).getByText("5.4 High")).toBeTruthy();
     expect(within(meta).queryByText("feature/composer-footer")).toBeNull();
   });
 
@@ -807,7 +807,7 @@ describe("Composer basic rendering", () => {
 
     const footer = screen.getByTestId("composer-footer-toolbar");
     await userEvent.click(screen.getByTitle(/Model: gpt-5.4; speed:/));
-    await userEvent.click(screen.getByRole("menuitem", { name: /Requested/ }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /Effort/ }));
     expectNoOverflowHiddenAncestorWithin(screen.getByTestId("composer-reasoning-menu"), footer);
   });
 

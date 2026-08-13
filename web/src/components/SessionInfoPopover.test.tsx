@@ -298,9 +298,9 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByTestId("session-info-configure-session")).toBeInTheDocument();
   });
 
-  it("shows requested and runtime-effective Codex reasoning separately", () => {
-    // The editable requested launch value remains Ultra while the runtime authority
-    // can truthfully report a different effective effort.
+  it("keeps one reasoning selector and warns compactly about a runtime mismatch", () => {
+    // The editable Ultra setting remains the only ordinary value while the
+    // Codex-reported High runtime state still produces a truthful diagnostic.
     resetStore([]);
     const session = storeState.sessions.get("s1");
     if (!session) throw new Error("missing session fixture");
@@ -310,11 +310,13 @@ describe("SessionInfoPopover", () => {
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
-    expect(screen.getByText("ultra").closest("button")).toBeInTheDocument();
-    expect(screen.getByTestId("session-info-effective-reasoning")).toHaveTextContent("high");
-    expect(screen.getByTestId("session-info-effective-reasoning")).toHaveAttribute(
-      "title",
-      "Effective: High; requested: Ultra",
+    const reasoning = screen.getByText("ultra").closest("button");
+    expect(reasoning).toBeInTheDocument();
+    expect(reasoning).toHaveAttribute("title", "Reasoning effort (relaunch required). Selected: Ultra; runtime: High");
+    expect(screen.queryByText("Requested")).not.toBeInTheDocument();
+    expect(screen.queryByText("Effective")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-info-reasoning-warning")).toHaveTextContent(
+      "Runtime is using High instead of Ultra.",
     );
   });
 
@@ -327,7 +329,7 @@ describe("SessionInfoPopover", () => {
 
     expect(screen.getAllByTitle("Applies on resume")[0]).toBeEnabled();
     const reasoning = screen.getByText("default").closest("button");
-    expect(reasoning).toHaveAttribute("title", "Applies on resume");
+    expect(reasoning).toHaveAttribute("title", "Applies on resume. Selected: Default; runtime effort: not reported");
     expect(reasoning).toBeEnabled();
   });
 

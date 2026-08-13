@@ -197,7 +197,7 @@ function PlaygroundCodexModelToolbar({ narrow = false }: { narrow?: boolean }) {
           codexModelOptions={PLAYGROUND_CODEX_MODEL_OPTIONS}
           onSelectModel={setModel}
           codexReasoningEffort={effort}
-          codexEffectiveReasoningEffort={narrow ? "high" : effort}
+          codexEffectiveReasoningEffort={narrow ? effort : "high"}
           codexEffectiveReasoningEffortReported={true}
           onSelectCodexReasoning={setEffort}
           codexServiceTier={serviceTier}
@@ -239,7 +239,7 @@ function PlaygroundCodexModelToolbar({ narrow = false }: { narrow?: boolean }) {
       <p className="mt-2 text-[11px] leading-snug text-cc-muted">
         {narrow
           ? "Narrow-width state: the friendly model and effort label truncates before essential composer actions."
-          : "Choose Model, Effort, and Speed independently. Selecting the Mini model removes Speed and narrows effort choices; Reset restores the playground defaults."}
+          : "Choose Model, Effort, and Speed independently. A runtime mismatch stays a compact warning instead of becoming a second selector; Reset restores the playground defaults."}
       </p>
     </div>
   );

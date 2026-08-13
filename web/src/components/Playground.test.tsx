@@ -254,10 +254,13 @@ describe("Playground", () => {
     expect(screen.getByText("Codex model selector — narrow layout")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Model and effort: 5.6 Sol Ultra" }).length).toBeGreaterThan(0);
     expect(screen.getByTestId("composer-model-summary-menu")).toHaveTextContent("Model");
-    expect(screen.getByTestId("composer-model-summary-menu")).toHaveTextContent("Requested");
-    expect(screen.getByTestId("composer-model-summary-menu")).toHaveTextContent("Effective");
+    expect(screen.getByTestId("composer-model-summary-menu")).toHaveTextContent("Effort");
+    expect(screen.getByTestId("composer-model-summary-menu")).not.toHaveTextContent("Effective");
     expect(screen.getByTestId("composer-model-summary-menu")).toHaveTextContent("Speed");
     expect(screen.getByTestId("composer-model-summary-menu")).toHaveTextContent("Reset to default");
+    expect(screen.getByTestId("composer-reasoning-warning")).toHaveTextContent(
+      "Runtime is using High instead of Ultra.",
+    );
     // The full Playground is intentionally broad documentation coverage and
     // can exceed the default jsdom budget in the aggregate suite.
   }, 20_000);
