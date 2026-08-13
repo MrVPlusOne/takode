@@ -183,6 +183,11 @@ describe("index startup skill registration", () => {
     expect(source).toContain("| User Checkpoint | `USER_CHECKPOINTING` |");
     expect(source).toContain("| Memory | `MEMORY` |");
     expect(source).toContain("Legacy v1 phase IDs are rejected for new active rows and revisions");
+    expect(source).toContain("Recoverable interruption does not create a smaller Work occurrence");
+    expect(source).toContain("resume the full remaining authorized Work envelope");
+    expect(source).toContain("A status request is an update, not an implicit pause");
+    expect(source).toContain("allow one short verification window");
+    expect(source).toContain("exact-once replay proof and recovery-suppression boundaries remain authoritative");
     expect(source).not.toContain("`EXECUTING`");
     expect(source).not.toContain("`OUTCOME_REVIEWING`");
     expect(topLevelSource).toContain("Externally consequential User Checkpoints require fresh explicit approval");
@@ -197,6 +202,11 @@ describe("index startup skill registration", () => {
     expect(topLevelSource).toContain("promote to a normal quest/Journey");
     expect(topLevelSource).toContain("accepted Work/Memory evidence before reopening source yourself");
     expect(topLevelSource).toContain("Do not create a quest or authorize changes for a clarification");
+    expect(topLevelSource).toContain("System-interrupted worker events can be provisional without shrinking Work");
+    expect(topLevelSource).toContain("allow one short verification window");
+    expect(topLevelSource).toContain("resume the full remaining authorized Work envelope");
+    expect(topLevelSource).toContain("Treat status requests as updates, not implicit pauses");
+    expect(topLevelSource).toContain("exact-once replay proof or recovery suppression");
   });
 
   it("keeps leader dispatch hot path compact while preserving handoff references", async () => {
@@ -240,6 +250,11 @@ describe("index startup skill registration", () => {
     expect(source).toContain("accepted Work/Memory note, before reopening source yourself");
     expect(source).toContain("Do not create a new quest or authorize code changes for a clarification");
     expect(source).toContain("Provide only deltas the assignee cannot infer");
+    expect(source).toContain("Recovery does not narrow that authorization");
+    expect(source).toContain("restores the full remaining authorized Work envelope");
+    expect(source).toContain("Treat a status request as an update, not an implicit pause");
+    expect(source).toContain("allow one short verification window");
+    expect(source).toContain("Existing exact-once replay proof and recovery-suppression rules remain authoritative");
     expect(source).not.toContain("Memory command mechanics live in the relevant phase briefs");
 
     expect(edgeCases).toContain("## Memory-Specific Dispatch Deltas");

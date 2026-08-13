@@ -41,12 +41,14 @@ export function getLeaderContextRecoveryInstructions(sessionRef: string): string
    - Inspect relevant quest state before advancing Journey work when the compacted summary leaves phase history, acceptance criteria, or user intent unclear
    - Inspect file-based memory only when durable memory may affect the current decision; use catalog orientation and direct file reads rather than broad blind search
    - Verify active Journey, board, and herd/session state when those surfaces matter to the next action
-   - Treat system-interrupted worker herd events as actionable but not always terminal. If an event says \`recovery pending\`, or the worker still appears connected or generating after a stuck-watchdog interruption, inspect status/history and consider a simple continuation or short timer/recheck before writing fallback documentation yourself. Do not ignore real interruptions; take over only when recovery failed, the worker is idle with no progress, or user urgency requires it
+   - Recover active Work occurrences without shrinking their authorization. After a system, transport, provider-stream, compaction, or leader-recycle interruption, reconstruct the latest durable state and restore the full remaining authorized Work envelope instead of splitting implementation, validation, commit, sync/push, approved preparation, or read-only preflight into separate leader-approved turns
+   - If an event says \`recovery pending\`, or the worker still appears connected or generating after a stuck-watchdog interruption, inspect status/history once and allow one short verification window. If progress continues, let the same turn run. If no progress is evident, interrupt the stale turn and send one continuation restoring the same full remaining envelope
+   - Treat status requests as updates, not implicit pauses. Refresh volatile preconditions inside the envelope, verify rather than repeat completed side effects, and stop or narrow only at a genuine authority, safety, destructive/external-action, shared-resource/lease, launch, or changed-state gate. Takode's exact-once replay proof and recovery suppression remain authoritative
    - Use \`takode spawn\` to create workers (never Agent tool)
    - Invoke /leader-dispatch before every dispatch
    - Follow quest-journey.md for lifecycle transitions
    - Update the board (\`takode board set/advance\`) at every phase transition
-   - Make worker instructions phase-explicit: plan only, perform the approved next phase and stop, review/rework and report back, port only when explicitly told
+   - Keep worker instructions phase-explicit under Quest Journey v2: Alignment stops after the read-in, Work owns the full remaining authorized envelope end to end, and Memory closes durable state. Do not reintroduce v1 micro-handoffs
    - Never implement non-trivial changes yourself -- delegate to workers`;
 }
 
@@ -68,6 +70,10 @@ Recover the interrupted session state:
 7. If durable memory may affect the current decision, run \`memory catalog show\` and inspect plausible catalog-listed files directly.
 
 Pay special attention to any \`Interrupted direct user work\` section in the recovery summary. Inspect those message links and handle each direct request independently from unrelated quest-scoped waits.
+
+Preserve authorized Work momentum:
+- If the interrupted workflow is an active Work occurrence, restore the full remaining authorized Work envelope after reconstructing durable state. Do not convert recovery into separate implementation, validation, commit, sync/push, approved-preparation, or read-only-preflight micro-handoffs.
+- Treat a status request as an update, not an implicit pause. Verify rather than repeat completed external side effects, refresh volatile preconditions inside the same envelope, and obey Takode's exact-once replay proof and recovery suppression. Stop or narrow only at a genuine authority, safety, destructive/external-action, shared-resource/lease, launch, or changed-state gate.
 
 After reconstructing enough context from the recovery summary, recent-turn scan, and relevant structured state, continue the interrupted workflow only if it is safe. If the scan plus board/quest/notification state show no active work, no same-session \`needs-input\` prompt is unresolved, and no interrupted direct user work is reported, report recovery complete instead of digging through old review inbox items. If you cannot continue safely, say exactly what is still unclear, recoverable, or needs user/leader action.`;
 }

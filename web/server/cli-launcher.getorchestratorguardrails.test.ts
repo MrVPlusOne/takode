@@ -442,6 +442,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Work is intentionally broader");
     expect(guardrails).toContain("Leader context is a scarce long-horizon resource");
     expect(guardrails).toContain("Leader-only deltas: none");
+    expect(guardrails).toContain("recovery must not shrink an already-authorized Work occurrence");
+    expect(guardrails).toContain("allow one short verification window");
+    expect(guardrails).toContain("restores the full remaining authorized Work envelope");
+    expect(guardrails).toContain("Treat status requests as updates, not implicit pauses");
+    expect(guardrails).toContain("exact-once replay proof or recovery suppression");
     expect(guardrails).toContain("Route implementation follow-ups to context-rich sources");
     expect(guardrails).toContain("Use a direct worker errand only for one-turn");
     expect(guardrails).toContain("read-only technical clarification about an active or recently completed quest");
@@ -628,6 +633,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Work is intentionally broader");
     expect(guardrails).toContain("Leader context is a scarce long-horizon resource");
     expect(guardrails).toContain("Leader-only deltas: none");
+    expect(guardrails).toContain("recovery must not shrink an already-authorized Work occurrence");
+    expect(guardrails).toContain("allow one short verification window");
+    expect(guardrails).toContain("restores the full remaining authorized Work envelope");
+    expect(guardrails).toContain("Treat status requests as updates, not implicit pauses");
+    expect(guardrails).toContain("exact-once replay proof or recovery suppression");
     expect(guardrails).toContain("Route implementation follow-ups to context-rich sources");
     expect(guardrails).toContain("Use a direct worker errand only for one-turn");
     expect(guardrails).toContain("Do not create a quest or authorize changes for a clarification");

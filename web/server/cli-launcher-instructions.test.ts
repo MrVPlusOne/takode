@@ -355,10 +355,16 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).not.toContain("Use `memory recall` visibly");
     expect(result).toContain("Do not silently inject memory into workers");
     expect(result).toContain("Memory writes are explicit Journey responsibility");
-    expect(result).toContain("System-interrupted worker `turn_end` herd events are actionable but not always terminal");
+    expect(result).toContain(
+      "System-interrupted worker `turn_end` herd events are actionable but not always terminal, and recovery must not shrink",
+    );
     expect(result).toContain("If an event says `recovery pending`");
-    expect(result).toContain("consider a simple continuation or a short timer/recheck");
-    expect(result).toContain("take over only when recovery failed");
+    expect(result).toContain("allow one short verification window");
+    expect(result).toContain("interrupt the stale turn");
+    expect(result).toContain("restores the full remaining authorized Work envelope");
+    expect(result).toContain("Treat status requests as updates, not implicit pauses");
+    expect(result).toContain("exact-once replay proof or recovery suppression");
+    expect(result).not.toContain("consider a simple continuation or a short timer/recheck");
     expect(result).toContain("Fresh worker is the default");
     expect(result).toContain("disconnected availability is not a reuse reason");
     expect(result).toContain("reuse disconnected workers only when they have a real context advantage");
@@ -394,8 +400,14 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Any user wait, including approvals, confirmations");
     expect(result).toContain("never represent a user wait only with `Thread Waiting`");
     expect(result).toContain("separate review quest");
-    expect(result).toContain("System-interrupted worker `turn_end` herd events are actionable but not always terminal");
+    expect(result).toContain(
+      "System-interrupted worker `turn_end` herd events are actionable but not always terminal, and recovery must not shrink",
+    );
     expect(result).toContain("the worker still appears connected or generating");
+    expect(result).toContain("allow one short verification window");
+    expect(result).toContain("full remaining authorized Work envelope");
+    expect(result).toContain("Treat status requests as updates, not implicit pauses");
+    expect(result).toContain("exact-once replay proof or recovery suppression");
     expect(result).toContain("Fresh worker is the default");
     expect(result).toContain("disconnected availability is not a reuse reason");
     expect(result).toContain("reuse disconnected workers only when they have a real context advantage");

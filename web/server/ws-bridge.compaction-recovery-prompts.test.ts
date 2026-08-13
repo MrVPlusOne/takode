@@ -711,16 +711,20 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).toContain("Keep unrelated dispatch, quests, and herd events moving");
     expect(recoveryCalls[0][1]).toContain("sets one prompt aside");
     expect(recoveryCalls[0][1]).toContain("does not depend on the answer");
-    expect(recoveryCalls[0][1]).toContain("system-interrupted worker herd events");
+    expect(recoveryCalls[0][1]).toContain("Recover active Work occurrences without shrinking their authorization");
     expect(recoveryCalls[0][1]).toContain("recovery pending");
-    expect(recoveryCalls[0][1]).toContain("simple continuation or short timer/recheck");
-    expect(recoveryCalls[0][1]).toContain("take over only when recovery failed");
+    expect(recoveryCalls[0][1]).toContain("one short verification window");
+    expect(recoveryCalls[0][1]).toContain("interrupt the stale turn");
+    expect(recoveryCalls[0][1]).toContain("full remaining authorized Work envelope");
+    expect(recoveryCalls[0][1]).toContain("Treat status requests as updates, not implicit pauses");
+    expect(recoveryCalls[0][1]).toContain("exact-once replay proof and recovery suppression remain authoritative");
     expect(recoveryCalls[0][1]).not.toContain("do not dispatch, advance quests");
-    expect(recoveryCalls[0][1]).toContain("phase-explicit");
-    expect(recoveryCalls[0][1]).toContain("plan only");
-    expect(recoveryCalls[0][1]).toContain("approved next phase and stop");
-    expect(recoveryCalls[0][1]).toContain("review/rework and report back");
-    expect(recoveryCalls[0][1]).toContain("port only when explicitly told");
+    expect(recoveryCalls[0][1]).toContain("phase-explicit under Quest Journey v2");
+    expect(recoveryCalls[0][1]).toContain("Alignment stops after the read-in");
+    expect(recoveryCalls[0][1]).toContain("Work owns the full remaining authorized envelope end to end");
+    expect(recoveryCalls[0][1]).toContain("Memory closes durable state");
+    expect(recoveryCalls[0][1]).not.toContain("approved next phase and stop");
+    expect(recoveryCalls[0][1]).not.toContain("port only when explicitly told");
   });
 
   it("clears stale Codex compaction on reconnect and injects recovery once", async () => {
