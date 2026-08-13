@@ -666,6 +666,32 @@ describe("MessageFeed - floating status pill", () => {
     );
   });
 
+  it("shows proof-gated request retry separately from process reconnect progress", () => {
+    const sid = "test-feed-provider-retry-chip";
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Retrying safely" })]);
+    setStoreSessionState(sid, {
+      backend_state: "recovering",
+      backend_reconnect: { attempt: 2, maxAttempts: 5, cycleStartedAt: 100 },
+      codex_provider_retry: {
+        family: "model_backend_stream_error",
+        ownerId: "input-1",
+        attempt: 1,
+        maxAttempts: 2,
+        startedAt: 100,
+      },
+    });
+    setStoreConnectionState(sid);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("codex-provider-retry-chip")).toHaveTextContent("Retrying request (1/2)");
+    expect(screen.getByTestId("recoverable-connection-chip")).toHaveTextContent("Reconnecting (2/5)");
+    fireEvent.click(screen.getByTestId("codex-provider-retry-chip"));
+    expect(screen.getByTestId("codex-provider-retry-detail")).toHaveTextContent(
+      "separate from the five-attempt process reconnect cycle",
+    );
+  });
+
   it("does not render the recoverable chip for unrecoverable broken sessions", () => {
     const sid = "test-feed-broken-no-chip";
     setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Broken session" })]);

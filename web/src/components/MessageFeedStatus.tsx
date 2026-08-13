@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import { sendToSession } from "../ws.js";
@@ -229,6 +230,95 @@ export function formatActiveReasoningStatusText(text: string): string {
   return collapsePreviewWhitespace(trimmed);
 }
 
+export function CodexProviderRetryChip({ sessionId }: { sessionId: string }) {
+  const [hoverOpen, setHoverOpen] = useState(false);
+  const [pinnedOpen, setPinnedOpen] = useState(false);
+  const [detailPosition, setDetailPosition] = useState<{ left: number; top: number; width: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
+  const retry = useStore((s) => s.sessions?.get(sessionId)?.codex_provider_retry ?? null);
+
+  const detailOpen = !!retry && (hoverOpen || pinnedOpen);
+  const label = retry ? `Retrying request (${retry.attempt}/${retry.maxAttempts})` : "Retrying request";
+  const detail = retry
+    ? `Takode is safely retrying this same request (attempt ${retry.attempt} of ${retry.maxAttempts}). ` +
+      "This proof-gated request retry is separate from the five-attempt process reconnect cycle."
+    : "";
+
+  useLayoutEffect(() => {
+    if (!detailOpen) {
+      setDetailPosition(null);
+      return;
+    }
+    const updatePosition = () => {
+      const button = buttonRef.current;
+      if (!button) return;
+      const buttonRect = button.getBoundingClientRect();
+      const width = Math.min(304, Math.max(0, window.innerWidth - 16));
+      const height = detailRef.current?.offsetHeight ?? 92;
+      const left = Math.max(8, Math.min(buttonRect.left, window.innerWidth - width - 8));
+      const aboveTop = buttonRect.top - height - 8;
+      const top =
+        aboveTop >= 8 ? aboveTop : Math.max(8, Math.min(buttonRect.bottom + 8, window.innerHeight - height - 8));
+      setDetailPosition({ left, top, width });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [detailOpen, detail]);
+
+  if (!retry) return null;
+
+  return (
+    <div
+      className="pointer-events-auto relative"
+      onMouseEnter={() => setHoverOpen(true)}
+      onMouseLeave={() => setHoverOpen(false)}
+    >
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`${FLOATING_FEED_CHIP_CLASS} cursor-pointer text-left transition-colors hover:border-white/14 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70`}
+        aria-expanded={detailOpen}
+        aria-controls={`codex-provider-retry-detail-${sessionId}`}
+        title={detail}
+        data-testid="codex-provider-retry-chip"
+        onClick={() => setPinnedOpen((open) => !open)}
+      >
+        <span className="pointer-events-none absolute inset-0 bg-cc-hover/20" />
+        <span className="relative h-2 w-2 shrink-0 animate-pulse rounded-full bg-cc-primary" aria-hidden="true" />
+        <span className="relative truncate text-cc-fg/90">{label}</span>
+      </button>
+
+      {detailOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={detailRef}
+            id={`codex-provider-retry-detail-${sessionId}`}
+            data-testid="codex-provider-retry-detail"
+            className="fixed z-[100] rounded-lg border border-cc-border bg-cc-card p-3 text-left shadow-xl"
+            style={{
+              left: detailPosition?.left ?? 8,
+              top: detailPosition?.top ?? 8,
+              width: detailPosition?.width ?? Math.min(304, Math.max(0, window.innerWidth - 16)),
+              visibility: detailPosition ? "visible" : "hidden",
+            }}
+            role="status"
+          >
+            <div className="text-[11px] font-medium text-cc-fg">{label}</div>
+            <div className="mt-1 text-[11px] leading-snug text-cc-muted">{detail}</div>
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+}
+
 export function RecoverableConnectionChip({ sessionId }: { sessionId: string }) {
   const [hoverOpen, setHoverOpen] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
@@ -339,6 +429,7 @@ export function FeedStatusPill({
         data-testid="feed-status-pill-left"
         className="pointer-events-none absolute bottom-2 left-2 z-10 flex max-w-[calc(100vw-1rem)] flex-col items-start gap-1.5 sm:bottom-3 sm:left-3"
       >
+        <CodexProviderRetryChip sessionId={sessionId} />
         <RecoverableConnectionChip sessionId={sessionId} />
         <ElapsedTimer
           sessionId={sessionId}

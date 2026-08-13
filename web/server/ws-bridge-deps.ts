@@ -74,6 +74,7 @@ import {
 import { detectLongSleepBashCommand, LONG_SLEEP_REMINDER_TEXT } from "./bridge/bash-sleep-policy.js";
 import { getApprovalSummary, getDenialSummary } from "./bridge/permission-summaries.js";
 import { listCodexReasoningPreviews } from "./bridge/codex-reasoning-preview-state.js";
+import { clearCodexProviderRetryState } from "./bridge/codex-provider-retry-state.js";
 import {
   cleanupBranchState as cleanupBranchStateIndex,
   invalidateSessionsSharingBranch as invalidateSessionsSharingBranchIndex,
@@ -686,7 +687,12 @@ export function getClaudeMessageHandlers(host: any) {
         isSystemSourceTag,
       }),
     reconcileTerminalResultState: (targetSession: unknown) => {
-      reconcileTerminalResultStateLifecycle(host.getGenerationLifecycleDeps(), targetSession as Session, "result");
+      const session = targetSession as Session;
+      reconcileTerminalResultStateLifecycle(
+        host.getGenerationLifecycleDeps(),
+        session,
+        session.state.codex_provider_retry ? "codex_provider_result_retry" : "result",
+      );
     },
     getCodexAutoPauseRecoveryTesting: (targetSession: unknown) =>
       (targetSession as Session).backendType === "codex"
@@ -1422,8 +1428,19 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
       enqueueCodexTurnState(targetSession as Session, turn),
     getCodexHeadTurn: (targetSession: unknown) => getCodexHeadTurnState(targetSession as Session),
     getCodexTurnInRecovery: (targetSession: unknown) => getCodexTurnInRecoveryState(targetSession as Session),
-    completeCodexTurn: (targetSession: unknown, turn: CodexOutboundTurn | null) =>
-      completeCodexTurnState(targetSession as Session, turn),
+    completeCodexTurn: (targetSession: unknown, turn: CodexOutboundTurn | null) => {
+      const session = targetSession as Session;
+      const completed = completeCodexTurnState(session, turn);
+      if (turn) {
+        clearCodexProviderRetryState(session, turn.userMessageId, (state) =>
+          host.broadcastToBrowsers(session, {
+            type: "session_update",
+            session: { codex_provider_retry: state },
+          }),
+        );
+      }
+      return completed;
+    },
     completeCodexTurnsForResult: (targetSession: unknown, msg: CLIResultMessage, updatedAt?: number) =>
       completeCodexTurnsForResultController(targetSession as Session, msg, codexRecoveryDeps, updatedAt),
     clearCodexFreshTurnRequirement: (

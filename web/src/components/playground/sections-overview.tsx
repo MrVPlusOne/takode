@@ -777,7 +777,7 @@ export function PlaygroundOverviewSections() {
               <ChatView sessionId={PLAYGROUND_STARTING_SESSION_ID} />
             </div>
           </Card>
-          <Card label="Recoverable reconnecting chip">
+          <Card label="Safe request retry + reconnecting chips">
             <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
               <ChatView sessionId={PLAYGROUND_RECOVERING_SESSION_ID} />
             </div>

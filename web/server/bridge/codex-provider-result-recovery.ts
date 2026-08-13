@@ -61,7 +61,7 @@ export function isCodexTurnReplayProvablySafe(
     if (entry.type === "tool_result_preview") return false;
     if (entry.type === "permission_approved" || entry.type === "permission_denied") return false;
     if (entry.type === "task_notification") return false;
-    if (entry.type === "result") return false;
+    if (entry.type === "result" && entry.data.codex_provider_retry?.ownerId !== turn.userMessageId) return false;
   }
   return true;
 }

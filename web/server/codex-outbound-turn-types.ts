@@ -16,6 +16,14 @@ export interface CodexProviderFailureContext {
   observedAt: number;
 }
 
+export interface CodexProviderRetryState {
+  family: CodexProviderRecoveryFamily;
+  ownerId: string;
+  attempt: number;
+  maxAttempts: number;
+  startedAt: number;
+}
+
 export interface CodexOutboundTurnBase<TAdapterMessage> {
   adapterMsg: TAdapterMessage;
   userMessageId: string;

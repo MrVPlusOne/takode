@@ -1,7 +1,7 @@
 import type { SessionState } from "../session-types.js";
 
 export interface BackendStateSnapshotSessionLike {
-  state: Pick<SessionState, "backend_error" | "backend_reconnect">;
+  state: Pick<SessionState, "backend_error" | "backend_reconnect" | "codex_provider_retry">;
 }
 
 export interface BackendStateSnapshotDeps<Session extends BackendStateSnapshotSessionLike> {
@@ -17,11 +17,13 @@ export function buildBackendStateSnapshot<Session extends BackendStateSnapshotSe
   backendState: NonNullable<SessionState["backend_state"]>;
   backendError: string | null;
   backendReconnect: SessionState["backend_reconnect"];
+  codexProviderRetry: SessionState["codex_provider_retry"];
 } {
   return {
     backendConnected: deps.backendConnected(session),
     backendState: deps.deriveBackendState(session),
     backendError: session.state.backend_error ?? null,
     backendReconnect: session.state.backend_reconnect ?? null,
+    codexProviderRetry: session.state.codex_provider_retry ?? null,
   };
 }

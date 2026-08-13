@@ -139,6 +139,35 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     now.mockRestore();
   });
 
+  it("hides persisted transient provider results while a safe same-turn retry owns them", () => {
+    const message: BrowserIncomingMessage = {
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        result: "stream disconnected before completion",
+        duration_ms: 10,
+        duration_api_ms: 5,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "failed",
+        uuid: "provider-retry-result",
+        session_id: "session-1",
+        usage: { input_tokens: 1, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        codex_provider_retry: {
+          family: "model_backend_stream_error",
+          ownerId: "input-1",
+          attempt: 1,
+          maxAttempts: 2,
+          startedAt: 100,
+        },
+      },
+    };
+
+    expect(normalizeHistoryMessageToChatMessages(message, 43)).toEqual([]);
+  });
+
   it("suppresses legacy Claude user-control diagnostics even without a persisted interrupted flag", () => {
     // Older live servers stored the diagnostic in errors[] before adding the
     // top-level interrupted marker. Replaying that history must not recreate it.

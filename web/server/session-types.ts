@@ -12,6 +12,7 @@ import type {
   CodexAutoPauseInputSourceKind,
   CodexOutboundTurnBase,
   CodexProviderFailureContext,
+  CodexProviderRetryState,
 } from "./codex-outbound-turn-types.js";
 import type { LeaderProjectionSnapshot } from "./leader-projection-types.js";
 import type { SessionLifecycleBrowserMessage } from "./session-lifecycle-message.js";
@@ -30,6 +31,7 @@ export type {
   CodexProviderFailureContext,
   CodexProviderFailureContextFamily,
   CodexProviderRecoveryFamily,
+  CodexProviderRetryState,
 } from "./codex-outbound-turn-types.js";
 export type {
   LeaderProjectionInternalSnapshot,
@@ -130,6 +132,8 @@ export interface CLIResultMessage {
   errors?: string[];
   /** Sanitized adapter-observed evidence that can disambiguate a misleading provider error. */
   codex_provider_failure_context?: CodexProviderFailureContext;
+  /** Server-authored marker for a hidden, actively retrying provider result. */
+  codex_provider_retry?: CodexProviderRetryState;
   duration_ms: number;
   duration_api_ms: number;
   num_turns: number;
@@ -1137,6 +1141,7 @@ export type BrowserIncomingMessageBase =
       backendState?: SessionState["backend_state"];
       backendError?: string | null;
       backendReconnect?: BackendReconnectProgress | null;
+      codexProviderRetry?: CodexProviderRetryState | null;
       uiMode: string | null;
       askPermission: boolean;
       lastReadAt?: number;
@@ -1321,6 +1326,8 @@ export interface SessionState {
   backend_error?: string | null;
   /** Server-authored Codex process reconnect progress. */
   backend_reconnect?: BackendReconnectProgress | null;
+  /** Server-authored same-turn provider retry progress, separate from process reconnects. */
+  codex_provider_retry?: CodexProviderRetryState | null;
   model: string;
   /** Server-owned historical warning for one-time unknown-provenance migration. */
   modelProvenanceMigration?: ModelProvenanceMigration;

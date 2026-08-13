@@ -379,6 +379,7 @@ describe("setGenerating(false) — queued turn handling", () => {
   });
 
   it.each([
+    ["codex_provider_result_retry", "proof-gated provider result retry cleanup"],
     ["codex_init_error", "transient init failure cleanup"],
     ["codex_recovery_suppressed", "exhausted init recovery cleanup"],
   ])("suppresses external turn_end for %s while preserving local teardown", (reason, _label) => {

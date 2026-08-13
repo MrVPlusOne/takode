@@ -32,7 +32,7 @@ export function getMessageAtAbsoluteHistoryIndex(
 
 export function summarizeLocalCodexDeliveryActivity(
   session: CodexDeliveryHistoryLike,
-  turn: Pick<CodexOutboundTurn, "historyIndex">,
+  turn: Pick<CodexOutboundTurn, "historyIndex" | "userMessageId">,
 ): CodexLocalDeliveryActivitySummary {
   if (turn.historyIndex < 0) return emptySummary();
   const frozenCount = session._frozenCount ?? 0;
@@ -45,6 +45,7 @@ export function summarizeLocalCodexDeliveryActivity(
   for (let localIndex = firstLocalIndex; localIndex < session.messageHistory.length; localIndex++) {
     const message = session.messageHistory[localIndex];
     if (!message) continue;
+    if (message.type === "result" && message.data.codex_provider_retry?.ownerId === turn.userMessageId) continue;
     const messageKinds = classifyLocalActivity(message);
     if (messageKinds.length === 0) continue;
     const absoluteIndex = frozenCount + localIndex;

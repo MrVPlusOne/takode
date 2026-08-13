@@ -748,6 +748,78 @@ describe("reconcileCodexResumedTurn", () => {
     expect(pending.turnId).toBeNull();
   });
 
+  it("retries a user-only resume when history contains only the matching transient provider result", () => {
+    const request = "continue the implementation";
+    const session = makeSession([]);
+    session.isGenerating = true;
+    session.messageHistory = [
+      { type: "user_message", id: "user-1", content: request, timestamp: 1_000 },
+      {
+        type: "result",
+        data: {
+          type: "result",
+          subtype: "error_during_execution",
+          is_error: true,
+          result: "stream disconnected before completion",
+          duration_ms: 0,
+          duration_api_ms: 0,
+          num_turns: 0,
+          total_cost_usd: 0,
+          stop_reason: "failed",
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          uuid: "retry-result",
+          session_id: "test-session",
+          codex_provider_retry: {
+            family: "model_backend_stream_error",
+            ownerId: "user-1",
+            attempt: 1,
+            maxAttempts: 2,
+            startedAt: 1_500,
+          },
+        },
+      },
+    ];
+    const pending = makePendingTurn();
+    pending.userMessageId = "user-1";
+    pending.pendingInputIds = ["user-1"];
+    pending.userContent = request;
+    pending.historyIndex = 0;
+    pending.status = "backend_acknowledged";
+    pending.turnTarget = "current";
+    pending.turnId = "turn-user-only";
+    session.pendingCodexTurns = [pending];
+    const deps = makeRecoveryDeps({
+      dispatchQueuedCodexTurns: vi.fn((targetSession: CodexRecoveryOrchestratorSessionLike) => {
+        const head = targetSession.pendingCodexTurns[0];
+        if (head) head.status = "dispatched";
+      }),
+      setGenerating: vi.fn((targetSession: CodexRecoveryOrchestratorSessionLike, generating: boolean) => {
+        targetSession.isGenerating = generating;
+      }),
+    });
+
+    reconcileCodexResumedTurn(
+      session,
+      {
+        threadId: "thread-history",
+        turnCount: 1,
+        threadStatus: "idle",
+        turns: [],
+        lastTurn: {
+          id: "turn-user-only",
+          status: "interrupted",
+          error: null,
+          items: [{ type: "userMessage", content: [{ type: "text", text: request }] }],
+        },
+      } as CodexResumeSnapshot,
+      deps,
+    );
+
+    expect(deps.dispatchQueuedCodexTurns).toHaveBeenCalledWith(session, "codex_retry_pending_turn");
+    expect(pending.status).toBe("dispatched");
+    expect(pending.turnId).toBeNull();
+  });
+
   it("surfaces a visible diagnostic when a safe user-only retry cannot dispatch", () => {
     const request = "continue the implementation";
     const session = makeSession([{ id: "input-1", content: request, timestamp: 1_000, cancelable: false }]);

@@ -22,6 +22,7 @@ export const RECOVERY_REASONS = new Set([
  * run, but no external turn_end herd event should be emitted. */
 export const SUPPRESSED_TAKODE_TURN_END_REASONS = new Set([
   "codex_retry_pending_turn_restart",
+  "codex_provider_result_retry",
   "codex_init_error",
   "codex_recovery_suppressed",
 ]);

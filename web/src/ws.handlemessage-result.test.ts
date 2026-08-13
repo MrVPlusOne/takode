@@ -170,6 +170,43 @@ describe("handleMessage: result", () => {
     expect(state.messageFrozenCounts.get("s1")).toBe(2);
   });
 
+  it("does not append or notify for a transient provider result owned by safe retry", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+    const hasFocusSpy = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+
+    fireMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        result: "stream disconnected before completion",
+        duration_ms: 10,
+        duration_api_ms: 5,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "failed",
+        uuid: "provider-retry-result",
+        session_id: "s1",
+        usage: { input_tokens: 1, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        codex_provider_retry: {
+          family: "model_backend_stream_error",
+          ownerId: "input-1",
+          attempt: 1,
+          maxAttempts: 2,
+          startedAt: 100,
+        },
+      },
+    });
+
+    expect(useStore.getState().messages.get("s1") ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ variant: "error" })]),
+    );
+    expect(playNotificationSoundMock).not.toHaveBeenCalled();
+    hasFocusSpy.mockRestore();
+  });
+
   it("clears synthetic Codex /status streaming state when the terminal result arrives", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });

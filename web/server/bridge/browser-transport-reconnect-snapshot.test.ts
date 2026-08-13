@@ -15,6 +15,13 @@ function makeSession(): BrowserTransportSessionLike {
       permissionMode: "default",
       backend_state: "recovering",
       backend_reconnect: { attempt: 2, maxAttempts: 5, cycleStartedAt: 100 },
+      codex_provider_retry: {
+        family: "model_backend_stream_error",
+        ownerId: "input-1",
+        attempt: 1,
+        maxAttempts: 2,
+        startedAt: 90,
+      },
     } as any,
     nextEventSeq: 1,
     lastAckSeq: 0,
@@ -59,6 +66,13 @@ describe("Codex reconnect progress snapshots", () => {
         type: "state_snapshot",
         backendState: "recovering",
         backendReconnect: { attempt: 2, maxAttempts: 5, cycleStartedAt: 100 },
+        codexProviderRetry: {
+          family: "model_backend_stream_error",
+          ownerId: "input-1",
+          attempt: 1,
+          maxAttempts: 2,
+          startedAt: 90,
+        },
       });
     }
   });

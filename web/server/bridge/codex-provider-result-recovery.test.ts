@@ -69,6 +69,47 @@ describe("Codex provider result recovery", () => {
     expect(isCodexTurnReplayProvablySafe([userMessage], pending)).toBe(true);
   });
 
+  it("allows the second proof-gated retry past only the matching transient audit result", () => {
+    const pending = turn({ providerRecoveryAttempts: 1, turnId: "turn-2" });
+    const transientResult: BrowserIncomingMessage = {
+      type: "result",
+      data: {
+        ...result({ codex_turn_id: "turn-1", uuid: "result-attempt-1" }),
+        codex_provider_retry: {
+          family: "model_backend_stream_error",
+          ownerId: "input-1",
+          attempt: 1,
+          maxAttempts: 2,
+          startedAt: 10,
+        },
+      },
+    };
+
+    expect(
+      decideCodexProviderResultRecovery({ messageHistory: [userMessage, transientResult] }, result(), pending),
+    ).toEqual({
+      kind: "recover",
+      family: "model_backend_stream_error",
+      retryTurn: true,
+      attempt: 2,
+    });
+    expect(
+      isCodexTurnReplayProvablySafe(
+        [
+          userMessage,
+          {
+            ...transientResult,
+            data: {
+              ...transientResult.data,
+              codex_provider_retry: { ...transientResult.data.codex_provider_retry!, ownerId: "different-input" },
+            },
+          },
+        ],
+        pending,
+      ),
+    ).toBe(false);
+  });
+
   it("refreshes connectivity without replay when assistant or tool output makes exact-once execution unprovable", () => {
     const pending = turn();
     const assistant = {

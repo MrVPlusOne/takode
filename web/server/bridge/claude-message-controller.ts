@@ -828,10 +828,13 @@ export function handleResultMessage(
   const turnWasInterrupted = isTerminalResultInterrupted(msg, {
     sessionInterrupted: session.interruptedDuringTurn,
   });
+  const isProviderRetryResult = !!msg.codex_provider_retry;
   const turnTriggerSource = deps.getCurrentTurnTriggerSource(session);
   const threadRoutingReminder =
-    turnWasInterrupted || turnTriggerSource === "system" ? null : buildThreadRoutingReminderForCompletedTurn(session);
-  const questThreadReminders = consumeQuestThreadRemindersForCompletedTurn(session);
+    turnWasInterrupted || isProviderRetryResult || turnTriggerSource === "system"
+      ? null
+      : buildThreadRoutingReminderForCompletedTurn(session);
+  const questThreadReminders = isProviderRetryResult ? [] : consumeQuestThreadRemindersForCompletedTurn(session);
   const deliverQuestThreadReminders = turnWasInterrupted ? [] : questThreadReminders;
   deps.drainInlineQueuedClaudeTurns(session, "result");
 
@@ -902,11 +905,11 @@ export function handleResultMessage(
   deps.broadcastToBrowsers(session, resultBrowserMsg);
   deps.persistSession(session);
 
-  if (!turnWasInterrupted) {
+  if (!turnWasInterrupted && !isProviderRetryResult) {
     deps.validateLeaderThreadOutcomes(session, turnTriggerSource);
     deps.onResultAttentionAndNotifications(session, msg, turnTriggerSource);
   }
-  deps.onTurnCompleted(session);
+  if (!isProviderRetryResult) deps.onTurnCompleted(session);
   for (const reminder of deliverQuestThreadReminders) {
     deps.injectUserMessage(session.id, reminder.content, reminder.agentSource, undefined, reminder.route);
   }

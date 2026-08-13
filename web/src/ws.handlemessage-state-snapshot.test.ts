@@ -292,6 +292,34 @@ describe("handleMessage: state_snapshot", () => {
     expect(session?.backend_error).toBe("Codex initialization failed: Transport closed");
   });
 
+  it("hydrates authoritative same-turn provider retry state", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: null,
+      permissionMode: "default",
+      backendConnected: false,
+      backendState: "recovering",
+      codexProviderRetry: {
+        family: "model_backend_stream_error",
+        ownerId: "input-1",
+        attempt: 2,
+        maxAttempts: 2,
+        startedAt: 100,
+      },
+      uiMode: null,
+      askPermission: true,
+    });
+
+    expect(useStore.getState().sessions.get("s1")?.codex_provider_retry).toMatchObject({
+      ownerId: "input-1",
+      attempt: 2,
+      maxAttempts: 2,
+    });
+  });
+
   it("sets backendConnected to false and sessionStatus to null when CLI is disconnected", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

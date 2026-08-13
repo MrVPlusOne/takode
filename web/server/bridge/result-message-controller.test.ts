@@ -162,6 +162,39 @@ describe("result-message-controller", () => {
     expect(deps.onTurnCompleted).toHaveBeenCalledWith(session);
   });
 
+  it("persists transient provider retry audit without terminal attention or completion hooks", () => {
+    const session = makeSession();
+    session.backendType = "codex";
+    const deps = makeDeps();
+
+    handleResultMessage(
+      session,
+      makeResult({
+        subtype: "error_during_execution",
+        is_error: true,
+        result: "stream disconnected before completion",
+        codex_provider_retry: {
+          family: "model_backend_stream_error",
+          ownerId: "input-1",
+          attempt: 1,
+          maxAttempts: 2,
+          startedAt: 100,
+        },
+      }),
+      deps,
+    );
+
+    expect(session.messageHistory.at(-1)).toMatchObject({
+      type: "result",
+      data: { codex_provider_retry: { ownerId: "input-1", attempt: 1 } },
+    });
+    expect(deps.reconcileTerminalResultState).toHaveBeenCalledWith(session);
+    expect(deps.validateLeaderThreadOutcomes).not.toHaveBeenCalled();
+    expect(deps.onResultAttentionAndNotifications).not.toHaveBeenCalled();
+    expect(deps.onTurnCompleted).not.toHaveBeenCalled();
+    expect(deps.injectUserMessage).not.toHaveBeenCalled();
+  });
+
   it("normalizes result turn counts from backend history instead of CLI num_turns", () => {
     // Protects both Codex per-result counts and Claude compaction-reset counts:
     // browser-visible result/session_update turn metrics come from history.

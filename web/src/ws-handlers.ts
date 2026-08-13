@@ -1030,7 +1030,8 @@ function handleParsedMessage(
       store.setSessionStuck(sessionId, false);
       store.setTasks(sessionId, []);
       store.setSessionTaskPreview(sessionId, null);
-      const notifyOnResult = shouldNotifyOnResult(sessionId, store);
+      const isProviderRetryResult = !!r.codex_provider_retry;
+      const notifyOnResult = !isProviderRetryResult && shouldNotifyOnResult(sessionId, store);
       // Play notification sound if enabled and tab is not focused
       if (notifyOnResult && !document.hasFocus() && store.notificationSound) {
         const sdk = store.sdkSessions.find((s) => s.sessionId === sessionId);
@@ -1042,7 +1043,11 @@ function handleParsedMessage(
       if (notifyOnResult && !document.hasFocus() && store.notificationDesktop) {
         sendBrowserNotification("Session completed", "Claude finished the task", sessionId);
       }
-      if (r.is_error && !isTerminalResultInterrupted(r, { explicitInterrupted: data.interrupted === true })) {
+      if (
+        r.is_error &&
+        !isProviderRetryResult &&
+        !isTerminalResultInterrupted(r, { explicitInterrupted: data.interrupted === true })
+      ) {
         const errorText = r.errors?.length ? r.errors.join(", ") : r.result || "An error occurred";
         const isContextLimit = errorText.toLowerCase().includes("prompt is too long");
 
@@ -1487,6 +1492,7 @@ function handleParsedMessage(
           ...(data.backendState !== undefined ? { backend_state: data.backendState } : {}),
           ...(data.backendError !== undefined ? { backend_error: data.backendError } : {}),
           ...(data.backendReconnect !== undefined ? { backend_reconnect: data.backendReconnect } : {}),
+          ...(data.codexProviderRetry !== undefined ? { codex_provider_retry: data.codexProviderRetry } : {}),
         });
       }
       if (data.backendConnected) store.setCliEverConnected(sessionId);

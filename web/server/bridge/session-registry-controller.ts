@@ -842,13 +842,18 @@ export function setBackendState(
   backendError: string | null,
   deps: Pick<SessionRegistryDeps, "broadcastSessionUpdate">,
 ): void {
-  const changed = session.state.backend_state !== backendState || session.state.backend_error !== backendError;
+  const clearProviderRetry =
+    (backendState === "broken" || backendState === "recovery_suppressed") && !!session.state.codex_provider_retry;
+  const changed =
+    session.state.backend_state !== backendState || session.state.backend_error !== backendError || clearProviderRetry;
   session.state.backend_state = backendState;
   session.state.backend_error = backendError;
+  if (clearProviderRetry) session.state.codex_provider_retry = null;
   if (!changed) return;
   deps.broadcastSessionUpdate?.(session, {
     backend_state: backendState,
     backend_error: backendError,
+    ...(clearProviderRetry ? { codex_provider_retry: null } : {}),
   });
 }
 

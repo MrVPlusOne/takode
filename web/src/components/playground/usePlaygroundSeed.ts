@@ -1357,6 +1357,13 @@ export function usePlaygroundSeed() {
       backend_state: "recovering",
       backend_error: null,
       backend_reconnect: { attempt: 2, maxAttempts: 5, cycleStartedAt: Date.now() - 45_000 },
+      codex_provider_retry: {
+        family: "model_backend_stream_error",
+        ownerId: "playground-retry-owner",
+        attempt: 1,
+        maxAttempts: 2,
+        startedAt: Date.now() - 45_000,
+      },
       model: "gpt-5.3-codex",
     });
     store.setConnectionStatus(PLAYGROUND_RECOVERING_SESSION_ID, "connected");

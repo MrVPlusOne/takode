@@ -470,7 +470,13 @@ export function normalizeHistoryMessageToChatMessages(
   }
 
   if (histMsg.type === "result") {
-    const result = histMsg.data as { is_error?: boolean; errors?: string[]; result?: string };
+    const result = histMsg.data as {
+      is_error?: boolean;
+      errors?: string[];
+      result?: string;
+      codex_provider_retry?: unknown;
+    };
+    if (result.codex_provider_retry) return [];
     if (!result.is_error) {
       if (!includeSuccessfulResult || histMsg.interrupted || !result.result) return [];
       return [
