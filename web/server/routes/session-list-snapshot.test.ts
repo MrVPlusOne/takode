@@ -200,6 +200,25 @@ describe("buildEnrichedSessionsSnapshot", () => {
     expect(snapshot[0].lastUserMessageAt).toBeUndefined();
   });
 
+  it("exposes requested and effective Codex reasoning as separate session snapshot fields", async () => {
+    // Sidebar/frontend SDK snapshots must not reinterpret the persisted request as
+    // runtime proof; effective values come only from bridge app-server state.
+    const launcherSession = makeLauncherSession({ backendType: "codex", codexReasoningEffort: "ultra" });
+    const bridgeSession = makeBridgeSession([]);
+    bridgeSession.state = {
+      codex_effective_reasoning_effort: "high",
+      codex_effective_reasoning_effort_reported: true,
+    };
+
+    const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, bridgeSession));
+
+    expect(snapshot[0]).toMatchObject({
+      codexReasoningEffort: "ultra",
+      codexEffectiveReasoningEffort: "high",
+      codexEffectiveReasoningEffortReported: true,
+    });
+  });
+
   it("exposes backend-owned real user turn counts instead of bridge CLI num_turns", async () => {
     // Sidebar and hover metadata must use server history because Codex may keep
     // bridge state at num_turns: 1 even after many completed turns.

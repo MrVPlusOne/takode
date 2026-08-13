@@ -1,6 +1,9 @@
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerSessionConfigRoutes } from "./session-config-routes.js";
+import { _resetCodexModelCatalogCacheForTest, loadCodexModelCatalog } from "../codex-model-catalog.js";
+
+afterEach(() => _resetCodexModelCatalogCacheForTest());
 
 function makeSessionState(overrides: Record<string, unknown> = {}) {
   return {
@@ -177,7 +180,12 @@ describe("session config routes", () => {
       ok: true,
       restartRequired: true,
       restartRequiredFields: ["codexReasoningEffort", "codexMaxContextLength"],
-      sessionState: { codex_reasoning_effort: "ultra", codex_max_context_length: 240000 },
+      sessionState: {
+        codex_reasoning_effort: "ultra",
+        codex_effective_reasoning_effort: null,
+        codex_effective_reasoning_effort_reported: false,
+        codex_max_context_length: 240000,
+      },
     });
     expect(launcher.updateSessionLaunchConfig).toHaveBeenCalledWith("s1", {
       codexReasoningEffort: "ultra",
@@ -186,10 +194,51 @@ describe("session config routes", () => {
     expect(wsBridge.setCodexServiceTier).not.toHaveBeenCalled();
     expect(wsBridge.broadcastToSession).toHaveBeenCalledWith("s1", {
       type: "session_update",
-      session: { codex_reasoning_effort: "ultra", codex_max_context_length: 240000 },
+      session: {
+        codex_reasoning_effort: "ultra",
+        codex_effective_reasoning_effort: null,
+        codex_effective_reasoning_effort_reported: false,
+        codex_max_context_length: 240000,
+      },
     });
     expect(wsBridge.persistSessionById).toHaveBeenCalledWith("s1");
     expect((session.state as Record<string, unknown>).codex_max_context_length).toBe(240000);
+  });
+
+  it("rejects a configured effort unsupported by the selected Codex model", async () => {
+    await loadCodexModelCatalog({
+      codexBinary: "/fake/codex",
+      statImpl: (async () => ({ mtimeMs: 1, size: 1 })) as never,
+      runCodexCommand: async (_binary, args) => ({
+        stdout:
+          args[0] === "--version"
+            ? "codex-cli test"
+            : JSON.stringify({
+                models: [
+                  {
+                    slug: "gpt-limited",
+                    display_name: "GPT Limited",
+                    visibility: "list",
+                    supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }],
+                  },
+                ],
+              }),
+      }),
+    });
+    const { app, launcher } = createApp({
+      info: { model: "gpt-limited", codexReasoningEffort: "high" },
+      sessionState: { model: "gpt-limited", codex_reasoning_effort: "high" },
+    });
+
+    const res = await app.request("/sessions/s1/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codexReasoningEffort: "ultra" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining('"ultra" is not supported') });
+    expect(launcher.updateSessionLaunchConfig).not.toHaveBeenCalled();
   });
 
   it("persists Codex leader compaction mode as a restart-required setting", async () => {

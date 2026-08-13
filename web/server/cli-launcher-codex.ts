@@ -626,7 +626,7 @@ function ensureCodexModelEntrySchemaDefaults(modelEntry: Record<string, any>, mo
       { effort: "high", description: "Greater reasoning depth for complex problems" },
       { effort: "xhigh", description: "Extra high reasoning depth for complex problems" },
       { effort: "max", description: "Maximum reasoning depth for the hardest problems" },
-      { effort: "ultra", description: "Maximum reasoning with automatic task delegation" },
+      { effort: "ultra", description: "Maximum reasoning that may proactively use multiple agents" },
     ],
     Array.isArray,
   );

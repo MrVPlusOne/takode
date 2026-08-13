@@ -12,6 +12,8 @@ export function useComposerSessionView(sessionId: string) {
       const sessionData = s.sessions.get(sessionId);
       const sdkSession = s.sdkSessions?.find((sdk) => sdk.sessionId === sessionId);
       const isConnected = s.cliConnected.get(sessionId) ?? false;
+      const hasLiveRequestedEffort = !!sessionData && Object.hasOwn(sessionData, "codex_reasoning_effort");
+      const hasLiveEffectiveEffort = !!sessionData && Object.hasOwn(sessionData, "codex_effective_reasoning_effort");
       return {
         isConnected,
         browserConnectionStatus: s.connectionStatus?.get(sessionId) ?? (isConnected ? "connected" : "disconnected"),
@@ -22,7 +24,15 @@ export function useComposerSessionView(sessionId: string) {
         isArchived: sdkSession?.archived === true,
         permissionMode: sessionData?.permissionMode || "acceptEdits",
         serverUiMode: sessionData?.uiMode,
-        codexReasoningEffort: sessionData?.codex_reasoning_effort || "",
+        codexReasoningEffort: hasLiveRequestedEffort
+          ? sessionData?.codex_reasoning_effort || ""
+          : sdkSession?.codexReasoningEffort || "",
+        codexEffectiveReasoningEffort: hasLiveEffectiveEffort
+          ? (sessionData?.codex_effective_reasoning_effort ?? null)
+          : (sdkSession?.codexEffectiveReasoningEffort ?? null),
+        codexEffectiveReasoningEffortReported: hasLiveEffectiveEffort
+          ? sessionData?.codex_effective_reasoning_effort_reported === true
+          : sdkSession?.codexEffectiveReasoningEffortReported === true,
         codexServiceTier: sessionData?.codex_service_tier ?? null,
         slashCommands: sessionData?.slash_commands ?? EMPTY_STRING_ARRAY,
         skills: sessionData?.skills ?? EMPTY_STRING_ARRAY,

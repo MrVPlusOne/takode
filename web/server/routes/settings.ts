@@ -53,6 +53,11 @@ import {
   normalizeSessionDefaults,
 } from "../../shared/session-defaults.js";
 import { normalizeCodexLeaderCompactionMode } from "../../shared/codex-leader-compaction-mode.js";
+import { getCachedCodexModelCatalog } from "../codex-model-catalog.js";
+import {
+  findCodexReasoningEffortSupportIssue,
+  formatCodexReasoningEffortSupportIssue,
+} from "../../shared/codex-reasoning-effort.js";
 
 export function createSettingsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -819,6 +824,22 @@ export function createSettingsRoutes(ctx: RouteContext) {
         : null;
     const parsedSessionDefaults =
       body.sessionDefaults !== undefined ? normalizeSessionDefaults(body.sessionDefaults) : undefined;
+    if (parsedSessionDefaults) {
+      const profiles: Array<[string, { model: string; reasoningEffort: string }]> = [
+        ["Worker Defaults", parsedSessionDefaults.codex],
+      ];
+      if (!parsedSessionDefaults.leaderUsesWorkerDefaults) {
+        profiles.push(["Leader Defaults", parsedSessionDefaults.leader.codex]);
+      }
+      for (const [label, defaults] of profiles) {
+        const issue = findCodexReasoningEffortSupportIssue(
+          getCachedCodexModelCatalog()?.models,
+          defaults.model,
+          defaults.reasoningEffort,
+        );
+        if (issue) return c.json({ error: `${label}: ${formatCodexReasoningEffortSupportIssue(issue)}` }, 400);
+      }
+    }
     if (body.serverName !== undefined && typeof body.serverName !== "string") {
       return c.json({ error: "serverName must be a string" }, 400);
     }

@@ -21,6 +21,8 @@ interface MockStoreState {
       codex_max_context_length?: number | null;
       codexMaxContextLength?: number;
       codex_reasoning_effort?: string;
+      codex_effective_reasoning_effort?: string | null;
+      codex_effective_reasoning_effort_reported?: boolean;
       codex_leader_recycle_threshold_tokens?: number;
       codex_goal?: {
         threadId: string;
@@ -294,6 +296,26 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByText("Reasoning")).toBeInTheDocument();
     expect(screen.getByText("Working Directory")).toBeInTheDocument();
     expect(screen.getByTestId("session-info-configure-session")).toBeInTheDocument();
+  });
+
+  it("shows requested and runtime-effective Codex reasoning separately", () => {
+    // The editable requested launch value remains Ultra while the runtime authority
+    // can truthfully report a different effective effort.
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.codex_reasoning_effort = "ultra";
+    session.codex_effective_reasoning_effort = "high";
+    session.codex_effective_reasoning_effort_reported = true;
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByText("ultra").closest("button")).toBeInTheDocument();
+    expect(screen.getByTestId("session-info-effective-reasoning")).toHaveTextContent("high");
+    expect(screen.getByTestId("session-info-effective-reasoning")).toHaveAttribute(
+      "title",
+      "Effective: High; requested: Ultra",
+    );
   });
 
   it("labels launch settings as applying on resume when backend is disconnected but Takode is reachable", () => {

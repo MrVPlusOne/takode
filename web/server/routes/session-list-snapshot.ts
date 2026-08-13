@@ -216,6 +216,8 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
           ...(leaderProfilePortrait ? { leaderProfilePortrait } : {}),
           ...(codexLeaderRecycleThresholdTokens ? { codexLeaderRecycleThresholdTokens } : {}),
           ...(bridge?.codex_token_details ? { codexTokenDetails: bridge.codex_token_details } : {}),
+          codexEffectiveReasoningEffort: bridge?.codex_effective_reasoning_effort ?? null,
+          codexEffectiveReasoningEffortReported: bridge?.codex_effective_reasoning_effort_reported === true,
           ...(bridge?.claude_token_details ? { claudeTokenDetails: bridge.claude_token_details } : {}),
           ...(bridge?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: bridge.leaderOpenThreadTabs } : {}),
           ...(leaderActiveBoardRows !== undefined ? { leaderActiveBoardRows } : {}),

@@ -50,6 +50,8 @@ export interface AdapterBrowserRoutingSessionLike {
     | "codex_rate_limits"
     | "codex_image_send_stage"
     | "codex_reasoning_effort"
+    | "codex_effective_reasoning_effort"
+    | "codex_effective_reasoning_effort_reported"
     | "codex_service_tier"
     | "codex_token_details"
     | "codex_result_error_auto_pause"

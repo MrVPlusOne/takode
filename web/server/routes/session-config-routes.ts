@@ -14,6 +14,11 @@ import type { RouteContext } from "./context.js";
 import { resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
 import { markCodexModelSwitchCompactionGuard } from "../bridge/codex-model-switch-compaction.js";
 import { normalizeCodexLeaderCompactionMode } from "../../shared/codex-leader-compaction-mode.js";
+import { getCachedCodexModelCatalog } from "../codex-model-catalog.js";
+import {
+  findCodexReasoningEffortSupportIssue,
+  formatCodexReasoningEffortSupportIssue,
+} from "../../shared/codex-reasoning-effort.js";
 
 type ConfigField =
   | "model"
@@ -155,9 +160,6 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
       const current = liveStateValue<string>(liveState, "model", info.model) || "";
       if (changed(current, rawModel)) {
         launchPatch.model = rawModel;
-        if (backendType === "codex") {
-          markCodexModelSwitchCompactionGuard(session, { previousModel: current, nextModel: rawModel });
-        }
         record("model", "model", rawModel);
       }
     }
@@ -295,6 +297,23 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
           launchPatch.claudeMaxContextLength = maxContext.value ?? undefined;
           record("claudeMaxContextLength", "claude_max_context_length", maxContext.value ?? null);
         }
+      }
+    }
+
+    if (backendType === "codex") {
+      if (changedFields.includes("model") || changedFields.includes("codexReasoningEffort")) {
+        statePatch.codex_effective_reasoning_effort = null;
+        statePatch.codex_effective_reasoning_effort_reported = false;
+      }
+      const nextModel = launchPatch.model ?? info.model;
+      const nextEffort = Object.prototype.hasOwnProperty.call(launchPatch, "codexReasoningEffort")
+        ? launchPatch.codexReasoningEffort
+        : info.codexReasoningEffort;
+      const issue = findCodexReasoningEffortSupportIssue(getCachedCodexModelCatalog()?.models, nextModel, nextEffort);
+      if (issue) return c.json({ error: formatCodexReasoningEffortSupportIssue(issue) }, 400);
+      if (typeof launchPatch.model === "string") {
+        const previousModel = liveStateValue<string>(liveState, "model", info.model) || "";
+        markCodexModelSwitchCompactionGuard(session, { previousModel, nextModel: launchPatch.model });
       }
     }
 

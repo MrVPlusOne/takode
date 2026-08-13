@@ -16,6 +16,7 @@ import {
   toModelOptions,
   type ModelOption,
 } from "../utils/backends.js";
+import { buildCodexReasoningAuthorityDisplay } from "../utils/codex-reasoning-display.js";
 import { coalesceSessionViewModel, type SessionViewModel } from "../utils/session-view-model.js";
 import { navigateTo } from "../utils/navigation.js";
 import { sendToSession } from "../ws.js";
@@ -129,7 +130,17 @@ export function SessionInfoPopover({
   const cliEverConnected = useStore((s) => s.cliEverConnected.get(sessionId) ?? false);
   const cliDisconnectReason = useStore((s) => s.cliDisconnectReason.get(sessionId) ?? null);
   const serverReachable = useStore((s) => s.serverReachable);
-  const codexReasoningEffort = session?.codex_reasoning_effort || "";
+  const hasLiveRequestedEffort = !!session && Object.hasOwn(session, "codex_reasoning_effort");
+  const hasLiveEffectiveEffort = !!session && Object.hasOwn(session, "codex_effective_reasoning_effort");
+  const codexReasoningEffort = hasLiveRequestedEffort
+    ? session?.codex_reasoning_effort || ""
+    : sdkSession?.codexReasoningEffort || "";
+  const codexEffectiveReasoningEffort = hasLiveEffectiveEffort
+    ? (session?.codex_effective_reasoning_effort ?? null)
+    : (sdkSession?.codexEffectiveReasoningEffort ?? null);
+  const codexEffectiveReasoningEffortReported = hasLiveEffectiveEffort
+    ? session?.codex_effective_reasoning_effort_reported === true
+    : sdkSession?.codexEffectiveReasoningEffortReported === true;
   const modelTitle = !isConnected
     ? "Reconnect to Takode to change model"
     : cliConnected
@@ -159,6 +170,20 @@ export function SessionInfoPopover({
     modelOptions,
     model,
     currentEffort: codexReasoningEffort,
+  });
+  const selectedCodexModel = modelOptions.find((option) => option.value === model);
+  const defaultReasoningValue = selectedCodexModel?.defaultReasoningLevel?.trim().toLowerCase() || "";
+  const labelForReasoningEffort = (effort: string) =>
+    getCodexReasoningEffortOptions({ modelOptions, model, currentEffort: effort, includeDefault: false }).find(
+      (option) => option.value === effort,
+    )?.label || effort;
+  const reasoningAuthority = buildCodexReasoningAuthorityDisplay({
+    requested: codexReasoningEffort,
+    effective: codexEffectiveReasoningEffort,
+    effectiveReported: codexEffectiveReasoningEffortReported,
+    runtimeConnected: cliConnected,
+    defaultRequestedLabel: defaultReasoningValue ? labelForReasoningEffort(defaultReasoningValue) : undefined,
+    labelForEffort: labelForReasoningEffort,
   });
 
   useEffect(() => {
@@ -426,45 +451,58 @@ export function SessionInfoPopover({
             </div>
           )}
           {isCodexSession && (
-            <div className="flex items-center gap-1.5">
+            <div className="space-y-1">
               <span className="text-[11px] text-cc-muted/60">Reasoning</span>
-              <div className="relative" ref={reasoningDropdownRef}>
-                <button
-                  onClick={() => setShowReasoningDropdown(!showReasoningDropdown)}
-                  disabled={!isConnected}
-                  className={`flex items-center gap-0.5 text-[11px] transition-colors select-none ${
-                    !isConnected
-                      ? "cursor-not-allowed opacity-30 text-cc-muted"
-                      : "cursor-pointer text-cc-muted hover:text-cc-fg"
-                  }`}
-                  title={reasoningTitle}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-cc-muted/60">Requested</span>
+                <div className="relative" ref={reasoningDropdownRef}>
+                  <button
+                    onClick={() => setShowReasoningDropdown(!showReasoningDropdown)}
+                    disabled={!isConnected}
+                    className={`flex items-center gap-0.5 text-[11px] transition-colors select-none ${
+                      !isConnected
+                        ? "cursor-not-allowed opacity-30 text-cc-muted"
+                        : "cursor-pointer text-cc-muted hover:text-cc-fg"
+                    }`}
+                    title={reasoningTitle}
+                  >
+                    <span>
+                      {codexReasoningOptions.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() ||
+                        "default"}
+                    </span>
+                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
+                      <path d="M4 6l4 4 4-4" />
+                    </svg>
+                  </button>
+                  {showReasoningDropdown && (
+                    <div className="absolute left-0 top-full z-10 mt-1 w-40 overflow-hidden rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg">
+                      {codexReasoningOptions.map((effort) => (
+                        <button
+                          key={effort.value || "default"}
+                          onClick={() => {
+                            sendToSession(sessionId, { type: "set_codex_reasoning_effort", effort: effort.value });
+                            setShowReasoningDropdown(false);
+                          }}
+                          className={`w-full cursor-pointer px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover ${
+                            effort.value === codexReasoningEffort ? "font-medium text-cc-primary" : "text-cc-fg"
+                          }`}
+                        >
+                          {effort.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="text-cc-muted/60">Effective</span>
+                <span
+                  data-testid="session-info-effective-reasoning"
+                  className="text-cc-muted"
+                  title={reasoningAuthority.title}
                 >
-                  <span>
-                    {codexReasoningOptions.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() ||
-                      "default"}
-                  </span>
-                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
-                    <path d="M4 6l4 4 4-4" />
-                  </svg>
-                </button>
-                {showReasoningDropdown && (
-                  <div className="absolute left-0 top-full z-10 mt-1 w-40 overflow-hidden rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg">
-                    {codexReasoningOptions.map((effort) => (
-                      <button
-                        key={effort.value || "default"}
-                        onClick={() => {
-                          sendToSession(sessionId, { type: "set_codex_reasoning_effort", effort: effort.value });
-                          setShowReasoningDropdown(false);
-                        }}
-                        className={`w-full cursor-pointer px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover ${
-                          effort.value === codexReasoningEffort ? "font-medium text-cc-primary" : "text-cc-fg"
-                        }`}
-                      >
-                        {effort.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                  {reasoningAuthority.effectiveLabel.toLowerCase()}
+                </span>
               </div>
             </div>
           )}

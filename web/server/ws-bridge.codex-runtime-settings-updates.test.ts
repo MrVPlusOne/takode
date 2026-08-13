@@ -593,6 +593,9 @@ describe("Codex runtime settings updates", () => {
     bridge.setLauncher(launcherMock as any);
     bridge.onSessionRelaunchRequestedCallback(relaunchCb);
     bridge.attachCodexAdapter(sid, adapter as any);
+    const initialSession = bridge.getSession(sid)!;
+    initialSession.state.codex_effective_reasoning_effort = "high";
+    initialSession.state.codex_effective_reasoning_effort_reported = true;
     bridge.handleBrowserOpen(browser, sid);
     browser.send.mockClear();
 
@@ -606,6 +609,8 @@ describe("Codex runtime settings updates", () => {
 
     const session = bridge.getSession(sid)!;
     expect(session.state.model).toBe("gpt-5.3-codex");
+    expect(session.state.codex_effective_reasoning_effort).toBeNull();
+    expect(session.state.codex_effective_reasoning_effort_reported).toBe(false);
     expect(launcherInfo.model).toBe("gpt-5.3-codex");
     expect(launcherInfo.modelAuthority).toMatchObject({
       model: "gpt-5.3-codex",
@@ -668,7 +673,9 @@ describe("Codex runtime settings updates", () => {
     };
     bridge.setLauncher(launcherMock as any);
     bridge.onSessionRelaunchRequestedCallback(relaunchCb);
-    bridge.getOrCreateSession(sid, "codex");
+    const modelSession = bridge.getOrCreateSession(sid, "codex");
+    modelSession.state.codex_effective_reasoning_effort = "high";
+    modelSession.state.codex_effective_reasoning_effort_reported = true;
     bridge.handleBrowserOpen(browser, sid);
     browser.send.mockClear();
 
@@ -702,6 +709,9 @@ describe("Codex runtime settings updates", () => {
     bridge.setLauncher(launcherMock as any);
     bridge.onSessionRelaunchRequestedCallback(relaunchCb);
     bridge.attachCodexAdapter(sid, adapter as any);
+    const reasoningSession = bridge.getSession(sid)!;
+    reasoningSession.state.codex_effective_reasoning_effort = "high";
+    reasoningSession.state.codex_effective_reasoning_effort_reported = true;
     bridge.handleBrowserOpen(browser, sid);
     browser.send.mockClear();
 
@@ -715,6 +725,8 @@ describe("Codex runtime settings updates", () => {
 
     const session = bridge.getSession(sid)!;
     expect(session.state.codex_reasoning_effort).toBe("future_effort");
+    expect(session.state.codex_effective_reasoning_effort).toBeNull();
+    expect(session.state.codex_effective_reasoning_effort_reported).toBe(false);
     expect(launcherInfo.codexReasoningEffort).toBe("future_effort");
     expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
     expect(relaunchCb).toHaveBeenCalledWith(sid);

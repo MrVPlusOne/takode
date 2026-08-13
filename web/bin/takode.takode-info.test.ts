@@ -76,7 +76,7 @@ describe("takode info", () => {
         return;
       }
 
-      if (method === "GET" && url === "/api/sessions/worker-info/info") {
+      if (method === "GET" && url === `/api/sessions/${String(sessionPayload.sessionId)}/info`) {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify(sessionPayload));
         return;
@@ -106,6 +106,8 @@ describe("takode info", () => {
       actualBranch: "jiayi-wt-7173",
       pendingTimerCount: 3,
       codexReasoningEffort: "high",
+      codexEffectiveReasoningEffort: "high",
+      codexEffectiveReasoningEffortReported: true,
       codexInternetAccess: true,
       codexSandbox: "danger-full-access",
       codexPendingDelivery: {
@@ -154,6 +156,66 @@ describe("takode info", () => {
     expect(result.stdout).toContain("WT Branch      jiayi");
     expect(result.stdout).toContain("Actual Branch  jiayi-wt-7173");
     expect(result.stdout).toContain("Timers         3 pending");
+  });
+
+  it("reports requested versus effective Codex reasoning without promoting an unverified Ultra label", async () => {
+    const server = createInfoServer({
+      sessionId: "worker-effort",
+      sessionNum: 53,
+      name: "Effort Worker",
+      state: "running",
+      backendType: "codex",
+      model: "gpt-5.6-sol",
+      cwd: "/tmp/effort-worker",
+      createdAt: Date.now(),
+      cliConnected: true,
+      isGenerating: false,
+      codexReasoningEffort: "ultra",
+      codexEffectiveReasoningEffort: "high",
+      codexEffectiveReasoningEffortReported: true,
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(["info", "worker-effort", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-info",
+      COMPANION_AUTH_TOKEN: "auth-info",
+    });
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Reasoning      high");
+    expect(result.stdout).toContain("Requested      ultra");
+  });
+
+  it("labels requested Ultra as unverified when Codex has not reported an effective effort", async () => {
+    const server = createInfoServer({
+      sessionId: "worker-unverified",
+      state: "running",
+      backendType: "codex",
+      model: "gpt-5.6-sol",
+      cwd: "/tmp/unverified-worker",
+      createdAt: Date.now(),
+      cliConnected: true,
+      codexReasoningEffort: "ultra",
+      codexEffectiveReasoningEffort: null,
+      codexEffectiveReasoningEffortReported: false,
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    const result = await runTakode(["info", "worker-unverified", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-info",
+      COMPANION_AUTH_TOKEN: "auth-info",
+    });
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Reasoning      unknown (requested: ultra)");
+    expect(result.stdout).not.toContain("Reasoning      ultra");
   });
 
   it("outputs compact session JSON by default and hides bulky fields", async () => {

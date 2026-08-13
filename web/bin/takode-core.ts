@@ -564,6 +564,8 @@ export type TakodeSessionInfo = {
   codexInternetAccess?: boolean;
   codexSandbox?: string;
   codexReasoningEffort?: string;
+  codexEffectiveReasoningEffort?: string | null;
+  codexEffectiveReasoningEffortReported?: boolean;
   codexServiceTier?: string | null;
   codexMaxContextLength?: number;
   claudeReasoningEffort?: string;
@@ -754,6 +756,8 @@ export function buildSessionInfoJson(
     codexInternetAccess: session.codexInternetAccess ?? null,
     codexSandbox: session.codexSandbox ?? null,
     codexReasoningEffort: session.codexReasoningEffort ?? null,
+    codexEffectiveReasoningEffort: session.codexEffectiveReasoningEffort ?? null,
+    codexEffectiveReasoningEffortReported: session.codexEffectiveReasoningEffortReported ?? false,
     codexServiceTier: session.codexServiceTier ?? null,
     codexMaxContextLength: session.codexMaxContextLength ?? null,
     claudeReasoningEffort: session.claudeReasoningEffort ?? null,

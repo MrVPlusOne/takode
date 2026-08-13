@@ -193,9 +193,14 @@ function buildCodexStatusText(session: AdapterBrowserRoutingSessionLike): string
     lines.push(`- Rate limits: ${rateLimitParts.join("; ")}`);
   }
 
-  const reasoningEffort = session.state.codex_reasoning_effort?.trim();
-  if (reasoningEffort) {
-    lines.push(`- Reasoning effort: ${reasoningEffort}`);
+  const requestedReasoning = session.state.codex_reasoning_effort?.trim() || "default";
+  if (session.state.codex_effective_reasoning_effort_reported === true) {
+    const effectiveReasoning = session.state.codex_effective_reasoning_effort?.trim() || "default";
+    lines.push(`- Reasoning effective: ${effectiveReasoning}`);
+    if (effectiveReasoning !== requestedReasoning) lines.push(`- Reasoning requested: ${requestedReasoning}`);
+  } else {
+    lines.push("- Reasoning effective: unknown");
+    lines.push(`- Reasoning requested: ${requestedReasoning}`);
   }
 
   return lines.join("\n");

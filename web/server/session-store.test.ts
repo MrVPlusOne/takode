@@ -133,6 +133,28 @@ describe("saveSync / load", () => {
     expect(loaded!.state).toEqual(session.state);
   });
 
+  it("persists requested and runtime-effective Codex reasoning independently", async () => {
+    // Requested effort drives relaunch; the runtime report is separate browser/server
+    // evidence and must survive restore without being collapsed into the request.
+    const session = makeSession("codex-reasoning", {
+      state: {
+        ...makeSession("codex-reasoning").state,
+        backend_type: "codex",
+        codex_reasoning_effort: "ultra",
+        codex_effective_reasoning_effort: "high",
+        codex_effective_reasoning_effort_reported: true,
+      },
+    });
+    store.saveSync(session);
+    await store.flushAll();
+
+    expect((await store.load("codex-reasoning"))?.state).toMatchObject({
+      codex_reasoning_effort: "ultra",
+      codex_effective_reasoning_effort: "high",
+      codex_effective_reasoning_effort_reported: true,
+    });
+  });
+
   it("persists context usage history outside browser session state", async () => {
     const session = makeSession("usage-history", {
       contextUsageHistory: [{ timestamp: 1, source: "codex_token_usage", contextUsedPercent: 12 }],
@@ -745,6 +767,14 @@ describe("saveLauncher / loadLauncher", () => {
 
     const loaded = await store.loadLauncher<{ pids: number[]; lastBoot: string }>();
     expect(loaded).toEqual(data);
+  });
+
+  it("persists requested Codex effort for relaunch", async () => {
+    const data = [{ sessionId: "s1", codexReasoningEffort: "ultra" }];
+    store.saveLauncher(data);
+    await store.flushAll();
+
+    expect(await store.loadLauncher()).toEqual(data);
   });
 
   it("returns null when no launcher file exists", async () => {

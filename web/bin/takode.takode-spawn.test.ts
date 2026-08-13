@@ -65,6 +65,12 @@ async function runTakode(
 }
 
 describe("takode spawn", () => {
+  it("documents Max and Ultra as supported Codex reasoning overrides", async () => {
+    const result = await runTakode(["spawn", "--help"], process.env);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Codex: low/medium/high/xhigh/max/ultra");
+  });
+
   it("inherits backend from leader session when --backend is not specified", async () => {
     const createBodies: JsonObject[] = [];
     const created = [{ sessionId: "worker-1" }];
@@ -84,6 +90,8 @@ describe("takode spawn", () => {
         actualBranch: "feat/worker-1",
         askPermission: true,
         codexReasoningEffort: "high",
+        codexEffectiveReasoningEffort: "high",
+        codexEffectiveReasoningEffortReported: true,
         codexInternetAccess: false,
       },
     };
@@ -1197,7 +1205,7 @@ describe("takode spawn", () => {
             name: "Worker C",
             state: "running",
             backendType: "codex",
-            model: "gpt-5.4",
+            model: "gpt-5.6-sol",
             cwd: "/tmp/codex-worker",
             createdAt: Date.now(),
             cliConnected: true,
@@ -1205,7 +1213,9 @@ describe("takode spawn", () => {
             askPermission: false,
             permissionMode: "codex-full-access",
             isWorktree: false,
-            codexReasoningEffort: "medium",
+            codexReasoningEffort: "ultra",
+            codexEffectiveReasoningEffort: "ultra",
+            codexEffectiveReasoningEffortReported: true,
             codexInternetAccess: true,
             codexServiceTier: "priority",
             codexMaxContextLength: 240000,
@@ -1235,9 +1245,9 @@ describe("takode spawn", () => {
         "--backend",
         "codex",
         "--model",
-        "gpt-5.4",
+        "gpt-5.6-sol",
         "--reasoning-effort",
-        "medium",
+        "ultra",
         "--service-tier",
         "priority",
         "--max-context",
@@ -1262,10 +1272,10 @@ describe("takode spawn", () => {
         cwd: process.cwd(),
         useWorktree: true,
         createdBy: "leader-3",
-        model: "gpt-5.4",
+        model: "gpt-5.6-sol",
         askPermission: false,
         permissionMode: "codex-full-access",
-        codexReasoningEffort: "medium",
+        codexReasoningEffort: "ultra",
         codexInternetAccess: true,
         codexServiceTier: "priority",
         codexMaxContextLength: 240000,
@@ -1291,9 +1301,9 @@ describe("takode spawn", () => {
     expect(parsed.defaultModel).toBeNull();
     expect(parsed.sessions).toEqual([
       expect.objectContaining({
-        model: "gpt-5.4",
+        model: "gpt-5.6-sol",
         permissionMode: "codex-full-access",
-        codexReasoningEffort: "medium",
+        codexReasoningEffort: "ultra",
         codexInternetAccess: true,
         codexServiceTier: "priority",
         codexMaxContextLength: 240000,

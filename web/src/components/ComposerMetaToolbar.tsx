@@ -6,6 +6,7 @@ import {
   type ModelOption,
 } from "../utils/backends.js";
 import { CatPawAvatar } from "./CatIcons.js";
+import { buildCodexReasoningAuthorityDisplay } from "../utils/codex-reasoning-display.js";
 
 function PaperPlaneIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
@@ -74,6 +75,8 @@ export function ComposerMetaToolbar({
   codexModelOptions,
   onSelectModel,
   codexReasoningEffort,
+  codexEffectiveReasoningEffort,
+  codexEffectiveReasoningEffortReported,
   onSelectCodexReasoning,
   codexServiceTier,
   codexFastServiceTier,
@@ -126,6 +129,8 @@ export function ComposerMetaToolbar({
   codexModelOptions: ModelOption[];
   onSelectModel: (model: string) => void;
   codexReasoningEffort: string;
+  codexEffectiveReasoningEffort: string | null;
+  codexEffectiveReasoningEffortReported: boolean;
   onSelectCodexReasoning: (effort: string) => void;
   codexServiceTier: string | null;
   codexFastServiceTier: NonNullable<ModelOption["serviceTiers"]>[number] | null;
@@ -199,15 +204,6 @@ export function ComposerMetaToolbar({
         includeDefault: false,
       }).find((option) => option.value === defaultReasoningValue)?.label || defaultReasoningValue
     : "";
-  const effectiveReasoningValue = currentEffortAdvertised ? normalizedCurrentEffort || defaultReasoningValue : "";
-  const effectiveReasoningLabel = effectiveReasoningValue
-    ? getCodexReasoningEffortOptions({
-        modelOptions: codexModelOptions,
-        model: sessionView.model,
-        currentEffort: effectiveReasoningValue,
-        includeDefault: false,
-      }).find((option) => option.value === effectiveReasoningValue)?.label || effectiveReasoningValue
-    : "";
   const selectedReasoningLabel = normalizedCurrentEffort
     ? currentEffortAdvertised
       ? codexReasoningOptions.find((option) => option.value === normalizedCurrentEffort)?.label ||
@@ -216,8 +212,22 @@ export function ComposerMetaToolbar({
     : defaultReasoningLabel
       ? `${defaultReasoningLabel} (default)`
       : "Default";
-  const combinedCodexLabel = effectiveReasoningLabel
-    ? `${selectedModelLabel} ${effectiveReasoningLabel}`
+  const reasoningAuthority = buildCodexReasoningAuthorityDisplay({
+    requested: codexReasoningEffort,
+    effective: codexEffectiveReasoningEffort,
+    effectiveReported: codexEffectiveReasoningEffortReported,
+    runtimeConnected: isConnected,
+    defaultRequestedLabel: defaultReasoningLabel,
+    labelForEffort: (effort) =>
+      getCodexReasoningEffortOptions({
+        modelOptions: codexModelOptions,
+        model: sessionView.model,
+        currentEffort: effort,
+        includeDefault: false,
+      }).find((option) => option.value === effort)?.label || effort,
+  });
+  const combinedCodexLabel = reasoningAuthority.triggerSuffix
+    ? `${selectedModelLabel} ${reasoningAuthority.triggerSuffix}`
     : selectedModelLabel;
   const hasReasoningChoices = codexReasoningOptions.some((option) => option.value !== "");
   const settingsDisabled = !canEditLaunchSettings;
@@ -237,7 +247,7 @@ export function ComposerMetaToolbar({
   const codexModelTitle = settingsDisabled
     ? "Reconnect to Takode to change model"
     : isConnected
-      ? `Model: ${sessionView.model}; speed: ${selectedSpeedLabel}; reasoning: ${selectedReasoningLabel} (click to change)`
+      ? `Model: ${sessionView.model}; speed: ${selectedSpeedLabel}; ${reasoningAuthority.title} (click to change)`
       : "Applies on resume";
   const permissionChangeDetail = isConnected
     ? "This will restart the CLI session. Any in-progress operation will be interrupted. Your conversation will be preserved."
@@ -493,7 +503,7 @@ export function ComposerMetaToolbar({
                             onClick={() => openCodexPanel("effort", codexReasoningEffort || "default")}
                             className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left text-cc-fg transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none"
                           >
-                            <span className="text-sm font-medium">Effort</span>
+                            <span className="text-sm font-medium">Requested</span>
                             <span className="ml-auto max-w-[9.5rem] truncate text-sm text-cc-muted">
                               {selectedReasoningLabel}
                             </span>
@@ -501,6 +511,18 @@ export function ComposerMetaToolbar({
                               <ChevronRightIcon />
                             </span>
                           </button>
+                        )}
+                        {hasReasoningChoices && (
+                          <div className="flex w-full items-center gap-3 px-3 py-2 text-left text-cc-fg">
+                            <span className="text-sm font-medium">Effective</span>
+                            <span
+                              data-testid="composer-effective-reasoning"
+                              className="ml-auto max-w-[9.5rem] truncate text-sm text-cc-muted"
+                              title={reasoningAuthority.title}
+                            >
+                              {reasoningAuthority.effectiveLabel}
+                            </span>
+                          </div>
                         )}
                         {fastSupported && (
                           <button

@@ -61,6 +61,7 @@ import {
 } from "./codex-goal.js";
 import { clearCodexGoal, refreshCodexGoal, setCodexGoal } from "./codex-adapter-goal-controller.js";
 import {
+  buildCodexEffectiveReasoningEffortPatch,
   buildCodexTokenUsagePatch,
   updateCodexRateLimits,
   type CodexRateLimitSet,
@@ -86,6 +87,11 @@ import type {
 } from "./bridge/adapter-interface.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { CODEX_LOCAL_SLASH_COMMANDS } from "../shared/codex-slash-commands.js";
+import {
+  codexEffectiveReasoningEffortPatch,
+  readCodexReasoningEffortReport,
+  UNREPORTED_CODEX_REASONING_EFFORT,
+} from "../shared/codex-reasoning-effort.js";
 import type {
   CodexSkillRefreshCause,
   CodexSkillRefreshDiagnostics,
@@ -905,6 +911,7 @@ export class CodexAdapter
   private async initialize(): Promise<void> {
     try {
       let resumeSnapshot: CodexResumeSnapshot | null = null;
+      let runtimeReasoningEffort = UNREPORTED_CODEX_REASONING_EFFORT;
       // Step 1: Send initialize request
       const result = (await this.transport.call("initialize", {
         clientInfo: {
@@ -933,6 +940,7 @@ export class CodexAdapter
             this.buildThreadParams({ threadId: this.options.threadId }),
           )) as { thread: Record<string, unknown> & { id: string } };
           this.threadId = resumeResult.thread.id;
+          runtimeReasoningEffort = readCodexReasoningEffortReport(resumeResult);
           resumeSnapshot = buildCodexResumeSnapshot(resumeResult.thread);
           assertRequiredCodexResumeThread(this.threadId, this.options.requireResumeThreadId);
           // Only set currentTurnId if the turn is truly in-progress AND the
@@ -953,6 +961,7 @@ export class CodexAdapter
             thread: { id: string };
           };
           this.threadId = threadResult.thread.id;
+          runtimeReasoningEffort = readCodexReasoningEffortReport(threadResult);
         }
       } else {
         // Start a new thread
@@ -960,6 +969,7 @@ export class CodexAdapter
           thread: { id: string };
         };
         this.threadId = threadResult.thread.id;
+        runtimeReasoningEffort = readCodexReasoningEffortReport(threadResult);
       }
 
       this.connected = true;
@@ -1013,6 +1023,7 @@ export class CodexAdapter
         total_lines_added: 0,
         total_lines_removed: 0,
         ...(this.options.reasoningEffort ? { codex_reasoning_effort: this.options.reasoningEffort } : {}),
+        ...codexEffectiveReasoningEffortPatch(runtimeReasoningEffort),
       };
 
       this.emit({ type: "session_init", session: state });
@@ -1547,6 +1558,9 @@ export class CodexAdapter
           break;
         case "thread/status/changed":
           this.handleThreadStatusChanged(params);
+          break;
+        case "thread/settings/updated":
+          this.emit({ type: "session_update", session: buildCodexEffectiveReasoningEffortPatch(params) });
           break;
         case "thread/tokenUsage/updated":
           this.handleTokenUsageUpdated(params);

@@ -20,6 +20,8 @@ describe("sdkSessionListEqual", () => {
       sdkSessionListEqual([session({ codexInternetAccess: true })], [session({ codexInternetAccess: false })]),
     ).toBe(false);
     expect(sdkSessionListEqual([session({ claudeReasoningEffort: "max" })], [session()])).toBe(false);
+    expect(sdkSessionListEqual([session({ codexEffectiveReasoningEffort: "ultra" })], [session()])).toBe(false);
+    expect(sdkSessionListEqual([session({ codexEffectiveReasoningEffortReported: true })], [session()])).toBe(false);
   });
 
   it("detects a server-authored model provenance migration warning", () => {

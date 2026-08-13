@@ -1,5 +1,9 @@
 import type { SessionState } from "./session-types.js";
 import { computeContextTokensUsed, computeContextUsedPercent, type TokenUsage } from "./bridge/context-usage.js";
+import {
+  codexEffectiveReasoningEffortPatch,
+  readCodexReasoningEffortReport,
+} from "../shared/codex-reasoning-effort.js";
 
 export type CodexRateLimitSet = {
   primary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;
@@ -112,4 +116,7 @@ export function buildCodexTokenUsagePatch(params: Record<string, unknown>): Part
   }
 
   return updates;
+}
+export function buildCodexEffectiveReasoningEffortPatch(params: Record<string, unknown>): Partial<SessionState> {
+  return codexEffectiveReasoningEffortPatch(readCodexReasoningEffortReport(params.threadSettings));
 }

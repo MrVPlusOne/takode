@@ -779,6 +779,8 @@ export function Composer({
   const permissionOptions = isCodex ? CODEX_PERMISSION_MODES : CLAUDE_PERMISSION_MODES;
   const permissionMode = isCodex ? codexPermissionMode : claudePermissionMode;
   const codexReasoningEffort = sessionView.codexReasoningEffort;
+  const codexEffectiveReasoningEffort = sessionView.codexEffectiveReasoningEffort;
+  const codexEffectiveReasoningEffortReported = sessionView.codexEffectiveReasoningEffortReported;
   const codexServiceTier = sessionView.codexServiceTier;
   const pauseState = sessionView.pause as SessionPauseState | null;
   const isPaused = !!pauseState?.pausedAt;
@@ -1931,6 +1933,8 @@ export function Composer({
                 codexModelOptions={codexModelOptions}
                 onSelectModel={(model) => sendToSession(sessionId, { type: "set_model", model })}
                 codexReasoningEffort={codexReasoningEffort}
+                codexEffectiveReasoningEffort={codexEffectiveReasoningEffort}
+                codexEffectiveReasoningEffortReported={codexEffectiveReasoningEffortReported}
                 onSelectCodexReasoning={(effort) =>
                   sendToSession(sessionId, { type: "set_codex_reasoning_effort", effort })
                 }

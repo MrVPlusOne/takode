@@ -42,6 +42,18 @@ Options:
 
 const INFO_ALLOWED_FLAGS = new Set(["json", "details", "include"]);
 
+function printCodexReasoningAuthority(data: TakodeSessionInfo): void {
+  const requested = data.codexReasoningEffort?.trim() || "default";
+  if (data.codexEffectiveReasoningEffortReported !== true) {
+    console.log(`  Reasoning      unknown (requested: ${formatInlineText(requested)})`);
+    return;
+  }
+  const effective = data.codexEffectiveReasoningEffort?.trim() || "default";
+  const suffix = data.cliConnected === false ? " (last effective)" : "";
+  console.log(`  Reasoning      ${formatInlineText(effective)}${suffix}`);
+  if (effective !== requested) console.log(`  Requested      ${formatInlineText(requested)}`);
+}
+
 export async function handleList(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args);
   const showAll = flags.all === true;
@@ -469,7 +481,7 @@ function printSessionInfo(data: TakodeSessionInfo): void {
     if (typeof data.codexInternetAccess === "boolean") {
       console.log(`  Internet       ${data.codexInternetAccess ? "enabled" : "disabled"}`);
     }
-    if (data.codexReasoningEffort) console.log(`  Reasoning      ${formatInlineText(data.codexReasoningEffort)}`);
+    printCodexReasoningAuthority(data);
     if (data.codexSandbox) console.log(`  Sandbox        ${formatInlineText(data.codexSandbox)}`);
     printCodexPendingDeliveryLine(data.codexPendingDelivery);
   }

@@ -267,6 +267,10 @@ export async function loadCodexModelCatalog(options: LoadCodexCatalogOptions = {
   }
 }
 
+export function getCachedCodexModelCatalog(): CodexCatalogResult | null {
+  return installedCatalogCache;
+}
+
 export function refreshCodexModelCatalogOnStartup(
   options: LoadCodexCatalogOptions = {},
 ): Promise<CodexCatalogResult | null> {

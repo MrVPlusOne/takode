@@ -1424,8 +1424,11 @@ export interface SessionState {
     primary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;
     secondary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;
   };
-  /** Codex reasoning effort (e.g. low/medium/high). */
+  /** Requested Codex reasoning effort retained for relaunch and editing. */
   codex_reasoning_effort?: string;
+  /** Runtime-reported effort; null is an explicit Codex default. */
+  codex_effective_reasoning_effort?: string | null;
+  codex_effective_reasoning_effort_reported?: boolean;
   /** Codex app-server service tier selected for future turns. null/undefined means Standard. */
   codex_service_tier?: string | null;
   /** Compact server-authoritative Codex Goal projection for the active thread. */

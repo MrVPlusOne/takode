@@ -452,6 +452,56 @@ describe("CodexAdapter", () => {
     expect(metaCalls[0].model).toBe("gpt-5.4");
   });
 
+  it("uses Codex thread responses and settings updates as the effective effort authority", async () => {
+    // Requested launch state stays separate; only app-server response/notification
+    // fields can mark an effort as runtime-reported.
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "gpt-5.6-sol",
+      reasoningEffort: "ultra",
+    });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_effort" }, reasoningEffort: "high" } }) + "\n");
+    await tick();
+
+    const initial = messages.find((msg) => msg.type === "session_init");
+    expect(initial?.type === "session_init" ? initial.session : null).toMatchObject({
+      codex_reasoning_effort: "ultra",
+      codex_effective_reasoning_effort: "high",
+      codex_effective_reasoning_effort_reported: true,
+    });
+
+    stdout.push(
+      JSON.stringify({
+        method: "thread/settings/updated",
+        params: { threadId: "thr_effort", threadSettings: { effort: "ultra" } },
+      }) + "\n",
+    );
+    await tick();
+    const update = messages.filter((msg) => msg.type === "session_update").at(-1);
+    expect(update?.type === "session_update" ? update.session : null).toMatchObject({
+      codex_effective_reasoning_effort: "ultra",
+      codex_effective_reasoning_effort_reported: true,
+    });
+  });
+
+  it("reports effective effort as unknown when an older thread response omits it", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { reasoningEffort: "ultra" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+    await initializeAdapter(stdout);
+    const initial = messages.find((msg) => msg.type === "session_init");
+    expect(initial?.type === "session_init" ? initial.session : null).toMatchObject({
+      codex_reasoning_effort: "ultra",
+      codex_effective_reasoning_effort: null,
+      codex_effective_reasoning_effort_reported: false,
+    });
+  });
+
   // ── Item completion handlers ───────────────────────────────────────────────
 
   it("emits tool_result on webSearch item/completed", async () => {

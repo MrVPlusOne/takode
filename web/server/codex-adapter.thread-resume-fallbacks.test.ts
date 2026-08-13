@@ -99,11 +99,14 @@ describe("CodexAdapter", () => {
   it("uses thread/resume instead of thread/start when threadId is provided", async () => {
     const mock = createMockProcess();
 
-    new CodexAdapter(mock.proc as never, "test-session", {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(mock.proc as never, "test-session", {
       model: "gpt-5.3-codex",
       cwd: "/workspace",
       threadId: "thr_existing_456",
+      reasoningEffort: "ultra",
     });
+    adapter.onBrowserMessage((message) => messages.push(message));
 
     await tick();
 
@@ -113,13 +116,20 @@ describe("CodexAdapter", () => {
 
     // The second call should be thread/resume, not thread/start
     // Respond to thread/resume
-    mock.stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_existing_456" } } }) + "\n");
+    mock.stdout.push(
+      JSON.stringify({ id: 2, result: { thread: { id: "thr_existing_456" }, reasoningEffort: "ultra" } }) + "\n",
+    );
     await tick();
 
     const allWritten = mock.stdin.chunks.join("");
     expect(allWritten).toContain('"method":"thread/resume"');
     expect(allWritten).toContain('"threadId":"thr_existing_456"');
     expect(allWritten).not.toContain('"method":"thread/start"');
+    const initial = messages.find((message) => message.type === "session_init");
+    expect(initial?.type === "session_init" ? initial.session : null).toMatchObject({
+      codex_effective_reasoning_effort: "ultra",
+      codex_effective_reasoning_effort_reported: true,
+    });
   });
 
   it("configures developer instructions before resuming a thread", async () => {

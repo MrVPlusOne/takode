@@ -384,7 +384,7 @@ Options:
   --permission-mode <mode>     Codex-only: default, auto-review, full-access, or custom
   --ask / --no-ask             Override inherited ask mode
   --internet / --no-internet   Codex-only: enable or disable internet access
-  --reasoning-effort <level>   Override reasoning effort (Codex: low/medium/high/xhigh; Claude: low/medium/high/max)
+  --reasoning-effort <level>   Override reasoning effort (Codex: low/medium/high/xhigh/max/ultra; Claude: low/medium/high/max)
   --service-tier <tier>        Codex-only: service tier id; use "standard" for Standard
   --speed <tier>               Alias for --service-tier
   --max-context <tokens>       Override max context length
@@ -512,7 +512,14 @@ function buildSpawnDetailParts(session: TakodeSessionInfo): string[] {
   }
   parts.push(`worktree=${session.isWorktree ? "yes" : "no"}`);
   if (session.backendType === "codex") {
-    if (session.codexReasoningEffort) parts.push(`reasoning=${session.codexReasoningEffort}`);
+    const requestedReasoning = session.codexReasoningEffort?.trim() || "default";
+    if (session.codexEffectiveReasoningEffortReported === true) {
+      const effectiveReasoning = session.codexEffectiveReasoningEffort?.trim() || "default";
+      parts.push(`reasoning=${effectiveReasoning}`);
+      if (effectiveReasoning !== requestedReasoning) parts.push(`requestedReasoning=${requestedReasoning}`);
+    } else if (session.codexReasoningEffort) {
+      parts.push(`requestedReasoning=${requestedReasoning}`);
+    }
     if (session.codexServiceTier) parts.push(`serviceTier=${session.codexServiceTier}`);
     if (session.codexMaxContextLength) parts.push(`maxContext=${session.codexMaxContextLength}`);
     if (typeof session.codexInternetAccess === "boolean") {

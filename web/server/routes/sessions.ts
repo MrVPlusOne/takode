@@ -54,7 +54,7 @@ import { registerSessionStarredMessagesRoute } from "./session-starred-messages-
 import { registerSessionModelProvenanceMigrationRoute } from "./session-model-provenance-migration-route.js";
 import { registerGlobalStarredMessageSearchRoute } from "./global-starred-message-search-route.js";
 import { parseIncludeArchived, registerSessionSearchRoute } from "./session-search-route.js";
-import { registerSessionPermissionModeRoute, resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
+import { registerSessionPermissionModeRoute } from "./session-permission-mode.js";
 import { registerSessionPauseRoutes } from "./session-pause-routes.js";
 import { registerSessionLeaderProfileRoute } from "./session-leader-profile-route.js";
 import { registerSessionReplacementRoutes } from "./session-replacement-routes.js";
@@ -71,6 +71,7 @@ import { registerSessionExtraRoutes } from "./session-extra-routes.js";
 import { applySessionDefaultsToCreateBody, SessionDefaultValidationError } from "../session-defaults-application.js";
 import { markOrchestratorSessionWithStartupContext } from "./orchestrator-startup-injection.js";
 import { relaunchSessionProcess } from "./session-process-relaunch.js";
+import { buildSessionBackendLaunchSettings } from "./session-create-launch-settings.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -479,6 +480,8 @@ export function createSessionsRoutes(ctx: RouteContext) {
         resumeCliSessionId: body.resumeCliSessionId,
         permissionMode: initialModeState.permissionMode,
         askPermission: initialModeState.askPermission,
+        uiMode: initialModeState.uiMode,
+        ...buildSessionBackendLaunchSettings(body, backend, initialModeState.permissionMode, resumedModel.model),
         memorySessionSpaceSlug,
         isOrchestrator,
       };
@@ -764,14 +767,12 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const askPermissionRequested = body.askPermission !== false;
     const initialModeState = resolveInitialModeState(backend, body.permissionMode, askPermissionRequested);
     const resolvedModel = await sessionModelResolver.forCreate(backend, body, binarySettings, requestedModel);
-    const codexReasoningEffort =
-      backend === "codex" && typeof body.codexReasoningEffort === "string"
-        ? body.codexReasoningEffort.trim() || undefined
-        : undefined;
-    const claudeReasoningEffort =
-      backend !== "codex" && typeof body.claudeReasoningEffort === "string"
-        ? body.claudeReasoningEffort.trim() || undefined
-        : undefined;
+    const backendLaunchSettings = buildSessionBackendLaunchSettings(
+      body,
+      backend,
+      initialModeState.permissionMode,
+      resolvedModel.model,
+    );
     const orchestratorGuardrails = isOrchestrator ? launcher.getOrchestratorGuardrails(backend) : undefined;
 
     const initialCwd = cwd || process.cwd();
@@ -785,17 +786,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       codexBinary: body.codexBinary || binarySettings.codexBinary || undefined,
       codexLeaderContextWindowOverrideTokens: binarySettings.codexLeaderContextWindowOverrideTokens,
       codexNonLeaderAutoCompactThresholdPercent: binarySettings.codexNonLeaderAutoCompactThresholdPercent,
-      codexInternetAccess: backend === "codex" && body.codexInternetAccess === true,
-      codexSandbox:
-        backend === "codex" ? resolveCodexSandboxForPermissionMode(initialModeState.permissionMode) : undefined,
-      codexReasoningEffort,
-      codexServiceTier:
-        backend === "codex" && (typeof body.codexServiceTier === "string" || body.codexServiceTier === null)
-          ? body.codexServiceTier
-          : undefined,
-      codexMaxContextLength: backend === "codex" ? body.codexMaxContextLength : undefined,
-      claudeReasoningEffort,
-      claudeMaxContextLength: backend !== "codex" ? body.claudeMaxContextLength : undefined,
+      ...backendLaunchSettings,
       allowedTools: body.allowedTools,
       env: envVars,
       backendType: backend,
@@ -1208,6 +1199,8 @@ export function createSessionsRoutes(ctx: RouteContext) {
       pause: bridgeState?.pause ?? null,
       pausedInputQueueCount: bridgeState?.pause?.queuedMessages.length ?? 0,
       codexResultErrorAutoPause: bridgeState?.codex_result_error_auto_pause ?? null,
+      codexEffectiveReasoningEffort: bridgeState?.codex_effective_reasoning_effort ?? null,
+      codexEffectiveReasoningEffortReported: bridgeState?.codex_effective_reasoning_effort_reported === true,
       codexAutoPausedInputCount:
         bridgeState?.codex_result_error_auto_pause?.heldInputs.reduce(
           (total, item) => total + Math.max(1, item.count),

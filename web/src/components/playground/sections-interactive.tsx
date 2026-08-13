@@ -48,7 +48,7 @@ const PLAYGROUND_CODEX_MODEL_OPTIONS = [
     serviceTiers: [PLAYGROUND_FAST_SERVICE_TIER],
     supportedReasoningLevels: [
       { effort: "medium", description: "Balanced reasoning for everyday work." },
-      { effort: "ultra", description: "Maximum reasoning for difficult tasks." },
+      { effort: "ultra", description: "Maximum reasoning that may proactively use multiple agents." },
     ],
     defaultReasoningLevel: "medium",
   },
@@ -122,6 +122,8 @@ function PlaygroundComposerPermissionToolbar({
           codexModelOptions={codexModelOptions}
           onSelectModel={() => {}}
           codexReasoningEffort={isCodex ? "high" : ""}
+          codexEffectiveReasoningEffort={isCodex ? "high" : null}
+          codexEffectiveReasoningEffortReported={isCodex}
           onSelectCodexReasoning={() => {}}
           codexServiceTier={isCodex ? "priority" : null}
           codexFastServiceTier={isCodex ? (codexModelOptions[1]?.serviceTiers?.[0] ?? null) : null}
@@ -195,6 +197,8 @@ function PlaygroundCodexModelToolbar({ narrow = false }: { narrow?: boolean }) {
           codexModelOptions={PLAYGROUND_CODEX_MODEL_OPTIONS}
           onSelectModel={setModel}
           codexReasoningEffort={effort}
+          codexEffectiveReasoningEffort={narrow ? "high" : effort}
+          codexEffectiveReasoningEffortReported={true}
           onSelectCodexReasoning={setEffort}
           codexServiceTier={serviceTier}
           codexFastServiceTier={fastTier}

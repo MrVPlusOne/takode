@@ -1098,7 +1098,9 @@ describe("permission response handling in browser routing", () => {
     session.state.model = "gpt-5.5";
     session.state.cwd = "/repo/project";
     session.state.context_used_percent = 41;
-    session.state.codex_reasoning_effort = "high";
+    session.state.codex_reasoning_effort = "ultra";
+    session.state.codex_effective_reasoning_effort = "high";
+    session.state.codex_effective_reasoning_effort_reported = true;
     session.state.num_turns = 7;
     session.state.total_cost_usd = 1.25;
     session.state.codex_token_details = {
@@ -1158,7 +1160,8 @@ describe("permission response handling in browser routing", () => {
     expect(statusText).toContain("Context: 41% used (258.4k window)");
     expect(statusText).toContain("Tokens: 1.1M input, 930.0k cached, 50.0k output, 2.0k reasoning");
     expect(statusText).toContain("Rate limits: primary 62% of 5h window");
-    expect(statusText).toContain("Reasoning effort: high");
+    expect(statusText).toContain("Reasoning effective: high");
+    expect(statusText).toContain("Reasoning requested: ultra");
     expect(session.messageHistory[2]).toEqual(
       expect.objectContaining({
         type: "result",

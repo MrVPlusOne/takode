@@ -193,6 +193,7 @@ import * as transcriptionEnhancer from "./transcription-enhancer.js";
 import * as treeGroupStore from "./tree-group-store.js";
 import { containerManager } from "./container-manager.js";
 import { DEFAULT_SESSION_DEFAULTS } from "../shared/session-defaults.js";
+import { _resetCodexModelCatalogCacheForTest, loadCodexModelCatalog } from "./codex-model-catalog.js";
 
 // ─── Mock factories ──────────────────────────────────────────────────────────
 
@@ -483,6 +484,16 @@ let treeGroupTempDir: string;
 let homeDir: string;
 let streamsDir: string;
 
+async function cacheInstalledCodexModelsForTest(models: Array<Record<string, unknown>>): Promise<void> {
+  await loadCodexModelCatalog({
+    codexBinary: "/fake/codex",
+    statImpl: (async () => ({ mtimeMs: 1, size: 1 })) as never,
+    runCodexCommand: async (_binary, args) => ({
+      stdout: args[0] === "--version" ? "codex-cli test" : JSON.stringify({ models }),
+    }),
+  });
+}
+
 function overrideSettingsForTest(sessionDefaults: typeof DEFAULT_SESSION_DEFAULTS): () => void {
   const originalGetSettings = vi.mocked(settingsManager.getSettings).getMockImplementation();
   vi.mocked(settingsManager.getSettings).mockImplementation(() => ({
@@ -500,6 +511,7 @@ beforeEach(async () => {
   _resetServerLoggerForTest();
   // Reset the LiteLLM model cache so each test starts clean.
   _resetModelCache();
+  _resetCodexModelCatalogCacheForTest();
   // Stub global fetch to prevent LiteLLM proxy calls in tests.
   // Model endpoint tests exercise the fallback path (models_cache.json).
   vi.stubGlobal(
@@ -542,6 +554,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await treeGroupStore._flushForTest();
+  _resetCodexModelCatalogCacheForTest();
   vi.unstubAllEnvs();
   rmSync(treeGroupTempDir, { recursive: true, force: true });
   rmSync(homeDir, { recursive: true, force: true });
@@ -622,6 +635,36 @@ describe("POST /api/sessions/create", () => {
         codexMaxContextLength: 240_000,
       }),
     );
+  });
+
+  it("rejects a known Codex model-effort combination the installed catalog does not support", async () => {
+    // Server validation is authoritative for UI, CLI spawn, and replacement callers;
+    // a known model must fail before launcher state is created.
+    await cacheInstalledCodexModelsForTest([
+      {
+        slug: "gpt-limited",
+        display_name: "GPT Limited",
+        visibility: "list",
+        supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }],
+      },
+    ]);
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        backend: "codex",
+        cwd: "/test",
+        model: "gpt-limited",
+        codexReasoningEffort: "ultra",
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'Codex reasoning effort "ultra" is not supported by model "gpt-limited" (supported: low, high)',
+    });
+    expect(launcher.launch).not.toHaveBeenCalled();
   });
 
   it("applies independent leader Codex defaults for orchestrator creation", async () => {
@@ -1239,6 +1282,47 @@ describe("POST /api/sessions/create", () => {
         env: expect.objectContaining({
           COMPANION_PORT: "3456",
         }),
+      }),
+    );
+  });
+
+  it("applies Worker Defaults to external Codex resume launch settings", async () => {
+    // External resume uses the same server-owned role defaults as normal and
+    // replacement creation, while the app-server response remains effective authority.
+    const restoreSettings = overrideSettingsForTest({
+      ...DEFAULT_SESSION_DEFAULTS,
+      codex: {
+        ...DEFAULT_SESSION_DEFAULTS.codex,
+        model: "gpt-5.6-sol",
+        serviceTier: "priority",
+        reasoningEffort: "ultra",
+        internetAccess: true,
+        maxContextLength: 760_000,
+      },
+    });
+    try {
+      const res = await app.request("/api/sessions/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          backend: "codex",
+          cwd: "/test",
+          resumeCliSessionId: "codex-resume-with-defaults",
+        }),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      restoreSettings();
+    }
+
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumeCliSessionId: "codex-resume-with-defaults",
+        model: "gpt-5.6-sol",
+        codexReasoningEffort: "ultra",
+        codexServiceTier: "priority",
+        codexInternetAccess: true,
+        codexMaxContextLength: 760_000,
       }),
     );
   });

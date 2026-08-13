@@ -400,8 +400,11 @@ export interface SdkSessionInfo {
   gitStatusRefreshError?: string | null;
   /** Whether internet/web search is enabled for Codex sessions. */
   codexInternetAccess?: boolean | null;
-  /** Codex reasoning effort selected for this session. */
+  /** Codex reasoning effort requested for this session. */
   codexReasoningEffort?: string | null;
+  /** Last runtime-reported Codex effort; null is an explicit runtime default. */
+  codexEffectiveReasoningEffort?: string | null;
+  codexEffectiveReasoningEffortReported?: boolean;
   /** Codex app-server service tier selected for future turns. null/undefined means Standard. */
   codexServiceTier?: string | null;
   /** Optional per-session Codex usable context capacity target. */

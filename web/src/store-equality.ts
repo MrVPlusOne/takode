@@ -238,6 +238,8 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.gitStatusRefreshError === b.gitStatusRefreshError &&
     a.codexInternetAccess === b.codexInternetAccess &&
     a.codexReasoningEffort === b.codexReasoningEffort &&
+    a.codexEffectiveReasoningEffort === b.codexEffectiveReasoningEffort &&
+    a.codexEffectiveReasoningEffortReported === b.codexEffectiveReasoningEffortReported &&
     a.codexServiceTier === b.codexServiceTier &&
     a.codexMaxContextLength === b.codexMaxContextLength &&
     a.codexLeaderCompactionMode === b.codexLeaderCompactionMode &&

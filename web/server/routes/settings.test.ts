@@ -6,6 +6,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { _flushForTest, _resetForTest, getSettings } from "../settings-manager.js";
 import { createSettingsRoutes } from "./settings.js";
 import { DEFAULT_SESSION_DEFAULTS } from "../../shared/session-defaults.js";
+import { _resetCodexModelCatalogCacheForTest, loadCodexModelCatalog } from "../codex-model-catalog.js";
 
 let tempDir: string;
 const mockBroadcastGlobal = vi.fn();
@@ -30,6 +31,7 @@ function createApp(): Hono {
 
 beforeEach(async () => {
   mockBroadcastGlobal.mockReset();
+  _resetCodexModelCatalogCacheForTest();
   tempDir = await mkdtemp(join(tmpdir(), "settings-route-test-"));
   _resetForTest(join(tempDir, "settings.json"));
 });
@@ -38,6 +40,7 @@ afterEach(async () => {
   await _flushForTest();
   await rm(tempDir, { recursive: true, force: true });
   _resetForTest();
+  _resetCodexModelCatalogCacheForTest();
 });
 
 describe("settings routes", () => {
@@ -93,6 +96,47 @@ describe("settings routes", () => {
     expect(body.sessionDefaults).toEqual(sessionDefaults);
     expect(getSettings().sessionDefaults).toEqual(sessionDefaults);
     expect(mockBroadcastGlobal).toHaveBeenCalledWith({ type: "settings_updated", sessionDefaults });
+  });
+
+  it("rejects unsupported effective Worker Default model-effort pairs", async () => {
+    // Settings can retain independent leader values while sharing, but every
+    // effective role profile must be launchable according to the installed catalog.
+    await loadCodexModelCatalog({
+      codexBinary: "/fake/codex",
+      statImpl: (async () => ({ mtimeMs: 1, size: 1 })) as never,
+      runCodexCommand: async (_binary, args) => ({
+        stdout:
+          args[0] === "--version"
+            ? "codex-cli test"
+            : JSON.stringify({
+                models: [
+                  {
+                    slug: "gpt-limited",
+                    display_name: "GPT Limited",
+                    visibility: "list",
+                    supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }],
+                  },
+                ],
+              }),
+      }),
+    });
+    const app = createApp();
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionDefaults: {
+          ...DEFAULT_SESSION_DEFAULTS,
+          codex: { ...DEFAULT_SESSION_DEFAULTS.codex, model: "gpt-limited", reasoningEffort: "ultra" },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining('Worker Defaults: Codex reasoning effort "ultra" is not supported'),
+    });
+    expect(mockBroadcastGlobal).not.toHaveBeenCalled();
   });
 
   it("rejects unsupported Claude max context defaults", async () => {

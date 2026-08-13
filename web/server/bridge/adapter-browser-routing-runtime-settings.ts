@@ -16,6 +16,11 @@ import {
 import { isSafeCodexReasoningEffort } from "../../shared/session-defaults.js";
 import { markCodexModelSwitchCompactionGuard } from "./codex-model-switch-compaction.js";
 import { resolveModelAuthority } from "../model-identity-contract.js";
+import { getCachedCodexModelCatalog } from "../codex-model-catalog.js";
+import {
+  findCodexReasoningEffortSupportIssue,
+  formatCodexReasoningEffortSupportIssue,
+} from "../../shared/codex-reasoning-effort.js";
 
 function shouldSendClassicClaudeControlRequest(session: AdapterBrowserRoutingSessionLike): boolean {
   return session.backendType === "claude" && !!session.backendSocket;
@@ -229,6 +234,23 @@ export function handleCodexSetUiMode(
   deps.requestCodexIntentionalRelaunch(session, "set_codex_ui_mode", 100);
 }
 
+function clearCodexEffectiveReasoningEffort(session: AdapterBrowserRoutingSessionLike): void {
+  session.state.codex_effective_reasoning_effort = null;
+  session.state.codex_effective_reasoning_effort_reported = false;
+}
+
+function rejectUnsupportedCodexReasoning(
+  session: AdapterBrowserRoutingSessionLike,
+  model: string | undefined,
+  effort: string | undefined,
+  broadcast: AdapterBrowserRoutingDeps["broadcastToBrowsers"],
+): boolean {
+  const issue = findCodexReasoningEffortSupportIssue(getCachedCodexModelCatalog()?.models, model, effort);
+  if (!issue) return false;
+  broadcast(session, { type: "error", message: formatCodexReasoningEffortSupportIssue(issue) });
+  return true;
+}
+
 export function handleCodexSetModel(
   session: AdapterBrowserRoutingSessionLike,
   model: string,
@@ -250,6 +272,8 @@ export function handleCodexSetModel(
     return;
   }
   const launchInfo = deps.getLauncherSessionInfo(session.id);
+  const requestedEffort = session.state.codex_reasoning_effort ?? launchInfo?.codexReasoningEffort;
+  if (rejectUnsupportedCodexReasoning(session, nextModel, requestedEffort, deps.broadcastToBrowsers)) return;
   const previousModel =
     typeof session.state.model === "string"
       ? session.state.model
@@ -257,6 +281,7 @@ export function handleCodexSetModel(
         ? launchInfo.model
         : undefined;
   session.state.model = nextModel;
+  clearCodexEffectiveReasoningEffort(session);
   markCodexModelSwitchCompactionGuard(session, { previousModel, nextModel });
   if (launchInfo) {
     launchInfo.model = nextModel;
@@ -264,7 +289,11 @@ export function handleCodexSetModel(
   }
   deps.broadcastToBrowsers(session, {
     type: "session_update",
-    session: { model: nextModel },
+    session: {
+      model: nextModel,
+      codex_effective_reasoning_effort: null,
+      codex_effective_reasoning_effort_reported: false,
+    },
   });
   deps.persistSession(session);
   deps.requestCodexIntentionalRelaunch(session, "set_model");
@@ -282,12 +311,21 @@ export function handleCodexSetReasoningEffort(
   const next = normalized || undefined;
   if (next && !isSafeCodexReasoningEffort(next)) return;
   if (session.state.codex_reasoning_effort === next) return;
-  session.state.codex_reasoning_effort = next;
   const launchInfo = deps.getLauncherSessionInfo(session.id);
+  if (
+    rejectUnsupportedCodexReasoning(session, session.state.model ?? launchInfo?.model, next, deps.broadcastToBrowsers)
+  )
+    return;
+  session.state.codex_reasoning_effort = next;
+  clearCodexEffectiveReasoningEffort(session);
   if (launchInfo) launchInfo.codexReasoningEffort = next;
   deps.broadcastToBrowsers(session, {
     type: "session_update",
-    session: { codex_reasoning_effort: next },
+    session: {
+      codex_reasoning_effort: next,
+      codex_effective_reasoning_effort: null,
+      codex_effective_reasoning_effort_reported: false,
+    },
   });
   deps.persistSession(session);
   deps.requestCodexIntentionalRelaunch(session, "set_codex_reasoning_effort");
