@@ -33,7 +33,7 @@ Work owns the responsibilities that v1 split across Explore, Implement, Code Rev
 
 The worker keeps one current detailed Work note. Refresh that note for iterative fixes instead of appending a process timeline. The final Work note records outcome, key decisions, evidence, sync/external state, residual risk, checkpoint decisions, and Memory handoff.
 
-Recoverable interruption does not create a smaller Work occurrence. After a system, transport, provider-stream, compaction, or leader-recycle interruption, reconstruct the latest durable state, verify rather than repeat completed side effects, and resume the full remaining authorized Work envelope. A status request is an update, not an implicit pause. For `recovery pending`, inspect progress once and allow one short verification window; if progress stops, interrupt the stale turn and resume the same full remaining envelope rather than authorizing one substep. Refresh volatile preconditions within Work, but pause only when they reveal a real authority, safety, destructive/external-action, shared-resource/lease, launch, or changed-state gate. Takode's exact-once replay proof and recovery-suppression boundaries remain authoritative.
+A recoverable interruption does not create a new or smaller Work occurrence. The canonical Work leader brief at `~/.companion/quest-journey-phases/work/leader.md` owns the recovery-routing rule.
 
 Independent review is no longer an embedded phase. When review materially reduces risk, create a separate quest with its own Alignment -> Work -> Memory flow.
 

@@ -147,13 +147,14 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(alignment.leaderBrief).toContain("Do not convert the Alignment note into a Work prompt");
     expect(work.assigneeBrief).toContain("worker-owned Work -> Memory transition");
     expect(work.assigneeBrief).toContain("Do not wait for the leader to restate the quest or prescribe an approach");
-    expect(work.assigneeBrief).toContain("Recovery preserves the full remaining authorized Work envelope");
-    expect(work.assigneeBrief).toContain("A status request is an update, not an implicit pause");
     expect(work.assigneeBrief).toContain("Communicate in coherent batches");
+    expect(work.assigneeBrief).not.toContain("Recovery preserves the full remaining authorized Work envelope");
+    expect(work.assigneeBrief).not.toContain("recovery pending");
     expect(work.assigneeBrief).toContain("concise plain-language outcome section");
     expect(work.assigneeBrief).toContain("Do not call Work complete or hand off to Memory");
     expect(work.leaderBrief).toContain("separate quest with its own Alignment -> Work -> Memory flow");
     expect(work.leaderBrief).toContain("Leader-only deltas: none");
+    expect(work.leaderBrief).toContain("authoritative source for recovery routing inside an active Work occurrence");
     expect(work.leaderBrief).toContain("Recovery preserves the full remaining authorized Work envelope");
     expect(work.leaderBrief).toContain("allow one short verification window");
     expect(work.leaderBrief).toContain("interrupt the stale turn");

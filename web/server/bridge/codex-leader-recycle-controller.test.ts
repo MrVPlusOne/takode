@@ -169,15 +169,14 @@ describe("Codex leader recycle continuation", () => {
     expect(session.codexLeaderRecycleContinuation?.content).toContain("memory catalog show");
     expect(session.codexLeaderRecycleContinuation?.content).toContain("takode board show");
     expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "restore the full remaining authorized Work envelope",
+      "~/.companion/quest-journey-phases/work/leader.md",
     );
+    expect(session.codexLeaderRecycleContinuation?.content).toContain("That brief owns the complete recovery rule");
     expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "Do not convert recovery into separate implementation, validation, commit, sync/push",
+      "the recycle itself does not define a smaller scope",
     );
-    expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "Treat a status request as an update, not an implicit pause",
-    );
-    expect(session.codexLeaderRecycleContinuation?.content).toContain(
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("full remaining authorized Work envelope");
+    expect(session.codexLeaderRecycleContinuation?.content).not.toContain(
       "exact-once replay proof and recovery suppression",
     );
     expect(session.codexLeaderRecycleContinuation?.content).toContain(
@@ -293,9 +292,11 @@ describe("Codex leader recycle continuation", () => {
         expect(content).toContain("quest status");
         expect(content).toContain("memory catalog show");
         expect(content).toContain("takode board show");
-        expect(content).toContain("restore the full remaining authorized Work envelope");
-        expect(content).toContain("Treat a status request as an update, not an implicit pause");
-        expect(content).toContain("exact-once replay proof and recovery suppression");
+        expect(content).toContain("~/.companion/quest-journey-phases/work/leader.md");
+        expect(content).toContain("That brief owns the complete recovery rule");
+        expect(content).toContain("the recycle itself does not define a smaller scope");
+        expect(content).not.toContain("full remaining authorized Work envelope");
+        expect(content).not.toContain("exact-once replay proof and recovery suppression");
         expect(content).toContain("scan plus board/quest/notification state show no active work");
         expect(content).toContain("report recovery complete instead of digging through old review inbox items");
         expect(content).toContain("Interrupted direct user work");

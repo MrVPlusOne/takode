@@ -55,6 +55,10 @@ const TAKODE_ORCHESTRATION_QUEST_JOURNEY_PATH = join(
   "takode-orchestration",
   "quest-journey.md",
 );
+const WORK_LEADER_BRIEF_PATH = join(SERVER_DIR, "..", "shared", "quest-journey-phases", "work", "leader.md");
+const WORK_ASSIGNEE_BRIEF_PATH = join(SERVER_DIR, "..", "shared", "quest-journey-phases", "work", "assignee.md");
+const CLI_LAUNCHER_INSTRUCTIONS_PATH = join(SERVER_DIR, "cli-launcher-instructions.ts");
+const COMPACTION_RECOVERY_PROMPTS_PATH = join(SERVER_DIR, "compaction-recovery-prompts.ts");
 const QUEST_SKILL_TEMPLATE_PATH = join(SERVER_DIR, "templates", "quest-skill-docs.md");
 const REPO_ROOT = join(SERVER_DIR, "..", "..");
 const QUEST_JOURNEY_SKILL_SLUGS = [
@@ -183,11 +187,11 @@ describe("index startup skill registration", () => {
     expect(source).toContain("| User Checkpoint | `USER_CHECKPOINTING` |");
     expect(source).toContain("| Memory | `MEMORY` |");
     expect(source).toContain("Legacy v1 phase IDs are rejected for new active rows and revisions");
-    expect(source).toContain("Recoverable interruption does not create a smaller Work occurrence");
-    expect(source).toContain("resume the full remaining authorized Work envelope");
-    expect(source).toContain("A status request is an update, not an implicit pause");
-    expect(source).toContain("allow one short verification window");
-    expect(source).toContain("exact-once replay proof and recovery-suppression boundaries remain authoritative");
+    expect(source).toContain("A recoverable interruption does not create a new or smaller Work occurrence");
+    expect(source).toContain("~/.companion/quest-journey-phases/work/leader.md");
+    expect(source).toContain("owns the recovery-routing rule");
+    expect(source).not.toContain("allow one short verification window");
+    expect(source).not.toContain("exact-once replay proof and recovery-suppression boundaries remain authoritative");
     expect(source).not.toContain("`EXECUTING`");
     expect(source).not.toContain("`OUTCOME_REVIEWING`");
     expect(topLevelSource).toContain("Externally consequential User Checkpoints require fresh explicit approval");
@@ -202,11 +206,52 @@ describe("index startup skill registration", () => {
     expect(topLevelSource).toContain("promote to a normal quest/Journey");
     expect(topLevelSource).toContain("accepted Work/Memory evidence before reopening source yourself");
     expect(topLevelSource).toContain("Do not create a quest or authorize changes for a clarification");
-    expect(topLevelSource).toContain("System-interrupted worker events can be provisional without shrinking Work");
-    expect(topLevelSource).toContain("allow one short verification window");
-    expect(topLevelSource).toContain("resume the full remaining authorized Work envelope");
-    expect(topLevelSource).toContain("Treat status requests as updates, not implicit pauses");
-    expect(topLevelSource).toContain("exact-once replay proof or recovery suppression");
+    expect(topLevelSource).toContain("System-interrupted worker events can be provisional");
+    expect(topLevelSource).toContain("~/.companion/quest-journey-phases/work/leader.md");
+    expect(topLevelSource).toContain("That brief owns the complete recovery rule");
+    expect(topLevelSource).not.toContain("allow one short verification window");
+    expect(topLevelSource).not.toContain("exact-once replay proof or recovery suppression");
+  });
+
+  it("keeps the complete Work recovery rule owned by the canonical leader brief", async () => {
+    const [leaderBrief, assigneeBrief, leaderDispatch, orchestration, journey, launcher, recoveryPrompts] =
+      await Promise.all([
+        readFile(WORK_LEADER_BRIEF_PATH, "utf-8"),
+        readFile(WORK_ASSIGNEE_BRIEF_PATH, "utf-8"),
+        readFile(LEADER_DISPATCH_SKILL_PATH, "utf-8"),
+        readFile(TAKODE_ORCHESTRATION_SKILL_PATH, "utf-8"),
+        readFile(TAKODE_ORCHESTRATION_QUEST_JOURNEY_PATH, "utf-8"),
+        readFile(CLI_LAUNCHER_INSTRUCTIONS_PATH, "utf-8"),
+        readFile(COMPACTION_RECOVERY_PROMPTS_PATH, "utf-8"),
+      ]);
+
+    const completeRuleMarkers = [
+      "Recovery preserves the full remaining authorized Work envelope",
+      "allow one short verification window",
+      "interrupt the stale turn",
+      "do not override Takode's exact-once replay proof or recovery suppression",
+    ];
+
+    expect(leaderBrief).toContain("authoritative source for recovery routing inside an active Work occurrence");
+    for (const marker of completeRuleMarkers) {
+      expect(leaderBrief).toContain(marker);
+      for (const pointerOnlySource of [
+        assigneeBrief,
+        leaderDispatch,
+        orchestration,
+        journey,
+        launcher,
+        recoveryPrompts,
+      ]) {
+        expect(pointerOnlySource).not.toContain(marker);
+      }
+    }
+
+    expect(assigneeBrief).not.toContain("recovery pending");
+    for (const pointerSource of [leaderDispatch, orchestration, journey, recoveryPrompts]) {
+      expect(pointerSource).toContain("~/.companion/quest-journey-phases/work/leader.md");
+    }
+    expect(launcher).toContain('getQuestJourneyPhaseLeaderBriefDisplayPath("work")');
   });
 
   it("keeps leader dispatch hot path compact while preserving handoff references", async () => {
@@ -250,11 +295,13 @@ describe("index startup skill registration", () => {
     expect(source).toContain("accepted Work/Memory note, before reopening source yourself");
     expect(source).toContain("Do not create a new quest or authorize code changes for a clarification");
     expect(source).toContain("Provide only deltas the assignee cannot infer");
-    expect(source).toContain("Recovery does not narrow that authorization");
-    expect(source).toContain("restores the full remaining authorized Work envelope");
-    expect(source).toContain("Treat a status request as an update, not an implicit pause");
-    expect(source).toContain("allow one short verification window");
-    expect(source).toContain("Existing exact-once replay proof and recovery-suppression rules remain authoritative");
+    expect(source).toContain("For recovery of an active Work occurrence");
+    expect(source).toContain("~/.companion/quest-journey-phases/work/leader.md");
+    expect(source).toContain("it owns the complete rule");
+    expect(source).not.toContain("allow one short verification window");
+    expect(source).not.toContain(
+      "Existing exact-once replay proof and recovery-suppression rules remain authoritative",
+    );
     expect(source).not.toContain("Memory command mechanics live in the relevant phase briefs");
 
     expect(edgeCases).toContain("## Memory-Specific Dispatch Deltas");
