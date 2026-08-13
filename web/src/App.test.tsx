@@ -256,8 +256,8 @@ vi.mock("./components/EnvManager.js", () => ({
   EnvManager: () => <div data-testid="env-manager" />,
 }));
 
-vi.mock("./components/ActiveTimersPage.js", () => ({
-  ActiveTimersPage: () => <div data-testid="active-timers-page" />,
+vi.mock("./components/TodosAndTimersPage.js", () => ({
+  TodosAndTimersPage: () => <div data-testid="todos-and-timers-page" />,
 }));
 
 vi.mock("./components/MemoryPage.js", () => ({
@@ -469,12 +469,12 @@ describe("App hidden panels", () => {
     expect(window.location.hash).toBe("#/session/s1");
   });
 
-  it("mounts ActiveTimersPage on the scheduled route", () => {
+  it("mounts TodosAndTimersPage on the scheduled route", () => {
     window.location.hash = "#/scheduled";
 
     render(<App />);
 
-    expect(screen.getByTestId("active-timers-page")).toBeInTheDocument();
+    expect(screen.getByTestId("todos-and-timers-page")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-view")).toBeNull();
   });
 
@@ -483,7 +483,7 @@ describe("App hidden panels", () => {
       ["#/memory", "memory-page", "Memory"],
       ["#/changelog", "changelog-page", "Changelog"],
       ["#/terminal", "terminal-page", "Terminal"],
-      ["#/scheduled", "active-timers-page", "Timers"],
+      ["#/scheduled", "todos-and-timers-page", "To-dos & Timers"],
       ["#/settings", "settings-page", "Settings"],
       ["#/questmaster", "questmaster-page", "Questmaster"],
     ] as const) {

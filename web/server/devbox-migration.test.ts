@@ -53,6 +53,14 @@ async function seedSourceHome(root: string): Promise<void> {
   await writeJson(join(root, "questmaster", "q-1-v1.json"), { id: "q-1" });
   await mkdir(join(root, "memory", "prod", "Takode"), { recursive: true });
   await writeFile(join(root, "memory", "prod", "Takode", "knowledge.md"), "memory\n");
+  await writeJson(join(root, "todos", "todo-list.json"), {
+    schemaVersion: 1,
+    revision: 1,
+    items: [{ id: "td-1", titleMarkdown: "Bring this reminder" }],
+    categories: [{ id: "cat-inbox", name: "Inbox" }],
+    proposals: [],
+    grants: [],
+  });
   await writeJson(join(root, "tree-groups", "server-1.json"), { groups: [], assignments: {}, nodeOrder: {} });
   await writeJson(join(root, "new-session-defaults", "server-1.json"), { entries: {} });
   await writeJson(join(root, "envs", "secret-env.json"), { variables: { TOKEN: "secret" } });
@@ -69,6 +77,7 @@ describe("devbox migration planner", () => {
     expect(plan.sourceServerId).toBe("server-1");
     expect(plan.entries.find((entry) => entry.id === "sessions")?.fileCount).toBe(2);
     expect(plan.entries.find((entry) => entry.id === "settings")?.notes.join(" ")).toContain("sanitized");
+    expect(plan.entries.find((entry) => entry.id === "todos")?.category).toBe("todos");
     expect(plan.excluded.find((entry) => entry.id === "settings-secrets")?.exists).toBe(true);
     expect(plan.excluded.find((entry) => entry.id === "envs")?.exists).toBe(true);
   });
@@ -102,6 +111,9 @@ describe("devbox migration planner", () => {
     expect(settings.pushoverUserKey).toBe("");
     expect(settings.namerConfig.apiKey).toBe("");
     expect(settings.transcriptionConfig.apiKey).toBe("");
+    expect(
+      JSON.parse(await readFile(join(packageDir, "payload", "todos", "todo-list.json"), "utf-8")).items[0].id,
+    ).toBe("td-1");
   });
 
   it("reports import conflicts in dry-run without changing target files", async () => {
@@ -143,6 +155,7 @@ describe("devbox migration planner", () => {
     expect(JSON.parse(await readFile(join(result.plan.backupDir, "settings-3456.json"), "utf-8")).serverId).toBe(
       "target",
     );
+    expect(JSON.parse(await readFile(join(target, "todos", "todo-list.json"), "utf-8")).items[0].id).toBe("td-1");
   });
 
   it("imports historical sessions as archived launcher catalog entries that SessionStore can read", async () => {

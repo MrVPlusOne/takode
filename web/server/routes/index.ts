@@ -25,6 +25,7 @@ import { createQuestRoutes } from "./quests.js";
 import { createRecordingsRoutes } from "./recordings.js";
 import { createSystemRoutes } from "./system.js";
 import { createTimerRoutes } from "./timers.js";
+import { createTodoRoutes } from "./todos.js";
 import { createResourceLeaseRoutes } from "./resource-leases.js";
 import { createStreamRoutes } from "./streams.js";
 import { createMemoryRoutes } from "./memory.js";
@@ -237,6 +238,7 @@ export function createRoutes(
   api.route("/", createGitRoutes(ctx));
   api.route("/", createQuestRoutes(ctx));
   api.route("/", createTimerRoutes(ctx));
+  api.route("/", createTodoRoutes(ctx));
   api.route("/", createResourceLeaseRoutes(ctx));
   api.route("/", createStreamRoutes(ctx));
   api.route("/", createMemoryRoutes(ctx));

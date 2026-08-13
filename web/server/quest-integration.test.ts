@@ -173,6 +173,9 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("File Link Guidance");
     expect(skill).toContain("[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)");
     expect(skill).toContain("Standard Markdown file links to repo files may be opened best-effort");
+    expect(skill).toContain("Quests vs Personal To-dos vs Built-in TodoWrite");
+    expect(skill).toContain("`takode todo`");
+    expect(skill).toContain("genuinely ambiguous generic wording");
     expect(skill).toContain("Quest Journey Phase Documentation");
     expect(skill).toContain("every active phase should leave durable quest feedback");
     expect(skill).toContain("For memory record frontmatter `source`");

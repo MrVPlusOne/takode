@@ -1169,6 +1169,7 @@ export type BrowserIncomingMessageBase =
   | { type: "session_stuck" }
   | { type: "session_unstuck" }
   | { type: "quest_list_updated" }
+  | { type: "todo_state_updated"; revision: number; updatedAt: number }
   | { type: "settings_updated"; sessionDefaults: SessionDefaultsSettings }
   | {
       type: "session_quest_claimed";

@@ -23,6 +23,7 @@ import { searchGlobalStarredMessages, searchSessionMessages } from "./api/sessio
 import { getMemoryCatalog, getMemoryRecord, getMemoryUpdateDiff, listMemorySpaces } from "./api/memory.js";
 import type { MemoryUpdateDiffSourceFile } from "./api/memory.js";
 import { transcribe } from "./api/transcription.js";
+import { todoApi } from "./api/todos.js";
 import type {
   TranscriptionLogEntry,
   TranscriptionLogIndexEntry,
@@ -69,6 +70,14 @@ export type {
   TranscriptionLogIndexEntry,
   TranscriptionReplayVariant,
 } from "./api/transcription-debug-types.js";
+
+export type {
+  TodoState,
+  TodoStatus,
+  TodoPrincipal,
+  TodoGrantAction,
+  TodoProposalMutation,
+} from "../shared/todo-types.js";
 
 export type {
   VoiceTranscriptionMode,
@@ -1210,6 +1219,8 @@ export const api = {
       candidate?: WorktreeCleanupCandidate;
       safety?: { status: string; summary: string; reason?: string; dirty?: boolean; committedAhead?: number };
     }>(`/worktree-cleanup/${encodeURIComponent(sessionId)}/retry`),
+
+  ...todoApi,
 
   listActiveTimers: () => get<ActiveTimerSession[]>("/timers/active"),
 

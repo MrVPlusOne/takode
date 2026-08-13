@@ -53,6 +53,7 @@ import {
   stripRootCodexThinkingMessage,
 } from "./utils/assistant-content-blocks.js";
 import { convertLegacyParentedCodexThinkingMessage } from "./utils/codex-reasoning-detail.js";
+import { TODO_STATE_UPDATED_EVENT } from "./todo-events.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1738,6 +1739,13 @@ function handleParsedMessage(
       store.invalidateQuestAutocompleteCandidates();
       void store.refreshQuestAutocompleteCandidates({ force: true, background: true });
       void store.refreshQuestSummary({ force: true });
+      break;
+    }
+
+    case "todo_state_updated": {
+      window.dispatchEvent(
+        new CustomEvent(TODO_STATE_UPDATED_EVENT, { detail: { revision: data.revision, updatedAt: data.updatedAt } }),
+      );
       break;
     }
 

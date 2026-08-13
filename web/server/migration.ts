@@ -71,7 +71,7 @@ const MANIFEST_NAME = ".export-manifest.json";
 const STAGING_DIR = ".import-staging";
 const EXPORT_CLAUDE_DIR = ".export-claude";
 
-const ASSET_DIRS = ["images", "questmaster", "codex-home", "envs", "cron", "assistant"];
+const ASSET_DIRS = ["images", "questmaster", "codex-home", "envs", "cron", "assistant", "todos"];
 const EXPORT_FILES = ["worktrees.json", "containers.json", "session-names.json"];
 
 // ─── Export ─────────────────────────────────────────────────────────────────
@@ -400,7 +400,7 @@ export async function runImport(
 
     // ── Asset directories (newer wins) ───────────────────────────
     progress("assets", "Copying assets...");
-    for (const dir of ["images", "questmaster", "codex-home", "envs", "cron", "assistant", "recordings"]) {
+    for (const dir of ["images", "questmaster", "codex-home", "envs", "cron", "assistant", "todos", "recordings"]) {
       const stagedDir = join(stagingDir, dir);
       if (existsSync(stagedDir)) copyDirNewerWins(stagedDir, join(COMPANION_HOME, dir), stats);
     }

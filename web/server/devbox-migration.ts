@@ -34,7 +34,7 @@ export interface DevboxMigrationOptions {
 
 export interface DevboxMigrationEntry {
   id: string;
-  category: "settings" | "sessions" | "quests" | "memory" | "configuration";
+  category: "settings" | "sessions" | "quests" | "memory" | "todos" | "configuration";
   sourcePath: string;
   targetPath: string;
   packagePath: string;
@@ -407,6 +407,14 @@ function buildEntrySpecs(
     targetPath: join(resolved.targetHome, "memory"),
     packagePath: "memory",
     notes: ["Copies file-based memory repositories, including their Git metadata when present."],
+  });
+  specs.push({
+    id: "todos",
+    category: "todos",
+    sourcePath: join(resolved.sourceHome, "todos"),
+    targetPath: join(resolved.targetHome, "todos"),
+    packagePath: "todos",
+    notes: ["Copies the durable personal to-do list, categories, proposals, and scoped workflow grants."],
   });
   for (const name of ["session-names.json", "auto-approval.json", "tree-groups.json"] as const) {
     specs.push({

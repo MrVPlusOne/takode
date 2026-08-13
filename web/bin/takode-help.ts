@@ -271,6 +271,40 @@ const BRANCH_SET_BASE_HELP = `Usage: takode branch set-base <branch> [--json]
 Set the current session's diff base branch.
 `;
 
+const TODO_HELP = `Usage: takode todo <command> ...
+
+Personal durable to-dos for the user. This is separate from Questmaster quests and from a model's ephemeral TodoWrite checklist.
+
+Read commands:
+  list [--status todo,doing,done] [--category <id|name>] [--search <text>]
+       [--completed-on YYYY-MM-DD] [--timezone <IANA>] [--include-archived] [--json]
+  show <td-id> [--json]
+  find --link <url> [--include-archived] [--json]
+  category list [--include-archived] [--json]
+  proposal list|show <tp-id> [--json]
+  grant list|show <tg-id> [--include-archived] [--json]
+
+Mutation commands:
+  add [title] [--title-file <path|->] [--details-file <path|->] [--category <id|name>]
+      [--status todo|doing|done] [--authorized-by <human-message-index>] [--json]
+  edit <td-id> [--title-file <path|->] [--details-file <path|->] [--authorized-by <index>] [--json]
+  status <td-id> <todo|doing|done> [--authorized-by <index>] [--json]
+  move <td-id> <category> [--authorized-by <index>] [--json]
+  archive|restore <td-id> [--authorized-by <index>] [--json]
+  category create|rename|archive|restore ... [--authorized-by <index>] [--json]
+  propose <add|edit|status|move|archive|restore|category-create|category-rename|category-archive|category-restore> ...
+  proposal approve|reject <tp-id> [--authorized-by <index>] [--json]
+  grant create --principal-kind session|cron --principal <id> --actions <csv>
+      [--categories <csv>|--all-categories] [--authorized-by <index>] [--json]
+  grant revoke <tg-id> [--authorized-by <index>] [--json]
+
+Authorization:
+  Reads and proposals are allowed to authenticated Takode sessions. Real-list mutations require a direct human user-message index from the same session or a matching server-derived session/cron workflow grant. UI actions are user-authorized. Unauthorized commands fail closed; use \`takode todo propose ...\` instead.
+
+Markdown:
+  Prefer --title-file/--details-file (use \`-\` for stdin) when content contains links, backticks, quotes, or other shell-sensitive characters. Default list/find output is compact; show and explicit JSON reveal full detail.
+`;
+
 const TIMER_HELP = `Usage: takode timer <create|list|cancel> ...
 
 Session-scoped timers for the current session.
@@ -452,6 +486,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
       }
       return true;
     }
+    case "todo":
+      console.log(TODO_HELP);
+      return true;
     case "timer": {
       const sub = args[0];
       if (!sub) {
@@ -545,6 +582,7 @@ Commands:
   worker-stream  Stream a worker/reviewer checkpoint to the leader
   phases        List Quest Journey phases and exact phase brief paths
   board          Quest Journey work board (e.g. takode board show, takode board advance q-12)
+  todo           Personal durable to-dos (read, propose, or mutate with user/grant authorization)
   timer          Session-scoped timers (create, list, cancel)
   lease          Global resource leases (acquire, status, renew, release, wait)
   permission     Inspect or update session permission modes
@@ -577,6 +615,8 @@ Examples:
   takode spawn --message-file /tmp/dispatch.txt
   takode tasks 1
   takode timers 1
+  takode todo list
+  takode todo add --title-file - --category Inbox --authorized-by 42
   takode scan 1
   takode scan 1 --from 50 --count 20
   takode peek 1

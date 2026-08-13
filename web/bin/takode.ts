@@ -22,6 +22,7 @@ import { printCommandHelp, printUsage } from "./takode-help.js";
 import { handleLease } from "./takode-lease.js";
 import { handleExport, handleGrep, handleLogs, handlePeek, handleRead, handleScan } from "./takode-message-commands.js";
 import { handleBranch, handleRefreshBranch, handleTimer } from "./takode-misc-commands.js";
+import { handleTodo } from "./takode-todo-commands.js";
 import {
   handleAnswer,
   handleArchive,
@@ -107,6 +108,7 @@ try {
     ["phases", {}],
     ["board", {}],
     ["timer", {}],
+    ["todo", {}],
     ["lease", {}],
     ["permission", { requireOrchestrator: true }],
     ["worktree-cleanup", { requireOrchestrator: true }],
@@ -252,6 +254,9 @@ try {
       break;
     case "timer":
       await handleTimer(base, args);
+      break;
+    case "todo":
+      await handleTodo(base, args);
       break;
     case "lease":
       await handleLease(args, {

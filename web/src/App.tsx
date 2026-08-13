@@ -33,7 +33,7 @@ import { SettingsPage } from "./components/SettingsPage.js";
 import { ChangelogPage } from "./components/ChangelogPage.js";
 import { LogsPage } from "./components/LogsPage.js";
 import { EnvManager } from "./components/EnvManager.js";
-import { ActiveTimersPage } from "./components/ActiveTimersPage.js";
+import { TodosAndTimersPage } from "./components/TodosAndTimersPage.js";
 import { MemoryPage } from "./components/MemoryPage.js";
 import { TerminalPage } from "./components/TerminalPage.js";
 import { SessionCreationView } from "./components/SessionCreationView.js";
@@ -176,7 +176,7 @@ export default function App() {
       : isTerminalPage
         ? "Terminal"
         : isScheduledPage
-          ? "Timers"
+          ? "To-dos & Timers"
           : isSettingsPage
             ? "Settings"
             : isQuestmasterPage
@@ -742,7 +742,7 @@ export default function App() {
 
           {isScheduledPage && (
             <div className="absolute inset-0">
-              <ActiveTimersPage embedded />
+              <TodosAndTimersPage />
             </div>
           )}
 

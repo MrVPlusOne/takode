@@ -143,6 +143,7 @@ describe("takode watch deprecation", () => {
     [["branch", "status", "--help"], "Usage: takode branch status [--json]"],
     [["branch", "set-base", "--help"], "Usage: takode branch set-base <branch> [--json]"],
     [["timer", "--help"], "Usage: takode timer <create|list|cancel> ..."],
+    [["todo", "--help"], "Usage: takode todo <command> ..."],
     [["timer", "create", "--help"], "Usage: takode timer create <title>"],
     [["timer", "cancel", "--help"], "Usage: takode timer cancel <timer-id>"],
     [["help", "board", "set"], "Usage: takode board set <quest-id>"],

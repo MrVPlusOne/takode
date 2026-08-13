@@ -216,3 +216,20 @@ describe("handleMessage: settings_updated", () => {
     window.removeEventListener("takode:session-defaults-updated", listener);
   });
 });
+
+describe("handleMessage: todo_state_updated", () => {
+  it("publishes the server revision so every open To-dos page refetches authoritative state", () => {
+    const listener = vi.fn();
+    window.addEventListener("takode:todo-state-updated", listener);
+    wsModule.connectSession("s1");
+
+    fireMessage({ type: "todo_state_updated", revision: 7, updatedAt: 1_786_608_000_000 });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((listener.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
+      revision: 7,
+      updatedAt: 1_786_608_000_000,
+    });
+    window.removeEventListener("takode:todo-state-updated", listener);
+  });
+});
