@@ -310,6 +310,50 @@ describe("TodoStore", () => {
     expect((await store.listItems())[0]?.id).toBe(created.id);
   });
 
+  it("atomically restores the exact active status, category, and ranks from a completion receipt", async () => {
+    const first = await store.createItem({ markdown: "First" }, provenance(10));
+    const second = await store.createItem({ markdown: "Second", status: "doing" }, provenance(20));
+    const third = await store.createItem({ markdown: "Third" }, provenance(30));
+    const before = await store.snapshot();
+    const beforeRanks = before.items
+      .filter((item) => item.categoryId === TODO_INBOX_CATEGORY_ID && item.status !== "done")
+      .map(({ id, rank }) => ({ id, rank }));
+
+    const completed = await store.setItemStatusWithCompletionUndo(second.id, "done", provenance(40));
+    expect(completed.item).toMatchObject({ status: "done", completedAt: 40 });
+    expect(completed.undo).toBeDefined();
+
+    const restored = await store.undoItemCompletion(completed.undo!, provenance(50));
+    expect(restored).toMatchObject({
+      id: second.id,
+      status: "doing",
+      categoryId: TODO_INBOX_CATEGORY_ID,
+      rank: before.items.find((item) => item.id === second.id)?.rank,
+      statusChangedAt: 50,
+      updatedAt: 50,
+    });
+    expect(restored.completedAt).toBeUndefined();
+    expect(
+      (await store.snapshot()).items
+        .filter((item) => item.categoryId === TODO_INBOX_CATEGORY_ID && item.status !== "done")
+        .sort((a, b) => a.rank - b.rank)
+        .map(({ id, rank }) => ({ id, rank })),
+    ).toEqual(beforeRanks);
+    expect(beforeRanks.map(({ id }) => id)).toEqual([first.id, second.id, third.id]);
+  });
+
+  it("refuses a stale completion receipt after the active ordering changes", async () => {
+    const first = await store.createItem({ markdown: "First" }, provenance(10));
+    const second = await store.createItem({ markdown: "Second" }, provenance(20));
+    const completed = await store.setItemStatusWithCompletionUndo(first.id, "done", provenance(30));
+    await store.createItem({ markdown: "Inserted after completion", beforeItemId: second.id }, provenance(40));
+
+    await expect(store.undoItemCompletion(completed.undo!, provenance(50))).rejects.toMatchObject({
+      code: "conflict",
+    });
+    expect((await store.getItem(first.id)).status).toBe("done");
+  });
+
   it("inserts and reorders active items within and across categories using server-owned ranks", async () => {
     const slack = await store.createCategory({ name: "Slack" }, provenance(1));
     const first = await store.createItem({ markdown: "First" }, provenance(10));

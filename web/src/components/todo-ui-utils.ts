@@ -70,8 +70,7 @@ export function groupActiveItemsByCategory(items: TodoItem[], categories: TodoCa
     }));
 }
 
-export function groupDoneItemsByLocalDate(items: TodoItem[], categories: TodoCategory[] = []) {
-  const categoryOrder = new Map(categories.map((category, index) => [category.id, index]));
+export function groupDoneItemsByLocalDate(items: TodoItem[]) {
   const groups = new Map<string, TodoItem[]>();
   for (const item of items) {
     const key = localDateKey(item.completedAt ?? item.updatedAt);
@@ -81,30 +80,13 @@ export function groupDoneItemsByLocalDate(items: TodoItem[], categories: TodoCat
   }
   return [...groups.entries()]
     .sort(([a], [b]) => b.localeCompare(a))
-    .map(([dateKey, groupedItems]) => {
-      const categoryGroups = new Map<string, TodoItem[]>();
-      for (const item of groupedItems) {
-        const group = categoryGroups.get(item.categoryId) ?? [];
-        group.push(item);
-        categoryGroups.set(item.categoryId, group);
-      }
-      const groupedCategories = [...categoryGroups.entries()]
-        .sort(
-          (a, b) =>
-            (categoryOrder.get(a[0]) ?? Number.MAX_SAFE_INTEGER) - (categoryOrder.get(b[0]) ?? Number.MAX_SAFE_INTEGER),
-        )
-        .map(([categoryId, grouped]) => ({
-          categoryId,
-          categoryName: categories.find((category) => category.id === categoryId)?.name ?? categoryId,
-          items: grouped.sort(compareRank),
-        }));
-      return {
-        dateKey,
-        label: localDateLabel(dateKey),
-        items: groupedCategories.flatMap((group) => group.items),
-        categories: groupedCategories,
-      };
-    });
+    .map(([dateKey, groupedItems]) => ({
+      dateKey,
+      label: localDateLabel(dateKey),
+      items: groupedItems.sort(
+        (a, b) => (b.completedAt ?? b.updatedAt) - (a.completedAt ?? a.updatedAt) || compareRank(a, b),
+      ),
+    }));
 }
 
 export function todoProposalSummary(proposal: TodoProposal): string {

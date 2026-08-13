@@ -186,10 +186,18 @@ export interface TodoCompactItem {
   archivedAt?: number;
 }
 
+export interface TodoCompletionUndoHandle {
+  token: string;
+  itemId: string;
+  expiresAt: number;
+}
+
 export interface TodoStateMutationResponse {
   state: TodoState;
   item?: TodoItem;
   category?: TodoCategory;
   proposal?: TodoProposal;
   grant?: TodoGrant;
+  /** Opaque, short-lived receipt for undoing the immediately preceding UI completion. */
+  completionUndo?: TodoCompletionUndoHandle;
 }

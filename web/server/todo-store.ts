@@ -34,6 +34,29 @@ const MAX_PROPOSALS = 1_000;
 const RANK_STEP = 1_024;
 const LEGACY_BACKUP_SUFFIX = ".schema-v1.backup";
 
+interface TodoRankSnapshot {
+  id: string;
+  rank: number;
+}
+
+export interface TodoCompletionUndoSnapshot {
+  itemId: string;
+  previous: {
+    status: Exclude<TodoStatus, "done">;
+    categoryId: string;
+    rank: number;
+    sectionRanks: TodoRankSnapshot[];
+  };
+  completed: {
+    categoryId: string;
+    rank: number;
+    updatedAt: number;
+    completedAt: number;
+    archivedAt?: number;
+    activeSectionRanks: TodoRankSnapshot[];
+  };
+}
+
 export class TodoStoreError extends Error {
   constructor(
     message: string,
@@ -791,6 +814,108 @@ export class TodoStore {
   async setItemStatus(itemId: string, statusValue: unknown, provenance: TodoMutationProvenance): Promise<TodoItem> {
     return this.mutate((state) => {
       const item = this.setItemStatusInState(state, itemId, statusValue, provenance);
+      touchState(state, provenance.at);
+      return item;
+    });
+  }
+
+  async setItemStatusWithCompletionUndo(
+    itemId: string,
+    statusValue: unknown,
+    provenance: TodoMutationProvenance,
+  ): Promise<{ item: TodoItem; undo?: TodoCompletionUndoSnapshot }> {
+    return this.mutate((state) => {
+      const before = clone(itemById(state, itemId));
+      const status = normalizeStatus(statusValue);
+      const canUndoCompletion = status === "done" && before.status !== "done" && !before.archivedAt;
+      const previousSection = canUndoCompletion
+        ? sectionItems(state, before).map(({ id, rank }) => ({ id, rank }))
+        : [];
+      const item = this.setItemStatusInState(state, itemId, status, provenance);
+      touchState(state, provenance.at);
+      if (!canUndoCompletion || !item.completedAt) return { item };
+      return {
+        item,
+        undo: {
+          itemId,
+          previous: {
+            status: before.status as Exclude<TodoStatus, "done">,
+            categoryId: before.categoryId,
+            rank: before.rank,
+            sectionRanks: previousSection,
+          },
+          completed: {
+            categoryId: item.categoryId,
+            rank: item.rank,
+            updatedAt: item.updatedAt,
+            completedAt: item.completedAt,
+            ...(item.archivedAt ? { archivedAt: item.archivedAt } : {}),
+            activeSectionRanks: sectionItems(state, before).map(({ id, rank }) => ({ id, rank })),
+          },
+        },
+      };
+    });
+  }
+
+  async undoItemCompletion(
+    snapshot: TodoCompletionUndoSnapshot,
+    provenance: TodoMutationProvenance,
+  ): Promise<TodoItem> {
+    return this.mutate((state) => {
+      const item = itemById(state, snapshot.itemId);
+      const expected = snapshot.completed;
+      if (
+        item.status !== "done" ||
+        item.categoryId !== expected.categoryId ||
+        item.rank !== expected.rank ||
+        item.updatedAt !== expected.updatedAt ||
+        item.completedAt !== expected.completedAt ||
+        item.archivedAt !== expected.archivedAt
+      ) {
+        throw new TodoStoreError(
+          "This completion changed after it was created; refresh before reopening it",
+          "conflict",
+        );
+      }
+
+      const activeDescriptor = {
+        categoryId: snapshot.previous.categoryId,
+        status: snapshot.previous.status,
+      };
+      const activeSection = sectionItems(state, activeDescriptor).map(({ id, rank }) => ({ id, rank }));
+      if (
+        activeSection.length !== expected.activeSectionRanks.length ||
+        activeSection.some(
+          (candidate, index) =>
+            candidate.id !== expected.activeSectionRanks[index]?.id ||
+            candidate.rank !== expected.activeSectionRanks[index]?.rank,
+        )
+      ) {
+        throw new TodoStoreError(
+          "The original active ordering changed after completion; refresh before reopening this item",
+          "conflict",
+        );
+      }
+
+      categoryById(state, snapshot.previous.categoryId);
+      item.status = snapshot.previous.status;
+      item.categoryId = snapshot.previous.categoryId;
+      item.statusChangedAt = provenance.at;
+      item.updatedAt = provenance.at;
+      item.lastModifiedBy = provenance;
+      delete item.completedAt;
+
+      for (const previous of snapshot.previous.sectionRanks) {
+        const sectionItem = itemById(state, previous.id);
+        if (orderSection(sectionItem) !== orderSection(item)) {
+          throw new TodoStoreError(
+            "The original active ordering changed after completion; refresh before reopening this item",
+            "conflict",
+          );
+        }
+        sectionItem.rank = previous.rank;
+      }
+      item.rank = snapshot.previous.rank;
       touchState(state, provenance.at);
       return item;
     });

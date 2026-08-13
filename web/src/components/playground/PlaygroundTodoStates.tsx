@@ -5,38 +5,36 @@ function OutlineItem({
   status,
   markdown,
   expanded = false,
+  category,
 }: {
   status: "Todo" | "Doing" | "Done";
   markdown: string;
   expanded?: boolean;
+  category?: string;
 }) {
   const [title, ...details] = markdown.split("\n");
   return (
     <div className="flex items-start gap-2 rounded-lg px-1 py-1.5 hover:bg-cc-card/70">
       <span
-        className={`mt-1 h-4 w-4 shrink-0 rounded-full border ${status === "Done" ? "border-emerald-500 bg-emerald-500" : "border-cc-muted/60"}`}
-      />
+        className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${status === "Done" ? "border-emerald-500 bg-emerald-500 text-white" : status === "Doing" ? "border-amber-500 text-amber-500" : "border-cc-muted/60 text-transparent"}`}
+      >
+        {status === "Doing" ? "•" : "✓"}
+      </span>
       <span className="mt-0.5 w-4 shrink-0 text-xs text-cc-muted">{details.length ? (expanded ? "▾" : "▸") : ""}</span>
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <MarkdownContent
-            text={title ?? ""}
-            variant="conservative"
-            size="md"
-            className={`font-medium ${status === "Done" ? "text-cc-muted line-through" : ""}`}
-          />
-          <span
-            className={`text-[10px] font-semibold uppercase tracking-wide ${status === "Doing" ? "text-amber-500" : status === "Done" ? "text-emerald-500" : "text-sky-500"}`}
-          >
-            {status}
-          </span>
-        </div>
+        <MarkdownContent
+          text={title ?? ""}
+          variant="conservative"
+          size="md"
+          className={`font-medium ${status === "Done" ? "text-cc-muted line-through" : ""}`}
+        />
         {expanded && details.length > 0 && (
           <div className="mt-1.5 border-l border-cc-border pl-3 text-cc-muted">
             <MarkdownContent text={details.join("\n")} size="sm" />
           </div>
         )}
       </div>
+      {category && <span className="text-[10px] text-cc-muted">{category}</span>}
       <span className="text-sm tracking-widest text-cc-muted">•••</span>
     </div>
   );
@@ -67,13 +65,14 @@ export function PlaygroundTodoStates() {
                 + Add to Inbox
               </button>
             </section>
-            <details className="rounded-lg border border-cc-border/70 bg-cc-card/35">
-              <summary className="flex list-none justify-between px-3 py-2 text-xs text-cc-muted">
-                <span>▸ Today</span>
+            <details className="border-t border-cc-border pt-3">
+              <summary className="flex list-none justify-between px-1 py-2 text-sm text-cc-muted">
+                <span>▸ Done</span>
                 <span>1</span>
               </summary>
-              <div className="border-t border-cc-border px-3 py-2">
-                <OutlineItem status="Done" markdown="Share [q-42](quest:q-42) with the team" />
+              <div className="rounded-lg border border-cc-border bg-cc-card/35 px-3 py-2">
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-cc-muted">Today</p>
+                <OutlineItem status="Done" category="Inbox" markdown="Share [q-42](quest:q-42) with the team" />
               </div>
             </details>
           </div>
@@ -88,8 +87,19 @@ export function PlaygroundTodoStates() {
               className="h-28 w-full resize-none rounded-lg border border-cc-primary/35 bg-cc-bg px-3 py-2 text-sm leading-relaxed text-cc-fg"
             />
             <p className="mt-1 text-[10px] text-cc-muted">
-              First non-empty line is the title · remaining lines are collapsible details
+              Saves on click-away · first non-empty line is the title · Esc discards
             </p>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cc-error/30 bg-cc-error/10 px-2.5 py-2 text-xs text-cc-error">
+              <span>Save failed; your draft is still here.</span>
+              <div className="flex gap-1">
+                <button type="button" className="rounded border border-cc-error/30 px-2 py-1 font-medium">
+                  Retry
+                </button>
+                <button type="button" className="rounded border border-cc-error/30 px-2 py-1">
+                  Copy draft
+                </button>
+              </div>
+            </div>
           </div>
         </Card>
         <Card label="Advanced management drawer">

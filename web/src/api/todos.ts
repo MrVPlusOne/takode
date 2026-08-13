@@ -41,6 +41,12 @@ export const todoApi = {
       body: { status },
     }),
 
+  undoTodoCompletion: (id: string, token: string) =>
+    request<TodoStateMutationResponse>(`/todos/items/${encodeURIComponent(id)}/completion-undo`, {
+      method: "POST",
+      body: { token },
+    }),
+
   moveTodoItem: (id: string, input: TodoItemMoveInput) =>
     request<TodoStateMutationResponse>(`/todos/items/${encodeURIComponent(id)}/move`, {
       method: "POST",

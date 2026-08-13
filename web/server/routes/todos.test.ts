@@ -201,6 +201,42 @@ describe("to-do routes", () => {
     expect((await moved.json()).item).toMatchObject({ categoryId: category.id, completedAt: first.completedAt });
   });
 
+  it("returns a short-lived browser completion receipt and atomically restores the prior active position", async () => {
+    const first = (await (await jsonRequest("/todos/items", "POST", { markdown: "First" })).json()).item;
+    const second = (await (await jsonRequest("/todos/items", "POST", { markdown: "Second", status: "doing" })).json())
+      .item;
+    await jsonRequest("/todos/items", "POST", { markdown: "Third" });
+
+    const completedResponse = await jsonRequest(`/todos/items/${second.id}/status`, "POST", { status: "done" });
+    expect(completedResponse.status).toBe(200);
+    const completed = await completedResponse.json();
+    expect(completed.item).toMatchObject({ status: "done" });
+    expect(completed.completionUndo).toMatchObject({ itemId: second.id });
+    expect(completed.completionUndo.token).toEqual(expect.any(String));
+
+    const undoResponse = await jsonRequest(`/todos/items/${second.id}/completion-undo`, "POST", {
+      token: completed.completionUndo.token,
+    });
+    expect(undoResponse.status).toBe(200);
+    const undone = await undoResponse.json();
+    expect(undone.item).toMatchObject({ status: "doing", categoryId: first.categoryId, rank: second.rank });
+    expect(undone.item.completedAt).toBeUndefined();
+    expect(
+      undone.state.items
+        .filter((item: any) => item.status !== "done")
+        .sort((a: any, b: any) => a.rank - b.rank)
+        .map((item: any) => item.markdown),
+    ).toEqual(["First", "Second", "Third"]);
+
+    expect(
+      (
+        await jsonRequest(`/todos/items/${second.id}/completion-undo`, "POST", {
+          token: completed.completionUndo.token,
+        })
+      ).status,
+    ).toBe(409);
+  });
+
   it("lets agents create canonical proposals without mutating the real list until user approval", async () => {
     requiredCaller = caller();
     const proposed = await jsonRequest("/todos/proposals", "POST", {

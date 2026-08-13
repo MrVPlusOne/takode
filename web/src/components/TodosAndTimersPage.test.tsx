@@ -11,6 +11,7 @@ import { TodosAndTimersPage } from "./TodosAndTimersPage.js";
 describe("TodosAndTimersPage", () => {
   it("keeps personal to-dos primary and Timers lower and collapsed by default", () => {
     render(<TodosAndTimersPage />);
+    expect(screen.queryByRole("heading", { name: "To-dos & Timers" })).not.toBeInTheDocument();
     expect(screen.getByTestId("todo-outline")).toBeInTheDocument();
     const section = screen.getByTestId("timers-collapsible-section");
     expect(section).not.toHaveAttribute("open");

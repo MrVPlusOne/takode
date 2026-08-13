@@ -1,8 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
 import {
   TODO_STATUSES,
   type TodoCategory,
+  type TodoCompletionUndoHandle,
   type TodoItem,
   type TodoState,
   type TodoStatus,
@@ -42,17 +52,20 @@ function MarkdownEditor({
   label,
   placeholder,
   onSave,
-  onCancel,
+  onDiscard,
 }: {
   initialValue: string;
   label: string;
   placeholder: string;
   onSave: (markdown: string) => Promise<void>;
-  onCancel: () => void;
+  onDiscard: () => void;
 }) {
   const [markdown, setMarkdown] = useState(initialValue);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [recoveryMessage, setRecoveryMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const savingRef = useRef(false);
   const valid = !!deriveTodoMarkdown(markdown).titleMarkdown;
 
   const resize = useCallback(() => {
@@ -68,29 +81,64 @@ function MarkdownEditor({
     textareaRef.current?.setSelectionRange(initialValue.length, initialValue.length);
   }, [initialValue.length, resize]);
 
-  const save = async () => {
-    if (!valid || saving) return;
+  const save = useCallback(async () => {
+    if (savingRef.current) return;
+    if (markdown === initialValue) {
+      onDiscard();
+      return;
+    }
+    if (!valid) {
+      setSaveError("Keep a non-empty title line before leaving this editor.");
+      return;
+    }
+    savingRef.current = true;
     setSaving(true);
+    setSaveError("");
+    setRecoveryMessage("");
     try {
       await onSave(markdown);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
     } finally {
+      savingRef.current = false;
       setSaving(false);
+    }
+  }, [initialValue, markdown, onDiscard, onSave, valid]);
+
+  const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    void save();
+  };
+
+  const recoverDraft = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(markdown);
+      setRecoveryMessage("Draft copied.");
+    } catch {
+      textareaRef.current?.focus();
+      textareaRef.current?.select();
+      setRecoveryMessage("Draft selected — copy it manually.");
     }
   };
 
   return (
-    <div className="min-w-0 flex-1">
+    <div className="min-w-0 flex-1" onBlurCapture={handleBlur}>
       <textarea
         ref={textareaRef}
         value={markdown}
+        disabled={saving}
         onChange={(event) => {
           setMarkdown(event.target.value);
+          setSaveError("");
+          setRecoveryMessage("");
           requestAnimationFrame(resize);
         }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
-            onCancel();
+            onDiscard();
           } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
             void save();
@@ -98,24 +146,40 @@ function MarkdownEditor({
         }}
         aria-label={label}
         placeholder={placeholder}
-        className="block max-h-[360px] min-h-11 w-full resize-none overflow-y-auto rounded-lg border border-cc-primary/35 bg-cc-bg px-3 py-2 text-sm leading-relaxed text-cc-fg outline-none focus:border-cc-primary"
+        className="block max-h-[360px] min-h-11 w-full resize-none overflow-y-auto rounded-lg border border-cc-primary/35 bg-cc-bg px-3 py-2 text-sm leading-relaxed text-cc-fg outline-none focus:border-cc-primary disabled:opacity-70"
       />
-      <div className="mt-1.5 flex items-center justify-between gap-3 text-[10px] text-cc-muted">
-        <span>First non-empty line is the title · ⌘/Ctrl+Enter saves · Esc cancels</span>
-        <div className="flex shrink-0 gap-1.5">
-          <button type="button" onClick={onCancel} className="rounded px-2 py-1 hover:bg-cc-bg hover:text-cc-fg">
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={!valid || saving}
-            onClick={() => void save()}
-            className="rounded bg-cc-primary px-2.5 py-1 font-medium text-white disabled:opacity-40"
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-        </div>
+      <div className="mt-1.5 text-[10px] text-cc-muted">
+        {saving ? "Saving…" : "Saves on click-away · first non-empty line is the title · Esc discards"}
       </div>
+      {saveError && (
+        <div
+          role="alert"
+          className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cc-error/30 bg-cc-error/10 px-2.5 py-2 text-xs text-cc-error"
+        >
+          <span>Save failed; your draft is still here. {saveError}</span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => void save()}
+              className="rounded border border-cc-error/30 px-2 py-1 font-medium hover:bg-cc-error/10"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={() => void recoverDraft()}
+              className="rounded border border-cc-error/30 px-2 py-1 hover:bg-cc-error/10"
+            >
+              Copy draft
+            </button>
+          </div>
+        </div>
+      )}
+      {recoveryMessage && (
+        <p aria-live="polite" className="mt-1 text-[10px] text-cc-muted">
+          {recoveryMessage}
+        </p>
+      )}
     </div>
   );
 }
@@ -125,15 +189,23 @@ interface InsertTarget {
   afterItemId?: string;
 }
 
+interface CompletionUndoNotice extends TodoCompletionUndoHandle {
+  title: string;
+}
+
+interface DropTarget {
+  categoryId: string;
+  itemId?: string;
+  before?: boolean;
+}
+
 function InlineComposer({
   target,
   onState,
-  onError,
   onClose,
 }: {
   target: InsertTarget;
   onState: (state: TodoState) => void;
-  onError: (message: string) => void;
   onClose: () => void;
 }) {
   return (
@@ -142,20 +214,16 @@ function InlineComposer({
         initialValue=""
         label="New to-do Markdown"
         placeholder="New to-do\nOptional Markdown details"
-        onCancel={onClose}
+        onDiscard={onClose}
         onSave={async (markdown) => {
-          try {
-            const response = await api.createTodoItem({
-              markdown,
-              categoryId: target.categoryId,
-              status: "todo",
-              ...(target.afterItemId ? { afterItemId: target.afterItemId } : {}),
-            });
-            onState(response.state);
-            onClose();
-          } catch (error) {
-            onError(error instanceof Error ? error.message : String(error));
-          }
+          const response = await api.createTodoItem({
+            markdown,
+            categoryId: target.categoryId,
+            status: "todo",
+            ...(target.afterItemId ? { afterItemId: target.afterItemId } : {}),
+          });
+          onState(response.state);
+          onClose();
         }}
       />
     </div>
@@ -183,8 +251,16 @@ function TodoItemOverflow({
 }) {
   const index = siblings.findIndex((candidate) => candidate.id === item.id);
   const active = !item.archivedAt && item.status !== "done";
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const closeMenu = () => {
+    if (detailsRef.current) detailsRef.current.open = false;
+  };
+  const runAndClose = (action: () => Promise<{ state: TodoState }>) => {
+    closeMenu();
+    onRun(action);
+  };
   return (
-    <details className="relative shrink-0">
+    <details ref={detailsRef} className="relative shrink-0">
       <summary
         aria-label={`More actions for ${deriveTodoMarkdown(item.markdown).titleMarkdown}`}
         className="list-none rounded-md px-2 py-1 text-sm tracking-widest text-cc-muted hover:bg-cc-bg hover:text-cc-fg [&::-webkit-details-marker]:hidden"
@@ -194,11 +270,21 @@ function TodoItemOverflow({
       <div className="absolute right-0 z-30 mt-1 w-64 max-w-[calc(100vw-2rem)] space-y-2 rounded-xl border border-cc-border bg-cc-card p-3 shadow-xl">
         {active && (
           <>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                runAndClose(() => api.setTodoItemStatus(item.id, item.status === "todo" ? "doing" : "todo"))
+              }
+              className="w-full rounded-lg border border-cc-border px-2 py-1.5 text-left text-xs text-cc-muted hover:text-cc-fg disabled:opacity-40"
+            >
+              {item.status === "todo" ? "Move to Doing" : "Move to Todo"}
+            </button>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 disabled={busy || index <= 0}
-                onClick={() => onRun(() => api.moveTodoItem(item.id, { beforeItemId: siblings[index - 1]?.id }))}
+                onClick={() => runAndClose(() => api.moveTodoItem(item.id, { beforeItemId: siblings[index - 1]?.id }))}
                 className="rounded-lg border border-cc-border px-2 py-1.5 text-xs text-cc-muted hover:text-cc-fg disabled:opacity-35"
               >
                 Move earlier
@@ -206,7 +292,7 @@ function TodoItemOverflow({
               <button
                 type="button"
                 disabled={busy || index < 0 || index >= siblings.length - 1}
-                onClick={() => onRun(() => api.moveTodoItem(item.id, { afterItemId: siblings[index + 1]?.id }))}
+                onClick={() => runAndClose(() => api.moveTodoItem(item.id, { afterItemId: siblings[index + 1]?.id }))}
                 className="rounded-lg border border-cc-border px-2 py-1.5 text-xs text-cc-muted hover:text-cc-fg disabled:opacity-35"
               >
                 Move later
@@ -214,7 +300,10 @@ function TodoItemOverflow({
             </div>
             <button
               type="button"
-              onClick={onInsertBelow}
+              onClick={() => {
+                closeMenu();
+                onInsertBelow();
+              }}
               className="w-full rounded-lg border border-cc-border px-2 py-1.5 text-left text-xs text-cc-muted hover:text-cc-fg"
             >
               Add item below
@@ -228,7 +317,7 @@ function TodoItemOverflow({
               aria-label={`Move ${item.id} to category`}
               value={item.categoryId}
               disabled={busy}
-              onChange={(event) => onRun(() => api.moveTodoItem(item.id, { categoryId: event.target.value }))}
+              onChange={(event) => runAndClose(() => api.moveTodoItem(item.id, { categoryId: event.target.value }))}
               className="mt-1 w-full rounded-lg border border-cc-border bg-cc-bg px-2 py-1.5 text-xs normal-case tracking-normal text-cc-fg"
             >
               {categories.map((category) => (
@@ -242,7 +331,9 @@ function TodoItemOverflow({
         <button
           type="button"
           disabled={busy}
-          onClick={() => onRun(() => (item.archivedAt ? api.restoreTodoItem(item.id) : api.archiveTodoItem(item.id)))}
+          onClick={() =>
+            runAndClose(() => (item.archivedAt ? api.restoreTodoItem(item.id) : api.archiveTodoItem(item.id)))
+          }
           className="w-full rounded-lg border border-cc-border px-2 py-1.5 text-left text-xs text-cc-muted hover:text-cc-fg disabled:opacity-40"
         >
           {item.archivedAt ? "Restore item" : "Archive item"}
@@ -259,19 +350,31 @@ function TodoOutlineRow({
   item,
   categories,
   siblings,
+  categoryLabel,
+  isDragging,
+  dropBefore,
   onState,
   onError,
+  onToggleCompletion,
   onInsertBelow,
   onDragStart,
+  onDragHover,
+  onDragEnd,
   onDropItem,
 }: {
   item: TodoItem;
   categories: TodoCategory[];
   siblings: TodoItem[];
+  categoryLabel?: string;
+  isDragging: boolean;
+  dropBefore?: boolean;
   onState: (state: TodoState) => void;
   onError: (message: string) => void;
+  onToggleCompletion: (item: TodoItem) => Promise<void>;
   onInsertBelow: () => void;
   onDragStart: (itemId: string) => void;
+  onDragHover: (target: TodoItem, before: boolean) => void;
+  onDragEnd: () => void;
   onDropItem: (target: TodoItem, before: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -290,6 +393,13 @@ function TodoOutlineRow({
     },
     [onError, onState],
   );
+
+  const toggleCompletion = () => {
+    setBusy(true);
+    void onToggleCompletion(item)
+      .catch((error: unknown) => onError(error instanceof Error ? error.message : String(error)))
+      .finally(() => setBusy(false));
+  };
 
   const editFromClick = (event: MouseEvent<HTMLElement>) => {
     if ((event.target as HTMLElement).closest("a,button,select,summary")) return;
@@ -325,30 +435,35 @@ function TodoOutlineRow({
   return (
     <article
       data-todo-id={item.id}
-      className={`group relative flex items-start gap-2 rounded-lg px-1 py-1.5 transition-colors hover:bg-cc-card/70 focus-within:bg-cc-card/70 ${item.archivedAt ? "opacity-65" : ""}`}
+      className={`group relative flex items-start gap-2 rounded-lg px-1 py-1.5 transition-colors hover:bg-cc-card/70 focus-within:bg-cc-card/70 ${item.archivedAt ? "opacity-65" : ""} ${isDragging ? "opacity-35" : ""}`}
       onDragOver={(event) => {
-        if (active) event.preventDefault();
+        if (!active) return;
+        event.preventDefault();
+        const rect = event.currentTarget.getBoundingClientRect();
+        onDragHover(item, event.clientY < rect.top + rect.height / 2);
       }}
       onDrop={(event) => {
         if (!active) return;
         event.preventDefault();
         event.stopPropagation();
         const rect = event.currentTarget.getBoundingClientRect();
-        onDropItem(item, event.clientY < rect.top + rect.height / 2);
+        onDropItem(item, dropBefore ?? event.clientY < rect.top + rect.height / 2);
       }}
     >
       <button
         type="button"
-        disabled={busy || !!item.archivedAt}
+        disabled={busy || editing || !!item.archivedAt}
         aria-label={item.status === "done" ? `Reopen ${parts.titleMarkdown}` : `Complete ${parts.titleMarkdown}`}
-        onClick={() => run(() => api.setTodoItemStatus(item.id, item.status === "done" ? "todo" : "done"))}
+        onClick={toggleCompletion}
         className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${
           item.status === "done"
             ? "border-emerald-500 bg-emerald-500 text-white"
-            : "border-cc-muted/60 text-transparent hover:border-emerald-500"
+            : item.status === "doing"
+              ? "border-amber-500 text-amber-500 hover:border-emerald-500 hover:text-emerald-500"
+              : "border-cc-muted/60 text-transparent hover:border-emerald-500"
         } disabled:opacity-40`}
       >
-        ✓
+        {item.status === "doing" ? "•" : "✓"}
       </button>
 
       {parts.detailsMarkdown && (
@@ -368,15 +483,11 @@ function TodoOutlineRow({
           initialValue={item.markdown}
           label={`Edit ${parts.titleMarkdown}`}
           placeholder="Title\nOptional Markdown details"
-          onCancel={() => setEditing(false)}
+          onDiscard={() => setEditing(false)}
           onSave={async (markdown) => {
-            try {
-              const response = await api.editTodoItem(item.id, { markdown });
-              onState(response.state);
-              setEditing(false);
-            } catch (error) {
-              onError(error instanceof Error ? error.message : String(error));
-            }
+            const response = await api.editTodoItem(item.id, { markdown });
+            onState(response.state);
+            setEditing(false);
           }}
         />
       ) : (
@@ -409,20 +520,10 @@ function TodoOutlineRow({
 
       {!editing && (
         <div className="flex shrink-0 items-center gap-0.5">
-          {!item.archivedAt && (
-            <select
-              aria-label={`Status for ${parts.titleMarkdown}`}
-              value={item.status}
-              disabled={busy}
-              onChange={(event) => run(() => api.setTodoItemStatus(item.id, event.target.value as TodoStatus))}
-              className="max-w-20 rounded border-0 bg-transparent px-1 py-1 text-[10px] font-semibold uppercase tracking-wide text-cc-muted opacity-70 hover:bg-cc-bg hover:opacity-100 focus:opacity-100"
-            >
-              {TODO_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {STATUS_LABELS[status]}
-                </option>
-              ))}
-            </select>
+          {categoryLabel && (
+            <span className="max-w-28 truncate px-1 text-[10px] text-cc-muted" title={categoryLabel}>
+              {categoryLabel}
+            </span>
           )}
           {active && (
             <button
@@ -433,8 +534,11 @@ function TodoOutlineRow({
               onDragStart={(event) => {
                 event.dataTransfer.effectAllowed = "move";
                 event.dataTransfer.setData("text/plain", item.id);
+                const row = event.currentTarget.closest<HTMLElement>("[data-todo-id]");
+                if (row) event.dataTransfer.setDragImage?.(row, 24, Math.min(row.offsetHeight / 2, 32));
                 onDragStart(item.id);
               }}
+              onDragEnd={onDragEnd}
               className="hidden cursor-grab rounded px-1 py-1 text-xs text-cc-muted opacity-50 hover:bg-cc-bg hover:opacity-100 sm:block"
             >
               ⠿
@@ -466,6 +570,17 @@ function AddAtBottomButton({ categoryName, onClick }: { categoryName: string; on
   );
 }
 
+function TodoDropPlaceholder() {
+  return (
+    <div
+      role="separator"
+      aria-label="Drop to-do here"
+      data-testid="todo-drop-placeholder"
+      className="my-1 h-8 rounded-lg border-2 border-dashed border-cc-primary/70 bg-cc-primary/10"
+    />
+  );
+}
+
 export function TodoListPanel() {
   const [state, setState] = useState<TodoState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -476,6 +591,9 @@ export function TodoListPanel() {
   const [manageOpen, setManageOpen] = useState(false);
   const [insertTarget, setInsertTarget] = useState<InsertTarget | null>(null);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+  const [completionUndo, setCompletionUndo] = useState<CompletionUndoNotice | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
 
   const applyState = useCallback((next: TodoState) => {
     setState((current) => (!current || next.revision >= current.revision ? next : current));
@@ -509,6 +627,13 @@ export function TodoListPanel() {
     }
   }, [categoryFilter, state]);
 
+  useEffect(() => {
+    if (!completionUndo) return;
+    const delay = Math.max(0, completionUndo.expiresAt - Date.now());
+    const timeout = window.setTimeout(() => setCompletionUndo(null), delay);
+    return () => window.clearTimeout(timeout);
+  }, [completionUndo]);
+
   const counts = useMemo(() => {
     const current = state?.items.filter((item) => !item.archivedAt) ?? [];
     return Object.fromEntries(
@@ -530,12 +655,8 @@ export function TodoListPanel() {
     [state, visibleItems],
   );
   const doneGroups = useMemo(
-    () =>
-      groupDoneItemsByLocalDate(
-        visibleItems.filter((item) => item.status === "done" && !item.archivedAt),
-        state?.categories ?? [],
-      ),
-    [state?.categories, visibleItems],
+    () => groupDoneItemsByLocalDate(visibleItems.filter((item) => item.status === "done" && !item.archivedAt)),
+    [visibleItems],
   );
   const archivedGroups = useMemo(
     () =>
@@ -556,10 +677,46 @@ export function TodoListPanel() {
         setError(reason instanceof Error ? reason.message : String(reason));
       } finally {
         setDraggedItemId(null);
+        setDropTarget(null);
       }
     },
     [applyState],
   );
+
+  const toggleCompletion = useCallback(
+    async (item: TodoItem) => {
+      const response = await api.setTodoItemStatus(item.id, item.status === "done" ? "todo" : "done");
+      applyState(response.state);
+      if (item.status === "done") {
+        setCompletionUndo((current) => (current?.itemId === item.id ? null : current));
+      } else if (response.completionUndo) {
+        setCompletionUndo({
+          ...response.completionUndo,
+          title: deriveTodoMarkdown(item.markdown).titleMarkdown,
+        });
+      }
+    },
+    [applyState],
+  );
+
+  const undoCompletion = useCallback(async () => {
+    if (!completionUndo || undoBusy) return;
+    setUndoBusy(true);
+    try {
+      const response = await api.undoTodoCompletion(completionUndo.itemId, completionUndo.token);
+      applyState(response.state);
+      setCompletionUndo(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setUndoBusy(false);
+    }
+  }, [applyState, completionUndo, undoBusy]);
+
+  const clearDrag = useCallback(() => {
+    setDraggedItemId(null);
+    setDropTarget(null);
+  }, []);
 
   if (loading && !state)
     return (
@@ -581,16 +738,32 @@ export function TodoListPanel() {
   const showActiveOutline =
     statusFilter === "all" || statusFilter === "active" || statusFilter === "todo" || statusFilter === "doing";
 
-  const renderRow = (item: TodoItem, siblings: TodoItem[]) => (
+  const renderRow = (item: TodoItem, siblings: TodoItem[], categoryLabel?: string) => (
     <div key={item.id}>
+      {dropTarget?.itemId === item.id && dropTarget.before && <TodoDropPlaceholder />}
       <TodoOutlineRow
         item={item}
         categories={categories}
         siblings={siblings}
+        categoryLabel={categoryLabel}
+        isDragging={draggedItemId === item.id}
+        dropBefore={dropTarget?.itemId === item.id ? dropTarget.before : undefined}
         onState={applyState}
         onError={setError}
+        onToggleCompletion={toggleCompletion}
         onInsertBelow={() => setInsertTarget({ categoryId: item.categoryId, afterItemId: item.id })}
-        onDragStart={setDraggedItemId}
+        onDragStart={(itemId) => {
+          setDraggedItemId(itemId);
+          setDropTarget(null);
+        }}
+        onDragHover={(target, before) => {
+          if (!draggedItemId || draggedItemId === target.id) {
+            setDropTarget(null);
+            return;
+          }
+          setDropTarget({ categoryId: target.categoryId, itemId: target.id, before });
+        }}
+        onDragEnd={clearDrag}
         onDropItem={(target, before) => {
           if (!draggedItemId || draggedItemId === target.id) return;
           void runMove(draggedItemId, {
@@ -599,13 +772,9 @@ export function TodoListPanel() {
           });
         }}
       />
+      {dropTarget?.itemId === item.id && !dropTarget.before && <TodoDropPlaceholder />}
       {insertTarget?.afterItemId === item.id && (
-        <InlineComposer
-          target={insertTarget}
-          onState={applyState}
-          onError={setError}
-          onClose={() => setInsertTarget(null)}
-        />
+        <InlineComposer target={insertTarget} onState={applyState} onClose={() => setInsertTarget(null)} />
       )}
     </div>
   );
@@ -613,6 +782,32 @@ export function TodoListPanel() {
   return (
     <section className="space-y-5" data-testid="todo-list-panel">
       {error && <ErrorBanner message={error} onDismiss={() => setError("")} />}
+      {completionUndo && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-cc-fg"
+        >
+          <span>Moved “{completionUndo.title}” to Done.</span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              disabled={undoBusy}
+              onClick={() => void undoCompletion()}
+              className="rounded-lg border border-emerald-500/30 px-2.5 py-1 font-medium text-emerald-600 hover:bg-emerald-500/10 disabled:opacity-40 dark:text-emerald-400"
+            >
+              {undoBusy ? "Undoing…" : "Undo"}
+            </button>
+            <button
+              type="button"
+              aria-label="Dismiss completion notice"
+              onClick={() => setCompletionUndo(null)}
+              className="rounded px-1.5 py-1 text-cc-muted hover:bg-cc-card hover:text-cc-fg"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-3 border-b border-cc-border pb-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -688,7 +883,12 @@ export function TodoListPanel() {
               <section
                 key={category.id}
                 className="border-l border-cc-border pl-3 sm:pl-4"
-                onDragOver={(event) => event.preventDefault()}
+                onDragOver={(event) => {
+                  if (!draggedItemId) return;
+                  event.preventDefault();
+                  if ((event.target as HTMLElement).closest("[data-todo-id]")) return;
+                  setDropTarget({ categoryId: category.id });
+                }}
                 onDrop={(event) => {
                   event.preventDefault();
                   if (draggedItemId) void runMove(draggedItemId, { categoryId: category.id });
@@ -699,13 +899,9 @@ export function TodoListPanel() {
                   <span className="text-[10px] text-cc-muted">{items.length}</span>
                 </div>
                 <div className="space-y-0.5">{items.map((item) => renderRow(item, items))}</div>
+                {dropTarget?.categoryId === category.id && !dropTarget.itemId && <TodoDropPlaceholder />}
                 {insertTarget?.categoryId === category.id && !insertTarget.afterItemId ? (
-                  <InlineComposer
-                    target={insertTarget}
-                    onState={applyState}
-                    onError={setError}
-                    onClose={() => setInsertTarget(null)}
-                  />
+                  <InlineComposer target={insertTarget} onState={applyState} onClose={() => setInsertTarget(null)} />
                 ) : (
                   <AddAtBottomButton
                     categoryName={category.name}
@@ -719,27 +915,37 @@ export function TodoListPanel() {
       )}
 
       {doneGroups.length > 0 && (
-        <section className="space-y-2 border-t border-cc-border pt-4" aria-label="Completed to-dos">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Completed</h3>
-          {doneGroups.map((group) => (
-            <details key={group.dateKey} className="rounded-lg border border-cc-border/70 bg-cc-card/35">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-medium text-cc-muted [&::-webkit-details-marker]:hidden">
-                <span>▸ {group.label}</span>
-                <span>{group.items.length}</span>
-              </summary>
-              <div className="space-y-3 border-t border-cc-border/70 px-3 py-2">
-                {group.categories.map((category) => (
-                  <section key={category.categoryId} className="border-l border-cc-border pl-3">
-                    <h4 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-cc-muted">
-                      {category.categoryName}
-                    </h4>
-                    {category.items.map((item) => renderRow(item, category.items))}
-                  </section>
-                ))}
-              </div>
-            </details>
-          ))}
-        </section>
+        <details
+          className="border-t border-cc-border pt-4"
+          aria-label="Completed to-dos"
+          data-testid="todo-done-section"
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-1 py-2 text-sm font-medium text-cc-muted hover:text-cc-fg [&::-webkit-details-marker]:hidden">
+            <span>▸ Done</span>
+            <span className="text-xs font-normal">
+              {doneGroups.reduce((total, group) => total + group.items.length, 0)}
+            </span>
+          </summary>
+          <div className="space-y-4 pt-2">
+            {doneGroups.map((group) => (
+              <section key={group.dateKey} className="rounded-lg border border-cc-border/70 bg-cc-card/35 px-3 py-2">
+                <div className="mb-1 flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-wide text-cc-muted">
+                  <h4>{group.label}</h4>
+                  <span>{group.items.length}</span>
+                </div>
+                <div className="space-y-0.5">
+                  {group.items.map((item) =>
+                    renderRow(
+                      item,
+                      group.items,
+                      categories.find((category) => category.id === item.categoryId)?.name ?? item.categoryId,
+                    ),
+                  )}
+                </div>
+              </section>
+            ))}
+          </div>
+        </details>
       )}
 
       {statusFilter === "archived" && (
@@ -748,7 +954,7 @@ export function TodoListPanel() {
           {archivedGroups.map((group) => (
             <div key={group.categoryId} className="border-l border-cc-border pl-3">
               <h4 className="mb-1 text-xs font-medium text-cc-muted">{group.categoryName}</h4>
-              {group.items.map((item) => renderRow(item, group.items))}
+              {group.items.map((item) => renderRow(item, group.items, group.categoryName))}
             </div>
           ))}
         </section>

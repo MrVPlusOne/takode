@@ -68,29 +68,26 @@ describe("todo UI grouping", () => {
     expect(groups[0]?.items.map((entry) => entry.id)).toEqual(["td-3", "td-2"]);
   });
 
-  it("groups Done items by browser-local completion date and then category", () => {
+  it("groups Done items by browser-local completion date with newest completion first", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 7, 13, 12));
-    const groups = groupDoneItemsByLocalDate(
-      [
-        item({
-          id: "today-slack",
-          categoryId: "cat-slack",
-          status: "done",
-          completedAt: new Date(2026, 7, 13, 9).getTime(),
-        }),
-        item({
-          id: "today-inbox",
-          categoryId: "cat-inbox",
-          status: "done",
-          completedAt: new Date(2026, 7, 13, 8).getTime(),
-        }),
-        item({ id: "yesterday", status: "done", completedAt: new Date(2026, 7, 12, 23).getTime() }),
-      ],
-      categories,
-    );
+    const groups = groupDoneItemsByLocalDate([
+      item({
+        id: "today-slack",
+        categoryId: "cat-slack",
+        status: "done",
+        completedAt: new Date(2026, 7, 13, 9).getTime(),
+      }),
+      item({
+        id: "today-inbox",
+        categoryId: "cat-inbox",
+        status: "done",
+        completedAt: new Date(2026, 7, 13, 8).getTime(),
+      }),
+      item({ id: "yesterday", status: "done", completedAt: new Date(2026, 7, 12, 23).getTime() }),
+    ]);
     expect(groups.map((group) => group.label)).toEqual(["Today", "Yesterday"]);
-    expect(groups[0]?.categories.map((group) => group.categoryName)).toEqual(["Inbox", "Slack"]);
+    expect(groups[0]?.items.map((entry) => entry.id)).toEqual(["today-slack", "today-inbox"]);
     expect(localDateLabel(groups[0]!.dateKey)).toBe("Today");
     vi.useRealTimers();
   });

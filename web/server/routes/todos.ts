@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import type {
   TodoCompactItem,
@@ -12,8 +13,17 @@ import { TODO_STATUSES } from "../../shared/todo-types.js";
 import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
 import * as cronStore from "../cron-store.js";
 import { authorizeTodoMutation, todoProposalActor } from "../todo-authorization.js";
-import { TODO_INBOX_CATEGORY_ID, TodoStoreError, todoStore, type TodoStore } from "../todo-store.js";
+import {
+  TODO_INBOX_CATEGORY_ID,
+  TodoStoreError,
+  todoStore,
+  type TodoCompletionUndoSnapshot,
+  type TodoStore,
+} from "../todo-store.js";
 import type { RouteContext } from "./context.js";
+
+const COMPLETION_UNDO_TTL_MS = 5 * 60 * 1_000;
+const MAX_COMPLETION_UNDOS = 100;
 
 function errorStatus(error: TodoStoreError): 400 | 404 | 409 | 503 {
   switch (error.code) {
@@ -123,6 +133,18 @@ async function authorize(
 
 export function createTodoRoutes(ctx: RouteContext, store: TodoStore = todoStore) {
   const api = new Hono();
+  const completionUndos = new Map<string, { snapshot: TodoCompletionUndoSnapshot; expiresAt: number }>();
+
+  const pruneCompletionUndos = (now = Date.now()) => {
+    for (const [token, undo] of completionUndos) {
+      if (undo.expiresAt <= now) completionUndos.delete(token);
+    }
+    while (completionUndos.size >= MAX_COMPLETION_UNDOS) {
+      const oldest = completionUndos.keys().next().value;
+      if (!oldest) break;
+      completionUndos.delete(oldest);
+    }
+  };
 
   api.get("/todos", async (c) => {
     try {
@@ -322,9 +344,50 @@ export function createTodoRoutes(ctx: RouteContext, store: TodoStore = todoStore
       const item = await store.getItem(c.req.param("id"));
       const auth = await authorize(c, ctx, store, body, "item:status", [item.categoryId]);
       if (!auth.ok) return auth.response;
-      return withMutation(c, ctx, store, async () => ({
-        item: await store.setItemStatus(item.id, body.status, auth.provenance),
-      }));
+      const result = await store.setItemStatusWithCompletionUndo(item.id, body.status, auth.provenance);
+      let completionUndo;
+      if (result.undo && auth.provenance.authorization.kind === "ui") {
+        const now = Date.now();
+        pruneCompletionUndos(now);
+        const token = randomUUID();
+        const expiresAt = now + COMPLETION_UNDO_TTL_MS;
+        completionUndos.set(token, { snapshot: result.undo, expiresAt });
+        completionUndo = { token, itemId: item.id, expiresAt };
+      }
+      await broadcastTodoState(ctx, store);
+      return c.json({
+        state: await store.snapshot(),
+        item: result.item,
+        ...(completionUndo ? { completionUndo } : {}),
+      });
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  api.post("/todos/items/:id/completion-undo", async (c) => {
+    try {
+      const body = await requestBody(c);
+      const item = await store.getItem(c.req.param("id"));
+      const auth = await authorize(c, ctx, store, body, "item:status", [item.categoryId], false);
+      if (!auth.ok) return auth.response;
+      if (auth.provenance.authorization.kind !== "ui") {
+        return c.json(
+          { error: "Immediate completion Undo is available only for the browser action that created it" },
+          403,
+        );
+      }
+      const token = typeof body.token === "string" ? body.token.trim() : "";
+      const now = Date.now();
+      pruneCompletionUndos(now);
+      const undo = token ? completionUndos.get(token) : undefined;
+      if (!undo || undo.snapshot.itemId !== item.id || undo.expiresAt <= now) {
+        return c.json({ error: "This completion can no longer be undone; refresh to see the current item" }, 409);
+      }
+      const restored = await store.undoItemCompletion(undo.snapshot, auth.provenance);
+      completionUndos.delete(token);
+      await broadcastTodoState(ctx, store);
+      return c.json({ state: await store.snapshot(), item: restored });
     } catch (error) {
       return errorResponse(c, error);
     }
