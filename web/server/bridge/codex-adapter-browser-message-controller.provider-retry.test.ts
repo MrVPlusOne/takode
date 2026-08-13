@@ -179,6 +179,60 @@ describe("Codex transient provider retry presentation", () => {
     expect(session.messageHistory.at(-1)).toMatchObject({ type: "result", data: { is_error: false } });
   });
 
+  it("retires an orphaned retry owner when a different turn later completes", async () => {
+    const turn = makeTurn();
+    turn.userMessageId = "new-input";
+    turn.pendingInputIds = ["new-input"];
+    const session = makeSession(turn);
+    session.state.codex_provider_retry = {
+      family: "model_backend_stream_error",
+      ownerId: "old-input",
+      attempt: 1,
+      maxAttempts: 2,
+      startedAt: 10,
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    await handleCodexAdapterBrowserMessage(session, makeSuccess("turn-1"), makeDeps(session, broadcasts));
+
+    expect(session.state.codex_provider_retry).toBeNull();
+    expect(broadcasts).toContainEqual({ type: "session_update", session: { codex_provider_retry: null } });
+  });
+
+  it("does not retire retry state merely because unrelated assistant output appears", async () => {
+    const turn = makeTurn();
+    const session = makeSession(turn);
+    session.state.codex_provider_retry = {
+      family: "model_backend_stream_error",
+      ownerId: "input-1",
+      attempt: 1,
+      maxAttempts: 2,
+      startedAt: 10,
+    };
+    const deps = makeDeps(session, []);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "assistant",
+        parent_tool_use_id: null,
+        timestamp: 20,
+        message: {
+          id: "unrelated-output",
+          type: "message",
+          role: "assistant",
+          model: "gpt-test",
+          content: [{ type: "text", text: "Unrelated output" }],
+          stop_reason: null,
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+      },
+      deps,
+    );
+
+    expect(session.state.codex_provider_retry).toMatchObject({ ownerId: "input-1", attempt: 1 });
+  });
+
   it("fails closed with a normal terminal result when provider recovery cannot start", async () => {
     const turn = makeTurn();
     const session = makeSession(turn);

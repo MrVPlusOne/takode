@@ -1907,6 +1907,8 @@ export interface TakodeBoardStalledEventData {
   stage?: string;
   /** Internal stability key used to drop stale queued stall warnings. */
   signature?: string;
+  /** Start of this distinct stall occurrence; a recovered row may later stall again with the same status. */
+  stalledSince?: number;
   workerStatus?: "running" | "idle" | "disconnected" | "missing";
   reviewerStatus?: "running" | "idle" | "disconnected" | "missing";
   stalledForMs: number;

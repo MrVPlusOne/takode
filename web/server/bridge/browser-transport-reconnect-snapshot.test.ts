@@ -27,7 +27,7 @@ function makeSession(): BrowserTransportSessionLike {
     lastAckSeq: 0,
     pendingPermissions: new Map(),
     pendingCodexInputs: [],
-    pendingCodexTurns: [],
+    pendingCodexTurns: [{ userMessageId: "input-1", status: "queued" }],
     taskHistory: [],
     eventBuffer: [],
     lastReadAt: 0,
@@ -75,5 +75,18 @@ describe("Codex reconnect progress snapshots", () => {
         },
       });
     }
+  });
+
+  it("does not resurrect retry state whose owner is absent from the live turn queue", () => {
+    const socket = { send: vi.fn() };
+    const session = makeSession();
+    session.pendingCodexTurns = [];
+
+    sendStateSnapshot(session, socket, makeDeps());
+
+    expect(JSON.parse(String(socket.send.mock.calls[0]?.[0]))).toMatchObject({
+      type: "state_snapshot",
+      codexProviderRetry: null,
+    });
   });
 });

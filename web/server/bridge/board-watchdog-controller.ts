@@ -1110,7 +1110,11 @@ export function getBoardDispatchableSignature(
 export function getBoardStallSignature(session: SessionLike, questId: string, deps: BoardWatchdogDeps): string | null {
   const row = session.board.get(questId);
   if (!row) return null;
-  return buildBoardStallCandidate(session, row, deps)?.signature ?? null;
+  const candidate = buildBoardStallCandidate(session, row, deps);
+  if (!candidate) return null;
+  const state = session.boardStallStates.get(questId);
+  if (!state || state.signature !== candidate.signature) return candidate.signature;
+  return boardStallOccurrenceSignature(state.signature, state.stalledSince);
 }
 
 export function sweepBoardStallWarnings(sessions: Iterable<SessionLike>, now: number, deps: BoardWatchdogDeps): void {
@@ -1147,7 +1151,8 @@ export function sweepBoardStallWarnings(sessions: Iterable<SessionLike>, now: nu
         questId: candidate.questId,
         ...(candidate.title ? { title: candidate.title } : {}),
         ...(candidate.stage ? { stage: candidate.stage } : {}),
-        signature: candidate.signature,
+        signature: boardStallOccurrenceSignature(existing.signature, existing.stalledSince),
+        stalledSince: existing.stalledSince,
         workerStatus: candidate.workerStatus,
         reviewerStatus: candidate.reviewerStatus,
         stalledForMs: now - existing.stalledSince,
@@ -1157,6 +1162,10 @@ export function sweepBoardStallWarnings(sessions: Iterable<SessionLike>, now: nu
       existing.warnedAt = now;
     }
   }
+}
+
+function boardStallOccurrenceSignature(signature: string, stalledSince: number): string {
+  return `${signature}|since:${Math.max(0, Math.floor(stalledSince))}`;
 }
 
 export function sweepBoardDispatchableWarnings(
@@ -1660,7 +1669,7 @@ function isLiveBoardWatchdogEvent(session: SessionLike, event: TakodeEvent, deps
   if (event.event === "board_stalled") {
     if (event.data.stage && row.status !== event.data.stage) return false;
     if (!event.data.signature) return true;
-    return buildBoardStallCandidate(session, row, deps)?.signature === event.data.signature;
+    return getBoardStallSignature(session, event.data.questId, deps) === event.data.signature;
   }
   if (typeof event.data.rowUpdatedAt === "number" && row.updatedAt !== event.data.rowUpdatedAt) return false;
   if (!event.data.signature) return true;

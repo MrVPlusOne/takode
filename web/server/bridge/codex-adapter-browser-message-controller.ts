@@ -49,7 +49,11 @@ import {
   retainCodexReasoningPreview,
 } from "./codex-reasoning-preview-state.js";
 import { upsertCodexReasoningDetail } from "./codex-reasoning-detail-state.js";
-import { clearCodexProviderRetryState, setCodexProviderRetryState } from "./codex-provider-retry-state.js";
+import {
+  clearCodexProviderRetryState,
+  clearOrphanedCodexProviderRetryState,
+  setCodexProviderRetryState,
+} from "./codex-provider-retry-state.js";
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 const DELEGATE_LIVE_ACTIVITY_LIMIT = 800;
@@ -1142,6 +1146,12 @@ export async function handleCodexAdapterBrowserMessage(
         }),
       );
     }
+    clearOrphanedCodexProviderRetryState(session, (state) =>
+      deps.broadcastToBrowsers(session, {
+        type: "session_update",
+        session: { codex_provider_retry: state },
+      }),
+    );
 
     deps.clearCodexFreshTurnRequirement(session, "codex_turn_completed", {
       completedTurnId: typeof outgoing.data.codex_turn_id === "string" ? outgoing.data.codex_turn_id : null,

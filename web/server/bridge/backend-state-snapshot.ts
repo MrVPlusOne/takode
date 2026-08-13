@@ -1,7 +1,9 @@
-import type { SessionState } from "../session-types.js";
+import type { CodexOutboundTurn, SessionState } from "../session-types.js";
+import { getLiveCodexProviderRetryState } from "./codex-provider-retry-state.js";
 
 export interface BackendStateSnapshotSessionLike {
   state: Pick<SessionState, "backend_error" | "backend_reconnect" | "codex_provider_retry">;
+  pendingCodexTurns?: Array<Pick<CodexOutboundTurn, "userMessageId" | "status">>;
 }
 
 export interface BackendStateSnapshotDeps<Session extends BackendStateSnapshotSessionLike> {
@@ -24,6 +26,6 @@ export function buildBackendStateSnapshot<Session extends BackendStateSnapshotSe
     backendState: deps.deriveBackendState(session),
     backendError: session.state.backend_error ?? null,
     backendReconnect: session.state.backend_reconnect ?? null,
-    codexProviderRetry: session.state.codex_provider_retry ?? null,
+    codexProviderRetry: getLiveCodexProviderRetryState(session),
   };
 }

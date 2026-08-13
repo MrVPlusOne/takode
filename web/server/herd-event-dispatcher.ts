@@ -10,8 +10,8 @@
  *    are formatted and injected as a user message. The events are marked
  *    as "in-flight" but NOT removed from the inbox yet.
  *
- * 3. CONFIRMATION: When the leader's turn completes (processes the herd
- *    message), in-flight events are confirmed consumed and trimmed.
+ * 3. CONFIRMATION: When the owning leader turn completes, only that turn's
+ *    in-flight events are confirmed consumed and trimmed.
  *
  * 4. RECOVERY: If the CLI disconnects before confirming, in-flight events
  *    are reset to "pending" and re-delivered on next idle.
@@ -141,6 +141,11 @@ export interface WsBridgeHandle {
         claudeSdkAdapter?: unknown;
         cliInitReceived?: boolean;
         isGenerating?: boolean;
+        pendingCodexInputs?: Array<{
+          id: string;
+          agentSource?: { sessionId: string };
+          takodeHerdBatch?: TakodeHerdBatchSnapshot;
+        }>;
       }
     | undefined;
   /** Current active board row for a leader session + quest ID, if any. */
@@ -277,6 +282,8 @@ interface InboxEntry {
   seq: number;
   threadRoute: ThreadRouteMetadata;
   heldByRestartPrepOperationId?: string;
+  /** `undefined` means pending; `null` means delivered without a stable owner id. */
+  deliveryOwnerId?: string | null;
 }
 
 interface DeliveryRecord {
@@ -293,7 +300,7 @@ interface HerdInbox {
   nextSeq: number;
   /** All entries with seq < confirmedUpTo have been consumed by the CLI */
   confirmedUpTo: number;
-  /** Seq of the last entry included in the most recent flush (in-flight marker) */
+  /** Highest sequence currently attached to an unconfirmed delivery owner. */
   inFlightUpTo: number | null;
   /** Event subscription handle */
   unsubscribe: (() => void) | null;
@@ -638,10 +645,7 @@ export class HerdEventDispatcher {
         }
         inbox.entries.splice(0, excess);
       }
-      // Update confirmedUpTo so we don't try to re-deliver trimmed entries
-      if (inbox.entries.length > 0) {
-        inbox.confirmedUpTo = Math.max(inbox.confirmedUpTo, inbox.entries[0].seq);
-      }
+      this.recomputeInboxWatermarks(inbox);
     }
 
     if (policy.kind === "hold") return;
@@ -672,34 +676,38 @@ export class HerdEventDispatcher {
   // ─── Event Delivery (step 2: inject when CLI is ready) ────────────────────
 
   /** Called from ws-bridge when an orchestrator finishes a turn. */
-  onOrchestratorTurnEnd(orchId: string, reason = "result"): void {
+  onOrchestratorTurnEnd(orchId: string, reason = "result", completedOwnerIds?: readonly string[]): void {
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return;
 
-    // Confirm in-flight events only for normal completed turns. Recovery turn
-    // endings clear stale local state; they do not prove the CLI consumed the
-    // injected herd batch.
+    // Confirm only the herd input(s) owned by this completed turn. A later
+    // unrelated user turn must not retire an earlier failed escalation merely
+    // because both messages are already present in server history.
     if (inbox.inFlightUpTo !== null) {
       if (reason === "result") {
-        const confirmedEntries = inbox.entries.filter(
-          (entry) => entry.seq >= inbox.confirmedUpTo && entry.seq <= inbox.inFlightUpTo!,
-        );
+        const ownerIds = completedOwnerIds ? new Set(completedOwnerIds) : null;
+        const confirmedEntries = inbox.entries.filter((entry) => {
+          if (entry.deliveryOwnerId === undefined) return false;
+          if (!ownerIds) return true;
+          return entry.deliveryOwnerId !== null && ownerIds.has(entry.deliveryOwnerId);
+        });
         for (const entry of confirmedEntries) {
           this.markDeliveryHistoryStatus(inbox, entry, "confirmed");
           this.confirmNotificationIfNeeded(entry);
         }
-        inbox.confirmedUpTo = inbox.inFlightUpTo + 1;
-        inbox.inFlightUpTo = null;
-        // Trim confirmed entries from the inbox
-        while (inbox.entries.length > 0 && inbox.entries[0].seq < inbox.confirmedUpTo) {
-          inbox.entries.shift();
+        if (confirmedEntries.length > 0) {
+          const confirmed = new Set(confirmedEntries);
+          inbox.entries = inbox.entries.filter((entry) => !confirmed.has(entry));
         }
       } else {
         for (const h of inbox.deliveryHistory) {
           if (h.status === "in_flight" || h.status === "queued") h.status = "redelivered";
         }
-        inbox.inFlightUpTo = null;
+        for (const entry of inbox.entries) {
+          if (entry.deliveryOwnerId !== undefined) entry.deliveryOwnerId = undefined;
+        }
       }
+      this.recomputeInboxWatermarks(inbox);
     }
 
     this.confirmCommittedHerdHistory(orchId, inbox);
@@ -734,7 +742,10 @@ export class HerdEventDispatcher {
       for (const h of inbox.deliveryHistory) {
         if (h.status === "in_flight" || h.status === "queued") h.status = "redelivered";
       }
-      inbox.inFlightUpTo = null;
+      for (const entry of inbox.entries) {
+        if (entry.deliveryOwnerId !== undefined) entry.deliveryOwnerId = undefined;
+      }
+      this.recomputeInboxWatermarks(inbox);
     }
 
     // Cancel any pending delivery timer
@@ -837,12 +848,7 @@ export class HerdEventDispatcher {
 
   /** Get entries that haven't been confirmed consumed yet. */
   private getPendingEntries(inbox: HerdInbox): InboxEntry[] {
-    // Pending = everything after confirmedUpTo that isn't already in-flight
-    const startSeq =
-      inbox.inFlightUpTo !== null
-        ? inbox.inFlightUpTo + 1 // Already have in-flight batch, only get newer
-        : inbox.confirmedUpTo; // Nothing in-flight, get from last confirmed
-    return inbox.entries.filter((e) => e.seq >= startSeq);
+    return inbox.entries.filter((entry) => entry.deliveryOwnerId === undefined);
   }
 
   private getDeliverablePendingEntries(orchId: string, inbox: HerdInbox): InboxEntry[] {
@@ -869,6 +875,7 @@ export class HerdEventDispatcher {
       this.markDeliveryHistoryStatus(inbox, entry, "suppressed");
       this.traceDelivery(orchId, "suppressed", entry.event, { seq: entry.seq });
       inbox.entries = inbox.entries.filter((candidate) => candidate !== entry);
+      this.recomputeInboxWatermarks(inbox);
     }
     return deliverable;
   }
@@ -880,7 +887,11 @@ export class HerdEventDispatcher {
   ): { status: "sent" | "retry" | "dropped"; deliveredCount: number } {
     const groups = groupPendingEntriesByThread(pending);
     const deliveredEvents: TakodeEvent[] = [];
-    const acceptedEntries: Array<{ entry: InboxEntry; status: "queued" | "in_flight" }> = [];
+    const acceptedEntries: Array<{
+      entry: InboxEntry;
+      status: "queued" | "in_flight";
+      ownerId: string | null;
+    }> = [];
     for (const group of groups) {
       const events = group.entries.map((entry) => entry.event);
       const renderedBatch = renderHerdEventBatch(events, {
@@ -892,12 +903,19 @@ export class HerdEventDispatcher {
         eventCount: events.length,
         threadKey: group.route.threadKey,
       });
+      const herdBatch = snapshotHerdBatch(events, renderedBatch.renderedLines);
+      const ownerSnapshot = snapshotHerdDeliveryOwners(this.wsBridge.getSession(orchId));
       const delivery = this.wsBridge.injectUserMessage(
         orchId,
         renderedBatch.content,
         HERD_AGENT_SOURCE,
-        snapshotHerdBatch(events, renderedBatch.renderedLines),
+        herdBatch,
         group.route,
+      );
+      const ownerId = findHerdDeliveryOwnerId(
+        this.wsBridge.getSession(orchId),
+        herdBatch?.eventKeys ?? [],
+        ownerSnapshot,
       );
       this.traceDelivery(orchId, "dispatch_returned", events[0], {
         eventCount: events.length,
@@ -915,6 +933,7 @@ export class HerdEventDispatcher {
           ...group.entries.map((entry) => ({
             entry,
             status: "queued" as const,
+            ownerId,
           })),
         );
         continue;
@@ -928,6 +947,7 @@ export class HerdEventDispatcher {
         ...group.entries.map((entry) => ({
           entry,
           status: delivery === "queued" ? ("queued" as const) : ("in_flight" as const),
+          ownerId,
         })),
       );
     }
@@ -936,17 +956,18 @@ export class HerdEventDispatcher {
 
     updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, deliveredEvents);
     this.rememberDeliveredEventKeys(inbox, deliveredEvents);
-    inbox.inFlightUpTo = Math.max(...acceptedEntries.map(({ entry }) => entry.seq));
     this.markEntriesAcceptedForDelivery(inbox, acceptedEntries);
+    this.recomputeInboxWatermarks(inbox);
     return { status: "sent", deliveredCount: deliveredEvents.length };
   }
 
   private markEntriesAcceptedForDelivery(
     inbox: HerdInbox,
-    entries: Array<{ entry: InboxEntry; status: "queued" | "in_flight" }>,
+    entries: Array<{ entry: InboxEntry; status: "queued" | "in_flight"; ownerId: string | null }>,
   ): void {
     const now = Date.now();
-    for (const { entry, status } of entries) {
+    for (const { entry, status, ownerId } of entries) {
+      entry.deliveryOwnerId = ownerId;
       const record = this.findDeliveryHistoryRecord(inbox, entry);
       if (!record) continue;
       if (record.status !== "pending" && record.status !== "redelivered" && record.status !== "held") continue;
@@ -1024,7 +1045,7 @@ export class HerdEventDispatcher {
   }
 
   private confirmCommittedHerdHistory(orchId: string, inbox: HerdInbox): void {
-    if (inbox.inFlightUpTo !== null || inbox.entries.length === 0) return;
+    if (inbox.entries.length === 0) return;
     const committedKeys = getCommittedHerdEventKeys(this.wsBridge.getSession(orchId)?.messageHistory);
     if (committedKeys.size === 0) return;
 
@@ -1032,6 +1053,10 @@ export class HerdEventDispatcher {
     const confirmedEvents: TakodeEvent[] = [];
     const keptEntries: InboxEntry[] = [];
     for (const entry of inbox.entries) {
+      if (entry.deliveryOwnerId !== undefined) {
+        keptEntries.push(entry);
+        continue;
+      }
       const key = getStableHerdEventKey(entry.event);
       if (key && committedKeys.has(key)) {
         confirmedSeqs.add(entry.seq);
@@ -1045,14 +1070,19 @@ export class HerdEventDispatcher {
     if (confirmedSeqs.size === 0) return;
 
     inbox.entries = keptEntries;
-    while (confirmedSeqs.has(inbox.confirmedUpTo)) {
-      inbox.confirmedUpTo += 1;
-    }
+    this.recomputeInboxWatermarks(inbox);
     if (this.pendingCount(inbox) === 0 && inbox.debounceTimer) {
       clearTimeout(inbox.debounceTimer);
       inbox.debounceTimer = null;
     }
     this.rememberDeliveredEventKeys(inbox, confirmedEvents);
+  }
+
+  private recomputeInboxWatermarks(inbox: HerdInbox): void {
+    inbox.confirmedUpTo =
+      inbox.entries.length > 0 ? Math.min(...inbox.entries.map((entry) => entry.seq)) : inbox.nextSeq;
+    const inFlight = inbox.entries.filter((entry) => entry.deliveryOwnerId !== undefined);
+    inbox.inFlightUpTo = inFlight.length > 0 ? Math.max(...inFlight.map((entry) => entry.seq)) : null;
   }
 
   private confirmNotificationIfNeeded(entry: InboxEntry): void {
@@ -1204,6 +1234,7 @@ export class HerdEventDispatcher {
     }
     if (prunedCount > 0) {
       inbox.entries = keptEntries;
+      this.recomputeInboxWatermarks(inbox);
     }
     return prunedCount;
   }
@@ -1260,10 +1291,7 @@ export class HerdEventDispatcher {
       };
     }
     const pending = this.getPendingEntries(inbox);
-    const inFlight =
-      inbox.inFlightUpTo !== null
-        ? inbox.entries.filter((e) => e.seq >= inbox.confirmedUpTo && e.seq <= inbox.inFlightUpTo!).length
-        : 0;
+    const inFlight = inbox.entries.filter((entry) => entry.deliveryOwnerId !== undefined).length;
     return {
       hasInbox: true,
       pendingEventCount: pending.length,
@@ -1737,6 +1765,44 @@ function getCommittedHerdEventKeys(history: BrowserIncomingMessage[] | undefined
     }
   }
   return keys;
+}
+
+function findHerdDeliveryOwnerId(
+  session: ReturnType<WsBridgeHandle["getSession"]>,
+  eventKeys: readonly string[],
+  before: { historyLength: number; pendingIds: ReadonlySet<string> },
+): string | null {
+  if (!session) return null;
+  const expectedKeys = eventKeys.filter(Boolean);
+  const matchesKeys = (candidate: readonly string[] | undefined): boolean => {
+    if (expectedKeys.length === 0) return true;
+    const actual = (candidate ?? []).filter(Boolean);
+    return actual.length === expectedKeys.length && actual.every((key, index) => key === expectedKeys[index]);
+  };
+
+  for (let index = session.messageHistory.length - 1; index >= before.historyLength; index--) {
+    const message = session.messageHistory[index];
+    if (message?.type !== "user_message" || message.agentSource?.sessionId !== HERD_AGENT_SOURCE.sessionId) continue;
+    if (typeof message.id !== "string") continue;
+    if (matchesKeys(message.takodeHerdEventKeys)) return message.id;
+  }
+  for (let index = (session.pendingCodexInputs?.length ?? 0) - 1; index >= 0; index--) {
+    const pending = session.pendingCodexInputs?.[index];
+    if (!pending || pending.agentSource?.sessionId !== HERD_AGENT_SOURCE.sessionId) continue;
+    if (before.pendingIds.has(pending.id)) continue;
+    if (matchesKeys(pending.takodeHerdBatch?.eventKeys)) return pending.id;
+  }
+  return null;
+}
+
+function snapshotHerdDeliveryOwners(session: ReturnType<WsBridgeHandle["getSession"]>): {
+  historyLength: number;
+  pendingIds: Set<string>;
+} {
+  return {
+    historyLength: session?.messageHistory.length ?? 0,
+    pendingIds: new Set((session?.pendingCodexInputs ?? []).map((pending) => pending.id)),
+  };
 }
 
 function trimRecentEventKeys(inbox: HerdInbox): void {

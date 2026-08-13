@@ -1612,7 +1612,19 @@ export function getGenerationLifecycleDeps(host: any) {
       if (!host.herdEventDispatcher) return;
       const info = readLauncherSession(host, sessionId);
       if (info?.isOrchestrator) {
-        host.herdEventDispatcher.onOrchestratorTurnEnd(sessionId, reason);
+        const session = host.sessions.get(sessionId) as Session | undefined;
+        const completedOwnerIds = session?.userMessageIdsThisTurn
+          .map((historyIndex) => session.messageHistory[historyIndex])
+          .filter(
+            (message): message is Extract<BrowserIncomingMessage, { type: "user_message" }> =>
+              message?.type === "user_message" && typeof message.id === "string",
+          )
+          .map((message) => message.id);
+        host.herdEventDispatcher.onOrchestratorTurnEnd(
+          sessionId,
+          reason,
+          completedOwnerIds && completedOwnerIds.length > 0 ? completedOwnerIds : undefined,
+        );
       }
     },
     getCurrentTurnTriggerSource: (session: Session) =>

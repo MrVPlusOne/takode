@@ -76,6 +76,7 @@ import {
   summarizeLocalCodexDeliveryActivity,
   type CodexLocalDeliveryActivitySummary,
 } from "./codex-delivery-ownership.js";
+import { clearOrphanedCodexProviderRetryState } from "./codex-provider-retry-state.js";
 export { clearCodexIntentionalRelaunch, markCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 export { maybeFlushQueuedCodexMessages } from "./codex-queued-message-flush.js";
 type InterruptSource = "user" | "leader" | "system";
@@ -93,6 +94,7 @@ export interface CodexRecoveryOrchestratorSessionLike {
     | "is_compacting"
     | "isOrchestrator"
     | "codex_result_error_auto_pause"
+    | "codex_provider_retry"
   >;
   messageHistory: BrowserIncomingMessage[];
   _frozenCount?: number;
@@ -1014,6 +1016,12 @@ export function registerCodexAdapterRecoveryLifecycle(
     reconcileDuplicateCodexPendingTurns(session, "session_meta", deps);
     retryNonDrainableCodexHeadTurn(session, "session_meta_stale_ack_head", deps);
     clearStaleCodexCompactionState(session, "session_meta_stale_compaction", deps);
+    clearOrphanedCodexProviderRetryState(session, (state) =>
+      deps.broadcastToBrowsers(session, {
+        type: "session_update",
+        session: { codex_provider_retry: state },
+      }),
+    );
     if (meta.model) {
       session.state.model = meta.model;
       deps.broadcastToBrowsers(session, {
@@ -1071,6 +1079,12 @@ export function registerCodexAdapterRecoveryLifecycle(
   adapter.onTurnStarted((turnId: string, source?: "local" | "codex_goal_continuation") => {
     if (session.codexAdapter !== adapter) return;
     recordCodexTurnStartedProof(session, turnId);
+    clearOrphanedCodexProviderRetryState(session, (state) =>
+      deps.broadcastToBrowsers(session, {
+        type: "session_update",
+        session: { codex_provider_retry: state },
+      }),
+    );
     const pending = deps.getCodexTurnAwaitingAck(session);
     if (!pending) {
       if (source === "codex_goal_continuation" && !session.isGenerating) {

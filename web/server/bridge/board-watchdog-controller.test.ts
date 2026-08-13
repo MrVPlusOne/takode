@@ -6,8 +6,10 @@ import {
   completeDoneBoardRowsForQuestInAllSessions,
   getBoard,
   getCompletedBoard,
+  getBoardStallSignature,
   pruneStaleBoardStalledHerdBatch,
   removeBoardRows,
+  sweepBoardStallWarnings,
   upsertBoardRow,
   type WorkBoardStateDeps,
 } from "./board-watchdog-controller.js";
@@ -125,6 +127,54 @@ describe("Work Board stale herd batch pruning", () => {
     );
 
     expect(pruned).toEqual({ changed: true, suppressedReasonCode: "stale_board_state" });
+  });
+});
+
+describe("Work Board stall occurrences", () => {
+  it("gives a recovered-then-stalled row a fresh delivery identity", () => {
+    const leader = createSession();
+    const worker = { id: "worker-1", isGenerating: false, pendingPermissions: new Map() };
+    leader.board.set("q-77", {
+      questId: "q-77",
+      title: "Recover and stall again",
+      status: "WORKING",
+      worker: worker.id,
+      workerNum: 77,
+      createdAt: 0,
+      updatedAt: 0,
+    });
+    let workerLastActivityAt = 0;
+    const emitted: Array<Record<string, unknown>> = [];
+    const deps = {
+      getLauncherSessionInfo: vi.fn((sessionId: string) =>
+        sessionId === leader.id ? { isOrchestrator: true } : { sessionNum: 77, lastActivityAt: workerLastActivityAt },
+      ),
+      getSession: vi.fn((sessionId: string) => (sessionId === worker.id ? worker : undefined)),
+      listSessions: vi.fn(() => [{ sessionId: worker.id, sessionNum: 77 }]),
+      resolveSessionId: vi.fn(() => worker.id),
+      timerCount: vi.fn(() => 0),
+      backendConnected: vi.fn(() => true),
+      getBoard: vi.fn(() => Array.from(leader.board.values())),
+      emitTakodeEvent: vi.fn((_sessionId: string, _type: string, data: Record<string, unknown>) => emitted.push(data)),
+      markNotificationDone: vi.fn(() => true),
+      isSessionIdle: vi.fn(() => true),
+    } as any;
+
+    sweepBoardStallWarnings([leader], 0, deps);
+    sweepBoardStallWarnings([leader], 180_001, deps);
+    const firstSignature = emitted[0]?.signature;
+    expect(firstSignature).toBe("q-77|WORKING|idle|since:0");
+    expect(getBoardStallSignature(leader, "q-77", deps)).toBe(firstSignature);
+
+    worker.isGenerating = true;
+    sweepBoardStallWarnings([leader], 200_000, deps);
+    worker.isGenerating = false;
+    workerLastActivityAt = 210_000;
+    sweepBoardStallWarnings([leader], 210_000, deps);
+    sweepBoardStallWarnings([leader], 390_001, deps);
+
+    expect(emitted[1]?.signature).toBe("q-77|WORKING|idle|since:210000");
+    expect(emitted[1]?.signature).not.toBe(firstSignature);
   });
 });
 

@@ -1959,6 +1959,88 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
+  it("delivers a later board_stalled occurrence with the same status and reason", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.getBoardRow!).mockReturnValue({ status: "WORKING" });
+    let currentSignature = "";
+    vi.mocked(bridge.getBoardStallSignature!).mockImplementation(() => currentSignature);
+
+    const event = (id: number, stalledSince: number) =>
+      makeEvent({
+        id,
+        event: "board_stalled",
+        ts: stalledSince + 180_000,
+        data: {
+          questId: "q-975",
+          stage: "WORKING",
+          signature: `q-975|WORKING|idle|since:${stalledSince}`,
+          stalledSince,
+          workerStatus: "idle",
+          reviewerStatus: "missing",
+          stalledForMs: 180_000,
+          reason: "worker idle",
+          action: "inspect worker",
+        },
+      });
+
+    currentSignature = "q-975|WORKING|idle|since:1000";
+    triggerEvent(event(1, 1_000));
+    vi.advanceTimersByTime(600);
+    dispatcher.onOrchestratorTurnEnd("orch-1", "result");
+    currentSignature = "q-975|WORKING|idle|since:2000";
+    triggerEvent(event(2, 2_000));
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+    dispatcher.destroy();
+  });
+
+  it("confirms only the herd delivery owned by the completed leader turn", () => {
+    // A later successful leader turn must not retire an earlier provider-failed
+    // herd escalation merely because both user messages exist in history.
+    const { bridge, launcher } = createMocks();
+    const leaderHistory: BrowserIncomingMessage[] = [];
+    let owner = 0;
+    vi.mocked(bridge.getSession).mockReturnValue({ messageHistory: leaderHistory });
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.injectUserMessage).mockImplementation((_sessionId, content, agentSource, herdBatch) => {
+      owner += 1;
+      leaderHistory.push({
+        type: "user_message",
+        id: `owner-${owner}`,
+        content,
+        timestamp: owner,
+        agentSource,
+        takodeHerdEventKeys: herdBatch?.eventKeys,
+      });
+      return "sent";
+    });
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(makeEvent({ id: 1, data: { reason: "first", duration_ms: 1, msgRange: { from: 1, to: 1 } } }));
+    vi.advanceTimersByTime(600);
+    triggerEvent(makeEvent({ id: 2, event: "session_error", data: { error: "second" } }));
+    vi.advanceTimersByTime(600);
+
+    expect(dispatcher.getDiagnostics("orch-1").inFlightCount).toBe(2);
+    dispatcher.onOrchestratorTurnEnd("orch-1", "result", ["owner-2"]);
+
+    expect(dispatcher.getDiagnostics("orch-1")).toMatchObject({
+      pendingEventCount: 0,
+      inFlightCount: 1,
+      eventHistory: [
+        expect.objectContaining({ status: "in_flight" }),
+        expect.objectContaining({ status: "confirmed" }),
+      ],
+    });
+
+    dispatcher.destroy();
+  });
+
   it("delivers board_dispatchable events when the next action changes", () => {
     const { bridge, launcher } = createMocks();
     const dispatcher = new HerdEventDispatcher(bridge, launcher);
