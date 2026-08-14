@@ -14,7 +14,7 @@ import {
   type Turn,
   type TurnStats,
 } from "../hooks/use-feed-model.js";
-import { CodexThinkingInline, HerdEventMessage, MessageBubble, isEmptyAssistantMessage } from "./MessageBubble.js";
+import { CodexThinkingInline, HerdEventMessage, MessageBubble } from "./MessageBubble.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils/herd-event-parser.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -45,6 +45,8 @@ import {
 } from "../utils/thread-projection.js";
 import { AttentionLedgerRow } from "./AttentionLedgerRow.js";
 import { isAttentionLedgerMessage } from "../utils/attention-records.js";
+import { collectAnchoredNotificationMessageIds } from "../utils/anchored-notifications.js";
+import { isAssistantMessageRenderable } from "../utils/assistant-message-renderability.js";
 import { DelegateTrace, extractDelegateId, useDelegateCommandTrace } from "./DelegateCommandTrace.js";
 import { parseSubagentResultText, SubagentResult } from "./SubagentResult.js";
 import { isCompactToolActivityItem } from "./CompactToolActivity.js";
@@ -200,10 +202,14 @@ function getErrorMessageIdentity(entry: FeedEntry): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function isInvisibleFeedEntry(entry: FeedEntry, suppressThreadSystemMarkers: boolean): boolean {
+function isInvisibleFeedEntry(
+  entry: FeedEntry,
+  suppressThreadSystemMarkers: boolean,
+  assistantIsRenderable: (message: ChatMessage) => boolean,
+): boolean {
   if (entry.kind !== "message") return false;
   if (suppressThreadSystemMarkers && isThreadSystemMarkerMessage(entry.msg)) return true;
-  return isEmptyAssistantMessage(entry.msg);
+  return !assistantIsRenderable(entry.msg);
 }
 
 function GroupedErrorMessages({
@@ -352,8 +358,12 @@ function entryHasModelActivity(entry: FeedEntry): boolean {
   return entry.msg.role === "assistant";
 }
 
+function turnPresentationEntries(turn: Turn): FeedEntry[] {
+  return turn.presentationEntries ?? turn.allEntries;
+}
+
 function turnHasModelActivity(turn: Turn): boolean {
-  return turn.allEntries.some(entryHasModelActivity);
+  return turnPresentationEntries(turn).some(entryHasModelActivity);
 }
 
 function latestStatusHostTurnId(sections: FeedSection[]): string | null {
@@ -844,13 +854,33 @@ export const FeedEntries = memo(function FeedEntries({
   suppressThreadSystemMarkers?: boolean;
 }) {
   const compactToolActivity = useStore((state) => state.compactToolActivity);
+  const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
+  const sideChats = useStore((state) => state.sessions.get(sessionId)?.slackThreads);
+  const anchoredNotificationMessageIds = useMemo(
+    () => new Set(collectAnchoredNotificationMessageIds(notifications)),
+    [notifications],
+  );
+  const visibleAssistantChildMessageIds = useMemo(
+    () => new Set(Object.values(sideChats ?? {}).map((sideChat) => sideChat.anchorMessageId)),
+    [sideChats],
+  );
   const rendered = useMemo(() => {
+    const assistantIsRenderable = (message: ChatMessage) =>
+      isAssistantMessageRenderable(message, {
+        isCodexSession,
+        hasAnchoredNotification: anchoredNotificationMessageIds.has(message.id),
+        hasVisibleSideChat: visibleAssistantChildMessageIds.has(message.id),
+      });
     const result: React.ReactNode[] = [];
     let i = 0;
     // Keep every branch in this manual renderer loop advancing `i`, assigning
     // `i` to a larger cursor, or returning. A skipped row must not spin render.
     while (i < entries.length) {
       const entry = entries[i];
+      if (entry.kind === "message" && !assistantIsRenderable(entry.msg)) {
+        i++;
+        continue;
+      }
       if (
         compactToolActivity &&
         ((entry.kind === "tool_msg_group" && entry.items.every(isCompactToolActivityItem)) ||
@@ -884,7 +914,7 @@ export const FeedEntries = memo(function FeedEntries({
             j++;
             continue;
           }
-          if (isInvisibleFeedEntry(candidate, suppressThreadSystemMarkers)) {
+          if (isInvisibleFeedEntry(candidate, suppressThreadSystemMarkers, assistantIsRenderable)) {
             j++;
             continue;
           }
@@ -980,7 +1010,7 @@ export const FeedEntries = memo(function FeedEntries({
             j++;
             continue;
           }
-          if (isInvisibleFeedEntry(next, suppressThreadSystemMarkers)) {
+          if (isInvisibleFeedEntry(next, suppressThreadSystemMarkers, assistantIsRenderable)) {
             j++;
             continue;
           }
@@ -1057,10 +1087,6 @@ export const FeedEntries = memo(function FeedEntries({
           />,
         );
       } else if (isTimedChatMessage(entry.msg)) {
-        if (isEmptyAssistantMessage(entry.msg)) {
-          i++;
-          continue;
-        }
         const markerLabel = minuteBoundaryLabels?.get(entry.msg.id);
         const showTimestamp = entry.msg.role === "assistant" && typeof entry.msg.turnDurationMs === "number";
         result.push(
@@ -1072,22 +1098,16 @@ export const FeedEntries = memo(function FeedEntries({
             data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
           >
             {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
-            {!isEmptyAssistantMessage(entry.msg) && (
-              <MessageBubble
-                message={entry.msg}
-                sessionId={sessionId}
-                showTimestamp={showTimestamp}
-                currentThreadKey={currentThreadKey}
-                onSelectThread={onSelectThread}
-              />
-            )}
+            <MessageBubble
+              message={entry.msg}
+              sessionId={sessionId}
+              showTimestamp={showTimestamp}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
+            />
           </div>,
         );
       } else {
-        if (isEmptyAssistantMessage(entry.msg)) {
-          i++;
-          continue;
-        }
         result.push(
           <div
             key={entry.msg.id}
@@ -1096,14 +1116,12 @@ export const FeedEntries = memo(function FeedEntries({
             data-message-variant={entry.msg.variant}
             data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
           >
-            {!isEmptyAssistantMessage(entry.msg) && (
-              <MessageBubble
-                message={entry.msg}
-                sessionId={sessionId}
-                currentThreadKey={currentThreadKey}
-                onSelectThread={onSelectThread}
-              />
-            )}
+            <MessageBubble
+              message={entry.msg}
+              sessionId={sessionId}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
+            />
           </div>,
         );
       }
@@ -1112,6 +1130,7 @@ export const FeedEntries = memo(function FeedEntries({
     return result;
   }, [
     activeCodexTerminalIds,
+    anchoredNotificationMessageIds,
     compactToolActivity,
     entries,
     isCodexSession,
@@ -1121,6 +1140,7 @@ export const FeedEntries = memo(function FeedEntries({
     onSelectThread,
     sessionId,
     suppressThreadSystemMarkers,
+    visibleAssistantChildMessageIds,
   ]);
 
   return <>{rendered}</>;
@@ -1290,7 +1310,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
         <TurnCollapseBar ref={headerRef} stats={turn.stats} durationMs={durationMs} onClick={onCollapse} />
       )}
       <FeedEntries
-        entries={turn.allEntries}
+        entries={turnPresentationEntries(turn)}
         sessionId={sessionId}
         currentThreadKey={currentThreadKey}
         minuteBoundaryLabels={minuteBoundaryLabels}
@@ -1837,7 +1857,7 @@ export const TurnEntries = memo(function TurnEntries({
       }
 
       if (isActivityExpanded) {
-        appendTimedMessagesFromEntries(turn.allEntries, visibleTimedMessages);
+        appendTimedMessagesFromEntries(turnPresentationEntries(turn), visibleTimedMessages);
       } else {
         appendTimedMessagesFromEntries(turn.systemEntries, visibleTimedMessages);
       }
@@ -1889,7 +1909,7 @@ export const TurnEntries = memo(function TurnEntries({
                     )}
 
                     {isActivityExpanded ? (
-                      turn.allEntries.length > 0 && (
+                      turnPresentationEntries(turn).length > 0 && (
                         <TurnEntriesExpanded
                           turn={turn}
                           sessionId={sessionId}
@@ -1959,7 +1979,7 @@ export const TurnEntries = memo(function TurnEntries({
                         )}
                       </>
                     )}
-                    {(!isActivityExpanded || turn.allEntries.length === 0) && threadStatusFooter}
+                    {(!isActivityExpanded || turnPresentationEntries(turn).length === 0) && threadStatusFooter}
                   </div>
                 </div>
               );

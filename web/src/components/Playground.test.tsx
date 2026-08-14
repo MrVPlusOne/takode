@@ -442,6 +442,7 @@ describe("Playground", () => {
       ),
     ).toBeNull();
     expect(screen.getByLabelText("Thread Ready for thread:q-963: dispatch plan is ready")).toBeTruthy();
+    expect(document.querySelector('[data-message-id="playground-thread-status-batch"]')).toBeNull();
     expect(screen.getAllByText("The initial q-961 answer is complete and remains in history.").length).toBeGreaterThan(
       0,
     );

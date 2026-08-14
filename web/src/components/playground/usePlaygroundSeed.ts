@@ -707,6 +707,8 @@ export function usePlaygroundSeed() {
         id: "playground-thread-status-batch",
         role: "assistant",
         content: "",
+        contentBlocks: [{ type: "text", text: "" }],
+        turnDurationMs: 18_253,
         timestamp: threadStatusTimestamp,
         historyIndex: 11,
         metadata: {

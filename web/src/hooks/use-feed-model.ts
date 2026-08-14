@@ -6,6 +6,7 @@ import { isInjectedEventMessage } from "../utils/injected-event-message.js";
 import { THREAD_OUTCOME_REMINDER_SOURCE_ID } from "../../shared/thread-outcome-reminder.js";
 import { THREAD_ROUTING_REMINDER_SOURCE_ID } from "../../shared/thread-routing-reminder.js";
 import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
+import { isAssistantMessageRenderable, isToolHiddenFromChat } from "../utils/assistant-message-renderability.js";
 
 export interface ToolItem {
   id: string;
@@ -43,10 +44,6 @@ interface TaskInfo {
   description: string;
   agentType: string;
   input: Record<string, unknown>;
-}
-
-export function isToolHiddenFromChat(name: string): boolean {
-  return name === "write_stdin";
 }
 
 function filterHiddenToolUseBlocks(msg: ChatMessage): ChatMessage | null {
@@ -367,6 +364,8 @@ export interface Turn {
   id: string;
   userEntry: FeedEntry | null;
   allEntries: FeedEntry[];
+  /** Post-processed entries eligible for visible feed presentation. */
+  presentationEntries?: FeedEntry[];
   agentEntries: FeedEntry[];
   systemEntries: FeedEntry[];
   /** Messages with notification chips -- always visible even when the turn is collapsed. */
@@ -931,12 +930,25 @@ function buildCollapsedTurnEntries(
 }
 
 /** Build a Turn from accumulated entries */
+function isFeedEntryRenderable(
+  entry: FeedEntry,
+  anchoredNotificationMessageIds?: ReadonlySet<string>,
+  visibleAssistantChildMessageIds?: ReadonlySet<string>,
+): boolean {
+  if (entry.kind !== "message" || entry.msg.role !== "assistant") return true;
+  return isAssistantMessageRenderable(entry.msg, {
+    hasAnchoredNotification: anchoredNotificationMessageIds?.has(entry.msg.id),
+    hasVisibleSideChat: visibleAssistantChildMessageIds?.has(entry.msg.id),
+  });
+}
+
 function makeTurn(
   userEntry: FeedEntry | null,
   entries: FeedEntry[],
   turnIndex: number,
   leaderMode = false,
   anchoredNotificationMessageIds?: ReadonlySet<string>,
+  visibleAssistantChildMessageIds?: ReadonlySet<string>,
 ): Turn {
   // Separate system messages (always visible) from collapsible agent activity
   const rawAgentEntries: FeedEntry[] = [];
@@ -949,8 +961,18 @@ function makeTurn(
     }
   }
 
-  // Count stats on ALL agent entries before extracting the response
-  const s = countEntryStats(rawAgentEntries);
+  // Preserve raw entries for audit, replay, routing, and viewport identity, but
+  // derive presentation from assistant entries that still have visible output
+  // after marker/content projection. Invisible rows must not create collapsed
+  // activity, representatives, or counts.
+  const presentationAgentEntries = rawAgentEntries.filter((entry) =>
+    isFeedEntryRenderable(entry, anchoredNotificationMessageIds, visibleAssistantChildMessageIds),
+  );
+  const presentationEntries = entries.filter((entry) =>
+    isFeedEntryRenderable(entry, anchoredNotificationMessageIds, visibleAssistantChildMessageIds),
+  );
+
+  const s = countEntryStats(presentationAgentEntries);
 
   // Extract messages with notification chips -- always visible like systemEntries.
   // When a direct user/herd response is immediately followed by a model-only
@@ -958,10 +980,10 @@ function makeTurn(
   // as the collapsed representative. Empty route/status rows and reminder
   // acknowledgements remain activity.
   const preReminderRepresentativeKeys = leaderMode
-    ? collectLeaderResponsesBeforeModelOnlyReminders(rawAgentEntries, userEntry !== null)
+    ? collectLeaderResponsesBeforeModelOnlyReminders(presentationAgentEntries, userEntry !== null)
     : new Set<string>();
   const notificationEntryCandidates: FeedEntry[] = [];
-  for (const e of rawAgentEntries) {
+  for (const e of presentationAgentEntries) {
     if (
       preReminderRepresentativeKeys.has(getEntryId(e)) ||
       entryIsCollapsedVisible(e, leaderMode, anchoredNotificationMessageIds)
@@ -970,12 +992,12 @@ function makeTurn(
     }
   }
   const reminderFilteredEntries = filterCollapsedVisibleEntriesForModelOnlyReminderSegments(
-    rawAgentEntries,
+    presentationAgentEntries,
     notificationEntryCandidates,
     leaderMode,
   );
   const notificationEntries = filterCollapsedVisibleEntriesForNeedsInputBookkeeping(
-    rawAgentEntries,
+    presentationAgentEntries,
     reminderFilteredEntries,
     leaderMode,
   );
@@ -988,8 +1010,8 @@ function makeTurn(
   let responseEntry: FeedEntry | null = null;
   if (!leaderMode) {
     const notificationEntryKeys = new Set(notificationEntries.map(getEntryId));
-    for (let i = rawAgentEntries.length - 1; i >= 0; i--) {
-      const e = rawAgentEntries[i];
+    for (let i = presentationAgentEntries.length - 1; i >= 0; i--) {
+      const e = presentationAgentEntries[i];
       if (notificationEntryKeys.has(getEntryId(e))) continue;
       if (
         e.kind === "message" &&
@@ -1014,18 +1036,18 @@ function makeTurn(
     if (responseEntry.kind === "message") collapsedVisibleMessageIds.add(responseEntry.msg.id);
   }
   const { collapsedEntries, promotedEntryKeys } = buildCollapsedTurnEntries(
-    rawAgentEntries,
+    presentationAgentEntries,
     collapsedVisibleEntryKeys,
     leaderMode,
   );
   for (const key of promotedEntryKeys) collapsedVisibleEntryKeys.add(key);
 
-  const agentEntries = rawAgentEntries.filter((entry) => !collapsedVisibleEntryKeys.has(getEntryId(entry)));
+  const agentEntries = presentationAgentEntries.filter((entry) => !collapsedVisibleEntryKeys.has(getEntryId(entry)));
 
   // Extract sub-conclusions for normal sessions only. In leader sessions,
   // ordinary assistant text is private activity and should not be promoted
   // into the user-visible left panel unless it came through `user-message`.
-  const subConclusions = leaderMode ? [] : extractSubConclusions(entries, collapsedVisibleMessageIds);
+  const subConclusions = leaderMode ? [] : extractSubConclusions(presentationEntries, collapsedVisibleMessageIds);
 
   // Stable ID: prefer user message ID, fall back to first agent entry ID, then synthetic
   const id = userEntry
@@ -1040,6 +1062,7 @@ function makeTurn(
     id,
     userEntry,
     allEntries: entries,
+    presentationEntries,
     agentEntries,
     systemEntries,
     notificationEntries,
@@ -1067,6 +1090,7 @@ export function groupIntoTurns(
   startTurnIndex = 0,
   anchoredNotificationMessageIds?: ReadonlySet<string>,
   userBoundarySourceSessionId?: string | null,
+  visibleAssistantChildMessageIds?: ReadonlySet<string>,
 ): Turn[] {
   const turns: Turn[] = [];
   let currentUser: FeedEntry | null = null;
@@ -1086,6 +1110,7 @@ export function groupIntoTurns(
             startTurnIndex + turns.length,
             leaderMode,
             anchoredNotificationMessageIds,
+            visibleAssistantChildMessageIds,
           ),
         );
       }
@@ -1099,7 +1124,14 @@ export function groupIntoTurns(
   // Flush final turn
   if (currentUser !== null || currentEntries.length > 0) {
     turns.push(
-      makeTurn(currentUser, currentEntries, startTurnIndex + turns.length, leaderMode, anchoredNotificationMessageIds),
+      makeTurn(
+        currentUser,
+        currentEntries,
+        startTurnIndex + turns.length,
+        leaderMode,
+        anchoredNotificationMessageIds,
+        visibleAssistantChildMessageIds,
+      ),
     );
   }
 
@@ -1112,13 +1144,25 @@ export function buildFeedModel(
   startTurnIndex = 0,
   anchoredNotificationMessageIds?: ReadonlySet<string> | readonly string[],
   userBoundarySourceSessionId?: string | null,
+  visibleAssistantChildMessageIds?: ReadonlySet<string> | readonly string[],
 ): FeedModel {
   const anchoredIds =
     anchoredNotificationMessageIds instanceof Set
       ? anchoredNotificationMessageIds
       : new Set(anchoredNotificationMessageIds ?? []);
+  const visibleChildIds =
+    visibleAssistantChildMessageIds instanceof Set
+      ? visibleAssistantChildMessageIds
+      : new Set(visibleAssistantChildMessageIds ?? []);
   const entries = groupMessages(messages, anchoredIds);
-  const turns = groupIntoTurns(entries, leaderMode, startTurnIndex, anchoredIds, userBoundarySourceSessionId);
+  const turns = groupIntoTurns(
+    entries,
+    leaderMode,
+    startTurnIndex,
+    anchoredIds,
+    userBoundarySourceSessionId,
+    visibleChildIds,
+  );
   return { entries, turns };
 }
 
@@ -1133,6 +1177,7 @@ function concatFeedModels(
   leaderMode = false,
   anchoredNotificationMessageIds?: ReadonlySet<string> | readonly string[],
   userBoundarySourceSessionId?: string | null,
+  visibleAssistantChildMessageIds?: ReadonlySet<string> | readonly string[],
 ): FeedModel {
   if (base.entries.length === 0) return next;
   if (next.entries.length === 0) return base;
@@ -1160,6 +1205,9 @@ function concatFeedModels(
       anchoredNotificationMessageIds instanceof Set
         ? anchoredNotificationMessageIds
         : new Set(anchoredNotificationMessageIds ?? []),
+      visibleAssistantChildMessageIds instanceof Set
+        ? visibleAssistantChildMessageIds
+        : new Set(visibleAssistantChildMessageIds ?? []),
     );
     mergedTurns = [...base.turns.slice(0, -1), merged, ...next.turns.slice(1)];
   } else {
@@ -1188,6 +1236,7 @@ export function useFeedModel(
     frozenRevision?: number;
     anchoredNotificationMessageIds?: readonly string[];
     userBoundarySourceSessionId?: string | null;
+    visibleAssistantChildMessageIds?: readonly string[];
     perf?: { sessionId: string; threadKey: string };
   },
 ): FeedModel {
@@ -1196,6 +1245,8 @@ export function useFeedModel(
   const frozenRevision = config?.frozenRevision ?? 0;
   const anchoredNotificationMessageIds = config?.anchoredNotificationMessageIds ?? [];
   const userBoundarySourceSessionId = config?.userBoundarySourceSessionId ?? null;
+  const visibleAssistantChildMessageIds = config?.visibleAssistantChildMessageIds ?? [];
+  const visibleAssistantChildSignature = visibleAssistantChildMessageIds.join("\0");
   const anchoredNotificationSignature = anchoredNotificationMessageIds.join("\0");
   const perfSessionId = config?.perf?.sessionId;
   const perfThreadKey = config?.perf?.threadKey;
@@ -1205,6 +1256,7 @@ export function useFeedModel(
     frozenRevision: number;
     anchoredNotificationSignature: string;
     userBoundarySourceSessionId: string | null;
+    visibleAssistantChildSignature: string;
     frozenMessages: ChatMessage[];
     frozenModel: FeedModel;
   } | null>(null);
@@ -1222,6 +1274,7 @@ export function useFeedModel(
       cached.frozenRevision === frozenRevision &&
       cached.anchoredNotificationSignature === anchoredNotificationSignature &&
       cached.userBoundarySourceSessionId === userBoundarySourceSessionId &&
+      cached.visibleAssistantChildSignature === visibleAssistantChildSignature &&
       haveSameMessageRefs(cached.frozenMessages, frozenMessages)
     ) {
       frozenModel = cached.frozenModel;
@@ -1231,6 +1284,7 @@ export function useFeedModel(
       cached.frozenRevision === frozenRevision &&
       cached.anchoredNotificationSignature === anchoredNotificationSignature &&
       cached.userBoundarySourceSessionId === userBoundarySourceSessionId &&
+      cached.visibleAssistantChildSignature === visibleAssistantChildSignature &&
       frozenCount >= cached.frozenCount &&
       haveSameMessageRefs(cached.frozenMessages, frozenMessages.slice(0, cached.frozenCount))
     ) {
@@ -1241,6 +1295,7 @@ export function useFeedModel(
         cached.frozenModel.turns.length,
         anchoredNotificationMessageIds,
         userBoundarySourceSessionId,
+        visibleAssistantChildMessageIds,
       );
       frozenModel = concatFeedModels(
         cached.frozenModel,
@@ -1248,6 +1303,7 @@ export function useFeedModel(
         leaderMode,
         anchoredNotificationMessageIds,
         userBoundarySourceSessionId,
+        visibleAssistantChildMessageIds,
       );
     } else {
       frozenModel = buildFeedModel(
@@ -1256,6 +1312,7 @@ export function useFeedModel(
         0,
         anchoredNotificationMessageIds,
         userBoundarySourceSessionId,
+        visibleAssistantChildMessageIds,
       );
     }
 
@@ -1265,6 +1322,7 @@ export function useFeedModel(
       frozenRevision,
       anchoredNotificationSignature,
       userBoundarySourceSessionId,
+      visibleAssistantChildSignature,
       frozenMessages,
       frozenModel,
     };
@@ -1275,6 +1333,7 @@ export function useFeedModel(
       frozenModel.turns.length,
       anchoredNotificationMessageIds,
       userBoundarySourceSessionId,
+      visibleAssistantChildMessageIds,
     );
     return concatFeedModels(
       frozenModel,
@@ -1282,6 +1341,7 @@ export function useFeedModel(
       leaderMode,
       anchoredNotificationMessageIds,
       userBoundarySourceSessionId,
+      visibleAssistantChildMessageIds,
     );
   }, [
     messages,
@@ -1291,6 +1351,8 @@ export function useFeedModel(
     anchoredNotificationMessageIds,
     anchoredNotificationSignature,
     userBoundarySourceSessionId,
+    visibleAssistantChildMessageIds,
+    visibleAssistantChildSignature,
   ]);
 
   useEffect(() => {

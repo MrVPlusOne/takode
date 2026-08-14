@@ -1020,6 +1020,8 @@ describe("MessageFeed - message rendering", () => {
         id: "status-a1",
         role: "assistant",
         content: "",
+        contentBlocks: [{ type: "text", text: "" }],
+        turnDurationMs: 18_253,
         metadata: {
           threadStatusMarkers: [status],
           threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
@@ -1030,6 +1032,7 @@ describe("MessageFeed - message rendering", () => {
     render(<MessageFeed sessionId={sid} threadKey="q-941" />);
 
     expect(screen.getByLabelText("Thread Waiting for thread:q-941: waiting on reviewer pass")).toBeTruthy();
+    expect(document.querySelector('[data-message-id="status-a1"]')).toBeNull();
     expect(screen.queryByText(/\{\[\(Thread Waiting:/)).toBeNull();
   });
 

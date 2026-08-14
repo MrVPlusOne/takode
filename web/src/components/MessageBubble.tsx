@@ -24,7 +24,7 @@ import { buildThreadOutcomeReminderViewModel } from "../utils/thread-outcome-rem
 import { buildInjectedEventMessageViewModel } from "../utils/injected-event-message.js";
 import { InjectedEventMessageView } from "./InjectedEventMessageView.js";
 import { isStandaloneReminderMessage, StandaloneReminderMessageView } from "./StandaloneReminderMessageView.js";
-import { FILE_TOOL_NAMES, isToolHiddenFromChat } from "../hooks/use-feed-model.js";
+import { FILE_TOOL_NAMES } from "../hooks/use-feed-model.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { NotificationMarker } from "./NotificationMarker.js";
@@ -40,7 +40,11 @@ import { isStarActionableMessage } from "../utils/starred-messages.js";
 import { useMessageStarActions } from "./use-message-star-actions.js";
 import { CodexAutoPauseRecoverySummary } from "./CodexAutoPauseRecoverySummary.js";
 import { CompactToolActivity, isCompactToolActivityItem, type CompactToolActivityItem } from "./CompactToolActivity.js";
-import { stripRootCodexThinkingBlocks } from "../utils/assistant-content-blocks.js";
+import {
+  isAssistantMessageRenderable,
+  isToolHiddenFromChat,
+  projectAssistantMessageForRendering,
+} from "../utils/assistant-message-renderability.js";
 import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
 import { CodexReasoningDetail } from "./CodexReasoningDetail.js";
 
@@ -48,17 +52,9 @@ export { NotificationMarker } from "./NotificationMarker.js";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
-/** Detect assistant messages with no visible content (empty text, no blocks, no notification).
- *  Used to skip rendering empty bubbles that would show only a timestamp. */
+/** Detect assistant messages whose final projected host has no visible content. */
 export function isEmptyAssistantMessage(msg: ChatMessage): boolean {
-  return (
-    msg.role === "assistant" &&
-    !msg.content?.trim() &&
-    (msg.contentBlocks || []).length === 0 &&
-    (msg.images || []).length === 0 &&
-    (msg.localImages || []).length === 0 &&
-    !msg.notification
-  );
+  return msg.role === "assistant" && !isAssistantMessageRenderable(msg);
 }
 
 /**
@@ -290,42 +286,18 @@ export const MessageBubble = memo(function MessageBubble({
     );
   }
 
-  // Hide empty assistant messages: no text content, no content blocks, no notification.
-  // These are silent turns (e.g. processing a herd event with no visible output) that
-  // would otherwise render as empty bubbles showing only a timestamp.
-  // Safe: streaming messages always have contentBlocks being populated in real-time.
-  if (isEmptyAssistantMessage(message)) {
-    return null;
-  }
-  const rawAssistantBlocks = message.contentBlocks || [];
-  const visibleAssistantBlocks = stripRootCodexThinkingBlocks(
-    isCodexSession,
-    message.parentToolUseId,
-    rawAssistantBlocks,
-  );
-  if (
-    visibleAssistantBlocks !== rawAssistantBlocks &&
-    visibleAssistantBlocks.length === 0 &&
-    !message.notification &&
-    !(message.images?.length || message.localImages?.length)
-  ) {
-    return null;
-  }
-
   // Assistant message
   return (
-    <div className="animate-[fadeSlideIn_0.2s_ease-out]">
-      <AssistantMessage
-        message={message}
-        sessionId={sessionId}
-        showTimestamp={showTimestamp}
-        searchHighlight={searchHighlight}
-        currentThreadKey={currentThreadKey}
-        onSelectThread={onSelectThread}
-        showSideChatActions={showSideChatActions}
-        isCodexSession={isCodexSession}
-      />
-    </div>
+    <AssistantMessage
+      message={message}
+      sessionId={sessionId}
+      showTimestamp={showTimestamp}
+      searchHighlight={searchHighlight}
+      currentThreadKey={currentThreadKey}
+      onSelectThread={onSelectThread}
+      showSideChatActions={showSideChatActions}
+      isCodexSession={isCodexSession}
+    />
   );
 });
 
@@ -1276,32 +1248,12 @@ function AssistantMessage({
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
-  const rawBlocks = message.contentBlocks || [];
-  const visibleThinkingBlocks = stripRootCodexThinkingBlocks(isCodexSession, message.parentToolUseId, rawBlocks);
-  const hasSuppressedRootCodexThinkingBlock = visibleThinkingBlocks !== rawBlocks;
-  const blocks = visibleThinkingBlocks.filter((block) => {
-    if (block.type === "tool_use" && isToolHiddenFromChat(block.name)) return false;
-    return true;
-  });
-
-  const grouped = useMemo(() => groupContentBlocks(blocks), [blocks]);
-  const compactToolActivity = useStore((state) => state.compactToolActivity);
-  const renderedGroups = useMemo(
-    () => (compactToolActivity ? compactToolGroups(grouped) : grouped),
-    [compactToolActivity, grouped],
-  );
-  const hasTextBlock = blocks.some((b) => b.type === "text" && b.text.trim().length > 0);
-  const hasThinkingBlock = blocks.some((b) => b.type === "thinking" && b.thinking.trim().length > 0);
-  const shouldRenderContentFallback =
-    message.content.trim().length > 0 && !hasTextBlock && !hasThinkingBlock && !hasSuppressedRootCodexThinkingBlock;
   const inboxAnchoredNotification = useStore((s) => {
     if (!sessionId || message.notification || !message.id) return null;
     return getSingleAnchoredNotification(s.sessionNotifications?.get(sessionId), message.id);
   });
   const resolvedNotification = message.notification ?? inboxAnchoredNotification;
-  const compactInlineNotificationCategory =
-    compactToolActivity && !resolvedNotification ? getInlineToolNotificationCategory(blocks) : null;
-  const suppressToolNotificationMarker = !!resolvedNotification || !!compactInlineNotificationCategory;
+  const compactToolActivity = useStore((state) => state.compactToolActivity);
   const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
   const starred = useFeedStarredMessage(sessionId, message);
   const starAction = useMessageStarActions(sessionId, message);
@@ -1310,29 +1262,39 @@ function AssistantMessage({
     () => buildAssistantImagePreviewItems(message, sessionId),
     [message, sessionId],
   );
-
-  // Only show copy-message button when there's actual text content to copy
+  const projection = useMemo(
+    () =>
+      projectAssistantMessageForRendering(message, {
+        isCodexSession,
+        hasAnchoredNotification: resolvedNotification != null,
+        hasVisibleSideChat: sideChat != null,
+      }),
+    [isCodexSession, message, resolvedNotification, sideChat],
+  );
+  const blocks = projection.blocks;
+  const grouped = useMemo(() => groupContentBlocks(blocks), [blocks]);
+  const renderedGroups = useMemo(
+    () => (compactToolActivity ? compactToolGroups(grouped) : grouped),
+    [compactToolActivity, grouped],
+  );
+  const compactInlineNotificationCategory =
+    compactToolActivity && !resolvedNotification ? getInlineToolNotificationCategory(blocks) : null;
+  const suppressToolNotificationMarker = !!resolvedNotification || !!compactInlineNotificationCategory;
   const hasTextContent =
-    (message.content && !hasSuppressedRootCodexThinkingBlock) ||
-    blocks.some((b) => b.type === "text" || b.type === "thinking");
-  const firstContentGroupIndex = shouldRenderContentFallback
+    projection.hasTextBlock || projection.hasThinkingBlock || projection.shouldRenderContentFallback;
+  const firstContentGroupIndex = projection.shouldRenderContentFallback
     ? -1
     : renderedGroups.findIndex((group) => group.kind === "content");
   const showRailMarker = starred || !hidePaw;
   const unstarFromRail = starAction.actionable && starAction.starred ? starAction.toggleStarred : undefined;
 
-  if (
-    blocks.length === 0 &&
-    (!message.content.trim() || hasSuppressedRootCodexThinkingBlock) &&
-    !resolvedNotification &&
-    assistantImagePreviewItems.length === 0
-  ) {
-    return null;
-  }
+  if (!projection.renderable) return null;
 
-  if (blocks.length === 0 && message.content && shouldRenderContentFallback) {
+  if (blocks.length === 0 && projection.shouldRenderContentFallback) {
     return (
-      <div className={`group/msg relative flex items-start ${showRailMarker ? "gap-2 sm:gap-3" : ""}`}>
+      <div
+        className={`group/msg relative flex items-start animate-[fadeSlideIn_0.2s_ease-out] ${showRailMarker ? "gap-2 sm:gap-3" : ""}`}
+      >
         {showRailMarker &&
           (starred ? <StarredMessageRailMarker side="assistant" onUnstar={unstarFromRail} /> : <PawTrailAvatar />)}
         <div ref={contentRef} className="flex-1 min-w-0">
@@ -1347,7 +1309,7 @@ function AssistantMessage({
             />
           )}
           <AssistantQuestQuizContent
-            text={message.content}
+            text={projection.fallbackText}
             sessionId={sessionId}
             searchHighlight={searchHighlight}
             enableChatSelectionMenu
@@ -1372,12 +1334,14 @@ function AssistantMessage({
   }
 
   return (
-    <div className={`group/msg relative flex items-start ${showRailMarker ? "gap-2 sm:gap-3" : ""}`}>
+    <div
+      className={`group/msg relative flex items-start animate-[fadeSlideIn_0.2s_ease-out] ${showRailMarker ? "gap-2 sm:gap-3" : ""}`}
+    >
       {showRailMarker &&
         (starred ? <StarredMessageRailMarker side="assistant" onUnstar={unstarFromRail} /> : <PawTrailAvatar />)}
       <div ref={contentRef} className="flex-1 min-w-0 space-y-3">
         {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
-        {shouldRenderContentFallback && (
+        {projection.shouldRenderContentFallback && (
           <div className="flow-root">
             {hasTextContent && (
               <AssistantMessageMenu
@@ -1389,7 +1353,7 @@ function AssistantMessage({
               />
             )}
             <AssistantQuestQuizContent
-              text={message.content}
+              text={projection.fallbackText}
               sessionId={sessionId}
               searchHighlight={searchHighlight}
               enableChatSelectionMenu
@@ -1410,7 +1374,7 @@ function AssistantMessage({
                 onSelectThread={onSelectThread}
               />
             );
-            if (!shouldRenderContentFallback && hasTextContent && i === firstContentGroupIndex) {
+            if (!projection.shouldRenderContentFallback && hasTextContent && i === firstContentGroupIndex) {
               return (
                 <div key={i} className="flow-root">
                   <AssistantMessageMenu

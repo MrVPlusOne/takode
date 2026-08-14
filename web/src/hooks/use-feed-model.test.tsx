@@ -743,8 +743,10 @@ describe("leader mode model-only reminder collapsed preview selection", () => {
     expect(collapsedEntryIds(turn)).toEqual(["activity", "a-table", "activity"]);
     expect(entryIds(turn.notificationEntries)).toEqual(["a-table"]);
     expect(entryIds(turn.agentEntries)).toEqual(
-      expect.arrayContaining(["a-progress", "a-route-only", "a-reasoning", "a-ready", "h-memory-complete"]),
+      expect.arrayContaining(["a-progress", "a-reasoning", "h-memory-complete"]),
     );
+    expect(entryIds(turn.agentEntries)).not.toEqual(expect.arrayContaining(["a-route-only", "a-ready"]));
+    expect(entryIds(turn.allEntries)).toEqual(expect.arrayContaining(["a-route-only", "a-ready"]));
   });
 
   it("does not infer a pre-reminder representative when the loaded turn has no trigger boundary", () => {

@@ -11,7 +11,6 @@ import {
   type ReactNode,
 } from "react";
 import { useStore } from "../store.js";
-import { HerdEventMessage, MessageBubble, isEmptyAssistantMessage } from "./MessageBubble.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils/herd-event-parser.js";
 import { ToolBlock, getPreview, getToolIcon, getToolLabel, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -198,6 +197,11 @@ export function MessageFeed({
   const [pendingInitialThreadWindowKey, setPendingInitialThreadWindowKey] = useState<string | null>(null);
   const connectionStatus = useStore((s) => s.connectionStatus?.get(sessionId) ?? "disconnected");
   const sessionNotifications = useStore((s) => s.sessionNotifications?.get(sessionId));
+  const sideChats = useStore((s) => s.sessions.get(sessionId)?.slackThreads);
+  const visibleAssistantChildMessageIds = useMemo(
+    () => Object.values(sideChats ?? {}).map((sideChat) => sideChat.anchorMessageId),
+    [sideChats],
+  );
   const sessionAttentionRecords = useStore((s) => s.sessionAttentionRecords?.get(sessionId));
   const sessionBoard = useStore((s) => s.sessionBoards?.get(sessionId));
   const sessionCompletedBoard = useStore((s) => s.sessionCompletedBoards?.get(sessionId));
@@ -328,6 +332,7 @@ export function MessageFeed({
     frozenRevision,
     sessionNotifications,
     userBoundarySourceSessionId: herdingLeaderSessionId ?? null,
+    visibleAssistantChildMessageIds,
     perf: { sessionId, threadKey: normalizedThreadKey },
   });
   const latestGlobalMessageId = allMessages.at(-1)?.id ?? "";
