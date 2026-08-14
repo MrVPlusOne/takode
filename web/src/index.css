@@ -53,6 +53,12 @@ html, body {
   --color-cc-quest-link-hover: #0c4a6e;
   --color-cc-thread-link: #0369a1;
   --color-cc-thread-link-hover: #075985;
+  --color-cc-phase-alignment: #0369a1;
+  --color-cc-phase-accent-alignment: #0ea5e9;
+  --color-cc-phase-memory: #6d28d9;
+  --color-cc-phase-accent-memory: #8b5cf6;
+  --color-cc-phase-work: #166534;
+  --color-cc-phase-accent-work: #15803d;
   --color-cc-attention-thread-created-bg: rgba(3,105,161,0.08);
   --color-cc-attention-thread-created-border: rgba(3,105,161,0.24);
   --color-cc-attention-thread-created-icon: #0369a1;
@@ -60,14 +66,17 @@ html, body {
   --color-cc-attention-journey-started-border: rgba(162,28,175,0.24);
   --color-cc-attention-journey-started-icon: #a21caf;
   --color-cc-phase-thread-tab-title-amber: #8a4b00;
+  --color-cc-phase-thread-tab-title-alignment: #0369a1;
   --color-cc-phase-thread-tab-title-blue: #1d4ed8;
   --color-cc-phase-thread-tab-title-cyan: #0e7490;
   --color-cc-phase-thread-tab-title-emerald: #047857;
   --color-cc-phase-thread-tab-title-fuchsia: #a21caf;
   --color-cc-phase-thread-tab-title-green: #166534;
+  --color-cc-phase-thread-tab-title-memory: #6d28d9;
   --color-cc-phase-thread-tab-title-orange: #9a3412;
   --color-cc-phase-thread-tab-title-sky: #0369a1;
   --color-cc-phase-thread-tab-title-violet: #6d28d9;
+  --color-cc-phase-thread-tab-title-work: #166534;
   --color-cc-phase-thread-tab-title-yellow: #854d0e;
   --color-cc-muted-readable: var(--color-cc-muted);
   --color-cc-participant-muted-readable: var(--color-cc-muted-readable);
@@ -465,6 +474,12 @@ html, body {
   --color-cc-attention-journey-started-bg: rgba(232,121,249,0.10);
   --color-cc-attention-journey-started-border: rgba(232,121,249,0.25);
   --color-cc-attention-journey-started-icon: #f0abfc;
+  --color-cc-phase-alignment: #38bdf8;
+  --color-cc-phase-accent-alignment: #38bdf8;
+  --color-cc-phase-memory: #a78bfa;
+  --color-cc-phase-accent-memory: #a78bfa;
+  --color-cc-phase-work: #4ade80;
+  --color-cc-phase-accent-work: #4ade80;
   --color-cc-phase-amber: #fbbf24;
   --color-cc-phase-blue: #60a5fa;
   --color-cc-phase-cyan: #22d3ee;
@@ -476,14 +491,17 @@ html, body {
   --color-cc-phase-violet: #a78bfa;
   --color-cc-phase-yellow: #fde047;
   --color-cc-phase-thread-tab-title-amber: #fbbf24;
+  --color-cc-phase-thread-tab-title-alignment: #38bdf8;
   --color-cc-phase-thread-tab-title-blue: #60a5fa;
   --color-cc-phase-thread-tab-title-cyan: #22d3ee;
   --color-cc-phase-thread-tab-title-emerald: #34d399;
   --color-cc-phase-thread-tab-title-fuchsia: #e879f9;
   --color-cc-phase-thread-tab-title-green: #4ade80;
+  --color-cc-phase-thread-tab-title-memory: #a78bfa;
   --color-cc-phase-thread-tab-title-orange: #fb923c;
   --color-cc-phase-thread-tab-title-sky: #38bdf8;
   --color-cc-phase-thread-tab-title-violet: #a78bfa;
+  --color-cc-phase-thread-tab-title-work: #4ade80;
   --color-cc-phase-thread-tab-title-yellow: #fde047;
 }
 
@@ -518,6 +536,12 @@ html, body {
   --color-cc-status-refined: #cca700;
   --color-cc-status-progress: #4ec9b0;
   --color-cc-status-done: #c586c0;
+  --color-cc-phase-alignment: #38bdf8;
+  --color-cc-phase-accent-alignment: #38bdf8;
+  --color-cc-phase-memory: #a78bfa;
+  --color-cc-phase-accent-memory: #a78bfa;
+  --color-cc-phase-work: #4ade80;
+  --color-cc-phase-accent-work: #4ade80;
   --color-cc-phase-amber: #fbbf24;
   --color-cc-phase-blue: #60a5fa;
   --color-cc-phase-cyan: #22d3ee;
@@ -529,14 +553,17 @@ html, body {
   --color-cc-phase-violet: #a78bfa;
   --color-cc-phase-yellow: #fde047;
   --color-cc-phase-thread-tab-title-amber: #fbbf24;
+  --color-cc-phase-thread-tab-title-alignment: #38bdf8;
   --color-cc-phase-thread-tab-title-blue: #60a5fa;
   --color-cc-phase-thread-tab-title-cyan: #22d3ee;
   --color-cc-phase-thread-tab-title-emerald: #34d399;
   --color-cc-phase-thread-tab-title-fuchsia: #e879f9;
   --color-cc-phase-thread-tab-title-green: #4ade80;
+  --color-cc-phase-thread-tab-title-memory: #a78bfa;
   --color-cc-phase-thread-tab-title-orange: #fb923c;
   --color-cc-phase-thread-tab-title-sky: #38bdf8;
   --color-cc-phase-thread-tab-title-violet: #a78bfa;
+  --color-cc-phase-thread-tab-title-work: #4ade80;
   --color-cc-phase-thread-tab-title-yellow: #fde047;
 }
 

@@ -67,6 +67,14 @@ describe("quest and wait-for refs", () => {
 describe("active v2 phase catalog", () => {
   it("exposes only the v2 active phase library", () => {
     expect(QUEST_JOURNEY_PHASES.map((phase) => phase.id)).toEqual(["alignment", "work", "user-checkpoint", "memory"]);
+    // Active phases use semantic color names so their palette can change
+    // without mutating the generic colors retained by historical v1 rows.
+    expect(QUEST_JOURNEY_PHASES.map((phase) => ({ id: phase.id, color: phase.color }))).toEqual([
+      { id: "alignment", color: { name: "alignment", accent: "#0ea5e9" } },
+      { id: "work", color: { name: "work", accent: "#4ade80" } },
+      { id: "user-checkpoint", color: { name: "amber", accent: "#fbbf24" } },
+      { id: "memory", color: { name: "memory", accent: "#8b5cf6" } },
+    ]);
     expect(DEFAULT_QUEST_JOURNEY_PHASE_IDS).toEqual(["alignment", "work", "memory"]);
     expect(QUEST_JOURNEY_PHASES.map((phase) => phase.boardState)).toEqual([
       "PLANNING",
@@ -109,6 +117,10 @@ describe("active v2 phase catalog", () => {
     expect(getQuestJourneyPhaseForState("PROPOSED")).toBeNull();
     expect(getQuestJourneyPhase("work")?.nextLeaderAction).toContain("Work note");
     expect(getQuestJourneyPhase("port")?.nextLeaderAction).toBe("historical phase only");
+    // Keep representative legacy colors explicit so the v2 refresh cannot
+    // silently recolor persisted Code Review or Outcome Review rows.
+    expect(getQuestJourneyPhase("code-review")?.color).toEqual({ name: "violet", accent: "#a78bfa" });
+    expect(getQuestJourneyPhase("outcome-review")?.color).toEqual({ name: "cyan", accent: "#22d3ee" });
   });
 });
 

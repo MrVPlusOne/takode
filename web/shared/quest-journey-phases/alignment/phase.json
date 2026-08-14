@@ -1,7 +1,7 @@
 {
   "id": "alignment",
   "label": "Alignment",
-  "color": { "name": "emerald", "accent": "#34d399" },
+  "color": { "name": "alignment", "accent": "#0ea5e9" },
   "boardState": "PLANNING",
   "assigneeRole": "worker",
   "contract": "Do a concise leader-verification read-in covering concrete understanding, key constraints, real ambiguities or questions, blockers or surprises, and Journey-revision evidence.",

@@ -301,7 +301,7 @@ describe("QuestDetailPanel", () => {
     expect(within(timeline).queryAllByTestId("quest-journey-phase-purpose")).toHaveLength(2);
     expect(within(timeline).queryByTestId("quest-journey-legacy-history")).toBeNull();
     expect(within(timeline).getByText("current")).toBeInTheDocument();
-    expect(within(timeline).getByText("Memory").closest("li")).toHaveAttribute("data-phase-color", "cyan");
+    expect(within(timeline).getByText("Memory").closest("li")).toHaveAttribute("data-phase-color", "memory");
     expect(screen.getByTestId("quest-detail-journey-section").parentElement).toHaveClass("overflow-y-auto");
   });
 

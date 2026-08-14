@@ -1274,19 +1274,22 @@ describe("SessionHoverCard", () => {
       const rows = within(section).getAllByTestId("session-hover-active-quest-row");
       expect(rows).toHaveLength(2);
       expect(rows[0]).toHaveAttribute("data-quest-id", "q-100");
-      expect(rows[0]).toHaveAttribute("data-phase-color", "green");
+      expect(rows[0]).toHaveAttribute("data-phase-color", "work");
       expect(rows[0]).toHaveAttribute("data-title-color", "normal");
       const workPhase = within(rows[0]).getByTestId("session-hover-active-quest-phase");
       expect(workPhase).toHaveTextContent("Work");
-      expect(workPhase).toHaveAttribute("style", "color: var(--color-cc-phase-green, #4ade80);");
+      expect(workPhase).toHaveAttribute("style", "color: var(--color-cc-phase-work, #166534);");
       const implementTitle = within(rows[0]).getByText(
         "Implement the leader hover active quest list with a title long enough to truncate",
       );
       expect(implementTitle).toHaveClass("truncate", "text-cc-fg");
       expect(implementTitle).not.toHaveAttribute("style");
       expect(rows[1]).toHaveAttribute("data-quest-id", "q-200");
-      expect(rows[1]).toHaveAttribute("data-phase-color", "emerald");
-      expect(within(rows[1]).getByText("Alignment")).toBeInTheDocument();
+      expect(rows[1]).toHaveAttribute("data-phase-color", "alignment");
+      expect(within(rows[1]).getByText("Alignment")).toHaveAttribute(
+        "style",
+        "color: var(--color-cc-phase-alignment, #0369a1);",
+      );
       expect(rows[1]).toHaveAttribute("data-title-color", "normal");
       const fallbackTitle = within(rows[1]).getByText("Fallback alignment title from Questmaster");
       expect(fallbackTitle).toHaveClass("text-cc-fg");

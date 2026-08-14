@@ -45,12 +45,23 @@ describe("boardSummary", () => {
     ]);
   });
 
-  it("summarises multiple statuses with distinct colors", () => {
+  it("summarises multiple active phases with distinct colors while checkpoint pauses remain under Work", () => {
+    // USER_CHECKPOINTING is intentionally a durable pause inside Work, so the
+    // active count stays under Work even though checkpoint timeline chrome is amber.
     const board: BoardRowData[] = [
       { questId: "q-1", status: "MEMORY", updatedAt: 1 },
       { questId: "q-2", status: "WORKING", updatedAt: 2 },
-      { questId: "q-3", status: "WORKING", updatedAt: 3 },
-      { questId: "q-4", status: "WORKING", updatedAt: 4 },
+      {
+        questId: "q-3",
+        status: "USER_CHECKPOINTING",
+        journey: {
+          phaseIds: ["alignment", "work", "user-checkpoint", "memory"],
+          activePhaseIndex: 2,
+          currentPhaseId: "user-checkpoint",
+        },
+        updatedAt: 3,
+      },
+      { questId: "q-4", status: "PLANNING", updatedAt: 4 },
     ];
     const result = boardSummary(board, 0);
     expect(result).toEqual([
@@ -60,9 +71,14 @@ describe("boardSummary", () => {
         style: { color: getPhaseColor("MEMORY") },
       },
       {
-        text: "3 Work",
+        text: "2 Work",
         className: "text-cc-fg",
         style: { color: getPhaseColor("WORKING") },
+      },
+      {
+        text: "1 Alignment",
+        className: "text-cc-fg",
+        style: { color: getPhaseColor("PLANNING") },
       },
     ]);
   });

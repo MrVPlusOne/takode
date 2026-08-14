@@ -155,13 +155,16 @@ describe("BoardTable", () => {
     const board: BoardRowData[] = [
       { questId: "q-1", status: "QUEUED", updatedAt: 1 },
       { questId: "q-2", status: "PLANNING", updatedAt: 2 },
-      { questId: "q-3", status: "EXPLORING", updatedAt: 3 },
-      { questId: "q-4", status: "IMPLEMENTING", updatedAt: 4 },
-      { questId: "q-5", status: "CODE_REVIEWING", updatedAt: 5 },
-      { questId: "q-6", status: "MENTAL_SIMULATING", updatedAt: 6 },
-      { questId: "q-7", status: "OUTCOME_REVIEWING", updatedAt: 7 },
-      { questId: "q-8", status: "BOOKKEEPING", updatedAt: 8 },
-      { questId: "q-9", status: "PORTING", updatedAt: 9 },
+      { questId: "q-3", status: "WORKING", updatedAt: 3 },
+      { questId: "q-4", status: "USER_CHECKPOINTING", updatedAt: 4 },
+      { questId: "q-5", status: "MEMORY", updatedAt: 5 },
+      { questId: "q-6", status: "EXPLORING", updatedAt: 6 },
+      { questId: "q-7", status: "IMPLEMENTING", updatedAt: 7 },
+      { questId: "q-8", status: "CODE_REVIEWING", updatedAt: 8 },
+      { questId: "q-9", status: "MENTAL_SIMULATING", updatedAt: 9 },
+      { questId: "q-10", status: "OUTCOME_REVIEWING", updatedAt: 10 },
+      { questId: "q-11", status: "BOOKKEEPING", updatedAt: 11 },
+      { questId: "q-12", status: "PORTING", updatedAt: 12 },
     ];
 
     render(<BoardTable board={board} />);
@@ -169,6 +172,15 @@ describe("BoardTable", () => {
     expect(screen.getByText("Queued")).toHaveClass("text-cc-muted");
     expect(screen.getByText("Alignment")).toHaveStyle({
       color: getPhaseColor("PLANNING"),
+    });
+    expect(screen.getByText("Work")).toHaveStyle({
+      color: getPhaseColor("WORKING"),
+    });
+    expect(screen.getByText("User Checkpoint")).toHaveStyle({
+      color: getPhaseColor("USER_CHECKPOINTING"),
+    });
+    expect(screen.getByText("Memory")).toHaveStyle({
+      color: getPhaseColor("MEMORY"),
     });
     expect(screen.getByText("Explore")).toHaveStyle({
       color: getPhaseColor("EXPLORING"),

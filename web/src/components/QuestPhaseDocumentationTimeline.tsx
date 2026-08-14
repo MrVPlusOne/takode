@@ -5,7 +5,7 @@ import {
   type QuestPhaseDocumentationSummary,
 } from "../../shared/quest-phase-documentation-summary.js";
 import { timeAgo } from "../utils/quest-helpers.js";
-import { getQuestPhaseBorderStyle, getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
+import { getQuestPhaseAccentValue, getQuestPhaseBorderStyle } from "../utils/quest-phase-theme.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestPhaseNoteImages } from "./QuestPhaseNoteImages.js";
@@ -267,7 +267,7 @@ function PhaseDocumentationGroupRow({
             phase
               ? {
                   ...getQuestPhaseBorderStyle(phase),
-                  backgroundColor: getQuestPhaseColorValue(phase.color, 0.13),
+                  backgroundColor: getQuestPhaseAccentValue(phase.color, 0.13),
                 }
               : undefined
           }

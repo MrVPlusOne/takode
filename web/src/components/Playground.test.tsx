@@ -659,6 +659,35 @@ describe("Playground", () => {
     );
   });
 
+  it("documents the approved active v2 phase palette with separate readable text and accent tokens", () => {
+    // Keep a browser-ready fixture for all active phase colors, including the
+    // checkpoint amber that is normally represented as a pause inside Work.
+    render(<Playground />);
+
+    const palette = screen.getByTestId("playground-v2-phase-palette");
+    const expected = [
+      { id: "alignment", name: "alignment", text: "#0369a1", accent: "#0ea5e9" },
+      { id: "work", name: "work", text: "#166534", accent: "#4ade80" },
+      { id: "user-checkpoint", name: "amber", text: "#8a4b00", accent: "#fbbf24" },
+      { id: "memory", name: "memory", text: "#6d28d9", accent: "#8b5cf6" },
+    ];
+
+    for (const phase of expected) {
+      const card = within(palette).getByTestId(`playground-v2-phase-${phase.id}`);
+      expect(card).toHaveAttribute("data-phase-color", phase.name);
+      expect(within(card).getByTestId(`playground-v2-phase-${phase.id}-text`)).toHaveAttribute(
+        "style",
+        `color: var(--color-cc-phase-${phase.name}, ${phase.text});`,
+      );
+      expect(within(card).getByTestId(`playground-v2-phase-${phase.id}-accent`).getAttribute("style") ?? "").toContain(
+        `var(--color-cc-phase-${phase.name}, ${phase.accent})`,
+      );
+      expect(within(card).getByTestId("quest-journey-compact-summary")).toHaveTextContent(
+        within(card).getByTestId(`playground-v2-phase-${phase.id}-text`).textContent ?? "",
+      );
+    }
+  });
+
   it("documents the desktop Work Board Bar tab crowd overflowing into More before labels collapse", () => {
     setMeasuredRailWidth(1880);
     render(<Playground />);

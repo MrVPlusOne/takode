@@ -1,7 +1,7 @@
 {
   "id": "user-checkpoint",
   "label": "User Checkpoint",
-  "color": { "name": "sky", "accent": "#38bdf8" },
+  "color": { "name": "amber", "accent": "#fbbf24" },
   "boardState": "USER_CHECKPOINTING",
   "assigneeRole": "worker",
   "contract": "Present findings, options, tradeoffs, and a recommendation for a required mid-Journey user decision before the Journey continues; do not treat this as a terminal phase, final User review check, or generic TBD bucket.",

@@ -1,7 +1,7 @@
 {
   "id": "work",
   "label": "Work",
-  "color": { "name": "green", "accent": "#4ade80" },
+  "color": { "name": "work", "accent": "#4ade80" },
   "boardState": "WORKING",
   "assigneeRole": "worker",
   "contract": "Complete the authorized quest work end-to-end inside the approved envelope: investigate, design, implement, validate, self-review, run approved operations, sync/push when authorized, iterate, and maintain one current Work note before moving to final Memory.",

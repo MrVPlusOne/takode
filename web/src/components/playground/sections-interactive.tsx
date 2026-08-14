@@ -20,6 +20,7 @@ import { PlaygroundQuestDetailModalSection } from "./PlaygroundQuestDetailModalS
 import { PlaygroundAutoPauseBannerStates } from "./AutoPausePlaygroundStates.js";
 import { PlaygroundReasoningDetailStates } from "./ReasoningDetailStates.js";
 import { PlaygroundLeaderActivityStates } from "./LeaderActivityStates.js";
+import { PlaygroundQuestJourneyPalette } from "./PlaygroundQuestJourneyPalette.js";
 import { PlaygroundQuestStatusPanelSection, PlaygroundQuestmasterCompactSection } from "./PlaygroundQuestSections.js";
 import { PlaygroundTodoStates } from "./PlaygroundTodoStates.js";
 import { PlaygroundTimerStates } from "./PlaygroundTimerStates.js";
@@ -1201,6 +1202,11 @@ export function PlaygroundInteractiveSections() {
                 },
               ]}
             />
+          </Card>
+          <Card label="Active v2 phase palette">
+            <div className="p-3">
+              <PlaygroundQuestJourneyPalette />
+            </div>
           </Card>
           <Card label="Empty board">
             <BoardBlock board={[]} />

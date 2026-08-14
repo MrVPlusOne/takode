@@ -1,7 +1,7 @@
 {
   "id": "memory",
   "label": "Memory",
-  "color": { "name": "cyan", "accent": "#22d3ee" },
+  "color": { "name": "memory", "accent": "#8b5cf6" },
   "boardState": "MEMORY",
   "assigneeRole": "worker",
   "contract": "Finish non-project-tracked durable-state closure for a substantively accepted quest: final User review checks, final debrief metadata, quest metadata reconciliation, quest-note hygiene, memory consistency checks, memory writes or deferrals, stale-memory checks, cleanup, external durable-state records, and follow-up routing. Memory must not edit tracked project files.",

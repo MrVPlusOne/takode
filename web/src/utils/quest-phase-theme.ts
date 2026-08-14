@@ -4,22 +4,31 @@ import type { QuestJourneyPhase } from "../../shared/quest-journey.js";
 type QuestPhaseColor = QuestJourneyPhase["color"];
 
 const READABLE_LIGHT_PHASE_TEXT_FALLBACKS: Record<string, string> = {
+  alignment: "#0369a1",
   amber: "#8a4b00",
   blue: "#1d4ed8",
   cyan: "#0e7490",
   emerald: "#047857",
   fuchsia: "#a21caf",
   green: "#166534",
+  memory: "#6d28d9",
   orange: "#9a3412",
   sky: "#0369a1",
   violet: "#6d28d9",
+  work: "#166534",
   yellow: "#854d0e",
 };
 
 export function getQuestPhaseColorValue(color: QuestPhaseColor, alpha = 1): string {
-  const phaseColor = `var(--color-cc-phase-${color.name}, ${color.accent})`;
+  const phaseColor = `var(--color-cc-phase-${color.name}, ${readablePhaseTextFallback(color)})`;
   if (alpha >= 1) return phaseColor;
   return colorMixWithTransparent(phaseColor, alpha);
+}
+
+export function getQuestPhaseAccentValue(color: QuestPhaseColor, alpha = 1): string {
+  const phaseAccent = `var(--color-cc-phase-accent-${color.name}, var(--color-cc-phase-${color.name}, ${color.accent}))`;
+  if (alpha >= 1) return phaseAccent;
+  return colorMixWithTransparent(phaseAccent, alpha);
 }
 
 export function getQuestPhaseThreadTabTitleColorValue(color: QuestPhaseColor): string {
@@ -31,15 +40,15 @@ export function getQuestPhaseTextStyle(phase: QuestJourneyPhase, alpha = 1): CSS
 }
 
 export function getQuestPhaseBorderStyle(phase: QuestJourneyPhase, alpha = 1): CSSProperties {
-  return { borderColor: getQuestPhaseColorValue(phase.color, alpha) };
+  return { borderColor: getQuestPhaseAccentValue(phase.color, alpha) };
 }
 
 export function getQuestPhaseLineStyle(phase: QuestJourneyPhase, alpha = 0.45): CSSProperties {
-  return { backgroundColor: getQuestPhaseColorValue(phase.color, alpha) };
+  return { backgroundColor: getQuestPhaseAccentValue(phase.color, alpha) };
 }
 
 export function getQuestPhaseDotStyle(phase: QuestJourneyPhase, alpha = 1): CSSProperties {
-  const color = getQuestPhaseColorValue(phase.color, alpha);
+  const color = getQuestPhaseAccentValue(phase.color, alpha);
   return {
     backgroundColor: color,
     borderColor: color,
@@ -47,7 +56,7 @@ export function getQuestPhaseDotStyle(phase: QuestJourneyPhase, alpha = 1): CSSP
 }
 
 export function getQuestPhaseCurrentDotStyle(phase: QuestJourneyPhase): CSSProperties {
-  const color = getQuestPhaseColorValue(phase.color);
+  const color = getQuestPhaseAccentValue(phase.color);
   return {
     backgroundColor: color,
     borderColor: color,

@@ -13,15 +13,18 @@ const VSCODE_DARK_CARD = "#262626";
 const VSCODE_DARK_PARTICIPANT_CHIP_BG = "#222222";
 const MIN_NORMAL_TEXT_AA = 4.5;
 const PHASE_THREAD_TAB_TITLE_TOKENS = [
+  "--color-cc-phase-thread-tab-title-alignment",
   "--color-cc-phase-thread-tab-title-amber",
   "--color-cc-phase-thread-tab-title-blue",
   "--color-cc-phase-thread-tab-title-cyan",
   "--color-cc-phase-thread-tab-title-emerald",
   "--color-cc-phase-thread-tab-title-fuchsia",
   "--color-cc-phase-thread-tab-title-green",
+  "--color-cc-phase-thread-tab-title-memory",
   "--color-cc-phase-thread-tab-title-orange",
   "--color-cc-phase-thread-tab-title-sky",
   "--color-cc-phase-thread-tab-title-violet",
+  "--color-cc-phase-thread-tab-title-work",
   "--color-cc-phase-thread-tab-title-yellow",
 ] as const;
 const LIGHT_LINK_TOKENS = [
@@ -236,12 +239,32 @@ describe("theme contrast tokens", () => {
     }
   });
 
-  it("keeps the light User Checkpoint phase sky token readable where phase labels are rendered", () => {
-    // User Checkpoint is the sky Journey phase. Its light-theme token must be
-    // a readable foreground, not the raw bright dark-theme metadata accent.
-    const userCheckpointSky = cssVariable("--color-cc-phase-sky");
-    expect(contrastRatio(userCheckpointSky, LIGHT_CARD)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
-    expect(contrastRatio(userCheckpointSky, LIGHT_BG)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
-    expect(contrastRatio(userCheckpointSky, LIGHT_SIDEBAR)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
+  it("keeps active v2 phase text readable while using the approved light and dark accents", () => {
+    // Foreground tokens serve small phase labels and counts on several light
+    // surfaces; the brighter accent tokens are reserved for non-text chrome.
+    const activePhaseTextTokens = [
+      "--color-cc-phase-alignment",
+      "--color-cc-phase-work",
+      "--color-cc-phase-amber",
+      "--color-cc-phase-memory",
+    ] as const;
+    for (const token of activePhaseTextTokens) {
+      const color = cssVariable(token);
+      expect(contrastRatio(color, LIGHT_CARD)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
+      expect(contrastRatio(color, LIGHT_BG)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
+      expect(contrastRatio(color, LIGHT_SIDEBAR)).toBeGreaterThanOrEqual(MIN_NORMAL_TEXT_AA);
+    }
+
+    expect(cssVariable("--color-cc-phase-accent-alignment")).toBe("#0ea5e9");
+    expect(cssVariable("--color-cc-phase-accent-work")).toBe("#15803d");
+    expect(cssVariable("--color-cc-phase-amber")).toBe("#8a4b00");
+    expect(cssVariable("--color-cc-phase-accent-memory")).toBe("#8b5cf6");
+
+    for (const selector of [".dark", ".dark.theme-vscode-dark"]) {
+      expect(cssVariableForSelector(selector, "--color-cc-phase-accent-alignment")).toBe("#38bdf8");
+      expect(cssVariableForSelector(selector, "--color-cc-phase-accent-work")).toBe("#4ade80");
+      expect(cssVariableForSelector(selector, "--color-cc-phase-amber")).toBe("#fbbf24");
+      expect(cssVariableForSelector(selector, "--color-cc-phase-accent-memory")).toBe("#a78bfa");
+    }
   });
 });
