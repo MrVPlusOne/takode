@@ -932,6 +932,72 @@ describe("Composer basic rendering", () => {
     expect(screen.queryByText("Type a message...")).toBeNull();
   });
 
+  it("does not replay a historical focus request when a drafted mobile composer mounts", () => {
+    // A global focus counter can remain nonzero after an earlier explicit action.
+    // Mounting or returning to a drafted mobile session must not replay that old edge.
+    setViewportWidth(430);
+    mediaState.touchDevice = true;
+    setupMockStore({ draftText: "Preserved mobile draft" });
+    mockStoreState.focusComposerTrigger = 7;
+
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+
+    expect(textarea.value).toBe("Preserved mobile draft");
+    expect(document.activeElement).not.toBe(textarea);
+  });
+
+  it("still honors a new explicit composer focus request on mobile", async () => {
+    // Intentional focus actions remain available; only stale/navigation-driven
+    // focus is suppressed.
+    setViewportWidth(430);
+    mediaState.touchDevice = true;
+    setupMockStore({ draftText: "Tap or shortcut to continue" });
+    mockStoreState.focusComposerTrigger = 4;
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+
+    act(() => {
+      mockStoreState.focusComposerTrigger = 5;
+      notifyMockStore();
+    });
+
+    await waitFor(() => expect(document.activeElement).toBe(textarea));
+  });
+
+  it("blurs a focused drafted mobile composer when leader thread navigation reuses it", async () => {
+    // Leader quest-thread selection can reuse one Composer instance. The route
+    // change must be view-only on touch devices while preserving the draft.
+    setViewportWidth(430);
+    mediaState.touchDevice = true;
+    setupMockStore({ draftText: "Keep this draft across threads" });
+    const view = render(<Composer sessionId="s1" threadKey="main" />);
+    const textarea = view.container.querySelector("textarea") as HTMLTextAreaElement;
+    textarea.focus();
+    expect(document.activeElement).toBe(textarea);
+
+    view.rerender(<Composer sessionId="s1" threadKey="q-42" />);
+
+    await waitFor(() => expect(document.activeElement).not.toBe(textarea));
+    expect(textarea.value).toBe("Keep this draft across threads");
+    await userEvent.click(textarea);
+    expect(document.activeElement).toBe(textarea);
+  });
+
+  it("preserves focused composer behavior across desktop thread navigation", () => {
+    // Desktop navigation retains the established focus behavior.
+    setViewportWidth(1024);
+    mediaState.touchDevice = false;
+    setupMockStore({ draftText: "Desktop draft" });
+    const view = render(<Composer sessionId="s1" threadKey="main" />);
+    const textarea = view.container.querySelector("textarea") as HTMLTextAreaElement;
+    textarea.focus();
+
+    view.rerender(<Composer sessionId="s1" threadKey="q-42" />);
+
+    expect(document.activeElement).toBe(textarea);
+  });
+
   it("keeps collapsed mobile mode labels out of the action bar and insets controls from the screen edge", () => {
     setViewportWidth(500);
     mediaState.touchDevice = true;

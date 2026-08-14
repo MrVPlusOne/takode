@@ -272,6 +272,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = mockScrollIntoView;
   mockState = createMockState();
   window.location.hash = "";
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
@@ -338,6 +339,34 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
     fireEvent.click(screen.getByText("claude-sonnet-4-5-20250929").closest("button")!);
 
     expect(window.location.hash).toBe("#/session/s1");
+  });
+
+  it("keeps narrow touch session navigation view-only", () => {
+    // iPhone-style navigation should close the sidebar without emitting the
+    // delayed global focus request that opens the destination virtual keyboard.
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 430 });
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query === "(hover: none) and (pointer: coarse)",
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+    const session = makeSession("s1");
+    mockState = createMockState({
+      sessions: new Map([["s1", session]]),
+      sdkSessions: [makeSdkSession("s1")],
+      currentSessionId: null,
+    });
+
+    render(<Sidebar />);
+    fireEvent.click(screen.getByText("claude-sonnet-4-5-20250929").closest("button")!);
+
+    expect(window.location.hash).toBe("#/session/s1");
+    expect(mockState.focusComposer).not.toHaveBeenCalled();
+    expect(mockState.setSidebarOpen).toHaveBeenCalledWith(false);
   });
 
   it("default tree group plus button opens new session modal with tree defaults", () => {

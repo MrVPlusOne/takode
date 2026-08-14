@@ -27,6 +27,7 @@ import { CollapsedComposerBar, ComposerInputSurface } from "./ComposerSurface.js
 import { PausedInputChip, PauseOtherSourcesButton } from "./SessionPauseComposerControls.js";
 import { ComposerStatusBlocks } from "./ComposerStatusBlocks.js";
 import { useCodexModelOptions } from "./use-codex-model-options.js";
+import { useComposerNavigationFocus } from "./use-composer-navigation-focus.js";
 import { useResetCodexModelSettings } from "./use-reset-codex-model-settings.js";
 import {
   createComposerDraftImage,
@@ -682,12 +683,7 @@ export function Composer({
     return () => window.removeEventListener("resize", updateLayout);
   }, [zoomLevel]);
 
-  const focusTrigger = useStore((s) => s.focusComposerTrigger);
-  useEffect(() => {
-    if (focusTrigger > 0) {
-      textareaRef.current?.focus();
-    }
-  }, [focusTrigger]);
+  useComposerNavigationFocus({ textareaRef, sessionId, threadKey, usesTouchKeyboard });
 
   const isUserInput = useRef(false);
 

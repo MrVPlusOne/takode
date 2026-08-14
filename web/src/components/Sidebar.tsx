@@ -47,6 +47,7 @@ import {
 import { buildSidebarVisibleSessions } from "../utils/sidebar-visible-sessions.js";
 import { buildReviewerByParent } from "../utils/reviewer-by-parent.js";
 import { isDesktopShellLayout } from "../utils/layout.js";
+import { isTouchDevice } from "../utils/mobile.js";
 import { requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
 import { requestAutoSessionGitStatusRefreshes } from "../utils/session-git-status-auto-refresh.js";
 import type { SidebarSessionItem } from "../utils/sidebar-session-item.js";
@@ -341,14 +342,16 @@ export function Sidebar() {
     api.markSessionRead?.(sessionId, { mode: "session-view" }).catch(() => {});
     // Navigate to session hash — App.tsx hash effect handles setCurrentSession + connectSession
     navigateToSession(sessionId);
-    requestAnimationFrame(() => {
+    if (isDesktopLayout || !isTouchDevice()) {
       requestAnimationFrame(() => {
-        // Skip focus-steal if user double-clicked to rename -- the rename input
-        // needs to keep focus; stealing it would blur, confirm, and exit.
-        if (editingSessionIdRef.current != null) return;
-        useStore.getState().focusComposer();
+        requestAnimationFrame(() => {
+          // Skip focus-steal if user double-clicked to rename -- the rename input
+          // needs to keep focus; stealing it would blur, confirm, and exit.
+          if (editingSessionIdRef.current != null) return;
+          useStore.getState().focusComposer();
+        });
       });
-    });
+    }
     if (!isDesktopLayout) {
       useStore.getState().setSidebarOpen(false);
     }
