@@ -60,6 +60,7 @@ function makeDeps(options: { isOrchestrator?: boolean } = {}): AdapterBrowserRou
   let nextId = 0;
   return {
     sendToCLI: vi.fn(() => "current" as const),
+    isCodexWorkerV2DeliveryFrozen: vi.fn(() => false),
     broadcastToBrowsers: vi.fn(),
     emitTakodeEvent: vi.fn(),
     persistSession: vi.fn(),
@@ -834,6 +835,31 @@ describe("direct user needs-input reminders", () => {
     });
 
     expect(session.notifications?.[0]?.resolutionNotice).toMatchObject({ status: "pending" });
+  });
+
+  it("queues Codex input without marking or dispatching a turn while worker V2 delivery is frozen", () => {
+    const session = makeSession();
+    session.backendType = "codex";
+    session.codexAdapter = {
+      getCurrentTurnId: () => null,
+      isConnected: () => true,
+      sendBrowserMessage: vi.fn(() => true),
+    };
+    const deps = makeDeps({ isOrchestrator: false });
+    deps.isCodexWorkerV2DeliveryFrozen = vi.fn(() => true);
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+
+    const routed = routeAdapterBrowserMessage(session, userMessage({ content: "Queue during cutover" }), null, deps);
+
+    expect(routed).toBe(true);
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(deps.markRunningFromUserDispatch).not.toHaveBeenCalled();
+    expect(deps.pokeStaleCodexPendingDelivery).not.toHaveBeenCalled();
+    expect(deps.queueCodexPendingStartBatch).not.toHaveBeenCalled();
+    expect(deps.trySteerPendingCodexInputs).not.toHaveBeenCalled();
+    expect(session.codexAdapter.sendBrowserMessage).not.toHaveBeenCalled();
   });
 
   it("requests recovery when a normal text Codex input queues behind a disconnected adapter", () => {

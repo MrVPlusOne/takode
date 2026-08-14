@@ -19,6 +19,7 @@ import { createSettingsRoutes } from "./settings.js";
 import { createChangelogRoutes } from "./changelog.js";
 import { createSessionGitStatusRoutes } from "./session-git-status.js";
 import { createCodexGoalRoutes } from "./session-codex-goal-routes.js";
+import { createCodexRuntimeDiagnosticsRoutes } from "./codex-runtime-diagnostics.js";
 import { createTranscriptionRoutes } from "./transcription.js";
 import { createTakodeRoutes } from "./takode.js";
 import { createQuestRoutes } from "./quests.js";
@@ -229,6 +230,7 @@ export function createRoutes(
   api.route("/", createSessionsRoutes(ctx));
   api.route("/", createSessionGitStatusRoutes(ctx));
   api.route("/", createCodexGoalRoutes(ctx));
+  api.route("/", createCodexRuntimeDiagnosticsRoutes(ctx));
   api.route("/", createTakodeRoutes(ctx));
   api.route("/", createRecordingsRoutes(ctx));
   api.route("/", createFilesystemRoutes(ctx));

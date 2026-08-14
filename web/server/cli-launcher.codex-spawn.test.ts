@@ -178,6 +178,22 @@ describe("Codex spawn preparation", () => {
     return info;
   }
 
+  it.each([
+    ["active leader", { isOrchestrator: true }, "v2", "leader-edge", "--enable"],
+    ["archived leader", { isOrchestrator: true, archived: true }, "v1", undefined, "--disable"],
+    ["hidden leader", { isOrchestrator: true, hidden: true }, "v1", undefined, "--disable"],
+    ["missing leader", null, "v1", undefined, "--disable"],
+  ] as const)("revalidates a %s creator immediately before Codex spawn", async (_label, creator, expectedVersion, expectedHerder, expectedFlag) => {
+    if (creator) {
+      (launcher as any).sessions.set("leader-edge", { sessionId: "leader-edge", ...creator });
+    }
+    const info = await launchCodex({ codexMultiAgentVersion: "v2", createdBySessionRef: "leader-edge" });
+    expect(info.codexMultiAgentVersion).toBe(expectedVersion);
+    expect(info.herdedBy).toBe(expectedHerder);
+    const [command] = mockSpawn.mock.calls[0];
+    expect(command[command.indexOf(expectedFlag) + 1]).toBe("multi_agent_v2");
+  });
+
   it("preserves Companion/Takode env vars in Codex shell policy for orchestrators", async () => {
     // The session config must allow Takode env vars through Codex's filtered
     // shell policy while preserving unrelated user feature settings.
@@ -232,6 +248,38 @@ describe("Codex spawn preparation", () => {
     expect(updatedConfig).toContain('"COMPANION_PORT"');
     expect(updatedConfig).toContain('"TAKODE_ROLE"');
     expect(updatedConfig).toContain('"TAKODE_API_PORT"');
+  });
+
+  it.each([
+    ["v1", "--disable", "v2"],
+    ["v2", "--enable", "v1"],
+  ] as const)("launches selected Codex multi-agent %s with an explicit CLI override and authoritative catalog metadata", async (version, cliFlag, sourceVersion) => {
+    // Codex model metadata outranks feature flags, so each selected version must
+    // be expressed in both the CLI override and the per-session model catalog.
+    const model = `gpt-test-${version}`;
+    const sessionHome = join(codexHome, "test-session-id");
+    mkdirSync(sessionHome, { recursive: true });
+    writeFileSync(join(sessionHome, "config.toml"), `model = "${model}"\n`, "utf-8");
+    writeFileSync(
+      join(sessionHome, "models_cache.json"),
+      JSON.stringify({ models: [{ slug: model, multi_agent_version: sourceVersion }] }),
+      "utf-8",
+    );
+
+    await launchCodex({ model, codexMultiAgentVersion: version });
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    const flagIndex = cmdAndArgs.indexOf(cliFlag);
+    expect(flagIndex).toBeGreaterThan(0);
+    expect(cmdAndArgs[flagIndex + 1]).toBe("multi_agent_v2");
+
+    const config = await Bun.file(join(sessionHome, "config.toml")).text();
+    expect(config).toContain("multi_agent = true");
+    expect(config).toContain(`multi_agent_v2 = ${version === "v2" ? "true" : "false"}`);
+
+    const catalog = JSON.parse(await Bun.file(join(sessionHome, "takode-model-catalog.json")).text());
+    const entry = catalog.models.find((candidate: Record<string, unknown>) => candidate.slug === model);
+    expect(entry?.multi_agent_version).toBe(version);
   });
 
   it("injects the Companion port for direct delegate child Codex launches", async () => {
@@ -520,7 +568,9 @@ describe("Codex spawn preparation", () => {
 
       const [cmdAndArgs] = mockSpawn.mock.calls[0];
       expect(cmdAndArgs[0]).toBe(fakeCodex);
-      expect(cmdAndArgs.slice(1, 7)).toEqual([
+      expect(cmdAndArgs.slice(1, 9)).toEqual([
+        "--disable",
+        "multi_agent_v2",
         "-c",
         "tools.webSearch=false",
         "-c",

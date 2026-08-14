@@ -1852,12 +1852,14 @@ export function routeAdapterBrowserMessage(
       const currentTurnId = session.codexAdapter?.getCurrentTurnId() ?? null;
       const isHerdEvent = deps.isHerdEventSource(msg.agentSource);
       const deliveryReason = isHerdEvent ? "herd_event_message" : "browser_user_message";
-      if (ingested.historyEntry.id) {
+      const deliveryFrozen = deps.isCodexWorkerV2DeliveryFrozen(session.id);
+      if (!deliveryFrozen && ingested.historyEntry.id) {
         deps.pokeStaleCodexPendingDelivery(session, deliveryReason, {
           triggeringInputId: ingested.historyEntry.id,
         });
       }
       if (
+        !deliveryFrozen &&
         !isHerdEvent &&
         session.state.backend_state !== "broken" &&
         session.state.backend_state !== "recovery_suppressed"
@@ -1886,20 +1888,20 @@ export function routeAdapterBrowserMessage(
           session.codexAdapter?.getCurrentTurnId() ?? null,
         );
       }
-      if (currentTurnId && !isHerdEvent) {
+      if (deliveryFrozen) {
+        deps.persistSession(session);
+      } else if (currentTurnId && !isHerdEvent) {
         const steeredPending = deps.trySteerPendingCodexInputs(session, deliveryReason);
         if (!steeredPending) {
           deps.rebuildQueuedCodexPendingStartBatch(session);
         }
+      } else if (!isHerdEvent && session.codexAdapter && pendingTurnTarget === "queued" && session.isGenerating) {
+        deps.rebuildQueuedCodexPendingStartBatch(session);
+        deps.persistSession(session);
       } else {
-        if (!isHerdEvent && session.codexAdapter && pendingTurnTarget === "queued" && session.isGenerating) {
-          deps.rebuildQueuedCodexPendingStartBatch(session);
-          deps.persistSession(session);
-        } else {
-          deps.queueCodexPendingStartBatch(session, deliveryReason);
-        }
+        deps.queueCodexPendingStartBatch(session, deliveryReason);
       }
-      if (ingested.historyEntry.id) {
+      if (!deliveryFrozen && ingested.historyEntry.id) {
         markAcceptedCodexAutoPauseRecoveryDispatch(session, ingested.historyEntry.id, pendingTurnTarget, deps);
       }
       if (session.state.backend_state === "broken" || session.state.backend_state === "recovery_suppressed") {

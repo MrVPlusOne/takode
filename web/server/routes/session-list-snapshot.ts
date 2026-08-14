@@ -1,5 +1,5 @@
 import { access as accessAsync } from "node:fs/promises";
-import type { CliLauncher } from "../cli-launcher.js";
+import { stripInternalLauncherSessionState, type CliLauncher } from "../cli-launcher.js";
 import {
   countPendingUserPermissions,
   getNotificationStatusSnapshot,
@@ -122,12 +122,9 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
           s = launcher.getSession(s.sessionId) ?? s;
         }
 
-        const {
-          sessionAuthToken: _token,
-          injectedSystemPrompt: _prompt,
-          codexLeaderRecycleThresholdTokens: launcherCodexLeaderRecycleThresholdTokens,
-          ...safeSession
-        } = s;
+        const launcherCodexLeaderRecycleThresholdTokens = s.codexLeaderRecycleThresholdTokens;
+        const { codexLeaderRecycleThresholdTokens: _hiddenControlThreshold, ...safeSession } =
+          stripInternalLauncherSessionState(s);
         const bridgeSession = wsBridge.getSession(s.sessionId);
         // Herded worker notifications route through the leader/board flow and
         // should not create direct user-facing sidebar markers for the worker.
@@ -246,13 +243,18 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
         };
       } catch (e) {
         console.warn(`[routes] Failed to enrich session ${s.sessionId}:`, e);
-        return { ...s, name: names[s.sessionId] ?? s.name, pendingTimerCount, ...notificationSummary };
+        return {
+          ...stripInternalLauncherSessionState(s),
+          name: names[s.sessionId] ?? s.name,
+          pendingTimerCount,
+          ...notificationSummary,
+        };
       }
     }),
   );
 }
 
-async function archivedWorktreeExists(cwd: string): Promise<boolean> {
+export async function archivedWorktreeExists(cwd: string): Promise<boolean> {
   try {
     await accessAsync(cwd);
     return true;

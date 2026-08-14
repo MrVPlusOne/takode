@@ -8,6 +8,8 @@ import type {
 import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
 import type { ModelAuthorityDecision, ModelProvenanceMigration } from "./model-identity-contract.js";
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
+import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version.js";
+import type { CodexWorkerV2CutoverState } from "./codex-worker-v2-cutover-state.js";
 
 export interface SdkSessionInfo {
   sessionId: string;
@@ -95,6 +97,10 @@ export interface SdkSessionInfo {
   codexSandbox?: "read-only" | "workspace-write" | "danger-full-access";
   /** Reasoning effort selected for Codex sessions (e.g. low/medium/high). */
   codexReasoningEffort?: string;
+  /** Takode-selected Codex multi-agent implementation used for launch and rollback. */
+  codexMultiAgentVersion?: CodexMultiAgentVersion;
+  /** Existing-worker fresh-thread rollout and rollback provenance. */
+  codexWorkerV2Cutover?: CodexWorkerV2CutoverState;
   /** Codex app-server service tier selected for future turns. null/undefined means Standard. */
   codexServiceTier?: string | null;
   /** Optional per-session Codex usable context capacity target. */
@@ -187,4 +193,21 @@ export interface SdkSessionInfo {
   containerName?: string;
   /** Docker image used for the container */
   containerImage?: string;
+}
+
+type LauncherInternalSessionField = "sessionAuthToken" | "codexWorkerV2Cutover";
+
+/** Remove launcher-only secrets and recovery state before a session crosses an API boundary. */
+export function stripInternalLauncherSessionState(
+  info: SdkSessionInfo,
+  options: { includeInjectedSystemPrompt?: boolean } = {},
+): Omit<SdkSessionInfo, LauncherInternalSessionField> {
+  const {
+    sessionAuthToken: _sessionAuthToken,
+    codexWorkerV2Cutover: _codexWorkerV2Cutover,
+    ...withoutInternalState
+  } = info;
+  if (options.includeInjectedSystemPrompt) return withoutInternalState;
+  const { injectedSystemPrompt: _injectedSystemPrompt, ...safe } = withoutInternalState;
+  return safe;
 }

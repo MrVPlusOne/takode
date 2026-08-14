@@ -10,6 +10,7 @@ import {
   buildSessionInfoJson,
   dateKey,
   err,
+  fetchCodexRuntimeDiagnostics,
   fetchSessionInfo,
   formatDate,
   formatDurationSeconds,
@@ -52,6 +53,23 @@ function printCodexReasoningAuthority(data: TakodeSessionInfo): void {
   const suffix = data.cliConnected === false ? " (last effective)" : "";
   console.log(`  Reasoning      ${formatInlineText(effective)}${suffix}`);
   if (effective !== requested) console.log(`  Requested      ${formatInlineText(requested)}`);
+}
+
+function printCodexMultiAgentAuthority(data: TakodeSessionInfo): void {
+  const selected = data.codexMultiAgentVersion?.trim() || "unknown";
+  if (data.codexEffectiveMultiAgentVersionReported !== true) {
+    const selectedSuffix = selected === "unknown" ? "" : ` (selected: ${formatInlineText(selected)})`;
+    console.log(`  Multi-Agent    unknown${selectedSuffix}`);
+    return;
+  }
+  const effective = data.codexEffectiveMultiAgentVersion?.trim() || "unknown";
+  const mode = data.codexEffectiveMultiAgentMode?.trim();
+  const modeSuffix = mode ? ` (${formatInlineText(mode)})` : "";
+  const connectionSuffix = data.cliConnected === false ? " (last effective)" : "";
+  console.log(`  Multi-Agent    ${formatInlineText(effective)}${modeSuffix}${connectionSuffix}`);
+  if (selected !== "unknown" && selected !== effective) {
+    console.log(`  MA Selected    ${formatInlineText(selected)}`);
+  }
 }
 
 export async function handleList(base: string, args: string[]): Promise<void> {
@@ -412,6 +430,9 @@ export async function handleInfo(base: string, args: string[]): Promise<void> {
   const jsonMode = flags.json === true;
   const jsonOptions = resolveSessionInfoJsonOptions(flags, { jsonMode });
   const data = await fetchSessionInfo(base, sessionRef, { auth: "optional" });
+  if (data.backendType === "codex") {
+    Object.assign(data, await fetchCodexRuntimeDiagnostics(base, sessionRef, { auth: "optional" }));
+  }
 
   if (jsonMode) {
     console.log(JSON.stringify(buildSessionInfoJson(data, jsonOptions), null, 2));
@@ -482,6 +503,7 @@ function printSessionInfo(data: TakodeSessionInfo): void {
       console.log(`  Internet       ${data.codexInternetAccess ? "enabled" : "disabled"}`);
     }
     printCodexReasoningAuthority(data);
+    printCodexMultiAgentAuthority(data);
     if (data.codexSandbox) console.log(`  Sandbox        ${formatInlineText(data.codexSandbox)}`);
     printCodexPendingDeliveryLine(data.codexPendingDelivery);
   }

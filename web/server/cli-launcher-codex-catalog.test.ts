@@ -736,6 +736,232 @@ describe("Codex session catalog hardening", () => {
     expect(config).not.toContain("model_auto_compact_token_limit");
   });
 
+  it.each([
+    "v1",
+    "v2",
+  ] as const)("clears a prior Takode context override while retaining selected multi-agent %s", async (multiAgentVersion) => {
+    // All newly launched Codex sessions carry a selected V1/V2 catalog entry.
+    // Clearing max-context must rebuild that entry from source metadata rather
+    // than preserve Takode's old context and auto-compact values in the catalog.
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const catalogPath = join(codexHome, "takode-model-catalog.json");
+    const model = `takode-test-clear-${multiAgentVersion}`;
+    await writeFile(configPath, `model = "${model}"\n`, "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: model,
+            context_window: 300_000,
+            max_context_window: 300_000,
+            effective_context_window_percent: 80,
+            multi_agent_version: multiAgentVersion,
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+      codexContextCapacityTokens: 400_000,
+      multiAgentVersion,
+    });
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+      multiAgentVersion,
+    });
+
+    const config = await readFile(configPath, "utf-8");
+    expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+    expect(config).not.toContain("model_context_window");
+    expect(config).not.toContain("model_auto_compact_token_limit");
+    const catalog = JSON.parse(await readFile(catalogPath, "utf-8"));
+    const entry = catalog.models.find((candidate: Record<string, unknown>) => candidate.slug === model);
+    expect(entry).toMatchObject({
+      context_window: 300_000,
+      max_context_window: 300_000,
+      effective_context_window_percent: 80,
+      multi_agent_version: multiAgentVersion,
+    });
+    expect(entry).not.toHaveProperty("auto_compact_token_limit");
+  });
+
+  it.each([
+    ["v2", "v2"],
+    ["v2", "v1"],
+    ["v1", "v2"],
+  ] as const)("preserves custom catalog metadata across selected %s then %s launches", async (firstVersion, secondVersion) => {
+    // Once Takode selects a native multi-agent version, config points at the
+    // generated catalog. Repeated launches must still rebuild from the user's
+    // original custom metadata rather than an empty/default models cache.
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const customCatalogPath = join(codexHome, "custom-models.json");
+    const generatedCatalogPath = join(codexHome, "takode-model-catalog.json");
+    const model = "custom-model";
+    await writeFile(
+      configPath,
+      [`model = "${model}"`, `model_catalog_json = ${JSON.stringify(customCatalogPath)}`, ""].join("\n"),
+      "utf-8",
+    );
+    await writeFile(
+      customCatalogPath,
+      JSON.stringify({
+        custom_transport: { protocol: "custom-rpc" },
+        models: [
+          {
+            slug: model,
+            base_instructions: "Keep these user-authored instructions.",
+            custom_transport: { route: "private-model-route" },
+          },
+          { slug: "other-custom-model", custom_marker: "preserve-me" },
+        ],
+      }),
+      "utf-8",
+    );
+    await writeFile(join(codexHome, "models_cache.json"), JSON.stringify({ models: [] }), "utf-8");
+
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+      multiAgentVersion: firstVersion,
+    });
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+      multiAgentVersion: secondVersion,
+    });
+
+    const catalog = JSON.parse(await readFile(generatedCatalogPath, "utf-8"));
+    expect(catalog.custom_transport).toEqual({ protocol: "custom-rpc" });
+    expect(catalog.models.find((entry: Record<string, unknown>) => entry.slug === "other-custom-model")).toMatchObject({
+      custom_marker: "preserve-me",
+    });
+    expect(catalog.models.find((entry: Record<string, unknown>) => entry.slug === model)).toMatchObject({
+      base_instructions: "Keep these user-authored instructions.",
+      custom_transport: { route: "private-model-route" },
+      multi_agent_version: secondVersion,
+    });
+  });
+
+  it("restores custom source metadata when clearing a Takode-owned context override", async () => {
+    // Context-capacity launch values are Takode-owned, but the catalog around
+    // them is not. Clearing capacity must restore the original entry fields and
+    // retain custom metadata while applying the newly selected V1/V2 version.
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const customCatalogPath = join(codexHome, "custom-models.json");
+    const generatedCatalogPath = join(codexHome, "takode-model-catalog.json");
+    const model = "custom-context-model";
+    await writeFile(
+      configPath,
+      [`model = "${model}"`, `model_catalog_json = ${JSON.stringify(customCatalogPath)}`, ""].join("\n"),
+      "utf-8",
+    );
+    await writeFile(
+      customCatalogPath,
+      JSON.stringify({
+        catalog_owner: "user",
+        models: [
+          {
+            slug: model,
+            base_instructions: "Custom baseline",
+            custom_transport: "user-route",
+            context_window: 300_000,
+            max_context_window: 300_000,
+            effective_context_window_percent: 80,
+          },
+        ],
+      }),
+      "utf-8",
+    );
+    await writeFile(join(codexHome, "models_cache.json"), JSON.stringify({ models: [] }), "utf-8");
+
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+      codexContextCapacityTokens: 400_000,
+      multiAgentVersion: "v2",
+    });
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+      multiAgentVersion: "v1",
+    });
+
+    const config = await readFile(configPath, "utf-8");
+    expect(config).not.toContain("model_context_window");
+    expect(config).not.toContain("model_auto_compact_token_limit");
+    const catalog = JSON.parse(await readFile(generatedCatalogPath, "utf-8"));
+    expect(catalog.catalog_owner).toBe("user");
+    const entry = catalog.models.find((candidate: Record<string, unknown>) => candidate.slug === model);
+    expect(entry).toMatchObject({
+      base_instructions: "Custom baseline",
+      custom_transport: "user-route",
+      context_window: 300_000,
+      max_context_window: 300_000,
+      effective_context_window_percent: 80,
+      multi_agent_version: "v1",
+    });
+    expect(entry).not.toHaveProperty("auto_compact_token_limit");
+  });
+
+  it.each([
+    ["stale", 'model = "other-model"\n'],
+    ["missing", ""],
+  ] as const)("clears selected-model context overrides when the config model is %s", async (_case, modelConfig) => {
+    // The launch option is authoritative. A stale or absent top-level model must
+    // not strand context values that Takode generated for the actually selected model.
+    const codexHome = await makeCodexHome();
+    const configPath = join(codexHome, "config.toml");
+    const generatedCatalogPath = join(codexHome, "takode-model-catalog.json");
+    const model = "selected-model";
+    await writeFile(configPath, modelConfig, "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: model,
+            context_window: 300_000,
+            max_context_window: 300_000,
+            effective_context_window_percent: 80,
+          },
+          { slug: "other-model", context_window: 200_000 },
+        ],
+      }),
+      "utf-8",
+    );
+
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+      codexContextCapacityTokens: 400_000,
+      multiAgentVersion: "v2",
+    });
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+      multiAgentVersion: "v2",
+    });
+
+    const config = await readFile(configPath, "utf-8");
+    expect(config).not.toContain("model_context_window");
+    expect(config).not.toContain("model_auto_compact_token_limit");
+    const catalog = JSON.parse(await readFile(generatedCatalogPath, "utf-8"));
+    expect(catalog.models.find((entry: Record<string, unknown>) => entry.slug === model)).toMatchObject({
+      context_window: 300_000,
+      max_context_window: 300_000,
+      effective_context_window_percent: 80,
+      multi_agent_version: "v2",
+    });
+  });
+
   it("adds a missing selected model to an otherwise valid catalog", async () => {
     const codexHome = await makeCodexHome();
     const configPath = join(codexHome, "config.toml");
@@ -811,5 +1037,58 @@ describe("Codex session catalog hardening", () => {
     const catalog = JSON.parse(result.modelCatalogJson!);
     const entry = catalog.models.find((candidate: Record<string, unknown>) => candidate.slug === model);
     expectParserSafeEntry(entry, model);
+  });
+
+  it.each([
+    ["v1", "v2", false],
+    ["v2", "v1", true],
+  ] as const)("forces selected multi-agent %s over conflicting model metadata", async (selectedVersion, sourceVersion, v2Enabled) => {
+    // Model metadata has higher precedence than feature flags inside Codex.
+    // The generated session catalog must therefore carry Takode's selection.
+    const codexHome = await makeCodexHome();
+    const model = `takode-test-${selectedVersion}`;
+    await writeFile(join(codexHome, "config.toml"), `model = "${model}"\n`, "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({ models: [{ slug: model, multi_agent_version: sourceVersion }] }),
+      "utf-8",
+    );
+
+    const result = await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: false,
+      model,
+      multiAgentVersion: selectedVersion,
+    });
+
+    expect(result.configToml).toContain("multi_agent = true");
+    expect(result.configToml).toContain(`multi_agent_v2 = ${v2Enabled}`);
+    const catalog = JSON.parse(await readFile(join(codexHome, "takode-model-catalog.json"), "utf-8"));
+    const entry = catalog.models.find((candidate: Record<string, unknown>) => candidate.slug === model);
+    expectParserSafeEntry(entry, model);
+    expect(entry.multi_agent_version).toBe(selectedVersion);
+  });
+
+  it("preserves the selected V2 version in leader context-guard catalog generation", async () => {
+    // Leaders stay on V1 in normal product routing, but the shared launch helper must
+    // remain correct when an explicit selection reaches the leader catalog branch.
+    const codexHome = await makeCodexHome();
+    const model = "takode-test-leader-v2";
+    await writeFile(join(codexHome, "config.toml"), `model = "${model}"\n`, "utf-8");
+    await writeFile(
+      join(codexHome, "models_cache.json"),
+      JSON.stringify({ models: [{ slug: model, multi_agent_version: "v1", context_window: 800_000 }] }),
+      "utf-8",
+    );
+
+    await _ensureCodexSessionConfigForTest(codexHome, [], {
+      leaderLaunch: true,
+      existingLeaderRecycleThresholdTokens: 260_000,
+      model,
+      multiAgentVersion: "v2",
+    });
+
+    const catalog = JSON.parse(await readFile(join(codexHome, "takode-leader-model-catalog.json"), "utf-8"));
+    const entry = catalog.models.find((candidate: Record<string, unknown>) => candidate.slug === model);
+    expect(entry.multi_agent_version).toBe("v2");
   });
 });

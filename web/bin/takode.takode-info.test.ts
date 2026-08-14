@@ -82,6 +82,29 @@ describe("takode info", () => {
         return;
       }
 
+      if (method === "GET" && url === `/api/sessions/${String(sessionPayload.sessionId)}/codex-runtime-diagnostics`) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            codexMultiAgentVersion: sessionPayload.codexMultiAgentVersion ?? null,
+            codexEffectiveMultiAgentVersion: sessionPayload.codexEffectiveMultiAgentVersion ?? null,
+            codexEffectiveMultiAgentMode: sessionPayload.codexEffectiveMultiAgentMode ?? null,
+            codexEffectiveMultiAgentVersionReported: sessionPayload.codexEffectiveMultiAgentVersionReported === true,
+            codexMultiAgentRuntimeDiagnostics: sessionPayload.codexMultiAgentRuntimeDiagnostics ?? {
+              source: "retained_rollout",
+              status: "rollout_not_found",
+              sessionMetaMatched: false,
+              cliVersion: null,
+              turnId: null,
+              observedAt: null,
+              scannedBytes: 0,
+              scanTruncated: false,
+            },
+          }),
+        );
+        return;
+      }
+
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "not found" }));
     });
@@ -218,6 +241,72 @@ describe("takode info", () => {
     expect(result.stdout).not.toContain("Reasoning      ultra");
   });
 
+  it("reports selected versus effective Codex multi-agent runtime authority", async () => {
+    // The compact plain view should expose the provider-authored V2 policy and
+    // preserve a distinct selected value when runtime evidence disagrees.
+    const server = createInfoServer({
+      sessionId: "worker-multi-agent",
+      state: "running",
+      backendType: "codex",
+      model: "gpt-5.6-sol",
+      cwd: "/tmp/multi-agent-worker",
+      createdAt: Date.now(),
+      cliConnected: true,
+      isGenerating: false,
+      codexMultiAgentVersion: "v1",
+      codexEffectiveMultiAgentVersion: "v2",
+      codexEffectiveMultiAgentMode: "proactive",
+      codexEffectiveMultiAgentVersionReported: true,
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(["info", "worker-multi-agent", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-info",
+      COMPANION_AUTH_TOKEN: "auth-info",
+    });
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Multi-Agent    v2 (proactive)");
+    expect(result.stdout).toContain("MA Selected    v1");
+  });
+
+  it("does not promote selected V2 when retained runtime evidence is missing", async () => {
+    // A pre-turn or unreadable rollout remains unknown even when Takode selected
+    // V2, preventing the launch setting from masquerading as effective proof.
+    const server = createInfoServer({
+      sessionId: "worker-multi-agent-unverified",
+      state: "running",
+      backendType: "codex",
+      model: "gpt-5.6-sol",
+      cwd: "/tmp/multi-agent-unverified",
+      createdAt: Date.now(),
+      cliConnected: true,
+      isGenerating: false,
+      codexMultiAgentVersion: "v2",
+      codexEffectiveMultiAgentVersion: null,
+      codexEffectiveMultiAgentMode: null,
+      codexEffectiveMultiAgentVersionReported: false,
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(["info", "worker-multi-agent-unverified", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-info",
+      COMPANION_AUTH_TOKEN: "auth-info",
+    });
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Multi-Agent    unknown (selected: v2)");
+    expect(result.stdout).not.toContain("Multi-Agent    v2");
+  });
+
   it("outputs compact session JSON by default and hides bulky fields", async () => {
     const server = createInfoServer({
       sessionId: "worker-info",
@@ -235,6 +324,20 @@ describe("takode info", () => {
       tools: ["Read", "Bash"],
       mcpServers: [{ name: "slack", status: "connected" }],
       keywords: ["verbose", "cli"],
+      codexMultiAgentVersion: "v2",
+      codexEffectiveMultiAgentVersion: "v2",
+      codexEffectiveMultiAgentMode: "proactive",
+      codexEffectiveMultiAgentVersionReported: true,
+      codexMultiAgentRuntimeDiagnostics: {
+        source: "retained_rollout",
+        status: "reported",
+        sessionMetaMatched: true,
+        cliVersion: "0.144.1",
+        turnId: "turn-runtime",
+        observedAt: 123,
+        scannedBytes: 2048,
+        scanTruncated: false,
+      },
       codexPendingDelivery: {
         pendingInputCount: 1,
         pendingTurnCount: 1,
@@ -289,6 +392,10 @@ describe("takode info", () => {
         blockerReason: "active_turn_id_present",
         currentTurnId: "turn-active",
       },
+      codexMultiAgentVersion: "v2",
+      codexEffectiveMultiAgentVersion: "v2",
+      codexEffectiveMultiAgentMode: "proactive",
+      codexEffectiveMultiAgentVersionReported: true,
     });
     expect(parsed).not.toHaveProperty("injectedSystemPrompt");
     expect(parsed).not.toHaveProperty("taskHistory");
@@ -296,6 +403,7 @@ describe("takode info", () => {
     expect(parsed).not.toHaveProperty("mcpServers");
     expect(parsed).not.toHaveProperty("keywords");
     expect(parsed).not.toHaveProperty("codexPendingDeliveryDetails");
+    expect(parsed).not.toHaveProperty("codexMultiAgentRuntimeDiagnostics");
   });
 
   it("reveals Codex pending-delivery details only when explicitly included", async () => {

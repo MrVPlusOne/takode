@@ -235,6 +235,7 @@ describe("Side Chat session routes", () => {
               askPermission: true,
               uiMode: "agent",
               codexHome: "/tmp/codex-root",
+              codexMultiAgentVersion: "v2",
             }
           : null,
       ),
@@ -282,6 +283,7 @@ describe("Side Chat session routes", () => {
         resumeCliSessionId: "forked-codex-thread",
         codexHome: "/tmp/codex-root",
         codexResumeSourceSessionId: "root",
+        codexMultiAgentVersion: "v2",
         requireResumeCliSessionId: true,
       }),
     );
@@ -707,7 +709,10 @@ describe("Side Chat session routes", () => {
     expect(res.status).toBe(200);
     expect(root.codexAdapter.forkThread).not.toHaveBeenCalled();
     expect(launcher.launch).toHaveBeenCalledWith(
-      expect.not.objectContaining({ resumeCliSessionId: expect.any(String) }),
+      expect.not.objectContaining({
+        codexMultiAgentVersion: expect.anything(),
+        resumeCliSessionId: expect.any(String),
+      }),
     );
     const json = await res.json();
     expect(json.sideChat.seeded).toBe(false);

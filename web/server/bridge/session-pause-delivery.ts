@@ -7,6 +7,7 @@ import {
   type RecoveryDeliveryTransferDeps,
 } from "./recovery-delivery-transfer.js";
 import { backendAttached } from "./session-registry-controller.js";
+import { notifyCodexWorkerV2RolloutActivity } from "../codex-worker-v2-rollout-hooks.js";
 import type { Session } from "./ws-bridge-session.js";
 
 interface SessionPauseDeliveryDeps extends RecoveryDeliveryTransferDeps {
@@ -84,5 +85,6 @@ export async function unpauseSessionForDelivery(
   if (queued.length === 0 && !backendAttached(session)) {
     deps.onCLIRelaunchNeeded?.(session.id);
   }
+  notifyCodexWorkerV2RolloutActivity(session.id, "session_unpaused");
   return { queued: queued.length };
 }

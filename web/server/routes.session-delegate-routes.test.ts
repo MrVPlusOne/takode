@@ -104,6 +104,7 @@ describe("delegate task routes", () => {
               codexSandbox: "workspace-write",
               codexInternetAccess: true,
               codexReasoningEffort: "high",
+              codexMultiAgentVersion: "v2",
               codexServiceTier: null,
               isOrchestrator: true,
             }
@@ -125,6 +126,7 @@ describe("delegate task routes", () => {
           backendType: "codex",
           resumeCliSessionId: "forked-thread",
           codexResumeSourceSessionId: "parent",
+          codexMultiAgentVersion: "v2",
           requireResumeCliSessionId: true,
           hidden: true,
           publicSessionNumber: false,

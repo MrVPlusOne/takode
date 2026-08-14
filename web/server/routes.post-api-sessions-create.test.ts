@@ -637,6 +637,31 @@ describe("POST /api/sessions/create", () => {
     );
   });
 
+  it.each([
+    ["leader-created worker", { createdBy: "leader-1" }, "v2"],
+    ["archived-leader reference", { createdBy: "leader-archived" }, "v1"],
+    ["manual session", {}, "v1"],
+    ["leader", { role: "orchestrator" }, "v1"],
+    ["reviewer", { createdBy: "leader-1", reviewerOf: 42 }, "v1"],
+    ["external resume", { createdBy: "leader-1", resumeCliSessionId: "existing-thread" }, "v1"],
+  ] as const)("selects %s multi-agent launch authority", async (_label, body, expectedVersion) => {
+    // Only a normal Codex worker whose creator resolves to a real leader receives V2.
+    launcher.getSession.mockImplementation((id: string) => {
+      if (id === "leader-1") return { sessionId: id, isOrchestrator: true };
+      if (id === "leader-archived") return { sessionId: id, isOrchestrator: true, archived: true };
+      return undefined;
+    });
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ backend: "codex", cwd: "/test", ...body }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ codexMultiAgentVersion: expectedVersion }));
+  });
+
   it("rejects a known Codex model-effort combination the installed catalog does not support", async () => {
     // Server validation is authoritative for UI, CLI spawn, and replacement callers;
     // a known model must fail before launcher state is created.

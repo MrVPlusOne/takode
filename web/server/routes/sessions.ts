@@ -4,7 +4,7 @@ import { resolveBinary, expandTilde } from "../path-resolver.js";
 import { readFile, writeFile, stat, readdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { homedir } from "node:os";
-import type { CliLauncher, LaunchOptions } from "../cli-launcher.js";
+import { stripInternalLauncherSessionState, type CliLauncher, type LaunchOptions } from "../cli-launcher.js";
 import * as envManager from "../env-manager.js";
 import * as gitUtils from "../git-utils.js";
 import * as sessionNames from "../session-names.js";
@@ -64,6 +64,7 @@ import { registerSessionDirectoryRoutes } from "./session-directory-routes.js";
 import { registerWorktreeCleanupRoutes } from "./worktree-cleanup-routes.js";
 import { prepareWorktreeForSessionCreate, type WorktreeSessionInfo } from "./session-worktree-create.js";
 import type { CreationProgressStatus, EmitCreationProgress, SessionConfig } from "./session-create-config.js";
+import * as codexWorkerCreateRole from "../codex-worker-create-role.js";
 import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignments.js";
 import { isSessionPaused } from "../session-pause.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "../memory-session-space.js";
@@ -398,12 +399,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     if (sessionConfig.createdBy) {
       const creatorId = resolveId(String(sessionConfig.createdBy));
-      const creator = creatorId ? launcher.getSession(creatorId) : null;
-      if (creator?.isOrchestrator) {
-        launcher.herdSessions(creator.sessionId, [session.sessionId]);
+      if (creatorId && codexWorkerCreateRole.isActivePublicOrchestratorCreator(launcher.getSession(creatorId))) {
+        launcher.herdSessions(creatorId, [session.sessionId]);
         // Auto-assign new worker to leader's tree group
-        Promise.resolve(wsBridge.getSession(creator.sessionId)?.state.treeGroupId)
-          .then((leaderGroupFromState) => leaderGroupFromState || treeGroupStore.getGroupForSession(creator.sessionId))
+        Promise.resolve(wsBridge.getSession(creatorId)?.state.treeGroupId)
+          .then((leaderGroupFromState) => leaderGroupFromState || treeGroupStore.getGroupForSession(creatorId))
           .then((leaderGroup) => {
             if (sessionConfig.treeGroupExplicitlyRequested) return undefined;
             return assignDurableSessionTreeGroup(session.sessionId, leaderGroup || "default", {
@@ -438,6 +438,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
     };
 
     const isOrchestrator = body.role === "orchestrator";
+    const codexRoleLaunchSettings = codexWorkerCreateRole.resolveCodexCreateRoleLaunchSettings(
+      body,
+      backend,
+      (createdBy) => launcher.getSession(resolveId(createdBy) ?? ""),
+    );
 
     if (body.resumeCliSessionId) {
       if (backend !== "claude" && backend !== "codex") {
@@ -484,6 +489,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         ...buildSessionBackendLaunchSettings(body, backend, initialModeState.permissionMode, resumedModel.model),
         memorySessionSpaceSlug,
         isOrchestrator,
+        ...codexRoleLaunchSettings,
       };
       return {
         launchOptions,
@@ -797,6 +803,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       extraInstructions: orchestratorGuardrails,
       memorySessionSpaceSlug,
       isOrchestrator,
+      ...codexRoleLaunchSettings,
     };
 
     return {
@@ -1182,7 +1189,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const session = launcher.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
     const bridgeSession = wsBridge.getSession(id);
-    const { injectedSystemPrompt: _prompt, ...rest } = session;
+    const rest = stripInternalLauncherSessionState(session);
     const bridgeState = bridgeSession?.state;
     return c.json({
       ...rest,

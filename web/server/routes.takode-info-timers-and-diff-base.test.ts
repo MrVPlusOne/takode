@@ -622,6 +622,38 @@ describe("Takode server-authoritative auth", () => {
     expect(json.askPermission).toBe(false);
   });
 
+  it("omits launcher-internal Codex cutover recovery state from takode info", async () => {
+    const sessions = setupTakodeSessions();
+    sessions["worker-1"].injectedSystemPrompt = "explicit debug prompt";
+    sessions["worker-1"].codexWorkerV2Cutover = {
+      oneShotExtraInstructions: "sensitive handoff conversation",
+      originalCliSessionId: "provider-thread-original",
+      replacementCliSessionId: "provider-thread-replacement",
+      handoffFingerprint: "handoff-fingerprint-secret",
+      preservation: { worktreeFingerprint: "worktree-fingerprint-secret" },
+    } as any;
+
+    const res = await app.request("/api/sessions/worker-1/info", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).not.toHaveProperty("codexWorkerV2Cutover");
+    expect(json.injectedSystemPrompt).toBe("explicit debug prompt");
+    const serialized = JSON.stringify(json);
+    for (const marker of [
+      "sensitive handoff conversation",
+      "provider-thread-original",
+      "provider-thread-replacement",
+      "handoff-fingerprint-secret",
+      "worktree-fingerprint-secret",
+    ]) {
+      expect(serialized).not.toContain(marker);
+    }
+  });
+
   it("includes pendingTimerCount in takode info", async () => {
     // Verifies the detailed info endpoint exposes the pending timer count used
     // by takode info alongside other session metadata.
@@ -1010,7 +1042,13 @@ describe("Takode server-authoritative auth", () => {
   it("preserves pendingTimerCount when session enrichment falls back after an error", async () => {
     // Regression: an unrelated enrichment failure should not zero out the timer
     // indicator in takode list for that session.
-    setupTakodeSessions();
+    const sessions = setupTakodeSessions();
+    sessions["worker-1"].codexWorkerV2Cutover = {
+      oneShotExtraInstructions: "fallback handoff secret",
+      originalCliSessionId: "fallback-provider-thread",
+      handoffFingerprint: "fallback-fingerprint-secret",
+      preservation: { worktreeFingerprint: "/private/fallback-worktree" },
+    } as any;
     timerManager.listTimers.mockImplementation((sessionId: string) => (sessionId === "worker-1" ? [{ id: "t7" }] : []));
     bridge.getSession.mockImplementation((sessionId: string) => {
       if (sessionId === "worker-1") {
@@ -1030,6 +1068,12 @@ describe("Takode server-authoritative auth", () => {
       sessionId: "worker-1",
       pendingTimerCount: 1,
     });
+    const serialized = JSON.stringify(json);
+    expect(serialized).not.toContain("codexWorkerV2Cutover");
+    expect(serialized).not.toContain("fallback handoff secret");
+    expect(serialized).not.toContain("fallback-provider-thread");
+    expect(serialized).not.toContain("fallback-fingerprint-secret");
+    expect(serialized).not.toContain("/private/fallback-worktree");
   });
 
   it("removes deprecated takode watch endpoint", async () => {

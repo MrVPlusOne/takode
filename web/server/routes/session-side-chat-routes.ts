@@ -330,7 +330,11 @@ export function registerSessionSideChatRoutes(
       codexReasoningEffort: backend === "codex" ? rootInfo.codexReasoningEffort : undefined,
       codexHome: backend === "codex" ? rootInfo.codexHome : undefined,
       ...(backend === "codex" && forkContext.strategy === "native-fork"
-        ? { codexResumeSourceSessionId: id, requireResumeCliSessionId: true }
+        ? {
+            codexResumeSourceSessionId: id,
+            codexMultiAgentVersion: rootInfo.codexMultiAgentVersion,
+            requireResumeCliSessionId: true,
+          }
         : {}),
       env: getInheritedChildEnv(id),
       envSlug: rootInfo.envSlug,

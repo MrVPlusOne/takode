@@ -589,6 +589,39 @@ describe("GET /api/sessions", () => {
     ]);
   });
 
+  it("never exposes launcher-internal Codex cutover recovery state", async () => {
+    launcher.listSessions.mockReturnValue([
+      {
+        sessionId: "cutover-worker",
+        state: "connected",
+        cwd: "/private/worktree-path",
+        codexWorkerV2Cutover: {
+          oneShotExtraInstructions: "sensitive handoff conversation",
+          originalCliSessionId: "provider-thread-original",
+          replacementCliSessionId: "provider-thread-replacement",
+          handoffFingerprint: "handoff-fingerprint-secret",
+          preservation: { worktreeFingerprint: "worktree-fingerprint-secret" },
+        },
+      },
+    ] as any);
+
+    const res = await app.request("/api/sessions", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json[0]).not.toHaveProperty("codexWorkerV2Cutover");
+    const serialized = JSON.stringify(json);
+    for (const marker of [
+      "sensitive handoff conversation",
+      "provider-thread-original",
+      "provider-thread-replacement",
+      "handoff-fingerprint-secret",
+      "worktree-fingerprint-secret",
+    ]) {
+      expect(serialized).not.toContain(marker);
+    }
+  });
+
   it("can return only active session metadata while leaving archived sessions lazy", async () => {
     launcher.listSessions.mockReturnValue([
       { sessionId: "active", state: "running", cwd: "/a", archived: false },

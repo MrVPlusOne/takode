@@ -552,6 +552,37 @@ describe("GET /api/sessions/:id", () => {
     expect(typeof json.isGenerating).toBe("boolean");
   });
 
+  it("omits launcher-internal Codex cutover recovery state", async () => {
+    launcher.getSession.mockReturnValue({
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/private/worktree-path",
+      codexWorkerV2Cutover: {
+        oneShotExtraInstructions: "sensitive handoff conversation",
+        originalCliSessionId: "provider-thread-original",
+        replacementCliSessionId: "provider-thread-replacement",
+        handoffFingerprint: "handoff-fingerprint-secret",
+        preservation: { worktreeFingerprint: "worktree-fingerprint-secret" },
+      },
+    } as any);
+
+    const res = await app.request("/api/sessions/s1", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).not.toHaveProperty("codexWorkerV2Cutover");
+    const serialized = JSON.stringify(json);
+    for (const marker of [
+      "sensitive handoff conversation",
+      "provider-thread-original",
+      "provider-thread-replacement",
+      "handoff-fingerprint-secret",
+      "worktree-fingerprint-secret",
+    ]) {
+      expect(serialized).not.toContain(marker);
+    }
+  });
+
   it("returns bridge-owned location metadata when launcher location state is missing or stale", async () => {
     launcher.getSession.mockReturnValue({
       sessionId: "s1",

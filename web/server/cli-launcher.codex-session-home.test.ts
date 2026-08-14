@@ -86,6 +86,7 @@ const isMockedPath = vi.hoisted(() => (path: string): boolean => {
   return (
     path.includes(".claude") ||
     path.includes(".codex") ||
+    path.includes(".agents") ||
     path.includes(".companion") ||
     path.startsWith("/tmp/worktrees/") ||
     path.startsWith("/tmp/main-repo")
@@ -112,6 +113,11 @@ const mockCopyFile = vi.hoisted(() =>
   }),
 );
 const mockCp = vi.hoisted(() =>
+  vi.fn(async (..._args: any[]) => {
+    // no-op for mocked paths
+  }),
+);
+const mockRm = vi.hoisted(() =>
   vi.fn(async (..._args: any[]) => {
     // no-op for mocked paths
   }),
@@ -230,6 +236,12 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       }
       return actual.cp(...args);
     },
+    rm: async (...args: any[]) => {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
+        return mockRm(...args);
+      }
+      return actual.rm(...args);
+    },
     readdir: async (...args: any[]) => {
       if (typeof args[0] === "string" && isMockedPath(args[0])) {
         return mockReaddir(...args);
@@ -279,39 +291,26 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 // ─── Imports (after mocks) ───────────────────────────────────────────────────
 
 import { SessionStore } from "./session-store.js";
-import { CliLauncher } from "./cli-launcher.js";
-import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
-import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
-import type { TakodeEvent, TakodeHerdReassignedEventData } from "./session-types.js";
+import { CliLauncher, type LaunchOptions } from "./cli-launcher.js";
 
 // ─── Bun.spawn mock ─────────────────────────────────────────────────────────
 
-let exitResolve: (code: number) => void;
-
-function createMockProc(pid = 12345) {
-  let resolve: (code: number) => void;
-  const exitedPromise = new Promise<number>((r) => {
-    resolve = r;
-  });
-  exitResolve = resolve!;
-  return {
-    pid,
-    kill: vi.fn(),
-    exited: exitedPromise,
-    stdout: null,
-    stderr: null,
-  };
-}
-
 function createMockCodexProc(pid = 12345) {
   let resolve: (code: number) => void;
+  let exited = false;
   const exitedPromise = new Promise<number>((r) => {
     resolve = r;
   });
-  exitResolve = resolve!;
+  const resolveExit = (code: number) => {
+    if (exited) return;
+    exited = true;
+    resolve(code);
+  };
   return {
     pid,
-    kill: vi.fn(),
+    kill: vi.fn((signal?: string) => {
+      resolveExit(signal === "SIGKILL" ? 137 : 0);
+    }),
     exited: exitedPromise,
     stdin: new WritableStream<Uint8Array>(),
     stdout: new ReadableStream<Uint8Array>(),
@@ -348,7 +347,7 @@ beforeEach(() => {
   store = new SessionStore(tempDir);
   launcher = new CliLauncher(3456, { serverId: "test-server-id" });
   launcher.setStore(store);
-  mockSpawn.mockReturnValue(createMockProc());
+  mockSpawn.mockReturnValue(createMockCodexProc());
   mockResolveBinary.mockReturnValue("/usr/bin/claude");
   mockGetEnrichedPath.mockReturnValue("/usr/bin:/usr/local/bin");
   mockCaptureUserShellPath.mockReturnValue("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin");
@@ -375,201 +374,177 @@ afterAll(() => {
   }
 });
 
-// ─── launch ──────────────────────────────────────────────────────────────────
-
-describe("persistence", () => {
-  it("persists the selected Codex multi-agent version with launcher state", async () => {
-    // Launcher persistence is the authority used after server restart; V2 must not
-    // depend on the original create request still being available in memory.
-    mockResolveBinary.mockReturnValue("/opt/fake/codex");
-    mockSpawn.mockReturnValueOnce(createMockCodexProc());
-    const saveLauncher = vi.spyOn(store, "saveLauncher");
-
+describe("Codex session-home launch migration", () => {
+  // spawnCodex is async (prepareCodexHome uses async fs), so wait for the
+  // actual spawn call instead of a fixed delay to avoid timing flakes.
+  const waitForSpawnCalls = async (count: number) => {
+    const deadline = Date.now() + 2000;
+    while (mockSpawn.mock.calls.length < count) {
+      if (Date.now() > deadline) {
+        throw new Error(`Timed out waiting for ${count} spawn calls`);
+      }
+      await new Promise<void>((r) => setTimeout(r, 10));
+    }
+  };
+  const launchCodex = async (overrides: LaunchOptions = {}, spawnCalls = 1) => {
     const info = await launcher.launch({
       backendType: "codex",
       cwd: "/tmp/project",
       codexSandbox: "workspace-write",
-      codexMultiAgentVersion: "v2",
+      ...overrides,
     });
-
-    const deadline = Date.now() + 2_000;
-    while (saveLauncher.mock.calls.length === 0) {
-      if (Date.now() > deadline) throw new Error("Timed out waiting for launcher persistence");
-      await new Promise<void>((resolve) => setTimeout(resolve, 10));
-    }
-    const persisted = saveLauncher.mock.calls
-      .flatMap(([data]) => (Array.isArray(data) ? data : []))
-      .find((session) => session.sessionId === info.sessionId);
-    expect(info.codexMultiAgentVersion).toBe("v2");
-    expect(persisted?.codexMultiAgentVersion).toBe("v2");
+    await waitForSpawnCalls(spawnCalls);
+    return info;
+  };
+  const mockExistingPaths = (...paths: string[]) => {
+    const existing = new Set(paths);
+    mockExistsSync.mockImplementation((path: string) => existing.has(path));
+  };
+  const mockDirent = (name: string, options: { symlink?: boolean; directory?: boolean } = {}) => ({
+    name,
+    isSymbolicLink: () => options.symlink ?? false,
+    isDirectory: () => options.directory ?? true,
   });
 
-  describe("restoreFromDisk", () => {
-    it("recovers sessions from the store", async () => {
-      // Manually write launcher data to disk to simulate a previous run
-      const savedSessions = [
-        {
-          sessionId: "restored-1",
-          pid: 99999,
-          state: "connected" as const,
-          cwd: "/tmp/project",
-          createdAt: Date.now(),
-          cliSessionId: "cli-abc",
-        },
-      ];
-      store.saveLauncher(savedSessions);
-      await store.flushAll();
+  it("refreshes auth.json from the legacy Codex home even when the session copy already exists", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
-      // Mock process.kill(pid, 0) to succeed (process is alive)
-      const origKill = process.kill;
-      const killSpy = vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: string | number) => {
-        if (signal === 0) return true;
-        return origKill.call(process, pid, signal as any);
-      }) as any);
+    const legacyHome = join(homedir(), ".codex");
+    const sessionHome = join(homedir(), ".companion", "codex-home", "test-session-id");
+    const legacyAuth = join(legacyHome, "auth.json");
+    const sessionAuth = join(sessionHome, "auth.json");
 
-      const newLauncher = new CliLauncher(3456, { serverId: "test-server-id" });
-      newLauncher.setStore(store);
-      const recovered = await newLauncher.restoreFromDisk();
+    mockExistingPaths(legacyHome, legacyAuth, sessionAuth);
 
-      expect(recovered).toBe(1);
+    await launchCodex();
 
-      const session = newLauncher.getSession("restored-1");
-      expect(session).toBeDefined();
-      // Live PIDs get state reset to "starting" awaiting WS reconnect
-      expect(session?.state).toBe("starting");
-      expect(session?.cliSessionId).toBe("cli-abc");
+    expect(mockSymlink).toHaveBeenCalledWith(legacyAuth, sessionAuth);
+  });
 
-      killSpy.mockRestore();
+  it("replaces broken agents skill symlinks before legacy fallback migration", async () => {
+    // Legacy migrations can leave broken ~/.agents/skills symlinks. A missing
+    // slug fallback must replace those placeholders with usable skill contents.
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const agentsSkills = join(homedir(), ".agents", "skills");
+    const legacyHome = join(homedir(), ".codex");
+    const legacySkills = join(legacyHome, "skills");
+    const brokenSkill = join(agentsSkills, "cron-scheduling");
+
+    mockExistingPaths(agentsSkills, legacyHome, legacySkills, join(legacySkills, "cron-scheduling"));
+    mockReaddir.mockImplementation(async (path: string, options?: { withFileTypes?: boolean }) => {
+      if (path === legacySkills && options?.withFileTypes) {
+        return [mockDirent("cron-scheduling", { symlink: true, directory: false })];
+      }
+      if (path === agentsSkills && options?.withFileTypes) {
+        return [mockDirent("cron-scheduling", { symlink: true, directory: false })];
+      }
+      return [];
+    });
+    mockLstatSync.mockImplementation((path?: string) => {
+      if (path === brokenSkill) {
+        return {
+          isSymbolicLink: () => true,
+          isDirectory: () => false,
+        };
+      }
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     });
 
-    it("marks dead PIDs as exited", async () => {
-      const savedSessions = [
-        {
-          sessionId: "dead-1",
-          pid: 11111,
-          state: "connected" as const,
-          cwd: "/tmp/project",
-          createdAt: Date.now(),
-        },
-      ];
-      store.saveLauncher(savedSessions);
-      await store.flushAll();
+    await launchCodex();
 
-      // Mock process.kill(pid, 0) to throw (process is dead)
-      const killSpy = vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal?: string | number) => {
-        if (signal === 0) throw new Error("ESRCH");
-        return true;
-      }) as any);
+    expect(mockCp).toHaveBeenCalledWith(join(legacySkills, "cron-scheduling"), brokenSkill, { recursive: true });
+    expect(mockUnlink).toHaveBeenCalledWith(brokenSkill);
+  });
 
-      const newLauncher = new CliLauncher(3456, { serverId: "test-server-id" });
-      newLauncher.setStore(store);
-      const recovered = await newLauncher.restoreFromDisk();
+  it("skips broken legacy Codex skill symlinks during fallback migration", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
-      // Dead sessions don't count as recovered
-      expect(recovered).toBe(0);
+    const agentsSkills = join(homedir(), ".agents", "skills");
+    const legacyHome = join(homedir(), ".codex");
+    const legacySkills = join(legacyHome, "skills");
+    const brokenSource = join(legacySkills, "missing-skill");
 
-      const session = newLauncher.getSession("dead-1");
-      expect(session).toBeDefined();
-      expect(session?.state).toBe("exited");
-      expect(session?.exitCode).toBe(-1);
-
-      killSpy.mockRestore();
+    mockExistingPaths(agentsSkills, legacyHome, legacySkills);
+    mockReaddir.mockImplementation(async (path: string, options?: { withFileTypes?: boolean }) => {
+      if (path === legacySkills && options?.withFileTypes) {
+        return [mockDirent("missing-skill", { symlink: true, directory: false })];
+      }
+      return [];
+    });
+    mockLstatSync.mockImplementation((path?: string) => {
+      if (path === brokenSource) {
+        return {
+          isSymbolicLink: () => true,
+          isDirectory: () => false,
+        };
+      }
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     });
 
-    it("returns 0 when no store is set", async () => {
-      const newLauncher = new CliLauncher(3456, { serverId: "test-server-id" });
-      // No setStore call
-      expect(await newLauncher.restoreFromDisk()).toBe(0);
+    await launchCodex();
+
+    expect(mockCp).not.toHaveBeenCalledWith(brokenSource, join(agentsSkills, "missing-skill"), { recursive: true });
+  });
+
+  it("removes deprecated session Codex skill directories on relaunch", async () => {
+    // CODEX_HOME/skills used to be populated as a custom skill root. New
+    // launches remove it so official ~/.agents/skills remains the active path.
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const legacyHome = join(homedir(), ".codex");
+    const sessionHome = join(homedir(), ".companion", "codex-home", "test-session-id");
+    const sessionSkills = join(sessionHome, "skills");
+
+    mockExistingPaths(legacyHome, sessionSkills);
+
+    await launchCodex();
+
+    expect(mockRm).toHaveBeenCalledWith(sessionSkills, { recursive: true, force: true });
+    expect(mockCp).not.toHaveBeenCalledWith(join(legacyHome, "skills"), sessionSkills, { recursive: true });
+  });
+
+  it("seeds the matching Codex rollout file into the session home for external resume", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const legacyHome = join(homedir(), ".codex");
+    const sessionsRoot = join(legacyHome, "sessions");
+    const yearPath = join(sessionsRoot, "2026");
+    const monthPath = join(yearPath, "04");
+    const dayPath = join(monthPath, "01");
+    const rolloutName = "rollout-2026-04-01T00-42-45-thread-abc.jsonl";
+    const rolloutPath = join(dayPath, rolloutName);
+    const sessionHome = join(homedir(), ".companion", "codex-home", "test-session-id");
+    const seededRollout = join(sessionHome, "sessions", "2026", "04", "01", rolloutName);
+
+    mockExistsSync.mockImplementation((path: string) => {
+      if (path === legacyHome) return true;
+      return false;
+    });
+    mockReaddir.mockImplementation(async (path: string): Promise<any> => {
+      if (path === sessionsRoot) return ["2026"];
+      if (path === yearPath) return ["04"];
+      if (path === monthPath) return ["01"];
+      if (path === dayPath) return [rolloutName];
+      return [];
+    });
+    mockStat.mockImplementation(async (path: string) => {
+      if (path === rolloutPath) {
+        return {
+          isFile: () => true,
+          mtimeMs: 42,
+        };
+      }
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     });
 
-    it("returns 0 when store has no launcher data", async () => {
-      const newLauncher = new CliLauncher(3456, { serverId: "test-server-id" });
-      newLauncher.setStore(store);
-      // Store is empty, no launcher.json file
-      expect(await newLauncher.restoreFromDisk()).toBe(0);
-    });
+    await launchCodex({ resumeCliSessionId: "thread-abc" });
 
-    it("preserves already-exited sessions from disk", async () => {
-      const savedSessions = [
-        {
-          sessionId: "already-exited",
-          pid: 22222,
-          state: "exited" as const,
-          exitCode: 0,
-          cwd: "/tmp/project",
-          createdAt: Date.now(),
-        },
-      ];
-      store.saveLauncher(savedSessions);
-      await store.flushAll();
-
-      const newLauncher = new CliLauncher(3456, { serverId: "test-server-id" });
-      newLauncher.setStore(store);
-      const recovered = await newLauncher.restoreFromDisk();
-
-      // Already-exited sessions are loaded but not "recovered"
-      expect(recovered).toBe(0);
-      const session = newLauncher.getSession("already-exited");
-      expect(session).toBeDefined();
-      expect(session?.state).toBe("exited");
-    });
-
-    it("marks SDK sessions without PID as exited for auto-relaunch", async () => {
-      const savedSessions = [
-        {
-          sessionId: "sdk-session-1",
-          // No pid — SDK sessions use in-memory adapters, not processes
-          state: "connected" as const,
-          backendType: "claude-sdk" as const,
-          cwd: "/tmp/project",
-          createdAt: Date.now(),
-          cliSessionId: "sdk-cli-123",
-        },
-      ];
-      store.saveLauncher(savedSessions);
-      await store.flushAll();
-
-      const newLauncher = new CliLauncher(3456, { serverId: "test-server-id" });
-      newLauncher.setStore(store);
-      const recovered = await newLauncher.restoreFromDisk();
-
-      // SDK sessions are not "recovered" (no live process) but are marked exited
-      // so handleBrowserOpen will trigger relaunch instead of optimistically
-      // sending backend_connected.
-      expect(recovered).toBe(0);
-
-      const session = newLauncher.getSession("sdk-session-1");
-      expect(session).toBeDefined();
-      expect(session?.state).toBe("exited");
-      expect(session?.exitCode).toBe(-1);
-      // cliSessionId is preserved for --resume via SDK's resumeSession
-      expect(session?.cliSessionId).toBe("sdk-cli-123");
-    });
-
-    it("does not re-mark already-exited SDK sessions", async () => {
-      const savedSessions = [
-        {
-          sessionId: "sdk-already-exited",
-          state: "exited" as const,
-          exitCode: 0,
-          backendType: "claude-sdk" as const,
-          cwd: "/tmp/project",
-          createdAt: Date.now(),
-        },
-      ];
-      store.saveLauncher(savedSessions);
-      await store.flushAll();
-
-      const newLauncher = new CliLauncher(3456, { serverId: "test-server-id" });
-      newLauncher.setStore(store);
-      const recovered = await newLauncher.restoreFromDisk();
-
-      expect(recovered).toBe(0);
-      const session = newLauncher.getSession("sdk-already-exited");
-      expect(session).toBeDefined();
-      expect(session?.state).toBe("exited");
-      // exitCode should remain as originally set (0), not overwritten to -1
-      expect(session?.exitCode).toBe(0);
-    });
+    expect(mockCopyFile).toHaveBeenCalledWith(rolloutPath, seededRollout);
   });
 });

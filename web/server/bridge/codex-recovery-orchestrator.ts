@@ -77,6 +77,7 @@ import {
   type CodexLocalDeliveryActivitySummary,
 } from "./codex-delivery-ownership.js";
 import { clearOrphanedCodexProviderRetryState } from "./codex-provider-retry-state.js";
+import { runCodexSessionMetaBarrier } from "./codex-session-meta-barrier.js";
 export { clearCodexIntentionalRelaunch, markCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 export { maybeFlushQueuedCodexMessages } from "./codex-queued-message-flush.js";
 type InterruptSource = "user" | "leader" | "system";
@@ -170,11 +171,13 @@ export interface CodexRecoveryOrchestratorDeps {
     queuedInterruptSource?: InterruptSource | null,
   ) => UserDispatchTurnTarget;
   promoteNextQueuedTurn: (session: CodexRecoveryOrchestratorSessionLike) => boolean;
+  isCodexWorkerV2DeliveryFrozen: (sessionId: string) => boolean;
 }
 
 export interface CodexAdapterRecoveryLifecycleDeps extends CodexRecoveryOrchestratorDeps {
   clearCodexDisconnectGraceTimer: (session: CodexRecoveryOrchestratorSessionLike, reason: string) => void;
   setCliSessionIdFromMeta: (sessionId: string, cliSessionId: string) => void;
+  beforeSessionMetaDispatch: (sessionId: string, cliSessionId: string) => boolean | Promise<boolean>;
   completeCodexLeaderRecycle: (sessionId: string) => void;
   hydrateCodexResumedHistory: (session: CodexRecoveryOrchestratorSessionLike, snapshot: unknown) => number;
   setBackendState: (session: CodexRecoveryOrchestratorSessionLike, state: string, error: string | null) => void;
@@ -455,9 +458,10 @@ export function dispatchQueuedCodexTurns(
     | "pruneStalePendingCodexHerdInputs"
     | "setPendingCodexInputsCancelable"
     | "persistSession"
+    | "isCodexWorkerV2DeliveryFrozen"
   >,
 ): void {
-  if (isSessionPaused(session as any)) return;
+  if (isSessionPaused(session as any) || deps.isCodexWorkerV2DeliveryFrozen(session.id)) return;
   holdCodexAutoPausedQueuedBacklog(session as any, deps);
   const outcome = dispatchQueuedCodexTurnsState(session, reason, {
     pruneStalePendingCodexHerdInputs: (dispatchReason) =>
@@ -780,6 +784,7 @@ export function pokeStaleCodexPendingDelivery(
 ): boolean {
   const adapter = session.codexAdapter;
   if (session.backendType !== "codex") return false;
+  if (deps.isCodexWorkerV2DeliveryFrozen(session.id)) return false;
   if (session.pendingCodexInputs.length === 0) return false;
   if (session.isGenerating) return false;
   if (!adapter || session.state.backend_state !== "connected" || !adapter.isConnected()) return false;
@@ -829,6 +834,7 @@ export function trySteerPendingCodexInputs(
   reason: string,
   deps: CodexRecoveryOrchestratorDeps,
 ): boolean {
+  if (deps.isCodexWorkerV2DeliveryFrozen(session.id)) return false;
   const adapter = session.codexAdapter;
   const expectedTurnId = adapter?.getCurrentTurnId() ?? null;
   if (!adapter || !expectedTurnId || session.state.backend_state !== "connected" || !adapter.isConnected()) {
@@ -981,99 +987,109 @@ export function registerCodexAdapterRecoveryLifecycle(
   deps: CodexAdapterRecoveryLifecycleDeps,
 ): void {
   adapter.onSessionMeta((meta: any) => {
-    if (session.codexAdapter !== adapter) return;
-    deps.clearCodexDisconnectGraceTimer(session, "session_meta");
-    const lastDisconnectDiagnostics = (session as any).lastCodexTransportCloseDiagnostics as
-      | Record<string, unknown>
-      | null
-      | undefined;
-    if (lastDisconnectDiagnostics) {
-      console.log(
-        `[ws-bridge] Codex recovery session_meta for session ${sessionTag(session.id)} ` +
-          `closeId=${String(lastDisconnectDiagnostics.closeId ?? "unknown")} ` +
-          `resume=${JSON.stringify(summarizeCodexResumeSnapshot(meta.resumeSnapshot))}`,
+    const continueSessionMetaLifecycle = () => {
+      if (session.codexAdapter !== adapter) return;
+      deps.clearCodexDisconnectGraceTimer(session, "session_meta");
+      const lastDisconnectDiagnostics = (session as any).lastCodexTransportCloseDiagnostics as
+        | Record<string, unknown>
+        | null
+        | undefined;
+      if (lastDisconnectDiagnostics) {
+        console.log(
+          `[ws-bridge] Codex recovery session_meta for session ${sessionTag(session.id)} ` +
+            `closeId=${String(lastDisconnectDiagnostics.closeId ?? "unknown")} ` +
+            `resume=${JSON.stringify(summarizeCodexResumeSnapshot(meta.resumeSnapshot))}`,
+        );
+      }
+      if (meta.cliSessionId) {
+        deps.setCliSessionIdFromMeta(session.id, meta.cliSessionId);
+      }
+      (session as any).relaunchPending = false;
+      if (session.state.backend_reconnect) {
+        session.state.backend_reconnect = null;
+        deps.broadcastToBrowsers(session, { type: "session_update", session: { backend_reconnect: null } });
+      }
+      deps.setBackendState(session, "connected", null);
+      const recyclePending = deps.getLauncherSessionInfo(session.id)?.codexLeaderRecyclePending;
+      const pendingRollback = (session as any).pendingCodexRollback;
+      if (meta.resumeSnapshot) {
+        recordCodexResumeSnapshotProof(session, meta.resumeSnapshot);
+      }
+      if (meta.resumeSnapshot && !pendingRollback) {
+        deps.hydrateCodexResumedHistory(session, meta.resumeSnapshot);
+        reconcileCodexResumedTurn(session, meta.resumeSnapshot, deps);
+      }
+      clearCodexInitRecoveryRuntimeState(session);
+      broadcastCodexAutoPauseRecoveryTesting(session, deps);
+      reconcileDuplicateCodexPendingTurns(session, "session_meta", deps);
+      retryNonDrainableCodexHeadTurn(session, "session_meta_stale_ack_head", deps);
+      clearStaleCodexCompactionState(session, "session_meta_stale_compaction", deps);
+      clearOrphanedCodexProviderRetryState(session, (state) =>
+        deps.broadcastToBrowsers(session, {
+          type: "session_update",
+          session: { codex_provider_retry: state },
+        }),
       );
-    }
-    if (meta.cliSessionId) {
-      deps.setCliSessionIdFromMeta(session.id, meta.cliSessionId);
-    }
-    if (session.state.backend_reconnect) {
-      session.state.backend_reconnect = null;
-      deps.broadcastToBrowsers(session, { type: "session_update", session: { backend_reconnect: null } });
-    }
-    deps.setBackendState(session, "connected", null);
-    const recyclePending = deps.getLauncherSessionInfo(session.id)?.codexLeaderRecyclePending;
-    const pendingRollback = (session as any).pendingCodexRollback;
-    if (meta.resumeSnapshot) {
-      recordCodexResumeSnapshotProof(session, meta.resumeSnapshot);
-    }
-    if (meta.resumeSnapshot && !pendingRollback) {
-      deps.hydrateCodexResumedHistory(session, meta.resumeSnapshot);
-      reconcileCodexResumedTurn(session, meta.resumeSnapshot, deps);
-    }
-    clearCodexInitRecoveryRuntimeState(session);
-    broadcastCodexAutoPauseRecoveryTesting(session, deps);
-    reconcileDuplicateCodexPendingTurns(session, "session_meta", deps);
-    retryNonDrainableCodexHeadTurn(session, "session_meta_stale_ack_head", deps);
-    clearStaleCodexCompactionState(session, "session_meta_stale_compaction", deps);
-    clearOrphanedCodexProviderRetryState(session, (state) =>
-      deps.broadcastToBrowsers(session, {
-        type: "session_update",
-        session: { codex_provider_retry: state },
-      }),
-    );
-    if (meta.model) {
-      session.state.model = meta.model;
-      deps.broadcastToBrowsers(session, {
-        type: "session_update",
-        session: { model: meta.model },
-      });
-    }
-    if (meta.cwd) session.state.cwd = meta.cwd;
-    (session.state as any).backend_type = "codex";
-    if (recyclePending) {
-      deps.injectCompactionRecovery(session);
-      deps.completeCodexLeaderRecycle(session.id);
-    }
-    if (pendingRollback) {
-      (session as any).pendingCodexRollbackError = null;
-      void adapter
-        .rollbackTurns(pendingRollback.numTurns)
-        .then(() => {
-          if (session.codexAdapter !== adapter) return;
-          deps.finalizeCodexRollback(session);
-        })
-        .catch((err: unknown) => {
-          if (session.codexAdapter !== adapter) return;
-          const message = err instanceof Error ? err.message : String(err);
-          (session as any).pendingCodexRollback = null;
-          (session as any).pendingCodexRollbackError = message;
-          (session as any).pendingCodexRollbackWaiter?.reject(new Error(message));
-          (session as any).pendingCodexRollbackWaiter = null;
-          console.error(`[ws-bridge] Pending Codex rollback failed for session ${sessionTag(session.id)}: ${message}`);
-          deps.persistSession(session);
+      if (meta.model) {
+        session.state.model = meta.model;
+        deps.broadcastToBrowsers(session, {
+          type: "session_update",
+          session: { model: meta.model },
         });
+      }
+      if (meta.cwd) session.state.cwd = meta.cwd;
+      (session.state as any).backend_type = "codex";
+      if (recyclePending) {
+        deps.injectCompactionRecovery(session);
+        deps.completeCodexLeaderRecycle(session.id);
+      }
+      if (pendingRollback) {
+        (session as any).pendingCodexRollbackError = null;
+        void adapter
+          .rollbackTurns(pendingRollback.numTurns)
+          .then(() => {
+            if (session.codexAdapter !== adapter) return;
+            deps.finalizeCodexRollback(session);
+          })
+          .catch((err: unknown) => {
+            if (session.codexAdapter !== adapter) return;
+            const message = err instanceof Error ? err.message : String(err);
+            (session as any).pendingCodexRollback = null;
+            (session as any).pendingCodexRollbackError = message;
+            (session as any).pendingCodexRollbackWaiter?.reject(new Error(message));
+            (session as any).pendingCodexRollbackWaiter = null;
+            console.error(
+              `[ws-bridge] Pending Codex rollback failed for session ${sessionTag(session.id)}: ${message}`,
+            );
+            deps.persistSession(session);
+          });
+        deps.broadcastToBrowsers(session, { type: "backend_connected" });
+        deps.refreshGitInfoThenRecomputeDiff(session, { broadcastUpdate: true, notifyPoller: true });
+        deps.persistSession(session);
+        return;
+      }
+      const steeredPending = trySteerPendingCodexInputs(session, "session_meta", deps);
+      if (!steeredPending) {
+        const headWasBlockedRecovery = deps.getCodexHeadTurn(session)?.status === "blocked_broken_session";
+        deps.dispatchQueuedCodexTurns(session, "session_meta");
+        reconcileRecoveredQueuedTurnLifecycle(session, "session_meta_dispatch", deps);
+        const currentTurnId = adapter.getCurrentTurnId?.() ?? null;
+        const hasPendingLocalInputs = deps.getCancelablePendingCodexInputs(session).length > 0;
+        if (!headWasBlockedRecovery && (!session.isGenerating || (!currentTurnId && hasPendingLocalInputs))) {
+          deps.queueCodexPendingStartBatch(session, "session_meta");
+          reconcileRecoveredQueuedTurnLifecycle(session, "session_meta_pending_batch", deps);
+        }
+      }
+      deps.flushQueuedMessagesToCodexAdapter(session, adapter, "session_meta");
       deps.broadcastToBrowsers(session, { type: "backend_connected" });
       deps.refreshGitInfoThenRecomputeDiff(session, { broadcastUpdate: true, notifyPoller: true });
       deps.persistSession(session);
-      return;
-    }
-    const steeredPending = trySteerPendingCodexInputs(session, "session_meta", deps);
-    if (!steeredPending) {
-      const headWasBlockedRecovery = deps.getCodexHeadTurn(session)?.status === "blocked_broken_session";
-      deps.dispatchQueuedCodexTurns(session, "session_meta");
-      reconcileRecoveredQueuedTurnLifecycle(session, "session_meta_dispatch", deps);
-      const currentTurnId = adapter.getCurrentTurnId?.() ?? null;
-      const hasPendingLocalInputs = deps.getCancelablePendingCodexInputs(session).length > 0;
-      if (!headWasBlockedRecovery && (!session.isGenerating || (!currentTurnId && hasPendingLocalInputs))) {
-        deps.queueCodexPendingStartBatch(session, "session_meta");
-        reconcileRecoveredQueuedTurnLifecycle(session, "session_meta_pending_batch", deps);
-      }
-    }
-    deps.flushQueuedMessagesToCodexAdapter(session, adapter, "session_meta");
-    deps.broadcastToBrowsers(session, { type: "backend_connected" });
-    deps.refreshGitInfoThenRecomputeDiff(session, { broadcastUpdate: true, notifyPoller: true });
-    deps.persistSession(session);
+    };
+    if (!meta.cliSessionId) return continueSessionMetaLifecycle();
+    runCodexSessionMetaBarrier(
+      () => deps.beforeSessionMetaDispatch(session.id, meta.cliSessionId),
+      continueSessionMetaLifecycle,
+    );
   });
 
   adapter.onTurnStarted((turnId: string, source?: "local" | "codex_goal_continuation") => {

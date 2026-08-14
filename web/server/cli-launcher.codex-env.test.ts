@@ -231,6 +231,7 @@ describe("Codex launch env", () => {
       cwd: "/tmp/project",
       codexSandbox: "workspace-write",
       codexHome: customHome,
+      codexMultiAgentVersion: "v2",
       codexLeaderRecycleThresholdTokens: 260_000,
       containerId: "abc123def456",
       containerName: "companion-session-1",
@@ -253,6 +254,12 @@ describe("Codex launch env", () => {
     const innerScript = cmdAndArgs[bashIndex + 1];
     expect(innerScript).toContain('"GIT_EDITOR"');
     expect(innerScript).toContain('"GIT_SEQUENCE_EDITOR"');
+    // Container launches need both the explicit feature override and a container-local
+    // model catalog so host paths or provider metadata cannot silently choose V1.
+    expect(innerScript).toContain("'--enable' 'multi_agent_v2'");
+    expect(innerScript).toContain("multi_agent_v2 = true");
+    expect(innerScript).toContain('"multi_agent_version": "v2"');
+    expect(innerScript).toContain("/root/.codex/takode-model-catalog.json");
   });
 
   it("passes explicit OPENAI_API_KEY through host Codex env when no session auth.json is available", async () => {

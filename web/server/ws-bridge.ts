@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
+import { notifyCodexWorkerV2RolloutActivity } from "./codex-worker-v2-rollout-hooks.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
 import type { PushoverNotifier } from "./pushover.js";
@@ -653,6 +654,7 @@ export class WsBridge {
       });
     }
     this.herdEventDispatcher?.onSessionActivityStateChanged?.(sessionId, reason);
+    notifyCodexWorkerV2RolloutActivity(sessionId, reason);
   }
 
   // ── Takode orchestration event methods ──────────────────────────────────

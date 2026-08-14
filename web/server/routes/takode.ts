@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { access as accessAsync } from "node:fs/promises";
 import * as questStore from "../quest-store.js";
 import * as sessionNames from "../session-names.js";
 import type { HerdSessionsResponse } from "../../shared/herd-types.js";
@@ -56,13 +55,17 @@ import {
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
 import type { RouteContext } from "./context.js";
+import { stripInternalLauncherSessionState } from "../session-info.js";
 import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
 import { registerTakodeBoardRoutes } from "./takode-board.js";
 import { registerTakodeNotificationInboxRoutes } from "./takode-notification-inbox.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
 import { getPauseState, isSessionPaused } from "../session-pause.js";
-import { buildLeaderActiveBoardRowsForSnapshot } from "./session-list-snapshot.js";
-import { scheduleWorktreeGitStateRefreshForSnapshot } from "./session-list-snapshot.js";
+import {
+  archivedWorktreeExists,
+  buildLeaderActiveBoardRowsForSnapshot,
+  scheduleWorktreeGitStateRefreshForSnapshot,
+} from "./session-list-snapshot.js";
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
 import { normalizeAffectedThreadKey, normalizeNotifyThreadRoute } from "./takode-route-thread-helpers.js";
 import { buildCodexPendingDeliveryDiagnostics } from "../codex-pending-delivery-diagnostics.js";
@@ -401,7 +404,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       pool.map(async (s) => {
         const pendingTimerCount = timerManager?.listTimers(s.sessionId).length ?? 0;
         try {
-          const { sessionAuthToken: _token, ...safeSession } = s;
+          const safeSession = stripInternalLauncherSessionState(s);
           const bridgeSession = wsBridge.getSession(s.sessionId);
           if (bridgeSession?.state?.is_worktree && !safeSession.archived && !heavyRepoModeEnabled) {
             scheduleWorktreeGitStateRefreshForSnapshot(wsBridge, s.sessionId);
@@ -451,22 +454,15 @@ export function createTakodeRoutes(ctx: RouteContext) {
             ...(leaderActiveBoardRows !== undefined ? { leaderActiveBoardRows } : {}),
             ...(leaderActivePhaseSummary !== undefined ? { leaderActivePhaseSummary } : {}),
             ...(attention ?? {}),
-            ...(s.isWorktree && s.archived
-              ? await (async () => {
-                  let exists = false;
-                  try {
-                    await accessAsync(s.cwd);
-                    exists = true;
-                  } catch {
-                    /* not found */
-                  }
-                  return { worktreeExists: exists };
-                })()
-              : {}),
+            ...(s.isWorktree && s.archived ? { worktreeExists: await archivedWorktreeExists(s.cwd) } : {}),
           };
         } catch (e) {
           console.warn(`[routes] Failed to enrich session ${s.sessionId}:`, e);
-          return { ...s, name: names[s.sessionId] ?? s.name, pendingTimerCount };
+          return {
+            ...stripInternalLauncherSessionState(s),
+            name: names[s.sessionId] ?? s.name,
+            pendingTimerCount,
+          };
         }
       }),
     );
@@ -709,7 +705,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const currentBridgeSession = wsBridge.getSession(sessionId) ?? bridgeSession;
     const bridge = currentBridgeSession?.state;
     const names = sessionNames.getAllNames();
-    const { sessionAuthToken: _token, ...safeSession } = session;
+    const safeSession = stripInternalLauncherSessionState(session, { includeInjectedSystemPrompt: true });
 
     // Compute real user turns from backend history. CLI num_turns can be per-result
     // or reset around compaction, and injected/system user-shaped messages are not

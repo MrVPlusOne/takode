@@ -72,6 +72,7 @@ import { runPreListenStartupReadiness } from "./startup-readiness.js";
 import { recreateWorktreeIfMissing } from "./migration.js";
 import { access } from "node:fs/promises";
 import { RelaunchQueue } from "./relaunch-queue.js";
+import { CodexWorkerV2RolloutService } from "./codex-worker-v2-rollout-service.js";
 import {
   NAMER_TRIGGER_SOURCES,
   shouldAllowUserMessageOverrideOnNameMismatch,
@@ -355,7 +356,14 @@ for (const s of launcher.listSessions()) {
   }
 }
 
-// When the CLI reports its internal session_id, store it for --resume on relaunch
+const codexWorkerV2RolloutService = new CodexWorkerV2RolloutService({
+  launcher,
+  wsBridge,
+  getSessionName: (sessionId) => sessionNames.getName(sessionId),
+  log: (message, data) => serverLog.info(message, data),
+});
+
+// When the CLI reports its internal session_id, store it for --resume on relaunch.
 wsBridge.onCLISessionId = (sessionId, cliSessionId) => {
   launcher.setCLISessionId(sessionId, cliSessionId);
 };
@@ -810,6 +818,7 @@ wsBridge.onAgentPaused = async (sessionId, history, cwd) => {
 // The turn-completed namer runs independently from user-message naming.
 // User-message outcomes are preferred when both produce competing revisions.
 wsBridge.onTurnCompleted = async (sessionId, history, cwd) => {
+  codexWorkerV2RolloutService.onTurnCompleted(sessionId);
   if (await shouldSkipAutoNamer(sessionId, "turn_completed", "start")) return;
   const currentName = sessionNames.getName(sessionId);
   if (!currentName) return;
@@ -1054,6 +1063,8 @@ await captureStartupInjectedRelaunches(async () => {
   }
 });
 
+void codexWorkerV2RolloutService.schedule("startup");
+
 // ── Idle session manager — enforce maxKeepAlive ─────────────────────────────
 const idleManager = new IdleManager(launcher, wsBridge, getSettings);
 idleManager.start();
@@ -1064,6 +1075,7 @@ sleepInhibitor.start();
 // ── Shutdown helpers ─────────────────────────────────────────────────────────
 async function performShutdown() {
   serverLog.info("Persisting state before shutdown...");
+  await codexWorkerV2RolloutService.destroy();
   idleManager.stop();
   sleepInhibitor.stop();
   await sessionStore.flushAll();

@@ -70,6 +70,7 @@ function makeDeps(): CodexRecoveryOrchestratorDeps {
     setGenerating: vi.fn(),
     broadcastStatusChange: vi.fn(),
     markRunningFromUserDispatch: vi.fn(() => "current" as const),
+    isCodexWorkerV2DeliveryFrozen: vi.fn(() => false),
   } as unknown as CodexRecoveryOrchestratorDeps;
 }
 
@@ -97,6 +98,7 @@ function makeLifecycleDeps(overrides: Record<string, unknown> = {}) {
   return {
     ...makeRecoveryDeps(),
     setCliSessionIdFromMeta: vi.fn(),
+    beforeSessionMetaDispatch: vi.fn(() => true),
     completeCodexLeaderRecycle: vi.fn(),
     hydrateCodexResumedHistory: vi.fn(),
     injectCompactionRecovery: vi.fn(),
@@ -454,6 +456,18 @@ describe("pokeStaleCodexPendingDelivery", () => {
     expect(head.turnId).toBeNull();
     expect(deps.dispatchQueuedCodexTurns).toHaveBeenCalledWith(session, "codex_retry_pending_turn");
     expect(deps.dispatchQueuedCodexTurns).toHaveBeenCalledWith(session, "herd_event_message");
+  });
+
+  it("does not poke or dispatch while the worker V2 cutover gate is frozen", () => {
+    const { session, deps } = makeStalePendingDeliverySession();
+    deps.isCodexWorkerV2DeliveryFrozen = vi.fn(() => true);
+
+    const poked = pokeStaleCodexPendingDelivery(session, "worker_v2_cutover", deps, {
+      triggeringInputId: "new-input",
+    });
+
+    expect(poked).toBe(false);
+    expect(deps.dispatchQueuedCodexTurns).not.toHaveBeenCalled();
   });
 
   it("refuses unsafe stale pending delivery poke states", () => {
@@ -1440,7 +1454,33 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
     vi.restoreAllMocks();
   });
 
-  it("clears reconnect progress for every browser after session metadata confirms recovery", () => {
+  it("does not mutate or dispatch queued recovery state before the cutover session_meta barrier resolves", async () => {
+    const session = makeSession([]);
+    prepareLifecycleSession(session);
+    session.state.backend_state = "recovering";
+    const adapter = makeLifecycleAdapter();
+    let releaseBarrier!: (allow: boolean) => void;
+    const barrier = new Promise<boolean>((resolve) => {
+      releaseBarrier = resolve;
+    });
+    const deps = makeLifecycleDeps({ beforeSessionMetaDispatch: vi.fn(() => barrier) });
+
+    session.codexAdapter = adapter as any;
+    registerCodexAdapterRecoveryLifecycle(session.id, session, adapter, deps);
+    adapter.emitSessionMeta({ cliSessionId: "thread-v2-replacement" });
+    await Promise.resolve();
+
+    expect(deps.dispatchQueuedCodexTurns).not.toHaveBeenCalled();
+    expect(deps.queueCodexPendingStartBatch).not.toHaveBeenCalled();
+    expect(deps.setCliSessionIdFromMeta).not.toHaveBeenCalled();
+    expect(session.state.backend_state).toBe("recovering");
+
+    releaseBarrier(true);
+    await vi.waitFor(() => expect(deps.dispatchQueuedCodexTurns).toHaveBeenCalledWith(session, "session_meta"));
+    expect(deps.setCliSessionIdFromMeta).toHaveBeenCalledWith(session.id, "thread-v2-replacement");
+  });
+
+  it("clears reconnect progress for every browser after session metadata confirms recovery", async () => {
     const session = makeSession([]);
     prepareLifecycleSession(session);
     session.state.backend_state = "recovering";
@@ -1452,7 +1492,7 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
     registerCodexAdapterRecoveryLifecycle(session.id, session, adapter, deps);
     adapter.emitSessionMeta({ cliSessionId: "thread-reconnected", model: "gpt-5.6-sol", cwd: "/repo" });
 
-    expect(session.state.backend_reconnect).toBeNull();
+    await vi.waitFor(() => expect(session.state.backend_reconnect).toBeNull());
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "session_update",
       session: { backend_reconnect: null },
@@ -1460,7 +1500,7 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
     expect(session.state.backend_state).toBe("connected");
   });
 
-  it("broadcasts testing only after the current manual recovery turn is backend-confirmed", () => {
+  it("broadcasts testing only after the current manual recovery turn is backend-confirmed", async () => {
     // The initial optimistic running transition is deliberately insufficient;
     // turn/start acknowledgement confirms the current server-owned manual turn.
     const session = makeSession([{ id: "input-1", content: "test recovery", timestamp: 1_000, cancelable: false }]);
@@ -1501,10 +1541,12 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
 
     vi.mocked(deps.broadcastToBrowsers).mockClear();
     adapter.emitSessionMeta({ cliSessionId: "thread-reconnected" });
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
-      type: "session_update",
-      session: { codex_result_error_auto_pause_recovery_testing: true },
-    });
+    await vi.waitFor(() =>
+      expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+        type: "session_update",
+        session: { codex_result_error_auto_pause_recovery_testing: true },
+      }),
+    );
   });
 
   it("marks backend-owned Codex Goal continuations as running without a pending input", () => {
@@ -1525,7 +1567,7 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
     expect(deps.persistSession).toHaveBeenCalledWith(session);
   });
 
-  it("collapses duplicate queued and backend-ack pending turns after recovery session_meta", () => {
+  it("collapses duplicate queued and backend-ack pending turns after recovery session_meta", async () => {
     const session = makeSession([]);
     prepareLifecycleSession(session);
     const queued = makePendingTurn();
@@ -1561,7 +1603,7 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
       },
     });
 
-    expect(session.pendingCodexTurns).toHaveLength(1);
+    await vi.waitFor(() => expect(session.pendingCodexTurns).toHaveLength(1));
     expect(session.pendingCodexTurns[0]).toMatchObject({
       status: "backend_acknowledged",
       turnTarget: null,

@@ -38,8 +38,11 @@ import { ensureModelAuthority, resolveLaunchModelSelection } from "./cli-launche
 import { captureProcessSnapshot, sanitizeSpawnArgsForLog } from "./cli-launcher-process-diagnostics.js";
 import type { ModelProvenanceMigration } from "./model-identity-contract.js";
 import { normalizeCodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
+import { normalizeCodexMultiAgentVersion } from "../shared/codex-multi-agent-version.js";
+import { applySessionLaunchConfigPatch, type SessionLaunchConfigPatch } from "./session-launch-config.js";
+import { isActivePublicOrchestratorCreator } from "./codex-worker-create-role.js";
 
-export type { SdkSessionInfo } from "./session-info.js";
+export { stripInternalLauncherSessionState, type SdkSessionInfo } from "./session-info.js";
 export type { LaunchOptions } from "./cli-launcher-options.js";
 
 function appendUniqueCliSessionId(
@@ -562,6 +565,7 @@ export class CliLauncher {
       info.codexInternetAccess = options.codexInternetAccess === true;
       info.codexSandbox = options.codexSandbox;
       info.codexReasoningEffort = options.codexReasoningEffort;
+      info.codexMultiAgentVersion = normalizeCodexMultiAgentVersion(options.codexMultiAgentVersion);
       info.codexServiceTier = options.codexServiceTier ?? null;
       info.codexMaxContextLength = options.codexMaxContextLength;
       info.codexHome = options.codexHome;
@@ -655,10 +659,17 @@ export class CliLauncher {
     }
     const envWithSessionId = this.composeSessionEnv(launchEnv, identityEnv, options.blockedEnvKeys);
     this.sessionEnvs.set(sessionId, envWithSessionId);
+    if (options.createdBySessionRef) {
+      const creatorId = this.resolveSessionId(options.createdBySessionRef);
+      const creator = creatorId ? this.sessions.get(creatorId) : undefined;
+      if (creatorId && isActivePublicOrchestratorCreator(creator)) info.herdedBy = creatorId;
+      else if (info.codexMultiAgentVersion === "v2") info.codexMultiAgentVersion = "v1";
+    }
     options = {
       ...options,
       model: info.model,
       modelAuthority: info.modelAuthority,
+      codexMultiAgentVersion: info.codexMultiAgentVersion,
       env: envWithSessionId,
     };
 
@@ -844,7 +855,9 @@ export class CliLauncher {
       // Re-derive orchestrator guardrails for relaunched sessions.
       // extraInstructions is not persisted; regenerate from the isOrchestrator flag
       // so relaunched leaders retain the full orchestration system prompt.
-      const extraInstructions = info.isOrchestrator ? this.getOrchestratorGuardrails(bt) : undefined;
+      const extraInstructions = info.isOrchestrator
+        ? this.getOrchestratorGuardrails(bt)
+        : (info.codexWorkerV2Cutover?.oneShotExtraInstructions ?? undefined);
 
       switch (bt) {
         case "codex":
@@ -858,6 +871,7 @@ export class CliLauncher {
             codexSandbox: info.codexSandbox,
             codexInternetAccess: info.codexInternetAccess,
             codexReasoningEffort: info.codexReasoningEffort,
+            codexMultiAgentVersion: info.codexMultiAgentVersion,
             codexServiceTier: info.codexServiceTier,
             codexMaxContextLength: info.codexMaxContextLength,
             codexLeaderCompactionMode: info.codexLeaderCompactionMode,
@@ -1646,36 +1660,10 @@ export class CliLauncher {
     return this.sessions.get(sessionId);
   }
 
-  updateSessionLaunchConfig(
-    sessionId: string,
-    updates: Partial<
-      Pick<
-        SdkSessionInfo,
-        | "model"
-        | "permissionMode"
-        | "askPermission"
-        | "uiMode"
-        | "codexInternetAccess"
-        | "codexSandbox"
-        | "codexReasoningEffort"
-        | "codexServiceTier"
-        | "codexMaxContextLength"
-        | "codexLeaderCompactionMode"
-        | "claudeReasoningEffort"
-        | "claudeMaxContextLength"
-      >
-    >,
-  ): SdkSessionInfo | undefined {
+  updateSessionLaunchConfig(sessionId: string, updates: SessionLaunchConfigPatch): SdkSessionInfo | undefined {
     const info = this.sessions.get(sessionId);
     if (!info) return undefined;
-    let changed = false;
-    for (const key of Object.keys(updates) as Array<keyof typeof updates>) {
-      const next = updates[key];
-      if (info[key] === next) continue;
-      (info as unknown as Record<string, unknown>)[key] = next;
-      changed = true;
-    }
-    if (changed) this.persistState();
+    if (applySessionLaunchConfigPatch(info, updates)) this.persistState();
     return info;
   }
 

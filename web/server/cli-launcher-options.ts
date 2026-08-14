@@ -1,6 +1,7 @@
 import type { BackendType } from "./session-types.js";
 import type { ModelAuthorityDecision, ModelProvenanceMigration } from "./model-identity-contract.js";
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
+import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version.js";
 
 export interface LaunchOptions {
   model?: string;
@@ -27,6 +28,10 @@ export interface LaunchOptions {
   codexInternetAccess?: boolean;
   /** Codex reasoning effort (e.g. low/medium/high). */
   codexReasoningEffort?: string;
+  /** Server-selected native Codex collaboration runtime version. */
+  codexMultiAgentVersion?: CodexMultiAgentVersion;
+  /** Server-resolved creator reference used to atomically validate normal worker attachment before spawn. */
+  createdBySessionRef?: string;
   /** Codex app-server service tier for future turns. null/undefined means Standard. */
   codexServiceTier?: string | null;
   /** Optional Codex model context window override. */

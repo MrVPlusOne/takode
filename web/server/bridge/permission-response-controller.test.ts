@@ -64,6 +64,7 @@ function makeSession(): AdapterBrowserRoutingSessionLike {
 function makeDeps(): AdapterBrowserRoutingDeps {
   return {
     sendToCLI: vi.fn(() => null),
+    isCodexWorkerV2DeliveryFrozen: vi.fn(() => false),
     broadcastToBrowsers: vi.fn(),
     emitTakodeEvent: vi.fn(),
     persistSession: vi.fn(),

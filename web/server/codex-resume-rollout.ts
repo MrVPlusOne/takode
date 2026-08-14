@@ -6,7 +6,77 @@ type YieldingTiming = {
   yieldIfDue(label: string): Promise<unknown>;
 };
 
-async function findCodexRolloutPath(codexHome: string, threadId: string): Promise<string | null> {
+export interface CodexRolloutDiscoveryLimits {
+  maxYears?: number;
+  maxMonthsPerYear?: number;
+  maxDaysPerMonth?: number;
+  maxDayDirectories?: number;
+  maxEntriesPerDay?: number;
+}
+
+export interface CodexRolloutDiscoveryResult {
+  path: string | null;
+  truncated: boolean;
+}
+
+const DEFAULT_DIAGNOSTIC_DISCOVERY_LIMITS = {
+  maxYears: 16,
+  maxMonthsPerYear: 12,
+  maxDaysPerMonth: 31,
+  maxDayDirectories: 128,
+  maxEntriesPerDay: 4096,
+} as const;
+
+function boundedNewestNames(names: string[], pattern: RegExp, limit: number): { names: string[]; truncated: boolean } {
+  const matching = names.filter((name) => pattern.test(name)).sort((a, b) => b.localeCompare(a));
+  return { names: matching.slice(0, limit), truncated: matching.length > limit };
+}
+
+/** Newest-first, fail-closed discovery for diagnostics and startup reconciliation. */
+export async function findCodexRolloutPathBounded(
+  codexHome: string,
+  threadId: string,
+  limits: CodexRolloutDiscoveryLimits = {},
+): Promise<CodexRolloutDiscoveryResult> {
+  const resolved = { ...DEFAULT_DIAGNOSTIC_DISCOVERY_LIMITS, ...limits };
+  const sessionsRoot = join(codexHome, "sessions");
+  const yearResult = boundedNewestNames(await readdir(sessionsRoot).catch(() => []), /^\d{4}$/, resolved.maxYears);
+  let truncated = yearResult.truncated;
+  let visitedDayDirectories = 0;
+
+  for (const year of yearResult.names) {
+    const yearPath = join(sessionsRoot, year);
+    const monthResult = boundedNewestNames(
+      await readdir(yearPath).catch(() => []),
+      /^(?:0[1-9]|1[0-2])$/,
+      resolved.maxMonthsPerYear,
+    );
+    truncated ||= monthResult.truncated;
+    for (const month of monthResult.names) {
+      const monthPath = join(yearPath, month);
+      const dayResult = boundedNewestNames(
+        await readdir(monthPath).catch(() => []),
+        /^(?:0[1-9]|[12]\d|3[01])$/,
+        resolved.maxDaysPerMonth,
+      );
+      truncated ||= dayResult.truncated;
+      for (const day of dayResult.names) {
+        if (visitedDayDirectories >= resolved.maxDayDirectories) return { path: null, truncated: true };
+        visitedDayDirectories++;
+        const dayPath = join(monthPath, day);
+        const entries = await readdir(dayPath, { withFileTypes: true }).catch(() => []);
+        const newestFiles = entries.filter((entry) => entry.isFile()).sort((a, b) => b.name.localeCompare(a.name));
+        const boundedEntries = newestFiles.slice(0, resolved.maxEntriesPerDay);
+        truncated ||= newestFiles.length > boundedEntries.length;
+        const newestMatch = boundedEntries.find((entry) => entry.name.endsWith(`${threadId}.jsonl`))?.name;
+        if (newestMatch) return { path: join(dayPath, newestMatch), truncated };
+      }
+    }
+  }
+  return { path: null, truncated };
+}
+
+export async function findCodexRolloutPath(codexHome: string, threadId: string): Promise<string | null> {
   const sessionsRoot = join(codexHome, "sessions");
   const years = await readdir(sessionsRoot).catch(() => []);
 

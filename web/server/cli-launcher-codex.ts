@@ -25,7 +25,17 @@ import {
   stripInheritedTelemetryEnv,
   withNonInteractiveGitEditorEnv,
 } from "./cli-launcher-env.js";
-import { removeTopLevelTomlSettings, upsertShellEnvironmentIncludeOnly } from "./cli-launcher-codex-config-utils.js";
+import {
+  escapeRegExp,
+  readStringSettingInSection,
+  readTopLevelNumberSetting,
+  readTopLevelStringSetting,
+  removeTopLevelTomlSettings,
+  upsertBooleanSettingInSection,
+  upsertShellEnvironmentIncludeOnly,
+  upsertTopLevelNumberSetting,
+  upsertTopLevelStringSetting,
+} from "./cli-launcher-codex-config-utils.js";
 import { CooperativeTiming } from "./cooperative-timing.js";
 import { buildTakodeDelegateMcpConfig, upsertTakodeDelegateMcpServer } from "./codex-delegate-mcp-config.js";
 import { resolveBinary, getEnrichedPath, captureUserShellEnv } from "./path-resolver.js";
@@ -48,9 +58,11 @@ import {
   rawContextWindowForUsableCapacity,
 } from "./codex-context-capacity.js";
 import { isCodexLeaderRecycleMode, type CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
+import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version.js";
 
 const codexFeaturesHeader = "[features]";
 const codexMultiAgentFeature = "multi_agent";
+const codexMultiAgentV2Feature = "multi_agent_v2";
 const codexImageGenerationFeature = "image_generation";
 const sessionScopedCodexConfigKeys = new Set(["developer_instructions"]);
 const dotslashShebang = "#!/usr/bin/env dotslash";
@@ -68,6 +80,7 @@ const defaultCodexLeaderProviderEnvelopeMultiplier = 5;
 const takodeLeaderModelCatalogFilename = "takode-leader-model-catalog.json";
 const spawnPrepCacheTtlMs = 60_000;
 const takodeNonLeaderModelCatalogFilename = "takode-model-catalog.json";
+const takodeNonLeaderModelCatalogSourceFilename = "takode-model-catalog-source.json";
 const containerTakodeNonLeaderModelCatalogPath = "/root/.codex/takode-model-catalog.json";
 const containerTakodeLeaderModelCatalogPath = "/root/.codex/takode-leader-model-catalog.json";
 
@@ -133,6 +146,8 @@ interface CodexLaunchOptions {
   codexSandbox?: CodexSandboxMode;
   codexInternetAccess?: boolean;
   codexReasoningEffort?: string;
+  /** Server-selected native Codex collaboration implementation. */
+  codexMultiAgentVersion?: CodexMultiAgentVersion;
   /** Desired usable context capacity; raw provider/catalog values are derived during launch prep. */
   codexMaxContextLength?: number;
   codexHome?: string;
@@ -263,10 +278,6 @@ function resolveCodexSandbox(permissionMode?: string, requested?: CodexSandboxMo
   }
 }
 
-function escapeRegExp(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function mergePathStrings(paths: Array<string | undefined>): string {
   const seen = new Set<string>();
   const merged: string[] = [];
@@ -372,6 +383,17 @@ function scrubSessionScopedCodexConfig(configToml: string): string {
   return removeTopLevelTomlSettings(configToml, sessionScopedCodexConfigKeys);
 }
 
+function getSelectedProviderEnvKeys(configToml: string): string[] {
+  const provider = readTopLevelStringSetting(configToml, "model_provider")?.trim();
+  if (!provider) return [];
+  const envKey = readStringSettingInSection(configToml, `[model_providers.${provider}]`, "env_key")?.trim();
+  return envKey ? [envKey] : [];
+}
+
+function usesMaiLitellmProvider(configToml: string): boolean {
+  return readTopLevelStringSetting(configToml, "model_provider")?.trim().toLowerCase() === "mai-litellm";
+}
+
 function isTakodeNonLeaderModelCatalogConfigPath(codexHome: string, rawPath: string): boolean {
   const resolvedPath = resolveConfigPathValue(codexHome, rawPath);
   return (
@@ -406,189 +428,6 @@ async function resolveMaiWrapperSessionLaunchSpec(
   await ensureMaiWrapperHostnameShim(hostnameShimDir, overlayHostname);
   return { hostnameShimDir };
 }
-function upsertBooleanSettingInSection(configToml: string, sectionHeader: string, key: string, value: boolean): string {
-  const endsWithNewline = configToml.endsWith("\n");
-  const lines = configToml.split("\n");
-  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-
-  const sectionStart = lines.findIndex((line) => line.trim().toLowerCase() === sectionHeader.toLowerCase());
-  const renderedLine = `${key} = ${value ? "true" : "false"}`;
-  if (sectionStart === -1) {
-    const out = [...lines];
-    if (out.length > 0 && out[out.length - 1].trim() !== "") out.push("");
-    out.push(sectionHeader);
-    out.push(renderedLine);
-    return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
-  }
-
-  let sectionEnd = lines.length;
-  for (let i = sectionStart + 1; i < lines.length; i++) {
-    if (/^\s*\[[^\]]+\]\s*$/.test(lines[i])) {
-      sectionEnd = i;
-      break;
-    }
-  }
-
-  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`);
-  const keyIndex = lines.findIndex(
-    (line, index) => index > sectionStart && index < sectionEnd && keyPattern.test(line),
-  );
-
-  const out = [...lines];
-  if (keyIndex === -1) {
-    out.splice(sectionStart + 1, 0, renderedLine);
-  } else {
-    out[keyIndex] = renderedLine;
-  }
-  return out.join("\n") + (endsWithNewline ? "\n" : "");
-}
-
-function upsertTopLevelNumberSetting(configToml: string, key: string, value: number): string {
-  const endsWithNewline = configToml.endsWith("\n");
-  const lines = configToml.split("\n");
-  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-
-  const renderedLine = `${key} = ${Math.floor(value)}`;
-  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`);
-  let insertAt = lines.length;
-
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    if (/^\s*\[[^\]]+\]\s*$/.test(lines[i])) {
-      insertAt = i;
-      break;
-    }
-    if (keyPattern.test(lines[i])) {
-      const out = [...lines];
-      out[i] = renderedLine;
-      return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
-    }
-  }
-
-  const out = [...lines];
-  out.splice(insertAt, 0, renderedLine);
-  return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
-}
-
-function readTopLevelStringSetting(configToml: string, key: string): string | undefined {
-  const lines = configToml.split("\n");
-  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(.+?)\\s*$`);
-
-  for (const line of lines) {
-    if (/^\s*\[[^\]]+\]\s*$/.test(line)) break;
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const match = line.match(keyPattern);
-    if (!match?.[1]) continue;
-    const value = match[1].trim();
-    if (value.startsWith('"') && value.endsWith('"')) {
-      try {
-        return JSON.parse(value);
-      } catch {
-        return value.slice(1, -1);
-      }
-    }
-    if (value.startsWith("'") && value.endsWith("'")) {
-      return value.slice(1, -1).replace(/'\\\\''/g, "'");
-    }
-    return value;
-  }
-
-  return undefined;
-}
-
-function readStringSettingInSection(configToml: string, sectionHeader: string, key: string): string | undefined {
-  const lines = configToml.split("\n");
-  const normalizedHeader = sectionHeader.trim().toLowerCase();
-  const sectionStart = lines.findIndex((line) => line.trim().toLowerCase() === normalizedHeader);
-  if (sectionStart === -1) return undefined;
-
-  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(.+?)\\s*$`);
-  for (let i = sectionStart + 1; i < lines.length; i++) {
-    if (/^\s*\[[^\]]+\]\s*$/.test(lines[i])) break;
-    const trimmed = lines[i].trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const match = lines[i].match(keyPattern);
-    if (!match?.[1]) continue;
-    const value = match[1].trim();
-    if (value.startsWith('"') && value.endsWith('"')) {
-      try {
-        return JSON.parse(value);
-      } catch {
-        return value.slice(1, -1);
-      }
-    }
-    if (value.startsWith("'") && value.endsWith("'")) {
-      return value.slice(1, -1).replace(/'\\\\''/g, "'");
-    }
-    return value;
-  }
-
-  return undefined;
-}
-
-function getSelectedProviderEnvKeys(configToml: string): string[] {
-  const provider = readTopLevelStringSetting(configToml, "model_provider")?.trim();
-  if (!provider) return [];
-  const envKey = readStringSettingInSection(configToml, `[model_providers.${provider}]`, "env_key")?.trim();
-  return envKey ? [envKey] : [];
-}
-
-function readTopLevelNumberSetting(configToml: string, key: string): number | undefined {
-  const lines = configToml.split("\n");
-  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(.+?)\\s*$`);
-
-  for (const line of lines) {
-    if (/^\s*\[[^\]]+\]\s*$/.test(line)) break;
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const match = line.match(keyPattern);
-    if (!match?.[1]) continue;
-    const value = Number(
-      match[1]
-        .replace(/\s+#.*$/, "")
-        .replace(/_/g, "")
-        .trim(),
-    );
-    return Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined;
-  }
-
-  return undefined;
-}
-
-function usesMaiLitellmProvider(configToml: string): boolean {
-  return readTopLevelStringSetting(configToml, "model_provider")?.trim().toLowerCase() === "mai-litellm";
-}
-
-function upsertTopLevelStringSetting(configToml: string, key: string, value: string): string {
-  const endsWithNewline = configToml.endsWith("\n");
-  const lines = configToml.split("\n");
-  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-
-  const renderedLine = `${key} = ${JSON.stringify(value)}`;
-  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`);
-  let insertAt = lines.length;
-
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    if (/^\s*\[[^\]]+\]\s*$/.test(lines[i])) {
-      insertAt = i;
-      break;
-    }
-    if (keyPattern.test(lines[i])) {
-      const out = [...lines];
-      out[i] = renderedLine;
-      return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
-    }
-  }
-
-  const out = [...lines];
-  out.splice(insertAt, 0, renderedLine);
-  return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
-}
-
 function resolveConfigPathValue(configDir: string, rawPath: string): string {
   if (rawPath.startsWith("~/")) {
     return join(homedir(), rawPath.slice(2));
@@ -793,11 +632,24 @@ function appendCodexLeaderLaunchGuardArgs(args: string[], leaderConfig?: CodexLe
   args.push("-c", `model_auto_compact_token_limit=${leaderConfig.modelAutoCompactTokenLimit}`);
 }
 
+function forceCodexModelEntryMultiAgentVersion(
+  modelEntry: Record<string, any>,
+  multiAgentVersion?: CodexMultiAgentVersion,
+): boolean {
+  if (!multiAgentVersion || modelEntry.multi_agent_version === multiAgentVersion) return false;
+  modelEntry.multi_agent_version = multiAgentVersion;
+  return true;
+}
+
 async function ensureCodexLeaderModelCatalogOverride(
   codexHome: string,
   configToml: string,
   recycleThresholdTokens: number,
-  options?: { model?: string; modelCatalogConfigPath?: string },
+  options?: {
+    model?: string;
+    modelCatalogConfigPath?: string;
+    multiAgentVersion?: CodexMultiAgentVersion;
+  },
 ): Promise<{ catalogJson?: string; configToml: string; launchGuard: CodexLeaderLaunchGuard }> {
   let launchGuard = deriveCodexLeaderLaunchGuard(recycleThresholdTokens, defaultCodexEffectiveContextWindowPercent);
   const override = await ensureCodexModelCatalogOverride(codexHome, configToml, {
@@ -823,7 +675,8 @@ async function ensureCodexLeaderModelCatalogOverride(
       modelEntry.max_context_window = launchGuard.providerRawContextWindow;
       modelEntry.auto_compact_token_limit = launchGuard.providerAutoCompactTokenLimit;
       const compatibilityChanged = usesMaiLitellmProvider(configToml) && disableResponsesLiteForMaiLitellm(modelEntry);
-      return changed || compatibilityChanged;
+      const multiAgentChanged = forceCodexModelEntryMultiAgentVersion(modelEntry, options?.multiAgentVersion);
+      return changed || compatibilityChanged || multiAgentChanged;
     },
   });
   return { ...override, launchGuard };
@@ -837,6 +690,8 @@ async function ensureCodexModelCatalogOverride(
     modelCatalogConfigPath?: string;
     catalogFilename: string;
     createModelEntry?: (modelSlug: string) => Record<string, any>;
+    sourceCatalogSnapshotFilename?: string;
+    skipConfiguredCatalogSource?: boolean;
     mutateModelEntry: (modelEntry: Record<string, any>) => boolean;
   },
 ): Promise<{ catalogJson?: string; configToml: string }> {
@@ -844,18 +699,29 @@ async function ensureCodexModelCatalogOverride(
   if (!modelSlug) return { configToml };
 
   const existingCatalogPathValue = readTopLevelStringSetting(configToml, "model_catalog_json");
+  const configuredCatalogPath = existingCatalogPathValue
+    ? resolveConfigPathValue(codexHome, existingCatalogPathValue)
+    : undefined;
+  const sourceCatalogSnapshotPath = options.sourceCatalogSnapshotFilename
+    ? join(codexHome, options.sourceCatalogSnapshotFilename)
+    : undefined;
   const sourceCatalogCandidates = [
-    existingCatalogPathValue ? resolveConfigPathValue(codexHome, existingCatalogPathValue) : undefined,
+    configuredCatalogPath && !options.skipConfiguredCatalogSource ? configuredCatalogPath : undefined,
+    options.skipConfiguredCatalogSource ? sourceCatalogSnapshotPath : undefined,
     join(codexHome, "models_cache.json"),
     join(getLegacyCodexHome(), "models_cache.json"),
   ].filter((candidate, index, all): candidate is string => !!candidate && all.indexOf(candidate) === index);
 
   let parsedCatalog: any = null;
+  let parsedCatalogSourcePath: string | undefined;
   for (const sourceCatalogPath of sourceCatalogCandidates) {
     if (!(await fileExists(sourceCatalogPath))) continue;
     try {
       parsedCatalog = JSON.parse(await readFile(sourceCatalogPath, "utf-8"));
-      if (Array.isArray(parsedCatalog?.models)) break;
+      if (Array.isArray(parsedCatalog?.models)) {
+        parsedCatalogSourcePath = sourceCatalogPath;
+        break;
+      }
     } catch (error) {
       console.warn(`[cli-launcher] Failed to parse Codex model catalog ${sourceCatalogPath}:`, error);
       parsedCatalog = null;
@@ -864,6 +730,20 @@ async function ensureCodexModelCatalogOverride(
   if (!Array.isArray(parsedCatalog?.models)) {
     if (!options.createModelEntry) return { configToml };
     parsedCatalog = { models: [] };
+  }
+
+  if (
+    sourceCatalogSnapshotPath &&
+    configuredCatalogPath &&
+    parsedCatalogSourcePath === configuredCatalogPath &&
+    existingCatalogPathValue &&
+    !isTakodeNonLeaderModelCatalogConfigPath(codexHome, existingCatalogPathValue)
+  ) {
+    // Once config points at Takode's generated catalog, the user's original
+    // catalog path is no longer present there. Keep an unmodified session-local
+    // source snapshot so later V1/V2 launches and context reset can rebuild the
+    // generated entry without discarding custom model metadata.
+    await writeFile(sourceCatalogSnapshotPath, JSON.stringify(parsedCatalog, null, 2) + "\n", "utf-8");
   }
 
   const modelEntries = parsedCatalog.models as any[];
@@ -881,10 +761,11 @@ async function ensureCodexModelCatalogOverride(
   const catalogJson = JSON.stringify(parsedCatalog, null, 2) + "\n";
   const catalogPath = join(codexHome, options.catalogFilename);
   const catalogConfigPath = options?.modelCatalogConfigPath || catalogPath;
-  const configuredCatalogPath = existingCatalogPathValue
-    ? resolveConfigPathValue(codexHome, existingCatalogPathValue)
-    : undefined;
-  if (!changed && configuredCatalogPath === resolveConfigPathValue(codexHome, catalogConfigPath)) {
+  if (
+    !options.skipConfiguredCatalogSource &&
+    !changed &&
+    configuredCatalogPath === resolveConfigPathValue(codexHome, catalogConfigPath)
+  ) {
     return { configToml };
   }
   await writeFile(catalogPath, catalogJson, "utf-8");
@@ -893,11 +774,15 @@ async function ensureCodexModelCatalogOverride(
   return { configToml: nextConfigToml, catalogJson };
 }
 
-async function scrubTakodeNonLeaderContextOverride(codexHome: string, configToml: string): Promise<string> {
+async function scrubTakodeNonLeaderContextOverride(
+  codexHome: string,
+  configToml: string,
+  options?: { model?: string; preserveModelCatalog?: boolean },
+): Promise<string> {
   const rawCatalogPath = readTopLevelStringSetting(configToml, "model_catalog_json");
   if (!rawCatalogPath || !isTakodeNonLeaderModelCatalogConfigPath(codexHome, rawCatalogPath)) return configToml;
 
-  const modelSlug = readTopLevelStringSetting(configToml, "model");
+  const modelSlug = options?.model || readTopLevelStringSetting(configToml, "model");
   const topLevelContextWindow = readTopLevelNumberSetting(configToml, "model_context_window");
   const topLevelAutoCompactLimit = readTopLevelNumberSetting(configToml, "model_auto_compact_token_limit");
   let shouldRemoveTopLevelContext = false;
@@ -914,7 +799,8 @@ async function scrubTakodeNonLeaderContextOverride(codexHome: string, configToml
       coercePositiveNumber(modelEntry?.auto_compact_token_limit) === topLevelAutoCompactLimit;
   }
 
-  const keys = new Set(["model_catalog_json"]);
+  const keys = new Set<string>();
+  if (!options?.preserveModelCatalog) keys.add("model_catalog_json");
   if (shouldRemoveTopLevelContext) keys.add("model_context_window");
   if (shouldRemoveTopLevelAutoCompact) keys.add("model_auto_compact_token_limit");
   return removeTopLevelTomlSettings(configToml, keys);
@@ -924,7 +810,11 @@ async function ensureCodexNonLeaderContextCapacityOverride(
   codexHome: string,
   configToml: string,
   desiredUsableContextWindow: number,
-  options?: { model?: string; modelCatalogConfigPath?: string },
+  options?: {
+    model?: string;
+    modelCatalogConfigPath?: string;
+    multiAgentVersion?: CodexMultiAgentVersion;
+  },
 ): Promise<{ configToml: string; modelCatalogJson?: string; launchConfig: CodexContextLaunchConfig }> {
   let rawContextWindow = rawContextWindowForUsableCapacity(
     desiredUsableContextWindow,
@@ -936,6 +826,7 @@ async function ensureCodexNonLeaderContextCapacityOverride(
     model: options?.model,
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
     catalogFilename: takodeNonLeaderModelCatalogFilename,
+    sourceCatalogSnapshotFilename: takodeNonLeaderModelCatalogSourceFilename,
     createModelEntry: (modelSlug) => ({
       slug: modelSlug,
       context_window: rawContextWindow,
@@ -956,7 +847,8 @@ async function ensureCodexNonLeaderContextCapacityOverride(
       modelEntry.effective_context_window_percent = effectivePercent;
       modelEntry.auto_compact_token_limit = modelAutoCompactTokenLimit;
       const compatibilityChanged = usesMaiLitellmProvider(configToml) && disableResponsesLiteForMaiLitellm(modelEntry);
-      return changed || compatibilityChanged;
+      const multiAgentChanged = forceCodexModelEntryMultiAgentVersion(modelEntry, options?.multiAgentVersion);
+      return changed || compatibilityChanged || multiAgentChanged;
     },
   });
 
@@ -985,13 +877,43 @@ async function ensureCodexNonLeaderContextCapacityOverride(
 async function ensureCodexMaiLitellmCatalogCompatibilityOverride(
   codexHome: string,
   configToml: string,
-  options?: { model?: string; modelCatalogConfigPath?: string },
+  options?: {
+    model?: string;
+    modelCatalogConfigPath?: string;
+    multiAgentVersion?: CodexMultiAgentVersion;
+    skipConfiguredCatalogSource?: boolean;
+  },
 ): Promise<{ configToml: string; modelCatalogJson?: string }> {
   const override = await ensureCodexModelCatalogOverride(codexHome, configToml, {
     model: options?.model,
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
     catalogFilename: takodeNonLeaderModelCatalogFilename,
-    mutateModelEntry: disableResponsesLiteForMaiLitellm,
+    sourceCatalogSnapshotFilename: takodeNonLeaderModelCatalogSourceFilename,
+    skipConfiguredCatalogSource: options?.skipConfiguredCatalogSource,
+    ...(options?.multiAgentVersion ? { createModelEntry: (modelSlug: string) => ({ slug: modelSlug }) } : {}),
+    mutateModelEntry: (modelEntry) => {
+      const compatibilityChanged = disableResponsesLiteForMaiLitellm(modelEntry);
+      const multiAgentChanged = forceCodexModelEntryMultiAgentVersion(modelEntry, options?.multiAgentVersion);
+      return compatibilityChanged || multiAgentChanged;
+    },
+  });
+  return { configToml: override.configToml, modelCatalogJson: override.catalogJson };
+}
+
+async function ensureCodexMultiAgentModelCatalogOverride(
+  codexHome: string,
+  configToml: string,
+  multiAgentVersion: CodexMultiAgentVersion,
+  options?: { model?: string; modelCatalogConfigPath?: string; skipConfiguredCatalogSource?: boolean },
+): Promise<{ configToml: string; modelCatalogJson?: string }> {
+  const override = await ensureCodexModelCatalogOverride(codexHome, configToml, {
+    model: options?.model,
+    modelCatalogConfigPath: options?.modelCatalogConfigPath,
+    catalogFilename: takodeNonLeaderModelCatalogFilename,
+    sourceCatalogSnapshotFilename: takodeNonLeaderModelCatalogSourceFilename,
+    skipConfiguredCatalogSource: options?.skipConfiguredCatalogSource,
+    createModelEntry: (modelSlug) => ({ slug: modelSlug }),
+    mutateModelEntry: (modelEntry) => forceCodexModelEntryMultiAgentVersion(modelEntry, multiAgentVersion),
   });
   return { configToml: override.configToml, modelCatalogJson: override.catalogJson };
 }
@@ -1450,6 +1372,7 @@ async function ensureCodexSessionConfig(
     existingLeaderRecycleThresholdTokens?: number;
     model?: string;
     codexBinary?: string;
+    multiAgentVersion?: CodexMultiAgentVersion;
     loadInstalledModelCatalog?: () => Promise<import("./codex-model-catalog.js").CodexCatalogResult | null>;
     modelCatalogConfigPath?: string;
     takodeDelegateMcp?: {
@@ -1472,6 +1395,14 @@ async function ensureCodexSessionConfig(
 
   let next = scrubSessionScopedCodexConfig(current);
   next = upsertBooleanSettingInSection(next, codexFeaturesHeader, codexMultiAgentFeature, true);
+  if (options?.multiAgentVersion) {
+    next = upsertBooleanSettingInSection(
+      next,
+      codexFeaturesHeader,
+      codexMultiAgentV2Feature,
+      options.multiAgentVersion === "v2",
+    );
+  }
   if (usesMaiLitellmProvider(next)) {
     next = upsertBooleanSettingInSection(next, codexFeaturesHeader, codexImageGenerationFeature, false);
   }
@@ -1507,6 +1438,7 @@ async function ensureCodexSessionConfig(
     const override = await ensureCodexLeaderModelCatalogOverride(codexHome, next, leaderRecycleThresholdTokens, {
       model: modelId,
       modelCatalogConfigPath: options?.modelCatalogConfigPath,
+      multiAgentVersion: options?.multiAgentVersion,
     });
     next = override.configToml;
     modelCatalogJson = override.catalogJson;
@@ -1531,21 +1463,47 @@ async function ensureCodexSessionConfig(
     const override = await ensureCodexNonLeaderContextCapacityOverride(codexHome, next, desiredContextCapacity, {
       model: modelId,
       modelCatalogConfigPath: options?.modelCatalogConfigPath,
+      multiAgentVersion: options?.multiAgentVersion,
     });
     next = override.configToml;
     modelCatalogJson = override.modelCatalogJson;
     contextLaunchConfig = override.launchConfig;
     await options?.timing?.yieldIfDue("prepare Codex usable context override");
   } else if (usesMaiLitellmProvider(next)) {
+    const configuredCatalogPath = readTopLevelStringSetting(next, "model_catalog_json");
+    const rebuildTakodeCatalog =
+      !!configuredCatalogPath && isTakodeNonLeaderModelCatalogConfigPath(codexHome, configuredCatalogPath);
+    next = await scrubTakodeNonLeaderContextOverride(codexHome, next, {
+      model: modelId,
+      preserveModelCatalog: true,
+    });
     const override = await ensureCodexMaiLitellmCatalogCompatibilityOverride(codexHome, next, {
       model: modelId,
       modelCatalogConfigPath: options?.modelCatalogConfigPath,
+      multiAgentVersion: options?.multiAgentVersion,
+      skipConfiguredCatalogSource: rebuildTakodeCatalog,
     });
     next = override.configToml;
     modelCatalogJson = override.modelCatalogJson;
     await options?.timing?.yieldIfDue("prepare Codex MAI LiteLLM catalog compatibility override");
   } else {
-    next = await scrubTakodeNonLeaderContextOverride(codexHome, next);
+    const configuredCatalogPath = readTopLevelStringSetting(next, "model_catalog_json");
+    const rebuildTakodeCatalog =
+      !!configuredCatalogPath && isTakodeNonLeaderModelCatalogConfigPath(codexHome, configuredCatalogPath);
+    next = await scrubTakodeNonLeaderContextOverride(codexHome, next, {
+      model: modelId,
+      preserveModelCatalog: options?.multiAgentVersion !== undefined,
+    });
+    if (options?.multiAgentVersion) {
+      const override = await ensureCodexMultiAgentModelCatalogOverride(codexHome, next, options.multiAgentVersion, {
+        model: modelId,
+        modelCatalogConfigPath: options.modelCatalogConfigPath,
+        skipConfiguredCatalogSource: rebuildTakodeCatalog,
+      });
+      next = override.configToml;
+      modelCatalogJson = override.modelCatalogJson;
+      await options.timing?.yieldIfDue("prepare Codex multi-agent model catalog override");
+    }
   }
   if (options?.takodeDelegateMcp) {
     next = upsertTakodeDelegateMcpServer(next, options.takodeDelegateMcp);
@@ -1716,7 +1674,7 @@ export async function prepareCodexSpawn(
     let containerModelCatalogJson: string | undefined;
     const containerModelCatalogPath = leaderRecycleLaunch
       ? containerTakodeLeaderModelCatalogPath
-      : options.codexMaxContextLength
+      : options.codexMaxContextLength || options.codexMultiAgentVersion
         ? containerTakodeNonLeaderModelCatalogPath
         : undefined;
 
@@ -1745,6 +1703,7 @@ export async function prepareCodexSpawn(
           existingLeaderRecycleThresholdTokens: existingLeaderRecycleBudget(info),
           model: options.model,
           codexBinary: binary,
+          multiAgentVersion: options.codexMultiAgentVersion,
           takodeDelegateMcp: buildTakodeDelegateMcpConfig(
             codexLeaderLaunch || options.env?.TAKODE_DELEGATE_ROLE === "child",
             options.env,
@@ -1774,6 +1733,7 @@ export async function prepareCodexSpawn(
           existingLeaderRecycleThresholdTokens: existingLeaderRecycleBudget(info),
           model: options.model,
           codexBinary: binary,
+          multiAgentVersion: options.codexMultiAgentVersion,
           modelCatalogConfigPath: containerModelCatalogPath,
           takodeDelegateMcp: buildTakodeDelegateMcpConfig(
             codexLeaderLaunch || options.env?.TAKODE_DELEGATE_ROLE === "child",
@@ -1797,6 +1757,9 @@ export async function prepareCodexSpawn(
           )
         : null;
     const args: string[] = [];
+    if (options.codexMultiAgentVersion) {
+      args.push(options.codexMultiAgentVersion === "v2" ? "--enable" : "--disable", codexMultiAgentV2Feature);
+    }
     args.push("-c", `tools.webSearch=${options.codexInternetAccess === true ? "true" : "false"}`);
     if (options.model) {
       args.push("-c", `model=${options.model}`);
@@ -1985,6 +1948,7 @@ export function _ensureCodexSessionConfigForTest(
     existingLeaderRecycleThresholdTokens?: number;
     model?: string;
     codexBinary?: string;
+    multiAgentVersion?: CodexMultiAgentVersion;
     loadInstalledModelCatalog?: () => Promise<import("./codex-model-catalog.js").CodexCatalogResult | null>;
     modelCatalogConfigPath?: string;
     takodeDelegateMcp?: {

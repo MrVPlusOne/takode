@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version.ts";
 import {
   getSessionAuthDir,
   getSessionAuthFilePrefixes,
@@ -566,6 +567,20 @@ export type TakodeSessionInfo = {
   codexReasoningEffort?: string;
   codexEffectiveReasoningEffort?: string | null;
   codexEffectiveReasoningEffortReported?: boolean;
+  codexMultiAgentVersion?: CodexMultiAgentVersion | null;
+  codexEffectiveMultiAgentVersion?: "disabled" | "v1" | "v2" | null;
+  codexEffectiveMultiAgentMode?: string | null;
+  codexEffectiveMultiAgentVersionReported?: boolean;
+  codexMultiAgentRuntimeDiagnostics?: {
+    source: "retained_rollout";
+    status: string;
+    sessionMetaMatched: boolean;
+    cliVersion: string | null;
+    turnId: string | null;
+    observedAt: number | null;
+    scannedBytes: number;
+    scanTruncated: boolean;
+  };
   codexServiceTier?: string | null;
   codexMaxContextLength?: number;
   claudeReasoningEffort?: string;
@@ -633,6 +648,25 @@ export async function fetchSessionInfo(
   options: { auth?: ApiAuthMode } = {},
 ): Promise<TakodeSessionInfo> {
   return apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/info`, options) as Promise<TakodeSessionInfo>;
+}
+
+export async function fetchCodexRuntimeDiagnostics(
+  base: string,
+  sessionRef: string,
+  options: { auth?: ApiAuthMode } = {},
+): Promise<Partial<TakodeSessionInfo>> {
+  const res = await fetch(`${base}/sessions/${encodeURIComponent(sessionRef)}/codex-runtime-diagnostics`, {
+    headers: takodeRequestHeaders(options.auth ?? "required"),
+  });
+  // Keep `takode info` compatible with older Takode servers that predate the
+  // bounded runtime-diagnostics route. Invalid auth and other failures still
+  // fail closed rather than silently downgrading evidence.
+  if (res.status === 404) return {};
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((body as { error?: string }).error || `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<Partial<TakodeSessionInfo>>;
 }
 
 export type SessionInfoJsonOptions = {
@@ -758,6 +792,10 @@ export function buildSessionInfoJson(
     codexReasoningEffort: session.codexReasoningEffort ?? null,
     codexEffectiveReasoningEffort: session.codexEffectiveReasoningEffort ?? null,
     codexEffectiveReasoningEffortReported: session.codexEffectiveReasoningEffortReported ?? false,
+    codexMultiAgentVersion: session.codexMultiAgentVersion ?? null,
+    codexEffectiveMultiAgentVersion: session.codexEffectiveMultiAgentVersion ?? null,
+    codexEffectiveMultiAgentMode: session.codexEffectiveMultiAgentMode ?? null,
+    codexEffectiveMultiAgentVersionReported: session.codexEffectiveMultiAgentVersionReported ?? false,
     codexServiceTier: session.codexServiceTier ?? null,
     codexMaxContextLength: session.codexMaxContextLength ?? null,
     claudeReasoningEffort: session.claudeReasoningEffort ?? null,

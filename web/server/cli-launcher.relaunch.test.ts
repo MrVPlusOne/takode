@@ -849,6 +849,33 @@ describe("relaunch", () => {
     expect(session?.exitCode).toBe(1);
   });
 
+  it("uses the persisted multi-agent selection when relaunching Codex", async () => {
+    // Existing-worker rollout updates launcher state before relaunch. The replacement
+    // process must use that retained selection rather than falling back to V1.
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+    const info = await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+    });
+    const deadline = Date.now() + 2_000;
+    while (mockSpawn.mock.calls.length < 1) {
+      if (Date.now() > deadline) throw new Error("Timed out waiting for initial Codex spawn");
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    }
+
+    const updated = launcher.updateSessionLaunchConfig(info.sessionId, { codexMultiAgentVersion: "v2" });
+    expect(updated?.codexMultiAgentVersion).toBe("v2");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc(54321));
+
+    expect(await launcher.relaunch(info.sessionId)).toEqual({ ok: true });
+    const [relaunchCommand] = mockSpawn.mock.calls[1];
+    const enableIndex = relaunchCommand.indexOf("--enable");
+    expect(enableIndex).toBeGreaterThan(0);
+    expect(relaunchCommand[enableIndex + 1]).toBe("multi_agent_v2");
+  });
+
   it("returns error gracefully when Bun.spawn throws ENOENT on Codex relaunch", async () => {
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
     await launcher.launch({

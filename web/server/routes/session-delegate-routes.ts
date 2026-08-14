@@ -415,6 +415,7 @@ export function registerSessionDelegateRoutes(
       codexSandbox: parentInfo.codexSandbox,
       codexInternetAccess: parentInfo.codexInternetAccess === true,
       codexReasoningEffort: parentInfo.codexReasoningEffort,
+      codexMultiAgentVersion: parentInfo.codexMultiAgentVersion,
       codexServiceTier: parentInfo.codexServiceTier ?? null,
       codexHome: parentInfo.codexHome,
       codexResumeSourceSessionId: parentSessionId,

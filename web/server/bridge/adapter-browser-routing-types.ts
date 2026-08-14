@@ -164,6 +164,7 @@ export interface AdapterBrowserRoutingDeps {
   rebuildQueuedCodexPendingStartBatch: (session: AdapterBrowserRoutingSessionLike) => void;
   trySteerPendingCodexInputs: (session: AdapterBrowserRoutingSessionLike, reason: string) => boolean;
   sendToBrowser: (ws: unknown, msg: BrowserIncomingMessage) => void;
+  isCodexWorkerV2DeliveryFrozen: (sessionId: string) => boolean;
   getLauncherSessionInfo: (sessionId: string) =>
     | {
         archived?: boolean;

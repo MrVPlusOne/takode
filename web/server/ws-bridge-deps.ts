@@ -1,6 +1,10 @@
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
+import {
+  beforeCodexWorkerV2SessionMetaDispatch,
+  isCodexWorkerV2DeliveryFrozen,
+} from "./codex-worker-v2-rollout-hooks.js";
 import { compactPendingCodexInputsForBrowser } from "./codex-pending-input-safety.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
@@ -1345,6 +1349,8 @@ export function getBrowserRoutingDeps(host: any) {
     sendToBrowser: (ws: unknown, browserMsg: BrowserIncomingMessage) =>
       sendToBrowserController(ws as ServerWebSocket<SocketData>, browserMsg),
     getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
+    isCodexWorkerV2DeliveryFrozen: (sessionId: string) =>
+      isCodexWorkerV2DeliveryFrozen(sessionId, readLauncherSession(host, sessionId)?.codexWorkerV2Cutover),
     requestCodexIntentionalRelaunch: (targetSession: unknown, reason: string, delayMs?: number) =>
       (() => {
         const session = targetSession as Session;
@@ -1470,6 +1476,8 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
     ) => markRunningFromUserDispatchLifecycle(generationDeps, targetSession as Session, reason, queuedInterruptSource),
     promoteNextQueuedTurn: (targetSession: unknown) =>
       promoteNextQueuedTurnLifecycle(generationDeps, targetSession as Session),
+    isCodexWorkerV2DeliveryFrozen: (sessionId: string) =>
+      isCodexWorkerV2DeliveryFrozen(sessionId, readLauncherSession(host, sessionId)?.codexWorkerV2Cutover),
     clearCodexDisconnectGraceTimer: (targetSession: unknown, reason: string) =>
       host.clearCodexDisconnectGraceTimer(targetSession as Session, reason),
     setCliSessionIdFromMeta: (sessionId: string, cliSessionId: string) => {
@@ -1477,6 +1485,8 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
         host.onCLISessionId(sessionId, cliSessionId);
       }
     },
+    beforeSessionMetaDispatch: (sessionId: string, cliSessionId: string) =>
+      beforeCodexWorkerV2SessionMetaDispatch(sessionId, cliSessionId),
     completeCodexLeaderRecycle: (sessionId: string) => host.launcher?.completeCodexLeaderRecycle(sessionId),
     hydrateCodexResumedHistory: (targetSession: unknown, snapshot: unknown) =>
       hydrateCodexResumedHistoryController(
