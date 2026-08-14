@@ -205,6 +205,16 @@ html, body {
   }
 }
 
+/*
+ * Historical rows can be inserted into an already-painted thread when an
+ * attachment or authoritative window refresh lands. Replaying an opacity
+ * entrance animation during that mid-feed remount can leave stale compositor
+ * tiles that look like duplicate messages until the next scroll repaint.
+ */
+.message-feed-scroll-surface .animate-\[fadeSlideIn_0\.2s_ease-out\] {
+  animation: none !important;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

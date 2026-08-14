@@ -967,4 +967,82 @@ describe("MessageFeed duplicate rendering regression", () => {
     expect(screen.queryByText("Needs input")).toBeNull();
     expect(screen.getAllByRole("button", { name: /Mark handled|Mark unhandled/ })).toHaveLength(1);
   });
+
+  it("keeps one DOM row for an attached Main message across authoritative thread-window remounts", () => {
+    // Producer-shaped regression for a Main user message backfilled into a
+    // quest thread. The same raw identity can be present in both the live/raw
+    // store and the selected server window while that window is replaced.
+    // Repeated remount and scroll cycles must never create a second feed row.
+    const sid = "test-attached-main-message-window-remount";
+    const threadKey = "q-1884";
+    const attachedMessage = makeMessage({
+      id: "u-main-attached",
+      role: "user",
+      content: "Earlier Main request attached into the quest thread.",
+      timestamp: 100,
+      historyIndex: 4,
+      metadata: {
+        threadRefs: [{ threadKey, questId: threadKey, source: "backfill", attachedAt: 300 }],
+      },
+    });
+    const organicThreadMessage = makeMessage({
+      id: "u-thread-organic",
+      role: "user",
+      content: "Organic quest-thread follow-up.",
+      timestamp: 200,
+      historyIndex: 20,
+      metadata: {
+        threadKey,
+        questId: threadKey,
+        threadRefs: [{ threadKey, questId: threadKey, source: "explicit" }],
+      },
+    });
+    const leaderReply = makeMessage({
+      id: "a-thread-reply",
+      role: "assistant",
+      content: "Quest-thread reply after the attached context.",
+      timestamp: 250,
+      historyIndex: 21,
+      metadata: {
+        threadKey,
+        questId: threadKey,
+        threadRefs: [{ threadKey, questId: threadKey, source: "explicit" }],
+      },
+    });
+    const makeWindow = (windowHash: string) => ({
+      thread_key: threadKey,
+      from_item: 0,
+      item_count: 2,
+      total_items: 2,
+      source_history_length: 22,
+      section_item_count: 10,
+      visible_item_count: 3,
+      window_hash: windowHash,
+    });
+
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
+    setStoreMessages(sid, [attachedMessage, organicThreadMessage, leaderReply]);
+    mockStoreValues.threadWindows = new Map([[sid, new Map([[threadKey, makeWindow("window-1")]])]]);
+    mockStoreValues.threadWindowMessages = new Map([
+      [sid, new Map([[threadKey, [{ ...attachedMessage }, organicThreadMessage, leaderReply]]])],
+    ]);
+
+    const view = render(<MessageFeed sessionId={sid} threadKey={threadKey} />);
+    const assertSingleAttachedRow = () => {
+      expect(view.container.querySelectorAll('[data-message-id="u-main-attached"]')).toHaveLength(1);
+      expect(screen.getAllByText("Earlier Main request attached into the quest thread.")).toHaveLength(1);
+    };
+    assertSingleAttachedRow();
+
+    for (let cycle = 2; cycle <= 4; cycle += 1) {
+      mockStoreValues.threadWindows = new Map([[sid, new Map([[threadKey, makeWindow(`window-${cycle}`)]])]]);
+      mockStoreValues.threadWindowMessages = new Map([
+        [sid, new Map([[threadKey, [{ ...attachedMessage }, { ...organicThreadMessage }, { ...leaderReply }]]])],
+      ]);
+      view.rerender(<MessageFeed key={`window-${cycle}`} sessionId={sid} threadKey={threadKey} />);
+      fireEvent.scroll(screen.getByTestId("message-feed-scroll-container"), { target: { scrollTop: cycle * 20 } });
+      assertSingleAttachedRow();
+    }
+  });
 });
