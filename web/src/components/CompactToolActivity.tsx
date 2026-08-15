@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useStore } from "../store.js";
 import { parseFileReadCommand } from "../utils/terminal-command-preview.js";
+import { isPureTakodeSendCommand } from "../utils/takode-send-command.js";
 import { getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
 
 export interface CompactToolActivityItem {
@@ -42,6 +43,7 @@ function getActivityCategory(item: CompactToolActivityItem): string {
   if (item.kind === "worker_event") return "worker-event";
   const name = item.name.toLowerCase();
   if (name === "bash") {
+    if (isPureTakodeSendCommand(item.input.command)) return "worker-send";
     return parseFileReadCommand(String(item.input.command ?? "")) ? "read" : "command";
   }
   if (name === "read" || name.includes("read_file")) return "read";
@@ -94,6 +96,7 @@ function describeCategory(category: ActivityCategory): string {
   const count = category.items.length;
   const first = category.items[0];
   if (category.key === "worker-event") return `${count} worker event${count === 1 ? "" : "s"}`;
+  if (category.key === "worker-send") return count === 1 ? "Sent a message" : `Sent ${count} messages`;
   if (category.key === "read") return count === 1 ? "Read file" : "Read files";
   if (category.key === "command") return count === 1 ? "Ran command" : `Ran ${count} commands`;
   if (category.key === "edit") return count === 1 ? "Edited file" : "Edited files";
@@ -140,19 +143,22 @@ export function summarizeToolActivity(items: CompactToolActivityItem[]): string 
   const uniqueItems = uniqueActivityItems(items);
   const categories = groupActivity(uniqueItems);
   const descriptiveSummary = joinSummaryParts(categories.map(describeCategory));
-  const toolCallCount = uniqueItems.filter((item) => item.kind !== "worker_event").length;
-  const toolCategoryCount = categories.filter((category) => category.key !== "worker-event").length;
+  const ordinaryToolCategories = categories.filter(
+    (category) => category.key !== "worker-event" && category.key !== "worker-send",
+  );
+  const ordinaryToolCallCount = ordinaryToolCategories.reduce((count, category) => count + category.items.length, 0);
+  const ordinaryToolCategoryCount = ordinaryToolCategories.length;
 
-  if (!shouldUseToolCountFallback(toolCallCount, toolCategoryCount, descriptiveSummary)) {
+  if (!shouldUseToolCountFallback(ordinaryToolCallCount, ordinaryToolCategoryCount, descriptiveSummary)) {
     return descriptiveSummary;
   }
 
   let includedToolCount = false;
   const countSummaryParts = categories.flatMap((category) => {
-    if (category.key === "worker-event") return [describeCategory(category)];
+    if (category.key === "worker-event" || category.key === "worker-send") return [describeCategory(category)];
     if (includedToolCount) return [];
     includedToolCount = true;
-    return [formatToolCallCount(toolCallCount)];
+    return [formatToolCallCount(ordinaryToolCallCount)];
   });
   return joinSummaryParts(countSummaryParts);
 }

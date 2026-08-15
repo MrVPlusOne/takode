@@ -102,4 +102,101 @@ describe("CompactFeedActivity", () => {
     expect(screen.getByText("echo 7")).toBeTruthy();
     expect(screen.getByText(/preserved recovery detail/)).toBeTruthy();
   });
+
+  it("keeps sent messages, commands, and worker events as truthful mixed categories", () => {
+    render(
+      <CompactFeedActivity
+        segments={[
+          {
+            kind: "tool",
+            groups: [
+              {
+                kind: "tool_msg_group",
+                toolName: "Bash",
+                firstId: "mixed-message",
+                items: [
+                  {
+                    id: "send-1",
+                    name: "Bash",
+                    input: { command: 'takode send 17 "Please continue"' },
+                    messageId: "mixed-message",
+                  },
+                  { id: "bash-1", name: "Bash", input: { command: "git status" }, messageId: "mixed-message" },
+                ],
+              },
+            ],
+          },
+          { kind: "worker_event", messages: [WORKER_MESSAGES[0]] },
+        ]}
+        sessionId="compact-feed-session"
+        isCodexSession={false}
+        activeCodexTerminalIds={new Set()}
+        onOpenCodexTerminal={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Sent a message, ran command, 1 worker event")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Show 3 activity items/ }));
+    expect(screen.getByText(/takode send 17/)).toBeTruthy();
+    expect(screen.getByText("git status")).toBeTruthy();
+    expect(screen.getByText(/completed the command run/)).toBeTruthy();
+  });
+
+  it("keeps a failed pure send labeled by intent while preserving the expanded error", () => {
+    useStore.setState({
+      toolResults: new Map([
+        [
+          "compact-feed-session",
+          new Map([
+            [
+              "send-failed",
+              {
+                tool_use_id: "send-failed",
+                content: "Cannot send to archived session #17.",
+                is_error: true,
+                total_size: 36,
+                is_truncated: false,
+              },
+            ],
+          ]),
+        ],
+      ]),
+    });
+
+    render(
+      <CompactFeedActivity
+        segments={[
+          {
+            kind: "tool",
+            groups: [
+              {
+                kind: "tool_msg_group",
+                toolName: "Bash",
+                firstId: "failed-message",
+                items: [
+                  {
+                    id: "send-failed",
+                    name: "Bash",
+                    input: { command: 'takode send 17 "Please continue"' },
+                    messageId: "failed-message",
+                  },
+                ],
+              },
+            ],
+          },
+        ]}
+        sessionId="compact-feed-session"
+        isCodexSession={false}
+        activeCodexTerminalIds={new Set()}
+        onOpenCodexTerminal={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Sent a message")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Show 1 tool call/ }));
+    const command = screen.getByText(/takode send 17/);
+    expect(command).toBeTruthy();
+    fireEvent.click(command.closest('[role="button"]')!);
+    expect(screen.getByText("Cannot send to archived session #17.")).toBeTruthy();
+  });
 });

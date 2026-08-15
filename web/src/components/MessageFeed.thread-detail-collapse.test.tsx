@@ -125,6 +125,7 @@ vi.mock("../store.js", () => {
       threadWindowMessages: mockStoreValues.threadWindowMessages ?? new Map(),
       threadWindowRefreshRevisions: mockStoreValues.threadWindowRefreshRevisions ?? new Map(),
       threadWindowAppliedRevisions: mockStoreValues.threadWindowAppliedRevisions ?? new Map(),
+      compactToolActivity: mockStoreValues.compactToolActivity ?? false,
     };
     return selector(state);
   };
@@ -337,6 +338,7 @@ function resetStore() {
   mockStoreValues.threadWindowMessages = new Map();
   mockStoreValues.threadWindowRefreshRevisions = new Map();
   mockStoreValues.threadWindowAppliedRevisions = new Map();
+  mockStoreValues.compactToolActivity = false;
   mockStoreValues.historyWindows = new Map();
   mockStoreValues.streaming = new Map();
   mockStoreValues.streamingByParentToolUseId = new Map();
@@ -1121,5 +1123,62 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
 
     expect((await screen.findByTestId("quest-quiz-inline")).textContent).toContain("q-1652");
     expect(screen.getByText("What boundary caused the misleading turn_end?")).toBeTruthy();
+  });
+
+  it("labels a pure worker send inside a producer-shaped selected thread window", () => {
+    const sid = "test-selected-thread-worker-send";
+    const threadKey = "q-1892";
+    const threadRef = { threadKey, questId: threadKey, source: "explicit" as const };
+    const messages = [
+      makeMessage({ id: "u1", role: "user", content: "Coordinate the worker", metadata: { threadRefs: [threadRef] } }),
+      makeMessage({
+        id: "send-tool",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "send-1", name: "Bash", input: { command: 'takode send 17 "Continue"' } },
+        ],
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makeMessage({
+        id: "leader-summary",
+        role: "assistant",
+        content: "The worker has the follow-up.",
+        metadata: { leaderUserMessage: true, threadRefs: [threadRef] },
+      }),
+      makeMessage({ id: "u2", role: "user", content: "Next request", metadata: { threadRefs: [threadRef] } }),
+    ];
+    mockStoreValues.compactToolActivity = true;
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
+    mockStoreValues.threadWindows = new Map([
+      [
+        sid,
+        new Map([
+          [
+            threadKey,
+            {
+              thread_key: threadKey,
+              from_item: 0,
+              item_count: 2,
+              total_items: 2,
+              source_history_length: 4,
+              section_item_count: 10,
+              visible_item_count: 3,
+            },
+          ],
+        ]),
+      ],
+    ]);
+    mockStoreValues.threadWindowMessages = new Map([[sid, new Map([[threadKey, messages]])]]);
+    setStoreTurnOverrides(sid, [["u1", true]]);
+
+    render(<MessageFeed sessionId={sid} threadKey={threadKey} />);
+
+    expect(screen.getByText("Sent a message")).toBeTruthy();
+    expect(screen.getByText("The worker has the follow-up.")).toBeTruthy();
+    expect(screen.queryByText(/takode send 17/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Show 1 tool call/ }));
+    expect(screen.getByText(/takode send 17/)).toBeTruthy();
   });
 });

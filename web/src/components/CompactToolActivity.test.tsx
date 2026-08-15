@@ -47,6 +47,31 @@ describe("CompactToolActivity", () => {
     ).toBe("Ran 3 commands");
   });
 
+  it("labels pure worker sends separately from ordinary Bash commands", () => {
+    expect(
+      summarizeToolActivity([
+        { id: "send-1", name: "Bash", input: { command: 'takode send 17 "Please continue"' } },
+        { id: "send-2", name: "Bash", input: { command: "takode send 18 --stdin <<'EOF'\nCheck status.\nEOF" } },
+        { id: "bash-1", name: "Bash", input: { command: "git status" } },
+      ]),
+    ).toBe("Sent 2 messages, ran command");
+  });
+
+  it("keeps send counts distinct from the long ordinary-tool fallback", () => {
+    expect(
+      summarizeToolActivity([
+        ...bashItems(7),
+        { id: "send-1", name: "Bash", input: { command: 'takode send 17 "Please continue"' } },
+        { id: "send-2", name: "Bash", input: { command: 'takode send 18 "Please continue"' } },
+      ]),
+    ).toBe("7 tool calls, sent 2 messages");
+  });
+
+  it("deduplicates replayed send identities without merging their category into commands", () => {
+    const send = { id: "send-1", name: "Bash", input: { command: 'takode send 17 "Please continue"' } };
+    expect(summarizeToolActivity([send, { ...send }])).toBe("Sent a message");
+  });
+
   it("treats one multiline Bash input as one tool invocation", () => {
     // Shell lines inside one stored tool_use remain one call; rendering must not invent extra boundaries.
     expect(

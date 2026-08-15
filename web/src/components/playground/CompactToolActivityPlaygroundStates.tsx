@@ -51,6 +51,40 @@ const LARGE_MIXED_GROUP: ToolMsgGroup = {
   ),
 };
 
+const PURE_WORKER_SEND_GROUP: ToolMsgGroup = {
+  kind: "tool_msg_group",
+  toolName: "Bash",
+  firstId: "compact-pure-worker-send",
+  items: [
+    {
+      id: "compact-pure-worker-send-1",
+      name: "Bash",
+      input: { command: 'takode send 17 "Please continue with the focused checks"' },
+      messageId: "compact-pure-worker-send",
+    },
+  ],
+};
+
+const MIXED_WORKER_SEND_GROUP: ToolMsgGroup = {
+  kind: "tool_msg_group",
+  toolName: "Bash",
+  firstId: "compact-worker-send",
+  items: [
+    {
+      id: "compact-worker-send-1",
+      name: "Bash",
+      input: { command: 'takode send 17 "Please continue with the focused checks"' },
+      messageId: "compact-worker-send",
+    },
+    {
+      id: "compact-worker-send-command",
+      name: "Bash",
+      input: { command: "git status --short" },
+      messageId: "compact-worker-send",
+    },
+  ],
+};
+
 const WORKER_EVENTS: ChatMessage[] = [
   {
     id: "compact-tool-worker-1",
@@ -121,6 +155,24 @@ export function PlaygroundCompactToolActivityStates() {
         </Card>
         <Card label="Active growing group">
           <PlaygroundGrowingToolActivity />
+        </Card>
+        <Card label="Worker message">
+          <CompactToolMessageGroups
+            groups={[PURE_WORKER_SEND_GROUP]}
+            sessionId={MOCK_SESSION_ID}
+            isCodexSession={false}
+            activeCodexTerminalIds={new Set()}
+            onOpenCodexTerminal={() => {}}
+          />
+        </Card>
+        <Card label="Worker message plus ordinary command">
+          <CompactToolMessageGroups
+            groups={[MIXED_WORKER_SEND_GROUP]}
+            sessionId={MOCK_SESSION_ID}
+            isCodexSession={false}
+            activeCodexTerminalIds={new Set()}
+            onOpenCodexTerminal={() => {}}
+          />
         </Card>
         <Card label="Large tool group with worker events">
           <CompactFeedActivity
