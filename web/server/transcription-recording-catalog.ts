@@ -18,6 +18,8 @@ const DISCOVERY_CONCURRENCY = 8;
 const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_TEXT_BYTES = 8 * 1024 * 1024;
 const TOMBSTONE_DIRECTORY = ".tombstones";
+const RECENT_DISCOVERY_MULTIPLIER = 2;
+export const TRANSCRIPTION_RECENT_PAGE_CURSOR = "__full_transcription_catalog__";
 
 export type TranscriptionRecordingDiscoveryState =
   | "ready"
@@ -93,6 +95,12 @@ export interface TranscriptionRecordingCatalogPage {
   total: number;
 }
 
+interface CatalogDirectoryInventory {
+  root: string;
+  realRoot: string | null;
+  relativeDirectories: string[];
+}
+
 interface RecordingManifest {
   version?: unknown;
   status?: unknown;
@@ -142,6 +150,7 @@ let catalogSnapshot = new Map<string, TranscriptionRecordingCatalogEntry>();
 let catalogScanPromise: Promise<Map<string, TranscriptionRecordingCatalogEntry>> | null = null;
 let catalogScannedAt = 0;
 let compatibilityIdCounter = 0;
+let discoveryCountForTest = 0;
 const compatibilityIdByKey = new Map<string, number>();
 const keyByCompatibilityId = new Map<number, string>();
 
@@ -179,6 +188,51 @@ export async function listTranscriptionRecordingCatalog(options?: {
   return sortCatalogEntries([...catalogSnapshot.values()]);
 }
 
+export async function getRecentTranscriptionRecordingCatalogPage(options?: {
+  limit?: number;
+  refresh?: boolean;
+}): Promise<TranscriptionRecordingCatalogPage> {
+  const limit = Math.max(1, Math.min(100, Math.trunc(options?.limit ?? 15)));
+  if (!options?.refresh && catalogScannedAt > 0 && Date.now() - catalogScannedAt < SCAN_CACHE_MS) {
+    return paginateCatalogEntries(sortCatalogEntries([...catalogSnapshot.values()]), limit);
+  }
+
+  const inventory = await listCatalogDirectoryInventory();
+  // Producer-owned recording names start with an ISO timestamp. Discovering a 2x candidate window keeps first-open
+  // work bounded while absorbing normal concurrent-write completion reordering; the sentinel below routes the first
+  // older-page request through the existing full authoritative timestamp/key catalog.
+  const candidates = [...inventory.relativeDirectories].sort(
+    (a, b) => deriveTimestamp(b) - deriveTimestamp(a) || (a < b ? 1 : a > b ? -1 : 0),
+  );
+  const discoveryLimit = Math.min(candidates.length, Math.max(limit * RECENT_DISCOVERY_MULTIPLIER, limit + 5));
+  const selectedCandidates = candidates.slice(0, discoveryLimit);
+  const discovered = inventory.realRoot
+    ? await mapWithConcurrency(selectedCandidates, DISCOVERY_CONCURRENCY, async (rootRelative) =>
+        discoverDirectory(inventory.root, inventory.realRoot!, rootRelative),
+      )
+    : [];
+  const tombstones = inventory.realRoot ? await readTombstones(inventory.root) : [];
+  const recent = new Map<string, TranscriptionRecordingCatalogEntry>();
+  for (const entry of discovered) {
+    if (entry) recent.set(entry.recordingKey, entry);
+  }
+  for (const tombstone of tombstones) recent.set(tombstone.recordingKey, tombstone);
+  for (const entry of recent.values()) catalogSnapshot.set(entry.recordingKey, entry);
+
+  const complete = discoveryLimit === candidates.length;
+  const sorted = sortCatalogEntries([...recent.values()]);
+  if (complete) {
+    catalogSnapshot = recent;
+    catalogScannedAt = Date.now();
+    return paginateCatalogEntries(sorted, limit);
+  }
+  return {
+    entries: sorted.slice(0, limit),
+    nextCursor: TRANSCRIPTION_RECENT_PAGE_CURSOR,
+    total: 0,
+  };
+}
+
 export async function getTranscriptionRecordingCatalogPage(options?: {
   limit?: number;
   cursor?: string | null;
@@ -186,7 +240,7 @@ export async function getTranscriptionRecordingCatalogPage(options?: {
 }): Promise<TranscriptionRecordingCatalogPage> {
   const all = await listTranscriptionRecordingCatalog({ refresh: options?.refresh });
   const limit = Math.max(1, Math.min(100, Math.trunc(options?.limit ?? 50)));
-  const cursor = decodeCursor(options?.cursor);
+  const cursor = options?.cursor === TRANSCRIPTION_RECENT_PAGE_CURSOR ? null : decodeCursor(options?.cursor);
   const eligible = cursor
     ? all.filter(
         (entry) =>
@@ -206,8 +260,9 @@ export async function getTranscriptionRecordingCatalogPage(options?: {
 export async function getTranscriptionRecordingCatalogEntry(
   locator: string | number,
 ): Promise<TranscriptionRecordingCatalogEntry | undefined> {
-  await ensureCatalogScanned(false);
   const key = resolveLocatorToKey(locator);
+  if (key && catalogSnapshot.has(key)) return catalogSnapshot.get(key);
+  await ensureCatalogScanned(false);
   return key ? catalogSnapshot.get(key) : undefined;
 }
 
@@ -299,11 +354,16 @@ export function upsertTranscriptionRecordingCatalogEntry(entry: TranscriptionRec
   catalogSnapshot.set(entry.recordingKey, entry);
 }
 
+export function _getTranscriptionRecordingCatalogDiscoveryCountForTest(): number {
+  return discoveryCountForTest;
+}
+
 export function _resetTranscriptionRecordingCatalogForTest(): void {
   catalogSnapshot = new Map();
   catalogScanPromise = null;
   catalogScannedAt = 0;
   compatibilityIdCounter = 0;
+  discoveryCountForTest = 0;
   compatibilityIdByKey.clear();
   keyByCompatibilityId.clear();
 }
@@ -320,12 +380,29 @@ async function ensureCatalogScanned(refresh: boolean): Promise<void> {
 }
 
 async function scanCatalog(): Promise<Map<string, TranscriptionRecordingCatalogEntry>> {
+  const inventory = await listCatalogDirectoryInventory();
+  if (!inventory.realRoot) return new Map();
+  const discovered = await mapWithConcurrency(
+    inventory.relativeDirectories,
+    DISCOVERY_CONCURRENCY,
+    async (rootRelative) => discoverDirectory(inventory.root, inventory.realRoot!, rootRelative),
+  );
+  const snapshot = new Map<string, TranscriptionRecordingCatalogEntry>();
+  for (const entry of discovered) {
+    if (entry) snapshot.set(entry.recordingKey, entry);
+  }
+  const tombstones = await readTombstones(inventory.root);
+  for (const tombstone of tombstones) snapshot.set(tombstone.recordingKey, tombstone);
+  return snapshot;
+}
+
+async function listCatalogDirectoryInventory(): Promise<CatalogDirectoryInventory> {
   const root = resolve(getTranscriptionRecordingRoot());
   const rootEntries = await readdir(root, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return [];
     throw error;
   });
-  if (rootEntries.length === 0) return new Map();
+  if (rootEntries.length === 0) return { root, realRoot: null, relativeDirectories: [] };
   const realRoot = await realpath(root);
   const relativeDirectories: string[] = [];
   for (const dateEntry of rootEntries) {
@@ -338,16 +415,7 @@ async function scanCatalog(): Promise<Map<string, TranscriptionRecordingCatalogE
     }
   }
   relativeDirectories.sort();
-  const discovered = await mapWithConcurrency(relativeDirectories, DISCOVERY_CONCURRENCY, async (rootRelative) =>
-    discoverDirectory(root, realRoot, rootRelative),
-  );
-  const snapshot = new Map<string, TranscriptionRecordingCatalogEntry>();
-  for (const entry of discovered) {
-    if (entry) snapshot.set(entry.recordingKey, entry);
-  }
-  const tombstones = await readTombstones(root);
-  for (const tombstone of tombstones) snapshot.set(tombstone.recordingKey, tombstone);
-  return snapshot;
+  return { root, realRoot, relativeDirectories };
 }
 
 async function discoverDirectory(
@@ -355,6 +423,7 @@ async function discoverDirectory(
   realRoot: string,
   rootRelative: string,
 ): Promise<TranscriptionRecordingCatalogEntry | undefined> {
+  discoveryCountForTest += 1;
   const directoryPath = resolve(root, rootRelative);
   const recordingKey = getTranscriptionRecordingKey(directoryPath);
   const id = getOrCreateCompatibilityId(recordingKey);
@@ -847,6 +916,19 @@ function resolveLocatorToKey(locator: string | number): string | undefined {
   if (locator.startsWith("r_")) return locator;
   const numeric = Number(locator);
   return Number.isInteger(numeric) && numeric > 0 ? keyByCompatibilityId.get(numeric) : undefined;
+}
+
+function paginateCatalogEntries(
+  sorted: TranscriptionRecordingCatalogEntry[],
+  limit: number,
+): TranscriptionRecordingCatalogPage {
+  const entries = sorted.slice(0, limit);
+  const last = entries.at(-1);
+  return {
+    entries,
+    nextCursor: sorted.length > entries.length && last ? encodeCursor(last) : null,
+    total: sorted.length,
+  };
 }
 
 function sortCatalogEntries(entries: TranscriptionRecordingCatalogEntry[]): TranscriptionRecordingCatalogEntry[] {

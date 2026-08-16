@@ -37,10 +37,12 @@ import {
 } from "./transcription-log-catalog-adapter.js";
 import {
   _resetTranscriptionRecordingCatalogForTest,
+  getRecentTranscriptionRecordingCatalogPage,
   getTranscriptionRecordingCompatibilityId,
   getTranscriptionRecordingKey,
   listTranscriptionRecordingCatalog,
   tombstoneAndDeleteTranscriptionRecording,
+  TRANSCRIPTION_RECENT_PAGE_CURSOR,
   upsertTranscriptionRecordingCatalogEntry,
 } from "./transcription-recording-catalog.js";
 import {
@@ -1813,8 +1815,13 @@ export async function getTranscriptionLogIndexPage(options?: {
   limit?: number;
   cursor?: string | null;
   refresh?: boolean;
+  initial?: boolean;
 }): Promise<TranscriptionLogIndexPage> {
-  const catalogEntries = await listTranscriptionRecordingCatalog({ refresh: options?.refresh });
+  const recentPage = options?.initial
+    ? await getRecentTranscriptionRecordingCatalogPage({ limit: options.limit, refresh: options.refresh })
+    : null;
+  const catalogEntries =
+    recentPage?.entries ?? (await listTranscriptionRecordingCatalog({ refresh: options?.refresh }));
   const merged = new Map<string, StoredTranscriptionLogEntry>();
   for (const catalogEntry of catalogEntries) {
     merged.set(catalogEntry.recordingKey, catalogEntryToStoredEntry(catalogEntry));
@@ -1832,7 +1839,7 @@ export async function getTranscriptionLogIndexPage(options?: {
     const bKey = transcriptionLogEntryKey(b);
     return aKey === bKey ? 0 : aKey < bKey ? 1 : -1;
   });
-  const cursor = decodeLogIndexCursor(options?.cursor);
+  const cursor = options?.cursor === TRANSCRIPTION_RECENT_PAGE_CURSOR ? null : decodeLogIndexCursor(options?.cursor);
   const eligible = cursor
     ? all.filter(
         (entry) =>
@@ -1846,10 +1853,11 @@ export async function getTranscriptionLogIndexPage(options?: {
   return {
     entries,
     nextCursor:
-      eligible.length > entries.length && last
+      recentPage?.nextCursor ??
+      (eligible.length > entries.length && last
         ? Buffer.from(JSON.stringify([last.timestamp, transcriptionLogEntryKey(last)]), "utf-8").toString("base64url")
-        : null,
-    total: all.length,
+        : null),
+    total: recentPage && recentPage.total === 0 ? 0 : all.length,
   };
 }
 

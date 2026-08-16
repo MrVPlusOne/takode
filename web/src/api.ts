@@ -142,10 +142,15 @@ export interface TranscriptionLogsPage {
   total: number;
 }
 
-async function getTranscriptionLogsPage(cursor?: string | null, refresh = false): Promise<TranscriptionLogsPage> {
-  const params = new URLSearchParams({ limit: "50" });
+async function getTranscriptionLogsPage(
+  cursor?: string | null,
+  refresh = false,
+  initial = false,
+): Promise<TranscriptionLogsPage> {
+  const params = new URLSearchParams({ limit: initial ? "15" : "50" });
   if (cursor) params.set("cursor", cursor);
   if (refresh) params.set("refresh", "1");
+  if (initial) params.set("initial", "1");
   const res = await fetch(`${BASE}/transcription-logs?${params.toString()}`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -1638,7 +1643,8 @@ export const api = {
     post<{ ok: boolean }>(`/sessions/${encodeURIComponent(sessionId)}/message`, { content }),
 
   // Transcription debug logs
-  getTranscriptionLogs: (cursor?: string | null, refresh = false) => getTranscriptionLogsPage(cursor, refresh),
+  getTranscriptionLogs: (cursor?: string | null, refresh = false, initial = false) =>
+    getTranscriptionLogsPage(cursor, refresh, initial),
   getTranscriptionLogEntry: (id: string | number) =>
     get<TranscriptionLogEntry>(`/transcription-logs/${encodeURIComponent(id)}`),
   openTranscriptionRecordingDirectory: (id: string | number) =>

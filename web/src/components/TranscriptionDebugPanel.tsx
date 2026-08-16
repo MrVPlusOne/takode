@@ -1,15 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import type { TranscriptionLogIndexEntry, TranscriptionLogEntry, TranscriptionReplayVariant } from "../api.js";
+import { DEFAULT_TRANSCRIPTION_STT_MODEL, TRANSCRIPTION_STT_MODELS } from "../../shared/transcription-models.js";
 import { TranscriptDiffComparison } from "./TranscriptDiffComparison.js";
-
-const REPLAY_STT_MODELS = [
-  "gpt-transcribe",
-  "gpt-4o-mini-transcribe",
-  "gpt-4o-transcribe",
-  "gpt-4o-mini-transcribe-2025-12-15",
-];
 
 function timeAgo(ts: number): string {
   const now = Date.now();
@@ -82,7 +76,20 @@ function originalEnhancementComparisonText(entry: TranscriptionLogEntry): string
   return "(null — skipped, failed, or hallucination guard)";
 }
 
-export function TranscriptionDebugPanel() {
+interface TranscriptionDebugPanelProps {
+  sttModelOptions?: readonly string[];
+}
+
+function compareIndexEntries(a: TranscriptionLogIndexEntry, b: TranscriptionLogIndexEntry): number {
+  if (a.timestamp !== b.timestamp) return b.timestamp - a.timestamp;
+  const aKey = a.recordingKey ?? String(a.id);
+  const bKey = b.recordingKey ?? String(b.id);
+  return aKey === bKey ? 0 : aKey < bKey ? 1 : -1;
+}
+
+export function TranscriptionDebugPanel({
+  sttModelOptions = TRANSCRIPTION_STT_MODELS,
+}: TranscriptionDebugPanelProps = {}) {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<TranscriptionLogIndexEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -98,7 +105,7 @@ export function TranscriptionDebugPanel() {
   const [recordingActionError, setRecordingActionError] = useState("");
   const [openingRecording, setOpeningRecording] = useState(false);
   const [deletingRecording, setDeletingRecording] = useState(false);
-  const [replaySttModel, setReplaySttModel] = useState("gpt-transcribe");
+  const [replaySttModel, setReplaySttModel] = useState(DEFAULT_TRANSCRIPTION_STT_MODEL);
   const [replayEnhancementModel, setReplayEnhancementModel] = useState("gpt-5-mini");
   const [replayEnhancementMode, setReplayEnhancementMode] = useState<"default" | "bullet">("default");
   const [replayRunning, setReplayRunning] = useState<"stt" | "enhancement" | null>(null);
@@ -109,14 +116,16 @@ export function TranscriptionDebugPanel() {
     (append = false, refresh = false) => {
       setLoading(true);
       setError("");
-      api
-        .getTranscriptionLogs(append ? nextCursor : null, refresh)
+      const request = append
+        ? api.getTranscriptionLogs(nextCursor, refresh)
+        : api.getTranscriptionLogs(null, refresh, true);
+      request
         .then((data) => {
           setEntries((current) => {
-            if (!append) return data.entries;
+            if (!append) return [...data.entries].sort(compareIndexEntries);
             const byKey = new Map(current.map((entry) => [entry.recordingKey ?? String(entry.id), entry]));
             for (const entry of data.entries) byKey.set(entry.recordingKey ?? String(entry.id), entry);
-            return [...byKey.values()];
+            return [...byKey.values()].sort(compareIndexEntries);
           });
           setNextCursor(data.nextCursor);
           setTotalEntries(data.total);
@@ -164,12 +173,19 @@ export function TranscriptionDebugPanel() {
   };
 
   const selectedIndexEntry = expandedId !== null ? entries.find((e) => (e.recordingKey ?? e.id) === expandedId) : null;
+  const replaySttOptions = useMemo(
+    () =>
+      [...new Set([...sttModelOptions, ...(expandedEntry?.sttModel ? [expandedEntry.sttModel] : [])])].filter(
+        (model) => model.trim().length > 0,
+      ),
+    [expandedEntry?.sttModel, sttModelOptions],
+  );
   const audioUrl = expandedEntry?.audioUrl ? resolveAbsoluteUrl(expandedEntry.audioUrl) : null;
   const recordingPath = expandedEntry?.recordingDirectoryPath ?? null;
 
   useEffect(() => {
     if (!expandedEntry) return;
-    setReplaySttModel(expandedEntry.sttModel || "gpt-transcribe");
+    setReplaySttModel(expandedEntry.sttModel || DEFAULT_TRANSCRIPTION_STT_MODEL);
     setReplayEnhancementModel(expandedEntry.enhancement?.model || "gpt-5-mini");
     setReplayEnhancementMode("default");
   }, [expandedEntry?.id]);
@@ -739,18 +755,18 @@ export function TranscriptionDebugPanel() {
                             <span className="block text-[11px] uppercase tracking-wider text-cc-muted mb-1">
                               Target STT model
                             </span>
-                            <input
-                              list="transcription-replay-stt-models"
+                            <select
                               value={replaySttModel}
                               onChange={(event) => setReplaySttModel(event.target.value)}
                               className="w-full px-2 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded text-cc-fg font-mono"
-                            />
+                            >
+                              {replaySttOptions.map((model) => (
+                                <option key={model} value={model}>
+                                  {model}
+                                </option>
+                              ))}
+                            </select>
                           </label>
-                          <datalist id="transcription-replay-stt-models">
-                            {REPLAY_STT_MODELS.map((model) => (
-                              <option key={model} value={model} />
-                            ))}
-                          </datalist>
                           {expandedEntry.sttContext && (
                             <p>
                               Source context: prompt {expandedEntry.sttContext.promptLength} chars,{" "}

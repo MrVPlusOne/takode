@@ -1084,6 +1084,7 @@ export function createSystemRoutes(ctx: RouteContext) {
       limit: Number.isFinite(limit) ? limit : 50,
       cursor: c.req.query("cursor") ?? null,
       refresh: c.req.query("refresh") === "1",
+      initial: c.req.query("initial") === "1",
     });
     c.header("X-Next-Cursor", page.nextCursor ?? "");
     c.header("X-Total-Count", String(page.total));

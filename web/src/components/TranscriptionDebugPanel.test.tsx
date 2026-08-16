@@ -200,6 +200,28 @@ describe("TranscriptionDebugPanel", () => {
     expect((await screen.findAllByText("deleted")).length).toBeGreaterThan(0);
   });
 
+  it("uses a real STT model dropdown with shared/configured options while preserving the source model", async () => {
+    render(<TranscriptionDebugPanel sttModelOptions={["gpt-transcribe", "configured-custom-model"]} />);
+
+    fireEvent.click(screen.getByText("Show"));
+    await waitFor(() => expect(mockApi.getTranscriptionLogs).toHaveBeenCalledWith(null, false, true));
+    fireEvent.click(await screen.findByText("gpt-4o-mini-transcribe-alpha-tapioca-4"));
+    fireEvent.click(await screen.findByRole("button", { name: /Replay & compare/i }));
+
+    const selector = screen.getByLabelText(/Target STT model/i);
+    expect(selector.tagName).toBe("SELECT");
+    expect(selector).toHaveValue("gpt-4o-mini-transcribe-alpha-tapioca-4");
+    expect(screen.getByRole("option", { name: "gpt-transcribe" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "configured-custom-model" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "gpt-4o-mini-transcribe-alpha-tapioca-4" })).toBeInTheDocument();
+
+    fireEvent.change(selector, { target: { value: "configured-custom-model" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run re-transcribe" }));
+    await waitFor(() =>
+      expect(mockApi.retranscribeLogEntry).toHaveBeenCalledWith("r_test-recording", "configured-custom-model"),
+    );
+  });
+
   it("runs replay actions immediately without provider confirmations", async () => {
     render(<TranscriptionDebugPanel />);
 

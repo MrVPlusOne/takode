@@ -11,18 +11,14 @@ import {
 } from "react";
 import { api, type TranscriptionConfig } from "../api.js";
 import { GPT_TRANSCRIBE_LANGUAGE_HINTS } from "../../shared/transcription-language-hints.js";
+import { DEFAULT_TRANSCRIPTION_STT_MODEL, TRANSCRIPTION_STT_MODELS } from "../../shared/transcription-models.js";
 import { CollapsibleSection } from "./CollapsibleSection.js";
 import { EnhancementTester } from "./EnhancementTester.js";
 import { TranscriptionDebugPanel } from "./TranscriptionDebugPanel.js";
 
-export const DEFAULT_STT_MODEL = "gpt-transcribe";
+export const DEFAULT_STT_MODEL = DEFAULT_TRANSCRIPTION_STT_MODEL;
 export const CUSTOM_STT_MODEL_VALUE = "__custom__";
-export const BUILT_IN_STT_MODELS = [
-  "gpt-transcribe",
-  "gpt-4o-mini-transcribe",
-  "gpt-4o-transcribe",
-  "gpt-4o-mini-transcribe-2025-12-15",
-] as const;
+export const BUILT_IN_STT_MODELS = TRANSCRIPTION_STT_MODELS;
 
 type SectionSearchProps = Pick<ComponentProps<typeof CollapsibleSection>, "hidden" | "searchQuery" | "matchCount">;
 
@@ -93,6 +89,10 @@ export function SettingsVoiceTranscriptionSection({
   const languageListboxId = `${languagePickerId}-listbox`;
   const isGptTranscribeSelected = sttModel === DEFAULT_STT_MODEL;
   const selectedLanguageHintSet = useMemo(() => new Set(sttLanguageHints), [sttLanguageHints]);
+  const replaySttModelOptions = useMemo(() => {
+    const configuredModel = sttModel === CUSTOM_STT_MODEL_VALUE ? customSttModel.trim() : sttModel.trim();
+    return [...new Set([...BUILT_IN_STT_MODELS, ...(configuredModel ? [configuredModel] : [])])];
+  }, [customSttModel, sttModel]);
   const filteredLanguageHints = useMemo(() => {
     const query = languageSearch.trim().toLowerCase();
     return GPT_TRANSCRIBE_LANGUAGE_HINTS.filter(
@@ -464,7 +464,7 @@ export function SettingsVoiceTranscriptionSection({
         </button>
       </div>
 
-      <TranscriptionDebugPanel />
+      <TranscriptionDebugPanel sttModelOptions={replaySttModelOptions} />
       <EnhancementTester />
     </CollapsibleSection>
   );

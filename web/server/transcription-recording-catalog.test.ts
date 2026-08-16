@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  _getTranscriptionRecordingCatalogDiscoveryCountForTest,
   _resetTranscriptionRecordingCatalogForTest,
+  getRecentTranscriptionRecordingCatalogPage,
   getTranscriptionRecordingCatalogEntry,
   getTranscriptionRecordingCatalogPage,
   getTranscriptionRecordingKey,
@@ -11,6 +13,7 @@ import {
   readTranscriptionRecordingCatalogAudio,
   readTranscriptionRecordingCatalogDetail,
   tombstoneAndDeleteTranscriptionRecording,
+  TRANSCRIPTION_RECENT_PAGE_CURSOR,
 } from "./transcription-recording-catalog.js";
 import {
   _resetTranscriptionLogForTest,
@@ -106,6 +109,30 @@ describe("transcription recording catalog", () => {
     expect(livePreviews.get("leading-whitespace")).toBeUndefined();
     expect(livePreviews.get("enhanced-after-prefix")).toBe("raw fallback");
     expect(livePreviews.get("unsafe-after-prefix")).toEqual(expect.stringMatching(/^Visible x+…$/));
+  });
+
+  it("bounds first-open discovery and defers the authoritative archive scan until older records are requested", async () => {
+    // Recording directory names are producer-shaped ISO timestamps, so the recent page can discover a bounded newest
+    // candidate window without reading preview/enhancement artifacts across the whole durable archive.
+    for (let index = 0; index < 45; index += 1) {
+      await writeIsoNamedManifest(index);
+    }
+
+    const recent = await getRecentTranscriptionRecordingCatalogPage({ limit: 15, refresh: true });
+    expect(recent.entries).toHaveLength(15);
+    expect(recent.nextCursor).toBe(TRANSCRIPTION_RECENT_PAGE_CURSOR);
+    expect(recent.total).toBe(0);
+    expect(_getTranscriptionRecordingCatalogDiscoveryCountForTest()).toBe(30);
+
+    // A detail open for an already surfaced recent record should use the bounded snapshot instead of forcing a full scan.
+    await expect(getTranscriptionRecordingCatalogEntry(recent.entries[0].recordingKey)).resolves.toBeDefined();
+    expect(_getTranscriptionRecordingCatalogDiscoveryCountForTest()).toBe(30);
+
+    const full = await getTranscriptionRecordingCatalogPage({ limit: 50, cursor: recent.nextCursor });
+    expect(full.entries).toHaveLength(45);
+    expect(full.total).toBe(45);
+    expect(full.nextCursor).toBeNull();
+    expect(_getTranscriptionRecordingCatalogDiscoveryCountForTest()).toBe(75);
   });
 
   it("keyset-pages more than fifty records with deterministic timestamp/key ordering", async () => {
@@ -387,6 +414,31 @@ describe("transcription recording catalog", () => {
             },
       frontendTiming: null,
     });
+  }
+
+  async function writeIsoNamedManifest(index: number): Promise<void> {
+    const createdAt = Date.UTC(2026, 7, 1, 0, 0, index, 0);
+    const directoryName = new Date(createdAt).toISOString().replace(/[:.]/g, "-") + `-request-${index}`;
+    const directory = join(root, "2026-08-01", directoryName);
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      join(directory, "manifest.json"),
+      JSON.stringify({
+        version: 1,
+        status: "success",
+        recordingId: directoryName,
+        createdAt,
+        sessionId: null,
+        requestId: `request-${index}`,
+        backend: "openai",
+        sttModel: "gpt-transcribe",
+        uploadDurationMs: index,
+        sttDurationMs: index,
+        audio: { originalFileName: null, mimeType: null, sizeBytes: 0 },
+        artifacts: {},
+      }),
+      "utf-8",
+    );
   }
 
   async function writeMinimalManifest(index: number, createdAt: number): Promise<void> {

@@ -24,6 +24,12 @@ import {
   type CodexLeaderCompactionMode,
 } from "../shared/codex-leader-compaction-mode.js";
 
+import {
+  DEFAULT_TRANSCRIPTION_STT_MODEL,
+  GPT_TRANSCRIBE_STT_MODEL as SHARED_GPT_TRANSCRIBE_STT_MODEL,
+  TRANSCRIPTION_STT_MODELS,
+  type BuiltInTranscriptionSttModel,
+} from "../shared/transcription-models.js";
 export interface CompanionSettings {
   /** Display name for this server instance */
   serverName: string;
@@ -136,15 +142,10 @@ export const DEFAULT_QUESTMASTER_COMPACT_SORT: QuestmasterCompactSort = { column
 export type EnhancementMode = "default" | "bullet";
 
 /** Available OpenAI STT models. */
-export const GPT_TRANSCRIBE_STT_MODEL = "gpt-transcribe";
-export const STT_MODELS = [
-  GPT_TRANSCRIBE_STT_MODEL,
-  "gpt-4o-mini-transcribe",
-  "gpt-4o-transcribe",
-  "gpt-4o-mini-transcribe-2025-12-15",
-] as const;
-export const DEFAULT_STT_MODEL = GPT_TRANSCRIBE_STT_MODEL;
-export type BuiltInSttModel = (typeof STT_MODELS)[number];
+export const GPT_TRANSCRIBE_STT_MODEL = SHARED_GPT_TRANSCRIBE_STT_MODEL;
+export const STT_MODELS = TRANSCRIPTION_STT_MODELS;
+export const DEFAULT_STT_MODEL = DEFAULT_TRANSCRIPTION_STT_MODEL;
+export type BuiltInSttModel = BuiltInTranscriptionSttModel;
 export type SttModel = string;
 
 /** Configuration for voice transcription (STT + optional LLM enhancement). */
