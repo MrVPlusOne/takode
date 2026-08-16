@@ -41,6 +41,7 @@ export interface BoardRowData {
   waitFor?: string[];
   waitForInput?: string[];
   createdAt?: number;
+  threadTabActivatedAt?: number;
   updatedAt: number;
   completedAt?: number;
 }

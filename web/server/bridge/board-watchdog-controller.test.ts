@@ -248,6 +248,75 @@ describe("Work Board leader thread tabs", () => {
     expect(deps.persistSession).toHaveBeenCalledWith(session);
   });
 
+  it("resurfaces a queued row with a fresh activation event without weakening later closes", () => {
+    // A queued row can be closed before it resumes. Its transition back to
+    // active work is a new server candidate, while later active-phase edits are not.
+    const session = createSession();
+    const deps = createDeps();
+
+    upsertBoardRow(session, { questId: "q-9", status: "QUEUED", updatedAt: 100 }, deps);
+    session.state.leaderOpenThreadTabs = {
+      version: 1,
+      orderedOpenThreadKeys: [],
+      closedThreadTombstones: [{ threadKey: "q-9", closedAt: 200 }],
+      updatedAt: 200,
+    };
+
+    upsertBoardRow(session, { questId: "q-9", status: "WORKING", updatedAt: 300 }, deps);
+
+    expect(session.board.get("q-9")?.threadTabActivatedAt).toBe(300);
+    expect(session.state.leaderOpenThreadTabs).toEqual({
+      version: 1,
+      orderedOpenThreadKeys: ["q-9"],
+      closedThreadTombstones: [],
+      updatedAt: 300,
+    });
+
+    session.state.leaderOpenThreadTabs = {
+      version: 1,
+      orderedOpenThreadKeys: [],
+      closedThreadTombstones: [{ threadKey: "q-9", closedAt: 400 }],
+      updatedAt: 400,
+    };
+    upsertBoardRow(session, { questId: "q-9", status: "MEMORY", updatedAt: 500 }, deps);
+
+    expect(session.board.get("q-9")?.threadTabActivatedAt).toBe(300);
+    expect(session.state.leaderOpenThreadTabs).toEqual({
+      version: 1,
+      orderedOpenThreadKeys: [],
+      closedThreadTombstones: [{ threadKey: "q-9", closedAt: 400 }],
+      updatedAt: 400,
+    });
+  });
+
+  it("resurfaces a queued row when board advance starts its first active phase", () => {
+    // The advance primitive is a second production activation path and must use
+    // the same fresh event semantics as an explicit board-set status change.
+    const session = createSession();
+    const deps = createDeps();
+    const closedAt = Date.now() - 1;
+    session.board.set("q-9", {
+      questId: "q-9",
+      status: "QUEUED",
+      waitFor: ["free-worker"],
+      createdAt: closedAt - 100,
+      updatedAt: closedAt - 100,
+    });
+    session.state.leaderOpenThreadTabs = {
+      version: 1,
+      orderedOpenThreadKeys: [],
+      closedThreadTombstones: [{ threadKey: "q-9", closedAt }],
+      updatedAt: closedAt,
+    };
+
+    const result = advanceBoardRow(session, "q-9", QUEST_JOURNEY_STATES, deps);
+
+    expect(result && "newState" in result ? result.newState : undefined).toBe("PLANNING");
+    expect(session.board.get("q-9")?.threadTabActivatedAt).toBeGreaterThan(closedAt);
+    expect((session.state.leaderOpenThreadTabs as any)?.orderedOpenThreadKeys).toEqual(["q-9"]);
+    expect((session.state.leaderOpenThreadTabs as any)?.closedThreadTombstones).toEqual([]);
+  });
+
   it("does not revive a completed leader thread tab after an explicit close tombstone", () => {
     const session = createSession();
     const deps = createDeps();

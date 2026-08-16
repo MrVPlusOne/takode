@@ -822,6 +822,12 @@ export interface BoardRow {
   waitForInput?: string[];
   /** Epoch ms when this row was first added to the board. Used for stable sort. */
   createdAt: number;
+  /**
+   * Epoch ms of the latest transition from an inactive board state into active work.
+   * This is the freshness event for automatic leader-tab surfacing and must not
+   * advance during ordinary active phase/status updates.
+   */
+  threadTabActivatedAt?: number;
   /** Epoch ms when this row was last updated. */
   updatedAt: number;
   /** Epoch ms when this row was moved to the completed list. Present only for completed items. */

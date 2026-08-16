@@ -57,7 +57,7 @@ import {
   mergeLeaderThreadSummaries,
 } from "../../shared/leader-projection.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
-import { useLeaderThreadTabSurfacing } from "./leader-thread-tab-surfacing.js";
+import { activeBoardThreadTabEventAt, useLeaderThreadTabSurfacing } from "./leader-thread-tab-surfacing.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 import {
   persistLeaderSelectedThreadKey,
@@ -1470,7 +1470,10 @@ export function ChatView({
       .filter((threadKey, index, threadKeys) => {
         if (!shouldPersistOpenThreadTab(threadKey) || threadKeys.indexOf(threadKey) !== index) return false;
         const row = activeBoard.find((candidate) => normalizeThreadKey(candidate.questId) === threadKey);
-        return row ? !questOrBoardRowIsCompleted(questStatusByKey.get(threadKey), row.status, row.completedAt) : false;
+        return row
+          ? activeBoardThreadTabEventAt(row) !== undefined &&
+              !questOrBoardRowIsCompleted(questStatusByKey.get(threadKey), row.status, row.completedAt)
+          : false;
       });
 
     // Front insertion stacks candidates, so reverse iteration preserves board order among newly opened rows.
@@ -1478,9 +1481,10 @@ export function ChatView({
       const threadKey = normalizeThreadKey(row.questId);
       if (!shouldPersistOpenThreadTab(threadKey)) continue;
       if (questOrBoardRowIsCompleted(questStatusByKey.get(threadKey), row.status, row.completedAt)) continue;
+      const candidateEventAt = activeBoardThreadTabEventAt(row);
+      if (candidateEventAt === undefined) continue;
       const newlySurfacedActiveRow =
         initializedActiveBoardThreadKeysRef.current && !observedActiveBoardThreadKeysRef.current.has(threadKey);
-      const candidateEventAt = row.createdAt ?? row.updatedAt;
       const candidateCanOpen = canServerCandidateOpenThread(
         authoritativeLeaderOpenThreadTabs,
         threadKey,

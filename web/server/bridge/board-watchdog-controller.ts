@@ -171,7 +171,7 @@ function surfaceBoardRowThreadTab(session: SessionLike, row: BoardRow): void {
   if (!shouldServerSurfaceBoardRowThreadTab(row)) return;
   const existingState = normalizeLeaderOpenThreadTabsState(session.state?.leaderOpenThreadTabs);
   if (existingState?.orderedOpenThreadKeys.includes(row.questId.toLowerCase())) return;
-  const eventAt = row.createdAt;
+  const eventAt = row.threadTabActivatedAt ?? row.createdAt;
   const nextState = applyLeaderThreadTabUpdate(
     existingState,
     {
@@ -193,6 +193,13 @@ function surfaceBoardRowThreadTabs(session: SessionLike): void {
   for (const row of [...getBoard(session)].reverse()) {
     surfaceBoardRowThreadTab(session, row);
   }
+}
+
+function updateBoardRowThreadTabActivation(existing: BoardRow | undefined, next: BoardRow, activatedAt: number): void {
+  next.threadTabActivatedAt = existing?.threadTabActivatedAt;
+  if (!existing || !shouldServerSurfaceBoardRowThreadTab(next)) return;
+  if (shouldServerSurfaceBoardRowThreadTab(existing)) return;
+  next.threadTabActivatedAt = activatedAt;
 }
 
 function getNextBoardJourneyPhaseAdvance(
@@ -804,8 +811,10 @@ export function upsertBoardRow(
     waitForInput:
       row.waitForInput !== undefined ? normalizeBoardWaitForInput(row.waitForInput) : existing?.waitForInput,
     createdAt: existing?.createdAt ?? now,
+    threadTabActivatedAt: existing?.threadTabActivatedAt,
     updatedAt: row.updatedAt ?? now,
   };
+  updateBoardRowThreadTabActivation(existing, merged, merged.updatedAt);
   applyBoardWaitStateInvariant(merged);
   applyQuestJourneyPhaseTiming(merged, existing, now);
   session.board.set(row.questId, merged);
@@ -1033,6 +1042,7 @@ export function advanceBoardRow(
       applyBoardWaitStateInvariant(row);
       applyQuestJourneyPhaseTiming(row, previousRowForTiming, now);
       row.updatedAt = now;
+      updateBoardRowThreadTabActivation(previousRowForTiming, row, now);
       session.board.set(questId, row);
       const board = commitBoard(session, deps);
       return { board, removed: false, previousState, newState: row.status };
@@ -1051,6 +1061,7 @@ export function advanceBoardRow(
   applyBoardWaitStateInvariant(row);
   applyQuestJourneyPhaseTiming(row, previousRowForTiming, now);
   row.updatedAt = now;
+  updateBoardRowThreadTabActivation(previousRowForTiming, row, now);
   session.board.set(questId, row);
   const board = commitBoard(session, deps);
   return { board, removed: false, previousState, newState: row.status };

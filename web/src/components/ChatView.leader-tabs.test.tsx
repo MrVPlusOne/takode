@@ -1343,6 +1343,37 @@ describe("ChatView leader open thread tabs", () => {
     });
   });
 
+  it("uses fresh board activation time to reopen a previously closed queued quest", async () => {
+    resetStore({
+      sessions: leaderSession(leaderTabs([], [{ threadKey: "q-1231", closedAt: 20 }])),
+      sessionBoards: new Map([
+        [
+          "s1",
+          [
+            {
+              questId: "q-1231",
+              status: "WORKING",
+              title: "Resumed queued quest",
+              createdAt: 10,
+              threadTabActivatedAt: 30,
+              updatedAt: 30,
+            },
+          ],
+        ],
+      ]),
+      quests: [{ questId: "q-1231", title: "Resumed queued quest", status: "in_progress" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    await waitFor(() =>
+      expect(within(view.container).getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1231"),
+    );
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: { type: "open", threadKey: "q-1231", placement: "first", source: "server_candidate", eventAt: 30 },
+    });
+  });
+
   it("does not resurrect an active quest thread that the user explicitly closed", async () => {
     resetStore({
       sessions: leaderSession(leaderTabs([], [{ threadKey: "q-1231", closedAt: 20 }])),

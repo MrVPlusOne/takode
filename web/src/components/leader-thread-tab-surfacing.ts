@@ -29,6 +29,17 @@ type LeaderThreadTabSurfacingRow = {
   section?: string;
 };
 
+export function activeBoardThreadTabEventAt(row: {
+  status?: string;
+  threadTabActivatedAt?: number;
+  createdAt?: number;
+  updatedAt: number;
+}): number | undefined {
+  const status = (row.status ?? "").trim().toUpperCase();
+  if (status === "QUEUED" || status === "PROPOSED") return undefined;
+  return row.threadTabActivatedAt ?? row.createdAt ?? row.updatedAt;
+}
+
 export function useLeaderThreadTabSurfacing({
   allMessages,
   transitionMessages = allMessages,

@@ -2,7 +2,7 @@
 import { render, waitFor } from "@testing-library/react";
 import type { LeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
 import type { ChatMessage, ThreadTransitionMarker } from "../types.js";
-import { useLeaderThreadTabSurfacing } from "./leader-thread-tab-surfacing.js";
+import { activeBoardThreadTabEventAt, useLeaderThreadTabSurfacing } from "./leader-thread-tab-surfacing.js";
 
 type TabSurfacingProps = Parameters<typeof useLeaderThreadTabSurfacing>[0];
 
@@ -83,6 +83,17 @@ function TabSurfacingHarness({
   });
   return null;
 }
+
+describe("activeBoardThreadTabEventAt", () => {
+  it("uses a fresh reactivation event while excluding queued and proposed rows", () => {
+    expect(activeBoardThreadTabEventAt({ status: "QUEUED", createdAt: 10, updatedAt: 20 })).toBeUndefined();
+    expect(activeBoardThreadTabEventAt({ status: "PROPOSED", createdAt: 10, updatedAt: 20 })).toBeUndefined();
+    expect(
+      activeBoardThreadTabEventAt({ status: "WORKING", createdAt: 10, threadTabActivatedAt: 30, updatedAt: 40 }),
+    ).toBe(30);
+    expect(activeBoardThreadTabEventAt({ status: "MEMORY", createdAt: 10, updatedAt: 40 })).toBe(10);
+  });
+});
 
 describe("useLeaderThreadTabSurfacing transition markers", () => {
   it("surfaces a fresh transition from the selected non-Main source thread without selecting it", async () => {
