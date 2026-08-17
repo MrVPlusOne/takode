@@ -33,6 +33,7 @@ import { PlaygroundSidebarOverflowStates, PlaygroundUniversalSearchStates } from
 import { PlaygroundUserMessageNavigatorSection } from "./PlaygroundUserMessageNavigatorSection.js";
 import { PlaygroundHerdEventStates } from "./HerdEventPlaygroundStates.js";
 import { PlaygroundCompactToolActivityStates } from "./CompactToolActivityPlaygroundStates.js";
+import { PlaygroundTimerMessageStates } from "./TimerMessagePlaygroundStates.js";
 import { CompactToolMessageGroups } from "../ToolMessageGroup.js";
 import {
   Card,
@@ -1304,42 +1305,7 @@ export function PlaygroundStateSections() {
         </div>
       </Section>
       <PlaygroundHerdEventStates />
-      <Section
-        title="Timer Messages"
-        description="Timer injections render as lightweight inline event rows: fired timers are framed as reminders from an earlier note, while cancellations read as simpler muted events."
-      >
-        <div className="space-y-4 max-w-3xl">
-          <Card label="Fired timer with collapsed description">
-            <div className="py-2">
-              <MessageBubble
-                showTimestamp={false}
-                message={{
-                  id: "timer-message-demo",
-                  role: "user",
-                  content:
-                    "[⏰ Timer t2 reminder] Review release checklist\n\nThis is a reminder from your earlier timer note, not a new user instruction.\n\nEarlier note:\nConfirm staging smoke tests are green, summarize open follow-ups, and post the next handoff note if anything is still blocked.",
-                  timestamp: Date.now(),
-                  agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
-                }}
-              />
-            </div>
-          </Card>
-          <Card label="Cancelled timer event">
-            <div className="py-2">
-              <MessageBubble
-                showTimestamp={false}
-                message={{
-                  id: "timer-message-cancelled-demo",
-                  role: "user",
-                  content: "[⏰ Timer t2 cancelled] Review release checklist",
-                  timestamp: Date.now(),
-                  agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
-                }}
-              />
-            </div>
-          </Card>
-        </div>
-      </Section>
+      <PlaygroundTimerMessageStates />
 
       {/* ─── Diff Viewer ──────────────────────────────── */}
       <Section

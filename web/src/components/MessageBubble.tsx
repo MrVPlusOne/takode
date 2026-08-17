@@ -12,8 +12,7 @@ import { StarredMessageRailMarker } from "./StarredMessageIndicator.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE, parseHerdEvents } from "../utils/herd-event-parser.js";
 import { getHerdEventHeaderSummary } from "../utils/herd-event-classification.js";
-import { useStore, getSessionSearchState, countUserPermissions } from "../store.js";
-import { sessionSearchMessageMatchesCategory } from "../store-session-search.js";
+import { useStore, countUserPermissions } from "../store.js";
 import { formatVsCodeSelectionAttachmentLabel } from "../utils/vscode-context.js";
 import { navigateToSession } from "../utils/routing.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
@@ -47,6 +46,8 @@ import {
 } from "../utils/assistant-message-renderability.js";
 import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
 import { CodexReasoningDetail } from "./CodexReasoningDetail.js";
+import { useMessageSearchHighlight, type SearchHighlightInfo } from "../hooks/use-message-search-highlight.js";
+import { TimerMessage } from "./TimerMessage.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
 
@@ -55,28 +56,6 @@ const EMPTY_MESSAGES: ChatMessage[] = [];
 /** Detect assistant messages whose final projected host has no visible content. */
 export function isEmptyAssistantMessage(msg: ChatMessage): boolean {
   return msg.role === "assistant" && !isAssistantMessageRenderable(msg);
-}
-
-/**
- * Per-message search highlight info, derived from the session search state.
- * Returns null when no search is active (zero overhead path).
- */
-function useMessageSearchHighlight(sessionId: string | undefined, message: ChatMessage) {
-  const query = useStore((s) => (sessionId ? getSessionSearchState(s, sessionId).query : ""));
-  const mode = useStore((s) => (sessionId ? getSessionSearchState(s, sessionId).mode : ("strict" as const)));
-  const category = useStore((s) => (sessionId ? getSessionSearchState(s, sessionId).category : "all"));
-  const leaderSessionId = useStore((s) =>
-    sessionId ? s.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.herdedBy : undefined,
-  );
-  const isCurrent = useStore((s) => {
-    if (!sessionId) return false;
-    const ss = getSessionSearchState(s, sessionId);
-    if (ss.matches.length === 0 || ss.currentMatchIndex < 0) return false;
-    return ss.matches[ss.currentMatchIndex]?.messageId === message.id;
-  });
-  if (!sessionSearchMessageMatchesCategory(message, category, leaderSessionId)) return null;
-  if (!query.trim()) return null;
-  return { query, mode, isCurrent };
 }
 
 function useFeedStarredMessage(sessionId: string | undefined, message: ChatMessage): boolean {
@@ -449,182 +428,6 @@ function ThreadSourceBadge({ threadKey }: { threadKey: string }) {
   );
 }
 
-type ParsedTimerMessage = {
-  kind: "fired" | "cancelled" | "unknown";
-  title: string;
-  description: string;
-  timerId: string | null;
-};
-
-function parseTimerMessageContent(content: string): ParsedTimerMessage {
-  const trimmed = content.trim();
-  const parts = trimmed.split(/\n{2,}/);
-  const header = parts[0]?.trim() ?? "";
-  const description = parts.slice(1).join("\n\n").trim();
-  const cancelledMatch = header.match(/^\[⏰ Timer ([^\]\s]+) cancelled\]\s*(.*)$/);
-  if (cancelledMatch) {
-    return {
-      kind: "cancelled",
-      timerId: cancelledMatch[1],
-      title: (cancelledMatch[2] || header).trim(),
-      description,
-    };
-  }
-
-  const firedMatch = header.match(/^\[⏰ Timer ([^\]\s]+)\]\s*(.*)$/);
-  if (firedMatch) {
-    return {
-      kind: "fired",
-      timerId: firedMatch[1],
-      title: (firedMatch[2] || header).trim(),
-      description,
-    };
-  }
-
-  const reminderMatch = header.match(/^\[⏰ Timer ([^\]\s]+) reminder\]\s*(.*)$/);
-  if (reminderMatch) {
-    return {
-      kind: "fired",
-      timerId: reminderMatch[1],
-      title: (reminderMatch[2] || header).trim(),
-      description,
-    };
-  }
-
-  const fallbackMatch = header.match(/^\[[^\]]+\]\s*(.*)$/);
-  const title = (fallbackMatch?.[1] ?? header).trim();
-  return {
-    kind: "unknown",
-    timerId: null,
-    title: title || trimmed,
-    description,
-  };
-}
-
-function TimerEventIcon({ muted = false }: { muted?: boolean }) {
-  return (
-    <span aria-hidden="true" className={`shrink-0 text-[13px] leading-none ${muted ? "opacity-50" : ""}`}>
-      ⏰
-    </span>
-  );
-}
-
-function TimerMessage({
-  message,
-  sessionId,
-  showTimestamp,
-  searchHighlight,
-}: {
-  message: ChatMessage;
-  sessionId?: string;
-  showTimestamp: boolean;
-  searchHighlight?: SearchHighlightInfo;
-}) {
-  const { title, description, timerId, kind } = useMemo(
-    () => parseTimerMessageContent(message.content),
-    [message.content],
-  );
-  const [expanded, setExpanded] = useState(false);
-  const hasDescription = description.length > 0;
-  const timerLabel = timerId ?? message.agentSource?.sessionLabel ?? "timer";
-  const fullTimerLabel = message.agentSource?.sessionLabel ?? (timerId ? `Timer ${timerId}` : timerLabel);
-  const titleClassName = kind === "cancelled" ? "text-cc-muted/85" : "text-cc-fg/95";
-  const normalizedQuery = searchHighlight?.query.trim().toLowerCase() ?? "";
-  const shouldShowFullTimerLabel =
-    normalizedQuery.length > 0 &&
-    searchHighlight?.mode === "strict" &&
-    !timerLabel.toLowerCase().includes(normalizedQuery) &&
-    fullTimerLabel.toLowerCase().includes(normalizedQuery);
-  const visibleTimerLabel = shouldShowFullTimerLabel ? fullTimerLabel : timerLabel;
-
-  const renderedTimerLabel = searchHighlight?.query ? (
-    <HighlightedText
-      text={visibleTimerLabel}
-      query={searchHighlight.query}
-      mode={searchHighlight.mode}
-      isCurrent={searchHighlight.isCurrent}
-    />
-  ) : (
-    visibleTimerLabel
-  );
-
-  const renderedTitle = searchHighlight?.query ? (
-    <HighlightedText
-      text={title}
-      query={searchHighlight.query}
-      mode={searchHighlight.mode}
-      isCurrent={searchHighlight.isCurrent}
-    />
-  ) : (
-    title
-  );
-
-  return (
-    <div className="pl-9 py-0.5 animate-[fadeSlideIn_0.2s_ease-out]">
-      <div className="max-w-3xl">
-        <div className="flex items-start gap-3">
-          <div className="min-w-0 flex-1">
-            {hasDescription && kind !== "cancelled" ? (
-              <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                aria-expanded={expanded}
-                aria-label={expanded ? "Collapse timer description" : "Expand timer description"}
-                className="flex w-full min-w-0 items-start gap-2 text-left cursor-pointer"
-              >
-                <TimerEventIcon />
-                <span className="shrink-0 pt-0.5 font-mono-code text-[11px] leading-none text-orange-300/85">
-                  {renderedTimerLabel}
-                </span>
-                <span className={`min-w-0 flex-1 break-words text-[13px] font-medium leading-snug ${titleClassName}`}>
-                  {renderedTitle}
-                </span>
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className={`mt-0.5 h-3 w-3 shrink-0 text-cc-muted/45 transition-transform ${expanded ? "rotate-90" : ""}`}
-                >
-                  <path d="M6 3l5 5-5 5V3z" />
-                </svg>
-              </button>
-            ) : (
-              <div className="flex min-w-0 items-start gap-2">
-                <TimerEventIcon muted={kind === "cancelled"} />
-                <span
-                  className={`shrink-0 pt-0.5 font-mono-code text-[11px] leading-none ${
-                    kind === "cancelled" ? "text-cc-muted/60" : "text-orange-300/85"
-                  }`}
-                >
-                  {renderedTimerLabel}
-                </span>
-                {kind === "cancelled" && (
-                  <span className="shrink-0 pt-[1px] text-[10px] uppercase tracking-[0.18em] text-cc-muted/45">
-                    cancelled
-                  </span>
-                )}
-                <span className={`min-w-0 flex-1 break-words text-[13px] font-medium leading-snug ${titleClassName}`}>
-                  {renderedTitle}
-                </span>
-              </div>
-            )}
-            {expanded && hasDescription && kind !== "cancelled" && (
-              <div className="ml-6 mt-2 rounded-2xl border border-cc-border/20 bg-cc-card/45 px-3 py-2.5">
-                <MarkdownContent
-                  text={description}
-                  variant="conservative"
-                  sessionId={sessionId}
-                  searchHighlight={searchHighlight}
-                />
-              </div>
-            )}
-          </div>
-          {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /** Compact inline rendering for herd event summaries — collapsed by default.
  *  Shows one-line event headers (#N | turn_end | ...) with a toggle chevron.
  *  Expanding reveals the full injected peek-style activity content. */
@@ -887,8 +690,6 @@ function HerdEventEntry({
 
 // Re-export herd event parsing utilities for backward compatibility
 export { EVENT_HEADER_RE, parseHerdEvents } from "../utils/herd-event-parser.js";
-
-type SearchHighlightInfo = { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
 
 function ThreadOutcomeReminderMessage({
   message,

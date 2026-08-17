@@ -55,6 +55,8 @@ import { CompactFeedActivity, type CompactFeedActivitySegment } from "./CompactF
 import { isCompactableHerdEventMessage } from "../utils/herd-event-classification.js";
 import { canGroupCodexReasoningDetails, isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
 import { CodexReasoningDetailGroup } from "./CodexReasoningDetail.js";
+import { collectTimerMessageBatch, TimerMessageGroup } from "./TimerMessage.js";
+import { MinuteBoundaryTimestamp } from "./MinuteBoundaryTimestamp.js";
 
 function useExpandForScrollTarget(
   sessionId: string,
@@ -67,23 +69,6 @@ function useExpandForScrollTarget(
       setOpen(true);
     }
   }, [expandTargetId, containedMessageIds, setOpen]);
-}
-
-function MinuteBoundaryTimestamp({ timestamp, label }: { timestamp: number; label: string }) {
-  const d = new Date(timestamp);
-  if (Number.isNaN(d.getTime())) return null;
-  return (
-    <div className="flex items-center justify-center py-1">
-      <time
-        data-testid="minute-boundary-timestamp"
-        dateTime={d.toISOString()}
-        title={d.toLocaleString()}
-        className="text-[11px] text-cc-muted/70 font-mono-code"
-      >
-        {label}
-      </time>
-    </div>
-  );
 }
 
 function getTurnBoundaryTimestamp(turn: Turn): number | null {
@@ -879,6 +864,22 @@ export const FeedEntries = memo(function FeedEntries({
       const entry = entries[i];
       if (entry.kind === "message" && !assistantIsRenderable(entry.msg)) {
         i++;
+        continue;
+      }
+      const timerBatch = collectTimerMessageBatch(entries, i, {
+        isInvisible: (candidate) => isInvisibleFeedEntry(candidate, suppressThreadSystemMarkers, assistantIsRenderable),
+        isDateBoundary: (message) => minuteBoundaryLabels?.has(message.id) === true,
+      });
+      if (timerBatch) {
+        result.push(
+          <TimerMessageGroup
+            key={`timer-group:${timerBatch.messages[0]?.id ?? i}`}
+            messages={timerBatch.messages}
+            sessionId={sessionId}
+            dateLabel={minuteBoundaryLabels?.get(timerBatch.messages[0]?.id ?? "")}
+          />,
+        );
+        i = timerBatch.nextIndex;
         continue;
       }
       if (
