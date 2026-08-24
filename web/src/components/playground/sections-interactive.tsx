@@ -247,7 +247,7 @@ function PlaygroundCodexModelToolbar({ narrow = false }: { narrow?: boolean }) {
 }
 
 export function PlaygroundInteractiveSections() {
-  const [boardOpenThreadKeys, setBoardOpenThreadKeys] = useState(["q-1768", "q-42", "q-55", "q-61", "q-77", "q-88"]);
+  const [boardOpenThreadKeys, setBoardOpenThreadKeys] = useState(["q-1932", "q-42", "q-55", "q-61", "q-77", "q-88"]);
   const [boardPreviewThreadKey, setBoardPreviewThreadKey] = useState("main");
 
   return (
@@ -1434,7 +1434,7 @@ export function PlaygroundInteractiveSections() {
                       dedupeKey: "playground-board-bar-review",
                     },
                   ]);
-                  const questIds = ["q-42", "q-55", "q-61", "q-77", "q-88", "q-99", "q-1768"];
+                  const questIds = ["q-42", "q-55", "q-61", "q-77", "q-88", "q-99", "q-1932"];
                   const quests = state.quests
                     .filter((quest) => !questIds.includes(quest.questId))
                     .concat([
@@ -1509,20 +1509,14 @@ export function PlaygroundInteractiveSections() {
                         claimedAt: now - 30_000,
                         tags: ["threads"],
                       },
-                      {
-                        id: "q-1768-v1",
-                        questId: "q-1768",
-                        version: 1,
-                        title: "Run GPT-5.4 reasoning-effort QA eval",
-                        status: "done" as const,
-                        description:
-                          "Completed tab retained after a later partial status update only carried the quest id.",
-                        createdAt: now - 8_000_000,
-                        completedAt: now - 600_000,
-                        verificationItems: [],
-                        tags: ["done", "title"],
-                      },
                     ]);
+                  const questTitlePreviews = new Map(state.questTitlePreviews);
+                  questTitlePreviews.set("q-1932", {
+                    questId: "q-1932",
+                    title: "Resolve VSCode QA Stack Conflicts",
+                    version: 3,
+                    updatedAt: now - 600_000,
+                  });
                   const playgroundSessionIds = [
                     boardSessionId,
                     "playground-board-worker",
@@ -1597,6 +1591,7 @@ export function PlaygroundInteractiveSections() {
                     ],
                     sessionNames,
                     quests,
+                    questTitlePreviews,
                   });
                 }}
                 className="text-xs font-medium px-3 py-1.5 rounded-md bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 transition-colors cursor-pointer"
@@ -1720,9 +1715,9 @@ export function PlaygroundInteractiveSections() {
                       section: "done",
                     },
                     {
-                      threadKey: "q-1768",
-                      questId: "q-1768",
-                      title: "q-1768",
+                      threadKey: "q-1932",
+                      questId: "q-1932",
+                      title: "q-1932",
                       messageCount: 9,
                       section: "done",
                     },
@@ -1841,18 +1836,18 @@ export function PlaygroundInteractiveSections() {
                       source: {
                         kind: "notification",
                         id: "playground-board-bar-title-fallback-review",
-                        questId: "q-1768",
+                        questId: "q-1932",
                       },
-                      questId: "q-1768",
-                      threadKey: "q-1768",
-                      title: "q-1768",
-                      summary: "Thread ready: q-1768 | cancelled",
+                      questId: "q-1932",
+                      threadKey: "q-1932",
+                      title: "q-1932",
+                      summary: "Thread ready: q-1932 | cancelled",
                       actionLabel: "Review",
                       priority: "review",
                       state: "unresolved",
                       createdAt: Date.now() - 32_000,
                       updatedAt: Date.now() - 16_000,
-                      route: { threadKey: "q-1768", questId: "q-1768" },
+                      route: { threadKey: "q-1932", questId: "q-1932" },
                       chipEligible: true,
                       ledgerEligible: true,
                       dedupeKey: "playground-board-bar-title-fallback-review",
@@ -1864,7 +1859,9 @@ export function PlaygroundInteractiveSections() {
                 Click "Seed board data" first. The constrained width keeps several open tabs visible while hidden tabs
                 collapse into More for tab sizing, phase color, close affordance, overflow, and insertion checks. Hover
                 q-42 to inspect the shared quest hover card with a medium-long repeated Journey clamped around current
-                row 12; the active-output route also targets q-42 so Main stays visually quiet when selected.
+                row 12. The retained q-1932 tab is absent from the paged quest list and recovers its canonical title
+                only from the bounded title projection; the active-output route targets q-42 so Main stays visually
+                quiet.
               </p>
             </div>
           </Card>

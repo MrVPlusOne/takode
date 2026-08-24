@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardRowData } from "./BoardTable.js";
-import type { QuestmasterTask, SessionAttentionRecord, SessionState } from "../types.js";
+import type { QuestTitlePreview, QuestmasterTask, SessionAttentionRecord, SessionState } from "../types.js";
 import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
 import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
 
@@ -21,6 +21,8 @@ interface MockStoreState {
   askPermission: Map<string, boolean>;
   cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
   quests: QuestmasterTask[];
+  questDetails: Map<string, QuestmasterTask>;
+  questTitlePreviews: Map<string, QuestTitlePreview | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
   activeTurnRoutes: Map<string, import("../types.js").ActiveTurnRoute | null>;
 }
@@ -42,6 +44,8 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     askPermission: new Map(),
     cliDisconnectReason: new Map(),
     quests: [],
+    questDetails: new Map(),
+    questTitlePreviews: new Map(),
     sessionStatus: new Map(),
     activeTurnRoutes: new Map(),
     ...overrides,
@@ -51,6 +55,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
 vi.mock("../store.js", () => ({
   useStore: Object.assign((selector: (s: MockStoreState) => unknown) => selector(mockState), {
     getState: () => ({
+      ...mockState,
       requestScrollToMessage: vi.fn(),
       setExpandAllInTurn: vi.fn(),
     }),
@@ -811,6 +816,51 @@ describe("WorkBoardBar overflow tabs", () => {
       color: getPhaseColor("PORTING"),
     });
     expectNoNotificationSurfaceTone(tab);
+  });
+
+  it("shows a hydrated canonical title for a retained removed-board tab in More", async () => {
+    // A server-owned open key can be hidden in More after its cancelled quest
+    // disappears from both board collections and the paged quest list.
+    resetStore({
+      questDetails: new Map([
+        [
+          "q-1932",
+          {
+            id: "q-1932-v2",
+            questId: "q-1932",
+            version: 2,
+            title: "Old cached title",
+            description: "Stale detail body",
+            status: "done",
+            createdAt: 1,
+            updatedAt: 20,
+            completedAt: 20,
+            verificationItems: [],
+          } as QuestmasterTask,
+        ],
+      ]),
+      questTitlePreviews: new Map([
+        ["q-1932", { questId: "q-1932", title: "Resolve VSCode QA Stack Conflicts", version: 3, updatedAt: 30 }],
+      ]),
+    });
+    setMeasuredRailWidth(320);
+
+    render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-1"
+        openThreadKeys={["q-1", "q-2", "q-3", "q-4", "q-1932"]}
+        threadRows={THREAD_ROWS}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId("thread-tabs-more-button"));
+    const retainedRow = screen
+      .getAllByTestId("thread-tabs-more-row")
+      .find((row) => row.getAttribute("data-thread-key") === "q-1932");
+    expect(retainedRow).toBeDefined();
+    expect(retainedRow).toHaveTextContent("Resolve VSCode QA Stack Conflicts");
+    expect(retainedRow).not.toHaveTextContent("Old cached title");
   });
 
   it("keeps the More tabs list open after a hidden row close", async () => {

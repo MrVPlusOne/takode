@@ -1744,6 +1744,19 @@ function handleParsedMessage(
       store.invalidateQuestAutocompleteCandidates();
       void store.refreshQuestAutocompleteCandidates({ force: true, background: true });
       void store.refreshQuestSummary({ force: true });
+
+      // Retained leader tabs intentionally outlive board/default quest-list rows.
+      // Refresh only their minimal title projections, keeping the previous
+      // canonical title visible until the bounded server response arrives.
+      const openQuestIds = new Set<string>();
+      for (const session of [...store.sessions.values(), ...store.sdkSessions]) {
+        if (session.isOrchestrator !== true) continue;
+        for (const threadKey of session.leaderOpenThreadTabs?.orderedOpenThreadKeys ?? []) {
+          const questId = threadKey.trim().toLowerCase();
+          if (/^q-\d+$/.test(questId)) openQuestIds.add(questId);
+        }
+      }
+      if (openQuestIds.size > 0) void store.hydrateQuestTitles([...openQuestIds], { force: true });
       break;
     }
 

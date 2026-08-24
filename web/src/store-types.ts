@@ -14,6 +14,7 @@ import type {
   PendingUserUpload,
   PermissionRequest,
   QuestAutocompleteCandidate,
+  QuestTitlePreview,
   QuestmasterTask,
   SdkSessionInfo,
   SessionTaskEntry,
@@ -139,6 +140,8 @@ export interface AppState {
   expandedHerdNodes: Set<string>;
   questDetails: Map<string, QuestmasterTask>;
   questDetailEtags: Map<string, string>;
+  /** Minimal server-authored title records for retained/open quest tabs. Null means the requested quest was absent. */
+  questTitlePreviews: Map<string, QuestTitlePreview | null>;
   quests: QuestmasterTask[];
   questAutocompleteCandidates: QuestAutocompleteCandidate[];
   questAutocompleteEtag: string | null;
@@ -151,6 +154,7 @@ export interface AppState {
   setQuests: (quests: QuestmasterTask[]) => void;
   upsertQuestDetail: (updated: QuestmasterTask, opts?: { etag?: string | null }) => void;
   removeQuestDetail: (questId: string) => void;
+  hydrateQuestTitles: (questIds: string[], opts?: { force?: boolean }) => Promise<void>;
   replaceQuest: (updated: QuestmasterTask) => void;
   refreshQuests: (opts?: { background?: boolean; force?: boolean }) => Promise<void>;
   refreshQuestSummary: (opts?: { force?: boolean }) => Promise<void>;

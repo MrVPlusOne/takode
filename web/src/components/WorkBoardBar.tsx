@@ -38,6 +38,8 @@ import { QuestHoverCard } from "./QuestHoverCard.js";
 import { activeBoardSummarySegments, boardSummary, type BoardSummarySegment } from "./leader-board-summary.js";
 import { LeaderWorkboardControlButton, SummarySegments } from "./leader-workboard-controls.js";
 import type { LeaderWorkboardView } from "../store-types.js";
+import { buildCanonicalQuestTitleIndex, isQuestIdOnlyTitle } from "../utils/quest-title-index.js";
+import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
 
 export interface WorkBoardThreadNavigationRow {
   threadKey: string;
@@ -256,11 +258,7 @@ interface PrimaryThreadChip {
 }
 
 function isQuestIdFallbackTitle(title: string | undefined, threadKey: string, questId?: string): boolean {
-  const normalizedTitle = title?.trim().toLowerCase();
-  if (!normalizedTitle) return true;
-  const normalizedThreadKey = normalizeThreadKey(threadKey);
-  const normalizedQuestId = questId ? normalizeThreadKey(questId) : "";
-  return normalizedTitle === normalizedThreadKey || (!!normalizedQuestId && normalizedTitle === normalizedQuestId);
+  return isQuestIdOnlyTitle(title, questId ?? threadKey) || isQuestIdOnlyTitle(title, threadKey);
 }
 
 function strongestThreadTabTitle({
@@ -619,6 +617,7 @@ function buildOpenThreadTabs({
   activeBoardRows,
   completedBoardRows,
   questById,
+  questTitleById,
 }: {
   openThreadKeys: ReadonlyArray<string>;
   threadRows: WorkBoardThreadNavigationRow[];
@@ -626,6 +625,7 @@ function buildOpenThreadTabs({
   activeBoardRows: BoardRowData[];
   completedBoardRows: BoardRowData[];
   questById: ReadonlyMap<string, QuestmasterTask>;
+  questTitleById: ReadonlyMap<string, string>;
 }): PrimaryThreadChip[] {
   const activeByKey = new Map(activeThreadChips.map((chip) => [chip.threadKey, chip]));
   const rowByKey = new Map(threadRows.map((row) => [normalizeThreadKey(row.threadKey), row]));
@@ -645,8 +645,10 @@ function buildOpenThreadTabs({
     const completedBoardRow = completedBoardByKey.get(threadKey);
     const boardRow = activeBoardRow ?? completedBoardRow;
     const questId = active?.questId ?? row?.questId ?? boardRow?.questId ?? threadKey;
-    const quest = questById.get(normalizeThreadKey(questId));
-    if (!active && !row && !boardRow && !quest) continue;
+    const normalizedQuestId = normalizeThreadKey(questId);
+    const quest = questById.get(normalizedQuestId);
+    const projectedQuestTitle = questTitleById.get(normalizedQuestId);
+    if (!active && !row && !boardRow && !quest && !projectedQuestTitle) continue;
     const completedTitleColor = doneThreadTitleColor({
       boardRow,
       row,
@@ -659,7 +661,7 @@ function buildOpenThreadTabs({
       title: strongestThreadTabTitle({
         threadKey,
         questId,
-        questTitle: quest?.title,
+        questTitle: projectedQuestTitle ?? quest?.title,
         boardRowTitle: boardRow?.title,
         rowTitle: row?.title,
         activeTitle: active?.title,
@@ -870,9 +872,15 @@ function ThreadTabRail({
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const activeTurnRoute = useStore((s) => s.activeTurnRoutes.get(sessionId));
   const quests = useStore((s) => s.quests);
-  const questById = useMemo(() => new Map(quests.map((quest) => [normalizeThreadKey(quest.questId), quest])), [quests]);
+  const questDetails = useStore((s) => s.questDetails ?? new Map<string, QuestmasterTask>());
+  const questById = useMemo(() => {
+    const byId = new Map(quests.map((quest) => [normalizeThreadKey(quest.questId), quest]));
+    for (const quest of questDetails.values()) byId.set(normalizeThreadKey(quest.questId), quest);
+    return byId;
+  }, [questDetails, quests]);
   const [hoveredQuest, setHoveredQuest] = useState<{ quest: QuestmasterTask; anchorRect: DOMRect } | null>(null);
   const hideQuestHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingQuestHoverRef = useRef<{ questId: string; anchorRect: DOMRect } | null>(null);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const [railWidth, setRailWidth] = useState<number | null>(null);
   const [moreTabsOpen, setMoreTabsOpen] = useState(false);
@@ -917,20 +925,48 @@ function ThreadTabRail({
   }
   useEffect(
     () => () => {
+      pendingQuestHoverRef.current = null;
       if (hideQuestHoverTimerRef.current) clearTimeout(hideQuestHoverTimerRef.current);
     },
     [],
   );
 
-  function showQuestHover(quest: QuestmasterTask | undefined, anchorRect: DOMRect) {
-    if (!quest) return;
+  function showQuestHover(
+    quest: QuestmasterTask | undefined,
+    questId: string | undefined,
+    anchorRect: DOMRect,
+    showCachedImmediately: boolean,
+  ) {
     if (hideQuestHoverTimerRef.current) clearTimeout(hideQuestHoverTimerRef.current);
-    setHoveredQuest({ quest, anchorRect });
+    if (quest && showCachedImmediately) setHoveredQuest({ quest, anchorRect });
+    else setHoveredQuest(null);
+    if (!questId) return;
+
+    const pending = { questId, anchorRect };
+    pendingQuestHoverRef.current = pending;
+    void hydrateQuestDetail(questId)
+      .then((hydratedQuest) => {
+        if (pendingQuestHoverRef.current !== pending || !hydratedQuest) return;
+        pendingQuestHoverRef.current = null;
+        setHoveredQuest({ quest: hydratedQuest, anchorRect });
+      })
+      .catch(() => {
+        if (pendingQuestHoverRef.current === pending) pendingQuestHoverRef.current = null;
+      });
   }
 
   function scheduleQuestHoverHide() {
     if (hideQuestHoverTimerRef.current) clearTimeout(hideQuestHoverTimerRef.current);
-    hideQuestHoverTimerRef.current = setTimeout(() => setHoveredQuest(null), 100);
+    hideQuestHoverTimerRef.current = setTimeout(() => {
+      pendingQuestHoverRef.current = null;
+      setHoveredQuest(null);
+    }, 100);
+  }
+
+  function hideQuestHoverImmediately() {
+    pendingQuestHoverRef.current = null;
+    if (hideQuestHoverTimerRef.current) clearTimeout(hideQuestHoverTimerRef.current);
+    setHoveredQuest(null);
   }
 
   useLayoutEffect(() => {
@@ -1091,7 +1127,7 @@ function ThreadTabRail({
               const newTab = newTabKeys?.has(tab.threadKey) ?? false;
               const hoverQuest = tab.questId ? questById.get(normalizeThreadKey(tab.questId)) : undefined;
               const displayQuestId = hoverQuest?.questId ?? tab.questId;
-              const displayTitle = hoverQuest?.title ?? tab.title;
+              const displayTitle = tab.title;
               const displayTitleColor = completedQuestTitleColor(hoverQuest) ?? tab.titleColor;
               const reorderable = onReorderThreadTabs && sortableTabKeySet.has(normalizeThreadKey(tab.threadKey));
               const title = hoverQuest
@@ -1099,7 +1135,12 @@ function ThreadTabRail({
                 : `${displayQuestId ? `${displayQuestId}: ${displayTitle}` : displayTitle}${tab.needsInput ? " needs input" : showBlueNudge ? " has review updates" : ""}`;
               const className = `group relative inline-flex ${FLUID_THREAD_TAB_SIZE_CLASS} items-stretch overflow-hidden rounded-t-md border text-[11px] font-medium transition-colors ${newTab ? "thread-tab-pop" : ""} ${reorderable ? "cursor-grab active:cursor-grabbing" : ""} ${tone}`;
               const mouseEnter = (event: ReactMouseEvent<HTMLDivElement>) =>
-                showQuestHover(hoverQuest, event.currentTarget.getBoundingClientRect());
+                showQuestHover(
+                  hoverQuest,
+                  displayQuestId,
+                  event.currentTarget.getBoundingClientRect(),
+                  hoverQuest?.title === displayTitle,
+                );
               const children = (dragSurfaceProps?: {
                 attributes: DraggableAttributes;
                 listeners: ReturnType<typeof useSortable>["listeners"];
@@ -1161,7 +1202,7 @@ function ThreadTabRail({
                   newTab={newTab}
                   hoverQuest={hoverQuest}
                   onMouseEnter={mouseEnter}
-                  onMouseLeave={hoverQuest ? scheduleQuestHoverHide : undefined}
+                  onMouseLeave={displayQuestId ? scheduleQuestHoverHide : undefined}
                 >
                   {children}
                 </SortableThreadTabContainer>
@@ -1170,7 +1211,7 @@ function ThreadTabRail({
                   key={tab.threadKey}
                   title={title}
                   onMouseEnter={mouseEnter}
-                  onMouseLeave={hoverQuest ? scheduleQuestHoverHide : undefined}
+                  onMouseLeave={displayQuestId ? scheduleQuestHoverHide : undefined}
                   className={className}
                   data-testid="thread-tab"
                   data-thread-key={tab.threadKey}
@@ -1282,7 +1323,7 @@ function ThreadTabRail({
                     const draftIndex = draftReorderKeys.indexOf(threadKey);
                     const hoverQuest = tab.questId ? questById.get(normalizeThreadKey(tab.questId)) : undefined;
                     const displayQuestId = hoverQuest?.questId ?? tab.questId;
-                    const displayTitle = hoverQuest?.title ?? tab.title;
+                    const displayTitle = tab.title;
                     const displayTitleColor = completedQuestTitleColor(hoverQuest) ?? tab.titleColor;
                     return (
                       <div
@@ -1299,6 +1340,15 @@ function ThreadTabRail({
                         data-muted-needs-input={tab.mutedNeedsInput ? "true" : "false"}
                         data-blue-notification={tab.blueNudge ? "true" : "false"}
                         data-reorderable={reorderable ? "true" : "false"}
+                        onMouseEnter={(event) =>
+                          showQuestHover(
+                            hoverQuest,
+                            displayQuestId,
+                            event.currentTarget.getBoundingClientRect(),
+                            hoverQuest?.title === displayTitle,
+                          )
+                        }
+                        onMouseLeave={displayQuestId ? scheduleQuestHoverHide : undefined}
                       >
                         {reorderMode && reorderable && (
                           <div className="flex shrink-0 flex-col gap-0.5">
@@ -1397,7 +1447,7 @@ function ThreadTabRail({
           onMouseEnter={() => {
             if (hideQuestHoverTimerRef.current) clearTimeout(hideQuestHoverTimerRef.current);
           }}
-          onMouseLeave={() => setHoveredQuest(null)}
+          onMouseLeave={hideQuestHoverImmediately}
         />
       )}
     </div>
@@ -1496,7 +1546,17 @@ export function WorkBoardBar({
   const activeBoardRows = board ?? [];
   const completedBoardRows = completedBoard ?? [];
   const quests = useStore((s) => s.quests);
-  const questById = useMemo(() => new Map(quests.map((quest) => [normalizeThreadKey(quest.questId), quest])), [quests]);
+  const questDetails = useStore((s) => s.questDetails ?? new Map<string, QuestmasterTask>());
+  const questTitlePreviews = useStore((s) => s.questTitlePreviews ?? new Map());
+  const questById = useMemo(() => {
+    const byId = new Map(quests.map((quest) => [normalizeThreadKey(quest.questId), quest]));
+    for (const quest of questDetails.values()) byId.set(normalizeThreadKey(quest.questId), quest);
+    return byId;
+  }, [questDetails, quests]);
+  const questTitleById = useMemo(
+    () => buildCanonicalQuestTitleIndex({ quests, questDetails, questTitlePreviews }),
+    [questDetails, questTitlePreviews, quests],
+  );
   const activeThreadChips = useMemo(
     () => buildPrimaryThreadChips({ activeBoardRows, threadRows, attentionRecords }),
     [activeBoardRows, attentionRecords, threadRows],
@@ -1510,8 +1570,9 @@ export function WorkBoardBar({
         activeBoardRows,
         completedBoardRows,
         questById,
+        questTitleById,
       }),
-    [activeBoardRows, activeThreadChips, completedBoardRows, openThreadKeys, questById, threadRows],
+    [activeBoardRows, activeThreadChips, completedBoardRows, openThreadKeys, questById, questTitleById, threadRows],
   );
   const previousOpenThreadTabKeysRef = useRef<string[] | null>(null);
   const newThreadTabTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());

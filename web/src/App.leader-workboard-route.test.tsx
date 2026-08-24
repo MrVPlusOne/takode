@@ -14,6 +14,7 @@ vi.mock("./api.js", () => ({
     markSessionRead: vi.fn().mockResolvedValue({ ok: true }),
     listSessions: vi.fn().mockResolvedValue([]),
     listQuests: vi.fn().mockResolvedValue([]),
+    getQuestTitles: vi.fn().mockResolvedValue({ quests: [], missingQuestIds: [] }),
     refreshSessionGitStatus: (...args: unknown[]) => mockRefreshSessionGitStatus(...args),
     relaunchSession: vi.fn().mockResolvedValue({ ok: true }),
     getSessionNotifications: vi.fn().mockResolvedValue([]),

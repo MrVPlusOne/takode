@@ -64,6 +64,9 @@ interface MockStoreState {
   messages: Map<string, unknown[]>;
   historyLoading: Map<string, boolean>;
   quests: Array<Record<string, unknown> & { questId: string; title: string; status: string }>;
+  questDetails: Map<string, import("../types.js").QuestmasterTask>;
+  questTitlePreviews: Map<string, import("../types.js").QuestTitlePreview | null>;
+  hydrateQuestTitles: ReturnType<typeof vi.fn>;
   sessionNames: Map<string, string>;
   questNamedSessions: Set<string>;
   refreshQuests: ReturnType<typeof vi.fn>;
@@ -112,6 +115,9 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     messages: new Map(),
     historyLoading: new Map(),
     quests: [],
+    questDetails: new Map(),
+    questTitlePreviews: new Map(),
+    hydrateQuestTitles: vi.fn().mockResolvedValue(undefined),
     sessionNames: new Map([["s1", "Leader Session"]]),
     questNamedSessions: new Set(),
     refreshQuests: vi.fn().mockResolvedValue(undefined),
@@ -443,6 +449,50 @@ describe("ChatView leader open thread tabs", () => {
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
     expect(readLeaderSelectedThreadKey("s1")).toBe("q-941");
     expect(localStorage.getItem("test-server:cc-leader-open-thread-tabs:s1")).toBeNull();
+  });
+
+  it("hydrates one canonical retained-tab title across header, banner, and navigation consumers", async () => {
+    const hydrateQuestTitles = vi.fn().mockResolvedValue(undefined);
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-1932"])),
+      // Cold retained-tab hydration may have only the authoritative open key;
+      // no board row or routed history row is required to recover the header.
+      messages: new Map([["s1", []]]),
+      quests: [],
+      questTitlePreviews: new Map([
+        ["q-1932", { questId: "q-1932", title: "Resolve VSCode QA Stack Conflicts", version: 3, updatedAt: 30 }],
+      ]),
+      hydrateQuestTitles,
+    });
+
+    const view = render(<ChatView sessionId="s1" hasThreadRoute routeThreadKey="q-1932" />);
+    const scope = within(view.container);
+
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1932");
+    expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("q-1932Resolve VSCode QA Stack Conflicts");
+    expect(scope.getByTestId("composer")).toHaveAttribute(
+      "data-transcription-thread-title",
+      "q-1932: Resolve VSCode QA Stack Conflicts",
+    );
+    await waitFor(() => expect(hydrateQuestTitles).toHaveBeenCalledWith(["q-1932"], { force: true }));
+
+    // A later partial board snapshot may keep the tab available, but must not
+    // downgrade any of the shared title consumers back to the quest id.
+    mockState.sessionBoards = new Map([
+      ["s1", [{ questId: "q-1932", title: "q-1932", status: "WORKING", updatedAt: 40 }]],
+    ]);
+    view.rerender(<ChatView sessionId="s1" hasThreadRoute routeThreadKey="q-1932" />);
+
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1932");
+    expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("q-1932Resolve VSCode QA Stack Conflicts");
+
+    // A soft browser reconnect with unchanged open keys must revalidate the
+    // bounded title projection in case this browser missed a retitle event.
+    mockState.connectionStatus = new Map([["s1", "disconnected"]]);
+    view.rerender(<ChatView sessionId="s1" hasThreadRoute routeThreadKey="q-1932" />);
+    mockState.connectionStatus = new Map([["s1", "connected"]]);
+    view.rerender(<ChatView sessionId="s1" hasThreadRoute routeThreadKey="q-1932" />);
+    await waitFor(() => expect(hydrateQuestTitles).toHaveBeenLastCalledWith(["q-1932"], { force: true }));
   });
 
   it("passes the selected leader thread title to the composer for voice transcription vocabulary", async () => {

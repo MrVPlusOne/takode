@@ -502,7 +502,7 @@ describe("Playground", () => {
     expect(tabStrip).toHaveClass("overflow-visible");
     const moreButton = workBoardBar.getByTestId("thread-tabs-more-button");
     expect(moreButton).toHaveAttribute("data-hidden-count", "3");
-    expect(workBoardBar.getByText("Run GPT-5.4 reasoning-effort QA eval")).toBeInTheDocument();
+    expect(workBoardBar.getByText("Resolve VSCode QA Stack Conflicts")).toBeInTheDocument();
     expect(workBoardBar.getByTestId("workboard-main-banner")).toBeTruthy();
     expect(
       rail.compareDocumentPosition(workBoardBar.getByTestId("workboard-main-banner")) &
@@ -540,7 +540,7 @@ describe("Playground", () => {
     expect(mainTitle).not.toHaveClass("bg-sky-400/10");
 
     const tabs = workBoardBar.getAllByTestId("thread-tab");
-    expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(["q-1768", "q-42", "q-55"]);
+    expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(["q-1932", "q-42", "q-55"]);
     expect(within(rail).queryByText("Active")).not.toBeInTheDocument();
     expect(tabs[0]).toHaveClass(
       "min-w-[var(--thread-tab-width)]",

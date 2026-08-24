@@ -224,3 +224,43 @@ describe("GET /api/quests/_autocomplete", () => {
     expect(second.status).toBe(304);
   });
 });
+
+describe("GET /api/quests/_titles", () => {
+  it("returns only requested canonical title records in normalized first-seen order", async () => {
+    // Retained leader tabs can outlive board/list membership, so hydration is by exact open ids and reports stale ids.
+    const q1 = {
+      ...makeQuest({ questId: "q-1", title: "First canonical title", updatedAt: 20, description: "large body" }),
+      version: 3,
+    } as QuestmasterTask;
+    const q2 = {
+      ...makeQuest({ questId: "q-2", title: "Second canonical title", createdAt: 2 }),
+      version: 4,
+      statusChangedAt: 15,
+    } as QuestmasterTask;
+    const q3 = makeQuest({ questId: "q-3", title: "Third canonical title", createdAt: 3 });
+    const app = makeApp([q1, q2, q3]);
+
+    const res = await app.request("/api/quests/_titles?ids=%20Q-2%20,q-1,q-2,invalid,q-404&ids=q-3");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      quests: [
+        { questId: "q-2", title: "Second canonical title", version: 4, updatedAt: 15 },
+        { questId: "q-1", title: "First canonical title", version: 3, updatedAt: 20 },
+        { questId: "q-3", title: "Third canonical title", version: 1, updatedAt: 3 },
+      ],
+      missingQuestIds: ["q-404"],
+    });
+  });
+
+  it("rejects more than 100 distinct valid quest ids", async () => {
+    // The endpoint is a bounded hydration surface, not another full-corpus Questmaster list path.
+    const requestedIds = Array.from({ length: 101 }, (_, index) => `q-${index + 1}`).join(",");
+    const app = makeApp([]);
+
+    const res = await app.request(`/api/quests/_titles?ids=${requestedIds}`);
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: "At most 100 quest IDs may be requested" });
+  });
+});

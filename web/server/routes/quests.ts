@@ -5,6 +5,7 @@ import type {
   QuestAutocompleteCandidate,
   QuestFeedbackEntry,
   QuestRecoveryEventDraft,
+  QuestTitlePreview,
   QuestmasterTask,
 } from "../quest-types.js";
 import { hasQuestReviewMetadata } from "../quest-types.js";
@@ -41,6 +42,7 @@ import { refreshGitInfoPublic as refreshGitInfoPublicController } from "../bridg
 
 const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
 const MAX_DIFF_BYTES = 512 * 1024;
+const MAX_QUEST_TITLE_IDS = 100;
 const SUMMARY_FEEDBACK_PREFIXES = ["summary:", "refreshed summary:"];
 const FINAL_MEMORY_STATEMENT_RE = /^memory (updated|update deferred|update not needed):\s*\S.*$/gim;
 
@@ -165,6 +167,27 @@ function parseIntegerQuery(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function normalizeRequestedQuestTitleIds(values: string[] | undefined): { ids: string[]; exceededLimit: boolean } {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values ?? []) {
+    for (const token of value.split(",")) {
+      const questId = token.trim().toLowerCase();
+      if (!/^q-\d+$/.test(questId) || seen.has(questId)) continue;
+      seen.add(questId);
+      if (ids.length >= MAX_QUEST_TITLE_IDS) return { ids, exceededLimit: true };
+      ids.push(questId);
+    }
+  }
+
+  return { ids, exceededLimit: false };
+}
+
+function questTitleUpdatedAt(quest: QuestmasterTask): number {
+  return quest.updatedAt ?? quest.statusChangedAt ?? quest.createdAt;
 }
 
 function normalizeQuestListSortColumn(value: string | undefined): QuestListSortColumn | undefined {
@@ -860,6 +883,34 @@ export function createQuestRoutes(ctx: RouteContext) {
       title: quest.title,
     }));
     return cacheValidatedJson(c, candidates);
+  });
+
+  api.get("/quests/_titles", async (c) => {
+    const { ids, exceededLimit } = normalizeRequestedQuestTitleIds(c.req.queries("ids"));
+    if (exceededLimit) {
+      return c.json({ error: `At most ${MAX_QUEST_TITLE_IDS} quest IDs may be requested` }, 400);
+    }
+
+    const questsById = new Map(
+      (await questStore.listQuests()).map((quest) => [quest.questId.trim().toLowerCase(), quest] as const),
+    );
+    const quests: QuestTitlePreview[] = [];
+    const missingQuestIds: string[] = [];
+    for (const questId of ids) {
+      const quest = questsById.get(questId);
+      if (!quest) {
+        missingQuestIds.push(questId);
+        continue;
+      }
+      quests.push({
+        questId: quest.questId,
+        title: quest.title,
+        version: quest.version,
+        updatedAt: questTitleUpdatedAt(quest),
+      });
+    }
+
+    return cacheValidatedJson(c, { quests, missingQuestIds });
   });
 
   api.get("/quests/:questId", async (c) => {

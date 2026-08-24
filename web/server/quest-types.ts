@@ -352,6 +352,20 @@ export interface QuestAutocompleteCandidate {
   title: string;
 }
 
+/** Minimal canonical title metadata for bounded by-id browser hydration. */
+export interface QuestTitlePreview {
+  questId: string;
+  title: string;
+  version: number;
+  /** Canonical record freshness. Older persisted quests may omit this outside the title projection. */
+  updatedAt?: number;
+}
+
+export interface QuestTitlePreviewResponse {
+  quests: QuestTitlePreview[];
+  missingQuestIds: string[];
+}
+
 export function hasQuestReviewMetadata(quest: QuestmasterTask | null | undefined): quest is QuestDone {
   return quest?.status === "done" && quest.cancelled !== true && typeof quest.verificationInboxUnread === "boolean";
 }

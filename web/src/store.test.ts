@@ -4,6 +4,7 @@ const mockListQuests = vi.fn();
 const mockGetQuestSummary = vi.fn();
 const mockGetQuestSummaryValidated = vi.fn();
 const mockListQuestAutocompleteCandidatesValidated = vi.fn();
+const mockGetQuestTitles = vi.fn();
 const mockUpdateSettings = vi.fn();
 
 // vi.hoisted runs before any imports, ensuring browser globals are available when store.ts initializes.
@@ -62,6 +63,7 @@ vi.mock("./api.js", async (importOriginal) => {
       getQuestSummaryValidated: (...args: unknown[]) => mockGetQuestSummaryValidated(...args),
       listQuestAutocompleteCandidatesValidated: (...args: unknown[]) =>
         mockListQuestAutocompleteCandidatesValidated(...args),
+      getQuestTitles: (...args: unknown[]) => mockGetQuestTitles(...args),
       updateSettings: (...args: unknown[]) => mockUpdateSettings(...args),
     },
   };
@@ -163,6 +165,7 @@ beforeEach(() => {
   mockGetQuestSummary.mockReset();
   mockGetQuestSummaryValidated.mockReset();
   mockListQuestAutocompleteCandidatesValidated.mockReset();
+  mockGetQuestTitles.mockReset();
   mockUpdateSettings.mockReset();
   mockUpdateSettings.mockResolvedValue({});
   localStorage.clear();
@@ -872,6 +875,105 @@ describe("Questmaster refresh", () => {
     expect(quests[1]).toBe(untouched);
     expect(mockListQuests).not.toHaveBeenCalled();
     expect(mockGetQuestSummaryValidated).toHaveBeenCalledWith('"summary-v1"');
+  });
+
+  it("hydrates only requested retained-tab titles and records missing stale keys", async () => {
+    mockGetQuestTitles.mockResolvedValueOnce({
+      quests: [{ questId: "q-1932", title: "Resolve VSCode QA Stack Conflicts", version: 3, updatedAt: 30 }],
+      missingQuestIds: ["q-9999"],
+    });
+
+    await useStore.getState().hydrateQuestTitles(["Q-1932", "q-9999", "q-1932", "main", "not-a-quest"]);
+
+    expect(mockGetQuestTitles).toHaveBeenCalledWith(["q-1932", "q-9999"]);
+    expect(useStore.getState().questTitlePreviews.get("q-1932")).toEqual({
+      questId: "q-1932",
+      title: "Resolve VSCode QA Stack Conflicts",
+      version: 3,
+      updatedAt: 30,
+    });
+    expect(useStore.getState().questTitlePreviews.get("q-9999")).toBeNull();
+
+    await useStore.getState().hydrateQuestTitles(["q-1932", "q-9999"]);
+    expect(mockGetQuestTitles).toHaveBeenCalledTimes(1);
+  });
+
+  it("deduplicates concurrent title hydration and chunks bounded requests", async () => {
+    let resolveFirst: ((value: { quests: never[]; missingQuestIds: string[] }) => void) | undefined;
+    mockGetQuestTitles
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ quests: never[]; missingQuestIds: string[] }>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({ quests: [], missingQuestIds: ["q-51"] });
+
+    const ids = Array.from({ length: 51 }, (_, index) => `q-${index + 1}`);
+    const first = useStore.getState().hydrateQuestTitles(ids);
+    const duplicate = useStore.getState().hydrateQuestTitles(["q-1"]);
+
+    expect(mockGetQuestTitles).toHaveBeenNthCalledWith(1, ids.slice(0, 50));
+    expect(mockGetQuestTitles).toHaveBeenNthCalledWith(2, ["q-51"]);
+    expect(mockGetQuestTitles).toHaveBeenCalledTimes(2);
+
+    resolveFirst?.({ quests: [], missingQuestIds: ids.slice(0, 50) });
+    await Promise.all([first, duplicate]);
+    expect(mockGetQuestTitles).toHaveBeenCalledTimes(2);
+  });
+
+  it("runs a fresh forced title request after an older hydration is already in flight", async () => {
+    let resolveOlder:
+      | ((value: { quests: import("./types.js").QuestTitlePreview[]; missingQuestIds: string[] }) => void)
+      | undefined;
+    mockGetQuestTitles
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ quests: import("./types.js").QuestTitlePreview[]; missingQuestIds: string[] }>((resolve) => {
+            resolveOlder = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        quests: [{ questId: "q-1932", title: "Fresh retitled quest", version: 4, updatedAt: 40 }],
+        missingQuestIds: [],
+      });
+
+    const initial = useStore.getState().hydrateQuestTitles(["q-1932"]);
+    const forced = useStore.getState().hydrateQuestTitles(["q-1932"], { force: true });
+    expect(mockGetQuestTitles).toHaveBeenCalledTimes(1);
+
+    resolveOlder?.({
+      quests: [{ questId: "q-1932", title: "Older title", version: 3, updatedAt: 30 }],
+      missingQuestIds: [],
+    });
+    await Promise.all([initial, forced]);
+
+    expect(mockGetQuestTitles).toHaveBeenCalledTimes(2);
+    expect(mockGetQuestTitles).toHaveBeenNthCalledWith(2, ["q-1932"]);
+    expect(useStore.getState().questTitlePreviews.get("q-1932")?.title).toBe("Fresh retitled quest");
+  });
+
+  it("keeps a known canonical title until a forced refresh returns a newer version", async () => {
+    useStore.getState().upsertQuestDetail(
+      makeQuest({
+        questId: "q-1932",
+        title: "Resolve VSCode QA Stack Conflicts",
+        version: 3,
+        updatedAt: 30,
+      }),
+    );
+    mockGetQuestTitles.mockRejectedValueOnce(new Error("offline"));
+
+    await useStore.getState().hydrateQuestTitles(["q-1932"], { force: true });
+    expect(useStore.getState().questTitlePreviews.get("q-1932")?.title).toBe("Resolve VSCode QA Stack Conflicts");
+
+    mockGetQuestTitles.mockResolvedValueOnce({
+      quests: [{ questId: "q-1932", title: "Retitled canonical quest", version: 4, updatedAt: 40 }],
+      missingQuestIds: [],
+    });
+    await useStore.getState().hydrateQuestTitles(["q-1932"], { force: true });
+
+    expect(useStore.getState().questTitlePreviews.get("q-1932")?.title).toBe("Retitled canonical quest");
   });
 
   it("caches minimal quest autocomplete candidates until invalidated", async () => {

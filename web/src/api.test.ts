@@ -342,6 +342,27 @@ describe("listQuestAutocompleteCandidatesValidated", () => {
 });
 
 // ===========================================================================
+// getQuestTitles
+// ===========================================================================
+describe("getQuestTitles", () => {
+  it("requests the bounded title projection for the exact quest id batch", async () => {
+    // Retained tabs use this targeted path instead of downloading the full Questmaster corpus.
+    const response = {
+      quests: [{ questId: "q-1932", title: "Resolve VSCode QA Stack Conflicts", version: 4, updatedAt: 20 }],
+      missingQuestIds: ["q-404"],
+    };
+    mockFetch.mockResolvedValueOnce(mockResponse(response));
+
+    const result = await api.getQuestTitles(["q-1932", "q-404"]);
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/quests/_titles?ids=q-1932%2Cq-404");
+    expect(opts).toBeUndefined();
+    expect(result).toEqual(response);
+  });
+});
+
+// ===========================================================================
 // getQuestValidated
 // ===========================================================================
 describe("getQuestValidated", () => {

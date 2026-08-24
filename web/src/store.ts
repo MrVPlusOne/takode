@@ -1919,6 +1919,7 @@ export const useStore = create<AppState>((set, get) => ({
       collapsibleTurnIds: new Map(),
       questDetails: new Map(),
       questDetailEtags: new Map(),
+      questTitlePreviews: new Map(),
       quests: [],
       questAutocompleteCandidates: [],
       questAutocompleteEtag: null,

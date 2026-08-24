@@ -1,13 +1,11 @@
 import { useState, useRef, useEffect, type MouseEvent, type ReactNode } from "react";
-import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import { withQuestIdInHash } from "../utils/routing.js";
+import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
 
 const questIndexCache = new WeakMap<QuestmasterTask[], Map<string, QuestmasterTask>>();
-const questHoverFetches = new Map<string, Promise<void>>();
-
 function findQuestById(quests: QuestmasterTask[], questId: string): QuestmasterTask | null {
   let index = questIndexCache.get(quests);
   if (!index) {
@@ -15,32 +13,6 @@ function findQuestById(quests: QuestmasterTask[], questId: string): QuestmasterT
     questIndexCache.set(quests, index);
   }
   return index.get(questId.toLowerCase()) ?? null;
-}
-
-function fetchQuestDetailForHover(questId: string): Promise<void> {
-  const key = questId.toLowerCase();
-  const state = useStore.getState();
-  const currentEtag = state.questDetailEtags.get(key) ?? null;
-  const fetchKey = `${key}\0${currentEtag ?? ""}`;
-
-  const existing = questHoverFetches.get(fetchKey);
-  if (existing) return existing;
-
-  const fetchPromise = api
-    .getQuestValidated(questId, currentEtag)
-    .then((result) => {
-      if (result.status === "fresh") {
-        useStore.getState().upsertQuestDetail(result.data, { etag: result.etag });
-      }
-    })
-    .finally(() => {
-      if (questHoverFetches.get(fetchKey) === fetchPromise) {
-        questHoverFetches.delete(fetchKey);
-      }
-    });
-
-  questHoverFetches.set(fetchKey, fetchPromise);
-  return fetchPromise;
 }
 
 export function QuestInlineLink({
@@ -84,7 +56,7 @@ export function QuestInlineLink({
     if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
     setHoverRect(e.currentTarget.getBoundingClientRect());
     setHoverFetchState("loading");
-    void fetchQuestDetailForHover(questId)
+    void hydrateQuestDetail(questId)
       .then(() => {
         if (mountedRef.current) setHoverFetchState("idle");
       })

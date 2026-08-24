@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, within } from "@testing-library/react";
+import { fireEvent, render, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { BoardRowData } from "./BoardTable.js";
-import type { QuestmasterTask, SessionAttentionRecord } from "../types.js";
+import type { QuestTitlePreview, QuestmasterTask, SessionAttentionRecord } from "../types.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 
 interface MockStoreState {
@@ -22,6 +22,10 @@ interface MockStoreState {
   askPermission: Map<string, boolean>;
   cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
   quests: QuestmasterTask[];
+  questDetails: Map<string, QuestmasterTask>;
+  questDetailEtags: Map<string, string>;
+  upsertQuestDetail: (quest: QuestmasterTask, opts?: { etag?: string | null }) => void;
+  questTitlePreviews: Map<string, QuestTitlePreview | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
   activeTurnRoutes: Map<string, unknown>;
 }
@@ -29,6 +33,14 @@ interface MockStoreState {
 let mockState: MockStoreState;
 const mockRequestScrollToMessage = vi.fn();
 const mockSetExpandAllInTurn = vi.fn();
+
+const mockGetQuestValidated = vi.hoisted(() => vi.fn());
+
+vi.mock("../api.js", () => ({
+  api: {
+    getQuestValidated: mockGetQuestValidated,
+  },
+}));
 
 function resetStore(overrides: Partial<MockStoreState> = {}) {
   mockState = {
@@ -50,6 +62,13 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     askPermission: new Map(),
     cliDisconnectReason: new Map(),
     quests: [],
+    questDetails: new Map(),
+    questDetailEtags: new Map(),
+    upsertQuestDetail: vi.fn((quest: QuestmasterTask, opts?: { etag?: string | null }) => {
+      mockState.questDetails = new Map(mockState.questDetails).set(quest.questId.toLowerCase(), quest);
+      if (opts?.etag) mockState.questDetailEtags = new Map(mockState.questDetailEtags).set(quest.questId, opts.etag);
+    }),
+    questTitlePreviews: new Map(),
     sessionStatus: new Map(),
     activeTurnRoutes: new Map(),
     ...overrides,
@@ -59,6 +78,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
 vi.mock("../store.js", () => ({
   useStore: Object.assign((selector: (s: MockStoreState) => unknown) => selector(mockState), {
     getState: () => ({
+      ...mockState,
       requestScrollToMessage: mockRequestScrollToMessage,
       setExpandAllInTurn: mockSetExpandAllInTurn,
     }),
@@ -127,6 +147,7 @@ describe("WorkBoardBar tab title source precedence", () => {
     localStorage.setItem("cc-server-id", "test-server");
     mockRequestScrollToMessage.mockClear();
     mockSetExpandAllInTurn.mockClear();
+    mockGetQuestValidated.mockReset();
   });
 
   afterEach(() => {
@@ -170,56 +191,190 @@ describe("WorkBoardBar tab title source precedence", () => {
     expect(getTabTitle(container, "q-1768")).toHaveTextContent("Canonical board title");
   });
 
-  it("upgrades a fallback-first open tab when Questmaster title hydration arrives", () => {
+  it("upgrades a fallback-first open tab when bounded title hydration arrives", () => {
     // Reconnect/snapshot hydration can know only the open key and a fallback
-    // row first; later Questmaster hydration must improve the title in place.
+    // row first; a targeted title-only response must improve it in place.
     const { container, rerender } = render(
       <WorkBoardBar
         sessionId="s1"
-        openThreadKeys={["q-1768"]}
-        threadRows={[{ threadKey: "q-1768", questId: "q-1768", title: "q-1768", messageCount: 1 }]}
+        openThreadKeys={["q-1932"]}
+        threadRows={[{ threadKey: "q-1932", questId: "q-1932", title: "q-1932", messageCount: 1 }]}
       />,
     );
 
-    expect(getTabTitle(container, "q-1768")).toHaveTextContent(/q-1768\s*q-1768/);
+    expect(getTabTitle(container, "q-1932")).toHaveTextContent(/q-1932\s*q-1932/);
 
-    mockState.quests = [quest("q-1768", "Hydrated canonical title")];
+    mockState.questTitlePreviews = new Map([
+      ["q-1932", { questId: "q-1932", title: "Resolve VSCode QA Stack Conflicts", version: 3, updatedAt: 30 }],
+    ]);
     rerender(
       <WorkBoardBar
         sessionId="s1"
-        openThreadKeys={["q-1768"]}
-        threadRows={[{ threadKey: "q-1768", questId: "q-1768", title: "q-1768", messageCount: 1 }]}
+        openThreadKeys={["q-1932"]}
+        threadRows={[{ threadKey: "q-1932", questId: "q-1932", title: "q-1932", messageCount: 1 }]}
       />,
     );
 
-    expect(getTabTitle(container, "q-1768")).toHaveTextContent("Hydrated canonical title");
+    expect(getTabTitle(container, "q-1932")).toHaveTextContent("Resolve VSCode QA Stack Conflicts");
   });
 
-  it("keeps a canonical title after completion or cancellation removes board rows", () => {
-    // q-1768 ended up as an open tab after cancellation with no active board
-    // row. The persisted open key should still render from Questmaster data.
-    const { container, rerender } = render(
+  it("keeps a retained cancelled tab titled after board removal and default-list omission", () => {
+    // Production q-1932 had no active/completed board row and was omitted from
+    // the paged global quest cache, but the server-owned open key remained.
+    resetStore({
+      questTitlePreviews: new Map([
+        ["q-1932", { questId: "q-1932", title: "Resolve VSCode QA Stack Conflicts", version: 3, updatedAt: 30 }],
+      ]),
+    });
+
+    const { container } = render(
       <WorkBoardBar
         sessionId="s1"
-        openThreadKeys={["q-1768"]}
-        threadRows={[{ threadKey: "q-1768", questId: "q-1768", title: "Run GPT-5.4 eval", messageCount: 2 }]}
+        openThreadKeys={["q-1932"]}
+        attentionRecords={[reviewAttention("q-1932", "Thread ready: q-1932 | cancelled")]}
       />,
     );
 
-    expect(getTabTitle(container, "q-1768")).toHaveTextContent("Run GPT-5.4 eval");
+    expect(getTabTitle(container, "q-1932")).toHaveTextContent("Resolve VSCode QA Stack Conflicts");
+    expect(within(container).getByTestId("thread-tab")).toHaveAttribute("data-thread-key", "q-1932");
+  });
 
-    mockState.quests = [quest("q-1768", "Run GPT-5.4 eval")];
-    mockState.sessionBoards = new Map([["s1", []]]);
-    mockState.sessionCompletedBoards = new Map([["s1", []]]);
-    rerender(
+  it("loads the rich tab hover by id when only the title projection is cached", async () => {
+    const fetched = quest("q-1932", "Resolve VSCode QA Stack Conflicts");
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "fresh", data: fetched, etag: '"detail-v3"' });
+    resetStore({
+      questTitlePreviews: new Map([["q-1932", { questId: "q-1932", title: fetched.title, version: 3, updatedAt: 30 }]]),
+    });
+
+    const view = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1932"]} />);
+    const tab = view.getByTestId("thread-tab");
+    fireEvent.mouseEnter(tab);
+
+    expect(mockGetQuestValidated).toHaveBeenCalledWith("q-1932", null);
+    const card = await view.findByTestId("quest-hover-card");
+    expect(within(card).getByTestId("quest-hover-title")).toHaveTextContent("Resolve VSCode QA Stack Conflicts");
+  });
+
+  it("clears the previous tab hover while a different uncached tab hydrates", async () => {
+    const cached = quest("q-1931", "First cached quest");
+    const hydrated = quest("q-1932", "Second hydrated quest");
+    let resolveSecond: ((value: { status: "fresh"; data: QuestmasterTask; etag: string }) => void) | undefined;
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"detail-a"' }).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSecond = resolve;
+      }),
+    );
+    resetStore({
+      questDetails: new Map([["q-1931", cached]]),
+      questDetailEtags: new Map([["q-1931", '"detail-a"']]),
+      questTitlePreviews: new Map([
+        ["q-1931", { questId: "q-1931", title: cached.title, version: 1, updatedAt: 10 }],
+        ["q-1932", { questId: "q-1932", title: hydrated.title, version: 1, updatedAt: 10 }],
+      ]),
+    });
+
+    const view = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1931", "q-1932"]} />);
+    const [firstTab, secondTab] = view.getAllByTestId("thread-tab");
+    fireEvent.mouseEnter(firstTab);
+    expect(await view.findByTestId("quest-hover-card")).toHaveTextContent("First cached quest");
+
+    fireEvent.mouseLeave(firstTab);
+    fireEvent.mouseEnter(secondTab);
+    expect(view.queryByTestId("quest-hover-card")).toBeNull();
+
+    resolveSecond?.({ status: "fresh", data: hydrated, etag: '"detail-b"' });
+    expect(await view.findByTestId("quest-hover-card")).toHaveTextContent("Second hydrated quest");
+  });
+
+  it("updates an open cached hover after pointer handoff while revalidation is pending", async () => {
+    const cached = {
+      ...quest("q-1932", "Cached title"),
+      id: "q-1932-v2",
+      version: 2,
+      updatedAt: 20,
+    } as QuestmasterTask;
+    const fresh = {
+      ...quest("q-1932", "Fresh canonical title"),
+      id: "q-1932-v3",
+      version: 3,
+      updatedAt: 30,
+    } as QuestmasterTask;
+    let resolveFresh: ((value: { status: "fresh"; data: QuestmasterTask; etag: string }) => void) | undefined;
+    mockGetQuestValidated.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFresh = resolve;
+      }),
+    );
+    resetStore({
+      questDetails: new Map([["q-1932", cached]]),
+      questDetailEtags: new Map([["q-1932", '"detail-v2"']]),
+      questTitlePreviews: new Map([["q-1932", { questId: "q-1932", title: cached.title, version: 2, updatedAt: 20 }]]),
+    });
+
+    const view = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1932"]} />);
+    const tab = view.getByTestId("thread-tab");
+    fireEvent.mouseEnter(tab);
+    const card = await view.findByTestId("quest-hover-card");
+    expect(within(card).getByTestId("quest-hover-title")).toHaveTextContent("Cached title");
+
+    fireEvent.mouseLeave(tab);
+    fireEvent.mouseEnter(card);
+    resolveFresh?.({ status: "fresh", data: fresh, etag: '"detail-v3"' });
+
+    expect(await view.findByText("Fresh canonical title")).toBeInTheDocument();
+    expect(within(view.getByTestId("quest-hover-card")).getByTestId("quest-hover-title")).toHaveTextContent(
+      "Fresh canonical title",
+    );
+  });
+
+  it("keeps a newer title projection over stale cached detail and revalidates hover metadata", async () => {
+    const staleDetail = {
+      ...quest("q-1932", "Old cached title"),
+      id: "q-1932-v2",
+      version: 2,
+      updatedAt: 20,
+    } as QuestmasterTask;
+    const freshDetail = {
+      ...quest("q-1932", "Resolve VSCode QA Stack Conflicts"),
+      id: "q-1932-v3",
+      version: 3,
+      updatedAt: 30,
+    } as QuestmasterTask;
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "fresh", data: freshDetail, etag: '"detail-v3"' });
+    resetStore({
+      questDetails: new Map([["q-1932", staleDetail]]),
+      questDetailEtags: new Map([["q-1932", '"detail-v2"']]),
+      questTitlePreviews: new Map([
+        ["q-1932", { questId: "q-1932", title: freshDetail.title, version: 3, updatedAt: 30 }],
+      ]),
+    });
+
+    const view = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1932"]} />);
+    const tab = view.getByTestId("thread-tab");
+    expect(within(tab).getByTestId("thread-tab-title")).toHaveTextContent("Resolve VSCode QA Stack Conflicts");
+    expect(tab).not.toHaveTextContent("Old cached title");
+
+    fireEvent.mouseEnter(tab);
+    expect(mockGetQuestValidated).toHaveBeenCalledWith("q-1932", '"detail-v2"');
+    const card = await view.findByTestId("quest-hover-card");
+    expect(within(card).getByTestId("quest-hover-title")).toHaveTextContent("Resolve VSCode QA Stack Conflicts");
+  });
+
+  it("uses targeted Quest Detail cache titles without polluting the paged quest list", () => {
+    resetStore({
+      quests: [],
+      questDetails: new Map([["q-1932", quest("q-1932", "Resolve VSCode QA Stack Conflicts")]]),
+    });
+
+    const { container } = render(
       <WorkBoardBar
         sessionId="s1"
-        openThreadKeys={["q-1768"]}
-        attentionRecords={[reviewAttention("q-1768", "Thread ready: q-1768 | cancelled")]}
+        openThreadKeys={["q-1932"]}
+        threadRows={[{ threadKey: "q-1932", questId: "q-1932", title: "q-1932", messageCount: 2 }]}
       />,
     );
 
-    expect(getTabTitle(container, "q-1768")).toHaveTextContent("Run GPT-5.4 eval");
+    expect(getTabTitle(container, "q-1932")).toHaveTextContent("Resolve VSCode QA Stack Conflicts");
   });
 
   it("uses completed-board title over partial thread-row and notification titles", () => {

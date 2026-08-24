@@ -12,12 +12,14 @@ vi.mock("./utils/names.js", () => ({
 const getDiffStatsMock = vi.fn().mockResolvedValue({ stats: {} });
 const listSessionsMock = vi.fn().mockResolvedValue([]);
 const playNotificationSoundMock = vi.hoisted(() => vi.fn());
+const getQuestTitlesMock = vi.hoisted(() => vi.fn().mockResolvedValue({ quests: [], missingQuestIds: [] }));
 
 // Mock the API module so PostHog doesn't break in jsdom
 vi.mock("./api.js", () => ({
   api: {
     getDiffStats: getDiffStatsMock,
     listSessions: listSessionsMock,
+    getQuestTitles: getQuestTitlesMock,
   },
 }));
 
@@ -74,6 +76,8 @@ beforeEach(async () => {
   listSessionsMock.mockReset();
   listSessionsMock.mockResolvedValue([]);
   playNotificationSoundMock.mockReset();
+  getQuestTitlesMock.mockReset();
+  getQuestTitlesMock.mockResolvedValue({ quests: [], missingQuestIds: [] });
   MockWebSocket.instances = [];
 
   const storeModule = await import("./store.js");
@@ -155,6 +159,29 @@ describe("handleMessage: session_update", () => {
       { questId: "q-9", title: "Active quest", status: "IMPLEMENTING", createdAt: 1, updatedAt: 2 },
     ]);
     expect(useStore.getState().sessions.get("s1")!.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-9"]);
+  });
+
+  it("force-refreshes only server-open leader quest titles after a global quest update", async () => {
+    // Every connected browser receives the quest update; each must refresh its
+    // own bounded retained-tab title cache rather than the full quest corpus.
+    wsModule.connectSession("s1");
+    fireMessage({
+      type: "session_init",
+      session: {
+        ...makeSession("s1"),
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-1932", "main", "q-1932"],
+          closedThreadTombstones: [],
+          updatedAt: 2,
+        },
+      },
+    });
+
+    fireMessage({ type: "quest_list_updated" });
+
+    await vi.waitFor(() => expect(getQuestTitlesMock).toHaveBeenCalledWith(["q-1932"]));
   });
 
   it("replaces board participant projections across reviewer lifecycle updates", () => {

@@ -710,6 +710,8 @@ export interface QuestSummary {
 }
 
 export type QuestAutocompleteCandidate = import("./types.js").QuestAutocompleteCandidate;
+export type QuestTitlePreview = import("./types.js").QuestTitlePreview;
+export type QuestTitlePreviewResponse = import("./types.js").QuestTitlePreviewResponse;
 
 export interface QuestListPageOptions {
   offset?: number;
@@ -1773,6 +1775,10 @@ export const api = {
   },
   listQuestAutocompleteCandidatesValidated: (etag?: string | null) =>
     getValidated<QuestAutocompleteCandidate[]>("/quests/_autocomplete", { etag }),
+  getQuestTitles: (ids: readonly string[]) => {
+    const params = new URLSearchParams({ ids: ids.join(",") });
+    return get<QuestTitlePreviewResponse>(`/quests/_titles?${params.toString()}`);
+  },
   getQuest: (id: string) => get<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`),
   getQuestValidated: (id: string, etag?: string | null) =>
     getValidated<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`, { etag }),

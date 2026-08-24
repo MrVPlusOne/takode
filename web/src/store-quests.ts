@@ -2,13 +2,14 @@ import type { StateCreator } from "zustand";
 import { api } from "./api.js";
 import { reconcileQuestList } from "./store-equality.js";
 import type { AppState } from "./store-types.js";
-import type { QuestAutocompleteCandidate, QuestmasterTask } from "./types.js";
+import type { QuestAutocompleteCandidate, QuestTitlePreview, QuestmasterTask } from "./types.js";
 
 type StoreSet = Parameters<StateCreator<AppState>>[0];
 type QuestStoreSlice = Pick<
   AppState,
   | "questDetails"
   | "questDetailEtags"
+  | "questTitlePreviews"
   | "quests"
   | "questAutocompleteCandidates"
   | "questAutocompleteEtag"
@@ -21,6 +22,7 @@ type QuestStoreSlice = Pick<
   | "setQuests"
   | "upsertQuestDetail"
   | "removeQuestDetail"
+  | "hydrateQuestTitles"
   | "replaceQuest"
   | "refreshQuests"
   | "refreshQuestSummary"
@@ -83,15 +85,74 @@ function withoutQuestDetailEtag(etags: Map<string, string>, questId: string): Ma
   return next;
 }
 
+function questTitlePreviewFromTask(quest: QuestmasterTask): QuestTitlePreview {
+  return {
+    questId: quest.questId,
+    title: quest.title,
+    version: quest.version,
+    ...(quest.updatedAt !== undefined ? { updatedAt: quest.updatedAt } : {}),
+  };
+}
+
+function shouldReplaceQuestTitlePreview(
+  current: QuestTitlePreview | null | undefined,
+  incoming: QuestTitlePreview,
+): boolean {
+  if (!current) return true;
+  if (incoming.version !== current.version) return incoming.version > current.version;
+  return (incoming.updatedAt ?? 0) >= (current.updatedAt ?? 0);
+}
+
+function withQuestTitlePreviews(
+  previews: Map<string, QuestTitlePreview | null>,
+  incoming: ReadonlyArray<QuestTitlePreview>,
+  requestedQuestIds: ReadonlyArray<string> = [],
+): Map<string, QuestTitlePreview | null> {
+  let next: Map<string, QuestTitlePreview | null> | null = null;
+  const target = () => (next ??= new Map(previews));
+  const found = new Set<string>();
+
+  for (const preview of incoming) {
+    const key = preview.questId.trim().toLowerCase();
+    if (!key) continue;
+    found.add(key);
+    if (!shouldReplaceQuestTitlePreview(previews.get(key), preview)) continue;
+    const current = previews.get(key);
+    if (
+      current &&
+      current.questId === preview.questId &&
+      current.title === preview.title &&
+      current.version === preview.version &&
+      current.updatedAt === preview.updatedAt
+    ) {
+      continue;
+    }
+    target().set(key, preview);
+  }
+
+  for (const questId of requestedQuestIds) {
+    const key = questId.trim().toLowerCase();
+    if (!key || found.has(key) || previews.get(key) === null) continue;
+    target().set(key, null);
+  }
+
+  return next ?? previews;
+}
+
 const QUEST_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 2_000;
 let pendingQuestBackgroundRefresh: Promise<void> | null = null;
 let lastQuestBackgroundRefreshAt = 0;
 let pendingQuestAutocompleteRefresh: Promise<void> | null = null;
+const pendingQuestTitleHydrations = new Map<string, Promise<void>>();
+const pendingQuestTitleForcedFollowups = new Map<Promise<void>, { questIds: Set<string>; promise: Promise<void> }>();
+const QUEST_TITLE_HYDRATION_BATCH_SIZE = 50;
 
 export function resetQuestRefreshStateForTests(): void {
   pendingQuestBackgroundRefresh = null;
   lastQuestBackgroundRefreshAt = 0;
   pendingQuestAutocompleteRefresh = null;
+  pendingQuestTitleHydrations.clear();
+  pendingQuestTitleForcedFollowups.clear();
 }
 
 function reconcileQuestAutocompleteCandidates(
@@ -126,6 +187,7 @@ export function createQuestStoreSlice(set: StoreSet, getState: () => AppState): 
   return {
     questDetails: new Map(),
     questDetailEtags: new Map(),
+    questTitlePreviews: new Map(),
     quests: [],
     questAutocompleteCandidates: [],
     questAutocompleteEtag: null,
@@ -143,6 +205,10 @@ export function createQuestStoreSlice(set: StoreSet, getState: () => AppState): 
         return {
           quests: nextQuests,
           questDetails: nextDetails,
+          questTitlePreviews: withQuestTitlePreviews(
+            state.questTitlePreviews,
+            nextQuests.map(questTitlePreviewFromTask),
+          ),
           questSummary: summarizeQuestList(nextQuests),
           questSummaryEtag: null,
           questsLoadedFull: true,
@@ -157,6 +223,7 @@ export function createQuestStoreSlice(set: StoreSet, getState: () => AppState): 
         const nextQuests = reconcileQuestList(state.quests, quests);
         return {
           questDetails: withQuestDetail(state.questDetails, updated),
+          questTitlePreviews: withQuestTitlePreviews(state.questTitlePreviews, [questTitlePreviewFromTask(updated)]),
           questDetailEtags: withQuestDetailEtag(state.questDetailEtags, updated.questId, opts?.etag),
           ...(state.questsLoadedFull && nextQuests !== state.quests
             ? { quests: nextQuests, questSummary: summarizeQuestList(nextQuests), questSummaryEtag: null }
@@ -179,6 +246,73 @@ export function createQuestStoreSlice(set: StoreSet, getState: () => AppState): 
             : {}),
         };
       });
+    },
+    hydrateQuestTitles: async (questIds, opts) => {
+      const normalizedIds = [...new Set(questIds.map((questId) => questId.trim().toLowerCase()))].filter((questId) =>
+        /^q-\d+$/.test(questId),
+      );
+      if (normalizedIds.length === 0) return;
+
+      const waits = new Set<Promise<void>>();
+      const state = getState();
+      const idsToFetch: string[] = [];
+      for (const questId of normalizedIds) {
+        const pending = pendingQuestTitleHydrations.get(questId);
+        if (pending) {
+          if (!opts?.force) {
+            waits.add(pending);
+            continue;
+          }
+
+          let followup = pendingQuestTitleForcedFollowups.get(pending);
+          if (!followup) {
+            const questIds = new Set<string>();
+            let promise: Promise<void>;
+            promise = pending
+              .then(() => getState().hydrateQuestTitles([...questIds], { force: true }))
+              .finally(() => {
+                if (pendingQuestTitleForcedFollowups.get(pending)?.promise === promise) {
+                  pendingQuestTitleForcedFollowups.delete(pending);
+                }
+              });
+            followup = { questIds, promise };
+            pendingQuestTitleForcedFollowups.set(pending, followup);
+          }
+          followup.questIds.add(questId);
+          waits.add(followup.promise);
+          continue;
+        }
+        if (!opts?.force && state.questTitlePreviews.has(questId)) continue;
+        idsToFetch.push(questId);
+      }
+
+      for (let index = 0; index < idsToFetch.length; index += QUEST_TITLE_HYDRATION_BATCH_SIZE) {
+        const batch = idsToFetch.slice(index, index + QUEST_TITLE_HYDRATION_BATCH_SIZE);
+        let request: Promise<void>;
+        request = api
+          .getQuestTitles(batch)
+          .then((response) => {
+            set((current) => ({
+              questTitlePreviews: withQuestTitlePreviews(
+                current.questTitlePreviews,
+                response.quests,
+                response.missingQuestIds,
+              ),
+            }));
+          })
+          .catch(() => {
+            // Retain any known canonical title and let a later reconnect or quest update retry.
+          })
+          .finally(() => {
+            for (const questId of batch) {
+              if (pendingQuestTitleHydrations.get(questId) === request) pendingQuestTitleHydrations.delete(questId);
+            }
+          });
+        for (const questId of batch) pendingQuestTitleHydrations.set(questId, request);
+        waits.add(request);
+      }
+
+      await Promise.all(waits);
     },
     replaceQuest: (updated) => {
       getState().upsertQuestDetail(updated);

@@ -65,6 +65,7 @@ import {
   requestThreadViewportSnapshot,
 } from "../utils/thread-viewport.js";
 import { resolveInitialLeaderThreadKey } from "../utils/initial-leader-thread.js";
+import { applyCanonicalQuestTitles, buildCanonicalQuestTitleIndex } from "../utils/quest-title-index.js";
 import {
   buildAttentionRecords,
   isAttentionRecordActive,
@@ -99,6 +100,7 @@ import type {
   BoardRowSessionStatus,
   ChatMessage,
   LeaderProjectionSnapshot,
+  QuestTitlePreview,
   QuestmasterTask,
   SessionAttentionRecord,
   SessionNotification,
@@ -130,6 +132,8 @@ const EMPTY_BOARD_ROWS: BoardRowData[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 const EMPTY_SIDE_CHATS: Record<string, SideChatRecord> = {};
+const EMPTY_QUEST_DETAILS = new Map<string, QuestmasterTask>();
+const EMPTY_QUEST_TITLE_PREVIEWS = new Map<string, QuestTitlePreview | null>();
 
 export function reviewNotificationIdsForSelectedThread(
   notifications: ReadonlyArray<SessionNotification> | undefined,
@@ -1168,6 +1172,7 @@ export function ChatView({
     isLeaderSession ? initialOpenThreadTabKeys(sessionId, authoritativeLeaderOpenThreadTabs) : [],
   );
   const openThreadTabKeysRef = useRef(openThreadTabKeys);
+  const titleHydrationConnectionStatusRef = useRef<typeof connStatus | null>(null);
   const closedThreadTabKeys = useMemo(
     () => authoritativeLeaderOpenThreadTabs?.closedThreadTombstones.map((entry) => entry.threadKey) ?? [],
     [authoritativeLeaderOpenThreadTabs],
@@ -1183,6 +1188,13 @@ export function ChatView({
   const sessionNotifications = useStore((s) => s.sessionNotifications.get(sessionId));
   const persistedAttentionRecords = useStore((s) => s.sessionAttentionRecords.get(sessionId));
   const quests = useStore((s) => s.quests);
+  const questDetails = useStore((s) => s.questDetails ?? EMPTY_QUEST_DETAILS);
+  const questTitlePreviews = useStore((s) => s.questTitlePreviews ?? EMPTY_QUEST_TITLE_PREVIEWS);
+  const hydrateQuestTitles = useStore((s) => s.hydrateQuestTitles);
+  const canonicalQuestTitles = useMemo(
+    () => buildCanonicalQuestTitleIndex({ quests, questDetails, questTitlePreviews }),
+    [questDetails, questTitlePreviews, quests],
+  );
   const allSessionBoards = useStore((s) => s.sessionBoards);
   const allSessionCompletedBoards = useStore((s) => s.sessionCompletedBoards);
   const allSessionBoardRowStatuses = useStore((s) => s.sessionBoardRowStatuses);
@@ -1251,8 +1263,8 @@ export function ChatView({
     ],
   );
   const navigationThreadRows = useMemo(
-    () => mergeAttentionThreadRows(threadRows, attentionRecords),
-    [attentionRecords, threadRows],
+    () => applyCanonicalQuestTitles(mergeAttentionThreadRows(threadRows, attentionRecords), canonicalQuestTitles),
+    [attentionRecords, canonicalQuestTitles, threadRows],
   );
   const reviewNotificationIdsToClear = useMemo(
     () =>
@@ -1270,21 +1282,44 @@ export function ChatView({
       api.markNotificationDone(sessionId, notificationId, true).catch(console.error);
     }
   }, [reviewNotificationIdsToClear, sessionId]);
-  const composerThreadTitle = isLeaderSession
-    ? threadTitleForTranscription(selectedThreadKey, navigationThreadRows)
-    : undefined;
   const selectedThreadLabel = useMemo(
     () => threadLabelForKey(selectedThreadKey, navigationThreadRows),
     [navigationThreadRows, selectedThreadKey],
   );
-  const selectedThreadRow = useMemo(
-    () => navigationThreadRows.find((row) => row.threadKey === selectedThreadKey.toLowerCase()),
-    [navigationThreadRows, selectedThreadKey],
-  );
+  const selectedThreadRow = useMemo(() => {
+    const normalizedThreadKey = normalizeThreadKey(selectedThreadKey);
+    const existing = navigationThreadRows.find((row) => row.threadKey === normalizedThreadKey);
+    if (existing || !isQuestThreadKey(normalizedThreadKey)) return existing;
+    const title = canonicalQuestTitles.get(normalizedThreadKey);
+    if (!title) return undefined;
+    return {
+      threadKey: normalizedThreadKey,
+      questId: normalizedThreadKey,
+      title,
+      messageCount: 0,
+      createdAt: Number.MAX_SAFE_INTEGER,
+    } satisfies LeaderThreadRow;
+  }, [canonicalQuestTitles, navigationThreadRows, selectedThreadKey]);
+  const composerThreadTitle = isLeaderSession
+    ? selectedThreadRow?.questId && selectedThreadRow.title
+      ? `${selectedThreadRow.questId}: ${selectedThreadRow.title}`
+      : threadTitleForTranscription(selectedThreadKey, navigationThreadRows)
+    : undefined;
   const workBoardThreadRows = useMemo(() => toWorkBoardThreadRows(navigationThreadRows), [navigationThreadRows]);
   useEffect(() => {
     openThreadTabKeysRef.current = openThreadTabKeys;
   }, [openThreadTabKeys]);
+  useEffect(() => {
+    if (!isLeaderSession || !hydrateQuestTitles) return;
+    const previousConnectionStatus = titleHydrationConnectionStatusRef.current;
+    titleHydrationConnectionStatusRef.current = connStatus;
+    const questIds = [...new Set([...openThreadTabKeys, selectedThreadKey].map(normalizeThreadKey))].filter(
+      isQuestThreadKey,
+    );
+    if (questIds.length === 0) return;
+    const connectionBecameReady = connStatus === "connected" && previousConnectionStatus !== "connected";
+    void hydrateQuestTitles(questIds, connectionBecameReady ? { force: true } : undefined);
+  }, [connStatus, hydrateQuestTitles, isLeaderSession, openThreadTabKeys, selectedThreadKey]);
   const sendLeaderThreadTabUpdate = useCallback(
     (operation: LeaderThreadTabUpdate) => {
       sendToSession(sessionId, { type: "leader_thread_tabs_update", operation });
