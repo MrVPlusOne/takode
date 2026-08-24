@@ -199,6 +199,17 @@ describe("buildRecentAskBundles", () => {
     expect(response.groups[1]?.members.map((member) => member.messageId)).toEqual(["u1", "u2"]);
   });
 
+  it("uses persisted result ownership instead of failing a queued bundle in another thread", () => {
+    const failedResult = result({ error: true });
+    failedResult.threadKey = "q-1";
+    failedResult.questId = "q-1";
+    const response = buildRecentAskBundles({
+      documents: [doc([user("u1", "Active quest", 10, "q-1"), user("u2", "Queued quest", 11, "q-2"), failedResult])],
+    });
+    expect(response.groups.find((group) => group.ownerThreadKey === "q-1")?.status).toBe("failed");
+    expect(response.groups.find((group) => group.ownerThreadKey === "q-2")?.status).toBe("awaiting_response");
+  });
+
   it("uses terminal failure and automatic retry boundaries conservatively", () => {
     const failed = buildRecentAskBundles({ documents: [doc([user("u1", "Try", 10), result({ error: true })])] });
     expect(failed.groups[0]?.status).toBe("failed");

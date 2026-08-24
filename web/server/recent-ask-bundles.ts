@@ -239,7 +239,21 @@ function buildSessionBundles(document: RecentAskSessionDocument): RecentAskBundl
     }
 
     if (message.type !== "result") continue;
-    const target: MutableBundle | null = open ?? groups.at(-1) ?? null;
+    const retryOwnerId = message.data.codex_provider_retry?.ownerId;
+    const openBundle = open as MutableBundle | null;
+    const resultRoute = message.threadKey || message.questId ? ownerRoute(message) : null;
+    const target: MutableBundle | null =
+      (retryOwnerId
+        ? (groups.findLast((group) => group.members.some((member) => member.messageId === retryOwnerId)) ?? null)
+        : null) ??
+      (resultRoute
+        ? openBundle?.ownerThreadKey === resultRoute.threadKey
+          ? openBundle
+          : (lastBundleByThread.get(resultRoute.threadKey) ?? null)
+        : null) ??
+      openBundle ??
+      groups.at(-1) ??
+      null;
     if (!target) continue;
     if (message.data.codex_provider_retry) {
       target.status = "retrying";

@@ -46,7 +46,8 @@ export function registerGlobalRecentAsksRoute(api: Hono, deps: GlobalRecentAsksR
         omittedSearchOnlySessions += 1;
         continue;
       }
-      const sessionSpaceId = session.treeGroupId || treeState.assignments[session.sessionId] || "default";
+      const sessionSpaceId =
+        state?.treeGroupId || session.treeGroupId || treeState.assignments[session.sessionId] || "default";
       documents.push({
         sessionId: session.sessionId,
         sessionNum: launcher.getSessionNum(session.sessionId) ?? session.sessionNum ?? null,

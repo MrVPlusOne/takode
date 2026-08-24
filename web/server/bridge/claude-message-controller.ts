@@ -269,6 +269,7 @@ export interface ResultMessageSessionLike {
   interruptedDuringTurn: boolean;
   queuedTurnStarts: number;
   queuedTurnInterruptSources: Array<"user" | "leader" | "system" | null>;
+  activeTurnRoute?: ActiveTurnRoute | null;
   userMessageIdsThisTurn: number[];
   isGenerating: boolean;
   lastOutboundUserNdjson: string | null;
@@ -832,6 +833,7 @@ export function handleResultMessage(
     sessionInterrupted: session.interruptedDuringTurn,
   });
   const isProviderRetryResult = !!msg.codex_provider_retry;
+  const resultTurnRoute = session.activeTurnRoute ?? null;
   const turnTriggerSource = deps.getCurrentTurnTriggerSource(session);
   const threadRoutingReminder =
     turnWasInterrupted || isProviderRetryResult || turnTriggerSource === "system"
@@ -877,6 +879,8 @@ export function handleResultMessage(
     type: "result",
     data: msg,
     ...(turnWasInterrupted ? { interrupted: true } : {}),
+    ...(resultTurnRoute?.threadKey ? { threadKey: resultTurnRoute.threadKey } : {}),
+    ...(resultTurnRoute?.questId ? { questId: resultTurnRoute.questId } : {}),
     ...(session.state.slackThreadChild?.threadId ? { slackThreadId: session.state.slackThreadChild.threadId } : {}),
   };
   const turnMetrics = computeSessionTurnMetrics([...session.messageHistory, provisionalResultBrowserMsg]);
