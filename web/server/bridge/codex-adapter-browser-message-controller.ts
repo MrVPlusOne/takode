@@ -37,6 +37,7 @@ import {
 } from "../thread-routing-metadata.js";
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
 import { isTerminalResultInterrupted } from "../result-interruption.js";
+import { markRecentAskVisibleResponseFromStream } from "../recent-ask-bundles.js";
 import {
   CODEX_PROVIDER_RESULT_RECOVERY_MAX_ATTEMPTS,
   decideCodexProviderResultRecovery,
@@ -733,6 +734,7 @@ export async function handleCodexAdapterBrowserMessage(
     return;
   }
   maybeRecordDelegateLiveActivity(session, msg);
+  markRecentAskVisibleResponseFromStream(session, msg);
   const activeReasoningPreviewChanged = updateActiveCodexReasoningPreviewFromStream(session, msg);
   if (activeReasoningPreviewChanged) {
     broadcastActiveCodexReasoningPreview(session, deps);

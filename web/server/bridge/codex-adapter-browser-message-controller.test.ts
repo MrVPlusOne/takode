@@ -15,6 +15,7 @@ type TestCodexSession = {
   toolProgressOutput: Map<string, string>;
   isGenerating: boolean;
   activeTurnRoute: ActiveTurnRoute | null;
+  recentAskVisibleResponseThreads?: Set<string>;
   activeReasoningAttributionRoute?: ActiveTurnRoute | null;
   activeCodexReasoningPreview?: {
     text: string;
@@ -415,6 +416,24 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     );
     expect(deps.requestCodexProviderRecovery).not.toHaveBeenCalled();
     expect(deps.dispatchQueuedCodexTurns).not.toHaveBeenCalled();
+  });
+
+  it("records a recent-ask visible-response boundary from top-level text streams", async () => {
+    const session = makeSession();
+    session.activeTurnRoute = { threadKey: "q-1931", questId: "q-1931" };
+    const deps = makeDeps([]);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: "Visible response" } },
+        parent_tool_use_id: null,
+      },
+      deps,
+    );
+
+    expect(session.recentAskVisibleResponseThreads).toEqual(new Set(["q-1931"]));
   });
 
   it("records live streamed activity breadcrumbs for hidden delegate children", async () => {

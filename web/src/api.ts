@@ -20,6 +20,7 @@ import { encodeLogQuery, type LogQuery, type LogQueryResponse } from "../shared/
 import type { HerdSessionsResponse } from "../shared/herd-types.js";
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
 import { searchGlobalStarredMessages, searchSessionMessages } from "./api/session-message-search.js";
+import { fetchRecentAskBundles } from "./api/recent-asks.js";
 import { getMemoryCatalog, getMemoryRecord, getMemoryUpdateDiff, listMemorySpaces } from "./api/memory.js";
 import type { MemoryUpdateDiffSourceFile } from "./api/memory.js";
 import { transcribe } from "./api/transcription.js";
@@ -33,6 +34,16 @@ import type { VoiceTranscriptionFrontendTimingReport, VoiceTranscriptionTiming }
 import type { ShortcutSettings } from "./shortcuts.js";
 import type { SessionDefaultsSettings } from "../shared/session-defaults.js";
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
+
+export type {
+  FetchRecentAskBundlesOptions,
+  RecentAskBundle,
+  RecentAskBundlesResponse,
+  RecentAskBundleStatus,
+  RecentAskFilter,
+  RecentAskMember,
+  RecentAskResponsePreview,
+} from "./api/recent-asks.js";
 
 export type {
   MessageSearchCategory,
@@ -1136,6 +1147,7 @@ export const api = {
 
   searchSessionMessages,
   searchGlobalStarredMessages,
+  fetchRecentAskBundles,
 
   killSession: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/kill`),
 

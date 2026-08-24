@@ -208,6 +208,7 @@ function createSessionRuntime(
     queuedTurnStarts: 0,
     queuedTurnReasons: [],
     queuedTurnUserMessageIds: [],
+    recentAskVisibleResponseThreads: new Set(),
     queuedTurnInterruptSources: [],
     queuedTurnActiveRoutes: [],
     cliInitReceived: false,

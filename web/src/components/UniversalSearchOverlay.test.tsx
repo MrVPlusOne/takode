@@ -6,6 +6,8 @@ import type { ComponentProps } from "react";
 const mockListQuestPage = vi.fn();
 const mockSearchSessionMessages = vi.fn();
 const mockSearchGlobalStarredMessages = vi.fn();
+const mockFetchRecentAskBundles = vi.fn();
+const mockFetchMessagePreview = vi.fn();
 const mockGetQuestValidated = vi.fn();
 const mockClipboardWriteText = vi.fn();
 
@@ -14,6 +16,8 @@ vi.mock("../api.js", () => ({
     listQuestPage: (...args: unknown[]) => mockListQuestPage(...args),
     searchSessionMessages: (...args: unknown[]) => mockSearchSessionMessages(...args),
     searchGlobalStarredMessages: (...args: unknown[]) => mockSearchGlobalStarredMessages(...args),
+    fetchRecentAskBundles: (...args: unknown[]) => mockFetchRecentAskBundles(...args),
+    fetchMessagePreview: (...args: unknown[]) => mockFetchMessagePreview(...args),
     getQuestValidated: (...args: unknown[]) => mockGetQuestValidated(...args),
   },
 }));
@@ -25,6 +29,7 @@ import type {
   GlobalStarredMessageSearchResult,
   MessageSearchResponse,
   MessageSearchResult,
+  RecentAskBundlesResponse,
 } from "../api.js";
 import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
 
@@ -204,6 +209,62 @@ function starredSearchResponse(
   };
 }
 
+function recentAskResponse(overrides: Partial<RecentAskBundlesResponse> = {}): RecentAskBundlesResponse {
+  return {
+    groups: [
+      {
+        id: "s-new:u-recent-1",
+        sessionId: "s-new",
+        sessionNum: 11,
+        sessionName: "New session",
+        sessionState: "connected",
+        archived: false,
+        sessionSpaceId: "default",
+        sessionSpaceName: "Default",
+        ownerThreadKey: "q-1931",
+        questId: "q-1931",
+        questTitle: "Build global Recent asks modal",
+        questStatus: "in_progress",
+        firstAskedAt: now - 20_000,
+        lastAskedAt: now - 10_000,
+        status: "working",
+        members: [
+          {
+            messageId: "u-recent-1",
+            historyIndex: 7,
+            timestamp: now - 20_000,
+            preview: "Build the Recent asks modal",
+            truncated: false,
+            imageCount: 0,
+          },
+          {
+            messageId: "u-recent-2",
+            historyIndex: 8,
+            timestamp: now - 10_000,
+            preview: "Keep every correction independently navigable",
+            truncated: false,
+            imageCount: 1,
+          },
+        ],
+      },
+    ],
+    totalMatches: 1,
+    totalRecentGroups: 1,
+    limit: 50,
+    query: "",
+    filter: "all",
+    sessionSpaceId: null,
+    attentionCount: 0,
+    sessionSpaces: [
+      { id: "default", name: "Default", count: 1 },
+      { id: "research", name: "Research", count: 2 },
+    ],
+    coverageNotice: "Some archived sessions are available only through Search.",
+    tookMs: 1,
+    ...overrides,
+  };
+}
+
 function quest(overrides: Partial<QuestmasterTask> & Pick<QuestmasterTask, "questId" | "title">): QuestmasterTask {
   return {
     status: "in_progress",
@@ -272,6 +333,8 @@ describe("UniversalSearchOverlay", () => {
     mockListQuestPage.mockClear();
     mockSearchSessionMessages.mockClear();
     mockSearchGlobalStarredMessages.mockClear();
+    mockFetchRecentAskBundles.mockClear();
+    mockFetchMessagePreview.mockClear();
     mockGetQuestValidated.mockReset();
     mockClipboardWriteText.mockReset();
     mockClipboardWriteText.mockResolvedValue(undefined);
@@ -310,6 +373,8 @@ describe("UniversalSearchOverlay", () => {
       ]),
     );
     mockSearchGlobalStarredMessages.mockResolvedValue(starredSearchResponse([]));
+    mockFetchRecentAskBundles.mockResolvedValue(recentAskResponse());
+    mockFetchMessagePreview.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -564,6 +629,32 @@ describe("UniversalSearchOverlay", () => {
       scope: "session",
       filters: { user: true, assistant: false, event: false },
     });
+  });
+
+  it("renders Recent ask bundles, refetches filters, and preserves exact member navigation", async () => {
+    const callbacks = renderOverlay({ initialMode: "recent" });
+
+    await waitFor(() =>
+      expect(mockFetchRecentAskBundles).toHaveBeenLastCalledWith(
+        expect.objectContaining({ query: "", filter: "all", sessionSpaceId: null }),
+      ),
+    );
+    const bundle = await screen.findByTestId("recent-ask-bundle");
+    expect(within(bundle).getByText("Build the Recent asks modal")).toBeInTheDocument();
+    expect(within(bundle).getByText("Keep every correction independently navigable")).toBeInTheDocument();
+    expect(within(bundle).getByText("1 attachment")).toBeInTheDocument();
+    expect(screen.getByText("Some archived sessions are available only through Search.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Needs me" }));
+    await waitFor(() =>
+      expect(mockFetchRecentAskBundles).toHaveBeenLastCalledWith(expect.objectContaining({ filter: "needs_me" })),
+    );
+
+    fireEvent.click(
+      within(bundle).getByRole("button", { name: "Open ask 2 in #11 New session Build global Recent asks modal" }),
+    );
+    expect(callbacks.onOpenMessage).toHaveBeenCalledWith("s-new", "u-recent-2", "q-1931");
+    expect(callbacks.onClose).toHaveBeenCalledTimes(1);
   });
 
   it("requests global Starred mode results and renders session/thread context", async () => {

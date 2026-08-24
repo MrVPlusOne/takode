@@ -53,6 +53,7 @@ import { registerSessionMessageSearchRoute } from "./session-message-search-rout
 import { registerSessionStarredMessagesRoute } from "./session-starred-messages-route.js";
 import { registerSessionModelProvenanceMigrationRoute } from "./session-model-provenance-migration-route.js";
 import { registerGlobalStarredMessageSearchRoute } from "./global-starred-message-search-route.js";
+import { registerGlobalRecentAsksRoute } from "./global-recent-asks-route.js";
 import { parseIncludeArchived, registerSessionSearchRoute } from "./session-search-route.js";
 import { registerSessionPermissionModeRoute } from "./session-permission-mode.js";
 import { registerSessionPauseRoutes } from "./session-pause-routes.js";
@@ -1180,6 +1181,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
   registerArchivedSessionPageRoute(api, sessionSnapshotDeps);
   registerSessionSearchRoute(api, { launcher, wsBridge, authenticateCompanionCallerOptional });
   registerGlobalStarredMessageSearchRoute(api, { launcher, wsBridge });
+  registerGlobalRecentAsksRoute(api, { launcher, wsBridge });
   registerSessionMessageSearchRoute(api, { launcher, wsBridge, resolveId });
   registerSessionStarredMessagesRoute(api, { launcher, wsBridge, resolveId });
   registerSessionModelProvenanceMigrationRoute(api, ctx);

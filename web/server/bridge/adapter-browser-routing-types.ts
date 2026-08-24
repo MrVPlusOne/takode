@@ -77,6 +77,7 @@ export interface AdapterBrowserRoutingSessionLike {
   forceCompactPending: boolean;
   pendingStartupMemoryCatalogInjection?: boolean;
   isGenerating: boolean;
+  recentAskVisibleResponseThreads?: Set<string>;
   activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
   codexReasoningPreviews?: CodexReasoningPreviewsByThread;
   backendSocket?: unknown;

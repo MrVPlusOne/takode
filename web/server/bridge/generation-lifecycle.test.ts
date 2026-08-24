@@ -123,6 +123,20 @@ function setupWithQueuedTurns(
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
+describe("recent ask streamed response lifecycle", () => {
+  it("clears ephemeral streamed-response boundaries at turn start and end", () => {
+    const session = makeSession({ recentAskVisibleResponseThreads: new Set(["q-1"]) });
+    const deps = makeDeps();
+    deps.sessions.set(session.id, session);
+
+    setGenerating(deps, session, true, "start");
+    expect(session.recentAskVisibleResponseThreads).toEqual(new Set());
+    session.recentAskVisibleResponseThreads?.add("main");
+    setGenerating(deps, session, false, "result");
+    expect(session.recentAskVisibleResponseThreads).toEqual(new Set());
+  });
+});
+
 describe("setGenerating(false) — queued turn handling", () => {
   let session: GenerationLifecycleSession;
   let deps: GenerationLifecycleDeps<GenerationLifecycleSession>;

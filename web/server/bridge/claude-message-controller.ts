@@ -35,6 +35,7 @@ import {
 } from "./context-usage.js";
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
 import { isResultStopReasonInterrupted, isTerminalResultInterrupted } from "../result-interruption.js";
+import { markRecentAskVisibleResponseFromStream } from "../recent-ask-bundles.js";
 import {
   recordCompactionBoundary,
   recordCompactionFinished,
@@ -277,6 +278,8 @@ export interface ResultMessageSessionLike {
 
 export interface CliMessageRouteSessionLike {
   id: string;
+  activeTurnRoute?: ActiveTurnRoute | null;
+  recentAskVisibleResponseThreads?: Set<string>;
   pendingPermissions: Map<string, PermissionRequest>;
   toolProgressOutput: Map<string, string>;
   lastToolProgressAt: number;
@@ -1693,6 +1696,7 @@ function handleStreamEventMessage(
   msg: CLIStreamEventMessage,
   deps: Pick<CliMessageRouteDeps, "broadcastToBrowsers">,
 ): void {
+  markRecentAskVisibleResponseFromStream(session, msg as BrowserIncomingMessage);
   deps.broadcastToBrowsers(session, {
     type: "stream_event",
     event: msg.event,

@@ -977,6 +977,14 @@ describe("TopBar", () => {
     expect(screen.getByTitle("Universal Search (Ctrl+Shift+F)")).toBeInTheDocument();
   });
 
+  it("opens the app-level Recent asks affordance", () => {
+    const onOpenRecentAsks = vi.fn();
+    render(<TopBar onOpenRecentAsks={onOpenRecentAsks} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Recent asks" }));
+    expect(onOpenRecentAsks).toHaveBeenCalledTimes(1);
+  });
+
   it("opens the app-level Universal Search affordance", () => {
     const onOpenUniversalSearch = vi.fn();
 

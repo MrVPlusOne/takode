@@ -1400,6 +1400,7 @@ function commitPendingCodexInput(
     ...(pending.threadRefs ? { threadRefs: pending.threadRefs } : {}),
     ...(pending.takodeHerdBatch?.eventKeys?.length ? { takodeHerdEventKeys: pending.takodeHerdBatch.eventKeys } : {}),
     ...(takodeHerdEvents?.length ? { takodeHerdEvents } : {}),
+    ...(pending.recentAskBoundaryBefore ? { recentAskBoundaryBefore: pending.recentAskBoundaryBefore } : {}),
   };
   session.messageHistory.push(userHistoryEntry);
   const userMsgHistoryIdx = session.messageHistory.length - 1;

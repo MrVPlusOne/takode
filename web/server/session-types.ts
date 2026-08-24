@@ -567,6 +567,7 @@ export interface PendingCodexInput {
   questId?: string;
   threadRefs?: ThreadRef[];
   slackThreadId?: string;
+  recentAskBoundaryBefore?: "visible_response";
   /** Server-only source classification used by Codex result-error auto-pause. */
   autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
   /** Server-only correlation for a held input released into normal Codex delivery. */
@@ -1011,6 +1012,8 @@ export type BrowserIncomingMessageBase =
       takodeHerdEventKeys?: string[];
       takodeHerdEvents?: TakodeHerdEventBrowserMetadata[];
       threadOutcomeReminder?: ThreadOutcomeReminderSatisfaction;
+      /** Server-authored durable grouping boundary when visible streamed response text preceded this human input. */
+      recentAskBoundaryBefore?: "visible_response";
     }
   | {
       type: "leader_user_message";

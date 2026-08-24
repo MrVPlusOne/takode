@@ -72,6 +72,7 @@ import {
   type ThreadRouteMetadata,
 } from "../thread-routing-metadata.js";
 import { isActualHumanUserMessage } from "../user-message-classification.js";
+import { consumeRecentAskVisibleResponseBoundary } from "../recent-ask-bundles.js";
 import { determineUserMessageSourceKind } from "../codex-result-error-auto-pause.js";
 import { markAcceptedCodexAutoPauseRecoveryDispatch } from "./codex-auto-pause-recovery-testing.js";
 import { getTrustedRecoveryDeliveryTransferId } from "./recovery-delivery-transfer-routing-context.js";
@@ -1224,6 +1225,10 @@ export function ingestUserMessage(
       ? null
       : buildNeedsInputResolutionNoticeForDirectUserMessage(session, msg, deps);
     const takodeHerdEvents = getTakodeHerdEventBrowserMetadata(msg.takodeHerdBatch);
+    const recentAskBoundaryBefore =
+      !msg.agentSource && consumeRecentAskVisibleResponseBoundary(session, explicitTarget?.threadKey ?? "main")
+        ? "visible_response"
+        : undefined;
     const userHistoryEntry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
       type: "user_message",
       content: msg.content,
@@ -1239,6 +1244,7 @@ export function ingestUserMessage(
       ...(explicitThreadRef ? { threadRefs: [explicitThreadRef] } : {}),
       ...(msg.slackThreadId ? { slackThreadId: msg.slackThreadId } : {}),
       ...(msg.takodeHerdBatch?.eventKeys?.length ? { takodeHerdEventKeys: msg.takodeHerdBatch.eventKeys } : {}),
+      ...(recentAskBoundaryBefore ? { recentAskBoundaryBefore } : {}),
       ...(takodeHerdEvents?.length ? { takodeHerdEvents } : {}),
     };
     let userMsgHistoryIdx = -1;
@@ -1814,6 +1820,9 @@ export function routeAdapterBrowserMessage(
           ...(ingested.historyEntry.questId ? { questId: ingested.historyEntry.questId } : {}),
           ...(ingested.historyEntry.threadRefs ? { threadRefs: ingested.historyEntry.threadRefs } : {}),
           ...(ingested.historyEntry.slackThreadId ? { slackThreadId: ingested.historyEntry.slackThreadId } : {}),
+          ...(ingested.historyEntry.recentAskBoundaryBefore
+            ? { recentAskBoundaryBefore: ingested.historyEntry.recentAskBoundaryBefore }
+            : {}),
           autoPauseSourceKind: determineUserMessageSourceKind(msg),
           ...(msg.autoPauseRecoveries?.length ? { autoPauseRecoveries: msg.autoPauseRecoveries } : {}),
         };

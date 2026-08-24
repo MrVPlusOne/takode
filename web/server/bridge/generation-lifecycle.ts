@@ -5,6 +5,7 @@ import {
   type CodexReasoningPreviewsByThread,
 } from "./codex-reasoning-preview-state.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import { clearRecentAskVisibleResponseBoundaries } from "../recent-ask-bundles.js";
 
 /** Reasons that indicate the turn ended due to recovery/error, not a normal result.
  *  Queued turns should be drained (not promoted) for these reasons because the CLI
@@ -57,6 +58,7 @@ export interface GenerationLifecycleSession {
   queuedTurnStarts: number;
   queuedTurnReasons: string[];
   queuedTurnUserMessageIds: number[][];
+  recentAskVisibleResponseThreads?: Set<string>;
   queuedTurnInterruptSources: (InterruptSource | null)[];
   queuedTurnActiveRoutes?: (ActiveTurnRoute | null)[];
   optimisticRunningTimer: ReturnType<typeof setTimeout> | null;
@@ -367,6 +369,7 @@ export function reconcileTerminalResultState<S extends GenerationLifecycleSessio
   session.provisionalStuckRecovery = null;
   session.userMessageIdsThisTurn = [];
   session.questThreadRemindersThisTurn = [];
+  clearRecentAskVisibleResponseBoundaries(session);
   deps.onSessionActivityStateChanged(session.id, `generating:${reason}:reconciled`);
   return { endedTurn: false, clearedResidualState: true };
 }
@@ -380,6 +383,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
   if (session.isGenerating === generating) return;
   session.isGenerating = generating;
   if (generating) {
+    clearRecentAskVisibleResponseBoundaries(session);
     session.generationStartedAt = Date.now();
     session.stuckNotifiedAt = null;
     session.questStatusAtTurnStart = session.state.claimedQuestStatus ?? null;
@@ -403,6 +407,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
       userMessage: session.lastUserMessage?.slice(0, 120),
     });
   } else {
+    clearRecentAskVisibleResponseBoundaries(session);
     clearOptimisticRunningTimer(session);
     const elapsed = session.generationStartedAt ? Date.now() - session.generationStartedAt : 0;
     session.generationStartedAt = null;

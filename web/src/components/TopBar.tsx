@@ -25,6 +25,7 @@ interface TopBarProps {
   fullPageLabel?: string;
   universalSearchOpen?: boolean;
   onOpenUniversalSearch?: () => void;
+  onOpenRecentAsks?: () => void;
   onCloseUniversalSearch?: () => void;
 }
 
@@ -102,6 +103,7 @@ export function TopBar({
   fullPageLabel,
   universalSearchOpen = false,
   onOpenUniversalSearch = () => {},
+  onOpenRecentAsks = () => {},
   onCloseUniversalSearch = () => {},
 }: TopBarProps = {}) {
   const hash = useSyncExternalStore(
@@ -304,6 +306,7 @@ export function TopBar({
         </div>
         <div className="flex shrink-0 items-center gap-2 text-[12px] text-cc-muted sm:gap-3">
           <GlobalNeedsInputMenu />
+          <RecentAsksButton onOpen={onOpenRecentAsks} />
           <SearchToggleButton
             isOpen={universalSearchOpen}
             onOpen={onOpenUniversalSearch}
@@ -446,6 +449,7 @@ export function TopBar({
           </LeaderWorkboardControlButton>
         )}
         <GlobalNeedsInputMenu />
+        <RecentAsksButton onOpen={onOpenRecentAsks} />
         <SearchToggleButton
           isOpen={universalSearchOpen}
           onOpen={onOpenUniversalSearch}
@@ -512,6 +516,32 @@ export function TopBar({
         </button>
       </div>
     </header>
+  );
+}
+
+function RecentAsksButton({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
+      title="Recent asks"
+      aria-label="Open Recent asks"
+      data-testid="topbar-recent-asks"
+    >
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        className="h-4 w-4"
+        aria-hidden="true"
+      >
+        <circle cx="8" cy="8" r="5.5" />
+        <path d="M8 4.7V8l2.2 1.4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M3.1 3.9H1.8V2.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
   );
 }
 

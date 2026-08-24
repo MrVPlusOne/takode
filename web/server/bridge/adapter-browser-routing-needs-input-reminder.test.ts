@@ -207,6 +207,49 @@ function installActiveRouteStatusBroadcast(deps: AdapterBrowserRoutingDeps): voi
 }
 
 describe("direct user needs-input reminders", () => {
+  it("persists and consumes a visible-stream boundary on the next direct human message", async () => {
+    const session = makeSession();
+    session.isGenerating = true;
+    session.recentAskVisibleResponseThreads = new Set(["main"]);
+    const deps = makeDeps();
+
+    await handleUserMessage(session, userMessage(), deps);
+    await handleUserMessage(session, userMessage({ content: "Another correction" }), deps);
+
+    expect(session.messageHistory[0]).toMatchObject({
+      type: "user_message",
+      recentAskBoundaryBefore: "visible_response",
+    });
+    expect(session.messageHistory[1]).not.toHaveProperty("recentAskBoundaryBefore");
+    expect(session.recentAskVisibleResponseThreads).toEqual(new Set());
+  });
+
+  it("carries the streamed-response boundary through Codex pending input commit", () => {
+    const session = makeSession();
+    session.backendType = "codex";
+    session.isGenerating = true;
+    session.recentAskVisibleResponseThreads = new Set(["main"]);
+    const deps = makeDeps();
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => targetSession.pendingCodexInputs.push(input));
+
+    routeAdapterBrowserMessage(session, userMessage(), null, deps);
+    expect(session.pendingCodexInputs[0]?.recentAskBoundaryBefore).toBe("visible_response");
+
+    commitPendingCodexInputs(session as any, [session.pendingCodexInputs[0]!.id], {
+      broadcastPendingCodexInputs: vi.fn(),
+      broadcastToBrowsers: vi.fn(),
+      onUserMessage: vi.fn(),
+      persistSession: vi.fn(),
+      touchUserMessage: vi.fn(),
+      emitTakodeEvent: vi.fn(),
+      scheduleCodexPendingStartBatch: vi.fn(),
+    } as any);
+    expect(session.messageHistory[0]).toMatchObject({
+      type: "user_message",
+      recentAskBoundaryBefore: "visible_response",
+    });
+  });
+
   it("delivers concise reply context while storing reply metadata separately for Claude CLI", async () => {
     const session = makeSession();
     const deps = makeDeps();

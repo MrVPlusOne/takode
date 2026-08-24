@@ -204,8 +204,12 @@ vi.mock("./components/TaskPanel.js", () => ({
 }));
 
 vi.mock("./components/TopBar.js", () => ({
-  TopBar: ({ fullPageLabel }: { fullPageLabel?: string }) => (
-    <div data-testid="top-bar" data-full-page-label={fullPageLabel ?? ""} />
+  TopBar: ({ fullPageLabel, onOpenRecentAsks }: { fullPageLabel?: string; onOpenRecentAsks?: () => void }) => (
+    <div data-testid="top-bar" data-full-page-label={fullPageLabel ?? ""}>
+      <button type="button" onClick={onOpenRecentAsks}>
+        Recent asks
+      </button>
+    </div>
   ),
 }));
 
@@ -287,15 +291,22 @@ vi.mock("./components/QuestDetailPanel.js", () => ({
 vi.mock("./components/UniversalSearchOverlay.js", () => ({
   UniversalSearchOverlay: ({
     open,
+    initialMode,
     onClose,
     onOpenQuest,
   }: {
     open: boolean;
+    initialMode?: string;
     onClose: () => void;
     onOpenQuest: (questId: string, query: string) => void;
   }) =>
     open ? (
-      <div role="dialog" aria-label="Universal Search" data-testid="universal-search-overlay">
+      <div
+        role="dialog"
+        aria-label="Universal Search"
+        data-testid="universal-search-overlay"
+        data-initial-mode={initialMode ?? ""}
+      >
         <input aria-label="Universal Search input" />
         <button type="button" onClick={() => onOpenQuest("q-1272", "needle")}>
           Open quest result
@@ -396,6 +407,14 @@ describe("App hidden panels", () => {
     expect(screen.queryByTestId("sidebar")).toBeNull();
     expect(mockState.openSessionSearch).not.toHaveBeenCalled();
     expect(screen.queryByTestId("universal-search-overlay")).toBeNull();
+  });
+
+  it("opens the Recent asks mode from the top-bar affordance", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Recent asks" }));
+
+    expect(screen.getByTestId("universal-search-overlay")).toHaveAttribute("data-initial-mode", "recent");
   });
 
   it("opens Universal Search from the Standard search shortcut", () => {

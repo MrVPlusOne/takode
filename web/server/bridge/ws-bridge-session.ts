@@ -208,6 +208,8 @@ export interface Session {
   queuedTurnReasons: string[];
   /** User message history IDs per queued follow-up turn. */
   queuedTurnUserMessageIds: number[][];
+  /** Threads where top-level visible streamed response text has started since the last direct human input. */
+  recentAskVisibleResponseThreads: Set<string>;
   /** Interrupt sources aligned with queued follow-up turns.
    *  A queued follow-up does not prove the active turn was interrupted. */
   queuedTurnInterruptSources: (InterruptSource | null)[];

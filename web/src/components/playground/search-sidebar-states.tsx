@@ -2,7 +2,7 @@ import { useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { DndContext, closestCenter } from "@dnd-kit/core";
 import { UniversalSearchOverlay } from "../UniversalSearchOverlay.js";
 import { TreeViewGroup } from "../TreeViewGroup.js";
-import type { GlobalStarredMessageSearchResponse, MessageSearchResponse } from "../../api.js";
+import type { GlobalStarredMessageSearchResponse, MessageSearchResponse, RecentAskBundlesResponse } from "../../api.js";
 import type { ChatMessage, SdkSessionInfo } from "../../types.js";
 import type { SidebarSessionItem } from "../../utils/sidebar-session-item.js";
 import type { TreeViewGroupData } from "../../utils/tree-grouping.js";
@@ -33,6 +33,90 @@ const PLAYGROUND_UNIVERSAL_SESSIONS: SdkSessionInfo[] = [
     sessionNum: 1278,
   },
 ];
+
+const PLAYGROUND_RECENT_ASKS_RESPONSE: RecentAskBundlesResponse = {
+  groups: [
+    {
+      id: "playground-universal:ask-one",
+      sessionId: "playground-universal",
+      sessionNum: 1277,
+      sessionName: "Universal search implementation",
+      sessionState: "running",
+      archived: false,
+      sessionSpaceId: "takode",
+      sessionSpaceName: "Takode",
+      ownerThreadKey: "q-1931",
+      questId: "q-1931",
+      questTitle: "Build global Recent asks modal",
+      questStatus: "in_progress",
+      firstAskedAt: Date.now() - 8 * 60_000,
+      lastAskedAt: Date.now() - 6 * 60_000,
+      status: "working",
+      members: [
+        {
+          messageId: "ask-one",
+          historyIndex: 10,
+          timestamp: Date.now() - 8 * 60_000,
+          preview: "Build a focused wide Recent asks modal using the Universal Search shell.",
+          truncated: false,
+          imageCount: 0,
+        },
+        {
+          messageId: "ask-two",
+          historyIndex: 11,
+          timestamp: Date.now() - 6 * 60_000,
+          preview: "Keep every correction visible and independently navigable.",
+          truncated: false,
+          imageCount: 1,
+        },
+      ],
+    },
+    {
+      id: "playground-review:ask-three",
+      sessionId: "playground-review",
+      sessionNum: 1278,
+      sessionName: "Review search overlay states",
+      sessionState: "exited",
+      archived: true,
+      sessionSpaceId: "review",
+      sessionSpaceName: "Review",
+      ownerThreadKey: "main",
+      firstAskedAt: Date.now() - 45 * 60_000,
+      lastAskedAt: Date.now() - 45 * 60_000,
+      status: "response_unread",
+      members: [
+        {
+          messageId: "ask-three",
+          historyIndex: 4,
+          timestamp: Date.now() - 45 * 60_000,
+          preview: "Review the mobile spacing and keyboard behavior.",
+          truncated: false,
+          imageCount: 0,
+        },
+      ],
+      response: {
+        messageId: "response-three",
+        historyIndex: 5,
+        timestamp: Date.now() - 40 * 60_000,
+        preview: "The responsive and keyboard review is ready.",
+        truncated: false,
+      },
+    },
+  ],
+  totalMatches: 2,
+  totalRecentGroups: 2,
+  limit: 50,
+  query: "",
+  filter: "all",
+  sessionSpaceId: null,
+  attentionCount: 1,
+  sessionSpaces: [
+    { id: "review", name: "Review", count: 1 },
+    { id: "takode", name: "Takode", count: 1 },
+  ],
+  coverageNotice: "Older and excerpt-only history remains available through Search.",
+  tookMs: 2,
+};
 
 const PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE: MessageSearchResponse = {
   sessionId: "playground-universal",
@@ -257,9 +341,25 @@ export function PlaygroundUniversalSearchStates() {
   return (
     <Section
       title="Universal Search"
-      description="App-level command palette for mode-scoped quest, session, and current-session message search."
+      description="App-level command palette for bounded Recent ask bundles plus mode-scoped quest, session, message, and Starred search."
     >
       <div className="space-y-4">
+        <Card label="Focused wide Recent asks bundles">
+          <UniversalSearchOverlay
+            open
+            presentation="inline"
+            initialMode="recent"
+            currentSessionId="playground-universal"
+            currentThreadKey="main"
+            sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
+            messages={PLAYGROUND_UNIVERSAL_MESSAGES}
+            leaderSessionId="playground-universal"
+            recentAskPreviewResponse={PLAYGROUND_RECENT_ASKS_RESPONSE}
+            onClose={() => {}}
+            onOpenQuest={() => {}}
+            onOpenMessage={() => {}}
+          />
+        </Card>
         <Card label="Overlay with current-session message mode">
           <UniversalSearchOverlay
             open
