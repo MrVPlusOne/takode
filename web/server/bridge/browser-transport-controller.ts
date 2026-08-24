@@ -19,6 +19,7 @@ import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { buildLeaderProjectionSnapshot, toLeaderProjectionWireSnapshot } from "../../shared/leader-projection.js";
 import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
 import { buildBackendStateSnapshot } from "./backend-state-snapshot.js";
+import { attachRecentHistoryIndex } from "./browser-history-index.js";
 import {
   buildThreadWindowSync,
   getThreadWindowItemCount,
@@ -1549,6 +1550,7 @@ export function broadcastToBrowsers(
     Partial<Pick<BrowserTransportDeps, "getLauncherSessionInfo">>,
   options?: { skipBuffer?: boolean },
 ): void {
+  msg = attachRecentHistoryIndex(session.messageHistory, msg);
   if (session.browserSockets.size === 0 && msg.type === "result") {
     console.log(
       `[ws-bridge] ⚠ Broadcasting result to 0 browsers for session ${sessionTag(session.id)} (stored in history: true)`,

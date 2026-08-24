@@ -135,6 +135,7 @@ describe("handleMessage: assistant", () => {
       id: "leader-user-1",
       content: "Visible leader Markdown",
       timestamp: 1234,
+      history_index: 16,
     });
 
     const msgs = useStore.getState().messages.get("s1")!;
@@ -144,6 +145,7 @@ describe("handleMessage: assistant", () => {
       role: "assistant",
       content: "Visible leader Markdown",
       timestamp: 1234,
+      historyIndex: 16,
       metadata: { leaderUserMessage: true },
     });
   });
@@ -193,6 +195,7 @@ describe("handleMessage: assistant", () => {
         usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
       parent_tool_use_id: null,
+      history_index: 18,
     });
 
     const state = useStore.getState();
@@ -201,6 +204,7 @@ describe("handleMessage: assistant", () => {
     expect(msgs[0].role).toBe("assistant");
     expect(msgs[0].content).toBe("Hello world");
     expect(msgs[0].id).toBe("msg-1");
+    expect(msgs[0].historyIndex).toBe(18);
     expect(state.streaming.has("s1")).toBe(false);
     expect(state.sessionStatus.get("s1")).toBe("running");
   });
@@ -271,6 +275,7 @@ describe("handleMessage: assistant", () => {
       status: "streaming",
       timestamp: 100,
       parent_tool_use_id: null,
+      history_index: 19,
       threadKey: "q-1842",
       questId: "q-1842",
     });
@@ -291,6 +296,7 @@ describe("handleMessage: assistant", () => {
       id: "codex-reasoning-r1",
       content: "**Inspecting state**\n\nComplete summary",
       timestamp: 100,
+      historyIndex: 19,
       metadata: {
         threadKey: "q-1842",
         questId: "q-1842",

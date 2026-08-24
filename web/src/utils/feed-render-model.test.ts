@@ -1058,6 +1058,64 @@ describe("feed render model builders", () => {
     expect(model.messages.map((message) => message.id)).toEqual(["u-q1080", "hist-result-2"]);
   });
 
+  it("does not append indexed attached history after a newer bounded quest window", () => {
+    // This mirrors the live q-1926 failure shape: early attached history remains
+    // canonical, but a selected latest window must not append it after completion.
+    const threadWindow = makeWindow({
+      thread_key: "q-1926",
+      from_item: 30,
+      item_count: 2,
+      total_items: 32,
+      source_history_length: 40,
+    });
+    const completion = makeMessage({
+      id: "completion",
+      role: "assistant",
+      content: "q-1926 is complete",
+      timestamp: 130,
+      historyIndex: 38,
+      metadata: { threadKey: "q-1926", questId: "q-1926" },
+    });
+    const quiz = makeMessage({
+      id: "quiz",
+      role: "assistant",
+      content: "Quest quiz",
+      timestamp: 131,
+      historyIndex: 39,
+      metadata: { threadKey: "q-1926", questId: "q-1926" },
+    });
+    const attachedRequest = makeMessage({
+      id: "early-request",
+      role: "user",
+      content: "Prepare update slides",
+      timestamp: 100,
+      historyIndex: 1,
+      metadata: { threadRefs: [{ threadKey: "q-1926", questId: "q-1926", source: "backfill" }] },
+    });
+    const reasoning = makeMessage({
+      id: "early-reasoning",
+      role: "assistant",
+      content: "Preparing presentation materials",
+      timestamp: 101,
+      historyIndex: 2,
+      metadata: {
+        threadKey: "q-1926",
+        questId: "q-1926",
+        codexReasoningDetail: { status: "complete" },
+      },
+    });
+
+    const model = buildMessageModel({
+      threadKey: "q-1926",
+      allMessages: [attachedRequest, reasoning, completion, quiz],
+      selectedFeedWindow: threadWindow,
+      selectedFeedWindowMessages: [completion, quiz],
+      sessionNotifications: [],
+    });
+
+    expect(model.messages.map((message) => message.id)).toEqual(["completion", "quiz"]);
+  });
+
   it("keeps outbound and suppresses inbound selected-thread window transition markers", () => {
     const sourceMarker = makeTransitionMarker({
       id: "transition-q1139-q1141",

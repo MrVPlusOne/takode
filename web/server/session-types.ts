@@ -1253,8 +1253,10 @@ export type BrowserIncomingMessageBase =
       treeNodeOrder: Record<string, string[]>;
     };
 
-export type BrowserIncomingMessage = BrowserIncomingMessageBase & {
+type BrowserIncomingMessageMetadata = {
   seq?: number;
+  /** Raw messageHistory index when this live event is already durably persisted. */
+  history_index?: number;
   /** Optional quest/thread memberships. Main is implicit for every history entry. */
   threadRefs?: ThreadRef[];
   threadKey?: string;
@@ -1262,7 +1264,10 @@ export type BrowserIncomingMessage = BrowserIncomingMessageBase & {
   threadRoutingError?: ThreadRoutingError;
 };
 
-export type ReplayableBrowserIncomingMessage = Exclude<BrowserIncomingMessageBase, { type: "event_replay" }>;
+export type BrowserIncomingMessage = BrowserIncomingMessageBase & BrowserIncomingMessageMetadata;
+
+export type ReplayableBrowserIncomingMessage = Exclude<BrowserIncomingMessageBase, { type: "event_replay" }> &
+  BrowserIncomingMessageMetadata;
 
 export interface BufferedBrowserEvent {
   seq: number;

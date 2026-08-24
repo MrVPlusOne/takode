@@ -136,6 +136,7 @@ describe("agentSource propagation", () => {
       content: "Run tests",
       timestamp: 1000,
       id: "user-1000-0",
+      history_index: 17,
       agentSource: { sessionId: "abc123", sessionLabel: "#3 orchestrator" },
     });
 
@@ -143,6 +144,7 @@ describe("agentSource propagation", () => {
     expect(msgs).toHaveLength(1);
     expect(msgs[0].role).toBe("user");
     expect(msgs[0].content).toBe("Run tests");
+    expect(msgs[0].historyIndex).toBe(17);
     expect(msgs[0].agentSource).toEqual({
       sessionId: "abc123",
       sessionLabel: "#3 orchestrator",

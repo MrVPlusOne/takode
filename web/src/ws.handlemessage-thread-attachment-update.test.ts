@@ -4,6 +4,7 @@ import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 import type { BrowserIncomingMessage, SessionState } from "./types.js";
 import { persistLeaderSelectedThreadKey } from "./utils/thread-viewport.js";
+import { buildFeedMessageModel } from "./utils/feed-render-model.js";
 
 vi.mock("./utils/names.js", () => ({
   generateUniqueSessionName: vi.fn(() => "Test Session"),
@@ -455,6 +456,116 @@ describe("handleMessage: thread_attachment_update", () => {
         ?.filter((message) => message.id === "marker-1"),
     ).toHaveLength(1);
     expect(lastWs.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps attached historical live copies out of a newer bounded quest tail", () => {
+    // Producer-shaped live events arrive before the attachment invalidation and
+    // latest selected window; their raw indices keep them out of the live tail.
+    const threadKey = "q-1926";
+    connectAndHydrateSession(threadKey);
+    fireMessage({
+      type: "user_message",
+      id: "early-request",
+      content: "Prepare update slides",
+      timestamp: 100,
+      history_index: 1,
+    });
+    fireMessage({
+      type: "codex_reasoning_detail",
+      id: "early-reasoning",
+      text: "Preparing presentation materials",
+      status: "complete",
+      timestamp: 101,
+      parent_tool_use_id: null,
+      history_index: 2,
+      threadKey,
+      questId: threadKey,
+    });
+    const baseUpdate = threadAttachmentUpdate();
+    const baseEntry = baseUpdate.updates[0]!;
+    fireMessage({
+      ...baseUpdate,
+      historyLength: 43,
+      affectedThreadKeys: ["main", threadKey],
+      updates: [
+        {
+          ...baseEntry,
+          target: { threadKey, questId: threadKey },
+          markers: baseEntry.markers.map((marker) => ({
+            ...marker,
+            markerKey: `${threadKey}:early-request`,
+            threadKey,
+            questId: threadKey,
+            messageIds: ["early-request"],
+            messageIndices: [1],
+            firstMessageId: "early-request",
+            firstMessageIndex: 1,
+          })),
+          changedMessages: [
+            {
+              historyIndex: 1,
+              messageId: "early-request",
+              threadRefs: [{ threadKey, questId: threadKey, source: "backfill" }],
+            },
+          ],
+        },
+      ],
+    });
+    fireMessage({
+      type: "thread_window_sync",
+      thread_key: threadKey,
+      entries: [
+        {
+          history_index: 48,
+          message: {
+            type: "leader_user_message",
+            id: "completion",
+            content: "q-1926 is complete",
+            timestamp: 130,
+            threadKey,
+            questId: threadKey,
+          },
+        },
+        {
+          history_index: 49,
+          message: {
+            type: "leader_user_message",
+            id: "quiz",
+            content: "Quest quiz",
+            timestamp: 131,
+            threadKey,
+            questId: threadKey,
+          },
+        },
+      ],
+      window: {
+        thread_key: threadKey,
+        from_item: 30,
+        item_count: 2,
+        total_items: 32,
+        source_history_length: 50,
+        section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      },
+    });
+
+    const state = useStore.getState();
+    const allMessages = state.messages.get("s1") ?? [];
+    expect(allMessages.find((message) => message.id === "early-request")?.historyIndex).toBe(1);
+    expect(allMessages.find((message) => message.id === "early-reasoning")?.historyIndex).toBe(2);
+    const model = buildFeedMessageModel({
+      leaderSessionId: "s1",
+      threadKey,
+      projectThreadRoutes: true,
+      allMessages,
+      historyLoading: false,
+      selectedFeedWindowEnabled: true,
+      selectedFeedWindow: state.threadWindows.get("s1")?.get(threadKey) ?? null,
+      selectedFeedWindowMessages: state.threadWindowMessages.get("s1")?.get(threadKey) ?? [],
+      sessionNotifications: [],
+    });
+
+    expect(model.messages.map((message) => message.id)).toEqual(["completion", "quiz"]);
   });
 
   it("falls back to bounded refresh requests for unsupported update versions without local patching", async () => {

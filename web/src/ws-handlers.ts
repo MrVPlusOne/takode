@@ -796,6 +796,7 @@ function handleParsedMessage(
         role: "assistant",
         content: normalized.content,
         timestamp: data.timestamp,
+        ...(data.history_index !== undefined ? { historyIndex: data.history_index } : {}),
         metadata: normalized.metadata,
         ...(data.notification ? { notification: data.notification } : {}),
       });
@@ -803,7 +804,7 @@ function handleParsedMessage(
     }
 
     case "thread_attachment_marker": {
-      const [message] = normalizeHistoryMessageToChatMessages(data, -1);
+      const [message] = normalizeHistoryMessageToChatMessages(data, data.history_index ?? -1);
       if (message) store.appendMessage(sessionId, message);
       break;
     }
@@ -814,19 +815,19 @@ function handleParsedMessage(
     }
 
     case "thread_transition_marker": {
-      const [message] = normalizeHistoryMessageToChatMessages(data, -1);
+      const [message] = normalizeHistoryMessageToChatMessages(data, data.history_index ?? -1);
       if (message) store.appendMessage(sessionId, message);
       break;
     }
 
     case "compact_marker": {
-      const [message] = normalizeHistoryMessageToChatMessages(data, -1);
+      const [message] = normalizeHistoryMessageToChatMessages(data, data.history_index ?? -1);
       if (message) store.appendMessage(sessionId, message);
       break;
     }
 
     case "codex_auto_pause_recovery_summary": {
-      const [message] = normalizeHistoryMessageToChatMessages(data, -1);
+      const [message] = normalizeHistoryMessageToChatMessages(data, data.history_index ?? -1);
       if (!message) break;
       const existing = store.messages.get(sessionId)?.some((candidate) => candidate.id === message.id);
       if (existing) store.updateMessage(sessionId, message.id, message);
@@ -835,11 +836,12 @@ function handleParsedMessage(
     }
 
     case "codex_reasoning_detail": {
-      const message = normalizeCodexReasoningDetailMessage(data);
+      const message = normalizeCodexReasoningDetailMessage(data, data.history_index);
       const existing = store.messages.get(sessionId)?.find((candidate) => candidate.id === message.id);
       if (!existing) store.appendMessage(sessionId, message);
       store.updateMessage(sessionId, message.id, {
         content: message.content,
+        ...(message.historyIndex !== undefined ? { historyIndex: message.historyIndex } : {}),
         parentToolUseId: message.parentToolUseId,
         metadata: message.metadata,
       });
@@ -872,6 +874,7 @@ function handleParsedMessage(
         model: msg.model,
         stopReason: msg.stop_reason,
         turnDurationMs: data.turn_duration_ms,
+        ...(data.history_index !== undefined ? { historyIndex: data.history_index } : {}),
         cliUuid: (data as Record<string, unknown>).uuid as string | undefined,
         ...(data.notification ? { notification: data.notification } : {}),
         ...(normalized.metadata ? { metadata: normalized.metadata } : {}),
@@ -893,6 +896,7 @@ function handleParsedMessage(
           contentBlocks: mergedBlocks,
           timestamp: data.timestamp || existing.timestamp,
           stopReason: msg.stop_reason || existing.stopReason,
+          ...(data.history_index !== undefined ? { historyIndex: data.history_index } : {}),
           ...(data.notification ? { notification: data.notification } : {}),
           ...(normalized.metadata
             ? {
@@ -1321,6 +1325,7 @@ function handleParsedMessage(
             }
           : {}),
         ...(typeof data.client_msg_id === "string" ? { clientMsgId: data.client_msg_id } : {}),
+        ...(data.history_index !== undefined ? { historyIndex: data.history_index } : {}),
         ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
         ...(data.agentSource ? { agentSource: data.agentSource } : {}),
         ...(data.takodeHerdEventKeys?.length ? { takodeHerdEventKeys: data.takodeHerdEventKeys } : {}),
