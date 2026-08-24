@@ -497,6 +497,7 @@ export function Composer({
             instructionText: instructionText || rawText || "",
           });
           setAlternateVoiceRerun({
+            resultId: requestId,
             blob,
             sourceMode: "edit",
             composerText,
@@ -520,6 +521,7 @@ export function Composer({
           setText(before + separator + appendText + after);
           setVoiceEditProposal(null);
           setAlternateVoiceRerun({
+            resultId: requestId,
             blob,
             sourceMode: "append",
             composerText,

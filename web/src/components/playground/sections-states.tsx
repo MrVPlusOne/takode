@@ -16,6 +16,7 @@ import {
 import { HighlightedText } from "../HighlightedText.js";
 import { PawTrailAvatar } from "../PawTrail.js";
 import { VoiceLevelWaveform } from "../VoiceRecordingStatus.js";
+import { AlternateVoiceRerunOffer } from "../AlternateVoiceRerunOffer.js";
 import type { CreationProgressEvent, SideChatRecord } from "../../types.js";
 import {
   MOCK_SESSION_ID,
@@ -813,9 +814,6 @@ export function PlaygroundStateSections() {
                       </div>
                       <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
                         <button className="rounded-lg border border-cc-border px-3 py-1.5 text-xs font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg">
-                          Rerun as append
-                        </button>
-                        <button className="rounded-lg border border-cc-border px-3 py-1.5 text-xs font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg">
                           Undo
                         </button>
                         <button className="rounded-lg bg-cc-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-opacity hover:opacity-90">
@@ -823,6 +821,19 @@ export function PlaygroundStateSections() {
                         </button>
                       </div>
                     </div>
+                    <AlternateVoiceRerunOffer
+                      rerun={{
+                        resultId: "playground-edit-result",
+                        blob: new Blob(["playground voice edit"]),
+                        sourceMode: "edit",
+                        composerText: "Ship the reconnect fix tonight.",
+                        cursorContext: { before: "Ship the reconnect fix tonight.", after: "" },
+                        status: "idle",
+                      }}
+                      onRerun={() => undefined}
+                      onDismiss={() => undefined}
+                      className="mt-3"
+                    />
                     <div className="mt-3 overflow-hidden rounded-lg border border-cc-border bg-cc-bg/80">
                       <DiffViewer
                         oldText="Ship the reconnect fix tonight and add a short rollback note for on-call."
@@ -832,15 +843,19 @@ export function PlaygroundStateSections() {
                         mode="compact"
                       />
                     </div>
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cc-border bg-cc-input-bg px-3 py-2">
-                      <span className="text-xs text-cc-muted">Voice append result ready</span>
-                      <div className="flex w-full flex-col items-start gap-1 sm:w-auto sm:items-end">
-                        <button className="rounded-lg border border-cc-border px-3 py-1.5 text-xs font-medium text-cc-muted opacity-50">
-                          Rerun as voice edit
-                        </button>
-                        <span className="text-[11px] text-cc-muted">Rerunning as voice edit...</span>
-                      </div>
-                    </div>
+                    <AlternateVoiceRerunOffer
+                      rerun={{
+                        resultId: "playground-append-running",
+                        blob: new Blob(["playground voice append"]),
+                        sourceMode: "append",
+                        composerText: "Ship the reconnect fix tonight.",
+                        cursorContext: { before: "Ship the reconnect fix tonight.", after: "" },
+                        status: "running",
+                      }}
+                      onRerun={() => undefined}
+                      onDismiss={() => undefined}
+                      className="mt-3"
+                    />
                   </div>
                 </div>
                 <div className="flex items-center justify-between px-2.5 pb-2.5">

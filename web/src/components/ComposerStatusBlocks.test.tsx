@@ -17,8 +17,8 @@ vi.mock("../store.js", () => ({
     }),
 }));
 
-function renderStatusBlocks(overrides: Partial<Parameters<typeof ComposerStatusBlocks>[0]> = {}) {
-  const props: Parameters<typeof ComposerStatusBlocks>[0] = {
+function createStatusBlockProps(overrides: Partial<Parameters<typeof ComposerStatusBlocks>[0]> = {}) {
+  return {
     isPreparing: false,
     isRecording: false,
     isTranscribing: false,
@@ -47,8 +47,11 @@ function renderStatusBlocks(overrides: Partial<Parameters<typeof ComposerStatusB
     onSetVoiceModeEdit: vi.fn(),
     onSetVoiceModeAppend: vi.fn(),
     ...overrides,
-  };
+  } satisfies Parameters<typeof ComposerStatusBlocks>[0];
+}
 
+function renderStatusBlocks(overrides: Partial<Parameters<typeof ComposerStatusBlocks>[0]> = {}) {
+  const props = createStatusBlockProps(overrides);
   render(<ComposerStatusBlocks {...props} />);
   return props;
 }
@@ -154,6 +157,7 @@ describe("ComposerStatusBlocks voice recording controls", () => {
         instructionText: "rewrite it",
       },
       alternateVoiceRerun: {
+        resultId: "voice-edit-action",
         blob: new Blob(["voice"], { type: "audio/webm" }),
         sourceMode: "edit",
         composerText: "Draft",
@@ -171,12 +175,117 @@ describe("ComposerStatusBlocks voice recording controls", () => {
     expect(props.onRerunAlternateVoiceMode).toHaveBeenCalledTimes(1);
   });
 
+  it("dismisses an edit offer without removing its preview and resets for a new result", async () => {
+    // Dismissal is presentation-only: the current edit result stays intact, while
+    // a later completed result gets a fresh offer even in the same mounted composer.
+    const firstBlob = new Blob(["voice-edit"], { type: "audio/webm" });
+    const props = createStatusBlockProps({
+      voiceEditProposal: {
+        originalText: "Draft",
+        editedText: "Edited draft",
+        instructionText: "rewrite it",
+      },
+      alternateVoiceRerun: {
+        resultId: "voice-result-1",
+        blob: firstBlob,
+        sourceMode: "edit",
+        composerText: "Draft",
+        cursorContext: { before: "Draft", after: "" },
+        status: "idle",
+      },
+      vscodeSelectionLabel: null,
+      vscodeSelectionSummary: null,
+      vscodeSelectionTitle: null,
+    });
+    const view = render(<ComposerStatusBlocks {...props} />);
+
+    const dismiss = screen.getByRole("button", { name: "Dismiss alternate voice rerun offer" });
+    dismiss.focus();
+    await userEvent.keyboard("{Enter}");
+
+    expect(screen.getByText("Voice edit preview")).toBeTruthy();
+    expect(screen.getByText("Edited draft")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Rerun as append" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
+
+    view.rerender(
+      <ComposerStatusBlocks
+        {...props}
+        voiceEditProposal={null}
+        alternateVoiceRerun={{
+          resultId: "voice-result-2",
+          blob: new Blob(["voice-append"], { type: "audio/webm" }),
+          sourceMode: "append",
+          composerText: "Draft",
+          cursorContext: { before: "Draft", after: "" },
+          status: "idle",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Voice append result ready")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Rerun as voice edit" })).toBeTruthy();
+  });
+
+  it("keeps the ordinary offer to one compact row with touch-safe accessible controls", async () => {
+    const props = renderStatusBlocks({
+      alternateVoiceRerun: {
+        resultId: "voice-result-compact",
+        blob: new Blob(["voice"], { type: "audio/webm" }),
+        sourceMode: "append",
+        composerText: "Draft",
+        cursorContext: { before: "Draft", after: "" },
+        status: "idle",
+      },
+      vscodeSelectionLabel: null,
+      vscodeSelectionSummary: null,
+      vscodeSelectionTitle: null,
+    });
+
+    const offer = screen.getByTestId("alternate-voice-rerun-offer");
+    expect(offer.className).toContain("min-h-9");
+    expect(offer.className).toContain("flex-nowrap");
+    expect(offer.className).not.toContain("flex-col");
+    expect(screen.getByRole("button", { name: "Rerun as voice edit" }).className).toContain("h-8");
+    const dismiss = screen.getByRole("button", { name: "Dismiss alternate voice rerun offer" });
+    expect(dismiss.className).toContain("h-8");
+    expect(dismiss.className).toContain("w-8");
+
+    await userEvent.click(dismiss);
+    expect(screen.queryByTestId("alternate-voice-rerun-offer")).toBeNull();
+    expect(props.onRerunAlternateVoiceMode).not.toHaveBeenCalled();
+  });
+
+  it("shows alternate rerun errors without disabling retry or the dismiss control", () => {
+    renderStatusBlocks({
+      alternateVoiceRerun: {
+        resultId: "voice-result-error",
+        blob: new Blob(["voice"], { type: "audio/webm" }),
+        sourceMode: "edit",
+        composerText: "Draft",
+        cursorContext: { before: "Draft", after: "" },
+        status: "error",
+        message: "The alternate transcription provider timed out. Try again.",
+      },
+      vscodeSelectionLabel: null,
+      vscodeSelectionSummary: null,
+      vscodeSelectionTitle: null,
+    });
+
+    expect(screen.getByRole("status").textContent).toContain("provider timed out");
+    expect(screen.getByTestId("alternate-voice-rerun-offer").getAttribute("data-state")).toBe("error");
+    expect(screen.getByRole("button", { name: "Rerun as append" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Dismiss alternate voice rerun offer" })).toBeTruthy();
+  });
+
   it("shows disabled alternate rerun status for append results in flight", () => {
     // Append results have no diff card, so the standalone result row owns the
     // loading state while preventing duplicate alternate requests.
     renderStatusBlocks({
       isTranscribing: true,
       alternateVoiceRerun: {
+        resultId: "voice-append-running",
         blob: new Blob(["voice"], { type: "audio/webm" }),
         sourceMode: "append",
         composerText: "Draft",
@@ -188,8 +297,8 @@ describe("ComposerStatusBlocks voice recording controls", () => {
       vscodeSelectionTitle: null,
     });
 
-    expect(screen.getByText("Voice append result ready")).toBeTruthy();
     expect(screen.getByText("Rerunning as voice edit...")).toBeTruthy();
+    expect(screen.queryByText("Voice append result ready")).toBeNull();
     expect(screen.getByRole("button", { name: "Rerun as voice edit" }).hasAttribute("disabled")).toBe(true);
   });
 });

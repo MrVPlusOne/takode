@@ -991,6 +991,33 @@ describe("Composer voice edit mode", () => {
     expect(screen.queryByText("Voice edit preview")).toBeNull();
   });
 
+  it("dismisses alternate-mode offers without changing the completed voice result", async () => {
+    // The compact offer is optional UI; dismissing it must leave the actual edit
+    // preview and composer draft untouched.
+    setupMockStore({ draftText: "Keep this draft visible." });
+    mockTranscribe.mockResolvedValueOnce({
+      mode: "edit",
+      text: "Keep this improved draft visible.",
+      rawText: "improve it",
+      instructionText: "improve it",
+      backend: "openai",
+      enhanced: true,
+    });
+
+    render(<Composer sessionId="s1" />);
+    fireEvent.click(screen.getByLabelText("Voice input"));
+
+    await screen.findByText("Voice edit preview");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss alternate voice rerun offer" }));
+
+    expect(screen.getByText("Voice edit preview")).toBeTruthy();
+    expect(document.querySelector(".diff-viewer")?.textContent).toContain("Keep this improved draft visible.");
+    expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe("Keep this draft visible.");
+    expect(screen.queryByRole("button", { name: "Rerun as append" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
+  });
+
   it("reruns a completed voice edit as append with the same audio while keeping the preview visible", async () => {
     // A wrong edit-mode choice should be recoverable without re-recording, and
     // the existing preview must remain visible while the append rerun is pending.
@@ -1071,8 +1098,8 @@ describe("Composer voice edit mode", () => {
     fireEvent.click(screen.getByRole("button", { name: "Rerun as voice edit" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Voice append result ready")).toBeTruthy();
       expect(screen.getByText("Rerunning as voice edit...")).toBeTruthy();
+      expect(screen.queryByText("Voice append result ready")).toBeNull();
     });
 
     expect(mockTranscribe).toHaveBeenCalledTimes(2);

@@ -236,6 +236,8 @@ describe("Playground", () => {
     expect(screen.getByText("Rerun as append")).toBeTruthy();
     expect(screen.getByText("Rerun as voice edit")).toBeTruthy();
     expect(screen.getByText("Rerunning as voice edit...")).toBeTruthy();
+    expect(screen.getAllByLabelText("Dismiss alternate voice rerun offer")).toHaveLength(2);
+    expect(screen.getAllByTestId("alternate-voice-rerun-offer")).toHaveLength(2);
     // Full Playground rendering is intentionally broad documentation coverage;
     // in the aggregate suite it can exceed the default 10s jsdom budget.
   }, 20_000);

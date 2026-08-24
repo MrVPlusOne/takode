@@ -14,6 +14,7 @@ export interface FailedTranscription {
 }
 
 export interface AlternateVoiceRerun {
+  resultId: string;
   blob: Blob;
   sourceMode: "edit" | "append";
   composerText: string;

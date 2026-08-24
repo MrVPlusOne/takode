@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { DiffViewer } from "./DiffViewer.js";
 import { ReplyChip } from "./ReplyChip.js";
 import { VoiceRecordingStatus } from "./VoiceRecordingStatus.js";
+import { AlternateVoiceRerunOffer } from "./AlternateVoiceRerunOffer.js";
 import { useStore } from "../store.js";
 import type { AlternateVoiceRerun, VoiceLevelSample } from "./composer-voice-types.js";
 
@@ -65,37 +66,12 @@ export function ComposerStatusBlocks({
   const vscodeSelectionFullPath = useStore((state) => state.vscodeSelectionContext?.selection?.absolutePath ?? null);
   const vscodeSelectionPathRef = useRef<HTMLDivElement>(null);
   const [vscodeSelectionPathOpen, setVscodeSelectionPathOpen] = useState(false);
-  const alternateTargetMode =
-    alternateVoiceRerun?.sourceMode === "edit"
-      ? "append"
-      : alternateVoiceRerun?.sourceMode === "append"
-        ? "edit"
-        : null;
-  const alternateActionLabel =
-    alternateTargetMode === "append" ? "Rerun as append" : alternateTargetMode === "edit" ? "Rerun as voice edit" : "";
-  const alternateStatusText =
-    alternateVoiceRerun?.status === "running"
-      ? alternateTargetMode === "append"
-        ? "Rerunning as append..."
-        : "Rerunning as voice edit..."
-      : alternateVoiceRerun?.message;
-  const alternateAction = alternateTargetMode ? (
-    <div className="flex w-full flex-col items-start gap-1 sm:w-auto sm:items-end">
-      <button
-        type="button"
-        onClick={onRerunAlternateVoiceMode}
-        disabled={alternateVoiceRerun?.status === "running"}
-        className="rounded-lg border border-cc-border px-3 py-1.5 text-[12px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {alternateActionLabel}
-      </button>
-      {alternateStatusText && (
-        <div className="max-w-[14rem] text-right text-[11px] text-cc-muted" role="status" aria-live="polite">
-          {alternateStatusText}
-        </div>
-      )}
-    </div>
-  ) : null;
+  const [dismissedAlternateVoiceResultId, setDismissedAlternateVoiceResultId] = useState<string | null>(null);
+  const visibleAlternateVoiceRerun =
+    alternateVoiceRerun?.resultId === dismissedAlternateVoiceResultId ? null : alternateVoiceRerun;
+  const dismissAlternateVoiceOffer = () => {
+    if (alternateVoiceRerun) setDismissedAlternateVoiceResultId(alternateVoiceRerun.resultId);
+  };
 
   useEffect(() => {
     if (!vscodeSelectionPathOpen) return;
@@ -239,18 +215,17 @@ export function ComposerStatusBlocks({
           )}
         </div>
       )}
-      {alternateVoiceRerun &&
+      {visibleAlternateVoiceRerun &&
         !voiceEditProposal &&
         !voiceError &&
         !isRecording &&
-        (!isTranscribing || alternateVoiceRerun.status === "running") && (
+        (!isTranscribing || visibleAlternateVoiceRerun.status === "running") && (
           <div className="px-4 pt-2">
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cc-border bg-cc-input-bg px-3 py-2">
-              <div className="min-w-0 text-[12px] text-cc-muted">
-                Voice {alternateVoiceRerun.sourceMode === "append" ? "append" : "edit"} result ready
-              </div>
-              {alternateAction}
-            </div>
+            <AlternateVoiceRerunOffer
+              rerun={visibleAlternateVoiceRerun}
+              onRerun={onRerunAlternateVoiceMode}
+              onDismiss={dismissAlternateVoiceOffer}
+            />
           </div>
         )}
       {voiceEditProposal && !isRecording && (!isTranscribing || alternateVoiceRerun?.status === "running") && (
@@ -269,7 +244,6 @@ export function ComposerStatusBlocks({
                 </div>
               </div>
               <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
-                {alternateAction}
                 <button
                   type="button"
                   onClick={onUndoVoiceEdit}
@@ -286,6 +260,14 @@ export function ComposerStatusBlocks({
                 </button>
               </div>
             </div>
+            {visibleAlternateVoiceRerun && (
+              <AlternateVoiceRerunOffer
+                rerun={visibleAlternateVoiceRerun}
+                onRerun={onRerunAlternateVoiceMode}
+                onDismiss={dismissAlternateVoiceOffer}
+                className="mt-3"
+              />
+            )}
             <div className="mt-3">
               <DiffViewer
                 oldText={voiceEditProposal.originalText}
