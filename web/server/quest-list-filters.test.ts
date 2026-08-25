@@ -261,6 +261,31 @@ describe("applyQuestListFilters", () => {
     expect(result.quests.map((q) => q.questId)).toEqual(["q-48", "q-47"]);
   });
 
+  it("keeps Cards recency independent from compact title sorting", () => {
+    // The server owns both projections: Cards use activity recency while Compact can use its persisted title sort.
+    const newerCard = makeQuest({
+      questId: "q-60",
+      title: "Zulu newer card",
+      status: "refined",
+      createdAt: 800,
+      updatedAt: 900,
+    });
+    const olderCard = makeQuest({
+      questId: "q-61",
+      title: "Alpha older card",
+      status: "refined",
+      createdAt: 50,
+      updatedAt: 100,
+    });
+
+    const quests = [olderCard, newerCard];
+    const cards = getQuestListPage(quests, { sortColumn: "cards", sortDirection: "asc" });
+    const compact = getQuestListPage(quests, { sortColumn: "title", sortDirection: "asc" });
+
+    expect(cards.quests.map((q) => q.questId)).toEqual(["q-60", "q-61"]);
+    expect(compact.quests.map((q) => q.questId)).toEqual(["q-61", "q-60"]);
+  });
+
   it("keeps search-filtered counts before applying the status filter", () => {
     // Questmaster status tabs display counts for the current search corpus,
     // even when one status tab is selected.

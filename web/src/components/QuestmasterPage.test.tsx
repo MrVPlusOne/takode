@@ -1180,11 +1180,15 @@ describe("QuestmasterPage status display", () => {
       {
         ...buildVerificationQuest({ id: "q-60-v1", questId: "q-60", title: "Zulu newer card" }),
         status: "refined",
+        createdAt: 8_000,
+        statusChangedAt: 8_000,
         updatedAt: 9_000,
       } as QuestmasterTask,
       {
         ...buildVerificationQuest({ id: "q-61-v1", questId: "q-61", title: "Alpha older card" }),
         status: "refined",
+        createdAt: 500,
+        statusChangedAt: 500,
         updatedAt: 1_000,
       } as QuestmasterTask,
     ];
@@ -1192,6 +1196,7 @@ describe("QuestmasterPage status display", () => {
     renderQuestmaster({ isActive: true });
 
     await screen.findByText("Zulu newer card");
+    expectLastQuestPageCall({ sortColumn: "cards", sortDirection: "asc" });
     expect(
       Array.from(document.querySelectorAll<HTMLElement>("[data-quest-id]")).map((el) => el.dataset.questId),
     ).toEqual(["q-60", "q-61"]);
@@ -1263,13 +1268,14 @@ describe("QuestmasterPage status display", () => {
   });
 
   it("saves the compact/cards toggle to server settings", async () => {
-    // Toggling should PUT the preference to the server and immediately swap card list for table view.
+    // Toggling should persist the view and request the matching server-owned ordering without overwriting compact sort.
     renderQuestmaster({ isActive: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Compact" }));
 
     await waitFor(() => {
       expect(mockUpdateSettings).toHaveBeenCalledWith({ questmasterViewMode: "compact" });
+      expectLastQuestPageCall({ sortColumn: "updated", sortDirection: "desc" });
     });
     expect(screen.getAllByRole("columnheader", { name: "Feedback" })).toHaveLength(1);
 
@@ -1277,6 +1283,7 @@ describe("QuestmasterPage status display", () => {
 
     await waitFor(() => {
       expect(mockUpdateSettings).toHaveBeenLastCalledWith({ questmasterViewMode: "cards" });
+      expectLastQuestPageCall({ sortColumn: "cards", sortDirection: "asc" });
     });
     expect(screen.queryAllByRole("columnheader", { name: "Feedback" })).toHaveLength(0);
   });
