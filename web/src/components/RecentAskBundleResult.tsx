@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { api, type RecentAskBundle, type RecentAskBundleStatus, type RecentAskMember } from "../api.js";
+import { QuestInlineLink } from "./QuestInlineLink.js";
 
 const STATUS_LABELS: Record<RecentAskBundleStatus, string> = {
   awaiting_response: "Awaiting response",
@@ -31,38 +32,69 @@ const STATUS_CLASSES: Record<RecentAskBundleStatus, string> = {
   completed: "border-emerald-500/25 bg-emerald-500/10 text-emerald-400",
 };
 
+const COMPACT_TEXT_EXPAND_THRESHOLD = 96;
+
+const DETAIL_STATUSES = new Set<RecentAskBundleStatus>([
+  "needs_input",
+  "thread_needs_input",
+  "retrying",
+  "failed",
+  "interrupted",
+]);
+
 export function RecentAskBundleResult({
   bundle,
   selected,
   onPointerMove,
   onOpenMember,
-  onOpenResponse,
+  onNavigateQuest,
 }: {
   bundle: RecentAskBundle;
   selected: boolean;
   onPointerMove: () => void;
   onOpenMember: (member: RecentAskMember) => void;
-  onOpenResponse: () => void;
+  onNavigateQuest: () => void;
 }) {
   const [expandedText, setExpandedText] = useState<Record<string, string>>({});
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
-  const expandMember = useCallback(
+  const toggleMemberFormatting = useCallback(
     async (member: RecentAskMember) => {
-      if (!member.truncated || expandedText[member.messageId]) return;
+      if (expandedText[member.messageId] != null) {
+        setExpandedText((current) => {
+          const next = { ...current };
+          delete next[member.messageId];
+          return next;
+        });
+        return;
+      }
+
+      if (!member.truncated) {
+        setExpandedText((current) => ({ ...current, [member.messageId]: member.preview }));
+        return;
+      }
+
       setLoadingId(member.messageId);
-      const message = await api.fetchMessagePreview(bundle.sessionId, member.historyIndex);
-      setLoadingId(null);
-      if (typeof message?.content === "string" && message.content.trim()) {
-        setExpandedText((current) => ({ ...current, [member.messageId]: message.content }));
+      try {
+        const message = await api.fetchMessagePreview(bundle.sessionId, member.historyIndex);
+        if (typeof message?.content === "string" && message.content.length > 0) {
+          setExpandedText((current) => ({ ...current, [member.messageId]: message.content }));
+        }
+      } catch (error) {
+        console.warn("[recent-asks] exact message expansion failed:", error);
+      } finally {
+        setLoadingId(null);
       }
     },
     [bundle.sessionId, expandedText],
   );
 
   const sessionLabel = bundle.sessionNum == null ? bundle.sessionName : `#${bundle.sessionNum} ${bundle.sessionName}`;
+  const compactSessionLabel = bundle.sessionNum == null ? bundle.sessionName : `#${bundle.sessionNum}`;
   const threadLabel =
     bundle.ownerThreadKey === "main" ? "Main" : bundle.questTitle || bundle.questId || bundle.ownerThreadKey;
+  const questOwned = bundle.ownerThreadKey !== "main" && Boolean(bundle.questId && bundle.questTitle);
+  const visibleStatusDetail = bundle.statusDetail && DETAIL_STATUSES.has(bundle.status) ? bundle.statusDetail : null;
 
   return (
     <div
@@ -71,31 +103,44 @@ export function RecentAskBundleResult({
       data-testid="recent-ask-bundle"
       data-bundle-id={bundle.id}
       onPointerMove={onPointerMove}
-      className={`rounded-xl border px-3 py-3 transition-colors sm:px-4 ${
+      className={`rounded-lg border px-2.5 py-1.5 transition-colors sm:px-3 ${
         selected ? "border-cc-primary/45 bg-cc-primary/8" : "border-cc-border/75 bg-cc-bg/45 hover:bg-cc-hover/35"
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-cc-muted">
-            <span className="truncate font-medium text-cc-fg" title={sessionLabel}>
-              {sessionLabel}
-            </span>
-            <span aria-hidden="true">·</span>
-            <span className="truncate" title={threadLabel}>
-              {threadLabel}
-            </span>
-            {bundle.archived && (
-              <span className="rounded border border-cc-border px-1 py-px text-[10px]">Archived</span>
-            )}
-            <span className="rounded border border-cc-border/70 px-1 py-px text-[10px]" title={bundle.sessionSpaceName}>
-              {bundle.sessionSpaceName}
-            </span>
-          </div>
-          {bundle.statusDetail && <p className="mt-1 line-clamp-1 text-[11px] text-cc-muted">{bundle.statusDetail}</p>}
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[10px] text-cc-muted">
+          {questOwned ? (
+            <>
+              <QuestInlineLink
+                questId={bundle.questId!}
+                stopPropagation
+                hoverCardZIndexClassName="z-[90]"
+                onNavigate={onNavigateQuest}
+                className="min-w-0 truncate font-medium text-cc-primary hover:underline"
+              >
+                {bundle.questTitle}
+              </QuestInlineLink>
+              <span aria-hidden="true">·</span>
+              <span className="shrink-0" title={sessionLabel}>
+                {compactSessionLabel}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="truncate font-medium text-cc-fg/80" title={sessionLabel}>
+                {sessionLabel}
+              </span>
+              <span aria-hidden="true">·</span>
+              <span className="shrink-0">{threadLabel}</span>
+            </>
+          )}
+          {bundle.archived && <span className="shrink-0 rounded border border-cc-border px-1 py-px">Archived</span>}
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${STATUS_CLASSES[bundle.status]}`}>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span
+            className={`rounded-full border px-1.5 py-px text-[10px] font-medium ${STATUS_CLASSES[bundle.status]}`}
+            title={bundle.statusDetail || STATUS_LABELS[bundle.status]}
+          >
             {STATUS_LABELS[bundle.status]}
           </span>
           <time
@@ -107,74 +152,74 @@ export function RecentAskBundleResult({
         </div>
       </div>
 
-      <div className="mt-2 space-y-1.5">
+      <div className="mt-0.5">
         {bundle.members.map((member, index) => {
           const fullText = expandedText[member.messageId];
-          const text = fullText || member.preview;
+          const text = fullText ?? member.preview;
+          const expandable =
+            member.truncated ||
+            member.preview.length > COMPACT_TEXT_EXPAND_THRESHOLD ||
+            hasDisplayFormatting(member.preview);
           return (
             <div
               key={member.messageId}
-              className="group/member flex min-w-0 items-start gap-2 rounded-lg bg-cc-card/60 px-2.5 py-2"
+              className={`group/member flex min-w-0 items-start gap-1 ${index > 0 ? "border-t border-cc-border/55" : ""}`}
             >
-              <time
-                className="mt-0.5 w-11 shrink-0 text-[10px] tabular-nums text-cc-muted"
-                dateTime={new Date(member.timestamp).toISOString()}
-              >
-                {formatClockTime(member.timestamp)}
-              </time>
               <button
                 type="button"
-                className="min-w-0 flex-1 text-left text-xs leading-5 text-cc-fg outline-none hover:text-cc-primary focus-visible:text-cc-primary"
+                className="flex min-h-11 min-w-0 flex-1 items-start gap-2 py-1.5 text-left outline-none hover:text-cc-primary focus-visible:text-cc-primary sm:min-h-0 sm:py-1"
                 onClick={() => onOpenMember(member)}
                 aria-label={`Open ask ${index + 1} in ${sessionLabel} ${threadLabel}`}
               >
-                <span className={fullText ? "whitespace-pre-wrap" : "line-clamp-3 whitespace-pre-wrap"}>{text}</span>
-                {member.imageCount > 0 && (
-                  <span className="mt-1 block text-[10px] text-cc-muted">
-                    {member.imageCount} {member.imageCount === 1 ? "attachment" : "attachments"}
-                  </span>
-                )}
-              </button>
-              <div className="flex shrink-0 items-center gap-1">
-                {member.truncated && !fullText && (
-                  <button
-                    type="button"
-                    disabled={loadingId === member.messageId}
-                    onClick={() => void expandMember(member)}
-                    className="rounded px-1.5 py-0.5 text-[10px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:opacity-50"
+                <time
+                  className="mt-px w-11 shrink-0 text-[10px] tabular-nums text-cc-muted"
+                  dateTime={new Date(member.timestamp).toISOString()}
+                >
+                  {formatClockTime(member.timestamp)}
+                </time>
+                <span className="min-w-0 flex-1">
+                  <span
+                    data-testid="recent-ask-text"
+                    className={`break-words text-[13px] leading-[1.15rem] text-cc-fg ${
+                      fullText == null ? "line-clamp-2 whitespace-normal" : "block whitespace-pre-wrap"
+                    }`}
                   >
-                    {loadingId === member.messageId ? "Loading…" : "Expand"}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => onOpenMember(member)}
-                  className="flex h-6 w-6 items-center justify-center rounded text-cc-muted hover:bg-cc-hover hover:text-cc-primary"
-                  aria-label={`Jump to ask ${index + 1}`}
-                  title="Jump to exact message"
+                    {text}
+                  </span>
+                  {member.imageCount > 0 && (
+                    <span className="mt-0.5 block text-[10px] leading-3 text-cc-muted">
+                      {member.imageCount} {member.imageCount === 1 ? "attachment" : "attachments"}
+                    </span>
+                  )}
+                </span>
+                <span
+                  className="mt-px shrink-0 text-xs text-cc-muted/70 group-hover/member:text-cc-primary"
+                  aria-hidden="true"
                 >
                   ↗
+                </span>
+              </button>
+              {expandable && (
+                <button
+                  type="button"
+                  disabled={loadingId === member.messageId}
+                  onClick={() => void toggleMemberFormatting(member)}
+                  className="flex min-h-11 shrink-0 items-center rounded px-1.5 text-[10px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:opacity-50 sm:min-h-0 sm:py-1"
+                  aria-label={`${fullText == null ? "Expand" : "Collapse"} ask ${index + 1}`}
+                  title={fullText == null ? "Show original formatting" : "Use compact formatting"}
+                >
+                  {loadingId === member.messageId ? "Loading…" : fullText == null ? "Expand" : "Collapse"}
                 </button>
-              </div>
+              )}
             </div>
           );
         })}
       </div>
 
-      {bundle.response && (
-        <button
-          type="button"
-          onClick={onOpenResponse}
-          className="mt-2 flex w-full items-start gap-2 rounded-lg border border-cc-border/60 bg-cc-card/40 px-2.5 py-2 text-left hover:border-cc-primary/30 hover:bg-cc-hover/30"
-        >
-          <span className="mt-px shrink-0 text-[10px] font-medium uppercase tracking-wide text-cc-muted">Response</span>
-          <span className="line-clamp-2 min-w-0 flex-1 text-[11px] leading-4 text-cc-muted">
-            {bundle.response.preview}
-          </span>
-          <span className="shrink-0 text-cc-muted" aria-hidden="true">
-            ↗
-          </span>
-        </button>
+      {visibleStatusDetail && (
+        <p className="border-t border-cc-border/55 pt-1 text-[10px] leading-4 text-cc-muted line-clamp-1">
+          {visibleStatusDetail}
+        </p>
       )}
     </div>
   );
@@ -182,6 +227,10 @@ export function RecentAskBundleResult({
 
 export function recentAskStatusLabel(status: RecentAskBundleStatus): string {
   return STATUS_LABELS[status];
+}
+
+function hasDisplayFormatting(value: string): boolean {
+  return /[\r\n\t]| {2,}/.test(value);
 }
 
 function formatRelativeTime(timestamp: number): string {

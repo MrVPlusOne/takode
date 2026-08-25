@@ -340,6 +340,7 @@ export function UniversalSearchOverlay({
 }: UniversalSearchOverlayProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const requestSeqRef = useRef(0);
   const sessionByIdRef = useRef<Map<string, SdkSessionInfo>>(new Map());
   const searchKeyRef = useRef("");
@@ -424,6 +425,20 @@ export function UniversalSearchOverlay({
     setQuery(next);
     writeLastQuery(next);
   }, []);
+
+  useEffect(() => {
+    if (!open || presentation !== "fixed") return;
+    const activeElement = document.activeElement;
+    returnFocusRef.current =
+      activeElement instanceof HTMLElement && activeElement !== document.body ? activeElement : null;
+    return () => {
+      const target = returnFocusRef.current;
+      returnFocusRef.current = null;
+      window.requestAnimationFrame(() => {
+        if (target?.isConnected) target.focus();
+      });
+    };
+  }, [open, presentation]);
 
   useEffect(() => {
     if (!open) return;
@@ -910,7 +925,10 @@ export function UniversalSearchOverlay({
             </svg>
             <input
               ref={inputRef}
-              type="search"
+              type="text"
+              role="searchbox"
+              inputMode="search"
+              aria-label="Universal Search query"
               value={query}
               onChange={(event) => setUserQuery(event.target.value)}
               placeholder={placeholder}
@@ -919,8 +937,9 @@ export function UniversalSearchOverlay({
             <button
               type="button"
               onClick={onClose}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg sm:h-7 sm:w-7"
               title="Close Universal Search"
+              aria-label="Close Universal Search"
             >
               <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
                 <path
@@ -1230,9 +1249,7 @@ function ResultRow({
         selected={selected}
         onPointerMove={onPointerMove}
         onOpenMember={(member) => onOpenRecentMessage(result.bundle, member.messageId)}
-        onOpenResponse={() => {
-          if (result.bundle.response) onOpenRecentMessage(result.bundle, result.bundle.response.messageId);
-        }}
+        onNavigateQuest={onInlineNavigate}
       />
     );
   }

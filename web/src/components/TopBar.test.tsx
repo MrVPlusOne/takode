@@ -977,20 +977,15 @@ describe("TopBar", () => {
     expect(screen.getByTitle("Universal Search (Ctrl+Shift+F)")).toBeInTheDocument();
   });
 
-  it("opens the app-level Recent asks affordance", () => {
-    const onOpenRecentAsks = vi.fn();
-    render(<TopBar onOpenRecentAsks={onOpenRecentAsks} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Open Recent asks" }));
-    expect(onOpenRecentAsks).toHaveBeenCalledTimes(1);
-  });
-
-  it("opens the app-level Universal Search affordance", () => {
+  it("opens the single app-level Universal Search affordance", () => {
+    // Keep one top-bar control for the shared Universal Search/Recent modal.
     const onOpenUniversalSearch = vi.fn();
 
     render(<TopBar onOpenUniversalSearch={onOpenUniversalSearch} />);
 
-    fireEvent.click(screen.getByTitle("Universal Search"));
+    expect(screen.queryByRole("button", { name: "Open Recent asks" })).toBeNull();
+    expect(screen.getAllByTestId("topbar-universal-search")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Universal Search" }));
     expect(onOpenUniversalSearch).toHaveBeenCalledTimes(1);
   });
 });

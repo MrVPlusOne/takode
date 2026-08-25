@@ -204,10 +204,16 @@ vi.mock("./components/TaskPanel.js", () => ({
 }));
 
 vi.mock("./components/TopBar.js", () => ({
-  TopBar: ({ fullPageLabel, onOpenRecentAsks }: { fullPageLabel?: string; onOpenRecentAsks?: () => void }) => (
+  TopBar: ({
+    fullPageLabel,
+    onOpenUniversalSearch,
+  }: {
+    fullPageLabel?: string;
+    onOpenUniversalSearch?: () => void;
+  }) => (
     <div data-testid="top-bar" data-full-page-label={fullPageLabel ?? ""}>
-      <button type="button" onClick={onOpenRecentAsks}>
-        Recent asks
+      <button type="button" onClick={onOpenUniversalSearch}>
+        Universal Search
       </button>
     </div>
   ),
@@ -409,12 +415,14 @@ describe("App hidden panels", () => {
     expect(screen.queryByTestId("universal-search-overlay")).toBeNull();
   });
 
-  it("opens the Recent asks mode from the top-bar affordance", () => {
+  it("uses one top-bar Universal Search entry and leaves Recent to the overlay tabs", () => {
+    // Recent is a mode within the shared modal, not a second app-level entry that duplicates the established Search affordance.
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Recent asks" }));
+    expect(screen.queryByRole("button", { name: "Recent asks" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Universal Search" }));
 
-    expect(screen.getByTestId("universal-search-overlay")).toHaveAttribute("data-initial-mode", "recent");
+    expect(screen.getByTestId("universal-search-overlay")).toHaveAttribute("data-initial-mode", "");
   });
 
   it("opens Universal Search from the Standard search shortcut", () => {

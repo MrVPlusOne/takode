@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import type { ComponentProps } from "react";
+import { useState, type ComponentProps } from "react";
 
 const mockListQuestPage = vi.fn();
 const mockSearchSessionMessages = vi.fn();
@@ -344,6 +344,7 @@ describe("UniversalSearchOverlay", () => {
     });
     useStore.getState().setQuests([]);
     useStore.getState().setSdkSessions(sessions);
+    useStore.setState({ questOverlayId: null, questOverlaySearchHighlight: null });
     mockGetQuestValidated.mockImplementation(async (questId: string, etag?: string | null) => {
       const key = questId.toLowerCase();
       const state = useStore.getState();
@@ -380,14 +381,58 @@ describe("UniversalSearchOverlay", () => {
   afterEach(() => {
     useStore.getState().setQuests([]);
     useStore.getState().setSdkSessions([]);
+    useStore.setState({ questOverlayId: null, questOverlaySearchHighlight: null });
     vi.restoreAllMocks();
   });
 
   it("focuses the search input when opened", async () => {
     renderOverlay();
 
-    const input = screen.getByRole("searchbox");
+    const input = screen.getByRole("searchbox", { name: "Universal Search query" });
     await waitFor(() => expect(input).toHaveFocus());
+  });
+
+  it("uses text search semantics and one conventional close control", () => {
+    // A text-backed searchbox avoids WebKit's native blue cancel glyph, leaving the explicit accessible close button as the only dismissal control.
+    renderOverlay({ initialQuery: "illustration" });
+
+    const input = screen.getByRole("searchbox", { name: "Universal Search query" });
+    expect(input).toHaveAttribute("type", "text");
+    expect(input).toHaveAttribute("inputmode", "search");
+    expect(screen.getAllByRole("button", { name: "Close Universal Search" })).toHaveLength(1);
+  });
+
+  it("returns focus to the element that opened the fixed modal", async () => {
+    // Closing by button or Escape unmounts the fixed dialog, so focus must return to the exact trigger rather than falling back to the document body.
+    function FocusReturnHarness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open Universal Search
+          </button>
+          <UniversalSearchOverlay
+            open={open}
+            currentSessionId="s-new"
+            currentThreadKey="main"
+            sessions={sessions}
+            messages={messages}
+            onClose={() => setOpen(false)}
+            onOpenQuest={() => {}}
+            onOpenMessage={() => {}}
+          />
+        </>
+      );
+    }
+
+    render(<FocusReturnHarness />);
+    const trigger = screen.getByRole("button", { name: "Open Universal Search" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole("searchbox", { name: "Universal Search query" })).toHaveFocus());
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Universal Search" }));
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it("restores a persisted query when opened", () => {
@@ -655,6 +700,82 @@ describe("UniversalSearchOverlay", () => {
     );
     expect(callbacks.onOpenMessage).toHaveBeenCalledWith("s-new", "u-recent-2", "q-1931");
     expect(callbacks.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps response evidence off Recent cards and opens the canonical quest title", async () => {
+    // The redesign hides only the response body; the response-backed unread status and authoritative response identity stay in the bundle data.
+    const response = recentAskResponse();
+    response.groups = response.groups.map((bundle) => ({
+      ...bundle,
+      status: "response_unread" as const,
+      response: {
+        messageId: "assistant-response",
+        historyIndex: 9,
+        timestamp: now - 5_000,
+        preview: "This immediate agent response body must not render in Recent.",
+        truncated: false,
+      },
+    }));
+    mockFetchRecentAskBundles.mockResolvedValue(response);
+    const callbacks = renderOverlay({ initialMode: "recent" });
+
+    const bundle = await screen.findByTestId("recent-ask-bundle");
+    expect(within(bundle).getByText("Response unread")).toBeInTheDocument();
+    expect(within(bundle).queryByText("This immediate agent response body must not render in Recent.")).toBeNull();
+
+    const questLink = within(bundle).getByRole("link", { name: "Build global Recent asks modal" });
+    fireEvent.click(questLink);
+
+    expect(useStore.getState().questOverlayId).toBe("q-1931");
+    expect(callbacks.onClose).toHaveBeenCalledTimes(1);
+    expect(callbacks.onOpenMessage).not.toHaveBeenCalledWith("s-new", "assistant-response", "q-1931");
+  });
+
+  it("compacts whitespace visually while expanding exact original formatting", async () => {
+    // Collapsed CSS may compress line breaks for density, but the text node and expanded state must preserve the exact producer-authored content.
+    const response = recentAskResponse();
+    response.groups[0] = {
+      ...response.groups[0]!,
+      members: [
+        {
+          messageId: "u-formatted",
+          historyIndex: 7,
+          timestamp: now - 20_000,
+          preview: "Keep the exact wording.\n\n    Preserve the original indentation.",
+          truncated: false,
+          imageCount: 0,
+        },
+        {
+          messageId: "u-truncated",
+          historyIndex: 8,
+          timestamp: now - 10_000,
+          preview: "A longer exact request that continues…",
+          truncated: true,
+          imageCount: 0,
+        },
+      ],
+    };
+    mockFetchRecentAskBundles.mockResolvedValue(response);
+    mockFetchMessagePreview.mockResolvedValue({
+      content: "A longer exact request that continues\n\n- first preserved point\n- second preserved point",
+    });
+    renderOverlay({ initialMode: "recent" });
+
+    const bundle = await screen.findByTestId("recent-ask-bundle");
+    const texts = within(bundle).getAllByTestId("recent-ask-text");
+    expect(texts[0]?.textContent).toBe("Keep the exact wording.\n\n    Preserve the original indentation.");
+    expect(texts[0]).toHaveClass("whitespace-normal", "line-clamp-2");
+
+    fireEvent.click(within(bundle).getByRole("button", { name: "Expand ask 1" }));
+    expect(texts[0]).toHaveClass("whitespace-pre-wrap");
+    expect(mockFetchMessagePreview).not.toHaveBeenCalled();
+
+    fireEvent.click(within(bundle).getByRole("button", { name: "Expand ask 2" }));
+    await waitFor(() => expect(mockFetchMessagePreview).toHaveBeenCalledWith("s-new", 8));
+    await waitFor(() =>
+      expect(within(bundle).getAllByTestId("recent-ask-text")[1]?.textContent).toContain("first preserved point"),
+    );
+    expect(within(bundle).getAllByTestId("recent-ask-text")[1]).toHaveClass("whitespace-pre-wrap");
   });
 
   it("requests global Starred mode results and renders session/thread context", async () => {

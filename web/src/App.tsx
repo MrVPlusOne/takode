@@ -40,7 +40,7 @@ import { SessionCreationView } from "./components/SessionCreationView.js";
 import { NewSessionModal } from "./components/NewSessionModal.js";
 import { QuestmasterPage } from "./components/QuestmasterPage.js";
 import { QuestDetailPanel } from "./components/QuestDetailPanel.js";
-import { UniversalSearchOverlay, type UniversalSearchMode } from "./components/UniversalSearchOverlay.js";
+import { UniversalSearchOverlay } from "./components/UniversalSearchOverlay.js";
 import { isPendingId } from "./utils/pending-creation.js";
 import { isDesktopShellLayout, isDesktopTaskPanelLayout } from "./utils/layout.js";
 import { installAppViewportSizing } from "./utils/app-viewport.js";
@@ -198,19 +198,11 @@ export default function App() {
     isSessionView && activeTab === "chat" && !!displayedSessionId && !isPendingId(displayedSessionId);
   const showServerUnreachableBanner = !serverReachable && !chatSessionVisible;
   const [universalSearchOpen, setUniversalSearchOpen] = useState(false);
-  const [universalSearchInitialMode, setUniversalSearchInitialMode] = useState<UniversalSearchMode | undefined>();
   const sidebarShellRef = useRef<HTMLDivElement | null>(null);
   const shortcutTapCandidateRef = useRef<string | null>(null);
   const shortcutLastTapRef = useRef<{ key: string; time: number; target: EventTarget | null } | null>(null);
   const shortcutTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const openUniversalSearch = useCallback(() => {
-    setUniversalSearchInitialMode(undefined);
-    setUniversalSearchOpen(true);
-  }, []);
-  const openRecentAsks = useCallback(() => {
-    setUniversalSearchInitialMode("recent");
-    setUniversalSearchOpen(true);
-  }, []);
+  const openUniversalSearch = useCallback(() => setUniversalSearchOpen(true), []);
   const closeUniversalSearch = useCallback(() => setUniversalSearchOpen(false), []);
   const universalSearchThreadKey = route.page === "session" ? (threadRoute.threadKey ?? "main") : null;
 
@@ -708,7 +700,6 @@ export default function App() {
           fullPageLabel={isFullPageRoute ? fullPageRouteLabel : undefined}
           universalSearchOpen={universalSearchOpen}
           onOpenUniversalSearch={openUniversalSearch}
-          onOpenRecentAsks={openRecentAsks}
           onCloseUniversalSearch={closeUniversalSearch}
         />
         <div className="flex-1 overflow-hidden relative">
@@ -825,7 +816,6 @@ export default function App() {
         currentThreadKey={universalSearchThreadKey}
         sessions={sdkSessions}
         messages={currentMessages}
-        initialMode={universalSearchInitialMode}
         leaderSessionId={currentSessionId ?? undefined}
         onClose={closeUniversalSearch}
         onOpenQuest={handleOpenUniversalQuest}
