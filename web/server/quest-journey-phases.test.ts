@@ -143,16 +143,32 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(alignment.assigneeBrief).toContain("not implementation investigation");
     expect(alignment.assigneeBrief).toContain("A completed Alignment is not a user-input wait");
     expect(alignment.assigneeBrief).toContain("Do **not** call `takode notify needs-input`");
+    // Protect the generic evidence threshold without encoding the rejected incident-specific scenario.
+    expect(alignment.assigneeBrief).toContain("protected access method alone");
+    expect(alignment.assigneeBrief).toContain("concrete payload evidence");
     expect(alignment.assigneeBrief).toContain("The ordinary `turn_end` event is the leader approval signal");
     expect(alignment.leaderBrief).toContain("Do not convert the Alignment note into a Work prompt");
+    expect(alignment.leaderBrief).toContain("leader-owned decision or Journey revision");
     expect(work.assigneeBrief).toContain("worker-owned Work -> Memory transition");
     expect(work.assigneeBrief).toContain("Do not wait for the leader to restate the quest or prescribe an approach");
     expect(work.assigneeBrief).toContain("Communicate in coherent batches");
     expect(work.assigneeBrief).not.toContain("Recovery preserves the full remaining authorized Work envelope");
     expect(work.assigneeBrief).not.toContain("recovery pending");
     expect(work.assigneeBrief).toContain("concise plain-language outcome section");
+    // Keep remediation bounded while preserving blocking treatment for material failures.
+    expect(work.assigneeBrief).toContain("one focused autonomous remediation pass per root-cause issue class");
+    expect(work.assigneeBrief).toContain("do not claim success or start another autonomous loop");
+    expect(work.assigneeBrief).toContain(
+      "Concrete evidence may justify a transformation but does not by itself authorize broader scope",
+    );
+    expect(work.assigneeBrief).toContain("Deliver cosmetic or non-material issues with a caveat");
+    expect(work.assigneeBrief).toContain("A new validator or hard gate introduced mid-Work");
     expect(work.assigneeBrief).toContain("Do not call Work complete or hand off to Memory");
     expect(work.leaderBrief).toContain("separate quest with its own Alignment -> Work -> Memory flow");
+    expect(work.leaderBrief).toContain("evidence alone does not authorize the broader scope");
+    expect(work.leaderBrief).toContain("Normal non-transforming safeguards remain mandatory");
+    expect(work.leaderBrief).toContain("one focused autonomous remediation pass per root-cause issue class");
+    expect(work.leaderBrief).toContain("do not claim success or start another autonomous loop");
     expect(work.leaderBrief).toContain("Leader-only deltas: none");
     expect(work.leaderBrief).toContain("authoritative source for recovery routing inside an active Work occurrence");
     expect(work.leaderBrief).toContain("Recovery preserves the full remaining authorized Work envelope");

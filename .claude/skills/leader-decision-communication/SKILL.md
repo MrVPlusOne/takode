@@ -31,6 +31,8 @@ Keep a visible detail only when it helps the user:
 
 Material details commonly include major risk or uncertainty, irreversible or destructive effects, external consequences, important prerequisites, and consequential overwrite, retention, cleanup, stop, or fallback behavior. Keep an exact value visible when the user is authorizing that value or it distinguishes the approved action.
 
+When a proposed safety response would materially change payload fidelity, scope, cost/runtime, validation gates, or acceptance criteria, make the assumption a named user decision and state the evidence, policy, or approved contract that supports it—unless existing policy or an approved contract already covers that exact change. Do not hide a redaction, sanitation, filtering, omission, rewriting, normalization, or aggressive-truncation choice inside acceptance criteria or a technical packet. A protected access method alone is not evidence that the payload requires transformation; credential and authority safeguards still remain mandatory.
+
 Commands, hashes, internal paths, process or job identifiers, retry plumbing, monitoring mechanics, raw machine units, and UTC-only timestamps are normally supporting evidence rather than decision context. Keep them complete in quest feedback or another durable packet unless a specific value is itself material to the choice.
 
 Do not use a hard length limit. A short prompt that hides a material tradeoff is worse than a longer prompt that enables a safe decision.

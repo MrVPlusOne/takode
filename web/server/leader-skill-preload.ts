@@ -43,6 +43,11 @@ export const LEADER_SKILL_PRELOAD_MANIFEST: readonly LeaderSkillPreloadManifestE
     files: [".claude/skills/leader-dispatch/SKILL.md"],
   },
   {
+    skillName: "leader-decision-communication",
+    source: "repo:.claude/skills/leader-decision-communication",
+    files: [".claude/skills/leader-decision-communication/SKILL.md"],
+  },
+  {
     skillName: "confirm",
     source: "repo:.claude/skills/confirm",
     files: [".claude/skills/confirm/SKILL.md"],

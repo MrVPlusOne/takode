@@ -19,16 +19,21 @@ describe("leader skill preload builder", () => {
     expect(bundles.map((bundle) => bundle.skillName)).toEqual([
       "takode-orchestration",
       "leader-dispatch",
+      "leader-decision-communication",
       "confirm",
       "quest",
     ]);
     expect(LEADER_SKILL_PRELOAD_MANIFEST.find((entry) => entry.skillName === "takode-orchestration")?.files).toEqual([
       ".claude/skills/takode-orchestration/SKILL.md",
     ]);
+    // The injected leader prompt calls this skill preloaded, so the manifest must make that claim true.
+    expect(
+      LEADER_SKILL_PRELOAD_MANIFEST.find((entry) => entry.skillName === "leader-decision-communication")?.files,
+    ).toEqual([".claude/skills/leader-decision-communication/SKILL.md"]);
     expect(LEADER_SKILL_PRELOAD_MANIFEST.find((entry) => entry.skillName === "quest")?.files).toEqual([
       "web/server/templates/quest-skill-docs.md",
     ]);
-    expect(readFile).toHaveBeenCalledTimes(4);
+    expect(readFile).toHaveBeenCalledTimes(5);
 
     const orchestration = bundles[0]!;
     expect(orchestration.content).toContain("Required leader skill preloaded: takode-orchestration");
@@ -54,9 +59,10 @@ describe("leader skill preload builder", () => {
 
     expect(delivery).toContain("Leader kickoff");
     expect(delivery).toContain("Required leader skill preloaded: takode-orchestration");
+    expect(delivery).toContain("Required leader skill preloaded: leader-decision-communication");
     expect(delivery).toContain("Required leader skill preloaded: quest");
     expect(delivery).toContain("via tool calls");
-    expect(followUps).toHaveLength(4);
+    expect(followUps).toHaveLength(5);
     expect(followUps[0]?.content).toContain("Required leader skill preloaded: takode-orchestration");
     expect(followUps[0]?.agentSource?.sessionId).toBe(`${LEADER_SKILL_PRELOAD_SOURCE_ID_PREFIX}takode-orchestration`);
   });

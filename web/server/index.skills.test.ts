@@ -233,6 +233,11 @@ describe("index startup skill registration", () => {
     expect(skill).toContain("Use familiar language");
     expect(skill).toContain("Do not use a hard length limit");
     expect(skill).toContain("The reference is not a substitute for the decision surface");
+    // Safety-driven fidelity and cost changes must remain visible user decisions, not hidden scope.
+    expect(skill).toContain("make the assumption a named user decision");
+    expect(skill).toContain("unless existing policy or an approved contract already covers that exact change");
+    expect(skill).toContain("A protected access method alone is not evidence");
+    expect(skill).toContain("credential and authority safeguards still remain mandatory");
     expect(skill).toContain("fresh explicit approval");
     expect(skill).toContain("visible-prompt-before-notify");
     expect(skill).toContain("interruption, replay, idempotence, and routing policy");
@@ -406,6 +411,12 @@ describe("index startup skill registration", () => {
     expect(source).toContain("changed monitor/stop conditions, safety implications, consequences, or tradeoffs");
     expect(source).toContain("all require republishing and reapproval");
     expect(source).toContain("Harmless typo-only corrections can be recorded");
+    // Dispatch owns the authority/checkpoint rule while the decision skill owns presentation.
+    expect(source).toContain("Separate access and authority safety from payload transformation");
+    expect(source).toContain("protected access method does not by itself make the payload secret");
+    expect(source).toContain("explicit User Checkpoint decision");
+    expect(source).toContain("Evidence can justify a transformation; it does not by itself authorize broader scope");
+    expect(source).toContain("Normal non-transforming safeguards remain mandatory");
     expect(source).toContain("Send this only after authorization and board recording:");
     expect(source).not.toContain("Send this only after approval and board recording:");
     expect(source).toContain("Read this phase brief first:");
