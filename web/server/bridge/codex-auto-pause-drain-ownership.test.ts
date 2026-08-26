@@ -145,7 +145,7 @@ async function releaseHeldInput(
       result: "ok",
       stop_reason: "end_turn",
     } as any,
-    { autoPauseSourceKind: "manual" } as any,
+    { autoPauseSourceKind: "manual", turnTarget: "current", autoPauseRecoveryTestingRetired: false } as any,
     {
       broadcastToBrowsers,
       broadcastPendingCodexInputs: vi.fn(),

@@ -58,6 +58,7 @@ function makeDeps(): CodexRecoveryOrchestratorDeps {
     maybeFlushQueuedCodexMessages: vi.fn(),
     pruneStalePendingCodexHerdInputs: vi.fn(() => false),
     synthesizeCodexToolResultsFromResumedTurn: vi.fn(() => 0),
+    handleRecoveredCodexAutoPauseSuccess: vi.fn(),
     trackUserMessageForTurn: vi.fn(),
     setPendingCodexInputCancelable: vi.fn(),
     setPendingCodexInputsCancelable: vi.fn(),
@@ -125,6 +126,7 @@ function prepareLifecycleSession(session: CodexRecoveryOrchestratorSessionLike):
 }
 
 function makeLifecycleAdapter(disconnectDiagnostics: Record<string, unknown> | null = null) {
+  let currentTurnId: string | null = null;
   const callbacks = {
     sessionMeta: null as ((meta: any) => void) | null,
     turnStarted: null as ((turnId: string, source?: "local" | "codex_goal_continuation") => void) | null,
@@ -156,7 +158,7 @@ function makeLifecycleAdapter(disconnectDiagnostics: Record<string, unknown> | n
     onTurnStartFailed: vi.fn((callback: (msg: any) => void) => {
       callbacks.turnStartFailed = callback;
     }),
-    getCurrentTurnId: vi.fn<() => string | null>(() => null),
+    getCurrentTurnId: vi.fn<() => string | null>(() => currentTurnId),
     getLastDisconnectDiagnostics: vi.fn(() => disconnectDiagnostics),
     isConnected: vi.fn(() => true),
     sendBrowserMessage: vi.fn(() => true),
@@ -164,8 +166,10 @@ function makeLifecycleAdapter(disconnectDiagnostics: Record<string, unknown> | n
     rollbackTurns: vi.fn(async () => {}),
     emitDisconnect: () => callbacks.disconnect?.(),
     emitSessionMeta: (meta: any) => callbacks.sessionMeta?.(meta),
-    emitTurnStarted: (turnId: string, source?: "local" | "codex_goal_continuation") =>
-      callbacks.turnStarted?.(turnId, source),
+    emitTurnStarted: (turnId: string, source?: "local" | "codex_goal_continuation") => {
+      currentTurnId = turnId;
+      callbacks.turnStarted?.(turnId, source);
+    },
     emitTurnSteerFailed: (pendingInputIds: string[]) => callbacks.turnSteerFailed?.(pendingInputIds),
   };
 }
@@ -1362,8 +1366,23 @@ describe("reconcileCodexResumedTurn", () => {
     const pending = makePendingTurn();
     pending.userContent = request;
     pending.turnId = "turn-final";
+    pending.turnTarget = "current";
+    pending.autoPauseSourceKind = "manual";
+    pending.autoPauseRecoveryTestingRetired = false;
     pending.disconnectedAt = 2_000;
     session.pendingCodexTurns = [pending];
+    session.state.codex_result_error_auto_pause = {
+      family: "copilot_auth_refresh_exhausted",
+      fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+      streak: 1,
+      threshold: 1,
+      pausedAt: 1_500,
+      lastError: "GitHub Copilot API-key refresh exhausted its retry budget.",
+      lastErrorAt: 1_500,
+      lastSourceKind: "automatic",
+      totalMatchingErrors: 1,
+      heldInputs: [],
+    };
     const deps = makeRecoveryDeps({
       completeCodexTurn: vi.fn((session: CodexRecoveryOrchestratorSessionLike, turn: CodexOutboundTurn | null) => {
         if (turn) turn.status = "completed";
@@ -1393,6 +1412,7 @@ describe("reconcileCodexResumedTurn", () => {
       deps,
     );
 
+    expect(deps.handleRecoveredCodexAutoPauseSuccess).toHaveBeenCalledWith(session, pending);
     expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_resume_recovered_messages");
     expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(
       session,
@@ -1422,7 +1442,10 @@ describe("accepted auto-pause recovery dispatch presentation", () => {
     expect(pending).toMatchObject({ status: "dispatched", turnTarget: "current" });
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "session_update",
-      session: { codex_result_error_auto_pause_recovery_testing: true },
+      session: {
+        codex_result_error_auto_pause_recovery_testing: true,
+        codex_result_error_auto_pause_recovery_progress: "testing",
+      },
     });
   });
 
@@ -1444,7 +1467,10 @@ describe("accepted auto-pause recovery dispatch presentation", () => {
     expect(pending).toMatchObject({ status: "queued", turnTarget: null });
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "session_update",
-      session: { codex_result_error_auto_pause_recovery_testing: false },
+      session: {
+        codex_result_error_auto_pause_recovery_testing: false,
+        codex_result_error_auto_pause_recovery_progress: null,
+      },
     });
   });
 });
@@ -1536,7 +1562,10 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
     });
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "session_update",
-      session: { codex_result_error_auto_pause_recovery_testing: true },
+      session: {
+        codex_result_error_auto_pause_recovery_testing: true,
+        codex_result_error_auto_pause_recovery_progress: "active",
+      },
     });
 
     vi.mocked(deps.broadcastToBrowsers).mockClear();
@@ -1544,7 +1573,10 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
     await vi.waitFor(() =>
       expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
         type: "session_update",
-        session: { codex_result_error_auto_pause_recovery_testing: true },
+        session: {
+          codex_result_error_auto_pause_recovery_testing: true,
+          codex_result_error_auto_pause_recovery_progress: "active",
+        },
       }),
     );
   });
@@ -1563,7 +1595,12 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
     adapter.emitTurnStarted("turn-goal-1", "codex_goal_continuation");
 
     expect(deps.setGenerating).toHaveBeenCalledWith(session, true, "codex_goal_continuation");
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, { type: "status_change", status: "running" });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "status_change",
+      status: "running",
+      codexAutoPauseRecoveryTesting: false,
+      codexAutoPauseRecoveryProgress: null,
+    });
     expect(deps.persistSession).toHaveBeenCalledWith(session);
   });
 
@@ -1853,12 +1890,16 @@ describe("handleCodexAdapterInitError", () => {
     });
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "session_update",
-      session: { codex_result_error_auto_pause_recovery_testing: false },
+      session: {
+        codex_result_error_auto_pause_recovery_testing: false,
+        codex_result_error_auto_pause_recovery_progress: null,
+      },
     });
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "status_change",
       status: null,
       codexAutoPauseRecoveryTesting: false,
+      codexAutoPauseRecoveryProgress: null,
     });
 
     const replacement = makeLifecycleAdapter();

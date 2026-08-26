@@ -9,10 +9,14 @@ import type { CodexGoalCapabilityState, CodexGoalState } from "./codex-goal.js";
 import type { ActiveCodexReasoningPreview, CodexReasoningDetailMessage } from "./codex-reasoning-types.js";
 import type { CodexAppReference, CodexSkillReference } from "./codex-reference-types.js";
 import type {
+  BackendReconnectProgress,
   CodexAutoPauseInputSourceKind,
+  CodexAutoPauseRecoveryProgress,
   CodexOutboundTurnBase,
+  CodexPendingDeliveryProofSignal,
   CodexProviderFailureContext,
   CodexProviderRetryState,
+  CodexResultErrorFamily,
 } from "./codex-outbound-turn-types.js";
 import type { LeaderProjectionSnapshot } from "./leader-projection-types.js";
 import type { SessionLifecycleBrowserMessage } from "./session-lifecycle-message.js";
@@ -26,12 +30,17 @@ export type {
   CodexAutoPauseRecoverySummary,
 } from "./codex-auto-pause-types.js";
 export type {
+  BackendReconnectProgress,
   CodexAutoPauseInputSourceKind,
+  CodexAutoPauseRecoveryProgress,
   CodexOutboundTurnStatus,
+  CodexPendingDeliveryProofKind,
+  CodexPendingDeliveryProofSignal,
   CodexProviderFailureContext,
   CodexProviderFailureContextFamily,
   CodexProviderRecoveryFamily,
   CodexProviderRetryState,
+  CodexResultErrorFamily,
 } from "./codex-outbound-turn-types.js";
 export type {
   LeaderProjectionInternalSnapshot,
@@ -736,12 +745,6 @@ export interface SessionPauseState {
   lastQueuedAt?: number;
 }
 
-export type CodexResultErrorFamily =
-  | "model_backend_stream_error"
-  | "copilot_auth_refresh_exhausted"
-  | "copilot_auth_refresh_invalidated"
-  | "model_not_supported";
-
 export interface CodexAutoPauseHeldInput {
   id: string;
   queuedAt: number;
@@ -762,23 +765,6 @@ export interface CodexResultErrorAutoPauseState {
   lastSourceKind: CodexAutoPauseInputSourceKind;
   totalMatchingErrors: number;
   heldInputs: CodexAutoPauseHeldInput[];
-}
-
-export type CodexPendingDeliveryProofKind =
-  | "resume_snapshot"
-  | "turn_started"
-  | "turn_steered"
-  | "turn_steer_failed"
-  | "turn_result";
-
-export interface CodexPendingDeliveryProofSignal {
-  kind: CodexPendingDeliveryProofKind;
-  timestamp: number;
-  turnId?: string | null;
-  threadStatus?: string | null;
-  turnStatus?: string | null;
-  classification?: string | null;
-  pendingInputCount?: number;
 }
 
 export type ContextUsageHistorySource = "claude_assistant_usage" | "claude_result_usage" | "codex_token_usage";
@@ -986,6 +972,7 @@ export type BrowserIncomingMessageBase =
       activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
       codexReasoningPreviews?: ActiveCodexReasoningPreview[];
       codexAutoPauseRecoveryTesting?: boolean;
+      codexAutoPauseRecoveryProgress?: CodexAutoPauseRecoveryProgress | null;
     }
   | { type: "permissions_cleared" }
   | { type: "auth_status"; isAuthenticating: boolean; output: string[]; error?: string }
@@ -1160,6 +1147,7 @@ export type BrowserIncomingMessageBase =
       activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
       codexReasoningPreviews?: ActiveCodexReasoningPreview[];
       codexAutoPauseRecoveryTesting?: boolean;
+      codexAutoPauseRecoveryProgress?: CodexAutoPauseRecoveryProgress | null;
       board?: BoardRow[];
       completedBoard?: BoardRow[];
       leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
@@ -1303,15 +1291,6 @@ export interface StarredMessageRecord {
 }
 
 export type CodexOutboundTurn = CodexOutboundTurnBase<BrowserOutgoingMessage>;
-
-export interface BackendReconnectProgress {
-  /** One-based process launch attempt currently in flight or most recently exhausted. */
-  attempt: number;
-  /** Fixed process launch budget for this reconnect cycle. */
-  maxAttempts: number;
-  /** Server timestamp for the first process launch in this cycle. */
-  cycleStartedAt: number;
-}
 
 export interface SessionState {
   session_id: string;
@@ -1467,6 +1446,7 @@ export interface SessionState {
   codex_result_error_auto_pause?: CodexResultErrorAutoPauseState | null;
   /** Ephemeral server-authored browser projection; never persisted as recovery state. */
   codex_result_error_auto_pause_recovery_testing?: boolean;
+  codex_result_error_auto_pause_recovery_progress?: CodexAutoPauseRecoveryProgress | null;
   /** Questmaster: ID of the quest claimed by this session */
   claimedQuestId?: string;
   /** Questmaster: title of the claimed quest (for display without fetching) */

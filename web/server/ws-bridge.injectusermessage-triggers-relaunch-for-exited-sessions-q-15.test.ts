@@ -81,6 +81,25 @@ function makeBrowserSocket(sessionId: string) {
   return createMockSocket({ kind: "browser", sessionId });
 }
 
+function browserEvents(socket: ReturnType<typeof makeBrowserSocket>): any[] {
+  return socket.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+}
+
+function expectAutoPauseProgress(
+  socket: ReturnType<typeof makeBrowserSocket>,
+  progress: "testing" | "active" | null,
+): void {
+  expect(browserEvents(socket)).toContainEqual(
+    expect.objectContaining({
+      type: "session_update",
+      session: expect.objectContaining({
+        codex_result_error_auto_pause_recovery_testing: progress !== null,
+        codex_result_error_auto_pause_recovery_progress: progress,
+      }),
+    }),
+  );
+}
+
 /** Flush all pending microtasks and setTimeout(0) callbacks so async sendHistorySync and deferred traffic stats complete. */
 async function flushAsync() {
   // Flush microtasks (queueMicrotask in traffic stats)
@@ -915,20 +934,19 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
       autoPauseSourceKind: "manual",
     });
     for (const connectedBrowser of [firstBrowser, secondBrowser]) {
-      expect(connectedBrowser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
-        expect.objectContaining({
-          type: "session_update",
-          session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: true }),
-        }),
-      );
+      expectAutoPauseProgress(connectedBrowser, "testing");
     }
 
     const reconnectBrowser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(reconnectBrowser, sid);
     bridge.handleBrowserMessage(reconnectBrowser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
     await flushAsync();
-    expect(reconnectBrowser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
-      expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryTesting: true }),
+    expect(browserEvents(reconnectBrowser)).toContainEqual(
+      expect.objectContaining({
+        type: "state_snapshot",
+        codexAutoPauseRecoveryTesting: true,
+        codexAutoPauseRecoveryProgress: "testing",
+      }),
     );
 
     firstBrowser.send.mockClear();
@@ -938,11 +956,23 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
       turnTarget: "current",
       turnId: "manual-recovery-turn",
     });
-    expect(firstBrowser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
-      expect.objectContaining({
-        type: "session_update",
-        session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: true }),
-      }),
+    expectAutoPauseProgress(firstBrowser, "active");
+    adapter.emitBrowserMessage({
+      type: "tool_progress",
+      tool_use_id: "long-running-recovery-tool",
+      tool_name: "Bash",
+      elapsed_time_seconds: 1_000,
+      output_delta: "still working",
+    });
+    expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(2);
+    expect(session.messageHistory.some((entry: any) => entry.type === "codex_auto_pause_recovery_summary")).toBe(false);
+
+    const activeReconnect = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(activeReconnect, sid);
+    bridge.handleBrowserMessage(activeReconnect, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    await flushAsync();
+    expect(browserEvents(activeReconnect)).toContainEqual(
+      expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryProgress: "active" }),
     );
   });
 
@@ -1003,13 +1033,8 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
       });
       expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
       for (const connected of [first, second]) {
-        const events = connected.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
-        expect(events).toContainEqual(
-          expect.objectContaining({
-            type: "session_update",
-            session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: false }),
-          }),
-        );
+        const events = browserEvents(connected);
+        expectAutoPauseProgress(connected, null);
         expect(events).toContainEqual(
           expect.objectContaining({ type: "status_change", status: "idle", codexAutoPauseRecoveryTesting: false }),
         );
@@ -1022,8 +1047,12 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     bridge.handleBrowserOpen(reconnect, "s-codex-recovery-optimistic-timeout");
     bridge.handleBrowserMessage(reconnect, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
     await flushAsync();
-    expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
-      expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryTesting: false }),
+    expect(browserEvents(reconnect)).toContainEqual(
+      expect.objectContaining({
+        type: "state_snapshot",
+        codexAutoPauseRecoveryTesting: false,
+        codexAutoPauseRecoveryProgress: null,
+      }),
     );
   });
 
@@ -1108,11 +1137,12 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(session.pendingCodexTurns).toHaveLength(0);
     expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
     expect(session.messageHistory.some((entry) => entry.type === "codex_auto_pause_recovery_summary")).toBe(false);
-    const events = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+    const events = browserEvents(browser);
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "status_change",
         codexAutoPauseRecoveryTesting: false,
+        codexAutoPauseRecoveryProgress: null,
       }),
     );
   });
@@ -1176,7 +1206,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     });
     await flushAsync();
 
-    const events = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+    const events = browserEvents(browser);
     const summaryIndex = events.findIndex((event: any) => event.type === "codex_auto_pause_recovery_summary");
     const clearIndex = events.findIndex(
       (event: any) => event.type === "session_update" && event.session?.codex_result_error_auto_pause === null,
@@ -1186,6 +1216,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(events[clearIndex]?.session).toMatchObject({
       codex_result_error_auto_pause: null,
       codex_result_error_auto_pause_recovery_testing: false,
+      codex_result_error_auto_pause_recovery_progress: null,
     });
     expect(session.state.codex_result_error_auto_pause).toBeNull();
     const summary = session.messageHistory.find((entry) => entry.type === "codex_auto_pause_recovery_summary");
@@ -1305,7 +1336,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
         codex_turn_id: "failed-manual-turn",
         uuid: "failed-manual-result",
       },
-      { autoPauseSourceKind: "manual" },
+      { autoPauseSourceKind: "manual", turnTarget: "current", autoPauseRecoveryTestingRetired: false },
     );
 
     expect(session.state.codex_result_error_auto_pause).toMatchObject({
@@ -1313,12 +1344,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
       pausedAt: expect.any(Number),
       streak: 2,
     });
-    expect(browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
-      expect.objectContaining({
-        type: "session_update",
-        session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: false }),
-      }),
-    );
+    expectAutoPauseProgress(browser, null);
     expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
 
     await (bridge as any).handleCodexResultErrorAutoPause(
@@ -1338,11 +1364,11 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
         codex_turn_id: "manual-turn",
         uuid: "manual-browser-backlog-result",
       },
-      { autoPauseSourceKind: "manual" },
+      { autoPauseSourceKind: "manual", turnTarget: "current", autoPauseRecoveryTestingRetired: false },
     );
     await flushAsync();
 
-    const recoveryEvents = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+    const recoveryEvents = browserEvents(browser);
     const summaryIndex = recoveryEvents.findIndex((event: any) => event.type === "codex_auto_pause_recovery_summary");
     const pauseClearedIndex = recoveryEvents.findIndex(
       (event: any) => event.type === "session_update" && event.session?.codex_result_error_auto_pause === null,
@@ -1352,6 +1378,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(recoveryEvents[pauseClearedIndex]?.session).toMatchObject({
       codex_result_error_auto_pause: null,
       codex_result_error_auto_pause_recovery_testing: false,
+      codex_result_error_auto_pause_recovery_progress: null,
     });
 
     expect(session.state.codex_result_error_auto_pause).toBeNull();
@@ -1436,7 +1463,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
         codex_turn_id: "manual-turn",
         uuid: "manual-result",
       },
-      { autoPauseSourceKind: "manual" },
+      { autoPauseSourceKind: "manual", turnTarget: "current", autoPauseRecoveryTestingRetired: false },
     );
 
     expect(session.state.codex_result_error_auto_pause).toBeNull();
@@ -1510,7 +1537,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
         codex_turn_id: "manual-interrupted",
         uuid: "manual-interrupted-result",
       },
-      { autoPauseSourceKind: "manual" },
+      { autoPauseSourceKind: "manual", turnTarget: "current", autoPauseRecoveryTestingRetired: false },
       true,
     );
 

@@ -80,14 +80,52 @@ describe("accepted Codex auto-pause recovery dispatch", () => {
     expect(automatic.autoPauseRecoveryTestingRetired).toBeUndefined();
     expect(deps.broadcastToBrowsers).toHaveBeenLastCalledWith(session, {
       type: "session_update",
-      session: { codex_result_error_auto_pause_recovery_testing: false },
+      session: {
+        codex_result_error_auto_pause_recovery_testing: false,
+        codex_result_error_auto_pause_recovery_progress: null,
+      },
     });
 
     expect(markAcceptedCodexAutoPauseRecoveryDispatch(session, manual.userMessageId, "current", deps)).toBe(true);
     expect(manual).toMatchObject({ turnTarget: "current", autoPauseRecoveryTestingRetired: false });
     expect(deps.broadcastToBrowsers).toHaveBeenLastCalledWith(session, {
       type: "session_update",
-      session: { codex_result_error_auto_pause_recovery_testing: true },
+      session: {
+        codex_result_error_auto_pause_recovery_testing: true,
+        codex_result_error_auto_pause_recovery_progress: "testing",
+      },
+    });
+  });
+
+  it("broadcasts active only for the matching live backend turn owner", () => {
+    const manual = turn("manual-input", "manual", "current");
+    manual.status = "backend_acknowledged";
+    manual.turnId = "turn-recovery";
+    const session = {
+      state: { codex_result_error_auto_pause: activePause(), backend_state: "connected" as const },
+      pendingCodexTurns: [manual],
+      isGenerating: true,
+      codexAdapter: { getCurrentTurnId: () => "turn-recovery" },
+    };
+    const deps = { broadcastToBrowsers: vi.fn(), persistSession: vi.fn() };
+
+    expect(markAcceptedCodexAutoPauseRecoveryDispatch(session, manual.userMessageId, "current", deps)).toBe(true);
+    expect(deps.broadcastToBrowsers).toHaveBeenLastCalledWith(session, {
+      type: "session_update",
+      session: {
+        codex_result_error_auto_pause_recovery_testing: true,
+        codex_result_error_auto_pause_recovery_progress: "active",
+      },
+    });
+
+    session.codexAdapter.getCurrentTurnId = () => "other-turn";
+    expect(markAcceptedCodexAutoPauseRecoveryDispatch(session, manual.userMessageId, "current", deps)).toBe(true);
+    expect(deps.broadcastToBrowsers).toHaveBeenLastCalledWith(session, {
+      type: "session_update",
+      session: {
+        codex_result_error_auto_pause_recovery_testing: false,
+        codex_result_error_auto_pause_recovery_progress: null,
+      },
     });
   });
 });

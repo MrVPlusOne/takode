@@ -658,7 +658,7 @@ describe("Codex broken-session recovery regression", () => {
     expect(calls.find((msg: any) => msg.type === "status_change" && msg.status === "running")).toBeUndefined();
   });
 
-  it("keeps broken-init recovery retired through reconnect and Resume until a new direct dispatch", async () => {
+  it("keeps broken-init recovery retired through later success until a new direct dispatch", async () => {
     const sid = "s-broken-init-auto-pause-recovery";
     const adapter1 = makeCodexAdapterMock();
     bridge.attachCodexAdapter(sid, adapter1 as any);
@@ -723,7 +723,10 @@ describe("Codex broken-session recovery regression", () => {
       expect(events).toContainEqual(
         expect.objectContaining({
           type: "session_update",
-          session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: false }),
+          session: expect.objectContaining({
+            codex_result_error_auto_pause_recovery_testing: false,
+            codex_result_error_auto_pause_recovery_progress: null,
+          }),
         }),
       );
       expect(events).toContainEqual(
@@ -742,7 +745,11 @@ describe("Codex broken-session recovery regression", () => {
     bridge.handleBrowserMessage(reconnect, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
     await flushAsync();
     expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
-      expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryTesting: false }),
+      expect.objectContaining({
+        type: "state_snapshot",
+        codexAutoPauseRecoveryTesting: false,
+        codexAutoPauseRecoveryProgress: null,
+      }),
     );
 
     for (const connected of [first, second, reconnect]) connected.send.mockClear();
@@ -788,7 +795,10 @@ describe("Codex broken-session recovery regression", () => {
       expect(connected.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
         expect.objectContaining({
           type: "session_update",
-          session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: false }),
+          session: expect.objectContaining({
+            codex_result_error_auto_pause_recovery_testing: false,
+            codex_result_error_auto_pause_recovery_progress: null,
+          }),
         }),
       );
     }
@@ -803,15 +813,16 @@ describe("Codex broken-session recovery regression", () => {
         num_turns: 1,
         total_cost_usd: 0,
         usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-        result: "partial response",
+        result: "retired owner completed after Resume",
         session_id: sid,
         codex_turn_id: "retired-resume-turn",
-        stop_reason: "interrupted",
+        stop_reason: "end_turn",
       },
     } as any);
     await flushAsync();
     expect(session.pendingCodexTurns).toHaveLength(0);
     expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
+    expect(session.messageHistory.some((entry: any) => entry.type === "codex_auto_pause_recovery_summary")).toBe(false);
 
     for (const connected of [first, second, reconnect]) connected.send.mockClear();
     await bridge.handleBrowserMessage(
@@ -830,10 +841,50 @@ describe("Codex broken-session recovery regression", () => {
       expect(connected.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
         expect.objectContaining({
           type: "session_update",
-          session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: true }),
+          session: expect.objectContaining({
+            codex_result_error_auto_pause_recovery_testing: true,
+            codex_result_error_auto_pause_recovery_progress: "testing",
+          }),
         }),
       );
     }
+
+    resumedAdapter.emitTurnStarted("fresh-recovery-turn");
+    resumedAdapter.setCurrentTurnId(null);
+    resumedAdapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        subtype: "success",
+        is_error: false,
+        duration_ms: 1,
+        duration_api_ms: 1,
+        num_turns: 1,
+        total_cost_usd: 0,
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        result: "fresh owner completed",
+        session_id: sid,
+        codex_turn_id: "fresh-recovery-turn",
+        stop_reason: "end_turn",
+      },
+    } as any);
+    await vi.waitFor(() => expect(session.state.codex_result_error_auto_pause).toBeNull());
+    await vi.waitFor(() =>
+      expect(
+        resumedAdapter.sendBrowserMessage.mock.calls.filter((call) =>
+          call[0]?.inputs?.some((input: any) => input.content === "held event"),
+        ),
+      ).toHaveLength(1),
+    );
+    const summaries = session.messageHistory.filter(
+      (entry: any) => entry.type === "codex_auto_pause_recovery_summary",
+    ) as any[];
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.recovery.receipts).toHaveLength(1);
+    expect(
+      resumedAdapter.sendBrowserMessage.mock.calls.filter((call) =>
+        call[0]?.inputs?.some((input: any) => input.content === "held event"),
+      ),
+    ).toHaveLength(1);
   });
 
   it("defers later queued user turns until the blocked recovery turn is cleared", async () => {

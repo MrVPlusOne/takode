@@ -9,6 +9,7 @@ import type {
   CLIResultMessage,
   CodexAutoPauseHeldInput,
   CodexAutoPauseInputSourceKind,
+  CodexAutoPauseRecoveryProgress,
   CodexPendingBatchInput,
   CodexOutboundTurn,
   CodexResultErrorAutoPauseState,
@@ -41,8 +42,14 @@ export interface CodexResultErrorAutoPauseSessionLike {
 }
 
 export interface CodexAutoPauseRecoveryTestingSessionLike extends CodexResultErrorAutoPauseSessionLike {
+  isGenerating?: boolean;
+  codexAdapter?: { getCurrentTurnId?: () => string | null } | null;
+  state: Pick<SessionState, "codex_result_error_auto_pause" | "backend_state">;
   pendingCodexTurns: Array<
-    Pick<CodexOutboundTurn, "autoPauseRecoveryTestingRetired" | "autoPauseSourceKind" | "status" | "turnTarget">
+    Pick<
+      CodexOutboundTurn,
+      "autoPauseRecoveryTestingRetired" | "autoPauseSourceKind" | "status" | "turnId" | "turnTarget"
+    >
   >;
 }
 
@@ -141,7 +148,10 @@ export function isAutomaticCodexAutoPauseInput(msg: BrowserUserMessage): boolean
 export function noteCodexResultForAutoPause(
   session: CodexResultErrorAutoPauseSessionLike,
   msg: CLIResultMessage,
-  turn: Pick<CodexOutboundTurn, "autoPauseSourceKind"> | null | undefined,
+  turn:
+    | Pick<CodexOutboundTurn, "autoPauseRecoveryTestingRetired" | "autoPauseSourceKind" | "turnTarget">
+    | null
+    | undefined,
   now = Date.now(),
   options: { retainPausedOwnerOnResume?: boolean } = {},
 ): {
@@ -154,11 +164,7 @@ export function noteCodexResultForAutoPause(
   const classified = classifyCodexResultError(msg);
   if (!classified) {
     if (!msg.is_error) {
-      return clearCodexResultErrorAutoPauseAfterSuccess(
-        session,
-        getCodexTurnSourceKind(turn),
-        options.retainPausedOwnerOnResume === true,
-      );
+      return noteCodexAutoPauseRecoverySuccess(session, turn, options.retainPausedOwnerOnResume === true);
     }
     return { changed: false, pausedNow: false, resumedNow: false };
   }
@@ -197,6 +203,17 @@ export function noteCodexResultForAutoPause(
         }
       : {}),
   };
+}
+
+export function noteCodexAutoPauseRecoverySuccess(
+  session: CodexResultErrorAutoPauseSessionLike,
+  turn:
+    | Pick<CodexOutboundTurn, "autoPauseRecoveryTestingRetired" | "autoPauseSourceKind" | "turnTarget">
+    | null
+    | undefined,
+  retainPausedOwner = false,
+): { changed: boolean; pausedNow: false; resumedNow: boolean; heldInputs?: CodexAutoPauseHeldInput[] } {
+  return clearCodexResultErrorAutoPauseAfterSuccess(session, turn, retainPausedOwner);
 }
 
 export function queueCodexAutoPausedInput(
@@ -247,14 +264,30 @@ export function getActiveCodexResultErrorAutoPause(
 export function isCodexAutoPauseRecoveryTesting(
   session: CodexAutoPauseRecoveryTestingSessionLike | null | undefined,
 ): boolean {
-  if (!session || !getActiveCodexResultErrorAutoPause(session)) return false;
-  return session.pendingCodexTurns.some(
+  return getCodexAutoPauseRecoveryProgress(session) !== null;
+}
+
+export function getCodexAutoPauseRecoveryProgress(
+  session: CodexAutoPauseRecoveryTestingSessionLike | null | undefined,
+): CodexAutoPauseRecoveryProgress | null {
+  if (!session || !getActiveCodexResultErrorAutoPause(session)) return null;
+  const owner = session.pendingCodexTurns.find(
     (turn) =>
       turn.turnTarget === "current" &&
       turn.autoPauseRecoveryTestingRetired !== true &&
       turn.autoPauseSourceKind === "manual" &&
       (turn.status === "queued" || turn.status === "dispatched" || turn.status === "backend_acknowledged"),
   );
+  if (!owner) return null;
+  const activeTurnId = session.codexAdapter?.getCurrentTurnId?.() ?? null;
+  const hasComparableLiveOwner =
+    owner.status === "backend_acknowledged" &&
+    !!owner.turnId &&
+    !!activeTurnId &&
+    session.isGenerating === true &&
+    session.state.backend_state === "connected";
+  if (hasComparableLiveOwner) return owner.turnId === activeTurnId ? "active" : null;
+  return "testing";
 }
 
 export function getCodexAutoPauseHeldInputCount(state: CodexResultErrorAutoPauseState | null | undefined): number {
@@ -369,12 +402,15 @@ export function holdCodexAutoPausedQueuedBacklog<TSession extends CodexAutoPause
 
 function clearCodexResultErrorAutoPauseAfterSuccess(
   session: CodexResultErrorAutoPauseSessionLike,
-  sourceKind: CodexAutoPauseInputSourceKind,
+  turn:
+    | Pick<CodexOutboundTurn, "autoPauseRecoveryTestingRetired" | "autoPauseSourceKind" | "turnTarget">
+    | null
+    | undefined,
   retainPausedOwner: boolean,
 ): { changed: boolean; pausedNow: false; resumedNow: boolean; heldInputs?: CodexAutoPauseHeldInput[] } {
   const existing = session.state.codex_result_error_auto_pause ?? null;
   if (!existing) return { changed: false, pausedNow: false, resumedNow: false };
-  if (existing.pausedAt && sourceKind !== "manual") {
+  if (existing.pausedAt && !isAcceptedCodexAutoPauseRecoveryOwner(turn)) {
     return { changed: false, pausedNow: false, resumedNow: false };
   }
   const heldInputs = existing.pausedAt ? existing.heldInputs : [];
@@ -383,8 +419,21 @@ function clearCodexResultErrorAutoPauseAfterSuccess(
     changed: true,
     pausedNow: false,
     resumedNow: !!existing.pausedAt,
-    ...(heldInputs.length ? { heldInputs } : {}),
+    ...(existing.pausedAt ? { heldInputs } : {}),
   };
+}
+
+function isAcceptedCodexAutoPauseRecoveryOwner(
+  turn:
+    | Pick<CodexOutboundTurn, "autoPauseRecoveryTestingRetired" | "autoPauseSourceKind" | "turnTarget">
+    | null
+    | undefined,
+): boolean {
+  return (
+    turn?.autoPauseSourceKind === "manual" &&
+    turn.turnTarget === "current" &&
+    turn.autoPauseRecoveryTestingRetired !== true
+  );
 }
 
 function isEligibleQueuedAutomaticCodexInput(input: PendingCodexInput): boolean {

@@ -275,19 +275,26 @@ describe("Playground", () => {
 
     expect(screen.getByText("Automatic recovery paused — Copilot cause")).toBeTruthy();
     expect(screen.getByText("Automatic recovery testing — repeated stream cause")).toBeTruthy();
+    expect(screen.getByText("Automatic recovery active — exact owner running")).toBeTruthy();
     expect(screen.getByText("Automatic recovery paused — unsupported selected model")).toBeTruthy();
     expect(screen.getByText("Failed recovery remains held")).toBeTruthy();
     expect(screen.getByText("Reconnecting (2/5)")).toBeTruthy();
     expect(screen.getAllByText(/Cause: Copilot authentication refresh failed at/)).toHaveLength(2);
-    expect(screen.getByText(/Cause: Model backend stream disconnected repeatedly at/)).toBeTruthy();
+    expect(screen.getAllByText(/Cause: Model backend stream disconnected repeatedly at/)).toHaveLength(2);
     expect(screen.getByText(/Cause: Selected model is unsupported at/)).toBeTruthy();
     expect(
       screen.getByText(
         "Testing recovery with your current message. Held inputs will release automatically if it succeeds.",
       ),
     ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Recovery is active for your current message. Automatic inputs remain held until it completes successfully.",
+      ),
+    ).toBeTruthy();
     expect(screen.getByTestId("playground-auto-pause-mobile-width").className).toContain("max-w-[320px]");
-    for (const stateId of ["idle", "testing", "unsupported-model", "failed-held"]) {
+    expect(screen.getByTestId("playground-auto-pause-active-mobile-width").className).toContain("max-w-[320px]");
+    for (const stateId of ["idle", "testing", "active", "unsupported-model", "failed-held"]) {
       const state = within(screen.getByTestId(`playground-auto-pause-${stateId}`));
       const banner = state.getByTestId("composer-paused-banner");
       expect(banner.className).toContain("border-cc-attention/75");

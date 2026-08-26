@@ -1,12 +1,14 @@
 import {
+  getCodexAutoPauseRecoveryProgress,
   getActiveCodexResultErrorAutoPause,
-  isCodexAutoPauseRecoveryTesting,
 } from "../codex-result-error-auto-pause.js";
 import type { BrowserIncomingMessage, CodexOutboundTurn, SessionState } from "../session-types.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
 
 export interface CodexAutoPauseRecoveryTestingSessionLike {
-  state: Pick<SessionState, "codex_result_error_auto_pause">;
+  state: Pick<SessionState, "codex_result_error_auto_pause" | "backend_state">;
+  isGenerating?: boolean;
+  codexAdapter?: { getCurrentTurnId?: () => string | null } | null;
   pendingCodexTurns: CodexOutboundTurn[];
 }
 
@@ -20,10 +22,12 @@ export function broadcastCodexAutoPauseRecoveryTesting<S extends CodexAutoPauseR
   deps: Pick<CodexAutoPauseRecoveryTestingDeps<S>, "broadcastToBrowsers">,
 ): void {
   if (!getActiveCodexResultErrorAutoPause(session)) return;
+  const progress = getCodexAutoPauseRecoveryProgress(session);
   deps.broadcastToBrowsers(session, {
     type: "session_update",
     session: {
-      codex_result_error_auto_pause_recovery_testing: isCodexAutoPauseRecoveryTesting(session),
+      codex_result_error_auto_pause_recovery_testing: progress !== null,
+      codex_result_error_auto_pause_recovery_progress: progress,
     },
   });
 }

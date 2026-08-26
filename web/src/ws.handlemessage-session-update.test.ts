@@ -139,6 +139,23 @@ describe("handleMessage: session_update", () => {
     expect(useStore.getState().sessions.get("s1")!.model).toBe("claude-sonnet-4-20250514");
   });
 
+  it("normalizes legacy live recovery updates after an authoritative progress update", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    fireMessage({
+      type: "session_update",
+      session: {
+        codex_result_error_auto_pause_recovery_testing: true,
+        codex_result_error_auto_pause_recovery_progress: "active",
+      },
+    });
+    fireMessage({ type: "session_update", session: { codex_result_error_auto_pause_recovery_testing: false } });
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBeNull();
+
+    fireMessage({ type: "session_update", session: { codex_result_error_auto_pause_recovery_testing: true } });
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBe("testing");
+  });
+
   it("applies leader open-thread tabs carried by board updates", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });

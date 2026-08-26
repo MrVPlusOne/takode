@@ -239,6 +239,51 @@ describe("PausedInputChip", () => {
     expect(guidance.parentElement?.className).toContain("flex-wrap");
   });
 
+  it("renders distinct exact-owner active progress without implying the held backlog was released", () => {
+    render(
+      <PausedInputChip
+        pause={null}
+        heldCount={0}
+        autoPausedHeldCount={2}
+        directComposerMessagesSend={true}
+        autoPause={makeAutoPauseState("model_backend_stream_error")}
+        autoPauseRecoveryProgress="active"
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Recovery is active for your current message. Automatic inputs remain held until it completes successfully.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Testing recovery with your current message/)).toBeNull();
+    expect(screen.queryByText("Send a direct message to test recovery.")).toBeNull();
+    expect(screen.getByTestId("composer-paused-chip").textContent).toContain("Automatic inputs paused· 2 held");
+    const guidance = screen.getByTestId("composer-auto-pause-guidance");
+    expect(guidance.getAttribute("role")).toBe("status");
+    expect(guidance.getAttribute("aria-live")).toBe("polite");
+    expect(guidance.getAttribute("aria-atomic")).toBe("true");
+    expect(guidance.className).toContain("break-words");
+    expect(guidance.parentElement?.className).toContain("flex-wrap");
+  });
+
+  it("lets an explicit server progress clear override a stale legacy testing boolean", () => {
+    render(
+      <PausedInputChip
+        pause={null}
+        heldCount={0}
+        autoPausedHeldCount={2}
+        directComposerMessagesSend={true}
+        autoPause={makeAutoPauseState()}
+        autoPauseRecoveryTesting={true}
+        autoPauseRecoveryProgress={null}
+      />,
+    );
+
+    expect(screen.getByText("Send a direct message to test recovery.")).toBeTruthy();
+    expect(screen.queryByText(/Testing recovery with your current message/)).toBeNull();
+  });
+
   it("explains terminal unsupported-model pauses without implying automatic model fallback", () => {
     render(
       <PausedInputChip

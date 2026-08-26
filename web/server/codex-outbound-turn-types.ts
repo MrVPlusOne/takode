@@ -8,8 +8,40 @@ export type CodexOutboundTurnStatus =
   | "blocked_broken_session";
 
 export type CodexAutoPauseInputSourceKind = "manual" | "automatic";
+export type CodexAutoPauseRecoveryProgress = "testing" | "active";
+export type CodexResultErrorFamily =
+  | "model_backend_stream_error"
+  | "copilot_auth_refresh_exhausted"
+  | "copilot_auth_refresh_invalidated"
+  | "model_not_supported";
 export type CodexProviderFailureContextFamily = "copilot_auth_refresh_invalidated";
 export type CodexProviderRecoveryFamily = "model_backend_stream_error" | CodexProviderFailureContextFamily;
+
+export interface BackendReconnectProgress {
+  /** One-based process launch attempt currently in flight or most recently exhausted. */
+  attempt: number;
+  /** Fixed process launch budget for this reconnect cycle. */
+  maxAttempts: number;
+  /** Server timestamp for the first process launch in this cycle. */
+  cycleStartedAt: number;
+}
+
+export type CodexPendingDeliveryProofKind =
+  | "resume_snapshot"
+  | "turn_started"
+  | "turn_steered"
+  | "turn_steer_failed"
+  | "turn_result";
+
+export interface CodexPendingDeliveryProofSignal {
+  kind: CodexPendingDeliveryProofKind;
+  timestamp: number;
+  turnId?: string | null;
+  threadStatus?: string | null;
+  turnStatus?: string | null;
+  classification?: string | null;
+  pendingInputCount?: number;
+}
 
 export interface CodexProviderFailureContext {
   family: CodexProviderFailureContextFamily;

@@ -129,7 +129,12 @@ function makeCodexAdapterMock() {
     getThreadId: vi.fn(() => "thread-ready"),
     getCurrentTurnId: vi.fn(() => currentTurnId),
     emitBrowserMessage: (msg: any) => onBrowserMessageCb?.(msg),
-    emitSessionMeta: (meta: any) => onSessionMetaCb?.(meta),
+    emitSessionMeta: (meta: any) => {
+      const resumed = meta?.resumeSnapshot;
+      currentTurnId =
+        resumed?.threadStatus !== "idle" && resumed?.lastTurn?.status === "inProgress" ? resumed.lastTurn.id : null;
+      onSessionMetaCb?.(meta);
+    },
     emitDisconnect: (turnId?: string | null) => {
       currentTurnId = turnId === undefined ? currentTurnId : turnId;
       onDisconnectCb?.();
@@ -163,6 +168,30 @@ function emitCodexSessionReady(
 
 function getPendingCodexTurn(session: { pendingCodexTurns?: unknown[] }) {
   return (session.pendingCodexTurns?.[0] ?? null) as any;
+}
+
+function seedAutoPause(session: any, heldId: string) {
+  session.state.codex_result_error_auto_pause = {
+    family: "copilot_auth_refresh_exhausted",
+    fingerprint: "copilot_auth_refresh_exhausted:github_copilot",
+    streak: 1,
+    threshold: 1,
+    pausedAt: 123,
+    lastError: "GitHub Copilot API-key refresh exhausted its retry budget.",
+    lastErrorAt: 123,
+    lastSourceKind: "automatic",
+    totalMatchingErrors: 1,
+    heldInputs: [
+      {
+        id: heldId,
+        queuedAt: 124,
+        lastQueuedAt: 124,
+        source: "programmatic",
+        count: 1,
+        message: { type: "user_message", content: "held event", agentSource: { sessionId: "herd-events" } },
+      },
+    ],
+  };
 }
 
 function getCodexStartPendingInputs(msg: any) {
@@ -576,6 +605,169 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Codex resumed-turn recovery", () => {
+  it("projects a matching resumed in-progress recovery owner as active across reconnect", async () => {
+    const sid = "s-resumed-auto-pause-active";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+    emitCodexSessionReady(adapter1, { cliSessionId: "thread-resumed-active" });
+    const session = bridge.getSession(sid)!;
+    seedAutoPause(session, "held-resumed-active");
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "resume active recovery", inputSource: "composer" }),
+    );
+    expect(getPendingCodexTurn(session)).toMatchObject({ status: "dispatched", turnTarget: "current" });
+    adapter1.emitDisconnect();
+
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    browser.send.mockClear();
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-resumed-active",
+      model: "gpt-5.3-codex",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-resumed-active",
+        turnCount: 1,
+        threadStatus: "active",
+        turns: [],
+        lastTurn: {
+          id: "turn-resumed-active",
+          status: "inProgress",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: "resume active recovery" }] },
+            { type: "commandExecution", id: "cmd-active", status: "in_progress", command: ["bun", "test"] },
+          ],
+        },
+      },
+    });
+    await flushAsync();
+
+    expect(getPendingCodexTurn(session)).toMatchObject({
+      status: "backend_acknowledged",
+      turnId: "turn-resumed-active",
+      turnTarget: "current",
+    });
+    expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
+    expect(session.messageHistory.some((entry) => entry.type === "codex_auto_pause_recovery_summary")).toBe(false);
+    expect(browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({ codex_result_error_auto_pause_recovery_progress: "active" }),
+      }),
+    );
+
+    const reconnect = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(reconnect, sid);
+    bridge.handleBrowserMessage(reconnect, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    await flushAsync();
+    expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
+      expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryProgress: "active" }),
+    );
+  });
+
+  it("clears and drains once when resume proves the exact recovery owner completed", async () => {
+    const sid = "s-resumed-auto-pause-completed";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+    emitCodexSessionReady(adapter1, { cliSessionId: "thread-resumed-completed" });
+    const session = bridge.getSession(sid)!;
+    seedAutoPause(session, "held-resumed-completed");
+    session.state.codex_result_error_auto_pause!.heldInputs = [];
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "resume completed recovery", inputSource: "composer" }),
+    );
+    session.pendingCodexInputs.push({
+      id: "queued-auto-resume",
+      content: "queued automatic during disconnect",
+      timestamp: 130,
+      cancelable: true,
+      autoPauseSourceKind: "automatic",
+      agentSource: { sessionId: "herd-events" },
+    });
+    session.pendingCodexTurns.push({
+      adapterMsg: {
+        type: "codex_start_pending",
+        pendingInputIds: ["queued-auto-resume"],
+        inputs: [{ content: "queued automatic during disconnect" }],
+      },
+      userMessageId: "queued-auto-resume",
+      pendingInputIds: ["queued-auto-resume"],
+      userContent: "queued automatic during disconnect",
+      historyIndex: -1,
+      status: "queued",
+      dispatchCount: 0,
+      createdAt: 130,
+      updatedAt: 130,
+      acknowledgedAt: null,
+      turnTarget: "queued",
+      lastError: null,
+      turnId: null,
+      disconnectedAt: null,
+      resumeConfirmedAt: null,
+      autoPauseSourceKind: "automatic",
+    });
+    adapter1.emitDisconnect();
+
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    browser.send.mockClear();
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-resumed-completed",
+      model: "gpt-5.3-codex",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-resumed-completed",
+        turnCount: 1,
+        threadStatus: "idle",
+        turns: [],
+        lastTurn: {
+          id: "turn-resumed-completed",
+          status: "completed",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: "resume completed recovery" }] },
+            { type: "agentMessage", id: "agent-completed", text: "Recovery completed successfully." },
+          ],
+        },
+      },
+    });
+
+    await vi.waitFor(() => expect(session.state.codex_result_error_auto_pause).toBeNull());
+    await vi.waitFor(() =>
+      expect(
+        adapter2.sendBrowserMessage.mock.calls.filter((call) =>
+          call[0]?.inputs?.some((input: any) => input.content === "queued automatic during disconnect"),
+        ),
+      ).toHaveLength(1),
+    );
+    const events = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+    const summaryIndex = events.findIndex((event: any) => event.type === "codex_auto_pause_recovery_summary");
+    const clearIndex = events.findIndex(
+      (event: any) => event.type === "session_update" && event.session?.codex_result_error_auto_pause === null,
+    );
+    expect(summaryIndex).toBeGreaterThanOrEqual(0);
+    expect(clearIndex).toBeGreaterThan(summaryIndex);
+    const summaries = session.messageHistory.filter(
+      (entry) => entry.type === "codex_auto_pause_recovery_summary",
+    ) as any[];
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].recovery.receipts).toHaveLength(1);
+    expect(
+      adapter2.sendBrowserMessage.mock.calls.filter((call) =>
+        call[0]?.inputs?.some((input: any) => input.content === "queued automatic during disconnect"),
+      ),
+    ).toHaveLength(1);
+  });
+
   it("suppresses stale recovery replay when idle inProgress turn has command activity", async () => {
     // A stale idle/inProgress snapshot can still prove that the user payload
     // reached command execution. Replaying it would duplicate model delivery

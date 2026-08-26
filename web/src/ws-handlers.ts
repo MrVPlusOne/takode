@@ -48,6 +48,11 @@ import { handleTranscriptionProgressMessage } from "./transcription-progress.js"
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { handleNotificationUpdateMessage } from "./ws-notification-handler.js";
 import {
+  applyAutoPauseRecoverySnapshot,
+  handleStatusChangeMessage,
+  normalizeAutoPauseRecoverySessionUpdate,
+} from "./ws-status-change-handler.js";
+import {
   mergeAssistantContentBlocks,
   stripRootCodexThinkingBlocks,
   stripRootCodexThinkingMessage,
@@ -691,7 +696,7 @@ function handleParsedMessage(
     }
 
     case "session_update": {
-      store.updateSession(sessionId, data.session);
+      store.updateSession(sessionId, normalizeAutoPauseRecoverySessionUpdate(data.session));
       if (data.session.backend_state === "connected") {
         clearRecoverableCodexInitErrors(sessionId);
       }
@@ -1337,28 +1342,7 @@ function handleParsedMessage(
     }
 
     case "status_change": {
-      if (data.status === "compacting") {
-        store.setSessionStatus(sessionId, "compacting");
-      } else {
-        store.setSessionStatus(sessionId, data.status);
-      }
-      if ("activeTurnRoute" in data || data.status !== "running") {
-        store.setActiveTurnRoute(sessionId, data.status === "running" ? data.activeTurnRoute : null);
-      }
-      if (data.codexReasoningPreviews !== undefined) {
-        store.setCodexReasoningPreviews(sessionId, data.codexReasoningPreviews);
-      } else if (data.activeCodexReasoningPreview) {
-        // A legacy null active-turn field is a lifecycle boundary, not an
-        // authoritative clear under the retained per-thread contract.
-        store.setCodexReasoningPreviews(sessionId, [data.activeCodexReasoningPreview]);
-      }
-      if (data.codexAutoPauseRecoveryTesting !== undefined || data.status !== "running") {
-        store.updateSession(sessionId, {
-          codex_result_error_auto_pause_recovery_testing: data.codexAutoPauseRecoveryTesting ?? false,
-        });
-      }
-      // Any status change clears stuck flag
-      store.setSessionStuck(sessionId, false);
+      handleStatusChangeMessage(sessionId, data);
       break;
     }
 
@@ -1484,9 +1468,7 @@ function handleParsedMessage(
         data.codexReasoningPreviews ?? (data.activeCodexReasoningPreview ? [data.activeCodexReasoningPreview] : []),
       );
       store.setCliConnected(sessionId, data.backendConnected);
-      store.updateSession(sessionId, {
-        codex_result_error_auto_pause_recovery_testing: data.codexAutoPauseRecoveryTesting ?? false,
-      });
+      applyAutoPauseRecoverySnapshot(sessionId, data);
       // state_snapshot is sent after subscribe replay completes. If no
       // message_history/history_sync arrived, this was an empty-history
       // session and the optimistic loading placeholder should be cleared.

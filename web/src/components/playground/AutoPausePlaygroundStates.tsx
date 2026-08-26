@@ -58,11 +58,11 @@ const PLAYGROUND_UNSUPPORTED_MODEL_PAUSE = playgroundPause("model_not_supported"
 function PlaygroundPauseFrame({
   autoPause,
   stateId,
-  testing = false,
+  recoveryProgress = null,
 }: {
   autoPause: CodexResultErrorAutoPauseState;
   stateId: string;
-  testing?: boolean;
+  recoveryProgress?: "testing" | "active" | null;
 }) {
   return (
     <div data-testid={`playground-auto-pause-${stateId}`} className="border-t border-cc-border bg-cc-card px-4 py-3">
@@ -73,11 +73,17 @@ function PlaygroundPauseFrame({
           directComposerMessagesSend={true}
           pause={null}
           autoPause={autoPause}
-          autoPauseRecoveryTesting={testing}
+          autoPauseRecoveryProgress={recoveryProgress}
         />
         <textarea
           readOnly
-          value={testing ? "Recovery test is in progress." : "Direct messages remain available."}
+          value={
+            recoveryProgress === "active"
+              ? "The exact recovery owner is actively running."
+              : recoveryProgress === "testing"
+                ? "Recovery testing is starting."
+                : "Direct messages remain available."
+          }
           rows={1}
           className="w-full resize-none bg-transparent px-4 pb-1 pt-3 font-sans-ui text-sm text-cc-fg"
           style={{ minHeight: "36px" }}
@@ -96,7 +102,13 @@ export function PlaygroundAutoPauseBannerStates() {
       <div className="mt-4" />
       <Card label="Automatic recovery testing — repeated stream cause">
         <div data-testid="playground-auto-pause-mobile-width" className="max-w-[320px]">
-          <PlaygroundPauseFrame autoPause={PLAYGROUND_STREAM_PAUSE} stateId="testing" testing />
+          <PlaygroundPauseFrame autoPause={PLAYGROUND_STREAM_PAUSE} stateId="testing" recoveryProgress="testing" />
+        </div>
+      </Card>
+      <div className="mt-4" />
+      <Card label="Automatic recovery active — exact owner running">
+        <div data-testid="playground-auto-pause-active-mobile-width" className="max-w-[320px]">
+          <PlaygroundPauseFrame autoPause={PLAYGROUND_STREAM_PAUSE} stateId="active" recoveryProgress="active" />
         </div>
       </Card>
       <div className="mt-4" />

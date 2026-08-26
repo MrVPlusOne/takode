@@ -67,6 +67,7 @@ import {
 } from "../session-pause.js";
 import {
   buildCodexAutoPauseDiagnostic,
+  getCodexAutoPauseRecoveryProgress,
   getActiveCodexResultErrorAutoPause,
   isCodexAutoPauseRecoveryTesting,
   isAutomaticCodexAutoPauseInput,
@@ -1049,6 +1050,7 @@ export function sendStateSnapshot(
     activeTurnRoute: deriveActiveTurnRoute(session),
     ...codexReasoningSnapshotFields(session, sessionStatus === "running"),
     codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
+    codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
     board,
     completedBoard,
     leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),

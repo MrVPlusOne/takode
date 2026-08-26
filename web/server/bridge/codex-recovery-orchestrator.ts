@@ -24,6 +24,7 @@ import { isRecoverableCodexInitError } from "../codex-adapter-utils.js";
 import { isActualHumanUserInput, isActualHumanUserMessage } from "../user-message-classification.js";
 import {
   determineCodexTurnSourceKind,
+  getCodexAutoPauseRecoveryProgress,
   holdCodexAutoPausedQueuedBacklog,
   isCodexAutoPauseRecoveryTesting,
 } from "../codex-result-error-auto-pause.js";
@@ -77,6 +78,7 @@ import {
   type CodexLocalDeliveryActivitySummary,
 } from "./codex-delivery-ownership.js";
 import { clearOrphanedCodexProviderRetryState } from "./codex-provider-retry-state.js";
+import { getQueuedTurnLifecycleEntries, replaceQueuedTurnLifecycleEntries } from "./codex-queued-turn-lifecycle.js";
 import { runCodexSessionMetaBarrier } from "./codex-session-meta-barrier.js";
 export { clearCodexIntentionalRelaunch, markCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 export { maybeFlushQueuedCodexMessages } from "./codex-queued-message-flush.js";
@@ -159,6 +161,10 @@ export interface CodexRecoveryOrchestratorDeps {
     turn: CodexResumeTurnSnapshot,
     pending: CodexOutboundTurn,
   ) => number;
+  handleRecoveredCodexAutoPauseSuccess: (
+    session: CodexRecoveryOrchestratorSessionLike,
+    completedTurn: CodexOutboundTurn,
+  ) => Promise<void> | void;
   trackUserMessageForTurn: (
     session: CodexRecoveryOrchestratorSessionLike,
     historyIndex: number,
@@ -947,6 +953,7 @@ export function handleCodexAdapterInitError(
       type: "status_change",
       status: null,
       codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
+      codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
     });
     deps.persistSession(session);
     return "broken";
@@ -975,6 +982,7 @@ export function handleCodexAdapterInitError(
     type: "status_change",
     status: null,
     codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
+    codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
   });
   deps.persistSession(session);
   return "broken";
@@ -1105,7 +1113,12 @@ export function registerCodexAdapterRecoveryLifecycle(
     if (!pending) {
       if (source === "codex_goal_continuation" && !session.isGenerating) {
         deps.setGenerating(session, true, "codex_goal_continuation");
-        deps.broadcastToBrowsers(session, { type: "status_change", status: "running" });
+        deps.broadcastToBrowsers(session, {
+          type: "status_change",
+          status: "running",
+          codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
+          codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
+        });
         deps.persistSession(session);
       }
       return;
@@ -1245,6 +1258,7 @@ export function registerCodexAdapterRecoveryLifecycle(
           type: "status_change",
           status: "idle",
           codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
+          codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
         });
         deps.persistSession(session);
         console.log(
@@ -1264,6 +1278,7 @@ export function registerCodexAdapterRecoveryLifecycle(
       type: "status_change",
       status: null,
       codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
+      codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
     });
     deps.scheduleCodexToolResultWatchdogs(session, "codex_disconnect");
     deps.persistSession(session);
@@ -1587,27 +1602,24 @@ export function reconcileCodexResumedTurn(
     );
     return;
   }
-  if (recoveredAgents > 0) {
+  if (recoveredAgents > 0 || synthesizedResults > 0) {
     session.consecutiveAdapterFailures = 0;
     session.lastAdapterFailureAt = null;
+    const reason = recoveredAgents > 0 ? "codex_resume_recovered_messages" : "codex_resume_synthesized_results";
     deps.completeCodexTurn(session, pending);
-    clearGeneratingAfterRecoveredCompletedTurnIfIdle(session, "codex_resume_recovered_messages", deps);
-    reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_recovered_messages", deps);
-    deps.dispatchQueuedCodexTurns(session, "codex_resume_recovered_messages");
-    reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_recovered_messages_dispatched", deps);
-    deps.maybeFlushQueuedCodexMessages(session, "codex_resume_recovered_messages");
-    deps.persistSession(session);
-    return;
-  }
-  if (synthesizedResults > 0) {
-    session.consecutiveAdapterFailures = 0;
-    session.lastAdapterFailureAt = null;
-    deps.completeCodexTurn(session, pending);
-    clearGeneratingAfterRecoveredCompletedTurnIfIdle(session, "codex_resume_synthesized_results", deps);
-    reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_synthesized_results", deps);
-    deps.dispatchQueuedCodexTurns(session, "codex_resume_synthesized_results");
-    reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_synthesized_results_dispatched", deps);
-    deps.maybeFlushQueuedCodexMessages(session, "codex_resume_synthesized_results");
+    if (lastTurn.status === "completed" && lastTurn.error == null) {
+      const maybeRecovery = deps.handleRecoveredCodexAutoPauseSuccess(session, pending);
+      if (maybeRecovery instanceof Promise) {
+        void maybeRecovery.catch((error) => {
+          console.error(`[ws-bridge] Failed recovered Codex auto-pause handoff for ${sessionTag(session.id)}:`, error);
+        });
+      }
+    }
+    clearGeneratingAfterRecoveredCompletedTurnIfIdle(session, reason, deps);
+    reconcileRecoveredQueuedTurnLifecycle(session, reason, deps);
+    deps.dispatchQueuedCodexTurns(session, reason);
+    reconcileRecoveredQueuedTurnLifecycle(session, `${reason}_dispatched`, deps);
+    deps.maybeFlushQueuedCodexMessages(session, reason);
     deps.persistSession(session);
     return;
   }
@@ -1972,30 +1984,4 @@ export function clearStaleCodexCompactionState(
   deps.persistSession(session);
   console.warn(`[ws-bridge] Cleared stale Codex compaction state for session ${sessionTag(session.id)} (${reason})`);
   return true;
-}
-type QueuedTurnLifecycleEntry = {
-  reason: string;
-  userMessageIds: number[];
-  interruptSource: InterruptSource | null;
-  activeTurnRoute: ActiveTurnRoute | null;
-};
-function getQueuedTurnLifecycleEntries(session: CodexRecoveryOrchestratorSessionLike): QueuedTurnLifecycleEntry[] {
-  return Array.from({ length: session.queuedTurnStarts }, (_, idx) => ({
-    reason: session.queuedTurnReasons[idx] ?? "queued_user_message",
-    userMessageIds: Array.isArray(session.queuedTurnUserMessageIds[idx])
-      ? [...session.queuedTurnUserMessageIds[idx]!]
-      : [],
-    interruptSource: session.queuedTurnInterruptSources[idx] ?? null,
-    activeTurnRoute: session.queuedTurnActiveRoutes?.[idx] ?? null,
-  }));
-}
-function replaceQueuedTurnLifecycleEntries(
-  session: CodexRecoveryOrchestratorSessionLike,
-  entries: QueuedTurnLifecycleEntry[],
-): void {
-  session.queuedTurnStarts = entries.length;
-  session.queuedTurnReasons = entries.map((entry) => entry.reason);
-  session.queuedTurnUserMessageIds = entries.map((entry) => [...entry.userMessageIds]);
-  session.queuedTurnInterruptSources = entries.map((entry) => entry.interruptSource);
-  session.queuedTurnActiveRoutes = entries.map((entry) => entry.activeTurnRoute);
 }

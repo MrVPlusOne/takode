@@ -132,6 +132,7 @@ export function PausedInputChip({
   pause,
   autoPause,
   autoPauseRecoveryTesting = false,
+  autoPauseRecoveryProgress,
   heldCount,
   autoPausedHeldCount = 0,
   directComposerMessagesSend,
@@ -139,6 +140,7 @@ export function PausedInputChip({
   pause: SessionPauseState | null | undefined;
   autoPause?: SessionState["codex_result_error_auto_pause"];
   autoPauseRecoveryTesting?: boolean;
+  autoPauseRecoveryProgress?: "testing" | "active" | null;
   heldCount: number;
   autoPausedHeldCount?: number;
   directComposerMessagesSend: boolean;
@@ -158,9 +160,14 @@ export function PausedInputChip({
   const autoPauseCause = isAutoPause
     ? `Cause: ${fixedAutoPauseCause(autoPause.family)} at ${formatAutoPauseTime(autoPause.pausedAt!)}.`
     : "";
-  const autoPauseGuidance = autoPauseRecoveryTesting
-    ? "Testing recovery with your current message. Held inputs will release automatically if it succeeds."
-    : "Send a direct message to test recovery. If it succeeds, held inputs release automatically. If it fails, they remain held.";
+  const recoveryProgress =
+    autoPauseRecoveryProgress !== undefined ? autoPauseRecoveryProgress : autoPauseRecoveryTesting ? "testing" : null;
+  const autoPauseGuidance =
+    recoveryProgress === "active"
+      ? "Recovery is active for your current message. Automatic inputs remain held until it completes successfully."
+      : recoveryProgress === "testing"
+        ? "Testing recovery with your current message. Held inputs will release automatically if it succeeds."
+        : "Send a direct message to test recovery. If it succeeds, held inputs release automatically. If it fails, they remain held.";
   const listTitle = useMemo(() => {
     if (isAutoPause) return `Automatic inputs paused, ${label}. ${autoPauseCause} ${autoPauseGuidance}`;
     if (visibleCount > 0) return `Other input sources are paused. ${label} will release after resume.`;
@@ -204,7 +211,7 @@ export function PausedInputChip({
               className="min-w-0 basis-full space-y-0.5 break-words text-cc-fg sm:pl-1"
             >
               <p>{autoPauseCause}</p>
-              {autoPauseRecoveryTesting ? (
+              {recoveryProgress ? (
                 <p>{autoPauseGuidance}</p>
               ) : (
                 <>

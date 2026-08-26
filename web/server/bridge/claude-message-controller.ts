@@ -370,6 +370,9 @@ interface ResultMessageDeps {
   getCurrentTurnTriggerSource: (session: ResultMessageSessionLike) => "user" | "leader" | "system" | "unknown";
   reconcileTerminalResultState: (session: ResultMessageSessionLike) => void;
   getCodexAutoPauseRecoveryTesting?: (session: ResultMessageSessionLike) => boolean;
+  getCodexAutoPauseRecoveryProgress?: (
+    session: ResultMessageSessionLike,
+  ) => import("../session-types.js").CodexAutoPauseRecoveryProgress | null;
   finalizeOrphanedTerminalToolsOnResult: (session: ResultMessageSessionLike, msg: CLIResultMessage) => void;
   refreshGitInfoThenRecomputeDiff: (
     session: ResultMessageSessionLike,
@@ -795,6 +798,7 @@ export function handleResultMessage(
         type: "status_change",
         status: "idle",
         codexAutoPauseRecoveryTesting: deps.getCodexAutoPauseRecoveryTesting?.(session) ?? false,
+        codexAutoPauseRecoveryProgress: deps.getCodexAutoPauseRecoveryProgress?.(session) ?? null,
       });
       deps.persistSession(session);
     }
@@ -851,6 +855,7 @@ export function handleResultMessage(
       type: "status_change",
       status: "idle",
       codexAutoPauseRecoveryTesting: deps.getCodexAutoPauseRecoveryTesting?.(session) ?? false,
+      codexAutoPauseRecoveryProgress: deps.getCodexAutoPauseRecoveryProgress?.(session) ?? null,
     });
   }
   session.lastOutboundUserNdjson = null;

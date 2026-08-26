@@ -2,7 +2,10 @@ import { compactPendingCodexInputsForBrowser } from "../codex-pending-input-safe
 import type { CLIResultMessage, CodexOutboundTurn } from "../session-types.js";
 import { pruneStalePendingCodexHerdInputs as pruneStalePendingCodexHerdInputsController } from "./board-watchdog-controller.js";
 import { rebuildQueuedCodexPendingStartBatch as rebuildQueuedCodexPendingStartBatchController } from "./codex-recovery-orchestrator.js";
-import { handleCodexResultErrorAutoPause as handleCodexResultErrorAutoPauseDelivery } from "./codex-result-error-auto-pause-delivery.js";
+import {
+  handleCodexResultErrorAutoPause as handleCodexResultErrorAutoPauseDelivery,
+  handleRecoveredCodexAutoPauseSuccess as handleRecoveredCodexAutoPauseSuccessDelivery,
+} from "./codex-result-error-auto-pause-delivery.js";
 import type { Session } from "./ws-bridge-session.js";
 import { getRecoveryDeliveryTransferDepsForBridge } from "./ws-bridge-recovery-delivery-transfer-deps.js";
 
@@ -17,16 +20,17 @@ export function handleCodexResultErrorAutoPauseForBridge(
     session,
     msg,
     completedTurn,
-    {
-      ...getRecoveryDeliveryTransferDepsForBridge(host),
-      broadcastPendingCodexInputs: (targetSession) =>
-        host.broadcastToBrowsers(targetSession, {
-          type: "codex_pending_inputs",
-          inputs: compactPendingCodexInputsForBrowser(targetSession.pendingCodexInputs),
-        }),
-    },
+    getAutoPauseDeliveryDeps(host),
     interrupted,
   );
+}
+
+export function handleRecoveredCodexAutoPauseSuccessForBridge(
+  host: any,
+  session: Session,
+  completedTurn: CodexOutboundTurn,
+): Promise<void> | void {
+  return handleRecoveredCodexAutoPauseSuccessDelivery(session, completedTurn, getAutoPauseDeliveryDeps(host));
 }
 
 export function pruneStalePendingCodexHerdInputsForBridge(host: any, session: Session, reason: string): boolean {
@@ -41,4 +45,15 @@ export function pruneStalePendingCodexHerdInputsForBridge(host: any, session: Se
       rebuildQueuedCodexPendingStartBatchController(targetSession as Session, host.getCodexRecoveryOrchestratorDeps()),
     persistSession: (targetSession) => host.persistSession(targetSession as Session),
   });
+}
+
+function getAutoPauseDeliveryDeps(host: any) {
+  return {
+    ...getRecoveryDeliveryTransferDepsForBridge(host),
+    broadcastPendingCodexInputs: (targetSession: Session) =>
+      host.broadcastToBrowsers(targetSession, {
+        type: "codex_pending_inputs",
+        inputs: compactPendingCodexInputsForBrowser(targetSession.pendingCodexInputs),
+      }),
+  };
 }

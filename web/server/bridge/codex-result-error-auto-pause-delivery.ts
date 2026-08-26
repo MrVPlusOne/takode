@@ -1,9 +1,10 @@
 import {
   buildCodexAutoPauseDiagnostic,
+  getCodexAutoPauseRecoveryProgress,
   getActiveCodexResultErrorAutoPause,
-  isCodexAutoPauseRecoveryTesting,
   isAutomaticCodexAutoPauseInput,
   materializeCodexAutoPausedInputsForDrain,
+  noteCodexAutoPauseRecoverySuccess,
   noteCodexResultForAutoPause,
   queueCodexAutoPausedInput,
   sweepCodexAutoPausedQueuedBacklog,
@@ -70,6 +71,19 @@ export function handleCodexResultErrorAutoPause(
     });
   }
   deps.persistSession(session);
+}
+
+export function handleRecoveredCodexAutoPauseSuccess(
+  session: Session,
+  completedTurn: CodexOutboundTurn,
+  deps: CodexAutoPauseDeliveryDeps,
+): Promise<void> | void {
+  const activeBeforeResult = getActiveCodexResultErrorAutoPause(session);
+  const outcome = noteCodexAutoPauseRecoverySuccess(session, completedTurn, true);
+  if (!outcome.resumedNow) return;
+  const swept = sweepCodexAutoPausedQueuedBacklog(session);
+  if (swept.changed) deps.broadcastPendingCodexInputs(session);
+  return finishSuccessfulAutoPauseRecovery(session, activeBeforeResult, outcome.heldInputs ?? [], deps);
 }
 
 async function finishSuccessfulAutoPauseRecovery(
@@ -166,11 +180,13 @@ function broadcastCodexResultErrorAutoPauseUpdate(
   session: Session,
   deps: Pick<CodexAutoPauseDeliveryDeps, "broadcastToBrowsers">,
 ): void {
+  const progress = getCodexAutoPauseRecoveryProgress(session);
   deps.broadcastToBrowsers(session, {
     type: "session_update",
     session: {
       codex_result_error_auto_pause: session.state.codex_result_error_auto_pause ?? null,
-      codex_result_error_auto_pause_recovery_testing: isCodexAutoPauseRecoveryTesting(session),
+      codex_result_error_auto_pause_recovery_testing: progress !== null,
+      codex_result_error_auto_pause_recovery_progress: progress,
     },
   });
 }

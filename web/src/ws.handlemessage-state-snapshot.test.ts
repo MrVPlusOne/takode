@@ -251,7 +251,7 @@ describe("handleMessage: state_snapshot", () => {
     expect(useStore.getState().codexReasoningPreviews.get("s1")?.has("q-975")).toBe(true);
   });
 
-  it("restores the authoritative recovery-testing projection on reconnect", () => {
+  it("restores and replaces authoritative recovery progress on reconnect", () => {
     // Reconnect/restart must reconstruct testing from server turn ownership,
     // not a stale composer submit remembered by this browser.
     wsModule.connectSession("s1");
@@ -265,9 +265,38 @@ describe("handleMessage: state_snapshot", () => {
       uiMode: null,
       askPermission: true,
       codexAutoPauseRecoveryTesting: true,
+      codexAutoPauseRecoveryProgress: "active",
     });
 
     expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_testing).toBe(true);
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBe("active");
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "idle",
+      permissionMode: "default",
+      backendConnected: true,
+      uiMode: null,
+      askPermission: true,
+      codexAutoPauseRecoveryTesting: false,
+      codexAutoPauseRecoveryProgress: null,
+    });
+
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_testing).toBe(false);
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBeNull();
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "running",
+      permissionMode: "default",
+      backendConnected: true,
+      uiMode: null,
+      askPermission: true,
+      codexAutoPauseRecoveryTesting: true,
+      codexAutoPauseRecoveryProgress: null,
+    });
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_testing).toBe(false);
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBeNull();
   });
 
   it("stores backendState and backendError from the authoritative snapshot", () => {

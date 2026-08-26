@@ -713,8 +713,14 @@ describe("Codex disconnect auto-relaunch", () => {
         autoPauseRecoveryTestingRetired: false,
       });
       for (const connected of [first, second]) {
-        expect(connected.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
-          expect.objectContaining({ type: "status_change", status: null, codexAutoPauseRecoveryTesting: true }),
+        const events = connected.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "status_change",
+            status: null,
+            codexAutoPauseRecoveryTesting: true,
+            codexAutoPauseRecoveryProgress: "testing",
+          }),
         );
       }
 
@@ -732,7 +738,10 @@ describe("Codex disconnect auto-relaunch", () => {
       expect(first.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
         expect.objectContaining({
           type: "session_update",
-          session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: true }),
+          session: expect.objectContaining({
+            codex_result_error_auto_pause_recovery_testing: true,
+            codex_result_error_auto_pause_recovery_progress: "testing",
+          }),
         }),
       );
       expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
@@ -745,7 +754,11 @@ describe("Codex disconnect auto-relaunch", () => {
     bridge.handleBrowserMessage(reconnect, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
     await flushAsync();
     expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
-      expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryTesting: true }),
+      expect.objectContaining({
+        type: "state_snapshot",
+        codexAutoPauseRecoveryTesting: true,
+        codexAutoPauseRecoveryProgress: "testing",
+      }),
     );
   });
 
@@ -788,7 +801,10 @@ describe("Codex disconnect auto-relaunch", () => {
         expect(events).toContainEqual(
           expect.objectContaining({
             type: "session_update",
-            session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: false }),
+            session: expect.objectContaining({
+              codex_result_error_auto_pause_recovery_testing: false,
+              codex_result_error_auto_pause_recovery_progress: null,
+            }),
           }),
         );
         expect(events).toContainEqual(
@@ -804,7 +820,11 @@ describe("Codex disconnect auto-relaunch", () => {
     bridge.handleBrowserMessage(reconnect, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
     await flushAsync();
     expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
-      expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryTesting: false }),
+      expect.objectContaining({
+        type: "state_snapshot",
+        codexAutoPauseRecoveryTesting: false,
+        codexAutoPauseRecoveryProgress: null,
+      }),
     );
 
     const replacement = makeCodexAdapterMock();

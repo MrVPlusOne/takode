@@ -64,7 +64,7 @@ import { buildBoardRowSessionStatuses } from "./board-row-session-status.js";
 import * as gitUtils from "./git-utils.js";
 import { sessionTag } from "./session-tag.js";
 import { isSessionPaused } from "./session-pause.js";
-import { isCodexAutoPauseRecoveryTesting } from "./codex-result-error-auto-pause.js";
+import { getCodexAutoPauseRecoveryProgress, isCodexAutoPauseRecoveryTesting } from "./codex-result-error-auto-pause.js";
 import { retireCodexAutoPauseRecoveryTesting } from "./bridge/codex-auto-pause-recovery-testing.js";
 import type { PerfTracer } from "./perf-tracer.js";
 import { HerdEventDispatcher, isSessionIdleRuntime } from "./herd-event-dispatcher.js";
@@ -113,6 +113,7 @@ import {
   sendToBrowser as sendToBrowserController,
 } from "./bridge/browser-transport-controller.js";
 import type { BrowserTransportStateLike } from "./bridge/browser-transport-controller.js";
+import { handleRecoveredCodexAutoPauseSuccessForBridge } from "./bridge/ws-bridge-codex-pending-input-deps.js";
 import {
   flushQueuedCliMessages as flushQueuedCliMessagesController,
   handleCLIClose as handleCLICloseTransportController,
@@ -702,6 +703,10 @@ export function getClaudeMessageHandlers(host: any) {
       (targetSession as Session).backendType === "codex"
         ? isCodexAutoPauseRecoveryTesting(targetSession as Session)
         : false,
+    getCodexAutoPauseRecoveryProgress: (targetSession: unknown) =>
+      (targetSession as Session).backendType === "codex"
+        ? getCodexAutoPauseRecoveryProgress(targetSession as Session)
+        : null,
     finalizeOrphanedTerminalToolsOnResult: (targetSession: unknown, resultMsg: CLIResultMessage) =>
       host.finalizeOrphanedTerminalToolsOnResult(targetSession as Session, resultMsg),
     cancelPermissionNotification: (sessionId: string, requestId: string) =>
@@ -1310,6 +1315,7 @@ export function getBrowserRoutingDeps(host: any) {
             : null,
         codexReasoningPreviews: listCodexReasoningPreviews(session),
         codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
+        codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
       });
       host.scheduleBoardParticipantRefresh?.(session.id);
     },
@@ -1465,6 +1471,8 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
       turn: CodexResumeTurnSnapshot,
       pending: CodexOutboundTurn,
     ) => host.synthesizeCodexToolResultsFromResumedTurn(targetSession as Session, turn, pending),
+    handleRecoveredCodexAutoPauseSuccess: (targetSession: unknown, completedTurn: CodexOutboundTurn) =>
+      handleRecoveredCodexAutoPauseSuccessForBridge(host, targetSession as Session, completedTurn),
     injectCompactionRecovery: (targetSession: unknown) =>
       injectCompactionRecoveryController(targetSession as Session, host.getCompactionRecoveryRuntimeDeps()),
     trackUserMessageForTurn: (targetSession: unknown, historyIndex: number, target: UserDispatchTurnTarget) =>
@@ -1560,6 +1568,7 @@ export function getGenerationLifecycleDeps(host: any) {
             : null,
         codexReasoningPreviews: listCodexReasoningPreviews(session),
         codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
+        codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
       });
       host.scheduleBoardParticipantRefresh?.(session.id);
     },

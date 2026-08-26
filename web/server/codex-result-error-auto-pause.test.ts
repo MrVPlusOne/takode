@@ -4,6 +4,7 @@ import {
   classifyCodexResultError,
   determineCodexTurnSourceKind,
   determineUserMessageSourceKind,
+  getCodexAutoPauseRecoveryProgress,
   getCodexAutoPauseHeldInputCount,
   isCodexAutoPauseRecoveryTesting,
   materializeCodexAutoPausedInputsForDrain,
@@ -44,8 +45,14 @@ function session(): { state: Pick<SessionState, "codex_result_error_auto_pause">
   return { state: { codex_result_error_auto_pause: null } };
 }
 
-function turn(sourceKind: "manual" | "automatic"): Pick<CodexOutboundTurn, "autoPauseSourceKind"> {
-  return { autoPauseSourceKind: sourceKind };
+function turn(
+  sourceKind: "manual" | "automatic",
+): Pick<CodexOutboundTurn, "autoPauseRecoveryTestingRetired" | "autoPauseSourceKind" | "turnTarget"> {
+  return {
+    autoPauseSourceKind: sourceKind,
+    turnTarget: sourceKind === "manual" ? "current" : null,
+    autoPauseRecoveryTestingRetired: false,
+  };
 }
 
 describe("Codex result-error auto-pause", () => {
@@ -220,6 +227,46 @@ describe("Codex result-error auto-pause", () => {
     expect(s.state.codex_result_error_auto_pause).toBeNull();
   });
 
+  it("does not let a retired or queued manual owner clear the pause on later success", () => {
+    const success = result({ is_error: false, result: "ok", subtype: "success", stop_reason: "end_turn" });
+    for (const owner of [
+      { ...turn("manual"), autoPauseRecoveryTestingRetired: true },
+      { ...turn("manual"), turnTarget: "queued" as const },
+    ]) {
+      const s = session();
+      noteCodexResultForAutoPause(s, copilotAuthRefreshResult(), turn("automatic"), 100);
+      queueCodexAutoPausedInput(s, "programmatic", {
+        type: "user_message",
+        content: "held herd event",
+        agentSource: { sessionId: "herd-events" },
+      });
+
+      expect(noteCodexResultForAutoPause(s, success, owner, 200)).toMatchObject({ resumedNow: false });
+      expect(s.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
+    }
+  });
+
+  it("retains the empty held array so a post-success backlog sweep joins the same handoff", () => {
+    const s = session();
+    noteCodexResultForAutoPause(s, copilotAuthRefreshResult(), turn("automatic"), 100);
+    const heldInputs = s.state.codex_result_error_auto_pause!.heldInputs;
+    const outcome = noteCodexResultForAutoPause(
+      s,
+      result({ is_error: false, result: "ok", subtype: "success", stop_reason: "end_turn" }),
+      turn("manual"),
+      200,
+      { retainPausedOwnerOnResume: true },
+    );
+
+    expect(outcome.heldInputs).toBe(heldInputs);
+    queueCodexAutoPausedInput(s, "programmatic", {
+      type: "user_message",
+      content: "queued after success classification",
+      agentSource: { sessionId: "herd-events" },
+    });
+    expect(outcome.heldInputs).toHaveLength(1);
+  });
+
   it("coalesces repeated automatic held inputs and materializes one representative on drain", () => {
     const s = session();
     noteCodexResultForAutoPause(s, result({ uuid: "r1" }), turn("automatic"), 100);
@@ -311,7 +358,7 @@ describe("Codex result-error auto-pause", () => {
     expect(determineCodexTurnSourceKind([manual, automatic])).toBe("automatic");
   });
 
-  it("derives recovery testing only from an active current manual turn under the existing pause", () => {
+  it("derives testing and active progress only from the exact current manual owner", () => {
     // The browser must not infer testing from a local submit or generic running
     // status; current server-owned turn source and ownership are both required.
     const target = session();
@@ -320,9 +367,29 @@ describe("Codex result-error auto-pause", () => {
       autoPauseSourceKind: "manual" as const,
       status: "backend_acknowledged" as const,
       turnTarget: "current" as const,
+      turnId: "turn-recovery",
     };
 
     expect(isCodexAutoPauseRecoveryTesting({ ...target, pendingCodexTurns: [activeTurn] })).toBe(true);
+    expect(getCodexAutoPauseRecoveryProgress({ ...target, pendingCodexTurns: [activeTurn] })).toBe("testing");
+    expect(
+      getCodexAutoPauseRecoveryProgress({
+        ...target,
+        state: { ...target.state, backend_state: "connected" },
+        isGenerating: true,
+        codexAdapter: { getCurrentTurnId: () => "turn-recovery" },
+        pendingCodexTurns: [activeTurn],
+      }),
+    ).toBe("active");
+    expect(
+      getCodexAutoPauseRecoveryProgress({
+        ...target,
+        state: { ...target.state, backend_state: "connected" },
+        isGenerating: true,
+        codexAdapter: { getCurrentTurnId: () => "unrelated-turn" },
+        pendingCodexTurns: [activeTurn],
+      }),
+    ).toBeNull();
     expect(
       isCodexAutoPauseRecoveryTesting({
         ...target,
@@ -338,6 +405,12 @@ describe("Codex result-error auto-pause", () => {
     expect(
       isCodexAutoPauseRecoveryTesting({ ...target, pendingCodexTurns: [{ ...activeTurn, status: "queued" }] }),
     ).toBe(true);
+    expect(
+      getCodexAutoPauseRecoveryProgress({
+        ...target,
+        pendingCodexTurns: [{ ...activeTurn, autoPauseRecoveryTestingRetired: true }],
+      }),
+    ).toBeNull();
     expect(
       isCodexAutoPauseRecoveryTesting({
         ...target,

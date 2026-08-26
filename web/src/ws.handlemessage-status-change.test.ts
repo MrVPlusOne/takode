@@ -217,7 +217,7 @@ describe("handleMessage: status_change", () => {
     expect(useStore.getState().codexReasoningPreviews.get("s1")?.get("q-975")?.text).toBe("Retained across result");
   });
 
-  it("applies server-authored testing updates and clears omitted legacy terminal projections", () => {
+  it("applies server-authored recovery progress without downgrading active on legacy running updates", () => {
     // Generic local running state is insufficient; only the server projection
     // may switch the auto-pause banner into its testing copy.
     wsModule.connectSession("s1");
@@ -225,12 +225,31 @@ describe("handleMessage: status_change", () => {
 
     fireMessage({ type: "status_change", status: "running", codexAutoPauseRecoveryTesting: true });
     expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_testing).toBe(true);
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBe("testing");
+
+    fireMessage({
+      type: "status_change",
+      status: "running",
+      codexAutoPauseRecoveryTesting: true,
+      codexAutoPauseRecoveryProgress: "active",
+    });
+    fireMessage({ type: "status_change", status: "running", codexAutoPauseRecoveryTesting: true });
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBe("active");
+
+    fireMessage({ type: "status_change", status: "compacting" });
+    fireMessage({ type: "status_change", status: null });
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBe("active");
+
+    fireMessage({ type: "status_change", status: null, codexAutoPauseRecoveryTesting: true });
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBe("testing");
 
     fireMessage({ type: "status_change", status: "idle" });
     expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_testing).toBe(false);
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBeNull();
 
     fireMessage({ type: "status_change", status: "running", codexAutoPauseRecoveryTesting: true });
     fireMessage({ type: "status_change", status: null });
     expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_testing).toBe(false);
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBeNull();
   });
 });
