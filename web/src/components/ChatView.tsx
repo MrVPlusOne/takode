@@ -1135,6 +1135,19 @@ export function ChatView({
       leaderOpenThreadTabs: authoritativeLeaderOpenThreadTabs,
     }),
   );
+  const selectedThreadKeyRef = useRef(selectedThreadKey);
+  selectedThreadKeyRef.current = selectedThreadKey;
+  const passiveRestoreThreadKeyRef = useRef(hasThreadRoute ? null : readLeaderSelectedThreadKey(sessionId));
+  const wasLeaderSessionRef = useRef(isLeaderSession);
+  if (isLeaderSession) wasLeaderSessionRef.current = true;
+  useLayoutEffect(
+    () => () => {
+      if (wasLeaderSessionRef.current && !preview) {
+        persistLeaderSelectedThreadKey(sessionId, selectedThreadKeyRef.current);
+      }
+    },
+    [preview, sessionId],
+  );
   const [selectedSideChatId, setSelectedSideChatId] = useState<string | null>(null);
   const selectedSideChat = selectedSideChatId ? slackThreads[selectedSideChatId] : undefined;
 
@@ -1372,6 +1385,8 @@ export function ChatView({
         });
       }
       openThreadTab(nextThreadKey);
+      passiveRestoreThreadKeyRef.current = nextThreadKey;
+      selectedThreadKeyRef.current = nextThreadKey;
       if (isLeaderSession && !preview) {
         persistLeaderSelectedThreadKey(sessionId, nextThreadKey);
       }
@@ -1560,6 +1575,8 @@ export function ChatView({
     if (!isLeaderSession) {
       if (!sessionMetadataKnown) return;
       lastProcessedRouteThreadKeyRef.current = null;
+      passiveRestoreThreadKeyRef.current = MAIN_THREAD_KEY;
+      selectedThreadKeyRef.current = MAIN_THREAD_KEY;
       if (selectedThreadKey !== MAIN_THREAD_KEY) {
         setSelectedThreadKey(MAIN_THREAD_KEY);
       }
@@ -1572,12 +1589,14 @@ export function ChatView({
     if (!hasThreadRoute) {
       lastProcessedRouteThreadKeyRef.current = null;
       const restoredThreadKey = restorableSelectedThreadKey({
-        threadKey: readLeaderSelectedThreadKey(sessionId),
+        threadKey: passiveRestoreThreadKeyRef.current,
         authoritativeLeaderOpenThreadTabs,
         openThreadTabKeys,
         rows: navigationThreadRows,
       });
       const nextThreadKey = restoredThreadKey ?? MAIN_THREAD_KEY;
+      passiveRestoreThreadKeyRef.current = nextThreadKey;
+      selectedThreadKeyRef.current = nextThreadKey;
       if (selectedThreadKey !== nextThreadKey) {
         setSelectedThreadKey(nextThreadKey);
       }
@@ -1591,6 +1610,8 @@ export function ChatView({
 
     if (!routeThreadKey) {
       lastProcessedRouteThreadKeyRef.current = null;
+      passiveRestoreThreadKeyRef.current = MAIN_THREAD_KEY;
+      selectedThreadKeyRef.current = MAIN_THREAD_KEY;
       if (selectedThreadKey !== MAIN_THREAD_KEY) {
         setSelectedThreadKey(MAIN_THREAD_KEY);
       }
@@ -1613,6 +1634,8 @@ export function ChatView({
         openThreadTab(nextThreadKey, { intent: "external_route", repositionExisting });
       }
       lastProcessedRouteThreadKeyRef.current = nextThreadKey;
+      passiveRestoreThreadKeyRef.current = nextThreadKey;
+      selectedThreadKeyRef.current = nextThreadKey;
       if (selectedThreadKey !== nextThreadKey) {
         setSelectedThreadKey(nextThreadKey);
       }
@@ -1625,6 +1648,8 @@ export function ChatView({
 
     if (!historyLoading && hasKnownThreadSources) {
       lastProcessedRouteThreadKeyRef.current = null;
+      passiveRestoreThreadKeyRef.current = MAIN_THREAD_KEY;
+      selectedThreadKeyRef.current = MAIN_THREAD_KEY;
       if (selectedThreadKey !== MAIN_THREAD_KEY) {
         setSelectedThreadKey(MAIN_THREAD_KEY);
       }

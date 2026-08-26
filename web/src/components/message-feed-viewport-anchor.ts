@@ -88,20 +88,18 @@ export function isViewportAnchorAtSavedOffset(
 export function schedulePostLayoutViewportAnchorRestore({
   container,
   position,
-  offsetBeforeRestore,
   restore,
   onSettled,
 }: {
   container: { current: HTMLDivElement | null };
   position: FeedViewportPosition;
-  offsetBeforeRestore: number | null;
   restore: (position: FeedViewportPosition) => boolean;
   onSettled?: () => void;
 }): void {
   requestAnimationFrame(() => {
     const currentOffset = getViewportAnchorOffset(container.current, position);
     const targetOffset = position.anchorOffsetTop ?? 0;
-    if (offsetBeforeRestore != null && currentOffset != null && Math.abs(currentOffset - offsetBeforeRestore) < 1) {
+    if (currentOffset != null && Math.abs(currentOffset - targetOffset) <= 3) {
       onSettled?.();
       return;
     }

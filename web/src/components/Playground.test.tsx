@@ -100,6 +100,8 @@ describe("Playground", () => {
 
     expect(screen.getByText("Component Playground")).toBeTruthy();
     expect(screen.getByText("Real Chat Stack")).toBeTruthy();
+    expect(screen.getByText("Leader Session Return Stability")).toBeTruthy();
+    expect(screen.getByTestId("playground-leader-session-return")).toBeTruthy();
     expect(screen.getByText("Shortcut Hints")).toBeTruthy();
     expect(screen.getByText("Timer Messages")).toBeTruthy();
     expect(screen.getByText("Grouped repeated error cards")).toBeTruthy();

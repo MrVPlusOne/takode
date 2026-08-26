@@ -26,7 +26,7 @@ beforeAll(() => {
   });
 });
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import type { ChatMessage, ThreadWindowState } from "../types.js";
 
 vi.mock("react-markdown", () => ({
@@ -403,10 +403,10 @@ describe("MessageFeed thread viewport restoration", () => {
     });
     HTMLElement.prototype.getBoundingClientRect = function () {
       if (this instanceof HTMLElement && this.dataset.messageId === "a-visible") {
-        return DOMRect.fromRect({ x: 0, y: 1450, width: 600, height: 100 });
+        return DOMRect.fromRect({ x: 0, y: 1450 - scrollTopValue, width: 600, height: 100 });
       }
       if (this instanceof HTMLElement && this.dataset.turnId === "u-anchor") {
-        return DOMRect.fromRect({ x: 0, y: 300, width: 600, height: 1300 });
+        return DOMRect.fromRect({ x: 0, y: 300 - scrollTopValue, width: 600, height: 1300 });
       }
       if (this instanceof HTMLDivElement && this.classList.contains("overflow-y-auto")) {
         return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 700 });
@@ -520,7 +520,7 @@ describe("MessageFeed thread viewport restoration", () => {
     });
     HTMLElement.prototype.getBoundingClientRect = function () {
       if (this instanceof HTMLElement && this.dataset.turnId === "u-anchor") {
-        return DOMRect.fromRect({ x: 0, y: 1450, width: 600, height: 100 });
+        return DOMRect.fromRect({ x: 0, y: 1450 - scrollTopValue, width: 600, height: 100 });
       }
       if (this instanceof HTMLDivElement && this.classList.contains("overflow-y-auto")) {
         return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 846 });
@@ -600,7 +600,7 @@ describe("MessageFeed thread viewport restoration", () => {
     });
     HTMLElement.prototype.getBoundingClientRect = function () {
       if (this instanceof HTMLElement && this.dataset.turnId === "u-anchor") {
-        return DOMRect.fromRect({ x: 0, y: 1450, width: 600, height: 100 });
+        return DOMRect.fromRect({ x: 0, y: 1450 - scrollTopValue, width: 600, height: 100 });
       }
       if (this instanceof HTMLDivElement && this.classList.contains("overflow-y-auto")) {
         return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 846 });
@@ -694,7 +694,7 @@ describe("MessageFeed thread viewport restoration", () => {
     });
     HTMLElement.prototype.getBoundingClientRect = function () {
       if (this instanceof HTMLElement && this.dataset.turnId === "u-anchor") {
-        return DOMRect.fromRect({ x: 0, y: 1450, width: 600, height: 100 });
+        return DOMRect.fromRect({ x: 0, y: 1450 - scrollTopValue, width: 600, height: 100 });
       }
       if (this instanceof HTMLDivElement && this.classList.contains("overflow-y-auto")) {
         return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 846 });
@@ -787,7 +787,7 @@ describe("MessageFeed thread viewport restoration", () => {
     });
     HTMLElement.prototype.getBoundingClientRect = function () {
       if (this instanceof HTMLElement && this.dataset.turnId === "u-7") {
-        return DOMRect.fromRect({ x: 0, y: 1450, width: 600, height: 100 });
+        return DOMRect.fromRect({ x: 0, y: 1450 - scrollTopValue, width: 600, height: 100 });
       }
       if (this instanceof HTMLDivElement && this.classList.contains("overflow-y-auto")) {
         return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 846 });
@@ -882,7 +882,9 @@ describe("MessageFeed thread viewport restoration", () => {
     });
     HTMLElement.prototype.getBoundingClientRect = function () {
       if (this instanceof HTMLElement && this.dataset.turnId === "u-7") {
-        return DOMRect.fromRect({ x: 0, y: 1450, width: 600, height: 100 });
+        const container = this.closest<HTMLDivElement>("[data-testid='message-feed-scroll-container']");
+        const scrollTop = container ? (scrollTopByElement.get(container) ?? 0) : 0;
+        return DOMRect.fromRect({ x: 0, y: 1450 - scrollTop, width: 600, height: 100 });
       }
       if (this instanceof HTMLDivElement && this.classList.contains("overflow-y-auto")) {
         return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 846 });
@@ -994,10 +996,10 @@ describe("MessageFeed thread viewport restoration", () => {
     });
     HTMLElement.prototype.getBoundingClientRect = function () {
       if (this instanceof HTMLElement && this.dataset.messageId === "a-q1813-answer") {
-        return DOMRect.fromRect({ x: 0, y: 1520, width: 600, height: 180 });
+        return DOMRect.fromRect({ x: 0, y: 1520 - scrollTopValue, width: 600, height: 180 });
       }
       if (this instanceof HTMLElement && this.dataset.turnId === "u-q1813") {
-        return DOMRect.fromRect({ x: 0, y: 1320, width: 600, height: 420 });
+        return DOMRect.fromRect({ x: 0, y: 1320 - scrollTopValue, width: 600, height: 420 });
       }
       if (this instanceof HTMLDivElement && this.classList.contains("overflow-y-auto")) {
         return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 846 });
@@ -1047,6 +1049,142 @@ describe("MessageFeed thread viewport restoration", () => {
       await waitFor(() => expect(scrollTopValue).toBe(1424));
       expect(screen.getByText("Completed q-1813 answer")).toBeTruthy();
     } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
+      else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;
+      if (originalScrollTop) Object.defineProperty(HTMLDivElement.prototype, "scrollTop", originalScrollTop);
+      else delete (HTMLDivElement.prototype as { scrollTop?: unknown }).scrollTop;
+      if (originalClientHeight) Object.defineProperty(HTMLDivElement.prototype, "clientHeight", originalClientHeight);
+      else delete (HTMLDivElement.prototype as { clientHeight?: unknown }).clientHeight;
+    }
+  });
+
+  it("keeps the saved Main anchor after target hydration rolls back to an older visible message", async () => {
+    // Producer-shaped 30-item Main windows reproduce the desktop return race:
+    // the old window snapshots msg-117, target hydration synchronously restores
+    // msg-130, then the late layout-signature effect restores msg-117 before the
+    // queued saved-anchor verification runs. Repeated returns must let msg-130
+    // win and remain the durable viewport rather than persisting the rollback.
+    const sid = "test-main-target-hydration-late-layout-rollback";
+    const makeMainMessages = (first: number, last: number) =>
+      Array.from({ length: last - first + 1 }, (_, index) => {
+        const ordinal = first + index;
+        return makeMessage({
+          id: `msg-${ordinal}`,
+          role: "user",
+          content: `Main item ${ordinal}`,
+          historyIndex: ordinal - 1,
+          timestamp: ordinal,
+        });
+      });
+    const olderWindowMessages = makeMainMessages(88, 117);
+    const targetWindowMessages = makeMainMessages(102, 131);
+    const makeMainWindow = (fromItem: number, windowHash: string): ThreadWindowState => ({
+      thread_key: "main",
+      from_item: fromItem,
+      item_count: 30,
+      total_items: 131,
+      has_older_items: fromItem > 0,
+      has_newer_items: fromItem + 30 < 131,
+      source_history_length: 131,
+      section_item_count: 10,
+      visible_item_count: 3,
+      window_hash: windowHash,
+    });
+    const setMainWindow = (window: ThreadWindowState, messages: ChatMessage[], revision: number) => {
+      mockStoreValues.threadWindows = new Map([[sid, new Map([["main", window]])]]);
+      mockStoreValues.threadWindowMessages = new Map([[sid, new Map([["main", messages]])]]);
+      mockStoreValues.threadWindowAppliedRevisions = new Map([[sid, new Map([["main", revision]])]]);
+    };
+
+    setStoreMessages(sid, []);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    persistLeaderViewportPosition(sid, "main", {
+      scrollTop: 12900,
+      scrollHeight: 14000,
+      isAtBottom: false,
+      anchorMessageId: "msg-130",
+      anchorTurnId: "msg-130",
+      anchorOffsetTop: 100,
+    });
+
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollHeight");
+    const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollTop");
+    const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "clientHeight");
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    const immediateRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const frames: FrameRequestCallback[] = [];
+    let scrollTopValue = 11700;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 14000 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "clientHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 600 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "scrollTop", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? scrollTopValue : 0;
+      },
+      set(value) {
+        if (this.classList.contains("overflow-y-auto")) scrollTopValue = value as number;
+      },
+    });
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this instanceof HTMLElement && this.dataset.messageId?.startsWith("msg-")) {
+        const ordinal = Number(this.dataset.messageId.slice("msg-".length));
+        return DOMRect.fromRect({ x: 0, y: ordinal * 100 - scrollTopValue, width: 600, height: 80 });
+      }
+      if (this instanceof HTMLDivElement && this.classList.contains("overflow-y-auto")) {
+        return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 600 });
+      }
+      return originalRect.call(this);
+    };
+
+    const flushQueuedAnimationFrames = async () => {
+      for (let frame = 0; frame < 20 && frames.length > 0; frame += 1) {
+        const callbacks = frames.splice(0);
+        await act(async () => {
+          callbacks.forEach((callback) => callback(frame));
+          await Promise.resolve();
+        });
+      }
+    };
+
+    try {
+      for (let cycle = 1; cycle <= 2; cycle += 1) {
+        scrollTopValue = 11700;
+        setMainWindow(makeMainWindow(87, `older-${cycle}`), olderWindowMessages, cycle * 2 - 1);
+        const view = render(<MessageFeed key={`return-${cycle}`} sessionId={sid} threadKey="main" />);
+        await flushQueuedAnimationFrames();
+        expect(screen.getByText("Main item 117")).toBeTruthy();
+
+        setMainWindow(makeMainWindow(101, `target-${cycle}`), targetWindowMessages, cycle * 2);
+        view.rerender(<MessageFeed key={`return-${cycle}`} sessionId={sid} threadKey="main" />);
+        expect(screen.getByText("Main item 130")).toBeTruthy();
+
+        await flushQueuedAnimationFrames();
+        expect(scrollTopValue).toBe(12900);
+        expect(
+          screen.getByText("Main item 130").closest<HTMLElement>("[data-message-id='msg-130']")?.getBoundingClientRect()
+            .top,
+        ).toBe(100);
+
+        view.unmount();
+        expect(readLeaderViewportPosition(sid, "main")?.anchorMessageId).toBe("msg-130");
+      }
+    } finally {
+      vi.stubGlobal("requestAnimationFrame", immediateRequestAnimationFrame);
       HTMLElement.prototype.getBoundingClientRect = originalRect;
       if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
       else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;

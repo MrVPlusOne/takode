@@ -1293,7 +1293,7 @@ export function MessageFeed({
     if (pos && !pos.isAtBottom && (pos.anchorMessageId || pos.anchorTurnId)) {
       if (selectedFeedWindowEnabled && !activeThreadWindow) return;
       pendingExactViewportRestoreRef.current = { restoreKey, position: pos };
-      const anchorOffsetBeforeRestore = viewportAnchor.getViewportAnchorOffset(containerRef.current, pos);
+      lastViewportAnchorRef.current = null;
       if (restoreSavedViewportAnchor(pos)) {
         pendingViewportAnchorWindowRequestRef.current = null;
         autoFollowEnabledRef.current = false;
@@ -1302,7 +1302,6 @@ export function MessageFeed({
         viewportAnchor.schedulePostLayoutViewportAnchorRestore({
           container: containerRef,
           position: pos,
-          offsetBeforeRestore: anchorOffsetBeforeRestore,
           restore: restoreSavedViewportAnchor,
           onSettled: () => {
             pendingExactViewportRestoreRef.current = null;

@@ -51,6 +51,63 @@ describe("message-feed viewport anchors", () => {
     expect(isSystemErrorMessageAnchor(container, "assistant-visible")).toBe(false);
   });
 
+  it("retries when a late layout restore rolls the saved anchor back before the first frame", () => {
+    // MessageFeed restores the durable anchor synchronously, but a later layout
+    // signature effect in the same commit can restore the pre-hydration anchor.
+    // Seeing the pre-restore offset on the first frame is therefore evidence of
+    // rollback, not settlement; the saved offset must win before completion.
+    const container = document.createElement("div") as HTMLDivElement;
+    setRect(container, 0, 400);
+    const savedAnchor = document.createElement("div");
+    savedAnchor.dataset.messageId = "msg-130";
+    let anchorTop = 1300;
+    savedAnchor.getBoundingClientRect = () => DOMRect.fromRect({ x: 0, y: anchorTop, width: 600, height: 80 });
+    container.appendChild(savedAnchor);
+
+    const frames: FrameRequestCallback[] = [];
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const restore = vi.fn(() => {
+      anchorTop = 100;
+      return true;
+    });
+    const settledOffsets: number[] = [];
+
+    try {
+      // The caller already performed the synchronous restore before scheduling
+      // post-layout verification.
+      anchorTop = 100;
+      schedulePostLayoutViewportAnchorRestore({
+        container: { current: container },
+        position: {
+          scrollTop: 12900,
+          scrollHeight: 14000,
+          isAtBottom: false,
+          anchorMessageId: "msg-130",
+          anchorTurnId: "msg-130",
+          anchorOffsetTop: 100,
+        },
+        restore,
+        onSettled: () => settledOffsets.push(anchorTop),
+      });
+
+      // A later layout-signature restore puts the old viewport back before the
+      // queued verification frame runs.
+      container.scrollTop = 12900;
+      anchorTop = 1300;
+      container.scrollTop = 11700;
+      while (frames.length > 0) frames.shift()?.(0);
+
+      expect(restore).toHaveBeenCalled();
+      expect(anchorTop).toBe(100);
+      expect(settledOffsets).toEqual([100]);
+    } finally {
+      requestFrame.mockRestore();
+    }
+  });
+
   it("restores the visible anchor after historical attachment content is inserted above it", () => {
     // A selected quest can gain older attached rows after completion is visible;
     // layout settling must keep that completion at the same viewport offset.
@@ -84,7 +141,6 @@ describe("message-feed viewport anchors", () => {
           anchorTurnId: "completion-turn",
           anchorOffsetTop: 120,
         },
-        offsetBeforeRestore: 120,
         restore,
         onSettled: settled,
       });

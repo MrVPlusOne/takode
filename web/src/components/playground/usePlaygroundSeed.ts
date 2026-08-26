@@ -13,6 +13,8 @@ import {
   PLAYGROUND_CODEX_TERMINAL_SESSION_ID,
   PLAYGROUND_DISCONNECTED_SESSION_ID,
   PLAYGROUND_LOADING_SESSION_ID,
+  PLAYGROUND_LEADER_RETURN_AWAY_SESSION_ID,
+  PLAYGROUND_LEADER_RETURN_SESSION_ID,
   PLAYGROUND_RECOVERING_SESSION_ID,
   PLAYGROUND_REPEATED_ERROR_SESSION_ID,
   PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID,
@@ -38,6 +40,7 @@ import {
   makePlaygroundSectionedMessages,
 } from "./fixtures.js";
 import { buildPlaygroundAutoPauseRecoveryMessage } from "./AutoPausePlaygroundStates.js";
+import { createSyntheticLargeLeaderFeedFixture } from "../../test-fixtures/large-leader-feed-fixture.js";
 
 export function usePlaygroundSeed() {
   useEffect(() => {
@@ -51,6 +54,8 @@ export function usePlaygroundSeed() {
       PLAYGROUND_SECTIONED_SESSION_ID,
       PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID,
       PLAYGROUND_LOADING_SESSION_ID,
+      PLAYGROUND_LEADER_RETURN_SESSION_ID,
+      PLAYGROUND_LEADER_RETURN_AWAY_SESSION_ID,
       PLAYGROUND_CODEX_TERMINAL_SESSION_ID,
       PLAYGROUND_CODEX_PENDING_SESSION_ID,
       PLAYGROUND_REPEATED_ERROR_SESSION_ID,
@@ -552,6 +557,73 @@ export function usePlaygroundSeed() {
     store.setSessionStatus(PLAYGROUND_THREAD_PANEL_SESSION_ID, "running");
     store.setActiveTurnRoute(PLAYGROUND_THREAD_PANEL_SESSION_ID, { threadKey: "q-961", questId: "q-961" });
     store.setStreamingStats(PLAYGROUND_THREAD_PANEL_SESSION_ID, { startedAt: Date.now() - 42_000, outputTokens: 1280 });
+    const leaderReturnFixture = createSyntheticLargeLeaderFeedFixture({
+      historyMessageCount: 131,
+      selectedTailCount: 30,
+    });
+    const leaderReturnSession: SessionState = {
+      ...session,
+      session_id: PLAYGROUND_LEADER_RETURN_SESSION_ID,
+      cwd: "/tmp/takode-playground/leader-return",
+      is_containerized: false,
+      isOrchestrator: true,
+      leaderOpenThreadTabs: {
+        version: 1,
+        orderedOpenThreadKeys: ["q-1944"],
+        closedThreadTombstones: [],
+        updatedAt: 1,
+      },
+    };
+    const leaderReturnAwaySession: SessionState = {
+      ...session,
+      session_id: PLAYGROUND_LEADER_RETURN_AWAY_SESSION_ID,
+      cwd: "/tmp/takode-playground/away",
+      is_containerized: false,
+      isOrchestrator: false,
+    };
+    store.addSession(leaderReturnSession);
+    store.addSession(leaderReturnAwaySession);
+    for (const id of [PLAYGROUND_LEADER_RETURN_SESSION_ID, PLAYGROUND_LEADER_RETURN_AWAY_SESSION_ID]) {
+      store.setConnectionStatus(id, "connected");
+      store.setCliConnected(id, true);
+      store.setSessionStatus(id, "idle");
+    }
+    store.setMessages(PLAYGROUND_LEADER_RETURN_SESSION_ID, leaderReturnFixture.allMessages);
+    store.setMessages(PLAYGROUND_LEADER_RETURN_AWAY_SESSION_ID, [
+      makePlaygroundMessage({
+        id: "playground-leader-return-away-message",
+        role: "assistant",
+        content: "Synthetic away session for repeated leader return validation.",
+        timestamp: Date.now() - 30_000,
+        historyIndex: 0,
+      }),
+    ]);
+    store.setThreadWindow(
+      PLAYGROUND_LEADER_RETURN_SESSION_ID,
+      "main",
+      {
+        thread_key: "main",
+        from_item: 101,
+        item_count: 30,
+        total_items: 131,
+        has_older_items: true,
+        has_newer_items: false,
+        source_history_length: leaderReturnFixture.selectedWindowSourceHistoryLength,
+        section_item_count: 10,
+        visible_item_count: 3,
+        window_hash: "playground-leader-return-main",
+      },
+      leaderReturnFixture.selectedMainWindowMessages,
+    );
+    store.setSessionCompletedBoard(PLAYGROUND_LEADER_RETURN_SESSION_ID, [
+      {
+        questId: "q-1944",
+        title: "Completed tab must stay passive",
+        status: "DONE",
+        updatedAt: Date.now() - 20_000,
+        completedAt: Date.now() - 20_000,
+      },
+    ]);
     store.setMessages(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
       makePlaygroundMessage({
         id: "playground-thread-main",
