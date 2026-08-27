@@ -1,6 +1,6 @@
 {
   "name": "takode",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260827172339",
   "description": "Use the Takode Quest CLI plus personal to-dos, memory, and shared-resource leases from Codex.",
   "author": {
     "name": "Jiayi Wei"
@@ -12,7 +12,10 @@
     "longDescription": "Connect Codex tasks to Takode's durable Quest CLI, personal to-dos, curated memory, and shared-resource lease status.",
     "developerName": "Jiayi Wei",
     "category": "Productivity",
-    "capabilities": ["Read", "Write"],
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
     "defaultPrompt": [
       "Use the Quest CLI to show my current Takode quests.",
       "Show my current Takode to-dos.",
