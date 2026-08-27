@@ -2,7 +2,7 @@ import { useMemo, useCallback } from "react";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { useStore } from "../store.js";
 import { copyRichText, writeClipboardText } from "../utils/copy-utils.js";
-import { htmlFragmentToMarkdown } from "../utils/html-to-markdown.js";
+import { htmlFragmentToMarkdown, htmlFragmentToRichText } from "../utils/html-to-markdown.js";
 import type { TextSelectionState } from "../hooks/useTextSelection.js";
 
 interface SelectionContextMenuProps {
@@ -53,11 +53,7 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
   const handleCopyRichText = useCallback(() => {
     if (!selection.range) return;
     try {
-      const fragment = selection.range.cloneContents();
-      const tempDiv = document.createElement("div");
-      tempDiv.appendChild(fragment);
-      const html = tempDiv.innerHTML;
-      const plainText = selection.plainText;
+      const { html, plainText } = htmlFragmentToRichText(selection.range);
       copyRichText(html, plainText).catch((e) => console.error("Failed to copy rich text:", e));
     } catch (e) {
       // Range may have become stale if the DOM re-rendered since selection

@@ -10,6 +10,7 @@ import { MessageBubble } from "../MessageBubble.js";
 import { ChatView, QuestThreadBanner, type QuestThreadBannerRow } from "../ChatView.js";
 import { MessageFeed } from "../MessageFeed.js";
 import { LeaderSessionReturnPlaygroundState } from "./LeaderSessionReturnPlaygroundState.js";
+import { PlaygroundMarkdownMathSection } from "./PlaygroundMarkdownMathSection.js";
 import { AttentionLedgerRow } from "../AttentionLedgerRow.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { ToolBlock } from "../ToolBlock.js";
@@ -1063,6 +1064,8 @@ export function PlaygroundOverviewSections() {
           </Card>
         </div>
       </Section>
+
+      <PlaygroundMarkdownMathSection />
 
       <Section
         title="File Link Context Menu"

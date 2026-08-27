@@ -131,6 +131,25 @@ describe("Playground", () => {
     expect(within(realChat).getByText(/^\[Thread routing reminder\]/)).toBeTruthy();
   });
 
+  it("documents inline, display, malformed, wide, and streaming math states", () => {
+    // The Playground is the browser-validation fixture for every message-flow
+    // Markdown state introduced by the shared math renderer.
+    render(<PlaygroundOverviewSections />);
+
+    expect(screen.getByRole("heading", { name: "Markdown Math" })).toBeTruthy();
+    expect(screen.getByText("Assistant message — inline and display delimiter compatibility")).toBeTruthy();
+    expect(screen.getByText("Wide display math — constrained mobile-width surface")).toBeTruthy();
+    expect(screen.getByText("Rendered selection — copy and quote use one source token")).toBeTruthy();
+    expect(screen.getByText("Malformed, unsupported, and streaming delimiter states")).toBeTruthy();
+    const streamingFixture = screen.getByTestId("playground-streaming-math");
+    const incompleteOutput = streamingFixture.textContent;
+    expect(streamingFixture).toHaveAttribute("data-stream-complete", "false");
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle streaming delimiter" }));
+    expect(streamingFixture).toHaveAttribute("data-stream-complete", "true");
+    expect(streamingFixture.textContent).not.toBe(incompleteOutput);
+  });
+
   it("documents multi-file Write blocks whose change diff fields contain raw file content", () => {
     render(<PlaygroundOverviewSections />);
 

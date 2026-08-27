@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type RefObject } from "react";
+import { htmlFragmentToPlainText, normalizeMathSelectionRange, rangeContainsMath } from "../utils/html-to-markdown.js";
 
 export interface TextSelectionState {
   /** Whether there's an active, non-empty selection within an assistant message */
@@ -151,8 +152,10 @@ export function useTextSelection(containerRef: RefObject<HTMLElement | null>): T
         return;
       }
 
-      const range = sel.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
+      const sourceRange = sel.getRangeAt(0);
+      const containsMath = rangeContainsMath(sourceRange);
+      const range = containsMath ? normalizeMathSelectionRange(sourceRange) : sourceRange.cloneRange();
+      const rect = sourceRange.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) {
         setState(EMPTY_STATE);
         return;
@@ -160,8 +163,8 @@ export function useTextSelection(containerRef: RefObject<HTMLElement | null>): T
 
       const nextState = {
         isActive: true,
-        plainText: sel.toString(),
-        range: range.cloneRange(),
+        plainText: containsMath ? htmlFragmentToPlainText(range) : sel.toString(),
+        range,
         position: computeMenuPosition(rect, isTouchInteractionRef.current),
       };
 

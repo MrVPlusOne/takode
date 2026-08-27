@@ -111,6 +111,41 @@ describe("getMessagePlainText", () => {
     expect(result).not.toMatch(/^- /m);
     expect(result).not.toMatch(/^1\. /m);
   });
+
+  it("preserves exact TeX source while stripping surrounding Markdown", () => {
+    // Emphasis stripping must not remove `_` or `*` operators from formulas in
+    // full-message Plain Text copy.
+    const msg = makeMessage({
+      contentBlocks: [
+        {
+          type: "text",
+          text: String.raw`**Math:** $x_i + a*b*c$ and \(y_{n}\).
+
+$$
+\frac{s-1}{6}
+$$`,
+        } as any,
+      ],
+    });
+
+    expect(getMessagePlainText(msg)).toBe(String.raw`Math: $x_i + a*b*c$ and \(y_{n}\).
+
+$$
+\frac{s-1}{6}
+$$`);
+  });
+
+  it("preserves genuine private-use and placeholder-looking source", () => {
+    const source = "\uE0000\uE001 \0M0; " + String.raw`**Math:** \(x_i\)`;
+    const msg = makeMessage({ content: source });
+
+    expect(getMessagePlainText(msg)).toBe("\uE0000\uE001 \0M0; " + String.raw`Math: \(x_i\)`);
+  });
+
+  it("does not mistake ordinary currency for a protected formula", () => {
+    const msg = makeMessage({ content: "Prices are $5 and $10 today." });
+    expect(getMessagePlainText(msg)).toBe("Prices are $5 and $10 today.");
+  });
 });
 
 describe("copyRichText", () => {

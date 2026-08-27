@@ -15,9 +15,11 @@ type MockSelectionState = {
 function SelectionHarness({
   selectionScope = true,
   messageRole = "assistant",
+  mathSelection = false,
 }: {
   selectionScope?: boolean;
   messageRole?: "assistant" | "user";
+  mathSelection?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [, setMounted] = useState(false);
@@ -31,7 +33,16 @@ function SelectionHarness({
     <div ref={containerRef} data-testid="container">
       <div data-message-id="message-1" data-message-role={messageRole}>
         <span data-testid="selection-scope" data-chat-selection-scope={selectionScope ? "true" : undefined}>
-          <span data-testid="assistant-text">Selected assistant text</span>
+          {mathSelection ? (
+            <span data-math-source="\(x^2\)" className="takode-math">
+              <span className="katex-mathml">x^2</span>
+              <span className="katex-html" aria-hidden="true" data-testid="assistant-text">
+                x2
+              </span>
+            </span>
+          ) : (
+            <span data-testid="assistant-text">Selected assistant text</span>
+          )}
         </span>
       </div>
       <div data-testid="selection-active">{selection.isActive ? "true" : "false"}</div>
@@ -253,6 +264,52 @@ describe("useTextSelection", () => {
     expect(screen.getByTestId("selection-text").textContent).toBe("Selected assistant text");
     expect(selectionState.text).toBe("Selected assistant text");
     expect(removeAllRanges).not.toHaveBeenCalled();
+  });
+
+  it("collapses partial KaTeX selection to one exact source token", () => {
+    // KaTeX exposes MathML plus a visual subtree; quote/plain selection must
+    // expand to the source wrapper rather than caching duplicated glyph text.
+    render(<SelectionHarness mathSelection />);
+
+    const container = screen.getByTestId("container");
+    const textNode = screen.getByTestId("assistant-text").firstChild;
+    if (!textNode?.textContent) throw new Error("Missing math visual text node");
+
+    const range = document.createRange();
+    range.setStart(textNode, 0);
+    range.setEnd(textNode, textNode.textContent.length);
+    Object.defineProperty(range, "getBoundingClientRect", {
+      value: () =>
+        ({
+          left: 40,
+          top: 120,
+          right: 120,
+          bottom: 145,
+          width: 80,
+          height: 25,
+          x: 40,
+          y: 120,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    });
+
+    const selection = {
+      isCollapsed: false,
+      anchorNode: textNode,
+      focusNode: textNode,
+      toString: () => "x^2x2",
+      getRangeAt: () => range,
+      removeAllRanges: vi.fn(),
+    } as unknown as Selection;
+    vi.spyOn(window, "getSelection").mockReturnValue(selection);
+
+    fireEvent.mouseDown(container);
+    act(() => {
+      fireEvent.mouseUp(document);
+    });
+
+    expect(screen.getByTestId("selection-active").textContent).toBe("true");
+    expect(screen.getByTestId("selection-text").textContent).toBe("\\(x^2\\)");
   });
 
   // Dismissing the app menu is intentionally separate from clearing the actual

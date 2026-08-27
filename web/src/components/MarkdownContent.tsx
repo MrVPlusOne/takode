@@ -13,8 +13,10 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import Markdown from "react-markdown";
+import rehypeKatex from "rehype-katex";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
@@ -22,9 +24,17 @@ import { CodeCopyButton } from "./CodeCopyButton.js";
 import { highlightCode } from "../utils/syntax-highlighting.js";
 import { openFileWithEditorPreference, showEditorOpenError } from "../utils/vscode-bridge.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
-import { HighlightedText } from "./HighlightedText.js";
+import { HighlightedText, buildHighlightPattern } from "./HighlightedText.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { splitPlainTakodeReferences } from "./composer-reference-utils.js";
+import {
+  KATEX_RENDER_OPTIONS,
+  rehypeRestoreMathErrors,
+  rehypeRestorePreparedMathMarkers,
+  rehypeWrapMathSource,
+  prepareMarkdownMathSource,
+  remarkMathSourceCompatibility,
+} from "../utils/markdown-math.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { Lightbox } from "./Lightbox.js";
 import {
@@ -644,6 +654,7 @@ export const MarkdownContent = memo(function MarkdownContent({
 
   const isConservative = variant === "conservative";
   const chatMessageLineHeight = useStore((s) => s.chatMessageLineHeight);
+  const preparedMath = useMemo(() => prepareMarkdownMathSource(text), [text]);
 
   // Helper: replaces string children with HighlightedText when search is active
   const hl = searchHighlight;
@@ -660,6 +671,18 @@ export const MarkdownContent = memo(function MarkdownContent({
     [hl],
   );
 
+  const mathHighlightClass = useCallback(
+    (source: string | undefined): string => {
+      if (!source || !hl?.query) return "";
+      const pattern = buildHighlightPattern(hl.query, hl.mode);
+      if (!pattern || !pattern.test(source)) return "";
+      return hl.isCurrent
+        ? "bg-amber-400/70 dark:bg-amber-400/50 rounded-sm"
+        : "bg-amber-400/25 dark:bg-amber-400/20 rounded-sm";
+    },
+    [hl],
+  );
+
   return (
     <div
       id={id}
@@ -671,7 +694,20 @@ export const MarkdownContent = memo(function MarkdownContent({
       data-chat-selection-scope={enableChatSelectionMenu ? "true" : undefined}
     >
       <Markdown
-        remarkPlugins={[remarkGfm, remarkBreaks, remarkNormalizeOrderedListContinuations, remarkPlainTakodeReferences]}
+        remarkPlugins={[
+          remarkGfm,
+          remarkMath,
+          remarkBreaks,
+          remarkNormalizeOrderedListContinuations,
+          remarkPlainTakodeReferences,
+          [remarkMathSourceCompatibility, preparedMath],
+        ]}
+        rehypePlugins={[
+          [rehypeRestorePreparedMathMarkers, preparedMath],
+          rehypeWrapMathSource,
+          [rehypeKatex, KATEX_RENDER_OPTIONS],
+          rehypeRestoreMathErrors,
+        ]}
         urlTransform={transformMarkdownUrl}
         disallowedElements={
           isConservative
@@ -680,6 +716,20 @@ export const MarkdownContent = memo(function MarkdownContent({
         }
         unwrapDisallowed={isConservative}
         components={{
+          span: ({ children, className, node: _node, ...props }) => {
+            const rawMathSource = (props as unknown as Record<string, unknown>)["data-math-source"];
+            const mathSource = typeof rawMathSource === "string" ? rawMathSource : undefined;
+            const highlightClass = mathHighlightClass(mathSource);
+            return (
+              <span
+                {...props}
+                className={`${className ?? ""} ${highlightClass}`.trim() || undefined}
+                data-math-highlighted={highlightClass ? "true" : undefined}
+              >
+                {children}
+              </span>
+            );
+          },
           p: ({ children }) => <p className="mb-2.5 last:mb-0">{highlightChildren(children)}</p>,
           strong: ({ children }) => <strong className="font-semibold text-cc-fg">{highlightChildren(children)}</strong>,
           em: ({ children }) => <em className="italic">{highlightChildren(children)}</em>,
@@ -812,7 +862,7 @@ export const MarkdownContent = memo(function MarkdownContent({
           ),
         }}
       >
-        {text}
+        {preparedMath.renderText}
       </Markdown>
     </div>
   );

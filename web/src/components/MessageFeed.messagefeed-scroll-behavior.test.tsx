@@ -1760,6 +1760,27 @@ describe("MessageFeed - scroll behavior", () => {
     expect(container.querySelector("pre.font-mono-code")).toBeNull();
   });
 
+  it("commits completed math lines without exposing an incomplete Codex tail", () => {
+    // Codex streaming only sends newline-complete text through MarkdownContent;
+    // an unfinished delimiter must remain withheld until the next commit.
+    const sid = "test-streaming-codex-math";
+    setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Hello" })]);
+    setStoreStreaming(
+      sid,
+      String.raw`Completed \(x + 1\)
+Partial \(`,
+    );
+    setStoreSessionBackend(sid, "codex");
+
+    render(<MessageFeed sessionId={sid} />);
+
+    const markdownEls = screen.getAllByTestId("markdown");
+    const streamingText = markdownEls[markdownEls.length - 1].textContent ?? "";
+    expect(streamingText).toContain("Completed");
+    expect(streamingText).toContain("x + 1");
+    expect(streamingText).not.toContain("Partial");
+  });
+
   it("withholds root codex thinking from the legacy footer when no assistant text is streaming yet", () => {
     const sid = "test-streaming-codex-thinking";
     setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Hello" })]);

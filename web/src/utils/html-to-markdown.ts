@@ -9,10 +9,117 @@
 /** Depth limit to prevent stack overflow on pathologically nested HTML. */
 const MAX_DEPTH = 50;
 
+const MATH_SOURCE_SELECTOR = "[data-math-source]";
+
+/** Return whether a selection intersects rendered math metadata. */
+export function rangeContainsMath(range: Range): boolean {
+  if (closestMathSource(range.startContainer) || closestMathSource(range.endContainer)) return true;
+  try {
+    return Boolean(range.cloneContents().querySelector?.(MATH_SOURCE_SELECTOR));
+  } catch {
+    return false;
+  }
+}
+
+/** Expand partial formula selections so copy/quote treats each formula atomically. */
+export function normalizeMathSelectionRange(range: Range): Range {
+  const normalized = range.cloneRange();
+  const startMath = closestMathSource(range.startContainer);
+  const endMath = closestMathSource(range.endContainer);
+
+  try {
+    if (startMath) normalized.setStartBefore(startMath);
+    if (endMath) normalized.setEndAfter(endMath);
+  } catch {
+    return range.cloneRange();
+  }
+
+  return normalized;
+}
+
 /** Convert a Range's cloned contents into markdown text. */
 export function htmlFragmentToMarkdown(range: Range): string {
-  const fragment = range.cloneContents();
+  const fragment = normalizeMathSelectionRange(range).cloneContents();
   return processNode(fragment, 0).trim();
+}
+
+/** Convert a selection to plain text while collapsing KaTeX to one source token. */
+export function htmlFragmentToPlainText(range: Range): string {
+  const fragment = normalizeMathSelectionRange(range).cloneContents();
+  return processPlainNode(fragment, 0).trim();
+}
+
+/** Build portable rich HTML without duplicating KaTeX's MathML and visual branches. */
+export function htmlFragmentToRichText(range: Range): { html: string; plainText: string } {
+  const normalized = normalizeMathSelectionRange(range);
+  const fragment = normalized.cloneContents();
+  collapseMathForRichText(fragment);
+
+  const container = document.createElement("div");
+  container.appendChild(fragment);
+  return {
+    html: container.innerHTML,
+    plainText: htmlFragmentToPlainText(normalized),
+  };
+}
+
+function closestMathSource(node: Node | null): HTMLElement | null {
+  let current = node?.nodeType === Node.ELEMENT_NODE ? (node as Element) : node?.parentElement;
+  while (current) {
+    if (current instanceof HTMLElement && current.hasAttribute("data-math-source")) return current;
+    current = current.parentElement;
+  }
+  return null;
+}
+
+function collapseMathForRichText(fragment: DocumentFragment): void {
+  for (const wrapper of Array.from(fragment.querySelectorAll<HTMLElement>(MATH_SOURCE_SELECTOR))) {
+    const source = wrapper.getAttribute("data-math-source");
+    if (source == null) continue;
+    const replacement = wrapper.ownerDocument.createElement("span");
+    replacement.setAttribute("data-takode-math-source", "true");
+    replacement.textContent = source;
+    wrapper.replaceWith(replacement);
+  }
+
+  collapseUnwrappedKatex(fragment);
+}
+
+function collapseUnwrappedKatex(root: ParentNode): void {
+  for (const display of Array.from(root.querySelectorAll<HTMLElement>(".katex-display"))) {
+    const source = katexAnnotationSource(display);
+    if (source == null) continue;
+    display.replaceWith(display.ownerDocument.createTextNode(`$$${source}$$`));
+  }
+  for (const inline of Array.from(root.querySelectorAll<HTMLElement>(".katex"))) {
+    const source = katexAnnotationSource(inline);
+    if (source == null) continue;
+    inline.replaceWith(inline.ownerDocument.createTextNode(`$${source}$`));
+  }
+}
+
+function katexAnnotationSource(node: ParentNode): string | null {
+  return node.querySelector('annotation[encoding="application/x-tex"]')?.textContent ?? null;
+}
+
+function mathSourceForElement(node: HTMLElement): string | null {
+  const exactSource = node.getAttribute("data-math-source");
+  if (exactSource != null) return exactSource;
+
+  if (node.classList.contains("katex-display")) {
+    const source = katexAnnotationSource(node);
+    return source == null ? null : `$$${source}$$`;
+  }
+  if (node.classList.contains("katex")) {
+    const source = katexAnnotationSource(node);
+    return source == null ? null : `$${source}$`;
+  }
+  if (node.classList.contains("katex-mathml")) {
+    const source = katexAnnotationSource(node);
+    return source == null ? null : `$${source}$`;
+  }
+  if (node.classList.contains("katex-html") && node.parentElement?.querySelector(".katex-mathml")) return "";
+  return null;
 }
 
 /** Convert an arbitrary DOM node (or fragment) to markdown recursively. */
@@ -35,6 +142,9 @@ function processNode(node: Node, depth: number): string {
   if (!(node instanceof HTMLElement)) {
     return node.textContent ?? "";
   }
+
+  const mathSource = mathSourceForElement(node);
+  if (mathSource != null) return mathSource;
 
   const tag = node.tagName.toLowerCase();
 
@@ -133,6 +243,56 @@ function processNode(node: Node, depth: number): string {
     default:
       return processChildren(node, depth);
   }
+}
+
+function processPlainNode(node: Node, depth: number): string {
+  if (depth > MAX_DEPTH) return node.textContent ?? "";
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+  if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) return processPlainChildren(node, depth);
+  if (!(node instanceof HTMLElement)) return node.textContent ?? "";
+
+  const mathSource = mathSourceForElement(node);
+  if (mathSource != null) return mathSource;
+
+  const tag = node.tagName.toLowerCase();
+  if (tag === "br") return "\n";
+  if (tag === "img") return node.getAttribute("alt") ?? "";
+  if (tag === "pre") return `\n${node.textContent ?? ""}\n`;
+  if (/^h[1-6]$/.test(tag) || tag === "p" || tag === "blockquote" || tag === "section" || tag === "div") {
+    return `\n${processPlainChildren(node, depth)}\n`;
+  }
+  if (tag === "ul" || tag === "ol") return `\n${processPlainList(node, tag, depth)}\n`;
+  if (tag === "li") return processPlainChildren(node, depth);
+  if (tag === "table") return `\n${processPlainTable(node, depth)}\n`;
+  return processPlainChildren(node, depth);
+}
+
+function processPlainChildren(node: Node, depth: number): string {
+  let result = "";
+  for (const child of Array.from(node.childNodes)) result += processPlainNode(child, depth + 1);
+  return result;
+}
+
+function processPlainList(node: HTMLElement, tag: "ul" | "ol", depth: number): string {
+  let index = 1;
+  const items: string[] = [];
+  for (const child of Array.from(node.children)) {
+    if (child.tagName.toLowerCase() !== "li") continue;
+    const prefix = tag === "ul" ? "- " : `${index}. `;
+    items.push(prefix + processPlainChildren(child, depth + 1).trim());
+    index += 1;
+  }
+  return items.join("\n");
+}
+
+function processPlainTable(node: HTMLElement, depth: number): string {
+  return Array.from(node.querySelectorAll("tr"))
+    .map((row) =>
+      Array.from(row.querySelectorAll<HTMLElement>("th, td"))
+        .map((cell) => processPlainChildren(cell, depth + 1).trim())
+        .join("\t"),
+    )
+    .join("\n");
 }
 
 function processChildren(node: Node, depth: number): string {
