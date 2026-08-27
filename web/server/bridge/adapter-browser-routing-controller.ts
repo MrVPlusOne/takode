@@ -81,6 +81,8 @@ import {
   hasMemoryCatalogHistoryFollowUp,
 } from "../memory-catalog-injection-utils.js";
 import { isCodexLeaderRecycleMode } from "../../shared/codex-leader-compaction-mode.js";
+import { rejectOversizedCodexPendingInput } from "./codex-pending-input-rejection.js";
+import { retryFailedCodexPendingInput } from "./codex-pending-input-retry.js";
 import type {
   BrowserUserMessage,
   ControlResponseHandler,
@@ -1684,9 +1686,19 @@ export function routeAdapterBrowserMessage(
     if (msg.type === "permission_response" && session.backendType === "codex") {
       handleCodexPermissionResponse(session, msg, deps);
     }
+    if (session.backendType === "codex" && msg.type === "retry_pending_codex_input") {
+      retryFailedCodexPendingInput(session, msg.id, deps);
+      return true;
+    }
     if (session.backendType === "codex" && msg.type === "cancel_pending_codex_input") {
       const pendingInput = session.pendingCodexInputs.find((input) => input.id === msg.id);
       if (!pendingInput?.cancelable) return true;
+      if (pendingInput.deliveryState === "failed") {
+        const removed = deps.removePendingCodexInput(session, msg.id);
+        if (removed && ws) deps.sendToBrowser(ws, { type: "codex_pending_input_cancelled", input: removed });
+        deps.persistSession(session);
+        return true;
+      }
       const cancelableHeadId = deps.getCancelablePendingCodexInputs(session)[0]?.id ?? null;
       const cancelledHeadPendingInput = cancelableHeadId === msg.id;
       markCodexAutoPauseRecoveryDiscarded(session, pendingInput.autoPauseRecoveries, Date.now(), deps);
@@ -1828,20 +1840,7 @@ export function routeAdapterBrowserMessage(
         };
         const sizeLimit = getCodexPendingInputSizeLimit(pendingInput);
         if (sizeLimit.overLimit) {
-          markCodexAutoPauseRecoveryFailed(
-            session,
-            msg.autoPauseRecoveries ?? [],
-            Date.now(),
-            deps,
-            "pending_input_too_large",
-          );
-          deps.broadcastToBrowsers(session, {
-            type: "error",
-            message:
-              `Codex input is too large to queue safely (${sizeLimit.actualBytes} bytes; limit ${sizeLimit.maxBytes}). ` +
-              "The message was not sent to Codex.",
-          });
-          deps.persistSession(session);
+          rejectOversizedCodexPendingInput(session, pendingInput, msg.autoPauseRecoveries ?? [], sizeLimit, ws, deps);
           return true;
         }
         deps.addPendingCodexInput(session, pendingInput);

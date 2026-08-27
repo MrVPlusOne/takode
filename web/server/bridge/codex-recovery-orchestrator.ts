@@ -1,6 +1,6 @@
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "../codex-adapter.js";
-import type { TurnStartFailureInfo } from "./adapter-interface.js";
+import type { TurnStartFailureInfo, TurnSteerFailureInfo } from "./adapter-interface.js";
 import type {
   BrowserIncomingMessage,
   CLIResultMessage,
@@ -81,6 +81,8 @@ import { clearOrphanedCodexProviderRetryState } from "./codex-provider-retry-sta
 import { getQueuedTurnLifecycleEntries, replaceQueuedTurnLifecycleEntries } from "./codex-queued-turn-lifecycle.js";
 import { runCodexSessionMetaBarrier } from "./codex-session-meta-barrier.js";
 import { registerCodexNativeSubagentLifecycle } from "./codex-native-subagent-lifecycle.js";
+import { retireProvenInactiveCodexTurnAfterSteerFailure } from "./codex-steer-failure-recovery.js";
+import { recoverNonDrainableCodexHeadTurn } from "./codex-nondrainable-turn-recovery.js";
 export { clearCodexIntentionalRelaunch, markCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 export { maybeFlushQueuedCodexMessages } from "./codex-queued-message-flush.js";
 type InterruptSource = "user" | "leader" | "system";
@@ -530,7 +532,7 @@ export function setPendingCodexInputsCancelable(
 export function getCancelablePendingCodexInputs(
   session: Pick<CodexRecoveryOrchestratorSessionLike, "pendingCodexInputs">,
 ): PendingCodexInput[] {
-  return session.pendingCodexInputs.filter((item) => item.cancelable);
+  return session.pendingCodexInputs.filter((item) => item.cancelable && item.deliveryState !== "failed");
 }
 export function commitPendingCodexInputs(
   session: CodexRecoveryOrchestratorSessionLike,
@@ -1172,14 +1174,16 @@ export function registerCodexAdapterRecoveryLifecycle(
     const steeredInputs = deps.getPendingCodexInputsByIds(session, pendingInputIds);
     const committedHistoryIndexes = commitPendingCodexInputs(session, pendingInputIds, deps);
     deps.recordSteeredCodexTurn(session, turnId, steeredInputs, committedHistoryIndexes);
+    reconcileDuplicateCodexPendingTurns(session, "codex_turn_steered", deps);
     deps.persistSession(session);
     trySteerPendingCodexInputs(session, "codex_turn_steered", deps);
   });
 
-  adapter.onTurnSteerFailed((pendingInputIds: string[]) => {
+  adapter.onTurnSteerFailed((pendingInputIds: string[], failure?: TurnSteerFailureInfo) => {
     if (session.codexAdapter !== adapter) return;
     recordCodexTurnSteerFailedProof(session, adapter.getCurrentTurnId?.() ?? null, pendingInputIds.length);
     deps.setPendingCodexInputsCancelable(session, pendingInputIds, true);
+    const retiredInactiveTurn = retireProvenInactiveCodexTurnAfterSteerFailure(session, pendingInputIds, failure, deps);
     reconcileDuplicateCodexPendingTurns(session, "codex_turn_steer_failed", deps);
     retryNonDrainableCodexHeadTurn(session, "codex_turn_steer_failed_stale_ack_head", deps);
     deps.rebuildQueuedCodexPendingStartBatch(session);
@@ -1188,6 +1192,10 @@ export function registerCodexAdapterRecoveryLifecycle(
       return;
     }
     deps.dispatchQueuedCodexTurns(session, "codex_turn_steer_failed");
+    if (retiredInactiveTurn && deps.getCodexHeadTurn(session)?.status === "dispatched") {
+      deps.promoteNextQueuedTurn(session);
+      deps.persistSession(session);
+    }
   });
 
   adapter.onInitError((error: string) => {
@@ -1954,18 +1962,12 @@ export function retryNonDrainableCodexHeadTurn(
   reason: string,
   deps: CodexRecoveryOrchestratorDeps,
 ): boolean {
-  const head = deps.getCodexHeadTurn(session);
-  const adapter = session.codexAdapter;
-  if (!head || head.status !== "backend_acknowledged") return false;
-  if (session.isGenerating) return false;
-  if (!adapter || session.state.backend_state !== "connected" || !adapter.isConnected()) return false;
-  if (adapter.getCurrentTurnId()) return false;
-  console.warn(
-    `[ws-bridge] Retrying non-drainable Codex turn ${head.turnId ?? "<untracked>"} ` +
-      `for session ${sessionTag(session.id)} (${reason})`,
-  );
-  retryPendingCodexTurn(session, head, deps);
-  return true;
+  return recoverNonDrainableCodexHeadTurn(session, reason, {
+    getHead: () => deps.getCodexHeadTurn(session),
+    settleObservedActivity: (head, activity) =>
+      suppressCodexReplayForObservedActivity(session, head, "stale_ack_local_activity", activity, deps),
+    retry: (head) => retryPendingCodexTurn(session, head, deps),
+  });
 }
 export function clearStaleCodexCompactionState(
   session: CodexRecoveryOrchestratorSessionLike,

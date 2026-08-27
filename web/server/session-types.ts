@@ -1,4 +1,18 @@
 import type { ReplyContext } from "../shared/reply-context.js";
+import type {
+  CodexPendingBatchInput,
+  CodexPendingInputFailureReason,
+  PendingCodexInput,
+  PendingCodexInputImageDraft,
+  ProgrammaticHistoryFollowUp,
+} from "./codex-pending-input-types.js";
+export type {
+  CodexPendingBatchInput,
+  CodexPendingInputFailureReason,
+  PendingCodexInput,
+  PendingCodexInputImageDraft,
+  ProgrammaticHistoryFollowUp,
+} from "./codex-pending-input-types.js";
 import type { FeedWindowSync } from "../shared/feed-window-sync.js";
 import type { LeaderOpenThreadTabsState, LeaderThreadTabUpdate } from "../shared/leader-open-thread-tabs.js";
 import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
@@ -534,60 +548,6 @@ export interface VsCodeOpenFileCommand {
   createdAt: number;
 }
 
-export interface PendingCodexInputImageDraft {
-  name: string;
-  base64: string;
-  mediaType: string;
-}
-
-export interface ProgrammaticHistoryFollowUp {
-  content: string;
-  agentSource?: { sessionId: string; sessionLabel?: string };
-  threadKey?: string;
-  questId?: string;
-  threadRefs?: ThreadRef[];
-}
-
-export interface PendingCodexInput {
-  id: string;
-  clientMsgId?: string;
-  content: string;
-  /** Original UTF-8 byte length when content is compacted for browser sync. */
-  contentBytes?: number;
-  timestamp: number;
-  cancelable: boolean;
-  imageRefs?: import("./image-store.js").ImageRef[];
-  draftImages?: PendingCodexInputImageDraft[];
-  deliveryContent?: string;
-  /** Original UTF-8 byte length when deliveryContent is compacted for browser sync. */
-  deliveryContentBytes?: number;
-  /** Server-only visible/history entries committed after this model-bound input. */
-  historyFollowUps?: ProgrammaticHistoryFollowUp[];
-  /** True only for browser-facing compact snapshots, never for model delivery state. */
-  payloadTruncated?: boolean;
-  replyContext?: ReplyContext;
-  needsInputReminderText?: string;
-  needsInputResolutionNoticeText?: string;
-  needsInputResolutionNoticeIds?: string[];
-  agentSource?: { sessionId: string; sessionLabel?: string };
-  takodeHerdBatch?: TakodeHerdBatchSnapshot;
-  vscodeSelection?: VsCodeSelectionMetadata;
-  threadKey?: string;
-  questId?: string;
-  threadRefs?: ThreadRef[];
-  slackThreadId?: string;
-  recentAskBoundaryBefore?: "visible_response";
-  /** Server-only source classification used by Codex result-error auto-pause. */
-  autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
-  /** Server-only correlation for a held input released into normal Codex delivery. */
-  autoPauseRecoveries?: CodexAutoPauseRecoveryLink[];
-}
-
-export interface CodexPendingBatchInput {
-  content: string;
-  vscodeSelection?: VsCodeSelectionMetadata;
-}
-
 // ─── Browser Message Types (browser <-> bridge) ──────────────────────────────
 
 /** Messages the browser sends to the bridge */
@@ -716,6 +676,7 @@ export type BrowserOutgoingMessage =
   | { type: "session_ack"; last_seq: number }
   | { type: "interrupt"; client_msg_id?: string; interruptSource?: "user" | "leader" | "system" }
   | { type: "cancel_pending_codex_input"; id: string; client_msg_id?: string }
+  | { type: "retry_pending_codex_input"; id: string; client_msg_id?: string }
   | { type: "set_model"; model: string; client_msg_id?: string }
   | { type: "set_codex_reasoning_effort"; effort: string; client_msg_id?: string }
   | { type: "set_codex_service_tier"; serviceTier: string | null; client_msg_id?: string }
@@ -1015,6 +976,12 @@ export type BrowserIncomingMessageBase =
     }
   | { type: "codex_pending_inputs"; inputs: PendingCodexInput[] }
   | { type: "codex_pending_input_cancelled"; input: PendingCodexInput }
+  | {
+      type: "codex_pending_input_failed";
+      input: PendingCodexInput;
+      reason: CodexPendingInputFailureReason;
+      message: string;
+    }
   | {
       type: "codex_auto_pause_recovery_summary";
       id: string;

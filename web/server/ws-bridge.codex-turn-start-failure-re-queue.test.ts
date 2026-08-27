@@ -646,14 +646,25 @@ describe("Codex turn-start failure re-queue", () => {
     ).toBe("released_to_delivery");
   });
 
-  it("does not redispatch nonrecoverable turn-start validation failures", () => {
+  it("persists nonrecoverable turn-start failure until exact-owner retry", async () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
     emitCodexSessionReady(adapter);
 
     const browser = makeBrowserSocket("s1");
+    const otherBrowser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    void bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "oversized" }));
+    bridge.handleBrowserOpen(otherBrowser, "s1");
+    otherBrowser.send.mockClear();
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "oversized",
+        client_msg_id: "failed-owner-client",
+        imageRefs: [{ imageId: "failed-image", media_type: "image/png", optimized: true }],
+      }),
+    );
 
     // Model a released held input: a nonrecoverable turn/start rejection must terminally update its durable receipt.
     const sessionBeforeFailure = bridge.getSession("s1")!;
@@ -670,9 +681,31 @@ describe("Codex turn-start failure re-queue", () => {
 
     const session = bridge.getSession("s1")!;
     expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
-    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(session.pendingCodexInputs).toEqual([
+      expect.objectContaining({
+        clientMsgId: "failed-owner-client",
+        content: "oversized",
+        cancelable: true,
+        deliveryState: "failed",
+        failureReason: "nonrecoverable_turn_start",
+        failureMessage: "Codex rejected this input before delivery.",
+        failedAt: expect.any(Number),
+        imageRefs: [expect.objectContaining({ imageId: "failed-image", media_type: "image/png" })],
+      }),
+    ]);
     expect(session.pendingCodexTurns).toHaveLength(0);
     expect(session.isGenerating).toBe(false);
+    expect(
+      otherBrowser.send.mock.calls
+        .map(([arg]: [string]) => JSON.parse(arg))
+        .some(
+          (msg: any) =>
+            msg.type === "codex_pending_inputs" &&
+            msg.inputs?.some(
+              (input: any) => input.clientMsgId === "failed-owner-client" && input.deliveryState === "failed",
+            ),
+        ),
+    ).toBe(true);
     const recoverySummary = session.messageHistory.find(
       (entry: any) => entry.type === "codex_auto_pause_recovery_summary",
     ) as any;
@@ -685,6 +718,165 @@ describe("Codex turn-start failure re-queue", () => {
         .map(([arg]: [string]) => JSON.parse(arg))
         .some((msg: any) => msg.type === "error" && msg.message.includes("input_too_large")),
     ).toBe(true);
+
+    await store.flushAll();
+    const restored = attachBoardFacade(new WsBridge());
+    restored.setStore(store);
+    await restored.restoreFromDisk();
+    const restoredSession = restored.getSession("s1")!;
+    expect(restoredSession.pendingCodexInputs[0]).toMatchObject({
+      id: session.pendingCodexInputs[0]?.id,
+      deliveryState: "failed",
+      failureReason: "nonrecoverable_turn_start",
+    });
+
+    const adapter2 = makeCodexAdapterMock();
+    restored.attachCodexAdapter("s1", adapter2 as any);
+    emitCodexSessionReady(adapter2, { cliSessionId: "thread-failed-owner-retry" });
+    expect(adapter2.sendBrowserMessage).not.toHaveBeenCalled();
+
+    const restoredBrowser = makeBrowserSocket("s1");
+    restored.handleBrowserOpen(restoredBrowser, "s1");
+    expect(
+      restoredBrowser.send.mock.calls
+        .map(([arg]: [string]) => JSON.parse(arg))
+        .some(
+          (msg: any) =>
+            msg.type === "codex_pending_inputs" &&
+            msg.inputs?.some(
+              (input: any) =>
+                input.id === restoredSession.pendingCodexInputs[0]?.id && input.deliveryState === "failed",
+            ),
+        ),
+    ).toBe(true);
+
+    await restored.handleBrowserMessage(
+      restoredBrowser,
+      JSON.stringify({
+        type: "retry_pending_codex_input",
+        id: restoredSession.pendingCodexInputs[0]?.id,
+        client_msg_id: "retry-failed-owner-action",
+      }),
+    );
+    await Promise.resolve();
+
+    expect(adapter2.sendBrowserMessage).toHaveBeenCalledTimes(1);
+    const retry = adapter2.sendBrowserMessage.mock.calls[0]?.[0] as any;
+    expect(retry).toMatchObject({
+      type: "codex_start_pending",
+      pendingInputIds: [restoredSession.pendingCodexInputs[0]?.id],
+    });
+    expect(getCodexStartPendingInputs(retry)[0]?.content).toContain("failed-image.takode-agent.png");
+    expect((getCodexStartPendingInputs(retry)[0] as any)?.images).toBeUndefined();
+    expect((getCodexStartPendingInputs(retry)[0] as any)?.local_images).toBeUndefined();
+    expect(restoredSession.pendingCodexInputs[0]).toEqual(expect.not.objectContaining({ deliveryState: "failed" }));
+    expect(restoredSession.processedClientMessageIdSet.has("retry-failed-owner-action")).toBe(true);
+    await restored.handleBrowserMessage(
+      restoredBrowser,
+      JSON.stringify({
+        type: "retry_pending_codex_input",
+        id: restoredSession.pendingCodexInputs[0]?.id,
+        client_msg_id: "retry-failed-owner-action",
+      }),
+    );
+    expect(adapter2.sendBrowserMessage).toHaveBeenCalledTimes(1);
+
+    adapter2.emitTurnStarted("turn-failed-owner-retry");
+    await Promise.resolve();
+    expect(restoredSession.pendingCodexInputs).toHaveLength(0);
+    expect(
+      restoredSession.messageHistory.filter(
+        (entry: any) => entry.type === "user_message" && entry.content === "oversized",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("dispatches a later queued owner after an earlier owner fails terminally", async () => {
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    emitCodexSessionReady(adapter);
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "will fail" }));
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "must continue" }));
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
+
+    adapter.emitTurnStartFailed(
+      { type: "user_message", content: "will fail" },
+      { recoverable: false, message: "input_too_large: max_chars=1048576" },
+    );
+    await Promise.resolve();
+
+    const session = bridge.getSession("s1")!;
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(2);
+    const laterStart = adapter.sendBrowserMessage.mock.calls[1]?.[0] as any;
+    expect(getCodexStartPendingInputs(laterStart).map((input) => input.content)).toEqual(["must continue"]);
+    expect(session.pendingCodexInputs).toEqual([
+      expect.objectContaining({ content: "will fail", deliveryState: "failed", cancelable: true }),
+      expect.objectContaining({ content: "must continue", cancelable: false }),
+    ]);
+    expect(session.isGenerating).toBe(true);
+
+    adapter.emitTurnStarted("turn-later-owner");
+    await Promise.resolve();
+    expect(session.pendingCodexInputs).toEqual([
+      expect.objectContaining({ content: "will fail", deliveryState: "failed", cancelable: true }),
+    ]);
+    expect(
+      session.messageHistory.filter((entry: any) => entry.type === "user_message" && entry.content === "must continue"),
+    ).toHaveLength(1);
+  });
+
+  it("fails closed for stale retry ids and cancels the exact failed owner", async () => {
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    emitCodexSessionReady(adapter);
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "failed cancellable owner", client_msg_id: "failed-cancel" }),
+    );
+    adapter.emitTurnStartFailed(
+      { type: "user_message", content: "failed cancellable owner" },
+      { recoverable: false, message: "input_too_large: max_chars=1048576" },
+    );
+
+    const session = bridge.getSession("s1")!;
+    const failedId = session.pendingCodexInputs[0]?.id;
+    expect(failedId).toBeTruthy();
+    adapter.sendBrowserMessage.mockClear();
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "retry_pending_codex_input", id: "stale-failed-owner" }),
+    );
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(session.pendingCodexInputs[0]).toMatchObject({ id: failedId, deliveryState: "failed" });
+
+    browser.send.mockClear();
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "cancel_pending_codex_input",
+        id: failedId,
+        client_msg_id: "cancel-failed-owner-action",
+      }),
+    );
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(session.pendingCodexTurns).toHaveLength(0);
+    expect(
+      browser.send.mock.calls
+        .map(([arg]: [string]) => JSON.parse(arg))
+        .some(
+          (msg: any) =>
+            msg.type === "codex_pending_input_cancelled" &&
+            msg.input?.id === failedId &&
+            msg.input?.clientMsgId === "failed-cancel",
+        ),
+    ).toBe(true);
+    expect(session.processedClientMessageIdSet.has("cancel-failed-owner-action")).toBe(true);
   });
 
   it("flushes re-queued message to a new adapter on reattach", () => {

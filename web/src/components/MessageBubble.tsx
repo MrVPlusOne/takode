@@ -860,7 +860,7 @@ function UserMessage({
       : message.pendingState === "delivering"
         ? "Sending…"
         : message.pendingState === "failed"
-          ? message.pendingError || "Upload failed"
+          ? message.pendingError || "Send failed"
           : null;
 
   return (

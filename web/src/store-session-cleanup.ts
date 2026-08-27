@@ -118,6 +118,10 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
   feedScrollPosition.delete(sessionId);
   const composerDrafts = new Map(s.composerDrafts);
   composerDrafts.delete(sessionId);
+  const pendingUserUploads = new Map(s.pendingUserUploads);
+  pendingUserUploads.delete(sessionId);
+  const pendingUserUploadRestorations = new Map(s.pendingUserUploadRestorations);
+  pendingUserUploadRestorations.delete(sessionId);
   const replyContexts = new Map(s.replyContexts);
   replyContexts.delete(sessionId);
   const turnActivityOverrides = new Map(s.turnActivityOverrides);
@@ -195,6 +199,8 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
     prStatus,
     feedScrollPosition,
     composerDrafts,
+    pendingUserUploads,
+    pendingUserUploadRestorations,
     replyContexts,
     turnActivityOverrides,
     autoExpandedTurnIds,

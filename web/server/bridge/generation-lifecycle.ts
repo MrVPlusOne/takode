@@ -24,6 +24,7 @@ export const RECOVERY_REASONS = new Set([
 export const SUPPRESSED_TAKODE_TURN_END_REASONS = new Set([
   "codex_retry_pending_turn_restart",
   "codex_provider_result_retry",
+  "codex_steer_no_active_turn",
   "codex_init_error",
   "codex_recovery_suppressed",
 ]);
@@ -93,7 +94,7 @@ export interface GenerationLifecycleDeps<S extends GenerationLifecycleSession> {
 
 export interface StuckWatchdogSession extends GenerationLifecycleSession {
   backendType: string;
-  pendingCodexInputs: Array<{ timestamp: number }>;
+  pendingCodexInputs: Array<{ timestamp: number; deliveryState?: "failed" }>;
   codexAdapter: unknown | null;
   toolStartTimes: Map<string, number>;
   lastCliMessageAt: number;
@@ -489,9 +490,12 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
 ): void {
   for (const session of sessions) {
     const launcherInfo = deps.getLauncherSessionInfo?.(session.id);
+    const deliverablePendingCodexInputs = session.pendingCodexInputs.filter(
+      (input) => input.deliveryState !== "failed",
+    );
     if (
       session.backendType === "codex" &&
-      session.pendingCodexInputs.length > 0 &&
+      deliverablePendingCodexInputs.length > 0 &&
       !session.codexAdapter &&
       session.state.backend_state !== "broken" &&
       session.state.backend_state !== "recovery_suppressed" &&
@@ -499,12 +503,12 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
       launcherInfo?.archived !== true &&
       launcherInfo?.killedByIdleManager !== true
     ) {
-      const oldestPending = session.pendingCodexInputs[0];
+      const oldestPending = deliverablePendingCodexInputs[0];
       const pendingAge = now - oldestPending.timestamp;
       if (pendingAge > deps.stuckPendingDeliveryMs) {
         console.warn(
           `[ws-bridge] Codex session ${sessionTag(session.id)} has stuck pending delivery ` +
-            `(${Math.round(pendingAge / 1000)}s, ${session.pendingCodexInputs.length} input(s), ` +
+            `(${Math.round(pendingAge / 1000)}s, ${deliverablePendingCodexInputs.length} input(s), ` +
             `backend_state=${session.state.backend_state})`,
         );
         deps.requestCodexAutoRecovery(session, "stuck_pending_delivery_watchdog");
@@ -512,7 +516,7 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
     }
     if (
       session.backendType === "codex" &&
-      session.pendingCodexInputs.length > 0 &&
+      deliverablePendingCodexInputs.length > 0 &&
       session.codexAdapter &&
       !session.isGenerating &&
       session.state.backend_state !== "broken" &&
@@ -521,7 +525,7 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
       launcherInfo?.archived !== true &&
       launcherInfo?.killedByIdleManager !== true
     ) {
-      const oldestPending = session.pendingCodexInputs[0];
+      const oldestPending = deliverablePendingCodexInputs[0];
       const pendingAge = now - oldestPending.timestamp;
       if (pendingAge > deps.stuckPendingDeliveryMs) {
         deps.pokeStaleCodexPendingDelivery?.(session, "stuck_pending_delivery_connected_watchdog");

@@ -26,6 +26,7 @@ export interface StartupRecoverySession {
   pendingMessages?: string[];
   pendingCodexInputs?: Array<{
     id?: string;
+    deliveryState?: "failed";
     agentSource?: { sessionId?: string; sessionLabel?: string };
   }>;
   pendingCodexTurns?: Array<{
@@ -194,7 +195,7 @@ export function collectStartupRecoveryReasons(
   if (pendingMessages.length > 0) reasons.add("pending_messages");
 
   const pendingCodexInputs = session.pendingCodexInputs ?? [];
-  if (pendingCodexInputs.length > 0) reasons.add("pending_codex_inputs");
+  if (pendingCodexInputs.some((input) => input.deliveryState !== "failed")) reasons.add("pending_codex_inputs");
 
   const pendingCodexTurns = (session.pendingCodexTurns ?? []).filter((turn) => turn.status !== "completed");
   if (pendingCodexTurns.length > 0) reasons.add("pending_codex_turns");
@@ -209,7 +210,7 @@ export function collectStartupRecoveryReasons(
 function hasDurablePendingHerdDelivery(session: StartupRecoverySession): boolean {
   const pendingInputIdsByHerdSource = new Set(
     (session.pendingCodexInputs ?? [])
-      .filter((input) => input.agentSource?.sessionId === "herd-events" && input.id)
+      .filter((input) => input.deliveryState !== "failed" && input.agentSource?.sessionId === "herd-events" && input.id)
       .map((input) => input.id as string),
   );
 

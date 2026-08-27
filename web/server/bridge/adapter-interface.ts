@@ -5,6 +5,11 @@ export interface TurnStartFailureInfo {
   message: string;
 }
 
+export type TurnSteerFailureInfo =
+  | { kind: "no_active_turn"; expectedTurnId: string }
+  | { kind: "active_turn_mismatch"; expectedTurnId: string; foundTurnId: string }
+  | { kind: "other"; expectedTurnId: string };
+
 /** Metadata updates adapters can emit as they initialize or reconnect. */
 export interface AdapterSessionMeta {
   cliSessionId?: string;
@@ -39,7 +44,7 @@ export interface TurnSteeredAwareAdapter {
 }
 
 export interface TurnSteerFailedAwareAdapter {
-  onTurnSteerFailed(cb: (pendingInputIds: string[]) => void): void;
+  onTurnSteerFailed(cb: (pendingInputIds: string[], info?: TurnSteerFailureInfo) => void): void;
 }
 
 export interface CompactRequestedAwareAdapter {

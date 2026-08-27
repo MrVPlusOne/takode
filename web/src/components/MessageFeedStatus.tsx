@@ -516,45 +516,104 @@ function normalizeQuestId(value: string | null | undefined): string | null {
 }
 
 export function PendingCodexInputList({ sessionId, inputs }: { sessionId: string; inputs: PendingCodexInput[] }) {
+  const restorations = useStore((state) => state.pendingUserUploadRestorations.get(sessionId));
   if (inputs.length === 0) return null;
+
+  const failedCount = inputs.filter((input) => input.deliveryState === "failed").length;
+  const label =
+    failedCount === inputs.length ? "Delivery failed" : failedCount > 0 ? "Message delivery" : "Pending delivery";
 
   return (
     <div className="space-y-2" data-feed-block-id={getFooterFeedBlockId("pending-codex-inputs")}>
       <div className="flex items-center gap-2 px-1 text-[10px] uppercase tracking-wider text-cc-muted/60">
-        <span>Pending delivery</span>
+        <span>{label}</span>
       </div>
       <div className="flex flex-col gap-2">
         {inputs.map((input) => {
           const preview = formatReplyContentForPreview(input.content, input.replyContext).trim().replace(/\s+/g, " ");
           const truncated = preview.length > 120 ? `${preview.slice(0, 120)}...` : preview;
+          const failed = input.deliveryState === "failed";
+          const canEdit = Boolean(input.clientMsgId && restorations?.has(input.clientMsgId));
           return (
             <div
               key={input.id}
               data-feed-block-id={getPendingCodexFeedBlockId(input.id)}
-              className="flex items-center gap-2 rounded-2xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-sm text-cc-fg"
+              data-delivery-state={failed ? "failed" : "pending"}
+              className={`flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm text-cc-fg ${
+                failed ? "border-cc-error/25 bg-cc-error/8" : "border-amber-500/20 bg-amber-500/8"
+              }`}
             >
-              <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-cc-attention" />
-              <span className="min-w-0 flex-1 truncate" title={preview || "Pending message"}>
-                {truncated || "Pending message"}
+              <span
+                className={`inline-flex h-2 w-2 shrink-0 rounded-full ${failed ? "bg-cc-error" : "bg-cc-attention"}`}
+              />
+              {input.imageRefs?.slice(0, 3).map((image) => (
+                <img
+                  key={image.imageId}
+                  src={`/api/images/${sessionId}/${image.imageId}/thumb`}
+                  alt="Pending attachment"
+                  className="h-8 w-8 shrink-0 rounded-md object-cover"
+                  loading="lazy"
+                  decoding="async"
+                />
+              ))}
+              <span className="min-w-0 flex-1" title={preview || "Pending message"}>
+                <span className="block truncate">{truncated || "Pending message"}</span>
+                {failed && (
+                  <span className="block truncate text-xs text-cc-error/90">
+                    {input.failureMessage || "Codex rejected this input before delivery."}
+                  </span>
+                )}
               </span>
-              <button
-                type="button"
-                disabled={!input.cancelable}
-                onClick={() => {
-                  sendToSession(sessionId, { type: "cancel_pending_codex_input", id: input.id });
-                }}
-                className={`shrink-0 rounded-full p-1 transition-colors ${
-                  input.cancelable
-                    ? "text-cc-muted hover:bg-cc-hover hover:text-cc-fg cursor-pointer"
-                    : "text-cc-muted/40 cursor-not-allowed"
-                }`}
-                title={input.cancelable ? "Cancel pending message" : "Already being delivered"}
-                aria-label={input.cancelable ? "Cancel pending message" : "Pending message is already being delivered"}
-              >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
-                  <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-                </svg>
-              </button>
+              {failed ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={!input.cancelable}
+                    onClick={() => sendToSession(sessionId, { type: "retry_pending_codex_input", id: input.id })}
+                    className={`shrink-0 rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                      input.cancelable
+                        ? "border-cc-primary/30 text-cc-primary hover:bg-cc-hover cursor-pointer"
+                        : "border-cc-border text-cc-muted/40 cursor-not-allowed"
+                    }`}
+                  >
+                    Retry
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!input.cancelable}
+                    onClick={() => sendToSession(sessionId, { type: "cancel_pending_codex_input", id: input.id })}
+                    className={`shrink-0 rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                      input.cancelable
+                        ? "border-cc-border text-cc-muted hover:bg-cc-hover hover:text-cc-fg cursor-pointer"
+                        : "border-cc-border text-cc-muted/40 cursor-not-allowed"
+                    }`}
+                    title={
+                      canEdit ? "Cancel delivery and restore this message to the composer" : "Cancel failed delivery"
+                    }
+                  >
+                    {canEdit ? "Edit" : "Cancel"}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  disabled={!input.cancelable}
+                  onClick={() => sendToSession(sessionId, { type: "cancel_pending_codex_input", id: input.id })}
+                  className={`shrink-0 rounded-full p-1 transition-colors ${
+                    input.cancelable
+                      ? "text-cc-muted hover:bg-cc-hover hover:text-cc-fg cursor-pointer"
+                      : "text-cc-muted/40 cursor-not-allowed"
+                  }`}
+                  title={input.cancelable ? "Cancel pending message" : "Pending message is already being delivered"}
+                  aria-label={
+                    input.cancelable ? "Cancel pending message" : "Pending message is already being delivered"
+                  }
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
+                    <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                  </svg>
+                </button>
+              )}
             </div>
           );
         })}
@@ -566,10 +625,11 @@ export function PendingCodexInputList({ sessionId, inputs }: { sessionId: string
 export function PendingUserUploadList({ sessionId, uploads }: { sessionId: string; uploads: PendingUserUpload[] }) {
   if (uploads.length === 0) return null;
 
+  const label = uploads.every((upload) => upload.stage === "failed") ? "Delivery failed" : "Pending delivery";
   return (
     <div className="space-y-2" data-feed-block-id={getFooterFeedBlockId("pending-user-uploads")}>
       <div className="flex items-center gap-2 px-1 text-[10px] uppercase tracking-wider text-cc-muted/60">
-        <span>Pending upload</span>
+        <span>{label}</span>
       </div>
       <div className="flex flex-col gap-3">
         {uploads.map((upload) => {
@@ -620,6 +680,7 @@ export function PendingUserUploadList({ sessionId, uploads }: { sessionId: strin
               ...(upload.questId ? { questId: upload.questId } : {}),
               session_id: sessionId,
               client_msg_id: upload.id,
+              inputSource: "composer",
             });
             useStore
               .getState()

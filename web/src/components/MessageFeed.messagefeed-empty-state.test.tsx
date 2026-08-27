@@ -96,6 +96,7 @@ vi.mock("../store.js", () => {
       bottomAlignNextUserMessage: mockStoreValues.bottomAlignNextUserMessage ?? new Set(),
       sessionTaskHistory: mockStoreValues.sessionTaskHistory ?? new Map(),
       pendingUserUploads: mockStoreValues.pendingUserUploads ?? new Map(),
+      pendingUserUploadRestorations: mockStoreValues.pendingUserUploadRestorations ?? new Map(),
       pendingCodexInputs: mockStoreValues.pendingCodexInputs ?? new Map(),
       activeTaskTurnId: mockStoreValues.activeTaskTurnId ?? new Map(),
       setActiveTaskTurnId: mockSetActiveTaskTurnId,
@@ -251,6 +252,12 @@ function setStorePendingUserUploads(sessionId: string, uploads: Array<Record<str
   const map = new Map();
   map.set(sessionId, uploads);
   mockStoreValues.pendingUserUploads = map;
+}
+
+function setStorePendingUserUploadRestorations(sessionId: string, uploads: Array<Record<string, unknown>>) {
+  const map = new Map();
+  map.set(sessionId, new Map(uploads.map((upload) => [upload.id, upload])));
+  mockStoreValues.pendingUserUploadRestorations = map;
 }
 
 function setStoreNotifications(sessionId: string, notifications: Array<Record<string, unknown>>) {
@@ -424,6 +431,8 @@ function resetStore() {
   mockStoreValues.bottomAlignNextUserMessage = new Set();
   mockStoreValues.sessionTaskHistory = new Map();
   mockStoreValues.pendingCodexInputs = new Map();
+  mockStoreValues.pendingUserUploads = new Map();
+  mockStoreValues.pendingUserUploadRestorations = new Map();
   mockStoreValues.activeTaskTurnId = new Map();
   mockStoreValues.sdkSessions = [];
 }
@@ -649,7 +658,7 @@ describe("MessageFeed - empty state", () => {
     expect(screen.getByText(/Preserve unknown-route pending input/)).toBeTruthy();
   });
 
-  it("renders pending local upload messages with immediate local image previews", () => {
+  it("renders prepared local messages as pending delivery while awaiting server acknowledgement", () => {
     const sid = "test-pending-local-upload";
     setStoreMessages(sid, []);
     setStorePendingUserUploads(sid, [
@@ -677,9 +686,201 @@ describe("MessageFeed - empty state", () => {
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.queryByText("Start a conversation")).toBeNull();
-    expect(screen.getByText("Pending upload")).toBeTruthy();
+    expect(screen.getByText("Pending delivery")).toBeTruthy();
     expect(screen.getByText("Sending…")).toBeTruthy();
     const image = screen.getByAltText("attachment-1.png") as HTMLImageElement;
     expect(image.src).toContain("data:image/png;base64,ZmFrZQ==");
+  });
+
+  it("shows pre-admission rejection as one editable local delivery failure without unsafe retry", () => {
+    const sid = "test-local-delivery-failed";
+    setStoreMessages(sid, []);
+    setStorePendingUserUploads(sid, [
+      {
+        id: "pending-text-oversized",
+        content: "Shorten this oversized request",
+        timestamp: Date.now(),
+        stage: "failed",
+        error: "Codex input is too large to queue safely. The message was not sent to Codex.",
+        threadKey: "q-1958",
+        questId: "q-1958",
+        images: [],
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
+
+    expect(screen.getAllByText("Delivery failed")).toHaveLength(1);
+    expect(
+      screen.getByText("Codex input is too large to queue safely. The message was not sent to Codex."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
+  });
+
+  it("retries a failed local Codex owner as an explicit composer message", () => {
+    const sid = "test-local-delivery-retry";
+    setStoreMessages(sid, []);
+    setStorePendingUserUploads(sid, [
+      {
+        id: "pending-client-retry",
+        content: "Retry this exact reply",
+        timestamp: Date.now(),
+        stage: "failed",
+        error: "Connection lost before delivery.",
+        replyContext: { messageId: "reply-target", previewText: "Original prompt" },
+        threadKey: "q-1958",
+        questId: "q-1958",
+        images: [],
+        prepared: { deliveryContent: "Retry this exact reply", imageRefs: [] },
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(mockSendToSession).toHaveBeenCalledWith(sid, {
+      type: "user_message",
+      content: "Retry this exact reply",
+      deliveryContent: "Retry this exact reply",
+      imageRefs: [],
+      replyContext: { messageId: "reply-target", previewText: "Original prompt" },
+      threadKey: "q-1958",
+      questId: "q-1958",
+      session_id: sid,
+      client_msg_id: "pending-client-retry",
+      inputSource: "composer",
+    });
+  });
+
+  it("prefers the authoritative Codex pending row over a matching local send card", () => {
+    const sid = "test-canonical-pending-image";
+    setStoreMessages(sid, []);
+    setStoreSessionBackend(sid, "codex");
+    setStorePendingUserUploads(sid, [
+      {
+        id: "pending-client-1",
+        content: "Inspect this screenshot",
+        timestamp: Date.now(),
+        stage: "delivering",
+        threadKey: "q-1958",
+        questId: "q-1958",
+        images: [
+          {
+            id: "draft-image-1",
+            name: "attachment-1.png",
+            base64: "ZmFrZQ==",
+            mediaType: "image/png",
+            status: "ready",
+            prepared: { imageRef: { imageId: "img-1", media_type: "image/png" }, path: "/tmp/img.png" },
+          },
+        ],
+      },
+    ]);
+    setStorePendingCodexInputs(sid, [
+      {
+        id: "server-pending-1",
+        clientMsgId: "pending-client-1",
+        content: "Inspect this screenshot",
+        timestamp: Date.now(),
+        cancelable: true,
+        threadKey: "q-1958",
+        questId: "q-1958",
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
+      },
+    ]);
+
+    const originBrowser = render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
+
+    expect(screen.getAllByText("Pending delivery")).toHaveLength(1);
+    expect(screen.getAllByText("Inspect this screenshot")).toHaveLength(1);
+    expect(screen.queryByText("Sending…")).toBeNull();
+    expect(screen.queryByAltText("attachment-1.png")).toBeNull();
+    expect(screen.getByAltText("Pending attachment").getAttribute("src")).toBe(
+      "/api/images/test-canonical-pending-image/img-1/thumb",
+    );
+
+    // A second browser has no origin-local preview state, but the same server
+    // snapshot still produces exactly one canonical pending row.
+    originBrowser.unmount();
+    setStorePendingUserUploads(sid, []);
+    render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
+    expect(screen.getAllByText("Pending delivery")).toHaveLength(1);
+    expect(screen.getAllByText("Inspect this screenshot")).toHaveLength(1);
+  });
+
+  it("renders persisted server failure once with exact retry and origin-only edit actions", () => {
+    const sid = "test-failed-server-pending";
+    const failedInput = {
+      id: "server-failed-1",
+      clientMsgId: "pending-client-1",
+      content: "Inspect this failed screenshot",
+      timestamp: Date.now(),
+      cancelable: true,
+      threadKey: "q-1958",
+      questId: "q-1958",
+      deliveryState: "failed",
+      failureReason: "nonrecoverable_turn_start",
+      failureMessage: "Codex rejected this input before delivery.",
+      failedAt: Date.now(),
+    };
+    setStoreMessages(sid, []);
+    setStoreSessionBackend(sid, "codex");
+    setStorePendingCodexInputs(sid, [failedInput]);
+    setStorePendingUserUploadRestorations(sid, [
+      {
+        id: "pending-client-1",
+        content: failedInput.content,
+        timestamp: failedInput.timestamp,
+        stage: "delivering",
+        threadKey: "q-1958",
+        questId: "q-1958",
+        images: [],
+      },
+    ]);
+
+    const originBrowser = render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
+
+    expect(screen.getAllByText("Delivery failed")).toHaveLength(1);
+    expect(screen.getByText("Codex rejected this input before delivery.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(mockSendToSession).toHaveBeenCalledWith(sid, { type: "retry_pending_codex_input", id: failedInput.id });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(mockSendToSession).toHaveBeenCalledWith(sid, { type: "cancel_pending_codex_input", id: failedInput.id });
+
+    // A non-origin browser receives the same authoritative failed row but does
+    // not invent editable local attachment state.
+    originBrowser.unmount();
+    setStorePendingUserUploadRestorations(sid, []);
+    render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
+    expect(screen.getAllByText("Delivery failed")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(mockSendToSession).toHaveBeenCalledWith(sid, { type: "cancel_pending_codex_input", id: failedInput.id });
+  });
+
+  it("scopes prepared local delivery state to its owning quest thread", () => {
+    const sid = "test-local-pending-owner-thread";
+    setStoreMessages(sid, []);
+    setStorePendingUserUploads(sid, [
+      {
+        id: "pending-client-1",
+        content: "Only q-1958 should show this",
+        timestamp: Date.now(),
+        stage: "delivering",
+        threadKey: "q-1958",
+        questId: "q-1958",
+        images: [],
+      },
+    ]);
+
+    const { rerender } = render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
+    expect(screen.getByText("Only q-1958 should show this")).toBeTruthy();
+
+    rerender(<MessageFeed sessionId={sid} threadKey="q-1952" />);
+    expect(screen.queryByText("Only q-1958 should show this")).toBeNull();
+    expect(screen.queryByText("Pending delivery")).toBeNull();
+    expect(screen.getByText("Start a conversation")).toBeTruthy();
   });
 });

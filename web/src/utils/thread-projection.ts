@@ -1,6 +1,7 @@
 import type {
   ChatMessage,
   PendingCodexInput,
+  PendingUserUpload,
   SessionNotification,
   ThreadAttachmentMarker,
   ThreadAttachmentMovementSummary,
@@ -493,4 +494,16 @@ export function filterPendingCodexInputsForThread(inputs: PendingCodexInput[], t
     if (!owner.mapped) return true;
     return owner.keys.has(target);
   });
+}
+
+/** Browser-local send state has an exact composer route; legacy unmapped entries belong to Main. */
+export function filterPendingUserUploadsForThread(
+  uploads: PendingUserUpload[],
+  threadKey: string,
+): PendingUserUpload[] {
+  const target = normalizeThreadKey(threadKey);
+  if (isAllThreadsKey(target)) return uploads;
+  return uploads.filter(
+    (upload) => (pendingThreadKey(upload.threadKey ?? upload.questId) ?? MAIN_THREAD_KEY) === target,
+  );
 }

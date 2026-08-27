@@ -550,6 +550,40 @@ describe("Composer interrupt button", () => {
     expect(mockSendToSession).toHaveBeenCalledWith("s1", { type: "interrupt" });
   });
 
+  it("keeps interrupt and later-message send controls available while a prior image message is pending", () => {
+    setupMockStore({ sessionStatus: "running", draftText: "Queue this follow-up too" });
+    mockStoreState.pendingUserUploads = new Map([
+      [
+        "s1",
+        [
+          {
+            id: "prior-image-send",
+            content: "Inspect the screenshot",
+            images: [],
+            timestamp: Date.now(),
+            stage: "delivering",
+            threadKey: "main",
+          },
+        ],
+      ],
+    ]);
+
+    render(<Composer sessionId="s1" />);
+
+    const stopButton = screen.getByTitle("Stop generation");
+    const sendButton = screen.getByRole("button", { name: "Send message" });
+    expect(sendButton.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(stopButton);
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", { type: "interrupt" });
+
+    fireEvent.click(sendButton);
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ type: "user_message", content: "Queue this follow-up too" }),
+    );
+  });
+
   it("send button appears when session is idle, no stop button", () => {
     setupMockStore({ sessionStatus: "idle" });
     render(<Composer sessionId="s1" />);

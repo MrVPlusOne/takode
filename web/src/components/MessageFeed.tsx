@@ -45,8 +45,6 @@ import {
 } from "./message-feed-sections.js";
 import {
   EMPTY_MESSAGES,
-  EMPTY_PENDING_CODEX_INPUTS,
-  EMPTY_PENDING_USER_UPLOADS,
   collectFeedBlockIdsFromNode,
   escapeSelectorValue,
   formatElapsed,
@@ -61,8 +59,8 @@ import {
   isTimedChatMessage,
 } from "./message-feed-utils.js";
 import { isSubagentToolName } from "../types.js";
-import { filterPendingCodexInputsForThread } from "../utils/thread-projection.js";
 import { isAllThreadsKey, isMainThreadKey, normalizeThreadKey } from "../utils/thread-projection.js";
+import { useMessageFeedPending } from "./use-message-feed-pending.js";
 import type { SessionAttentionRecord } from "../types.js";
 import { YarnBallDot, YarnBallSpinner, SleepingCat } from "./CatIcons.js";
 import { PawTrailAvatar, PawCounterContext, PawScrollProvider, HidePawContext } from "./PawTrail.js";
@@ -241,12 +239,7 @@ export function MessageFeed({
     ],
   );
   const { messages, visibleToolUseIds } = feedMessageModel;
-  const pendingUserUploads = useStore((s) => s.pendingUserUploads.get(sessionId) ?? EMPTY_PENDING_USER_UPLOADS);
-  const allPendingCodexInputs = useStore((s) => s.pendingCodexInputs.get(sessionId) ?? EMPTY_PENDING_CODEX_INPUTS);
-  const pendingCodexInputs = useMemo(
-    () => filterPendingCodexInputsForThread(allPendingCodexInputs, normalizedThreadKey),
-    [allPendingCodexInputs, normalizedThreadKey],
-  );
+  const { pendingUserUploads, pendingCodexInputs } = useMessageFeedPending(sessionId, normalizedThreadKey);
   const frozenCount = useStore((s) => s.messageFrozenCounts.get(sessionId) ?? 0);
   const frozenRevision = useStore((s) => s.messageFrozenRevisions.get(sessionId) ?? 0);
   const historyWindow = useStore((s) => s.historyWindows.get(sessionId) ?? null);

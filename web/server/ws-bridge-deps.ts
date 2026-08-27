@@ -307,6 +307,8 @@ const WS_BRIDGE_IDEMPOTENT_BROWSER_MESSAGE_TYPES = new Set<string>([
   "vscode_selection_update",
   "permission_response",
   "interrupt",
+  "cancel_pending_codex_input",
+  "retry_pending_codex_input",
   "set_model",
   "set_codex_reasoning_effort",
   "set_codex_service_tier",

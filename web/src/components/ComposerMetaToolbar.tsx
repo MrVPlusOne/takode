@@ -736,7 +736,7 @@ export function ComposerMetaToolbar({
           </svg>
         </button>
 
-        {!canSend && isRunning ? (
+        {isRunning && (
           <button
             onClick={handleInterrupt}
             className="flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-full transition-colors bg-cc-error/10 hover:bg-cc-error/20 text-cc-error cursor-pointer"
@@ -746,7 +746,8 @@ export function ComposerMetaToolbar({
               <rect x="3" y="3" width="10" height="10" rx="1" />
             </svg>
           </button>
-        ) : (
+        )}
+        {(canSend || !isRunning) && (
           <div className="relative group">
             <button
               onClick={handleSend}

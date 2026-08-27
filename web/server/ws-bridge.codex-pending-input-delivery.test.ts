@@ -57,6 +57,7 @@ import {
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
+import type { TurnSteerFailureInfo } from "./bridge/adapter-interface.js";
 
 function createMockSocket(data: SocketData) {
   return {
@@ -93,7 +94,7 @@ function makeCodexAdapterMock() {
   let onTurnStartFailedCb: ((msg: any) => void) | undefined;
   let onTurnStartedCb: ((turnId: string) => void) | undefined;
   let onTurnSteeredCb: ((turnId: string, pendingInputIds: string[]) => void) | undefined;
-  let onTurnSteerFailedCb: ((pendingInputIds: string[]) => void) | undefined;
+  let onTurnSteerFailedCb: ((pendingInputIds: string[], info?: TurnSteerFailureInfo) => void) | undefined;
   let currentTurnId: string | null = null;
   const rollbackTurns = vi.fn(async (_numTurns: number) => {});
 
@@ -119,7 +120,7 @@ function makeCodexAdapterMock() {
     onTurnSteered: vi.fn((cb: (turnId: string, pendingInputIds: string[]) => void) => {
       onTurnSteeredCb = cb;
     }),
-    onTurnSteerFailed: vi.fn((cb: (pendingInputIds: string[]) => void) => {
+    onTurnSteerFailed: vi.fn((cb: (pendingInputIds: string[], info?: TurnSteerFailureInfo) => void) => {
       onTurnSteerFailedCb = cb;
     }),
     sendBrowserMessage: vi.fn((_msg?: any) => true),
@@ -143,8 +144,9 @@ function makeCodexAdapterMock() {
     emitTurnSteered: (turnId: string, pendingInputIds: string[]) => {
       onTurnSteeredCb?.(turnId, pendingInputIds);
     },
-    emitTurnSteerFailed: (pendingInputIds: string[]) => {
-      onTurnSteerFailedCb?.(pendingInputIds);
+    emitTurnSteerFailed: (pendingInputIds: string[], info?: TurnSteerFailureInfo) => {
+      if (info?.kind === "no_active_turn") currentTurnId = null;
+      onTurnSteerFailedCb?.(pendingInputIds, info);
     },
     setCurrentTurnIdForTest: (turnId: string | null) => {
       currentTurnId = turnId;
@@ -609,16 +611,20 @@ describe("Codex pending input delivery", () => {
     try {
       const sid = "s-codex-oversized-pending";
       const browser = makeBrowserSocket(sid);
+      const otherBrowser = makeBrowserSocket(sid);
       bridge.getOrCreateSession(sid, "codex");
       bridge.handleBrowserOpen(browser, sid);
+      bridge.handleBrowserOpen(otherBrowser, sid);
       browser.send.mockClear();
+      otherBrowser.send.mockClear();
 
       await bridge.handleBrowserMessage(
         browser,
         JSON.stringify({
           type: "user_message",
           content: "short visible message",
-          deliveryContent: "x".repeat(64),
+          deliveryContent: `/private/model/path/${"x".repeat(64)}`,
+          client_msg_id: "oversized-origin-owner",
         }),
       );
       await Promise.resolve();
@@ -626,10 +632,23 @@ describe("Codex pending input delivery", () => {
       const session = bridge.getSession(sid)!;
       expect(session.pendingCodexInputs).toHaveLength(0);
       expect(session.pendingCodexTurns).toHaveLength(0);
+      const originMessages = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+      const rejection = originMessages.find((msg: any) => msg.type === "codex_pending_input_failed");
+      expect(rejection).toMatchObject({
+        reason: "pending_input_too_large",
+        input: {
+          clientMsgId: "oversized-origin-owner",
+          content: "short visible message",
+        },
+      });
+      expect(JSON.stringify(rejection)).not.toContain("/private/model/path");
       expect(
-        browser.send.mock.calls
+        otherBrowser.send.mock.calls
           .map(([arg]: [string]) => JSON.parse(arg))
-          .some((msg: any) => msg.type === "error" && msg.message.includes("too large to queue safely")),
+          .some((msg: any) => msg.type === "codex_pending_input_failed"),
+      ).toBe(false);
+      expect(
+        originMessages.some((msg: any) => msg.type === "error" && msg.message.includes("too large to queue safely")),
       ).toBe(true);
     } finally {
       delete process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES;
@@ -994,6 +1013,94 @@ describe("Codex pending input delivery", () => {
     warnSpy.mockRestore();
   });
 
+  it("settles a stale acknowledged head with local activity instead of replaying it", async () => {
+    // The connected watchdog/poke path must use exact-owner local model
+    // activity as delivery proof. Replaying the old head would duplicate work
+    // and keep the later user input trapped behind it.
+    const sid = "s-codex-stale-head-local-activity";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-stale-activity", model: "gpt-5.6-sol", cwd: "/repo" });
+    bridge.handleBrowserOpen(browser, sid);
+
+    const session = bridge.getSession(sid)!;
+    const oldOwnerId = "old-alignment-owner";
+    session.messageHistory.push(
+      { type: "user_message", id: oldOwnerId, content: "completed alignment work", timestamp: 1_000 },
+      {
+        type: "assistant",
+        message: {
+          id: "old-alignment-response",
+          type: "message",
+          role: "assistant",
+          model: "gpt-5.6-sol",
+          content: [{ type: "text", text: "Alignment evidence already produced." }],
+          stop_reason: null,
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: 1_100,
+      },
+    );
+    session.pendingCodexTurns.push({
+      adapterMsg: {
+        type: "codex_start_pending",
+        pendingInputIds: [oldOwnerId],
+        inputs: [{ content: "completed alignment work" }],
+      },
+      userMessageId: oldOwnerId,
+      pendingInputIds: [oldOwnerId],
+      userContent: "completed alignment work",
+      historyIndex: 0,
+      status: "backend_acknowledged",
+      dispatchCount: 4,
+      createdAt: 1_000,
+      updatedAt: 1_100,
+      acknowledgedAt: 1_050,
+      turnTarget: "current",
+      lastError: null,
+      turnId: "turn-completed-alignment",
+      disconnectedAt: 1_075,
+      resumeConfirmedAt: null,
+      autoPauseSourceKind: "manual",
+    });
+    adapter.sendBrowserMessage.mockClear();
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "new work after completed alignment" }),
+    );
+    await Promise.resolve();
+
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
+    const dispatched = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
+    expect(getCodexStartPendingInputs(dispatched).map((input) => input.content)).toEqual([
+      "new work after completed alignment",
+    ]);
+    expect(JSON.stringify(dispatched)).not.toContain("completed alignment work");
+    expect(session.pendingCodexTurns).toEqual([
+      expect.objectContaining({
+        userContent: "new work after completed alignment",
+        status: "dispatched",
+        dispatchCount: 1,
+      }),
+    ]);
+
+    adapter.emitTurnStarted("turn-new-work");
+    await Promise.resolve();
+    expect(
+      session.messageHistory.filter(
+        (message: any) => message.type === "user_message" && message.content === "completed alignment work",
+      ),
+    ).toHaveLength(1);
+    expect(
+      session.messageHistory.filter(
+        (message: any) => message.type === "user_message" && message.content === "new work after completed alignment",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("does not retry stale pending delivery while Codex reports an active current turn", async () => {
     const sid = "s-codex-stale-current-turn";
     const adapter = makeCodexAdapterMock();
@@ -1161,6 +1268,132 @@ describe("Codex pending input delivery", () => {
         }),
       ],
     });
+  });
+
+  it("releases an exact provider-inactive owner and retries queued image/text input in order", async () => {
+    // Producer-shaped regression for the q-1958 live sequence: the provider
+    // rejects a steer because the exact tracked turn is no longer active. The
+    // stale acknowledged owner must not block the image or later text input.
+    const sid = "s-codex-no-active-steer-retry";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-no-active-steer", model: "gpt-5.6-sol", cwd: "/repo" });
+    bridge.handleBrowserOpen(browser, sid);
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "active owner" }));
+    await Promise.resolve();
+    adapter.emitTurnStarted("turn-provider-inactive");
+    adapter.sendBrowserMessage.mockClear();
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "queued image owner",
+        client_msg_id: "client-image-owner",
+        imageRefs: [{ imageId: "queued-image", media_type: "image/jpeg", optimized: true, sourceName: "queued.png" }],
+      }),
+    );
+    await Promise.resolve();
+
+    const imageSteer = adapter.sendBrowserMessage.mock.calls
+      .map((args: any[]) => args[0])
+      .find((msg: any) => msg?.type === "codex_steer_pending");
+    expect(imageSteer).toMatchObject({
+      expectedTurnId: "turn-provider-inactive",
+      pendingInputIds: [expect.any(String)],
+    });
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "interrupt", interruptSource: "user" }));
+    await Promise.resolve();
+    adapter.emitTurnSteerFailed(imageSteer.pendingInputIds, {
+      kind: "no_active_turn",
+      expectedTurnId: "turn-provider-inactive",
+    });
+    await Promise.resolve();
+
+    const outboundAfterFailure = adapter.sendBrowserMessage.mock.calls.map((args: any[]) => args[0]);
+    expect(outboundAfterFailure.map((msg: any) => msg.type)).toEqual([
+      "codex_steer_pending",
+      "interrupt",
+      "codex_start_pending",
+    ]);
+    const imageRetry = outboundAfterFailure[2];
+    expect(imageRetry).toMatchObject({
+      type: "codex_start_pending",
+      pendingInputIds: imageSteer.pendingInputIds,
+    });
+    expect(getCodexStartPendingInputs(imageRetry)[0]?.content).toContain("queued image owner");
+    expect(getCodexStartPendingInputs(imageRetry)[0]?.content).toContain("queued-image.takode-agent.jpeg");
+    expect((getCodexStartPendingInputs(imageRetry)[0] as any)?.images).toBeUndefined();
+    expect((getCodexStartPendingInputs(imageRetry)[0] as any)?.local_images).toBeUndefined();
+
+    const session = bridge.getSession(sid)!;
+    expect(session.pendingCodexTurns).toHaveLength(1);
+    expect(session.pendingCodexTurns[0]).toMatchObject({ status: "dispatched", turnId: null });
+    expect(session.isGenerating).toBe(true);
+    expect(session.pendingCodexInputs).toEqual([
+      expect.objectContaining({ content: "queued image owner", cancelable: false }),
+    ]);
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "later text owner", client_msg_id: "client-later-owner" }),
+    );
+    await Promise.resolve();
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(3);
+    expect(session.pendingCodexInputs.map((input: any) => input.content)).toEqual([
+      "queued image owner",
+      "later text owner",
+    ]);
+
+    adapter.emitTurnStarted("turn-retried-owner");
+    await Promise.resolve();
+    const laterSteer = adapter.sendBrowserMessage.mock.calls
+      .map((args: any[]) => args[0])
+      .find(
+        (msg: any) =>
+          msg?.type === "codex_steer_pending" && msg.inputs?.some((input: any) => input.content === "later text owner"),
+      );
+    expect(laterSteer).toMatchObject({
+      expectedTurnId: "turn-retried-owner",
+      pendingInputIds: [expect.any(String)],
+    });
+    adapter.emitTurnSteered("turn-retried-owner", laterSteer.pendingInputIds);
+    await Promise.resolve();
+
+    adapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "retried owners completed",
+        duration_ms: 1,
+        duration_api_ms: 1,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "completed",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        uuid: "result-retried-owners",
+        session_id: sid,
+        codex_turn_id: "turn-retried-owner",
+      },
+    });
+    await Promise.resolve();
+
+    const committedContents = session.messageHistory
+      .filter((msg: any) => msg.type === "user_message")
+      .map((msg: any) => msg.content);
+    expect(committedContents).toEqual(["active owner", "queued image owner", "later text owner"]);
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(session.pendingCodexTurns).toHaveLength(0);
   });
 
   it("does not retry stale pending delivery while the session is actively generating", async () => {

@@ -69,6 +69,18 @@ describe("buildCodexPendingDeliveryDiagnostics", () => {
     expect(JSON.stringify(diagnostics)).not.toContain("hidden");
   });
 
+  it("classifies failed-only input as user-actionable rather than blocked delivery", () => {
+    const failed = makePendingInput();
+    failed.deliveryState = "failed";
+    failed.failureReason = "nonrecoverable_turn_start";
+    const diagnostics = buildCodexPendingDeliveryDiagnostics(
+      makeSession({ pendingCodexInputs: [failed], pendingCodexTurns: [], codexAdapter: null }),
+      { now: 10_000 },
+    );
+
+    expect(diagnostics).toMatchObject({ blockerReason: "failed_input", pendingInputCount: 1, pendingTurnCount: 0 });
+  });
+
   it("classifies active current turn id as the pending-delivery blocker", () => {
     const diagnostics = buildCodexPendingDeliveryDiagnostics(
       makeSession({

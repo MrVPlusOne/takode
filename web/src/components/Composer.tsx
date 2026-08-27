@@ -71,7 +71,7 @@ import {
   isModifierOnlyKey,
   type ShortcutActionId,
 } from "../shortcuts.js";
-import type { ComposerDraftImage, PendingUserUpload, SessionPauseState } from "../types.js";
+import type { ComposerDraftImage, SessionPauseState } from "../types.js";
 import {
   abortPendingUserUpload,
   clearPendingUserUploadController,
@@ -86,7 +86,6 @@ import {
 
 export { ReplyChip } from "./ReplyChip.js";
 
-const EMPTY_PENDING_USER_UPLOADS: PendingUserUpload[] = [];
 const EMPTY_COMPOSER_IMAGES: ComposerDraftImage[] = [];
 const VOICE_SHORTCUT_ACTIONS: readonly ShortcutActionId[] = ["voice_start", "voice_stop"];
 
@@ -121,7 +120,6 @@ export function Composer({
 }) {
   const draft = useStore((s) => s.composerDrafts.get(sessionId));
   const shortcutSettings = useStore((s) => s.shortcutSettings);
-  const pendingUserUploads = useStore((s) => s.pendingUserUploads.get(sessionId)) ?? EMPTY_PENDING_USER_UPLOADS;
   const replyContext = useStore((s) => s.replyContexts.get(sessionId));
   const text = draft?.text ?? "";
   const images = draft?.images ?? EMPTY_COMPOSER_IMAGES;
@@ -941,14 +939,7 @@ export function Composer({
   async function handleSend() {
     const store = useStore.getState();
     const msg = text.trim();
-    if (
-      (!msg && images.length === 0) ||
-      !canUseInput ||
-      voiceEditProposal ||
-      !allImagesReady ||
-      activePendingUserUpload
-    )
-      return;
+    if ((!msg && images.length === 0) || !canUseInput || voiceEditProposal || !allImagesReady) return;
 
     // Auto-answer pending AskUserQuestion if user types a response.
     // The typed text becomes the "Other..." answer for each question.
@@ -1047,7 +1038,7 @@ export function Composer({
       }
     };
 
-    if (images.length > 0) {
+    if (isCodex || images.length > 0) {
       const pendingId = nextPendingUploadId();
       const paths = images.map((img) => img.prepared?.path).filter((path): path is string => !!path);
       const imageRefs = images
@@ -1061,6 +1052,9 @@ export function Composer({
           : "";
       const deliveryContent = `${replyDeliveryContent}${attachmentAnnotation}`;
 
+      // Codex turns and all image-backed sends get a browser-local owner
+      // before transport. Server pending or committed history replaces it by
+      // exact client id; failed pre-admission sends remain editable.
       store.addPendingUserUpload(sessionId, {
         id: pendingId,
         content: finalContent,
@@ -1071,10 +1065,7 @@ export function Composer({
         ...(vscodeSelectionPayload ? { vscodeSelection: vscodeSelectionPayload } : {}),
         threadKey,
         ...(threadKey !== "main" ? { questId: questId ?? threadKey } : {}),
-        prepared: {
-          deliveryContent,
-          imageRefs,
-        },
+        prepared: { deliveryContent, imageRefs },
       });
       store.clearComposerDraft(sessionId);
       setAlternateVoiceRerun(null);
@@ -1084,9 +1075,9 @@ export function Composer({
       const sent = sendToSession(sessionId, {
         type: "user_message",
         content: finalContent,
-        deliveryContent,
+        ...(deliveryContent !== finalContent ? { deliveryContent } : {}),
         ...(currentReplyContext ? { replyContext: currentReplyContext } : {}),
-        imageRefs,
+        ...(imageRefs.length > 0 ? { imageRefs } : {}),
         inputSource: "composer",
         session_id: sessionId,
         client_msg_id: pendingId,
@@ -1095,8 +1086,10 @@ export function Composer({
         ...(vscodeSelectionPayload ? { vscodeSelection: vscodeSelectionPayload } : {}),
       });
 
-      store.requestBottomAlignOnNextUserMessage(sessionId);
-      finalizeReplyNotification();
+      if (sent) {
+        store.requestBottomAlignOnNextUserMessage(sessionId);
+        finalizeReplyNotification();
+      }
       store.updatePendingUserUpload(sessionId, pendingId, (upload) => ({
         ...upload,
         stage: sent ? "delivering" : "failed",
@@ -1115,17 +1108,13 @@ export function Composer({
       ...(threadKey !== "main" ? { questId: questId ?? threadKey } : {}),
       ...(vscodeSelectionPayload ? { vscodeSelection: vscodeSelectionPayload } : {}),
     });
+    if (!sent) return;
 
-    if (!sent) return; // WebSocket not open — keep draft so user can retry
-
-    // User message will appear in the feed when the server broadcasts it back
-    // (server-authoritative model — browsers never add user messages locally)
     store.requestBottomAlignOnNextUserMessage(sessionId);
     store.clearComposerDraft(sessionId);
     setAlternateVoiceRerun(null);
     finalizeReplyNotification();
     store.setReplyContext(sessionId, null);
-
     clearComposerUi();
   }
 
@@ -1595,7 +1584,6 @@ export function Composer({
   });
 
   const isRunning = useStore((s) => s.sessionStatus.get(sessionId) === "running");
-  const activePendingUserUpload = pendingUserUploads.find((upload) => upload.stage === "delivering");
   const readingImageCount = images.filter((image) => image.status === "reading").length;
   const uploadingImageCount = images.filter((image) => image.status === "uploading").length;
   const failedImageCount = images.filter((image) => image.status === "failed").length;
@@ -1609,12 +1597,7 @@ export function Composer({
         : failedImageCount > 0
           ? `Remove or retry ${failedImageCount} failed image${failedImageCount === 1 ? "" : "s"} before sending.`
           : null;
-  const canSend =
-    (text.trim().length > 0 || images.length > 0) &&
-    canUseInput &&
-    !voiceEditProposal &&
-    !activePendingUserUpload &&
-    allImagesReady;
+  const canSend = (text.trim().length > 0 || images.length > 0) && canUseInput && !voiceEditProposal && allImagesReady;
   const isVoiceInteractionActive = isPreparing || isRecording || isTranscribing;
   const hasActiveReplyContext = !!replyContext;
   const placeholder = buildComposerPlaceholder({
@@ -1746,8 +1729,7 @@ export function Composer({
   const sendButtonShortcutTitle = usesTouchKeyboard
     ? "Send: tap button; New line: Enter"
     : "Send: Enter; New line: Shift+Enter";
-  const sendButtonBlockTitle = attachmentBlockReason || (activePendingUserUpload ? "Delivering pending message" : null);
-  const sendButtonTitle = sendButtonBlockTitle ?? (canSend ? sendButtonShortcutTitle : "Send message");
+  const sendButtonTitle = attachmentBlockReason ?? (canSend ? sendButtonShortcutTitle : "Send message");
   const plainReferencePreviews = useMemo(() => {
     const questIds = new Set(previewQuestIds);
     const sessionNums = new Set(previewSessionNums);

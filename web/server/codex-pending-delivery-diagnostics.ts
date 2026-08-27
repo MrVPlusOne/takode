@@ -25,6 +25,7 @@ export type CodexPendingDeliveryBlockerReason =
   | "stale_backend_ack_head"
   | "dispatched_head_pending_ack"
   | "queued_head_ready"
+  | "failed_input"
   | "unknown_head_state";
 
 export type CodexPendingDeliveryProofKind =
@@ -139,6 +140,12 @@ function classifyBlocker(input: {
   const hasPendingWork = session.pendingCodexInputs.length > 0 || session.pendingCodexTurns.length > 0;
   if (session.backendType !== "codex") return "not_codex";
   if (!hasPendingWork) return "none";
+  if (
+    session.pendingCodexTurns.length === 0 &&
+    session.pendingCodexInputs.every((input) => input.deliveryState === "failed")
+  ) {
+    return "failed_input";
+  }
 
   const backendState = session.state.backend_state ?? null;
   if (backendState === "recovery_suppressed") return "recovery_suppressed";

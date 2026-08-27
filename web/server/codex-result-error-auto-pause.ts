@@ -437,7 +437,7 @@ function isAcceptedCodexAutoPauseRecoveryOwner(
 }
 
 function isEligibleQueuedAutomaticCodexInput(input: PendingCodexInput): boolean {
-  return input.cancelable && determineCodexInputSourceKind(input) === "automatic";
+  return input.deliveryState !== "failed" && input.cancelable && determineCodexInputSourceKind(input) === "automatic";
 }
 
 function pendingCodexInputToAutoPauseMessage(input: PendingCodexInput): BrowserUserMessage {

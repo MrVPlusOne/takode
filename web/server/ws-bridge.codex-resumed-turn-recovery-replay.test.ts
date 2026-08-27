@@ -933,6 +933,114 @@ describe("Codex resumed-turn recovery", () => {
     });
   });
 
+  it("settles all same-provider-turn owners on reconnect before dispatching a later image", async () => {
+    // Reproduces the q-1958 producer sequence: a follow-up steer is accepted
+    // into the current provider turn, transport reconnects, and terminal
+    // resume evidence must settle both logical owners of that one turn.
+    const sid = "s-resume-same-turn-co-owners";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+    emitCodexSessionReady(adapter1, { cliSessionId: "thread-same-turn-owners" });
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "initial owner" }));
+    await Promise.resolve();
+    adapter1.emitTurnStarted("turn-shared-owner");
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "steered co-owner" }));
+    await Promise.resolve();
+    const sessionBeforeDisconnect = bridge.getSession(sid)!;
+    const steeredId = sessionBeforeDisconnect.pendingCodexInputs[0]?.id;
+    expect(steeredId).toBeTruthy();
+    if (!steeredId) throw new Error("missing steered co-owner id");
+    adapter1.emitTurnSteered("turn-shared-owner", [steeredId]);
+
+    expect(sessionBeforeDisconnect.pendingCodexTurns).toEqual([
+      expect.objectContaining({
+        userContent: "initial owner",
+        turnId: "turn-shared-owner",
+        turnTarget: "current",
+      }),
+      expect.objectContaining({
+        userContent: "steered co-owner",
+        turnId: "turn-shared-owner",
+        turnTarget: "queued",
+      }),
+    ]);
+
+    adapter1.emitDisconnect("turn-shared-owner");
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-same-turn-owners",
+      model: "gpt-5.6-sol",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-same-turn-owners",
+        threadStatus: "idle",
+        turnCount: 2,
+        lastTurn: {
+          id: "turn-shared-owner",
+          status: "interrupted",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: "initial owner" }] },
+            { type: "agentMessage", id: "same-turn-a1", text: "Recovered partial response" },
+            { type: "reasoning", summary: ["recovered reasoning"] },
+            { type: "agentMessage", id: "same-turn-a2", text: "Recovered final response" },
+          ],
+        },
+      },
+    });
+    await Promise.resolve();
+
+    const resumedSession = bridge.getSession(sid)!;
+    expect(resumedSession.pendingCodexTurns).toHaveLength(0);
+    expect(resumedSession.isGenerating).toBe(false);
+    expect(adapter2.sendBrowserMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "codex_start_pending",
+        inputs: expect.arrayContaining([
+          expect.objectContaining({ content: expect.stringMatching(/initial owner|steered co-owner/) }),
+        ]),
+      }),
+    );
+
+    adapter2.sendBrowserMessage.mockClear();
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "later image owner",
+        client_msg_id: "client-resume-image-owner",
+        imageRefs: [{ imageId: "resume-image", media_type: "image/png", optimized: true, sourceName: "resume.png" }],
+      }),
+    );
+    await Promise.resolve();
+
+    const laterStart = adapter2.sendBrowserMessage.mock.calls
+      .map((args: any[]) => args[0])
+      .find((msg: any) => msg?.type === "codex_start_pending");
+    expect(laterStart).toMatchObject({ pendingInputIds: [expect.any(String)] });
+    expect(getCodexStartPendingInputs(laterStart)[0]?.content).toContain("later image owner");
+    expect(getCodexStartPendingInputs(laterStart)[0]?.content).toContain("resume-image.takode-agent.png");
+    expect((getCodexStartPendingInputs(laterStart)[0] as any)?.images).toBeUndefined();
+    expect((getCodexStartPendingInputs(laterStart)[0] as any)?.local_images).toBeUndefined();
+
+    adapter2.emitTurnStarted("turn-later-image");
+    await Promise.resolve();
+    const committed = resumedSession.messageHistory
+      .filter((msg: any) => msg.type === "user_message")
+      .map((msg: any) => msg.content);
+    expect(committed.filter((content: string) => content === "initial owner")).toHaveLength(1);
+    expect(committed.filter((content: string) => content === "steered co-owner")).toHaveLength(1);
+    expect(committed.filter((content: string) => content === "later image owner")).toHaveLength(1);
+    expect(resumedSession.pendingCodexInputs).toHaveLength(0);
+  });
+
   it("re-arms resumed in-progress queued follow-up turns after disconnect", async () => {
     const sid = "s-rearm-resumed-followup";
     const adapter1 = makeCodexAdapterMock();

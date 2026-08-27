@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   PermissionBanner,
   PermissionsCollapsedChip,
@@ -306,6 +306,7 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
 ];
 
 export function PlaygroundOverviewSections() {
+  const [codexPendingThreadKey, setCodexPendingThreadKey] = useState("q-1958");
   const compactQuestThreadBannerRows: Array<{ label: string; threadKey: string; row: QuestThreadBannerRow }> = [
     {
       label: "Active Work phase",
@@ -739,19 +740,35 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Codex Pending Inputs"
-        description="Accepted but not yet delivered Codex follow-up messages render as lightweight pending chips instead of committed chat history."
+        description="Accepted but not yet delivered Codex messages render once as owner-scoped pending-delivery rows. Prepared browser-local state is replaced by the matching server-owned row instead of appearing as a second upload card; persisted failures remain cancellable after reconnect."
       >
-        <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[320px]">
-          <MessageFeed sessionId={PLAYGROUND_CODEX_PENDING_SESSION_ID} />
+        <div className="mb-2 flex gap-2" aria-label="Pending input thread preview">
+          {["q-1958", "q-1952"].map((threadKey) => (
+            <button
+              key={threadKey}
+              type="button"
+              onClick={() => setCodexPendingThreadKey(threadKey)}
+              className={`rounded-full border px-3 py-1 text-xs ${
+                codexPendingThreadKey === threadKey
+                  ? "border-cc-primary/50 bg-cc-primary/10 text-cc-primary"
+                  : "border-cc-border text-cc-muted"
+              }`}
+            >
+              {threadKey}
+            </button>
+          ))}
+        </div>
+        <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[380px]">
+          <MessageFeed sessionId={PLAYGROUND_CODEX_PENDING_SESSION_ID} threadKey={codexPendingThreadKey} />
         </div>
       </Section>
 
       <Section
-        title="Codex Image Send States"
-        description="Image-backed Codex turns keep upload and backend-processing feedback in the floating purring chip, then fall back to the normal purring label as soon as response streaming starts."
+        title="Codex Image Preparation and Delivery"
+        description="Attachment preparation stays distinct from model delivery: unfinished preparation may say Uploading, while a prepared message awaiting Codex uses the canonical Pending delivery row above."
       >
         <div className="space-y-4">
-          <Card label="Pending local upload bubble">
+          <Card label="Unfinished attachment preparation">
             <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card p-4">
               <div className="flex justify-end">
                 <div className="max-w-[85%] sm:max-w-[80%] sm:min-w-[200px] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">

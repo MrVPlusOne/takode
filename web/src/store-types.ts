@@ -400,7 +400,7 @@ export interface AppState {
   ) => void;
   removePendingUserUpload: (sessionId: string, uploadId: string) => void;
   consumePendingUserUpload: (sessionId: string, uploadId: string) => PendingUserUpload | null;
-  getPendingUserUploadRestoration: (sessionId: string, uploadId: string) => PendingUserUpload | null;
+  takePendingUserUploadRestoration: (sessionId: string, uploadId: string) => PendingUserUpload | null;
   replyContexts: Map<string, ReplyContext>;
   setReplyContext: (sessionId: string, context: ReplyContext | null) => void;
   focusComposerTrigger: number;

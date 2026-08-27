@@ -131,6 +131,20 @@ describe("startup-recovery", () => {
     ).toEqual(expect.arrayContaining(["pending_codex_inputs", "pending_codex_turns", "pending_herd_delivery"]));
   });
 
+  it("does not relaunch for failed-only Codex inputs that require an explicit retry", () => {
+    expect(
+      collectStartupRecoveryReasons({
+        pendingCodexInputs: [
+          {
+            id: "failed-owner",
+            deliveryState: "failed",
+            agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+          },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
   it("fires due timers during startup recovery and does not repeat them after they are no longer due", async () => {
     // Due timer sessions are captured before the immediate sweep, so the
     // backend gets relaunched even when the timer itself is removed during the

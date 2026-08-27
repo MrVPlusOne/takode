@@ -103,6 +103,10 @@ export function usePlaygroundSeed() {
       demoSessionIds.map((id) => [id, snapshot.sessionAttentionRecords.get(id)]),
     );
     const prevPendingCodexInputs = new Map(demoSessionIds.map((id) => [id, snapshot.pendingCodexInputs.get(id)]));
+    const prevPendingUserUploads = new Map(demoSessionIds.map((id) => [id, snapshot.pendingUserUploads.get(id)]));
+    const prevPendingUserUploadRestorations = new Map(
+      demoSessionIds.map((id) => [id, snapshot.pendingUserUploadRestorations.get(id)]),
+    );
     const prevToolProgress = new Map(demoSessionIds.map((id) => [id, snapshot.toolProgress.get(id)]));
     const prevToolResults = new Map(demoSessionIds.map((id) => [id, snapshot.toolResults.get(id)]));
     const prevToolStartTimestamps = new Map(demoSessionIds.map((id) => [id, snapshot.toolStartTimestamps.get(id)]));
@@ -1235,16 +1239,52 @@ export function usePlaygroundSeed() {
         content: "Also check whether refresh-token rotation races with logout.",
         timestamp: Date.now(),
         cancelable: true,
+        threadKey: "q-1958",
+        questId: "q-1958",
         draftImages: [],
       },
       {
         id: "playground-pending-codex-2",
+        clientMsgId: "playground-pending-failed-client",
         content: "If you find a race, propose the smallest safe fix first.",
         timestamp: Date.now() + 1,
-        cancelable: false,
+        cancelable: true,
+        threadKey: "q-1958",
+        questId: "q-1958",
+        deliveryState: "failed",
+        failureReason: "nonrecoverable_turn_start",
+        failureMessage: "Codex rejected this input before delivery.",
+        failedAt: Date.now() + 2,
+        draftImages: [],
+      },
+      {
+        id: "playground-pending-codex-3",
+        content: "A failed message from another browser can still be cancelled after reconnect.",
+        timestamp: Date.now() + 3,
+        cancelable: true,
+        threadKey: "q-1958",
+        questId: "q-1958",
+        deliveryState: "failed",
+        failureReason: "nonrecoverable_turn_start",
+        failureMessage: "Codex rejected this input before delivery.",
+        failedAt: Date.now() + 4,
         draftImages: [],
       },
     ]);
+    store.addPendingUserUpload(PLAYGROUND_CODEX_PENDING_SESSION_ID, {
+      id: "playground-pending-failed-client",
+      content: "If you find a race, propose the smallest safe fix first.",
+      timestamp: Date.now() + 1,
+      stage: "delivering",
+      threadKey: "q-1958",
+      questId: "q-1958",
+      images: [],
+      prepared: {
+        deliveryContent: "If you find a race, propose the smallest safe fix first.",
+        imageRefs: [],
+      },
+    });
+    store.consumePendingUserUpload(PLAYGROUND_CODEX_PENDING_SESSION_ID, "playground-pending-failed-client");
 
     const repeatedBackendError =
       "Error: stream disconnected before completion: error sending request for url (http://localhost:4000/responses)";
@@ -1566,6 +1606,8 @@ export function usePlaygroundSeed() {
         const sessionNotifications = new Map(s.sessionNotifications);
         const sessionAttentionRecords = new Map(s.sessionAttentionRecords);
         const pendingCodexInputs = new Map(s.pendingCodexInputs);
+        const pendingUserUploads = new Map(s.pendingUserUploads);
+        const pendingUserUploadRestorations = new Map(s.pendingUserUploadRestorations);
         const sessionTimers = new Map(s.sessionTimers);
         const toolProgress = new Map(s.toolProgress);
         const toolResults = new Map(s.toolResults);
@@ -1588,6 +1630,8 @@ export function usePlaygroundSeed() {
           const prevFeedScrollPosition = prevFeedScrollPositions.get(demoId);
           const prevLoading = prevHistoryLoading.get(demoId);
           const prevPendingCodex = prevPendingCodexInputs.get(demoId);
+          const prevPendingUserUpload = prevPendingUserUploads.get(demoId);
+          const prevPendingUserUploadRestoration = prevPendingUserUploadRestorations.get(demoId);
           const prevBoardRowStatuses = prevSessionBoardRowStatuses.get(demoId);
           const prevCompletedBoard = prevSessionCompletedBoards.get(demoId);
           const prevSessionToolProgress = prevToolProgress.get(demoId);
@@ -1646,6 +1690,11 @@ export function usePlaygroundSeed() {
           else sessionCompletedBoards.delete(demoId);
           if (prevPendingCodex) pendingCodexInputs.set(demoId, prevPendingCodex);
           else pendingCodexInputs.delete(demoId);
+          if (prevPendingUserUpload) pendingUserUploads.set(demoId, prevPendingUserUpload);
+          else pendingUserUploads.delete(demoId);
+          if (prevPendingUserUploadRestoration) {
+            pendingUserUploadRestorations.set(demoId, prevPendingUserUploadRestoration);
+          } else pendingUserUploadRestorations.delete(demoId);
           if (prevSessionToolProgress) toolProgress.set(demoId, prevSessionToolProgress);
           else toolProgress.delete(demoId);
           if (prevSessionToolResults) toolResults.set(demoId, prevSessionToolResults);
@@ -1687,6 +1736,8 @@ export function usePlaygroundSeed() {
           sessionNotifications,
           sessionAttentionRecords,
           pendingCodexInputs,
+          pendingUserUploads,
+          pendingUserUploadRestorations,
           sessionTimers,
           toolProgress,
           toolResults,

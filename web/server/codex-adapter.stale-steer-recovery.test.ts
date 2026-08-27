@@ -107,9 +107,11 @@ describe("CodexAdapter stale turn/steer recovery", () => {
   it("clears a matching stale active turn and suppresses no-active-turn steer errors", async () => {
     const emitted: BrowserIncomingMessage[] = [];
     const steerFailed = vi.fn();
+    const turnStarted = vi.fn();
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini", cwd: "/tmp" });
     adapter.onBrowserMessage((msg) => emitted.push(msg));
     adapter.onTurnSteerFailed(steerFailed);
+    adapter.onTurnStarted(turnStarted);
 
     await initializeAdapter(stdout);
     await startActiveTurn(adapter, stdin, stdout);
@@ -131,13 +133,27 @@ describe("CodexAdapter stale turn/steer recovery", () => {
     await tick();
 
     expect(adapter.getCurrentTurnId()).toBeNull();
-    expect(steerFailed).toHaveBeenCalledWith(["pending-follow-up"]);
+    expect(steerFailed).toHaveBeenCalledWith(["pending-follow-up"], {
+      kind: "no_active_turn",
+      expectedTurnId: "turn_active",
+    });
     expect(emitted).not.toContainEqual(
       expect.objectContaining({
         type: "error",
         message: expect.stringContaining("Failed to steer active Codex turn"),
       }),
     );
+
+    turnStarted.mockClear();
+    stdout.push(
+      JSON.stringify({
+        method: "turn/started",
+        params: { threadId: "thr_123", turn: { id: "turn_active" } },
+      }) + "\n",
+    );
+    await tick();
+    expect(turnStarted).not.toHaveBeenCalled();
+    expect(adapter.getCurrentTurnId()).toBeNull();
 
     stdin.chunks = [];
     adapter.sendBrowserMessage({
@@ -150,6 +166,27 @@ describe("CodexAdapter stale turn/steer recovery", () => {
     const methods = parseWrittenJsonLines(stdin.chunks).map((line) => line.method);
     expect(methods).toContain("turn/start");
     expect(methods).not.toContain("turn/interrupt");
+
+    stdout.push(
+      JSON.stringify({
+        id: findLastRequestId(stdin, "turn/start"),
+        result: { turn: { id: "turn_retry" } },
+      }) + "\n",
+    );
+    await tick();
+    expect(turnStarted).toHaveBeenCalledWith("turn_retry");
+    expect(adapter.getCurrentTurnId()).toBe("turn_retry");
+
+    const resultsBeforeLateCompletion = emitted.filter((message) => message.type === "result").length;
+    stdout.push(
+      JSON.stringify({
+        method: "turn/completed",
+        params: { threadId: "thr_123", turn: { id: "turn_active", status: "completed" } },
+      }) + "\n",
+    );
+    await tick();
+    expect(adapter.getCurrentTurnId()).toBe("turn_retry");
+    expect(emitted.filter((message) => message.type === "result")).toHaveLength(resultsBeforeLateCompletion);
   });
 
   it("keeps unrelated turn/steer failures visible and leaves the active turn intact", async () => {
@@ -179,7 +216,7 @@ describe("CodexAdapter stale turn/steer recovery", () => {
     await tick();
 
     expect(adapter.getCurrentTurnId()).toBe("turn_active");
-    expect(steerFailed).toHaveBeenCalledWith(["pending-follow-up"]);
+    expect(steerFailed).toHaveBeenCalledWith(["pending-follow-up"], { kind: "other", expectedTurnId: "turn_active" });
     expect(emitted).toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -218,7 +255,11 @@ describe("CodexAdapter stale turn/steer recovery", () => {
     await tick();
 
     expect(adapter.getCurrentTurnId()).toBe("turn_old");
-    expect(steerFailed).toHaveBeenCalledWith(["pending-follow-up"]);
+    expect(steerFailed).toHaveBeenCalledWith(["pending-follow-up"], {
+      kind: "active_turn_mismatch",
+      expectedTurnId: "turn_new",
+      foundTurnId: "turn_old",
+    });
     expect(emitted).not.toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -262,7 +303,7 @@ describe("CodexAdapter stale turn/steer recovery", () => {
     await tick();
 
     expect(adapter.getCurrentTurnId()).toBe("turn_new");
-    expect(steerFailed).toHaveBeenCalledWith(["pending-follow-up"]);
+    expect(steerFailed).toHaveBeenCalledWith(["pending-follow-up"], { kind: "other", expectedTurnId: "turn_old" });
     expect(emitted).toContainEqual(
       expect.objectContaining({
         type: "error",

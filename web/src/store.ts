@@ -892,8 +892,6 @@ export const useStore = create<AppState>((set, get) => ({
       sessionTasks.set(sessionId, []);
       const sessionTaskPreview = new Map(s.sessionTaskPreview);
       sessionTaskPreview.delete(sessionId);
-      const pendingCodexInputs = new Map(s.pendingCodexInputs);
-      pendingCodexInputs.delete(sessionId);
       const historyWindows = new Map(s.historyWindows);
       historyWindows.delete(sessionId);
       const threadWindowRefreshRevisions = new Map(s.threadWindowRefreshRevisions);
@@ -956,7 +954,6 @@ export const useStore = create<AppState>((set, get) => ({
         autoExpandedTurnIds,
         sessionTasks,
         sessionTaskPreview,
-        pendingCodexInputs,
         historyWindows,
         threadWindowRefreshRevisions,
         ...feedWindowSyncPatch,
@@ -1750,9 +1747,20 @@ export const useStore = create<AppState>((set, get) => ({
     return consumed;
   },
 
-  getPendingUserUploadRestoration: (sessionId, uploadId): PendingUserUpload | null => {
-    const restorations = get().pendingUserUploadRestorations.get(sessionId);
-    return restorations?.get(uploadId) ?? null;
+  takePendingUserUploadRestoration: (sessionId, uploadId): PendingUserUpload | null => {
+    let restored: PendingUserUpload | null = null;
+    set((s) => {
+      const existing = s.pendingUserUploadRestorations.get(sessionId);
+      restored = existing?.get(uploadId) ?? null;
+      if (!restored || !existing) return s;
+      const nextSession = new Map(existing);
+      nextSession.delete(uploadId);
+      const pendingUserUploadRestorations = new Map(s.pendingUserUploadRestorations);
+      if (nextSession.size > 0) pendingUserUploadRestorations.set(sessionId, nextSession);
+      else pendingUserUploadRestorations.delete(sessionId);
+      return { pendingUserUploadRestorations };
+    });
+    return restored;
   },
 
   setReplyContext: (sessionId, context) =>

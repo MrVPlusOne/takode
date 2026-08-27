@@ -55,8 +55,16 @@ export function completeCodexTurn(
   updatedAt = Date.now(),
 ): boolean {
   if (!turn) return false;
-  turn.status = "completed";
-  turn.updatedAt = updatedAt;
+  // Multiple logical inputs can be accepted into one provider turn through
+  // turn/steer. A terminal provider result or resume proof settles every
+  // owner of that exact turn id, while different-turn follow-ups stay queued.
+  const coOwners = turn.turnId
+    ? session.pendingCodexTurns.filter((candidate) => candidate.turnId === turn.turnId)
+    : [turn];
+  for (const owner of coOwners) {
+    owner.status = "completed";
+    owner.updatedAt = updatedAt;
+  }
   return removeCompletedCodexTurns(session);
 }
 

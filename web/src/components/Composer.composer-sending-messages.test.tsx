@@ -472,6 +472,7 @@ function makeImageDataTransfer(file: File) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockSendToSession.mockReturnValue(true);
   mockVoiceState.isSupportedOverride = null;
   mockVoiceState.isRecordingOverride = null;
   mockVoiceState.isPreparingOverride = null;
@@ -549,7 +550,70 @@ describe("Composer sending messages", () => {
         threadKey: "main",
       }),
     );
+    expect((mockStoreState.pendingUserUploads as Map<string, any[]>).get("s1")).toBeUndefined();
     expect(mockRequestBottomAlignOnNextUserMessage).toHaveBeenCalledWith("s1");
+  });
+
+  it("gives Codex text sends an exact browser-local owner before server acceptance", () => {
+    setupMockStore({ session: { backend_type: "codex", model: "gpt-5.6" } });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "test Codex message" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "user_message",
+        content: "test Codex message",
+        client_msg_id: expect.any(String),
+      }),
+    );
+    expect((mockStoreState.pendingUserUploads as Map<string, any[]>).get("s1")).toEqual([
+      expect.objectContaining({
+        id: expect.any(String),
+        content: "test Codex message",
+        images: [],
+        stage: "delivering",
+        prepared: { deliveryContent: "test Codex message", imageRefs: [] },
+      }),
+    ]);
+  });
+
+  it("keeps a Codex text payload in an editable local owner when browser transport send fails", () => {
+    mockSendToSession.mockReturnValue(false);
+    setupMockStore({ session: { backend_type: "codex", model: "gpt-5.6" } });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "Keep this exact text" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    expect((mockStoreState.composerDrafts as Map<string, unknown>).has("s1")).toBe(false);
+    expect((mockStoreState.pendingUserUploads as Map<string, any[]>).get("s1")).toEqual([
+      expect.objectContaining({
+        content: "Keep this exact text",
+        images: [],
+        stage: "failed",
+        error: "Connection lost before delivery.",
+        prepared: { deliveryContent: "Keep this exact text", imageRefs: [] },
+      }),
+    ]);
+    expect(mockRequestBottomAlignOnNextUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("preserves the existing Claude text draft when browser transport send fails", () => {
+    mockSendToSession.mockReturnValue(false);
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "Keep this Claude draft" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    expect((mockStoreState.composerDrafts as Map<string, any>).get("s1")?.text).toBe("Keep this Claude draft");
+    expect((mockStoreState.pendingUserUploads as Map<string, any[]>).get("s1")).toBeUndefined();
+    expect(mockRequestBottomAlignOnNextUserMessage).not.toHaveBeenCalled();
   });
 
   it("pressing Enter sends while the backend transport is disconnected", () => {

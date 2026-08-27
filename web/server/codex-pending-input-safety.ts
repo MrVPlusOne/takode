@@ -42,8 +42,31 @@ export function compactPendingCodexInputsForBrowser(inputs: PendingCodexInput[])
   return inputs.map((input) => compactPendingCodexInputForBrowser(input, maxPreviewBytes));
 }
 
+/** Bounded origin-correlation metadata for pre-admission rejection; never includes image paths or bytes. */
+export function compactRejectedCodexInputForBrowser(input: PendingCodexInput): PendingCodexInput {
+  const compacted = compactPendingCodexInputsForBrowser([input])[0]!;
+  return {
+    id: compacted.id,
+    ...(compacted.clientMsgId ? { clientMsgId: compacted.clientMsgId } : {}),
+    content: compacted.content,
+    ...(compacted.contentBytes ? { contentBytes: compacted.contentBytes } : {}),
+    timestamp: compacted.timestamp,
+    cancelable: false,
+    ...(compacted.payloadTruncated ? { payloadTruncated: true } : {}),
+    ...(compacted.threadKey ? { threadKey: compacted.threadKey } : {}),
+    ...(compacted.questId ? { questId: compacted.questId } : {}),
+    ...(compacted.threadRefs?.length ? { threadRefs: compacted.threadRefs } : {}),
+    ...(compacted.slackThreadId ? { slackThreadId: compacted.slackThreadId } : {}),
+  };
+}
+
 function compactPendingCodexInputForBrowser(input: PendingCodexInput, maxPreviewBytes: number): PendingCodexInput {
-  const { historyFollowUps: _historyFollowUps, autoPauseRecoveries: _autoPauseRecoveries, ...browserInput } = input;
+  const {
+    historyFollowUps: _historyFollowUps,
+    autoPauseRecoveries: _autoPauseRecoveries,
+    draftImages: _draftImages,
+    ...browserInput
+  } = input;
   const content = compactText(input.content, maxPreviewBytes);
   const deliveryContent =
     typeof input.deliveryContent === "string" ? compactText(input.deliveryContent, maxPreviewBytes) : undefined;

@@ -3,6 +3,7 @@ import type { BrowserOutgoingMessage, CLIResultMessage, CodexOutboundTurn } from
 import {
   armCodexFreshTurnRequirement,
   clearCodexFreshTurnRequirement,
+  completeCodexTurn,
   completeCodexTurnsForResult,
   dispatchQueuedCodexTurns,
   enqueueCodexTurn,
@@ -90,6 +91,37 @@ describe("codex-turn-queue", () => {
     expect(outcome).toEqual({ matched: true, codexTurnId: "turn-1" });
     expect(session.pendingCodexTurns).toHaveLength(1);
     expect(session.pendingCodexTurns[0].userMessageId).toBe("next");
+  });
+
+  // turn/steer may attach a distinct logical input owner to the same provider
+  // turn. Resume settlement must retire all exact co-owners without consuming
+  // a later input that belongs to a different provider turn.
+  it("completes every logical owner of one provider turn and preserves later turns", () => {
+    const current = makeTurn({
+      userMessageId: "current",
+      turnId: "turn-shared",
+      status: "backend_acknowledged",
+      turnTarget: "current",
+    });
+    const steered = makeTurn({
+      userMessageId: "steered",
+      turnId: "turn-shared",
+      status: "backend_acknowledged",
+      turnTarget: "queued",
+    });
+    const later = makeTurn({
+      userMessageId: "later",
+      turnId: "turn-later",
+      status: "backend_acknowledged",
+      turnTarget: "queued",
+    });
+    const session = makeSession({ pendingCodexTurns: [current, steered, later] });
+
+    expect(completeCodexTurn(session, current, 75)).toBe(true);
+    expect(session.pendingCodexTurns).toEqual([later]);
+    expect(current).toMatchObject({ status: "completed", updatedAt: 75 });
+    expect(steered).toMatchObject({ status: "completed", updatedAt: 75 });
+    expect(later.status).toBe("backend_acknowledged");
   });
 
   // Covers the guard that blocks steering until a specific active turn finishes,

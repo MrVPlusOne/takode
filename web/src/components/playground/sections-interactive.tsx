@@ -255,10 +255,10 @@ export function PlaygroundInteractiveSections() {
       {/* ─── Composer ──────────────────────────────── */}
       <Section
         title="Composer"
-        description="Message input bar with backend-native permission selector, image upload, and send/stop buttons"
+        description="Message input bar with backend-native permission selector, image upload, and independent Stop plus Send controls while a follow-up is ready during generation"
       >
         <div className="max-w-3xl">
-          <Card label="Connected — code mode">
+          <Card label="Running with a sendable follow-up">
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">
               <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-visible">
                 <div className="px-4 pt-3 pb-2">
@@ -331,6 +331,14 @@ export function PlaygroundInteractiveSections() {
                         <rect x="2" y="2" width="12" height="12" rx="2" />
                         <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                    <div
+                      className="flex items-center justify-center w-8 h-8 rounded-full bg-cc-error/10 text-cc-error"
+                      title="Stop generation"
+                    >
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                        <rect x="3" y="3" width="10" height="10" rx="1" />
                       </svg>
                     </div>
                     <div className="flex items-center justify-center w-8 h-8 rounded-full bg-cc-primary text-white">

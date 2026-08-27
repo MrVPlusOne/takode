@@ -167,7 +167,59 @@ describe("agentSource propagation", () => {
     expect(msgs[0].agentSource).toBeUndefined();
   });
 
-  it("replaces a pending local upload with the authoritative user message while preserving local image previews", () => {
+  it("reconciles a normal text composer owner through pending acceptance and one committed row", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+    useStore.getState().addPendingUserUpload("s1", {
+      id: "pending-text-1",
+      content: "Queue this text owner",
+      timestamp: 1000,
+      stage: "delivering",
+      threadKey: "q-1958",
+      questId: "q-1958",
+      images: [],
+      prepared: { deliveryContent: "Queue this text owner", imageRefs: [] },
+    });
+
+    fireMessage({
+      type: "codex_pending_inputs",
+      inputs: [
+        {
+          id: "server-pending-text-1",
+          clientMsgId: "pending-text-1",
+          content: "Queue this text owner",
+          timestamp: 1000,
+          cancelable: true,
+          threadKey: "q-1958",
+          questId: "q-1958",
+        },
+      ],
+    });
+    expect(useStore.getState().pendingUserUploads.get("s1")).toBeUndefined();
+    expect(useStore.getState().pendingUserUploadRestorations.get("s1")?.has("pending-text-1")).toBe(true);
+
+    fireMessage({
+      type: "user_message",
+      content: "Queue this text owner",
+      timestamp: 1001,
+      id: "user-text-1",
+      client_msg_id: "pending-text-1",
+      threadKey: "q-1958",
+      questId: "q-1958",
+    });
+
+    expect(useStore.getState().pendingUserUploadRestorations.get("s1")).toBeUndefined();
+    expect(useStore.getState().messages.get("s1")).toEqual([
+      expect.objectContaining({
+        id: "user-text-1",
+        role: "user",
+        content: "Queue this text owner",
+        clientMsgId: "pending-text-1",
+      }),
+    ]);
+  });
+
+  it("preserves local image previews when delivery commits after the server claims the pending input", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
@@ -197,6 +249,23 @@ describe("agentSource propagation", () => {
     });
 
     fireMessage({
+      type: "codex_pending_inputs",
+      inputs: [
+        {
+          id: "server-pending-1",
+          clientMsgId: "pending-upload-1",
+          content: "Inspect this screenshot",
+          timestamp: 1000,
+          cancelable: true,
+          imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
+        },
+      ],
+    });
+
+    expect(useStore.getState().pendingUserUploads.get("s1")).toBeUndefined();
+    expect(useStore.getState().pendingUserUploadRestorations.get("s1")?.has("pending-upload-1")).toBe(true);
+
+    fireMessage({
       type: "user_message",
       content: "Inspect this screenshot",
       timestamp: 1001,
@@ -206,6 +275,7 @@ describe("agentSource propagation", () => {
     });
 
     expect(useStore.getState().pendingUserUploads.get("s1")).toBeUndefined();
+    expect(useStore.getState().pendingUserUploadRestorations.get("s1")).toBeUndefined();
     const msgs = useStore.getState().messages.get("s1")!;
     expect(msgs).toHaveLength(1);
     expect(msgs[0].images).toEqual([{ imageId: "img-1", media_type: "image/png" }]);

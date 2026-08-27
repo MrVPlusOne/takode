@@ -362,21 +362,6 @@ export class WsBridge {
   private static readonly LEADER_GROUP_IDLE_NOTIFY_DELAY_MS = 10_000;
   private static readonly USER_MESSAGE_RUNNING_TIMEOUT_MS = 30_000;
   private static readonly PROCESSED_CLIENT_MSG_ID_LIMIT = 1000;
-  private static readonly IDEMPOTENT_BROWSER_MESSAGE_TYPES = new Set<string>([
-    "user_message",
-    "vscode_selection_update",
-    "permission_response",
-    "interrupt",
-    "set_model",
-    "set_codex_reasoning_effort",
-    "set_codex_service_tier",
-    "set_permission_mode",
-    "mcp_get_status",
-    "mcp_toggle",
-    "mcp_reconnect",
-    "mcp_set_servers",
-    "set_ask_permission",
-  ]);
   private sessions = new Map<string, Session>();
   private sideChatBridgeDeps: SideChatBridgeDeps = {
     sessions: this.sessions,

@@ -1,7 +1,6 @@
 import type { BrowserOutgoingMessage } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
 import type { TurnStartFailureInfo } from "./adapter-interface.js";
-import { restoreQueuedNeedsInputResolutionNotices } from "./adapter-browser-routing-needs-input-reminder.js";
 import { markCodexAutoPauseRecoveryFailed } from "./codex-auto-pause-recovery-summary.js";
 import type {
   CodexAdapterRecoveryLifecycleDeps,
@@ -36,8 +35,16 @@ export function handleTerminalTurnStartFailure(
     (id) => session.pendingCodexInputs.find((input) => input.id === id)?.autoPauseRecoveries ?? [],
   );
   markCodexAutoPauseRecoveryFailed(session, recoveryLinks, Date.now(), deps);
+  const failedAt = Date.now();
   for (const id of pendingInputIds) {
-    removePendingInput(session, id, deps);
+    const input = session.pendingCodexInputs.find((candidate) => candidate.id === id);
+    if (!input) continue;
+    input.cancelable = true;
+    input.deliveryState = "failed";
+    input.failureReason = "nonrecoverable_turn_start";
+    input.failureMessage = "Codex rejected this input before delivery.";
+    input.failedAt = failedAt;
+    input.autoPauseRecoveries = undefined;
   }
 
   if (pending) {
@@ -46,11 +53,17 @@ export function handleTerminalTurnStartFailure(
   }
 
   deps.setGenerating(session, false, "codex_turn_start_terminal_failure");
+  deps.rebuildQueuedCodexPendingStartBatch(session);
   deps.broadcastToBrowsers(session, {
     type: "error",
     message,
   });
   deps.setAttentionError(session);
+  deps.dispatchQueuedCodexTurns(session, "codex_turn_start_terminal_failure");
+  if (deps.getCodexHeadTurn(session)?.status === "dispatched") {
+    deps.promoteNextQueuedTurn(session);
+  }
+  deps.broadcastPendingCodexInputs(session);
   deps.persistSession(session);
 
   const activeAdapter = session.codexAdapter;
@@ -58,17 +71,4 @@ export function handleTerminalTurnStartFailure(
     deps.dispatchQueuedCodexTurns(session, "stale_adapter_terminal_turn_start_failed");
     deps.flushQueuedMessagesToCodexAdapter(session, activeAdapter, "stale_adapter_terminal_turn_start_failed");
   }
-}
-
-function removePendingInput(
-  session: CodexRecoveryOrchestratorSessionLike,
-  id: string,
-  deps: Pick<CodexAdapterRecoveryLifecycleDeps, "broadcastPendingCodexInputs" | "persistSession">,
-): void {
-  const idx = session.pendingCodexInputs.findIndex((item) => item.id === id);
-  if (idx < 0) return;
-  session.pendingCodexInputs.splice(idx, 1);
-  restoreQueuedNeedsInputResolutionNotices(session, id);
-  deps.broadcastPendingCodexInputs(session);
-  deps.persistSession(session);
 }

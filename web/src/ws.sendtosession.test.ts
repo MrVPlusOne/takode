@@ -210,6 +210,20 @@ describe("sendToSession", () => {
     expect(typeof payload.client_msg_id).toBe("string");
   });
 
+  it("adds client_msg_id for exact pending-input retry and cancel actions", () => {
+    wsModule.connectSession("s1");
+    wsModule.sendToSession("s1", { type: "retry_pending_codex_input", id: "pending-1" });
+    wsModule.sendToSession("s1", { type: "cancel_pending_codex_input", id: "pending-2" });
+
+    const retry = JSON.parse(lastWs.send.mock.calls[0][0]);
+    const cancel = JSON.parse(lastWs.send.mock.calls[1][0]);
+    expect(retry).toMatchObject({ type: "retry_pending_codex_input", id: "pending-1" });
+    expect(cancel).toMatchObject({ type: "cancel_pending_codex_input", id: "pending-2" });
+    expect(typeof retry.client_msg_id).toBe("string");
+    expect(typeof cancel.client_msg_id).toBe("string");
+    expect(cancel.client_msg_id).not.toBe(retry.client_msg_id);
+  });
+
   it("adds client_msg_id for leader thread tab updates", () => {
     wsModule.connectSession("s1");
     wsModule.sendToSession("s1", {

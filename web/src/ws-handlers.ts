@@ -544,17 +544,41 @@ function updateSessionPreviewFromHistory(
   }
 }
 
-function clearPendingUploadsCoveredByHistory(sessionId: string, historyMessages: BrowserIncomingMessage[]): void {
-  const pendingIds = new Set<string>();
-  for (const msg of historyMessages) {
-    if (msg.type !== "user_message" || msg.codexSubagent || typeof msg.client_msg_id !== "string") continue;
-    pendingIds.add(msg.client_msg_id);
-  }
-  if (pendingIds.size === 0) return;
+function markPendingUserMessageFailed(sessionId: string, clientMsgId: string, message: string): void {
   const store = useStore.getState();
-  for (const pendingId of pendingIds) {
-    store.consumePendingUserUpload(sessionId, pendingId);
+  const active = store.pendingUserUploads.get(sessionId)?.find((upload) => upload.id === clientMsgId) ?? null;
+  const restored = store.takePendingUserUploadRestoration(sessionId, clientMsgId);
+  if (active) {
+    store.updatePendingUserUpload(sessionId, clientMsgId, (upload) => ({
+      ...upload,
+      stage: "failed",
+      error: message,
+      prepared: undefined,
+    }));
+  } else if (restored) {
+    store.addPendingUserUpload(sessionId, { ...restored, stage: "failed", error: message, prepared: undefined });
   }
+}
+
+function clearPendingUploadsCoveredByHistory(sessionId: string, historyMessages: BrowserIncomingMessage[]): void {
+  const committedInputIds = new Set<string>();
+  const committedClientMsgIds = new Set<string>();
+  for (const msg of historyMessages) {
+    if (msg.type !== "user_message" || msg.codexSubagent) continue;
+    if (typeof msg.id === "string") committedInputIds.add(msg.id);
+    if (typeof msg.client_msg_id === "string") committedClientMsgIds.add(msg.client_msg_id);
+  }
+  if (committedInputIds.size === 0 && committedClientMsgIds.size === 0) return;
+  const store = useStore.getState();
+  for (const clientMsgId of committedClientMsgIds) {
+    store.consumePendingUserUpload(sessionId, clientMsgId);
+    store.takePendingUserUploadRestoration(sessionId, clientMsgId);
+  }
+  const pendingInputs = store.pendingCodexInputs.get(sessionId) ?? [];
+  const remainingInputs = pendingInputs.filter(
+    (input) => !committedInputIds.has(input.id) && !committedClientMsgIds.has(input.clientMsgId ?? ""),
+  );
+  if (remainingInputs.length !== pendingInputs.length) store.setPendingCodexInputs(sessionId, remainingInputs);
 }
 
 function collectRetainedToolUseIds(messages: ChatMessage[]): Set<string> {
@@ -770,10 +794,24 @@ function handleParsedMessage(
 
     case "codex_pending_inputs": {
       store.setPendingCodexInputs(sessionId, data.inputs);
+      for (const input of data.inputs) {
+        if (input.clientMsgId) store.consumePendingUserUpload(sessionId, input.clientMsgId);
+      }
+      break;
+    }
+
+    case "codex_pending_input_failed": {
+      if (data.input.clientMsgId) {
+        markPendingUserMessageFailed(sessionId, data.input.clientMsgId, data.message);
+      }
       break;
     }
 
     case "codex_pending_input_cancelled": {
+      if (data.input.clientMsgId) store.consumePendingUserUpload(sessionId, data.input.clientMsgId);
+      const restoredUpload = data.input.clientMsgId
+        ? store.takePendingUserUploadRestoration(sessionId, data.input.clientMsgId)
+        : null;
       const fallbackImages = data.input.draftImages?.length
         ? data.input.draftImages.map((img) => ({
             ...createComposerDraftImage(
@@ -785,13 +823,16 @@ function handleParsedMessage(
               { status: "uploading" },
             ),
           }))
-        : (data.input.clientMsgId
-            ? useStore.getState().getPendingUserUploadRestoration(sessionId, data.input.clientMsgId)?.images
-            : undefined) || [];
-      store.setComposerDraft(sessionId, {
-        text: data.input.content,
-        images: fallbackImages,
-      });
+        : restoredUpload?.images || [];
+      const hasServerImages = Boolean(data.input.imageRefs?.length);
+      const hasRestorableImages = Boolean(data.input.draftImages?.length || restoredUpload?.images.length);
+      if (!hasServerImages || hasRestorableImages) {
+        store.setComposerDraft(sessionId, {
+          text: data.input.content,
+          images: fallbackImages,
+        });
+        store.setReplyContext(sessionId, data.input.replyContext ?? restoredUpload?.replyContext ?? null);
+      }
       break;
     }
 
@@ -1257,10 +1298,14 @@ function handleParsedMessage(
     case "user_message": {
       // Server-authoritative: user messages are broadcast by the server to all
       // browsers. The browser never adds user messages to the store locally.
+      if (typeof data.client_msg_id === "string") {
+        store.consumePendingUserUpload(sessionId, data.client_msg_id);
+      }
       const pendingUpload =
         typeof data.client_msg_id === "string"
-          ? useStore.getState().consumePendingUserUpload(sessionId, data.client_msg_id)
+          ? store.takePendingUserUploadRestoration(sessionId, data.client_msg_id)
           : null;
+      clearPendingUploadsCoveredByHistory(sessionId, [data]);
       const metadata: ChatMessage["metadata"] = {
         ...(data.replyContext ? { replyContext: data.replyContext } : {}),
         ...(data.vscodeSelection ? { vscodeSelection: data.vscodeSelection } : {}),

@@ -86,10 +86,12 @@ import type {
   BackendAdapter,
   CurrentTurnIdAwareAdapter,
   RateLimitsAwareAdapter,
+  TurnSteerFailureInfo,
   TurnStartedAwareAdapter,
   TurnStartFailedAwareAdapter,
   TurnStartFailureInfo,
 } from "./bridge/adapter-interface.js";
+import { classifyCodexTurnSteerFailure } from "./codex-steer-failure.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { CODEX_LOCAL_SLASH_COMMANDS } from "../shared/codex-slash-commands.js";
 import {
@@ -136,12 +138,13 @@ export class CodexAdapter
   private turnStartFailedCb: ((msg: BrowserOutgoingMessage, info?: TurnStartFailureInfo) => void) | null = null;
   private turnStartedCb: ((turnId: string, source?: "local" | "codex_goal_continuation") => void) | null = null;
   private turnSteeredCb: ((turnId: string, pendingInputIds: string[]) => void) | null = null;
-  private turnSteerFailedCb: ((pendingInputIds: string[]) => void) | null = null;
+  private turnSteerFailedCb: ((pendingInputIds: string[], info?: TurnSteerFailureInfo) => void) | null = null;
 
   // State
   private threadId: string | null = null;
   private currentTurnId: string | null = null;
   private suppressedTurnResultIds = new Set<string>();
+  private retiredTurnIds = new Set<string>();
   private toolRouterErrorByTurnId = new Map<string, string>();
   private handledWriteStdinRouterErrorByTurnId = new Map<string, string>();
   private suppressedWriteStdinRouterCompletionByTurnId = new Map<string, string>();
@@ -821,7 +824,7 @@ export class CodexAdapter
     this.turnSteeredCb = cb;
   }
 
-  onTurnSteerFailed(cb: (pendingInputIds: string[]) => void): void {
+  onTurnSteerFailed(cb: (pendingInputIds: string[], info?: TurnSteerFailureInfo) => void): void {
     this.turnSteerFailedCb = cb;
   }
 
@@ -1358,27 +1361,17 @@ export class CodexAdapter
       })) as { turnId: string };
       this.turnSteeredCb?.(result.turnId, msg.pendingInputIds);
     } catch (err) {
-      const activeTurnMismatch = this.extractRecoverableActiveTurnMismatch(msg.expectedTurnId, err);
-      const recoveredStaleTurn = !!activeTurnMismatch || this.recoverStaleTurnSteerFailure(msg.expectedTurnId, err);
-      this.turnSteerFailedCb?.(msg.pendingInputIds);
-      if (activeTurnMismatch) {
-        this.reconcileActiveTurnMismatch(msg.expectedTurnId, activeTurnMismatch);
+      const failure = classifyCodexTurnSteerFailure(msg.expectedTurnId, this.currentTurnId, err);
+      const recoveredStaleTurn =
+        failure.kind === "active_turn_mismatch" ||
+        (failure.kind === "no_active_turn" && this.recoverStaleTurnSteerFailure(msg.expectedTurnId));
+      this.turnSteerFailedCb?.(msg.pendingInputIds, failure);
+      if (failure.kind === "active_turn_mismatch") {
+        this.reconcileActiveTurnMismatch(msg.expectedTurnId, failure.foundTurnId);
       }
       if (recoveredStaleTurn) return;
       this.emit({ type: "error", message: `Failed to steer active Codex turn: ${err}` });
     }
-  }
-
-  private extractRecoverableActiveTurnMismatch(expectedTurnId: string, err: unknown): string | null {
-    const mismatch = this.extractActiveTurnMismatch(err);
-    if (!mismatch || mismatch.expectedTurnId !== expectedTurnId || mismatch.foundTurnId === expectedTurnId) {
-      return null;
-    }
-    if (this.currentTurnId && this.currentTurnId !== expectedTurnId && this.currentTurnId !== mismatch.foundTurnId) {
-      return null;
-    }
-
-    return mismatch.foundTurnId;
   }
 
   private reconcileActiveTurnMismatch(expectedTurnId: string, foundTurnId: string): void {
@@ -1389,18 +1382,13 @@ export class CodexAdapter
     this.currentTurnId = foundTurnId;
   }
 
-  private extractActiveTurnMismatch(err: unknown): { expectedTurnId: string; foundTurnId: string } | null {
-    const message = err instanceof Error ? err.message : String(err);
-    const match = message.match(/expected active turn id [`'"]([^`'"]+)[`'"] but found [`'"]([^`'"]+)[`'"]/);
-    if (!match) return null;
-    const [, expectedTurnId, foundTurnId] = match;
-    if (!expectedTurnId || !foundTurnId) return null;
-    return { expectedTurnId, foundTurnId };
-  }
-
-  private recoverStaleTurnSteerFailure(expectedTurnId: string, err: unknown): boolean {
-    if (!this.isNoActiveTurnToSteerError(err)) return false;
+  private recoverStaleTurnSteerFailure(expectedTurnId: string): boolean {
     if (this.currentTurnId && this.currentTurnId !== expectedTurnId) return false;
+
+    this.retiredTurnIds.add(expectedTurnId);
+    if (this.retiredTurnIds.size > 32) {
+      this.retiredTurnIds.delete(this.retiredTurnIds.values().next().value!);
+    }
 
     if (this.currentTurnId === expectedTurnId) {
       console.log(
@@ -1430,11 +1418,6 @@ export class CodexAdapter
     }
 
     return true;
-  }
-
-  private isNoActiveTurnToSteerError(err: unknown): boolean {
-    const message = err instanceof Error ? err.message : String(err);
-    return /\bno active turn to steer\b/i.test(message);
   }
 
   private async handleOutgoingPermissionResponse(msg: {
@@ -1691,6 +1674,7 @@ export class CodexAdapter
     const turn = params.turn as { id?: unknown } | undefined;
     const turnId = typeof turn?.id === "string" ? turn.id : null;
     if (!turnId) return;
+    if (this.retiredTurnIds.has(turnId)) return;
     const threadId = getCodexThreadIdFromParams(params);
     if (threadId && this.threadId && threadId !== this.threadId) return;
     if (this.currentTurnId === turnId) return;
@@ -1731,12 +1715,22 @@ export class CodexAdapter
       return;
     }
 
-    this.currentTurnId = null;
     const turnId = typeof turn?.id === "string" ? turn.id : null;
     if (turnId) {
       this.toolRouterErrorByTurnId.delete(turnId);
       this.itemEventManager.finishReasoningTurn(turnId);
+      const ignoreStaleCompletion = !!this.currentTurnId && this.currentTurnId !== turnId;
+      if (ignoreStaleCompletion) {
+        this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
+        this.suppressedWriteStdinRouterCompletionByTurnId.delete(turnId);
+        this.suppressedTurnResultIds.delete(turnId);
+        console.log(
+          `[codex-adapter] Ignoring stale completion for turn ${turnId} while current turn is ${this.currentTurnId ?? "none"} in session ${this.sessionId}`,
+        );
+        return;
+      }
     }
+    this.currentTurnId = null;
     // Wake any callers waiting for the turn to end (e.g. interruptAndWaitForTurnEnd)
     for (const resolve of this.turnEndResolvers.splice(0)) resolve();
     this.drainPendingInitialSkillMetadataRefresh();
