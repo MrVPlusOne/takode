@@ -1,5 +1,6 @@
 import { claimQuest } from "../server/quest-store.js";
-import type { QuestmasterTask } from "../server/quest-types.js";
+import type { QuestInvocationProvenance, QuestmasterTask } from "../server/quest-types.js";
+import type { QuestOwnerRef } from "../shared/quest-owner.js";
 import { getName } from "../server/session-names.js";
 import { formatSessionLabel } from "./quest-format.js";
 
@@ -9,6 +10,8 @@ export type QuestOwnershipCommandDeps = {
   option: (name: string) => string | undefined;
   flag: (name: string) => boolean;
   currentSessionId: string | undefined;
+  codexOwner?: QuestOwnerRef;
+  codexProvenance?: QuestInvocationProvenance;
   companionPort: string | undefined;
   companionAuthHeaders: (extra?: Record<string, string>) => Record<string, string>;
   notifyServer: () => Promise<void>;
@@ -27,6 +30,9 @@ export async function runClaimCommand(deps: QuestOwnershipCommandDeps): Promise<
   if (!id) deps.die("Usage: quest claim <questId> [--session <sid>] [--force --reason <text>]");
   const explicitSession = deps.option("session");
   const sessionId = explicitSession || deps.currentSessionId;
+  if (deps.codexOwner && explicitSession && explicitSession !== deps.codexOwner.sessionId) {
+    deps.die("Direct Codex quest claims cannot target another session.");
+  }
   const force = deps.flag("force");
   const reason = deps.option("reason")?.trim();
   if (!sessionId && !deps.companionPort) {
@@ -56,6 +62,7 @@ export async function runReassignCommand(deps: QuestOwnershipCommandDeps): Promi
   if (!sessionId) deps.die("quest reassign requires --session <worker>.");
   const reason = deps.option("reason")?.trim();
   if (!reason) deps.die("quest reassign requires --reason <text>.");
+  if (deps.codexOwner) deps.die("Direct Codex tasks cannot reassign Takode quest ownership.");
   if (!deps.companionPort) deps.die("quest reassign requires the Companion server.");
 
   try {
@@ -113,7 +120,10 @@ async function claimViaFilesystem(
 ): Promise<void> {
   if (!sessionId) deps.die("No session identity. Pass --session <id> or run from a Companion session.");
   try {
-    const quest = await claimQuest(id, sessionId);
+    const quest = await claimQuest(id, sessionId, {
+      ...(deps.codexOwner ? { ownerKind: "codex" as const } : {}),
+      ...(deps.codexProvenance ? { provenance: deps.codexProvenance } : {}),
+    });
     if (!quest) deps.die(`Quest ${id} not found`);
     await deps.notifyServer();
     printClaimedQuest(deps, quest, sessionId);

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -9,6 +9,7 @@ import { callTakodeIntegration, registerTakodeSidecarTools } from "./takode-side
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const identityHook = resolve(repoRoot, "plugins/takode/hooks/inject_identity.py");
+const hooksConfig = resolve(repoRoot, "plugins/takode/hooks/hooks.json");
 const tempRoots: string[] = [];
 
 afterEach(async () => {
@@ -48,14 +49,6 @@ describe("Takode sidecar MCP bridge", () => {
     registerTakodeSidecarTools(server as never);
 
     expect(names).toEqual([
-      "quest_search",
-      "quest_show",
-      "quest_create",
-      "quest_edit",
-      "quest_add_note",
-      "quest_claim",
-      "quest_complete",
-      "quest_cancel",
       "todo_list",
       "todo_show",
       "todo_create",
@@ -74,15 +67,15 @@ describe("Takode sidecar MCP bridge", () => {
     const fetchMock = vi.fn(async (url: URL) =>
       url.pathname.endsWith("/bind")
         ? Response.json({ binding: { id: "binding-1", expiresAt: Date.now() + 60_000 } })
-        : Response.json({ quest: { questId: "q-7" } }),
+        : Response.json({ item: { id: "todo-7" } }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const environment = await sidecarEnvironment();
 
     const result = await callTakodeIntegration({
       method: "POST",
-      path: "/quests",
-      body: { title: "Document the migration" },
+      path: "/todos",
+      body: { markdown: "Review the migration notes" },
       context: {
         runtime: "codex",
         sessionId: "codex-session",
@@ -100,14 +93,14 @@ describe("Takode sidecar MCP bridge", () => {
     expect(bindUrl.toString()).toBe("http://127.0.0.1:4567/api/integrations/codex/bind");
     expect(bindInit.headers).toMatchObject({ "x-takode-sidecar-capability": "capability-value" });
     const [url, init] = fetchMock.mock.calls[1] as unknown as [URL, RequestInit];
-    expect(url.toString()).toBe("http://127.0.0.1:4567/api/integrations/codex/quests");
+    expect(url.toString()).toBe("http://127.0.0.1:4567/api/integrations/codex/todos");
     expect(init.headers).toMatchObject({
       "content-type": "application/json",
       "x-takode-sidecar-capability": "capability-value",
       "x-takode-sidecar-binding": "binding-1",
     });
     expect(JSON.parse(String(init.body))).toEqual({
-      title: "Document the migration",
+      markdown: "Review the migration notes",
       actor: {
         kind: "codex_session",
         sessionId: "codex-session",
@@ -156,16 +149,16 @@ describe("Takode sidecar MCP bridge", () => {
 
   it("allows anonymous reads but fails writes before network access", async () => {
     // Missing hook trust should not hide read-only data, but anonymous mutations
-    // would lose the provenance required by Quest and Todo records.
-    const fetchMock = vi.fn(async () => Response.json({ quests: [] }));
+    // would lose the provenance required by Todo records.
+    const fetchMock = vi.fn(async () => Response.json({ items: [] }));
     vi.stubGlobal("fetch", fetchMock);
     const environment = await sidecarEnvironment();
 
-    const read = await callTakodeIntegration({ path: "/quests/search", environment });
+    const read = await callTakodeIntegration({ path: "/todos", environment });
     const write = await callTakodeIntegration({
       method: "POST",
-      path: "/quests",
-      body: { title: "Anonymous" },
+      path: "/todos",
+      body: { markdown: "Anonymous" },
       requireIdentity: true,
       environment,
     });
@@ -186,18 +179,29 @@ describe("Takode plugin identity hook", () => {
     });
   }
 
-  it("overwrites model-supplied context while preserving tool arguments", () => {
+  it("declares Bash and only the remaining MCP sidecar tools", async () => {
+    const config = JSON.parse(await readFile(hooksConfig, "utf-8")) as {
+      hooks: { PreToolUse: Array<{ matcher: string }> };
+    };
+
+    expect(config.hooks.PreToolUse.map(({ matcher }) => matcher)).toEqual([
+      "^mcp__takode__(todo_list|todo_show|todo_create|todo_edit|todo_set_status|todo_archive|memory_recall|memory_read|lease_status)$",
+      "^Bash$",
+    ]);
+  });
+
+  it("overwrites model-supplied MCP context while preserving tool arguments", () => {
     // PreToolUse is the only documented per-call bridge from Codex task identity
     // into stdio MCP arguments, so the reserved field must never trust the model.
     const result = runHook({
       hook_event_name: "PreToolUse",
-      tool_name: "mcp__takode__quest_create",
+      tool_name: "mcp__takode__todo_create",
       session_id: "codex-session",
       turn_id: "turn-1",
       tool_use_id: "tool-1",
       cwd: "/repo",
       tool_input: {
-        title: "Keep this",
+        markdown: "Keep this",
         _takodeContext: { runtime: "codex", sessionId: "spoofed" },
       },
     });
@@ -206,7 +210,7 @@ describe("Takode plugin identity hook", () => {
     const output = JSON.parse(result.stdout);
     expect(output.hookSpecificOutput.permissionDecision).toBe("allow");
     expect(output.hookSpecificOutput.updatedInput).toEqual({
-      title: "Keep this",
+      markdown: "Keep this",
       _takodeContext: {
         runtime: "codex",
         sessionId: "codex-session",
@@ -217,20 +221,94 @@ describe("Takode plugin identity hook", () => {
     });
   });
 
+  it("safely exports Codex identity for Bash without changing command behavior", () => {
+    const identity = {
+      sessionId: "codex session'; printf injected",
+      turnId: "turn $(printf injected)",
+      toolUseId: "tool\nline",
+      cwd: "/repo/quoted ' path",
+    };
+    const command =
+      'printf \'%s\\0\' "$TAKODE_CODEX_SESSION_ID" "$TAKODE_CODEX_TURN_ID" "$TAKODE_CODEX_TOOL_USE_ID" "$TAKODE_CODEX_CWD"; exit 7';
+    const result = runHook({
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      session_id: identity.sessionId,
+      turn_id: identity.turnId,
+      tool_use_id: identity.toolUseId,
+      cwd: identity.cwd,
+      tool_input: { command, yield_time_ms: 250, max_output_chars: 1024 },
+    });
+
+    expect(result.status).toBe(0);
+    const output = JSON.parse(result.stdout);
+    const updatedInput = output.hookSpecificOutput.updatedInput as {
+      command: string;
+      yield_time_ms: number;
+      max_output_chars: number;
+    };
+    expect(updatedInput).toMatchObject({ yield_time_ms: 250, max_output_chars: 1024 });
+    expect(updatedInput.command).toContain(`\n${command}`);
+
+    const execution = spawnSync("/bin/bash", ["-c", updatedInput.command], {
+      encoding: "utf-8",
+      env: { PATH: process.env.PATH ?? "" },
+    });
+    expect(execution.status).toBe(7);
+    expect(execution.stdout.split("\0")).toEqual([
+      identity.sessionId,
+      identity.turnId,
+      identity.toolUseId,
+      identity.cwd,
+      "",
+    ]);
+  });
+
   it("emits no rewrite when Takode already supplied complete session credentials", () => {
     // This is the compatibility boundary for sessions launched and managed by Takode.
     const result = runHook(
       {
         hook_event_name: "PreToolUse",
-        tool_name: "mcp__takode__quest_show",
+        tool_name: "Bash",
         session_id: "codex-thread",
-        tool_input: { questId: "q-7" },
+        tool_input: { command: "quest show q-7", yield_time_ms: 250 },
       },
       {
         COMPANION_SESSION_ID: "takode-session",
         COMPANION_AUTH_TOKEN: "secret-token",
       },
     );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("");
+  });
+
+  it("keeps injecting Bash identity when Takode credentials are incomplete", () => {
+    for (const environment of [{ COMPANION_SESSION_ID: "takode-session" }, { COMPANION_AUTH_TOKEN: "secret-token" }]) {
+      const result = runHook(
+        {
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          session_id: "codex-thread",
+          tool_input: { command: "quest list" },
+        },
+        environment,
+      );
+
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout).hookSpecificOutput.updatedInput.command).toContain(
+        "TAKODE_CODEX_SESSION_ID=codex-thread",
+      );
+    }
+  });
+
+  it("does not rewrite retired Quest MCP tools", () => {
+    const result = runHook({
+      hook_event_name: "PreToolUse",
+      tool_name: "mcp__takode__quest_show",
+      session_id: "codex-thread",
+      tool_input: { questId: "q-7" },
+    });
 
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("");

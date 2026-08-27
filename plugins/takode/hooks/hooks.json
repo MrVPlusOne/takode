@@ -2,7 +2,17 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "^mcp__takode__(quest_search|quest_show|quest_create|quest_edit|quest_add_note|quest_claim|quest_complete|quest_cancel|todo_list|todo_show|todo_create|todo_edit|todo_set_status|todo_archive|memory_recall|memory_read|lease_status)$",
+        "matcher": "^mcp__takode__(todo_list|todo_show|todo_create|todo_edit|todo_set_status|todo_archive|memory_recall|memory_read|lease_status)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/inject_identity.py\"",
+            "statusMessage": "Attaching Codex task identity"
+          }
+        ]
+      },
+      {
+        "matcher": "^Bash$",
         "hooks": [
           {
             "type": "command",

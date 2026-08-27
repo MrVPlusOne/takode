@@ -5,7 +5,6 @@ import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodexSidecarRegistry } from "../codex-sidecar-auth.js";
 import { TodoStore } from "../todo-store.js";
-import type { QuestmasterTask } from "../quest-types.js";
 import type { RouteContext } from "./context.js";
 import { createCodexSidecarRoutes, type CodexSidecarRouteDependencies } from "./codex-sidecar.js";
 
@@ -16,12 +15,11 @@ let app: Hono;
 let registry: CodexSidecarRegistry;
 let optionalCaller: any = null;
 let boardRow: unknown = null;
-let quests: QuestmasterTask[];
 const broadcastGlobal = vi.fn();
 const memoryRecall = vi.fn();
 const memoryRead = vi.fn();
 const getLeaseStatus = vi.fn();
-const questClaim = vi.fn();
+const questCommandRunner = vi.fn();
 
 beforeEach(async () => {
   // Every durable store used by these tests lives under a disposable temp root.
@@ -31,116 +29,13 @@ beforeEach(async () => {
   await registry.initialize();
   optionalCaller = null;
   boardRow = null;
-  quests = [];
   broadcastGlobal.mockReset();
   memoryRecall.mockReset().mockResolvedValue({ repo: { root }, matches: [], issues: [] });
   memoryRead.mockReset().mockResolvedValue({ repo: { root }, file: { path: "knowledge/example.md", content: "body" } });
   getLeaseStatus
     .mockReset()
     .mockResolvedValue({ resourceKey: "dev-server:test", lease: null, waiters: [], available: true });
-  questClaim.mockReset().mockImplementation(async (questId: string, sessionId: string, options: any) => {
-    const current = quests.find((quest) => quest.questId === questId);
-    if (!current) return null;
-    const claimed = {
-      ...current,
-      status: "in_progress",
-      description: "Claimed description",
-      sessionId,
-      ownerKind: options.ownerKind,
-      claimedAt: 200,
-      lastModifiedBy: options.provenance,
-    } as QuestmasterTask;
-    quests = quests.map((quest) => (quest.questId === questId ? claimed : quest));
-    return claimed;
-  });
-
-  const questStore = {
-    listQuests: async () => quests,
-    getQuest: async (questId: string) => quests.find((quest) => quest.questId === questId) ?? null,
-    createQuest: async (input: any) => {
-      const quest = {
-        id: `q-${quests.length + 1}`,
-        questId: `q-${quests.length + 1}`,
-        version: 1,
-        title: input.title,
-        description: input.description,
-        status: "idea",
-        createdAt: 100,
-        createdBy: input.createdBy,
-        lastModifiedBy: input.lastModifiedBy,
-      } as QuestmasterTask;
-      quests.push(quest);
-      return quest;
-    },
-    patchQuest: async (questId: string, patch: any) => {
-      const current = quests.find((quest) => quest.questId === questId);
-      if (!current) return null;
-      const updated = { ...current, ...patch, updatedAt: 150 } as QuestmasterTask;
-      quests = quests.map((quest) => (quest.questId === questId ? updated : quest));
-      return updated;
-    },
-    patchQuestForOwner: async (questId: string, owner: any, patch: any) => {
-      const current = quests.find((quest) => quest.questId === questId);
-      if (!current) return null;
-      if (current.status === "in_progress") {
-        const currentKind = current.ownerKind ?? "takode";
-        if (currentKind !== owner.kind || current.sessionId !== owner.sessionId) {
-          throw new Error(`Quest ${questId} is owned by ${currentKind} owner ${current.sessionId}`);
-        }
-      }
-      const updated = { ...current, ...patch, updatedAt: 150 } as QuestmasterTask;
-      quests = quests.map((quest) => (quest.questId === questId ? updated : quest));
-      return updated;
-    },
-    appendQuestFeedback: async (questId: string, entry: any, options: any) => {
-      const current = quests.find((quest) => quest.questId === questId);
-      if (!current) return null;
-      const updated = {
-        ...current,
-        feedback: [...(current.feedback ?? []), entry],
-        lastModifiedBy: options?.lastModifiedBy,
-        updatedAt: 150,
-      } as QuestmasterTask;
-      quests = quests.map((quest) => (quest.questId === questId ? updated : quest));
-      return updated;
-    },
-    claimQuest: questClaim,
-    transitionQuest: async (questId: string, input: any) => {
-      const current = quests.find((quest) => quest.questId === questId);
-      if (!current) return null;
-      const updated = {
-        ...current,
-        ...input,
-        status: input.status,
-        completedAt: 300,
-        verificationItems: input.verificationItems ?? [],
-      } as QuestmasterTask;
-      delete (updated as any).sessionId;
-      quests = quests.map((quest) => (quest.questId === questId ? updated : quest));
-      return updated;
-    },
-    cancelQuestForOwner: async (questId: string, owner: any, notes: string | undefined, options: any) => {
-      const current = quests.find((quest) => quest.questId === questId);
-      if (!current) return null;
-      if (current.status === "in_progress") {
-        const currentKind = current.ownerKind ?? "takode";
-        if (currentKind !== owner.kind || current.sessionId !== owner.sessionId) {
-          throw new Error(`Quest ${questId} is owned by ${currentKind} owner ${current.sessionId}`);
-        }
-      }
-      const updated = {
-        ...current,
-        status: "done",
-        cancelled: true,
-        notes,
-        verificationItems: [],
-        completedAt: 300,
-        lastModifiedBy: options.provenance,
-      } as QuestmasterTask;
-      quests = quests.map((quest) => (quest.questId === questId ? updated : quest));
-      return updated;
-    },
-  } as CodexSidecarRouteDependencies["questStore"];
+  questCommandRunner.mockReset().mockResolvedValue({ exitCode: 0, stdout: "ok\n", stderr: "" });
 
   const ctx = {
     launcher: { listSessions: () => [{ sessionId: "leader-1" }] },
@@ -158,8 +53,8 @@ beforeEach(async () => {
     createCodexSidecarRoutes(ctx, {
       registry,
       todoStore,
-      questStore,
       memoryService: { recall: memoryRecall, readRecord: memoryRead },
+      questCommandRunner,
       now: () => 123,
     }),
   );
@@ -172,10 +67,10 @@ afterEach(() => {
 describe("Codex sidecar routes", () => {
   it("requires server-observed loopback and the per-install capability", async () => {
     // A caller-controlled task id is accepted only after the local transport is classified.
-    expect((await request("/integrations/codex/quests/search", { clientIp: "192.0.2.1" })).status).toBe(403);
+    expect((await request("/integrations/codex/todos", { clientIp: "192.0.2.1" })).status).toBe(403);
     expect(
       (
-        await request("/integrations/codex/quests/search", {
+        await request("/integrations/codex/todos", {
           clientIp: "127.0.0.1",
           capability: "wrong",
         })
@@ -183,7 +78,7 @@ describe("Codex sidecar routes", () => {
     ).toBe(403);
     expect(
       (
-        await request("/integrations/codex/quests/search", {
+        await request("/integrations/codex/todos", {
           clientIp: "127.0.0.1",
           capability: CAPABILITY,
         })
@@ -236,267 +131,132 @@ describe("Codex sidecar routes", () => {
     });
   });
 
-  it("keeps managed Takode Quest mutations on the existing workflow", async () => {
-    // Sidecar Quest writes intentionally skip Takode session naming, task
-    // history, Journey inference, and board cleanup, so managed actors must
-    // continue through the existing authenticated Quest routes.
-    optionalCaller = { callerId: "takode-worker", caller: { sessionId: "takode-worker" } };
+  it("runs the canonical Quest argv and returns the CLI result without reshaping it", async () => {
+    // CLI stdout and stderr are an interface: the sidecar must pass them
+    // through byte-for-byte as strings instead of projecting a second schema.
+    questCommandRunner.mockResolvedValueOnce({ exitCode: 0, stdout: "q-7  Ready\n", stderr: "warning\n" });
+    const response = await codexQuestCommand(["show", "q-7", "--sections", "description"], "input\n");
 
-    const response = await request("/integrations/codex/quests", {
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ exitCode: 0, stdout: "q-7  Ready\n", stderr: "warning\n" });
+    expect(questCommandRunner).toHaveBeenCalledWith({
+      args: ["show", "q-7", "--sections", "description"],
+      stdin: "input\n",
+      actor: {
+        kind: "codex_session",
+        sessionId: "thr-123",
+        turnId: "turn-1",
+        toolUseId: "tool-1",
+        cwd: "/repo",
+      },
+    });
+    expect(broadcastGlobal).not.toHaveBeenCalled();
+  });
+
+  it("broadcasts exactly once only after a successful Quest mutation", async () => {
+    // A nonzero CLI exit is a command result, not an HTTP transport failure,
+    // and must not tell browsers that durable Quest data changed.
+    const succeeded = await codexQuestCommand(["create", "New quest"]);
+    expect(succeeded.status).toBe(200);
+    expect(broadcastGlobal).toHaveBeenCalledTimes(1);
+    expect(broadcastGlobal).toHaveBeenCalledWith({ type: "quest_list_updated" });
+
+    broadcastGlobal.mockClear();
+    questCommandRunner.mockResolvedValueOnce({ exitCode: 2, stdout: "", stderr: "invalid flags\n" });
+    const failed = await codexQuestCommand(["edit", "q-7", "--unknown"]);
+    expect(failed.status).toBe(200);
+    expect(await failed.json()).toEqual({ exitCode: 2, stdout: "", stderr: "invalid flags\n" });
+    expect(broadcastGlobal).not.toHaveBeenCalled();
+
+    questCommandRunner.mockClear();
+    const unknown = await codexQuestCommand(["future-command"]);
+    expect(unknown.status).toBe(400);
+    expect(await unknown.json()).toEqual({ error: "Unknown or unsupported Quest command" });
+    expect(questCommandRunner).not.toHaveBeenCalled();
+    expect(broadcastGlobal).not.toHaveBeenCalled();
+  });
+
+  it("keeps Takode-managed actors on the existing Quest workflow", async () => {
+    // Takode-managed sessions already have authenticated routes with naming,
+    // Journey, and ownership side effects that this direct Codex bridge omits.
+    optionalCaller = { callerId: "takode-worker", caller: { sessionId: "takode-worker" } };
+    const response = await request("/integrations/codex/quest-command", {
       method: "POST",
-      body: { title: "Do not bypass Takode workflow" },
+      body: { args: ["list"] },
     });
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "Takode-managed sessions must use the existing Quest workflow" });
-    expect(quests).toEqual([]);
+    expect(questCommandRunner).not.toHaveBeenCalled();
   });
 
-  it("creates, edits, and appends a flat Quest note with one invalidation per mutation", async () => {
-    // Sidecar content writes record Codex invocation provenance without phase/Journey inference.
-    const createdResponse = await codexRequest("/integrations/codex/quests", {
+  it("rejects invalid command transport before launching the Quest CLI", async () => {
+    // The bounded argv/stdin transport prevents accidental unbounded process
+    // input while leaving ordinary CLI failures to the CLI's native output.
+    const invalidArgs = await codexRequest("/integrations/codex/quest-command", {
       method: "POST",
-      body: { title: "Capture sidecar decision", description: "Durable documentation" },
+      body: { args: "show q-7" },
     });
-    const created = (await createdResponse.json()).quest;
-    expect(createdResponse.status).toBe(201);
-
-    const editResponse = await codexRequest(`/integrations/codex/quests/${created.questId}`, {
-      method: "PATCH",
-      body: { tldr: "Sidecar decision recorded" },
-    });
-    expect(editResponse.status).toBe(200);
-
-    const noteResponse = await codexRequest(`/integrations/codex/quests/${created.questId}/notes`, {
+    const invalidStdin = await codexRequest("/integrations/codex/quest-command", {
       method: "POST",
-      body: { text: "The app-owned Codex task recorded this note." },
+      body: { args: ["show", "q-7"], stdin: 7 },
     });
-    expect(noteResponse.status).toBe(201);
-    const note = (await noteResponse.json()).note;
-    expect(note).toMatchObject({
-      author: "agent",
-      kind: "comment",
-      provenance: { owner: { kind: "codex", sessionId: "thr-123" }, recordedAt: 123 },
-    });
-    expect(note.phaseId).toBeUndefined();
-    expect(broadcastGlobal).toHaveBeenCalledTimes(3);
-    expect(broadcastGlobal).toHaveBeenLastCalledWith({ type: "quest_list_updated" });
+
+    expect(invalidArgs.status).toBe(400);
+    expect(await invalidArgs.json()).toEqual({ error: "args must be an array of strings" });
+    expect(invalidStdin.status).toBe(400);
+    expect(await invalidStdin.json()).toEqual({ error: "stdin must be a string" });
+    expect(questCommandRunner).not.toHaveBeenCalled();
   });
 
-  it("cannot edit a same-ID Takode owner but can edit the exact Codex owner", async () => {
-    // The provider is part of owner identity. A matching raw ID must not let a
-    // direct Codex task bypass Takode naming/task-history workflow.
-    const created = (
-      await (
-        await codexRequest("/integrations/codex/quests", {
-          method: "POST",
-          body: { title: "Owner-guarded edit", description: "Original" },
-        })
-      ).json()
-    ).quest;
-    quests = quests.map((quest) =>
-      quest.questId === created.questId
-        ? ({
-            ...quest,
-            status: "in_progress",
-            description: "Original",
-            sessionId: "thr-123",
-            claimedAt: 200,
-          } as QuestmasterTask)
-        : quest,
+  it("blocks boarded mutations and reassign while preserving flat feedback", async () => {
+    // A normal Codex task may document a boarded quest, but it cannot bypass
+    // the Takode leader's ownership or phase-routing workflow.
+    boardRow = { questId: "q-7", status: "WORKING", createdAt: 1, updatedAt: 1 };
+
+    const edit = await codexQuestCommand(["edit", "q-7", "--title", "Bypass"]);
+    const scopedFeedback = await codexQuestCommand([
+      "feedback",
+      "add",
+      "q-7",
+      "--text",
+      "Scoped bypass",
+      "--phase",
+      "work",
+    ]);
+    const reassign = await codexQuestCommand(["reassign", "q-7", "--session", "worker-2", "--reason", "Move"]);
+
+    expect(edit.status).toBe(409);
+    expect(scopedFeedback.status).toBe(409);
+    expect(reassign.status).toBe(403);
+    expect(questCommandRunner).not.toHaveBeenCalled();
+
+    const flatFeedback = await codexQuestCommand(
+      ["feedback", "add", "q-7", "--text-file", "-", "--no-phase"],
+      "Flat documentation\n",
     );
-
-    const rejected = await codexRequest(`/integrations/codex/quests/${created.questId}`, {
-      method: "PATCH",
-      body: { description: "Spoofed edit" },
-    });
-    expect(rejected.status).toBe(409);
-    expect(quests[0]).toMatchObject({ description: "Original", sessionId: "thr-123" });
-
-    quests = quests.map((quest) =>
-      quest.questId === created.questId ? ({ ...quest, ownerKind: "codex" } as QuestmasterTask) : quest,
-    );
-    const accepted = await codexRequest(`/integrations/codex/quests/${created.questId}`, {
-      method: "PATCH",
-      body: { description: "Owned edit" },
-    });
-    expect(accepted.status).toBe(200);
-    expect(quests[0]).toMatchObject({ description: "Owned edit", ownerKind: "codex", sessionId: "thr-123" });
-  });
-
-  it("cannot cancel a same-ID Takode owner but can cancel the exact Codex owner", async () => {
-    // Cancellation performs this provider-aware check in the same store
-    // mutation as the write, so a raw ID match is never sufficient authority.
-    const created = (
-      await (
-        await codexRequest("/integrations/codex/quests", {
-          method: "POST",
-          body: { title: "Owner-guarded cancellation", description: "Original" },
-        })
-      ).json()
-    ).quest;
-    quests = quests.map((quest) =>
-      quest.questId === created.questId
-        ? ({
-            ...quest,
-            status: "in_progress",
-            sessionId: "thr-123",
-            claimedAt: 200,
-          } as QuestmasterTask)
-        : quest,
-    );
-
-    const rejected = await codexRequest(`/integrations/codex/quests/${created.questId}/cancel`, {
-      method: "POST",
-      body: { notes: "Must not cancel Takode work" },
-    });
-    expect(rejected.status).toBe(409);
-    expect(quests[0]).toMatchObject({ status: "in_progress", sessionId: "thr-123" });
-
-    quests = quests.map((quest) =>
-      quest.questId === created.questId ? ({ ...quest, ownerKind: "codex" } as QuestmasterTask) : quest,
-    );
-    const accepted = await codexRequest(`/integrations/codex/quests/${created.questId}/cancel`, {
-      method: "POST",
-      body: { notes: "Direct owner cancelled it" },
-    });
-    expect(accepted.status).toBe(200);
-    expect(quests[0]).toMatchObject({ status: "done", cancelled: true });
-  });
-
-  it("reveals full durable notes only through a bounded explicit page", async () => {
-    const longText = `First full note ${"x".repeat(800)}`;
-    quests = [
-      {
-        id: "q-7",
-        questId: "q-7",
-        version: 1,
-        title: "Paged documentation",
-        status: "done",
-        description: "Completed documentation record.",
-        createdAt: 1,
-        updatedAt: 2,
-        statusChangedAt: 9,
-        completedAt: 9,
-        verificationItems: [],
-        notes: "Closure summary",
-        feedback: Array.from({ length: 6 }, (_, index) => ({
-          author: "agent" as const,
-          text: index === 0 ? longText : `Note ${index}`,
-          ts: index + 1,
-        })),
-      },
-    ];
-
-    const compact = (await (await request("/integrations/codex/quests/q-7")).json()).quest;
-    expect(compact.notes).toBe("Closure summary");
-    expect(compact.noteEntries).toBeUndefined();
-    expect(compact.updatedAt).toBe(9);
-    expect(compact.latestNotes).toHaveLength(5);
-    expect(compact.latestNotes[0].index).toBe(1);
-
-    const expanded = (await (await request("/integrations/codex/quests/q-7?noteOffset=0&noteLimit=1")).json()).quest;
-    expect(expanded.notes).toBe("Closure summary");
-    expect(expanded.noteEntries).toEqual([expect.objectContaining({ index: 0, text: longText })]);
-    expect(expanded.nextNoteOffset).toBe(1);
-  });
-
-  it("rejects direct Codex claims while any active board row exists", async () => {
-    // Proposed and queued rows remain in the active board map, so all rows block this bypass path.
-    const created = (
-      await (
-        await codexRequest("/integrations/codex/quests", {
-          method: "POST",
-          body: { title: "Board-owned quest", description: "Do not steal" },
-        })
-      ).json()
-    ).quest;
-    broadcastGlobal.mockClear();
-    boardRow = { questId: created.questId, status: "PROPOSED", createdAt: 1, updatedAt: 1 };
-
-    const rejected = await codexRequest(`/integrations/codex/quests/${created.questId}/claim`, {
-      method: "POST",
-      body: {},
-    });
-    expect(rejected.status).toBe(409);
-    expect(questClaim).not.toHaveBeenCalled();
-    expect(broadcastGlobal).not.toHaveBeenCalled();
-
-    const rejectedEdit = await codexRequest(`/integrations/codex/quests/${created.questId}`, {
-      method: "PATCH",
-      body: { title: "Do not bypass the board" },
-    });
-    const rejectedCancel = await codexRequest(`/integrations/codex/quests/${created.questId}/cancel`, {
-      method: "POST",
-      body: {},
-    });
-    expect(rejectedEdit.status).toBe(409);
-    expect(rejectedCancel.status).toBe(409);
-    expect(broadcastGlobal).not.toHaveBeenCalled();
-
-    boardRow = null;
-    const accepted = await codexRequest(`/integrations/codex/quests/${created.questId}/claim`, {
-      method: "POST",
-      body: {},
-    });
-    expect(accepted.status).toBe(200);
-    expect(questClaim).toHaveBeenCalledWith(
-      created.questId,
-      "thr-123",
-      expect.objectContaining({ ownerKind: "codex" }),
+    expect(flatFeedback.status).toBe(200);
+    expect(questCommandRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: ["feedback", "add", "q-7", "--text-file", "-", "--no-phase"],
+        stdin: "Flat documentation\n",
+      }),
     );
     expect(broadcastGlobal).toHaveBeenCalledTimes(1);
   });
 
-  it("lets the direct Codex owner complete and cancel without Takode session side effects", async () => {
-    // Lifecycle writes use provider-aware store ownership and only broadcast the
-    // authoritative Quest invalidation; they never invoke naming/task-history hooks.
-    const first = (
-      await (
-        await codexRequest("/integrations/codex/quests", {
-          method: "POST",
-          body: { title: "Complete direct quest", description: "Complete directly" },
-        })
-      ).json()
-    ).quest;
-    await codexRequest(`/integrations/codex/quests/${first.questId}/claim`, { method: "POST", body: {} });
-    broadcastGlobal.mockClear();
-
-    const incomplete = await codexRequest(`/integrations/codex/quests/${first.questId}/complete`, {
+  it("does not expose the obsolete per-command Quest API", async () => {
+    // Codex Quest access has one contract now: callers must use the canonical
+    // CLI argv endpoint rather than independent projection and mutation routes.
+    const search = await request("/integrations/codex/quests/search");
+    const detail = await request("/integrations/codex/quests/q-7");
+    const create = await request("/integrations/codex/quests", {
       method: "POST",
-      body: {},
+      body: { title: "Obsolete route" },
     });
-    expect(incomplete.status).toBe(400);
-    expect(broadcastGlobal).not.toHaveBeenCalled();
 
-    const completed = await codexRequest(`/integrations/codex/quests/${first.questId}/complete`, {
-      method: "POST",
-      body: { debrief: "Recorded outcome", debriefTldr: "Outcome recorded" },
-    });
-    expect(completed.status).toBe(200);
-    expect((await completed.json()).quest).toMatchObject({
-      status: "done",
-      debrief: "Recorded outcome",
-      lastModifiedBy: { owner: { kind: "codex", sessionId: "thr-123" }, recordedAt: 123 },
-    });
-    expect(broadcastGlobal).toHaveBeenCalledTimes(1);
-
-    const second = (
-      await (
-        await codexRequest("/integrations/codex/quests", {
-          method: "POST",
-          body: { title: "Cancel direct quest", description: "Cancel directly" },
-        })
-      ).json()
-    ).quest;
-    broadcastGlobal.mockClear();
-    const cancelled = await codexRequest(`/integrations/codex/quests/${second.questId}/cancel`, {
-      method: "POST",
-      body: { notes: "No longer needed" },
-    });
-    expect(cancelled.status).toBe(200);
-    expect((await cancelled.json()).quest).toMatchObject({ status: "done", cancelled: true });
-    expect(broadcastGlobal).toHaveBeenCalledTimes(1);
+    expect([search.status, detail.status, create.status]).toEqual([404, 404, 404]);
+    expect(questCommandRunner).not.toHaveBeenCalled();
   });
 
   it("keeps Memory read-only and leases status-only", async () => {
@@ -534,6 +294,13 @@ async function bindCodexActor(): Promise<string> {
 
 async function codexRequest(path: string, options: { method: string; body: unknown }): Promise<Response> {
   return request(path, { ...options, binding: await bindCodexActor() });
+}
+
+async function codexQuestCommand(args: string[], stdin?: string): Promise<Response> {
+  return codexRequest("/integrations/codex/quest-command", {
+    method: "POST",
+    body: { args, ...(stdin !== undefined ? { stdin } : {}) },
+  });
 }
 
 async function request(

@@ -42,10 +42,12 @@ import {
   cancelQuest,
   transitionQuest,
   patchQuest,
+  patchQuestForOwner,
   checkVerificationItem,
   markQuestVerificationRead,
   markQuestVerificationInboxUnread,
   deleteQuest,
+  cancelQuestForOwner,
 } from "../server/quest-store.js";
 import type { QuestmasterTask } from "../server/quest-types.js";
 import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "../server/quest-types.js";
@@ -72,7 +74,6 @@ import {
   filterFeedbackEntries,
   formatFeedbackIndices,
   isAgentSummaryFeedback,
-  latestAgentSummaryFeedback,
   latestFeedbackEntry,
   unaddressedHumanFeedbackEntries,
   type FeedbackAuthorFilter,
@@ -96,37 +97,44 @@ import {
 } from "./quest-status-mutation.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV } from "../server/memory-session-space.js";
 import { readFile } from "node:fs/promises";
-import { readFileSync, readdirSync } from "node:fs";
-import { basename, extname, join, resolve } from "node:path";
-import { getSessionAuthDir, getSessionAuthFilePrefixes, parseSessionAuthFileData } from "../shared/session-auth.js";
+import { resolve } from "node:path";
+import { getQuestDisplayOwner, getQuestOwner, sameQuestOwner } from "../shared/quest-owner.js";
+import {
+  codexQuestOwner,
+  codexQuestProvenance,
+  getCodexQuestInvocationContext,
+  hasManagedCompanionIdentity,
+  isQuestServerExecution,
+} from "./quest-codex-invocation.js";
+import {
+  isQuestMutationCommand,
+  questCommandPositionals,
+  questCommandReadsStdin,
+} from "../shared/quest-command-classification.js";
+import { runCodexQuestCommandRpc } from "./quest-codex-rpc.js";
+import {
+  addCodexQuestFeedback,
+  editCodexQuestFeedback,
+  setCodexQuestQuiz,
+  toggleCodexQuestFeedbackAddressed,
+} from "./quest-codex-local.js";
+import { discoverQuestCompanionCredentials, type CompanionCredentials } from "./quest-companion-credentials.js";
+import { saveQuestInputImage, uploadQuestInputImage } from "./quest-image-input.js";
+import { formatQuestStatusSummary, questStatusSummaryForJson } from "./quest-status-format.js";
 
 const DEFAULT_PORT = 3456;
 const COMPANION_SESSION_ID_HEADER = "x-companion-session-id";
 const COMPANION_AUTH_TOKEN_HEADER = "x-companion-auth-token";
 
-type CompanionCredentials = {
-  sessionId: string;
-  authToken: string;
-  port?: number;
-  serverId?: string;
-};
-
-function dedupeCompanionCredentials(candidates: CompanionCredentials[]): CompanionCredentials[] {
-  const seen = new Set<string>();
-  const deduped: CompanionCredentials[] = [];
-  for (const candidate of candidates) {
-    const key = [candidate.serverId || "", candidate.sessionId, candidate.authToken, candidate.port ?? ""].join("\0");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(candidate);
-  }
-  return deduped;
-}
-
 // ─── Arg parsing helpers ────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
 const command = args[0];
+const positionalArgs = questCommandPositionals(args);
+const codexInvocation = getCodexQuestInvocationContext();
+const questServerExecution = isQuestServerExecution();
+const managedCompanionIdentity = hasManagedCompanionIdentity();
+const directCodexExecution = !!codexInvocation && questServerExecution && !managedCompanionIdentity;
 
 function flag(name: string): boolean {
   return args.includes(`--${name}`);
@@ -153,17 +161,7 @@ function options(name: string): string[] {
 
 /** Get positional arg at index (0-based, after the command). */
 function positional(index: number): string | undefined {
-  let pos = 0;
-  for (let i = 1; i < args.length; i++) {
-    if (args[i].startsWith("--")) {
-      // skip flag and its value if present
-      if (args[i + 1] && !args[i + 1].startsWith("--")) i++;
-      continue;
-    }
-    if (pos === index) return args[i];
-    pos++;
-  }
-  return undefined;
+  return positionalArgs[index];
 }
 
 /**
@@ -202,116 +200,21 @@ const jsonOutput = flag("json");
 
 /** Discover session credentials from env vars or session-auth file fallback. */
 function getCredentials(): CompanionCredentials | null {
-  const sessionId = process.env.COMPANION_SESSION_ID;
-  const authToken = process.env.COMPANION_AUTH_TOKEN;
-  const envPort = Number(process.env.COMPANION_PORT);
-  const serverId = process.env.COMPANION_SERVER_ID?.trim();
-  if (sessionId && authToken) {
-    return {
-      sessionId,
-      authToken,
-      ...(Number.isFinite(envPort) && envPort > 0 ? { port: envPort } : {}),
-      ...(serverId ? { serverId } : {}),
-    };
-  }
-
-  const cwd = process.cwd();
-  const authDir = getSessionAuthDir();
-  const prefixes = getSessionAuthFilePrefixes(cwd).map((prefix) => `${prefix}-`);
-
-  let fileNames: string[] = [];
-  try {
-    fileNames = readdirSync(authDir);
-  } catch {
-    fileNames = [];
-  }
-
-  const candidates = fileNames
-    .filter((name) => name.endsWith(".json") && prefixes.some((prefix) => name.startsWith(prefix)))
-    .map((name) => {
-      try {
-        return parseSessionAuthFileData(JSON.parse(readFileSync(`${authDir}/${name}`, "utf-8")));
-      } catch {
-        return null;
-      }
-    })
-    .filter((value): value is CompanionCredentials => value !== null);
-  const uniqueCandidates = dedupeCompanionCredentials(candidates);
-
-  if (uniqueCandidates.length > 0) {
-    const envServerId = process.env.COMPANION_SERVER_ID?.trim();
-    if (envServerId) {
-      const serverMatches = uniqueCandidates.filter((candidate) => candidate.serverId === envServerId);
-      if (serverMatches.length === 1) return serverMatches[0];
-      if (serverMatches.length > 1) {
-        die(
-          `Multiple Companion auth contexts matched server ${envServerId} for ${cwd}. Refusing to guess which server to use.`,
-        );
-      }
-    }
-
-    const envSessionId = process.env.COMPANION_SESSION_ID?.trim();
-    if (envSessionId) {
-      const sessionMatches = uniqueCandidates.filter((candidate) => candidate.sessionId === envSessionId);
-      if (sessionMatches.length === 1) return sessionMatches[0];
-      if (sessionMatches.length > 1) {
-        die(
-          `Multiple Companion auth contexts matched session ${envSessionId} for ${cwd}. Refusing to guess which server to use.`,
-        );
-      }
-    }
-
-    if (Number.isFinite(envPort) && envPort > 0) {
-      const portMatches = uniqueCandidates.filter((candidate) => candidate.port === envPort);
-      if (portMatches.length === 1) return portMatches[0];
-      if (portMatches.length > 1) {
-        die(
-          `Multiple Companion auth contexts matched port ${envPort} for ${cwd}. Refusing to guess which server to use.`,
-        );
-      }
-    }
-
-    if (uniqueCandidates.length === 1) return uniqueCandidates[0];
-    die(
-      `Multiple Companion auth contexts were found for ${cwd}. Refusing to guess which server to use. Relaunch this session to restore COMPANION_* env vars.`,
-    );
-  }
-
-  const legacyCentral = (() => {
-    for (const prefix of getSessionAuthFilePrefixes(cwd)) {
-      try {
-        const data = parseSessionAuthFileData(JSON.parse(readFileSync(`${authDir}/${prefix}.json`, "utf-8")));
-        if (data) return data;
-      } catch {
-        // Try next candidate
-      }
-    }
-    return null;
-  })();
-  if (legacyCentral) return legacyCentral;
-
-  // Legacy fallback: auth files in the user's repo (for backwards compatibility)
-  const legacyCandidates = [
-    join(cwd, ".companion", "session-auth.json"),
-    join(cwd, ".codex", "session-auth.json"),
-    join(cwd, ".claude", "session-auth.json"),
-  ];
-  for (const authFile of legacyCandidates) {
-    try {
-      const data = parseSessionAuthFileData(JSON.parse(readFileSync(authFile, "utf-8")));
-      if (data) return data;
-    } catch {
-      // Try next candidate
-    }
-  }
-  return null;
+  return discoverQuestCompanionCredentials({
+    cwd: process.cwd(),
+    skipFileDiscovery: !!codexInvocation,
+    fail: die,
+  });
 }
 
 function getCurrentSessionId(): string | undefined {
+  if (managedCompanionIdentity) return process.env.COMPANION_SESSION_ID?.trim() || undefined;
+  if (codexInvocation) return codexInvocation.sessionId;
   return getCredentials()?.sessionId || process.env.COMPANION_SESSION_ID || undefined;
 }
 
 function getCompanionPort(): string | undefined {
+  if (codexInvocation && !managedCompanionIdentity) return undefined;
   if (process.env.COMPANION_PORT) return process.env.COMPANION_PORT;
   const creds = getCredentials();
   const credsPort = creds?.port;
@@ -332,6 +235,7 @@ function companionAuthHeaders(extra: Record<string, string> = {}): Record<string
 // ─── Server notification ────────────────────────────────────────────────────
 
 async function notifyServer(): Promise<void> {
+  if (directCodexExecution) return;
   const port = getCompanionPort();
   if (!port) return;
   try {
@@ -451,33 +355,6 @@ function die(message: string): never {
   process.exit(1);
 }
 
-type QuestImageRef = {
-  id: string;
-  filename: string;
-  mimeType: string;
-  path: string;
-};
-
-function guessMimeType(filePath: string): string {
-  switch (extname(filePath).toLowerCase()) {
-    case ".png":
-      return "image/png";
-    case ".jpg":
-    case ".jpeg":
-      return "image/jpeg";
-    case ".gif":
-      return "image/gif";
-    case ".webp":
-      return "image/webp";
-    case ".bmp":
-      return "image/bmp";
-    case ".svg":
-      return "image/svg+xml";
-    default:
-      return "application/octet-stream";
-  }
-}
-
 function parseCommitShasFromFlags(flagName = "commit", pluralFlagName = "commits"): string[] {
   try {
     return parseCommitShas([
@@ -535,92 +412,6 @@ function formatFeedbackEntry(entry: IndexedFeedbackEntry, options: { full?: bool
     : "";
   const phaseNote = entry.phaseId ? `, ${entry.phaseId}${entry.phasePosition ? `@${entry.phasePosition}` : ""}` : "";
   return `#${entry.index} [${entry.author}, ${state}${phaseNote}, ${timeAgo(entry.ts)}] ${text}${imageNote}`;
-}
-
-function formatStatusSummary(quest: QuestmasterTask, sessionMetadata?: Map<string, SessionMetadata>): string {
-  const lines: string[] = [];
-  const owner =
-    "sessionId" in quest
-      ? formatSessionLabel(quest.sessionId, sessionMetadata, { currentSessionId, getSessionName: getName })
-      : "unclaimed";
-  const leaderSessionId = (quest as { leaderSessionId?: string }).leaderSessionId;
-  const leader = leaderSessionId
-    ? formatSessionLabel(leaderSessionId, sessionMetadata, { currentSessionId, getSessionName: getName })
-    : "none";
-  const verification =
-    "verificationItems" in quest
-      ? `${quest.verificationItems.filter((item) => item.checked).length}/${quest.verificationItems.length}`
-      : "none";
-  const inbox = hasQuestReviewMetadata(quest) ? (isQuestReviewInboxUnread(quest) ? "unread" : "acknowledged") : "n/a";
-  const humanEntries = filterFeedbackEntries(quest, { author: "human" });
-  const unaddressed = unaddressedHumanFeedbackEntries(quest);
-  const latestSummary = latestAgentSummaryFeedback(quest);
-  lines.push(`Quest ${quest.questId}: ${quest.title}`);
-  lines.push(`Status:      ${STATUS_LABELS[quest.status] ?? quest.status}`);
-  lines.push(`Owner:       ${owner}`);
-  lines.push(`Leader:      ${leader}`);
-  lines.push(`User review checks: ${verification}`);
-  lines.push(`Inbox:       ${inbox}`);
-  lines.push(
-    `Commits:     ${quest.commitShas?.length ?? 0}${quest.commitShas?.length ? ` (${quest.commitShas.join(", ")})` : ""}`,
-  );
-  lines.push(
-    `Memory Commits: ${quest.memoryCommitShas?.length ?? 0}${quest.memoryCommitShas?.length ? ` (${quest.memoryCommitShas.join(", ")})` : ""}`,
-  );
-  lines.push(`Human Feedback: ${humanEntries.length}`);
-  lines.push(`Unaddressed: ${unaddressed.length ? formatFeedbackIndices(unaddressed) : "none"}`);
-  lines.push(
-    `Latest Summary: ${latestSummary ? `#${latestSummary.index} ${compactSnippet(preferredFeedbackPreview(latestSummary), 120)}` : "none"}`,
-  );
-  lines.push(`Next Action:  ${suggestNextQuestAction(quest)}`);
-  return lines.join("\n");
-}
-
-function statusSummaryForJson(quest: QuestmasterTask): Record<string, unknown> {
-  const humanEntries = filterFeedbackEntries(quest, { author: "human" });
-  const unaddressed = unaddressedHumanFeedbackEntries(quest);
-  const latestSummary = latestAgentSummaryFeedback(quest);
-  return {
-    questId: quest.questId,
-    title: quest.title,
-    status: quest.status,
-    ownerSessionId: "sessionId" in quest ? quest.sessionId : null,
-    leaderSessionId: (quest as { leaderSessionId?: string }).leaderSessionId ?? null,
-    verification:
-      "verificationItems" in quest
-        ? {
-            checked: quest.verificationItems.filter((item) => item.checked).length,
-            total: quest.verificationItems.length,
-          }
-        : { checked: 0, total: 0 },
-    inbox: hasQuestReviewMetadata(quest) ? (isQuestReviewInboxUnread(quest) ? "unread" : "acknowledged") : null,
-    commitCount: quest.commitShas?.length ?? 0,
-    commitShas: quest.commitShas ?? [],
-    memoryCommitCount: quest.memoryCommitShas?.length ?? 0,
-    memoryCommitShas: quest.memoryCommitShas ?? [],
-    humanFeedbackCount: humanEntries.length,
-    unaddressedHumanFeedbackIndices: unaddressed.map((entry) => entry.index),
-    latestSummary: latestSummary
-      ? { index: latestSummary.index, text: latestSummary.text, tldr: latestSummary.tldr, ts: latestSummary.ts }
-      : null,
-    suggestedNextAction: suggestNextQuestAction(quest),
-  };
-}
-
-function suggestNextQuestAction(quest: QuestmasterTask): string {
-  const unaddressed = unaddressedHumanFeedbackEntries(quest);
-  if (unaddressed.length > 0) return `address human feedback ${formatFeedbackIndices(unaddressed)}`;
-  if (quest.status === "idea") return "refine the quest before dispatch";
-  if (quest.status === "refined") return "claim the quest before implementation";
-  if (quest.status === "in_progress")
-    return "implement and add a consolidated Summary: feedback comment before handoff";
-  if (hasQuestReviewMetadata(quest)) {
-    return isQuestReviewInboxUnread(quest)
-      ? "human review inbox triage"
-      : "await final review or respond to new feedback";
-  }
-  if (quest.status === "done") return "no action";
-  return "inspect quest details";
 }
 
 let stdinTextPromise: Promise<string> | null = null;
@@ -770,24 +561,6 @@ function parseVerificationItems(raw: string, sourceLabel: string): { text: strin
     .map((text) => ({ text, checked: false }));
 }
 
-async function uploadQuestImage(port: string, rawPath: string): Promise<QuestImageRef> {
-  const filePath = resolve(rawPath);
-  const data = await readFile(filePath);
-  const form = new FormData();
-  form.set("file", new File([data], basename(filePath), { type: guessMimeType(filePath) }));
-  const res = await fetch(`http://localhost:${port}/api/quests/_images`, {
-    method: "POST",
-    headers: companionAuthHeaders(),
-    body: form,
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((err as { error?: string }).error || res.statusText);
-  }
-  return (await res.json()) as QuestImageRef;
-}
-
 // ─── Commands ───────────────────────────────────────────────────────────────
 
 async function cmdList(): Promise<void> {
@@ -848,11 +621,16 @@ async function cmdStatus(): Promise<void> {
   if (!quest) die(`Quest ${id} not found`);
 
   if (jsonOutput) {
-    out(statusSummaryForJson(quest));
+    out(questStatusSummaryForJson(quest));
     return;
   }
   const sessionMetadata = await getSessionMetadataMap();
-  console.log(formatStatusSummary(quest, sessionMetadata));
+  console.log(
+    formatQuestStatusSummary(quest, sessionMetadata, {
+      currentSessionId,
+      getSessionName: getName,
+    }),
+  );
   printHumanFeedbackWarning(quest);
 }
 
@@ -1013,11 +791,14 @@ async function cmdCreate(): Promise<void> {
     const uploadedImages =
       imagePaths.length > 0
         ? (() => {
+            if (directCodexExecution) {
+              return Promise.all(imagePaths.map((path) => saveQuestInputImage(path)));
+            }
             const port = companionPort;
             if (!port) {
               die("Companion server port not found. Set COMPANION_PORT env var.");
             }
-            return Promise.all(imagePaths.map((p) => uploadQuestImage(port, p)));
+            return Promise.all(imagePaths.map((path) => uploadQuestInputImage(port, path, companionAuthHeaders())));
           })()
         : undefined;
     const resolvedImages = uploadedImages ? await uploadedImages : undefined;
@@ -1030,6 +811,7 @@ async function cmdCreate(): Promise<void> {
       ...(sessionSpaceSlug ? { sessionSpaceSlug } : {}),
       ...(relationships ? { relationships } : {}),
       ...(resolvedImages?.length ? { images: resolvedImages } : {}),
+      ...(directCodexExecution && codexInvocation ? { createdBy: codexQuestProvenance(codexInvocation) } : {}),
     });
     await notifyServer();
     if (jsonOutput) {
@@ -1138,15 +920,23 @@ async function cmdComplete(): Promise<void> {
   try {
     await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, override, {
       ...(targetSessionId ? { targetSessionId } : {}),
+      ...(directCodexExecution ? { requireOwner: true } : {}),
     });
+    const directSessionId = directCodexExecution ? codexInvocation?.sessionId : undefined;
     const quest = await completeQuest(
       id,
       items,
-      commitShas.length > 0 || memoryCommitShas.length > 0 || targetSessionId || Object.keys(debriefOptions).length > 0
+      commitShas.length > 0 ||
+        memoryCommitShas.length > 0 ||
+        targetSessionId ||
+        directSessionId ||
+        Object.keys(debriefOptions).length > 0
         ? {
             commitShas,
             memoryCommitShas,
-            ...(targetSessionId ? { sessionId: targetSessionId } : {}),
+            ...((targetSessionId ?? directSessionId) ? { sessionId: targetSessionId ?? directSessionId } : {}),
+            ...(directCodexExecution ? { ownerKind: "codex" as const } : {}),
+            ...(directCodexExecution && codexInvocation ? { provenance: codexQuestProvenance(codexInvocation) } : {}),
             ...debriefOptions,
           }
         : undefined,
@@ -1231,8 +1021,16 @@ async function cmdDone(): Promise<void> {
       warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
       return;
     }
-    await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, override);
-    const quest = await markDone(id, { notes, cancelled, ...debriefOptions });
+    await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, override, {
+      ...(directCodexExecution ? { requireOwner: true } : {}),
+    });
+    const quest = await markDone(id, {
+      notes,
+      cancelled,
+      ...debriefOptions,
+      ...(directCodexExecution ? { ownerKind: "codex" as const } : {}),
+      ...(directCodexExecution && codexInvocation ? { provenance: codexQuestProvenance(codexInvocation) } : {}),
+    });
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
     if (jsonOutput) {
@@ -1270,7 +1068,12 @@ async function cmdCancel(): Promise<void> {
       return;
     }
     await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, override);
-    const quest = await cancelQuest(id, notes);
+    const quest =
+      directCodexExecution && codexInvocation
+        ? await cancelQuestForOwner(id, codexQuestOwner(codexInvocation), notes, {
+            provenance: codexQuestProvenance(codexInvocation),
+          })
+        : await cancelQuest(id, notes);
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
     if (jsonOutput) {
@@ -1318,6 +1121,9 @@ async function cmdTransition(): Promise<void> {
       "needs_verification is no longer a lifecycle transition target. Use `quest complete` for review handoff or `quest list --verification ...` for review filters.",
     );
   }
+  if (directCodexExecution && status === "in_progress") {
+    die("Direct Codex tasks must use `quest claim <questId>` instead of transitioning to in_progress.");
+  }
 
   const description = await readOptionalRichTextOption({
     inlineFlag: "desc",
@@ -1350,6 +1156,8 @@ async function cmdTransition(): Promise<void> {
       ...(sessionId ? { sessionId } : {}),
       ...(commitShas.length > 0 ? { commitShas } : {}),
       ...(memoryCommitShas.length > 0 ? { memoryCommitShas } : {}),
+      ...(directCodexExecution ? { ownerKind: "codex" as const } : {}),
+      ...(directCodexExecution && codexInvocation ? { lastModifiedBy: codexQuestProvenance(codexInvocation) } : {}),
       ...debriefOptions,
     };
     const serverQuest = await postQuestStatusMutation(statusMutationCommandDeps(), id, "transition", {
@@ -1361,6 +1169,7 @@ async function cmdTransition(): Promise<void> {
       (await (async () => {
         await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, override, {
           ...(sessionId ? { targetSessionId: sessionId } : {}),
+          ...(directCodexExecution && status === "done" ? { requireOwner: true } : {}),
         });
         return transitionQuest(id, transitionInput);
       })());
@@ -1415,6 +1224,9 @@ async function cmdLater(): Promise<void> {
   }
 
   try {
+    if (directCodexExecution) {
+      await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, { force: false });
+    }
     const quest = await markQuestVerificationRead(id);
     if (!quest) die(`Quest ${id} not found`);
     requireReviewPendingQuest(quest, id, "later");
@@ -1466,6 +1278,9 @@ async function cmdInbox(): Promise<void> {
   }
 
   try {
+    if (directCodexExecution) {
+      await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, { force: false });
+    }
     const quest = await markQuestVerificationInboxUnread(id);
     if (!quest) die(`Quest ${id} not found`);
     requireReviewPendingQuest(quest, id, "inbox");
@@ -1539,14 +1354,19 @@ async function cmdEdit(): Promise<void> {
   }
 
   try {
-    const quest = await patchQuest(id, {
+    const patch = {
       ...(title !== undefined ? { title } : {}),
       ...(description !== undefined ? { description } : {}),
       ...(tldr !== undefined ? { tldr: normalizedTldr ?? "" } : {}),
       ...(tags !== undefined ? { tags } : {}),
       ...(sessionSpaceSlug !== undefined ? { sessionSpaceSlug } : {}),
       ...(relationships !== undefined ? { relationships } : {}),
-    });
+      ...(directCodexExecution && codexInvocation ? { lastModifiedBy: codexQuestProvenance(codexInvocation) } : {}),
+    };
+    const quest =
+      directCodexExecution && codexInvocation
+        ? await patchQuestForOwner(id, codexQuestOwner(codexInvocation), patch)
+        : await patchQuest(id, patch);
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
     if (jsonOutput) {
@@ -1578,6 +1398,9 @@ async function cmdCheck(): Promise<void> {
   const newChecked = !items[index].checked;
 
   try {
+    if (directCodexExecution) {
+      await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, { force: false });
+    }
     const quest = await checkVerificationItem(id, index, newChecked);
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
@@ -1598,7 +1421,18 @@ async function cmdFeedback(): Promise<void> {
   if (subcommand === "latest") return cmdFeedbackLatest();
   if (subcommand === "show") return cmdFeedbackShow();
   if (subcommand === "add") return cmdFeedbackAdd({ explicitAdd: true });
-  if (subcommand === "edit") return runFeedbackEditCommand({ companionPort, companionAuthHeaders });
+  if (subcommand === "edit") {
+    return runFeedbackEditCommand({
+      companionPort,
+      companionAuthHeaders,
+      ...(directCodexExecution && codexInvocation
+        ? {
+            editLocally: (questId: string, index: number, patch: { text?: string; tldr?: string }) =>
+              editCodexQuestFeedback(codexInvocation, questId, index, patch),
+          }
+        : {}),
+    });
+  }
   return cmdFeedbackAdd({ explicitAdd: false });
 }
 
@@ -1724,6 +1558,47 @@ async function cmdFeedbackAdd(addOptions: { explicitAdd: boolean }): Promise<voi
     ...options("images").flatMap((group) => group.split(",").map((p) => p.trim())),
   ].filter(Boolean);
 
+  if (directCodexExecution && codexInvocation) {
+    const phaseFlag = [
+      "phase",
+      "phase-position",
+      "phase-occurrence",
+      "phase-occurrence-id",
+      "journey-run",
+      "infer-phase",
+    ].find(flag);
+    if (phaseFlag) {
+      die(`Direct Codex quest feedback is flat and does not support --${phaseFlag}. Use --no-phase instead.`);
+    }
+    if (author !== "agent") die("Direct Codex quest feedback must use --author agent.");
+    if (option("session") && option("session") !== codexInvocation.sessionId) {
+      die("Direct Codex quest feedback cannot target another session.");
+    }
+    try {
+      const uploadedImages = await Promise.all(imagePaths.map((path) => saveQuestInputImage(path)));
+      const { before, quest } = await addCodexQuestFeedback({
+        context: codexInvocation,
+        questId: id,
+        text,
+        ...(normalizedTldr ? { tldr: normalizedTldr } : {}),
+        ...(option("kind") ? { kind: option("kind") } : {}),
+        ...(uploadedImages.length ? { images: uploadedImages } : {}),
+      });
+      const mutationWarnings = feedbackAddWarnings({ before, after: quest, author, text: text.trim() });
+      const tldrWarnings = tldrWarningsForWrite("feedback", text, normalizedTldr);
+      if (jsonOutput) out(quest);
+      else {
+        const entryCount = quest.feedback?.length ?? 0;
+        const imageNote = uploadedImages.length ? `, ${uploadedImages.length} image(s)` : "";
+        console.log(`Added feedback to ${quest.questId} (${entryCount} entries total${imageNote})`);
+      }
+      warnAll([...mutationWarnings, ...tldrWarnings]);
+      return;
+    } catch (error) {
+      die(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   const port = companionPort;
   if (!port) {
     die("Companion server port not found. Set COMPANION_PORT env var.");
@@ -1732,7 +1607,9 @@ async function cmdFeedbackAdd(addOptions: { explicitAdd: boolean }): Promise<voi
   try {
     const before = await getQuest(id);
     const uploadedImages =
-      imagePaths.length > 0 ? await Promise.all(imagePaths.map((p) => uploadQuestImage(port, p))) : undefined;
+      imagePaths.length > 0
+        ? await Promise.all(imagePaths.map((path) => uploadQuestInputImage(port, path, companionAuthHeaders())))
+        : undefined;
     const res = await fetch(`http://localhost:${port}/api/quests/${encodeURIComponent(id)}/feedback`, {
       method: "POST",
       headers: companionAuthHeaders({ "Content-Type": "application/json" }),
@@ -1789,6 +1666,17 @@ async function cmdAddress(): Promise<void> {
   const index = parseInt(indexStr, 10);
   if (isNaN(index) || index < 0) die("Invalid index");
 
+  if (directCodexExecution && codexInvocation) {
+    try {
+      const quest = await toggleCodexQuestFeedbackAddressed(codexInvocation, id, index);
+      if (!quest) die(`Quest ${id} not found`);
+      printAddressedFeedbackResult(quest, index);
+      return;
+    } catch (error) {
+      die(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   const port = companionPort;
   if (!port) {
     die("Companion server port not found. Set COMPANION_PORT env var.");
@@ -1808,22 +1696,21 @@ async function cmdAddress(): Promise<void> {
       die((err as { error: string }).error || res.statusText);
     }
     const quest = (await res.json()) as QuestmasterTask;
-    const unaddressed = unaddressedHumanFeedbackEntries(quest);
-    if (jsonOutput) {
-      out(quest);
-      if (unaddressed.length > 0) {
-        warn(`remaining unaddressed human feedback: ${formatFeedbackIndices(unaddressed)}.`);
-      }
-    } else {
-      const fb = "feedback" in quest ? (quest as { feedback?: { addressed?: boolean }[] }).feedback : [];
-      const entry = fb?.[index];
-      console.log(`Feedback #${index} on ${quest.questId}: ${entry?.addressed ? "addressed" : "unaddressed"}`);
-      if (unaddressed.length > 0) {
-        warn(`remaining unaddressed human feedback: ${formatFeedbackIndices(unaddressed)}.`);
-      }
-    }
+    printAddressedFeedbackResult(quest, index);
   } catch (e) {
     die((e as Error).message);
+  }
+}
+
+function printAddressedFeedbackResult(quest: QuestmasterTask, index: number): void {
+  const unaddressed = unaddressedHumanFeedbackEntries(quest);
+  if (jsonOutput) out(quest);
+  else {
+    const entry = quest.feedback?.[index];
+    console.log(`Feedback #${index} on ${quest.questId}: ${entry?.addressed ? "addressed" : "unaddressed"}`);
+  }
+  if (unaddressed.length > 0) {
+    warn(`remaining unaddressed human feedback: ${formatFeedbackIndices(unaddressed)}.`);
   }
 }
 
@@ -1831,9 +1718,11 @@ async function cmdMine(): Promise<void> {
   validateFlags(["json"]);
   if (!currentSessionId) die("No current session identity found.");
 
-  const quests = (await listQuests()).filter(
-    (q) => "sessionId" in q && (q as { sessionId?: string }).sessionId === currentSessionId,
-  );
+  const currentOwner = {
+    kind: codexInvocation && !managedCompanionIdentity ? ("codex" as const) : ("takode" as const),
+    sessionId: currentSessionId,
+  };
+  const quests = (await listQuests()).filter((quest) => sameQuestOwner(getQuestOwner(quest), currentOwner));
 
   if (jsonOutput) {
     out(quests);
@@ -1855,6 +1744,13 @@ async function cmdDelete(): Promise<void> {
   const id = positional(0);
   if (!id) die("Usage: quest delete <questId>");
 
+  if (directCodexExecution && codexInvocation) {
+    const current = await getQuest(id);
+    const owner = current ? getQuestDisplayOwner(current) : undefined;
+    if (owner && !sameQuestOwner(owner, codexQuestOwner(codexInvocation))) {
+      die(`Cannot delete ${id}: it is owned by ${owner.kind} owner ${owner.sessionId}`);
+    }
+  }
   const deleted = await deleteQuest(id);
   if (!deleted) die(`Quest ${id} not found`);
   await notifyServer();
@@ -1872,6 +1768,8 @@ function ownershipCommandDeps() {
     option,
     flag,
     currentSessionId,
+    codexOwner: directCodexExecution && codexInvocation ? codexQuestOwner(codexInvocation) : undefined,
+    codexProvenance: directCodexExecution && codexInvocation ? codexQuestProvenance(codexInvocation) : undefined,
     companionPort,
     companionAuthHeaders,
     notifyServer,
@@ -1883,12 +1781,37 @@ function ownershipCommandDeps() {
 }
 
 function statusMutationCommandDeps() {
-  return { companionAuthHeaders, companionPort, currentSessionId, die, flag, option, warn };
+  return {
+    companionAuthHeaders,
+    companionPort,
+    currentSessionId,
+    codexOwner: directCodexExecution && codexInvocation ? codexQuestOwner(codexInvocation) : undefined,
+    die,
+    flag,
+    option,
+    warn,
+  };
+}
+
+async function proxyCodexMutationToServer(): Promise<boolean> {
+  if (!codexInvocation || managedCompanionIdentity || questServerExecution || !isQuestMutationCommand(args)) {
+    return false;
+  }
+  const result = await runCodexQuestCommandRpc({
+    argv: args,
+    context: codexInvocation,
+    ...(questCommandReadsStdin(args) ? { stdin: await readStdinText() } : {}),
+  });
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  process.exitCode = result.exitCode;
+  return true;
 }
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  if (await proxyCodexMutationToServer()) return;
   switch (command) {
     case "list":
       return cmdList();
@@ -1962,7 +1885,10 @@ async function main(): Promise<void> {
         warn,
         readOptionTextFile,
         getQuest,
-        patchQuest,
+        patchQuest:
+          directCodexExecution && codexInvocation
+            ? (questId, patch) => setCodexQuestQuiz(codexInvocation, questId, patch.quizItems ?? [])
+            : patchQuest,
         notifyServer,
         companionPort,
         companionAuthHeaders,

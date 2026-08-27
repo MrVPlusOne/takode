@@ -1,11 +1,14 @@
 #!/usr/bin/env bun
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod";
 import { COMPANION_AUTH_TOKEN_HEADER, COMPANION_SESSION_ID_HEADER } from "../server/routes/auth.js";
+import {
+  bindTakodeCodexActor,
+  resolveTakodeSidecarConnection,
+  takodeSidecarPort,
+  type SidecarEnvironment,
+} from "./takode-sidecar-client.js";
 
 const API_PREFIX = "/api/integrations/codex";
 const SIDECAR_CAPABILITY_HEADER = "x-takode-sidecar-capability";
@@ -22,9 +25,7 @@ const contextSchema = z
   .optional()
   .describe("Injected by the Takode plugin hook; callers should omit this field.");
 
-const questIdSchema = z.string().regex(/^q-\d+$/, "Expected a Takode quest id such as q-123");
 const todoStatusSchema = z.enum(["todo", "doing", "done"]);
-const feedbackKindSchema = z.enum(["comment", "artifact", "system"]);
 
 export interface CodexToolContext {
   runtime: "codex";
@@ -48,7 +49,7 @@ type ToolResponse = {
   isError?: boolean;
 };
 
-type RequestEnvironment = Record<string, string | undefined>;
+type RequestEnvironment = SidecarEnvironment;
 
 interface IntegrationRequest {
   method?: "GET" | "POST" | "PATCH";
@@ -63,11 +64,6 @@ interface IntegrationRequest {
 interface ResolvedIdentity {
   actor: SidecarActor;
   headers: Record<string, string>;
-}
-
-interface SidecarConnection {
-  baseUrl: string;
-  capability: string;
 }
 
 function resolveIdentity(
@@ -97,40 +93,6 @@ function resolveIdentity(
     },
     headers: {},
   };
-}
-
-function apiPort(environment: RequestEnvironment): number {
-  const hasManagedIdentity = !!environment.COMPANION_SESSION_ID?.trim() && !!environment.COMPANION_AUTH_TOKEN?.trim();
-  const candidates = hasManagedIdentity
-    ? [environment.COMPANION_PORT, environment.TAKODE_API_PORT]
-    : [environment.TAKODE_API_PORT, environment.COMPANION_PORT];
-  for (const raw of candidates) {
-    const parsed = Number(raw);
-    if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65_535) return parsed;
-  }
-  return 3456;
-}
-
-async function resolveSidecarConnection(environment: RequestEnvironment): Promise<SidecarConnection | null> {
-  const port = apiPort(environment);
-  const home = environment.HOME?.trim() || homedir();
-  const capabilityPath = join(home, ".companion", "integrations", `codex-sidecar-${port}.json`);
-  try {
-    const parsed = JSON.parse(await readFile(capabilityPath, "utf-8")) as {
-      version?: unknown;
-      baseUrl?: unknown;
-      capability?: unknown;
-    };
-    if (parsed.version !== 1 || typeof parsed.baseUrl !== "string" || typeof parsed.capability !== "string") {
-      return null;
-    }
-    const baseUrl = new URL(parsed.baseUrl);
-    if (baseUrl.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(baseUrl.hostname)) return null;
-    if (!parsed.capability.trim()) return null;
-    return { baseUrl: baseUrl.toString().replace(/\/$/, ""), capability: parsed.capability.trim() };
-  } catch {
-    return null;
-  }
 }
 
 function responseText(value: unknown): string {
@@ -164,9 +126,9 @@ export async function callTakodeIntegration(request: IntegrationRequest): Promis
     );
   }
 
-  const connection = await resolveSidecarConnection(environment);
+  const connection = await resolveTakodeSidecarConnection(environment);
   if (!connection) {
-    const port = apiPort(environment);
+    const port = takodeSidecarPort(environment);
     return toolResponse(
       {
         error:
@@ -199,26 +161,13 @@ export async function callTakodeIntegration(request: IntegrationRequest): Promis
 
   try {
     if (request.requireIdentity && identity?.actor.kind === "codex_session") {
-      const bindingResponse = await fetch(new URL(`${connection.baseUrl}/bind`), {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          [SIDECAR_CAPABILITY_HEADER]: connection.capability,
-        },
-        body: JSON.stringify({ actor: identity.actor }),
-      });
-      const bindingBody = (await bindingResponse.json().catch(() => ({}))) as {
-        binding?: { id?: unknown };
-        error?: unknown;
-      };
-      const bindingId = bindingBody.binding?.id;
-      if (!bindingResponse.ok || typeof bindingId !== "string" || !bindingId) {
+      let bindingId: string;
+      try {
+        bindingId = await bindTakodeCodexActor(connection, identity.actor);
+      } catch (error) {
         return toolResponse(
           {
-            error:
-              typeof bindingBody.error === "string"
-                ? bindingBody.error
-                : `Takode identity binding failed with HTTP ${bindingResponse.status}`,
+            error: error instanceof Error ? error.message : String(error),
           },
           true,
         );
@@ -243,181 +192,10 @@ export async function callTakodeIntegration(request: IntegrationRequest): Promis
   }
 }
 
-/** Register the focused Takode data tools exposed to Codex tasks. */
+/** Register the focused non-Quest Takode data tools exposed to Codex tasks. */
 export function registerTakodeSidecarTools(server: Pick<McpServer, "registerTool">): void {
-  server.registerTool(
-    "quest_search",
-    {
-      title: "Search Takode quests",
-      description: "Find compact Takode quest records by text. An empty query lists recent records.",
-      inputSchema: {
-        query: z.string().default(""),
-        limit: z.number().int().min(1).max(50).default(20),
-        _takodeContext: contextSchema,
-      },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    ({ query, limit, _takodeContext }) =>
-      callTakodeIntegration({ path: "/quests/search", query: { q: query, limit }, context: _takodeContext }),
-  );
-
-  server.registerTool(
-    "quest_show",
-    {
-      title: "Show Takode quest",
-      description:
-        "Read one compact Takode quest record. Set noteLimit to reveal a bounded page of full durable notes.",
-      inputSchema: {
-        questId: questIdSchema,
-        noteOffset: z.number().int().min(0).optional(),
-        noteLimit: z.number().int().min(1).max(20).optional(),
-        _takodeContext: contextSchema,
-      },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    ({ questId, noteOffset, noteLimit, _takodeContext }) =>
-      callTakodeIntegration({
-        path: `/quests/${encodeURIComponent(questId)}`,
-        query: { noteOffset, noteLimit },
-        context: _takodeContext,
-      }),
-  );
-
-  server.registerTool(
-    "quest_create",
-    {
-      title: "Create Takode quest",
-      description: "Create a documentation-focused Takode quest record.",
-      inputSchema: {
-        title: z.string().min(1),
-        description: z.string().min(1).optional(),
-        tldr: z.string().min(1).optional(),
-        tags: z.array(z.string().min(1)).optional(),
-        _takodeContext: contextSchema,
-      },
-      annotations: { destructiveHint: false, openWorldHint: false },
-    },
-    ({ _takodeContext, ...body }) =>
-      callTakodeIntegration({ method: "POST", path: "/quests", body, context: _takodeContext, requireIdentity: true }),
-  );
-
-  server.registerTool(
-    "quest_edit",
-    {
-      title: "Edit Takode quest",
-      description: "Edit quest content without changing its lifecycle state.",
-      inputSchema: {
-        questId: questIdSchema,
-        title: z.string().min(1).optional(),
-        description: z.string().min(1).optional(),
-        tldr: z.string().min(1).optional(),
-        tags: z.array(z.string().min(1)).optional(),
-        _takodeContext: contextSchema,
-      },
-      annotations: { destructiveHint: false, openWorldHint: false },
-    },
-    ({ questId, _takodeContext, ...body }) =>
-      callTakodeIntegration({
-        method: "PATCH",
-        path: `/quests/${encodeURIComponent(questId)}`,
-        body,
-        context: _takodeContext,
-        requireIdentity: true,
-      }),
-  );
-
-  server.registerTool(
-    "quest_add_note",
-    {
-      title: "Add Takode quest note",
-      description: "Append a durable decision, outcome, artifact, or handoff note to a quest.",
-      inputSchema: {
-        questId: questIdSchema,
-        text: z.string().min(1),
-        tldr: z.string().min(1).optional(),
-        kind: feedbackKindSchema.default("comment"),
-        _takodeContext: contextSchema,
-      },
-      annotations: { destructiveHint: false, openWorldHint: false },
-    },
-    ({ questId, _takodeContext, ...body }) =>
-      callTakodeIntegration({
-        method: "POST",
-        path: `/quests/${encodeURIComponent(questId)}/notes`,
-        body,
-        context: _takodeContext,
-        requireIdentity: true,
-      }),
-  );
-
-  registerQuestLifecycleTools(server);
   registerTodoTools(server);
   registerMemoryAndLeaseTools(server);
-}
-
-function registerQuestLifecycleTools(server: Pick<McpServer, "registerTool">): void {
-  server.registerTool(
-    "quest_claim",
-    {
-      title: "Claim Takode quest",
-      description: "Associate the current Codex or Takode session with a quest record.",
-      inputSchema: { questId: questIdSchema, _takodeContext: contextSchema },
-      annotations: { destructiveHint: false, openWorldHint: false },
-    },
-    ({ questId, _takodeContext }) =>
-      callTakodeIntegration({
-        method: "POST",
-        path: `/quests/${encodeURIComponent(questId)}/claim`,
-        context: _takodeContext,
-        requireIdentity: true,
-      }),
-  );
-
-  server.registerTool(
-    "quest_complete",
-    {
-      title: "Complete Takode quest",
-      description: "Mark a quest complete with a required final debrief and concise debrief TLDR.",
-      inputSchema: {
-        questId: questIdSchema,
-        debrief: z.string().min(1),
-        debriefTldr: z.string().min(1),
-        notes: z.string().min(1).optional(),
-        _takodeContext: contextSchema,
-      },
-      annotations: { destructiveHint: false, openWorldHint: false },
-    },
-    ({ questId, _takodeContext, ...body }) =>
-      callTakodeIntegration({
-        method: "POST",
-        path: `/quests/${encodeURIComponent(questId)}/complete`,
-        body,
-        context: _takodeContext,
-        requireIdentity: true,
-      }),
-  );
-
-  server.registerTool(
-    "quest_cancel",
-    {
-      title: "Cancel Takode quest",
-      description: "Cancel a quest and optionally record why it will not be completed.",
-      inputSchema: {
-        questId: questIdSchema,
-        notes: z.string().min(1).optional(),
-        _takodeContext: contextSchema,
-      },
-      annotations: { destructiveHint: true, openWorldHint: false },
-    },
-    ({ questId, _takodeContext, ...body }) =>
-      callTakodeIntegration({
-        method: "POST",
-        path: `/quests/${encodeURIComponent(questId)}/cancel`,
-        body,
-        context: _takodeContext,
-        requireIdentity: true,
-      }),
-  );
 }
 
 function registerTodoTools(server: Pick<McpServer, "registerTool">): void {

@@ -2,6 +2,7 @@ import { getQuest } from "../server/quest-store.js";
 import type { QuestmasterTask } from "../server/quest-types.js";
 import { evaluateQuestStatusMutationGuard } from "../server/quest-status-guard.js";
 import { QUEST_LEADER_RECOVERY_WARNING_HEADER } from "../server/quest-recovery.js";
+import { getQuestDisplayOwner, sameQuestOwner, type QuestOwnerRef } from "../shared/quest-owner.js";
 
 export type QuestStatusMutationOverride = {
   force: boolean;
@@ -12,6 +13,7 @@ export type QuestStatusMutationDeps = {
   companionAuthHeaders: (extra?: Record<string, string>) => Record<string, string>;
   companionPort: string | undefined;
   currentSessionId: string | undefined;
+  codexOwner?: QuestOwnerRef;
   die: (message: string) => never;
   flag: (name: string) => boolean;
   option: (name: string) => string | undefined;
@@ -30,10 +32,24 @@ export async function guardLocalQuestStatusMutation(
   deps: QuestStatusMutationDeps,
   questId: string,
   override: QuestStatusMutationOverride,
-  options: { targetSessionId?: string } = {},
+  options: { targetSessionId?: string; requireOwner?: boolean } = {},
 ): Promise<void> {
   const current = await getQuest(questId);
   if (!current) return;
+  if (deps.codexOwner) {
+    if (override.force) deps.die("Direct Codex quest status changes do not support --force.");
+    if (options.targetSessionId && options.targetSessionId !== deps.codexOwner.sessionId) {
+      deps.die("Direct Codex quest status changes cannot target another session.");
+    }
+    const owner = getQuestDisplayOwner(current);
+    if (options.requireOwner && !owner) {
+      deps.die(`Only the current Codex owner can change ${questId} status.`);
+    }
+    if (owner && !sameQuestOwner(owner, deps.codexOwner)) {
+      deps.die(`Refusing to change ${questId} status: the quest is owned by ${owner.kind} owner ${owner.sessionId}.`);
+    }
+    return;
+  }
   const result = evaluateQuestStatusMutationGuard(current, {
     callerSessionId: deps.currentSessionId,
     callerIsLeader: process.env.TAKODE_ROLE === "orchestrator",

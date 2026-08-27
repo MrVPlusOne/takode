@@ -2,10 +2,16 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { QuestmasterTask } from "../server/quest-types.js";
 import { QUEST_TLDR_WARNING_HEADER, tldrWarningForContent } from "../server/quest-tldr.js";
+import { questCommandPositionals } from "../shared/quest-command-classification.js";
 
 type FeedbackEditDeps = {
   companionPort?: string;
   companionAuthHeaders: (extra?: Record<string, string>) => Record<string, string>;
+  editLocally?: (
+    questId: string,
+    index: number,
+    patch: { text?: string; tldr?: string },
+  ) => Promise<QuestmasterTask | null>;
 };
 
 const args = process.argv.slice(2);
@@ -42,6 +48,17 @@ export async function runFeedbackEditCommand(deps: FeedbackEditDeps): Promise<vo
     die("Feedback edit requires --text/--text-file or --tldr/--tldr-file.");
   }
 
+  const patch = {
+    ...(text !== undefined ? { text: text.trim() } : {}),
+    ...(hasTldrEdit ? { tldr: tldr ?? "" } : {}),
+  };
+  if (deps.editLocally) {
+    const quest = await deps.editLocally(id, index, patch);
+    if (!quest) die(`Quest ${id} not found`);
+    printResult(quest, index, null);
+    return;
+  }
+
   const port = deps.companionPort;
   if (!port) die("Companion server port not found. Set COMPANION_PORT env var.");
 
@@ -49,10 +66,7 @@ export async function runFeedbackEditCommand(deps: FeedbackEditDeps): Promise<vo
     const res = await fetch(`http://localhost:${port}/api/quests/${encodeURIComponent(id)}/feedback/${index}`, {
       method: "PATCH",
       headers: deps.companionAuthHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({
-        ...(text !== undefined ? { text: text.trim() } : {}),
-        ...(hasTldrEdit ? { tldr: tldr ?? "" } : {}),
-      }),
+      body: JSON.stringify(patch),
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) {
@@ -60,16 +74,16 @@ export async function runFeedbackEditCommand(deps: FeedbackEditDeps): Promise<vo
       die((err as { error: string }).error || res.statusText);
     }
     const quest = (await res.json()) as QuestmasterTask;
-    const warnings = feedbackEditTldrWarnings(quest, index, res.headers.get(QUEST_TLDR_WARNING_HEADER));
-    if (flag("json")) {
-      out(quest);
-    } else {
-      console.log(`Edited feedback #${index} on ${quest.questId}`);
-    }
-    warnAll(warnings);
+    printResult(quest, index, res.headers.get(QUEST_TLDR_WARNING_HEADER));
   } catch (e) {
     die((e as Error).message);
   }
+}
+
+function printResult(quest: QuestmasterTask, index: number, headerWarning: string | null): void {
+  if (flag("json")) out(quest);
+  else console.log(`Edited feedback #${index} on ${quest.questId}`);
+  warnAll(feedbackEditTldrWarnings(quest, index, headerWarning));
 }
 
 function feedbackEditTldrWarnings(quest: QuestmasterTask, index: number, headerWarning: string | null): string[] {
@@ -93,16 +107,7 @@ function option(name: string): string | undefined {
 }
 
 function positional(index: number): string | undefined {
-  let pos = 0;
-  for (let i = 1; i < args.length; i++) {
-    if (args[i].startsWith("--")) {
-      if (args[i + 1] && !args[i + 1].startsWith("--")) i++;
-      continue;
-    }
-    if (pos === index) return args[i];
-    pos++;
-  }
-  return undefined;
+  return questCommandPositionals(args)[index];
 }
 
 function validateFlags(allowed: string[]): void {
