@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { questLabel } from "./quest-helpers.js";
+import { getQuestDisplayOwner, getQuestOwnerSessionId, questLabel } from "./quest-helpers.js";
 
 describe("questLabel", () => {
   // Pure function that prefixes session names with ☐/☑ based on quest status.
@@ -26,5 +26,21 @@ describe("questLabel", () => {
     // Only done quests still in the review workflow get the checked box.
     expect(questLabel("Done quest", true, "done")).toBe("☐ Done quest");
     expect(questLabel("Idea quest", true, "idea")).toBe("☐ Idea quest");
+  });
+});
+
+describe("quest owner helpers", () => {
+  it("keeps legacy Takode ownership linkable", () => {
+    const quest = { sessionId: "worker-1" } as any;
+
+    expect(getQuestDisplayOwner(quest)).toEqual({ kind: "takode", sessionId: "worker-1" });
+    expect(getQuestOwnerSessionId(quest)).toBe("worker-1");
+  });
+
+  it("does not turn a Codex owner into a Takode session link", () => {
+    const quest = { ownerKind: "codex", sessionId: "same-id" } as any;
+
+    expect(getQuestDisplayOwner(quest)).toEqual({ kind: "codex", sessionId: "same-id" });
+    expect(getQuestOwnerSessionId(quest)).toBeNull();
   });
 });

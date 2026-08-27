@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+takode_mcp="$HOME/.companion/bin/takode-sidecar-mcp"
+if [ ! -x "$takode_mcp" ]; then
+  echo "Takode sidecar MCP is unavailable. Start or update the Takode server first." >&2
+  exit 127
+fi
+
+exec "$takode_mcp"

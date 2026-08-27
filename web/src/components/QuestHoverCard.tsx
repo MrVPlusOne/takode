@@ -1,9 +1,10 @@
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { BoardParticipantStatus, BoardRowSessionStatus, QuestListPreview, QuestmasterTask } from "../types.js";
+import type { QuestOwnerRef } from "../../shared/quest-owner.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import { getQuestPhaseDotStyle } from "../utils/quest-phase-theme.js";
-import { getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
+import { getQuestDisplayOwner, getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
 import { findQuestJourneyContext, type QuestJourneyBoardRow } from "../utils/quest-journey-context.js";
 import { useStore } from "../store.js";
 import {
@@ -25,6 +26,7 @@ import {
 import { SessionRoleLabel } from "./SessionRoleLabel.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 
 interface QuestHoverCardProps {
   quest: QuestmasterTask | QuestListPreview;
@@ -47,6 +49,7 @@ export function QuestHoverCard({
   const statusTheme = getQuestStatusTheme(quest.status);
   const zoomLevel = useStore((state) => state.zoomLevel ?? 1);
   const openQuestOverlay = useStore((state) => state.openQuestOverlay);
+  const owner = getQuestDisplayOwner(quest);
   const ownerSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionId = useStore((state) => {
     const recordedLeader = getQuestLeaderSessionId(quest);
@@ -92,7 +95,7 @@ export function QuestHoverCard({
   const statusLabel = journeyPresentation?.label ?? journeyPhase?.label ?? terminalStatusLabel;
   const statusDotStyle = journeyPhase ? getQuestPhaseDotStyle(journeyPhase) : undefined;
   const queuedWaitForReason = formatQueuedWaitForReason(journeyBoardRow);
-  const showOwnerSession = !!ownerSessionId && workerParticipant?.sessionId !== ownerSessionId;
+  const displayOwner = owner?.kind === "codex" || workerParticipant?.sessionId !== ownerSessionId ? owner : null;
   const completedAt = quest.status === "done" ? quest.completedAt : null;
   const progressTldr = useMemo(() => {
     if ("phasePreviewLines" in quest && quest.phasePreviewLines?.length) {
@@ -239,7 +242,7 @@ export function QuestHoverCard({
           questId={quest.questId}
           workerParticipant={workerParticipant}
           reviewerParticipant={reviewerParticipant}
-          ownerSessionId={showOwnerSession ? ownerSessionId : null}
+          owner={displayOwner}
           ownerSessionNum={ownerSessionNum}
           ownerSessionName={ownerSessionName}
           leaderSessionId={leaderSessionId !== ownerSessionId ? leaderSessionId : null}
@@ -278,7 +281,7 @@ function QuestHoverParticipants({
   questId,
   workerParticipant,
   reviewerParticipant,
-  ownerSessionId,
+  owner,
   ownerSessionNum,
   ownerSessionName,
   leaderSessionId,
@@ -288,14 +291,14 @@ function QuestHoverParticipants({
   questId: string;
   workerParticipant: BoardParticipantStatus | null;
   reviewerParticipant: BoardParticipantStatus | null;
-  ownerSessionId: string | null;
+  owner: QuestOwnerRef | null;
   ownerSessionNum: number | null;
   ownerSessionName?: string;
   leaderSessionId: string | null;
   leaderSessionNum: number | null;
   leaderSessionName?: string;
 }) {
-  if (!workerParticipant && !reviewerParticipant && !ownerSessionId && !leaderSessionId) return null;
+  if (!workerParticipant && !reviewerParticipant && !owner && !leaderSessionId) return null;
 
   return (
     <div
@@ -325,14 +328,18 @@ function QuestHoverParticipants({
           />
         </QuestHoverParticipantSlot>
       )}
-      {ownerSessionId && (
+      {owner && (
         <QuestHoverParticipantSlot testId="quest-hover-owner-session">
-          <QuestHoverSessionChip
-            role="Owner session"
-            sessionId={ownerSessionId}
-            sessionNum={ownerSessionNum}
-            sessionName={ownerSessionName}
-          />
+          {owner.kind === "codex" ? (
+            <CodexQuestOwnerChip owner={owner} />
+          ) : (
+            <QuestHoverSessionChip
+              role="Owner session"
+              sessionId={owner.sessionId}
+              sessionNum={ownerSessionNum}
+              sessionName={ownerSessionName}
+            />
+          )}
         </QuestHoverParticipantSlot>
       )}
       {leaderSessionId && (

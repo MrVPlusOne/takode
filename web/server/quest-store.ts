@@ -7,34 +7,25 @@ import {
   hasQuestReviewMetadata,
   type QuestmasterTask,
   type QuestCreateInput,
+  type QuestFeedbackEntry,
   type QuestPatchInput,
   type QuestTransitionInput,
   type QuestImage,
+  type QuestInvocationProvenance,
   type QuestVerificationItem,
-  type QuestIdea,
-  type QuestRefined,
-  type QuestInProgress,
   type QuestDone,
   type QuestHistoryView,
-  type QuestOwnershipEventDraft,
+  type QuestOwnerKind,
+  type QuestOwnerRef,
   type QuestRecoveryEventDraft,
   type QuestStoreMigrationReport,
 } from "./quest-types.js";
-import { getName } from "./session-names.js";
-import { normalizeTldr } from "./quest-tldr.js";
-import { normalizeQuestQuizItems } from "./quest-quiz.js";
 import {
   getActiveSessionId,
-  getLeaderSessionId,
   getPreviousOwnerSessionIds,
-  commitShaField,
-  currentCommitShaFields,
   escapeRegExp,
   formatQuestIdList,
-  nextVersionId,
-  normalizeCommitShas,
   normalizeQuestOwnership,
-  normalizeVerificationItems,
 } from "./quest-store-helpers.js";
 import {
   addQuestImagesToStore,
@@ -42,17 +33,19 @@ import {
   removeQuestImageFromStore,
   saveQuestImageFile,
 } from "./quest-store-images.js";
-import {
-  normalizeQuestRelationships,
-  stripDerivedQuestRelationships,
-  withQuestRelationshipSummaries,
-} from "./quest-relationships.js";
+import { stripDerivedQuestRelationships, withQuestRelationshipSummaries } from "./quest-relationships.js";
 import { applyQuestPatch } from "./quest-store-patch.js";
-import { appendOwnershipEvent, archivedOwnerTakeoverEvent } from "./quest-ownership.js";
-import { appendQuestRecoveryEvent } from "./quest-recovery.js";
-import { normalizeQuestSessionSpaceSlug } from "./quest-session-space.js";
 import { normalizeLiveQuest } from "./quest-store-normalize.js";
 import { assertSafeQuestmasterTestRoot, recordQuestStoreMutationBackup } from "./quest-backup-store.js";
+import {
+  assertQuestMutationOwner,
+  buildCancelledQuest,
+  buildCreatedQuest,
+  buildQuestClaimTransitionInput,
+  buildTransitionedQuest,
+  type QuestClaimOptions,
+} from "./quest-store-mutations.js";
+import { getQuestOwner, normalizeQuestOwnerRef, sameQuestOwner } from "../shared/quest-owner.js";
 // ─── Paths ───────────────────────────────────────────────────────────────────
 
 const COMPANION_DIR = join(homedir(), ".companion");
@@ -434,13 +427,21 @@ async function withLiveStoreWriteLock<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 async function mutateLiveQuestStore<T>(
-  fn: (store: LiveQuestStore) => Promise<{ store: LiveQuestStore; result: T }> | { store: LiveQuestStore; result: T },
+  fn: (store: LiveQuestStore) =>
+    | Promise<{ store: LiveQuestStore; result: T; write?: boolean }>
+    | {
+        store: LiveQuestStore;
+        result: T;
+        write?: boolean;
+      },
 ): Promise<T> {
   return withLiveStoreWriteLock(async () => {
     const current = (await readLiveQuestStore()) ?? emptyLiveQuestStore();
-    const { store, result } = await fn(current);
-    await recordQuestStoreMutationBackup(current, store);
-    await writeLiveQuestStore(store);
+    const { store, result, write = true } = await fn(current);
+    if (write) {
+      await recordQuestStoreMutationBackup(current, store);
+      await writeLiveQuestStore(store);
+    }
     return result;
   });
 }
@@ -1204,313 +1205,6 @@ function removeLiveQuest(store: LiveQuestStore, questId: string): LiveQuestStore
   };
 }
 
-function buildCreatedQuest(
-  questId: string,
-  input: QuestCreateInput,
-  liveStore: boolean,
-  now = Date.now(),
-): QuestmasterTask {
-  const status = input.status || "idea";
-  const tldr = normalizeTldr(input.tldr);
-  const quizItems = normalizeQuestQuizItems(input.quizItems);
-  const base = {
-    id: liveStore ? questId : `${questId}-v1`,
-    questId,
-    version: 1,
-    title: input.title.trim(),
-    ...(tldr ? { tldr } : {}),
-    createdAt: now,
-    ...(liveStore ? { statusChangedAt: now } : {}),
-    ...(input.tags?.length ? { tags: input.tags } : {}),
-    ...(input.parentId ? { parentId: input.parentId } : {}),
-    ...(normalizeQuestSessionSpaceSlug(input.sessionSpaceSlug)
-      ? { sessionSpaceSlug: normalizeQuestSessionSpaceSlug(input.sessionSpaceSlug) }
-      : {}),
-    ...(normalizeQuestRelationships(input.relationships, questId)
-      ? { relationships: normalizeQuestRelationships(input.relationships, questId) }
-      : {}),
-    ...(input.images?.length ? { images: input.images } : {}),
-    ...(quizItems ? { quizItems } : {}),
-  };
-
-  switch (status) {
-    case "idea":
-      return liveStore
-        ? normalizeLiveQuest({
-            ...base,
-            status: "idea",
-            ...(input.description ? { description: input.description } : {}),
-          } as QuestIdea)
-        : ({
-            ...base,
-            status: "idea",
-            ...(input.description ? { description: input.description } : {}),
-          } as QuestIdea);
-    case "refined":
-      if (!input.description?.trim()) {
-        throw new Error("Description is required for refined status");
-      }
-      return liveStore
-        ? normalizeLiveQuest({
-            ...base,
-            status: "refined",
-            description: input.description,
-          } as QuestRefined)
-        : ({
-            ...base,
-            status: "refined",
-            description: input.description,
-          } as QuestRefined);
-    default:
-      throw new Error(`Cannot create a quest directly in "${status}" status`);
-  }
-}
-
-function buildTransitionedQuest(
-  current: QuestmasterTask,
-  input: QuestTransitionInput,
-  options: { liveStore: boolean; now?: number },
-): QuestmasterTask {
-  const targetStatus = input.status;
-  const liveStore = options.liveStore;
-
-  if (
-    targetStatus === current.status &&
-    !input.description &&
-    !input.sessionId &&
-    !input.verificationItems &&
-    !input.commitShas &&
-    !input.memoryCommitShas &&
-    input.relationships === undefined &&
-    !input.notes &&
-    input.debrief === undefined &&
-    input.debriefTldr === undefined &&
-    !input.cancelled &&
-    !(targetStatus === "done" && hasQuestReviewMetadata(current)) &&
-    input.tldr === undefined &&
-    input.ownershipEvent === undefined &&
-    input.recoveryEvent === undefined
-  ) {
-    return current;
-  }
-
-  const now = options.now ?? Date.now();
-  const newVersion = current.version + 1;
-  const tldr = input.tldr !== undefined ? normalizeTldr(input.tldr) : normalizeTldr(current.tldr);
-  const currentFeedback = current.feedback;
-  const currentJourneyRuns = current.journeyRuns;
-  const currentQuizItems = normalizeQuestQuizItems(current.quizItems);
-  const inputQuizItems = normalizeQuestQuizItems(input.quizItems);
-  const quizItems = inputQuizItems ?? currentQuizItems;
-  const currentActiveSessionId = getActiveSessionId(current);
-  const currentPreviousOwners = getPreviousOwnerSessionIds(current);
-  const ownershipEvents = appendOwnershipEvent(current.ownershipEvents, input.ownershipEvent, now);
-  const recoveryEvents = appendQuestRecoveryEvent(current.recoveryEvents, input.recoveryEvent, now);
-  const leaderSessionId = input.leaderSessionId?.trim() || getLeaderSessionId(current);
-  const relationships =
-    input.relationships !== undefined
-      ? normalizeQuestRelationships(input.relationships, current.questId)
-      : normalizeQuestRelationships(current.relationships, current.questId);
-  const previousOwners = [...currentPreviousOwners];
-  const base = {
-    id: liveStore ? current.questId : nextVersionId(current.questId, current.version),
-    questId: current.questId,
-    version: newVersion,
-    ...(liveStore ? { statusChangedAt: now, createdAt: current.createdAt } : { prevId: current.id, createdAt: now }),
-    ...(liveStore && typeof current.updatedAt === "number" ? { updatedAt: current.updatedAt } : {}),
-    title: current.title,
-    ...(tldr ? { tldr } : {}),
-    ...(current.tags?.length ? { tags: current.tags } : {}),
-    ...(current.parentId ? { parentId: current.parentId } : {}),
-    ...(current.sessionSpaceSlug ? { sessionSpaceSlug: current.sessionSpaceSlug } : {}),
-    ...(current.images?.length ? { images: current.images } : {}),
-    ...(leaderSessionId ? { leaderSessionId } : {}),
-    ...currentCommitShaFields(current),
-    ...(relationships ? { relationships } : {}),
-    ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
-    ...(ownershipEvents?.length ? { ownershipEvents } : {}),
-    ...(recoveryEvents?.length ? { recoveryEvents } : {}),
-    ...(currentJourneyRuns?.length ? { journeyRuns: currentJourneyRuns } : {}),
-    ...(quizItems ? { quizItems } : {}),
-    ...(currentFeedback?.length ? { feedback: currentFeedback } : {}),
-  };
-  if ((input.commitShas !== undefined || input.memoryCommitShas !== undefined) && targetStatus !== "done") {
-    throw new Error("commit SHAs can only be set when completing a quest");
-  }
-  const inputCommitShas =
-    input.commitShas && input.commitShas.length > 0 ? normalizeCommitShas(input.commitShas) : undefined;
-  const inputMemoryCommitShas =
-    input.memoryCommitShas && input.memoryCommitShas.length > 0
-      ? normalizeCommitShas(input.memoryCommitShas)
-      : undefined;
-
-  let quest: QuestmasterTask;
-  switch (targetStatus) {
-    case "idea": {
-      if (currentActiveSessionId && !previousOwners.includes(currentActiveSessionId)) {
-        previousOwners.push(currentActiveSessionId);
-      }
-      quest = {
-        ...base,
-        status: "idea",
-        ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
-        ...("description" in current && current.description ? { description: current.description } : {}),
-        ...(input.description !== undefined ? { description: input.description } : {}),
-      } as QuestIdea;
-      break;
-    }
-    case "refined": {
-      const description = input.description ?? ("description" in current ? current.description : undefined);
-      if (!description?.trim()) {
-        throw new Error("Description is required for refined status");
-      }
-      if (currentActiveSessionId && !previousOwners.includes(currentActiveSessionId)) {
-        previousOwners.push(currentActiveSessionId);
-      }
-      quest = {
-        ...base,
-        status: "refined",
-        description,
-        ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
-      } as QuestRefined;
-      break;
-    }
-    case "in_progress": {
-      const description = input.description ?? ("description" in current ? current.description : undefined);
-      if (!description?.trim()) {
-        throw new Error("Description is required for in_progress status");
-      }
-      const sessionId =
-        input.sessionId ?? ("sessionId" in current ? (current as QuestInProgress).sessionId : undefined);
-      if (!sessionId) {
-        throw new Error("sessionId is required for in_progress status");
-      }
-      if (
-        currentActiveSessionId &&
-        currentActiveSessionId !== sessionId &&
-        !previousOwners.includes(currentActiveSessionId)
-      ) {
-        previousOwners.push(currentActiveSessionId);
-      }
-      const nextPreviousOwners = previousOwners.filter((sid) => sid !== sessionId);
-      quest = {
-        ...base,
-        status: "in_progress",
-        description,
-        sessionId,
-        claimedAt: now,
-        ...(nextPreviousOwners.length ? { previousOwnerSessionIds: nextPreviousOwners } : {}),
-      } as QuestInProgress;
-      break;
-    }
-    case "done": {
-      const description = input.description ?? ("description" in current ? current.description : undefined);
-      if (!description?.trim()) {
-        throw new Error("Description is required for done status");
-      }
-      if (input.cancelled && (input.debrief !== undefined || input.debriefTldr !== undefined)) {
-        throw new Error("Final debrief metadata is only supported for completed quests, not cancelled quests");
-      }
-      const currentDebrief = current.status === "done" && !input.cancelled ? (current as QuestDone).debrief : undefined;
-      const debrief = input.debrief !== undefined && !input.cancelled ? input.debrief.trim() : currentDebrief;
-      const notes =
-        input.notes ?? (current.status === "done" && !input.cancelled ? (current as QuestDone).notes : undefined);
-      const debriefTldr = input.cancelled
-        ? undefined
-        : input.debriefTldr !== undefined
-          ? normalizeTldr(input.debriefTldr)
-          : current.status === "done"
-            ? normalizeTldr((current as QuestDone).debriefTldr)
-            : undefined;
-      const completedOwnerSessionId = currentActiveSessionId ?? input.sessionId;
-      if (completedOwnerSessionId && !previousOwners.includes(completedOwnerSessionId)) {
-        previousOwners.push(completedOwnerSessionId);
-      }
-      const rawItems =
-        input.verificationItems ??
-        ("verificationItems" in current ? (current as QuestDone).verificationItems : undefined);
-      const verificationItems = rawItems && rawItems.length > 0 ? normalizeVerificationItems(rawItems) : [];
-      quest = {
-        ...base,
-        status: "done",
-        description,
-        claimedAt: "claimedAt" in current ? (current as QuestInProgress).claimedAt : now,
-        verificationItems,
-        ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
-        ...commitShaField("commitShas", current.commitShas, inputCommitShas),
-        ...commitShaField("memoryCommitShas", current.memoryCommitShas, inputMemoryCommitShas),
-        completedAt: now,
-        ...(input.verificationInboxUnread !== undefined
-          ? { verificationInboxUnread: input.verificationInboxUnread }
-          : {}),
-        ...(notes ? { notes } : {}),
-        ...(debrief ? { debrief } : {}),
-        ...(debriefTldr ? { debriefTldr } : {}),
-        ...(input.cancelled ? { cancelled: true } : {}),
-      } as QuestDone;
-      break;
-    }
-    default:
-      throw new Error(`Unknown status: ${targetStatus}`);
-  }
-
-  return liveStore ? normalizeLiveQuest(quest) : quest;
-}
-
-function buildCancelledQuest(current: QuestmasterTask, notes: string | undefined, liveStore: boolean): QuestDone {
-  const now = Date.now();
-  const description = "description" in current ? current.description : undefined;
-  const tldr = normalizeTldr(current.tldr);
-  const currentActiveSessionId = getActiveSessionId(current);
-  const previousOwners = getPreviousOwnerSessionIds(current);
-  const leaderSessionId = getLeaderSessionId(current);
-  const ownershipEvents = appendOwnershipEvent(current.ownershipEvents, undefined, now);
-  if (currentActiveSessionId && !previousOwners.includes(currentActiveSessionId)) {
-    previousOwners.push(currentActiveSessionId);
-  }
-  const cancelFeedback = current.feedback;
-  const cancelJourneyRuns = current.journeyRuns;
-  const cancelQuizItems = normalizeQuestQuizItems(current.quizItems);
-  const quest: QuestDone = {
-    id: liveStore ? current.questId : nextVersionId(current.questId, current.version),
-    questId: current.questId,
-    version: current.version + 1,
-    ...(liveStore
-      ? {
-          createdAt: current.createdAt,
-          statusChangedAt: now,
-          ...(typeof current.updatedAt === "number" ? { updatedAt: current.updatedAt } : {}),
-        }
-      : {
-          prevId: current.id,
-          createdAt: now,
-        }),
-    title: current.title,
-    ...(tldr ? { tldr } : {}),
-    ...(current.tags?.length ? { tags: current.tags } : {}),
-    ...(current.parentId ? { parentId: current.parentId } : {}),
-    ...(current.images?.length ? { images: current.images } : {}),
-    ...(leaderSessionId ? { leaderSessionId } : {}),
-    ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
-    ...(ownershipEvents?.length ? { ownershipEvents } : {}),
-    ...(normalizeQuestRelationships(current.relationships, current.questId)
-      ? { relationships: normalizeQuestRelationships(current.relationships, current.questId) }
-      : {}),
-    ...(current.commitShas?.length ? { commitShas: current.commitShas } : {}),
-    ...(cancelJourneyRuns?.length ? { journeyRuns: cancelJourneyRuns } : {}),
-    ...(cancelQuizItems ? { quizItems: cancelQuizItems } : {}),
-    status: "done",
-    ...(description ? { description } : {}),
-    claimedAt: "claimedAt" in current ? (current as QuestInProgress).claimedAt : now,
-    verificationItems: "verificationItems" in current ? (current as QuestDone).verificationItems : [],
-    completedAt: now,
-    cancelled: true,
-    ...(notes ? { notes } : {}),
-    ...(cancelFeedback?.length ? { feedback: cancelFeedback } : {}),
-  } as QuestDone;
-  return liveStore ? (normalizeLiveQuest(quest) as QuestDone) : quest;
-}
-
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /** List the latest version of every quest. */
@@ -1597,9 +1291,10 @@ export async function patchQuest(
       const current = stripDerivedQuestRelationships(
         options?.current && options.current.questId === questId ? options.current : getLiveQuestById(store, questId),
       );
-      if (!current) return { store, result: null };
+      if (!current) return { store, result: null, write: false };
 
       const updated = applyQuestPatch(current, questId, patch);
+      if (patch.lastModifiedBy) updated.lastModifiedBy = patch.lastModifiedBy;
       return { store: upsertLiveQuest(store, updated), result: normalizeLiveQuest(updated) };
     });
   }
@@ -1610,8 +1305,73 @@ export async function patchQuest(
   if (!current) return null;
 
   const updated = applyQuestPatch(current, questId, patch);
+  if (patch.lastModifiedBy) updated.lastModifiedBy = patch.lastModifiedBy;
   await writeQuest(updated);
   return updated;
+}
+
+/** Atomically patch an unowned quest or one owned by the exact provider-aware owner. */
+export async function patchQuestForOwner(
+  questId: string,
+  owner: QuestOwnerRef,
+  patch: QuestPatchInput,
+): Promise<QuestmasterTask | null> {
+  const normalizedOwner = normalizeQuestOwnerRef(owner);
+  if (!normalizedOwner) throw new Error("A valid quest owner is required");
+  const liveStore = await readLiveQuestStore();
+  if (liveStore) {
+    return mutateLiveQuestStore(async (store) => {
+      const current = stripDerivedQuestRelationships(getLiveQuestById(store, questId));
+      if (!current) return { store, result: null, write: false };
+      assertQuestMutationOwner(current, normalizedOwner, "edit");
+      const updated = applyQuestPatch(current, questId, patch);
+      if (patch.lastModifiedBy) updated.lastModifiedBy = patch.lastModifiedBy;
+      return { store: upsertLiveQuest(store, updated), result: normalizeLiveQuest(updated) };
+    });
+  }
+
+  return withCreateLock(async () => {
+    const current = stripDerivedQuestRelationships(await getQuest(questId));
+    if (!current) return null;
+    assertQuestMutationOwner(current, normalizedOwner, "edit");
+    const updated = applyQuestPatch(current, questId, patch);
+    if (patch.lastModifiedBy) updated.lastModifiedBy = patch.lastModifiedBy;
+    await writeQuest(updated);
+    return updated;
+  });
+}
+
+/** Atomically append one feedback entry without replacing concurrently written feedback. */
+export async function appendQuestFeedback(
+  questId: string,
+  entry: QuestFeedbackEntry,
+  options?: { lastModifiedBy?: QuestInvocationProvenance },
+): Promise<QuestmasterTask | null> {
+  const liveStore = await readLiveQuestStore();
+  if (liveStore) {
+    return mutateLiveQuestStore(async (store) => {
+      const current = stripDerivedQuestRelationships(getLiveQuestById(store, questId));
+      if (!current) return { store, result: null, write: false };
+      const updated = applyQuestPatch(current, questId, {
+        feedback: [...(current.feedback ?? []), entry],
+        ...(options?.lastModifiedBy ? { lastModifiedBy: options.lastModifiedBy } : {}),
+      });
+      if (options?.lastModifiedBy) updated.lastModifiedBy = options.lastModifiedBy;
+      return { store: upsertLiveQuest(store, updated), result: normalizeLiveQuest(updated) };
+    });
+  }
+
+  return withCreateLock(async () => {
+    const current = stripDerivedQuestRelationships(await getQuest(questId));
+    if (!current) return null;
+    const updated = applyQuestPatch(current, questId, {
+      feedback: [...(current.feedback ?? []), entry],
+      ...(options?.lastModifiedBy ? { lastModifiedBy: options.lastModifiedBy } : {}),
+    });
+    if (options?.lastModifiedBy) updated.lastModifiedBy = options.lastModifiedBy;
+    await writeQuest(updated);
+    return updated;
+  });
 }
 
 /** Delete a quest and all its versions. */
@@ -1647,7 +1407,7 @@ export async function transitionQuest(questId: string, input: QuestTransitionInp
   if (liveStore) {
     return mutateLiveQuestStore(async (store) => {
       const current = getLiveQuestById(store, questId);
-      if (!current) return { store, result: null };
+      if (!current) return { store, result: null, write: false };
       const quest = buildTransitionedQuest(current, input, { liveStore: true });
       return { store: upsertLiveQuest(store, quest), result: quest };
     });
@@ -1660,102 +1420,74 @@ export async function transitionQuest(questId: string, input: QuestTransitionInp
   return quest;
 }
 
-/**
- * Get the active (in_progress) quest for a session, if any.
- * Returns null if the session has no in_progress quest.
- */
-export async function getActiveQuestForSession(sessionId: string): Promise<QuestmasterTask | null> {
+/** Get the active (in_progress) quest for a provider-aware owner, if any. */
+export async function getActiveQuestForOwner(owner: QuestOwnerRef): Promise<QuestmasterTask | null> {
+  const normalizedOwner = normalizeQuestOwnerRef(owner);
+  if (!normalizedOwner) return null;
   const liveStore = await readLiveQuestStore();
   if (liveStore) {
     return (
-      liveStore.quests.find((quest) => quest.status === "in_progress" && getActiveSessionId(quest) === sessionId) ??
-      null
+      liveStore.quests.find(
+        (quest) => quest.status === "in_progress" && sameQuestOwner(getQuestOwner(quest), normalizedOwner),
+      ) ?? null
     );
   }
   const snapshot = await loadLatestSnapshot();
-  const questId = snapshot.activeQuestBySessionId[sessionId];
-  if (!questId) return null;
-  return snapshot.quests.find((quest) => quest.questId === questId) ?? null;
+  if (normalizedOwner.kind === "takode") {
+    const questId = snapshot.activeQuestBySessionId[normalizedOwner.sessionId];
+    if (!questId) return null;
+    const quest = snapshot.quests.find((candidate) => candidate.questId === questId);
+    return quest && sameQuestOwner(getQuestOwner(quest), normalizedOwner) ? quest : null;
+  }
+  return (
+    snapshot.quests.find(
+      (quest) => quest.status === "in_progress" && sameQuestOwner(getQuestOwner(quest), normalizedOwner),
+    ) ?? null
+  );
+}
+
+/**
+ * Get the active (in_progress) quest for a Takode session, if any.
+ * Returns null if the session has no in_progress quest.
+ */
+export async function getActiveQuestForSession(sessionId: string): Promise<QuestmasterTask | null> {
+  return getActiveQuestForOwner({ kind: "takode", sessionId });
 }
 
 /** Convenience: claim a quest (transition to in_progress). */
 export async function claimQuest(
   questId: string,
   sessionId: string,
-  options?: {
-    allowArchivedOwnerTakeover?: boolean;
-    force?: boolean;
-    isSessionArchived?: (sessionId: string) => boolean;
-    leaderSessionId?: string;
-    ownershipEvent?: QuestOwnershipEventDraft;
-  },
+  options?: QuestClaimOptions,
 ): Promise<QuestmasterTask | null> {
-  const current = await getQuest(questId);
-  if (!current) return null;
   const leaderSessionId = options?.leaderSessionId?.trim();
-
-  // Already claimed by the same session — idempotent, return as-is
-  if (
-    current.status === "in_progress" &&
-    "sessionId" in current &&
-    (current as QuestInProgress).sessionId === sessionId
-  ) {
-    if (leaderSessionId && getLeaderSessionId(current) !== leaderSessionId) {
-      return transitionQuest(questId, {
-        status: "in_progress",
-        sessionId,
-        leaderSessionId,
-      });
-    }
-    return current;
+  const nextOwner = normalizeQuestOwnerRef({ kind: options?.ownerKind ?? "takode", sessionId });
+  const liveStore = await readLiveQuestStore();
+  if (liveStore) {
+    return mutateLiveQuestStore(async (store) => {
+      const current = getLiveQuestById(store, questId);
+      if (!current) return { store, result: null, write: false };
+      if (!nextOwner) throw new Error("sessionId is required to claim a quest");
+      const existing = store.quests.find(
+        (quest) => quest.status === "in_progress" && sameQuestOwner(getQuestOwner(quest), nextOwner),
+      );
+      const input = buildQuestClaimTransitionInput(current, nextOwner, leaderSessionId, options, existing);
+      if (!input) return { store, result: current, write: false };
+      const quest = buildTransitionedQuest(current, input, { liveStore: true });
+      return { store: upsertLiveQuest(store, quest), result: quest };
+    });
   }
 
-  let ownershipEvent: QuestOwnershipEventDraft | undefined;
-
-  // Claimed by a different session — error unless an explicit takeover policy applies.
-  if (
-    current.status === "in_progress" &&
-    "sessionId" in current &&
-    (current as QuestInProgress).sessionId !== sessionId
-  ) {
-    const existingSessionId = (current as QuestInProgress).sessionId;
-    const ownerArchived = !!options?.isSessionArchived?.(existingSessionId);
-    if (options?.allowArchivedOwnerTakeover && ownerArchived) {
-      ownershipEvent =
-        options.ownershipEvent ??
-        archivedOwnerTakeoverEvent({
-          actorSessionId: sessionId,
-          previousOwnerSessionId: existingSessionId,
-          previousLeaderSessionId: getLeaderSessionId(current),
-          newLeaderSessionId: leaderSessionId,
-        });
-    } else if (options?.force) {
-      if (!options.ownershipEvent) {
-        throw new Error("Ownership takeover audit event is required");
-      }
-      ownershipEvent = options.ownershipEvent;
-    } else {
-      const ownerName = getName(existingSessionId);
-      const ownerLabel = ownerName ? `"${ownerName}" (${existingSessionId.slice(0, 8)})` : existingSessionId;
-      throw new Error(`Quest ${questId} is already claimed by session ${ownerLabel}`);
-    }
-  }
-
-  // Enforce one in_progress quest per session: if this session already has
-  // another quest in_progress, reject the claim.
-  const existing = await getActiveQuestForSession(sessionId);
-  if (existing && existing.questId !== questId) {
-    throw new Error(
-      `Session already has an active quest: ${existing.questId} "${existing.title}". ` +
-        `Complete or transition it before claiming another.`,
-    );
-  }
-
-  return transitionQuest(questId, {
-    status: "in_progress",
-    sessionId,
-    ...(leaderSessionId ? { leaderSessionId } : {}),
-    ...(ownershipEvent ? { ownershipEvent } : {}),
+  return withCreateLock(async () => {
+    const current = await getQuest(questId);
+    if (!current) return null;
+    if (!nextOwner) throw new Error("sessionId is required to claim a quest");
+    const existing = await getActiveQuestForOwner(nextOwner);
+    const input = buildQuestClaimTransitionInput(current, nextOwner, leaderSessionId, options, existing);
+    if (!input) return current;
+    const quest = buildTransitionedQuest(current, input, { liveStore: false });
+    await writeQuest(quest);
+    return quest;
   });
 }
 
@@ -1766,6 +1498,8 @@ export async function completeQuest(
   opts?: {
     commitShas?: string[];
     memoryCommitShas?: string[];
+    ownerKind?: QuestOwnerKind;
+    provenance?: QuestInvocationProvenance;
     sessionId?: string;
     debrief?: string;
     debriefTldr?: string;
@@ -1777,6 +1511,8 @@ export async function completeQuest(
     verificationItems: items,
     verificationInboxUnread: true,
     ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
+    ...(opts?.ownerKind ? { ownerKind: opts.ownerKind } : {}),
+    ...(opts?.provenance ? { lastModifiedBy: opts.provenance } : {}),
     ...(opts?.commitShas?.length ? { commitShas: opts.commitShas } : {}),
     ...(opts?.memoryCommitShas?.length ? { memoryCommitShas: opts.memoryCommitShas } : {}),
     ...(opts?.debrief !== undefined ? { debrief: opts.debrief } : {}),
@@ -1788,7 +1524,14 @@ export async function completeQuest(
 /** Convenience: mark a quest as done (or cancelled). */
 export async function markDone(
   questId: string,
-  opts?: { notes?: string; cancelled?: boolean; debrief?: string; debriefTldr?: string },
+  opts?: {
+    notes?: string;
+    cancelled?: boolean;
+    debrief?: string;
+    debriefTldr?: string;
+    ownerKind?: QuestOwnerKind;
+    provenance?: QuestInvocationProvenance;
+  },
 ): Promise<QuestmasterTask | null> {
   return transitionQuest(questId, {
     status: "done",
@@ -1796,6 +1539,8 @@ export async function markDone(
     ...(opts?.debrief !== undefined ? { debrief: opts.debrief } : {}),
     ...(opts?.debriefTldr !== undefined ? { debriefTldr: opts.debriefTldr } : {}),
     ...(opts?.cancelled ? { cancelled: true } : {}),
+    ...(opts?.ownerKind ? { ownerKind: opts.ownerKind } : {}),
+    ...(opts?.provenance ? { lastModifiedBy: opts.provenance } : {}),
   });
 }
 
@@ -1803,22 +1548,56 @@ export async function markDone(
  * Cancel a quest from any status. Transitions directly to done+cancelled
  * without requiring sessionId or verificationItems.
  */
-export async function cancelQuest(questId: string, notes?: string): Promise<QuestmasterTask | null> {
+export async function cancelQuest(
+  questId: string,
+  notes?: string,
+  options?: { provenance?: QuestInvocationProvenance },
+): Promise<QuestmasterTask | null> {
   const liveStore = await readLiveQuestStore();
   if (liveStore) {
     return mutateLiveQuestStore(async (store) => {
       const current = getLiveQuestById(store, questId);
       if (!current) return { store, result: null };
-      const quest = buildCancelledQuest(current, notes, true);
+      const quest = buildCancelledQuest(current, notes, true, options?.provenance);
       return { store: upsertLiveQuest(store, quest), result: quest };
     });
   }
 
   const current = await getQuest(questId);
   if (!current) return null;
-  const quest = buildCancelledQuest(current, notes, false);
+  const quest = buildCancelledQuest(current, notes, false, options?.provenance);
   await writeQuest(quest);
   return quest;
+}
+
+/** Atomically cancel an unowned quest or one owned by the exact provider-aware owner. */
+export async function cancelQuestForOwner(
+  questId: string,
+  owner: QuestOwnerRef,
+  notes?: string,
+  options?: { provenance?: QuestInvocationProvenance },
+): Promise<QuestmasterTask | null> {
+  const normalizedOwner = normalizeQuestOwnerRef(owner);
+  if (!normalizedOwner) throw new Error("A valid quest owner is required");
+  const liveStore = await readLiveQuestStore();
+  if (liveStore) {
+    return mutateLiveQuestStore(async (store) => {
+      const current = getLiveQuestById(store, questId);
+      if (!current) return { store, result: null, write: false };
+      assertQuestMutationOwner(current, normalizedOwner, "cancel");
+      const quest = buildCancelledQuest(current, notes, true, options?.provenance);
+      return { store: upsertLiveQuest(store, quest), result: quest };
+    });
+  }
+
+  return withCreateLock(async () => {
+    const current = await getQuest(questId);
+    if (!current) return null;
+    assertQuestMutationOwner(current, normalizedOwner, "cancel");
+    const quest = buildCancelledQuest(current, notes, false, options?.provenance);
+    await writeQuest(quest);
+    return quest;
+  });
 }
 
 /** Toggle a User review check checkbox (in-place, no new version). */

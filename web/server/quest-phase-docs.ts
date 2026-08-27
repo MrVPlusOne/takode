@@ -15,6 +15,7 @@ import {
   normalizeQuestJourneyPlan,
   type QuestJourneyPhaseId,
 } from "../shared/quest-journey.js";
+import { getQuestDisplayOwner, getTakodeQuestOwnerSessionId } from "../shared/quest-owner.js";
 
 export const QUEST_PHASE_DOCUMENTATION_WARNING_HEADER = "x-quest-phase-documentation-warning";
 
@@ -77,6 +78,22 @@ export function resolveQuestFeedbackDocumentation(args: {
   if (parsed.noPhase) return { entryPatch: parsed.kind ? { kind: parsed.kind } : {} };
 
   const baseEntryPatch: Partial<QuestFeedbackEntry> = parsed.kind ? { kind: parsed.kind } : {};
+  if (isCodexOwnedJourneyQuest(args.quest)) {
+    if (parsed.hasExplicitScope) {
+      return {
+        error: "Direct Codex-owned quests do not participate in Takode Journey phase routing.",
+        status: 409,
+        entryPatch: {},
+      };
+    }
+    if (parsed.inferPhase) {
+      return {
+        entryPatch: baseEntryPatch,
+        warning: "Direct Codex-owned quest; added unscoped feedback without Takode Journey routing.",
+      };
+    }
+    return { entryPatch: baseEntryPatch };
+  }
   const existingRuns = [
     ...(((args.quest as { journeyRuns?: QuestJourneyRun[] }).journeyRuns ?? []) as QuestJourneyRun[]),
   ];
@@ -341,7 +358,7 @@ function buildRunSnapshot(args: {
   return {
     runId,
     leaderSessionId: args.leaderSessionId,
-    workerSessionId: args.row.worker ?? ("sessionId" in args.quest ? args.quest.sessionId : undefined),
+    workerSessionId: args.row.worker ?? getTakodeQuestOwnerSessionId(args.quest),
     ...(typeof args.row.workerNum === "number" ? { workerSessionNum: args.row.workerNum } : {}),
     source: "board",
     sourceBoardSessionId: args.leaderSessionId,
@@ -353,6 +370,11 @@ function buildRunSnapshot(args: {
     ...(args.row.completedAt ? { completedAt: args.row.completedAt } : {}),
     phaseOccurrences,
   };
+}
+
+function isCodexOwnedJourneyQuest(quest: QuestmasterTask): boolean {
+  if (quest.status !== "in_progress" && quest.status !== "done") return false;
+  return getQuestDisplayOwner(quest)?.kind === "codex";
 }
 
 function phaseOccurrenceTiming(row: BoardRow, phaseIndex: number): { startedAt?: number; completedAt?: number } {

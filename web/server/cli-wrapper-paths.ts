@@ -33,18 +33,23 @@ function execStdout(command: string, cwd: string): Promise<string> {
 }
 
 export async function resolveStableWrapperRepoRoot(packageRoot: string): Promise<string> {
-  const fallbackRoot = dirname(packageRoot);
-  try {
-    const gitCommonDir = (await execStdout(`${SERVER_GIT_CMD} rev-parse --git-common-dir`, packageRoot)).trim();
-    return gitCommonDir === ".git" ? fallbackRoot : dirname(resolve(packageRoot, gitCommonDir));
-  } catch {
-    return fallbackRoot;
-  }
+  return (await resolveGitRepoRoot(packageRoot)) ?? dirname(packageRoot);
 }
 
 export async function resolveStableWrapperScriptPath(packageRoot: string, commandName: string): Promise<string> {
-  const stableRepoRoot = await resolveStableWrapperRepoRoot(packageRoot);
-  return join(stableRepoRoot, "web", "bin", `${commandName}.ts`);
+  const stableRepoRoot = await resolveGitRepoRoot(packageRoot);
+  return stableRepoRoot
+    ? join(stableRepoRoot, "web", "bin", `${commandName}.ts`)
+    : join(packageRoot, "bin", `${commandName}.ts`);
+}
+
+async function resolveGitRepoRoot(packageRoot: string): Promise<string | null> {
+  try {
+    const gitCommonDir = (await execStdout(`${SERVER_GIT_CMD} rev-parse --git-common-dir`, packageRoot)).trim();
+    return gitCommonDir === ".git" ? dirname(packageRoot) : dirname(resolve(packageRoot, gitCommonDir));
+  } catch {
+    return null;
+  }
 }
 
 function buildBunExec(commandName: string, scriptPath: string): string {

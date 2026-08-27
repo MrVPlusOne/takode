@@ -263,4 +263,71 @@ describe("quest phase documentation resolution", () => {
     expect(result.entryPatch).toEqual({});
     expect(result.warning).toContain("No active leader board row");
   });
+
+  it("keeps inferred feedback unscoped for a direct Codex-owned quest", () => {
+    // Even if a stale board row shares the quest and raw worker ID, Codex
+    // ownership must not be projected into a Takode Journey run.
+    const result = resolveQuestFeedbackDocumentation({
+      quest: quest({ ownerKind: "codex" }),
+      authorSessionId: "worker-1",
+      request: {},
+      boardRows: [
+        {
+          leaderSessionId: "leader-1",
+          row: {
+            questId: "q-1",
+            worker: "worker-1",
+            status: "WORKING",
+            createdAt: 10,
+            updatedAt: 90,
+            journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1 },
+          },
+        },
+      ],
+    });
+
+    expect(result.entryPatch).toEqual({});
+    expect(result.journeyRuns).toBeUndefined();
+    expect(result.warning).toContain("Direct Codex-owned quest");
+  });
+
+  it("rejects explicit Takode Journey routing for a direct Codex owner", () => {
+    // Explicit phase flags must not provide a back door around the provider
+    // boundary established for inferred feedback.
+    const result = resolveQuestFeedbackDocumentation({
+      quest: quest({ ownerKind: "codex" }),
+      authorSessionId: "worker-1",
+      request: { phase: "work" },
+      boardRows: [],
+    });
+
+    expect(result.status).toBe(409);
+    expect(result.error).toContain("do not participate in Takode Journey");
+    expect(result.journeyRuns).toBeUndefined();
+  });
+
+  it("keeps legacy Takode owners as the board-run worker fallback", () => {
+    // Missing ownerKind remains Takode-compatible when an older board row does
+    // not carry its own worker field.
+    const result = resolveQuestFeedbackDocumentation({
+      quest: quest(),
+      authorSessionId: "worker-1",
+      request: {},
+      now: 100,
+      boardRows: [
+        {
+          leaderSessionId: "leader-1",
+          row: {
+            questId: "q-1",
+            status: "WORKING",
+            createdAt: 10,
+            updatedAt: 90,
+            journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1 },
+          },
+        },
+      ],
+    });
+
+    expect(result.journeyRuns?.[0]?.workerSessionId).toBe("worker-1");
+  });
 });

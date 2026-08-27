@@ -7,6 +7,14 @@ import {
   phaseDocumentationPreview,
   summarizeQuestPhaseDocumentation,
 } from "../shared/quest-phase-documentation-summary.js";
+import {
+  getPreviousQuestOwners,
+  getQuestDisplayOwner,
+  getQuestOwner,
+  questOwnerKey,
+  type QuestOwnerKind,
+  type QuestOwnerRef,
+} from "../shared/quest-owner.js";
 
 export interface QuestListFilterOptions {
   status?: string;
@@ -81,6 +89,7 @@ type ParsedQuestListFilters = {
   excludedTagTokens: Set<string>;
   verificationScopes: Set<string>;
   sessionId: string;
+  ownerKind?: QuestOwnerKind;
   hasTextQuery: boolean;
   preparedSearchQuery: PreparedSearchQuery | null;
 };
@@ -205,8 +214,10 @@ export function buildQuestListPreview(quest: QuestmasterTask): QuestListPreview 
     ...(quest.parentId ? { parentId: quest.parentId } : {}),
     ...(quest.sessionSpaceSlug ? { sessionSpaceSlug: quest.sessionSpaceSlug } : {}),
     ...("sessionId" in quest && quest.sessionId ? { sessionId: quest.sessionId } : {}),
+    ...("ownerKind" in quest && quest.ownerKind ? { ownerKind: quest.ownerKind } : {}),
     ...("claimedAt" in quest && quest.claimedAt ? { claimedAt: quest.claimedAt } : {}),
     ...(quest.previousOwnerSessionIds ? { previousOwnerSessionIds: quest.previousOwnerSessionIds } : {}),
+    ...(quest.previousOwners ? { previousOwners: quest.previousOwners } : {}),
     ...(quest.leaderSessionId ? { leaderSessionId: quest.leaderSessionId } : {}),
     ...("completedAt" in quest && quest.completedAt ? { completedAt: quest.completedAt } : {}),
     ...("verificationInboxUnread" in quest && typeof quest.verificationInboxUnread === "boolean"
@@ -275,7 +286,7 @@ function parseQuestListFilters(filters: QuestListFilterOptions): ParsedQuestList
   const tagTokens = new Set([...parseCsv(filters.tags), ...parseCsv(filters.tag)].map((tag) => tag.toLowerCase()));
   const excludedTagTokens = new Set(parseCsv(filters.excludeTags).map((tag) => tag.toLowerCase()));
   const verificationScopes = new Set(parseCsv(filters.verification).map((scope) => scope.toLowerCase()));
-  const sessionId = filters.session?.trim() || "";
+  const ownerFilter = parseOwnerFilter(filters.session);
   const textQuery = (filters.text ?? "").trim();
   const hasTextQuery = textQuery.length > 0;
   const preparedSearchQuery = hasTextQuery ? prepareSearchQuery(textQuery) : null;
@@ -286,7 +297,8 @@ function parseQuestListFilters(filters: QuestListFilterOptions): ParsedQuestList
     tagTokens,
     excludedTagTokens,
     verificationScopes,
-    sessionId,
+    sessionId: ownerFilter.sessionId,
+    ...(ownerFilter.ownerKind ? { ownerKind: ownerFilter.ownerKind } : {}),
     hasTextQuery,
     preparedSearchQuery,
   };
@@ -295,7 +307,7 @@ function parseQuestListFilters(filters: QuestListFilterOptions): ParsedQuestList
 function buildQuestListEntry(quest: QuestmasterTask, filters: ParsedQuestListFilters): QuestListEntry | null {
   if (!matchesVerificationFilter(quest, filters.verificationScopes)) return null;
   if (!matchesTagFilters(quest, filters.tagTokens, filters.excludedTagTokens)) return null;
-  if (!matchesSessionFilter(quest, filters.sessionId)) return null;
+  if (!matchesSessionFilter(quest, filters.sessionId, filters.ownerKind)) return null;
 
   if (!filters.hasTextQuery) return { quest };
   if (!filters.preparedSearchQuery) return null;
@@ -370,11 +382,11 @@ function matchesTagFilters(quest: QuestmasterTask, tagTokens: Set<string>, exclu
   return true;
 }
 
-function matchesSessionFilter(quest: QuestmasterTask, sessionId: string): boolean {
-  if (!sessionId) return true;
-  const owner = "sessionId" in quest ? (quest as { sessionId?: string }).sessionId : undefined;
-  const previousOwners = Array.isArray(quest.previousOwnerSessionIds) ? quest.previousOwnerSessionIds : [];
-  return owner === sessionId || previousOwners.includes(sessionId);
+function matchesSessionFilter(quest: QuestmasterTask, sessionId: string, ownerKind?: QuestOwnerKind): boolean {
+  if (!sessionId) return ownerKind === undefined;
+  return questOwnerRefs(quest).some(
+    (owner) => owner.sessionId === sessionId && (ownerKind === undefined || owner.kind === ownerKind),
+  );
 }
 
 function yieldToEventLoop(): Promise<void> {
@@ -417,7 +429,7 @@ function compareSortColumn(left: QuestmasterTask, right: QuestmasterTask, column
     case "title":
       return compareText(left.title, right.title);
     case "owner":
-      return compareText(getQuestOwnerSessionId(left) ?? "", getQuestOwnerSessionId(right) ?? "");
+      return compareText(getQuestOwnerSortKey(left), getQuestOwnerSortKey(right));
     case "leader":
       return compareText(left.leaderSessionId ?? "", right.leaderSessionId ?? "");
     case "status":
@@ -533,6 +545,7 @@ function getQuestBodySearchFields(quest: QuestmasterTask): Array<string | undefi
     questRelationshipSearchText(quest),
     quest.status === "done" && quest.cancelled !== true ? quest.debriefTldr : undefined,
     quest.status === "done" && quest.cancelled !== true ? quest.debrief : undefined,
+    ...questOwnerRefs(quest).flatMap((owner) => [`${owner.kind} ${owner.sessionId}`, questOwnerKey(owner)]),
     ...(quest.quizItems ?? []).flatMap((item) => [item.question, item.answer, item.source]),
     ...("feedback" in quest ? (quest.feedback ?? []).flatMap((entry) => [entry.tldr, entry.text]) : []),
   ];
@@ -622,8 +635,25 @@ function questRecencyTs(quest: QuestmasterTask): number {
   return Math.max(quest.createdAt, quest.updatedAt ?? 0, quest.statusChangedAt ?? 0);
 }
 
-function getQuestOwnerSessionId(quest: QuestmasterTask): string | undefined {
-  return "sessionId" in quest ? quest.sessionId : undefined;
+function getQuestOwnerSortKey(quest: QuestmasterTask): string {
+  const owner = getQuestDisplayOwner(quest);
+  return owner ? questOwnerKey(owner) : "";
+}
+
+function parseOwnerFilter(value: string | undefined): { sessionId: string; ownerKind?: QuestOwnerKind } {
+  const normalized = value?.trim() ?? "";
+  const qualified = /^(takode|codex):(.*)$/i.exec(normalized);
+  if (!qualified) return { sessionId: normalized };
+  return {
+    ownerKind: qualified[1]!.toLowerCase() as QuestOwnerKind,
+    sessionId: qualified[2]!.trim(),
+  };
+}
+
+function questOwnerRefs(quest: QuestmasterTask): QuestOwnerRef[] {
+  const activeOwner = getQuestOwner(quest);
+  const previousOwners = getPreviousQuestOwners(quest);
+  return activeOwner ? [activeOwner, ...previousOwners] : previousOwners;
 }
 
 function verificationSortTuple(quest: QuestmasterTask): [number, number, number] {

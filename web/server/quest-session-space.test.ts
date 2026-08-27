@@ -61,4 +61,37 @@ describe("quest session-space helpers", () => {
     expect(candidates).toEqual(["MSI", "Takode"]);
     expect(getQuestSessionSpaceSlug(quest, { resolveSessionSpaceSlug: () => "MSI" })).toBe("MSI");
   });
+
+  it("never resolves direct Codex owner IDs through Takode session lookup", () => {
+    // Session-space resolvers are backed by the Takode launcher. Provider-aware
+    // history can contribute Takode sessions, but Codex IDs must stay opaque.
+    const quest = {
+      id: "q-3",
+      questId: "q-3",
+      version: 1,
+      title: "Codex-owned quest",
+      status: "in_progress",
+      description: "Keep providers separate.",
+      createdAt: 1,
+      claimedAt: 2,
+      sessionId: "codex-current",
+      ownerKind: "codex",
+      previousOwners: [
+        { kind: "codex", sessionId: "codex-old" },
+        { kind: "takode", sessionId: "takode-old" },
+      ],
+    } as QuestmasterTask;
+    const resolvedIds: string[] = [];
+
+    const candidates = getQuestSessionSpaceCandidates(quest, {
+      resolveSessionSpaceSlug: (sessionId) => {
+        resolvedIds.push(sessionId);
+        return sessionId === "takode-old" ? "Takode" : "Wrong";
+      },
+      defaultSessionSpaceSlug: "Default",
+    });
+
+    expect(resolvedIds).toEqual(["takode-old"]);
+    expect(candidates).toEqual(["Takode", "Default"]);
+  });
 });

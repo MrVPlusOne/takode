@@ -19,11 +19,13 @@ import {
 import {
   timeAgo,
   verificationProgress,
+  getQuestDisplayOwner,
   getQuestOwnerSessionId,
   getQuestLeaderSessionId,
   CopyableQuestId,
 } from "../utils/quest-helpers.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
+import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { Lightbox } from "./Lightbox.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -700,6 +702,7 @@ export function QuestDetailPanel() {
   const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
   const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
   const questNotes = getQuestNotes(quest);
+  const questOwner = getQuestDisplayOwner(quest);
   const questSessionId = getQuestOwnerSessionId(quest);
   const questMarkdownSessionId = questSessionId ?? undefined;
   const leaderSessionId = getQuestLeaderSessionId(quest);
@@ -747,10 +750,14 @@ export function QuestDetailPanel() {
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2 mt-1">
-              {questSessionId && (
+              {questOwner && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
-                  <span>Worker</span>
-                  <CompactSessionLink sessionId={questSessionId} onNavigate={closePanel} />
+                  <span>{questOwner.kind === "codex" ? "Owner" : "Worker"}</span>
+                  {questOwner.kind === "codex" ? (
+                    <CodexQuestOwnerChip owner={questOwner} />
+                  ) : (
+                    <CompactSessionLink sessionId={questOwner.sessionId} onNavigate={closePanel} />
+                  )}
                 </span>
               )}
               {leaderSessionId && (

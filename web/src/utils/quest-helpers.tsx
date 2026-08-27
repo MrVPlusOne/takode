@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { writeClipboardText } from "./copy-utils.js";
 import type { QuestListPreview, QuestmasterTask, QuestVerificationItem } from "../types.js";
+import { getQuestDisplayOwner as resolveQuestDisplayOwner, type QuestOwnerRef } from "../../shared/quest-owner.js";
 
 type QuestMetadata = QuestmasterTask | QuestListPreview;
 
@@ -46,24 +47,15 @@ export function verificationProgress(items: QuestVerificationItem[]): { checked:
   return { checked: items.filter((i) => i.checked).length, total: items.length };
 }
 
-/**
- * Get the active (or most recent previous) owner session ID for a quest.
- * Falls back to previousOwnerSessionIds if the active sessionId is empty.
- */
+/** Get the provider-aware active or most recent historical owner for display. */
+export function getQuestDisplayOwner(quest: QuestMetadata): QuestOwnerRef | null {
+  return resolveQuestDisplayOwner(quest) ?? null;
+}
+
+/** Get the Takode session ID for link and session-state integrations. */
 export function getQuestOwnerSessionId(quest: QuestMetadata): string | null {
-  if ("sessionId" in quest && typeof quest.sessionId === "string") {
-    const active = quest.sessionId.trim();
-    if (active) return active;
-  }
-  const previous = (quest as { previousOwnerSessionIds?: unknown }).previousOwnerSessionIds;
-  if (!Array.isArray(previous) || previous.length === 0) return null;
-  for (let i = previous.length - 1; i >= 0; i--) {
-    const sid = previous[i];
-    if (typeof sid !== "string") continue;
-    const trimmed = sid.trim();
-    if (trimmed) return trimmed;
-  }
-  return null;
+  const owner = getQuestDisplayOwner(quest);
+  return owner?.kind === "takode" ? owner.sessionId : null;
 }
 
 /** Get the quest's orchestrating leader session ID, when it was recorded. */

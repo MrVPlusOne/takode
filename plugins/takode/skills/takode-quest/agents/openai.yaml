@@ -1,0 +1,6 @@
+interface:
+  display_name: "Takode Quest"
+  short_description: "Maintain durable Takode quest records"
+  default_prompt: "Use $takode-quest to document this work as a Takode quest."
+policy:
+  allow_implicit_invocation: false

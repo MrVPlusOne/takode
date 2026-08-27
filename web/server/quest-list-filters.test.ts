@@ -77,6 +77,95 @@ describe("applyQuestListFilters", () => {
     expect(result.map((q) => q.questId)).toEqual(["q-1"]);
   });
 
+  it("supports provider-qualified owner filters without changing legacy raw-ID matching", () => {
+    // A direct Codex task and a Takode session can expose the same raw ID. Raw
+    // filters remain backwards-compatible, while a provider prefix disambiguates them.
+    const takode = makeQuest({
+      questId: "q-8",
+      title: "Takode owner",
+      status: "in_progress",
+      sessionId: "shared-owner",
+    });
+    const codex = {
+      ...makeQuest({
+        questId: "q-9",
+        title: "Codex owner",
+        status: "in_progress",
+        sessionId: "shared-owner",
+      }),
+      ownerKind: "codex",
+    } as QuestmasterTask;
+
+    expect(applyQuestListFilters([takode, codex], { session: "shared-owner" })).toHaveLength(2);
+    expect(
+      applyQuestListFilters([takode, codex], { session: "takode:shared-owner" }).map((quest) => quest.questId),
+    ).toEqual(["q-8"]);
+    expect(
+      applyQuestListFilters([takode, codex], { session: "codex:shared-owner" }).map((quest) => quest.questId),
+    ).toEqual(["q-9"]);
+  });
+
+  it("searches and sorts provider-aware owners with identical raw IDs", () => {
+    // Provider tokens and owner sort keys must not collapse Codex and Takode
+    // identities just because their session IDs happen to match.
+    const takode = makeQuest({
+      questId: "q-10",
+      title: "Owner record",
+      status: "in_progress",
+      sessionId: "same-id",
+    });
+    const codex = {
+      ...makeQuest({
+        questId: "q-11",
+        title: "Owner record",
+        status: "in_progress",
+        sessionId: "same-id",
+      }),
+      ownerKind: "codex",
+    } as QuestmasterTask;
+
+    expect(applyQuestListFilters([takode, codex], { text: "codex same-id" }).map((quest) => quest.questId)).toEqual([
+      "q-11",
+    ]);
+    expect(applyQuestListFilters([takode, codex], { text: "takode same-id" }).map((quest) => quest.questId)).toEqual([
+      "q-10",
+    ]);
+    expect(
+      getQuestListPage([takode, codex], { sortColumn: "owner", sortDirection: "asc" }).quests.map(
+        (quest) => quest.questId,
+      ),
+    ).toEqual(["q-11", "q-10"]);
+  });
+
+  it("preserves provider-aware ownership in compact list previews", () => {
+    // The bounded page must retain the small ownership fields required by the
+    // UI without expanding to full feedback, history, or provenance payloads.
+    const quest = {
+      ...makeQuest({
+        questId: "q-12",
+        title: "Codex preview",
+        status: "in_progress",
+        sessionId: "codex-current",
+      }),
+      ownerKind: "codex",
+      previousOwnerSessionIds: ["takode-old"],
+      previousOwners: [
+        { kind: "takode", sessionId: "takode-old" },
+        { kind: "codex", sessionId: "codex-old" },
+      ],
+    } as QuestmasterTask;
+
+    expect(getQuestListPage([quest], {}).quests[0]).toMatchObject({
+      ownerKind: "codex",
+      sessionId: "codex-current",
+      previousOwnerSessionIds: ["takode-old"],
+      previousOwners: [
+        { kind: "takode", sessionId: "takode-old" },
+        { kind: "codex", sessionId: "codex-old" },
+      ],
+    });
+  });
+
   it("filters by free-text search in quest id, title, and description", () => {
     // Text search should be case-insensitive and include quest id/title/description.
     const result = applyQuestListFilters(quests, { text: "cli" });

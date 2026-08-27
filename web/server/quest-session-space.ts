@@ -1,6 +1,7 @@
 import { normalizeMemorySessionSpaceSlug } from "./memory-session-space.js";
 import type { QuestmasterTask } from "./quest-types.js";
-import { getActiveSessionId, getLeaderSessionId, getPreviousOwnerSessionIds } from "./quest-store-helpers.js";
+import { getLeaderSessionId } from "./quest-store-helpers.js";
+import { getPreviousQuestOwners, getTakodeQuestOwnerSessionId } from "../shared/quest-owner.js";
 
 export type QuestSessionSpaceResolver = (sessionId: string) => string | null | undefined;
 
@@ -20,8 +21,10 @@ export function questSessionSpaceProvenanceSessionIds(quest: QuestmasterTask): s
     sessionIds.push(normalized);
   };
 
-  add(getActiveSessionId(quest));
-  for (const sessionId of getPreviousOwnerSessionIds(quest)) add(sessionId);
+  add(getTakodeQuestOwnerSessionId(quest));
+  for (const owner of getPreviousQuestOwners(quest)) {
+    if (owner.kind === "takode") add(owner.sessionId);
+  }
   add(getLeaderSessionId(quest));
   for (const run of quest.journeyRuns ?? []) {
     add(run.workerSessionId);

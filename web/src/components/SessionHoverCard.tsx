@@ -28,6 +28,7 @@ import {
   deriveEffectiveSessionAttentionStatus,
   type EffectiveSessionAttentionStatus,
 } from "../utils/session-attention-status.js";
+import { getQuestOwner } from "../../shared/quest-owner.js";
 
 interface SessionHoverCardProps {
   session: SessionItemType;
@@ -236,8 +237,11 @@ export function SessionHoverCard({
     () =>
       s.isOrchestrator
         ? null
-        : (quests.find((quest) => quest.status === "in_progress" && "sessionId" in quest && quest.sessionId === s.id) ??
-          null),
+        : (quests.find((quest) => {
+            if (quest.status !== "in_progress") return false;
+            const owner = getQuestOwner(quest);
+            return owner?.kind === "takode" && owner.sessionId === s.id;
+          }) ?? null),
     [quests, s.id, s.isOrchestrator],
   );
   const showTaskHistory = !s.isOrchestrator && taskEntries.length > 0;

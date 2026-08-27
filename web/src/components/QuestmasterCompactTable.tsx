@@ -13,12 +13,18 @@ import { useStore } from "../store.js";
 import type { QuestListPreview, QuestmasterTask, QuestStatus } from "../types.js";
 import { getHighlightParts } from "../utils/highlight.js";
 import { markdownToPlainText, writeClipboardText } from "../utils/copy-utils.js";
-import { getQuestLeaderSessionId, getQuestOwnerSessionId, timeAgo } from "../utils/quest-helpers.js";
+import {
+  getQuestDisplayOwner,
+  getQuestLeaderSessionId,
+  getQuestOwnerSessionId,
+  timeAgo,
+} from "../utils/quest-helpers.js";
 import type { QuestJourneyContext } from "../utils/quest-journey-context.js";
 import { QUEST_STATUS_THEME } from "../utils/quest-status-theme.js";
 import { getQuestJourneyPhaseForState, getQuestJourneyPresentation } from "../../shared/quest-journey.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import { SessionNumChip } from "./SessionNumChip.js";
+import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 import { getQuestPhaseDotStyle, getQuestPhaseTextStyle } from "../utils/quest-phase-theme.js";
 
 const STATUS_SORT_RANK: Record<QuestStatus, number> = {
@@ -349,11 +355,12 @@ function compareQuestIds(left: string, right: string): number {
 }
 
 function ownerSortLabel(quest: QuestTableQuest, context: CompactSortContext): string {
-  const sessionId = getQuestOwnerSessionId(quest);
-  if (!sessionId) return "";
-  const sessionNum = context.sessionNumById.get(sessionId);
+  const owner = getQuestDisplayOwner(quest);
+  if (!owner) return "";
+  if (owner.kind === "codex") return `codex:${owner.sessionId.trim().toLowerCase()}`;
+  const sessionNum = context.sessionNumById.get(owner.sessionId);
   if (typeof sessionNum === "number") return `#${String(sessionNum).padStart(8, "0")}`;
-  return (context.sessionNameById.get(sessionId) || sessionId).trim().toLowerCase();
+  return (context.sessionNameById.get(owner.sessionId) || owner.sessionId).trim().toLowerCase();
 }
 
 function leaderSortLabel(quest: QuestTableQuest, context: CompactSortContext): string {
@@ -572,6 +579,7 @@ const CompactQuestRow = memo(function CompactQuestRow({
 }) {
   const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
   const displayStatus = getQuestmasterDisplayStatus(quest, journeyContext);
+  const questOwner = getQuestDisplayOwner(quest);
   const questSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionId = getQuestLeaderSessionId(quest);
   const feedbackCounts = questFeedbackCounts(quest);
@@ -616,7 +624,9 @@ const CompactQuestRow = memo(function CompactQuestRow({
         )}
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle">
-        {questSessionId ? (
+        {questOwner?.kind === "codex" ? (
+          <CodexQuestOwnerChip owner={questOwner} stopPropagation />
+        ) : questSessionId ? (
           <SessionNumChip sessionId={questSessionId} />
         ) : (
           <span className="text-cc-muted">{"\u2014"}</span>

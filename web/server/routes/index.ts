@@ -30,6 +30,7 @@ import { createTodoRoutes } from "./todos.js";
 import { createResourceLeaseRoutes } from "./resource-leases.js";
 import { createStreamRoutes } from "./streams.js";
 import { createMemoryRoutes } from "./memory.js";
+import { createCodexSidecarRoutes } from "./codex-sidecar.js";
 import { createLogsRoutes } from "./logs.js";
 import type { InitialModeState, RouteContext } from "./context.js";
 import {
@@ -157,7 +158,10 @@ export function createRoutes(
   timerManager?: import("../timer-manager.js").TimerManager,
   imageStore?: import("../image-store.js").ImageStore,
   pushoverNotifier?: import("../pushover.js").PushoverNotifier,
-  options?: { requestRestart?: () => void },
+  options?: {
+    requestRestart?: () => void;
+    codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;
+  },
   perfTracer?: PerfTracer,
   sleepInhibitor?: import("../sleep-inhibitor.js").SleepInhibitor,
   resourceLeaseManager?: import("../resource-lease-manager.js").ResourceLeaseManager,
@@ -244,6 +248,7 @@ export function createRoutes(
   api.route("/", createResourceLeaseRoutes(ctx));
   api.route("/", createStreamRoutes(ctx));
   api.route("/", createMemoryRoutes(ctx));
+  api.route("/", createCodexSidecarRoutes(ctx));
 
   return api;
 }

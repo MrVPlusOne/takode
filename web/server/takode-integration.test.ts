@@ -9,6 +9,10 @@ const fsMocks = vi.hoisted(() => ({
 const execMock = vi.hoisted(() =>
   vi.fn((command: string, options: { cwd?: string }, callback: (error: Error | null, stdout: string) => void) => {
     if (command.includes("rev-parse --git-common-dir")) {
+      if (options.cwd === "/installed/the-companion") {
+        callback(new Error("not a git checkout"), "");
+        return;
+      }
       if (options.cwd?.startsWith("/repo")) {
         callback(null, "/repo/.git\n");
         return;
@@ -49,6 +53,13 @@ describe("ensureTakodeIntegration", () => {
     expect(sharedWrapper).toContain('exec "$HOME/.bun/bin/bun" "/repo/web/bin/takode.ts" "$@"');
     expect(sharedWrapper).not.toContain("/repo/worktrees/wt-1/web/bin/takode.ts");
 
+    const sidecarMcpWrite = fsMocks.writeFileSync.mock.calls.find(
+      (call) => call[0] === "/home/tester/.companion/bin/takode-sidecar-mcp",
+    );
+    expect(sidecarMcpWrite).toBeDefined();
+    expect(String(sidecarMcpWrite?.[1] ?? "")).toContain('exec bun "/repo/web/bin/takode-sidecar-mcp.ts" "$@"');
+    expect(String(sidecarMcpWrite?.[1] ?? "")).not.toContain("/repo/worktrees/wt-1");
+
     const agentBrowserWrite = fsMocks.writeFileSync.mock.calls.find(
       (call) => call[0] === "/home/tester/.companion/bin/agent-browser",
     );
@@ -70,5 +81,23 @@ describe("ensureTakodeIntegration", () => {
     expect(sharedWrapper).toContain("/repo/web/bin/takode.ts");
     expect(sharedWrapper).not.toContain("/repo/worktrees/wt-a/web/bin/takode.ts");
     expect(sharedWrapper).not.toContain("/repo/worktrees/wt-b/web/bin/takode.ts");
+
+    const sidecarWrites = fsMocks.writeFileSync.mock.calls.filter(
+      (call) => call[0] === "/home/tester/.companion/bin/takode-sidecar-mcp",
+    );
+    expect(sidecarWrites).toHaveLength(2);
+    expect(sidecarWrites[0]?.[1]).toBe(sidecarWrites[1]?.[1]);
+  });
+
+  it("targets bin files inside a packaged no-git installation", async () => {
+    await ensureTakodeIntegration("/installed/the-companion");
+
+    const sidecarWrite = fsMocks.writeFileSync.mock.calls.find(
+      (call) => call[0] === "/home/tester/.companion/bin/takode-sidecar-mcp",
+    );
+    expect(String(sidecarWrite?.[1] ?? "")).toContain(
+      'exec bun "/installed/the-companion/bin/takode-sidecar-mcp.ts" "$@"',
+    );
+    expect(String(sidecarWrite?.[1] ?? "")).not.toContain("/installed/web/bin");
   });
 });

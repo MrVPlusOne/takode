@@ -25,6 +25,9 @@
 //     unaffected — a session can have any number of those.
 
 import type { QuestJourneyPhaseId } from "../shared/quest-journey.js";
+import type { QuestInvocationProvenance, QuestOwnerKind, QuestOwnerRef } from "../shared/quest-owner.js";
+
+export type { QuestInvocationProvenance, QuestOwnerKind, QuestOwnerRef } from "../shared/quest-owner.js";
 
 export type QuestStatus = "idea" | "refined" | "in_progress" | "done";
 export type LegacyQuestStatus = QuestStatus | "needs_verification";
@@ -75,6 +78,8 @@ export interface QuestFeedbackEntry {
   ts: number;
   /** Companion session ID that submitted this entry, including on-behalf-of-user feedback. */
   authorSessionId?: string;
+  /** Provider-aware invocation that submitted this entry, when available. */
+  provenance?: QuestInvocationProvenance;
   /** Images attached to this feedback entry */
   images?: QuestImage[];
   /** Whether this feedback has been addressed (only meaningful for human entries) */
@@ -212,9 +217,13 @@ interface QuestBase {
   tldr?: string;
   /** When the quest was originally created. */
   createdAt: number;
+  /** Provider-aware invocation that created this quest, when available. */
+  createdBy?: QuestInvocationProvenance;
   /** Last in-place modification (checkbox toggle, patch, image change).
    *  Only set by in-place mutations; absent on freshly created versions. */
   updatedAt?: number;
+  /** Provider-aware invocation responsible for the latest mutation, when available. */
+  lastModifiedBy?: QuestInvocationProvenance;
   /** Last status transition time. Preserves Questmaster recency ordering. */
   statusChangedAt?: number;
   tags?: string[];
@@ -226,6 +235,8 @@ interface QuestBase {
   images?: QuestImage[];
   /** Past owners in chronological order. Excludes the current active owner. */
   previousOwnerSessionIds?: string[];
+  /** Provider-aware past owners in chronological order. Excludes the current active owner. */
+  previousOwners?: QuestOwnerRef[];
   /** Append-only audit trail for explicit or compatibility ownership takeovers. */
   ownershipEvents?: QuestOwnershipEvent[];
   /** Append-only audit trail for explicit leader recovery escape hatches. */
@@ -267,11 +278,13 @@ export type QuestInProgress = Omit<QuestRefined, "status"> & {
   status: "in_progress";
   /** Active owner session ID (historically named sessionId for compatibility). */
   sessionId: string;
+  /** Active owner provider. Missing means Takode for legacy records. */
+  ownerKind?: QuestOwnerKind;
   claimedAt: number;
 };
 
 /** Done: completed, optionally awaiting human review through separate metadata. */
-export type QuestDone = Omit<QuestInProgress, "status" | "sessionId" | "claimedAt"> & {
+export type QuestDone = Omit<QuestInProgress, "status" | "sessionId" | "ownerKind" | "claimedAt"> & {
   status: "done";
   /** Active owner is cleared when done; sessionId may be present in legacy data. */
   sessionId?: string;
@@ -332,8 +345,11 @@ export interface QuestListPreview {
   parentId?: string;
   sessionSpaceSlug?: string;
   sessionId?: string;
+  /** Active owner provider. Missing means Takode for legacy records. */
+  ownerKind?: QuestOwnerKind;
   claimedAt?: number;
   previousOwnerSessionIds?: string[];
+  previousOwners?: QuestOwnerRef[];
   leaderSessionId?: string;
   completedAt?: number;
   verificationInboxUnread?: boolean;
@@ -412,6 +428,8 @@ export interface QuestStoreMigrationReport {
 
 export interface QuestCreateInput {
   title: string;
+  /** Provider-aware invocation that created the quest, when called through a sidecar. */
+  createdBy?: QuestInvocationProvenance;
   description?: string;
   tldr?: string;
   status?: QuestStatus;
@@ -426,6 +444,8 @@ export interface QuestCreateInput {
 
 /** Same-stage edits (e.g., fixing a typo). Does NOT create a new version. */
 export interface QuestPatchInput {
+  /** Provider-aware invocation responsible for this edit, when available. */
+  lastModifiedBy?: QuestInvocationProvenance;
   title?: string;
   description?: string;
   tldr?: string;
@@ -443,12 +463,16 @@ export interface QuestPatchInput {
 /** Status transitions. Always creates a new version linked to the previous. */
 export interface QuestTransitionInput {
   status: QuestStatus;
+  /** Provider-aware invocation responsible for this transition, when available. */
+  lastModifiedBy?: QuestInvocationProvenance;
   /** Required for refined+ */
   description?: string;
   /** Human-readable scan summary for long descriptions. */
   tldr?: string;
   /** Required for in_progress+ */
   sessionId?: string;
+  /** Owner provider for in_progress. Missing means Takode for compatibility. */
+  ownerKind?: QuestOwnerKind;
   /** Optional orchestrating leader session to preserve for feedback routing. */
   leaderSessionId?: string;
   /** Optional ownership audit event to append when the active owner changes. */

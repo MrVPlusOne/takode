@@ -1,4 +1,5 @@
 import type { QuestmasterTask } from "./quest-types.js";
+import { getQuestDisplayOwner } from "../shared/quest-owner.js";
 
 export type QuestStatusMutationGuardInput = {
   callerIsLeader?: boolean;
@@ -12,12 +13,8 @@ export type QuestStatusMutationGuardInput = {
 export type QuestStatusMutationGuardResult = { ok: true; overrideReason?: string } | { ok: false; message: string };
 
 export function getQuestStatusOwnerSessionIds(quest: QuestmasterTask): string[] {
-  if ("sessionId" in quest && typeof quest.sessionId === "string" && quest.sessionId.trim()) {
-    return [quest.sessionId.trim()];
-  }
-
-  const previousOwner = quest.previousOwnerSessionIds?.at(-1)?.trim();
-  return previousOwner ? [previousOwner] : [];
+  const owner = getQuestDisplayOwner(quest);
+  return owner?.kind === "takode" ? [owner.sessionId] : [];
 }
 
 export function evaluateQuestStatusMutationGuard(
@@ -32,6 +29,16 @@ export function evaluateQuestStatusMutationGuard(
 
   const callerSessionId = input.callerSessionId?.trim() ?? "";
   if (!callerSessionId) return { ok: true };
+
+  const owner = getQuestDisplayOwner(quest);
+  if (owner?.kind === "codex") {
+    return {
+      ok: false,
+      message:
+        `Refusing to change ${quest.questId} status: the quest owner is a direct Codex task, not Takode session ` +
+        `${callerSessionId}. If this is intentional, retry with --force --reason <text>.`,
+    };
+  }
 
   const leaderSessionId = quest.leaderSessionId?.trim() ?? "";
   if (

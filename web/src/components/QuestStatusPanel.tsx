@@ -3,12 +3,13 @@ import { useStore } from "../store.js";
 import type { QuestFeedbackEntry, QuestmasterTask, QuestVerificationItem } from "../types.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import { isQuestUnderReview, isVerificationInboxUnread } from "../utils/quest-editor-helpers.js";
-import { getQuestLeaderSessionId } from "../utils/quest-helpers.js";
+import { getQuestDisplayOwner, getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
 import { formatWaitForRefLabel } from "../../shared/quest-journey.js";
 import { orderBoardRows, type BoardRowData } from "./BoardTable.js";
 import { QuestJourneyCompactSummary } from "./QuestJourneyTimeline.js";
 import { QuestQuizSection } from "./QuestQuizSection.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
+import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 
 type QuestStatusContextSource = "selected-session" | "board-attention" | "board-active" | "board-proposed";
 
@@ -179,25 +180,32 @@ function attentionLine(context: QuestStatusContext, counts: QuestCounts): string
 }
 
 function OwnerChip({ context }: { context: QuestStatusContext }) {
-  const ownerSessionId = context.quest && "sessionId" in context.quest ? context.quest.sessionId : context.row?.worker;
+  const recordedOwner = context.quest ? getQuestDisplayOwner(context.quest) : null;
+  const owner =
+    recordedOwner ?? (context.row?.worker ? { kind: "takode" as const, sessionId: context.row.worker } : null);
+  const ownerSessionId = owner?.kind === "takode" ? owner.sessionId : null;
   const resolvedSessionNum = useStore((state) =>
     ownerSessionId
       ? (state.sdkSessions.find((session) => session.sessionId === ownerSessionId)?.sessionNum ?? null)
       : null,
   );
   const ownerSessionNum = context.row?.worker === ownerSessionId ? context.row?.workerNum : resolvedSessionNum;
-  if (!ownerSessionId) return null;
+  if (!owner) return null;
 
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-cc-muted">
       <span className="shrink-0">Owner</span>
-      <SessionInlineLink
-        sessionId={ownerSessionId}
-        sessionNum={ownerSessionNum}
-        className="min-w-0 truncate font-mono-code text-cc-attention hover:text-cc-attention-strong hover:underline decoration-dotted underline-offset-2"
-      >
-        {ownerSessionNum != null ? `#${ownerSessionNum}` : ownerSessionId.slice(0, 8)}
-      </SessionInlineLink>
+      {owner.kind === "codex" ? (
+        <CodexQuestOwnerChip owner={owner} />
+      ) : (
+        <SessionInlineLink
+          sessionId={owner.sessionId}
+          sessionNum={ownerSessionNum}
+          className="min-w-0 truncate font-mono-code text-cc-attention hover:text-cc-attention-strong hover:underline decoration-dotted underline-offset-2"
+        >
+          {ownerSessionNum != null ? `#${ownerSessionNum}` : owner.sessionId.slice(0, 8)}
+        </SessionInlineLink>
+      )}
     </div>
   );
 }
@@ -293,18 +301,15 @@ export function QuestStatusPanel({ sessionId }: { sessionId: string }) {
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
           <OwnerChip context={context} />
           <LeaderChip quest={context.quest} />
-          {context.row?.worker &&
-            context.quest &&
-            "sessionId" in context.quest &&
-            context.row.worker !== context.quest.sessionId && (
-              <SessionInlineLink
-                sessionId={context.row.worker}
-                sessionNum={context.row.workerNum}
-                className="font-mono-code text-[11px] text-cc-attention hover:text-cc-attention-strong hover:underline decoration-dotted underline-offset-2"
-              >
-                {context.row.workerNum != null ? `#${context.row.workerNum}` : context.row.worker.slice(0, 8)}
-              </SessionInlineLink>
-            )}
+          {context.row?.worker && context.quest && context.row.worker !== getQuestOwnerSessionId(context.quest) && (
+            <SessionInlineLink
+              sessionId={context.row.worker}
+              sessionNum={context.row.workerNum}
+              className="font-mono-code text-[11px] text-cc-attention hover:text-cc-attention-strong hover:underline decoration-dotted underline-offset-2"
+            >
+              {context.row.workerNum != null ? `#${context.row.workerNum}` : context.row.worker.slice(0, 8)}
+            </SessionInlineLink>
+          )}
         </div>
 
         {hasMetrics && (

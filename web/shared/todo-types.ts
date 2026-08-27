@@ -21,6 +21,8 @@ export type TodoPrincipal =
 
 export interface TodoActor {
   kind: "user" | "session" | "workflow" | "system";
+  /** Session provider when the actor is an agent session. */
+  provider?: "takode" | "codex";
   sessionId?: string;
   workflowId?: string;
   label?: string;
@@ -37,7 +39,7 @@ export interface TodoUserMessageProvenance {
 }
 
 export interface TodoAuthorization {
-  kind: "ui" | "direct_message" | "grant" | "proposal_approval" | "bootstrap";
+  kind: "ui" | "direct_message" | "grant" | "proposal_approval" | "agent_direct" | "bootstrap";
   userMessage?: TodoUserMessageProvenance;
   grantId?: string;
   proposalId?: string;

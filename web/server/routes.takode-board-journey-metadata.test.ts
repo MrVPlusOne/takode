@@ -146,6 +146,51 @@ describe("Takode board Journey metadata route", () => {
     });
   });
 
+  it("rejects a direct Codex-owned quest before creating a Takode Journey row", async () => {
+    // Board admission is provider-aware even when a Takode worker exists with
+    // the same raw ID as the direct Codex task.
+    vi.mocked(questStore.getQuest).mockResolvedValueOnce({
+      id: "q-9",
+      questId: "q-9",
+      version: 1,
+      title: "Direct Codex work",
+      status: "in_progress",
+      description: "Owned outside Takode orchestration.",
+      sessionId: "worker-1",
+      ownerKind: "codex",
+      claimedAt: 2,
+      createdAt: 1,
+    });
+
+    const res = await postBoard({
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      phases: ["alignment", "work", "memory"],
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("owned by a direct Codex task") });
+    expect(session.board.has("q-9")).toBe(false);
+  });
+
+  it("fails closed when board admission cannot verify Quest ownership", async () => {
+    // Ownership verification is an admission check, not optional title/TLDR
+    // enrichment, so transient store failures must not create an unchecked row.
+    vi.mocked(questStore.getQuest).mockRejectedValueOnce(new Error("store unavailable"));
+
+    const res = await postBoard({
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      phases: ["alignment", "work", "memory"],
+    });
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("Cannot verify quest ownership") });
+    expect(session.board.has("q-9")).toBe(false);
+  });
+
   it("rejects legacy v1 phases and states for new active rows", async () => {
     const legacyPhase = await postBoard({
       questId: "q-9",
@@ -248,6 +293,38 @@ describe("Takode board Journey metadata route", () => {
       newState: "MEMORY",
       workFeedbackIndex: 0,
     });
+  });
+
+  it("does not treat a same-ID direct Codex owner as the assigned Takode worker", async () => {
+    // The raw session ID alone is insufficient for Work -> Memory authority.
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    vi.mocked(questStore.getQuest).mockResolvedValueOnce({
+      id: "q-9",
+      questId: "q-9",
+      version: 1,
+      title: "Direct Codex work",
+      status: "in_progress",
+      description: "Owned outside Takode orchestration.",
+      sessionId: "worker-1",
+      ownerKind: "codex",
+      claimedAt: 2,
+      createdAt: 1,
+    });
+
+    const res = await postWorkerMemory({ questId: "q-9" });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("assigned worker") });
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
   });
 
   it("rejects Work to Memory when checkpoint wait or Work note proof is missing", async () => {

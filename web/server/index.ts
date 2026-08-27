@@ -21,6 +21,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { createRoutes } from "./routes.js";
+import { CodexSidecarRegistry } from "./codex-sidecar-auth.js";
 import { COMPANION_CLIENT_IP_HEADER } from "./routes/auth.js";
 import { CliLauncher } from "./cli-launcher.js";
 import { WsBridge } from "./ws-bridge.js";
@@ -122,6 +123,8 @@ await bootstrapQuestStore({
 });
 const serverId = getServerId();
 const serverSlug = getServerSlug();
+const codexSidecarRegistry = new CodexSidecarRegistry({ port, serverId });
+await codexSidecarRegistry.initialize();
 initTreeGroupStoreForServer({ serverId, port });
 initNewSessionDefaultsStoreForServer({ serverId });
 const sessionStore = new SessionStore(undefined, port);
@@ -860,7 +863,7 @@ app.route(
     timerManager,
     imageStore,
     pushoverNotifier,
-    { requestRestart },
+    { requestRestart, codexSidecarRegistry },
     perfTracer,
     sleepInhibitor,
     resourceLeaseManager,
@@ -906,6 +909,7 @@ const server = Bun.serve<SocketData>({
     // routes can distinguish loopback browser access from network clients.
     const requestIp = typeof server.requestIP === "function" ? server.requestIP(req) : null;
     const headers = new Headers(req.headers);
+    headers.delete(COMPANION_CLIENT_IP_HEADER);
     if (requestIp?.address) {
       headers.set(COMPANION_CLIENT_IP_HEADER, requestIp.address);
     }

@@ -27,6 +27,27 @@ describe("QuestHoverCard", () => {
     window.history.replaceState({}, "", "/#/session/s1");
   });
 
+  it("renders a Codex quest owner as a copy control instead of a Takode session link", () => {
+    const quest: QuestmasterTask = {
+      id: "q-80",
+      questId: "q-80",
+      version: 1,
+      title: "Keep owner providers distinct",
+      status: "in_progress",
+      description: "Codex task IDs are not Takode session routes.",
+      createdAt: 1,
+      claimedAt: 2,
+      ownerKind: "codex",
+      sessionId: "same-opaque-id",
+    };
+
+    render(<QuestHoverCard quest={quest} anchorRect={anchorRect()} onMouseEnter={() => {}} onMouseLeave={() => {}} />);
+
+    const owner = screen.getByTestId("quest-hover-owner-session");
+    expect(within(owner).getByRole("button", { name: /copy codex task id same-opaque-id/i })).toBeTruthy();
+    expect(within(owner).queryByRole("link")).toBeNull();
+  });
+
   it("shows completed time and description TLDR before the Journey preview", () => {
     const completedAt = Date.now() - 2 * 60 * 60 * 1000;
     const quest: QuestmasterTask = {

@@ -3,9 +3,12 @@ import { createHash } from "node:crypto";
 import * as questStore from "../quest-store.js";
 import type {
   QuestAutocompleteCandidate,
+  QuestCreateInput,
   QuestFeedbackEntry,
+  QuestPatchInput,
   QuestRecoveryEventDraft,
   QuestTitlePreview,
+  QuestTransitionInput,
   QuestmasterTask,
 } from "../quest-types.js";
 import { hasQuestReviewMetadata } from "../quest-types.js";
@@ -39,6 +42,11 @@ import { formatLeaderRecoveryWarning, QUEST_LEADER_RECOVERY_WARNING_HEADER } fro
 import { getQuestSessionSpaceCandidates } from "../quest-session-space.js";
 import type { MemoryRepoOptions } from "../workstream-memory-types.js";
 import { refreshGitInfoPublic as refreshGitInfoPublicController } from "../bridge/session-git-state.js";
+import {
+  getPreviousQuestOwners,
+  getQuestDisplayOwner,
+  getTakodeQuestOwnerSessionId,
+} from "../../shared/quest-owner.js";
 
 const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
 const MAX_DIFF_BYTES = 512 * 1024;
@@ -190,6 +198,38 @@ function questTitleUpdatedAt(quest: QuestmasterTask): number {
   return quest.updatedAt ?? quest.statusChangedAt ?? quest.createdAt;
 }
 
+function withoutSidecarQuestFields<T extends { createdBy?: unknown; lastModifiedBy?: unknown; ownerKind?: unknown }>(
+  input: T,
+): Omit<T, "createdBy" | "lastModifiedBy" | "ownerKind"> {
+  const { createdBy: _createdBy, lastModifiedBy: _lastModifiedBy, ownerKind: _ownerKind, ...safeInput } = input;
+  return safeInput;
+}
+
+function withoutInternalQuestPatchFields(
+  input: QuestPatchInput & { createdBy?: unknown; ownerKind?: unknown },
+): QuestPatchInput {
+  const {
+    createdBy: _createdBy,
+    feedback: _feedback,
+    journeyRuns: _journeyRuns,
+    lastModifiedBy: _lastModifiedBy,
+    ownerKind: _ownerKind,
+    quizItems: _quizItems,
+    ...contentPatch
+  } = input;
+  return contentPatch;
+}
+
+function getTakodeDisplayOwnerSessionId(quest: QuestmasterTask): string | undefined {
+  const owner = getQuestDisplayOwner(quest);
+  return owner?.kind === "takode" ? owner.sessionId : undefined;
+}
+
+function isDirectCodexOwnedQuest(quest: QuestmasterTask): boolean {
+  if (quest.status !== "in_progress" && quest.status !== "done") return false;
+  return getQuestDisplayOwner(quest)?.kind === "codex";
+}
+
 function normalizeQuestListSortColumn(value: string | undefined): QuestListSortColumn | undefined {
   switch (value) {
     case "cards":
@@ -218,9 +258,12 @@ function feedbackEntryWithoutTldr(entry: QuestFeedbackEntry): QuestFeedbackEntry
 }
 
 function questRepoCandidates(quest: QuestmasterTask, launcher: RouteContext["launcher"]): string[] {
+  const activeTakodeOwner = getTakodeQuestOwnerSessionId(quest);
   const sessionIds = [
-    ...("sessionId" in quest && typeof quest.sessionId === "string" ? [quest.sessionId] : []),
-    ...(Array.isArray(quest.previousOwnerSessionIds) ? quest.previousOwnerSessionIds : []),
+    ...(activeTakodeOwner ? [activeTakodeOwner] : []),
+    ...getPreviousQuestOwners(quest)
+      .filter((owner) => owner.kind === "takode")
+      .map((owner) => owner.sessionId),
   ];
   const seen = new Set<string>();
   const paths: string[] = [];
@@ -412,6 +455,7 @@ export function createQuestRoutes(ctx: RouteContext) {
     body: V2CompletionBody,
     targetSessionId: string,
   ): Promise<Response | null> => {
+    if (isDirectCodexOwnedQuest(currentQuest)) return null;
     const activeV2Rows = findActiveV2BoardRowsForQuest(questId, launcher, wsBridge);
     if (activeV2Rows.length === 0) return null;
     if (!auth)
@@ -428,8 +472,7 @@ export function createQuestRoutes(ctx: RouteContext) {
     }
     const [{ leaderSessionId, row }] = activeV2Rows;
     const workerSessionId = row.worker;
-    const currentOwnerSessionId =
-      "sessionId" in currentQuest && typeof currentQuest.sessionId === "string" ? currentQuest.sessionId : "";
+    const currentOwnerSessionId = getTakodeQuestOwnerSessionId(currentQuest) ?? "";
     if (!workerSessionId || currentOwnerSessionId !== workerSessionId) {
       return new Response(
         JSON.stringify({ error: "v2 Memory completion requires the exact assigned and claimed worker." }),
@@ -572,6 +615,7 @@ export function createQuestRoutes(ctx: RouteContext) {
     ...(quest.leaderSessionId ? { leaderSessionId: quest.leaderSessionId } : {}),
   });
   const boardRowCandidatesForQuest = (quest: QuestmasterTask): QuestBoardRowCandidate[] => {
+    if (isDirectCodexOwnedQuest(quest)) return [];
     const leaderIds = new Set<string>();
     if (quest.leaderSessionId) leaderIds.add(quest.leaderSessionId);
     for (const session of launcher.listSessions()) {
@@ -615,6 +659,12 @@ export function createQuestRoutes(ctx: RouteContext) {
     activeV2Rows: Array<{ leaderSessionId: string; row: BoardRow }>,
   ): QuestRecoveryEventDraft | Response | null => {
     if (body.force !== true) return null;
+    if (isDirectCodexOwnedQuest(quest)) {
+      return new Response(
+        JSON.stringify({ error: "Takode leader recovery cannot complete a direct Codex-owned quest." }),
+        { status: 409, headers: { "content-type": "application/json" } },
+      );
+    }
     const reason = ownershipReason(body.reason);
     if (!auth || "response" in auth) {
       return new Response(JSON.stringify({ error: "Leader recovery requires Companion session auth." }), {
@@ -636,10 +686,7 @@ export function createQuestRoutes(ctx: RouteContext) {
         headers: { "content-type": "application/json" },
       });
     }
-    const previousOwnerSessionId =
-      "sessionId" in quest && typeof quest.sessionId === "string"
-        ? quest.sessionId
-        : (quest.previousOwnerSessionIds?.[quest.previousOwnerSessionIds.length - 1] ?? "");
+    const previousOwnerSessionId = getTakodeQuestOwnerSessionId(quest) ?? getTakodeDisplayOwnerSessionId(quest) ?? "";
     const workerInfo = previousOwnerSessionId ? launcher.getSession(previousOwnerSessionId) : undefined;
     const workerBridgeSession = previousOwnerSessionId ? wsBridge.getSession(previousOwnerSessionId) : undefined;
     return {
@@ -692,7 +739,7 @@ export function createQuestRoutes(ctx: RouteContext) {
   };
 
   const activeOwnerSessionId = (quest: QuestmasterTask | null): string | null =>
-    quest && "sessionId" in quest && typeof quest.sessionId === "string" ? quest.sessionId : null;
+    (quest ? getTakodeQuestOwnerSessionId(quest) : undefined) ?? null;
 
   const callerLeadsQuestOwner = (leaderSessionId: string, quest: QuestmasterTask): boolean => {
     if (!leaderSessionId) return false;
@@ -799,7 +846,7 @@ export function createQuestRoutes(ctx: RouteContext) {
   });
 
   const syncDoneQuestBoardState = (questId: string, quest: QuestmasterTask): void => {
-    if (quest.status !== "done") return;
+    if (quest.status !== "done" || isDirectCodexOwnedQuest(quest)) return;
     const boardBridge = wsBridge as {
       completeDoneBoardRowsForQuest?: (questId: string) => string[];
       completeQueuedBoardRowsForQuest?: (questId: string) => string[];
@@ -817,16 +864,13 @@ export function createQuestRoutes(ctx: RouteContext) {
     currentOverride?: import("../quest-types.js").QuestmasterTask | null,
   ): Promise<import("../quest-types.js").QuestmasterTask | null> => {
     const current = currentOverride === undefined ? await questStore.getQuest(questId) : currentOverride;
-    const currentSessionId =
-      current && "sessionId" in current && typeof current.sessionId === "string" ? current.sessionId : null;
+    const currentSessionId = current ? (getTakodeQuestOwnerSessionId(current) ?? null) : null;
     const currentReviewOwnerSessionId =
-      current && hasQuestReviewMetadata(current)
-        ? (current.previousOwnerSessionIds?.[current.previousOwnerSessionIds.length - 1] ?? null)
-        : null;
+      current && hasQuestReviewMetadata(current) ? (getTakodeDisplayOwnerSessionId(current) ?? null) : null;
     const quest = await questStore.transitionQuest(questId, input);
     if (!quest) return null;
 
-    const nextSessionId = "sessionId" in quest && typeof quest.sessionId === "string" ? quest.sessionId : null;
+    const nextSessionId = getTakodeQuestOwnerSessionId(quest) ?? null;
     if (currentSessionId && currentSessionId !== nextSessionId) {
       setClaimedQuest(currentSessionId, null);
     }
@@ -836,7 +880,7 @@ export function createQuestRoutes(ctx: RouteContext) {
     if (nextSessionId) {
       setClaimedQuest(nextSessionId, claimedQuestEvent(quest));
     } else if (hasQuestReviewMetadata(quest)) {
-      const reviewOwner = quest.previousOwnerSessionIds?.[quest.previousOwnerSessionIds.length - 1];
+      const reviewOwner = getTakodeDisplayOwnerSessionId(quest);
       if (reviewOwner) {
         setClaimedQuest(reviewOwner, claimedQuestEvent(quest));
       }
@@ -1057,13 +1101,17 @@ export function createQuestRoutes(ctx: RouteContext) {
   api.post("/quests", async (c) => {
     const auth = authenticateCompanionCallerOptional(c);
     if (auth && "response" in auth) return auth.response;
-    const body = await c.req.json().catch(() => ({}));
+    const body = (await c.req.json().catch(() => ({}))) as QuestCreateInput & {
+      lastModifiedBy?: unknown;
+      ownerKind?: unknown;
+    };
     try {
+      const safeBody = withoutSidecarQuestFields(body);
       const createInput =
-        typeof body.sessionSpaceSlug === "string"
-          ? body
+        typeof safeBody.sessionSpaceSlug === "string"
+          ? safeBody
           : {
-              ...body,
+              ...safeBody,
               ...(auth?.caller.memorySessionSpaceSlug ? { sessionSpaceSlug: auth.caller.memorySessionSpaceSlug } : {}),
             };
       const quest = await questStore.createQuest(createInput);
@@ -1078,27 +1126,32 @@ export function createQuestRoutes(ctx: RouteContext) {
   api.patch("/quests/:questId", async (c) => {
     const auth = authenticateCompanionCallerOptional(c);
     if (auth && "response" in auth) return auth.response;
-    const body = await c.req.json().catch(() => ({}));
+    const body = (await c.req.json().catch(() => ({}))) as QuestPatchInput & {
+      createdBy?: unknown;
+      debrief?: unknown;
+      debriefTldr?: unknown;
+      ownerKind?: unknown;
+    };
     try {
-      const quest = await questStore.patchQuest(c.req.param("questId"), body);
+      const quest = await questStore.patchQuest(c.req.param("questId"), withoutInternalQuestPatchFields(body));
       if (!quest) return c.json({ error: "Quest not found" }, 404);
+      const ownerSessionId = getTakodeQuestOwnerSessionId(quest);
       if (
         typeof body.title === "string" &&
-        "sessionId" in quest &&
         quest.status === "in_progress" &&
-        typeof quest.sessionId === "string" &&
+        ownerSessionId &&
         body.title.trim().length > 0
       ) {
         // Keep quest-owned session names in sync when a claimed quest is retitled.
         // setSessionClaimedQuest broadcasts session_quest_claimed + session_name_update
         // source:quest, and persists the name via callback.
-        setClaimedQuest(quest.sessionId, claimedQuestEvent(quest));
+        setClaimedQuest(ownerSessionId, claimedQuestEvent(quest));
         // Update task history entries that reference this quest
-        const session = wsBridge.getSession(quest.sessionId);
+        const session = wsBridge.getSession(ownerSessionId);
         if (session) {
           updateQuestTaskEntriesController(session, quest.questId, quest.title, {
-            broadcastTaskHistory: () => persistSessionTaskHistory(quest.sessionId),
-            persistSession: () => wsBridge.persistSessionById(quest.sessionId),
+            broadcastTaskHistory: () => persistSessionTaskHistory(ownerSessionId),
+            persistSession: () => wsBridge.persistSessionById(ownerSessionId),
           });
         }
       }
@@ -1132,7 +1185,11 @@ export function createQuestRoutes(ctx: RouteContext) {
   api.post("/quests/:questId/transition", async (c) => {
     const auth = authenticateCompanionCallerOptional(c);
     if (auth && "response" in auth) return auth.response;
-    const body = await c.req.json().catch(() => ({}));
+    const body = (await c.req.json().catch(() => ({}))) as QuestTransitionInput & {
+      createdBy?: unknown;
+      force?: unknown;
+      reason?: unknown;
+    };
     try {
       const questId = c.req.param("questId");
       const current = await questStore.getQuest(questId);
@@ -1147,7 +1204,7 @@ export function createQuestRoutes(ctx: RouteContext) {
       }
       const guardResponse = guardStatusMutation(c, auth, current, body);
       if (guardResponse) return guardResponse;
-      const { force: _force, reason: _reason, ...transitionInput } = body;
+      const { force: _force, reason: _reason, ...transitionInput } = withoutSidecarQuestFields(body);
       const quest = await transitionQuestAndSync(questId, transitionInput, current);
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       if (body.description !== undefined || body.tldr !== undefined) {
@@ -1178,9 +1235,10 @@ export function createQuestRoutes(ctx: RouteContext) {
 
   api.delete("/quests/:questId", async (c) => {
     const questId = c.req.param("questId");
+    const current = await questStore.getQuest(questId);
     const deleted = await questStore.deleteQuest(questId);
     if (!deleted) return c.json({ error: "Quest not found" }, 404);
-    wsBridge.removeBoardRowFromAll(questId);
+    if (!current || !isDirectCodexOwnedQuest(current)) wsBridge.removeBoardRowFromAll(questId);
     broadcastQuestUpdate(wsBridge);
     return c.json({ ok: true });
   });
@@ -1391,10 +1449,7 @@ export function createQuestRoutes(ctx: RouteContext) {
       if (v2GuardResponse) return v2GuardResponse;
       const guardResponse = guardStatusMutation(c, auth, currentQuest, body);
       if (guardResponse) return guardResponse;
-      const currentOwnerSessionId =
-        currentQuest && "sessionId" in currentQuest && typeof currentQuest.sessionId === "string"
-          ? currentQuest.sessionId
-          : "";
+      const currentOwnerSessionId = getTakodeQuestOwnerSessionId(currentQuest) ?? "";
       const commitShas = Array.isArray(body.commitShas) ? body.commitShas : undefined;
       const memoryCommitShas = Array.isArray(body.memoryCommitShas) ? body.memoryCommitShas : undefined;
       const quest = await questStore.completeQuest(c.req.param("questId"), items, {
@@ -1410,11 +1465,8 @@ export function createQuestRoutes(ctx: RouteContext) {
       broadcastQuestUpdate(wsBridge);
       // Update session's quest status so browsers can show review-pending state.
       const reviewOwnerSessionId =
-        targetSessionId ||
-        currentOwnerSessionId ||
-        quest.previousOwnerSessionIds?.[quest.previousOwnerSessionIds.length - 1] ||
-        "";
-      if (reviewOwnerSessionId && hasQuestReviewMetadata(quest)) {
+        targetSessionId || currentOwnerSessionId || getTakodeDisplayOwnerSessionId(quest) || "";
+      if (reviewOwnerSessionId && hasQuestReviewMetadata(quest) && !isDirectCodexOwnedQuest(quest)) {
         setClaimedQuest(reviewOwnerSessionId, claimedQuestEvent(quest));
       }
       setDebriefTldrWarningHeaderForAgentWrite(c, auth, body.debrief, body.debriefTldr);
@@ -1493,14 +1545,13 @@ export function createQuestRoutes(ctx: RouteContext) {
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
       // Clear the claimed quest from the active owner session since it's now cancelled.
-      if (current && "sessionId" in current && typeof current.sessionId === "string") {
-        setClaimedQuest(current.sessionId, null);
-      }
+      const currentOwnerSessionId = getTakodeQuestOwnerSessionId(current);
+      if (currentOwnerSessionId) setClaimedQuest(currentOwnerSessionId, null);
       if (current && hasQuestReviewMetadata(current)) {
-        const reviewOwner = current.previousOwnerSessionIds?.[current.previousOwnerSessionIds.length - 1];
+        const reviewOwner = getTakodeDisplayOwnerSessionId(current);
         if (reviewOwner) setClaimedQuest(reviewOwner, null);
       }
-      wsBridge.removeBoardRowFromAll(c.req.param("questId"));
+      if (!isDirectCodexOwnedQuest(current)) wsBridge.removeBoardRowFromAll(c.req.param("questId"));
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -1527,7 +1578,7 @@ export function createQuestRoutes(ctx: RouteContext) {
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
       if (hasQuestReviewMetadata(quest)) {
-        const reviewOwner = quest.previousOwnerSessionIds?.[quest.previousOwnerSessionIds.length - 1];
+        const reviewOwner = getTakodeDisplayOwnerSessionId(quest);
         if (reviewOwner) {
           setClaimedQuest(reviewOwner, claimedQuestEvent(quest));
         }
@@ -1544,7 +1595,7 @@ export function createQuestRoutes(ctx: RouteContext) {
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
       if (hasQuestReviewMetadata(quest)) {
-        const reviewOwner = quest.previousOwnerSessionIds?.[quest.previousOwnerSessionIds.length - 1];
+        const reviewOwner = getTakodeDisplayOwnerSessionId(quest);
         if (reviewOwner) {
           setClaimedQuest(reviewOwner, claimedQuestEvent(quest));
         }

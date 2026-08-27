@@ -1,5 +1,6 @@
 import type { BoardRowSessionStatus, QuestmasterTask } from "../types.js";
 import { getQuestJourneyPhase, type QuestJourneyPlanState } from "../../shared/quest-journey.js";
+import { getPreviousQuestOwners, getQuestOwner } from "../../shared/quest-owner.js";
 
 export interface SessionQuestContextBoardRow {
   questId: string;
@@ -189,14 +190,16 @@ function journeyRunCandidate(
 }
 
 function ownerCandidate(quests: readonly QuestmasterTask[], sessionId: string): SessionQuestContextCandidate | null {
-  const active = quests.find(
-    (quest) => quest.status === "in_progress" && "sessionId" in quest && quest.sessionId === sessionId,
-  );
+  const active = quests.find((quest) => {
+    if (quest.status !== "in_progress") return false;
+    const owner = getQuestOwner(quest);
+    return owner?.kind === "takode" && owner.sessionId === sessionId;
+  });
   if (active) return { quest: active };
   const done = quests
     .filter((quest) => {
       if (quest.status !== "done") return false;
-      return quest.previousOwnerSessionIds?.includes(sessionId) === true;
+      return getPreviousQuestOwners(quest).some((owner) => owner.kind === "takode" && owner.sessionId === sessionId);
     })
     .sort(
       (left, right) => questTimestamp(right) - questTimestamp(left) || right.questId.localeCompare(left.questId),

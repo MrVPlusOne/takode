@@ -1,0 +1,4 @@
+interface:
+  display_name: "Takode Todos"
+  short_description: "Manage durable personal Takode to-dos"
+  default_prompt: "Use $takode-todos to show and update my personal to-do list."

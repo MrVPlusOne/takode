@@ -2,10 +2,19 @@ import type {
   LegacyQuestStatus,
   QuestDone,
   QuestFeedbackEntry,
+  QuestInvocationProvenance,
+  QuestOwnerKind,
+  QuestOwnerRef,
   QuestmasterTask,
   QuestVerificationItem,
 } from "./quest-types.js";
 import { hasQuestReviewMetadata } from "./quest-types.js";
+import {
+  getPreviousQuestOwners,
+  getQuestOwner,
+  getTakodeQuestOwnerSessionId,
+  sameQuestOwner,
+} from "../shared/quest-owner.js";
 import { normalizeOwnershipEvents } from "./quest-ownership.js";
 
 /** Normalize User review checks: accept strings or {text,checked} objects.
@@ -87,22 +96,13 @@ export function escapeRegExp(text: string): string {
 }
 
 export function getActiveSessionId(quest: QuestmasterTask): string | undefined {
-  if (!("sessionId" in quest) || typeof quest.sessionId !== "string") return undefined;
-  const sid = quest.sessionId.trim();
-  return sid.length > 0 ? sid : undefined;
+  return getTakodeQuestOwnerSessionId(quest);
 }
 
 export function getPreviousOwnerSessionIds(quest: QuestmasterTask): string[] {
-  const raw = (quest as { previousOwnerSessionIds?: unknown }).previousOwnerSessionIds;
-  if (!Array.isArray(raw)) return [];
-  const unique = new Set<string>();
-  for (const v of raw) {
-    if (typeof v !== "string") continue;
-    const sid = v.trim();
-    if (!sid) continue;
-    unique.add(sid);
-  }
-  return [...unique];
+  return getPreviousQuestOwners(quest)
+    .filter((owner) => owner.kind === "takode")
+    .map((owner) => owner.sessionId);
 }
 
 export function getLeaderSessionId(quest: QuestmasterTask): string | undefined {
@@ -124,10 +124,6 @@ type LegacyQuestRecord = Omit<QuestmasterTask, "status"> & {
 function normalizeLegacyNeedsVerificationQuest(quest: LegacyQuestRecord): QuestmasterTask {
   if (quest.status !== "needs_verification") return quest as QuestmasterTask;
 
-  const previousOwners = getPreviousOwnerSessionIds(quest as QuestmasterTask);
-  const active = getActiveSessionId(quest as QuestmasterTask);
-  if (active && !previousOwners.includes(active)) previousOwners.push(active);
-
   const updatedAt = (quest as { updatedAt?: number }).updatedAt;
   const completedAt =
     typeof quest.completedAt === "number" && quest.completedAt > 0
@@ -141,39 +137,51 @@ function normalizeLegacyNeedsVerificationQuest(quest: LegacyQuestRecord): Questm
     completedAt,
     verificationItems: Array.isArray(quest.verificationItems) ? quest.verificationItems : [],
     verificationInboxUnread: typeof quest.verificationInboxUnread === "boolean" ? quest.verificationInboxUnread : false,
-    ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
   };
   return normalized;
 }
 
 export function normalizeQuestOwnership(quest: QuestmasterTask): QuestmasterTask {
   const normalized = { ...normalizeLegacyNeedsVerificationQuest(quest as LegacyQuestRecord) } as QuestmasterTask & {
+    ownerKind?: QuestOwnerKind;
+    previousOwners?: QuestOwnerRef[];
     previousOwnerSessionIds?: string[];
     sessionId?: string;
     leaderSessionId?: string;
   };
-  const previous = getPreviousOwnerSessionIds(normalized);
+  const hadCanonicalHistory = Array.isArray(normalized.previousOwners);
+  let previous = getPreviousQuestOwners(normalized);
   const ownershipEvents = normalizeOwnershipEvents((normalized as { ownershipEvents?: unknown }).ownershipEvents);
-  const active = getActiveSessionId(normalized);
+  const active = getQuestOwner(normalized);
   const leader = getLeaderSessionId(normalized);
 
   // Legacy normalization: done quests used to carry sessionId. Treat it as past owner.
   if (normalized.status === "done" && active) {
-    if (!previous.includes(active)) previous.push(active);
+    if (!previous.some((owner) => sameQuestOwner(owner, active))) previous.push(active);
     delete normalized.sessionId;
+    delete normalized.ownerKind;
   }
 
-  const finalActive = getActiveSessionId(normalized);
+  const finalActive = getQuestOwner(normalized);
   if (finalActive) {
-    const idx = previous.indexOf(finalActive);
-    if (idx !== -1) previous.splice(idx, 1);
+    previous = previous.filter((owner) => !sameQuestOwner(owner, finalActive));
+    normalized.sessionId = finalActive.sessionId;
+    if (finalActive.kind === "codex") normalized.ownerKind = "codex";
+    else delete normalized.ownerKind;
+  } else if (!normalized.sessionId) {
+    delete normalized.ownerKind;
   }
 
-  if (previous.length > 0) {
-    normalized.previousOwnerSessionIds = previous;
-  } else {
-    delete normalized.previousOwnerSessionIds;
-  }
+  const takodePreviousOwnerSessionIds = previous
+    .filter((owner) => owner.kind === "takode")
+    .map((owner) => owner.sessionId);
+  if (takodePreviousOwnerSessionIds.length > 0) normalized.previousOwnerSessionIds = takodePreviousOwnerSessionIds;
+  else delete normalized.previousOwnerSessionIds;
+
+  const needsCanonicalHistory = hadCanonicalHistory || previous.some((owner) => owner.kind === "codex");
+  if (needsCanonicalHistory && previous.length > 0) normalized.previousOwners = previous;
+  else delete normalized.previousOwners;
+
   if (ownershipEvents.length > 0) {
     normalized.ownershipEvents = ownershipEvents;
   } else {
@@ -214,6 +222,7 @@ function feedbackEntriesEqual(a: QuestFeedbackEntry | undefined, b: QuestFeedbac
     a.tldr === b.tldr &&
     a.ts === b.ts &&
     a.authorSessionId === b.authorSessionId &&
+    questInvocationProvenanceEqual(a.provenance, b.provenance) &&
     a.addressed === b.addressed &&
     a.entryId === b.entryId &&
     a.kind === b.kind &&
@@ -224,6 +233,21 @@ function feedbackEntriesEqual(a: QuestFeedbackEntry | undefined, b: QuestFeedbac
     a.phasePosition === b.phasePosition &&
     a.phaseOccurrence === b.phaseOccurrence &&
     questImagesEqual(a.images, b.images)
+  );
+}
+
+function questInvocationProvenanceEqual(
+  a: QuestInvocationProvenance | undefined,
+  b: QuestInvocationProvenance | undefined,
+): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    sameQuestOwner(a.owner, b.owner) &&
+    a.turnId === b.turnId &&
+    a.toolUseId === b.toolUseId &&
+    a.cwd === b.cwd &&
+    a.recordedAt === b.recordedAt
   );
 }
 

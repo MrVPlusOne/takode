@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "takode": {
+      "command": "./scripts/launch_takode_mcp",
+      "cwd": ".",
+      "enabled": true,
+      "env_vars": [
+        "HOME",
+        "PATH",
+        "COMPANION_AUTH_TOKEN",
+        "COMPANION_PORT",
+        "COMPANION_SERVER_ID",
+        "COMPANION_SESSION_ID",
+        "TAKODE_API_PORT"
+      ],
+      "startup_timeout_sec": 10,
+      "tool_timeout_sec": 30
+    }
+  }
+}

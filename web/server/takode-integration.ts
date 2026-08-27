@@ -14,6 +14,12 @@ export async function ensureTakodeIntegration(packageRoot: string): Promise<void
   writeFileSync(sharedWrapperPath, sharedWrapper, "utf-8"); // sync-ok: startup cold path
   chmodSync(sharedWrapperPath, 0o755); // sync-ok: startup cold path
 
+  const sidecarMcpWrapperPath = join(COMPANION_BIN_DIR, "takode-sidecar-mcp");
+  const stableSidecarMcpScript = await resolveStableWrapperScriptPath(packageRoot, "takode-sidecar-mcp");
+  const sidecarMcpWrapper = buildInstalledCliWrapper("takode-sidecar-mcp", stableSidecarMcpScript);
+  writeFileSync(sidecarMcpWrapperPath, sidecarMcpWrapper, "utf-8"); // sync-ok: startup cold path
+  chmodSync(sidecarMcpWrapperPath, 0o755); // sync-ok: startup cold path
+
   const agentBrowserWrapperPath = join(COMPANION_BIN_DIR, "agent-browser");
   const stableAgentBrowserScript = await resolveStableWrapperScriptPath(packageRoot, "agent-browser");
   const agentBrowserWrapper = buildInstalledCliWrapper("agent-browser", stableAgentBrowserScript);

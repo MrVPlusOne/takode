@@ -42,6 +42,7 @@ import {
 import { QUEST_JOURNEY_STATES, type BoardRow } from "../session-types.js";
 import type { RouteContext } from "./context.js";
 import type { QuestmasterTask } from "../quest-types.js";
+import { getQuestDisplayOwner, getTakodeQuestOwnerSessionId } from "../../shared/quest-owner.js";
 
 interface PhaseNoteEdit {
   index: number;
@@ -56,6 +57,11 @@ interface BoardProposalReviewPayload {
   presentedAt: number;
   summary?: string;
   scheduling?: Record<string, unknown>;
+}
+
+function isDirectCodexOwnedQuest(quest: QuestmasterTask): boolean {
+  if (quest.status !== "in_progress" && quest.status !== "done") return false;
+  return getQuestDisplayOwner(quest)?.kind === "codex";
 }
 
 function resolveCurrentWorkFeedback(args: {
@@ -338,7 +344,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
 
     const quest = await questStore.getQuest(questId).catch(() => null);
     if (!quest) return c.json({ error: `Quest not found: ${questId}` }, 404);
-    if (quest.status !== "in_progress" || !("sessionId" in quest) || quest.sessionId !== auth.callerId) {
+    if (quest.status !== "in_progress" || getTakodeQuestOwnerSessionId(quest) !== auth.callerId) {
       return c.json(
         { error: "Only the assigned worker that has claimed this in-progress quest may transition Work to Memory." },
         403,
@@ -485,14 +491,22 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     // Auto-populate quest metadata from the quest store for compact board and lifecycle displays.
     let title: string | undefined = typeof body.title === "string" ? body.title : undefined;
     let questTldr: string | undefined;
+    let quest: QuestmasterTask | null;
     try {
-      const quest = await questStore.getQuest(questId);
-      if (quest) {
-        if (title === undefined) title = quest.title;
-        questTldr = quest.tldr ?? "";
-      }
+      quest = await questStore.getQuest(questId);
     } catch (e) {
-      console.warn(`[routes] Failed to fetch quest metadata for ${questId}:`, e);
+      console.warn(`[routes] Failed to verify quest ownership for ${questId}:`, e);
+      return c.json({ error: `Cannot verify quest ownership for ${questId}; try again.` }, 503);
+    }
+    if (quest && isDirectCodexOwnedQuest(quest)) {
+      return c.json(
+        { error: `Cannot add ${questId} to a Takode Work Board while it is owned by a direct Codex task.` },
+        409,
+      );
+    }
+    if (quest) {
+      if (title === undefined) title = quest.title;
+      questTldr = quest.tldr ?? "";
     }
 
     // Validate and normalize waitFor entries

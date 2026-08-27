@@ -1,0 +1,4 @@
+interface:
+  display_name: "Takode Memory"
+  short_description: "Recall curated Takode project knowledge"
+  default_prompt: "Use $takode-memory to find prior decisions relevant to this task."

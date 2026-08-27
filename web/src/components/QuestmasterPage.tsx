@@ -20,13 +20,20 @@ import {
 } from "../utils/questmaster-view-state.js";
 import type { QuestmasterCollapsedGroup } from "../utils/questmaster-view-state.js";
 import { QUEST_STATUS_THEME, type QuestStatusTheme } from "../utils/quest-status-theme.js";
-import { timeAgo, getQuestOwnerSessionId, getQuestLeaderSessionId, CopyableQuestId } from "../utils/quest-helpers.js";
+import {
+  timeAgo,
+  getQuestDisplayOwner,
+  getQuestOwnerSessionId,
+  getQuestLeaderSessionId,
+  CopyableQuestId,
+} from "../utils/quest-helpers.js";
 import { buildQuestJourneyContextByQuestId, type QuestJourneyContext } from "../utils/quest-journey-context.js";
 import { getQuestDebriefTldr } from "../utils/quest-editor-helpers.js";
 import { QuestPhaseScanLines } from "./QuestPhaseScanLines.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestmasterCreateForm } from "./QuestmasterCreateForm.js";
 import { QuestRelationshipLinks } from "./QuestRelationshipLinks.js";
+import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 import {
   CompactQuestTable,
   QuestStatusHoverTarget,
@@ -180,8 +187,10 @@ function questPreviewFromTask(quest: QuestmasterTask): QuestListPreview {
     ...(quest.parentId ? { parentId: quest.parentId } : {}),
     ...(quest.sessionSpaceSlug ? { sessionSpaceSlug: quest.sessionSpaceSlug } : {}),
     ...("sessionId" in quest && quest.sessionId ? { sessionId: quest.sessionId } : {}),
+    ...("ownerKind" in quest && quest.ownerKind ? { ownerKind: quest.ownerKind } : {}),
     ...("claimedAt" in quest && quest.claimedAt ? { claimedAt: quest.claimedAt } : {}),
     ...(quest.previousOwnerSessionIds ? { previousOwnerSessionIds: quest.previousOwnerSessionIds } : {}),
+    ...(quest.previousOwners ? { previousOwners: quest.previousOwners } : {}),
     ...(quest.leaderSessionId ? { leaderSessionId: quest.leaderSessionId } : {}),
     ...("completedAt" in quest && quest.completedAt ? { completedAt: quest.completedAt } : {}),
     ...("verificationInboxUnread" in quest && typeof quest.verificationInboxUnread === "boolean"
@@ -1552,6 +1561,7 @@ const QuestCard = memo(function QuestCard({
   const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
   const displayStatus = getQuestmasterDisplayStatus(quest, journeyContext);
   const vProgress = quest.verificationProgress ?? null;
+  const questOwner = getQuestDisplayOwner(quest);
   const questSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionId = getQuestLeaderSessionId(quest);
   const debriefTldr = getQuestDebriefTldr(quest);
@@ -1620,7 +1630,11 @@ const QuestCard = memo(function QuestCard({
                   <span>{displayStatus.label}</span>
                 </span>
               </QuestStatusHoverTarget>
-              {questSessionId && <SessionNumChip sessionId={questSessionId} />}
+              {questOwner?.kind === "codex" ? (
+                <CodexQuestOwnerChip owner={questOwner} stopPropagation />
+              ) : (
+                questSessionId && <SessionNumChip sessionId={questSessionId} />
+              )}
               {leaderSessionId && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
                   <span>Leader</span>

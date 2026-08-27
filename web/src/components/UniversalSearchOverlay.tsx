@@ -20,7 +20,7 @@ import {
   type RecentAskFilter,
 } from "../api.js";
 import type { ChatMessage, QuestListPreview, SdkSessionInfo } from "../types.js";
-import { getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
+import { getQuestDisplayOwner, getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
 import { getHighlightParts } from "../utils/highlight.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { navigateToSession, navigateToSessionThread } from "../utils/routing.js";
@@ -30,6 +30,7 @@ import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { StarIcon } from "./StarredMessageIndicator.js";
 import { RecentAskBundleResult } from "./RecentAskBundleResult.js";
+import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 
 export type UniversalSearchMode = "recent" | "quests" | "sessions" | "messages" | "starred";
 
@@ -1331,6 +1332,7 @@ function QuestResultRow({
   onInlineNavigate: () => void;
 }) {
   const leaderSessionId = getQuestLeaderSessionId(quest);
+  const owner = getQuestDisplayOwner(quest);
   const workerSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionNum = sessionNumForId(sessions, leaderSessionId);
   const workerSessionNum = sessionNumForId(sessions, workerSessionId);
@@ -1396,7 +1398,12 @@ function QuestResultRow({
                 </SessionInlineLink>
               </span>
             )}
-            {workerSessionId && (
+            {owner?.kind === "codex" ? (
+              <span className="inline-flex items-center gap-1 rounded-md border border-cc-border px-1.5 py-0.5">
+                <span>owner</span>
+                <CodexQuestOwnerChip owner={owner} stopPropagation />
+              </span>
+            ) : workerSessionId ? (
               <span className="inline-flex items-center gap-1 rounded-md border border-cc-border px-1.5 py-0.5">
                 <span>worker</span>
                 <SessionInlineLink
@@ -1410,7 +1417,7 @@ function QuestResultRow({
                   {`#${workerSessionNum ?? "?"}`}
                 </SessionInlineLink>
               </span>
-            )}
+            ) : null}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1 text-[11px] text-cc-muted">

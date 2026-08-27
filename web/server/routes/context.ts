@@ -35,7 +35,10 @@ export interface RouteContext {
   timerManager?: import("../timer-manager.js").TimerManager;
   resourceLeaseManager?: import("../resource-lease-manager.js").ResourceLeaseManager;
   modelProvenanceMigrationAcknowledgementStore?: import("../model-provenance-migration-acknowledgement-store.js").ModelProvenanceMigrationAcknowledgementStore;
-  options?: { requestRestart?: () => void };
+  options?: {
+    requestRestart?: () => void;
+    codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;
+  };
   perfTracer?: PerfTracer;
 
   resolveId: (raw: string) => string | null;
