@@ -82,6 +82,8 @@ import {
   getSavedViewportRestoreKey,
   readSavedViewportPosition,
   useIdempotentState,
+  useExactViewportRestore,
+  useViewportBoundaryNavigation,
 } from "./message-feed-viewport-state.js";
 import { useMessageFeedSectionWindowLoaders } from "./message-feed-section-window-loaders.js";
 import { useMessageFeedBoundedConversation } from "./message-feed-bounded-conversation.js";
@@ -300,10 +302,7 @@ export function MessageFeed({
   const pendingSectionLoadKeyRef = useRef<string | null>(null);
   const pendingTargetWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
   const pendingViewportAnchorWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
-  const pendingExactViewportRestoreRef = useRef<{
-    restoreKey: string;
-    position: FeedViewportPosition;
-  } | null>(null);
+  const [exactRestoreRef, cancelExactRestore] = useExactViewportRestore(restoredViewportRef, containerRef);
 
   useLayoutEffect(() => {
     markHistoryReceiveRenderCommitted(sessionId);
@@ -317,7 +316,7 @@ export function MessageFeed({
     lastViewportAnchorRef.current = null;
     pendingTargetWindowRequestRef.current = null;
     pendingViewportAnchorWindowRequestRef.current = null;
-    pendingExactViewportRestoreRef.current = null;
+    exactRestoreRef.current = null;
   }, [normalizedThreadKey, sessionId]);
 
   const codexTerminalEntries = useMemo(
@@ -528,10 +527,10 @@ export function MessageFeed({
   const persistFeedViewport = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
-    const pendingExactRestore = pendingExactViewportRestoreRef.current;
+    const pendingExactRestore = exactRestoreRef.current;
     if (pendingExactRestore) {
       if (!viewportAnchor.isViewportAnchorAtSavedOffset(container, pendingExactRestore.position)) return;
-      pendingExactViewportRestoreRef.current = null;
+      exactRestoreRef.current = null;
     }
     const previousPosition =
       (isLeaderSession ? readLeaderViewportPosition(sessionId, normalizedThreadKey) : null) ??
@@ -888,6 +887,7 @@ export function MessageFeed({
 
   const scrollToFeedBlock = useCallback(
     (blockId: string, turnId: string) => {
+      cancelExactRestore();
       const sectionChanged = ensureSectionForTurnVisible(turnId);
       const scheduleScroll = () => {
         requestAnimationFrame(() => {
@@ -907,7 +907,7 @@ export function MessageFeed({
       }
       scheduleScroll();
     },
-    [ensureSectionForTurnVisible],
+    [cancelExactRestore, ensureSectionForTurnVisible],
   );
 
   const { historyWindowRevision, requestHistoryWindow } = useMessageFeedBoundedConversation({
@@ -919,7 +919,7 @@ export function MessageFeed({
     sessionId,
   });
 
-  const { handleLoadNewerSection, handleLoadOlderSection } = useMessageFeedSectionWindowLoaders({
+  const { handleLoadNewerSection, handleLoadOlderSection, explicitSectionLoad } = useMessageFeedSectionWindowLoaders({
     activeThreadWindow,
     activeHistoryWindow,
     autoFollowEnabledRef,
@@ -933,6 +933,7 @@ export function MessageFeed({
     requestHistoryWindow,
     requestThreadWindow,
     setShowScrollButton,
+    onUserNavigationIntent: cancelExactRestore,
   });
 
   const triggerSectionLoadNearBoundary = useCallback(
@@ -1005,13 +1006,11 @@ export function MessageFeed({
     ],
   );
 
-  const handleScrollToBottomClick = useCallback(() => {
-    scrollToBottom();
-  }, [scrollToBottom]);
-
-  const handleScrollToTopClick = useCallback(() => {
-    containerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
+  const [handleScrollToBottomClick, handleScrollToTopClick] = useViewportBoundaryNavigation({
+    cancelPendingRestore: cancelExactRestore,
+    containerRef,
+    scrollToBottom,
+  });
 
   const {
     handleScrollToPreviousUserMessageClick,
@@ -1032,6 +1031,7 @@ export function MessageFeed({
     ensureSectionForTurnVisible,
     scrollToFeedBlock,
     scrollToBottom,
+    onUserNavigationIntent: cancelExactRestore,
   });
 
   const navFabButtonClassName = isTouch
@@ -1261,6 +1261,7 @@ export function MessageFeed({
   function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
     const el = containerRef.current;
     if (!el) return;
+    if (event.deltaY !== 0) cancelExactRestore();
     if (event.deltaY < 0 && el.scrollTop <= SECTION_WINDOW_TRIGGER_PX) {
       triggerSectionLoadNearBoundary("older");
       return;
@@ -1292,7 +1293,8 @@ export function MessageFeed({
     }
     if (pos && !pos.isAtBottom && (pos.anchorMessageId || pos.anchorTurnId)) {
       if (selectedFeedWindowEnabled && !activeThreadWindow) return;
-      pendingExactViewportRestoreRef.current = { restoreKey, position: pos };
+      const pendingExactRestore = { restoreKey, position: pos };
+      exactRestoreRef.current = pendingExactRestore;
       lastViewportAnchorRef.current = null;
       if (restoreSavedViewportAnchor(pos)) {
         pendingViewportAnchorWindowRequestRef.current = null;
@@ -1303,19 +1305,20 @@ export function MessageFeed({
           container: containerRef,
           position: pos,
           restore: restoreSavedViewportAnchor,
+          isActive: () => exactRestoreRef.current === pendingExactRestore,
           onSettled: () => {
-            pendingExactViewportRestoreRef.current = null;
+            if (exactRestoreRef.current === pendingExactRestore) exactRestoreRef.current = null;
           },
         });
       } else if (requestViewportAnchorWindowIfMissing(pos, restoreKey)) {
         return;
       } else if (restoreSavedScrollPosition(pos)) {
-        pendingExactViewportRestoreRef.current = null;
+        exactRestoreRef.current = null;
         autoFollowEnabledRef.current = false;
         isNearBottom.current = false;
         setShowScrollButton(true);
       } else {
-        pendingExactViewportRestoreRef.current = null;
+        exactRestoreRef.current = null;
         scrollToBottom("auto");
       }
     } else if (pos && !pos.isAtBottom) {
@@ -1529,6 +1532,7 @@ export function MessageFeed({
   const clearScrollToTurn = useStore((s) => s.clearScrollToTurn);
   useEffect(() => {
     if (!scrollToTurnId) return;
+    cancelExactRestore();
     clearScrollToTurn(sessionId);
     autoFollowEnabledRef.current = false;
     const overrides = useStore.getState().turnActivityOverrides.get(sessionId);
@@ -1552,7 +1556,7 @@ export function MessageFeed({
       return;
     }
     scheduleScroll();
-  }, [clearScrollToTurn, ensureSectionForTurnVisible, scrollToTurnId, sessionId]);
+  }, [cancelExactRestore, clearScrollToTurn, ensureSectionForTurnVisible, scrollToTurnId, sessionId]);
 
   const expandAllInTurnTarget = useStore((s) => s.expandAllInTurn.get(sessionId));
   const clearScrollToMessage = useStore((s) => s.clearScrollToMessage);
@@ -1560,6 +1564,7 @@ export function MessageFeed({
   const clearExpandAllInTurn = useStore((s) => s.clearExpandAllInTurn);
   useEffect(() => {
     if (!scrollToMessageId) return;
+    cancelExactRestore();
     autoFollowEnabledRef.current = false;
 
     const targetTurn = turns.find(
@@ -1659,6 +1664,7 @@ export function MessageFeed({
     scheduleScroll();
   }, [
     activeHistoryWindow,
+    cancelExactRestore,
     clearExpandAllInTurn,
     clearPendingScrollToMessageId,
     clearScrollToMessage,
@@ -1832,6 +1838,7 @@ export function MessageFeed({
           ref={containerRef}
           onScroll={handleScroll}
           onWheel={handleWheel}
+          onTouchMove={cancelExactRestore}
           data-testid="message-feed-scroll-container"
           className="message-feed-scroll-surface mobile-scroll-stable-surface h-full overflow-y-auto overflow-x-hidden px-2 sm:px-4 py-4 sm:py-6"
           style={{ overscrollBehavior: "contain" }}
@@ -1849,7 +1856,7 @@ export function MessageFeed({
                     ) : (
                       <button
                         type="button"
-                        onClick={handleLoadOlderSection}
+                        onClick={explicitSectionLoad.older}
                         className={`${SECTION_BOUNDARY_CONTROL_CLASS} transition-colors hover:border-cc-primary/30 hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40`}
                       >
                         <YarnBallDot className="text-cc-muted/70" />
@@ -1881,7 +1888,7 @@ export function MessageFeed({
                     ) : (
                       <button
                         type="button"
-                        onClick={handleLoadNewerSection}
+                        onClick={explicitSectionLoad.newer}
                         className={`${SECTION_BOUNDARY_CONTROL_CLASS} transition-colors hover:border-cc-primary/30 hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40`}
                       >
                         <YarnBallDot className="text-cc-muted/70" />

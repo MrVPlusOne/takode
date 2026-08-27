@@ -128,6 +128,41 @@ function fireMessage(data: Record<string, unknown>) {
 // Connection
 // ===========================================================================
 describe("visibility reconnect", () => {
+  it("snapshots the active feed before background, pagehide, and forced resume", async () => {
+    const { SAVE_THREAD_VIEWPORT_EVENT } = await import("./utils/thread-viewport.js");
+    let visibilityState: DocumentVisibilityState = "visible";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibilityState,
+    });
+    useStore
+      .getState()
+      .setSdkSessions([
+        { sessionId: "s1", cwd: "/tmp/s1", createdAt: Date.now(), archived: false, state: "connected" },
+      ]);
+    useStore.getState().setCurrentSession("s1");
+    wsModule.connectSession("s1");
+    const snapshots: string[] = [];
+    const handleSnapshot = (event: Event) => {
+      const sessionId = (event as CustomEvent<{ sessionId?: string }>).detail?.sessionId;
+      if (sessionId) snapshots.push(sessionId);
+    };
+    window.addEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshot);
+
+    try {
+      visibilityState = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("pagehide"));
+      vi.advanceTimersByTime(60_001);
+      visibilityState = "visible";
+      document.dispatchEvent(new Event("visibilitychange"));
+
+      expect(snapshots).toEqual(["s1", "s1", "s1"]);
+    } finally {
+      window.removeEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshot);
+    }
+  });
+
   it("reconnects only the current session when tab becomes visible", () => {
     useStore.getState().setSdkSessions([
       { sessionId: "s1", cwd: "/tmp/s1", createdAt: Date.now(), archived: false, state: "exited" },

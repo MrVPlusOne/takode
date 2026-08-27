@@ -390,6 +390,73 @@ describe("connectSession", () => {
     });
   });
 
+  it("snapshots the active leader viewport before reconnecting an unexpectedly closed socket", async () => {
+    // Restart regression: the mounted feed can visibly reach message 130 while
+    // browser-local storage still contains the earlier message-117 anchor. An
+    // unexpected server socket close must synchronously checkpoint the mounted
+    // viewport before the reconnect subscribe chooses its bounded-window target.
+    const { SAVE_THREAD_VIEWPORT_EVENT, persistLeaderViewportPosition, readLeaderViewportPosition } = await import(
+      "./utils/thread-viewport.js"
+    );
+    localStorage.setItem("cc-server-id", "test-server");
+    useStore.setState({ sdkSessions: [{ sessionId: "s1", isOrchestrator: true, archived: false } as any] });
+    window.location.hash = "#/session/s1";
+    persistLeaderViewportPosition("s1", "main", {
+      scrollTop: 11_700,
+      scrollHeight: 14_000,
+      isAtBottom: false,
+      anchorMessageId: "message-117",
+      anchorTurnId: "message-117",
+      anchorOffsetTop: 100,
+    });
+
+    const handleSnapshot = vi.fn((event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string }>).detail;
+      if (detail?.sessionId !== "s1") return;
+      // Model the still-mounted MessageFeed synchronously persisting the actual
+      // visible message 130 when the transport announces the restart boundary.
+      persistLeaderViewportPosition("s1", "main", {
+        scrollTop: 12_900,
+        scrollHeight: 14_000,
+        isAtBottom: false,
+        anchorMessageId: "message-130",
+        anchorTurnId: "message-130",
+        anchorOffsetTop: 100,
+      });
+    });
+    window.addEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshot);
+
+    try {
+      wsModule.connectSession("s1");
+      const originalSocket = lastWs;
+      originalSocket.onopen?.(new Event("open"));
+      expect(JSON.parse(originalSocket.send.mock.calls[0][0]).initial_thread_window).toMatchObject({
+        thread_key: "main",
+        target_message_id: "message-117",
+      });
+
+      originalSocket.onclose?.();
+
+      // This must happen during close handling, before the two-second reconnect
+      // timer can create a replacement socket and sample browser-local state.
+      expect(handleSnapshot).toHaveBeenCalledTimes(1);
+      expect(readLeaderViewportPosition("s1", "main")?.anchorMessageId).toBe("message-130");
+
+      vi.advanceTimersByTime(2_000);
+      expect(lastWs).not.toBe(originalSocket);
+      lastWs.onopen?.(new Event("open"));
+
+      const reconnectSubscribe = JSON.parse(lastWs.send.mock.calls[0][0]);
+      expect(reconnectSubscribe.initial_thread_window).toMatchObject({
+        thread_key: "main",
+        from_item: -1,
+        target_message_id: "message-130",
+      });
+    } finally {
+      window.removeEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshot);
+    }
+  });
+
   it("keeps bounded capability after an explicit full-history sync request", () => {
     useStore.setState({ sdkSessions: [{ sessionId: "s1", isOrchestrator: true } as any] });
     window.location.hash = "#/session/s1?thread=q-1831";

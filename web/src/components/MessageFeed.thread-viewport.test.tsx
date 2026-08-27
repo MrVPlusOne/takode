@@ -26,7 +26,7 @@ beforeAll(() => {
   });
 });
 
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ChatMessage, ThreadWindowState } from "../types.js";
 
 vi.mock("react-markdown", () => ({
@@ -351,6 +351,147 @@ describe("MessageFeed thread viewport restoration", () => {
       else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;
       if (originalScrollTop) Object.defineProperty(HTMLDivElement.prototype, "scrollTop", originalScrollTop);
       else delete (HTMLDivElement.prototype as { scrollTop?: unknown }).scrollTop;
+    }
+  });
+
+  it("lets user intent replace a stale pending anchor across copied-live-shaped windows", () => {
+    // Restart regression: copied-live Main has 304 projected items. A stale target-117
+    // subscribe returns the 30-item window at 245, while the latest target-130 window
+    // starts at 274 and no longer contains 117. User intent must retire the old exact
+    // restore before that producer-shaped replacement, including its queued RAF work.
+    const sid = "test-user-scroll-cancels-pending-restart-anchor";
+    const staleWindowMessages = Array.from({ length: 30 }, (_, index) =>
+      makeMessage({
+        id: index === 10 ? "msg-117" : `stale-window-${245 + index}`,
+        role: "user",
+        content: index === 10 ? "Main item 117" : `Stale window item ${245 + index}`,
+        historyIndex: 17_000 + index,
+        timestamp: 17_000 + index,
+      }),
+    );
+    const latestWindowMessages = Array.from({ length: 30 }, (_, index) =>
+      makeMessage({
+        id: index === 5 ? "msg-130" : `latest-window-${274 + index}`,
+        role: "user",
+        content: index === 5 ? "Main item 130" : `Latest window item ${274 + index}`,
+        historyIndex: 19_000 + index,
+        timestamp: 19_000 + index,
+      }),
+    );
+    const makeMainWindow = (fromItem: number, hasNewerItems: boolean): ThreadWindowState =>
+      makeThreadWindow({
+        thread_key: "main",
+        from_item: fromItem,
+        item_count: 30,
+        total_items: 304,
+        has_older_items: true,
+        has_newer_items: hasNewerItems,
+        source_history_length: 19_087,
+      });
+    setStoreMessages(sid, []);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.threadWindows = new Map([[sid, new Map([["main", makeMainWindow(245, true)]])]]);
+    mockStoreValues.threadWindowMessages = new Map([[sid, new Map([["main", staleWindowMessages]])]]);
+    mockStoreValues.threadWindowAppliedRevisions = new Map([[sid, new Map([["main", 1]])]]);
+    persistLeaderViewportPosition(sid, "main", {
+      scrollTop: 11_600,
+      scrollHeight: 14_000,
+      isAtBottom: false,
+      anchorMessageId: "msg-117",
+      anchorTurnId: "msg-117",
+      anchorOffsetTop: 100,
+    });
+
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollHeight");
+    const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollTop");
+    const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "clientHeight");
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    const immediateRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const frames: FrameRequestCallback[] = [];
+    const messageTop = new Map<string, number>();
+    staleWindowMessages.forEach((message, index) => messageTop.set(message.id, 10_900 + index * 80));
+    latestWindowMessages.forEach((message, index) => messageTop.set(message.id, 12_600 + index * 80));
+    let scrollTopValue = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 14_000 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "clientHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 600 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "scrollTop", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? scrollTopValue : 0;
+      },
+      set(value) {
+        if (this.classList.contains("overflow-y-auto")) scrollTopValue = value as number;
+      },
+    });
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this instanceof HTMLElement && this.dataset.messageId && messageTop.has(this.dataset.messageId)) {
+        return DOMRect.fromRect({
+          x: 0,
+          y: messageTop.get(this.dataset.messageId)! - scrollTopValue,
+          width: 600,
+          height: 80,
+        });
+      }
+      if (this instanceof HTMLDivElement && this.classList.contains("overflow-y-auto")) {
+        return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 600 });
+      }
+      return originalRect.call(this);
+    };
+
+    try {
+      const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
+      const container = screen.getByTestId("message-feed-scroll-container");
+
+      expect(scrollTopValue).toBe(11_600);
+      expect(frames.length).toBeGreaterThan(0);
+      expect(screen.getByText("Main item 117")).toBeTruthy();
+      expect(screen.queryByText("Main item 130")).toBeNull();
+
+      // The explicit newer-section control must cancel the stale restore before
+      // its bounded latest-window response or any queued post-layout callback runs.
+      fireEvent.click(screen.getByRole("button", { name: "Load newer section" }));
+      mockStoreValues.threadWindows = new Map([[sid, new Map([["main", makeMainWindow(274, false)]])]]);
+      mockStoreValues.threadWindowMessages = new Map([[sid, new Map([["main", latestWindowMessages]])]]);
+      mockStoreValues.threadWindowAppliedRevisions = new Map([[sid, new Map([["main", 2]])]]);
+      scrollTopValue = 13_000;
+      view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
+      fireEvent.scroll(container);
+
+      expect(screen.queryByText("Main item 117")).toBeNull();
+      expect(
+        screen.getByText("Main item 130").closest<HTMLElement>("[data-message-id='msg-130']")?.getBoundingClientRect()
+          .top,
+      ).toBe(0);
+
+      requestThreadViewportSnapshot(sid);
+
+      expect(readLeaderViewportPosition(sid, "main")?.anchorMessageId).toBe("msg-130");
+      while (frames.length > 0) frames.shift()?.(0);
+      expect(scrollTopValue).toBe(13_000);
+      expect(readLeaderViewportPosition(sid, "main")?.anchorMessageId).toBe("msg-130");
+    } finally {
+      vi.stubGlobal("requestAnimationFrame", immediateRequestAnimationFrame);
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
+      else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;
+      if (originalScrollTop) Object.defineProperty(HTMLDivElement.prototype, "scrollTop", originalScrollTop);
+      else delete (HTMLDivElement.prototype as { scrollTop?: unknown }).scrollTop;
+      if (originalClientHeight) Object.defineProperty(HTMLDivElement.prototype, "clientHeight", originalClientHeight);
+      else delete (HTMLDivElement.prototype as { clientHeight?: unknown }).clientHeight;
     }
   });
 

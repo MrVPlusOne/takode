@@ -156,4 +156,41 @@ describe("message-feed viewport anchors", () => {
       requestFrame.mockRestore();
     }
   });
+
+  it("does not run queued exact-restore work after user intent cancels its owner", () => {
+    const container = document.createElement("div") as HTMLDivElement;
+    const frames: FrameRequestCallback[] = [];
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const restore = vi.fn(() => true);
+    const settled = vi.fn();
+    let active = true;
+
+    try {
+      schedulePostLayoutViewportAnchorRestore({
+        container: { current: container },
+        position: {
+          scrollTop: 11_700,
+          scrollHeight: 14_000,
+          isAtBottom: false,
+          anchorMessageId: "msg-117",
+          anchorTurnId: "msg-117",
+          anchorOffsetTop: 100,
+        },
+        restore,
+        isActive: () => active,
+        onSettled: settled,
+      });
+
+      active = false;
+      while (frames.length > 0) frames.shift()?.(0);
+
+      expect(restore).not.toHaveBeenCalled();
+      expect(settled).not.toHaveBeenCalled();
+    } finally {
+      requestFrame.mockRestore();
+    }
+  });
 });

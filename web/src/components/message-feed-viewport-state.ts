@@ -3,6 +3,44 @@ import { useStore } from "../store.js";
 import type { FeedViewportPosition } from "../utils/thread-viewport.js";
 import { readLeaderViewportPosition } from "../utils/thread-viewport.js";
 
+export interface PendingExactViewportRestore {
+  restoreKey: string;
+  position: FeedViewportPosition;
+}
+
+export function useExactViewportRestore(
+  restoredViewportRef: { current: { key: string; container: HTMLDivElement | null } | null },
+  containerRef: { current: HTMLDivElement | null },
+) {
+  const pendingRef = useRef<PendingExactViewportRestore | null>(null);
+  const cancel = useCallback(() => {
+    const pending = pendingRef.current;
+    if (pending) restoredViewportRef.current = { key: pending.restoreKey, container: containerRef.current };
+    pendingRef.current = null;
+  }, [containerRef, restoredViewportRef]);
+  return [pendingRef, cancel] as const;
+}
+
+export function useViewportBoundaryNavigation({
+  cancelPendingRestore,
+  containerRef,
+  scrollToBottom,
+}: {
+  cancelPendingRestore: () => void;
+  containerRef: { current: HTMLDivElement | null };
+  scrollToBottom: () => void;
+}) {
+  const handleScrollToBottomClick = useCallback(() => {
+    cancelPendingRestore();
+    scrollToBottom();
+  }, [cancelPendingRestore, scrollToBottom]);
+  const handleScrollToTopClick = useCallback(() => {
+    cancelPendingRestore();
+    containerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, [cancelPendingRestore, containerRef]);
+  return [handleScrollToBottomClick, handleScrollToTopClick] as const;
+}
+
 export function useIdempotentState<T>(initialState: T | (() => T)): [T, Dispatch<SetStateAction<T>>] {
   const [value, setValue] = useState(initialState);
   const valueRef = useRef(value);

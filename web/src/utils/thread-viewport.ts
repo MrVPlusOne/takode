@@ -14,7 +14,7 @@ export interface FeedViewportPosition {
 }
 
 interface LeaderSessionViewState {
-  version: 1;
+  version: 2;
   selectedThreadKey: string;
   viewports: Record<string, FeedViewportPosition>;
   updatedAt: number;
@@ -83,7 +83,7 @@ function leaderSessionViewStorageKey(sessionId: string): string {
 
 function emptyLeaderSessionViewState(): LeaderSessionViewState {
   return {
-    version: 1,
+    version: 2,
     selectedThreadKey: MAIN_THREAD_KEY,
     viewports: {},
     updatedAt: Date.now(),
@@ -93,7 +93,13 @@ function emptyLeaderSessionViewState(): LeaderSessionViewState {
 function readLeaderSessionViewState(sessionId: string): LeaderSessionViewState | null {
   if (typeof window === "undefined") return null;
   try {
-    return normalizeLeaderSessionViewState(JSON.parse(scopedGetItem(leaderSessionViewStorageKey(sessionId)) ?? "null"));
+    const value = JSON.parse(scopedGetItem(leaderSessionViewStorageKey(sessionId)) ?? "null");
+    const normalized = normalizeLeaderSessionViewState(value);
+    if (normalized) return normalized;
+    const migrated = migrateLegacyLeaderSessionViewState(value);
+    if (!migrated) return null;
+    writeLeaderSessionViewState(sessionId, migrated);
+    return migrated;
   } catch {
     return null;
   }
@@ -113,15 +119,30 @@ function writeLeaderSessionViewState(sessionId: string, state: LeaderSessionView
 function normalizeLeaderSessionViewState(value: unknown): LeaderSessionViewState | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
-  if (record.version !== 1) return null;
+  if (record.version !== 2) return null;
   const selectedThreadKey = normalizeRestorableThreadKey(record.selectedThreadKey);
   if (!selectedThreadKey) return null;
   const viewports = normalizeViewportMap(record.viewports);
   return {
-    version: 1,
+    version: 2,
     selectedThreadKey,
     viewports,
     updatedAt: normalizeFiniteNumber(record.updatedAt) ?? Date.now(),
+  };
+}
+
+function migrateLegacyLeaderSessionViewState(value: unknown): LeaderSessionViewState | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (record.version !== 1) return null;
+  const selectedThreadKey = normalizeRestorableThreadKey(record.selectedThreadKey);
+  if (!selectedThreadKey) return null;
+  const legacyViewports = normalizeViewportMap(record.viewports);
+  return {
+    version: 2,
+    selectedThreadKey,
+    viewports: Object.fromEntries(Object.entries(legacyViewports).filter(([, position]) => position.isAtBottom)),
+    updatedAt: Date.now(),
   };
 }
 

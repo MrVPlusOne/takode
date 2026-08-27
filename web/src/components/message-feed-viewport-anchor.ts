@@ -89,14 +89,17 @@ export function schedulePostLayoutViewportAnchorRestore({
   container,
   position,
   restore,
+  isActive,
   onSettled,
 }: {
   container: { current: HTMLDivElement | null };
   position: FeedViewportPosition;
   restore: (position: FeedViewportPosition) => boolean;
+  isActive?: () => boolean;
   onSettled?: () => void;
 }): void {
   requestAnimationFrame(() => {
+    if (isActive?.() === false) return;
     const currentOffset = getViewportAnchorOffset(container.current, position);
     const targetOffset = position.anchorOffsetTop ?? 0;
     if (currentOffset != null && Math.abs(currentOffset - targetOffset) <= 3) {
@@ -105,6 +108,7 @@ export function schedulePostLayoutViewportAnchorRestore({
     }
     restore(position);
     requestAnimationFrame(() => {
+      if (isActive?.() === false) return;
       restore(position);
       const settledOffset = getViewportAnchorOffset(container.current, position);
       if (settledOffset != null && Math.abs(settledOffset - targetOffset) <= 3) onSettled?.();

@@ -10,7 +10,7 @@ import { resolveInitialLeaderThreadKey } from "./utils/initial-leader-thread.js"
 import { getCachedThreadWindowHash } from "./utils/history-window-cache.js";
 import { messageIdFromHash, parseHash, resolveSessionIdFromRoute, threadRouteFromHash } from "./utils/routing.js";
 import { ALL_THREADS_KEY } from "./utils/thread-projection.js";
-import { readLeaderViewportPosition } from "./utils/thread-viewport.js";
+import { readLeaderViewportPosition, requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 
 let handleIncomingMessage:
   | ((sessionId: string, data: BrowserIncomingMessage, context: WsIncomingMessageContext) => void)
@@ -142,6 +142,7 @@ const transport = createWsTransport({
     }
   },
   onDisconnected: (sessionId) => {
+    requestThreadViewportSnapshot(sessionId);
     const store = useStore.getState();
     store.setPendingThreadWindowRequest(sessionId, null);
     store.setConnectionStatus(sessionId, "disconnected");
@@ -237,6 +238,7 @@ function ensureActiveSessionConnection(options?: { forceReconnect?: boolean }) {
 
   const socketState = transport.getSocketState(currentSessionId);
   if (options?.forceReconnect) {
+    requestThreadViewportSnapshot(currentSessionId);
     transport.reconnectSession(currentSessionId);
     return;
   }
@@ -255,6 +257,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
       hiddenAt = Date.now();
+      requestThreadViewportSnapshot(useStore.getState().currentSessionId);
       return;
     }
 
@@ -270,6 +273,8 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
     ensureActiveSessionConnection({ forceReconnect: persisted });
   });
 
+  window.addEventListener("pagehide", () => requestThreadViewportSnapshot(useStore.getState().currentSessionId));
+
   window.addEventListener("online", () => {
     ensureActiveSessionConnection({ forceReconnect: true });
   });
@@ -281,6 +286,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
 // on beforeunload forces Safari to open fresh TCP connections on the next load.
 if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", () => {
+    requestThreadViewportSnapshot(useStore.getState().currentSessionId);
     transport.closeAllForUnload();
   });
 }

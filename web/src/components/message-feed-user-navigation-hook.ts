@@ -130,6 +130,7 @@ interface UseUserMessageNavigationInput {
   ensureSectionForTurnVisible: (turnId: string) => boolean;
   scrollToFeedBlock: (blockId: string, turnId: string) => void;
   scrollToBottom: () => void;
+  onUserNavigationIntent: () => void;
 }
 
 export function useUserMessageNavigation(input: UseUserMessageNavigationInput): {
@@ -152,6 +153,7 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
     ensureSectionForTurnVisible,
     scrollToFeedBlock,
     scrollToBottom,
+    onUserNavigationIntent,
   } = input;
   const pendingUserNavigationRef = useRef<{
     direction: UserNavigationDirection;
@@ -245,6 +247,7 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
 
   const scrollToUserNavigationTarget = useCallback(
     (target: UserNavigationTarget) => {
+      onUserNavigationIntent();
       if (!isUserNavigationTargetMounted(target) && requestWindowForUserNavigationTarget(target)) {
         pendingSpecificTargetRef.current = target;
         return;
@@ -258,6 +261,7 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
     [
       ensureSectionForTurnVisible,
       isUserNavigationTargetMounted,
+      onUserNavigationIntent,
       requestWindowForUserNavigationTarget,
       scrollToFeedBlock,
     ],
@@ -353,6 +357,7 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
 
   const handleUserMessageNavigationClick = useCallback(
     (direction: UserNavigationDirection) => {
+      onUserNavigationIntent();
       const el = containerRef.current;
       if (!el) return;
       const containerRect = el.getBoundingClientRect();
@@ -372,6 +377,7 @@ export function useUserMessageNavigation(input: UseUserMessageNavigationInput): 
     [
       containerRef,
       getMountedUserNavigationTargets,
+      onUserNavigationIntent,
       requestAdjacentUserNavigationWindow,
       scrollToBottom,
       scrollToLoadedAdjacentUserNavigationTarget,

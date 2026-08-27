@@ -22,6 +22,7 @@ export function useMessageFeedSectionWindowLoaders(input: {
   ) => boolean;
   requestThreadWindow: (fromItem: number, itemCount?: number, targetMessageId?: string) => boolean;
   setShowScrollButton: Dispatch<SetStateAction<boolean>>;
+  onUserNavigationIntent: () => void;
 }) {
   const handleLoadOlderSection = useCallback(() => {
     if (input.activeThreadWindow) {
@@ -144,5 +145,18 @@ export function useMessageFeedSectionWindowLoaders(input: {
     input.requestThreadWindow,
   ]);
 
-  return { handleLoadNewerSection, handleLoadOlderSection };
+  const handleExplicitOlderSection = useCallback(() => {
+    input.onUserNavigationIntent();
+    handleLoadOlderSection();
+  }, [handleLoadOlderSection, input.onUserNavigationIntent]);
+  const handleExplicitNewerSection = useCallback(() => {
+    input.onUserNavigationIntent();
+    handleLoadNewerSection();
+  }, [handleLoadNewerSection, input.onUserNavigationIntent]);
+
+  return {
+    handleLoadNewerSection,
+    handleLoadOlderSection,
+    explicitSectionLoad: { older: handleExplicitOlderSection, newer: handleExplicitNewerSection },
+  };
 }
