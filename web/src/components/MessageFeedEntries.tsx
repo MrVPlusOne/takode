@@ -1,3 +1,5 @@
+import { CodexSubagentTurnSegment } from "./CodexSubagentTurnSegment.js";
+import { CollapsedActivityBar, TurnCollapseBar } from "./TurnActivitySummary.js";
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
@@ -12,7 +14,6 @@ import {
   type SubagentGroup,
   type ToolMsgGroup,
   type Turn,
-  type TurnStats,
 } from "../hooks/use-feed-model.js";
 import { CodexThinkingInline, HerdEventMessage, MessageBubble } from "./MessageBubble.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils/herd-event-parser.js";
@@ -23,7 +24,6 @@ import { LiveCodexTerminalStub, LiveDurationBadge } from "./MessageFeedLiveActiv
 import {
   appendTimedMessagesFromEntries,
   buildMinuteBoundaryLabelMap,
-  formatElapsed,
   getApprovalBatchFeedBlockId,
   getFooterFeedBlockId,
   getMessageFeedBlockId,
@@ -109,72 +109,6 @@ function getTurnSummaryDurationMs(turn: Turn, nextTurn: Turn | null, leaderMode:
 }
 
 export { findPreviousSectionStartIndex };
-
-function TurnSummaryStats({
-  stats,
-  durationMs,
-  separatorClass,
-}: {
-  stats: TurnStats;
-  durationMs: number | null;
-  separatorClass: string;
-}) {
-  const hasMessages = stats.messageCount > 0;
-  const hasTools = stats.toolCount > 0;
-  const hasAgents = stats.subagentCount > 0;
-  const hasHerdEvents = stats.herdEventCount > 0;
-  const hasDuration = durationMs !== null;
-
-  return (
-    <>
-      {hasMessages && (
-        <span>
-          {stats.messageCount} message{stats.messageCount !== 1 ? "s" : ""}
-        </span>
-      )}
-      {hasTools && (
-        <>
-          {hasMessages && <span className={separatorClass}>·</span>}
-          <span>
-            {stats.toolCount} tool{stats.toolCount !== 1 ? "s" : ""}
-          </span>
-        </>
-      )}
-      {hasAgents && (
-        <>
-          {(hasMessages || hasTools) && <span className={separatorClass}>·</span>}
-          <span>
-            {stats.subagentCount} agent{stats.subagentCount !== 1 ? "s" : ""}
-          </span>
-        </>
-      )}
-      {hasHerdEvents && (
-        <>
-          {(hasMessages || hasTools || hasAgents) && <span className={separatorClass}>·</span>}
-          <span>
-            {stats.herdEventCount} worker event{stats.herdEventCount !== 1 ? "s" : ""}
-          </span>
-        </>
-      )}
-      {hasDuration && (
-        <>
-          {(hasMessages || hasTools || hasAgents || hasHerdEvents) && <span className={separatorClass}>·</span>}
-          <span data-testid="turn-summary-duration">{formatElapsed(durationMs)}</span>
-        </>
-      )}
-    </>
-  );
-}
-
-function hasTurnSummaryStats(stats: TurnStats, durationMs: number | null): boolean {
-  return (
-    stats.messageCount > 0 ||
-    stats.toolCount > 0 ||
-    stats.subagentCount > 0 ||
-    stats.herdEventCount > 0 ||
-    durationMs !== null
-  );
-}
 
 function isApprovalEntry(entry: FeedEntry): entry is { kind: "message"; msg: ChatMessage } {
   return entry.kind === "message" && entry.msg.role === "system" && entry.msg.variant === "approved";
@@ -1147,37 +1081,6 @@ export const FeedEntries = memo(function FeedEntries({
   return <>{rendered}</>;
 });
 
-const CollapsedActivityBar = memo(function CollapsedActivityBar({
-  stats,
-  durationMs,
-  leaderMode,
-  onClick,
-}: {
-  stats: TurnStats;
-  durationMs: number | null;
-  leaderMode: boolean;
-  onClick: () => void;
-}) {
-  const hasStats = hasTurnSummaryStats(stats, durationMs);
-  return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-1.5 py-1.5 px-3 border-l-2 border-cc-border/40 bg-cc-hover/10 hover:bg-cc-hover/30 transition-colors cursor-pointer text-[11px] text-cc-muted font-mono-code"
-    >
-      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
-        <path d="M6 4l4 4-4 4" />
-      </svg>
-      {leaderMode && (
-        <>
-          <span>Leader activity</span>
-          {hasStats && <span className="text-cc-muted/40">·</span>}
-        </>
-      )}
-      <TurnSummaryStats stats={stats} durationMs={durationMs} separatorClass="text-cc-muted/40" />
-    </button>
-  );
-});
-
 function CollapsedTurnRows({
   turn,
   sessionId,
@@ -1203,6 +1106,10 @@ function CollapsedTurnRows({
   onSelectThread?: (threadKey: string) => void;
   onExpand: () => void;
 }) {
+  const toolCountMayIncludeNestedCodexSubagents = useStore((state) => {
+    const aggregate = state.sessions.get(sessionId)?.codex_native_subagents?.turns[turn.id];
+    return !!aggregate && (aggregate.total > 0 || aggregate.coverage === "partial");
+  });
   const collapsedEntries = turn.collapsedEntries ?? [];
   const activityRowCount = collapsedEntries.filter((row) => row.kind === "activity").length;
   return (
@@ -1215,6 +1122,7 @@ function CollapsedTurnRows({
               stats={row.stats}
               durationMs={activityRowCount === 1 ? durationMs : null}
               leaderMode={leaderMode}
+              toolCountMayIncludeNestedCodexSubagents={toolCountMayIncludeNestedCodexSubagents}
               onClick={onExpand}
             />
           );
@@ -1252,32 +1160,6 @@ function CollapsedTurnRows({
   );
 }
 
-function TurnCollapseBar({
-  stats,
-  durationMs,
-  onClick,
-  ref,
-}: {
-  stats: TurnStats;
-  durationMs: number | null;
-  onClick: () => void;
-  ref?: React.Ref<HTMLButtonElement>;
-}) {
-  return (
-    <button
-      ref={ref}
-      onClick={onClick}
-      className="w-full flex items-center gap-1.5 py-1 px-2 -mb-1 rounded hover:bg-cc-hover/40 transition-colors cursor-pointer text-[11px] text-cc-muted/50 hover:text-cc-muted font-mono-code"
-      title="Collapse this turn"
-    >
-      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 transition-transform rotate-90">
-        <path d="M6 4l4 4-4 4" />
-      </svg>
-      <TurnSummaryStats stats={stats} durationMs={durationMs} separatorClass="text-cc-muted/30" />
-    </button>
-  );
-}
-
 export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   turn,
   sessionId,
@@ -1304,11 +1186,21 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   onSelectThread?: (threadKey: string) => void;
 }) {
   const headerRef = useRef<HTMLButtonElement>(null);
+  const toolCountMayIncludeNestedCodexSubagents = useStore((state) => {
+    const aggregate = state.sessions.get(sessionId)?.codex_native_subagents?.turns[turn.id];
+    return !!aggregate && (aggregate.total > 0 || aggregate.coverage === "partial");
+  });
 
   return (
     <>
       {turn.agentEntries.length > 0 && (
-        <TurnCollapseBar ref={headerRef} stats={turn.stats} durationMs={durationMs} onClick={onCollapse} />
+        <TurnCollapseBar
+          ref={headerRef}
+          stats={turn.stats}
+          durationMs={durationMs}
+          toolCountMayIncludeNestedCodexSubagents={toolCountMayIncludeNestedCodexSubagents}
+          onClick={onCollapse}
+        />
       )}
       <FeedEntries
         entries={turnPresentationEntries(turn)}
@@ -1909,6 +1801,7 @@ export const TurnEntries = memo(function TurnEntries({
                       />
                     )}
 
+                    {!isActivityExpanded && <CodexSubagentTurnSegment sessionId={sessionId} turnId={turn.id} />}
                     {isActivityExpanded ? (
                       turnPresentationEntries(turn).length > 0 && (
                         <TurnEntriesExpanded

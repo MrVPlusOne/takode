@@ -102,6 +102,8 @@ export interface Session {
   /** Pending control_requests sent TO CLI, keyed by request_id */
   pendingControlRequests: Map<string, PendingControlRequest>;
   messageHistory: BrowserIncomingMessage[];
+  /** Persisted server-only native Codex child registry; provider IDs never enter SessionState. */
+  codexNativeSubagents: import("../codex-native-subagent-state.js").CodexNativeSubagentRegistry;
   /** Number of history entries that belong to the frozen prefix persisted in the append-only log. */
   frozenCount: number;
   /** Messages queued while waiting for CLI to connect */

@@ -1167,6 +1167,7 @@ export function ChatView({
         | undefined;
       const sideChatId = detail?.sideChatId ?? detail?.threadId;
       if (detail?.sessionId !== sessionId || !sideChatId) return;
+      useStore.getState().closeCodexSubagentInspector();
       setSelectedSideChatId(sideChatId);
       if (detail.childSessionId) connectSession(detail.childSessionId);
     };
@@ -1181,6 +1182,11 @@ export function ChatView({
   useEffect(() => {
     if (selectedSideChat?.childSessionId) connectSession(selectedSideChat.childSessionId);
   }, [selectedSideChat?.childSessionId]);
+
+  const codexSubagentInspectorOpen = useStore((state) => state.codexSubagentInspector?.sessionId === sessionId);
+  useEffect(() => {
+    if (codexSubagentInspectorOpen) setSelectedSideChatId(null);
+  }, [codexSubagentInspectorOpen]);
   const [openThreadTabKeys, setOpenThreadTabKeys] = useState(() =>
     isLeaderSession ? initialOpenThreadTabKeys(sessionId, authoritativeLeaderOpenThreadTabs) : [],
   );

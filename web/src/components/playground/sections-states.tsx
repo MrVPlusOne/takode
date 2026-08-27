@@ -35,6 +35,7 @@ import { PlaygroundUserMessageNavigatorSection } from "./PlaygroundUserMessageNa
 import { PlaygroundHerdEventStates } from "./HerdEventPlaygroundStates.js";
 import { PlaygroundCompactToolActivityStates } from "./CompactToolActivityPlaygroundStates.js";
 import { PlaygroundTimerMessageStates } from "./TimerMessagePlaygroundStates.js";
+import { PlaygroundCodexSubagentStates } from "./CodexSubagentPlaygroundStates.js";
 import { CompactToolMessageGroups } from "../ToolMessageGroup.js";
 import {
   Card,
@@ -176,6 +177,7 @@ export function PlaygroundStateSections() {
         </div>
       </Section>
       <PlaygroundSideChatStates />
+      <PlaygroundCodexSubagentStates />
 
       {/* ─── Composer — Voice Recording ──────────────────────────────── */}
       <Section

@@ -182,6 +182,7 @@ export interface AppState {
   shortcutSettings: import("./shortcuts.js").ShortcutSettings;
   sidebarOpen: boolean;
   sessionInfoOpenSessionId: string | null;
+  codexSubagentInspector: { sessionId: string; scopeTurnId?: string; selectedChildId?: string } | null;
   reorderMode: boolean;
   sessionSortMode: "created" | "activity";
   setSessionSortMode: (mode: "created" | "activity") => void;
@@ -229,6 +230,9 @@ export interface AppState {
   resetShortcutOverrides: () => void;
   setSidebarOpen: (v: boolean) => void;
   setSessionInfoOpenSessionId: (sessionId: string | null) => void;
+  openCodexSubagentInspector: (sessionId: string, options?: { scopeTurnId?: string; selectedChildId?: string }) => void;
+  selectCodexSubagentInspectorChild: (childId: string | null) => void;
+  closeCodexSubagentInspector: () => void;
   setReorderMode: (v: boolean) => void;
   setTaskPanelOpen: (open: boolean) => void;
   setSearchPreviewSessionId: (sessionId: string | null) => void;

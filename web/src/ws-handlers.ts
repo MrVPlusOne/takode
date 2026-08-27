@@ -47,6 +47,7 @@ import type { WsIncomingMessageContext } from "./ws-message-context.js";
 import { handleTranscriptionProgressMessage } from "./transcription-progress.js";
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { handleNotificationUpdateMessage } from "./ws-notification-handler.js";
+import { handleStreamEventMessage } from "./ws-stream-event-handler.js";
 import {
   applyAutoPauseRecoverySnapshot,
   handleStatusChangeMessage,
@@ -400,21 +401,21 @@ function normalizeHistoryMessages(
         const stripped = stripRootCodexThinkingMessage(isCodexSession(sessionId), converted);
         if (stripped) chatMessages.push(stripped);
       }
-      if (msg.content?.length) {
+      if (!histMsg.codexSubagent && msg.content?.length) {
         extractTasksFromBlocks(sessionId, msg.content);
         extractChangedFilesFromBlocks(sessionId, msg.content);
       }
       const histToolStartTimes = (histMsg as Record<string, unknown>).tool_start_times as
         | Record<string, number>
         | undefined;
-      if (histToolStartTimes) {
+      if (!histMsg.codexSubagent && histToolStartTimes) {
         store.setToolStartTimestamps(sessionId, histToolStartTimes);
       }
     } else if (histMsg.type === "user_message" || histMsg.type === "codex_reasoning_detail") {
       chatMessages.push(
         ...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, {
           fallbackTimestamp,
-          pendingLocalImagesByClientMsgId,
+          pendingLocalImagesByClientMsgId: histMsg.codexSubagent ? undefined : pendingLocalImagesByClientMsgId,
         }),
       );
     } else if (histMsg.type === "leader_user_message") {
@@ -471,12 +472,12 @@ function normalizeThreadWindowEntries(
         const stripped = stripRootCodexThinkingMessage(isCodexSession(sessionId), converted);
         if (stripped) chatMessages.push(stripped);
       }
-      if (histMsg.message.content?.length) {
+      if (!histMsg.codexSubagent && histMsg.message.content?.length) {
         extractTasksFromBlocks(sessionId, histMsg.message.content);
         extractChangedFilesFromBlocks(sessionId, histMsg.message.content);
       }
       const histToolStartTimes = histMsg.tool_start_times;
-      if (histToolStartTimes) {
+      if (!histMsg.codexSubagent && histToolStartTimes) {
         store.setToolStartTimestamps(sessionId, histToolStartTimes);
       }
       continue;
@@ -536,7 +537,7 @@ function updateSessionPreviewFromHistory(
   if (options?.allowOlderHistory === false) return;
   for (let i = historyMessages.length - 1; i >= 0; i--) {
     const msg = historyMessages[i];
-    if (msg.type === "user_message" && msg.content) {
+    if (msg.type === "user_message" && !msg.codexSubagent && msg.content) {
       store.setSessionPreview(sessionId, formatReplyContentForPreview(msg.content, msg.replyContext).slice(0, 80));
       break;
     }
@@ -546,7 +547,7 @@ function updateSessionPreviewFromHistory(
 function clearPendingUploadsCoveredByHistory(sessionId: string, historyMessages: BrowserIncomingMessage[]): void {
   const pendingIds = new Set<string>();
   for (const msg of historyMessages) {
-    if (msg.type !== "user_message" || typeof msg.client_msg_id !== "string") continue;
+    if (msg.type !== "user_message" || msg.codexSubagent || typeof msg.client_msg_id !== "string") continue;
     pendingIds.add(msg.client_msg_id);
   }
   if (pendingIds.size === 0) return;
@@ -850,8 +851,10 @@ function handleParsedMessage(
         parentToolUseId: message.parentToolUseId,
         metadata: message.metadata,
       });
-      store.setStreamingThinking(sessionId, null, data.parent_tool_use_id);
-      if (data.status === "streaming") store.setSessionStatus(sessionId, "running");
+      if (!data.codexSubagent) {
+        store.setStreamingThinking(sessionId, null, data.parent_tool_use_id);
+        if (data.status === "streaming") store.setSessionStatus(sessionId, "running");
+      }
       break;
     }
 
@@ -916,6 +919,9 @@ function handleParsedMessage(
       } else if (contentBlocks.length > 0 || data.notification) {
         store.appendMessage(sessionId, chatMsg);
       }
+      // Native child rows are audit content only. They must not mutate the
+      // root session's live streaming, task, progress, or lifecycle state.
+      if (data.codexSubagent) break;
       store.setStreaming(sessionId, null, data.parent_tool_use_id);
       if (msg.content?.some((block) => block.type === "thinking")) {
         store.setStreamingThinking(sessionId, null, data.parent_tool_use_id);
@@ -957,59 +963,7 @@ function handleParsedMessage(
     }
 
     case "stream_event": {
-      const evt = data.event as Record<string, unknown>;
-      if (evt && typeof evt === "object") {
-        // message_start → mark generation start time
-        if (evt.type === "message_start") {
-          if (!store.streamingStartedAt.has(sessionId)) {
-            store.setStreamingStats(sessionId, { startedAt: Date.now(), outputTokens: 0 });
-          }
-        }
-
-        if (evt.type === "content_block_start") {
-          const block = evt.content_block as Record<string, unknown> | undefined;
-          if (block?.type === "thinking") {
-            store.setStreamingThinking(
-              sessionId,
-              typeof block.thinking === "string" ? block.thinking : "",
-              data.parent_tool_use_id,
-            );
-          }
-        }
-
-        // content_block_delta → accumulate streaming text
-        if (evt.type === "content_block_delta") {
-          const delta = evt.delta as Record<string, unknown> | undefined;
-          if (delta?.type === "text_delta" && typeof delta.text === "string") {
-            const parentToolUseId = data.parent_tool_use_id;
-            const isTopLevelLeaderText =
-              !parentToolUseId &&
-              (store.sessions.get(sessionId)?.isOrchestrator === true ||
-                store.sdkSessions.some(
-                  (session) => session.sessionId === sessionId && session.isOrchestrator === true,
-                ));
-            if (isTopLevelLeaderText) break;
-            const current = parentToolUseId
-              ? store.streamingByParentToolUseId.get(sessionId)?.get(parentToolUseId) || ""
-              : store.streaming.get(sessionId) || "";
-            store.setStreaming(sessionId, current + delta.text, parentToolUseId);
-          }
-          if (delta?.type === "thinking_delta" && typeof delta.thinking === "string") {
-            const parentToolUseId = data.parent_tool_use_id;
-            const current = parentToolUseId
-              ? store.streamingThinkingByParentToolUseId.get(sessionId)?.get(parentToolUseId) || ""
-              : store.streamingThinking.get(sessionId) || "";
-            store.setStreamingThinking(sessionId, current + delta.thinking, parentToolUseId);
-          }
-        }
-        // message_delta → extract output token count
-        if (evt.type === "message_delta") {
-          const usage = (evt as { usage?: { output_tokens?: number } }).usage;
-          if (usage?.output_tokens) {
-            store.setStreamingStats(sessionId, { outputTokens: usage.output_tokens });
-          }
-        }
-      }
+      handleStreamEventMessage(sessionId, data);
       break;
     }
 
@@ -1252,6 +1206,7 @@ function handleParsedMessage(
     }
 
     case "tool_progress": {
+      if (data.codexSubagent) break;
       store.setToolProgress(sessionId, data.tool_use_id, {
         toolName: data.tool_name,
         elapsedSeconds: data.elapsed_time_seconds,

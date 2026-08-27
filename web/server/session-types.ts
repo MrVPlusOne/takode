@@ -1253,6 +1253,7 @@ type BrowserIncomingMessageMetadata = {
   threadKey?: string;
   questId?: string;
   threadRoutingError?: ThreadRoutingError;
+  codexSubagent?: import("../shared/codex-native-subagent-types.js").CodexNativeSubagentOwnership;
 };
 
 export type BrowserIncomingMessage = BrowserIncomingMessageBase & BrowserIncomingMessageMetadata;
@@ -1457,6 +1458,8 @@ export interface SessionState {
   claimedQuestVerificationInboxUnread?: boolean;
   /** Questmaster: orchestrating leader session for the claimed quest, when known */
   claimedQuestLeaderSessionId?: string;
+  /** Authoritative browser-safe native Codex child snapshot. */
+  codex_native_subagents?: import("../shared/codex-native-subagent-types.js").CodexNativeSubagentSnapshot;
   /** Codex-only visual stage for image-attached user sends. */
   codex_image_send_stage?: "uploading" | "processing" | "responding" | null;
   /** Per-session notification inbox entries (server-only, never from CLI) */

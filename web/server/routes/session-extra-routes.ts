@@ -3,6 +3,7 @@ import type { RouteContext } from "./context.js";
 import { registerSessionConfigRoutes } from "./session-config-routes.js";
 import { registerSessionDelegateRoutes } from "./session-delegate-routes.js";
 import { registerSessionSideChatRoutes } from "./session-side-chat-routes.js";
+import { registerSessionCodexNativeSubagentRoutes } from "./session-codex-native-subagent-routes.js";
 
 export function registerSessionExtraRoutes(
   api: Hono,
@@ -18,4 +19,5 @@ export function registerSessionExtraRoutes(
   registerSessionSideChatRoutes(api, { launcher, wsBridge, resolveId });
   registerSessionDelegateRoutes(api, { launcher, wsBridge, sessionStore, resolveId, authenticateTakodeCaller });
   registerSessionConfigRoutes(api, { launcher, wsBridge, resolveId });
+  registerSessionCodexNativeSubagentRoutes(api, { wsBridge, resolveId });
 }

@@ -67,8 +67,13 @@ import {
   type CodexRateLimitSet,
 } from "./codex-adapter-session-updates.js";
 import { CodexApprovalManager } from "./codex-approval-manager.js";
+import { CodexAsyncDispatchQueue } from "./codex-async-dispatch-queue.js";
 import { CodexItemEventManager } from "./codex-item-event-manager.js";
 import { JsonRpcTransport, isPidAlive } from "./codex-jsonrpc-transport.js";
+import {
+  CodexNativeSubagentAdapterController,
+  getCodexThreadIdFromParams,
+} from "./codex-native-subagent-adapter-controller.js";
 import { CodexMcpManager } from "./codex-mcp-manager.js";
 import { CodexMcpToolAvailability } from "./codex-mcp-tool-availability.js";
 import { getRouterFailureToolName, isToolRouterFailureMessage } from "./codex-router-failure-utils.js";
@@ -119,6 +124,7 @@ export class CodexAdapter
     RateLimitsAwareAdapter
 {
   private transport: JsonRpcTransport;
+  private nativeSubagents: CodexNativeSubagentAdapterController;
   private proc: Subprocess;
   private sessionId: string;
   private options: CodexAdapterOptions;
@@ -178,8 +184,7 @@ export class CodexAdapter
 
   // Queue messages received before initialization completes
   private pendingOutgoing: BrowserOutgoingMessage[] = [];
-  // Serialize async outgoing dispatch so permission/interrupt/user turns can't overlap.
-  private outgoingDispatchChain: Promise<void> = Promise.resolve();
+  private outgoingDispatch: CodexAsyncDispatchQueue;
   // Latest known Codex skill metadata, keyed by skill name for fast `$skill` parsing.
   private skillPathByName = new Map<string, string>();
 
@@ -214,6 +219,16 @@ export class CodexAdapter
       sessionId,
       options.recorder,
       options.cwd || "",
+    );
+    this.outgoingDispatch = new CodexAsyncDispatchQueue(
+      (label, error) =>
+        console.warn(`[codex-adapter] Outgoing dispatch failed (${label}) for session ${this.sessionId}:`, error),
+      () => this.nativeSubagents.drainDiscovery(),
+    );
+    this.nativeSubagents = new CodexNativeSubagentAdapterController(
+      this.transport,
+      () => this.currentTurnId === null && this.pendingOutgoing.length === 0 && !this.outgoingDispatch.hasPending(),
+      () => this.currentTurnId,
     );
     this.itemEventManager = new CodexItemEventManager((msg) => this.emit(msg), {
       model: this.options.model,
@@ -767,13 +782,15 @@ export class CodexAdapter
   }
 
   private enqueueOutgoingDispatch(label: string, run: () => Promise<void>): void {
-    this.outgoingDispatchChain = this.outgoingDispatchChain.then(run).catch((err) => {
-      console.warn(`[codex-adapter] Outgoing dispatch failed (${label}) for session ${this.sessionId}:`, err);
-    });
+    this.outgoingDispatch.enqueue(label, run);
   }
 
   onBrowserMessage(cb: (msg: BrowserIncomingMessage) => void): void {
     this.browserMessageCb = cb;
+  }
+
+  getNativeSubagentController(): CodexNativeSubagentAdapterController {
+    return this.nativeSubagents;
   }
 
   onSessionMeta(cb: (meta: CodexSessionMeta) => void): void {
@@ -973,6 +990,7 @@ export class CodexAdapter
       }
 
       this.connected = true;
+      this.nativeSubagents.setRootProviderThreadId(this.threadId);
 
       // Notify session metadata
       this.sessionMetaCb?.({
@@ -1048,6 +1066,7 @@ export class CodexAdapter
       }
 
       this.scheduleInitialSkillMetadataRefresh();
+      this.nativeSubagents.requestDiscovery();
     } catch (err) {
       const errorMsg = formatCodexInitializationError(err, this.options.failureContextProvider?.());
       console.error(`[codex-adapter] ${errorMsg}`);
@@ -1479,8 +1498,13 @@ export class CodexAdapter
 
   private handleNotification(method: string, params: Record<string, unknown>): void {
     // Verbose per-notification logging removed — use protocol recordings for debugging.
+    const nativeDisposition = this.nativeSubagents.observeNotification(method, params);
 
     try {
+      if (nativeDisposition.finishReasoningTurnId) {
+        this.itemEventManager.finishReasoningTurn(nativeDisposition.finishReasoningTurnId);
+      }
+      if (nativeDisposition.suppressDefault) return;
       switch (method) {
         case "item/started":
           this.itemEventManager.handleItemStarted(params);
@@ -1617,34 +1641,9 @@ export class CodexAdapter
       }
     } catch (err) {
       console.error(`[codex-adapter] Error handling notification ${method}:`, err);
+    } finally {
+      this.nativeSubagents.clearNotificationContext();
     }
-  }
-
-  private getThreadIdFromRecord(record: Record<string, unknown> | undefined): string | null {
-    if (!record) return null;
-    const threadId = toSafeText(
-      record.threadId ??
-        record.senderThreadId ??
-        record.conversationId ??
-        record.conversation_id ??
-        record.new_thread_id,
-    ).trim();
-    return threadId || null;
-  }
-
-  private getThreadIdFromParams(params: Record<string, unknown>): string | null {
-    const direct = this.getThreadIdFromRecord(params);
-    if (direct) return direct;
-
-    for (const key of ["item", "turn", "msg"]) {
-      const value = params[key];
-      if (value && typeof value === "object") {
-        const nested = this.getThreadIdFromRecord(value as Record<string, unknown>);
-        if (nested) return nested;
-      }
-    }
-
-    return null;
   }
 
   // ── Incoming request handlers (approval requests) ───────────────────────
@@ -1660,7 +1659,7 @@ export class CodexAdapter
   private handleThreadStatusChanged(params: Record<string, unknown>): void {
     const status = params.status as Record<string, unknown> | undefined;
     if (!status) return;
-    const threadId = this.getThreadIdFromParams(params);
+    const threadId = getCodexThreadIdFromParams(params);
     if (threadId && this.threadId && threadId !== this.threadId) return;
 
     if (status.type === "idle" && this.currentTurnId) {
@@ -1692,7 +1691,7 @@ export class CodexAdapter
     const turn = params.turn as { id?: unknown } | undefined;
     const turnId = typeof turn?.id === "string" ? turn.id : null;
     if (!turnId) return;
-    const threadId = this.getThreadIdFromParams(params);
+    const threadId = getCodexThreadIdFromParams(params);
     if (threadId && this.threadId && threadId !== this.threadId) return;
     if (this.currentTurnId === turnId) return;
     if (this.currentTurnId) return;
@@ -1714,7 +1713,7 @@ export class CodexAdapter
   }
 
   private handleGoalCleared(params: Record<string, unknown>): void {
-    const threadId = this.getThreadIdFromParams(params);
+    const threadId = getCodexThreadIdFromParams(params);
     if (threadId && this.threadId && threadId !== this.threadId) return;
     this.emit({
       type: "session_update",
@@ -1727,7 +1726,7 @@ export class CodexAdapter
 
   private handleTurnCompleted(params: Record<string, unknown>): void {
     const turn = params.turn as { id: string; status: string; error?: { message: string } } | undefined;
-    const threadId = this.getThreadIdFromParams(params);
+    const threadId = getCodexThreadIdFromParams(params);
     if (threadId && this.threadId && threadId !== this.threadId) {
       return;
     }
@@ -1742,6 +1741,7 @@ export class CodexAdapter
     for (const resolve of this.turnEndResolvers.splice(0)) resolve();
     this.drainPendingInitialSkillMetadataRefresh();
     this.drainPendingInitialMcpToolAvailabilityRefresh();
+    this.nativeSubagents.drainDiscovery();
 
     if (turnId && this.suppressedTurnResultIds.delete(turnId)) {
       this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
@@ -1899,7 +1899,7 @@ export class CodexAdapter
   }
 
   private handleTokenUsageUpdated(params: Record<string, unknown>): void {
-    const threadId = this.getThreadIdFromParams(params);
+    const threadId = getCodexThreadIdFromParams(params);
     if (threadId && this.threadId && threadId !== this.threadId) return;
     const updates = buildCodexTokenUsagePatch(params);
     if (Object.keys(updates).length > 0) {
@@ -1913,6 +1913,8 @@ export class CodexAdapter
   // ── Helpers ─────────────────────────────────────────────────────────────
 
   private emit(msg: BrowserIncomingMessage): void {
+    const source = this.nativeSubagents.getCurrentMessageSource();
+    if (source && this.nativeSubagents.emitOwnedBrowserMessage(msg, source)) return;
     this.browserMessageCb?.(msg);
   }
 

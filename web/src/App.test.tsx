@@ -63,6 +63,7 @@ interface MockStoreState {
   sidebarOpen: boolean;
   taskPanelOpen: boolean;
   activeTab: "chat" | "diff";
+  codexSubagentInspector: { sessionId: string } | null;
   newSessionModalState: null;
   serverRestarting: boolean;
   serverReachable: boolean;
@@ -74,6 +75,7 @@ interface MockStoreState {
   setPendingScrollToMessageIndex: ReturnType<typeof vi.fn>;
   setPendingScrollToMessageId: ReturnType<typeof vi.fn>;
   closeNewSessionModal: ReturnType<typeof vi.fn>;
+  closeCodexSubagentInspector: ReturnType<typeof vi.fn>;
   setSidebarOpen: ReturnType<typeof vi.fn>;
   setActiveTab: ReturnType<typeof vi.fn>;
   openSessionSearch: ReturnType<typeof vi.fn>;
@@ -128,6 +130,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sidebarOpen: false,
     taskPanelOpen: false,
     activeTab: "chat",
+    codexSubagentInspector: null,
     newSessionModalState: null,
     serverRestarting: false,
     serverReachable: true,
@@ -139,6 +142,9 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     setPendingScrollToMessageIndex: vi.fn(),
     setPendingScrollToMessageId: vi.fn(),
     closeNewSessionModal: vi.fn(),
+    closeCodexSubagentInspector: vi.fn(() => {
+      mockState.codexSubagentInspector = null;
+    }),
     setSidebarOpen: vi.fn(),
     setActiveTab: vi.fn(),
     openSessionSearch: vi.fn(),
@@ -216,6 +222,12 @@ vi.mock("./components/TopBar.js", () => ({
         Universal Search
       </button>
     </div>
+  ),
+}));
+
+vi.mock("./components/CodexSubagentInspector.js", () => ({
+  CodexSubagentInspector: ({ sessionId }: { sessionId: string }) => (
+    <div data-testid="codex-subagent-inspector-host" data-session-id={sessionId} />
   ),
 }));
 
@@ -401,6 +413,33 @@ describe("App hidden panels", () => {
     expect(screen.getByTestId("task-panel")).toBeInTheDocument();
   });
 
+  it("hosts the native Codex inspector outside ChatView while the Diff tab is active", () => {
+    resetStore({ activeTab: "diff", codexSubagentInspector: { sessionId: "s1" } });
+
+    render(<App />);
+
+    expect(screen.getByTestId("diff-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-view")).toBeNull();
+    expect(screen.getByTestId("codex-subagent-inspector-host")).toHaveAttribute("data-session-id", "s1");
+  });
+
+  it("keeps the inspector bound to its owning session while another session is previewed", () => {
+    resetStore({
+      searchPreviewSessionId: "s2",
+      codexSubagentInspector: { sessionId: "s1" },
+      sdkSessions: [
+        { sessionId: "s1", createdAt: 1, backendType: "codex" },
+        { sessionId: "s2", createdAt: 2, backendType: "codex" },
+      ],
+    });
+
+    render(<App />);
+
+    expect(screen.getByTestId("chat-view")).toHaveAttribute("data-session-id", "s2");
+    expect(screen.getByTestId("chat-view")).toHaveAttribute("data-preview", "true");
+    expect(screen.getByTestId("codex-subagent-inspector-host")).toHaveAttribute("data-session-id", "s1");
+  });
+
   it("does not open Universal Search from the old Standard search shortcut", () => {
     resetStore({
       sidebarOpen: false,
@@ -435,6 +474,22 @@ describe("App hidden panels", () => {
 
     expect(screen.getByTestId("universal-search-overlay")).toBeInTheDocument();
     expect(mockState.openSessionSearch).not.toHaveBeenCalled();
+  });
+
+  it("closes the Codex subagent inspector before a global search shortcut opens", () => {
+    resetStore({
+      codexSubagentInspector: { sessionId: "s1" },
+      shortcutSettings: { enabled: true, preset: "standard", overrides: { search_session: "Ctrl+K" } },
+    });
+
+    render(<App />);
+    expect(screen.getByTestId("codex-subagent-inspector-host")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+
+    expect(mockState.closeCodexSubagentInspector).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("codex-subagent-inspector-host")).toBeNull();
+    expect(screen.getByTestId("universal-search-overlay")).toBeInTheDocument();
   });
 
   it("opens Universal Search from an editable composer target using the configured shortcut", async () => {

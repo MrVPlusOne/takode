@@ -70,6 +70,9 @@ interface MockStoreState {
   sidebarOpen: boolean;
   setSidebarOpen: ReturnType<typeof vi.fn>;
   setSessionInfoOpenSessionId: ReturnType<typeof vi.fn>;
+  codexSubagentInspector: { sessionId: string } | null;
+  openCodexSubagentInspector: ReturnType<typeof vi.fn>;
+  closeCodexSubagentInspector: ReturnType<typeof vi.fn>;
   taskPanelOpen: boolean;
   setTaskPanelOpen: ReturnType<typeof vi.fn>;
   activeTab: "chat" | "diff";
@@ -84,6 +87,7 @@ interface MockStoreState {
       claimedQuestVerificationInboxUnread?: boolean;
       isOrchestrator?: boolean;
       pause?: any;
+      codex_native_subagents?: any;
     }
   >;
   sdkSessions: {
@@ -168,6 +172,9 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sidebarOpen: true,
     setSidebarOpen: vi.fn(),
     setSessionInfoOpenSessionId: vi.fn(),
+    codexSubagentInspector: null,
+    openCodexSubagentInspector: vi.fn(),
+    closeCodexSubagentInspector: vi.fn(),
     taskPanelOpen: false,
     setTaskPanelOpen: vi.fn(),
     activeTab: "chat",
@@ -987,5 +994,72 @@ describe("TopBar", () => {
     expect(screen.getAllByTestId("topbar-universal-search")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Universal Search" }));
     expect(onOpenUniversalSearch).toHaveBeenCalledTimes(1);
+  });
+  it("shows a distinct native Codex subagent badge and opens the shared inspector", () => {
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            cwd: "/repo",
+            backend_type: "codex",
+            codex_native_subagents: {
+              revision: 3,
+              coverage: "partial",
+              session: { total: 5, statusCounts: {}, activeCount: 2, unresolvedCount: 1 },
+              children: [],
+              turns: {},
+            },
+          },
+        ],
+      ]),
+    });
+
+    render(<TopBar />);
+
+    const button = screen.getByTestId("topbar-codex-subagents");
+    expect(button).toHaveAccessibleName(/Codex subagents: 5\+\. partial coverage/i);
+    expect(screen.getByText("5+")).toBeInTheDocument();
+    fireEvent.click(button);
+    expect(storeState.openCodexSubagentInspector).toHaveBeenCalledWith("s1");
+  });
+
+  it("keeps the Codex inspector reachable when the authoritative snapshot is unavailable", () => {
+    resetStore({
+      sessions: new Map([["s1", { cwd: "/repo", backend_type: "codex" }]]),
+    });
+
+    render(<TopBar />);
+
+    const button = screen.getByTestId("topbar-codex-subagents");
+    expect(button).toHaveAccessibleName(/Codex subagents: \?\. Snapshot unavailable/i);
+    fireEvent.click(button);
+    expect(storeState.openCodexSubagentInspector).toHaveBeenCalledWith("s1");
+  });
+
+  it("shows authoritative zero only for complete Codex coverage", () => {
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            cwd: "/repo",
+            backend_type: "codex",
+            codex_native_subagents: {
+              revision: 1,
+              coverage: "complete",
+              session: { total: 0, statusCounts: {}, activeCount: 0, unresolvedCount: 0 },
+              children: [],
+              turns: {},
+            },
+          },
+        ],
+      ]),
+    });
+
+    render(<TopBar />);
+    expect(screen.getByTestId("topbar-codex-subagents")).toHaveAccessibleName(
+      /Codex subagents: 0\. complete coverage/i,
+    );
   });
 });

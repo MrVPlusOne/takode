@@ -18,6 +18,7 @@ import {
 import { navigateTo } from "./utils/navigation.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { ChatView } from "./components/ChatView.js";
+import { CodexSubagentInspector } from "./components/CodexSubagentInspector.js";
 import { TopBar } from "./components/TopBar.js";
 import { EmptyState } from "./components/EmptyState.js";
 import {
@@ -136,6 +137,7 @@ export default function App() {
     serverRestarting,
     serverReachable,
     sdkSessions,
+    codexSubagentInspector,
   } = useStore(
     useShallow((s) => ({
       colorTheme: s.colorTheme,
@@ -151,6 +153,7 @@ export default function App() {
       serverRestarting: s.serverRestarting,
       serverReachable: s.serverReachable,
       sdkSessions: s.sdkSessions,
+      codexSubagentInspector: s.codexSubagentInspector,
     })),
   );
   const hash = useHash();
@@ -202,7 +205,10 @@ export default function App() {
   const shortcutTapCandidateRef = useRef<string | null>(null);
   const shortcutLastTapRef = useRef<{ key: string; time: number; target: EventTarget | null } | null>(null);
   const shortcutTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const openUniversalSearch = useCallback(() => setUniversalSearchOpen(true), []);
+  const openUniversalSearch = useCallback(() => {
+    useStore.getState().closeCodexSubagentInspector();
+    setUniversalSearchOpen(true);
+  }, []);
   const closeUniversalSearch = useCallback(() => setUniversalSearchOpen(false), []);
   const universalSearchThreadKey = route.page === "session" ? (threadRoute.threadKey ?? "main") : null;
 
@@ -806,6 +812,12 @@ export default function App() {
         newSessionDefaultsKey={newSessionModalState?.newSessionDefaultsKey}
         onClose={() => useStore.getState().closeNewSessionModal()}
       />
+
+      {/* Session-global native Codex inspector. It lives outside ChatView so it remains
+          available over Diff, plan review, and search-preview surfaces. */}
+      {isSessionView && codexSubagentInspector && (
+        <CodexSubagentInspector sessionId={codexSubagentInspector.sessionId} />
+      )}
 
       {/* Global quest detail overlay */}
       <QuestDetailPanel />

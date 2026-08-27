@@ -50,8 +50,7 @@ type TerminalInteractionToolUse = {
 };
 
 export class CodexItemEventManager {
-  private streamingText = "";
-  private streamingItemId: string | null = null;
+  private streamingTextByItemId = new Map<string, string>();
 
   private commandStartTimes = new Map<string, number>();
   private commandOutputByItemId = new Map<string, string>();
@@ -83,8 +82,7 @@ export class CodexItemEventManager {
   ) {}
 
   dispose(): void {
-    this.streamingText = "";
-    this.streamingItemId = null;
+    this.streamingTextByItemId.clear();
     this.commandStartTimes.clear();
     this.commandOutputByItemId.clear();
     this.planSignatureByKey.clear();
@@ -160,8 +158,7 @@ export class CodexItemEventManager {
 
     switch (item.type) {
       case "agentMessage":
-        this.streamingItemId = item.id;
-        this.streamingText = "";
+        this.streamingTextByItemId.set(item.id, "");
         this.emit({
           type: "stream_event",
           event: {
@@ -298,7 +295,9 @@ export class CodexItemEventManager {
     const delta = params.delta as string;
     if (!delta) return;
 
-    this.streamingText += delta;
+    if (!itemId) return;
+    const currentText = this.streamingTextByItemId.get(itemId) ?? "";
+    this.streamingTextByItemId.set(itemId, currentText + delta);
     this.emit({
       type: "stream_event",
       event: {
@@ -414,7 +413,7 @@ export class CodexItemEventManager {
     switch (item.type) {
       case "agentMessage": {
         const agentMsg = item as CodexAgentMessageItem;
-        const text = agentMsg.text || this.streamingText;
+        const text = agentMsg.text || this.streamingTextByItemId.get(item.id) || "";
         const completedAt = Date.now();
 
         this.emit({
@@ -449,8 +448,7 @@ export class CodexItemEventManager {
           timestamp: completedAt,
         });
         this.markMessageFinished(completedAt);
-        this.streamingText = "";
-        this.streamingItemId = null;
+        this.streamingTextByItemId.delete(item.id);
         break;
       }
 

@@ -129,6 +129,7 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
   const sessionAttention = new Map(s.sessionAttention);
   sessionAttention.delete(sessionId);
   const sessionInfoOpenSessionId = s.sessionInfoOpenSessionId === sessionId ? null : s.sessionInfoOpenSessionId;
+  const codexSubagentInspector = s.codexSubagentInspector?.sessionId === sessionId ? null : s.codexSubagentInspector;
 
   scopedSetItem("cc-session-names", JSON.stringify(Array.from(sessionNames.entries())));
   if (s.currentSessionId === sessionId) {
@@ -200,6 +201,7 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
     collapsibleTurnIds,
     sessionAttention,
     sessionInfoOpenSessionId,
+    codexSubagentInspector,
     sdkSessions: s.sdkSessions.filter((sdk) => sdk.sessionId !== sessionId),
     currentSessionId: s.currentSessionId === sessionId ? null : s.currentSessionId,
   };

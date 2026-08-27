@@ -21,6 +21,7 @@ type ExistingThreadMetadataSource = {
   slackThreadId?: string;
   threadRoutingError?: NonNullable<ChatMessage["metadata"]>["threadRoutingError"];
   threadStatusMarkers?: NonNullable<ChatMessage["metadata"]>["threadStatusMarkers"];
+  codexSubagent?: NonNullable<ChatMessage["metadata"]>["codexSubagent"];
 };
 
 export function extractTextFromBlocks(blocks: ContentBlock[]): string {
@@ -128,7 +129,14 @@ function repairThreadPrefixInContentBlocks(blocks: ContentBlock[]): {
 }
 
 function existingThreadMetadataFromMessage(msg: ExistingThreadMetadataSource): ChatMessage["metadata"] | undefined {
-  if (!msg.threadRefs && !msg.threadKey && !msg.questId && !msg.threadRoutingError && !msg.threadStatusMarkers) {
+  if (
+    !msg.threadRefs &&
+    !msg.threadKey &&
+    !msg.questId &&
+    !msg.threadRoutingError &&
+    !msg.threadStatusMarkers &&
+    !msg.codexSubagent
+  ) {
     return undefined;
   }
   return {
@@ -138,6 +146,7 @@ function existingThreadMetadataFromMessage(msg: ExistingThreadMetadataSource): C
     ...(msg.slackThreadId ? { slackThreadId: msg.slackThreadId } : {}),
     ...(msg.threadRoutingError ? { threadRoutingError: msg.threadRoutingError } : {}),
     ...(msg.threadStatusMarkers ? { threadStatusMarkers: msg.threadStatusMarkers } : {}),
+    ...(msg.codexSubagent ? { codexSubagent: msg.codexSubagent } : {}),
   };
 }
 
@@ -243,6 +252,7 @@ export function normalizeHistoryMessageToChatMessages(
       ...(histMsg.questId ? { questId: histMsg.questId } : {}),
       ...(histMsg.slackThreadId ? { slackThreadId: histMsg.slackThreadId } : {}),
       ...(histMsg.threadRoutingError ? { threadRoutingError: histMsg.threadRoutingError } : {}),
+      ...(histMsg.codexSubagent ? { codexSubagent: histMsg.codexSubagent } : {}),
     };
     const localImages =
       typeof histMsg.client_msg_id === "string"

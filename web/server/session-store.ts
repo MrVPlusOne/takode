@@ -87,6 +87,8 @@ export interface PersistedSession {
   id: string;
   state: SessionState;
   messageHistory: BrowserIncomingMessage[];
+  /** Server-only native Codex child registry, including provider identity needed for replay/history lookup. */
+  codexNativeSubagents?: import("./codex-native-subagent-state.js").CodexNativeSubagentRegistry;
   pendingMessages: string[];
   forceCompactPending?: boolean;
   pendingCodexTurns?: CodexOutboundTurn[];
@@ -361,6 +363,7 @@ export class SessionStore {
       id: hot.id,
       state: hot.state,
       messageHistory: [],
+      codexNativeSubagents: hot.codexNativeSubagents,
       pendingMessages: [],
       pendingPermissions: [],
       toolResults: [],

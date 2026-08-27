@@ -72,6 +72,7 @@ export const MessageBubble = memo(function MessageBubble({
   currentThreadKey,
   onSelectThread,
   showSideChatActions = true,
+  interactionMode = "default",
   backendType,
 }: {
   message: ChatMessage;
@@ -80,6 +81,7 @@ export const MessageBubble = memo(function MessageBubble({
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   showSideChatActions?: boolean;
+  interactionMode?: "default" | "read-only";
   backendType?: "claude" | "codex" | "claude-sdk";
 }) {
   // Search highlight state -- must be called unconditionally (hooks can't be after early returns)
@@ -261,6 +263,7 @@ export const MessageBubble = memo(function MessageBubble({
         showTimestamp={showTimestamp}
         searchHighlight={searchHighlight}
         currentThreadKey={currentThreadKey}
+        readOnly={interactionMode === "read-only"}
       />
     );
   }
@@ -274,7 +277,8 @@ export const MessageBubble = memo(function MessageBubble({
       searchHighlight={searchHighlight}
       currentThreadKey={currentThreadKey}
       onSelectThread={onSelectThread}
-      showSideChatActions={showSideChatActions}
+      showSideChatActions={showSideChatActions && interactionMode !== "read-only"}
+      readOnly={interactionMode === "read-only"}
       isCodexSession={isCodexSession}
     />
   );
@@ -813,12 +817,14 @@ function UserMessage({
   showTimestamp,
   searchHighlight,
   currentThreadKey,
+  readOnly,
 }: {
   message: ChatMessage;
   sessionId?: string;
   showTimestamp: boolean;
   searchHighlight?: SearchHighlightInfo;
   currentThreadKey?: string;
+  readOnly: boolean;
 }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
@@ -859,7 +865,7 @@ function UserMessage({
 
   return (
     <div className="relative flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out]">
-      {starred && (
+      {!readOnly && starred && (
         <span className="pointer-events-none absolute left-0 top-2.5 z-20 flex w-10 items-center sm:w-[calc(20%_-_0.375rem)] sm:max-w-40">
           <StarredMessageRailMarker
             side="user"
@@ -941,7 +947,9 @@ function UserMessage({
         </CollapsibleContent>
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
       </div>
-      {!message.pendingState && <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />}
+      {!readOnly && !message.pendingState && (
+        <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />
+      )}
       {lightboxSrc && <Lightbox src={lightboxSrc} alt="attachment" onClose={() => setLightboxSrc(null)} />}
     </div>
   );
@@ -1036,6 +1044,7 @@ function AssistantMessage({
   currentThreadKey,
   onSelectThread,
   showSideChatActions,
+  readOnly,
   isCodexSession,
 }: {
   message: ChatMessage;
@@ -1045,6 +1054,7 @@ function AssistantMessage({
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   showSideChatActions: boolean;
+  readOnly: boolean;
   isCodexSession: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
@@ -1068,9 +1078,9 @@ function AssistantMessage({
       projectAssistantMessageForRendering(message, {
         isCodexSession,
         hasAnchoredNotification: resolvedNotification != null,
-        hasVisibleSideChat: sideChat != null,
+        hasVisibleSideChat: !readOnly && sideChat != null,
       }),
-    [isCodexSession, message, resolvedNotification, sideChat],
+    [isCodexSession, message, readOnly, resolvedNotification, sideChat],
   );
   const blocks = projection.blocks;
   const grouped = useMemo(() => groupContentBlocks(blocks), [blocks]);
@@ -1086,7 +1096,7 @@ function AssistantMessage({
   const firstContentGroupIndex = projection.shouldRenderContentFallback
     ? -1
     : renderedGroups.findIndex((group) => group.kind === "content");
-  const showRailMarker = starred || !hidePaw;
+  const showRailMarker = !readOnly && (starred || !hidePaw);
   const unstarFromRail = starAction.actionable && starAction.starred ? starAction.toggleStarred : undefined;
 
   if (!projection.renderable) return null;
@@ -1100,7 +1110,7 @@ function AssistantMessage({
           (starred ? <StarredMessageRailMarker side="assistant" onUnstar={unstarFromRail} /> : <PawTrailAvatar />)}
         <div ref={contentRef} className="flex-1 min-w-0">
           {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
-          {hasTextContent && (
+          {!readOnly && hasTextContent && (
             <AssistantMessageMenu
               message={message}
               contentRef={contentRef}
@@ -1113,10 +1123,10 @@ function AssistantMessage({
             text={projection.fallbackText}
             sessionId={sessionId}
             searchHighlight={searchHighlight}
-            enableChatSelectionMenu
+            enableChatSelectionMenu={!readOnly}
           />
           <ImagePreviewGroup images={assistantImagePreviewItems} testId="assistant-image-preview-group" />
-          {resolvedNotification && (
+          {!readOnly && resolvedNotification && (
             <NotificationMarker
               category={resolvedNotification.category}
               summary={resolvedNotification.summary}
@@ -1144,7 +1154,7 @@ function AssistantMessage({
         {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
         {projection.shouldRenderContentFallback && (
           <div className="flow-root">
-            {hasTextContent && (
+            {!readOnly && hasTextContent && (
               <AssistantMessageMenu
                 message={message}
                 contentRef={contentRef}
@@ -1157,7 +1167,7 @@ function AssistantMessage({
               text={projection.fallbackText}
               sessionId={sessionId}
               searchHighlight={searchHighlight}
-              enableChatSelectionMenu
+              enableChatSelectionMenu={!readOnly}
             />
           </div>
         )}
@@ -1173,18 +1183,21 @@ function AssistantMessage({
                 suppressNotificationMarker={suppressToolNotificationMarker}
                 currentThreadKey={currentThreadKey}
                 onSelectThread={onSelectThread}
+                readOnly={readOnly}
               />
             );
             if (!projection.shouldRenderContentFallback && hasTextContent && i === firstContentGroupIndex) {
               return (
                 <div key={i} className="flow-root">
-                  <AssistantMessageMenu
-                    message={message}
-                    contentRef={contentRef}
-                    sessionId={sessionId}
-                    currentThreadKey={currentThreadKey}
-                    showSideChatActions={showSideChatActions}
-                  />
+                  {!readOnly && (
+                    <AssistantMessageMenu
+                      message={message}
+                      contentRef={contentRef}
+                      sessionId={sessionId}
+                      currentThreadKey={currentThreadKey}
+                      showSideChatActions={showSideChatActions}
+                    />
+                  )}
                   {renderedBlock}
                 </div>
               );
@@ -1208,6 +1221,7 @@ function AssistantMessage({
                     suppressNotificationMarker={suppressToolNotificationMarker}
                     currentThreadKey={currentThreadKey}
                     onSelectThread={onSelectThread}
+                    readOnly={readOnly}
                   />
                 ))}
               </CompactToolActivity>
@@ -1222,11 +1236,12 @@ function AssistantMessage({
               suppressNotificationMarker={suppressToolNotificationMarker}
               currentThreadKey={currentThreadKey}
               onSelectThread={onSelectThread}
+              readOnly={readOnly}
             />
           );
         })}
         <ImagePreviewGroup images={assistantImagePreviewItems} testId="assistant-image-preview-group" />
-        {resolvedNotification && (
+        {!readOnly && resolvedNotification && (
           <NotificationMarker
             category={resolvedNotification.category}
             summary={resolvedNotification.summary}
@@ -1237,7 +1252,7 @@ function AssistantMessage({
             onSelectThread={onSelectThread}
           />
         )}
-        {compactInlineNotificationCategory && (
+        {!readOnly && compactInlineNotificationCategory && (
           <NotificationMarker
             category={compactInlineNotificationCategory}
             sessionId={sessionId}
@@ -1260,6 +1275,7 @@ function DetailedToolGroup({
   suppressNotificationMarker,
   currentThreadKey,
   onSelectThread,
+  readOnly,
 }: {
   group: Extract<GroupedBlock, { kind: "tool_group" }>;
   sessionId?: string;
@@ -1267,6 +1283,7 @@ function DetailedToolGroup({
   suppressNotificationMarker: boolean;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
+  readOnly: boolean;
 }) {
   if (group.items.length === 1) {
     const item = group.items[0];
@@ -1280,6 +1297,7 @@ function DetailedToolGroup({
         suppressNotificationMarker={suppressNotificationMarker}
         currentThreadKey={currentThreadKey}
         onSelectThread={onSelectThread}
+        disableInlineSpecialCases={readOnly}
       />
     );
   }
@@ -1293,6 +1311,7 @@ function DetailedToolGroup({
       suppressNotificationMarker={suppressNotificationMarker}
       currentThreadKey={currentThreadKey}
       onSelectThread={onSelectThread}
+      readOnly={readOnly}
     />
   );
 }
@@ -1384,6 +1403,7 @@ function ContentBlockRenderer({
   suppressNotificationMarker = false,
   currentThreadKey,
   onSelectThread,
+  readOnly = false,
 }: {
   block: ContentBlock;
   sessionId?: string;
@@ -1392,6 +1412,7 @@ function ContentBlockRenderer({
   suppressNotificationMarker?: boolean;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
+  readOnly?: boolean;
 }) {
   const isCodex = useStore((s) => (sessionId ? s.sessions.get(sessionId)?.backend_type === "codex" : false));
 
@@ -1401,7 +1422,7 @@ function ContentBlockRenderer({
         text={block.text}
         sessionId={sessionId}
         searchHighlight={searchHighlight}
-        enableChatSelectionMenu
+        enableChatSelectionMenu={!readOnly}
       />
     );
   }
@@ -1421,6 +1442,7 @@ function ContentBlockRenderer({
         suppressNotificationMarker={suppressNotificationMarker}
         currentThreadKey={currentThreadKey}
         onSelectThread={onSelectThread}
+        disableInlineSpecialCases={readOnly}
       />
     );
   }
@@ -1450,6 +1472,7 @@ function ToolGroupBlock({
   suppressNotificationMarker = false,
   currentThreadKey,
   onSelectThread,
+  readOnly = false,
 }: {
   name: string;
   items: ToolGroupItem[];
@@ -1458,6 +1481,7 @@ function ToolGroupBlock({
   suppressNotificationMarker?: boolean;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
+  readOnly?: boolean;
 }) {
   const [open, setOpen] = useState(true);
   const headerRef = useRef<HTMLButtonElement>(null);
@@ -1480,6 +1504,7 @@ function ToolGroupBlock({
             suppressNotificationMarker={suppressNotificationMarker}
             currentThreadKey={currentThreadKey}
             onSelectThread={onSelectThread}
+            disableInlineSpecialCases={readOnly}
           />
         ))}
       </div>
@@ -1521,6 +1546,7 @@ function ToolGroupBlock({
               suppressNotificationMarker={suppressNotificationMarker}
               currentThreadKey={currentThreadKey}
               onSelectThread={onSelectThread}
+              disableInlineSpecialCases={readOnly}
             />
           ))}
           <CollapseFooter headerRef={headerRef} onCollapse={() => setOpen(false)} />

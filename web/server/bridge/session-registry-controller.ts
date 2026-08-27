@@ -18,6 +18,13 @@ import type {
 import { detectQuestEvent } from "./quest-detector.js";
 import { normalizePersistedRecoveryDeliveryTransfers } from "./recovery-delivery-transfer.js";
 import {
+  createCodexNativeSubagentRegistry,
+  deriveCodexNativeSubagentSnapshot,
+  markRestoredCodexNativeSubagentsUnknown,
+  normalizeCodexNativeSubagentRegistry,
+  type CodexNativeSubagentRegistry,
+} from "../codex-native-subagent-state.js";
+import {
   clearAttentionAndMarkRead,
   deriveNotificationStatusUpdatedAt,
   getNotificationStatusSnapshot,
@@ -105,6 +112,7 @@ export interface SessionRegistryDeps {
 type SessionRuntimeOptions = {
   pendingPermissions?: Map<string, any>;
   messageHistory?: BrowserIncomingMessage[];
+  codexNativeSubagents?: CodexNativeSubagentRegistry;
   frozenCount?: number;
   pendingMessages?: string[];
   forceCompactPending?: boolean;
@@ -162,6 +170,7 @@ function createSessionRuntime(
     pendingPermissions: options.pendingPermissions ?? new Map(),
     pendingControlRequests: new Map(),
     messageHistory: options.messageHistory ?? [],
+    codexNativeSubagents: options.codexNativeSubagents ?? createCodexNativeSubagentRegistry(sessionId),
     frozenCount: options.frozenCount ?? 0,
     pendingMessages: options.pendingMessages ?? [],
     forceCompactPending: options.forceCompactPending ?? false,
@@ -402,6 +411,8 @@ export function prepareSessionForRevert(
   if (options?.clearCodexState) {
     session.pendingCodexTurns = [];
     session.pendingCodexInputs = [];
+    session.codexNativeSubagents = createCodexNativeSubagentRegistry(session.id);
+    session.state.codex_native_subagents = deriveCodexNativeSubagentSnapshot(session.codexNativeSubagents);
     session.pendingCodexRollback = null;
     session.pendingCodexRollbackError = null;
     if (session.optimisticRunningTimer) {
@@ -559,6 +570,7 @@ export async function restorePersistedSessions(
       const session = createSessionRuntime(p.id, p.state.backend_type || "claude", p.state, {
         pendingPermissions: new Map(),
         messageHistory: [],
+        codexNativeSubagents: normalizeCodexNativeSubagentRegistry(p.codexNativeSubagents, p.id),
         frozenCount: 0,
         pendingMessages: [],
         forceCompactPending: false,
@@ -597,6 +609,8 @@ export async function restorePersistedSessions(
       session.state.backend_type = session.backendType;
       session.state.backend_state = session.state.backend_state ?? "disconnected";
       session.state.backend_error = session.state.backend_error ?? null;
+      markRestoredCodexNativeSubagentsUnknown(session.codexNativeSubagents);
+      session.state.codex_native_subagents = deriveCodexNativeSubagentSnapshot(session.codexNativeSubagents);
       session.searchDataOnly = true;
       session.searchExcerpts = p._searchExcerpts ?? [];
       sessions.set(p.id, session);
@@ -610,6 +624,7 @@ export async function restorePersistedSessions(
     const session = createSessionRuntime(p.id, p.state.backend_type || "claude", p.state, {
       pendingPermissions: new Map(p.pendingPermissions || []),
       messageHistory: p.messageHistory || [],
+      codexNativeSubagents: normalizeCodexNativeSubagentRegistry(p.codexNativeSubagents, p.id),
       frozenCount:
         typeof p._frozenCount === "number" ? Math.max(0, Math.min(p._frozenCount, (p.messageHistory || []).length)) : 0,
       pendingMessages: p.pendingMessages || [],
@@ -680,6 +695,8 @@ export async function restorePersistedSessions(
     session.state.backend_type = session.backendType;
     session.state.backend_state = session.state.backend_state ?? "disconnected";
     session.state.backend_error = session.state.backend_error ?? null;
+    markRestoredCodexNativeSubagentsUnknown(session.codexNativeSubagents);
+    session.state.codex_native_subagents = deriveCodexNativeSubagentSnapshot(session.codexNativeSubagents);
 
     for (const perm of session.pendingPermissions.values()) {
       if (perm.evaluating) perm.evaluating = undefined;
@@ -774,6 +791,7 @@ export function buildPersistedSessionPayload(session: SessionLike): PersistedSes
     id: session.id,
     state: session.state,
     messageHistory: session.messageHistory,
+    codexNativeSubagents: session.codexNativeSubagents,
     pendingMessages: session.pendingMessages,
     forceCompactPending: session.forceCompactPending,
     pendingCodexTurns: session.pendingCodexTurns,

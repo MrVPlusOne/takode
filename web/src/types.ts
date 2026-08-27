@@ -279,6 +279,7 @@ export interface ChatMessage {
     };
     attentionRecord?: SessionAttentionRecord;
     codexAutoPauseRecoverySummary?: CodexAutoPauseRecoverySummary;
+    codexSubagent?: import("../shared/codex-native-subagent-types.js").CodexNativeSubagentOwnership;
     codexReasoningDetail?: {
       status: "streaming" | "complete";
       reasoningTurnId?: string;

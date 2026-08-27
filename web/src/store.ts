@@ -262,6 +262,7 @@ export const useStore = create<AppState>((set, get) => ({
   shortcutSettings: getInitialShortcutSettings(),
   sidebarOpen: typeof window !== "undefined" ? isDesktopShellLayout(getInitialZoomLevel()) : true,
   sessionInfoOpenSessionId: null,
+  codexSubagentInspector: null,
   reorderMode: false,
   sessionSortMode:
     typeof window !== "undefined" && localStorage.getItem("cc-session-sort-mode") === "activity"
@@ -432,12 +433,25 @@ export const useStore = create<AppState>((set, get) => ({
   setSidebarOpen: (v) => set({ sidebarOpen: v }),
   setSessionInfoOpenSessionId: (sessionId) =>
     set((s) => (s.sessionInfoOpenSessionId === sessionId ? s : { sessionInfoOpenSessionId: sessionId })),
+  openCodexSubagentInspector: (sessionId, options) =>
+    set({
+      codexSubagentInspector: { sessionId, ...options },
+      sessionInfoOpenSessionId: null,
+      taskPanelOpen: false,
+    }),
+  selectCodexSubagentInspectorChild: (childId) =>
+    set((s) =>
+      s.codexSubagentInspector
+        ? { codexSubagentInspector: { ...s.codexSubagentInspector, selectedChildId: childId ?? undefined } }
+        : s,
+    ),
+  closeCodexSubagentInspector: () => set({ codexSubagentInspector: null }),
   setReorderMode: (v) => set({ reorderMode: v }),
   setSessionSortMode: (mode) => {
     localStorage.setItem("cc-session-sort-mode", mode);
     set({ sessionSortMode: mode });
   },
-  setTaskPanelOpen: (open) => set({ taskPanelOpen: open }),
+  setTaskPanelOpen: (open) => set({ taskPanelOpen: open, ...(open ? { codexSubagentInspector: null } : {}) }),
   setSearchPreviewSessionId: (sessionId) => set({ searchPreviewSessionId: sessionId }),
   openNewSessionModal: (opts) => set({ newSessionModalState: opts ?? {} }),
   closeNewSessionModal: () => set({ newSessionModalState: null }),
@@ -456,6 +470,8 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setCurrentSession: (id) => {
+    const inspector = get().codexSubagentInspector;
+    if (inspector && inspector.sessionId !== id) set({ codexSubagentInspector: null });
     // Don't persist pending session IDs to localStorage — they're in-memory only
     // and would cause "Session not found" on page refresh
     if (id && !id.startsWith("pending-")) {
@@ -1902,6 +1918,7 @@ export const useStore = create<AppState>((set, get) => ({
       treeAssignments: new Map(),
       treeNodeOrder: new Map(),
       sessionInfoOpenSessionId: null,
+      codexSubagentInspector: null,
       activeTab: "chat" as const,
       diffPanelSelectedFile: new Map(),
       feedScrollPosition: new Map(),

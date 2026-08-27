@@ -1384,6 +1384,28 @@ describe("MessageBubble - assistant messages", () => {
     expect(screen.getByText("Ready for review")).toBeTruthy();
   });
 
+  it("keeps ordinary grouped tools inert in read-only child history", () => {
+    // Two consecutive Bash calls take the multi-item ToolGroupBlock path. The
+    // inspector must render their raw audit rows without activating Takode's
+    // live notification/board special cases against the root session.
+    const msg = makeMessage({
+      id: "child-grouped-review-tools",
+      role: "assistant",
+      content: "",
+      contentBlocks: [
+        { type: "tool_use", id: "child-review-1", name: "Bash", input: { command: "takode notify review first" } },
+        { type: "tool_use", id: "child-review-2", name: "Bash", input: { command: "takode notify review second" } },
+      ],
+    });
+
+    render(<MessageBubble message={msg} sessionId="root-session" interactionMode="read-only" />);
+
+    expect(screen.queryByRole("button", { name: "Mark as reviewed" })).toBeNull();
+    expect(screen.queryByText("Ready for review")).toBeNull();
+    expect(screen.getByText("takode notify review first")).toBeTruthy();
+    expect(screen.getByText("takode notify review second")).toBeTruthy();
+  });
+
   it("keeps notification UI visible outside a compacted notify command", () => {
     // Compact mode hides the Bash chip, but the separately rendered notification panel must remain actionable.
     useStore.setState({ compactToolActivity: true });

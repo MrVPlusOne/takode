@@ -87,7 +87,10 @@ function maybeRecordDelegateLiveActivity(session: CodexBrowserMessageSessionLike
   if (!session.state?.delegateChild?.delegateId) return;
   const timestamp = Date.now();
   if (msg.type === "stream_event") {
-    const event = msg.event as { type?: unknown; delta?: { type?: unknown; text?: unknown; thinking?: unknown } };
+    const event = msg.event as {
+      type?: unknown;
+      delta?: { type?: unknown; text?: unknown; thinking?: unknown };
+    };
     if (event?.type !== "content_block_delta") return;
     const text =
       event.delta?.type === "text_delta" && typeof event.delta.text === "string"
@@ -465,7 +468,10 @@ function withCodexLeaderDisplayBudget(
     positiveInteger(patch.codex_leader_recycle_threshold_tokens) ??
     positiveInteger(session.state?.codex_leader_recycle_threshold_tokens);
   if (!thresholdTokens) return patch;
-  const next: Record<string, unknown> = { ...patch, codex_leader_recycle_threshold_tokens: thresholdTokens };
+  const next: Record<string, unknown> = {
+    ...patch,
+    codex_leader_recycle_threshold_tokens: thresholdTokens,
+  };
   const tokenDetails = next.codex_token_details;
   if (tokenDetails && typeof tokenDetails === "object") {
     const details = tokenDetails as Record<string, unknown>;
@@ -527,9 +533,11 @@ function preserveExistingTurnMetrics(
   return next;
 }
 
-function getLatestThresholdRecycleWatermark(
-  launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
-): { contextTokensUsed: number; recycleThresholdTokens?: number; nextCliSessionId?: string } | null {
+function getLatestThresholdRecycleWatermark(launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined): {
+  contextTokensUsed: number;
+  recycleThresholdTokens?: number;
+  nextCliSessionId?: string;
+} | null {
   const recycleEvents = launcherInfo?.codexLeaderRecycleLineage?.recycleEvents;
   if (!Array.isArray(recycleEvents) || recycleEvents.length === 0) return null;
   for (let index = recycleEvents.length - 1; index >= 0; index -= 1) {
@@ -699,6 +707,120 @@ async function maybeRecycleCodexLeaderForContextWindowExhaustion(
   return true;
 }
 
+function routeForCodexSubagentMessage(
+  session: CodexBrowserMessageSessionLike,
+  message: BrowserIncomingMessage,
+): ThreadRouteMetadata | null {
+  const rootTurnId = message.codexSubagent?.rootTurnId;
+  if (!rootTurnId) return null;
+  const rootIndex = session.messageHistory.findIndex(
+    (entry: BrowserIncomingMessage) => entry.type === "user_message" && entry.id === rootTurnId,
+  );
+  if (rootIndex < 0) return null;
+  const rootMessage = session.messageHistory[rootIndex] as BrowserIncomingMessage;
+  return routeFromHistoryEntry(rootMessage) ?? inferCurrentThreadRoute(session.messageHistory.slice(0, rootIndex + 1));
+}
+
+function withCodexSubagentRootRoute(
+  session: CodexBrowserMessageSessionLike,
+  message: BrowserIncomingMessage,
+): BrowserIncomingMessage {
+  const route = routeForCodexSubagentMessage(session, message);
+  return route ? (withThreadRoute(message, route) as BrowserIncomingMessage) : message;
+}
+
+function filterNewCodexSubagentToolPreviews(
+  session: CodexBrowserMessageSessionLike,
+  message: BrowserIncomingMessage,
+  previews: unknown[],
+): unknown[] {
+  const childId = message.codexSubagent?.childId;
+  if (!childId) return [];
+  const existingToolIds = new Set<string>();
+  for (const entry of session.messageHistory as BrowserIncomingMessage[]) {
+    if (entry.type !== "tool_result_preview" || entry.codexSubagent?.childId !== childId) continue;
+    for (const preview of entry.previews) existingToolIds.add(preview.tool_use_id);
+  }
+  return previews.filter((preview) => {
+    const toolUseId =
+      preview && typeof preview === "object" && typeof (preview as { tool_use_id?: unknown }).tool_use_id === "string"
+        ? (preview as { tool_use_id: string }).tool_use_id
+        : null;
+    return !!toolUseId && !existingToolIds.has(toolUseId);
+  });
+}
+
+/**
+ * Child-owned Codex rows are chronological audit data, not root-agent output.
+ * Keep them out of leader routing, quest command/status, recent-ask, retry, and
+ * root reasoning-preview state while preserving stable message identity.
+ */
+async function handleCodexSubagentOwnedMessage(
+  session: CodexBrowserMessageSessionLike,
+  message: BrowserIncomingMessage,
+  deps: CodexAdapterBrowserMessageDeps,
+): Promise<void> {
+  const routed = withCodexSubagentRootRoute(session, message);
+
+  if (routed.type === "codex_reasoning_detail") {
+    const update = upsertCodexReasoningDetail(session, routed);
+    if (!update.changed) return;
+    deps.persistSession(session);
+    deps.syncSideChatParent?.(session);
+    deps.broadcastToBrowsers(session, update.message);
+    return;
+  }
+
+  if (routed.type === "assistant") {
+    const timestamp = typeof routed.timestamp === "number" ? routed.timestamp : Date.now();
+    let outgoing: AssistantBrowserMessage | null = { ...routed, timestamp };
+    const toolResults = (outgoing.message.content ?? []).filter(
+      (block): block is Extract<ContentBlock, { type: "tool_result" }> => block.type === "tool_result",
+    );
+    if (toolResults.length > 0) {
+      const previews = filterNewCodexSubagentToolPreviews(
+        session,
+        routed,
+        deps.buildToolResultPreviews(session, toolResults),
+      );
+      if (previews.length > 0) {
+        const previewMessage = withCodexSubagentRootRoute(session, {
+          type: "tool_result_preview",
+          previews,
+          codexSubagent: routed.codexSubagent,
+        } as BrowserIncomingMessage);
+        session.messageHistory.push(previewMessage);
+        deps.broadcastToBrowsers(session, previewMessage);
+      }
+      const nonResult = outgoing.message.content.filter((block) => block.type !== "tool_result");
+      outgoing =
+        nonResult.length > 0
+          ? ({
+              ...outgoing,
+              message: { ...outgoing.message, content: nonResult },
+            } as AssistantBrowserMessage)
+          : null;
+    }
+    if (outgoing && !deps.isDuplicateCodexAssistantReplay(session, outgoing)) {
+      session.messageHistory.push(outgoing);
+      deps.broadcastToBrowsers(session, outgoing);
+    }
+    deps.persistSession(session);
+    deps.syncSideChatParent?.(session);
+    return;
+  }
+
+  if (routed.type === "tool_progress" && typeof routed.output_delta === "string" && routed.output_delta.length > 0) {
+    const previous = session.toolProgressOutput.get(routed.tool_use_id) || "";
+    const merged = previous + routed.output_delta;
+    session.toolProgressOutput.set(
+      routed.tool_use_id,
+      merged.length > TOOL_PROGRESS_OUTPUT_LIMIT ? merged.slice(-TOOL_PROGRESS_OUTPUT_LIMIT) : merged,
+    );
+  }
+  deps.broadcastToBrowsers(session, routed);
+}
+
 export async function handleCodexAdapterBrowserMessage(
   session: CodexBrowserMessageSessionLike,
   msg: BrowserIncomingMessage,
@@ -706,6 +828,10 @@ export async function handleCodexAdapterBrowserMessage(
 ): Promise<void> {
   deps.touchActivity(session.id);
   session.lastCliMessageAt = Date.now();
+  if (msg.codexSubagent) {
+    await handleCodexSubagentOwnedMessage(session, msg, deps);
+    return;
+  }
   deps.clearOptimisticRunningTimer(session, `codex_output:${msg.type}`);
   if (msg.type === "codex_reasoning_detail") {
     const routed = withThreadRoute(msg, routeForCodexReasoningDetail(session, msg));
@@ -759,11 +885,20 @@ export async function handleCodexAdapterBrowserMessage(
       session,
       withCodexLeaderDisplayBudget(session, { ...sanitized, backend_type: "codex" }, launcherInfo),
     );
-    session.state = { ...session.state, ...enriched };
+    const initializedState = session.state.codex_native_subagents
+      ? {
+          ...enriched,
+          codex_native_subagents: session.state.codex_native_subagents,
+        }
+      : enriched;
+    session.state = { ...session.state, ...initializedState };
     session.cliInitReceived = true;
     deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
     deps.persistSession(session);
-    outgoing = { ...msg, session: enriched as unknown as typeof msg.session } as BrowserIncomingMessage;
+    outgoing = {
+      ...msg,
+      session: initializedState as unknown as typeof msg.session,
+    } as BrowserIncomingMessage;
   } else if (msg.type === "session_update") {
     const sanitized = deps.sanitizeCodexSessionPatch(msg.session as unknown as Record<string, unknown>);
     const launcherInfo = deps.getLauncherSessionInfo(session.id);
@@ -776,7 +911,10 @@ export async function handleCodexAdapterBrowserMessage(
     if ("context_used_percent" in enriched || "codex_token_details" in enriched) {
       recordContextUsageHistory(session, "codex_token_usage");
     }
-    outgoing = { ...msg, session: enriched as unknown as typeof msg.session } as BrowserIncomingMessage;
+    outgoing = {
+      ...msg,
+      session: enriched as unknown as typeof msg.session,
+    } as BrowserIncomingMessage;
     deps.cacheSlashCommandState(session, enriched);
     deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
     const recycleThresholdTokens =
@@ -876,7 +1014,11 @@ export async function handleCodexAdapterBrowserMessage(
         const segmentMessageId = segmentIndex === 0 ? resolvedMessageId : `${resolvedMessageId}:route-${segmentIndex}`;
         let normalizedAssistant: AssistantBrowserMessage = {
           ...msg,
-          message: { ...msg.message, id: segmentMessageId, content: routed.content },
+          message: {
+            ...msg.message,
+            id: segmentMessageId,
+            content: routed.content,
+          },
           timestamp,
           ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
           ...(routed.questId ? { questId: routed.questId } : {}),
@@ -912,7 +1054,10 @@ export async function handleCodexAdapterBrowserMessage(
         );
         const threadStatusRecords = statusUpdate.records;
         if (threadStatusRecords.length > 0) {
-          normalizedAssistant = { ...normalizedAssistant, threadStatusMarkers: threadStatusRecords };
+          normalizedAssistant = {
+            ...normalizedAssistant,
+            threadStatusMarkers: threadStatusRecords,
+          };
         }
         const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
           session.messageHistory,
@@ -925,7 +1070,9 @@ export async function handleCodexAdapterBrowserMessage(
         if (statusUpdate.changed) {
           deps.broadcastToBrowsers(session, {
             type: "session_update",
-            session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
+            session: {
+              leaderThreadStatuses: session.state.leaderThreadStatuses,
+            },
           } as BrowserIncomingMessage);
         }
         recordThreadReadyUnreadNotifications(session, threadStatusRecords, deps);
@@ -949,7 +1096,11 @@ export async function handleCodexAdapterBrowserMessage(
     pendingThreadStatusMarkers = routed.threadStatusMarkers;
     const routedMsg = {
       ...msg,
-      message: { ...msg.message, id: resolvedMessageId, content: routed.content },
+      message: {
+        ...msg.message,
+        id: resolvedMessageId,
+        content: routed.content,
+      },
       timestamp,
       ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
       ...(routed.questId ? { questId: routed.questId } : {}),
@@ -985,6 +1136,7 @@ export async function handleCodexAdapterBrowserMessage(
         const previewMsg: BrowserIncomingMessage = {
           type: "tool_result_preview",
           previews,
+          ...(routedMsg.codexSubagent ? { codexSubagent: routedMsg.codexSubagent } : {}),
         } as BrowserIncomingMessage;
         session.messageHistory.push(previewMsg);
         deps.broadcastToBrowsers(session, previewMsg);
@@ -1044,7 +1196,10 @@ export async function handleCodexAdapterBrowserMessage(
     );
     const threadStatusRecords = statusUpdate.records;
     if (threadStatusRecords.length > 0) {
-      normalizedAssistant = { ...normalizedAssistant, threadStatusMarkers: threadStatusRecords };
+      normalizedAssistant = {
+        ...normalizedAssistant,
+        threadStatusMarkers: threadStatusRecords,
+      };
     }
     threadStatusRecordsForUnread = threadStatusRecords;
     leaderThreadStatusesChanged = statusUpdate.changed;
@@ -1126,7 +1281,10 @@ export async function handleCodexAdapterBrowserMessage(
               session: { codex_provider_retry: state },
             }),
         );
-        outgoing = { ...outgoing, data: { ...outgoing.data, codex_provider_retry: retryState } };
+        outgoing = {
+          ...outgoing,
+          data: { ...outgoing.data, codex_provider_retry: retryState },
+        };
       } else {
         clearCodexProviderRetryState(session, completedTurn?.userMessageId, (state) =>
           deps.broadcastToBrowsers(session, {

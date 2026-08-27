@@ -58,6 +58,8 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
       status: null,
       currentPermCount: 0,
       currentSdkState: null,
+      backendType: null,
+      nativeSubagents: null,
       isArchived: false,
       currentHasUnread: false,
       sessionName: null,
@@ -82,6 +84,8 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
     status: state.sessionStatus.get(currentSessionId) ?? null,
     currentPermCount: countUserPermissions(state.pendingPermissions.get(currentSessionId)),
     currentSdkState: currentSessionVm?.state ?? null,
+    backendType: currentSession?.backend_type ?? currentSessionVm?.backendType ?? null,
+    nativeSubagents: currentSession?.codex_native_subagents ?? null,
     isArchived: currentSdkSession?.archived === true,
     currentHasUnread: !!state.sessionAttention.get(currentSessionId),
     sessionName:
@@ -124,6 +128,9 @@ export function TopBar({
     shortcutSettings,
     setSidebarOpen,
     setSessionInfoOpenSessionId,
+    codexSubagentInspector,
+    openCodexSubagentInspector,
+    closeCodexSubagentInspector,
     activeTab,
     setActiveTab,
     activeQuestCount,
@@ -140,6 +147,9 @@ export function TopBar({
       shortcutSettings: s.shortcutSettings,
       setSidebarOpen: s.setSidebarOpen,
       setSessionInfoOpenSessionId: s.setSessionInfoOpenSessionId,
+      codexSubagentInspector: s.codexSubagentInspector,
+      openCodexSubagentInspector: s.openCodexSubagentInspector,
+      closeCodexSubagentInspector: s.closeCodexSubagentInspector,
       activeTab: s.activeTab,
       setActiveTab: s.setActiveTab,
       activeQuestCount:
@@ -164,6 +174,8 @@ export function TopBar({
     status,
     currentPermCount,
     currentSdkState,
+    backendType,
+    nativeSubagents,
     isArchived,
     currentHasUnread,
     sessionName,
@@ -205,10 +217,25 @@ export function TopBar({
   const sessionInfoAnchorRef = useRef<HTMLDivElement | null>(null);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
   const isPaused = !!pause?.pausedAt;
+  const nativeSubagentInspectorOpen = codexSubagentInspector?.sessionId === currentSessionId;
+  const nativeSubagentCountLabel = nativeSubagents
+    ? nativeSubagents.coverage === "partial"
+      ? nativeSubagents.session.total > 0
+        ? `${nativeSubagents.session.total}+`
+        : "?"
+      : String(nativeSubagents.session.total)
+    : "?";
+  const nativeSubagentCoverageLabel = nativeSubagents
+    ? `${nativeSubagents.coverage} coverage.`
+    : "Snapshot unavailable.";
   const currentLeaderActiveSummarySegments = useMemo(
     () => activeBoardSummarySegments(currentLeaderBoard),
     [currentLeaderBoard],
   );
+
+  useEffect(() => {
+    if (!isSessionView && codexSubagentInspector) closeCodexSubagentInspector();
+  }, [closeCodexSubagentInspector, codexSubagentInspector, isSessionView]);
 
   useEffect(() => {
     const openSessionId = infoOpen && isSessionView ? currentSessionId : null;
@@ -260,6 +287,7 @@ export function TopBar({
   const prevHashRef = useRef<string>("");
 
   const handleQuestToggle = useCallback(() => {
+    closeCodexSubagentInspector();
     if (isQuestmasterPage) {
       // Toggle back to previous view (or home)
       const prev = prevHashRef.current;
@@ -273,7 +301,7 @@ export function TopBar({
       prevHashRef.current = window.location.hash;
       navigateTo("/questmaster");
     }
-  }, [isQuestmasterPage]);
+  }, [closeCodexSubagentInspector, isQuestmasterPage]);
   const openLeaderWorkboardViewInPlace = useCallback(
     (view: LeaderWorkboardView) => {
       if (!currentSessionId) return;
@@ -353,7 +381,9 @@ export function TopBar({
           <div ref={sessionInfoAnchorRef} className="flex items-center gap-1.5 min-w-0">
             <button
               onClick={() => {
-                setInfoOpen(!infoOpen);
+                const nextOpen = !infoOpen;
+                setInfoOpen(nextOpen);
+                if (nextOpen) closeCodexSubagentInspector();
               }}
               className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
               aria-label={[
@@ -445,6 +475,34 @@ export function TopBar({
             <span>Completed</span>
           </LeaderWorkboardControlButton>
         )}
+        {currentSessionId && isSessionView && backendType === "codex" && (
+          <button
+            type="button"
+            onClick={() => {
+              setInfoOpen(false);
+              nativeSubagentInspectorOpen
+                ? closeCodexSubagentInspector()
+                : openCodexSubagentInspector(currentSessionId);
+            }}
+            className={`relative flex min-h-7 items-center gap-1 rounded-lg px-2 text-[11px] font-medium transition-colors ${
+              nativeSubagentInspectorOpen
+                ? "bg-cc-active text-cc-primary"
+                : "text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+            }`}
+            aria-label={`Codex subagents: ${nativeSubagentCountLabel}. ${nativeSubagentCoverageLabel}`}
+            title="Open Codex subagents inspector"
+            data-testid="topbar-codex-subagents"
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-4 w-4">
+              <circle cx="4" cy="4" r="1.5" />
+              <circle cx="12" cy="8" r="1.5" />
+              <circle cx="12" cy="13" r="1.5" />
+              <path d="M5.5 4h1A2.5 2.5 0 019 6.5v4A2.5 2.5 0 0011.5 13M9 8h1.5" />
+            </svg>
+            <span className="tabular-nums">{nativeSubagentCountLabel}</span>
+            <span className="hidden lg:inline">Subagents</span>
+          </button>
+        )}
         <GlobalNeedsInputMenu />
         <SearchToggleButton
           isOpen={universalSearchOpen}
@@ -459,7 +517,10 @@ export function TopBar({
             {status === "reverting" && <span className="text-cc-warning font-medium animate-pulse">Reverting...</span>}
             {/* Diffs toggle */}
             <button
-              onClick={() => setActiveTab(activeTab === "diff" ? "chat" : "diff")}
+              onClick={() => {
+                closeCodexSubagentInspector();
+                setActiveTab(activeTab === "diff" ? "chat" : "diff");
+              }}
               className={`relative flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
                 activeTab === "diff"
                   ? "text-cc-primary bg-cc-active"

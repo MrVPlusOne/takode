@@ -80,6 +80,7 @@ import {
 import { clearOrphanedCodexProviderRetryState } from "./codex-provider-retry-state.js";
 import { getQueuedTurnLifecycleEntries, replaceQueuedTurnLifecycleEntries } from "./codex-queued-turn-lifecycle.js";
 import { runCodexSessionMetaBarrier } from "./codex-session-meta-barrier.js";
+import { registerCodexNativeSubagentLifecycle } from "./codex-native-subagent-lifecycle.js";
 export { clearCodexIntentionalRelaunch, markCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 export { maybeFlushQueuedCodexMessages } from "./codex-queued-message-flush.js";
 type InterruptSource = "user" | "leader" | "system";
@@ -279,6 +280,11 @@ export function attachCodexAdapterLifecycle(
     session.codexAdapter.disconnect().catch(() => {});
   }
   session.codexAdapter = adapter;
+  registerCodexNativeSubagentLifecycle(session as any, adapter, {
+    persistSession: (targetSession) => deps.persistSession(targetSession as any),
+    handleBrowserMessage: (targetSession, message) =>
+      deps.handleCodexAdapterBrowserMessage(targetSession as any, message),
+  });
   const launcherInfo = deps.getLauncherSessionInfo(session.id);
   const backendState =
     launcherInfo?.cliSessionId || session.pendingCodexTurns.length > 0 || (session as any).pendingMessages.length > 0
