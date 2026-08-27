@@ -35,22 +35,22 @@ Important stream concepts:
 
 ## Completion handoff
 
-Use `quest complete` for the final completion handoff to `done` with review metadata. In Quest Journey work, implementation, Execute, Code Review, and Port actors stop at their phase boundary; final Memory or the leader normally completes the quest after accepted evidence, debrief metadata, and User review checks are settled. Do not use `quest transition --status done` as a shortcut for completion handoff.
+Use `quest complete` for the final completion handoff to `done` with review metadata. In Quest Journey v2, Work owns all project-tracked delivery, validation, rework, and sync/push duties inside the approved envelope; final Memory or the leader normally completes the quest after accepted evidence, debrief metadata, and User review checks are settled. Do not use `quest transition --status done` as a shortcut for completion handoff.
 
 Before completion:
-- Confirm the implementation is actually complete.
+- Confirm the accepted substantive result is complete, including implementation when the approved scope requires it.
 - Run the required self-checks yourself before handoff. For tracked code/test changes, the current full automated gate is `cd web && bun --no-install run typecheck`, `cd web && bun --no-install run test`, and `cd web && bun --no-install run format:check`.
 - `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now.
 - If a full run is infeasible, document the exception explicitly in your summary or handoff before asking for verification.
 - Worktree sessions must finish the full sync-to-main workflow before running `quest complete` or describing the work as ready for review.
-- If the quest produced zero git-tracked changes, complete it with no User review checks unless the user genuinely needs to inspect or do something after completion. Do not add placeholder Port notes, synced SHA lines, or automated-check results as checks. If you are using the CLI locally and want the completion reminder to omit port noise, pass `quest complete ... --no-code`; that flag is only a local reminder switch and does not persist quest metadata.
+- If the quest produced zero git-tracked changes, complete it with no User review checks unless the user genuinely needs to inspect or do something after completion. Do not add placeholder sync notes, synced SHA lines, or automated-check results as checks. If you are using the CLI locally and want the completion reminder to omit port noise, pass `quest complete ... --no-code`; that flag is only a local reminder switch and does not persist quest metadata.
 - Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work. If they produce git-tracked commits, they must be synced and attached as structured commit metadata like any code change. Do not use `--no-code` for these quests.
 
 ## Final Memory and debrief metadata
 
 Every non-cancelled quest should finish in Memory. Final Memory owns final User review check settlement, durable-state closure, final debrief metadata, quest metadata reconciliation, memory consistency checks, cleanup, and follow-up routing. A quest in `MEMORY` is downstream-unblocking because substantive work is accepted and synced when applicable, but it remains open until Memory finishes.
 
-Final debrief metadata is mandatory for every completed non-cancelled quest. Completion without both a final debrief and a debrief TLDR is incomplete, including zero-tracked-change/data-artifact quests, worktree/Port completions, and leader-owned completion after Outcome Review. Use `--debrief-file` and `--debrief-tldr-file` on `quest complete`, `quest done`, or `quest transition --status done` as appropriate.
+Final debrief metadata is mandatory for every completed non-cancelled quest. Completion without both a final debrief and a debrief TLDR is incomplete, including zero-tracked-change/data-artifact quests, worktree sync completions, and audited leader-owned recovery completion. Use `--debrief-file` and `--debrief-tldr-file` on `quest complete`, `quest done`, or `quest transition --status done` as appropriate.
 
 For every completed non-cancelled quest, prefer structured final debrief metadata over using legacy notes as the outcome summary. If you complete a quest, use `--debrief-file` plus `--debrief-tldr-file`; if the leader controls completion, provide a `Final debrief draft:` and `Debrief TLDR draft:` in the handoff instead. The final debrief body should summarize the user-facing result, important verification, synced commits when relevant, and residual risks; existing `notes` remain for legacy closure details and cancellation reasons. Include the concise human outcome: what changed or was decided, why it matters, the key mechanism or design decision, important validation limits or residual risks, and any genuine user action. The debrief TLDR should stay higher level and self-contained: issue or need, solution shape, why it works, and key decisions or findings. Routine synced SHAs, raw commit IDs, branch names, command lists or transcripts, raw paths, and verification mechanics belong in the body or structured metadata unless they are central to understanding the outcome. If commit metadata or a `Synced SHAs:` handoff already carries exact values, write the TLDR without the hashes.
 
@@ -78,7 +78,7 @@ Do not turn future-agent/system-memory facts into user-facing quiz questions; pr
 
 ## Commit metadata
 
-If the work was ported/synced, Port reports the ordered synced SHAs on a dedicated `Synced SHAs: sha1,sha2` line. Final Memory or the leader attaches those SHAs and final debrief metadata during the completion handoff:
+If Work ported or synchronized tracked changes, the current Work note reports the ordered target SHAs on a dedicated `Synced SHAs: sha1,sha2` line. Final Memory or the leader attaches those SHAs and final debrief metadata during the completion handoff:
 
 ```bash
 quest complete q-N --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md
@@ -90,9 +90,9 @@ Keep code commit metadata separate from memory commit metadata:
 - `--commit <sha>` / `--commits "s1,s2"` attach code repo commits. Use these for synced code, docs, skills, prompts, and template commits.
 - `--memory-commit <sha>` / `--memory-commits "s1,s2"` attach file-based memory repo commits.
 
-Do not leave commit info only in comments. Summary comments and quest feedback can describe the port, but the completion handoff must still attach the SHAs as structured metadata.
+Do not leave commit info only in comments. Summary comments and quest feedback can describe the synchronization, but the completion handoff must still attach the SHAs as structured metadata.
 
-If Port is omitted, keep the Journey explicit and still end in `memory`; do not use fake Port commentary or synced-SHA placeholders.
+When tracked sync is not required, keep the Journey explicit and still end in `memory`; do not invent a separate Port phase, fake port commentary, or synced-SHA placeholders.
 
 If a leader controls the handoff, rely on final Memory for debrief metadata and memory statement, or ask the Memory assignee for `Final debrief draft:` and `Debrief TLDR draft:` if the leader will complete the quest. Do not rely on log parsing or memory.
 
@@ -126,8 +126,8 @@ All three items are required before submitting; skeptic reviewers may verify eac
    - Treat this as a required worker deliverable before you report back that the quest is ready.
 
 3. **User review checks are optional human-owned checks only.** When writing `quest complete --items "..."` or `quest complete --items-file ...`:
-   - Do not include implementation details, tests, Code Review, Execute, Port, push status, post-port verification, Memory closure, or automated verification results.
-   - Put what changed, why it matters, synced/ported status, and automated verification results in phase docs, the consolidated `Summary:` quest feedback comment, structured commit metadata, Port notes, review verdicts, artifacts, or the final debrief instead.
+   - Do not include implementation details, tests, Work sync/push status, post-sync verification, Memory closure, or other automated verification results.
+   - Put what changed, why it matters, synchronized state, and automated verification results in the Work note, separate review-quest verdicts when applicable, the consolidated `Summary:` quest feedback comment, structured commit metadata, artifacts, or the final debrief instead.
    - Include only things the user still needs to inspect or do after completion: "popover appears correctly on mobile", "notification chip matches TimerChip styling", "scroll-to-message highlights the right message".
    - If nothing remains for the user, complete with no `--items`. Empty User review checks are normal and preferred over invented checklist entries.
    - Mid-Journey decisions belong in User Checkpoint, not final User review checks, unless the user explicitly asks for a post-completion follow-up item.

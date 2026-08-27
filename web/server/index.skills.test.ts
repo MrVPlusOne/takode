@@ -344,6 +344,47 @@ describe("index startup skill registration", () => {
     expect(topLevelSource).not.toContain("exact-once replay proof or recovery suppression");
   });
 
+  it("keeps canonical design-to-build rules owned by the lifecycle guide", async () => {
+    const [questDesign, leaderDispatch, orchestration, lifecycle] = await Promise.all([
+      readFile(QUEST_DESIGN_SKILL_PATH, "utf-8"),
+      readFile(LEADER_DISPATCH_SKILL_PATH, "utf-8"),
+      readFile(TAKODE_ORCHESTRATION_SKILL_PATH, "utf-8"),
+      readFile(TAKODE_ORCHESTRATION_QUEST_JOURNEY_PATH, "utf-8"),
+    ]);
+
+    expect(questDesign).toContain("one end-to-end `Goal / Acceptance` in one quest");
+    expect(questDesign).toContain(
+      "same-quest implementation, design-only closure, or a separate implementation successor",
+    );
+    expect(questDesign).toContain("apply the exception and active-successor rules");
+
+    expect(leaderDispatch).toContain("Leaders own user intent and corrections");
+    expect(leaderDispatch).toContain("workers own technical Work and the routine guarded Work -> Memory transition");
+    expect(leaderDispatch).toContain("records and applies the user-approved continuation");
+    expect(leaderDispatch).toContain("returns the current quest to its assigned worker in Work");
+    expect(leaderDispatch).toContain("Apply the separation, reopening, and active-successor rules");
+    expect(leaderDispatch).not.toContain("After Alignment, leaders own advancement.");
+    expect(leaderDispatch).not.toContain("later decision or Execute phase");
+
+    expect(orchestration).toContain("Do not split one design-and-build outcome at its checkpoint");
+    expect(orchestration).toContain("Return the current quest to its assigned worker in Work after the decision");
+    expect(orchestration).toContain("Apply the delivery-evidence checklist");
+    expect(orchestration).toContain("not delivery evidence");
+
+    // Keep full exception and evidence semantics in one lifecycle owner; hot-path skills
+    // carry only their role-specific trigger plus a pointer to this guide.
+    for (const source of [questDesign, leaderDispatch, orchestration]) {
+      expect(source).toContain("quest-journey.md");
+      expect(source).not.toContain("materially distinct risk or audit isolation");
+      expect(source).not.toContain("synchronized commit or artifact evidence");
+    }
+    expect(lifecycle).toContain("genuinely optional or deferred work");
+    expect(lifecycle).toContain("materially distinct risk or audit isolation");
+    expect(lifecycle).toContain("valid implementation successor is already active");
+    expect(lifecycle).toContain("synchronized commit or artifact evidence");
+    expect(lifecycle).toContain("design-only or investigation quests may enter Memory");
+  });
+
   it("keeps the complete Work recovery rule owned by the canonical leader brief", async () => {
     const [leaderBrief, assigneeBrief, leaderDispatch, orchestration, journey, launcher, recoveryPrompts] =
       await Promise.all([

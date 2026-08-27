@@ -378,6 +378,32 @@ afterAll(() => {
 // ─── launch ──────────────────────────────────────────────────────────────────
 
 describe("getOrchestratorGuardrails", () => {
+  it.each(["claude", "codex"] as const)("launches %s leaders with compact design-to-delivery pointers", (backend) => {
+    const guardrails = launcher.getOrchestratorGuardrails(backend);
+
+    // Exercise the launcher-facing path without duplicating the lifecycle owner's
+    // full separation and delivery-evidence checklist.
+    expect(guardrails).toContain("Keep one intended design-and-build outcome in one quest");
+    expect(guardrails).toContain("resume same-quest implementation");
+    expect(guardrails).toContain("close as design-only");
+    expect(guardrails).toContain("create a separate implementation successor");
+    expect(guardrails).toContain("Apply the user-approved continuation");
+    expect(guardrails).toContain("returns the current quest to its assigned worker in Work");
+    expect(guardrails).toContain("Same-quest routing continues implementation");
+    expect(guardrails).toContain("design-only or successor routing closes the current accepted scope");
+    expect(guardrails).toContain("return the current quest to its assigned worker in Work for continuation or closure");
+    expect(guardrails).toContain("Technical Work and that transition remain worker-owned");
+    expect(guardrails).toContain("Verify delivery before claiming testability");
+    expect(guardrails).toContain("Apply the delivery-evidence checklist in `quest-journey.md`");
+    expect(guardrails).toContain("separation, reopening, active-successor, and evidence rules");
+    expect(guardrails).toContain("`~/.companion/quest-journey-phases/user-checkpoint/leader.md`");
+    expect(guardrails).toContain("`~/.companion/quest-journey-phases/work/leader.md`");
+    expect(guardrails).toContain("The Work leader brief remains the complete owner of recovery behavior");
+    expect(guardrails).toContain("That brief owns the complete recovery rule");
+    expect(guardrails).not.toContain("genuinely optional or deferred work");
+    expect(guardrails).not.toContain("accepted Work evidence, synchronized commit or artifact metadata");
+  });
+
   it("returns Claude-family guardrails with skill loading and sub-skill references", () => {
     // getOrchestratorGuardrails returns a trimmed system prompt that references
     // sub-skill files for detailed workflows. Detailed content (worker selection

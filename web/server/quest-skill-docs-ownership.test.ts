@@ -93,7 +93,7 @@ describe("quest skill ownership docs", () => {
     expect(docs).toContain("Questmaster phase feedback as the source of truth for detailed results");
     expect(docs).toContain("name the phase feedback index");
     expect(docs).toContain("User Checkpoint packets");
-    expect(docs).toContain("Port's selected target plus ordered `Synced SHAs:`");
+    expect(docs).toContain("Work's selected target plus ordered `Synced SHAs:`");
     expect(docs).toContain("final Memory's required memory statement");
   });
 

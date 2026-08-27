@@ -16,7 +16,7 @@ Built-in phase directories are seeded into `~/.companion/quest-journey-phases/<p
 |-------|-------------|---------|
 | Alignment | `PLANNING` | Fresh worker gives a concise leader-verification read-in. The leader approves or corrects the authorization envelope once before Work. |
 | Work | `WORKING` | Assigned worker completes the authorized work end-to-end: investigation, implementation, validation, self-review, approved execution, Port/sync/push, iteration, and one current Work note. |
-| User Checkpoint | `USER_CHECKPOINTING` | Visible decision pause when Work needs user authority or judgment outside the approved envelope. The same worker resumes Work after resolution. |
+| User Checkpoint | `USER_CHECKPOINTING` | Visible decision pause when Work needs user authority or judgment outside the approved envelope. The assigned worker resumes the current quest in Work to apply the approved routing; same-quest choices continue implementation. |
 | Memory | `MEMORY` | Final durable closure: memory triage/update/deferral, quest metadata/debrief/quiz/check hygiene, cleanup/follow-up routing, and quest completion. |
 
 Historical v1 phase metadata remains available only so stored Quest Detail timelines and old phase notes render intelligibly.
@@ -35,13 +35,21 @@ The worker keeps one current detailed Work note. Refresh that note for iterative
 
 A recoverable interruption does not create a new or smaller Work occurrence. The canonical Work leader brief at `~/.companion/quest-journey-phases/work/leader.md` owns the recovery-routing rule.
 
+### Design-To-Implementation Continuity
+
+When the user's intended outcome includes both design/research and implementation, keep them in one quest and the same Work occurrence. A User Checkpoint may pause that Work for a design choice, but it does not end the accepted build. The visible checkpoint must state whether each choice authorizes same-quest implementation, design-only closure, or a separate implementation successor. For same-quest implementation, the leader records the user's scope and continuation decision, updates the approved quest scope or metadata and remaining Journey only when needed, clears the wait, and resumes the same worker in Work. Do not ask the worker to infer user intent, silently rewrite it, or enter Memory merely because a design was selected.
+
+If an explicitly design-only quest gains implementation scope before completion, prefer revising and continuing that quest when the result remains one continuous outcome; use normal `quest-design` approval when the expansion materially exceeds the approved envelope. If such a quest was prematurely completed, reopen it by default. Use a separate implementation quest only for genuinely optional or deferred work, a materially different owner or schedule, independent review, materially distinct risk or audit isolation, or an explicit user-approved successor. If a valid implementation successor is already active, do not migrate, duplicate, or rewrite its work.
+
+Before telling the user that a feature is implemented, available, or ready to test, verify the responsible implementation quest and state, accepted Work evidence, synchronized commit or artifact evidence, and any required activation, restart, or deployment state. A design selection, design-memory record, probe, or generic tool result is not delivery evidence. If that evidence is absent, say the feature is not yet delivered before attempting a test. When the accepted outcome still includes implementation or another delivery that requires commit, artifact, or activation evidence, perform the same check before Work enters Memory; design-only or investigation quests may enter Memory once their accepted non-implementation result and validation are complete.
+
 Independent review is no longer an embedded phase. When review materially reduces risk, create a separate quest with its own Alignment -> Work -> Memory flow.
 
 ## User Checkpoint
 
 Use User Checkpoint when Work needs user authority or judgment outside the approved envelope. Apply `leader-decision-communication` before publishing; it owns decision-first wording and the necessity filter. The visible user prompt must remain self-contained: findings, named options, key tradeoffs, recommendation, exact requested answer, and every notification shortcut explained in visible text before `takode notify needs-input` runs.
 
-Link the active board row to the unresolved notification with `--wait-for-input`. Do not answer the decision yourself. After the answer, clear the wait and resume the same worker's Work occurrence. For externally consequential actions, fail closed on edit-only replies, questions, ambiguous approval, changed safety/monitor/stop conditions, or any remaining choice: publish a revised exact packet and wait for fresh explicit approval.
+Link the active board row to the unresolved notification with `--wait-for-input`. Do not answer the decision yourself. After the answer, record and apply the approved continuation, clear the wait, and return the current quest to its assigned worker in Work. Same-quest routing continues implementation; design-only routing settles the accepted design scope; successor routing records or creates the separate implementation quest while the current worker closes the current quest's accepted Work and uses the guarded Work -> Memory transition. For externally consequential actions, fail closed on edit-only replies, questions, ambiguous approval, changed safety/monitor/stop conditions, or any remaining choice: publish a revised exact packet and wait for fresh explicit approval.
 
 ## Work To Memory
 

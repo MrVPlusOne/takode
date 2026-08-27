@@ -275,6 +275,41 @@ describe("buildCompanionInstructions", () => {
 });
 
 describe("getOrchestratorGuardrails", () => {
+  it.each([
+    "claude",
+    "codex",
+  ] as const)("keeps compact design-to-delivery routing in %s leader guardrails", (backend) => {
+    const result = getOrchestratorGuardrails(backend);
+
+    // The generated must-see layer carries the trigger and ownership split, while
+    // the lifecycle guide remains the sole complete exception/evidence owner.
+    expect(result).toContain("Keep one intended design-and-build outcome in one quest");
+    expect(result).toContain("a design User Checkpoint pauses rather than silently ends that Work");
+    expect(result).toContain("resume same-quest implementation");
+    expect(result).toContain("close as design-only");
+    expect(result).toContain("create a separate implementation successor");
+    expect(result).toContain("Apply the user-approved continuation");
+    expect(result).toContain("records and applies the user's continuation choice");
+    expect(result).toContain("returns the current quest to its assigned worker in Work");
+    expect(result).toContain("Same-quest routing continues implementation");
+    expect(result).toContain("design-only or successor routing closes the current accepted scope");
+    expect(result).toContain("return the current quest to its assigned worker in Work for continuation or closure");
+    expect(result).toContain("Technical Work and that transition remain worker-owned");
+    expect(result).toContain("Verify delivery before claiming testability");
+    expect(result).toContain("Apply the delivery-evidence checklist in `quest-journey.md`");
+    expect(result).toContain("not delivery evidence");
+    expect(result).toContain("separation, reopening, active-successor, and evidence rules");
+    expect(result).toContain("compact routing invariants, not a second lifecycle manual");
+    expect(result).toContain("`~/.companion/quest-journey-phases/user-checkpoint/leader.md`");
+    expect(result).toContain("`~/.companion/quest-journey-phases/work/leader.md`");
+    expect(result).toContain("The Work leader brief remains the complete owner of recovery behavior");
+    expect(result).toContain("Work's selected target plus ordered `Synced SHAs:`");
+    expect(result).not.toContain("genuinely optional or deferred work");
+    expect(result).not.toContain("accepted Work evidence, synchronized commit or artifact metadata");
+    expect(result).not.toContain("before Memory/Port");
+    expect(result).not.toContain("Port or Outcome Review");
+  });
+
   it("returns claude-flavored guardrails by default", () => {
     const result = getOrchestratorGuardrails();
     expect(result).toContain("orchestrator agent");

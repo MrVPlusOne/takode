@@ -133,6 +133,10 @@ describe("Quest Journey v2 phase directory loading", () => {
     await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
 
     const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
+    const lifecycle = await readFile(
+      resolve(PACKAGE_ROOT, "..", ".claude", "skills", "takode-orchestration", "quest-journey.md"),
+      "utf-8",
+    );
     const alignment = phases.find((phase) => phase.id === "alignment")!;
     const work = phases.find((phase) => phase.id === "work")!;
     const checkpoint = phases.find((phase) => phase.id === "user-checkpoint")!;
@@ -176,17 +180,51 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(work.leaderBrief).toContain("interrupt the stale turn");
     expect(work.leaderBrief).toContain("exact-once replay proof or recovery suppression");
     expect(work.leaderBrief).toContain("Treat a handoff with uncommitted changes");
+    expect(work.leaderBrief).toContain("authoritative design-to-implementation continuity rule");
+    expect(work.leaderBrief).toContain("before telling the user a feature is implemented, available, or ready to test");
+    expect(work.leaderBrief).toContain("When accepted scope still includes implementation");
     expect(work.leaderBrief).not.toContain("Give the worker the exact approved scope");
-    expect(checkpoint.leaderBrief).toContain("resume the same worker in `WORKING`");
+    expect(checkpoint.leaderBrief).toContain("return the current quest to its assigned worker in `WORKING`");
+    expect(checkpoint.leaderBrief).toContain(
+      "same-quest implementation, design-only closure, or a separate implementation successor",
+    );
+    expect(checkpoint.leaderBrief).toContain("only when the answer requires it");
+    expect(checkpoint.nextLeaderAction).toContain("for continuation or closure");
+    expect(checkpoint.nextLeaderAction).toContain("only when the answer requires it");
     expect(checkpoint.leaderBrief).toContain("`leader-decision-communication` skill");
     expect(checkpoint.leaderBrief).toContain("supporting technical evidence in the phase note");
     expect(checkpoint.leaderBrief).toContain("visible decision section before calling `takode notify`");
     expect(checkpoint.assigneeBrief).toContain("`leader-decision-communication` skill");
     expect(checkpoint.assigneeBrief).toContain("complete technical or safety packet in phase documentation");
+    expect(checkpoint.assigneeBrief).toContain(
+      "same-quest implementation, design-only closure, or a separate implementation successor",
+    );
+    expect(checkpoint.leaderBrief).toContain("Same-quest routing continues implementation");
+    expect(checkpoint.leaderBrief).toContain("design-only or successor routing closes the current accepted scope");
+    expect(checkpoint.assigneeBrief).toContain("before current-quest closure");
+    expect(checkpoint.leaderBrief).not.toContain("For Execute or other externally consequential phases");
+    expect(checkpoint.assigneeBrief).not.toContain("gates Execute or another externally consequential phase");
     expect(memory.assigneeBrief).toContain("exactly one memory statement");
     expect(memory.assigneeBrief).toContain("plain-language user-facing outcome");
     expect(memory.assigneeBrief).toContain("do not paste the whole phase note into the final debrief");
     expect(memory.leaderBrief).toContain("normal same-worker Memory owner");
+    expect(memory.leaderBrief).toContain("route the assigned Work worker back to Work");
+    expect(memory.assigneeBrief).toContain("route the assigned Work worker back to Work");
+    expect(memory.leaderBrief).not.toContain("route back to Implement/Code Review/Port");
+    expect(memory.assigneeBrief).not.toContain("Implement/Code Review/Port or a follow-up quest");
+    expect(lifecycle).toContain("keep them in one quest and the same Work occurrence");
+    expect(lifecycle).toContain(
+      "same-quest implementation, design-only closure, or a separate implementation successor",
+    );
+    expect(lifecycle).toContain("Use a separate implementation quest only for genuinely optional or deferred work");
+    expect(lifecycle).toContain("a materially different owner or schedule");
+    expect(lifecycle).toContain("independent review");
+    expect(lifecycle).toContain("materially distinct risk or audit isolation");
+    expect(lifecycle).toContain("an explicit user-approved successor");
+    expect(lifecycle).toContain("valid implementation successor is already active");
+    expect(lifecycle).toContain("Before telling the user that a feature is implemented, available, or ready to test");
+    expect(lifecycle).toContain("When the accepted outcome still includes implementation");
+    expect(lifecycle).toContain("design-only or investigation quests may enter Memory");
   });
 
   it("builds a read-only active v2 phase catalog with source metadata and exact display paths", async () => {

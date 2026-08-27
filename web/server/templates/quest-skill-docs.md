@@ -114,8 +114,8 @@ TLDR metadata is for human scanning, but it must not hide major parts of the ful
 - For multi-topic content, use multiple bullets or sentences, roughly compressing every one to two paragraphs or major sections into one concise TLDR item.
 - Final debrief TLDRs should be self-contained quest-journey summaries: what issue or need drove the work, what was accomplished, why the solution works, and the key technical or product decisions and findings.
 - Phase-note TLDRs should usually be 1-5 scan-friendly bullets or sentences. Preserve conclusions, decisions, evidence, blockers, risks, handoff facts, and phase-specific outcomes; omit incidental low-level details unless they are central to understanding that phase.
-- Machine-oriented bookkeeping, including synced SHA lists, raw commit hashes, branch names, command transcripts, exact routine verification commands, and raw or routine file paths, belongs in port notes, dedicated `Synced SHAs:` lines, structured commit metadata, detailed bodies, or verification sections when useful. It should not consume scarce TLDR space unless the exact value is itself important.
-- Once commits or hashes are attached as structured metadata, carried by a dedicated Port `Synced SHAs:` line, or listed in a full body/verification section, do not repeat the raw identifiers in TLDRs, final debrief TLDRs, phase-note TLDRs, debrief TLDR drafts, or routine user-facing summaries. Say "synced and verified", "ported to main", or describe the user-visible outcome instead; keep exact identifiers only when the identifier is the subject of the work.
+- Machine-oriented bookkeeping, including synced SHA lists, raw commit hashes, branch names, command transcripts, exact routine verification commands, and raw or routine file paths, belongs in Work sync notes, dedicated `Synced SHAs:` lines, structured commit metadata, detailed bodies, or verification sections when useful. It should not consume scarce TLDR space unless the exact value is itself important.
+- Once commits or hashes are attached as structured metadata, carried by a dedicated Work `Synced SHAs:` line, or listed in a full body/verification section, do not repeat the raw identifiers in TLDRs, final debrief TLDRs, phase-note TLDRs, debrief TLDR drafts, or routine user-facing summaries. Say "synced and verified", "ported to main", or describe the user-visible outcome instead; keep exact identifiers only when the identifier is the subject of the work.
 - User-facing quest completion summaries should lead with the outcome, why it matters, and any real next action or residual risk. Routine internals such as raw commit hashes, empty User review checks, final debrief metadata status, no-op memory statements, command lists, and routine verification are not useful completion-summary leads unless the exact detail is directly useful to the user.
 - Worker live commentary should happen at meaningful milestones, not after every read, edit, command, next microstep, or poll. Tool rows already expose operations. Useful milestones include material findings or decisions, completed implementation batches, blockers/User Checkpoints, verification results, sync results, Work handoffs, and Memory closure. For genuinely long operations, a concise status is enough.
 - Keep the full content complete and agent-readable while making the TLDR human-scannable without being lossy.
@@ -140,9 +140,9 @@ For memory record frontmatter `source`, use the quest ID (`q-N`) as the primary 
 
 If your context was compacted during the phase, or if memory confidence is low, reconstruct relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, use working memory and current artifacts instead of unnecessary session archaeology.
 
-For valuable nontrivial phase outcomes, a worker or reviewer may run `takode worker-stream` after the substantive result is ready so the leader can start reading while required paperwork finishes. This is optional, creates an internal herd checkpoint, and does not replace phase documentation, final debrief metadata, or leader-owned phase transitions.
+For valuable nontrivial phase outcomes, a worker or reviewer may run `takode worker-stream` after the substantive result is ready so the leader can start reading while required paperwork finishes. This is optional, creates an internal herd checkpoint, and does not replace phase documentation, final debrief metadata, or required Journey transitions.
 
-Keep final chat handoffs much shorter than the phase note. Treat the Questmaster phase feedback as the source of truth for detailed results, recommended next action, blockers, evidence, findings, and handoff facts. In chat, name the phase feedback index and include only the concise outcome or verdict plus urgent blockers, safety facts, or deltas the leader must see immediately. Narrow exceptions still belong in chat when they are the handoff itself: User Checkpoint packets for the leader to publish, Port's selected target plus ordered `Synced SHAs:` and target sync status, final Memory's required memory statement and completion status, urgent blockers or safety facts, and concise verdicts needed for routing.
+Keep final chat handoffs much shorter than the phase note. Treat the Questmaster phase feedback as the source of truth for detailed results, recommended next action, blockers, evidence, findings, and handoff facts. In chat, name the phase feedback index and include only the concise outcome or verdict plus urgent blockers, safety facts, or deltas the leader must see immediately. Narrow exceptions still belong in chat when they are the handoff itself: User Checkpoint packets for the leader to publish, Work's selected target plus ordered `Synced SHAs:` and target sync status, final Memory's required memory statement and completion status, urgent blockers or safety facts, and concise verdicts needed for routing.
 
 Prefer current-phase inference:
 
@@ -315,18 +315,18 @@ Use `quest status <id>` for a compact action-oriented view: status, owner, verif
 
 ```bash
 cat >/tmp/quest-feedback.txt <<'EOF'
-Port summary: commit abc123 ...
+Sync summary: commit abc123 ...
 Treat `foo $(bar)` as literal text, not shell.
 EOF
 
 cat >/tmp/quest-feedback-tldr.txt <<'EOF'
-Ported commits and preserved shell-sensitive text literally.
+Synchronized commits and preserved shell-sensitive text literally.
 EOF
 
 quest feedback q-12 --text-file /tmp/quest-feedback.txt --tldr-file /tmp/quest-feedback-tldr.txt
 quest feedback edit q-12 3 --text-file /tmp/quest-feedback.txt --tldr-file /tmp/quest-feedback-tldr.txt
 
-printf '%s\n' 'Port summary: commit abc123 ...' 'Treat `foo $(bar)` as literal text, not shell.' | \
+printf '%s\n' 'Sync summary: commit abc123 ...' 'Treat `foo $(bar)` as literal text, not shell.' | \
   quest feedback q-12 --text-file -
 ```
 
@@ -537,7 +537,7 @@ When the user asks you to work on a quest — whether via the Companion "Assign"
    - Immediately re-run `quest show q-N` and verify the final title/description/tags are clean.
    - Title rule: concise, **less than 10 words**. Move details to description.
    - Prefer the two-axis taxonomy over long-tail precedent. Use new tags only for rare, justified durable categories not covered by the default sets.
-4. **Work**: Implement the changes. Use TodoWrite for sub-step tracking if needed. If you need additional code changes after a reviewer or human review pass, commit the current worktree state, make the follow-up fixes in a separate commit, and send the changed worktree back to Code Review only after that checkpoint exists so the reviewer can inspect a clean incremental diff of only the new work. This does not require reviewers to commit and does not apply to purely read-only follow-up review discussion. **If there is human feedback**, inspect it with `quest feedback list q-N --author human --unaddressed`, address each entry, explain what you did in an agent feedback entry, then mark it with `quest address q-N <index>`. Prefer one consolidated feedback entry when the same update can both summarize the work and explain how human feedback was addressed, for example `quest feedback q-N --text "Summary: fixed the layout issue and addressed feedback #0 by adding flex-wrap"` for short replies, or `quest feedback q-N --text-file -` / `--text-file <path>` when your response includes copied logs or shell-like text. Add separate feedback entries only when the updates are materially different or separation makes the quest easier to read. Run `quest feedback list q-N --author human --unaddressed` to confirm no unaddressed entries remain.
+4. **Work**: Implement the changes. Use TodoWrite for sub-step tracking if needed. If a reviewer or human review requires additional code changes, keep the same quest in Work, checkpoint the current worktree state when useful, and make the fixes in a separate follow-up commit so any separate review quest can inspect a clean incremental diff. Reviewers do not commit, and purely read-only follow-up review discussion does not reopen Work. **If there is human feedback**, inspect it with `quest feedback list q-N --author human --unaddressed`, address each entry, explain what you did in an agent feedback entry, then mark it with `quest address q-N <index>`. Prefer one consolidated feedback entry when the same update can both summarize the work and explain how human feedback was addressed, for example `quest feedback q-N --text "Summary: fixed the layout issue and addressed feedback #0 by adding flex-wrap"` for short replies, or `quest feedback q-N --text-file -` / `--text-file <path>` when your response includes copied logs or shell-like text. Add separate feedback entries only when the updates are materially different or separation makes the quest easier to read. Run `quest feedback list q-N --author human --unaddressed` to confirm no unaddressed entries remain.
 5. **Self-check**: Before submitting, verify everything you can yourself. For tracked code/test changes, the current full automated gate is `cd web && bun --no-install run typecheck`, `cd web && bun --no-install run test`, and `cd web && bun --no-install run format:check`. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, document the exception explicitly in your summary or handoff before submitting. Do not turn self-verifiable agent evidence into User review checks. **Verify all human feedback entries are marked addressed** by running `quest feedback list q-N --author human --unaddressed` and checking that it returns no entries.
 6. **Submit or hand off completion**: In Quest Journey v2, Work owns implementation, self-review, approved execution, validation, sync/push duties when authorized, and iterative rework inside the approved envelope. Work then uses the worker-owned Work -> Memory transition when its guard conditions are satisfied. Final Memory is mandatory for non-cancelled quests and normally completes the quest after accepted evidence is synced when applicable, final debrief metadata is ready, User review checks are settled, and memory/metadata closure is complete. Do not invent final User review checks; complete with no `--items` when no user action remains. Worktree sessions must not run `quest complete` until changes are synced to the selected target and pushed when required. Read `memory-completion.md` for the detailed completion, final Memory, debrief, commit metadata, and User review check mechanics.
 
@@ -622,15 +622,15 @@ Use `quest complete` for final completion to `done` with review metadata when Me
 
 ### refined → in_progress
 - The quest should already be claimed (claiming is always the first step when assigned).
-- Metadata polish is mandatory before implementation (same rules as above), then start coding.
+- Metadata polish is mandatory before Work (same rules as above), then perform the accepted investigation, design, implementation, validation, or other deliverable.
 
 ### in_progress → done with review metadata
-- Confirm the implementation is complete and run the required self-checks before handoff. For tracked code/test changes, the current full automated gate is `cd web && bun --no-install run typecheck`, `cd web && bun --no-install run test`, and `cd web && bun --no-install run format:check`.
+- Confirm the accepted substantive result is complete, including implementation when the approved scope requires it, and run the required self-checks before handoff. For tracked code/test changes, the current full automated gate is `cd web && bun --no-install run typecheck`, `cd web && bun --no-install run test`, and `cd web && bun --no-install run format:check`.
 - Worktree sessions must finish the sync-to-main workflow before `quest complete`; the human verifies from the main repo, not the worktree.
 - Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work when they produce tracked changes.
 - Final Memory is mandatory for every non-cancelled Quest Journey and owns final User review check settlement, durable-state closure, final debrief metadata, quest metadata reconciliation, memory consistency checks, cleanup, and follow-up routing.
 - Every completed non-cancelled quest must include final debrief metadata and debrief TLDR metadata. Use `--debrief-file` and `--debrief-tldr-file` on `quest complete`, `quest done`, or `quest transition --status done` as appropriate.
-- User review checks are optional human-owned checks only. Complete with no `--items` when no user action remains; do not add implementation details, tests, Port status, Memory closure, or automated verification results as checks.
+- User review checks are optional human-owned checks only. Complete with no `--items` when no user action remains; do not add implementation details, tests, Work sync/push status, Memory closure, or automated verification results as checks.
 - Keep code commit metadata separate from memory commit metadata: use `--commit` / `--commits` for code/docs/template commits and `--memory-commit` / `--memory-commits` for file-based memory commits.
 - Do not leave commit info only in comments; structured commit metadata is required for completion handoff.
 - Read `memory-completion.md` for detailed pre-submission, final Memory, review inbox, User review check, reviewer hygiene, Stream Memory CLI, and debrief TLDR guidance.

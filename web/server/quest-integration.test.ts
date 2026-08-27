@@ -219,9 +219,9 @@ describe("ensureQuestmasterIntegration", () => {
     expect(memoryCompletion).toContain("This summary may also explain addressed human feedback");
     expect(memoryCompletion).toContain("Avoid review-process timelines, duplicate near-identical comments");
     expect(memoryCompletion).toContain("required worker deliverable");
-    expect(skill).toContain("send the changed worktree back to Code Review only after that checkpoint exists");
-    expect(skill).toContain("clean incremental diff of only the new work");
-    expect(skill).toContain("does not apply to purely read-only follow-up review discussion");
+    expect(skill).toContain("keep the same quest in Work");
+    expect(skill).toContain("separate review quest can inspect a clean incremental diff");
+    expect(skill).toContain("purely read-only follow-up review discussion does not reopen Work");
   });
 
   it("requires quest-design before quest creation or refinement only", async () => {
@@ -294,9 +294,13 @@ describe("ensureQuestmasterIntegration", () => {
     expect(memoryCompletion).toContain("Do not rely on log parsing or memory");
     expect(skill).toContain("Every completed non-cancelled quest must include a final debrief and debrief TLDR");
     expect(memoryCompletion).toContain("Completion without both a final debrief and a debrief TLDR is incomplete");
+    expect(memoryCompletion).toContain("accepted substantive result is complete");
+    expect(memoryCompletion).toContain("including implementation when the approved scope requires it");
+    expect(skill).toContain("then perform the accepted investigation, design, implementation, validation");
+    expect(skill).not.toContain("then start coding");
     expect(memoryCompletion).toContain("Metadata reconciliation is a final-scope accuracy check");
     expect(memoryCompletion).toContain("not permission to rewrite active scope or unfinished quests");
-    expect(memoryCompletion).toContain("If Port is omitted");
+    expect(memoryCompletion).toContain("do not invent a separate Port phase");
     expect(memoryCompletion).toContain("Do not leave commit info only in comments");
     expect(memoryCompletion).toContain("one substantive quest-level prose summary");
     expect(memoryCompletion).toContain("what changed, why it matters, and what verification passed");
@@ -328,7 +332,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(memoryCompletion).toContain("pass `quest complete ... --no-code`");
     expect(memoryCompletion).toContain("only a local reminder switch");
     expect(memoryCompletion).toContain(
-      "Do not add placeholder Port notes, synced SHA lines, or automated-check results as checks",
+      "Do not add placeholder sync notes, synced SHA lines, or automated-check results as checks",
     );
     expect(memoryCompletion).toContain("zero git-tracked changes");
     expect(skill).toContain(
@@ -337,7 +341,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Do not use `--no-code` for these quests");
     expect(skill).toContain("User review checks are optional human-owned checks only");
     expect(memoryCompletion).toContain(
-      "Put what changed, why it matters, synced/ported status, and automated verification results",
+      "Put what changed, why it matters, synchronized state, and automated verification results",
     );
   });
 
