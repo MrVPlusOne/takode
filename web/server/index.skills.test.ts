@@ -361,12 +361,18 @@ describe("index startup skill registration", () => {
     expect(leaderDispatch).toContain("Leaders own user intent and corrections");
     expect(leaderDispatch).toContain("workers own technical Work and the routine guarded Work -> Memory transition");
     expect(leaderDispatch).toContain("records and applies the user-approved continuation");
+    expect(leaderDispatch).toContain("revises the title when it still reads as design-only");
+    expect(leaderDispatch).toContain(
+      "updates the description/TLDR when they no longer cover the full approved design-and-build scope",
+    );
+    expect(leaderDispatch).toContain("final Memory is only the backstop");
     expect(leaderDispatch).toContain("returns the current quest to its assigned worker in Work");
     expect(leaderDispatch).toContain("Apply the separation, reopening, and active-successor rules");
     expect(leaderDispatch).not.toContain("After Alignment, leaders own advancement.");
     expect(leaderDispatch).not.toContain("later decision or Execute phase");
 
     expect(orchestration).toContain("Do not split one design-and-build outcome at its checkpoint");
+    expect(orchestration).toContain("reconcile a design-only title and any stale description/TLDR before Work resumes");
     expect(orchestration).toContain("Return the current quest to its assigned worker in Work after the decision");
     expect(orchestration).toContain("Apply the delivery-evidence checklist");
     expect(orchestration).toContain("not delivery evidence");
@@ -381,6 +387,9 @@ describe("index startup skill registration", () => {
     expect(lifecycle).toContain("genuinely optional or deferred work");
     expect(lifecycle).toContain("materially distinct risk or audit isolation");
     expect(lifecycle).toContain("valid implementation successor is already active");
+    expect(lifecycle).toContain("reconcile the quest metadata before resuming Work");
+    expect(lifecycle).toContain("revise the title when it still reads as design-only");
+    expect(lifecycle).toContain("Do not defer this correction to final Memory");
     expect(lifecycle).toContain("synchronized commit or artifact evidence");
     expect(lifecycle).toContain("design-only or investigation quests may enter Memory");
   });

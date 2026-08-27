@@ -388,6 +388,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("close as design-only");
     expect(guardrails).toContain("create a separate implementation successor");
     expect(guardrails).toContain("Apply the user-approved continuation");
+    expect(guardrails).toContain("revises a still-design-only title");
+    expect(guardrails).toContain("updates any stale description/TLDR before clearing the wait or resuming Work");
+    expect(guardrails).toContain("final Memory is only the backstop");
     expect(guardrails).toContain("returns the current quest to its assigned worker in Work");
     expect(guardrails).toContain("Same-quest routing continues implementation");
     expect(guardrails).toContain("design-only or successor routing closes the current accepted scope");

@@ -181,6 +181,9 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(work.leaderBrief).toContain("exact-once replay proof or recovery suppression");
     expect(work.leaderBrief).toContain("Treat a handoff with uncommitted changes");
     expect(work.leaderBrief).toContain("authoritative design-to-implementation continuity rule");
+    expect(work.leaderBrief).toContain("reconcile the current quest metadata before returning it to Work");
+    expect(work.leaderBrief).toContain("revise the title when it still reads as design-only");
+    expect(work.leaderBrief).toContain("Do not defer this correction to final Memory");
     expect(work.leaderBrief).toContain("before telling the user a feature is implemented, available, or ready to test");
     expect(work.leaderBrief).toContain("When accepted scope still includes implementation");
     expect(work.leaderBrief).not.toContain("Give the worker the exact approved scope");
@@ -189,7 +192,18 @@ describe("Quest Journey v2 phase directory loading", () => {
       "same-quest implementation, design-only closure, or a separate implementation successor",
     );
     expect(checkpoint.leaderBrief).toContain("only when the answer requires it");
+    expect(checkpoint.leaderBrief).toContain(
+      "reconcile the current quest metadata before clearing the wait or resuming Work",
+    );
+    expect(checkpoint.leaderBrief).toContain("revise the title when it still reads as design-only");
+    expect(checkpoint.leaderBrief).toContain(
+      "update the description and TLDR when they no longer cover the full approved design-and-build scope",
+    );
+    expect(checkpoint.leaderBrief).toContain("Do not defer this correction to final Memory");
     expect(checkpoint.nextLeaderAction).toContain("for continuation or closure");
+    expect(checkpoint.nextLeaderAction).toContain(
+      "reconcile a stale title, description, and TLDR before same-quest implementation resumes",
+    );
     expect(checkpoint.nextLeaderAction).toContain("only when the answer requires it");
     expect(checkpoint.leaderBrief).toContain("`leader-decision-communication` skill");
     expect(checkpoint.leaderBrief).toContain("supporting technical evidence in the phase note");
@@ -222,6 +236,12 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(lifecycle).toContain("materially distinct risk or audit isolation");
     expect(lifecycle).toContain("an explicit user-approved successor");
     expect(lifecycle).toContain("valid implementation successor is already active");
+    expect(lifecycle).toContain("reconcile the quest metadata before resuming Work");
+    expect(lifecycle).toContain("revise the title when it still reads as design-only");
+    expect(lifecycle).toContain(
+      "update the description and TLDR when they no longer cover the full approved design-and-build scope",
+    );
+    expect(lifecycle).toContain("Do not defer this correction to final Memory");
     expect(lifecycle).toContain("Before telling the user that a feature is implemented, available, or ready to test");
     expect(lifecycle).toContain("When the accepted outcome still includes implementation");
     expect(lifecycle).toContain("design-only or investigation quests may enter Memory");
