@@ -12,6 +12,7 @@ import { MessageFeed } from "../MessageFeed.js";
 import { LeaderSessionReturnPlaygroundState } from "./LeaderSessionReturnPlaygroundState.js";
 import { PlaygroundMarkdownMathSection } from "./PlaygroundMarkdownMathSection.js";
 import { PlaygroundFileLinkSection } from "./PlaygroundFileLinkSection.js";
+import { PlaygroundPendingImagePreviews } from "./PlaygroundPendingImagePreviews.js";
 import { AttentionLedgerRow } from "../AttentionLedgerRow.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { ToolBlock } from "../ToolBlock.js";
@@ -903,6 +904,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="User message with image">
             <MessageBubble message={MSG_USER_IMAGE} sessionId="playground" />
+          </Card>
+          <Card label="User message image loading states">
+            <PlaygroundPendingImagePreviews />
           </Card>
           <Card label="User message (from agent)">
             <MessageBubble message={MSG_USER_AGENT} />

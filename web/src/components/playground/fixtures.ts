@@ -633,10 +633,12 @@ export const MSG_USER_IMAGE: ChatMessage = {
   id: "msg-2",
   role: "user",
   content: "Here's a screenshot of the error I'm seeing",
-  images: [
+  localImages: [
     {
-      imageId: "playground-img-1",
-      media_type: "image/png",
+      name: "error-screenshot.svg",
+      mediaType: "image/svg+xml",
+      base64:
+        "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxOTIiIGhlaWdodD0iMTI4IiB2aWV3Qm94PSIwIDAgMTkyIDEyOCI+PHJlY3Qgd2lkdGg9IjE5MiIgaGVpZ2h0PSIxMjgiIHJ4PSIxMiIgZmlsbD0iIzFjMjEyYiIvPjxyZWN0IHg9IjI0IiB5PSIyNCIgd2lkdGg9IjE0NCIgaGVpZ2h0PSI4MCIgcng9IjgiIGZpbGw9IiMzMTM5NDYiLz48cGF0aCBkPSJNNDQgODhsMjgtMjggMjQgMjQgMTYtMTYgMzYgMzZINDR6IiBmaWxsPSIjZjA3MjcyIi8+PC9zdmc+",
     },
   ],
   timestamp: Date.now() - 55000,

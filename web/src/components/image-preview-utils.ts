@@ -8,6 +8,8 @@ export interface ImagePreviewItem {
   thumbnailUrl: string;
   fullUrl: string;
   title?: string;
+  /** Explicit attachment refs reserve a visible slot while their preview loads. */
+  expectedAttachment?: boolean;
 }
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
@@ -99,6 +101,19 @@ export function buildAssistantImagePreviewItems(message: ChatMessage, sessionId?
   return dedupePreviewItems(items);
 }
 
+export function buildUserImagePreviewItems(message: ChatMessage, sessionId?: string): ImagePreviewItem[] {
+  const localImages = message.localImages ?? [];
+  if (localImages.length > 0) {
+    return imagePreviewItemsFromLocalAttachments(localImages);
+  }
+  if (!sessionId) return [];
+  return imagePreviewItemsFromStoredRefs(message.images ?? [], sessionId);
+}
+
+export function buildStoredImagePreviewItems(images: ImageRef[], sessionId: string): ImagePreviewItem[] {
+  return imagePreviewItemsFromStoredRefs(images, sessionId);
+}
+
 export function dedupePreviewItems(items: ImagePreviewItem[]): ImagePreviewItem[] {
   const seen = new Set<string>();
   const deduped: ImagePreviewItem[] = [];
@@ -115,11 +130,12 @@ function imagePreviewItemsFromLocalAttachments(images: LocalImageAttachment[]): 
   return images.map((image, index) => {
     const dataUrl = `data:${image.mediaType};base64,${image.base64}`;
     return {
-      id: `local:${image.name || index}`,
+      id: `local:${image.name || "attachment"}:${index}`,
       filename: image.name || `attachment-${index + 1}`,
       thumbnailUrl: dataUrl,
       fullUrl: dataUrl,
       title: image.name || "attachment",
+      expectedAttachment: true,
     };
   });
 }
@@ -131,6 +147,7 @@ function imagePreviewItemsFromStoredRefs(images: ImageRef[], sessionId: string):
     thumbnailUrl: `/api/images/${sessionId}/${image.imageId}/thumb`,
     fullUrl: `/api/images/${sessionId}/${image.imageId}/full`,
     title: image.sourceName || image.imageId,
+    expectedAttachment: true,
   }));
 }
 

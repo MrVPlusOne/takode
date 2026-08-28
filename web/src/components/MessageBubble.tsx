@@ -37,7 +37,7 @@ import { NotificationMarker } from "./NotificationMarker.js";
 import { formatThreadMarker } from "../../shared/thread-routing.js";
 import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
 import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
-import { buildAssistantImagePreviewItems } from "./image-preview-utils.js";
+import { buildAssistantImagePreviewItems, buildUserImagePreviewItems } from "./image-preview-utils.js";
 import { SideChatSummary, useSideChatForMessage } from "./SideChatControls.js";
 import { AssistantMessageMenu, UserMessageMenu } from "./MessageActionMenus.js";
 import { MessageTimestamp } from "./MessageTimestamp.js";
@@ -864,8 +864,7 @@ function UserMessage({
     [message.content, message.metadata?.replyContext],
   );
   const displayContent = replyContext ? replyContext.userMessage : message.content;
-  const localImageEntries = message.localImages ?? [];
-  const remoteImageEntries = message.images ?? [];
+  const imagePreviewItems = useMemo(() => buildUserImagePreviewItems(message, sessionId), [message, sessionId]);
   const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
   const pendingLabel =
     message.pendingState === "uploading"
@@ -910,45 +909,13 @@ function UserMessage({
             </div>
           </div>
         )}
-        {localImageEntries.length > 0 && (
-          <div className="flex gap-2 flex-wrap mb-2">
-            {localImageEntries.map((img, idx) => {
-              const src = `data:${img.mediaType};base64,${img.base64}`;
-              return (
-                <img
-                  key={`${img.name}-${idx}`}
-                  src={src}
-                  alt={img.name || "attachment"}
-                  className="max-w-[150px] sm:max-w-[200px] max-h-[120px] sm:max-h-[150px] rounded-lg object-cover cursor-zoom-in hover:opacity-80 transition-opacity"
-                  onClick={() => setLightboxSrc(src)}
-                  loading="lazy"
-                  decoding="async"
-                  data-testid="image-thumbnail"
-                />
-              );
-            })}
-          </div>
-        )}
-        {localImageEntries.length === 0 && remoteImageEntries.length > 0 && sessionId && (
-          <div className="flex gap-2 flex-wrap mb-2">
-            {remoteImageEntries.map((img) => {
-              const thumbSrc = `/api/images/${sessionId}/${img.imageId}/thumb`;
-              const fullSrc = `/api/images/${sessionId}/${img.imageId}/full`;
-              return (
-                <img
-                  key={img.imageId}
-                  src={thumbSrc}
-                  alt="attachment"
-                  className="max-w-[150px] sm:max-w-[200px] max-h-[120px] sm:max-h-[150px] rounded-lg object-cover cursor-zoom-in hover:opacity-80 transition-opacity"
-                  onClick={() => setLightboxSrc(fullSrc)}
-                  loading="lazy"
-                  decoding="async"
-                  data-testid="image-thumbnail"
-                />
-              );
-            })}
-          </div>
-        )}
+        <ImagePreviewGroup
+          images={imagePreviewItems}
+          className="!mt-0 mb-1"
+          testId="user-image-preview-group"
+          onOpenImage={(image) => setLightboxSrc(image.fullUrl)}
+          size="message"
+        />
         {pendingLabel && <div className="mb-2 text-[11px] text-cc-muted/80 font-mono-code">{pendingLabel}</div>}
         <CollapsibleContent>
           <MarkdownContent

@@ -688,7 +688,8 @@ describe("MessageFeed - empty state", () => {
     expect(screen.queryByText("Start a conversation")).toBeNull();
     expect(screen.getByText("Pending delivery")).toBeTruthy();
     expect(screen.getByText("Sending…")).toBeTruthy();
-    const image = screen.getByAltText("attachment-1.png") as HTMLImageElement;
+    expect(screen.getByRole("button", { name: "Loading image attachment-1.png" }).hasAttribute("disabled")).toBe(true);
+    const image = screen.getByTestId("image-preview-thumbnail-image") as HTMLImageElement;
     expect(image.src).toContain("data:image/png;base64,ZmFrZQ==");
   });
 
@@ -786,7 +787,10 @@ describe("MessageFeed - empty state", () => {
         cancelable: true,
         threadKey: "q-1958",
         questId: "q-1958",
-        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
+        imageRefs: ["img-1", "img-2", "img-3", "img-4"].map((imageId) => ({
+          imageId,
+          media_type: "image/png",
+        })),
       },
     ]);
 
@@ -796,17 +800,19 @@ describe("MessageFeed - empty state", () => {
     expect(screen.getAllByText("Inspect this screenshot")).toHaveLength(1);
     expect(screen.queryByText("Sending…")).toBeNull();
     expect(screen.queryByAltText("attachment-1.png")).toBeNull();
-    expect(screen.getByAltText("Pending attachment").getAttribute("src")).toBe(
+    expect(screen.getAllByRole("button", { name: /Loading image img-/ })).toHaveLength(4);
+    expect(screen.getAllByTestId("image-preview-thumbnail-image")[0]?.getAttribute("src")).toBe(
       "/api/images/test-canonical-pending-image/img-1/thumb",
     );
 
     // A second browser has no origin-local preview state, but the same server
-    // snapshot still produces exactly one canonical pending row.
+    // snapshot still produces exactly one canonical row with every image slot.
     originBrowser.unmount();
     setStorePendingUserUploads(sid, []);
     render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
     expect(screen.getAllByText("Pending delivery")).toHaveLength(1);
     expect(screen.getAllByText("Inspect this screenshot")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /Loading image img-/ })).toHaveLength(4);
   });
 
   it("renders persisted server failure once with exact retry and origin-only edit actions", () => {

@@ -373,9 +373,10 @@ describe("MessageBubble - user messages", () => {
 
     const images = container.querySelectorAll("img");
     expect(images.length).toBe(2);
+    expect(screen.getAllByRole("button", { name: /Loading image/ })).toHaveLength(2);
     expect(images[0].getAttribute("src")).toBe("/api/images/test-session/img-1/thumb");
     expect(images[1].getAttribute("src")).toBe("/api/images/test-session/img-2/thumb");
-    expect(images[0].getAttribute("alt")).toBe("attachment");
+    expect(images[0].getAttribute("alt")).toBe("");
   });
 
   it("does not render images section when images array is empty", () => {
@@ -395,7 +396,8 @@ describe("MessageBubble - user messages", () => {
     render(<MessageBubble message={msg} sessionId="test-session" />);
 
     // Click the thumbnail image
-    const thumbnail = screen.getByTestId("image-thumbnail");
+    const thumbnail = screen.getByTestId("image-preview-thumbnail-image");
+    fireEvent.load(thumbnail);
     fireEvent.click(thumbnail);
 
     // The lightbox should now be open with the full-size image
@@ -413,7 +415,8 @@ describe("MessageBubble - user messages", () => {
     render(<MessageBubble message={msg} sessionId="test-session" />);
 
     // Open the lightbox
-    const thumbnail = screen.getByTestId("image-thumbnail");
+    const thumbnail = screen.getByTestId("image-preview-thumbnail-image");
+    fireEvent.load(thumbnail);
     fireEvent.click(thumbnail);
     expect(screen.getByTestId("lightbox-backdrop")).toBeTruthy();
 
@@ -431,7 +434,9 @@ describe("MessageBubble - user messages", () => {
     render(<MessageBubble message={msg} sessionId="test-session" />);
 
     // Open the lightbox
-    fireEvent.click(screen.getByTestId("image-thumbnail"));
+    const thumbnail = screen.getByTestId("image-preview-thumbnail-image");
+    fireEvent.load(thumbnail);
+    fireEvent.click(thumbnail);
     expect(screen.getByTestId("lightbox-backdrop")).toBeTruthy();
 
     // Close with Escape

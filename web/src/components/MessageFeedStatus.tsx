@@ -12,6 +12,8 @@ import type {
   SessionState,
 } from "../types.js";
 import { YarnBallDot } from "./CatIcons.js";
+import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
+import { buildStoredImagePreviewItems } from "./image-preview-utils.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { NotificationChip } from "./NotificationChip.js";
 import { TimerChip } from "./TimerWidget.js";
@@ -546,24 +548,22 @@ export function PendingCodexInputList({ sessionId, inputs }: { sessionId: string
               <span
                 className={`inline-flex h-2 w-2 shrink-0 rounded-full ${failed ? "bg-cc-error" : "bg-cc-attention"}`}
               />
-              {input.imageRefs?.slice(0, 3).map((image) => (
-                <img
-                  key={image.imageId}
-                  src={`/api/images/${sessionId}/${image.imageId}/thumb`}
-                  alt="Pending attachment"
-                  className="h-8 w-8 shrink-0 rounded-md object-cover"
-                  loading="lazy"
-                  decoding="async"
-                />
-              ))}
-              <span className="min-w-0 flex-1" title={preview || "Pending message"}>
+              <div className="min-w-0 flex-1" title={preview || "Pending message"}>
                 <span className="block truncate">{truncated || "Pending message"}</span>
                 {failed && (
                   <span className="block truncate text-xs text-cc-error/90">
                     {input.failureMessage || "Codex rejected this input before delivery."}
                   </span>
                 )}
-              </span>
+                {input.imageRefs?.length ? (
+                  <ImagePreviewGroup
+                    images={buildStoredImagePreviewItems(input.imageRefs, sessionId)}
+                    className="!mt-1 !gap-1 !pb-0"
+                    testId={`pending-codex-image-preview-group-${input.id}`}
+                    size="small"
+                  />
+                ) : null}
+              </div>
               {failed ? (
                 <>
                   <button

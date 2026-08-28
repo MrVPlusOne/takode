@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { ImagePreviewItem } from "./image-preview-utils.js";
@@ -7,94 +7,132 @@ interface ImagePreviewGroupProps {
   images: ImagePreviewItem[];
   className?: string;
   testId?: string;
+  onOpenImage?: (image: ImagePreviewItem) => void;
+  size?: "standard" | "small" | "message";
 }
 
-export function ImagePreviewGroup({ images, className = "", testId = "image-preview-group" }: ImagePreviewGroupProps) {
-  const stableImages = useMemo(() => images, [images]);
-  const [loadedIds, setLoadedIds] = useState<Set<string>>(() => new Set());
-  const [failedIds, setFailedIds] = useState<Set<string>>(() => new Set());
+export function ImagePreviewGroup({
+  images,
+  className = "",
+  testId = "image-preview-group",
+  onOpenImage,
+  size = "standard",
+}: ImagePreviewGroupProps) {
+  const [loadedUrls, setLoadedUrls] = useState<Map<string, string>>(() => new Map());
+  const [failedUrls, setFailedUrls] = useState<Map<string, string>>(() => new Map());
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  useEffect(() => {
-    setLoadedIds(new Set());
-    setFailedIds(new Set());
-    setSelectedId(null);
-  }, [stableImages]);
+  const isLoaded = (image: ImagePreviewItem) => loadedUrls.get(image.id) === image.thumbnailUrl;
+  const isFailed = (image: ImagePreviewItem) => failedUrls.get(image.id) === image.thumbnailUrl;
 
-  const markLoaded = (id: string) => {
-    setLoadedIds((current) => {
-      if (current.has(id)) return current;
-      const next = new Set(current);
-      next.add(id);
+  const markLoaded = (image: ImagePreviewItem) => {
+    setLoadedUrls((current) => {
+      if (current.get(image.id) === image.thumbnailUrl) return current;
+      const next = new Map(current);
+      next.set(image.id, image.thumbnailUrl);
+      return next;
+    });
+    setFailedUrls((current) => {
+      if (current.get(image.id) !== image.thumbnailUrl) return current;
+      const next = new Map(current);
+      next.delete(image.id);
       return next;
     });
   };
 
-  const markFailed = (id: string) => {
-    setFailedIds((current) => {
-      if (current.has(id)) return current;
-      const next = new Set(current);
-      next.add(id);
+  const markFailed = (image: ImagePreviewItem) => {
+    setFailedUrls((current) => {
+      if (current.get(image.id) === image.thumbnailUrl) return current;
+      const next = new Map(current);
+      next.set(image.id, image.thumbnailUrl);
       return next;
     });
-    setLoadedIds((current) => {
-      if (!current.has(id)) return current;
-      const next = new Set(current);
-      next.delete(id);
+    setLoadedUrls((current) => {
+      if (current.get(image.id) !== image.thumbnailUrl) return current;
+      const next = new Map(current);
+      next.delete(image.id);
       return next;
     });
   };
 
-  if (stableImages.length === 0) return null;
-
-  const visibleImages = stableImages.filter((image) => loadedIds.has(image.id) && !failedIds.has(image.id));
+  const visibleImages = images.filter((image) => isLoaded(image) && !isFailed(image));
+  const renderedImages = images.filter(
+    (image) => !isFailed(image) && (isLoaded(image) || image.expectedAttachment === true),
+  );
   const selectedIndex = selectedId ? visibleImages.findIndex((image) => image.id === selectedId) : -1;
   const selectedImage = selectedIndex >= 0 ? visibleImages[selectedIndex] : null;
+
+  useEffect(() => {
+    if (selectedId && selectedIndex < 0) setSelectedId(null);
+  }, [selectedId, selectedIndex]);
+
+  if (images.length === 0) return null;
+
+  const openImage = (image: ImagePreviewItem) => {
+    if (onOpenImage) onOpenImage(image);
+    else setSelectedId(image.id);
+  };
+  const slotSizeClassName =
+    size === "small" ? "h-12 w-12" : size === "message" ? "h-24 w-24 sm:h-28 sm:w-28" : "h-16 w-24";
+  const imageFitClassName = size === "message" ? "object-contain" : "object-cover";
 
   return (
     <>
       <div className="hidden" aria-hidden="true">
-        {stableImages
-          .filter((image) => !failedIds.has(image.id) && !loadedIds.has(image.id))
+        {images
+          .filter((image) => image.thumbnailUrl && !image.expectedAttachment && !isFailed(image) && !isLoaded(image))
           .map((image) => (
             <img
-              key={image.id}
+              key={`${image.id}:${image.thumbnailUrl}`}
               src={image.thumbnailUrl}
               alt=""
-              onLoad={() => markLoaded(image.id)}
-              onError={() => markFailed(image.id)}
+              onLoad={() => markLoaded(image)}
+              onError={() => markFailed(image)}
               data-testid="image-preview-preload"
             />
           ))}
       </div>
-      {visibleImages.length > 0 && (
+      {renderedImages.length > 0 && (
         <div
           className={`mt-2 flex max-w-full gap-2 overflow-x-auto overflow-y-hidden pb-1 ${className}`}
           data-testid={testId}
         >
-          {visibleImages.map((image) => (
-            <button
-              key={image.id}
-              type="button"
-              className="group h-16 w-24 shrink-0 overflow-hidden rounded-md border border-cc-border bg-cc-code-bg/50 transition-colors hover:border-cc-primary/60 hover:bg-cc-hover focus:outline-none focus:ring-2 focus:ring-cc-primary/40"
-              onClick={() => setSelectedId(image.id)}
-              title={image.title ?? image.filename}
-              aria-label={`Open image ${image.filename}`}
-            >
-              <img
-                src={image.thumbnailUrl}
-                alt=""
-                className="h-full w-full object-cover transition-opacity group-hover:opacity-90"
-                draggable={false}
-                loading="lazy"
-                decoding="async"
-                data-testid="image-preview-thumbnail-image"
-              />
-            </button>
-          ))}
+          {renderedImages.map((image) => {
+            const loaded = isLoaded(image);
+            return (
+              <button
+                key={image.id}
+                type="button"
+                className={`group relative ${slotSizeClassName} shrink-0 overflow-hidden rounded-md border border-cc-border bg-cc-code-bg/50 transition-colors enabled:hover:border-cc-primary/60 enabled:hover:bg-cc-hover enabled:focus:outline-none enabled:focus:ring-2 enabled:focus:ring-cc-primary/40 disabled:cursor-default`}
+                onClick={() => openImage(image)}
+                title={image.title ?? image.filename}
+                aria-label={loaded ? `Open image ${image.filename}` : `Loading image ${image.filename}`}
+                aria-busy={loaded ? undefined : true}
+                disabled={!loaded}
+                data-image-preview-id={image.id}
+              >
+                {image.thumbnailUrl ? (
+                  <img
+                    src={image.thumbnailUrl}
+                    alt=""
+                    className={`h-full w-full ${imageFitClassName} transition-opacity ${
+                      loaded ? "opacity-100 group-hover:opacity-90" : "opacity-0"
+                    }`}
+                    draggable={false}
+                    loading="lazy"
+                    decoding="async"
+                    onLoad={() => markLoaded(image)}
+                    onError={() => markFailed(image)}
+                    data-testid="image-preview-thumbnail-image"
+                  />
+                ) : null}
+                {!loaded && <ImageLoadingPlaceholder compact={size === "small"} />}
+              </button>
+            );
+          })}
         </div>
       )}
-      {selectedImage && (
+      {selectedImage && !onOpenImage && (
         <ImagePreviewModal
           images={visibleImages}
           selectedIndex={selectedIndex}
@@ -103,6 +141,31 @@ export function ImagePreviewGroup({ images, className = "", testId = "image-prev
         />
       )}
     </>
+  );
+}
+
+function ImageLoadingPlaceholder({ compact }: { compact: boolean }) {
+  return (
+    <span
+      className={`absolute inset-0 flex flex-col items-center justify-center bg-cc-code-bg/80 px-1 text-center leading-tight text-cc-muted ${
+        compact ? "gap-0.5 text-[8px]" : "gap-1 text-[10px]"
+      }`}
+      data-testid="image-preview-loading-placeholder"
+    >
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        className={compact ? "h-3 w-3" : "h-4 w-4"}
+        aria-hidden="true"
+      >
+        <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="1.75" />
+        <circle cx="5.25" cy="6" r="1" />
+        <path d="M3.75 11l2.75-2.75 2 2 1.5-1.5 2.25 2.25" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <span>{compact ? "Loading" : "Loading image"}</span>
+    </span>
   );
 }
 
