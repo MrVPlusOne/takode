@@ -43,6 +43,10 @@ interface SyntheticToolResultPreviewLogContext {
   resumeConfirmedAt?: number | null;
   omittedFromResumeSnapshot?: boolean;
 }
+export interface CodexToolResultSynthesisSummary {
+  count: number;
+  omittedFromResumeSnapshotCount: number;
+}
 export function clearCodexToolResultWatchdog(session: ToolResultRecoverySessionLike, toolUseId: string): void {
   const timer = session.codexToolResultWatchdogs.get(toolUseId);
   if (!timer) return;
@@ -422,16 +426,19 @@ export function synthesizeCodexToolResultsFromResumedTurn(
   turn: CodexResumeTurnSnapshot,
   pending: CodexOutboundTurn,
   deps: ToolResultRecoveryDeps,
-): number {
+): CodexToolResultSynthesisSummary {
   const turnStatus = typeof turn.status === "string" ? turn.status : null;
-  if (!turnStatus || turnStatus === "inProgress") return 0;
+  if (!turnStatus || turnStatus === "inProgress") {
+    return { count: 0, omittedFromResumeSnapshotCount: 0 };
+  }
   const disconnectedAt = pending.disconnectedAt ?? Date.now();
   const unresolvedToolIds = new Set<string>();
   for (const [toolUseId, startedAt] of session.toolStartTimes) {
     if (startedAt <= disconnectedAt) unresolvedToolIds.add(toolUseId);
   }
-  if (unresolvedToolIds.size === 0) return 0;
+  if (unresolvedToolIds.size === 0) return { count: 0, omittedFromResumeSnapshotCount: 0 };
   let synthesized = 0;
+  let omittedFromResumeSnapshotCount = 0;
   for (const rawItem of turn.items) {
     if (!rawItem || typeof rawItem !== "object") continue;
     const item = rawItem as Record<string, unknown>;
@@ -487,8 +494,9 @@ export function synthesizeCodexToolResultsFromResumedTurn(
       },
     );
     synthesized++;
+    omittedFromResumeSnapshotCount++;
   }
-  return synthesized;
+  return { count: synthesized, omittedFromResumeSnapshotCount };
 }
 export function projectToolResultPreviews(
   session: ToolResultRecoverySessionLike,

@@ -148,22 +148,45 @@ function emptySummary(): CodexLocalDeliveryActivitySummary {
 export function hasIncompleteRecoveredMessagesWithoutTerminalEvidence(
   turn: { status?: string | null; items: Array<Record<string, unknown>> },
   threadStatus?: string | null,
+  omittedFromResumeSnapshotCount = 0,
 ): boolean {
   return (
-    hasInterruptedAssistantOnlyRecoveryWithoutTerminalEvidence(turn, threadStatus) ||
+    hasInterruptedAssistantRecoveryWithoutTerminalEvidence(turn, threadStatus, omittedFromResumeSnapshotCount) ||
     hasRecoveredAssistantToolTailWithoutTerminalEvidence(turn.items)
   );
 }
 
-export function hasInterruptedAssistantOnlyRecoveryWithoutTerminalEvidence(
+export function hasInterruptedAssistantRecoveryWithoutTerminalEvidence(
   turn: { status?: string | null; items: Array<Record<string, unknown>> },
   threadStatus?: string | null,
+  omittedFromResumeSnapshotCount = 0,
 ): boolean {
   if (normalizeCodexStatus(turn.status) !== "interrupted") return false;
   if (normalizeCodexStatus(threadStatus) !== "idle") return false;
   if (turn.items.some(isCodexResumeTerminalEvidenceItem)) return false;
   const nonUserItems = turn.items.filter((item) => item.type !== "userMessage");
-  return nonUserItems.length > 0 && nonUserItems.every(isRecoveredAgentMessageItem);
+  const recoveredAssistantItems = nonUserItems.filter(isRecoveredAgentMessageItem);
+  if (recoveredAssistantItems.length === 0) return false;
+  return nonUserItems.every(isRecoveredAgentMessageItem) || omittedFromResumeSnapshotCount > 0;
+}
+
+export function extractUserTextFromResumedTurn(turn: { items: Array<Record<string, unknown>> }): string {
+  for (const item of turn.items) {
+    if (item.type !== "userMessage") continue;
+    const content = Array.isArray(item.content) ? item.content : [];
+    const textParts: string[] = [];
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const record = part as Record<string, unknown>;
+      if (record.type === "text" && typeof record.text === "string") textParts.push(record.text);
+    }
+    if (textParts.length > 0) return textParts.join("\n");
+  }
+  return "";
+}
+
+export function normalizeResumedUserText(text: string): string {
+  return text.trim().replace(/\s+/g, " ");
 }
 
 export function hasOnlyRetrySafeCodexResumedItems(items: Array<Record<string, unknown>>): boolean {

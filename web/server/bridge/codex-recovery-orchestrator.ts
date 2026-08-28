@@ -69,20 +69,27 @@ import {
   summarizePendingCodexTurns,
 } from "./codex-recovery-diagnostics.js";
 import {
+  extractUserTextFromResumedTurn,
   hasIncompleteRecoveredMessagesWithoutTerminalEvidence,
-  hasInterruptedAssistantOnlyRecoveryWithoutTerminalEvidence,
+  hasInterruptedAssistantRecoveryWithoutTerminalEvidence,
   hasOnlyRetrySafeCodexResumedItems,
   mergeCodexDeliveryActivity,
+  normalizeResumedUserText,
   summarizeCodexResumeDeliveryActivity,
   summarizeLocalCodexDeliveryActivity,
   type CodexLocalDeliveryActivitySummary,
 } from "./codex-delivery-ownership.js";
 import { clearOrphanedCodexProviderRetryState } from "./codex-provider-retry-state.js";
-import { getQueuedTurnLifecycleEntries, replaceQueuedTurnLifecycleEntries } from "./codex-queued-turn-lifecycle.js";
+import {
+  clearRecoveredCodexGenerationIfIdle,
+  getQueuedTurnLifecycleEntries,
+  replaceQueuedTurnLifecycleEntries,
+} from "./codex-queued-turn-lifecycle.js";
 import { runCodexSessionMetaBarrier } from "./codex-session-meta-barrier.js";
 import { registerCodexNativeSubagentLifecycle } from "./codex-native-subagent-lifecycle.js";
 import { retireProvenInactiveCodexTurnAfterSteerFailure } from "./codex-steer-failure-recovery.js";
 import { recoverNonDrainableCodexHeadTurn } from "./codex-nondrainable-turn-recovery.js";
+export { extractUserTextFromResumedTurn, normalizeResumedUserText };
 export { clearCodexIntentionalRelaunch, markCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 export { maybeFlushQueuedCodexMessages } from "./codex-queued-message-flush.js";
 type InterruptSource = "user" | "leader" | "system";
@@ -163,7 +170,7 @@ export interface CodexRecoveryOrchestratorDeps {
     session: CodexRecoveryOrchestratorSessionLike,
     turn: CodexResumeTurnSnapshot,
     pending: CodexOutboundTurn,
-  ) => number;
+  ) => { count: number; omittedFromResumeSnapshotCount: number };
   handleRecoveredCodexAutoPauseSuccess: (
     session: CodexRecoveryOrchestratorSessionLike,
     completedTurn: CodexOutboundTurn,
@@ -173,6 +180,7 @@ export interface CodexRecoveryOrchestratorDeps {
     historyIndex: number,
     target: UserDispatchTurnTarget,
   ) => void;
+  markTurnInterrupted: (session: CodexRecoveryOrchestratorSessionLike, source: "user" | "leader" | "system") => void;
   setGenerating: (session: CodexRecoveryOrchestratorSessionLike, generating: boolean, reason: string) => void;
   markRunningFromUserDispatch: (
     session: CodexRecoveryOrchestratorSessionLike,
@@ -227,7 +235,6 @@ export interface CodexAdapterRecoveryLifecycleDeps extends CodexRecoveryOrchestr
   isCurrentSession: (sessionId: string, session: CodexRecoveryOrchestratorSessionLike) => boolean;
   getLauncherSessionInfo: (sessionId: string) => any;
   logCodexProcessSnapshot: (sessionId: string, reason: string) => void;
-  markTurnInterrupted: (session: CodexRecoveryOrchestratorSessionLike, source: "user" | "leader" | "system") => void;
   codexDisconnectGraceMs: number;
   adapterFailureResetWindowMs: number;
   maxAdapterRelaunchFailures: number;
@@ -1565,7 +1572,8 @@ export function reconcileCodexResumedTurn(
   }
   const recoveredAgentMessages = recoverAgentMessagesFromResumedTurn(session, lastTurn, pending, deps);
   const recoveredAgents = recoveredAgentMessages.count;
-  const synthesizedResults = deps.synthesizeCodexToolResultsFromResumedTurn(session, lastTurn, pending);
+  const synthesizedToolResults = deps.synthesizeCodexToolResultsFromResumedTurn(session, lastTurn, pending);
+  const synthesizedResults = synthesizedToolResults.count;
   const observedActivity = mergeCodexDeliveryActivity(
     summarizeLocalCodexDeliveryActivity(session, pending),
     summarizeCodexResumeDeliveryActivity(nonUserItems),
@@ -1604,13 +1612,22 @@ export function reconcileCodexResumedTurn(
     deps.persistSession(session);
     return;
   }
-  if (recoveredAgents > 0 && hasIncompleteRecoveredMessagesWithoutTerminalEvidence(lastTurn, snapshot.threadStatus)) {
-    session.consecutiveAdapterFailures = 0;
-    session.lastAdapterFailureAt = null;
-    const leaderRecoveryDiagnosticRoute = hasInterruptedAssistantOnlyRecoveryWithoutTerminalEvidence(
+  if (
+    recoveredAgents > 0 &&
+    hasIncompleteRecoveredMessagesWithoutTerminalEvidence(
       lastTurn,
       snapshot.threadStatus,
+      synthesizedToolResults.omittedFromResumeSnapshotCount,
     )
+  ) {
+    session.consecutiveAdapterFailures = 0;
+    session.lastAdapterFailureAt = null;
+    const isInterruptedAssistantRecovery = hasInterruptedAssistantRecoveryWithoutTerminalEvidence(
+      lastTurn,
+      snapshot.threadStatus,
+      synthesizedToolResults.omittedFromResumeSnapshotCount,
+    );
+    const leaderRecoveryDiagnosticRoute = isInterruptedAssistantRecovery
       ? recoveredAgentMessages.latestLeaderRoute
       : null;
     completeRecoveredCodexTurnWithDiagnostic(
@@ -1619,7 +1636,10 @@ export function reconcileCodexResumedTurn(
       "codex_resume_incomplete_recovered_messages",
       "Codex disconnected mid-turn and recovered partial assistant/tool activity, but no final response was recovered. Automatic retry was skipped to avoid duplicate side effects.",
       deps,
-      { leaderDiagnosticRoute: leaderRecoveryDiagnosticRoute },
+      {
+        leaderDiagnosticRoute: leaderRecoveryDiagnosticRoute,
+        interruptSource: isInterruptedAssistantRecovery ? "system" : undefined,
+      },
     );
     return;
   }
@@ -1636,7 +1656,7 @@ export function reconcileCodexResumedTurn(
         });
       }
     }
-    clearGeneratingAfterRecoveredCompletedTurnIfIdle(session, reason, deps);
+    clearRecoveredCodexGenerationIfIdle(session, reason, deps);
     reconcileRecoveredQueuedTurnLifecycle(session, reason, deps);
     deps.dispatchQueuedCodexTurns(session, reason);
     reconcileRecoveredQueuedTurnLifecycle(session, `${reason}_dispatched`, deps);
@@ -1666,36 +1686,6 @@ export function reconcileCodexResumedTurn(
     deps,
   );
 }
-export function extractUserTextFromResumedTurn(turn: CodexResumeTurnSnapshot): string {
-  for (const item of turn.items) {
-    if (item.type !== "userMessage") continue;
-    const content = Array.isArray(item.content) ? item.content : [];
-    const textParts: string[] = [];
-    for (const part of content) {
-      if (!part || typeof part !== "object") continue;
-      const rec = part as Record<string, unknown>;
-      if (rec.type === "text" && typeof rec.text === "string") {
-        textParts.push(rec.text);
-      }
-    }
-    if (textParts.length > 0) return textParts.join("\n");
-  }
-  return "";
-}
-
-export function normalizeResumedUserText(text: string): string {
-  return text.trim().replace(/\s+/g, " ");
-}
-function clearGeneratingAfterRecoveredCompletedTurnIfIdle(
-  session: CodexRecoveryOrchestratorSessionLike,
-  reason: string,
-  deps: Pick<CodexRecoveryOrchestratorDeps, "setGenerating">,
-): void {
-  const hasLiveTurn = session.pendingCodexTurns.some((turn) => turn.status !== "completed");
-  if (hasLiveTurn) return;
-  deps.setGenerating(session, false, reason);
-}
-
 function suppressCodexReplayWhenDeliveryWasObserved(
   session: CodexRecoveryOrchestratorSessionLike,
   pending: CodexOutboundTurn,
@@ -1735,10 +1725,14 @@ function completeRecoveredCodexTurnWithDiagnostic(
   reason: string,
   message: string,
   deps: CodexRecoveryOrchestratorDeps,
-  options: { leaderDiagnosticRoute?: ThreadRouteMetadata | null } = {},
+  options: {
+    leaderDiagnosticRoute?: ThreadRouteMetadata | null;
+    interruptSource?: "user" | "leader" | "system";
+  } = {},
 ): void {
   deps.completeCodexTurn(session, pending);
-  clearGeneratingAfterRecoveredCompletedTurnIfIdle(session, reason, deps);
+  if (options.interruptSource) deps.markTurnInterrupted(session, options.interruptSource);
+  clearRecoveredCodexGenerationIfIdle(session, reason, deps);
   reconcileRecoveredQueuedTurnLifecycle(session, reason, deps);
   if (options.leaderDiagnosticRoute) appendCodexLeaderRecoveryDiagnostic(session, options.leaderDiagnosticRoute, deps);
   deps.dispatchQueuedCodexTurns(session, reason);

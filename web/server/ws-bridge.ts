@@ -254,6 +254,7 @@ import {
   scheduleCodexToolResultWatchdogs as scheduleCodexToolResultWatchdogsController,
   shouldDeferCodexToolResultWatchdog as shouldDeferCodexToolResultWatchdogController,
   synthesizeCodexToolResultsFromResumedTurn as synthesizeCodexToolResultsFromResumedTurnController,
+  type CodexToolResultSynthesisSummary,
 } from "./bridge/tool-result-recovery-controller.js";
 
 // `takode board` output is compact, high-signal state that agents routinely
@@ -1633,7 +1634,7 @@ export class WsBridge {
     session: Session,
     turn: CodexResumeTurnSnapshot,
     pending: CodexOutboundTurn,
-  ): number {
+  ): CodexToolResultSynthesisSummary {
     return synthesizeCodexToolResultsFromResumedTurnController(
       session,
       turn,

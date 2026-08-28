@@ -239,6 +239,36 @@ describe("tool-result-recovery-controller", () => {
     warnSpy.mockRestore();
   });
 
+  it("distinguishes provider-recovered tool results from omitted snapshot fallbacks", () => {
+    const session = makeSession();
+    session.messageHistory = [];
+    session.toolStartTimes.clear();
+    session.toolStartTimes.set("command-in-snapshot", 9_500);
+    addPersistedToolUse(session, "command-in-snapshot", "Bash", 9_500, { command: "echo recovered" });
+
+    const synthesized = synthesizeCodexToolResultsFromResumedTurn(
+      session,
+      {
+        id: "turn_completed",
+        status: "completed",
+        error: null,
+        items: [
+          {
+            type: "commandExecution",
+            id: "command-in-snapshot",
+            status: "completed",
+            aggregatedOutput: "recovered output",
+            exitCode: 0,
+          },
+        ],
+      },
+      { disconnectedAt: 10_000, resumeConfirmedAt: 12_000 } as never,
+      makeDeps(),
+    );
+
+    expect(synthesized).toEqual({ count: 1, omittedFromResumeSnapshotCount: 0 });
+  });
+
   it("logs omitted resume snapshot fallback as browser-only repair without Codex rollout repair", () => {
     vi.useFakeTimers();
     vi.setSystemTime(12_500);
@@ -261,7 +291,7 @@ describe("tool-result-recovery-controller", () => {
       makeDeps(),
     );
 
-    expect(synthesized).toBe(1);
+    expect(synthesized).toEqual({ count: 1, omittedFromResumeSnapshotCount: 1 });
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("resume_snapshot_fallback"));
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("toolName=Write"));
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("turnId=turn_interrupted"));
@@ -303,7 +333,7 @@ describe("tool-result-recovery-controller", () => {
       makeDeps(),
     );
 
-    expect(synthesized).toBe(1);
+    expect(synthesized).toEqual({ count: 1, omittedFromResumeSnapshotCount: 1 });
     const previewMsg = session.messageHistory.find((msg) => msg.type === "tool_result_preview");
     expect(previewMsg?.type).toBe("tool_result_preview");
     if (previewMsg?.type === "tool_result_preview") {
@@ -348,7 +378,7 @@ describe("tool-result-recovery-controller", () => {
       makeDeps(),
     );
 
-    expect(synthesized).toBe(1);
+    expect(synthesized).toEqual({ count: 1, omittedFromResumeSnapshotCount: 1 });
     const previewMsg = session.messageHistory.find((msg) => msg.type === "tool_result_preview");
     expect(previewMsg?.type).toBe("tool_result_preview");
     if (previewMsg?.type === "tool_result_preview") {
@@ -391,7 +421,7 @@ describe("tool-result-recovery-controller", () => {
       makeDeps(),
     );
 
-    expect(synthesized).toBe(1);
+    expect(synthesized).toEqual({ count: 1, omittedFromResumeSnapshotCount: 1 });
     const previewMsg = session.messageHistory.find((msg) => msg.type === "tool_result_preview");
     expect(previewMsg?.type).toBe("tool_result_preview");
     if (previewMsg?.type === "tool_result_preview") {

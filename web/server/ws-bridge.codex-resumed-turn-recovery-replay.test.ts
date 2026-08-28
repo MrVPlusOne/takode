@@ -938,6 +938,7 @@ describe("Codex resumed-turn recovery", () => {
     // into the current provider turn, transport reconnects, and terminal
     // resume evidence must settle both logical owners of that one turn.
     const sid = "s-resume-same-turn-co-owners";
+    const eventSpy = vi.spyOn(bridge, "emitTakodeEvent");
     const adapter1 = makeCodexAdapterMock();
     bridge.attachCodexAdapter(sid, adapter1 as any);
     emitCodexSessionReady(adapter1, { cliSessionId: "thread-same-turn-owners" });
@@ -1000,6 +1001,17 @@ describe("Codex resumed-turn recovery", () => {
     const resumedSession = bridge.getSession(sid)!;
     expect(resumedSession.pendingCodexTurns).toHaveLength(0);
     expect(resumedSession.isGenerating).toBe(false);
+    const recoveredTurnEnds = eventSpy.mock.calls.filter(
+      ([eventSid, eventType]) => eventSid === sid && eventType === "turn_end",
+    );
+    expect(recoveredTurnEnds).toHaveLength(1);
+    expect(recoveredTurnEnds[0]?.[2]).toMatchObject({ reason: "codex_resume_recovered_messages" });
+    expect(recoveredTurnEnds[0]?.[2]).not.toHaveProperty("interrupted");
+    expect(
+      resumedSession.messageHistory.some(
+        (message: any) => message.agentSource?.sessionId === "system:codex-leader-recovery-diagnostic",
+      ),
+    ).toBe(false);
     expect(adapter2.sendBrowserMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "codex_start_pending",
@@ -1039,6 +1051,132 @@ describe("Codex resumed-turn recovery", () => {
     expect(committed.filter((content: string) => content === "steered co-owner")).toHaveLength(1);
     expect(committed.filter((content: string) => content === "later image owner")).toHaveLength(1);
     expect(resumedSession.pendingCodexInputs).toHaveLength(0);
+  });
+
+  it("surfaces an interrupted leader turn when a locally started tool is omitted from resume", async () => {
+    // Producer-shaped regression for the August 27, 2026 reconnect incident:
+    // Codex recovered several assistant/reasoning items, but omitted a locally
+    // observed side-effecting Bash call and its result. Takode must settle the
+    // exact owner without replay, preserve the fallback evidence, and expose an
+    // actionable interrupted result instead of calling it ordinary completion.
+    const sid = "s-resume-omitted-side-effecting-tool";
+    const eventSpy = vi.spyOn(bridge, "emitTakodeEvent");
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+    emitCodexSessionReady(adapter1, { cliSessionId: "thread-omitted-tool" });
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "create a durable quest record" }),
+    );
+    adapter1.emitTurnStarted("turn-omitted-tool");
+    await Promise.resolve();
+
+    const session = bridge.getSession(sid)!;
+    session.state.isOrchestrator = true;
+    const toolUseId = "exec-omitted-quest-create";
+    const toolStartedAt = Date.now() - 1_000;
+    session.toolStartTimes.set(toolUseId, toolStartedAt);
+    session.messageHistory.push({
+      type: "assistant",
+      message: {
+        id: "assistant-omitted-tool",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [
+          {
+            type: "tool_use",
+            id: toolUseId,
+            name: "Bash",
+            input: { command: "quest create --title 'durable side effect'" },
+          },
+        ],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: toolStartedAt,
+      threadKey: "main",
+      tool_start_times: { [toolUseId]: toolStartedAt },
+    });
+
+    adapter1.emitDisconnect("turn-omitted-tool");
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    browser.send.mockClear();
+    adapter2.sendBrowserMessage.mockClear();
+
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-omitted-tool",
+      model: "gpt-5.6-sol",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-omitted-tool",
+        threadStatus: "idle",
+        turnCount: 1,
+        lastTurn: {
+          id: "turn-omitted-tool",
+          status: "interrupted",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: "create a durable quest record" }] },
+            { type: "agentMessage", id: "omitted-a1", text: "[thread:main] I am checking prior work." },
+            { type: "reasoning", summary: ["Avoiding duplicate quest creation."] },
+            { type: "agentMessage", id: "omitted-a2", text: "[thread:main] I will create the quest now." },
+            { type: "reasoning", summary: ["Preparing the command."] },
+            { type: "agentMessage", id: "omitted-a3", text: "[thread:main] Creating the focused quest." },
+            { type: "agentMessage", id: "omitted-a4", text: "[thread:main] The command started." },
+          ],
+        },
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(session.isGenerating).toBe(false);
+      expect(session.pendingCodexTurns).toHaveLength(0);
+    });
+
+    const outboundStarts = adapter2.sendBrowserMessage.mock.calls
+      .map((args: any[]) => args[0])
+      .filter((message: any) => message?.type === "codex_start_pending");
+    expect(outboundStarts).toHaveLength(0);
+
+    const fallback = session.messageHistory.find(
+      (message: any) =>
+        message.type === "tool_result_preview" &&
+        message.previews?.some((preview: any) => preview.synthetic_reason === "resume_snapshot_fallback"),
+    );
+    expect(fallback).toBeTruthy();
+
+    const diagnostic = session.messageHistory.find(
+      (message: any) =>
+        message.type === "user_message" && message.agentSource?.sessionId === "system:codex-leader-recovery-diagnostic",
+    );
+    expect(diagnostic).toMatchObject({ threadKey: "main" });
+    expect((diagnostic as any)?.content).toContain("No automatic replay will run");
+
+    const browserMessages = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+    expect(browserMessages).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("no final response was recovered"),
+      }),
+    );
+
+    const turnEnds = eventSpy.mock.calls.filter(
+      ([eventSid, eventType]) => eventSid === sid && eventType === "turn_end",
+    );
+    expect(turnEnds).toHaveLength(1);
+    expect(turnEnds[0]?.[2]).toMatchObject({
+      reason: "codex_resume_incomplete_recovered_messages",
+      interrupted: true,
+      interrupt_source: "system",
+    });
   });
 
   it("re-arms resumed in-progress queued follow-up turns after disconnect", async () => {

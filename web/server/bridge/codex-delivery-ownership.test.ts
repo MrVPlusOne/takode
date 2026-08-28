@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage, CodexOutboundTurn } from "../session-types.js";
-import { summarizeLocalCodexDeliveryActivity } from "./codex-delivery-ownership.js";
+import {
+  hasInterruptedAssistantRecoveryWithoutTerminalEvidence,
+  summarizeLocalCodexDeliveryActivity,
+} from "./codex-delivery-ownership.js";
 
 const user: BrowserIncomingMessage = {
   type: "user_message",
@@ -74,5 +77,32 @@ describe("Codex local delivery ownership", () => {
     expect(
       summarizeLocalCodexDeliveryActivity({ messageHistory: [user, transientResult("input-1"), assistant] }, turn),
     ).toMatchObject({ count: 1, kinds: ["assistant_text"] });
+  });
+});
+
+describe("Codex interrupted recovery classification", () => {
+  const interruptedTurn = {
+    status: "interrupted",
+    items: [
+      { type: "userMessage", content: [{ type: "text", text: "create the quest" }] },
+      { type: "agentMessage", id: "partial-1", text: "I am preparing the quest." },
+      { type: "reasoning", summary: ["Checking the existing work first."] },
+      { type: "agentMessage", id: "partial-2", text: "I will create it now." },
+    ],
+  };
+
+  it("keeps reasoning-interleaved recovered text settled unless an omitted tool fallback is known", () => {
+    // Reasoning items alone are accepted same-turn recovery evidence. The
+    // reconnect incident becomes incomplete only when Takode also knows a
+    // locally started tool was omitted from the provider resume snapshot.
+    expect(hasInterruptedAssistantRecoveryWithoutTerminalEvidence(interruptedTurn, "idle")).toBe(false);
+    expect(hasInterruptedAssistantRecoveryWithoutTerminalEvidence(interruptedTurn, "idle", 1)).toBe(true);
+  });
+
+  it("does not classify terminal or still-active snapshots as incomplete", () => {
+    expect(
+      hasInterruptedAssistantRecoveryWithoutTerminalEvidence({ ...interruptedTurn, status: "completed" }, "idle", 1),
+    ).toBe(false);
+    expect(hasInterruptedAssistantRecoveryWithoutTerminalEvidence(interruptedTurn, "active", 1)).toBe(false);
   });
 });

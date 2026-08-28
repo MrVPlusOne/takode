@@ -22,25 +22,40 @@ export function recoverNonDrainableCodexHeadTurn(
     retry(head: CodexOutboundTurn): void;
   },
 ): boolean {
-  const head = deps.getHead();
   const adapter = session.codexAdapter;
-  if (!head || head.status !== "backend_acknowledged" || session.isGenerating) return false;
   if (!adapter || session.state.backend_state !== "connected" || !adapter.isConnected()) return false;
   if (adapter.getCurrentTurnId()) return false;
+  const settledOwners = new Set<string>();
+  let handled = false;
 
-  const activity = summarizeLocalCodexDeliveryActivity(session, head);
-  if (activity.count > 0) {
+  while (!session.isGenerating) {
+    const head = deps.getHead();
+    if (!head || head.status !== "backend_acknowledged") return handled;
+
+    const activity = summarizeLocalCodexDeliveryActivity(session, head);
+    if (activity.count === 0) {
+      console.warn(
+        `[ws-bridge] Retrying non-drainable Codex turn ${head.turnId ?? "<untracked>"} ` +
+          `for session ${sessionTag(session.id)} (${reason})`,
+      );
+      deps.retry(head);
+      return true;
+    }
+
+    if (settledOwners.has(head.userMessageId)) {
+      console.warn(
+        `[ws-bridge] Stopped non-drainable Codex settlement for session ${sessionTag(session.id)} ` +
+          `because owner ${head.userMessageId} did not advance (${reason})`,
+      );
+      return handled;
+    }
+    settledOwners.add(head.userMessageId);
     console.warn(
       `[ws-bridge] Settling non-drainable Codex turn ${head.turnId ?? "<untracked>"} without replay for session ${sessionTag(session.id)} (${reason}, activity=${activity.kinds.join(",")}, count=${activity.count})`,
     );
     deps.settleObservedActivity(head, activity);
-    return true;
+    handled = true;
   }
 
-  console.warn(
-    `[ws-bridge] Retrying non-drainable Codex turn ${head.turnId ?? "<untracked>"} ` +
-      `for session ${sessionTag(session.id)} (${reason})`,
-  );
-  deps.retry(head);
-  return true;
+  return handled;
 }

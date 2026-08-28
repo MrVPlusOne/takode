@@ -36,3 +36,12 @@ export function replaceQueuedTurnLifecycleEntries(
   session.queuedTurnInterruptSources = entries.map((entry) => entry.interruptSource);
   session.queuedTurnActiveRoutes = entries.map((entry) => entry.activeTurnRoute);
 }
+
+export function clearRecoveredCodexGenerationIfIdle<Session extends { pendingCodexTurns: Array<{ status: string }> }>(
+  session: Session,
+  reason: string,
+  deps: { setGenerating: (session: Session, generating: boolean, reason: string) => void },
+): void {
+  if (session.pendingCodexTurns.some((turn) => turn.status !== "completed")) return;
+  deps.setGenerating(session, false, reason);
+}
