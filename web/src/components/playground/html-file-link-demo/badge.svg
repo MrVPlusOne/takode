@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Takode browser file preview</title>
+  <rect width="64" height="64" rx="16" fill="#c96236" />
+  <path d="M18 19h28v26H18z" fill="#fff5eb" />
+  <path d="M23 27h18M23 33h13M23 39h16" stroke="#c96236" stroke-width="3" stroke-linecap="round" />
+</svg>

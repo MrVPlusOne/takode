@@ -11,6 +11,7 @@ import { ChatView, QuestThreadBanner, type QuestThreadBannerRow } from "../ChatV
 import { MessageFeed } from "../MessageFeed.js";
 import { LeaderSessionReturnPlaygroundState } from "./LeaderSessionReturnPlaygroundState.js";
 import { PlaygroundMarkdownMathSection } from "./PlaygroundMarkdownMathSection.js";
+import { PlaygroundFileLinkSection } from "./PlaygroundFileLinkSection.js";
 import { AttentionLedgerRow } from "../AttentionLedgerRow.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { ToolBlock } from "../ToolBlock.js";
@@ -1084,21 +1085,7 @@ export function PlaygroundOverviewSections() {
 
       <PlaygroundMarkdownMathSection />
 
-      <Section
-        title="File Link Context Menu"
-        description="Takode file links keep normal editor clicks and expose file actions from the shared Markdown renderer."
-      >
-        <div className="space-y-4 max-w-3xl">
-          <Card label="Chat markdown with repo-relative and image file links">
-            <MarkdownContent
-              sessionId={MOCK_SESSION_ID}
-              text={
-                "Implementation notes reference [MarkdownContent.tsx:1](file:web/src/components/MarkdownContent.tsx:1) and an image target [preview.png](file:artifacts/file-link-preview.png)."
-              }
-            />
-          </Card>
-        </div>
-      </Section>
+      <PlaygroundFileLinkSection />
 
       {/* ─── Image Lightbox ──────────────────────────────── */}
       <Section

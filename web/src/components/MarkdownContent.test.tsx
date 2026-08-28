@@ -1169,6 +1169,227 @@ describe("MarkdownContent quest links", () => {
     expect(mockOpenVsCodeRemoteFile).not.toHaveBeenCalled();
   });
 
+  it("opens explicit and standard HTML file links through native same-browser new-tab navigation", () => {
+    // A real target=_blank anchor preserves browser popup, modifier, and keyboard semantics
+    // without an async window.open call that can be blocked or duplicated.
+    setRepoSession();
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    render(
+      <div>
+        <MarkdownContent text="[relative HTML](file:web/src/demo/index.html)" />
+        <MarkdownContent text="[uppercase HTML](file:/tmp/report.HTML)" />
+        <MarkdownContent text="[standard HTML](web/docs/tutorial.html)" />
+      </div>,
+    );
+
+    const relativeLink = screen.getByRole("link", { name: "relative HTML" });
+    const uppercaseLink = screen.getByRole("link", { name: "uppercase HTML" });
+    const standardLink = screen.getByRole("link", { name: "standard HTML" });
+    for (const link of [relativeLink, uppercaseLink, standardLink]) {
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+      expect(link.getAttribute("href")).toMatch(/^\/file-preview\/open\?/);
+    }
+
+    const relativeUrl = new URL(relativeLink.getAttribute("href")!, "http://localhost");
+    expect(relativeUrl.searchParams.get("path")).toBe("web/src/demo/index.html");
+    expect(relativeUrl.searchParams.get("isRelative")).toBe("1");
+    expect(relativeUrl.searchParams.get("sessionId")).toBe("s1");
+    const uppercaseUrl = new URL(uppercaseLink.getAttribute("href")!, "http://localhost");
+    expect(uppercaseUrl.searchParams.get("path")).toBe("/tmp/report.HTML");
+    expect(uppercaseUrl.searchParams.get("isRelative")).toBe("0");
+
+    let preventedBeforeNavigationGuard: boolean | undefined;
+    document.addEventListener(
+      "click",
+      (event) => {
+        preventedBeforeNavigationGuard = event.defaultPrevented;
+        event.preventDefault();
+      },
+      { once: true },
+    );
+    relativeLink.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    expect(preventedBeforeNavigationGuard).toBe(false);
+    expect(mockResolveFileLinkAction).not.toHaveBeenCalled();
+    expect(mockGetSettings).not.toHaveBeenCalled();
+    expect(mockOpenVsCodeRemoteFile).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
+  it("preserves native modifier, keyboard-generated, and auxiliary activation without duplicate HTML opens", () => {
+    // Browser-native activation owns exactly one navigation. React only observes the
+    // event and never adds a second window.open or editor action.
+    setRepoSession();
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<MarkdownContent text="[tutorial](file:web/docs/tutorial.html)" />);
+    const link = screen.getByRole("link", { name: "tutorial" });
+
+    for (const init of [
+      { ctrlKey: true },
+      { metaKey: true },
+      { shiftKey: true },
+      { detail: 0 },
+    ] satisfies MouseEventInit[]) {
+      let preventedBeforeNavigationGuard: boolean | undefined;
+      document.addEventListener(
+        "click",
+        (event) => {
+          preventedBeforeNavigationGuard = event.defaultPrevented;
+          event.preventDefault();
+        },
+        { once: true },
+      );
+      link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...init }));
+      expect(preventedBeforeNavigationGuard).toBe(false);
+    }
+
+    let auxiliaryPrevented: boolean | undefined;
+    document.addEventListener(
+      "auxclick",
+      (event) => {
+        auxiliaryPrevented = event.defaultPrevented;
+        event.preventDefault();
+      },
+      { once: true },
+    );
+    link.dispatchEvent(new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }));
+    expect(auxiliaryPrevented).toBe(false);
+
+    expect(mockResolveFileLinkAction).not.toHaveBeenCalled();
+    expect(mockGetSettings).not.toHaveBeenCalled();
+    expect(mockOpenVsCodeRemoteFile).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
+  it("keeps HTML-like non-HTML suffixes on the editor path", async () => {
+    // The browser default applies only to a final case-insensitive .html extension.
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-html-text" });
+    setRepoSession();
+
+    render(<MarkdownContent text="[source](file:web/docs/tutorial.html.txt)" />);
+    const link = screen.getByRole("link", { name: "source" });
+    expect(link.getAttribute("target")).toBeNull();
+    expect(link.getAttribute("href")).toBe("file:web/docs/tutorial.html.txt:1");
+    fireEvent.click(link);
+
+    await waitFor(() => {
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/repo/web/docs/tutorial.html.txt",
+        line: 1,
+        column: 1,
+      });
+    });
+  });
+
+  it("retains explicit context-menu editor access for HTML links", async () => {
+    // HTML changes the ordinary click default only; the established authoritative
+    // resolver and editor action remain available from the shared file menu.
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-html-editor" });
+    mockResolveFileLinkAction.mockResolvedValue({
+      absolutePath: "/repo/web/docs/tutorial.html",
+      requestedPath: "web/docs/tutorial.html",
+      exists: true,
+      isFile: true,
+      isDirectory: false,
+      isImage: false,
+      canRevealInFinder: true,
+      canOpenContainingFolder: true,
+      openContainingFolderLabel: "Open in Finder",
+      platform: "darwin",
+    });
+    setRepoSession();
+
+    render(<MarkdownContent text="[tutorial](file:web/docs/tutorial.html)" />);
+    fireEvent.contextMenu(screen.getByRole("link", { name: "tutorial" }), { clientX: 24, clientY: 40 });
+
+    expect(await screen.findByText("Open in Editor")).toBeTruthy();
+    expect(screen.getByText("Copy File Path")).toBeTruthy();
+    expect(await screen.findByText("Open in Finder")).toBeTruthy();
+    fireEvent.click(screen.getByText("Open in Editor"));
+
+    await waitFor(() => {
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/repo/web/docs/tutorial.html",
+        line: 1,
+        column: 1,
+      });
+    });
+  });
+
+  it("suppresses the one native HTML navigation after a mobile long press", () => {
+    // Mobile browsers synthesize a click after long-press. The existing guard must
+    // continue cancelling that click now that HTML uses a native target=_blank link.
+    vi.useFakeTimers();
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    try {
+      setRepoSession();
+      render(<MarkdownContent text="[mobile tutorial](file:web/docs/tutorial.html)" />);
+      const link = screen.getByRole("link", { name: "mobile tutorial" });
+
+      fireEvent.touchStart(link, { touches: [{ clientX: 32, clientY: 48 }] });
+      act(() => {
+        vi.advanceTimersByTime(550);
+      });
+
+      expect(screen.getByText("Open in Editor")).toBeTruthy();
+      const followUpClick = new MouseEvent("click", { bubbles: true, cancelable: true });
+      expect(link.dispatchEvent(followUpClick)).toBe(false);
+      expect(followUpClick.defaultPrevented).toBe(true);
+      expect(mockGetSettings).not.toHaveBeenCalled();
+      expect(mockOpenVsCodeRemoteFile).not.toHaveBeenCalled();
+      expect(openSpy).not.toHaveBeenCalled();
+    } finally {
+      openSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("allows the next genuine HTML tap when a long press produces no synthetic click", () => {
+    // Some mobile browsers cancel the long-press sequence without emitting the
+    // click that normally clears suppression. A later touchstart must scope the
+    // guard to the old gesture so the new tap can navigate natively.
+    vi.useFakeTimers();
+    try {
+      setRepoSession();
+      render(<MarkdownContent text="[mobile tutorial](file:web/docs/tutorial.html)" />);
+      const link = screen.getByRole("link", { name: "mobile tutorial" });
+
+      fireEvent.touchStart(link, { touches: [{ clientX: 32, clientY: 48 }] });
+      act(() => {
+        vi.advanceTimersByTime(550);
+      });
+      expect(screen.getByText("Open in Editor")).toBeTruthy();
+      fireEvent.touchCancel(link);
+
+      fireEvent.touchStart(link, { touches: [{ clientX: 32, clientY: 48 }] });
+      fireEvent.touchEnd(link);
+      let preventedBeforeNavigationGuard: boolean | undefined;
+      document.addEventListener(
+        "click",
+        (event) => {
+          preventedBeforeNavigationGuard = event.defaultPrevented;
+          event.preventDefault();
+        },
+        { once: true },
+      );
+      link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+      expect(preventedBeforeNavigationGuard).toBe(false);
+      expect(mockGetSettings).not.toHaveBeenCalled();
+      expect(mockOpenVsCodeRemoteFile).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps non-image file-link left clicks on the editor-open path", async () => {
     // Non-image links must preserve the established default even though click
     // handling now asks the backend whether a target is previewable.

@@ -40,6 +40,15 @@ export async function revealFileLinkInFinder(
   );
 }
 
+export function buildFileLinkBrowserUrl(target: FileLinkActionTarget): string {
+  const params = new URLSearchParams({
+    path: target.path,
+    isRelative: target.isRelative ? "1" : "0",
+  });
+  if (target.sessionId) params.set("sessionId", target.sessionId);
+  return `/file-preview/open?${params.toString()}`;
+}
+
 export function buildFileLinkPreviewUrl(target: FileLinkActionTarget): string {
   const params = new URLSearchParams({
     path: target.path,

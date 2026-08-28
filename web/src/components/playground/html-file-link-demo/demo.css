@@ -1,0 +1,92 @@
+:root {
+  color-scheme: light dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f3f0ea;
+  color: #23211e;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background: radial-gradient(circle at top, #fffaf0 0%, #e9e1d6 72%);
+}
+
+.demo-card {
+  width: min(560px, 100%);
+  box-sizing: border-box;
+  padding: 32px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 20px;
+  background: color-mix(in srgb, Canvas 92%, #d97745 8%);
+  box-shadow: 0 22px 60px rgb(67 45 30 / 18%);
+}
+
+img {
+  width: 56px;
+  height: 56px;
+}
+
+.eyebrow {
+  margin: 18px 0 8px;
+  color: #b4572d;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(1.8rem, 5vw, 2.6rem);
+  line-height: 1.05;
+}
+
+.intro {
+  margin: 14px 0 24px;
+  opacity: 0.76;
+}
+
+dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  background: color-mix(in srgb, CanvasText 6%, transparent);
+}
+
+dt {
+  font-weight: 600;
+}
+
+dd {
+  margin: 0;
+  color: #2d8659;
+  font-weight: 700;
+  text-align: right;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    background: #171411;
+    color: #f1e9df;
+  }
+
+  body {
+    background: radial-gradient(circle at top, #36261e 0%, #171411 72%);
+  }
+
+  .demo-card {
+    background: color-mix(in srgb, Canvas 90%, #c96236 10%);
+  }
+}

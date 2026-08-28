@@ -42,7 +42,7 @@ const IMAGE_MIME_BY_EXT: Record<string, string> = {
   ".heif": "image/heif",
 };
 
-interface FileLinkResolveRequest {
+export interface FileLinkResolveRequest {
   path: string;
   isRelative?: boolean;
   sessionId?: string;
@@ -54,7 +54,7 @@ interface FileLinkBaseContext {
   isWorktree: boolean;
 }
 
-interface ResolvedFileLinkPath {
+export interface ResolvedFileLinkPath {
   absolutePath: string;
   requestedPath: string;
   exists: boolean;
@@ -108,6 +108,13 @@ function getFileLinkRoot(base: FileLinkBaseContext): string | null {
   return base.repoRoot || base.cwd;
 }
 
+export function getFileLinkRootForSession(
+  wsBridge: RouteContext["wsBridge"],
+  sessionId: string | undefined,
+): string | null {
+  return getFileLinkRoot(getFileLinkBaseContext(wsBridge, sessionId));
+}
+
 function normalizeRelativeFileLinkPath(path: string): string | null {
   const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
   const safeParts: string[] = [];
@@ -152,7 +159,7 @@ async function chooseExistingFileLinkPath(candidates: string[]): Promise<string>
   return candidates[0] ?? "";
 }
 
-async function resolveFileLinkPath(
+export async function resolveFileLinkPath(
   request: FileLinkResolveRequest,
   wsBridge: RouteContext["wsBridge"],
 ): Promise<ResolvedFileLinkPath> {

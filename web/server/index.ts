@@ -20,6 +20,8 @@ import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
+import { createFileLinkBrowserRoutes } from "./routes/file-link-browser.js";
+import { blockOpaqueOriginApplicationRequest } from "./opaque-origin-guard.js";
 import { createRoutes } from "./routes.js";
 import { CodexSidecarRegistry } from "./codex-sidecar-auth.js";
 import { COMPANION_CLIENT_IP_HEADER } from "./routes/auth.js";
@@ -848,6 +850,7 @@ const sleepInhibitor = new SleepInhibitor({ wsBridge, launcher, getSettings });
 
 const app = new Hono();
 
+app.route("/", createFileLinkBrowserRoutes(wsBridge));
 app.use("/api/*", cors());
 app.route(
   "/api",
@@ -895,6 +898,11 @@ const server = Bun.serve<SocketData>({
     const url = new URL(req.url);
 
     const wsRoute = matchWebSocketRoute(url.pathname);
+    const opaqueOriginBlock = blockOpaqueOriginApplicationRequest(req, {
+      websocketRouteMatched: Boolean(wsRoute),
+    });
+    if (opaqueOriginBlock) return opaqueOriginBlock;
+
     if (wsRoute) {
       const data =
         wsRoute.kind === "terminal"

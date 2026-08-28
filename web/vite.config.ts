@@ -14,6 +14,7 @@ export default defineConfig({
     port: 5174,
     proxy: {
       "/api": `http://localhost:${backendPort}`,
+      "/file-preview": `http://localhost:${backendPort}`,
       "/ws": {
         target: `ws://localhost:${backendPort}`,
         ws: true,

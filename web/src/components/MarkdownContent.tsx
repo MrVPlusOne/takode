@@ -38,6 +38,7 @@ import {
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { Lightbox } from "./Lightbox.js";
 import {
+  buildFileLinkBrowserUrl,
   buildFileLinkPreviewUrl,
   resolveFileLinkAction,
   revealFileLinkInFinder,
@@ -350,6 +351,10 @@ function resolveFileLinkTarget(target: FileLinkTarget, base: FileLinkBaseContext
     column: target.column,
     ...(Number.isFinite(target.endLine) ? { endLine: Number(target.endLine) } : {}),
   };
+}
+
+function isHtmlFileLinkTarget(target: FileLinkTarget): boolean {
+  return /\.html$/i.test(target.path);
 }
 
 function formatFileLinkLocation(target: Pick<FileLinkTarget, "line" | "column" | "endLine">): string {
@@ -1021,47 +1026,53 @@ function FileMarkdownLink({
     );
   }, []);
 
+  const openDefaultTarget = useCallback(async () => {
+    if (!resolvedTarget) return;
+    try {
+      const info = await resolveFileLinkAction(actionTarget);
+      if (info.isImage) {
+        setPreviewUrl(buildFileLinkPreviewUrl(actionTarget));
+        return;
+      }
+    } catch (error) {
+      console.warn("[MarkdownContent] Failed to resolve file link before preview; opening in editor.", error);
+    }
+    let openTarget = resolvedTarget;
+    if (resolvedTarget.fallbackAbsolutePath) {
+      try {
+        await api.readFile(resolvedTarget.absolutePath);
+      } catch {
+        openTarget = {
+          ...resolvedTarget,
+          absolutePath: resolvedTarget.fallbackAbsolutePath,
+        };
+      }
+    }
+    try {
+      await openEditorTarget(openTarget);
+    } catch (error) {
+      showEditorOpenError(error instanceof Error ? error.message : String(error));
+    }
+  }, [actionTarget, openEditorTarget, resolvedTarget]);
+
+  const opensInBrowser = isHtmlFileLinkTarget(target);
   const onClick = useCallback(
-    async (e: MouseEvent<HTMLAnchorElement>) => {
+    (e: MouseEvent<HTMLAnchorElement>) => {
       if (stopPropagation) e.stopPropagation();
       if (longPressTriggeredRef.current) {
         longPressTriggeredRef.current = false;
         e.preventDefault();
         return;
       }
+      if (opensInBrowser) return;
       e.preventDefault();
-      if (!resolvedTarget) return;
-      try {
-        const info = await resolveFileLinkAction(actionTarget);
-        if (info.isImage) {
-          setPreviewUrl(buildFileLinkPreviewUrl(actionTarget));
-          return;
-        }
-      } catch (error) {
-        console.warn("[MarkdownContent] Failed to resolve file link before preview; opening in editor.", error);
-      }
-      let openTarget = resolvedTarget;
-      if (resolvedTarget.fallbackAbsolutePath) {
-        try {
-          await api.readFile(resolvedTarget.absolutePath);
-        } catch {
-          openTarget = {
-            ...resolvedTarget,
-            absolutePath: resolvedTarget.fallbackAbsolutePath,
-          };
-        }
-      }
-      try {
-        await openEditorTarget(openTarget);
-      } catch (error) {
-        showEditorOpenError(error instanceof Error ? error.message : String(error));
-      }
+      void openDefaultTarget();
     },
-    [actionTarget, openEditorTarget, resolvedTarget, stopPropagation],
+    [openDefaultTarget, opensInBrowser, stopPropagation],
   );
 
   const locationSuffix = formatFileLinkLocation(target);
-  const href = `file:${target.path}${locationSuffix}`;
+  const href = opensInBrowser ? buildFileLinkBrowserUrl(actionTarget) : `file:${target.path}${locationSuffix}`;
   const title = resolvedTarget
     ? `${target.path}${locationSuffix}`
     : `${target.path}${locationSuffix} (unable to resolve repo-relative path)`;
@@ -1145,6 +1156,8 @@ function FileMarkdownLink({
     <>
       <a
         href={href}
+        target={opensInBrowser ? "_blank" : undefined}
+        rel={opensInBrowser ? "noopener noreferrer" : undefined}
         onClick={(e) => {
           void onClick(e);
         }}
@@ -1154,6 +1167,10 @@ function FileMarkdownLink({
         }}
         onTouchStart={(e: TouchEvent<HTMLAnchorElement>) => {
           clearLongPressTimer();
+          // A real follow-up tap starts with touchstart, while the browser's
+          // synthetic post-long-press click does not. Reset here so a missing
+          // synthetic click cannot leave the next genuine tap suppressed.
+          longPressTriggeredRef.current = false;
           const touch = e.touches[0];
           if (!touch) return;
           longPressTimerRef.current = window.setTimeout(() => {
