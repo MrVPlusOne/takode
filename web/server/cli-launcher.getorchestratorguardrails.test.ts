@@ -447,7 +447,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Use delayed approval via User Checkpoint");
     expect(guardrails).toContain("visible chat approval surface is for the user's decision, not worker grounding");
     expect(guardrails).toContain("make it read like a TLDR for approval");
-    expect(guardrails).toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");
+    expect(guardrails).toContain("Keep the quest record intent-first and self-contained");
+    expect(guardrails).toContain("useful evidence or context a worker could not reasonably recover");
+    expect(guardrails).toContain("leave unconfirmed leader ideas and detailed planning to Work");
+    expect(guardrails).not.toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");
     expect(guardrails).toContain("Use the scannable shape");
     expect(guardrails).toContain("preserve judgment, but expand only for ambiguity");
     expect(guardrails).toContain("authorized Journey to the board before or with dispatch");

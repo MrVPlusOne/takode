@@ -46,7 +46,7 @@ Use `/quest-design` before:
 
 The full approval workflow lives in the existing `quest-design` skill. Load that skill for the confirmation shape, combined quest/Journey approval rules, follow-up relationship guidance, and leader notification requirements.
 
-Quest descriptions for refined-and-later work must be self-contained enough for a future worker or user to understand the necessary background without opening every linked predecessor. Keep descriptions concise, but include the current problem or need, desired outcome, important constraints, definitions for non-obvious terms, and how a true follow-up differs from or builds on its predecessor. Links, screenshots, phase notes, and prior messages should enrich the description, not replace the minimum local background.
+Quest descriptions for refined-and-later work must be intent-first and self-contained enough for a future worker or user to understand the necessary background without opening every linked predecessor. Keep descriptions concise, but include the requested outcome, requirements or constraints the user supplied or confirmed, applicable mandatory constraints, and useful evidence or context -- especially material a worker could not reasonably recover independently. Define non-obvious terms and explain how a true follow-up differs from or builds on its predecessor. Links, screenshots, phase notes, and prior messages should enrich the description, not replace the minimum local background. Preserve helpful leader analysis as non-binding context, but leave unconfirmed ideas and detailed investigation, planning, technical design, validation details, and execution choices to Work.
 
 Operations that do not require `/quest-design`:
 - Read-only commands: `quest show`, `quest list`, `quest grep`, `quest history`, and `quest tags`.
@@ -616,7 +616,7 @@ Use `quest complete` for final completion to `done` with review metadata when Me
 - Wait for user confirmation or correction. If the user corrects the draft and ambiguity remains, repeat `/quest-design` before writing the quest.
 - If this is a true follow-up, bug fix, successor, redesign, or user-approved next quest from earlier findings, include `Relationship: follow-up of [q-M](quest:q-M)` in the draft and persist it with `quest edit <id> --follow-up-of q-M` after approval. Leave incidental mentions to auto-detected backlinks instead.
 - Title: concise, less than 10 words. Move detail to description.
-- Description: clear, actionable, and self-contained. Define what "done" looks like, define non-obvious terms, include the current problem or need and important constraints, and explain how a true follow-up differs from or builds on its predecessor without requiring the reader to open linked quests.
+- Description: clear, actionable, intent-first, and self-contained. State the requested outcome, user-supplied, confirmed, or mandatory constraints, and useful hard-to-recover context; define non-obvious terms and explain how a true follow-up differs from or builds on its predecessor. Do not turn unconfirmed leader ideas or detailed planning into binding acceptance criteria.
 - Tags: run `quest tags` for awareness, then prefer the two-axis taxonomy in the Tags section. For `refined` and later quests, generally use one area tag followed by one work-type tag.
 - Apply confirmed updates via `quest edit <id> --title "..." --desc "..." --tags "t1,t2"` and add `--follow-up-of q-M` only when the relationship was confirmed.
 

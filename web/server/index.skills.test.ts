@@ -394,6 +394,33 @@ describe("index startup skill registration", () => {
     expect(lifecycle).toContain("design-only or investigation quests may enter Memory");
   });
 
+  it("keeps leader-created quest records intent-first without discarding useful context", async () => {
+    // Source evidence should survive for worker grounding without becoming leader-invented binding scope.
+    const [questDesign, leaderDispatch, orchestration] = await Promise.all([
+      readFile(QUEST_DESIGN_SKILL_PATH, "utf-8"),
+      readFile(LEADER_DISPATCH_SKILL_PATH, "utf-8"),
+      readFile(TAKODE_ORCHESTRATION_SKILL_PATH, "utf-8"),
+    ]);
+
+    expect(questDesign).toContain("requirements and constraints the user supplied or confirmed");
+    expect(questDesign).toContain("material a worker could not reasonably recover independently");
+    expect(questDesign).toContain("Preserve leader analysis, examples, and possible approaches as non-binding context");
+    expect(questDesign).toContain("Detailed investigation, planning, technical design, validation details");
+    expect(questDesign).toContain("belong to Work unless the user confirmed them");
+    expect(questDesign).toContain("only user-supplied, confirmed, or mandatory acceptance checks");
+
+    expect(leaderDispatch).toContain("Follow `quest-design`'s authority boundary");
+    expect(leaderDispatch).toContain("useful source evidence and intent-first worker context");
+    expect(orchestration).toContain("Keep the quest record intent-first and self-contained");
+    expect(orchestration).toContain("leave unconfirmed leader ideas and detailed planning to Work");
+    expect(orchestration).toContain("The quest record still needs a concise local summary");
+
+    for (const source of [questDesign, leaderDispatch, orchestration]) {
+      expect(source).not.toContain("Keep detailed scope, evidence, acceptance criteria, non-goals");
+      expect(source).not.toContain("Put detailed grounding, evidence, acceptance bullets, non-goals");
+    }
+  });
+
   it("keeps the complete Work recovery rule owned by the canonical leader brief", async () => {
     const [leaderBrief, assigneeBrief, leaderDispatch, orchestration, journey, launcher, recoveryPrompts] =
       await Promise.all([

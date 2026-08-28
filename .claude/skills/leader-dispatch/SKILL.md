@@ -7,7 +7,7 @@ description: "Dispatch workflow for leader/orchestrator sessions. Use when dispa
 
 Use this skill before choosing a worker, spawning, reusing, queueing, or sending the first worker message for a quest. Also use it before deciding that a tiny context-rich follow-up can bypass quest lifecycle as a direct worker errand.
 
-This is the hot path. Keep worker grounding in the quest record, phase-specific behavior in the phase briefs, and CLI mechanics in `takode-orchestration` / `board-usage.md`.
+This is the hot path. Keep intent-first worker context in the quest record, phase-specific behavior in the phase briefs, and CLI mechanics in `takode-orchestration` / `board-usage.md`.
 
 ## Read On Demand
 
@@ -73,15 +73,15 @@ Negative examples:
 
 ## Approval Packet
 
-For creation plus dispatch that needs approval, one confirmation can approve the quest text, Journey, and scheduling plan. Apply `/leader-decision-communication` for the complete presentation rule; keep this packet limited to dispatch-specific approval content and put detailed evidence and worker grounding into the quest record.
+For creation plus dispatch that needs approval, one confirmation can approve the quest text, Journey, and scheduling plan. Apply `/leader-decision-communication` for the complete presentation rule; keep this packet limited to dispatch-specific approval content and put useful source evidence and intent-first worker context into the quest record.
 
-The quest record must still stand alone after the concise approval packet. When the work depends on a prior quest, log, screenshot, or discussion, include enough local background for a new worker or future user to understand the problem, desired outcome, non-obvious terms, important constraints, and how a true follow-up differs from or builds on its predecessor without opening every link.
+The quest record must still stand alone after the concise approval packet. When the work depends on a prior quest, log, screenshot, or discussion, include enough local background for a new worker or future user to understand the problem, desired outcome, non-obvious terms, user-supplied, confirmed, or mandatory constraints, and how a true follow-up differs from or builds on its predecessor without opening every link. Follow `quest-design`'s authority boundary: useful leader analysis may remain context, but unconfirmed ideas and detailed planning do not become binding scope.
 
 Use this shape as a menu, not a form:
 
 - **Proposed Quest**: title, tags when useful, and true follow-up relationship when relevant.
-- **Goal / Acceptance**: the single source of truth for the requested work and acceptance checks.
-- **Context / Evidence**: only details the user needs to approve, correct, or choose. Otherwise put them in the quest.
+- **Goal / Acceptance**: the single source of truth for the requested work and user-supplied, confirmed, or mandatory acceptance checks.
+- **Context / Evidence**: only details the user needs to approve, correct, or choose. Preserve useful source context in the quest without silently turning it into binding scope.
 - **Out Of Scope**: only likely misunderstanding boundaries.
 - **Open Questions**: only questions that materially change the quest or dispatch.
 - **Journey**: phase list, with short notes only for non-standard phases or unusual handling.
@@ -209,7 +209,7 @@ If the quest has unaddressed human feedback, add one sentence after the claim in
 The quest has unaddressed human feedback -- read it carefully and factor it into your alignment read-in.
 ```
 
-Worker context belongs in the quest record or in exact source pointers. If relevant prior messages, quests, artifacts, or memory files are known, put those pointers in the quest or dispatch delta so Alignment can inspect targeted sources instead of rediscovering broadly.
+Intent-first worker context belongs in the quest record or in exact source pointers. If relevant prior messages, quests, artifacts, or memory files are known, preserve those pointers so Alignment can inspect targeted sources instead of rediscovering broadly, without converting leader-authored analysis into a Work plan.
 
 If prior memory may matter, use visible memory reads. Either inspect the relevant memory files yourself for leader routing, or tell the worker the exact catalog/direct-file workflow and likely files or terms to inspect.
 

@@ -334,7 +334,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Use delayed approval via User Checkpoint");
     expect(result).toContain("visible chat approval surface is for the user's decision, not worker grounding");
     expect(result).toContain("make it read like a TLDR for approval");
-    expect(result).toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");
+    expect(result).toContain("Keep the quest record intent-first and self-contained");
+    expect(result).toContain("useful evidence or context a worker could not reasonably recover");
+    expect(result).toContain("leave unconfirmed leader ideas and detailed planning to Work");
+    expect(result).not.toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");
     expect(result).toContain("Every quest-backed dispatched task follows Quest Journey v2");
     expect(result).toContain("direct worker errand");
     expect(result).toContain("one-turn, context-rich, read-only draft");
@@ -500,9 +503,12 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("no question or user choice remains");
     expect(result).toContain("obtain fresh explicit approval before external consequences");
     expect(result).toContain("exact action was explicitly approved and no ambiguity remains");
-    expect(result).toContain("Use `Goal / Acceptance` as the source of truth for the requested work");
+    expect(result).toContain(
+      "Use `Goal / Acceptance` as the source of truth for the requested work and user-supplied, confirmed, or mandatory acceptance checks",
+    );
     expect(result).toContain("make it read like a TLDR for approval");
-    expect(result).toContain("Move most detailed grounding, evidence, acceptance bullets, non-goals");
+    expect(result).toContain("Keep the quest record intent-first and self-contained");
+    expect(result).toContain("leave unconfirmed leader ideas and detailed planning to Work");
     expect(result).toContain("preserve judgment, but expand only for ambiguity");
     expect(result).toContain("the thread text must include enough decision context for that choice");
     expect(result).toContain(
@@ -511,7 +517,8 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("do not restate the same work again as a separate quest description");
     expect(result).toContain("full quest-body paste");
     expect(result).toContain("The visible chat approval surface is for the user's decision, not worker grounding");
-    expect(result).toContain("Detailed grounding belongs in the quest record");
+    expect(result).toContain("Intent-first worker context belongs in the quest record");
+    expect(result).toContain("preserve useful source evidence without turning unconfirmed leader ideas");
     expect(result).toContain("Use the scannable shape");
     expect(result).toContain("Use the scannable shape");
     expect(result).toContain("queueing/capacity choices");
