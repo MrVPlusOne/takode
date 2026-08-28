@@ -11,7 +11,7 @@ import type { BrowserIncomingMessage, ChatMessage } from "../types.js";
 import { useStore } from "../store.js";
 import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
 import { fetchCodexNativeSubagentHistory, type CodexNativeSubagentHistoryPage } from "../api/codex-native-subagents.js";
-import { MessageBubble } from "./MessageBubble.js";
+import { CodexSubagentTranscript } from "./CodexSubagentTranscript.js";
 
 const HISTORY_PAGE_SIZE = 30;
 const MAX_CACHED_HISTORY_MESSAGES = 180;
@@ -503,18 +503,7 @@ function HistoryContent({
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
-            {entry.chatMessages.map((message) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                sessionId={sessionId}
-                showTimestamp
-                interactionMode="read-only"
-                backendType="codex"
-              />
-            ))}
-          </div>
+          <CodexSubagentTranscript sessionId={sessionId} messages={entry.chatMessages} />
         )}
         {history.phase === "error" && (
           <div className="mt-3 rounded-lg border border-cc-warning/25 bg-cc-warning/8 px-3 py-2 text-center text-[11px] text-cc-warning">

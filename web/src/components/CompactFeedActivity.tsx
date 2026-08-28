@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { ChatMessage } from "../types.js";
+import type { ChatMessage, ToolResultPreview } from "../types.js";
 import type { ToolMsgGroup } from "../hooks/use-feed-model.js";
 import { makeWorkerEventActivityItems } from "../utils/herd-event-classification.js";
 import { CompactToolActivity, type CompactToolActivityItem } from "./CompactToolActivity.js";
@@ -7,6 +7,7 @@ import { HerdEventMessage } from "./MessageBubble.js";
 import { ToolMessageGroupContent } from "./ToolMessageGroup.js";
 import { parseTakodeNotifyCommand } from "./ToolBlock.js";
 import { NotificationMarker } from "./NotificationMarker.js";
+import type { ToolResultScope } from "./ToolBlock.js";
 
 export type CompactFeedActivitySegment =
   | { kind: "tool"; groups: ToolMsgGroup[] }
@@ -18,12 +19,18 @@ export function CompactFeedActivity({
   isCodexSession,
   activeCodexTerminalIds,
   onOpenCodexTerminal,
+  interactionMode = "default",
+  toolResultOverrides,
+  toolResultScope = "session",
 }: {
   segments: CompactFeedActivitySegment[];
   sessionId: string;
   isCodexSession: boolean;
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
+  interactionMode?: "default" | "read-only";
+  toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
+  toolResultScope?: ToolResultScope;
 }) {
   const items = useMemo(
     () =>
@@ -65,6 +72,9 @@ export function CompactFeedActivity({
                 activeCodexTerminalIds={activeCodexTerminalIds}
                 onOpenCodexTerminal={onOpenCodexTerminal}
                 suppressNotificationMarker
+                interactionMode={interactionMode}
+                toolResultOverrides={toolResultOverrides}
+                toolResultScope={toolResultScope}
               />
             ))
           ) : (
@@ -76,15 +86,16 @@ export function CompactFeedActivity({
           ),
         )}
       </CompactToolActivity>
-      {inlineNotifications.map((notification, index) => (
-        <div key={`${notification.messageId ?? "notify"}:${notification.category}:${index}`} className="mt-2">
-          <NotificationMarker
-            category={notification.category}
-            sessionId={sessionId}
-            messageId={notification.messageId}
-          />
-        </div>
-      ))}
+      {interactionMode !== "read-only" &&
+        inlineNotifications.map((notification, index) => (
+          <div key={`${notification.messageId ?? "notify"}:${notification.category}:${index}`} className="mt-2">
+            <NotificationMarker
+              category={notification.category}
+              sessionId={sessionId}
+              messageId={notification.messageId}
+            />
+          </div>
+        ))}
     </div>
   );
 }

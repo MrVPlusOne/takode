@@ -613,6 +613,10 @@ export interface CodexAdapterBrowserMessageDeps {
     session: CodexBrowserMessageSessionLike,
     toolResults: Extract<ContentBlock, { type: "tool_result" }>[],
   ) => unknown[];
+  projectToolResultPreviews?: (
+    session: CodexBrowserMessageSessionLike,
+    toolResults: Extract<ContentBlock, { type: "tool_result" }>[],
+  ) => unknown[];
   broadcastToBrowsers: (session: CodexBrowserMessageSessionLike, msg: BrowserIncomingMessage) => void;
   finalizeSupersededCodexTerminalTools: (
     session: CodexBrowserMessageSessionLike,
@@ -762,6 +766,18 @@ async function handleCodexSubagentOwnedMessage(
 ): Promise<void> {
   const routed = withCodexSubagentRootRoute(session, message);
 
+  if (routed.type === "error") {
+    const duplicate =
+      !!routed.id &&
+      session.messageHistory.some((entry: BrowserIncomingMessage) => entry.type === "error" && entry.id === routed.id);
+    if (duplicate) return;
+    session.messageHistory.push(routed);
+    deps.persistSession(session);
+    deps.syncSideChatParent?.(session);
+    deps.broadcastToBrowsers(session, routed);
+    return;
+  }
+
   if (routed.type === "codex_reasoning_detail") {
     const update = upsertCodexReasoningDetail(session, routed);
     if (!update.changed) return;
@@ -781,7 +797,7 @@ async function handleCodexSubagentOwnedMessage(
       const previews = filterNewCodexSubagentToolPreviews(
         session,
         routed,
-        deps.buildToolResultPreviews(session, toolResults),
+        deps.projectToolResultPreviews?.(session, toolResults) ?? [],
       );
       if (previews.length > 0) {
         const previewMessage = withCodexSubagentRootRoute(session, {
@@ -810,14 +826,8 @@ async function handleCodexSubagentOwnedMessage(
     return;
   }
 
-  if (routed.type === "tool_progress" && typeof routed.output_delta === "string" && routed.output_delta.length > 0) {
-    const previous = session.toolProgressOutput.get(routed.tool_use_id) || "";
-    const merged = previous + routed.output_delta;
-    session.toolProgressOutput.set(
-      routed.tool_use_id,
-      merged.length > TOOL_PROGRESS_OUTPUT_LIMIT ? merged.slice(-TOOL_PROGRESS_OUTPUT_LIMIT) : merged,
-    );
-  }
+  // Child progress remains visible audit data but never feeds root tool
+  // progress/timing/watchdog maps.
   deps.broadcastToBrowsers(session, routed);
 }
 
@@ -826,12 +836,12 @@ export async function handleCodexAdapterBrowserMessage(
   msg: BrowserIncomingMessage,
   deps: CodexAdapterBrowserMessageDeps,
 ): Promise<void> {
-  deps.touchActivity(session.id);
-  session.lastCliMessageAt = Date.now();
   if (msg.codexSubagent) {
     await handleCodexSubagentOwnedMessage(session, msg, deps);
     return;
   }
+  deps.touchActivity(session.id);
+  session.lastCliMessageAt = Date.now();
   deps.clearOptimisticRunningTimer(session, `codex_output:${msg.type}`);
   if (msg.type === "codex_reasoning_detail") {
     const routed = withThreadRoute(msg, routeForCodexReasoningDetail(session, msg));

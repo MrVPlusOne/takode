@@ -126,10 +126,7 @@ import {
   sendToCLI as sendToCLITransportController,
 } from "./bridge/claude-cli-transport-controller.js";
 import { attachClaudeSdkAdapterLifecycle } from "./bridge/claude-sdk-adapter-lifecycle-controller.js";
-import {
-  flushQueuedMessagesToCodexAdapter as flushQueuedMessagesToCodexAdapterController,
-  handleCodexAdapterBrowserMessage as handleCodexAdapterBrowserMessageController,
-} from "./bridge/codex-adapter-browser-message-controller.js";
+import { flushQueuedMessagesToCodexAdapter as flushQueuedMessagesToCodexAdapterController } from "./bridge/codex-adapter-browser-message-controller.js";
 import {
   completeDoneBoardRowsForQuestInAllSessions as completeDoneBoardRowsForQuestInAllSessionsController,
   completeQueuedBoardRowsForQuestInAllSessions as completeQueuedBoardRowsForQuestInAllSessionsController,
@@ -229,7 +226,6 @@ import {
   maybeFlushQueuedCodexMessages as maybeFlushQueuedCodexMessagesController,
   pokeStaleCodexPendingDelivery as pokeStaleCodexPendingDeliveryController,
   rearmRecoveredQueuedHeadTurn as rearmRecoveredQueuedHeadTurnController,
-  registerCodexAdapterRecoveryLifecycle,
   rebuildQueuedCodexPendingStartBatch as rebuildQueuedCodexPendingStartBatchController,
   reconcileCodexResumedTurn as reconcileCodexResumedTurnController,
   reconcileRecoveredQueuedTurnLifecycle as reconcileRecoveredQueuedTurnLifecycleController,
@@ -336,6 +332,7 @@ import {
   getClaudeCliTransportDeps as getClaudeCliTransportDepsController,
   getClaudeSdkAdapterLifecycleDeps as getClaudeSdkAdapterLifecycleDepsController,
   getCodexAdapterBrowserMessageDeps as getCodexAdapterBrowserMessageDepsController,
+  getCodexAttachLifecycleDeps as getCodexAttachLifecycleDepsController,
   getWorkBoardStateDeps as getWorkBoardStateDepsController,
   getBoardWatchdogDeps as getBoardWatchdogDepsController,
   getBrowserRoutingDeps as getBrowserRoutingDepsController,
@@ -1416,29 +1413,7 @@ export class WsBridge {
    */
   attachCodexAdapter(sessionId: string, adapter: CodexBridgeAdapter): void {
     const session = this.getOrCreateSession(sessionId, "codex");
-    attachCodexAdapterLifecycleController(sessionId, session, adapter, {
-      clearCodexDisconnectGraceTimer: (targetSession, reason) =>
-        this.clearCodexDisconnectGraceTimer(targetSession as Session, reason),
-      setBackendState: (targetSession, state, error) =>
-        this.setBackendState(targetSession as Session, state as NonNullable<SessionState["backend_state"]>, error),
-      persistSession: (targetSession) => this.persistSession(targetSession as Session),
-      getLauncherSessionInfo: (targetSessionId: string) => this.launcher?.getSession(targetSessionId),
-      onOrchestratorTurnEnd: (targetSessionId: string) =>
-        this.herdEventDispatcher?.onOrchestratorTurnEnd(targetSessionId),
-      handleCodexAdapterBrowserMessage: (targetSession, msg) =>
-        handleCodexAdapterBrowserMessageController(
-          targetSession as Session,
-          msg as BrowserIncomingMessage,
-          this.getCodexAdapterBrowserMessageDeps(),
-        ),
-      registerRecoveryLifecycle: (targetSessionId, targetSession, targetAdapter) =>
-        registerCodexAdapterRecoveryLifecycle(
-          targetSessionId,
-          targetSession as Session,
-          targetAdapter as CodexBridgeAdapter,
-          this.getCodexRecoveryOrchestratorDeps(),
-        ),
-    });
+    attachCodexAdapterLifecycleController(sessionId, session, adapter, getCodexAttachLifecycleDepsController(this));
   }
 
   private flushQueuedMessagesToCodexAdapter(session: Session, adapter: CodexBridgeAdapter, reason: string): void {

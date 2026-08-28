@@ -612,4 +612,274 @@ describe("Codex native subagent state", () => {
       rootProviderTurnId: "provider-turn-stable",
     });
   });
+  it("rejects reciprocal interacted targets as new children", () => {
+    // Installed Codex emits a child-owned interacted event whose target is the
+    // root thread when the child sends a message back to its parent. That is
+    // contact evidence, not a reverse spawn edge.
+    const registry = createCodexNativeSubagentRegistry("reciprocal-interaction", { coverage: "complete" });
+    const result = applyCodexNativeSubagentEvent(registry, {
+      type: "activity",
+      kind: "interacted",
+      providerThreadId: "provider-root-thread",
+      providerParentThreadId: "provider-child-thread",
+      providerEventId: "child-message-to-root",
+      agentPath: "/root",
+      observedAt: 10,
+    });
+
+    expect(result.changed).toBe(false);
+    expect(registry.childrenByProviderThreadId).toEqual({});
+    expect(deriveCodexNativeSubagentSnapshot(registry)).toMatchObject({
+      coverage: "complete",
+      session: { total: 0 },
+      children: [],
+      turns: {},
+    });
+  });
+
+  it("repairs the observed restart cycle without collapsing historical children into the fresh turn", () => {
+    const registry = createCodexNativeSubagentRegistry("restart-repair", { coverage: "complete" });
+    applyCodexNativeSubagentEvent(
+      registry,
+      {
+        type: "activity",
+        kind: "started",
+        providerThreadId: "provider-current-child",
+        providerEventId: "spawn-current",
+        rootProviderTurnId: "provider-fresh-turn",
+        agentPath: "/root/post_restart_ui_check",
+        observedAt: 100,
+      },
+      { resolveFeedRootTurnKey: resolver({ "provider-fresh-turn": "feed-fresh-turn" }) },
+    );
+    applyCodexNativeSubagentEvent(registry, {
+      type: "thread_metadata",
+      observedAt: 101,
+      thread: {
+        id: "provider-current-child",
+        parentThreadId: "provider-root-thread",
+        source: {
+          subAgent: {
+            thread_spawn: {
+              parent_thread_id: "provider-root-thread",
+              depth: 1,
+              agent_path: "/root/post_restart_ui_check",
+            },
+          },
+        },
+      },
+    });
+
+    const corrupt = JSON.parse(JSON.stringify(registry));
+    const current = corrupt.childrenByProviderThreadId["provider-current-child"];
+    corrupt.childrenByProviderThreadId["provider-root-thread"] = {
+      publicChildId: "must-be-recomputed",
+      providerParentThreadId: "provider-current-child",
+      spawnRootProviderTurnId: "provider-fresh-turn",
+      feedRootTurnKey: "feed-fresh-turn",
+      agentPath: "/root",
+      depth: 2,
+      spawnOrder: 2,
+      status: "done",
+      statusObservedAt: 102,
+      transcriptAvailability: "partial",
+      turnsByProviderTurnId: {},
+      seenActivityEventIds: ["interacted:child-message-to-root"],
+    };
+    corrupt.childrenByProviderThreadId["provider-historical-child"] = {
+      publicChildId: "must-be-recomputed",
+      providerParentThreadId: "provider-root-thread",
+      spawnRootProviderTurnId: "provider-fresh-turn",
+      feedRootTurnKey: "feed-fresh-turn",
+      agentPath: "/root/historical_child",
+      depth: 3,
+      spawnOrder: 3,
+      startedAt: 1,
+      status: "unknown",
+      statusObservedAt: 102,
+      transcriptAvailability: "unavailable",
+      turnsByProviderTurnId: {},
+      seenActivityEventIds: [],
+    };
+    corrupt.nextSpawnOrder = 4;
+    expect(current.spawnEvidence).toBeDefined();
+
+    const restored = normalizeCodexNativeSubagentRegistry(corrupt, "restart-repair");
+    // Before the adapter identifies its root, the cyclic component fails
+    // closed rather than exposing either side of the cycle.
+    expect(deriveCodexNativeSubagentSnapshot(restored)).toMatchObject({
+      coverage: "partial",
+      session: { total: 0 },
+      children: [],
+      turns: {},
+    });
+
+    const repaired = applyCodexNativeSubagentEvent(restored, {
+      type: "root_thread_identified",
+      providerThreadId: "provider-root-thread",
+      observedAt: 103,
+    });
+    expect(repaired.changed).toBe(true);
+    expect(restored.childrenByProviderThreadId["provider-root-thread"]).toBeUndefined();
+    expect(restored.childrenByProviderThreadId["provider-current-child"]).toMatchObject({
+      feedRootTurnKey: "feed-fresh-turn",
+      spawnRootProviderTurnId: "provider-fresh-turn",
+    });
+    expect(restored.childrenByProviderThreadId["provider-historical-child"]).not.toHaveProperty("feedRootTurnKey");
+    expect(restored.childrenByProviderThreadId["provider-historical-child"]).not.toHaveProperty(
+      "spawnRootProviderTurnId",
+    );
+
+    const snapshot = deriveCodexNativeSubagentSnapshot(restored);
+    expect(snapshot).toMatchObject({
+      coverage: "partial",
+      session: { total: 1 },
+      children: [expect.objectContaining({ displayName: "post_restart_ui_check", rootTurnId: "feed-fresh-turn" })],
+      turns: { "feed-fresh-turn": expect.objectContaining({ total: 1, coverage: "partial" }) },
+    });
+    const ownership = seedCodexNativeSubagentAdapterContext(restored);
+    expect(ownership.has("provider-root-thread")).toBe(false);
+    expect(ownership.get("provider-historical-child")).toEqual({
+      childId: restored.childrenByProviderThreadId["provider-historical-child"]?.publicChildId,
+    });
+    expect(ownership.has("provider-current-child")).toBe(true);
+  });
+
+  it("keeps root re-identification idempotent and topology violations permanently partial", () => {
+    const registry = createCodexNativeSubagentRegistry("topology-guard", { coverage: "complete" });
+    const firstRoot = applyCodexNativeSubagentEvent(registry, {
+      type: "root_thread_identified",
+      providerThreadId: "provider-root",
+      observedAt: 1,
+    });
+    const secondRoot = applyCodexNativeSubagentEvent(registry, {
+      type: "root_thread_identified",
+      providerThreadId: "provider-root",
+      observedAt: 2,
+    });
+    expect(firstRoot.changed).toBe(true);
+    expect(secondRoot.changed).toBe(false);
+
+    applyAll(
+      registry,
+      [
+        {
+          type: "activity",
+          kind: "started",
+          providerThreadId: "provider-parent",
+          providerParentThreadId: "provider-root",
+          providerEventId: "spawn-parent",
+          rootProviderTurnId: "provider-root-turn",
+          agentPath: "/root/parent",
+          observedAt: 3,
+        },
+        {
+          type: "activity",
+          kind: "started",
+          providerThreadId: "provider-nested",
+          providerParentThreadId: "provider-parent",
+          providerEventId: "spawn-nested",
+          agentPath: "/root/parent/nested",
+          observedAt: 4,
+        },
+      ],
+      { "provider-root-turn": "feed-root" },
+    );
+
+    const invalidReparent = applyCodexNativeSubagentEvent(registry, {
+      type: "thread_metadata",
+      observedAt: 5,
+      thread: {
+        id: "provider-parent",
+        parentThreadId: "provider-nested",
+        source: {
+          subAgent: {
+            thread_spawn: {
+              parent_thread_id: "provider-nested",
+              depth: 3,
+              agent_path: "/root/parent",
+            },
+          },
+        },
+      },
+    });
+    expect(invalidReparent.changed).toBe(true);
+    expect(registry.integrityCompromised).toBe(true);
+    expect(registry.childrenByProviderThreadId["provider-parent"]?.providerParentThreadId).toBe("provider-root");
+
+    applyCodexNativeSubagentEvent(registry, { type: "discovery_complete", observedAt: 6 });
+    expect(registry.coverage).toBe("partial");
+    expect(deriveCodexNativeSubagentSnapshot(registry)).toMatchObject({
+      coverage: "partial",
+      session: { total: 2 },
+      turns: { "feed-root": expect.objectContaining({ total: 2, coverage: "partial" }) },
+    });
+  });
+
+  it("rejects a settled root child being reparented beneath another spawn", () => {
+    // A duplicate started event must not turn an already-settled root child
+    // into a descendant, especially when that parent belongs to another turn.
+    const registry = createCodexNativeSubagentRegistry("immutable-spawn", { coverage: "complete" });
+    applyCodexNativeSubagentEvent(registry, {
+      type: "root_thread_identified",
+      providerThreadId: "provider-root",
+      observedAt: 1,
+    });
+    const rootTurns = { "provider-turn-a": "feed-a", "provider-turn-b": "feed-b" };
+    applyAll(
+      registry,
+      [
+        {
+          type: "activity",
+          kind: "started",
+          providerThreadId: "provider-child",
+          providerEventId: "spawn-child",
+          rootProviderTurnId: "provider-turn-a",
+          agentPath: "/root/child",
+          observedAt: 2,
+        },
+        {
+          type: "activity",
+          kind: "started",
+          providerThreadId: "provider-other-parent",
+          providerParentThreadId: "provider-root",
+          providerEventId: "spawn-other-parent",
+          rootProviderTurnId: "provider-turn-b",
+          agentPath: "/root/other_parent",
+          observedAt: 3,
+        },
+      ],
+      rootTurns,
+    );
+
+    const conflict = applyCodexNativeSubagentEvent(
+      registry,
+      {
+        type: "activity",
+        kind: "started",
+        providerThreadId: "provider-child",
+        providerParentThreadId: "provider-other-parent",
+        providerEventId: "conflicting-respawn",
+        agentPath: "/root/other_parent/child",
+        observedAt: 4,
+      },
+      { resolveFeedRootTurnKey: resolver(rootTurns) },
+    );
+
+    expect(conflict.changed).toBe(true);
+    expect(registry.integrityCompromised).toBe(true);
+    expect(registry.childrenByProviderThreadId["provider-child"]).toMatchObject({
+      spawnRootProviderTurnId: "provider-turn-a",
+      feedRootTurnKey: "feed-a",
+      agentPath: "/root/child",
+    });
+    expect(registry.childrenByProviderThreadId["provider-child"]).not.toHaveProperty("providerParentThreadId");
+    expect(deriveCodexNativeSubagentSnapshot(registry)).toMatchObject({
+      coverage: "partial",
+      children: [
+        expect.objectContaining({ displayName: "child", rootTurnId: "feed-a" }),
+        expect.objectContaining({ displayName: "other_parent", rootTurnId: "feed-b" }),
+      ],
+    });
+  });
 });

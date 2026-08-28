@@ -241,6 +241,7 @@ import {
   findToolUseBlockInHistory as findToolUseBlockInHistoryController,
   getIndexedToolResult,
   getToolResultPreviewLimit as getToolResultPreviewLimitController,
+  projectToolResultPreviews as projectToolResultPreviewsController,
   pruneToolResultsForCurrentHistory as pruneToolResultsForCurrentHistoryController,
   recoverToolStartTimesFromHistory as recoverToolStartTimesFromHistoryController,
   scheduleCodexToolResultWatchdogs as scheduleCodexToolResultWatchdogsController,
@@ -1007,6 +1008,40 @@ export function getClaudeSdkAdapterLifecycleDeps(host: any) {
   };
 }
 
+export function getCodexAttachLifecycleDeps(host: any) {
+  return {
+    clearCodexDisconnectGraceTimer: (targetSession: unknown, reason: string) =>
+      host.clearCodexDisconnectGraceTimer(targetSession as Session, reason),
+    setBackendState: (targetSession: unknown, state: string, error: string | null) =>
+      host.setBackendState(targetSession as Session, state as NonNullable<SessionState["backend_state"]>, error),
+    persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
+    persistHistoryOwnershipRepair: async (targetSession: unknown, expectedFrozenCount: number) => {
+      const session = targetSession as Session;
+      await host.store.rewriteFrozenHistoryMetadata(
+        buildPersistedSessionPayloadController(session),
+        expectedFrozenCount,
+      );
+    },
+    broadcastToBrowsers: (targetSession: unknown, message: BrowserIncomingMessage) =>
+      host.broadcastToBrowsers(targetSession as Session, message),
+    getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
+    onOrchestratorTurnEnd: (sessionId: string) => host.herdEventDispatcher?.onOrchestratorTurnEnd(sessionId),
+    handleCodexAdapterBrowserMessage: (targetSession: unknown, message: unknown) =>
+      handleCodexAdapterBrowserMessageController(
+        targetSession as Session,
+        message as BrowserIncomingMessage,
+        host.getCodexAdapterBrowserMessageDeps(),
+      ),
+    registerRecoveryLifecycle: (sessionId: string, targetSession: unknown, adapter: unknown) =>
+      registerCodexAdapterRecoveryLifecycle(
+        sessionId,
+        targetSession as Session,
+        adapter as import("./bridge/ws-bridge-session.js").CodexBridgeAdapter,
+        host.getCodexRecoveryOrchestratorDeps(),
+      ),
+  };
+}
+
 export function getCodexAdapterBrowserMessageDeps(host: any) {
   const claudeHandlers = host.getClaudeMessageHandlers();
   const runtime = host.getCommonCodexRuntimeDeps();
@@ -1055,6 +1090,10 @@ export function getCodexAdapterBrowserMessageDeps(host: any) {
     ) => host.collectCompletedToolStartTimes(targetSession as Session, toolResults),
     buildToolResultPreviews: (targetSession: unknown, toolResults: Extract<ContentBlock, { type: "tool_result" }>[]) =>
       host.buildToolResultPreviews(targetSession as Session, toolResults),
+    projectToolResultPreviews: (
+      targetSession: unknown,
+      toolResults: Extract<ContentBlock, { type: "tool_result" }>[],
+    ) => projectToolResultPreviewsController(targetSession as Session, toolResults, host.getToolResultRecoveryDeps()),
     finalizeSupersededCodexTerminalTools: (targetSession: unknown, completedToolStartTimes: number[]) =>
       finalizeSupersededCodexTerminalToolsController(
         targetSession as Session,

@@ -205,6 +205,131 @@ describe("Codex native subagent browser authority", () => {
     ).toEqual(ownership);
   });
 
+  it("preserves stable child errors as owned chronological audit rows", () => {
+    wsModule.connectSession("s1");
+    fire({ type: "session_init", session: session("s1", snapshot("safe-child", 1)) });
+    const ownership = { childId: "safe-child", rootTurnId: "turn-safe-child" };
+
+    fire({
+      type: "error",
+      id: "stable-child-error",
+      message: "Privacy-bounded child failure",
+      timestamp: 321,
+      threadKey: "q-42",
+      questId: "q-42",
+      codexSubagent: ownership,
+    });
+
+    expect(useStore.getState().messages.get("s1")).toContainEqual({
+      id: "stable-child-error",
+      role: "system",
+      content: "Privacy-bounded child failure",
+      timestamp: 321,
+      variant: "error",
+      metadata: { threadKey: "q-42", questId: "q-42", codexSubagent: ownership },
+    });
+  });
+
+  it("attaches live child previews to the matching child message without touching root tool state", () => {
+    wsModule.connectSession("s1");
+    fire({ type: "session_init", session: session("s1", snapshot("safe-child", 1)) });
+    const ownership = { childId: "safe-child", rootTurnId: "turn-safe-child" };
+    const rootResult = {
+      tool_use_id: "shared-tool",
+      content: "root result",
+      is_error: false,
+      total_size: 11,
+      is_truncated: false,
+    };
+    const childResult = { ...rootResult, content: "child result", total_size: 12 };
+    const store = useStore.getState();
+    store.setToolResult("s1", "shared-tool", rootResult);
+    store.setToolProgress("s1", "shared-tool", { toolName: "Bash", elapsedSeconds: 9, outputDelta: "root" });
+
+    fire({
+      type: "assistant",
+      message: {
+        id: "child-tool-message",
+        type: "message",
+        role: "assistant",
+        model: "",
+        content: [{ type: "tool_use", id: "shared-tool", name: "Bash", input: { command: "child" } }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: "spawn-tool",
+      timestamp: 200,
+      codexSubagent: ownership,
+    });
+    fire({ type: "tool_result_preview", previews: [childResult], codexSubagent: ownership });
+
+    const next = useStore.getState();
+    expect(next.toolResults.get("s1")?.get("shared-tool")).toEqual(rootResult);
+    expect(next.toolProgress.get("s1")?.get("shared-tool")).toMatchObject({ output: "root", elapsedSeconds: 9 });
+    expect(next.messages.get("s1")?.find((message) => message.id === "child-tool-message")?.metadata).toMatchObject({
+      codexSubagent: ownership,
+      codexSubagentToolResults: { "shared-tool": childResult },
+    });
+  });
+
+  it("hydrates child previews and errors from history without replacing colliding root results", () => {
+    wsModule.connectSession("s1");
+    fire({ type: "session_init", session: session("s1", snapshot("safe-child", 1)) });
+    const ownership = { childId: "safe-child", rootTurnId: "turn-safe-child" };
+    const rootResult = {
+      tool_use_id: "shared-tool",
+      content: "root result",
+      is_error: false,
+      total_size: 11,
+      is_truncated: false,
+    };
+    const childResult = { ...rootResult, content: "child result", total_size: 12 };
+    const toolMessage = (id: string, codexSubagent?: typeof ownership) => ({
+      type: "assistant",
+      message: {
+        id,
+        type: "message",
+        role: "assistant",
+        model: "",
+        content: [{ type: "tool_use", id: "shared-tool", name: "Bash", input: { command: id } }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: codexSubagent ? "spawn-tool" : null,
+      timestamp: codexSubagent ? 3 : 1,
+      ...(codexSubagent ? { codexSubagent } : {}),
+    });
+
+    fire({
+      type: "message_history",
+      messages: [
+        toolMessage("root-tool-message"),
+        { type: "tool_result_preview", previews: [rootResult] },
+        toolMessage("child-tool-message", ownership),
+        { type: "tool_result_preview", previews: [childResult], codexSubagent: ownership },
+        {
+          type: "error",
+          id: "history-child-error",
+          message: "Historical child failure",
+          timestamp: 4,
+          codexSubagent: ownership,
+        },
+      ],
+    });
+
+    const next = useStore.getState();
+    expect(next.toolResults.get("s1")?.get("shared-tool")).toEqual(rootResult);
+    expect(next.messages.get("s1")?.find((message) => message.id === "child-tool-message")?.metadata).toMatchObject({
+      codexSubagent: ownership,
+      codexSubagentToolResults: { "shared-tool": childResult },
+    });
+    expect(next.messages.get("s1")?.find((message) => message.id === "history-child-error")).toMatchObject({
+      timestamp: 4,
+      variant: "error",
+      metadata: { codexSubagent: ownership },
+    });
+  });
+
   it("preserves child audit rows without letting authoritative replay replace root-derived state", () => {
     wsModule.connectSession("s1");
     fire({ type: "session_init", session: session("s1", snapshot("safe-child", 1)) });

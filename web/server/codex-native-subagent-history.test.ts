@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   loadProviderCodexNativeSubagentHistoryPage,
   pageForwardCapturedCodexNativeSubagentHistory,
+  projectCodexNativeSubagentInspectorMessages,
 } from "./codex-native-subagent-history.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 
@@ -148,10 +149,54 @@ describe("Codex native subagent history", () => {
     expect(serialized).not.toContain(providerTurnId);
     expect(serialized).not.toContain(providerItemId);
     expect(serialized).not.toContain(absolutePath);
-    expect(serialized).not.toContain("reasoning_turn_id");
+    const reasoning = page.messages.find((message) => message.type === "codex_reasoning_detail");
+    expect(reasoning?.type === "codex_reasoning_detail" ? reasoning.reasoning_turn_id : undefined).toMatch(
+      /^codex-native-reasoning-turn-[0-9a-f]{24}$/,
+    );
     expect(serialized).not.toContain("provider_item_id");
     expect(serialized).not.toContain("ENCRYPTED INPUT SENTINEL");
     expect(serialized).not.toContain("CODEX_HOME");
+  });
+
+  it("keeps safe relative Read paths while redacting absolute file locations", () => {
+    const relativeRead = assistant("relative-read") as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    relativeRead.message.content = [
+      {
+        type: "tool_use",
+        id: "relative-read-tool",
+        name: "Read",
+        input: { file_path: "src/example.ts", offset: 3, limit: 20 },
+      },
+    ];
+    const absoluteRead = assistant("absolute-read") as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    absoluteRead.message.content = [
+      {
+        type: "tool_use",
+        id: "absolute-read-tool",
+        name: "Read",
+        input: { file_path: "/Users/private/repo/secret.ts" },
+      },
+    ];
+
+    const projected = projectCodexNativeSubagentInspectorMessages([relativeRead, absoluteRead], { ownership });
+    const tools = projected.flatMap((message) =>
+      message.type === "assistant" ? message.message.content.filter((block) => block.type === "tool_use") : [],
+    );
+    expect(tools[0]).toMatchObject({
+      type: "tool_use",
+      name: "Read",
+      input: { file_path: "src/example.ts", offset: 3, limit: 20 },
+    });
+    expect(tools[1]).toMatchObject({
+      type: "tool_use",
+      name: "Read",
+      input: { file_path: "[absolute path omitted]" },
+    });
+    expect(JSON.stringify(projected)).not.toContain("/Users/private/repo/secret.ts");
+
+    // Stored main-feed audit rows are projected again for inspector paging.
+    // Opaque message/tool IDs and relative Read semantics must stay identical.
+    expect(projectCodexNativeSubagentInspectorMessages(projected, { ownership })).toEqual(projected);
   });
 
   it("removes credential-shaped fields and path variants from inspector text and tool input", () => {

@@ -10,6 +10,8 @@ import {
   CODEX_AUTO_PAUSE_RECOVERY_SEARCH_MAX_LENGTH,
   isCodexAutoPauseRecoverySummaryFinal,
 } from "./codex-auto-pause-types.js";
+import { deriveCodexNativeSubagentSnapshot } from "./codex-native-subagent-state.js";
+import { repairRestoredCodexNativeSubagentAuthority } from "./codex-native-subagent-ownership-repair.js";
 import type {
   SessionState,
   BrowserIncomingMessage,
@@ -161,6 +163,27 @@ export interface PersistedSession {
   _frozenToolResultCount?: number;
 }
 
+function repairRestoredCodexAuthority(session: PersistedSession): { session: PersistedSession; changed: boolean } {
+  if (session.state.backend_type !== "codex") return { session, changed: false };
+  const repair = repairRestoredCodexNativeSubagentAuthority(
+    session.id,
+    session.codexNativeSubagents,
+    session.messageHistory,
+    session.eventBuffer,
+  );
+  return {
+    session: {
+      ...session,
+      state: {
+        ...session.state,
+        codex_native_subagents: deriveCodexNativeSubagentSnapshot(repair.registry),
+      },
+      codexNativeSubagents: repair.registry,
+    },
+    changed: repair.changed,
+  };
+}
+
 // ─── Store ──────────────────────────────────────────────────────────────────
 
 const DEFAULT_BASE_DIR = join(homedir(), ".companion", "sessions");
@@ -235,6 +258,8 @@ export class SessionStore {
   private inflightWrites = new Set<Promise<unknown>>();
   /** Serialize hot JSON replacements per session so durability barriers cannot be overwritten by older writes. */
   private hotWriteChains = new Map<string, Promise<void>>();
+  /** Serialize append/rewrite operations for each frozen log. */
+  private frozenWriteChains = new Map<string, Promise<void>>();
 
   /**
    * How many messages from the start of each session's messageHistory are
@@ -497,6 +522,19 @@ export class SessionStore {
     return removedCount > 0 ? { messages: cleaned, removedCount } : { messages, removedCount: 0 };
   }
 
+  private enqueueFrozenWrite(sessionId: string, write: () => Promise<void>): Promise<void> {
+    const prior = this.frozenWriteChains.get(sessionId) ?? Promise.resolve();
+    const operation = prior.catch(() => {}).then(write);
+    const chain = operation.finally(() => {
+      this.inflightWrites.delete(operation);
+      if (this.frozenWriteChains.get(sessionId) === chain) this.frozenWriteChains.delete(sessionId);
+    });
+    this.frozenWriteChains.set(sessionId, chain);
+    this.inflightWrites.add(operation);
+    void chain.catch(() => {});
+    return operation;
+  }
+
   /**
    * Append newly frozen messages and tool results to the JSONL frozen log.
    * Creates the file with a version header if it doesn't exist yet.
@@ -523,14 +561,11 @@ export class SessionStore {
       data += JSON.stringify({ _toolResults: toolResults }) + "\n";
     }
 
-    const p = appendFile(this.frozenLogPath(sessionId), data, "utf-8")
-      .catch((err) => {
+    void this.enqueueFrozenWrite(sessionId, () => appendFile(this.frozenLogPath(sessionId), data, "utf-8")).catch(
+      (err) => {
         console.error(`[session-store] Failed to append frozen log for ${sessionId}:`, err);
-      })
-      .finally(() => {
-        this.inflightWrites.delete(p);
-      });
-    this.inflightWrites.add(p);
+      },
+    );
   }
 
   /**
@@ -564,24 +599,16 @@ export class SessionStore {
     const logPath = this.frozenLogPath(sessionId);
     if (frozenCount === 0) {
       // No completed turns survive — delete the JSONL file entirely
-      const p = unlink(logPath)
-        .catch(() => {
+      void this.enqueueFrozenWrite(sessionId, () =>
+        unlink(logPath).catch(() => {
           /* File may not exist */
-        })
-        .finally(() => {
-          this.inflightWrites.delete(p);
-        });
-      this.inflightWrites.add(p);
+        }),
+      );
     } else {
       // Rewrite with only the surviving frozen messages
-      const p = writeFile(logPath, data, "utf-8")
-        .catch((err) => {
-          console.error(`[session-store] Failed to rewrite frozen log for ${sessionId}:`, err);
-        })
-        .finally(() => {
-          this.inflightWrites.delete(p);
-        });
-      this.inflightWrites.add(p);
+      void this.enqueueFrozenWrite(sessionId, () => writeFile(logPath, data, "utf-8")).catch((err) => {
+        console.error(`[session-store] Failed to rewrite frozen log for ${sessionId}:`, err);
+      });
     }
   }
 
@@ -786,6 +813,65 @@ export class SessionStore {
     }
   }
 
+  /**
+   * Rewrite an existing frozen prefix after a metadata-only authority repair.
+   * The exact-count guard prevents stale callers from replacing a concurrently
+   * advanced append-only log. Message order and length must remain unchanged.
+   */
+  async rewriteFrozenHistoryMetadata(session: PersistedSession, expectedFrozenCount: number): Promise<void> {
+    const knownFrozenCount = this.frozenCounts.get(session.id) ?? session._frozenCount ?? 0;
+    if (
+      !Number.isSafeInteger(expectedFrozenCount) ||
+      expectedFrozenCount < 0 ||
+      expectedFrozenCount !== knownFrozenCount ||
+      expectedFrozenCount > session.messageHistory.length
+    ) {
+      throw new Error(
+        `Frozen history metadata repair guard failed for ${session.id}: expected=${expectedFrozenCount}, ` +
+          `known=${knownFrozenCount}, history=${session.messageHistory.length}`,
+      );
+    }
+
+    const allToolResults = session.toolResults ?? [];
+    const frozenToolResultCount = Math.min(
+      this.frozenToolResultCounts.get(session.id) ?? session._frozenToolResultCount ?? 0,
+      allToolResults.length,
+    );
+    const logPath = this.frozenLogPath(session.id);
+    let frozenRewrite: Promise<void>;
+    if (expectedFrozenCount === 0) {
+      frozenRewrite = this.enqueueFrozenWrite(session.id, () =>
+        unlink(logPath).catch(() => {
+          /* File may not exist */
+        }),
+      );
+    } else {
+      let data = JSON.stringify({ v: 1, sessionId: session.id }) + "\n";
+      for (const message of session.messageHistory.slice(0, expectedFrozenCount)) {
+        data += JSON.stringify(message) + "\n";
+      }
+      if (frozenToolResultCount > 0) {
+        data += JSON.stringify({ _toolResults: allToolResults.slice(0, frozenToolResultCount) }) + "\n";
+      }
+      frozenRewrite = this.enqueueFrozenWrite(session.id, () => writeFile(logPath, data, "utf-8"));
+    }
+
+    // Reserve the matching hot-state write before yielding. A concurrent newer
+    // save will queue behind this repair and therefore remains the final hot
+    // state instead of being overwritten when the frozen rewrite completes.
+    const hotRewrite = this.writeHotJson(
+      session,
+      session.messageHistory.slice(expectedFrozenCount),
+      allToolResults.slice(frozenToolResultCount),
+      expectedFrozenCount,
+      frozenToolResultCount,
+      frozenRewrite,
+    );
+    await frozenRewrite;
+    if (!(await hotRewrite)) throw new Error(`Failed to persist session ${session.id}`);
+    await (this.frozenWriteChains.get(session.id) ?? Promise.resolve());
+  }
+
   /** Capture and await one ordered hot-state replacement for ownership-transfer durability barriers. */
   async saveImmediate(session: PersistedSession): Promise<void> {
     const timer = this.debounceTimers.get(session.id);
@@ -804,6 +890,7 @@ export class SessionStore {
     hotToolResults: PersistedSession["toolResults"],
     frozenMsgCount: number,
     frozenToolResultCount: number,
+    beforeWrite?: Promise<unknown>,
   ): Promise<boolean> {
     const hotSession: PersistedSession = {
       ...session,
@@ -827,6 +914,7 @@ export class SessionStore {
       .catch(() => {})
       .then(async () => {
         try {
+          await beforeWrite;
           await writeFile(this.filePath(session.id), data, "utf-8");
           return true;
         } catch (err) {
@@ -880,12 +968,14 @@ export class SessionStore {
     if (expectedFrozenMsgs === 0) {
       this.frozenCounts.set(sessionId, 0);
       this.frozenToolResultCounts.set(sessionId, 0);
+      const authorityRepair = repairRestoredCodexAuthority(hot);
+      hot = authorityRepair.session;
       if (restoreMetrics) {
         restoreMetrics.restoredHistoryMessages += hot.messageHistory.length;
         restoreMetrics.restoredToolResults += hot.toolResults?.length ?? 0;
       }
-      if (sanitizedBuffer.changed) {
-        this.writeHotJson(hot, hot.messageHistory, hot.toolResults ?? [], 0, expectedFrozenToolResults);
+      if (sanitizedBuffer.changed || authorityRepair.changed) {
+        await this.writeHotJson(hot, hot.messageHistory, hot.toolResults ?? [], 0, expectedFrozenToolResults);
       }
       return hot;
     }
@@ -934,34 +1024,43 @@ export class SessionStore {
           `from persisted hot tail for session ${sessionId.slice(0, 8)}`,
       );
     }
-    if (cleanedHistory.removedCount > 0 || sanitizedBuffer.changed) {
-      this.writeHotJson(
-        {
-          ...hot,
-          messageHistory: cleanedHistory.messages,
-          toolResults: mergedToolResults,
-        },
-        cleanedHotTail,
-        hotTailToolResults,
-        actualFrozenMsgs,
-        frozen.toolResults.length,
-      );
-    }
-
-    this.frozenCounts.set(sessionId, actualFrozenMsgs);
-    this.frozenToolResultCounts.set(sessionId, frozen.toolResults.length);
-    if (restoreMetrics) {
-      restoreMetrics.restoredHistoryMessages += cleanedHistory.messages.length;
-      restoreMetrics.restoredToolResults += mergedToolResults.length;
-    }
-
-    return {
+    let restored: PersistedSession = {
       ...hot,
       messageHistory: cleanedHistory.messages,
       toolResults: mergedToolResults,
       _frozenCount: actualFrozenMsgs,
       _frozenToolResultCount: frozen.toolResults.length,
     };
+    const authorityRepair = repairRestoredCodexAuthority(restored);
+    restored = authorityRepair.session;
+
+    this.frozenCounts.set(sessionId, actualFrozenMsgs);
+    this.frozenToolResultCounts.set(sessionId, frozen.toolResults.length);
+    if (authorityRepair.changed) {
+      try {
+        await this.rewriteFrozenHistoryMetadata(restored, actualFrozenMsgs);
+      } catch (error) {
+        // Keep the in-memory replay fail-closed even if persistence fails. The
+        // same repair will retry on the next load before browser subscribe.
+        console.error(
+          `[session-store] Failed to persist restored Codex child ownership repair for ${sessionId}:`,
+          error,
+        );
+      }
+    } else if (cleanedHistory.removedCount > 0 || sanitizedBuffer.changed) {
+      await this.writeHotJson(
+        restored,
+        cleanedHotTail,
+        hotTailToolResults,
+        actualFrozenMsgs,
+        frozen.toolResults.length,
+      );
+    }
+    if (restoreMetrics) {
+      restoreMetrics.restoredHistoryMessages += cleanedHistory.messages.length;
+      restoreMetrics.restoredToolResults += mergedToolResults.length;
+    }
+    return restored;
   }
 
   /** Load only search-relevant data for an archived session (skips JSONL frozen log). */

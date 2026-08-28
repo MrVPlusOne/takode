@@ -3,15 +3,18 @@ import type {
   CodexNativeSubagentSnapshot,
   CodexNativeSubagentStatusCounts,
 } from "../../../shared/codex-native-subagent-types.js";
-import type { SessionState } from "../../types.js";
+import type { ChatMessage, SessionState } from "../../types.js";
 import { useStore } from "../../store.js";
+import { CodexSubagentFeedControl } from "../CodexSubagentFeedControl.js";
 import { CodexSubagentInspector } from "../CodexSubagentInspector.js";
+import { CodexSubagentTranscript } from "../CodexSubagentTranscript.js";
 import { CodexSubagentTurnSegment } from "../CodexSubagentTurnSegment.js";
 import { Card, Section } from "./shared.js";
 
 const SESSION_ID = "playground-codex-native-subagents";
 const ACTIVE_TURN = "playground-turn-active";
 const SETTLED_TURN = "playground-turn-settled";
+const PLAYGROUND_OWNERSHIP = { childId: "csa-playground-1", rootTurnId: ACTIVE_TURN };
 
 function counts(values: Partial<CodexNativeSubagentStatusCounts>): CodexNativeSubagentStatusCounts {
   return {
@@ -136,6 +139,53 @@ const snapshot: CodexNativeSubagentSnapshot = {
   ],
 };
 
+const transcriptMessages: ChatMessage[] = [
+  {
+    id: "playground-child-message",
+    role: "assistant",
+    content: "The child found the producer contract and is checking its result.",
+    contentBlocks: [{ type: "text", text: "The child found the producer contract and is checking its result." }],
+    timestamp: Date.now() - 25_000,
+    metadata: { codexSubagent: PLAYGROUND_OWNERSHIP },
+  },
+  {
+    id: "playground-child-reasoning-1",
+    role: "assistant",
+    content: "**Inspecting schema**\nComparing the server-owned shape.",
+    timestamp: Date.now() - 20_000,
+    metadata: {
+      codexSubagent: PLAYGROUND_OWNERSHIP,
+      codexReasoningDetail: { status: "complete", reasoningTurnId: "playground-reasoning-turn" },
+    },
+  },
+  {
+    id: "playground-child-reasoning-2",
+    role: "assistant",
+    content: "**Checking result**\nThe bounded result matches the expected fields.",
+    timestamp: Date.now() - 18_000,
+    metadata: {
+      codexSubagent: PLAYGROUND_OWNERSHIP,
+      codexReasoningDetail: { status: "complete", reasoningTurnId: "playground-reasoning-turn" },
+    },
+  },
+  {
+    id: "playground-child-tool",
+    role: "assistant",
+    content: "",
+    contentBlocks: [
+      { type: "tool_use", id: "playground-read-tool", name: "Read", input: { file_path: "src/example.ts" } },
+      {
+        type: "tool_result",
+        tool_use_id: "playground-read-tool",
+        content: "export const producerShape = true;",
+        is_error: false,
+      },
+    ],
+    timestamp: Date.now() - 12_000,
+    metadata: { codexSubagent: PLAYGROUND_OWNERSHIP },
+  },
+];
+
 function playgroundSession(): SessionState {
   return {
     session_id: SESSION_ID,
@@ -187,7 +237,7 @@ export function PlaygroundCodexSubagentStates() {
   return (
     <Section
       title="Codex subagents"
-      description="Distinct native-child turn counts and the responsive read-only session inspector"
+      description="Feed-local access, distinct native-child turn counts, and canonical read-only transcript rendering"
     >
       <div className="grid gap-4 lg:grid-cols-2">
         <Card label="Active turn — complete coverage">
@@ -201,14 +251,20 @@ export function PlaygroundCodexSubagentStates() {
           </div>
         </Card>
       </div>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <Card label="Feed-local session access — no message or composer overlap">
+          <div className="border-t border-cc-border bg-cc-bg">
+            <CodexSubagentFeedControl sessionId={SESSION_ID} />
+            <div className="px-4 pb-4 text-xs text-cc-muted">Chat content begins below the persistent control row.</div>
+          </div>
+        </Card>
+        <Card label="Canonical child transcript surfaces">
+          <div className="max-h-96 overflow-y-auto border-t border-cc-border bg-cc-bg p-4">
+            <CodexSubagentTranscript sessionId={SESSION_ID} messages={transcriptMessages} />
+          </div>
+        </Card>
+      </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => openInspector(SESSION_ID)}
-          className="min-h-10 rounded-lg border border-cc-border bg-cc-card px-4 text-xs font-medium text-cc-fg hover:bg-cc-hover"
-        >
-          Open session inspector
-        </button>
         <button
           type="button"
           onClick={() => openInspector(SESSION_ID, { scopeTurnId: SETTLED_TURN })}

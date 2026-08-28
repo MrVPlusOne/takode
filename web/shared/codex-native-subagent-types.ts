@@ -26,7 +26,8 @@ export type CodexNativeSubagentStatusCounts = Record<CodexNativeSubagentStatus, 
 export interface CodexNativeSubagentOwnership {
   childId: string;
   parentChildId?: string;
-  rootTurnId: string;
+  /** Absent for identity-proven child audit rows whose root turn is unresolved. */
+  rootTurnId?: string;
 }
 
 /** Copies only fields allowed to cross the server-to-browser ownership boundary. */
@@ -36,11 +37,12 @@ export function toPublicCodexNativeSubagentOwnership(
   return {
     childId: ownership.childId,
     ...(ownership.parentChildId ? { parentChildId: ownership.parentChildId } : {}),
-    rootTurnId: ownership.rootTurnId,
+    ...(ownership.rootTurnId ? { rootTurnId: ownership.rootTurnId } : {}),
   };
 }
 
-export interface CodexNativeSubagentSummary extends CodexNativeSubagentOwnership {
+export interface CodexNativeSubagentSummary extends Omit<CodexNativeSubagentOwnership, "rootTurnId"> {
+  rootTurnId: string;
   /** Provider-authored logical task path, not a rollout or filesystem path. */
   agentPath: string;
   displayName: string;

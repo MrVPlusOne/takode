@@ -255,4 +255,73 @@ describe("CodexAdapter native V2 subagents", () => {
       new Set(["019-one-child"]),
     );
   });
+  it("keeps the provider root out of child ownership after a child sends to its parent", async () => {
+    // This sequence mirrors the post-restart rollout: root starts a child, then
+    // the child emits interacted activity whose target/path are the root.
+    const { adapter, stdout } = createAdapter();
+    const browserMessages: BrowserIncomingMessage[] = [];
+    const nativeEvents: CodexNativeSubagentAdapterEvent[] = [];
+    adapter.onBrowserMessage((message) => browserMessages.push(message));
+    adapter.getNativeSubagentController().onEvent((event) => nativeEvents.push(event));
+    await initializeRoot(stdout);
+
+    stdout.push({
+      method: "item/completed",
+      params: {
+        threadId: "019-root-provider-thread",
+        turnId: "019-root-provider-turn",
+        item: {
+          type: "subAgentActivity",
+          id: "activity-start-child",
+          kind: "started",
+          agentThreadId: "019-child-provider-thread",
+          agentPath: "/root/post_restart_ui_check",
+        },
+      },
+    });
+    stdout.push({
+      method: "item/completed",
+      params: {
+        threadId: "019-child-provider-thread",
+        turnId: "019-child-provider-turn",
+        item: {
+          type: "subAgentActivity",
+          id: "activity-child-to-root",
+          kind: "interacted",
+          agentThreadId: "019-root-provider-thread",
+          agentPath: "/root",
+        },
+      },
+    });
+    stdout.push({
+      method: "item/completed",
+      params: {
+        threadId: "019-root-provider-thread",
+        turnId: "019-root-provider-turn",
+        item: { type: "agentMessage", id: "root-message-after-child", text: "Root-owned reply" },
+      },
+    });
+    await tick();
+
+    expect(
+      nativeEvents.some(
+        (event) => event.type === "activity" && event.childProviderThreadId === "019-root-provider-thread",
+      ),
+    ).toBe(false);
+    expect(adapter.getNativeSubagentController().isKnownChildProviderThreadId("019-root-provider-thread")).toBe(false);
+    expect(browserMessages).toContainEqual(
+      expect.objectContaining({
+        type: "assistant",
+        message: expect.objectContaining({
+          content: expect.arrayContaining([expect.objectContaining({ type: "text", text: "Root-owned reply" })]),
+        }),
+      }),
+    );
+    expect(
+      browserMessages.some(
+        (message) =>
+          message.type === "assistant" && message.message.id === "root-message-after-child" && !!message.codexSubagent,
+      ),
+    ).toBe(false);
+  });
 });

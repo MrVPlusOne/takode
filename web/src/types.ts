@@ -280,6 +280,8 @@ export interface ChatMessage {
     attentionRecord?: SessionAttentionRecord;
     codexAutoPauseRecoverySummary?: CodexAutoPauseRecoverySummary;
     codexSubagent?: import("../shared/codex-native-subagent-types.js").CodexNativeSubagentOwnership;
+    /** Child-owned tool results attached to the exact child message that declared each tool use. */
+    codexSubagentToolResults?: Record<string, ToolResultPreview>;
     codexReasoningDetail?: {
       status: "streaming" | "complete";
       reasoningTurnId?: string;

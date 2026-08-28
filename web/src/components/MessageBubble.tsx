@@ -1,7 +1,14 @@
 import { useState, useMemo, useRef, useCallback, useContext, useLayoutEffect, useEffect, memo } from "react";
-import type { ChatMessage, ContentBlock } from "../types.js";
+import type { ChatMessage, ContentBlock, ToolResultPreview } from "../types.js";
 import { isSubagentToolName } from "../types.js";
-import { ToolBlock, getToolIcon, getToolLabel, parseTakodeNotifyCommand, ToolIcon } from "./ToolBlock.js";
+import {
+  ToolBlock,
+  getToolIcon,
+  getToolLabel,
+  parseTakodeNotifyCommand,
+  ToolIcon,
+  type ToolResultScope,
+} from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { AssistantQuestQuizContent } from "./AssistantQuestQuizContent.js";
 import { HighlightedText } from "./HighlightedText.js";
@@ -74,6 +81,8 @@ export const MessageBubble = memo(function MessageBubble({
   showSideChatActions = true,
   interactionMode = "default",
   backendType,
+  toolResultOverrides,
+  toolResultScope = "session",
 }: {
   message: ChatMessage;
   sessionId?: string;
@@ -83,6 +92,8 @@ export const MessageBubble = memo(function MessageBubble({
   showSideChatActions?: boolean;
   interactionMode?: "default" | "read-only";
   backendType?: "claude" | "codex" | "claude-sdk";
+  toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
+  toolResultScope?: ToolResultScope;
 }) {
   // Search highlight state -- must be called unconditionally (hooks can't be after early returns)
   const searchHighlight = useMessageSearchHighlight(sessionId, message);
@@ -280,6 +291,8 @@ export const MessageBubble = memo(function MessageBubble({
       showSideChatActions={showSideChatActions && interactionMode !== "read-only"}
       readOnly={interactionMode === "read-only"}
       isCodexSession={isCodexSession}
+      toolResultOverrides={toolResultOverrides}
+      toolResultScope={toolResultScope}
     />
   );
 });
@@ -943,6 +956,7 @@ function UserMessage({
             variant="conservative"
             sessionId={sessionId}
             searchHighlight={searchHighlight}
+            fileLinkMode={readOnly ? "text-only" : "interactive"}
           />
         </CollapsibleContent>
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
@@ -1046,6 +1060,8 @@ function AssistantMessage({
   showSideChatActions,
   readOnly,
   isCodexSession,
+  toolResultOverrides,
+  toolResultScope,
 }: {
   message: ChatMessage;
   sessionId?: string;
@@ -1056,6 +1072,8 @@ function AssistantMessage({
   showSideChatActions: boolean;
   readOnly: boolean;
   isCodexSession: boolean;
+  toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
+  toolResultScope: ToolResultScope;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
@@ -1070,8 +1088,8 @@ function AssistantMessage({
   const starAction = useMessageStarActions(sessionId, message);
   const sideChat = useSideChatForMessage(sessionId, message);
   const assistantImagePreviewItems = useMemo(
-    () => buildAssistantImagePreviewItems(message, sessionId),
-    [message, sessionId],
+    () => (readOnly ? [] : buildAssistantImagePreviewItems(message, sessionId)),
+    [message, readOnly, sessionId],
   );
   const projection = useMemo(
     () =>
@@ -1096,7 +1114,7 @@ function AssistantMessage({
   const firstContentGroupIndex = projection.shouldRenderContentFallback
     ? -1
     : renderedGroups.findIndex((group) => group.kind === "content");
-  const showRailMarker = !readOnly && (starred || !hidePaw);
+  const showRailMarker = !hidePaw || (!readOnly && starred);
   const unstarFromRail = starAction.actionable && starAction.starred ? starAction.toggleStarred : undefined;
 
   if (!projection.renderable) return null;
@@ -1107,7 +1125,11 @@ function AssistantMessage({
         className={`group/msg relative flex items-start animate-[fadeSlideIn_0.2s_ease-out] ${showRailMarker ? "gap-2 sm:gap-3" : ""}`}
       >
         {showRailMarker &&
-          (starred ? <StarredMessageRailMarker side="assistant" onUnstar={unstarFromRail} /> : <PawTrailAvatar />)}
+          (!readOnly && starred ? (
+            <StarredMessageRailMarker side="assistant" onUnstar={unstarFromRail} />
+          ) : (
+            <PawTrailAvatar />
+          ))}
         <div ref={contentRef} className="flex-1 min-w-0">
           {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
           {!readOnly && hasTextContent && (
@@ -1119,12 +1141,21 @@ function AssistantMessage({
               showSideChatActions={showSideChatActions}
             />
           )}
-          <AssistantQuestQuizContent
-            text={projection.fallbackText}
-            sessionId={sessionId}
-            searchHighlight={searchHighlight}
-            enableChatSelectionMenu={!readOnly}
-          />
+          {readOnly ? (
+            <MarkdownContent
+              text={projection.fallbackText}
+              sessionId={sessionId}
+              searchHighlight={searchHighlight}
+              fileLinkMode="text-only"
+            />
+          ) : (
+            <AssistantQuestQuizContent
+              text={projection.fallbackText}
+              sessionId={sessionId}
+              searchHighlight={searchHighlight}
+              enableChatSelectionMenu
+            />
+          )}
           <ImagePreviewGroup images={assistantImagePreviewItems} testId="assistant-image-preview-group" />
           {!readOnly && resolvedNotification && (
             <NotificationMarker
@@ -1149,7 +1180,11 @@ function AssistantMessage({
       className={`group/msg relative flex items-start animate-[fadeSlideIn_0.2s_ease-out] ${showRailMarker ? "gap-2 sm:gap-3" : ""}`}
     >
       {showRailMarker &&
-        (starred ? <StarredMessageRailMarker side="assistant" onUnstar={unstarFromRail} /> : <PawTrailAvatar />)}
+        (!readOnly && starred ? (
+          <StarredMessageRailMarker side="assistant" onUnstar={unstarFromRail} />
+        ) : (
+          <PawTrailAvatar />
+        ))}
       <div ref={contentRef} className="flex-1 min-w-0 space-y-3">
         {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
         {projection.shouldRenderContentFallback && (
@@ -1163,12 +1198,21 @@ function AssistantMessage({
                 showSideChatActions={showSideChatActions}
               />
             )}
-            <AssistantQuestQuizContent
-              text={projection.fallbackText}
-              sessionId={sessionId}
-              searchHighlight={searchHighlight}
-              enableChatSelectionMenu={!readOnly}
-            />
+            {readOnly ? (
+              <MarkdownContent
+                text={projection.fallbackText}
+                sessionId={sessionId}
+                searchHighlight={searchHighlight}
+                fileLinkMode="text-only"
+              />
+            ) : (
+              <AssistantQuestQuizContent
+                text={projection.fallbackText}
+                sessionId={sessionId}
+                searchHighlight={searchHighlight}
+                enableChatSelectionMenu
+              />
+            )}
           </div>
         )}
         {renderedGroups.map((group, i) => {
@@ -1184,6 +1228,8 @@ function AssistantMessage({
                 currentThreadKey={currentThreadKey}
                 onSelectThread={onSelectThread}
                 readOnly={readOnly}
+                toolResultOverrides={toolResultOverrides}
+                toolResultScope={toolResultScope}
               />
             );
             if (!projection.shouldRenderContentFallback && hasTextContent && i === firstContentGroupIndex) {
@@ -1222,6 +1268,8 @@ function AssistantMessage({
                     currentThreadKey={currentThreadKey}
                     onSelectThread={onSelectThread}
                     readOnly={readOnly}
+                    toolResultOverrides={toolResultOverrides}
+                    toolResultScope={toolResultScope}
                   />
                 ))}
               </CompactToolActivity>
@@ -1237,6 +1285,8 @@ function AssistantMessage({
               currentThreadKey={currentThreadKey}
               onSelectThread={onSelectThread}
               readOnly={readOnly}
+              toolResultOverrides={toolResultOverrides}
+              toolResultScope={toolResultScope}
             />
           );
         })}
@@ -1276,6 +1326,8 @@ function DetailedToolGroup({
   currentThreadKey,
   onSelectThread,
   readOnly,
+  toolResultOverrides,
+  toolResultScope,
 }: {
   group: Extract<GroupedBlock, { kind: "tool_group" }>;
   sessionId?: string;
@@ -1284,6 +1336,8 @@ function DetailedToolGroup({
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   readOnly: boolean;
+  toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
+  toolResultScope: ToolResultScope;
 }) {
   if (group.items.length === 1) {
     const item = group.items[0];
@@ -1298,6 +1352,9 @@ function DetailedToolGroup({
         currentThreadKey={currentThreadKey}
         onSelectThread={onSelectThread}
         disableInlineSpecialCases={readOnly}
+        resultOverride={toolResultOverrides?.get(item.id)}
+        suppressStoredResult={toolResultScope === "overrides-only"}
+        readOnly={readOnly}
       />
     );
   }
@@ -1312,6 +1369,8 @@ function DetailedToolGroup({
       currentThreadKey={currentThreadKey}
       onSelectThread={onSelectThread}
       readOnly={readOnly}
+      toolResultOverrides={toolResultOverrides}
+      toolResultScope={toolResultScope}
     />
   );
 }
@@ -1404,6 +1463,8 @@ function ContentBlockRenderer({
   currentThreadKey,
   onSelectThread,
   readOnly = false,
+  toolResultOverrides,
+  toolResultScope,
 }: {
   block: ContentBlock;
   sessionId?: string;
@@ -1413,16 +1474,25 @@ function ContentBlockRenderer({
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   readOnly?: boolean;
+  toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
+  toolResultScope: ToolResultScope;
 }) {
   const isCodex = useStore((s) => (sessionId ? s.sessions.get(sessionId)?.backend_type === "codex" : false));
 
   if (block.type === "text") {
-    return (
+    return readOnly ? (
+      <MarkdownContent
+        text={block.text}
+        sessionId={sessionId}
+        searchHighlight={searchHighlight}
+        fileLinkMode="text-only"
+      />
+    ) : (
       <AssistantQuestQuizContent
         text={block.text}
         sessionId={sessionId}
         searchHighlight={searchHighlight}
-        enableChatSelectionMenu={!readOnly}
+        enableChatSelectionMenu
       />
     );
   }
@@ -1443,6 +1513,9 @@ function ContentBlockRenderer({
         currentThreadKey={currentThreadKey}
         onSelectThread={onSelectThread}
         disableInlineSpecialCases={readOnly}
+        resultOverride={toolResultOverrides?.get(block.id)}
+        suppressStoredResult={toolResultScope === "overrides-only"}
+        readOnly={readOnly}
       />
     );
   }
@@ -1473,6 +1546,8 @@ function ToolGroupBlock({
   currentThreadKey,
   onSelectThread,
   readOnly = false,
+  toolResultOverrides,
+  toolResultScope,
 }: {
   name: string;
   items: ToolGroupItem[];
@@ -1482,6 +1557,8 @@ function ToolGroupBlock({
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   readOnly?: boolean;
+  toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
+  toolResultScope: ToolResultScope;
 }) {
   const [open, setOpen] = useState(true);
   const headerRef = useRef<HTMLButtonElement>(null);
@@ -1505,6 +1582,9 @@ function ToolGroupBlock({
             currentThreadKey={currentThreadKey}
             onSelectThread={onSelectThread}
             disableInlineSpecialCases={readOnly}
+            resultOverride={toolResultOverrides?.get(item.id)}
+            suppressStoredResult={toolResultScope === "overrides-only"}
+            readOnly={readOnly}
           />
         ))}
       </div>
@@ -1547,6 +1627,9 @@ function ToolGroupBlock({
               currentThreadKey={currentThreadKey}
               onSelectThread={onSelectThread}
               disableInlineSpecialCases={readOnly}
+              resultOverride={toolResultOverrides?.get(item.id)}
+              suppressStoredResult={toolResultScope === "overrides-only"}
+              readOnly={readOnly}
             />
           ))}
           <CollapseFooter headerRef={headerRef} onCollapse={() => setOpen(false)} />

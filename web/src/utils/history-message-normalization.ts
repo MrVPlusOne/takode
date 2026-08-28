@@ -1,4 +1,4 @@
-import type { BrowserIncomingMessage, ContentBlock, ChatMessage } from "../types.js";
+import type { BrowserIncomingMessage, ContentBlock, ChatMessage, ToolResultPreview } from "../types.js";
 import { formatThreadAttachmentMarkerSummary, formatThreadTransitionMarkerSummary } from "./thread-projection.js";
 import { isTerminalResultInterrupted } from "../../shared/result-interruption.js";
 import {
@@ -12,6 +12,7 @@ interface NormalizeHistoryMessageOptions {
   resultRole?: ChatMessage["role"];
   fallbackTimestamp?: number;
   pendingLocalImagesByClientMsgId?: Map<string, Array<{ name: string; base64: string; mediaType: string }>>;
+  codexSubagentToolResults?: ReadonlyMap<string, ToolResultPreview>;
 }
 
 type ExistingThreadMetadataSource = {
@@ -238,6 +239,7 @@ export function normalizeHistoryMessageToChatMessages(
     resultRole = "assistant",
     fallbackTimestamp,
     pendingLocalImagesByClientMsgId,
+    codexSubagentToolResults,
   } = options;
 
   if (histMsg.type === "codex_reasoning_detail") {
@@ -315,6 +317,17 @@ export function normalizeHistoryMessageToChatMessages(
     const normalizedContent = repairedContent.blocks;
     const existingMetadata = existingThreadMetadataFromMessage(histMsg);
     const metadata = mergeThreadMetadata(existingMetadata, repairedContent.metadata);
+    const childToolResults = histMsg.codexSubagent
+      ? Object.fromEntries(
+          normalizedContent.flatMap((block) =>
+            block.type === "tool_use" && codexSubagentToolResults?.has(block.id)
+              ? [[block.id, codexSubagentToolResults.get(block.id)!]]
+              : [],
+          ),
+        )
+      : {};
+    const enrichedMetadata =
+      Object.keys(childToolResults).length > 0 ? { ...metadata, codexSubagentToolResults: childToolResults } : metadata;
     return [
       {
         id: msg.id,
@@ -330,7 +343,7 @@ export function normalizeHistoryMessageToChatMessages(
         ...((histMsg as Record<string, unknown>).notification
           ? { notification: (histMsg as Record<string, unknown>).notification as ChatMessage["notification"] }
           : {}),
-        ...(metadata ? { metadata } : {}),
+        ...(enrichedMetadata ? { metadata: enrichedMetadata } : {}),
         ...(typeof (histMsg as Record<string, unknown>).turn_duration_ms === "number"
           ? { turnDurationMs: (histMsg as Record<string, unknown>).turn_duration_ms as number }
           : {}),
@@ -475,6 +488,21 @@ export function normalizeHistoryMessageToChatMessages(
         timestamp: Date.now(),
         historyIndex,
         variant: "task_completed",
+      },
+    ];
+  }
+
+  if (histMsg.type === "error") {
+    const metadata = existingThreadMetadataFromMessage(histMsg);
+    return [
+      {
+        id: histMsg.id ?? `hist-error-${historyIndex}`,
+        role: "system",
+        content: histMsg.message,
+        timestamp: histMsg.timestamp ?? fallbackTimestamp ?? Date.now(),
+        historyIndex,
+        variant: "error",
+        ...(metadata ? { metadata } : {}),
       },
     ];
   }

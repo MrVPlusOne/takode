@@ -20,7 +20,7 @@ import {
   parseEditToolInput,
   parseWriteToolInput,
 } from "../utils/tool-rendering.js";
-import type { BoardRowSessionStatus } from "../types.js";
+import type { BoardRowSessionStatus, ToolResultPreview } from "../types.js";
 import type { BoardQueueWarning } from "../../shared/quest-journey.js";
 import {
   openFileWithEditorPreference,
@@ -185,18 +185,38 @@ export function formatDuration(seconds: number): string {
   return `${mins}m${secs}s`;
 }
 
+export type ToolResultScope = "session" | "overrides-only";
+
 /** Live duration badge — shows a counting timer while the tool runs,
  *  then switches to the server-reported ground-truth duration on completion. */
-function ToolDurationBadge({ toolUseId, sessionId }: { toolUseId: string; sessionId: string }) {
+function ToolDurationBadge({
+  toolUseId,
+  sessionId,
+  resultOverride,
+  suppressStoredResult,
+}: {
+  toolUseId: string;
+  sessionId: string;
+  resultOverride?: ToolResultPreview;
+  suppressStoredResult?: boolean;
+}) {
   // Subscribe to primitive fields only. Using the full ToolResultPreview object
   // as a selector return or useEffect dependency causes re-render storms when the
   // object reference changes (e.g. during history replay), potentially cascading
   // into React error #185 (maximum update depth exceeded).
-  const finalDuration = useStore((s) => s.toolResults.get(sessionId)?.get(toolUseId)?.duration_seconds);
-  const hasToolResult = useStore((s) => s.toolResults.get(sessionId)?.get(toolUseId) != null);
-  const progressElapsedSeconds = useStore((s) => s.toolProgress.get(sessionId)?.get(toolUseId)?.elapsedSeconds);
+  const storedFinalDuration = useStore((s) => s.toolResults.get(sessionId)?.get(toolUseId)?.duration_seconds);
+  const storedHasToolResult = useStore((s) => s.toolResults.get(sessionId)?.get(toolUseId) != null);
+  const finalDuration = resultOverride
+    ? resultOverride.duration_seconds
+    : suppressStoredResult
+      ? undefined
+      : storedFinalDuration;
+  const hasToolResult = resultOverride != null || (!suppressStoredResult && storedHasToolResult);
+  const storedProgressElapsedSeconds = useStore((s) => s.toolProgress.get(sessionId)?.get(toolUseId)?.elapsedSeconds);
   // Server start timestamp (from tool_start_times on the assistant message)
-  const startTimestamp = useStore((s) => s.toolStartTimestamps.get(sessionId)?.get(toolUseId));
+  const storedStartTimestamp = useStore((s) => s.toolStartTimestamps.get(sessionId)?.get(toolUseId));
+  const progressElapsedSeconds = suppressStoredResult ? undefined : storedProgressElapsedSeconds;
+  const startTimestamp = suppressStoredResult ? undefined : storedStartTimestamp;
 
   const [liveSeconds, setLiveSeconds] = useState<number | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -256,6 +276,9 @@ interface ToolBlockProps {
   suppressNotificationMarker?: boolean;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
+  resultOverride?: ToolResultPreview;
+  suppressStoredResult?: boolean;
+  readOnly?: boolean;
 }
 
 /** Public ToolBlock: wraps the inner implementation in an error boundary so that
@@ -281,6 +304,9 @@ const ToolBlockInner = memo(function ToolBlockInner({
   suppressNotificationMarker = false,
   currentThreadKey,
   onSelectThread,
+  resultOverride,
+  suppressStoredResult = false,
+  readOnly = false,
 }: ToolBlockProps) {
   const [open, setOpen] = useState(() => {
     if (defaultOpen !== undefined) return defaultOpen;
@@ -300,14 +326,20 @@ const ToolBlockInner = memo(function ToolBlockInner({
   // The object reference can change during history replay (re-deserialization),
   // which defeats Zustand's Object.is check and causes unnecessary re-renders.
   // The header only needs to know *whether* a result exists, not its contents.
-  const hasResult = useStore((s) => (sessionId ? s.toolResults.get(sessionId)?.get(toolUseId) != null : false));
+  const storedHasResult = useStore((s) => (sessionId ? s.toolResults.get(sessionId)?.get(toolUseId) != null : false));
+  const hasResult = resultOverride != null || (!suppressStoredResult && storedHasResult);
   // Only subscribe to the toolName field (a primitive string) instead of the
   // entire progress object. This prevents re-renders from progress.output or
   // progress.elapsedSeconds updates that don't affect the header badge.
   const retainedProgressToolName = useStore((s) =>
     sessionId ? s.toolProgress.get(sessionId)?.get(toolUseId)?.toolName : undefined,
   );
-  const showCompletedLiveBadge = name === "Bash" && hasResult && retainedProgressToolName === "Bash";
+  const showCompletedLiveBadge =
+    !disableInlineSpecialCases &&
+    !suppressStoredResult &&
+    name === "Bash" &&
+    hasResult &&
+    retainedProgressToolName === "Bash";
 
   // Extract the most useful preview
   const preview = getPreview(name, input);
@@ -421,7 +453,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
         {/* Open File in header for file tools. Uses line=1 because the header doesn't
             have access to the parsed diff data needed to compute the first changed line.
             The expanded diff view still shows all changes with line numbers. */}
-        {isFileTool && (
+        {isFileTool && !readOnly && (
           <span onClick={(e) => e.stopPropagation()}>
             <DiffOpenFileButton filePath={filePath} cwd={sessionCwd} line={1} />
           </span>
@@ -434,17 +466,32 @@ const ToolBlockInner = memo(function ToolBlockInner({
             live
           </span>
         )}
-        {sessionId && <ToolDurationBadge toolUseId={toolUseId} sessionId={sessionId} />}
+        {sessionId && (
+          <ToolDurationBadge
+            toolUseId={toolUseId}
+            sessionId={sessionId}
+            resultOverride={resultOverride}
+            suppressStoredResult={suppressStoredResult}
+          />
+        )}
       </div>
 
       {open && (
         <div className="px-3 pb-3 pt-0 border-t border-cc-border">
           <ToolBlockErrorBoundary toolName={name}>
             <div className="mt-2">
-              <ToolDetail name={name} input={input} sessionId={sessionId} />
+              <ToolDetail name={name} input={input} sessionId={sessionId} readOnly={readOnly} />
             </div>
             {sessionId && !isSubagentToolName(name) && (
-              <ToolResultSection toolUseId={toolUseId} sessionId={sessionId} toolName={name} input={input} />
+              <ToolResultSection
+                toolUseId={toolUseId}
+                sessionId={sessionId}
+                toolName={name}
+                input={input}
+                resultOverride={resultOverride}
+                suppressStoredResult={suppressStoredResult}
+                readOnly={readOnly}
+              />
             )}
           </ToolBlockErrorBoundary>
           <CollapseFooter headerRef={headerRef} onCollapse={() => setOpen(false)} />
@@ -764,11 +811,17 @@ function ToolResultSection({
   sessionId,
   toolName,
   input,
+  resultOverride,
+  suppressStoredResult,
+  readOnly,
 }: {
   toolUseId: string;
   sessionId: string;
   toolName: string;
   input: Record<string, unknown>;
+  resultOverride?: ToolResultPreview;
+  suppressStoredResult?: boolean;
+  readOnly?: boolean;
 }) {
   // Use shallow equality instead of Object.is for the tool result preview.
   // During history replay, the same tool result can be deserialized twice
@@ -777,7 +830,8 @@ function ToolResultSection({
   // such reference change -- combined with CollapseFooter's useLayoutEffect,
   // this cascades into React error #185 (maximum update depth exceeded).
   // shallow() compares each field individually, so identical content = no re-render.
-  const preview = useStore(useShallow((s) => s.toolResults.get(sessionId)?.get(toolUseId)));
+  const storedPreview = useStore(useShallow((s) => s.toolResults.get(sessionId)?.get(toolUseId)));
+  const preview = resultOverride ?? (suppressStoredResult ? undefined : storedPreview);
 
   // Subscribe to individual primitive fields instead of the full progress object.
   // The progress object changes on every output chunk and elapsed-seconds tick,
@@ -790,15 +844,18 @@ function ToolResultSection({
     (s) => s.toolProgress.get(sessionId)?.get(toolUseId)?.outputTruncated ?? false,
   );
   const imagePath = extractImagePathForPreview(toolName, input);
-  const isReadImage = !!imagePath;
+  const isReadImage = !readOnly && !!imagePath;
   const [fullContent, setFullContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const isCompletedLiveTerminal = toolName === "Bash" && progressToolName === "Bash";
+  const isolateResultState = suppressStoredResult || resultOverride != null;
+  const effectiveProgressToolName = isolateResultState ? undefined : progressToolName;
+  const effectiveLiveOutput = isolateResultState ? "" : liveOutput;
+  const isCompletedLiveTerminal = toolName === "Bash" && effectiveProgressToolName === "Bash";
   const shouldUseLiveTranscriptFallback =
     !!preview &&
     isCompletedLiveTerminal &&
-    liveOutput.length > 0 &&
+    effectiveLiveOutput.length > 0 &&
     shouldPreferLiveTerminalTranscript(preview.content);
 
   // Suppress the result section for web search when the result just echoes the
@@ -819,7 +876,7 @@ function ToolResultSection({
   }
 
   if (!preview) {
-    if (!progressToolName?.trim()) return null;
+    if (!effectiveProgressToolName?.trim()) return null;
     return (
       <div className="mt-2 pt-2 border-t border-cc-border/50">
         <div className="flex items-center gap-2 mb-1.5">
@@ -829,13 +886,13 @@ function ToolResultSection({
           </span>
           {progressOutputTruncated && <span className="text-[10px] text-cc-muted">showing latest 12KB</span>}
         </div>
-        {liveOutput ? (
+        {effectiveLiveOutput ? (
           <div className="group/code relative rounded-lg overflow-hidden">
             <div className="absolute top-1.5 right-1.5 z-10">
-              <CodeCopyButton text={liveOutput} />
+              <CodeCopyButton text={effectiveLiveOutput} />
             </div>
             <pre className="text-[11px] font-mono-code whitespace-pre leading-relaxed rounded-lg px-2.5 py-2 max-h-64 overflow-y-auto overflow-x-auto bg-cc-code-bg text-cc-muted">
-              {liveOutput}
+              {effectiveLiveOutput}
             </pre>
           </div>
         ) : (
@@ -867,14 +924,17 @@ function ToolResultSection({
     );
   }
 
-  const displayContent = shouldUseLiveTranscriptFallback ? liveOutput : (fullContent ?? preview.content);
-  const showExpandButton = !shouldUseLiveTranscriptFallback && preview.is_truncated && fullContent === null;
+  const displayContent = shouldUseLiveTranscriptFallback ? effectiveLiveOutput : (fullContent ?? preview.content);
+  const isTruncatedPreview = !shouldUseLiveTranscriptFallback && preview.is_truncated && fullContent === null;
+  const showExpandButton = isTruncatedPreview && !suppressStoredResult;
+  const boundedTruncatedPreview = isTruncatedPreview && suppressStoredResult;
   const resultSize =
     typeof preview.total_size === "number" && Number.isFinite(preview.total_size) ? preview.total_size : null;
   const resultSizeLabel = resultSize === null ? null : formatBytes(resultSize);
   const resultSizeTitle = resultSize === null ? "" : `Original result size: ${resultSize.toLocaleString()} UTF-8 bytes`;
 
   const fetchFull = async () => {
+    if (suppressStoredResult) return;
     setLoading(true);
     try {
       const result = await api.getToolResult(sessionId, toolUseId);
@@ -901,6 +961,7 @@ function ToolResultSection({
         {shouldUseLiveTranscriptFallback && (
           <span className="text-[10px] text-cc-muted">showing captured transcript</span>
         )}
+        {boundedTruncatedPreview && <span className="text-[10px] text-cc-muted">bounded preview · truncated</span>}
         {resultSizeLabel && (
           <span className="text-[10px] text-cc-muted" title={resultSizeTitle}>
             output bytes: {resultSizeLabel}
@@ -927,7 +988,7 @@ function ToolResultSection({
             preview.is_error ? "bg-cc-error/5 border border-cc-error/20 text-cc-error" : "bg-cc-code-bg text-cc-muted"
           }`}
         >
-          {showExpandButton ? "..." : ""}
+          {isTruncatedPreview ? "..." : ""}
           {displayContent}
         </pre>
       </div>
@@ -936,14 +997,24 @@ function ToolResultSection({
 }
 
 /** Route to custom detail renderer per tool type */
-function ToolDetail({ name, input, sessionId }: { name: string; input: Record<string, unknown>; sessionId?: string }) {
+function ToolDetail({
+  name,
+  input,
+  sessionId,
+  readOnly,
+}: {
+  name: string;
+  input: Record<string, unknown>;
+  sessionId?: string;
+  readOnly?: boolean;
+}) {
   switch (name) {
     case "Bash":
       return <BashDetail input={input} />;
     case "Edit":
-      return <EditToolDetail input={input} sessionId={sessionId} />;
+      return <EditToolDetail input={input} sessionId={sessionId} readOnly={readOnly} />;
     case "Write":
-      return <WriteToolDetail input={input} sessionId={sessionId} />;
+      return <WriteToolDetail input={input} sessionId={sessionId} readOnly={readOnly} />;
     case "Read":
       return <ReadToolDetail input={input} />;
     case "Glob":
@@ -1140,7 +1211,15 @@ function BashDetail({ input }: { input: Record<string, unknown> }) {
   );
 }
 
-function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; sessionId?: string }) {
+function EditToolDetail({
+  input,
+  sessionId,
+  readOnly,
+}: {
+  input: Record<string, unknown>;
+  sessionId?: string;
+  readOnly?: boolean;
+}) {
   const parsed = useMemo(() => parseEditToolInput(input), [input]);
   const { filePath, oldText: oldStr, newText: newStr, changes, unifiedDiff } = parsed;
   const changePatchGroups = useMemo(() => buildChangePatchGroups(changes, filePath), [changes, filePath]);
@@ -1166,11 +1245,13 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
               fileName={group.filePath}
               mode="full"
               headerActions={
-                <DiffOpenFileButton
-                  filePath={group.filePath}
-                  cwd={sessionCwd}
-                  line={getFirstChangedLineForEditFile(parsed, group.filePath)}
-                />
+                readOnly ? undefined : (
+                  <DiffOpenFileButton
+                    filePath={group.filePath}
+                    cwd={sessionCwd}
+                    line={getFirstChangedLineForEditFile(parsed, group.filePath)}
+                  />
+                )
               }
             />
           ))}
@@ -1194,7 +1275,7 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
                 {typeof change.kind === "string" ? change.kind : "modify"}:{" "}
                 {typeof change.path === "string" ? change.path : filePath || "(unknown file)"}
               </span>
-              {typeof change.path === "string" && (
+              {!readOnly && typeof change.path === "string" && (
                 <DiffOpenFileButton
                   filePath={change.path}
                   cwd={sessionCwd}
@@ -1220,7 +1301,15 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
   );
 }
 
-function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>; sessionId?: string }) {
+function WriteToolDetail({
+  input,
+  sessionId,
+  readOnly,
+}: {
+  input: Record<string, unknown>;
+  sessionId?: string;
+  readOnly?: boolean;
+}) {
   const { filePath, content, changes, unifiedDiff } = useMemo(() => parseWriteToolInput(input), [input]);
   const changePatchGroups = useMemo(() => buildChangePatchGroups(changes, filePath), [changes, filePath]);
 
@@ -1242,7 +1331,9 @@ function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>;
             newText={group.unifiedDiff ? undefined : group.newText}
             fileName={group.filePath}
             mode="full"
-            headerActions={<DiffOpenFileButton filePath={group.filePath} cwd={sessionCwd} line={1} />}
+            headerActions={
+              readOnly ? undefined : <DiffOpenFileButton filePath={group.filePath} cwd={sessionCwd} line={1} />
+            }
           />
         ))}
       </div>
@@ -1267,7 +1358,7 @@ function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>;
                 {typeof change.kind === "string" ? change.kind : "create"}:{" "}
                 {typeof change.path === "string" ? change.path : filePath || "(unknown file)"}
               </span>
-              {typeof change.path === "string" && (
+              {!readOnly && typeof change.path === "string" && (
                 <DiffOpenFileButton filePath={change.path} cwd={sessionCwd} line={1} />
               )}
             </div>

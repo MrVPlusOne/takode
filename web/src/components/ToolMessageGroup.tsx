@@ -1,11 +1,19 @@
 import { useState } from "react";
 import type { ToolItem, ToolMsgGroup } from "../hooks/use-feed-model.js";
+import type { ToolResultPreview } from "../types.js";
 import { CompactToolActivity } from "./CompactToolActivity.js";
 import { LiveCodexTerminalStub } from "./MessageFeedLiveActivity.js";
 import { getToolGroupFeedBlockId } from "./message-feed-utils.js";
 import { NotificationMarker } from "./NotificationMarker.js";
 import { PawTrailAvatar } from "./PawTrail.js";
-import { ToolBlock, getToolIcon, getToolLabel, parseTakodeNotifyCommand, ToolIcon } from "./ToolBlock.js";
+import {
+  ToolBlock,
+  getToolIcon,
+  getToolLabel,
+  parseTakodeNotifyCommand,
+  ToolIcon,
+  type ToolResultScope,
+} from "./ToolBlock.js";
 
 interface ToolMessageGroupProps {
   group: ToolMsgGroup;
@@ -14,6 +22,9 @@ interface ToolMessageGroupProps {
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
   suppressNotificationMarker?: boolean;
+  interactionMode?: "default" | "read-only";
+  toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
+  toolResultScope?: ToolResultScope;
 }
 
 export function ToolMessageGroup(props: ToolMessageGroupProps) {
@@ -36,6 +47,9 @@ export function ToolMessageGroupContent({
   activeCodexTerminalIds,
   onOpenCodexTerminal,
   suppressNotificationMarker,
+  interactionMode = "default",
+  toolResultOverrides,
+  toolResultScope = "session",
 }: ToolMessageGroupProps) {
   const [open, setOpen] = useState(true);
   const iconType = getToolIcon(group.toolName);
@@ -47,6 +61,9 @@ export function ToolMessageGroupContent({
     activeCodexTerminalIds,
     onOpenCodexTerminal,
     suppressNotificationMarker,
+    interactionMode,
+    toolResultOverrides,
+    toolResultScope,
   };
 
   if (group.mixedToolNames) {
@@ -95,10 +112,7 @@ export function ToolMessageGroupContent({
               <ToolMessageItem
                 key={item.id || index}
                 item={item}
-                sessionId={sessionId}
-                isCodexSession={isCodexSession}
-                activeCodexTerminalIds={activeCodexTerminalIds}
-                onOpenCodexTerminal={onOpenCodexTerminal}
+                {...itemProps}
                 hideLabel={group.toolName === "Bash"}
               />
             ))}
@@ -116,9 +130,19 @@ function ToolMessageItem({
   activeCodexTerminalIds,
   onOpenCodexTerminal,
   suppressNotificationMarker,
+  interactionMode = "default",
+  toolResultOverrides,
+  toolResultScope = "session",
   hideLabel = false,
 }: Omit<ToolMessageGroupProps, "group"> & { item: ToolItem; hideLabel?: boolean }) {
-  if (isCodexSession && item.name === "Bash" && activeCodexTerminalIds.has(item.id)) {
+  const ownedResultScope = item.codexSubagent ? "overrides-only" : toolResultScope;
+  const resultOverride = item.resultOverride ?? toolResultOverrides?.get(item.id);
+  if (
+    ownedResultScope !== "overrides-only" &&
+    isCodexSession &&
+    item.name === "Bash" &&
+    activeCodexTerminalIds.has(item.id)
+  ) {
     return (
       <LiveCodexTerminalStub
         sessionId={sessionId}
@@ -138,6 +162,10 @@ function ToolMessageItem({
       parentMessageId={item.messageId}
       hideLabel={hideLabel}
       suppressNotificationMarker={suppressNotificationMarker}
+      disableInlineSpecialCases={interactionMode === "read-only"}
+      resultOverride={resultOverride}
+      suppressStoredResult={ownedResultScope === "overrides-only"}
+      readOnly={interactionMode === "read-only"}
     />
   );
 }
@@ -165,15 +193,16 @@ export function CompactToolMessageGroups({
           <ToolMessageGroupContent key={group.firstId} group={group} {...props} suppressNotificationMarker />
         ))}
       </CompactToolActivity>
-      {inlineNotifications.map((notification, index) => (
-        <div key={`${notification.messageId ?? "notify"}:${notification.category}:${index}`} className="mt-2">
-          <NotificationMarker
-            category={notification.category}
-            sessionId={props.sessionId}
-            messageId={notification.messageId}
-          />
-        </div>
-      ))}
+      {props.interactionMode !== "read-only" &&
+        inlineNotifications.map((notification, index) => (
+          <div key={`${notification.messageId ?? "notify"}:${notification.category}:${index}`} className="mt-2">
+            <NotificationMarker
+              category={notification.category}
+              sessionId={props.sessionId}
+              messageId={notification.messageId}
+            />
+          </div>
+        ))}
     </div>
   );
 }

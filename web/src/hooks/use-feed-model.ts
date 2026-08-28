@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef } from "react";
-import { isSubagentToolName, type ChatMessage, type ContentBlock, type SessionAttentionRecord } from "../types.js";
+import {
+  isSubagentToolName,
+  type ChatMessage,
+  type ContentBlock,
+  type SessionAttentionRecord,
+  type ToolResultPreview,
+} from "../types.js";
 import { EVENT_HEADER_RE } from "../utils/herd-event-parser.js";
 import { recordFeedRenderSnapshot } from "../utils/frontend-perf-recorder.js";
 import { isInjectedEventMessage } from "../utils/injected-event-message.js";
@@ -13,6 +19,8 @@ export interface ToolItem {
   name: string;
   input: Record<string, unknown>;
   messageId?: string;
+  codexSubagent?: NonNullable<NonNullable<ChatMessage["metadata"]>["codexSubagent"]>;
+  resultOverride?: ToolResultPreview;
 }
 
 export interface ToolMsgGroup {
@@ -31,6 +39,8 @@ export interface SubagentGroup {
   taskInput: Record<string, unknown> | null;
   children: FeedEntry[];
   isBackground: boolean;
+  codexSubagent?: NonNullable<NonNullable<ChatMessage["metadata"]>["codexSubagent"]>;
+  resultOverride?: ToolResultPreview;
 }
 
 export interface SubagentBatch {
@@ -77,11 +87,20 @@ function getToolOnlyGroup(
   if (!blocks || blocks.length === 0) return null;
 
   const items: ToolItem[] = [];
+  const codexSubagent = msg.metadata?.codexSubagent;
+  const childToolResults = msg.metadata?.codexSubagentToolResults;
   for (const b of blocks) {
     if (b.type === "text" && b.text.trim()) return null;
     if (b.type === "thinking") return null;
     if (b.type === "tool_use") {
-      items.push({ id: b.id, name: b.name, input: b.input, messageId: msg.id });
+      items.push({
+        id: b.id,
+        name: b.name,
+        input: b.input,
+        messageId: msg.id,
+        ...(codexSubagent ? { codexSubagent } : {}),
+        ...(childToolResults?.[b.id] ? { resultOverride: childToolResults[b.id] } : {}),
+      });
       continue;
     }
     if (b.type !== "text") return null;
@@ -113,6 +132,10 @@ function getTaskIdsFromEntry(entry: FeedEntry): string[] {
 // shows its own path in the header without redundant double-headers.
 export const FILE_TOOL_NAMES = new Set(["Edit", "Write", "Read"]);
 
+function sameToolOwnership(left: ToolItem | undefined, right: ToolItem | undefined): boolean {
+  return left?.codexSubagent?.childId === right?.codexSubagent?.childId;
+}
+
 /** Group consecutive same-tool messages */
 function groupToolMessages(messages: ChatMessage[], anchoredNotificationMessageIds?: ReadonlySet<string>): FeedEntry[] {
   const entries: FeedEntry[] = [];
@@ -130,7 +153,8 @@ function groupToolMessages(messages: ChatMessage[], anchoredNotificationMessageI
         !FILE_TOOL_NAMES.has(toolGroup.toolName) &&
         last?.kind === "tool_msg_group" &&
         !last.mixedToolNames &&
-        last.toolName === toolGroup.toolName
+        last.toolName === toolGroup.toolName &&
+        sameToolOwnership(last.items[0], toolGroup.items[0])
       ) {
         last.items.push(...toolGroup.items);
         continue;
@@ -175,6 +199,7 @@ function buildEntries(
     if (entry.kind === "tool_msg_group" && isSubagentToolName(entry.toolName)) {
       for (const taskId of taskIds) {
         const info = taskInfo.get(taskId) || { description: "Subagent", agentType: "", input: {} };
+        const item = entry.items.find((candidate) => candidate.id === taskId);
         const children = childrenByParent.get(taskId);
         const childEntries =
           children && children.length > 0
@@ -188,6 +213,8 @@ function buildEntries(
           taskInput: info.input,
           children: childEntries,
           isBackground: !!info.input?.run_in_background,
+          ...(item?.codexSubagent ? { codexSubagent: item.codexSubagent } : {}),
+          ...(item?.resultOverride ? { resultOverride: item.resultOverride } : {}),
         });
       }
       continue;
@@ -206,6 +233,9 @@ function buildEntries(
     }
     for (const taskId of taskIds) {
       const info = taskInfo.get(taskId) || { description: "Subagent", agentType: "", input: {} };
+      const codexSubagent = entry.kind === "message" ? entry.msg.metadata?.codexSubagent : undefined;
+      const resultOverride =
+        entry.kind === "message" ? entry.msg.metadata?.codexSubagentToolResults?.[taskId] : undefined;
       const children = childrenByParent.get(taskId);
       const childEntries =
         children && children.length > 0
@@ -219,6 +249,8 @@ function buildEntries(
         taskInput: info.input,
         children: childEntries,
         isBackground: !!info.input?.run_in_background,
+        ...(codexSubagent ? { codexSubagent } : {}),
+        ...(resultOverride ? { resultOverride } : {}),
       });
     }
   }
@@ -233,8 +265,13 @@ function batchSubagents(entries: FeedEntry[]): FeedEntry[] {
 
   while (i < entries.length) {
     if (entries[i].kind === "subagent") {
+      const ownerChildId = (entries[i] as SubagentGroup).codexSubagent?.childId;
       const batch: SubagentGroup[] = [];
-      while (i < entries.length && entries[i].kind === "subagent") {
+      while (
+        i < entries.length &&
+        entries[i].kind === "subagent" &&
+        (entries[i] as SubagentGroup).codexSubagent?.childId === ownerChildId
+      ) {
         batch.push(entries[i] as SubagentGroup);
         i++;
       }
@@ -285,7 +322,7 @@ export function groupMessages(
   const topLevel: ChatMessage[] = [];
 
   for (const msg of messages) {
-    if (msg.parentToolUseId) {
+    if (msg.parentToolUseId && !msg.metadata?.codexSubagent) {
       if (!taskInfo.has(msg.parentToolUseId)) {
         // Orphaned child — parent Task block was lost. Create synthetic entry.
         taskInfo.set(msg.parentToolUseId, { description: "Subagent", agentType: "", input: {} });

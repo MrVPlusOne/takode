@@ -6,6 +6,7 @@ import type {
 } from "../codex-native-subagent-adapter-controller.js";
 import {
   applyCodexNativeSubagentEvent,
+  collectCodexNativeSubagentProviderSensitiveIds,
   createCodexNativeSubagentRegistry,
   deriveCodexNativeSubagentSnapshot,
   seedCodexNativeSubagentAdapterContext,
@@ -13,6 +14,11 @@ import {
   type CodexNativeSubagentProviderEvent,
   type CodexNativeSubagentRegistry,
 } from "../codex-native-subagent-state.js";
+import {
+  projectCodexNativeSubagentInspectorMessages,
+  sanitizeCodexNativeSubagentAuditText,
+} from "../codex-native-subagent-history.js";
+import { canonicalizeCodexNativeSubagentOwnership } from "../codex-native-subagent-ownership-repair.js";
 
 export interface CodexNativeSubagentLifecycleSessionLike {
   id: string;
@@ -23,6 +29,8 @@ export interface CodexNativeSubagentLifecycleSessionLike {
   codexNativeSubagents?: CodexNativeSubagentRegistry;
   pendingCodexTurns: CodexOutboundTurn[];
   messageHistory: BrowserIncomingMessage[];
+  frozenCount: number;
+  eventBuffer?: Array<{ message: BrowserIncomingMessage }>;
 }
 
 export interface CodexNativeSubagentLifecycleAdapterLike {
@@ -34,7 +42,12 @@ export interface CodexNativeSubagentLifecycleAdapterLike {
 
 export interface CodexNativeSubagentLifecycleDeps {
   persistSession: (session: CodexNativeSubagentLifecycleSessionLike) => void;
-  handleBrowserMessage: (
+  persistHistoryOwnershipRepair?: (
+    session: CodexNativeSubagentLifecycleSessionLike,
+    expectedFrozenCount: number,
+  ) => Promise<void>;
+  broadcastToBrowsers: (session: CodexNativeSubagentLifecycleSessionLike, message: BrowserIncomingMessage) => void;
+  handleOwnedBrowserMessage: (
     session: CodexNativeSubagentLifecycleSessionLike,
     message: BrowserIncomingMessage,
   ) => Promise<void> | void;
@@ -74,15 +87,22 @@ function toStateEvent(
   event: Exclude<CodexNativeSubagentAdapterEvent, { type: "owned_message" }>,
 ): CodexNativeSubagentProviderEvent | null {
   switch (event.type) {
+    case "root_thread_identified":
+      return {
+        type: "root_thread_identified",
+        providerThreadId: event.providerThreadId,
+        observedAt: event.observedAt,
+      };
     case "activity": {
-      const nestedParent = registry.childrenByProviderThreadId[event.senderProviderThreadId];
+      const nestedParent =
+        event.kind === "started" ? registry.childrenByProviderThreadId[event.senderProviderThreadId] : undefined;
       return {
         type: "activity",
         kind: event.kind,
         providerThreadId: event.childProviderThreadId,
-        ...(nestedParent ? { providerParentThreadId: event.senderProviderThreadId } : {}),
+        ...(event.kind === "started" ? { providerParentThreadId: event.senderProviderThreadId } : {}),
         providerEventId: event.eventId,
-        ...(nestedParent ? {} : { rootProviderTurnId: event.senderProviderTurnId }),
+        ...(event.kind === "started" && !nestedParent ? { rootProviderTurnId: event.senderProviderTurnId } : {}),
         agentPath: event.agentPath,
         observedAt: event.observedAt,
         ...(event.kind === "started" ? { startedAt: event.observedAt } : {}),
@@ -174,9 +194,39 @@ function publishSnapshot(
   const snapshot = deriveCodexNativeSubagentSnapshot(registry);
   session.state.codex_native_subagents = snapshot;
   deps.persistSession(session);
-  void deps.handleBrowserMessage(session, {
+  deps.broadcastToBrowsers(session, {
     type: "session_update",
     session: { codex_native_subagents: snapshot },
+  });
+}
+
+function repairHistoryOwnership(
+  session: CodexNativeSubagentLifecycleSessionLike,
+  registry: CodexNativeSubagentRegistry,
+  removedChildIds: string[],
+  forceAudit: boolean,
+): boolean {
+  if (removedChildIds.length === 0 && !forceAudit) return false;
+  return canonicalizeCodexNativeSubagentOwnership(
+    registry,
+    session.messageHistory,
+    session.eventBuffer,
+    removedChildIds,
+  );
+}
+
+function persistOwnershipRepair(
+  session: CodexNativeSubagentLifecycleSessionLike,
+  deps: CodexNativeSubagentLifecycleDeps,
+): void {
+  const expectedFrozenCount = Math.max(0, Math.min(session.frozenCount, session.messageHistory.length));
+  if (!deps.persistHistoryOwnershipRepair) {
+    deps.persistSession(session);
+    return;
+  }
+  void deps.persistHistoryOwnershipRepair(session, expectedFrozenCount).catch((error) => {
+    console.error(`[codex-native-subagents] Failed to persist history ownership repair for ${session.id}:`, error);
+    deps.persistSession(session);
   });
 }
 
@@ -192,8 +242,26 @@ function applyEvent(
     resolveFeedRootTurnKey: (providerTurnId) => findFeedTurnKey(session, providerTurnId, observedAt),
     now: observedAt,
   });
-  if (result.changed) publishSnapshot(session, deps);
-  return result.changed;
+  const historyChanged = repairHistoryOwnership(
+    session,
+    registry,
+    result.removedChildIds ?? [],
+    event.type === "root_thread_identified",
+  );
+  if (result.changed || historyChanged) {
+    const snapshot = deriveCodexNativeSubagentSnapshot(registry);
+    session.state.codex_native_subagents = snapshot;
+    if (historyChanged) persistOwnershipRepair(session, deps);
+    else deps.persistSession(session);
+    deps.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { codex_native_subagents: snapshot },
+    });
+  }
+  if (historyChanged) {
+    deps.broadcastToBrowsers(session, { type: "message_history", messages: session.messageHistory });
+  }
+  return result.changed || historyChanged;
 }
 
 function ownershipForSource(registry: CodexNativeSubagentRegistry, source: CodexNativeSubagentMessageSource) {
@@ -216,7 +284,7 @@ export function registerCodexNativeSubagentLifecycle(
   } else {
     session.state.codex_native_subagents = deriveCodexNativeSubagentSnapshot(registry);
   }
-  controller.seedKnownChildProviderThreadIds(Object.keys(registry.childrenByProviderThreadId));
+  controller.seedKnownChildProviderThreadIds(seedCodexNativeSubagentAdapterContext(registry).keys());
 
   const pendingOwnedMessages = new Map<
     string,
@@ -244,11 +312,37 @@ export function registerCodexNativeSubagentLifecycle(
       event.source.observedAt,
       deps,
     );
-    const safeMessage = {
-      ...event.message,
+    const sensitiveStrings = [
+      ...collectCodexNativeSubagentProviderSensitiveIds(registry),
+      event.source.providerThreadId,
+      ...(event.source.providerTurnId ? [event.source.providerTurnId] : []),
+      ...(event.source.itemId ? [event.source.itemId] : []),
+    ];
+    const sourceMessage =
+      event.message.type === "error"
+        ? {
+            ...event.message,
+            message:
+              sanitizeCodexNativeSubagentAuditText(event.message.message, sensitiveStrings) ||
+              "Child agent reported an error.",
+          }
+        : event.message;
+    const ownedMessage = {
+      ...sourceMessage,
       codexSubagent: ownership,
     } as BrowserIncomingMessage;
-    void deps.handleBrowserMessage(session, safeMessage);
+    const projectedMessages =
+      ownedMessage.type === "assistant" || ownedMessage.type === "codex_reasoning_detail"
+        ? projectCodexNativeSubagentInspectorMessages([ownedMessage], { ownership, sensitiveStrings })
+        : ownedMessage.type === "error"
+          ? [ownedMessage]
+          : [];
+    // Streaming/progress packets are root-state inputs in the normal feed and
+    // have no child-owned browser surface. Keep the final bounded assistant,
+    // reasoning, tool, result, and error audit rows instead of exposing raw IDs.
+    for (const projectedMessage of projectedMessages) {
+      void deps.handleOwnedBrowserMessage(session, projectedMessage);
+    }
     return true;
   };
 
@@ -271,8 +365,16 @@ export function registerCodexNativeSubagentLifecycle(
       return;
     }
 
+    if (event.type === "root_thread_identified") {
+      pendingOwnedMessages.delete(event.providerThreadId);
+    }
     const stateEvent = toStateEvent(registry, event);
     if (stateEvent) applyEvent(session, stateEvent, event.observedAt ?? Date.now(), deps);
-    if ("childProviderThreadId" in event) flushPendingOwnedMessages(event.childProviderThreadId);
+    if (event.type === "root_thread_identified") {
+      controller.seedKnownChildProviderThreadIds(seedCodexNativeSubagentAdapterContext(registry).keys());
+      for (const providerThreadId of [...pendingOwnedMessages.keys()]) flushPendingOwnedMessages(providerThreadId);
+    } else if ("childProviderThreadId" in event) {
+      flushPendingOwnedMessages(event.childProviderThreadId);
+    }
   });
 }

@@ -995,7 +995,7 @@ describe("TopBar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Universal Search" }));
     expect(onOpenUniversalSearch).toHaveBeenCalledTimes(1);
   });
-  it("shows a distinct native Codex subagent badge and opens the shared inspector", () => {
+  it("keeps session-local Codex subagent access out of the global top bar", () => {
     resetStore({
       sessions: new Map([
         [
@@ -1017,49 +1017,7 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    const button = screen.getByTestId("topbar-codex-subagents");
-    expect(button).toHaveAccessibleName(/Codex subagents: 5\+\. partial coverage/i);
-    expect(screen.getByText("5+")).toBeInTheDocument();
-    fireEvent.click(button);
-    expect(storeState.openCodexSubagentInspector).toHaveBeenCalledWith("s1");
-  });
-
-  it("keeps the Codex inspector reachable when the authoritative snapshot is unavailable", () => {
-    resetStore({
-      sessions: new Map([["s1", { cwd: "/repo", backend_type: "codex" }]]),
-    });
-
-    render(<TopBar />);
-
-    const button = screen.getByTestId("topbar-codex-subagents");
-    expect(button).toHaveAccessibleName(/Codex subagents: \?\. Snapshot unavailable/i);
-    fireEvent.click(button);
-    expect(storeState.openCodexSubagentInspector).toHaveBeenCalledWith("s1");
-  });
-
-  it("shows authoritative zero only for complete Codex coverage", () => {
-    resetStore({
-      sessions: new Map([
-        [
-          "s1",
-          {
-            cwd: "/repo",
-            backend_type: "codex",
-            codex_native_subagents: {
-              revision: 1,
-              coverage: "complete",
-              session: { total: 0, statusCounts: {}, activeCount: 0, unresolvedCount: 0 },
-              children: [],
-              turns: {},
-            },
-          },
-        ],
-      ]),
-    });
-
-    render(<TopBar />);
-    expect(screen.getByTestId("topbar-codex-subagents")).toHaveAccessibleName(
-      /Codex subagents: 0\. complete coverage/i,
-    );
+    expect(screen.queryByTestId("topbar-codex-subagents")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Codex subagents/i })).toBeNull();
   });
 });

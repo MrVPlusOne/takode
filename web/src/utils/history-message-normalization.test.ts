@@ -687,4 +687,79 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     });
     expect(normalized?.agentSource).toBeUndefined();
   });
+
+  it("preserves stable child error identity, chronology, route, and ownership", () => {
+    const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const [normalized] = normalizeHistoryMessageToChatMessages(
+      {
+        type: "error",
+        id: "child-error-stable",
+        message: "Privacy-bounded child failure",
+        timestamp: 321,
+        threadKey: "q-42",
+        questId: "q-42",
+        codexSubagent: ownership,
+      },
+      17,
+    );
+
+    expect(normalized).toEqual({
+      id: "child-error-stable",
+      role: "system",
+      content: "Privacy-bounded child failure",
+      timestamp: 321,
+      historyIndex: 17,
+      variant: "error",
+      metadata: { threadKey: "q-42", questId: "q-42", codexSubagent: ownership },
+    });
+  });
+
+  it("attaches child tool results only to matching tool uses in that child message", () => {
+    const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const matching = {
+      tool_use_id: "shared-tool",
+      content: "child-owned result",
+      is_error: false,
+      total_size: 18,
+      is_truncated: false,
+    };
+    const [normalized] = normalizeHistoryMessageToChatMessages(
+      {
+        type: "assistant",
+        timestamp: 200,
+        parent_tool_use_id: "spawn-tool",
+        codexSubagent: ownership,
+        message: {
+          id: "child-tool-message",
+          type: "message",
+          role: "assistant",
+          model: "gpt-test",
+          stop_reason: null,
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          content: [{ type: "tool_use", id: "shared-tool", name: "Bash", input: { command: "pwd" } }],
+        },
+      },
+      18,
+      {
+        codexSubagentToolResults: new Map([
+          ["shared-tool", matching],
+          [
+            "other-tool",
+            {
+              tool_use_id: "other-tool",
+              content: "other child result",
+              is_error: false,
+              total_size: 18,
+              is_truncated: false,
+            },
+          ],
+        ]),
+      },
+    );
+
+    expect(normalized?.metadata).toEqual({
+      codexSubagent: ownership,
+      codexSubagentToolResults: { "shared-tool": matching },
+    });
+  });
 });

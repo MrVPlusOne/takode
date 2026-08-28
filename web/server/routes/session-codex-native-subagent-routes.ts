@@ -8,6 +8,7 @@ import {
   type CodexNativeSubagentProviderPrefixState,
 } from "../codex-native-subagent-history.js";
 import {
+  collectCodexNativeSubagentProviderSensitiveIds,
   resolveCodexNativeSubagentProviderThreadId,
   seedCodexNativeSubagentAdapterContext,
   type CodexNativeSubagentRecord,
@@ -87,18 +88,7 @@ function collectSensitiveStrings(
   session: { state?: Record<string, unknown> },
   registry: CodexNativeSubagentRegistry,
 ): string[] {
-  const values = new Set<string>();
-  for (const [providerThreadId, record] of Object.entries(registry.childrenByProviderThreadId)) {
-    values.add(providerThreadId);
-    if (record.providerParentThreadId) values.add(record.providerParentThreadId);
-    if (record.spawnRootProviderTurnId) values.add(record.spawnRootProviderTurnId);
-    for (const providerTurnId of Object.keys(record.turnsByProviderTurnId)) values.add(providerTurnId);
-    for (const eventId of record.seenActivityEventIds) {
-      values.add(eventId);
-      const separator = eventId.indexOf(":");
-      if (separator >= 0 && separator + 1 < eventId.length) values.add(eventId.slice(separator + 1));
-    }
-  }
+  const values = new Set(collectCodexNativeSubagentProviderSensitiveIds(registry));
   const state = session.state ?? {};
   for (const key of ["cwd", "repo_root", "container_workdir", "worktree_path"]) {
     const value = state[key];

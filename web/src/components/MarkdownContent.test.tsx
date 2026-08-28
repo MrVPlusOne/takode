@@ -883,6 +883,20 @@ describe("MarkdownContent quest links", () => {
     openSpy.mockRestore();
   });
 
+  it("can render local file links as inert text without changing the normal link surface", () => {
+    const { rerender } = render(
+      <MarkdownContent text="[app.ts](file:/tmp/project/app.ts:42)" fileLinkMode="text-only" />,
+    );
+
+    expect(screen.queryByRole("link", { name: "app.ts" })).toBeNull();
+    expect(screen.getByText("app.ts").getAttribute("data-read-only-file-link")).toBe("true");
+    expect(mockResolveFileLinkAction).not.toHaveBeenCalled();
+    expect(mockGetSettings).not.toHaveBeenCalled();
+
+    rerender(<MarkdownContent text="[app.ts](file:/tmp/project/app.ts:42)" />);
+    expect(screen.getByRole("link", { name: "app.ts" }).getAttribute("href")).toBe("file:/tmp/project/app.ts:42");
+  });
+
   it("opens file: line-range links at the range start for local VS Code URIs", async () => {
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);

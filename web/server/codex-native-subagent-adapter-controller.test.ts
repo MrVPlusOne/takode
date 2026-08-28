@@ -137,7 +137,7 @@ describe("CodexNativeSubagentAdapterController", () => {
       },
     });
 
-    expect(events).toEqual([
+    expect(events.filter((event) => event.type === "thread_metadata")).toEqual([
       expect.objectContaining({
         type: "thread_metadata",
         childProviderThreadId: "provider-child",
@@ -157,7 +157,7 @@ describe("CodexNativeSubagentAdapterController", () => {
     controller.requestDiscovery();
     await flushDiscovery();
 
-    expect(events).toEqual([
+    expect(events.filter((event) => event.type === "discovery_finished")).toEqual([
       expect.objectContaining({
         type: "discovery_finished",
         coverage: "partial",
@@ -179,5 +179,89 @@ describe("CodexNativeSubagentAdapterController", () => {
     controller.drainDiscovery();
     await flushDiscovery();
     expect(call).toHaveBeenCalledOnce();
+  });
+  it("does not turn a child-to-root interaction into a reciprocal child identity", () => {
+    // Producer shape captured after restart: when a child sends to /root, the
+    // child thread receives interacted activity targeting the provider root.
+    const events: CodexNativeSubagentAdapterEvent[] = [];
+    const controller = new CodexNativeSubagentAdapterController({ call: vi.fn() } as never, () => true);
+    controller.onEvent((event) => events.push(event));
+    // Replacement-adapter attach can seed persisted IDs before initialize
+    // returns the provider root. Root identification must evict that stale ID.
+    controller.seedKnownChildProviderThreadIds(["provider-child", "provider-root"]);
+    expect(controller.isKnownChildProviderThreadId("provider-root")).toBe(true);
+    controller.setRootProviderThreadId("provider-root");
+
+    controller.observeNotification("item/completed", {
+      threadId: "provider-child",
+      turnId: "provider-child-turn",
+      completedAtMs: 1_787_867_114_000,
+      item: {
+        type: "subAgentActivity",
+        id: "child-message-to-root",
+        kind: "interacted",
+        agentThreadId: "provider-root",
+        agentPath: "/root",
+      },
+    });
+
+    expect(events.filter((event) => event.type === "activity")).toEqual([]);
+    expect(controller.isKnownChildProviderThreadId("provider-root")).toBe(false);
+    expect(
+      controller.emitOwnedBrowserMessage(
+        {
+          type: "assistant",
+          message: {
+            id: "root-message",
+            type: "message",
+            role: "assistant",
+            model: "",
+            content: [{ type: "text", text: "Root-owned reply" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+          parent_tool_use_id: null,
+        },
+        {
+          providerThreadId: "provider-root",
+          providerTurnId: "provider-root-turn",
+          observedAt: 1_787_867_115_000,
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("scrubs controller-known provider identities from child error audit text", () => {
+    const events: CodexNativeSubagentAdapterEvent[] = [];
+    const controller = new CodexNativeSubagentAdapterController(
+      { call: vi.fn() } as never,
+      () => true,
+      () => "provider-root-turn",
+    );
+    controller.onEvent((event) => events.push(event));
+    controller.seedKnownChildProviderThreadIds(["provider-child", "provider-sibling"]);
+    controller.setRootProviderThreadId("provider-root");
+
+    controller.observeNotification("codex/event/error", {
+      threadId: "provider-child",
+      turnId: "provider-child-turn",
+      itemId: "provider-error-item",
+      msg: {
+        message:
+          "failed at provider-root/provider-root-turn for provider-child/provider-child-turn with provider-sibling provider-error-item",
+      },
+    });
+
+    const ownedError = events.find(
+      (event): event is Extract<CodexNativeSubagentAdapterEvent, { type: "owned_message" }> =>
+        event.type === "owned_message" && event.message.type === "error",
+    );
+    expect(ownedError?.message).toMatchObject({ type: "error" });
+    expect(JSON.stringify(ownedError?.message)).not.toMatch(
+      /provider-root|provider-root-turn|provider-child|provider-child-turn|provider-sibling|provider-error-item/,
+    );
+    expect(ownedError?.message.type === "error" ? ownedError.message.message : "").toContain(
+      "[sensitive value omitted]",
+    );
   });
 });

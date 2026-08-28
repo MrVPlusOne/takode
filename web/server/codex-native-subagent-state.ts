@@ -78,6 +78,10 @@ export interface CodexNativeSubagentRecord {
 export interface CodexNativeSubagentRegistry {
   version: typeof REGISTRY_VERSION;
   sessionId: string;
+  /** Current provider root identity. This remains server-only. */
+  rootProviderThreadId?: string;
+  /** Sticky fail-closed flag for contradictory/cyclic provider topology. */
+  integrityCompromised: boolean;
   revision: number;
   coverage: CodexNativeSubagentCoverage;
   nextSpawnOrder: number;
@@ -89,6 +93,11 @@ export interface CodexNativeSubagentRegistry {
 interface ProviderEventBase {
   /** Provider/event receipt timestamp in milliseconds. */
   observedAt?: number;
+}
+
+export interface CodexNativeSubagentRootThreadIdentifiedEvent extends ProviderEventBase {
+  type: "root_thread_identified";
+  providerThreadId: string;
 }
 
 export interface CodexNativeSubagentActivityEvent extends ProviderEventBase {
@@ -160,6 +169,7 @@ export interface CodexNativeSubagentOwnedMessageObservedEvent extends ProviderEv
 
 /** Normalized server-only provider events consumed by the registry. */
 export type CodexNativeSubagentProviderEvent =
+  | CodexNativeSubagentRootThreadIdentifiedEvent
   | CodexNativeSubagentActivityEvent
   | CodexNativeSubagentThreadMetadataEvent
   | CodexNativeSubagentThreadStatusEvent
@@ -181,6 +191,10 @@ export interface ApplyCodexNativeSubagentEventResult {
   changed: boolean;
   revision: number;
   childId?: string;
+  /** Public IDs removed because they were the provider root, never children. */
+  removedChildIds?: string[];
+  /** Identity-proven child IDs whose prior root-turn association was invalidated. */
+  unresolvedChildIds?: string[];
 }
 
 /** Server-only adapter lookup value; the map key remains the provider thread ID. */
@@ -195,6 +209,7 @@ export function createCodexNativeSubagentRegistry(
   return {
     version: REGISTRY_VERSION,
     sessionId,
+    integrityCompromised: false,
     revision: 0,
     coverage: options.coverage ?? "partial",
     nextSpawnOrder: 1,
@@ -216,6 +231,8 @@ export function normalizeCodexNativeSubagentRegistry(value: unknown, sessionId: 
   });
   if (!input) return registry;
 
+  registry.rootProviderThreadId = cleanProviderId(input.rootProviderThreadId);
+  registry.integrityCompromised = input.integrityCompromised === true;
   registry.revision = nonNegativeInteger(input.revision) ?? 0;
   registry.nextSpawnOrder = positiveInteger(input.nextSpawnOrder) ?? 1;
   registry.nextEvidenceSequence = positiveInteger(input.nextEvidenceSequence) ?? 1;
@@ -241,6 +258,7 @@ export function normalizeCodexNativeSubagentRegistry(value: unknown, sessionId: 
     }
   }
 
+  if (registry.integrityCompromised) registry.coverage = "partial";
   return registry;
 }
 
@@ -253,8 +271,18 @@ export function applyCodexNativeSubagentEvent(
   let changed = false;
   let record: CodexNativeSubagentRecord | undefined;
 
+  if (event.type === "root_thread_identified") {
+    const rootProviderThreadId = cleanProviderId(event.providerThreadId);
+    if (!rootProviderThreadId) return finishApply(registry, false);
+    changed = registry.rootProviderThreadId !== rootProviderThreadId;
+    registry.rootProviderThreadId = rootProviderThreadId;
+    const repair = sanitizeRegistryForRoot(registry, rootProviderThreadId);
+    changed = repair.changed || changed;
+    return finishApply(registry, changed, undefined, repair.removedChildIds, repair.unresolvedChildIds);
+  }
+
   if (event.type === "discovery_complete" || event.type === "discovery_partial") {
-    const coverage = event.type === "discovery_complete" ? "complete" : "partial";
+    const coverage = event.type === "discovery_complete" && !registry.integrityCompromised ? "complete" : "partial";
     if (registry.coverage !== coverage) {
       registry.coverage = coverage;
       changed = true;
@@ -264,9 +292,33 @@ export function applyCodexNativeSubagentEvent(
 
   if (event.type === "activity") {
     const providerThreadId = cleanProviderId(event.providerThreadId);
-    if (!providerThreadId) return finishApply(registry, false);
+    if (
+      !providerThreadId ||
+      providerThreadId === registry.rootProviderThreadId ||
+      (event.kind === "started" && isProviderRootPath(event.agentPath))
+    ) {
+      return finishApply(registry, false);
+    }
+    const existing = registry.childrenByProviderThreadId[providerThreadId];
+    // Interact/interrupt rows target an existing participant. They are not
+    // spawn evidence and must never create a new child identity (notably when
+    // a child sends a message back to the root thread).
+    if (event.kind !== "started" && !existing) return finishApply(registry, false);
     const rootProviderTurnId = event.kind === "started" ? cleanProviderId(event.rootProviderTurnId) : undefined;
-    const parentProviderThreadId = cleanProviderId(event.providerParentThreadId);
+    const parentProviderThreadId = event.kind === "started" ? cleanProviderId(event.providerParentThreadId) : undefined;
+    if (!parentRelationshipIsSafe(registry, providerThreadId, parentProviderThreadId)) {
+      return finishApply(registry, downgradeCoverage(registry, true));
+    }
+    if (
+      spawnAssociationConflicts(registry, existing, {
+        parentProviderThreadId,
+        rootProviderTurnId,
+        agentPath: event.agentPath,
+        resolveFeedRootTurnKey: options.resolveFeedRootTurnKey,
+      })
+    ) {
+      return finishApply(registry, downgradeCoverage(registry, true));
+    }
     ({ record, changed } = getOrCreateRecord(registry, providerThreadId, observedAt, {
       parentProviderThreadId,
       rootProviderTurnId,
@@ -312,8 +364,28 @@ export function applyCodexNativeSubagentEvent(
     }
   } else if (event.type === "thread_metadata") {
     const metadata = extractVerifiedSpawnMetadata(event.thread);
-    if (!metadata) return finishApply(registry, false);
+    if (
+      !metadata ||
+      metadata.providerThreadId === registry.rootProviderThreadId ||
+      isProviderRootPath(metadata.agentPath)
+    ) {
+      return finishApply(registry, false);
+    }
+    if (!parentRelationshipIsSafe(registry, metadata.providerThreadId, metadata.parentProviderThreadId)) {
+      return finishApply(registry, downgradeCoverage(registry, true));
+    }
+    const existing = registry.childrenByProviderThreadId[metadata.providerThreadId];
     const rootProviderTurnId = cleanProviderId(event.rootProviderTurnId);
+    if (
+      spawnAssociationConflicts(registry, existing, {
+        parentProviderThreadId: metadata.parentProviderThreadId,
+        rootProviderTurnId,
+        agentPath: metadata.agentPath,
+        resolveFeedRootTurnKey: options.resolveFeedRootTurnKey,
+      })
+    ) {
+      return finishApply(registry, downgradeCoverage(registry, true));
+    }
     ({ record, changed } = getOrCreateRecord(registry, metadata.providerThreadId, observedAt, {
       parentProviderThreadId: metadata.parentProviderThreadId,
       rootProviderTurnId,
@@ -331,13 +403,20 @@ export function applyCodexNativeSubagentEvent(
         startedAt: metadata.startedAt,
         followUpAvailable: metadata.followUpAvailable,
         transcriptAvailability: metadata.transcriptAvailability,
+        authoritativeRoot: !!rootProviderTurnId,
       }) || changed;
+    if (rootProviderTurnId && !record.spawnEvidence) {
+      record.spawnEvidence = makeStamp(registry, metadata.startedAt ?? observedAt);
+      changed = true;
+    }
     if (metadata.status !== undefined) {
       changed = applyThreadStatusEvidence(registry, record, metadata.status, observedAt) || changed;
     }
   } else {
     const providerThreadId = cleanProviderId(event.providerThreadId);
-    if (!providerThreadId) return finishApply(registry, false);
+    if (!providerThreadId || providerThreadId === registry.rootProviderThreadId) {
+      return finishApply(registry, false);
+    }
     record = registry.childrenByProviderThreadId[providerThreadId];
     // Child-only notifications do not establish a native spawn relationship.
     if (!record) return finishApply(registry, false);
@@ -393,23 +472,29 @@ export function applyCodexNativeSubagentEvent(
 }
 
 export function deriveCodexNativeSubagentSnapshot(registry: CodexNativeSubagentRegistry): CodexNativeSubagentSnapshot {
-  const allRecords = Object.values(registry.childrenByProviderThreadId).sort(
-    (left, right) => left.spawnOrder - right.spawnOrder || left.publicChildId.localeCompare(right.publicChildId),
+  const structurallyValidProviderThreadIds = collectStructurallyValidProviderThreadIds(registry);
+  const allRecords = Object.entries(registry.childrenByProviderThreadId).sort(
+    (left, right) =>
+      left[1].spawnOrder - right[1].spawnOrder || left[1].publicChildId.localeCompare(right[1].publicChildId),
   );
-  const records = allRecords.filter(
-    (record): record is CodexNativeSubagentRecord & { feedRootTurnKey: string } => !!record.feedRootTurnKey,
-  );
+  const records = allRecords
+    .filter(
+      (entry): entry is [string, CodexNativeSubagentRecord & { feedRootTurnKey: string }] =>
+        structurallyValidProviderThreadIds.has(entry[0]) && !!entry[1].feedRootTurnKey,
+    )
+    .map(([, record]) => record);
   const hasUnresolvedRoot = records.length !== allRecords.length;
   const coverage: CodexNativeSubagentCoverage =
-    registry.coverage === "complete" && !hasUnresolvedRoot ? "complete" : "partial";
+    registry.coverage === "complete" && !registry.integrityCompromised && !hasUnresolvedRoot ? "complete" : "partial";
   const statusCounts = createStatusCounts();
 
   for (const record of records) statusCounts[record.status] += 1;
 
   const children = records.map((record) => {
-    const parent = record.providerParentThreadId
-      ? registry.childrenByProviderThreadId[record.providerParentThreadId]
-      : undefined;
+    const parent =
+      record.providerParentThreadId && structurallyValidProviderThreadIds.has(record.providerParentThreadId)
+        ? registry.childrenByProviderThreadId[record.providerParentThreadId]
+        : undefined;
     const summary = {
       childId: record.publicChildId,
       ...(parent ? { parentChildId: parent.publicChildId } : {}),
@@ -448,7 +533,7 @@ export function deriveCodexNativeSubagentSnapshot(registry: CodexNativeSubagentR
       total: members.length,
       statusCounts: turnStatusCounts,
       status: summarizeStatuses(turnStatusCounts),
-      coverage: registry.turnCoverageByRootTurnId[rootTurnId] ?? coverage,
+      coverage: registry.integrityCompromised ? "partial" : (registry.turnCoverageByRootTurnId[rootTurnId] ?? coverage),
     };
   }
 
@@ -468,22 +553,24 @@ export function deriveCodexNativeSubagentSnapshot(registry: CodexNativeSubagentR
 
 /**
  * Seeds child ownership for the adapter without making provider IDs part of a
- * serializable browser DTO. Records missing an authoritative feed turn key are
- * intentionally omitted until their spawn association can be repaired.
+ * serializable browser DTO. Structurally valid unresolved children remain
+ * tagged as child audit rows without a false root-turn association.
  */
 export function seedCodexNativeSubagentAdapterContext(
   registry: CodexNativeSubagentRegistry,
 ): Map<string, CodexNativeSubagentAdapterOwnership> {
   const result = new Map<string, CodexNativeSubagentAdapterOwnership>();
+  const structurallyValidProviderThreadIds = collectStructurallyValidProviderThreadIds(registry);
   for (const [providerThreadId, record] of Object.entries(registry.childrenByProviderThreadId)) {
-    if (!record.feedRootTurnKey) continue;
-    const parent = record.providerParentThreadId
-      ? registry.childrenByProviderThreadId[record.providerParentThreadId]
-      : undefined;
+    if (!structurallyValidProviderThreadIds.has(providerThreadId)) continue;
+    const parent =
+      record.providerParentThreadId && structurallyValidProviderThreadIds.has(record.providerParentThreadId)
+        ? registry.childrenByProviderThreadId[record.providerParentThreadId]
+        : undefined;
     result.set(providerThreadId, {
       childId: record.publicChildId,
       ...(parent ? { parentChildId: parent.publicChildId } : {}),
-      rootTurnId: record.feedRootTurnKey,
+      ...(record.feedRootTurnKey ? { rootTurnId: record.feedRootTurnKey } : {}),
       ...(record.spawnRootProviderTurnId ? { rootProviderTurnId: record.spawnRootProviderTurnId } : {}),
     });
   }
@@ -498,6 +585,32 @@ export function resolveCodexNativeSubagentProviderThreadId(
     if (record.publicChildId === publicChildId) return providerThreadId;
   }
   return undefined;
+}
+
+/** Deterministic server-only bridge from provider identity to its opaque public ID. */
+export function codexNativeSubagentChildIdForProviderThread(
+  registry: Pick<CodexNativeSubagentRegistry, "sessionId">,
+  providerThreadId: string,
+): string {
+  return opaqueChildId(registry.sessionId, providerThreadId);
+}
+
+/** Provider-only identifiers that must be scrubbed from browser-visible child audit content. */
+export function collectCodexNativeSubagentProviderSensitiveIds(registry: CodexNativeSubagentRegistry): string[] {
+  const values = new Set<string>();
+  if (registry.rootProviderThreadId) values.add(registry.rootProviderThreadId);
+  for (const [providerThreadId, record] of Object.entries(registry.childrenByProviderThreadId)) {
+    values.add(providerThreadId);
+    if (record.providerParentThreadId) values.add(record.providerParentThreadId);
+    if (record.spawnRootProviderTurnId) values.add(record.spawnRootProviderTurnId);
+    for (const providerTurnId of Object.keys(record.turnsByProviderTurnId)) values.add(providerTurnId);
+    for (const eventId of record.seenActivityEventIds) {
+      values.add(eventId);
+      const separator = eventId.indexOf(":");
+      if (separator >= 0 && separator + 1 < eventId.length) values.add(eventId.slice(separator + 1));
+    }
+  }
+  return [...values];
 }
 
 /**
@@ -533,8 +646,9 @@ export function setCodexNativeSubagentCoverage(
   registry: CodexNativeSubagentRegistry,
   coverage: CodexNativeSubagentCoverage,
 ): boolean {
-  if (registry.coverage === coverage) return false;
-  registry.coverage = coverage;
+  const effectiveCoverage = coverage === "complete" && registry.integrityCompromised ? "partial" : coverage;
+  if (registry.coverage === effectiveCoverage) return false;
+  registry.coverage = effectiveCoverage;
   registry.revision += 1;
   return true;
 }
@@ -551,16 +665,234 @@ export function setCodexNativeSubagentTurnCoverage(
   return true;
 }
 
+function downgradeCoverage(registry: CodexNativeSubagentRegistry, integrityCompromised = false): boolean {
+  let changed = false;
+  if (integrityCompromised && !registry.integrityCompromised) {
+    registry.integrityCompromised = true;
+    changed = true;
+  }
+  if (registry.coverage !== "partial") {
+    registry.coverage = "partial";
+    changed = true;
+  }
+  return changed;
+}
+
+function parentRelationshipIsSafe(
+  registry: CodexNativeSubagentRegistry,
+  providerThreadId: string,
+  providerParentThreadId?: string,
+): boolean {
+  if (providerThreadId === registry.rootProviderThreadId) return false;
+  if (!providerParentThreadId) return true;
+  if (providerParentThreadId === providerThreadId) return false;
+
+  const seen = new Set<string>();
+  let cursor: string | undefined = providerParentThreadId;
+  while (cursor) {
+    if (cursor === providerThreadId || seen.has(cursor)) return false;
+    if (cursor === registry.rootProviderThreadId) return true;
+    seen.add(cursor);
+    cursor = registry.childrenByProviderThreadId[cursor]?.providerParentThreadId;
+  }
+  return true;
+}
+
+function spawnAssociationConflicts(
+  registry: CodexNativeSubagentRegistry,
+  existing: CodexNativeSubagentRecord | undefined,
+  incoming: {
+    parentProviderThreadId?: string;
+    rootProviderTurnId?: string;
+    agentPath?: unknown;
+    resolveFeedRootTurnKey?: CodexNativeSubagentRootTurnResolver;
+  },
+): boolean {
+  const parent = incoming.parentProviderThreadId
+    ? registry.childrenByProviderThreadId[incoming.parentProviderThreadId]
+    : undefined;
+  const incomingRootProviderTurnId = incoming.rootProviderTurnId ?? parent?.spawnRootProviderTurnId;
+  const incomingFeedRootTurnKey =
+    parent?.feedRootTurnKey ??
+    (incomingRootProviderTurnId
+      ? cleanFeedRootTurnKey(incoming.resolveFeedRootTurnKey?.(incomingRootProviderTurnId))
+      : undefined);
+
+  if (parent?.spawnRootProviderTurnId && incoming.rootProviderTurnId) {
+    if (parent.spawnRootProviderTurnId !== incoming.rootProviderTurnId) return true;
+  }
+  if (!existing) return false;
+
+  if (
+    existing.providerParentThreadId &&
+    incoming.parentProviderThreadId &&
+    existing.providerParentThreadId !== incoming.parentProviderThreadId
+  ) {
+    return true;
+  }
+  if (
+    !existing.providerParentThreadId &&
+    incoming.parentProviderThreadId &&
+    existing.spawnEvidence &&
+    incoming.parentProviderThreadId !== registry.rootProviderThreadId &&
+    (registry.rootProviderThreadId !== undefined ||
+      registry.childrenByProviderThreadId[incoming.parentProviderThreadId] !== undefined)
+  ) {
+    // A root-owned spawn may learn its provider-root parent later, but a settled
+    // spawn cannot subsequently become another child's descendant.
+    return true;
+  }
+  if (
+    existing.spawnRootProviderTurnId &&
+    incomingRootProviderTurnId &&
+    existing.spawnRootProviderTurnId !== incomingRootProviderTurnId
+  ) {
+    return true;
+  }
+  if (existing.feedRootTurnKey && incomingFeedRootTurnKey && existing.feedRootTurnKey !== incomingFeedRootTurnKey) {
+    return true;
+  }
+  const incomingAgentPath = boundedString(incoming.agentPath, MAX_AGENT_PATH_LENGTH);
+  return !!(
+    existing.spawnEvidence &&
+    existing.agentPath &&
+    incomingAgentPath &&
+    existing.agentPath !== incomingAgentPath
+  );
+}
+
+function collectStructurallyValidProviderThreadIds(registry: CodexNativeSubagentRegistry): Set<string> {
+  const memo = new Map<string, boolean>();
+  const visiting = new Set<string>();
+
+  const visit = (providerThreadId: string): boolean => {
+    const cached = memo.get(providerThreadId);
+    if (cached !== undefined) return cached;
+    const record = registry.childrenByProviderThreadId[providerThreadId];
+    if (!record || providerThreadId === registry.rootProviderThreadId || isProviderRootPath(record.agentPath)) {
+      memo.set(providerThreadId, false);
+      return false;
+    }
+    if (visiting.has(providerThreadId)) {
+      memo.set(providerThreadId, false);
+      return false;
+    }
+
+    visiting.add(providerThreadId);
+    const parentId = record.providerParentThreadId;
+    let valid = true;
+    if (parentId) {
+      if (parentId === registry.rootProviderThreadId) {
+        valid = true;
+      } else if (registry.childrenByProviderThreadId[parentId]) {
+        valid = visit(parentId);
+      } else {
+        // Before the adapter identifies the root, one missing external parent
+        // may be that root. Once root identity is known, other missing parents
+        // are ambiguous and stay quarantined.
+        valid = !registry.rootProviderThreadId;
+      }
+    }
+    visiting.delete(providerThreadId);
+    memo.set(providerThreadId, valid);
+    return valid;
+  };
+
+  for (const providerThreadId of Object.keys(registry.childrenByProviderThreadId)) visit(providerThreadId);
+  return new Set([...memo].filter(([, valid]) => valid).map(([providerThreadId]) => providerThreadId));
+}
+
+function sanitizeRegistryForRoot(
+  registry: CodexNativeSubagentRegistry,
+  rootProviderThreadId: string,
+): { changed: boolean; removedChildIds: string[]; unresolvedChildIds: string[] } {
+  let changed = false;
+  const removedChildIds: string[] = [];
+  const unresolvedChildIds: string[] = [];
+  const rootRecord = registry.childrenByProviderThreadId[rootProviderThreadId];
+  if (rootRecord) {
+    removedChildIds.push(rootRecord.publicChildId);
+    delete registry.childrenByProviderThreadId[rootProviderThreadId];
+    changed = true;
+  }
+
+  const memo = new Map<string, boolean>();
+  const visiting = new Set<string>();
+  const hasProvenRootAssociation = (providerThreadId: string): boolean => {
+    const cached = memo.get(providerThreadId);
+    if (cached !== undefined) return cached;
+    const record = registry.childrenByProviderThreadId[providerThreadId];
+    if (
+      !record ||
+      !record.feedRootTurnKey ||
+      !record.spawnRootProviderTurnId ||
+      providerThreadId === rootProviderThreadId ||
+      visiting.has(providerThreadId)
+    ) {
+      memo.set(providerThreadId, false);
+      return false;
+    }
+
+    visiting.add(providerThreadId);
+    const parentId = record.providerParentThreadId;
+    let valid: boolean;
+    if (!parentId || parentId === rootProviderThreadId) {
+      valid = !!record.spawnEvidence;
+    } else {
+      const parent = registry.childrenByProviderThreadId[parentId];
+      valid =
+        !!parent &&
+        hasProvenRootAssociation(parentId) &&
+        parent.feedRootTurnKey === record.feedRootTurnKey &&
+        parent.spawnRootProviderTurnId === record.spawnRootProviderTurnId;
+    }
+    visiting.delete(providerThreadId);
+    memo.set(providerThreadId, valid);
+    return valid;
+  };
+
+  for (const [providerThreadId, record] of Object.entries(registry.childrenByProviderThreadId)) {
+    if (hasProvenRootAssociation(providerThreadId)) continue;
+    const hadRootAssociation = record.spawnRootProviderTurnId !== undefined || record.feedRootTurnKey !== undefined;
+    if (record.spawnRootProviderTurnId !== undefined) {
+      delete record.spawnRootProviderTurnId;
+      changed = true;
+    }
+    if (record.feedRootTurnKey !== undefined) {
+      delete record.feedRootTurnKey;
+      changed = true;
+    }
+    if (hadRootAssociation) unresolvedChildIds.push(record.publicChildId);
+  }
+
+  if (changed) {
+    downgradeCoverage(registry, true);
+    const activeRootTurnIds = new Set(
+      Object.values(registry.childrenByProviderThreadId)
+        .map((record) => record.feedRootTurnKey)
+        .filter((rootTurnId): rootTurnId is string => !!rootTurnId),
+    );
+    for (const rootTurnId of Object.keys(registry.turnCoverageByRootTurnId)) {
+      if (!activeRootTurnIds.has(rootTurnId)) delete registry.turnCoverageByRootTurnId[rootTurnId];
+    }
+  }
+  return { changed, removedChildIds, unresolvedChildIds };
+}
+
 function finishApply(
   registry: CodexNativeSubagentRegistry,
   changed: boolean,
   childId?: string,
+  removedChildIds?: string[],
+  unresolvedChildIds?: string[],
 ): ApplyCodexNativeSubagentEventResult {
   if (changed) registry.revision += 1;
   return {
     changed,
     revision: registry.revision,
     ...(childId ? { childId } : {}),
+    ...(removedChildIds?.length ? { removedChildIds } : {}),
+    ...(unresolvedChildIds?.length ? { unresolvedChildIds } : {}),
   };
 }
 
@@ -1300,6 +1632,10 @@ function normalizePublicStatus(value: unknown): CodexNativeSubagentStatus {
 function normalizeFirstTaskOutcome(value: unknown): FirstTaskOutcome | undefined {
   if (value === "done" || value === "failed" || value === "interrupted" || value === "unknown") return value;
   return undefined;
+}
+
+function isProviderRootPath(value: unknown): boolean {
+  return typeof value === "string" && value.trim().replace(/\/+$/, "") === "/root";
 }
 
 function normalizedToken(value: unknown): string {

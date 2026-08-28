@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   finalizeSupersededCodexTerminalTools,
+  projectToolResultPreviews,
   recoverToolStartTimesFromHistory,
   scheduleCodexToolResultWatchdogs,
   synthesizeCodexToolResultsFromResumedTurn,
@@ -399,5 +400,40 @@ describe("tool-result-recovery-controller", () => {
     }
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("resume_snapshot_fallback"));
     warnSpy.mockRestore();
+  });
+  it("projects child tool results without mutating root recovery state", () => {
+    const session = makeSession();
+    const watchdog = setTimeout(() => {}, 10_000);
+    session.toolStartTimes.set("child-tool", 123);
+    session.toolProgressOutput.set("child-tool", "root progress");
+    session.toolResults.set("child-tool", { content: "root result", is_error: false, timestamp: 456 });
+    session.codexToolResultWatchdogs.set("child-tool", watchdog);
+    const clearCodexToolResultWatchdog = vi.fn();
+
+    const previews = projectToolResultPreviews(
+      session,
+      [{ type: "tool_result", tool_use_id: "child-tool", content: "child result", is_error: false }],
+      makeDeps({ clearCodexToolResultWatchdog }),
+    );
+
+    expect(previews).toEqual([
+      {
+        tool_use_id: "child-tool",
+        content: "child result",
+        is_error: false,
+        total_size: 12,
+        is_truncated: false,
+      },
+    ]);
+    expect(clearCodexToolResultWatchdog).not.toHaveBeenCalled();
+    expect(session.toolStartTimes.get("child-tool")).toBe(123);
+    expect(session.toolProgressOutput.get("child-tool")).toBe("root progress");
+    expect(session.toolResults.get("child-tool")).toEqual({
+      content: "root result",
+      is_error: false,
+      timestamp: 456,
+    });
+    expect(session.codexToolResultWatchdogs.get("child-tool")).toBe(watchdog);
+    clearTimeout(watchdog);
   });
 });

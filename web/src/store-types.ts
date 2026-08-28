@@ -273,6 +273,11 @@ export interface AppState {
   setFeedWindowSync: (sessionId: string, sync: FeedWindowSync | null) => void;
   setPendingCodexInputs: (sessionId: string, inputs: PendingCodexInput[]) => void;
   updateMessage: (sessionId: string, msgId: string, updates: Partial<ChatMessage>) => void;
+  attachCodexSubagentToolResults: (
+    sessionId: string,
+    ownership: NonNullable<NonNullable<ChatMessage["metadata"]>["codexSubagent"]>,
+    previews: readonly ToolResultPreview[],
+  ) => void;
   updateQuestTitleInMessages: (sessionId: string, questId: string, newTitle: string) => void;
   updateLastAssistantMessage: (sessionId: string, updater: (msg: ChatMessage) => ChatMessage) => void;
   commitMessagesAsFrozen: (sessionId: string) => void;

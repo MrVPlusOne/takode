@@ -239,10 +239,14 @@ export interface CodexAdapterRecoveryLifecycleDeps extends CodexRecoveryOrchestr
   ) => void;
 }
 
-export interface CodexAttachLifecycleDeps {
+export interface CodexAttachLifecycleDeps
+  extends Pick<CodexRecoveryOrchestratorDeps, "persistSession" | "broadcastToBrowsers"> {
   clearCodexDisconnectGraceTimer: (session: CodexRecoveryOrchestratorSessionLike, reason: string) => void;
   setBackendState: (session: CodexRecoveryOrchestratorSessionLike, state: string, error: string | null) => void;
-  persistSession: (session: CodexRecoveryOrchestratorSessionLike) => void;
+  persistHistoryOwnershipRepair: (
+    session: CodexRecoveryOrchestratorSessionLike,
+    expectedFrozenCount: number,
+  ) => Promise<void>;
   getLauncherSessionInfo: (sessionId: string) => any;
   onOrchestratorTurnEnd?: (sessionId: string) => void;
   handleCodexAdapterBrowserMessage: (session: CodexRecoveryOrchestratorSessionLike, msg: unknown) => Promise<void>;
@@ -284,7 +288,10 @@ export function attachCodexAdapterLifecycle(
   session.codexAdapter = adapter;
   registerCodexNativeSubagentLifecycle(session as any, adapter, {
     persistSession: (targetSession) => deps.persistSession(targetSession as any),
-    handleBrowserMessage: (targetSession, message) =>
+    persistHistoryOwnershipRepair: (targetSession, expectedFrozenCount) =>
+      deps.persistHistoryOwnershipRepair(targetSession as any, expectedFrozenCount),
+    broadcastToBrowsers: (targetSession, message) => deps.broadcastToBrowsers(targetSession as any, message),
+    handleOwnedBrowserMessage: (targetSession, message) =>
       deps.handleCodexAdapterBrowserMessage(targetSession as any, message),
   });
   const launcherInfo = deps.getLauncherSessionInfo(session.id);

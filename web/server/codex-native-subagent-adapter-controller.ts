@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import type { BrowserIncomingMessage } from "./session-types.js";
+import { sanitizeCodexNativeSubagentAuditText } from "./codex-native-subagent-history.js";
 import { JsonRpcTransport } from "./codex-jsonrpc-transport.js";
 
 export type CodexNativeSubagentThreadStatus =
@@ -6,6 +8,11 @@ export type CodexNativeSubagentThreadStatus =
   | { type: "active"; activeFlags: string[] };
 
 export type CodexNativeSubagentAdapterEvent =
+  | {
+      type: "root_thread_identified";
+      providerThreadId: string;
+      observedAt: number;
+    }
   | {
       type: "owned_message";
       message: BrowserIncomingMessage;
@@ -78,7 +85,7 @@ export type CodexNativeSubagentAdapterEvent =
 
 export interface CodexNativeSubagentMessageSource {
   providerThreadId: string;
-  providerTurnId: string;
+  providerTurnId?: string;
   observedAt: number;
   itemId?: string;
 }
@@ -111,6 +118,39 @@ function stringValue(value: unknown): string | null {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function isProviderRootAgentPath(value: unknown): boolean {
+  return typeof value === "string" && value.trim().replace(/\/+$/, "") === "/root";
+}
+
+function rawChildErrorMessage(params: Record<string, unknown>): string {
+  const error = asRecord(params.error);
+  const msg = asRecord(params.msg);
+  for (const value of [params.message, error?.message, msg?.message, params.error]) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "Child agent reported an error.";
+}
+
+function stableChildErrorId(
+  providerThreadId: string,
+  providerTurnId: string | null,
+  method: string,
+  rawMessage: string,
+): string {
+  const digest = createHash("sha256")
+    .update("takode:codex-native-subagent:error:v1\0")
+    .update(providerThreadId)
+    .update("\0")
+    .update(providerTurnId ?? "")
+    .update("\0")
+    .update(method)
+    .update("\0")
+    .update(rawMessage)
+    .digest("base64url")
+    .slice(0, 22);
+  return `codex-child-error-${digest}`;
 }
 
 function providerTimestampMs(params: Record<string, unknown>, method: string): number {
@@ -228,15 +268,29 @@ export class CodexNativeSubagentAdapterController {
 
   onEvent(listener: CodexNativeSubagentAdapterEventListener): void {
     this.listener = listener;
+    if (this.rootProviderThreadId) {
+      this.emit({
+        type: "root_thread_identified",
+        providerThreadId: this.rootProviderThreadId,
+        observedAt: Date.now(),
+      });
+    }
   }
 
   setRootProviderThreadId(threadId: string): void {
-    this.rootProviderThreadId = threadId;
+    const normalized = stringValue(threadId);
+    if (!normalized) return;
+    const changed = this.rootProviderThreadId !== normalized;
+    this.rootProviderThreadId = normalized;
+    this.knownChildProviderThreadIds.delete(normalized);
+    if (changed) {
+      this.emit({ type: "root_thread_identified", providerThreadId: normalized, observedAt: Date.now() });
+    }
   }
 
   seedKnownChildProviderThreadIds(threadIds: Iterable<string>): void {
     for (const threadId of threadIds) {
-      if (threadId) this.knownChildProviderThreadIds.add(threadId);
+      if (threadId && threadId !== this.rootProviderThreadId) this.knownChildProviderThreadIds.add(threadId);
     }
   }
 
@@ -245,7 +299,7 @@ export class CodexNativeSubagentAdapterController {
   }
 
   isKnownChildProviderThreadId(threadId: string): boolean {
-    return this.knownChildProviderThreadIds.has(threadId);
+    return threadId !== this.rootProviderThreadId && this.knownChildProviderThreadIds.has(threadId);
   }
 
   emitOwnedBrowserMessage(message: BrowserIncomingMessage, source: CodexNativeSubagentMessageSource): boolean {
@@ -254,7 +308,8 @@ export class CodexNativeSubagentAdapterController {
       message.type !== "assistant" &&
       message.type !== "stream_event" &&
       message.type !== "tool_progress" &&
-      message.type !== "codex_reasoning_detail"
+      message.type !== "codex_reasoning_detail" &&
+      message.type !== "error"
     ) {
       return true;
     }
@@ -293,9 +348,13 @@ export class CodexNativeSubagentAdapterController {
         senderProviderTurnId &&
         eventId &&
         agentPath &&
-        (kind === "started" || kind === "interacted" || kind === "interrupted")
+        (kind === "started" || kind === "interacted" || kind === "interrupted") &&
+        !isProviderRootAgentPath(agentPath) &&
+        childProviderThreadId !== this.rootProviderThreadId &&
+        childProviderThreadId !== senderProviderThreadId &&
+        (kind === "started" || this.knownChildProviderThreadIds.has(childProviderThreadId))
       ) {
-        this.knownChildProviderThreadIds.add(childProviderThreadId);
+        if (kind === "started") this.knownChildProviderThreadIds.add(childProviderThreadId);
         this.emit({
           type: "activity",
           eventId,
@@ -311,7 +370,12 @@ export class CodexNativeSubagentAdapterController {
 
     if (method === "thread/started") {
       const metadata = extractThreadSpawnMetadata(params.thread);
-      if (metadata) {
+      if (
+        metadata &&
+        !isProviderRootAgentPath(metadata.agentPath) &&
+        metadata.childProviderThreadId !== this.rootProviderThreadId &&
+        metadata.childProviderThreadId !== metadata.parentProviderThreadId
+      ) {
         this.knownChildProviderThreadIds.add(metadata.childProviderThreadId);
         const rootProviderTurnId =
           metadata.parentProviderThreadId === this.rootProviderThreadId ? this.getActiveRootProviderTurnId() : null;
@@ -378,6 +442,30 @@ export class CodexNativeSubagentAdapterController {
         childProviderThreadId: providerThreadId,
         ...(providerTurnId ? { childProviderTurnId: providerTurnId } : {}),
         observedAt,
+      });
+      const rawMessage = rawChildErrorMessage(params);
+      const activeRootProviderTurnId = this.getActiveRootProviderTurnId();
+      const message = sanitizeCodexNativeSubagentAuditText(rawMessage, [
+        providerThreadId,
+        ...(providerTurnId ? [providerTurnId] : []),
+        ...(this.rootProviderThreadId ? [this.rootProviderThreadId] : []),
+        ...(activeRootProviderTurnId ? [activeRootProviderTurnId] : []),
+        ...this.knownChildProviderThreadIds,
+        ...(itemId ? [itemId] : []),
+      ]);
+      this.emit({
+        type: "owned_message",
+        source: {
+          providerThreadId,
+          ...(providerTurnId ? { providerTurnId } : {}),
+          observedAt,
+        },
+        message: {
+          type: "error",
+          id: stableChildErrorId(providerThreadId, providerTurnId, method, rawMessage),
+          message: message || "Child agent reported an error.",
+          timestamp: observedAt,
+        },
       });
       return { suppressDefault: true };
     }
@@ -478,8 +566,13 @@ export class CodexNativeSubagentAdapterController {
         );
         for (const thread of page.data) {
           const metadata = extractThreadSpawnMetadata(thread);
-          if (!metadata) {
-            throw new Error("Malformed thread/list response: descendant row lacks a verified thread_spawn source");
+          if (
+            !metadata ||
+            isProviderRootAgentPath(metadata.agentPath) ||
+            metadata.childProviderThreadId === rootProviderThreadId ||
+            metadata.childProviderThreadId === metadata.parentProviderThreadId
+          ) {
+            throw new Error("Malformed thread/list response: descendant row lacks a safe verified thread_spawn source");
           }
           this.knownChildProviderThreadIds.add(metadata.childProviderThreadId);
           this.emit({

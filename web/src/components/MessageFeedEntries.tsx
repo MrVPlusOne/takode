@@ -3,7 +3,13 @@ import { CollapsedActivityBar, TurnCollapseBar } from "./TurnActivitySummary.js"
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
-import type { ChatMessage, ContentBlock, ThreadAttachmentMarker, ThreadTransitionMarker } from "../types.js";
+import type {
+  ChatMessage,
+  ContentBlock,
+  ThreadAttachmentMarker,
+  ThreadTransitionMarker,
+  ToolResultPreview,
+} from "../types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { threadStatusKey } from "../../shared/thread-status-marker.js";
 import { isSubagentToolName } from "../types.js";
@@ -17,7 +23,7 @@ import {
 } from "../hooks/use-feed-model.js";
 import { CodexThinkingInline, HerdEventMessage, MessageBubble } from "./MessageBubble.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils/herd-event-parser.js";
-import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
+import { ToolBlock, getToolIcon, getToolLabel, ToolIcon, type ToolResultScope } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
 import { LiveCodexTerminalStub, LiveDurationBadge } from "./MessageFeedLiveActivity.js";
@@ -136,11 +142,17 @@ function GroupedErrorMessages({
   sessionId,
   currentThreadKey,
   onSelectThread,
+  interactionMode,
+  toolResultOverrides,
+  toolResultScope,
 }: {
   messages: ChatMessage[];
   sessionId: string;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
+  interactionMode?: "default" | "read-only";
+  toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
+  toolResultScope?: ToolResultScope;
 }) {
   const first = messages[0];
   if (!first) return null;
@@ -161,6 +173,9 @@ function GroupedErrorMessages({
         sessionId={sessionId}
         currentThreadKey={currentThreadKey}
         onSelectThread={onSelectThread}
+        interactionMode={interactionMode}
+        toolResultOverrides={toolResultOverrides}
+        toolResultScope={toolResultScope}
       />
       <div className="flex justify-start pl-8 sm:pl-9">
         <span className="inline-flex max-w-full items-center rounded-full border border-cc-error/20 bg-cc-error/8 px-2 py-0.5 text-[11px] font-medium text-cc-error">
@@ -761,6 +776,9 @@ export const FeedEntries = memo(function FeedEntries({
   onOpenCodexTerminal,
   onSelectThread,
   suppressThreadSystemMarkers = false,
+  interactionMode = "default",
+  toolResultOverrides,
+  toolResultScope = "session",
 }: {
   entries: FeedEntry[];
   sessionId: string;
@@ -771,6 +789,9 @@ export const FeedEntries = memo(function FeedEntries({
   onOpenCodexTerminal: (toolUseId: string) => void;
   onSelectThread?: (threadKey: string) => void;
   suppressThreadSystemMarkers?: boolean;
+  interactionMode?: "default" | "read-only";
+  toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
+  toolResultScope?: ToolResultScope;
 }) {
   const compactToolActivity = useStore((state) => state.compactToolActivity);
   const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
@@ -865,6 +886,9 @@ export const FeedEntries = memo(function FeedEntries({
             isCodexSession={isCodexSession}
             activeCodexTerminalIds={activeCodexTerminalIds}
             onOpenCodexTerminal={onOpenCodexTerminal}
+            interactionMode={interactionMode}
+            toolResultOverrides={toolResultOverrides}
+            toolResultScope={toolResultScope}
           />,
         );
         i = j;
@@ -959,6 +983,9 @@ export const FeedEntries = memo(function FeedEntries({
               sessionId={sessionId}
               currentThreadKey={currentThreadKey}
               onSelectThread={onSelectThread}
+              interactionMode={interactionMode}
+              toolResultOverrides={toolResultOverrides}
+              toolResultScope={toolResultScope}
             />,
           );
           i = j;
@@ -988,6 +1015,13 @@ export const FeedEntries = memo(function FeedEntries({
           continue;
         }
       }
+      const ownedToolResults =
+        entry.kind === "message" && entry.msg.metadata?.codexSubagentToolResults
+          ? new Map(Object.entries(entry.msg.metadata.codexSubagentToolResults))
+          : undefined;
+      const entryToolResults = ownedToolResults ?? toolResultOverrides;
+      const entryToolResultScope =
+        entry.kind === "message" && entry.msg.metadata?.codexSubagent ? "overrides-only" : toolResultScope;
       if (entry.kind === "tool_msg_group") {
         result.push(
           <ToolMessageGroup
@@ -997,6 +1031,9 @@ export const FeedEntries = memo(function FeedEntries({
             isCodexSession={isCodexSession}
             activeCodexTerminalIds={activeCodexTerminalIds}
             onOpenCodexTerminal={onOpenCodexTerminal}
+            interactionMode={interactionMode}
+            toolResultOverrides={toolResultOverrides}
+            toolResultScope={toolResultScope}
           />,
         );
       } else if (entry.kind === "subagent") {
@@ -1008,6 +1045,9 @@ export const FeedEntries = memo(function FeedEntries({
             minuteBoundaryLabels={minuteBoundaryLabels}
             activeCodexTerminalIds={activeCodexTerminalIds}
             onOpenCodexTerminal={onOpenCodexTerminal}
+            interactionMode={interactionMode}
+            toolResultOverrides={toolResultOverrides}
+            toolResultScope={toolResultScope}
           />,
         );
       } else if (entry.kind === "subagent_batch") {
@@ -1019,6 +1059,9 @@ export const FeedEntries = memo(function FeedEntries({
             minuteBoundaryLabels={minuteBoundaryLabels}
             activeCodexTerminalIds={activeCodexTerminalIds}
             onOpenCodexTerminal={onOpenCodexTerminal}
+            interactionMode={interactionMode}
+            toolResultOverrides={toolResultOverrides}
+            toolResultScope={toolResultScope}
           />,
         );
       } else if (isTimedChatMessage(entry.msg)) {
@@ -1039,6 +1082,10 @@ export const FeedEntries = memo(function FeedEntries({
               showTimestamp={showTimestamp}
               currentThreadKey={currentThreadKey}
               onSelectThread={onSelectThread}
+              interactionMode={interactionMode}
+              backendType={isCodexSession ? "codex" : undefined}
+              toolResultOverrides={entryToolResults}
+              toolResultScope={entryToolResultScope}
             />
           </div>,
         );
@@ -1056,6 +1103,10 @@ export const FeedEntries = memo(function FeedEntries({
               sessionId={sessionId}
               currentThreadKey={currentThreadKey}
               onSelectThread={onSelectThread}
+              interactionMode={interactionMode}
+              backendType={isCodexSession ? "codex" : undefined}
+              toolResultOverrides={entryToolResults}
+              toolResultScope={entryToolResultScope}
             />
           </div>,
         );
@@ -1073,8 +1124,11 @@ export const FeedEntries = memo(function FeedEntries({
     minuteBoundaryLabels,
     onOpenCodexTerminal,
     onSelectThread,
+    interactionMode,
     sessionId,
     suppressThreadSystemMarkers,
+    toolResultOverrides,
+    toolResultScope,
     visibleAssistantChildMessageIds,
   ]);
 
@@ -1231,12 +1285,18 @@ function SubagentBatchContainer({
   minuteBoundaryLabels,
   activeCodexTerminalIds,
   onOpenCodexTerminal,
+  interactionMode = "default",
+  toolResultOverrides,
+  toolResultScope = "session",
 }: {
   batch: SubagentBatch;
   sessionId: string;
   minuteBoundaryLabels?: Map<string, string>;
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
+  interactionMode?: "default" | "read-only";
+  toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
+  toolResultScope?: ToolResultScope;
 }) {
   return (
     <div
@@ -1254,6 +1314,9 @@ function SubagentBatchContainer({
               minuteBoundaryLabels={minuteBoundaryLabels}
               activeCodexTerminalIds={activeCodexTerminalIds}
               onOpenCodexTerminal={onOpenCodexTerminal}
+              interactionMode={interactionMode}
+              toolResultOverrides={toolResultOverrides}
+              toolResultScope={toolResultScope}
               inBatch
             />
           ))}
@@ -1299,6 +1362,9 @@ function SubagentContainer({
   minuteBoundaryLabels,
   activeCodexTerminalIds,
   onOpenCodexTerminal,
+  interactionMode = "default",
+  toolResultOverrides,
+  toolResultScope = "session",
 }: {
   group: SubagentGroup;
   sessionId: string;
@@ -1306,6 +1372,9 @@ function SubagentContainer({
   minuteBoundaryLabels?: Map<string, string>;
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
+  interactionMode?: "default" | "read-only";
+  toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
+  toolResultScope?: ToolResultScope;
 }) {
   const [open, setOpen] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
@@ -1335,21 +1404,34 @@ function SubagentContainer({
   );
   useExpandForScrollTarget(sessionId, childMessageIds, setOpen);
 
-  const resultPreview = useStore((s) => s.toolResults.get(sessionId)?.get(group.taskToolUseId));
-  const rawStreamingText = useStore((s) => s.streamingByParentToolUseId.get(sessionId)?.get(group.taskToolUseId) || "");
-  const rawThinkingText = useStore(
+  const readOnly = interactionMode === "read-only";
+  const isolateToolState = !!group.codexSubagent || toolResultScope === "overrides-only";
+  const storedResultPreview = useStore((s) => s.toolResults.get(sessionId)?.get(group.taskToolUseId));
+  const resultPreview =
+    group.resultOverride ??
+    toolResultOverrides?.get(group.taskToolUseId) ??
+    (isolateToolState ? undefined : storedResultPreview);
+  const storedStreamingText = useStore(
+    (s) => s.streamingByParentToolUseId.get(sessionId)?.get(group.taskToolUseId) || "",
+  );
+  const rawStreamingText = readOnly || isolateToolState ? "" : storedStreamingText;
+  const storedThinkingText = useStore(
     (s) => s.streamingThinkingByParentToolUseId.get(sessionId)?.get(group.taskToolUseId) || "",
   );
-  const progressElapsedSeconds = useStore(
+  const rawThinkingText = readOnly || isolateToolState ? "" : storedThinkingText;
+  const storedProgressElapsedSeconds = useStore(
     (s) => s.toolProgress.get(sessionId)?.get(group.taskToolUseId)?.elapsedSeconds,
   );
-  const startTimestamp = useStore((s) => s.toolStartTimestamps.get(sessionId)?.get(group.taskToolUseId));
+  const progressElapsedSeconds = isolateToolState ? undefined : storedProgressElapsedSeconds;
+  const storedStartTimestamp = useStore((s) => s.toolStartTimestamps.get(sessionId)?.get(group.taskToolUseId));
+  const startTimestamp = isolateToolState ? undefined : storedStartTimestamp;
   const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
   const streamingText = useMemo(
     () => (isCodexSession ? getCommittedCodexStreamingText(rawStreamingText) : rawStreamingText),
     [isCodexSession, rawStreamingText],
   );
-  const bgNotif = useStore((s) => s.backgroundAgentNotifs.get(sessionId)?.get(group.taskToolUseId));
+  const storedBgNotif = useStore((s) => s.backgroundAgentNotifs.get(sessionId)?.get(group.taskToolUseId));
+  const bgNotif = readOnly || isolateToolState ? undefined : storedBgNotif;
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const isEffectivelyComplete = group.isBackground ? bgNotif != null : resultPreview != null || bgNotif != null;
   const isAbandoned = !isEffectivelyComplete && sessionStatus !== "running" && !group.isBackground;
@@ -1405,7 +1487,7 @@ function SubagentContainer({
     count: delegateTraceCount,
   } = useDelegateCommandTrace({
     sessionId,
-    isDelegate,
+    isDelegate: isDelegate && !readOnly,
     delegatePrompt,
     isLegacyCommand: isLegacyDelegateCommand,
     delegateId,
@@ -1506,6 +1588,9 @@ function SubagentContainer({
                       isCodexSession={isCodexSession}
                       activeCodexTerminalIds={activeCodexTerminalIds}
                       onOpenCodexTerminal={onOpenCodexTerminal}
+                      interactionMode={interactionMode}
+                      toolResultOverrides={toolResultOverrides}
+                      toolResultScope={group.codexSubagent ? "overrides-only" : toolResultScope}
                     />
                   )}
                   {delegateTraceCount > 0 && <DelegateTrace trace={delegateTrace!} sessionId={sessionId} />}

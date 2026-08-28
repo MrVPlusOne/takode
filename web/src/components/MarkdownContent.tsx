@@ -259,6 +259,7 @@ interface MarkdownContentProps {
   className?: string;
   onSessionNavigate?: () => void;
   stopLinkPropagation?: boolean;
+  fileLinkMode?: "interactive" | "text-only";
 }
 
 function isAbsoluteFilePath(path: string): boolean {
@@ -634,6 +635,19 @@ function MarkdownTableWithViewer({ children }: { children: ReactNode }) {
   );
 }
 
+function TextOnlyFileMarkdownLink({ children, wrapLongContent }: { children: ReactNode; wrapLongContent: boolean }) {
+  return (
+    <span
+      className={`inline-block max-w-full align-baseline text-cc-primary ${
+        wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""
+      }`}
+      data-read-only-file-link="true"
+    >
+      {children}
+    </span>
+  );
+}
+
 export const MarkdownContent = memo(function MarkdownContent({
   text,
   size = "default",
@@ -647,6 +661,7 @@ export const MarkdownContent = memo(function MarkdownContent({
   className = "",
   onSessionNavigate,
   stopLinkPropagation = false,
+  fileLinkMode = "interactive",
 }: MarkdownContentProps) {
   const sizeClass =
     size === "sm"
@@ -787,6 +802,11 @@ export const MarkdownContent = memo(function MarkdownContent({
             }
             const fileTarget = parseFileLinkFromHref(href);
             if (fileTarget) {
+              if (fileLinkMode === "text-only") {
+                return (
+                  <TextOnlyFileMarkdownLink wrapLongContent={wrapLongContent}>{children}</TextOnlyFileMarkdownLink>
+                );
+              }
               return (
                 <FileMarkdownLink
                   target={fileTarget}
@@ -800,6 +820,11 @@ export const MarkdownContent = memo(function MarkdownContent({
             }
             const standardFileTarget = parseStandardFileLinkFromHref(href);
             if (standardFileTarget) {
+              if (fileLinkMode === "text-only") {
+                return (
+                  <TextOnlyFileMarkdownLink wrapLongContent={wrapLongContent}>{children}</TextOnlyFileMarkdownLink>
+                );
+              }
               return (
                 <FileMarkdownLink
                   target={standardFileTarget}
@@ -886,6 +911,7 @@ function areMarkdownContentPropsEqual(prev: MarkdownContentProps, next: Markdown
     prev.className === next.className &&
     prev.onSessionNavigate === next.onSessionNavigate &&
     prev.stopLinkPropagation === next.stopLinkPropagation &&
+    prev.fileLinkMode === next.fileLinkMode &&
     searchHighlightEqual(prev.searchHighlight, next.searchHighlight)
   );
 }

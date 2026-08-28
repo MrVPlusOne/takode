@@ -12,6 +12,7 @@ type TestSession = {
   messageHistory: BrowserIncomingMessage[];
   toolStartTimes: Map<string, number>;
   toolProgressOutput: Map<string, string>;
+  toolResults: Map<string, { content: string; is_error: boolean; timestamp: number }>;
   isGenerating: boolean;
   activeTurnRoute: ActiveTurnRoute | null;
   activeReasoningAttributionRoute?: ActiveTurnRoute | null;
@@ -29,6 +30,7 @@ function makeSession(): TestSession {
     messageHistory: [],
     toolStartTimes: new Map(),
     toolProgressOutput: new Map(),
+    toolResults: new Map(),
     isGenerating: true,
     activeTurnRoute: { threadKey: "q-1850", questId: "q-1850" },
     notifications: [],
@@ -83,7 +85,8 @@ function makeDeps(broadcasts: BrowserIncomingMessage[]): CodexAdapterBrowserMess
     trackCodexQuestCommands: vi.fn(),
     reconcileCodexQuestToolResult: vi.fn(async () => {}),
     collectCompletedToolStartTimes: () => [],
-    buildToolResultPreviews: () => [],
+    buildToolResultPreviews: vi.fn(() => []),
+    projectToolResultPreviews: vi.fn(() => []),
     broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
     finalizeSupersededCodexTerminalTools: vi.fn(),
     isDuplicateCodexAssistantReplay: () => false,
@@ -190,6 +193,7 @@ describe("Codex leader thread status activity invalidation", () => {
     });
     const broadcasts: BrowserIncomingMessage[] = [];
     const deps = makeDeps(broadcasts);
+    session.lastCliMessageAt = 777;
     deps.isDuplicateCodexAssistantReplay = vi.fn((_session, candidate) =>
       session.messageHistory.some((entry) => entry.type === "assistant" && entry.message.id === candidate.message.id),
     );
@@ -207,7 +211,23 @@ describe("Codex leader thread status activity invalidation", () => {
     await handleCodexAdapterBrowserMessage(session as any, childMessage, deps);
     await handleCodexAdapterBrowserMessage(session as any, childMessage, deps);
 
-    deps.buildToolResultPreviews = vi.fn(() => [
+    session.toolStartTimes.set("child-tool", 123);
+    session.toolProgressOutput.set("child-tool", "root progress");
+    session.toolResults.set("child-tool", { content: "root result", is_error: false, timestamp: 456 });
+    await handleCodexAdapterBrowserMessage(
+      session as any,
+      {
+        type: "tool_progress",
+        tool_use_id: "child-tool",
+        tool_name: "Bash",
+        elapsed_time_seconds: 1,
+        output_delta: "child progress",
+        codexSubagent: { childId: "codex-child-safe", rootTurnId: "root-user-turn" },
+      },
+      deps,
+    );
+
+    deps.projectToolResultPreviews = vi.fn(() => [
       {
         tool_use_id: "child-tool",
         content: "child result",
@@ -230,8 +250,19 @@ describe("Codex leader thread status activity invalidation", () => {
       "q-1850": expect.objectContaining({ kind: "waiting", messageId: "old-status" }),
     });
     expect(deps.clearOptimisticRunningTimer).not.toHaveBeenCalled();
+    expect(deps.touchActivity).not.toHaveBeenCalled();
+    expect(session.lastCliMessageAt).toBe(777);
     expect(deps.trackCodexQuestCommands).not.toHaveBeenCalled();
     expect(deps.reconcileCodexQuestToolResult).not.toHaveBeenCalled();
+    expect(deps.buildToolResultPreviews).not.toHaveBeenCalled();
+    expect(deps.projectToolResultPreviews).toHaveBeenCalledTimes(2);
+    expect(session.toolStartTimes.get("child-tool")).toBe(123);
+    expect(session.toolProgressOutput.get("child-tool")).toBe("root progress");
+    expect(session.toolResults.get("child-tool")).toEqual({
+      content: "root result",
+      is_error: false,
+      timestamp: 456,
+    });
     expect(
       session.messageHistory.filter(
         (entry) => entry.type === "assistant" && entry.message.id === "child-audit-message",
@@ -245,6 +276,12 @@ describe("Codex leader thread status activity invalidation", () => {
     expect(broadcasts).toEqual([
       expect.objectContaining({
         type: "assistant",
+        threadKey: "q-1850",
+        questId: "q-1850",
+        codexSubagent: { childId: "codex-child-safe", rootTurnId: "root-user-turn" },
+      }),
+      expect.objectContaining({
+        type: "tool_progress",
         threadKey: "q-1850",
         questId: "q-1850",
         codexSubagent: { childId: "codex-child-safe", rootTurnId: "root-user-turn" },

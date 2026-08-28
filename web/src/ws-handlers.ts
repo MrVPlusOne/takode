@@ -60,6 +60,7 @@ import {
 } from "./utils/assistant-content-blocks.js";
 import { convertLegacyParentedCodexThinkingMessage } from "./utils/codex-reasoning-detail.js";
 import { TODO_STATE_UPDATED_EVENT } from "./todo-events.js";
+import { indexCodexSubagentToolResults } from "./utils/codex-subagent-tool-results.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -386,6 +387,7 @@ function normalizeHistoryMessages(
       ),
   );
   const chatMessages: ChatMessage[] = [];
+  const childToolResults = indexCodexSubagentToolResults(historyMessages);
   let frozenCount = 0;
   const fallbackTimestamps = buildHistoryFallbackTimestamps(historyMessages.map((message) => ({ message })));
 
@@ -396,7 +398,12 @@ function normalizeHistoryMessages(
     if (histMsg.type === "assistant") {
       if (isCodexSession(sessionId) && isRootThinkingOnlyAssistantHistoryEntry(histMsg)) continue;
       const msg = histMsg.message;
-      for (const chatMessage of normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp })) {
+      for (const chatMessage of normalizeHistoryMessageToChatMessages(histMsg, historyIndex, {
+        fallbackTimestamp,
+        codexSubagentToolResults: histMsg.codexSubagent
+          ? childToolResults.get(histMsg.codexSubagent.childId)
+          : undefined,
+      })) {
         const converted = convertLegacyParentedCodexThinkingMessage(isCodexSession(sessionId), chatMessage);
         const stripped = stripRootCodexThinkingMessage(isCodexSession(sessionId), converted);
         if (stripped) chatMessages.push(stripped);
@@ -411,7 +418,11 @@ function normalizeHistoryMessages(
       if (!histMsg.codexSubagent && histToolStartTimes) {
         store.setToolStartTimestamps(sessionId, histToolStartTimes);
       }
-    } else if (histMsg.type === "user_message" || histMsg.type === "codex_reasoning_detail") {
+    } else if (
+      histMsg.type === "user_message" ||
+      histMsg.type === "codex_reasoning_detail" ||
+      histMsg.type === "error"
+    ) {
       chatMessages.push(
         ...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, {
           fallbackTimestamp,
@@ -421,9 +432,8 @@ function normalizeHistoryMessages(
     } else if (histMsg.type === "leader_user_message") {
       chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
     } else if (histMsg.type === "tool_result_preview") {
-      for (const preview of histMsg.previews) {
-        store.setToolResult(sessionId, preview.tool_use_id, preview);
-      }
+      if (!histMsg.codexSubagent)
+        for (const preview of histMsg.previews) store.setToolResult(sessionId, preview.tool_use_id, preview);
     } else if (histMsg.type === "task_notification") {
       if (histMsg.tool_use_id) {
         store.setBackgroundAgentNotif(sessionId, histMsg.tool_use_id, {
@@ -459,6 +469,7 @@ function normalizeThreadWindowEntries(
 ): ChatMessage[] {
   const store = useStore.getState();
   const chatMessages: ChatMessage[] = [];
+  const childToolResults = indexCodexSubagentToolResults(entries.map((entry) => entry.message));
   const fallbackTimestamps = buildHistoryFallbackTimestamps(entries);
   for (let index = 0; index < entries.length; index++) {
     const entry = entries[index]!;
@@ -467,7 +478,12 @@ function normalizeThreadWindowEntries(
     const fallbackTimestamp = fallbackTimestamps[index];
     if (histMsg.type === "assistant") {
       if (isCodexSession(sessionId) && isRootThinkingOnlyAssistantHistoryEntry(histMsg)) continue;
-      for (const chatMessage of normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp })) {
+      for (const chatMessage of normalizeHistoryMessageToChatMessages(histMsg, historyIndex, {
+        fallbackTimestamp,
+        codexSubagentToolResults: histMsg.codexSubagent
+          ? childToolResults.get(histMsg.codexSubagent.childId)
+          : undefined,
+      })) {
         const converted = convertLegacyParentedCodexThinkingMessage(isCodexSession(sessionId), chatMessage);
         const stripped = stripRootCodexThinkingMessage(isCodexSession(sessionId), converted);
         if (stripped) chatMessages.push(stripped);
@@ -483,9 +499,8 @@ function normalizeThreadWindowEntries(
       continue;
     }
     if (histMsg.type === "tool_result_preview") {
-      for (const preview of histMsg.previews) {
-        store.setToolResult(sessionId, preview.tool_use_id, preview);
-      }
+      if (!histMsg.codexSubagent)
+        for (const preview of histMsg.previews) store.setToolResult(sessionId, preview.tool_use_id, preview);
       continue;
     }
     if (histMsg.type === "task_notification") {
@@ -1281,6 +1296,10 @@ function handleParsedMessage(
     }
 
     case "tool_result_preview": {
+      if (data.codexSubagent) {
+        store.attachCodexSubagentToolResults(sessionId, data.codexSubagent, data.previews);
+        break;
+      }
       for (const preview of data.previews) {
         const retainedProgress = store.toolProgress.get(sessionId)?.get(preview.tool_use_id);
         const shouldRetainTerminalTranscript =
@@ -1561,6 +1580,24 @@ function handleParsedMessage(
     }
 
     case "error": {
+      if (data.codexSubagent) {
+        store.appendMessage(sessionId, {
+          id: data.id ?? nextId(),
+          role: "system",
+          content: data.message,
+          timestamp: data.timestamp ?? Date.now(),
+          variant: "error",
+          ...(data.history_index !== undefined ? { historyIndex: data.history_index } : {}),
+          metadata: {
+            codexSubagent: data.codexSubagent,
+            ...(data.threadRefs ? { threadRefs: data.threadRefs } : {}),
+            ...(data.threadKey ? { threadKey: data.threadKey } : {}),
+            ...(data.questId ? { questId: data.questId } : {}),
+            ...(data.threadRoutingError ? { threadRoutingError: data.threadRoutingError } : {}),
+          },
+        });
+        break;
+      }
       store.appendMessage(sessionId, {
         id: nextId(),
         role: "system",

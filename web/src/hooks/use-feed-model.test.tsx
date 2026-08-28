@@ -2,7 +2,7 @@
 
 import { renderHook } from "@testing-library/react";
 import type { ChatMessage, SessionAttentionRecord } from "../types.js";
-import { buildFeedModel, useFeedModel, summarizeHerdEvents } from "./use-feed-model.js";
+import { buildFeedModel, groupMessages, useFeedModel, summarizeHerdEvents } from "./use-feed-model.js";
 import { buildFeedSections } from "../components/message-feed-sections.js";
 import {
   THREAD_OUTCOME_REMINDER_SOURCE_ID,
@@ -137,6 +137,64 @@ function collapsedEntryIds(turn: {
     return entry.entry.kind;
   });
 }
+
+describe("native Codex child audit grouping", () => {
+  it("keeps parented child rows top-level and isolates adjacent child/root tool groups", () => {
+    const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const childResult = {
+      tool_use_id: "shared-tool",
+      content: "child-owned result",
+      is_error: false,
+      total_size: 18,
+      is_truncated: false,
+    };
+    const entries = groupMessages([
+      makeMessage({
+        id: "spawn",
+        role: "assistant",
+        content: "",
+        timestamp: 1,
+        contentBlocks: [{ type: "tool_use", id: "spawn-tool", name: "Agent", input: { description: "Native child" } }],
+      }),
+      makeMessage({
+        id: "child-answer",
+        role: "assistant",
+        content: "Child answer",
+        timestamp: 2,
+        parentToolUseId: "spawn-tool",
+        metadata: { codexSubagent: ownership },
+      }),
+      makeMessage({
+        id: "child-tool",
+        role: "assistant",
+        content: "",
+        timestamp: 3,
+        parentToolUseId: "spawn-tool",
+        contentBlocks: [{ type: "tool_use", id: "shared-tool", name: "Bash", input: { command: "child" } }],
+        metadata: {
+          codexSubagent: ownership,
+          codexSubagentToolResults: { "shared-tool": childResult },
+        },
+      }),
+      makeMessage({
+        id: "root-tool",
+        role: "assistant",
+        content: "",
+        timestamp: 4,
+        contentBlocks: [{ type: "tool_use", id: "root-shared-tool", name: "Bash", input: { command: "root" } }],
+      }),
+    ]);
+
+    expect(entries.map((entry) => entry.kind)).toEqual(["subagent", "message", "tool_msg_group", "tool_msg_group"]);
+    expect(entries[0]).toMatchObject({ kind: "subagent", taskToolUseId: "spawn-tool", children: [] });
+    expect(entries[1]).toMatchObject({ kind: "message", msg: { id: "child-answer", parentToolUseId: "spawn-tool" } });
+    expect(entries[2]).toMatchObject({
+      kind: "tool_msg_group",
+      items: [{ id: "shared-tool", codexSubagent: ownership, resultOverride: childResult }],
+    });
+    expect(entries[3]).toMatchObject({ kind: "tool_msg_group", items: [{ id: "root-shared-tool" }] });
+  });
+});
 
 describe("leader mode raw deprecated tags", () => {
   it("keeps deprecated @to(user) text as private activity", () => {

@@ -490,13 +490,12 @@ export function synthesizeCodexToolResultsFromResumedTurn(
   }
   return synthesized;
 }
-export function buildToolResultPreviews(
+export function projectToolResultPreviews(
   session: ToolResultRecoverySessionLike,
   toolResults: Array<Extract<ContentBlock, { type: "tool_result" }>>,
   deps: ToolResultRecoveryDeps,
 ): ToolResultPreview[] {
-  const previews: ToolResultPreview[] = [];
-  for (const block of toolResults) {
+  return toolResults.map((block) => {
     let resultContent = typeof block.content === "string" ? block.content : JSON.stringify(block.content);
     if (block.is_error && typeof block.content === "string") {
       resultContent = deduplicateCliErrorOutput(resultContent);
@@ -504,23 +503,38 @@ export function buildToolResultPreviews(
     const previewLimit = getToolResultPreviewLimit(session, block.tool_use_id, deps);
     const totalSize = Buffer.byteLength(resultContent, "utf-8");
     const isTruncated = resultContent.length > previewLimit;
-    const startTime = session.toolStartTimes.get(block.tool_use_id);
-    const durationSeconds = startTime != null ? Math.round((Date.now() - startTime) / 100) / 10 : undefined;
-    deps.clearCodexToolResultWatchdog(session, block.tool_use_id);
-    session.toolStartTimes.delete(block.tool_use_id);
-    session.toolProgressOutput.delete(block.tool_use_id);
-    session.toolResults.set(block.tool_use_id, {
-      content: resultContent,
-      is_error: !!block.is_error,
-      timestamp: Date.now(),
-    });
-    previews.push({
+    return {
       tool_use_id: block.tool_use_id,
       content: isTruncated ? resultContent.slice(-previewLimit) : resultContent,
       is_error: !!block.is_error,
       total_size: totalSize,
       is_truncated: isTruncated,
-      duration_seconds: durationSeconds,
+    };
+  });
+}
+
+export function buildToolResultPreviews(
+  session: ToolResultRecoverySessionLike,
+  toolResults: Array<Extract<ContentBlock, { type: "tool_result" }>>,
+  deps: ToolResultRecoveryDeps,
+): ToolResultPreview[] {
+  const previews = projectToolResultPreviews(session, toolResults, deps);
+  for (let index = 0; index < toolResults.length; index++) {
+    const block = toolResults[index]!;
+    const preview = previews[index]!;
+    const startTime = session.toolStartTimes.get(block.tool_use_id);
+    if (startTime != null) preview.duration_seconds = Math.round((Date.now() - startTime) / 100) / 10;
+    deps.clearCodexToolResultWatchdog(session, block.tool_use_id);
+    session.toolStartTimes.delete(block.tool_use_id);
+    session.toolProgressOutput.delete(block.tool_use_id);
+    let resultContent = typeof block.content === "string" ? block.content : JSON.stringify(block.content);
+    if (block.is_error && typeof block.content === "string") {
+      resultContent = deduplicateCliErrorOutput(resultContent);
+    }
+    session.toolResults.set(block.tool_use_id, {
+      content: resultContent,
+      is_error: !!block.is_error,
+      timestamp: Date.now(),
     });
   }
   return previews;

@@ -74,7 +74,7 @@ import {
 import { persistSidePanelStringSet, withMapEntry, withOptionalMapEntry } from "./store-map-utils.js";
 import { createQuestStoreSlice, resetQuestRefreshStateForTests } from "./store-quests.js";
 import { indexCodexReasoningPreviews } from "./utils/codex-reasoning-previews.js";
-import { updateMessageAcrossSources } from "./store-message-updates.js";
+import { attachCodexSubagentToolResultsAcrossSources, updateMessageAcrossSources } from "./store-message-updates.js";
 
 // ─── Color Themes ───────────────────────────────────────────────────────────
 
@@ -708,6 +708,8 @@ export const useStore = create<AppState>((set, get) => ({
     }),
 
   updateMessage: (sessionId, msgId, updates) => set((s) => updateMessageAcrossSources(s, sessionId, msgId, updates)),
+  attachCodexSubagentToolResults: (sessionId, ownership, previews) =>
+    set((s) => attachCodexSubagentToolResultsAcrossSources(s, sessionId, ownership, previews)),
 
   updateQuestTitleInMessages: (sessionId, questId, newTitle) =>
     set((s) => {

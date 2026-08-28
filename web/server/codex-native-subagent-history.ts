@@ -36,7 +36,6 @@ const FORBIDDEN_KEY_TOKENS = new Set([
   "encryptedpayload",
   "env",
   "environment",
-  "filepath",
   "home",
   "image",
   "imagepath",
@@ -48,7 +47,6 @@ const FORBIDDEN_KEY_TOKENS = new Set([
   "origin",
   "originurl",
   "parentthreadid",
-  "path",
   "pluginid",
   "prompt",
   "providerthreadid",
@@ -129,6 +127,12 @@ function finiteTimestamp(value: unknown, fallback = 0): number {
 }
 
 function stablePublicId(childId: string, kind: string, providerId: unknown, ordinal = 0): string {
+  if (typeof providerId === "string") {
+    const prefix = `codex-native-${kind}-`;
+    if (providerId.startsWith(prefix) && /^[0-9a-f]{24}$/.test(providerId.slice(prefix.length))) {
+      return providerId;
+    }
+  }
   const digest = createHash("sha256")
     .update(`${childId}\u0000${kind}\u0000${typeof providerId === "string" ? providerId : ordinal}`)
     .digest("hex")
@@ -220,6 +224,14 @@ function scrubSensitiveString(
   return truncateText(result, limit);
 }
 
+export function sanitizeCodexNativeSubagentAuditText(value: unknown, sensitiveStrings: string[] = []): string {
+  return scrubSensitiveString(
+    value,
+    { ownership: { childId: "codex-child-audit" }, sensitiveStrings },
+    MAX_MESSAGE_TEXT_LENGTH,
+  );
+}
+
 function sanitizeStructuredValue(
   value: unknown,
   context: CodexNativeSubagentInspectorProjectionContext,
@@ -281,9 +293,10 @@ function sanitizedToolOutput(
 }
 
 function sourceProviderItemIdFromAssistant(message: Extract<BrowserIncomingMessage, { type: "assistant" }>): string {
+  const messageId = message.message.id ?? message.uuid ?? "";
+  if (/^codex-native-message-[0-9a-f]{24}$/.test(messageId)) return messageId;
   const firstTool = message.message.content.find((block) => block.type === "tool_use");
   if (firstTool?.type === "tool_use" && firstTool.id) return firstTool.id;
-  const messageId = message.message.id ?? message.uuid ?? "";
   for (const prefix of ["codex-agent-", "codex-tool_use-", "codex-tool_result-"]) {
     if (messageId.startsWith(prefix)) return messageId.slice(prefix.length);
   }
@@ -294,6 +307,7 @@ function messagePublicId(message: BrowserIncomingMessage): string | null {
   if (message.type === "assistant") return message.message.id ?? message.uuid ?? null;
   if (message.type === "user_message") return typeof message.id === "string" ? message.id : null;
   if (message.type === "codex_reasoning_detail") return message.id;
+  if (message.type === "error") return message.id ?? null;
   return null;
 }
 
@@ -321,6 +335,8 @@ function projectionContextWithMessageIdentifiers(
       if (message.provider_item_id) sensitive.add(message.provider_item_id);
       if (message.reasoning_turn_id) sensitive.add(message.reasoning_turn_id);
       if (message.parent_tool_use_id) sensitive.add(message.parent_tool_use_id);
+    } else if (message.type === "error") {
+      if (message.id) sensitive.add(message.id);
     } else if (message.type === "tool_result_preview") {
       for (const preview of message.previews) {
         if (preview.tool_use_id) sensitive.add(preview.tool_use_id);
@@ -413,7 +429,7 @@ export function projectCodexNativeSubagentInspectorMessages(
           tools.set(rawToolId, {
             index: existing?.index ?? index,
             timestamp: existing?.timestamp ?? timestamp,
-            providerItemId: rawToolId,
+            providerItemId: existing?.providerItemId ?? providerItemId,
             rawToolId,
             name,
             input: sanitizedToolInput(name, block.input, effectiveContext),
@@ -465,6 +481,22 @@ export function projectCodexNativeSubagentInspectorMessages(
       continue;
     }
 
+    if (message.type === "error") {
+      const text = scrubSensitiveString(message.message, effectiveContext, MAX_MESSAGE_TEXT_LENGTH);
+      if (!text) continue;
+      entries.push({
+        index,
+        message: {
+          type: "error",
+          id: stablePublicId(childId, "error", message.id ?? index, index),
+          message: text,
+          timestamp: finiteTimestamp(message.timestamp, index),
+          codexSubagent: effectiveContext.ownership,
+        },
+      });
+      continue;
+    }
+
     if (message.type === "codex_reasoning_detail") {
       const text = scrubSensitiveString(message.text, effectiveContext, MAX_MESSAGE_TEXT_LENGTH);
       if (!text) continue;
@@ -481,6 +513,12 @@ export function projectCodexNativeSubagentInspectorMessages(
             typeof message.parent_tool_use_id === "string" && message.parent_tool_use_id
               ? stablePublicId(childId, "tool", message.parent_tool_use_id)
               : null,
+          ...(typeof message.reasoning_turn_id === "string" && message.reasoning_turn_id
+            ? { reasoning_turn_id: stablePublicId(childId, "reasoning-turn", message.reasoning_turn_id) }
+            : {}),
+          ...(typeof message.reasoning_item_ordinal === "number"
+            ? { reasoning_item_ordinal: message.reasoning_item_ordinal }
+            : {}),
           ...(typeof message.summary_index === "number" ? { summary_index: message.summary_index } : {}),
           ...(typeof message.thinking_time_ms === "number" ? { thinking_time_ms: message.thinking_time_ms } : {}),
           codexSubagent: effectiveContext.ownership,

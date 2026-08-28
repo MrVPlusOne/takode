@@ -937,7 +937,7 @@ export type BrowserIncomingMessageBase =
     }
   | { type: "permissions_cleared" }
   | { type: "auth_status"; isAuthenticating: boolean; output: string[]; error?: string }
-  | { type: "error"; message: string }
+  | { type: "error"; message: string; id?: string; timestamp?: number }
   | { type: "backend_disconnected"; reason?: "idle_limit" | "broken" | "recovery_suppressed" }
   | { type: "backend_connected" }
   | { type: "vscode_selection_state"; state: VsCodeSelectionState | null }

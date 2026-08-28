@@ -89,6 +89,7 @@ function makeDeps(session: ReturnType<typeof makeSession>, broadcasts: BrowserIn
     reconcileCodexQuestToolResult: vi.fn(async () => {}),
     collectCompletedToolStartTimes: () => [],
     buildToolResultPreviews: () => [],
+    projectToolResultPreviews: () => [],
     broadcastToBrowsers: (_target, message) => broadcasts.push(message),
     finalizeSupersededCodexTerminalTools: vi.fn(),
     isDuplicateCodexAssistantReplay: () => false,
