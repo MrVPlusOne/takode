@@ -1,4 +1,4 @@
 interface:
   display_name: "Explain Clearly"
   short_description: "Write natural, audience-aware explanations"
-  default_prompt: "Use $explain-clearly to explain this topic naturally for its intended audience, leading with the core idea and layering detail to fit the medium."
+  default_prompt: "Use $explain-clearly to make this substantial explanation natural, audience-aware, self-contained, and easy to follow without imposing a canned structure."

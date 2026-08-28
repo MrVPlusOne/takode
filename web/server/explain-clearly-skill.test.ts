@@ -15,44 +15,41 @@ afterEach(async () => {
 });
 
 describe("explain-clearly project skill", () => {
-  it("keeps the trigger, format adaptation, and narrower-skill boundary explicit", async () => {
-    // This guards the reusable design contract rather than one tutorial example:
-    // substantial reader-facing explanations trigger the skill, while specialized
-    // workflow and safety skills retain authority over their own required content.
-    const [skill, formatGuide, editorialGuide, metadata, claudeDocs, agentsDocs] = await Promise.all([
+  it("keeps the trigger, concise preferences, and anti-pattern boundary explicit", async () => {
+    // This guards the user-approved high-level preference without turning one
+    // explanation format or technique into a required workflow for future agents.
+    const [skill, metadata, claudeDocs, agentsDocs] = await Promise.all([
       readFile(join(SKILL_ROOT, "SKILL.md"), "utf-8"),
-      readFile(join(SKILL_ROOT, "references", "format-adaptation.md"), "utf-8"),
-      readFile(join(SKILL_ROOT, "references", "editorial-rewrites.md"), "utf-8"),
       readFile(join(SKILL_ROOT, "agents", "openai.yaml"), "utf-8"),
       readFile(join(REPO_ROOT, "CLAUDE.md"), "utf-8"),
       readFile(join(REPO_ROOT, "AGENTS.md"), "utf-8"),
     ]);
 
     expect(skill).toMatch(/^---\nname: explain-clearly\ndescription: /);
-    expect(skill).toContain("non-trivial user-facing explanation");
-    expect(skill).toContain("multi-paragraph chat or Markdown, documents, reports, slide narratives");
-    expect(skill).toContain("Skip the full workflow for trivial one-line replies");
-    expect(skill).toContain("When a narrower authoritative skill governs the task");
-    expect(skill).toContain("Progressive revelation is a principle, not an HTML widget");
-    expect(skill).toContain("Remove or rewrite language that assumes hidden conversation");
-    expect(skill).toContain("the available implementation");
-    expect(skill).toContain("state the supported conceptual lesson first");
-    expect(skill).toContain("the source audit support it rather than replace it");
-    expect(skill).toContain("current mirror");
-    expect(skill).toContain("Do not repeat a rigid “problem / idea / takeaway” scaffold");
-    expect(skill).toContain("references/format-adaptation.md");
-    expect(skill).toContain("references/editorial-rewrites.md");
+    expect(skill).toContain("substantial user-facing explanation");
+    expect(skill).toContain("high-level preferences, not a required workflow or template");
+    expect(skill).toContain("natural and easy to read and follow");
+    expect(skill).toContain("actual audience");
+    expect(skill).toContain("self-contained for a fresh reader");
+    expect(skill).toContain("core idea, answer, or mental model");
+    expect(skill).toContain("Layer secondary detail");
+    expect(skill).toContain("Adapt the depth and presentation to the medium and context");
 
-    expect(formatGuide).toContain("## Chat and Conversational Answers");
-    expect(formatGuide).toContain("## Markdown, Documents, and Reports");
-    expect(formatGuide).toContain("## Slide Narratives");
-    expect(formatGuide).toContain("## Interactive HTML and Tutorials");
-    expect(formatGuide).toContain("When Not to Layer");
+    expect(skill).toContain("AI-ish, canned, or repetitive templating");
+    expect(skill).toContain("Audit-log, revision-history, or internal-workflow framing");
+    expect(skill).toContain("Dependence on prior conversation or other hidden history");
+    expect(skill).toContain("Coding-agent language when it is irrelevant");
+    expect(skill).toContain("Unexplained or out-of-context details");
+    expect(skill).toContain("Excessive information dumping");
 
-    expect(editorialGuide).toContain("Replace Hidden History with the Actual Point");
-    expect(editorialGuide).toContain("Introduce Evidence Before Its Limitation");
-    expect(editorialGuide).toContain("Avoid Mechanical Section Scaffolds");
-    expect(editorialGuide).toContain("Whole-Surface Editorial Pass");
+    expect(skill).toContain(
+      "Leave implementation choices, exact structure, interaction techniques, and workflow design to the agent",
+    );
+    expect(skill).toContain("When a narrower skill governs workflow");
+    expect(skill).not.toContain("references/format-adaptation.md");
+    expect(skill).not.toContain("references/editorial-rewrites.md");
+    await expect(access(join(SKILL_ROOT, "references", "format-adaptation.md"))).rejects.toThrow();
+    await expect(access(join(SKILL_ROOT, "references", "editorial-rewrites.md"))).rejects.toThrow();
 
     expect(metadata).toContain('display_name: "Explain Clearly"');
     expect(metadata).toContain('short_description: "Write natural, audience-aware explanations"');
