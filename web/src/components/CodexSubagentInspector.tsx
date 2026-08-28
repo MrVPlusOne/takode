@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import type {
   CodexNativeSubagentCoverage,
@@ -18,6 +28,14 @@ const MAX_CACHED_HISTORY_MESSAGES = 180;
 const MAX_CACHED_HISTORY_PAGES = 6;
 const MAX_CACHED_HISTORY_CHILDREN = 12;
 const HISTORY_REFRESH_DEBOUNCE_MS = 150;
+const INSPECTOR_WORKSPACE_SELECTOR = '[data-codex-subagent-workspace="true"]';
+const dismissedCoverageWarnings = new Map<string, string>();
+const dismissedTranscriptWarnings = new Map<string, string>();
+
+export function resetCodexSubagentInspectorPresentationStateForTest(): void {
+  dismissedCoverageWarnings.clear();
+  dismissedTranscriptWarnings.clear();
+}
 
 const ACTIVE_STATUSES = new Set<CodexNativeSubagentStatus>(["starting", "working", "waiting"]);
 const UNRESOLVED_STATUSES = new Set<CodexNativeSubagentStatus>(["failed", "interrupted", "unknown"]);
@@ -49,6 +67,7 @@ type ChildGroup = {
 };
 
 interface HistoryCacheEntry {
+  childId: string;
   version: string;
   messages: BrowserIncomingMessage[];
   chatMessages: ChatMessage[];
@@ -64,6 +83,81 @@ type HistoryState =
   | { phase: "loading" }
   | { phase: "ready"; entry: HistoryCacheEntry; loadingMore?: boolean }
   | { phase: "error"; entry?: HistoryCacheEntry };
+
+type HistoryScrollIntent =
+  | { kind: "bottom"; childId: string }
+  | {
+      kind: "prepend";
+      childId: string;
+      scrollTop: number;
+      scrollHeight: number;
+    };
+
+interface InspectorWorkspaceBounds {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+function readInspectorWorkspaceBounds(): InspectorWorkspaceBounds {
+  const fallback = {
+    top: 0,
+    left: 0,
+    width: typeof window === "undefined" ? 0 : window.innerWidth,
+    height: typeof window === "undefined" ? 0 : window.innerHeight,
+  };
+  if (typeof document === "undefined") return fallback;
+  const workspace = document.querySelector<HTMLElement>(INSPECTOR_WORKSPACE_SELECTOR);
+  const rect = workspace?.getBoundingClientRect();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return fallback;
+  return {
+    top: rect.top,
+    left: rect.left,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function sameWorkspaceBounds(left: InspectorWorkspaceBounds, right: InspectorWorkspaceBounds): boolean {
+  return (
+    left.top === right.top && left.left === right.left && left.width === right.width && left.height === right.height
+  );
+}
+
+function useInspectorWorkspaceBounds(isOpen: boolean): InspectorWorkspaceBounds {
+  const [bounds, setBounds] = useState<InspectorWorkspaceBounds>(readInspectorWorkspaceBounds);
+
+  useLayoutEffect(() => {
+    if (!isOpen || typeof window === "undefined") return;
+    const workspace = document.querySelector<HTMLElement>(INSPECTOR_WORKSPACE_SELECTOR);
+    let frame = 0;
+    const update = () => {
+      const next = readInspectorWorkspaceBounds();
+      setBounds((current) => (sameWorkspaceBounds(current, next) ? current : next));
+    };
+    const scheduleUpdate = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(update);
+    };
+
+    update();
+    const observer = workspace && typeof ResizeObserver !== "undefined" ? new ResizeObserver(scheduleUpdate) : null;
+    if (workspace) {
+      observer?.observe(workspace);
+      workspace.addEventListener("transitionend", scheduleUpdate);
+    }
+    window.addEventListener("resize", scheduleUpdate);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+      workspace?.removeEventListener("transitionend", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+    };
+  }, [isOpen]);
+
+  return bounds;
+}
 
 function childVersion(child: CodexNativeSubagentSummary): string {
   return [child.lastActivityAt ?? "", child.endedAt ?? "", child.statusObservedAt, child.transcriptAvailability].join(
@@ -103,7 +197,10 @@ function formatRelativeTime(timestamp: number | undefined, now = Date.now()): st
   if (elapsed < 60_000) return `${Math.floor(elapsed / 1_000)}s ago`;
   if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m ago`;
   if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h ago`;
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(timestamp));
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(timestamp));
 }
 
 function transcriptLabel(availability: CodexNativeSubagentTranscriptAvailability): string {
@@ -141,6 +238,7 @@ function mergeHistoryPage(
   current: HistoryCacheEntry | null,
   page: CodexNativeSubagentHistoryPage,
   version: string,
+  childId: string,
 ): HistoryCacheEntry {
   const priorMessages = current?.messages ?? [];
   const availableSlots = Math.max(0, MAX_CACHED_HISTORY_MESSAGES - priorMessages.length);
@@ -161,6 +259,7 @@ function mergeHistoryPage(
     : page.availability;
 
   return {
+    childId,
     version,
     messages,
     chatMessages,
@@ -293,7 +392,7 @@ function ChildRow({
   onNavigate: (event: ReactKeyboardEvent<HTMLButtonElement>) => void;
   buttonRef: (node: HTMLButtonElement | null) => void;
 }) {
-  const indent = Math.min(Math.max(child.depth, 0), 3) * 12;
+  const indent = Math.min(Math.max(child.depth, 0), 3) * 10;
   const recentAt = child.lastActivityAt ?? child.endedAt ?? child.startedAt ?? child.statusObservedAt;
   return (
     <button
@@ -301,31 +400,31 @@ function ChildRow({
       type="button"
       onClick={onSelect}
       onKeyDown={onNavigate}
-      className={`group flex min-h-14 w-full min-w-0 items-start gap-2 border-l-2 py-2.5 pr-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cc-primary/45 ${
+      className={`group flex min-h-12 w-full min-w-0 items-start gap-1.5 border-l-2 py-2 pr-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cc-primary/45 ${
         selected
           ? "border-l-cc-primary bg-cc-primary/8"
           : "border-l-transparent hover:border-l-cc-border hover:bg-cc-hover"
       }`}
-      style={{ paddingLeft: `${12 + indent}px` }}
+      style={{ paddingLeft: `${10 + indent}px` }}
       aria-current={selected ? "true" : undefined}
       aria-label={`${child.displayName}, ${STATUS_LABELS[child.status]}, ${transcriptLabel(child.transcriptAvailability)}`}
       data-codex-child-row="true"
       data-child-depth={child.depth}
     >
-      <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-cc-primary/10 text-cc-primary">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-3.5 w-3.5">
+      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-cc-primary/10 text-cc-primary">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-3 w-3">
           <path d="M3 3.5h3A2.5 2.5 0 018.5 6v4A2.5 2.5 0 0011 12.5h2" />
           <circle cx="3" cy="3.5" r="1.25" fill="currentColor" stroke="none" />
           <circle cx="13" cy="12.5" r="1.25" fill="currentColor" stroke="none" />
         </svg>
       </span>
       <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-xs font-semibold text-cc-fg">{child.displayName}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-[11px] font-semibold text-cc-fg">{child.displayName}</span>
           <StatusBadge status={child.status} />
         </span>
-        <span className="mt-0.5 block truncate font-mono-code text-[10px] text-cc-muted">{child.agentPath}</span>
-        <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-cc-muted">
+        <span className="mt-0.5 block truncate font-mono-code text-[9px] text-cc-muted">{child.agentPath}</span>
+        <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[9px] text-cc-muted">
           <span>{formatRelativeTime(recentAt)}</span>
           <span aria-hidden="true">·</span>
           <span>{transcriptLabel(child.transcriptAvailability)}</span>
@@ -382,29 +481,62 @@ function EmptyListState({
   );
 }
 
+function DismissibleNotice({
+  children,
+  onDismiss,
+  dismissLabel,
+  className,
+}: {
+  children: ReactNode;
+  onDismiss: () => void;
+  dismissLabel: string;
+  className: string;
+}) {
+  return (
+    <div className={`flex items-start gap-2 ${className}`} role="status">
+      <div className="min-w-0 flex-1">{children}</div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md opacity-70 transition-colors hover:bg-cc-hover hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/45 sm:h-8 sm:w-8"
+        aria-label={dismissLabel}
+      >
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-3.5 w-3.5">
+          <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 function TranscriptNotice({
   availability,
   coverage,
+  dismissed,
+  onDismiss,
 }: {
   availability: CodexNativeSubagentTranscriptAvailability;
   coverage: CodexNativeSubagentCoverage;
+  dismissed: boolean;
+  onDismiss: () => void;
 }) {
-  if (availability === "available" && coverage === "complete") return null;
+  if ((availability === "available" && coverage === "complete") || dismissed) return null;
   const unavailable = availability === "unavailable";
   return (
-    <div
-      className={`mx-3 mt-3 rounded-lg border px-3 py-2 text-[11px] leading-relaxed ${
+    <DismissibleNotice
+      className={`mx-3 mt-3 rounded-lg border px-3 py-2 text-[11px] leading-relaxed sm:mx-4 ${
         unavailable
           ? "border-cc-border bg-cc-hover/60 text-cc-muted"
           : "border-cc-warning/25 bg-cc-warning/8 text-cc-warning"
       }`}
-      role="status"
+      onDismiss={onDismiss}
+      dismissLabel="Dismiss transcript coverage warning"
     >
       <span className="font-semibold">{unavailable ? "Transcript unavailable." : "Transcript partial."}</span>{" "}
       {unavailable
         ? "No safe child-owned history can be shown."
         : "Only the identity-proven child-owned subset is shown; inherited or legacy-flattened content is omitted."}
-    </div>
+    </DismissibleNotice>
   );
 }
 
@@ -412,12 +544,18 @@ function HistoryContent({
   sessionId,
   child,
   history,
+  historyRef,
+  transcriptWarningDismissed,
+  onDismissTranscriptWarning,
   onRetry,
   onLoadMore,
 }: {
   sessionId: string;
   child: CodexNativeSubagentSummary;
   history: HistoryState;
+  historyRef: RefObject<HTMLDivElement | null>;
+  transcriptWarningDismissed: boolean;
+  onDismissTranscriptWarning: () => void;
   onRetry: () => void;
   onLoadMore: () => void;
 }) {
@@ -472,7 +610,12 @@ function HistoryContent({
   if (entry.availability === "unavailable") {
     return (
       <div className="flex flex-1 flex-col">
-        <TranscriptNotice availability={entry.availability} coverage={entry.coverage} />
+        <TranscriptNotice
+          availability={entry.availability}
+          coverage={entry.coverage}
+          dismissed={transcriptWarningDismissed}
+          onDismiss={onDismissTranscriptWarning}
+        />
         <div className="flex flex-1 items-center justify-center p-6 text-center">
           <p className="max-w-sm text-xs leading-relaxed text-cc-muted">
             No safe child-owned records are available for this subagent.
@@ -484,11 +627,46 @@ function HistoryContent({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <TranscriptNotice availability={entry.availability} coverage={entry.coverage} />
+      <TranscriptNotice
+        availability={entry.availability}
+        coverage={entry.coverage}
+        dismissed={transcriptWarningDismissed}
+        onDismiss={onDismissTranscriptWarning}
+      />
       <div
-        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 sm:px-4"
+        ref={historyRef}
+        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cc-primary/45 sm:px-4"
         data-testid="codex-subagent-history"
+        tabIndex={0}
+        aria-label="Codex subagent conversation history"
       >
+        {history.phase === "error" && (
+          <div className="mb-3 rounded-lg border border-cc-warning/25 bg-cc-warning/8 px-3 py-2 text-center text-[11px] text-cc-warning">
+            More history could not be loaded. The records already shown are unchanged.
+          </div>
+        )}
+        {entry.nextCursor && !entry.bounded && (
+          <div className="flex justify-center pb-4">
+            <button
+              type="button"
+              onClick={onLoadMore}
+              disabled={history.phase === "ready" && history.loadingMore}
+              className="min-h-10 rounded-lg border border-cc-border bg-cc-card px-4 text-xs font-medium text-cc-fg hover:bg-cc-hover disabled:cursor-wait disabled:opacity-60"
+            >
+              {history.phase === "ready" && history.loadingMore
+                ? "Loading…"
+                : history.phase === "error"
+                  ? "Retry older history"
+                  : "Load older history"}
+            </button>
+          </div>
+        )}
+        {entry.bounded && (
+          <p className="px-3 pb-4 text-center text-[10px] leading-relaxed text-cc-muted">
+            This read-only view reached its {MAX_CACHED_HISTORY_MESSAGES}-record safety bound. More history remains on
+            the server.
+          </p>
+        )}
         {entry.chatMessages.length === 0 ? (
           <div className="flex min-h-40 items-center justify-center text-center">
             <div className="max-w-sm">
@@ -505,39 +683,18 @@ function HistoryContent({
         ) : (
           <CodexSubagentTranscript sessionId={sessionId} messages={entry.chatMessages} />
         )}
-        {history.phase === "error" && (
-          <div className="mt-3 rounded-lg border border-cc-warning/25 bg-cc-warning/8 px-3 py-2 text-center text-[11px] text-cc-warning">
-            More history could not be loaded. The records already shown are unchanged.
-          </div>
-        )}
-        {entry.nextCursor && !entry.bounded && (
-          <div className="flex justify-center py-4">
-            <button
-              type="button"
-              onClick={onLoadMore}
-              disabled={history.phase === "ready" && history.loadingMore}
-              className="min-h-10 rounded-lg border border-cc-border bg-cc-card px-4 text-xs font-medium text-cc-fg hover:bg-cc-hover disabled:cursor-wait disabled:opacity-60"
-            >
-              {history.phase === "ready" && history.loadingMore
-                ? "Loading…"
-                : history.phase === "error"
-                  ? "Retry older history"
-                  : "Load older history"}
-            </button>
-          </div>
-        )}
-        {entry.bounded && (
-          <p className="px-3 py-4 text-center text-[10px] leading-relaxed text-cc-muted">
-            This read-only view reached its {MAX_CACHED_HISTORY_MESSAGES}-record safety bound. More history remains on
-            the server.
-          </p>
-        )}
       </div>
     </div>
   );
 }
 
-export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
+export function CodexSubagentInspector({
+  sessionId,
+  loadHistoryPage = fetchCodexNativeSubagentHistory,
+}: {
+  sessionId: string;
+  loadHistoryPage?: typeof fetchCodexNativeSubagentHistory;
+}) {
   const inspector = useStore((state) => state.codexSubagentInspector);
   const snapshot = useStore((state) => state.sessions.get(sessionId)?.codex_native_subagents);
   const closeInspector = useStore((state) => state.closeCodexSubagentInspector);
@@ -548,6 +705,7 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
   const isOpen = inspector?.sessionId === sessionId;
   const scopeTurnId = isOpen ? inspector.scopeTurnId : undefined;
   const selectedChildId = isOpen ? inspector.selectedChildId : undefined;
+  const workspaceBounds = useInspectorWorkspaceBounds(isOpen);
   const visibleChildren = useMemo(
     () => (snapshot?.children ?? []).filter((child) => !scopeTurnId || child.rootTurnId === scopeTurnId),
     [scopeTurnId, snapshot],
@@ -574,6 +732,7 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
     return lineage;
   }, [childById, selectedChild]);
   const [history, setHistory] = useState<HistoryState>({ phase: "idle" });
+  const [, setWarningPresentationRevision] = useState(0);
   const historyCacheRef = useRef(new Map<string, HistoryCacheEntry>());
   const requestRef = useRef<AbortController | null>(null);
   const refreshRequestRef = useRef<AbortController | null>(null);
@@ -586,6 +745,9 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
   const childRowRefs = useRef(new Map<string, HTMLButtonElement>());
   const previousSelectedChildIdRef = useRef<string | undefined>(undefined);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const historyScrollRef = useRef<HTMLDivElement>(null);
+  const historyScrollIntentRef = useRef<HistoryScrollIntent | null>(null);
+  const focusHistoryAfterPrependRef = useRef(false);
 
   const fetchFirstPage = useCallback(
     async (child: CodexNativeSubagentSummary, force = false) => {
@@ -595,6 +757,10 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
       if (!force && cached) {
         // Show cached pages immediately. If activity advanced, a debounced head
         // refresh below will merge new records without throwing older pages away.
+        historyScrollIntentRef.current = {
+          kind: "bottom",
+          childId: child.childId,
+        };
         setHistory({ phase: "ready", entry: cached });
         return;
       }
@@ -604,7 +770,7 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
       requestRef.current = controller;
       setHistory({ phase: "loading" });
       try {
-        const page = await fetchCodexNativeSubagentHistory({
+        const page = await loadHistoryPage({
           sessionId,
           childId: child.childId,
           limit: HISTORY_PAGE_SIZE,
@@ -615,15 +781,20 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
           child.transcriptAvailability === "partial" && page.availability === "available"
             ? { ...page, availability: "partial" as const }
             : page;
-        const entry = mergeHistoryPage(null, conservativePage, version);
+        const entry = mergeHistoryPage(null, conservativePage, version, child.childId);
         cacheHistoryEntry(historyCacheRef.current, key, entry);
+        historyScrollIntentRef.current = {
+          kind: "bottom",
+          childId: child.childId,
+        };
         setHistory({ phase: "ready", entry });
       } catch (error) {
+        if (historyScrollIntentRef.current?.childId === child.childId) historyScrollIntentRef.current = null;
         if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
         setHistory({ phase: "error" });
       }
     },
-    [sessionId],
+    [loadHistoryPage, sessionId],
   );
 
   const selectedChildHistoryKey = selectedChild
@@ -632,6 +803,8 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     const child = selectedChildRef.current;
+    historyScrollIntentRef.current = null;
+    focusHistoryAfterPrependRef.current = false;
     if (!isOpen || !child || child.transcriptAvailability === "unavailable") {
       requestRef.current?.abort();
       refreshRequestRef.current?.abort();
@@ -658,7 +831,7 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
       const controller = new AbortController();
       refreshRequestRef.current = controller;
       try {
-        const page = await fetchCodexNativeSubagentHistory({
+        const page = await loadHistoryPage({
           sessionId,
           childId: child.childId,
           limit: HISTORY_PAGE_SIZE,
@@ -669,12 +842,22 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
           child.transcriptAvailability === "partial" && page.availability === "available"
             ? { ...page, availability: "partial" as const }
             : page;
+        const scroller = historyScrollRef.current;
+        const shouldFollowNewest =
+          !!scroller && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 24;
         setHistory((current) => {
           const currentEntry = current.phase === "ready" || current.phase === "error" ? current.entry : undefined;
-          if (!currentEntry) return current;
+          if (!currentEntry || currentEntry.childId !== child.childId) return current;
           const entry = mergeRefreshedHistoryHead(currentEntry, conservativePage, version);
           cacheHistoryEntry(historyCacheRef.current, key, entry);
-          return { phase: "ready", entry };
+          if (shouldFollowNewest) {
+            historyScrollIntentRef.current = { kind: "bottom", childId: child.childId };
+          }
+          return {
+            phase: "ready",
+            entry,
+            ...(current.phase === "ready" && current.loadingMore ? { loadingMore: true } : {}),
+          };
         });
       } catch (error) {
         if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
@@ -682,16 +865,86 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
         // with an error state. The next authoritative activity update can retry.
       }
     },
-    [sessionId],
+    [loadHistoryPage, sessionId],
   );
 
   const selectedChildVersion = selectedChild ? childVersion(selectedChild) : null;
+  const aggregate = scopeTurnId ? snapshot?.turns[scopeTurnId] : null;
+  const effectiveCoverage = aggregate?.coverage ?? snapshot?.coverage;
+  const historyEntry = history.phase === "ready" || history.phase === "error" ? history.entry : undefined;
+  const selectedHistoryEntry = historyEntry?.childId === selectedChildId ? historyEntry : undefined;
+  const renderedHistoryMessages = selectedHistoryEntry?.messages;
+  const coverageWarningIdentity = `${sessionId}:coverage:${scopeTurnId ?? "session"}`;
+  const coverageWarningSignature = effectiveCoverage === "partial" ? "verified-children-only" : null;
+  const transcriptWarningIdentity = selectedChild ? `${sessionId}:transcript:${selectedChild.childId}` : null;
+  const transcriptWarningSignature =
+    selectedHistoryEntry &&
+    !(selectedHistoryEntry.availability === "available" && selectedHistoryEntry.coverage === "complete")
+      ? `${selectedHistoryEntry.availability}:${selectedHistoryEntry.coverage}`
+      : null;
+  const coverageWarningDismissed =
+    coverageWarningSignature !== null &&
+    dismissedCoverageWarnings.get(coverageWarningIdentity) === coverageWarningSignature;
+  const transcriptWarningDismissed =
+    transcriptWarningIdentity !== null &&
+    transcriptWarningSignature !== null &&
+    dismissedTranscriptWarnings.get(transcriptWarningIdentity) === transcriptWarningSignature;
+
+  useEffect(() => {
+    const dismissedSignature = dismissedCoverageWarnings.get(coverageWarningIdentity);
+    if (!dismissedSignature) return;
+    if (coverageWarningSignature && dismissedSignature === coverageWarningSignature) return;
+    dismissedCoverageWarnings.delete(coverageWarningIdentity);
+    setWarningPresentationRevision((revision) => revision + 1);
+  }, [coverageWarningIdentity, coverageWarningSignature]);
+
+  useEffect(() => {
+    if (!transcriptWarningIdentity) return;
+    const dismissedSignature = dismissedTranscriptWarnings.get(transcriptWarningIdentity);
+    if (!dismissedSignature) return;
+    if (selectedChild?.transcriptAvailability !== "unavailable" && !selectedHistoryEntry) return;
+    if (dismissedSignature === transcriptWarningSignature) return;
+    dismissedTranscriptWarnings.delete(transcriptWarningIdentity);
+    setWarningPresentationRevision((revision) => revision + 1);
+  }, [
+    selectedChild?.transcriptAvailability,
+    selectedHistoryEntry,
+    transcriptWarningIdentity,
+    transcriptWarningSignature,
+  ]);
+
+  const selectedHistory: HistoryState = historyEntry && !selectedHistoryEntry ? { phase: "loading" } : history;
+
+  useLayoutEffect(() => {
+    const intent = historyScrollIntentRef.current;
+    if (!intent) return;
+    if (intent.childId !== selectedChildId) {
+      historyScrollIntentRef.current = null;
+      return;
+    }
+    const scroller = historyScrollRef.current;
+    if (!scroller) {
+      historyScrollIntentRef.current = null;
+      return;
+    }
+    if (intent.kind === "bottom") {
+      scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    } else {
+      scroller.scrollTop = Math.max(0, intent.scrollTop + (scroller.scrollHeight - intent.scrollHeight));
+    }
+    historyScrollIntentRef.current = null;
+    if (focusHistoryAfterPrependRef.current) {
+      focusHistoryAfterPrependRef.current = false;
+      scroller.focus({ preventScroll: true });
+    }
+  }, [renderedHistoryMessages, selectedChildId]);
   useEffect(() => {
     if (
       !isOpen ||
       !selectedChild ||
       selectedChild.transcriptAvailability === "unavailable" ||
       (history.phase !== "ready" && history.phase !== "error") ||
+      (history.phase === "ready" && history.loadingMore) ||
       !history.entry ||
       history.entry.version === selectedChildVersion
     ) {
@@ -780,36 +1033,57 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
       return;
     const current = history.entry;
     const key = `${sessionId}:${selectedChild.childId}`;
+    refreshRequestRef.current?.abort();
+    refreshRequestRef.current = null;
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+    const scroller = historyScrollRef.current;
+    historyScrollIntentRef.current = scroller
+      ? {
+          kind: "prepend",
+          childId: selectedChild.childId,
+          scrollTop: scroller.scrollTop,
+          scrollHeight: scroller.scrollHeight,
+        }
+      : null;
     const controller = new AbortController();
     requestRef.current = controller;
     setHistory({ phase: "ready", entry: current, loadingMore: true });
     try {
-      const page = await fetchCodexNativeSubagentHistory({
+      const page = await loadHistoryPage({
         sessionId,
         childId: selectedChild.childId,
         cursor: current.nextCursor,
         limit: HISTORY_PAGE_SIZE,
         signal: controller.signal,
       });
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || selectedChildRef.current?.childId !== selectedChild.childId) {
+        if (historyScrollIntentRef.current?.childId === selectedChild.childId) historyScrollIntentRef.current = null;
+        return;
+      }
       const conservativePage =
         selectedChild.transcriptAvailability === "partial" && page.availability === "available"
           ? { ...page, availability: "partial" as const }
           : page;
       setHistory((state) => {
         const latest = state.phase === "ready" || state.phase === "error" ? (state.entry ?? current) : current;
-        const entry = mergeHistoryPage(latest, conservativePage, childVersion(selectedChild));
+        const entry = mergeHistoryPage(latest, conservativePage, latest.version, selectedChild.childId);
         cacheHistoryEntry(historyCacheRef.current, key, entry);
+        focusHistoryAfterPrependRef.current = true;
         return { phase: "ready", entry };
       });
     } catch (error) {
+      if (historyScrollIntentRef.current?.childId === selectedChild.childId) historyScrollIntentRef.current = null;
+      focusHistoryAfterPrependRef.current = false;
       if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
       setHistory((state) => {
         const latest = state.phase === "ready" || state.phase === "error" ? (state.entry ?? current) : current;
         return { phase: "error", entry: latest };
       });
     }
-  }, [history, selectedChild, sessionId]);
+  }, [history, loadHistoryPage, selectedChild, sessionId]);
 
   const navigateRows = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
     if (!event.currentTarget.parentElement) return;
@@ -838,12 +1112,10 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
   if (!isOpen) return null;
 
   const hasChildren = visibleChildren.length > 0;
-  const aggregate = scopeTurnId ? snapshot?.turns[scopeTurnId] : null;
-  const effectiveCoverage = aggregate?.coverage ?? snapshot?.coverage;
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex justify-end overflow-hidden bg-black/25"
+      className="fixed inset-0 z-[80] overflow-hidden bg-black/25"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) closeInspector();
       }}
@@ -854,7 +1126,8 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="codex-subagent-inspector-title"
-        className="flex h-full w-full min-w-0 flex-col overflow-x-hidden border-l border-cc-border bg-cc-bg text-cc-fg shadow-2xl sm:max-w-[48rem] lg:w-[min(48rem,70vw)]"
+        className="absolute flex min-w-0 flex-col overflow-x-hidden border-l border-cc-border bg-cc-bg text-cc-fg shadow-2xl"
+        style={workspaceBounds}
         data-testid="codex-subagent-inspector"
         onMouseDown={(event) => event.stopPropagation()}
       >
@@ -906,19 +1179,24 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
           </button>
         </header>
 
-        {effectiveCoverage === "partial" && (
-          <div
-            className="shrink-0 border-b border-cc-warning/20 bg-cc-warning/8 px-3 py-2 text-[11px] leading-relaxed text-cc-warning sm:px-4"
-            role="status"
+        {effectiveCoverage === "partial" && !coverageWarningDismissed && (
+          <DismissibleNotice
+            className="shrink-0 border-b border-cc-warning/20 bg-cc-warning/8 px-3 py-1.5 text-[11px] leading-relaxed text-cc-warning sm:px-4"
+            onDismiss={() => {
+              closeButtonRef.current?.focus();
+              dismissedCoverageWarnings.set(coverageWarningIdentity, coverageWarningSignature!);
+              setWarningPresentationRevision((revision) => revision + 1);
+            }}
+            dismissLabel="Dismiss partial coverage warning"
           >
             <span className="font-semibold">Partial coverage.</span> Counts and rows include only verified native Codex
             children; legacy flattened activity is not reconstructed.
-          </div>
+          </DismissibleNotice>
         )}
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <aside
-            className={`${selectedChild ? "hidden lg:flex" : "flex"} min-h-0 w-full min-w-0 flex-col border-r-cc-border bg-cc-card/45 lg:w-[20rem] lg:shrink-0 lg:border-r`}
+            className={`${selectedChild ? "hidden lg:flex" : "flex"} min-h-0 w-full min-w-0 flex-col border-r-cc-border bg-cc-card/45 lg:w-60 lg:shrink-0 lg:border-r xl:w-64`}
             aria-label="Codex subagent list"
             data-codex-subagent-list="true"
           >
@@ -926,7 +1204,7 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
               <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto py-2">
                 {groups.map((group) => (
                   <section key={group.title} aria-labelledby={`codex-subagent-group-${group.title.toLowerCase()}`}>
-                    <div className="flex items-baseline justify-between gap-2 px-3 pb-1 pt-2">
+                    <div className="flex items-baseline justify-between gap-2 px-2.5 pb-1 pt-2">
                       <div className="min-w-0">
                         <h3
                           id={`codex-subagent-group-${group.title.toLowerCase()}`}
@@ -958,7 +1236,7 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
                         />
                       ))
                     ) : (
-                      <p className="px-3 pb-3 pt-1 text-[11px] text-cc-muted">None</p>
+                      <p className="px-2.5 pb-2.5 pt-0.5 text-[10px] text-cc-muted">None</p>
                     )}
                   </section>
                 ))}
@@ -1020,7 +1298,15 @@ export function CodexSubagentInspector({ sessionId }: { sessionId: string }) {
                 <HistoryContent
                   sessionId={sessionId}
                   child={selectedChild}
-                  history={history}
+                  history={selectedHistory}
+                  historyRef={historyScrollRef}
+                  transcriptWarningDismissed={transcriptWarningDismissed}
+                  onDismissTranscriptWarning={() => {
+                    if (!transcriptWarningIdentity || !transcriptWarningSignature) return;
+                    closeButtonRef.current?.focus();
+                    dismissedTranscriptWarnings.set(transcriptWarningIdentity, transcriptWarningSignature);
+                    setWarningPresentationRevision((revision) => revision + 1);
+                  }}
                   onRetry={() => void fetchFirstPage(selectedChild, true)}
                   onLoadMore={() => void loadMore()}
                 />

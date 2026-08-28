@@ -3,7 +3,11 @@ import type {
   CodexNativeSubagentSnapshot,
   CodexNativeSubagentStatusCounts,
 } from "../../../shared/codex-native-subagent-types.js";
-import type { ChatMessage, SessionState } from "../../types.js";
+import type { BrowserIncomingMessage, ChatMessage, SessionState } from "../../types.js";
+import type {
+  CodexNativeSubagentHistoryPage,
+  FetchCodexNativeSubagentHistoryOptions,
+} from "../../api/codex-native-subagents.js";
 import { useStore } from "../../store.js";
 import { CodexSubagentFeedControl } from "../CodexSubagentFeedControl.js";
 import type { CodexTerminalEntry } from "../MessageFeedLiveActivity.js";
@@ -20,7 +24,11 @@ const PARTIAL_ZERO_SESSION_ID = "playground-codex-native-subagents-partial-zero"
 const UNKNOWN_CHILD_SESSION_ID = "playground-codex-native-subagents-unknown-child";
 const ACTIVE_TURN = "playground-turn-active";
 const SETTLED_TURN = "playground-turn-settled";
-const PLAYGROUND_OWNERSHIP = { childId: "csa-playground-1", rootTurnId: ACTIVE_TURN };
+const PLAYGROUND_OWNERSHIP = {
+  childId: "csa-playground-1",
+  rootTurnId: ACTIVE_TURN,
+};
+const PLAYGROUND_HISTORY_CURSOR = "playground-older-history";
 const PLAYGROUND_TERMINAL: CodexTerminalEntry = {
   toolUseId: "playground-live-terminal",
   input: { command: "bun test" },
@@ -48,8 +56,15 @@ const snapshot: CodexNativeSubagentSnapshot = {
   revision: 7,
   coverage: "partial",
   session: {
-    total: 6,
-    statusCounts: counts({ working: 1, waiting: 1, done: 1, failed: 1, interrupted: 1, unknown: 1 }),
+    total: 10,
+    statusCounts: counts({
+      working: 1,
+      waiting: 1,
+      done: 5,
+      failed: 1,
+      interrupted: 1,
+      unknown: 1,
+    }),
     activeCount: 2,
     unresolvedCount: 3,
   },
@@ -63,8 +78,8 @@ const snapshot: CodexNativeSubagentSnapshot = {
     },
     [SETTLED_TURN]: {
       rootTurnId: SETTLED_TURN,
-      total: 4,
-      statusCounts: counts({ done: 1, failed: 1, interrupted: 1, unknown: 1 }),
+      total: 8,
+      statusCounts: counts({ done: 5, failed: 1, interrupted: 1, unknown: 1 }),
       status: "failed",
       coverage: "partial",
     },
@@ -90,8 +105,8 @@ const snapshot: CodexNativeSubagentSnapshot = {
       childId: "csa-playground-2",
       parentChildId: "csa-playground-1",
       rootTurnId: ACTIVE_TURN,
-      agentPath: "/root/schema_audit/privacy_check",
-      displayName: "privacy_check",
+      agentPath: "/root/schema_audit/privacy_and_canonical_rendering_regression_check",
+      displayName: "privacy_and_canonical_rendering_regression_check",
       nickname: "Noether",
       role: "Reviewer",
       depth: 2,
@@ -151,6 +166,20 @@ const snapshot: CodexNativeSubagentSnapshot = {
       statusObservedAt: Date.now() - 3 * 60_000,
       transcriptAvailability: "unavailable",
     },
+    ...Array.from({ length: 4 }, (_, index) => ({
+      childId: `csa-playground-history-${index + 1}`,
+      rootTurnId: SETTLED_TURN,
+      agentPath: `/root/completed_validation_${index + 1}`,
+      displayName: `completed_validation_${index + 1}`,
+      ...(index % 2 === 0 ? {} : { parentChildId: "csa-playground-3" }),
+      depth: index % 2 === 0 ? 1 : 2,
+      spawnOrder: 7 + index,
+      endedAt: Date.now() - (12 + index) * 60_000,
+      lastActivityAt: Date.now() - (12 + index) * 60_000,
+      status: "done" as const,
+      statusObservedAt: Date.now() - (12 + index) * 60_000,
+      transcriptAvailability: "available" as const,
+    })),
   ],
 };
 
@@ -195,7 +224,12 @@ const transcriptMessages: ChatMessage[] = [
     id: "playground-child-message",
     role: "assistant",
     content: "The child found the producer contract and is checking its result.",
-    contentBlocks: [{ type: "text", text: "The child found the producer contract and is checking its result." }],
+    contentBlocks: [
+      {
+        type: "text",
+        text: "The child found the producer contract and is checking its result.",
+      },
+    ],
     timestamp: Date.now() - 25_000,
     metadata: { codexSubagent: PLAYGROUND_OWNERSHIP },
   },
@@ -206,7 +240,10 @@ const transcriptMessages: ChatMessage[] = [
     timestamp: Date.now() - 20_000,
     metadata: {
       codexSubagent: PLAYGROUND_OWNERSHIP,
-      codexReasoningDetail: { status: "complete", reasoningTurnId: "playground-reasoning-turn" },
+      codexReasoningDetail: {
+        status: "complete",
+        reasoningTurnId: "playground-reasoning-turn",
+      },
     },
   },
   {
@@ -216,7 +253,10 @@ const transcriptMessages: ChatMessage[] = [
     timestamp: Date.now() - 18_000,
     metadata: {
       codexSubagent: PLAYGROUND_OWNERSHIP,
-      codexReasoningDetail: { status: "complete", reasoningTurnId: "playground-reasoning-turn" },
+      codexReasoningDetail: {
+        status: "complete",
+        reasoningTurnId: "playground-reasoning-turn",
+      },
     },
   },
   {
@@ -224,7 +264,12 @@ const transcriptMessages: ChatMessage[] = [
     role: "assistant",
     content: "",
     contentBlocks: [
-      { type: "tool_use", id: "playground-read-tool", name: "Read", input: { file_path: "src/example.ts" } },
+      {
+        type: "tool_use",
+        id: "playground-read-tool",
+        name: "Read",
+        input: { file_path: "src/example.ts" },
+      },
       {
         type: "tool_result",
         tool_use_id: "playground-read-tool",
@@ -236,6 +281,63 @@ const transcriptMessages: ChatMessage[] = [
     metadata: { codexSubagent: PLAYGROUND_OWNERSHIP },
   },
 ];
+
+function playgroundHistoryMessage(
+  childId: string,
+  rootTurnId: string,
+  id: string,
+  content: string,
+  timestamp: number,
+): BrowserIncomingMessage {
+  return {
+    type: "user_message",
+    id,
+    content,
+    timestamp,
+    codexSubagent: { childId, rootTurnId },
+  };
+}
+
+async function loadPlaygroundHistory({
+  childId,
+  cursor,
+  signal,
+}: FetchCodexNativeSubagentHistoryOptions): Promise<CodexNativeSubagentHistoryPage> {
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  const child = snapshot.children.find((candidate) => candidate.childId === childId) ?? snapshot.children[0]!;
+  const rootTurnId = child.rootTurnId;
+  const partial = child.transcriptAvailability !== "available";
+  if (cursor === PLAYGROUND_HISTORY_CURSOR) {
+    return {
+      messages: Array.from({ length: 12 }, (_, index) =>
+        playgroundHistoryMessage(
+          childId,
+          rootTurnId,
+          `${childId}-older-${index + 1}`,
+          index === 0 ? "Oldest loaded child message" : `Older child message ${index + 1}`,
+          Date.now() - (120 - index * 3) * 1_000,
+        ),
+      ),
+      nextCursor: null,
+      availability: partial ? "partial" : "available",
+      coverage: partial ? "partial" : "complete",
+    };
+  }
+  return {
+    messages: Array.from({ length: 18 }, (_, index) =>
+      playgroundHistoryMessage(
+        childId,
+        rootTurnId,
+        `${childId}-recent-${index + 1}`,
+        index === 17 ? "Newest child message at the bottom of the transcript" : `Recent child message ${index + 1}`,
+        Date.now() - (54 - index * 3) * 1_000,
+      ),
+    ),
+    nextCursor: PLAYGROUND_HISTORY_CURSOR,
+    availability: partial ? "partial" : "available",
+    coverage: partial ? "partial" : "complete",
+  };
+}
 
 function playgroundSession(
   sessionId = SESSION_ID,
@@ -388,10 +490,17 @@ export function PlaygroundCodexSubagentStates() {
           onClick={() => openInspector(SESSION_ID, { scopeTurnId: SETTLED_TURN })}
           className="min-h-10 rounded-lg border border-cc-border bg-cc-card px-4 text-xs font-medium text-cc-fg hover:bg-cc-hover"
         >
-          Open partial turn inspector
+          Open many-child inspector list
+        </button>
+        <button
+          type="button"
+          onClick={() => openInspector(SESSION_ID, { selectedChildId: "csa-playground-2" })}
+          className="min-h-10 rounded-lg border border-cc-border bg-cc-card px-4 text-xs font-medium text-cc-fg hover:bg-cc-hover"
+        >
+          Open paged partial transcript
         </button>
       </div>
-      <CodexSubagentInspector sessionId={SESSION_ID} />
+      <CodexSubagentInspector sessionId={SESSION_ID} loadHistoryPage={loadPlaygroundHistory} />
     </Section>
   );
 }
