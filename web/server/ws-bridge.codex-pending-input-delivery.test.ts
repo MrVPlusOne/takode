@@ -807,6 +807,204 @@ describe("Codex pending input delivery", () => {
     );
   });
 
+  it("restores a completed acknowledged owner without replay and dispatches its queued successor once", async () => {
+    // A pre-upgrade server can persist an acknowledged original dispatch even
+    // after substantial model activity, with a later continuation still
+    // queued behind it. Reconnect must use that owner-scoped activity as proof
+    // of delivery instead of sending the completed instruction again.
+    const sid = "s-codex-restored-completed-owner";
+    const originalOwnerId = "original-completed-owner";
+    const continuationOwnerId = "queued-continuation-owner";
+    const originalContent = "finish the already completed work";
+    const continuationContent = "continue only the remaining follow-up";
+    const initial = bridge.getOrCreateSession(sid, "codex");
+
+    store.saveSync({
+      id: sid,
+      state: initial.state,
+      messageHistory: [
+        {
+          type: "user_message",
+          id: originalOwnerId,
+          content: originalContent,
+          timestamp: 1_000,
+        },
+        {
+          type: "assistant",
+          message: {
+            id: "completed-owner-tool",
+            type: "message",
+            role: "assistant",
+            model: "gpt-5.6-sol",
+            content: [{ type: "tool_use", id: "tool-completed-owner", name: "Read", input: { file_path: "a.ts" } }],
+            stop_reason: null,
+            usage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+          parent_tool_use_id: null,
+          timestamp: 1_100,
+        },
+        {
+          type: "assistant",
+          message: {
+            id: "completed-owner-response",
+            type: "message",
+            role: "assistant",
+            model: "gpt-5.6-sol",
+            content: [{ type: "text", text: "The original work is complete." }],
+            stop_reason: null,
+            usage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+          parent_tool_use_id: null,
+          timestamp: 1_200,
+        },
+      ],
+      pendingMessages: [],
+      pendingCodexInputs: [
+        {
+          id: continuationOwnerId,
+          content: continuationContent,
+          deliveryContent: continuationContent,
+          timestamp: 1_300,
+          cancelable: true,
+          draftImages: [],
+        },
+      ],
+      pendingCodexTurns: [
+        {
+          adapterMsg: {
+            type: "codex_start_pending",
+            pendingInputIds: [originalOwnerId],
+            inputs: [{ content: originalContent }],
+          },
+          userMessageId: originalOwnerId,
+          pendingInputIds: [originalOwnerId],
+          userContent: originalContent,
+          historyIndex: 0,
+          status: "backend_acknowledged",
+          dispatchCount: 8,
+          createdAt: 1_000,
+          updatedAt: 1_250,
+          acknowledgedAt: 1_050,
+          turnTarget: "current",
+          lastError: null,
+          turnId: "turn-original-completed",
+          disconnectedAt: null,
+          resumeConfirmedAt: null,
+          autoPauseSourceKind: "manual",
+        },
+        {
+          adapterMsg: {
+            type: "codex_start_pending",
+            pendingInputIds: [continuationOwnerId],
+            inputs: [{ content: continuationContent }],
+          },
+          userMessageId: continuationOwnerId,
+          pendingInputIds: [continuationOwnerId],
+          userContent: continuationContent,
+          historyIndex: -1,
+          status: "queued",
+          dispatchCount: 0,
+          createdAt: 1_300,
+          updatedAt: 1_300,
+          acknowledgedAt: null,
+          turnTarget: null,
+          lastError: null,
+          turnId: null,
+          disconnectedAt: null,
+          resumeConfirmedAt: null,
+          autoPauseSourceKind: "manual",
+        },
+      ],
+      pendingPermissions: [],
+    });
+    await store.flushAll();
+
+    const restored = attachBoardFacade(new WsBridge());
+    restored.setStore(store);
+    await restored.restoreFromDisk();
+
+    const adapter = makeCodexAdapterMock();
+    restored.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-restored-completed-owner" });
+    await Promise.resolve();
+
+    const startMessages = adapter.sendBrowserMessage.mock.calls
+      .map((args: any[]) => args[0])
+      .filter((msg: any) => msg?.type === "codex_start_pending");
+    expect(startMessages).toHaveLength(1);
+    expect(getCodexStartPendingInputs(startMessages[0]).map((input) => input.content)).toEqual([continuationContent]);
+    expect(JSON.stringify(startMessages)).not.toContain(originalContent);
+
+    const restoredSession = restored.getSession(sid)!;
+    expect(restoredSession.pendingCodexTurns).toEqual([
+      expect.objectContaining({
+        userMessageId: continuationOwnerId,
+        status: "dispatched",
+        dispatchCount: 1,
+      }),
+    ]);
+    expect(restoredSession.codexPendingDeliveryProofSignals).toEqual([
+      expect.objectContaining({
+        kind: "resume_snapshot",
+        turnId: "turn-original-completed",
+        classification: expect.stringContaining("retry_suppressed_model_activity"),
+      }),
+    ]);
+
+    // Repeated session metadata cannot resurrect or redispatch the retired
+    // owner while the legitimate continuation is waiting for acknowledgement.
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-restored-completed-owner" });
+    await Promise.resolve();
+    expect(
+      adapter.sendBrowserMessage.mock.calls.filter((args) => args[0]?.type === "codex_start_pending"),
+    ).toHaveLength(1);
+
+    adapter.emitTurnStarted("turn-queued-continuation");
+    await Promise.resolve();
+    adapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "continuation completed",
+        duration_ms: 1,
+        duration_api_ms: 1,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "completed",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        uuid: "result-queued-continuation",
+        session_id: sid,
+        codex_turn_id: "turn-queued-continuation",
+      },
+    });
+    await Promise.resolve();
+
+    const committedUserMessages = restoredSession.messageHistory.filter(
+      (message: any) => message.type === "user_message",
+    );
+    expect(committedUserMessages.filter((message: any) => message.content === originalContent)).toHaveLength(1);
+    expect(committedUserMessages.filter((message: any) => message.content === continuationContent)).toHaveLength(1);
+    expect(restoredSession.pendingCodexInputs).toHaveLength(0);
+    expect(restoredSession.pendingCodexTurns).toHaveLength(0);
+  });
+
   it("pokes a stale acknowledged pending-delivery head before a leader-injected follow-up", async () => {
     const sid = "s-codex-stale-leader-poke";
     const adapter = makeCodexAdapterMock();
