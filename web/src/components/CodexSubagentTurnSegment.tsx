@@ -36,12 +36,9 @@ export function CodexSubagentTurnSegment({
   const aggregate = useStore((state) => state.sessions.get(sessionId)?.codex_native_subagents?.turns[turnId]);
   const openInspector = useStore((state) => state.openCodexSubagentInspector);
 
-  if (!aggregate || (aggregate.coverage === "complete" && aggregate.total === 0)) return null;
+  if (!aggregate || aggregate.total === 0) return null;
 
-  const countLabel =
-    aggregate.total > 0
-      ? `${aggregate.total}${aggregate.coverage === "partial" ? "+" : ""} Codex subagent${aggregate.total === 1 ? "" : "s"}`
-      : "Codex subagents";
+  const countLabel = `${aggregate.total}${aggregate.coverage === "partial" ? "+" : ""} Codex subagent${aggregate.total === 1 ? "" : "s"}`;
   const statusLabel = STATUS_LABELS[aggregate.status];
   const coverageLabel = aggregate.coverage === "partial" ? "Coverage partial." : "Coverage complete.";
 

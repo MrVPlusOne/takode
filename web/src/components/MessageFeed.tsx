@@ -17,6 +17,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
 import { ElapsedTimer, FeedStatusPill, PendingCodexInputList, PendingUserUploadList } from "./MessageFeedStatus.js";
 import { FeedFooter, TurnEntries } from "./MessageFeedEntries.js";
+import { MessageFeedTopControls } from "./MessageFeedTopControls.js";
 import {
   SAVE_THREAD_VIEWPORT_EVENT,
   type FeedViewportPosition,
@@ -28,7 +29,6 @@ import {
   CodexTerminalInspector,
   LiveCodexTerminalStub,
   LiveDurationBadge,
-  LiveActivityRail,
   collectCodexTerminalEntries,
   collectLiveSubagentEntries,
   getCodexTerminalRevealAt,
@@ -140,6 +140,7 @@ export function MessageFeed({
   onJumpToLatestReady,
   onSelectThread,
   additionalAttentionRecords = EMPTY_ATTENTION_RECORDS,
+  showCodexSubagentControl = true,
 }: {
   sessionId: string;
   threadKey?: string;
@@ -150,6 +151,7 @@ export function MessageFeed({
   onJumpToLatestReady?: ((scrollToLatest: (() => void) | null) => void) | undefined;
   onSelectThread?: (threadKey: string) => void;
   additionalAttentionRecords?: ReadonlyArray<SessionAttentionRecord>;
+  showCodexSubagentControl?: boolean;
 }) {
   const allMessages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_MESSAGES);
   const historyLoading = useStore((s) => s.historyLoading.get(sessionId) ?? false);
@@ -1777,8 +1779,23 @@ export function MessageFeed({
 
   const centeredFeedStatusClearancePx =
     floatingStatusHeight > 0 ? floatingStatusHeight + CENTERED_FEED_STATUS_CLEARANCE_GAP_PX : 0;
+  const feedTopControls = (
+    <MessageFeedTopControls
+      sessionId={sessionId}
+      terminals={visibleCodexTerminalRailEntries}
+      subagents={visibleLiveSubagentEntries}
+      selectedToolUseId={selectedCodexTerminalId}
+      onSelect={setSelectedCodexTerminalId}
+      onSelectSubagent={(taskToolUseId, turnId) => scrollToFeedBlock(getSubagentFeedBlockId(taskToolUseId), turnId)}
+      onDismissSubagent={(taskToolUseId, freshnessToken) => {
+        setDismissedSubagentChips((prev) => new Map(prev).set(taskToolUseId, freshnessToken));
+      }}
+      showCodexSubagents={showCodexSubagentControl}
+    />
+  );
   const renderCenteredFeedState = (content: ReactNode) => (
     <div className="relative flex-1 min-h-0 overflow-hidden">
+      {feedTopControls}
       <div
         data-testid="message-feed-centered-state"
         className="flex h-full flex-col items-center justify-center gap-4 select-none px-6"
@@ -1915,24 +1932,7 @@ export function MessageFeed({
           onSelectThread={onSelectThread}
         />
 
-        {(visibleCodexTerminalRailEntries.length > 0 || visibleLiveSubagentEntries.length > 0) && (
-          <LiveActivityRail
-            terminals={visibleCodexTerminalRailEntries}
-            subagents={visibleLiveSubagentEntries}
-            selectedToolUseId={selectedCodexTerminalId}
-            onSelect={setSelectedCodexTerminalId}
-            onSelectSubagent={(taskToolUseId, turnId) => {
-              scrollToFeedBlock(getSubagentFeedBlockId(taskToolUseId), turnId);
-            }}
-            onDismissSubagent={(taskToolUseId, freshnessToken) => {
-              setDismissedSubagentChips((prev) => {
-                const next = new Map(prev);
-                next.set(taskToolUseId, freshnessToken);
-                return next;
-              });
-            }}
-          />
-        )}
+        {feedTopControls}
 
         {isCodexSession && selectedCodexTerminal && (
           <CodexTerminalInspector

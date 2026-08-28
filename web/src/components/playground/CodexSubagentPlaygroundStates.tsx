@@ -6,15 +6,30 @@ import type {
 import type { ChatMessage, SessionState } from "../../types.js";
 import { useStore } from "../../store.js";
 import { CodexSubagentFeedControl } from "../CodexSubagentFeedControl.js";
+import type { CodexTerminalEntry } from "../MessageFeedLiveActivity.js";
+import { MessageFeedTopControls } from "../MessageFeedTopControls.js";
 import { CodexSubagentInspector } from "../CodexSubagentInspector.js";
 import { CodexSubagentTranscript } from "../CodexSubagentTranscript.js";
 import { CodexSubagentTurnSegment } from "../CodexSubagentTurnSegment.js";
 import { Card, Section } from "./shared.js";
 
 const SESSION_ID = "playground-codex-native-subagents";
+const MISSING_SESSION_ID = "playground-codex-native-subagents-missing";
+const COMPLETE_ZERO_SESSION_ID = "playground-codex-native-subagents-complete-zero";
+const PARTIAL_ZERO_SESSION_ID = "playground-codex-native-subagents-partial-zero";
+const UNKNOWN_CHILD_SESSION_ID = "playground-codex-native-subagents-unknown-child";
 const ACTIVE_TURN = "playground-turn-active";
 const SETTLED_TURN = "playground-turn-settled";
 const PLAYGROUND_OWNERSHIP = { childId: "csa-playground-1", rootTurnId: ACTIVE_TURN };
+const PLAYGROUND_TERMINAL: CodexTerminalEntry = {
+  toolUseId: "playground-live-terminal",
+  input: { command: "bun test" },
+  timestamp: Date.now() - 12_000,
+  preview: "bun test",
+  result: null,
+  progress: { elapsedSeconds: 12 },
+};
+const NOOP = () => {};
 
 function counts(values: Partial<CodexNativeSubagentStatusCounts>): CodexNativeSubagentStatusCounts {
   return {
@@ -139,6 +154,42 @@ const snapshot: CodexNativeSubagentSnapshot = {
   ],
 };
 
+const unknownChildSnapshot: CodexNativeSubagentSnapshot = {
+  revision: 8,
+  coverage: "partial",
+  session: {
+    total: 1,
+    statusCounts: counts({ unknown: 1 }),
+    activeCount: 0,
+    unresolvedCount: 1,
+  },
+  turns: {
+    [SETTLED_TURN]: {
+      rootTurnId: SETTLED_TURN,
+      total: 1,
+      statusCounts: counts({ unknown: 1 }),
+      status: "unknown",
+      coverage: "partial",
+    },
+  },
+  children: [snapshot.children[5]],
+};
+
+function emptySnapshot(coverage: CodexNativeSubagentSnapshot["coverage"]): CodexNativeSubagentSnapshot {
+  return {
+    revision: 1,
+    coverage,
+    session: {
+      total: 0,
+      statusCounts: counts({}),
+      activeCount: 0,
+      unresolvedCount: 0,
+    },
+    turns: {},
+    children: [],
+  };
+}
+
 const transcriptMessages: ChatMessage[] = [
   {
     id: "playground-child-message",
@@ -186,9 +237,12 @@ const transcriptMessages: ChatMessage[] = [
   },
 ];
 
-function playgroundSession(): SessionState {
+function playgroundSession(
+  sessionId = SESSION_ID,
+  nativeSnapshot: CodexNativeSubagentSnapshot | null = snapshot,
+): SessionState {
   return {
-    session_id: SESSION_ID,
+    session_id: sessionId,
     backend_type: "codex",
     model: "gpt-5.6",
     cwd: "",
@@ -211,7 +265,7 @@ function playgroundSession(): SessionState {
     git_behind: 0,
     total_lines_added: 0,
     total_lines_removed: 0,
-    codex_native_subagents: snapshot,
+    ...(nativeSnapshot ? { codex_native_subagents: nativeSnapshot } : {}),
   };
 }
 
@@ -222,6 +276,13 @@ export function PlaygroundCodexSubagentStates() {
     useStore.setState((state) => {
       const sessions = new Map(state.sessions);
       sessions.set(SESSION_ID, playgroundSession());
+      sessions.set(MISSING_SESSION_ID, {
+        ...playgroundSession(MISSING_SESSION_ID, null),
+        isOrchestrator: true,
+      });
+      sessions.set(COMPLETE_ZERO_SESSION_ID, playgroundSession(COMPLETE_ZERO_SESSION_ID, emptySnapshot("complete")));
+      sessions.set(PARTIAL_ZERO_SESSION_ID, playgroundSession(PARTIAL_ZERO_SESSION_ID, emptySnapshot("partial")));
+      sessions.set(UNKNOWN_CHILD_SESSION_ID, playgroundSession(UNKNOWN_CHILD_SESSION_ID, unknownChildSnapshot));
       return { sessions };
     });
     return () => {
@@ -229,6 +290,10 @@ export function PlaygroundCodexSubagentStates() {
       useStore.setState((state) => {
         const sessions = new Map(state.sessions);
         sessions.delete(SESSION_ID);
+        sessions.delete(MISSING_SESSION_ID);
+        sessions.delete(COMPLETE_ZERO_SESSION_ID);
+        sessions.delete(PARTIAL_ZERO_SESSION_ID);
+        sessions.delete(UNKNOWN_CHILD_SESSION_ID);
         return { sessions };
       });
     };
@@ -252,10 +317,63 @@ export function PlaygroundCodexSubagentStates() {
         </Card>
       </div>
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Card label="Feed-local session access — no message or composer overlap">
-          <div className="border-t border-cc-border bg-cc-bg">
-            <CodexSubagentFeedControl sessionId={SESSION_ID} />
-            <div className="px-4 pb-4 text-xs text-cc-muted">Chat content begins below the persistent control row.</div>
+        <Card label="Genuine child plus live activity — shared floating rail">
+          <div
+            className="relative min-h-32 overflow-hidden border-t border-cc-border bg-cc-bg"
+            data-testid="playground-codex-subagent-shared-rail"
+          >
+            <MessageFeedTopControls
+              sessionId={SESSION_ID}
+              terminals={[PLAYGROUND_TERMINAL]}
+              subagents={[]}
+              selectedToolUseId={null}
+              onSelect={NOOP}
+              onSelectSubagent={NOOP}
+              onDismissSubagent={NOOP}
+            />
+            <div className="max-w-md px-4 py-4 text-xs leading-relaxed text-cc-muted">
+              Chat content starts at the feed edge instead of below a reserved control row. Live activity and the
+              native-child chip share one collision-free overlay rail.
+              <div className="mt-3 rounded-lg border border-cc-border bg-cc-card p-3 text-cc-fg">
+                Representative first message content remains in the same vertical flow.
+              </div>
+            </div>
+          </div>
+        </Card>
+        <Card label="Missing and zero child data — controls hidden">
+          <div
+            className="grid gap-2 border-t border-cc-border bg-cc-bg p-3 text-xs text-cc-muted"
+            data-testid="playground-codex-subagent-hidden-states"
+          >
+            {[
+              [MISSING_SESSION_ID, "Missing snapshot"],
+              [COMPLETE_ZERO_SESSION_ID, "Complete zero"],
+              [PARTIAL_ZERO_SESSION_ID, "Partial zero"],
+            ].map(([sessionId, label]) => (
+              <div key={sessionId} className="relative min-h-12 rounded-lg border border-cc-border bg-cc-card p-3">
+                <CodexSubagentFeedControl sessionId={sessionId} />
+                {label}: no empty or unknown chip should appear.
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <Card label="Genuine unknown child — visible partial chip">
+          <div
+            className="relative min-h-24 overflow-hidden border-t border-cc-border bg-cc-bg p-4 text-xs text-cc-muted"
+            data-testid="playground-codex-subagent-unknown-child"
+          >
+            <MessageFeedTopControls
+              sessionId={UNKNOWN_CHILD_SESSION_ID}
+              terminals={[]}
+              subagents={[]}
+              selectedToolUseId={null}
+              onSelect={NOOP}
+              onSelectSubagent={NOOP}
+              onDismissSubagent={NOOP}
+            />
+            A verified child remains inspectable even when its lifecycle and transcript coverage are unresolved.
           </div>
         </Card>
         <Card label="Canonical child transcript surfaces">

@@ -17,7 +17,6 @@ import { api } from "../api.js";
 import { connectSession, sendToSession } from "../ws.js";
 import { formatWaitForRefLabel, getWaitForRefKind } from "../../shared/quest-journey.js";
 import { MessageFeed } from "./MessageFeed.js";
-import { CodexSubagentFeedControl } from "./CodexSubagentFeedControl.js";
 import { Composer } from "./Composer.js";
 import { SideChatPanel } from "./SideChatPanel.js";
 import {
@@ -1814,13 +1813,13 @@ export function ChatView({
                   currentSessionId={sessionId}
                 />
               )}
-              {!preview && <CodexSubagentFeedControl sessionId={sessionId} />}
               <MessageFeed
                 key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY)}`}
                 sessionId={sessionId}
                 threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
                 projectThreadRoutes={isLeaderSession}
                 onSelectThread={isLeaderSession ? handleSelectThread : undefined}
+                showCodexSubagentControl={!preview}
               />
             </div>
             {!preview && selectedSideChat && (

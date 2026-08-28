@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type {
   CodexNativeSubagentSnapshot,
+  CodexNativeSubagentStatus,
   CodexNativeSubagentStatusCounts,
 } from "../../shared/codex-native-subagent-types.js";
 import type { SessionState } from "../types.js";
@@ -18,6 +19,20 @@ const ZERO_COUNTS: CodexNativeSubagentStatusCounts = {
   interrupted: 0,
   unknown: 0,
 };
+
+function child(id: string, rootTurnId: string, status: CodexNativeSubagentStatus, spawnOrder: number) {
+  return {
+    childId: id,
+    rootTurnId,
+    agentPath: `/root/${id}`,
+    displayName: id,
+    depth: 1,
+    spawnOrder,
+    status,
+    statusObservedAt: spawnOrder,
+    transcriptAvailability: "available" as const,
+  };
+}
 
 function setNativeSnapshot(snapshot: CodexNativeSubagentSnapshot) {
   useStore.setState({
@@ -43,16 +58,21 @@ describe("CodexSubagentTurnSegment", () => {
   });
 
   it("opens a turn-scoped inspector from the native aggregate without conflating the generic count", () => {
+    const statusCounts = { ...ZERO_COUNTS, working: 1, done: 2 };
     setNativeSnapshot({
       revision: 4,
       coverage: "complete",
-      session: { total: 5, statusCounts: { ...ZERO_COUNTS, working: 1, done: 4 }, activeCount: 1, unresolvedCount: 0 },
-      children: [],
+      session: { total: 3, statusCounts, activeCount: 1, unresolvedCount: 0 },
+      children: [
+        child("probe", "turn-work", "working", 1),
+        child("done-a", "turn-work", "done", 2),
+        child("done-b", "turn-work", "done", 3),
+      ],
       turns: {
         "turn-work": {
           rootTurnId: "turn-work",
           total: 3,
-          statusCounts: { ...ZERO_COUNTS, working: 1, done: 2 },
+          statusCounts,
           status: "working",
           coverage: "complete",
         },
@@ -68,17 +88,18 @@ describe("CodexSubagentTurnSegment", () => {
     expect(useStore.getState().codexSubagentInspector).toEqual({ sessionId: "session-1", scopeTurnId: "turn-work" });
   });
 
-  it("marks a partial lower-bound count and never presents it as authoritative", () => {
+  it("marks a genuine partial lower-bound count and hides a partial zero", () => {
+    const statusCounts = { ...ZERO_COUNTS, unknown: 2 };
     setNativeSnapshot({
       revision: 5,
       coverage: "partial",
-      session: { total: 2, statusCounts: { ...ZERO_COUNTS, unknown: 2 }, activeCount: 0, unresolvedCount: 2 },
-      children: [],
+      session: { total: 2, statusCounts, activeCount: 0, unresolvedCount: 2 },
+      children: [child("unknown-a", "turn-partial", "unknown", 1), child("unknown-b", "turn-partial", "unknown", 2)],
       turns: {
         "turn-partial": {
           rootTurnId: "turn-partial",
           total: 2,
-          statusCounts: { ...ZERO_COUNTS, unknown: 2 },
+          statusCounts,
           status: "unknown",
           coverage: "partial",
         },
@@ -97,11 +118,10 @@ describe("CodexSubagentTurnSegment", () => {
     expect(screen.getByText("Partial")).toBeInTheDocument();
 
     view.rerender(<CodexSubagentTurnSegment sessionId="session-1" turnId="turn-no-verified-count" />);
-    expect(screen.getByText("Codex subagents")).toBeInTheDocument();
-    expect(screen.queryByText(/^0/)).toBeNull();
+    expect(view.container).toBeEmptyDOMElement();
   });
 
-  it("does not render for a missing or authoritatively empty turn", () => {
+  it("does not render for a missing or zero-child turn regardless of coverage", () => {
     setNativeSnapshot({
       revision: 1,
       coverage: "complete",

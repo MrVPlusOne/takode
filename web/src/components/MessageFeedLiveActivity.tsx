@@ -455,11 +455,8 @@ export function LiveActivityRail({
   if (visibleEntries.length === 0) return null;
 
   return (
-    <div
-      data-testid="live-activity-rail"
-      className="pointer-events-none absolute inset-x-2 top-2 z-10 flex justify-center sm:top-3 sm:inset-x-3"
-    >
-      <div className="pointer-events-auto flex w-full max-w-3xl justify-start">
+    <div data-testid="live-activity-rail" className="pointer-events-auto flex min-w-0 flex-1 justify-start">
+      <div className="flex min-w-0 w-full max-w-3xl justify-start">
         <div className="flex max-w-full items-center gap-1 overflow-x-auto scrollbar-hide rounded-[18px] border border-cc-border/80 bg-cc-bg/96 px-1.5 py-1 shadow-lg backdrop-blur-sm">
           {visibleEntries.map((entry) => {
             if (entry.kind === "terminal") {

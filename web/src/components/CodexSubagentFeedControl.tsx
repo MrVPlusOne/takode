@@ -14,25 +14,22 @@ export function CodexSubagentFeedControl({ sessionId }: { sessionId: string }) {
   if (session?.backend_type !== "codex") return null;
 
   const snapshot = session.codex_native_subagents;
-  const count = snapshot ? subagentCountLabel(snapshot.session.total, snapshot.coverage) : "?";
-  const status = !snapshot
-    ? "Unavailable"
-    : snapshot.session.activeCount > 0
+  // Coverage without a public child row is not an inspector destination. In
+  // particular, restored/leader sessions can legitimately carry a partial
+  // zero snapshot; rendering that as an unknown chip creates permanent noise.
+  if (!snapshot || snapshot.children.length === 0) return null;
+
+  const count = subagentCountLabel(snapshot.session.total, snapshot.coverage);
+  const status =
+    snapshot.session.activeCount > 0
       ? `${snapshot.session.activeCount} active`
       : snapshot.session.unresolvedCount > 0
         ? `${snapshot.session.unresolvedCount} unresolved`
-        : snapshot.session.total > 0
-          ? "History"
-          : snapshot.coverage === "partial"
-            ? "Unknown"
-            : "None";
-  const coverage = snapshot ? `${snapshot.coverage} coverage` : "Snapshot unavailable";
+        : "History";
+  const coverage = `${snapshot.coverage} coverage`;
 
   return (
-    <div
-      className="pointer-events-none flex shrink-0 justify-end px-2 pb-1 pt-2 sm:px-4"
-      data-testid="codex-subagent-feed-control-row"
-    >
+    <div className="pointer-events-auto ml-auto max-w-full shrink-0" data-testid="codex-subagent-feed-control-row">
       <button
         type="button"
         onClick={() => (inspectorOpen ? closeInspector() : openInspector(sessionId))}
