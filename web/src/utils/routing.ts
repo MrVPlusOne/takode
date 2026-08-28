@@ -226,6 +226,28 @@ function routeTargetsSession(sessionRef: string, sessionId: string): boolean {
 }
 
 /**
+ * Retire the current message-level route after deliberate viewport movement.
+ * The initial deep link remains fully functional, but replacing its history
+ * entry prevents a later passive browser-history return from re-arming it.
+ */
+export function retireSessionMessageRoute(sessionId: string, threadKey?: string): boolean {
+  const route = parseHash(window.location.hash);
+  if (route.page !== "session" || !routeTargetsSession(route.sessionId, sessionId)) return false;
+  const routeThread = threadRouteFromHash(window.location.hash);
+  if (threadKey && routeThread.hasThreadParam && routeThread.threadKey !== normalizeThreadKey(threadKey)) return false;
+  const { params } = splitHash(window.location.hash);
+  if (route.messageId == null && route.messageIndex == null && !params.has("msg")) return false;
+
+  params.delete("msg");
+  const baseHash = sessionHash(route.sessionId);
+  const query = params.toString();
+  const nextHash = query ? `${baseHash}?${query}` : baseHash;
+  history.replaceState(null, "", nextHash);
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+  return true;
+}
+
+/**
  * Navigate within a leader session to Main, All Threads, or a quest thread.
  * Preserves the current session route shape and query params when already on a
  * session URL, so numeric session routes and quest overlays remain stable.

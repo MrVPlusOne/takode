@@ -348,6 +348,7 @@ vi.mock("./utils/vscode-bridge.js", () => ({
 import App from "./App.js";
 import { hydrateSessionList } from "./session-list-hydration.js";
 import { resetSessionGitStatusAutoRefreshForTest } from "./utils/session-git-status-auto-refresh.js";
+import { retireSessionMessageRoute } from "./utils/routing.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -819,6 +820,56 @@ describe("App hidden panels", () => {
     expect(mockState.requestScrollToMessage).toHaveBeenCalledTimes(1);
     expect(mockState.setPendingScrollToMessageId).toHaveBeenCalledTimes(1);
     expect(mockState.setExpandAllInTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-arm a retired search route on Browser Back but allows a fresh reopen", async () => {
+    const sdkSessions = [
+      {
+        sessionId: "s1",
+        createdAt: 1,
+        archived: false,
+        cwd: "/repo/s1",
+        backendType: "codex" as const,
+        sessionNum: 123,
+        isOrchestrator: true,
+      },
+      {
+        sessionId: "s2",
+        createdAt: 2,
+        archived: false,
+        cwd: "/repo/s2",
+        backendType: "codex" as const,
+        sessionNum: 456,
+        isOrchestrator: true,
+      },
+    ];
+    resetStore({
+      currentSessionId: null,
+      sdkSessions,
+      sessions: new Map([
+        ["s1", { backend_type: "codex", isOrchestrator: true } as any],
+        ["s2", { backend_type: "codex", isOrchestrator: true } as any],
+      ]),
+    });
+    history.replaceState(null, "", "#/session/123/msg/stable-search-target?thread=main");
+
+    render(<App />);
+
+    await waitFor(() => expect(mockState.requestScrollToMessage).toHaveBeenCalledTimes(1));
+    expect(retireSessionMessageRoute("s1", "main")).toBe(true);
+    expect(window.location.hash).toBe("#/session/123?thread=main");
+    const consumedRequestCount = mockState.requestScrollToMessage.mock.calls.length;
+
+    window.location.hash = "/session/456";
+    await waitFor(() => expect(screen.getByTestId("chat-view")).toHaveAttribute("data-session-id", "s2"));
+    history.back();
+    await waitFor(() => expect(window.location.hash).toBe("#/session/123?thread=main"));
+    await waitFor(() => expect(screen.getByTestId("chat-view")).toHaveAttribute("data-session-id", "s1"));
+    expect(mockState.requestScrollToMessage).toHaveBeenCalledTimes(consumedRequestCount);
+
+    window.location.hash = "/session/123/msg/stable-search-target?thread=main";
+    await waitFor(() => expect(mockState.requestScrollToMessage).toHaveBeenCalledTimes(consumedRequestCount + 1));
+    expect(mockState.setPendingScrollToMessageId).toHaveBeenLastCalledWith("s1", "stable-search-target");
   });
 
   it("starts a cheap git status refresh when switching to a worktree session", async () => {

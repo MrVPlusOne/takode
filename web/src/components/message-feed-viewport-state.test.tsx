@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
-import { useExactViewportRestore, useIdempotentState } from "./message-feed-viewport-state.js";
+import { useStore } from "../store.js";
+import {
+  useExactViewportRestore,
+  useIdempotentState,
+  useUserViewportNavigationIntent,
+} from "./message-feed-viewport-state.js";
 
 describe("useIdempotentState", () => {
   it("does not rerender for repeated same-value boolean writes", () => {
@@ -62,5 +67,29 @@ describe("useExactViewportRestore", () => {
 
     expect(result.current[0].current).toBeNull();
     expect(restoredViewportRef.current).toEqual({ key: pending.restoreKey, container });
+  });
+});
+
+describe("useUserViewportNavigationIntent", () => {
+  it("retires route ownership and clears every pending message target", () => {
+    useStore.getState().reset();
+    useStore.setState({
+      scrollToMessageId: new Map([["s1", "search-target"]]),
+      pendingScrollToMessageId: new Map([["s1", "search-target"]]),
+      pendingScrollToMessageIndex: new Map([["s1", 42]]),
+      expandAllInTurn: new Map([["s1", "search-target"]]),
+    });
+    window.location.hash = "#/session/s1/msg/search-target?thread=main";
+    const cancelPendingRestore = vi.fn();
+    const { result } = renderHook(() => useUserViewportNavigationIntent(cancelPendingRestore, "s1", "main"));
+
+    act(() => result.current());
+
+    expect(cancelPendingRestore).toHaveBeenCalledTimes(1);
+    expect(window.location.hash).toBe("#/session/s1?thread=main");
+    expect(useStore.getState().scrollToMessageId.has("s1")).toBe(false);
+    expect(useStore.getState().pendingScrollToMessageId.has("s1")).toBe(false);
+    expect(useStore.getState().pendingScrollToMessageIndex.has("s1")).toBe(false);
+    expect(useStore.getState().expandAllInTurn.has("s1")).toBe(false);
   });
 });

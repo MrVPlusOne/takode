@@ -74,9 +74,10 @@ vi.mock("../store.js", () => {
       toggleTurnActivity: vi.fn(),
       scrollToTurnId: new Map(),
       clearScrollToTurn: vi.fn(),
-      scrollToMessageId: new Map(),
-      pendingScrollToMessageId: new Map(),
+      scrollToMessageId: mockStoreValues.scrollToMessageId ?? new Map(),
+      pendingScrollToMessageId: mockStoreValues.pendingScrollToMessageId ?? new Map(),
       clearScrollToMessage: vi.fn(),
+      clearPendingScrollToMessageId: vi.fn(),
       expandAllInTurn: new Map(),
       clearExpandAllInTurn: vi.fn(),
       bottomAlignNextUserMessage: new Set(),
@@ -106,6 +107,10 @@ vi.mock("../store.js", () => {
     focusTurn: vi.fn(),
     keepTurnExpanded: vi.fn(),
     clearBottomAlignOnNextUserMessage: vi.fn(),
+    clearScrollToMessage: vi.fn(),
+    clearPendingScrollToMessageId: vi.fn(),
+    clearPendingScrollToMessageIndex: vi.fn(),
+    clearExpandAllInTurn: vi.fn(),
     setComposerDraft: vi.fn(),
     removePendingUserUpload: vi.fn(),
     updatePendingUserUpload: vi.fn(),
@@ -177,6 +182,8 @@ beforeEach(() => {
   mockStoreValues.sessions = new Map();
   mockStoreValues.sdkSessions = [];
   mockStoreValues.threadWindows = new Map();
+  mockStoreValues.scrollToMessageId = new Map();
+  mockStoreValues.pendingScrollToMessageId = new Map();
   mockStoreValues.threadWindowMessages = new Map();
   mockStoreValues.threadWindowRefreshRevisions = new Map();
   mockStoreValues.threadWindowAppliedRevisions = new Map();
@@ -485,6 +492,153 @@ describe("MessageFeed thread viewport restoration", () => {
       expect(readLeaderViewportPosition(sid, "main")?.anchorMessageId).toBe("msg-130");
     } finally {
       vi.stubGlobal("requestAnimationFrame", immediateRequestAnimationFrame);
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
+      else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;
+      if (originalScrollTop) Object.defineProperty(HTMLDivElement.prototype, "scrollTop", originalScrollTop);
+      else delete (HTMLDivElement.prototype as { scrollTop?: unknown }).scrollTop;
+      if (originalClientHeight) Object.defineProperty(HTMLDivElement.prototype, "clientHeight", originalClientHeight);
+      else delete (HTMLDivElement.prototype as { clientHeight?: unknown }).clientHeight;
+    }
+  });
+
+  it("retires a search message route only after deliberate viewport movement", async () => {
+    // Universal Search can target a stable message outside the latest bounded
+    // Main window. The route owns the initial target-centered hydration and
+    // flash, then deliberate movement replaces that history entry so a passive
+    // Browser Back return restores the newly saved stable anchor instead.
+    const sid = "test-search-route-user-scroll-retirement";
+    const makeWindowMessages = (first: number, last: number) =>
+      Array.from({ length: last - first + 1 }, (_, index) => {
+        const ordinal = first + index;
+        return makeMessage({
+          id: ordinal === 45 ? "search-target" : ordinal === 55 ? "manual-anchor" : `main-${ordinal}`,
+          role: "user",
+          content: ordinal === 45 ? "Searched message" : ordinal === 55 ? "Later reading position" : `Main ${ordinal}`,
+          historyIndex: ordinal - 1,
+          timestamp: ordinal,
+        });
+      });
+    const latestWindow = makeWindowMessages(102, 131);
+    const targetWindow = makeWindowMessages(30, 59);
+    const makeMainWindow = (fromItem: number, hasNewerItems: boolean) =>
+      makeThreadWindow({
+        thread_key: "main",
+        from_item: fromItem,
+        item_count: 30,
+        total_items: 131,
+        has_older_items: fromItem > 0,
+        has_newer_items: hasNewerItems,
+        source_history_length: 131,
+      });
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollHeight");
+    const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollTop");
+    const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "clientHeight");
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    let scrollTopValue = 10_500;
+    Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 13_500 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "clientHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 600 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "scrollTop", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? scrollTopValue : 0;
+      },
+      set(value) {
+        if (this.classList.contains("overflow-y-auto")) scrollTopValue = value as number;
+      },
+    });
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this instanceof HTMLElement && this.dataset.messageId) {
+        const id = this.dataset.messageId;
+        const ordinal = id === "search-target" ? 45 : id === "manual-anchor" ? 55 : Number(id.slice("main-".length));
+        if (Number.isFinite(ordinal)) {
+          return DOMRect.fromRect({ x: 0, y: ordinal * 100 - scrollTopValue, width: 600, height: 80 });
+        }
+      }
+      if (this instanceof HTMLDivElement && this.classList.contains("overflow-y-auto")) {
+        return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 600 });
+      }
+      return originalRect.call(this);
+    };
+
+    try {
+      setStoreMessages(sid, []);
+      mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+      mockStoreValues.threadWindows = new Map([[sid, new Map([["main", makeMainWindow(101, false)]])]]);
+      mockStoreValues.threadWindowMessages = new Map([[sid, new Map([["main", latestWindow]])]]);
+      mockStoreValues.threadWindowAppliedRevisions = new Map([[sid, new Map([["main", 1]])]]);
+      mockStoreValues.scrollToMessageId = new Map([[sid, "search-target"]]);
+      mockStoreValues.pendingScrollToMessageId = new Map([[sid, "search-target"]]);
+      window.location.hash = `#/session/${sid}/msg/search-target?thread=main&quest=q-7`;
+
+      const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
+      await waitFor(() =>
+        expect(mockSendToSession).toHaveBeenCalledWith(
+          sid,
+          expect.objectContaining({ target_message_id: "search-target", type: "thread_window_request" }),
+        ),
+      );
+      expect(screen.queryByText("Searched message")).toBeNull();
+
+      mockStoreValues.threadWindows = new Map([[sid, new Map([["main", makeMainWindow(29, true)]])]]);
+      mockStoreValues.threadWindowMessages = new Map([[sid, new Map([["main", targetWindow]])]]);
+      mockStoreValues.threadWindowAppliedRevisions = new Map([[sid, new Map([["main", 2]])]]);
+      view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
+
+      const targetRow = screen.getByText("Searched message").closest<HTMLElement>("[data-message-id]");
+      await waitFor(() => expect(targetRow?.classList.contains("message-scroll-highlight")).toBe(true));
+      const container = screen.getByTestId("message-feed-scroll-container");
+      const historyLength = history.length;
+      fireEvent.scroll(container);
+      expect(window.location.hash).toContain("/msg/search-target");
+
+      fireEvent.wheel(container, { deltaY: 120 });
+      scrollTopValue = 5_500;
+      fireEvent.scroll(container);
+      expect(window.location.hash).toBe(`#/session/${sid}?thread=main&quest=q-7`);
+      expect(history.length).toBe(historyLength);
+      mockStoreValues.scrollToMessageId = new Map();
+      mockStoreValues.pendingScrollToMessageId = new Map();
+      view.unmount();
+      expect(readLeaderViewportPosition(sid, "main")?.anchorMessageId).toBe("manual-anchor");
+
+      window.location.hash = "/session/other";
+      history.back();
+      await waitFor(() => expect(window.location.hash).toBe(`#/session/${sid}?thread=main&quest=q-7`));
+      mockSendToSession.mockClear();
+      scrollTopValue = 10_500;
+      mockStoreValues.threadWindows = new Map([[sid, new Map([["main", makeMainWindow(101, false)]])]]);
+      mockStoreValues.threadWindowMessages = new Map([[sid, new Map([["main", latestWindow]])]]);
+      mockStoreValues.threadWindowAppliedRevisions = new Map([[sid, new Map([["main", 3]])]]);
+      const returned = render(<MessageFeed sessionId={sid} threadKey="main" />);
+      await waitFor(() =>
+        expect(mockSendToSession).toHaveBeenCalledWith(
+          sid,
+          expect.objectContaining({ target_message_id: "manual-anchor", type: "thread_window_request" }),
+        ),
+      );
+      expect(mockSendToSession).not.toHaveBeenCalledWith(
+        sid,
+        expect.objectContaining({ target_message_id: "search-target" }),
+      );
+
+      mockStoreValues.threadWindows = new Map([[sid, new Map([["main", makeMainWindow(29, true)]])]]);
+      mockStoreValues.threadWindowMessages = new Map([[sid, new Map([["main", targetWindow]])]]);
+      mockStoreValues.threadWindowAppliedRevisions = new Map([[sid, new Map([["main", 4]])]]);
+      returned.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
+      await waitFor(() => expect(scrollTopValue).toBe(5_500));
+      expect(screen.getByText("Later reading position")).toBeTruthy();
+    } finally {
       HTMLElement.prototype.getBoundingClientRect = originalRect;
       if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
       else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;

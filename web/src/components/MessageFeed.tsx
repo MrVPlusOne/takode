@@ -1,15 +1,4 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useMemo,
-  useState,
-  useCallback,
-  memo,
-  type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useMemo, useState, useCallback, memo, type ReactNode } from "react";
 import { useStore } from "../store.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils/herd-event-parser.js";
 import { ToolBlock, getPreview, getToolIcon, getToolLabel, ToolIcon, formatDuration } from "./ToolBlock.js";
@@ -82,6 +71,7 @@ import {
   useIdempotentState,
   useExactViewportRestore,
   useViewportBoundaryNavigation,
+  useUserViewportNavigationIntent,
 } from "./message-feed-viewport-state.js";
 import { useMessageFeedSectionWindowLoaders } from "./message-feed-section-window-loaders.js";
 import { useMessageFeedBoundedConversation } from "./message-feed-bounded-conversation.js";
@@ -96,6 +86,7 @@ import {
   getSavedViewportTargetMessageId,
 } from "./message-feed-route-target.js";
 import { findMessageFeedScrollTarget, scrollMessageFeedTargetIntoView } from "./message-feed-target-scroll.js";
+import { useMessageFeedManualScrollHandlers } from "./message-feed-manual-scroll.js";
 import * as viewportAnchor from "./message-feed-viewport-anchor.js";
 import { markHistoryReceiveRenderCommitted } from "../utils/frontend-perf-recorder.js";
 import { MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
@@ -191,10 +182,7 @@ export function MessageFeed({
     selectedThreadWindowRevision < threadWindowRefreshRevision;
   const scrollToMessageId = useStore((s) => s.scrollToMessageId.get(sessionId));
   const pendingScrollToMessageId = useStore((s) => s.pendingScrollToMessageId?.get(sessionId));
-  const routeScrollToMessageId = useMemo(
-    () => getRouteMessageTargetForThread(normalizedThreadKey),
-    [normalizedThreadKey],
-  );
+  const routeScrollToMessageId = getRouteMessageTargetForThread(normalizedThreadKey);
   const savedViewportTargetMessageId = getSavedViewportTargetMessageId(savedScrollPos);
   const [pendingInitialThreadWindowKey, setPendingInitialThreadWindowKey] = useState<string | null>(null);
   const connectionStatus = useStore((s) => s.connectionStatus?.get(sessionId) ?? "disconnected");
@@ -298,6 +286,11 @@ export function MessageFeed({
   const pendingTargetWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
   const pendingViewportAnchorWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
   const [exactRestoreRef, cancelExactRestore] = useExactViewportRestore(restoredViewportRef, containerRef);
+  const handleUserNavigationIntent = useUserViewportNavigationIntent(
+    cancelExactRestore,
+    sessionId,
+    normalizedThreadKey,
+  );
 
   useLayoutEffect(() => {
     markHistoryReceiveRenderCommitted(sessionId);
@@ -882,7 +875,7 @@ export function MessageFeed({
 
   const scrollToFeedBlock = useCallback(
     (blockId: string, turnId: string) => {
-      cancelExactRestore();
+      handleUserNavigationIntent();
       const sectionChanged = ensureSectionForTurnVisible(turnId);
       const scheduleScroll = () => {
         requestAnimationFrame(() => {
@@ -902,7 +895,7 @@ export function MessageFeed({
       }
       scheduleScroll();
     },
-    [cancelExactRestore, ensureSectionForTurnVisible],
+    [ensureSectionForTurnVisible, handleUserNavigationIntent],
   );
 
   const { historyWindowRevision, requestHistoryWindow } = useMessageFeedBoundedConversation({
@@ -928,7 +921,7 @@ export function MessageFeed({
     requestHistoryWindow,
     requestThreadWindow,
     setShowScrollButton,
-    onUserNavigationIntent: cancelExactRestore,
+    onUserNavigationIntent: handleUserNavigationIntent,
   });
 
   const triggerSectionLoadNearBoundary = useCallback(
@@ -1002,7 +995,7 @@ export function MessageFeed({
   );
 
   const [handleScrollToBottomClick, handleScrollToTopClick] = useViewportBoundaryNavigation({
-    cancelPendingRestore: cancelExactRestore,
+    cancelPendingRestore: handleUserNavigationIntent,
     containerRef,
     scrollToBottom,
   });
@@ -1026,7 +1019,7 @@ export function MessageFeed({
     ensureSectionForTurnVisible,
     scrollToFeedBlock,
     scrollToBottom,
-    onUserNavigationIntent: cancelExactRestore,
+    onUserNavigationIntent: handleUserNavigationIntent,
   });
 
   const navFabButtonClassName = isTouch
@@ -1223,6 +1216,7 @@ export function MessageFeed({
     const scrollingUp = currentScrollTop < lastScrollTopRef.current - 4;
     const scrollingDown = currentScrollTop > lastScrollTopRef.current + 4;
     if (!isProgrammaticScroll) {
+      if (scrollingUp || scrollingDown) handleKeyboardScroll();
       if (scrollingUp) {
         autoFollowEnabledRef.current = false;
       } else if (!nearBottom) {
@@ -1253,19 +1247,13 @@ export function MessageFeed({
     snapshotViewportAnchor(el);
   }
 
-  function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
-    const el = containerRef.current;
-    if (!el) return;
-    if (event.deltaY !== 0) cancelExactRestore();
-    if (event.deltaY < 0 && el.scrollTop <= SECTION_WINDOW_TRIGGER_PX) {
-      triggerSectionLoadNearBoundary("older");
-      return;
-    }
-    const realContentBottom = getRealContentBottom() ?? el.scrollHeight;
-    if (event.deltaY > 0 && realContentBottom - el.scrollTop - el.clientHeight <= SECTION_WINDOW_TRIGGER_PX) {
-      triggerSectionLoadNearBoundary("newer");
-    }
-  }
+  const { handleKeyboardScroll, handlePointerDown, handleTouchMove, handleWheel } = useMessageFeedManualScrollHandlers({
+    boundaryTriggerPx: SECTION_WINDOW_TRIGGER_PX,
+    containerRef,
+    getRealContentBottom,
+    onUserNavigationIntent: handleUserNavigationIntent,
+    triggerSectionLoadNearBoundary,
+  });
 
   useLayoutEffect(() => {
     if (showConversationLoading) return;
@@ -1527,7 +1515,7 @@ export function MessageFeed({
   const clearScrollToTurn = useStore((s) => s.clearScrollToTurn);
   useEffect(() => {
     if (!scrollToTurnId) return;
-    cancelExactRestore();
+    handleUserNavigationIntent();
     clearScrollToTurn(sessionId);
     autoFollowEnabledRef.current = false;
     const overrides = useStore.getState().turnActivityOverrides.get(sessionId);
@@ -1551,7 +1539,7 @@ export function MessageFeed({
       return;
     }
     scheduleScroll();
-  }, [cancelExactRestore, clearScrollToTurn, ensureSectionForTurnVisible, scrollToTurnId, sessionId]);
+  }, [clearScrollToTurn, ensureSectionForTurnVisible, handleUserNavigationIntent, scrollToTurnId, sessionId]);
 
   const expandAllInTurnTarget = useStore((s) => s.expandAllInTurn.get(sessionId));
   const clearScrollToMessage = useStore((s) => s.clearScrollToMessage);
@@ -1848,7 +1836,8 @@ export function MessageFeed({
           ref={containerRef}
           onScroll={handleScroll}
           onWheel={handleWheel}
-          onTouchMove={cancelExactRestore}
+          onTouchMove={handleTouchMove}
+          onPointerDown={handlePointerDown}
           data-testid="message-feed-scroll-container"
           className="message-feed-scroll-surface mobile-scroll-stable-surface h-full overflow-y-auto overflow-x-hidden px-2 sm:px-4 py-4 sm:py-6"
           style={{ overscrollBehavior: "contain" }}

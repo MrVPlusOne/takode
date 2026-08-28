@@ -8,6 +8,7 @@ import {
   messageIndexFromHash,
   parseHash,
   resolveSessionIdFromRoute,
+  retireSessionMessageRoute,
   sessionHash,
   sessionMessageHash,
   sessionThreadHash,
@@ -423,6 +424,57 @@ describe("navigateToSessionMessageId", () => {
 
     expect(window.location.hash).toBe("#/session/41/msg/alpha-main-target?thread=main");
     expect(useStore.getState().scrollToMessageId.get("validation-alpha")).toBe("alpha-main-target");
+  });
+});
+
+describe("retireSessionMessageRoute", () => {
+  beforeEach(() => {
+    history.replaceState(null, "", "#/session/start");
+    useStore.getState().reset();
+  });
+
+  it("replaces a consumed stable message route while preserving session and query context", () => {
+    useStore.setState({
+      sdkSessions: [{ sessionId: "resolved-session", sessionNum: 41, createdAt: 1 } as any],
+    });
+    history.replaceState(null, "", "#/session/41/msg/search-target?thread=main&quest=q-7");
+    const historyLength = history.length;
+    const replaceSpy = vi.spyOn(history, "replaceState");
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+    expect(retireSessionMessageRoute("resolved-session")).toBe(true);
+
+    expect(replaceSpy).toHaveBeenCalledWith(null, "", "#/session/41?thread=main&quest=q-7");
+    expect(window.location.hash).toBe("#/session/41?thread=main&quest=q-7");
+    expect(history.length).toBe(historyLength);
+    expect(dispatchSpy).toHaveBeenCalledWith(expect.any(HashChangeEvent));
+    replaceSpy.mockRestore();
+    dispatchSpy.mockRestore();
+  });
+
+  it("retires legacy readable-index targets and allows a fresh same-message navigation", () => {
+    history.replaceState(null, "", "#/session/s1?thread=q-7&msg=42");
+
+    expect(retireSessionMessageRoute("s1")).toBe(true);
+    expect(window.location.hash).toBe("#/session/s1?thread=q-7");
+
+    navigateToSessionMessageId("s1", "stable-target", { threadKey: "q-7" });
+    expect(window.location.hash).toBe("#/session/s1/msg/stable-target?thread=q-7");
+    expect(useStore.getState().scrollToMessageId.get("s1")).toBe("stable-target");
+  });
+
+  it("does not rewrite another session or a route without a message target", () => {
+    history.replaceState(null, "", "#/session/s1/msg/search-target?thread=main");
+    expect(retireSessionMessageRoute("s2")).toBe(false);
+    expect(window.location.hash).toContain("/msg/search-target");
+
+    history.replaceState(null, "", "#/session/s1/msg/search-target?thread=q-7");
+    expect(retireSessionMessageRoute("s1", "main")).toBe(false);
+    expect(window.location.hash).toContain("/msg/search-target");
+
+    history.replaceState(null, "", "#/session/s1?thread=main");
+    expect(retireSessionMessageRoute("s1")).toBe(false);
+    expect(window.location.hash).toBe("#/session/s1?thread=main");
   });
 });
 
