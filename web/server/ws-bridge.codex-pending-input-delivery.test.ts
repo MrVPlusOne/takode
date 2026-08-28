@@ -4,7 +4,10 @@ const mockExecSync = vi.hoisted(() => vi.fn());
 const mockExec = vi.hoisted(() => vi.fn());
 const mockShouldSettingsRuleApprove = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
-vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
+vi.mock("node:crypto", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:crypto")>()),
+  randomUUID: () => "test-uuid",
+}));
 // Mock settings rule loading so real user ~/.claude/settings.json rules don't
 // interfere with tests. Tests that need specific rules override this per-call.
 vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
@@ -58,6 +61,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import type { TurnSteerFailureInfo } from "./bridge/adapter-interface.js";
+import {
+  codexNativeSubagentChildIdForProviderThread,
+  createCodexNativeSubagentRegistry,
+} from "./codex-native-subagent-state.js";
 
 function createMockSocket(data: SocketData) {
   return {
@@ -807,17 +814,36 @@ describe("Codex pending input delivery", () => {
     );
   });
 
-  it("restores a completed acknowledged owner without replay and dispatches its queued successor once", async () => {
+  it("repairs restored root authority, suppresses completed-owner replay, and dispatches the successor once", async () => {
     // A pre-upgrade server can persist an acknowledged original dispatch even
     // after substantial model activity, with a later continuation still
-    // queued behind it. Reconnect must use that owner-scoped activity as proof
-    // of delivery instead of sending the completed instruction again.
+    // queued behind it. The same captured failure also mislabeled the provider
+    // root as child `/root`, which hid terminal results from root lifecycle.
+    // Restart must repair both authorities before sending only the continuation.
     const sid = "s-codex-restored-completed-owner";
     const originalOwnerId = "original-completed-owner";
     const continuationOwnerId = "queued-continuation-owner";
     const originalContent = "finish the already completed work";
     const continuationContent = "continue only the remaining follow-up";
+    const rootProviderThreadId = "thread-restored-completed-owner";
     const initial = bridge.getOrCreateSession(sid, "codex");
+    const corruptRegistry = createCodexNativeSubagentRegistry(sid, { coverage: "complete" });
+    const corruptRootChildId = codexNativeSubagentChildIdForProviderThread(corruptRegistry, rootProviderThreadId);
+    corruptRegistry.childrenByProviderThreadId[rootProviderThreadId] = {
+      publicChildId: corruptRootChildId,
+      providerParentThreadId: "provider-child-thread",
+      spawnRootProviderTurnId: "turn-original-completed",
+      feedRootTurnKey: originalOwnerId,
+      agentPath: "/root",
+      depth: 2,
+      spawnOrder: 1,
+      status: "done",
+      statusObservedAt: 1_250,
+      transcriptAvailability: "partial",
+      turnsByProviderTurnId: {},
+      seenActivityEventIds: ["interacted:root-misclassified-as-child"],
+    };
+    corruptRegistry.nextSpawnOrder = 2;
 
     store.saveSync({
       id: sid,
@@ -847,6 +873,10 @@ describe("Codex pending input delivery", () => {
           },
           parent_tool_use_id: null,
           timestamp: 1_100,
+          codexSubagent: {
+            childId: corruptRootChildId,
+            rootTurnId: originalOwnerId,
+          },
         },
         {
           type: "assistant",
@@ -866,6 +896,10 @@ describe("Codex pending input delivery", () => {
           },
           parent_tool_use_id: null,
           timestamp: 1_200,
+          codexSubagent: {
+            childId: corruptRootChildId,
+            rootTurnId: originalOwnerId,
+          },
         },
       ],
       pendingMessages: [],
@@ -926,6 +960,7 @@ describe("Codex pending input delivery", () => {
         },
       ],
       pendingPermissions: [],
+      codexNativeSubagents: corruptRegistry,
     });
     await store.flushAll();
 
@@ -946,6 +981,14 @@ describe("Codex pending input delivery", () => {
     expect(JSON.stringify(startMessages)).not.toContain(originalContent);
 
     const restoredSession = restored.getSession(sid)!;
+    expect(restoredSession.codexNativeSubagents.rootProviderThreadId).toBe(rootProviderThreadId);
+    expect(restoredSession.codexNativeSubagents.childrenByProviderThreadId[rootProviderThreadId]).toBeUndefined();
+    for (const messageId of ["completed-owner-tool", "completed-owner-response"]) {
+      const restoredRootMessage = restoredSession.messageHistory.find(
+        (message: any) => message.type === "assistant" && message.message?.id === messageId,
+      );
+      expect(restoredRootMessage?.codexSubagent).toBeUndefined();
+    }
     expect(restoredSession.pendingCodexTurns).toEqual([
       expect.objectContaining({
         userMessageId: continuationOwnerId,
@@ -1592,6 +1635,184 @@ describe("Codex pending input delivery", () => {
     expect(committedContents).toEqual(["active owner", "queued image owner", "later text owner"]);
     expect(session.pendingCodexInputs).toHaveLength(0);
     expect(session.pendingCodexTurns).toHaveLength(0);
+  });
+
+  it("settles a screenshot-shaped stuck owner without replaying it on the watchdog cycle", async () => {
+    // Regression for the retained production loop reported on August 28, 2026:
+    // an old server left generation running after a provider turn disappeared,
+    // retained the completed owner as backend_acknowledged/current, and queued a
+    // continuation after a failed steer. The five-minute watchdog must use the
+    // completed owner's local activity as exact delivery proof, never replay it,
+    // and release only the queued continuation once.
+    vi.useFakeTimers();
+    try {
+      const now = new Date("2026-08-28T05:30:00.000Z").getTime();
+      vi.setSystemTime(now);
+
+      const sid = "s-codex-stuck-owner-watchdog";
+      const browser = makeBrowserSocket(sid);
+      const adapter = makeCodexAdapterMock();
+      bridge.attachCodexAdapter(sid, adapter as any);
+      emitCodexSessionReady(adapter, {
+        cliSessionId: "thread-stuck-owner-watchdog",
+        model: "gpt-5.6-sol",
+        cwd: "/repo",
+      });
+      bridge.handleBrowserOpen(browser, sid);
+
+      await bridge.handleBrowserMessage(
+        browser,
+        JSON.stringify({ type: "user_message", content: "already completed original work" }),
+      );
+      await Promise.resolve();
+      const originalStart = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
+      expect(originalStart).toMatchObject({ type: "codex_start_pending" });
+
+      adapter.emitTurnStarted("turn-original-owner");
+      await Promise.resolve();
+
+      const session = bridge.getSession(sid)!;
+      const originalOwner = session.pendingCodexTurns[0]!;
+      expect(originalOwner).toMatchObject({
+        status: "backend_acknowledged",
+        turnTarget: "current",
+        turnId: "turn-original-owner",
+        dispatchCount: 1,
+      });
+
+      session.messageHistory.push({
+        type: "assistant",
+        message: {
+          id: "completed-original-owner-response",
+          type: "message",
+          role: "assistant",
+          model: "gpt-5.6-sol",
+          content: [{ type: "text", text: "The original work is complete." }],
+          stop_reason: null,
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+        parent_tool_use_id: null,
+        timestamp: now - 240_000,
+      });
+
+      adapter.sendBrowserMessage.mockClear();
+      await bridge.handleBrowserMessage(
+        browser,
+        JSON.stringify({ type: "user_message", content: "queued continuation after recovery" }),
+      );
+      await Promise.resolve();
+
+      const steer = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
+      expect(steer).toMatchObject({
+        type: "codex_steer_pending",
+        expectedTurnId: "turn-original-owner",
+        pendingInputIds: [expect.any(String)],
+      });
+
+      // Preserve the exact legacy state rather than invoking the current
+      // provider-inactive fast path: the adapter knows there is no active turn,
+      // but the bridge still thinks the old owner is generating.
+      adapter.setCurrentTurnIdForTest(null);
+      adapter.emitTurnSteerFailed(steer.pendingInputIds);
+      await Promise.resolve();
+
+      expect(session.isGenerating).toBe(true);
+      expect(adapter.getCurrentTurnId()).toBeNull();
+      expect(session.pendingCodexTurns).toHaveLength(2);
+      expect(session.pendingCodexTurns[0]).toBe(originalOwner);
+      expect(session.pendingCodexTurns[1]).toMatchObject({
+        status: "queued",
+        turnTarget: null,
+        userContent: "queued continuation after recovery",
+      });
+
+      adapter.sendBrowserMessage.mockClear();
+      session.generationStartedAt = now - 300_001;
+      session.lastCliMessageAt = now - 300_001;
+      session.lastToolProgressAt = 0;
+      session.toolStartTimes.clear();
+      bridge.startStuckSessionWatchdog();
+
+      vi.advanceTimersByTime(31_000);
+      await Promise.resolve();
+
+      const watchdogStarts = adapter.sendBrowserMessage.mock.calls
+        .map((args: any[]) => args[0])
+        .filter((msg: any) => msg?.type === "codex_start_pending");
+      expect(watchdogStarts).toHaveLength(1);
+      expect(getCodexStartPendingInputs(watchdogStarts[0]).map((input) => input.content)).toEqual([
+        "queued continuation after recovery",
+      ]);
+      expect(JSON.stringify(watchdogStarts)).not.toContain("already completed original work");
+      expect(originalOwner.dispatchCount).toBe(1);
+      expect(session.pendingCodexTurns).toEqual([
+        expect.objectContaining({
+          userContent: "queued continuation after recovery",
+          status: "dispatched",
+          dispatchCount: 1,
+        }),
+      ]);
+      expect(session.codexPendingDeliveryProofSignals).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "resume_snapshot",
+            turnId: "turn-original-owner",
+            classification: expect.stringContaining("retry_suppressed_model_activity"),
+          }),
+        ]),
+      );
+
+      // A later pending-delivery sweep cannot resurrect either the completed
+      // owner or a second copy of the continuation while acknowledgement is pending.
+      vi.advanceTimersByTime(60_000);
+      await Promise.resolve();
+      expect(
+        adapter.sendBrowserMessage.mock.calls.filter((args: any[]) => args[0]?.type === "codex_start_pending"),
+      ).toHaveLength(1);
+
+      adapter.emitTurnStarted("turn-queued-continuation");
+      await Promise.resolve();
+      adapter.emitBrowserMessage({
+        type: "result",
+        data: {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "continuation completed",
+          duration_ms: 1,
+          duration_api_ms: 1,
+          num_turns: 1,
+          total_cost_usd: 0,
+          stop_reason: "completed",
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+          uuid: "result-stuck-owner-watchdog",
+          session_id: sid,
+          codex_turn_id: "turn-queued-continuation",
+        },
+      });
+      await Promise.resolve();
+
+      const committedContents = session.messageHistory
+        .filter((msg: any) => msg.type === "user_message")
+        .map((msg: any) => msg.content);
+      expect(committedContents).toEqual(["already completed original work", "queued continuation after recovery"]);
+      expect(session.pendingCodexInputs).toHaveLength(0);
+      expect(session.pendingCodexTurns).toHaveLength(0);
+      expect(session.isGenerating).toBe(false);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 
   it("does not retry stale pending delivery while the session is actively generating", async () => {
