@@ -281,6 +281,46 @@ describe("CodexSubagentTranscript", () => {
     expect(useStore.getState().toolResults.get("session-1")).toBeUndefined();
   });
 
+  // Inspector history is self-contained: the server-projected preview must retain
+  // its truncation contract without falling through to root-session result state.
+  it("preserves server-projected bounded truncation metadata for the canonical result surface", () => {
+    const truncatedMessages: ChatMessage[] = [
+      childMessage({
+        id: "truncated-read",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "truncated-read-tool", name: "Read", input: { file_path: "src/example.ts" } },
+          {
+            type: "tool_result",
+            tool_use_id: "truncated-read-tool",
+            content: "export const childResult = true; // bounded tail",
+            is_error: false,
+            total_size: 8_192,
+            is_truncated: true,
+          },
+        ],
+        timestamp: 104,
+      }),
+    ];
+
+    const model = buildCodexSubagentTranscriptModel(truncatedMessages);
+    expect(model.toolResults.get("truncated-read-tool")).toMatchObject({
+      total_size: 8_192,
+      is_truncated: true,
+    });
+
+    render(<CodexSubagentTranscript sessionId="session-1" messages={truncatedMessages} />);
+    fireEvent.click(screen.getByRole("button", { name: /Read File.*src\/example\.ts/i }));
+    expect(screen.getByText("bounded preview · truncated")).toBeInTheDocument();
+    expect(screen.getByText("output bytes: 8.0 KB")).toHaveAttribute(
+      "title",
+      "Original result size: 8,192 UTF-8 bytes",
+    );
+    expect(screen.getByText(/export const childResult = true; \/\/ bounded tail/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show full result" })).toBeNull();
+  });
+
   it("reuses canonical message, reasoning-group, tool, and result surfaces", () => {
     render(<CodexSubagentTranscript sessionId="session-1" messages={transcriptMessages} />);
 

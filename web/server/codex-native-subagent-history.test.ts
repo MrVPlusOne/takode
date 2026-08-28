@@ -143,6 +143,19 @@ describe("Codex native subagent history", () => {
     );
     const serialized = JSON.stringify(page.messages);
     expect(serialized).toContain("tool_result");
+    const projectedToolResult = page.messages
+      .flatMap((message) => (message.type === "assistant" ? message.message.content : []))
+      .find((block) => block.type === "tool_result");
+    expect(projectedToolResult).toMatchObject({
+      total_size: 999_999,
+      is_truncated: true,
+    });
+    expect(projectedToolResult?.type === "tool_result" ? projectedToolResult.tool_use_id : "").toMatch(
+      /^codex-native-tool-[0-9a-f]{24}$/,
+    );
+    expect(projectedToolResult?.type === "tool_result" ? projectedToolResult.content : "").toContain(
+      "[sensitive value omitted]",
+    );
     expect(serialized).toContain("Official summary");
     expect(serialized).toContain("[sensitive value omitted]");
     expect(serialized).not.toContain(providerThreadId);

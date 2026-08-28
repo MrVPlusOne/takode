@@ -38,12 +38,21 @@ export function buildCodexSubagentTranscriptModel(messages: ChatMessage[]): Code
         continue;
       }
       const content = resultText(block.content);
+      const contentSize = utf8ByteLength(content);
       toolResults.set(block.tool_use_id, {
         tool_use_id: block.tool_use_id,
         content,
         is_error: block.is_error === true,
-        total_size: utf8ByteLength(content),
-        is_truncated: false,
+        total_size:
+          typeof block.total_size === "number" && Number.isFinite(block.total_size)
+            ? Math.max(contentSize, block.total_size)
+            : contentSize,
+        is_truncated: block.is_truncated === true,
+        ...(typeof block.duration_seconds === "number" &&
+        Number.isFinite(block.duration_seconds) &&
+        block.duration_seconds >= 0
+          ? { duration_seconds: block.duration_seconds }
+          : {}),
       });
     }
 

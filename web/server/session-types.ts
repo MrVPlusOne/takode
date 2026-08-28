@@ -315,7 +315,16 @@ export const TOOL_RESULT_PREVIEW_LIMIT = 300;
 export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
-  | { type: "tool_result"; tool_use_id: string; content: string | ContentBlock[]; is_error?: boolean }
+  | {
+      type: "tool_result";
+      tool_use_id: string;
+      content: string | ContentBlock[];
+      is_error?: boolean;
+      /** Server-authored projected-preview metadata; provider-native blocks must not be trusted to supply it. */
+      total_size?: number;
+      is_truncated?: boolean;
+      duration_seconds?: number;
+    }
   | { type: "thinking"; thinking: string; budget_tokens?: number; thinking_time_ms?: number };
 
 export interface VsCodeSelectionMetadata {

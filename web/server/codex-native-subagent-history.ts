@@ -108,6 +108,14 @@ interface ProjectedEntry {
   message: BrowserIncomingMessage;
 }
 
+interface ProjectedToolResult {
+  content: string;
+  isError: boolean;
+  totalSize: number;
+  isTruncated: boolean;
+  durationSeconds?: number;
+}
+
 interface ProjectedTool {
   index: number;
   timestamp: number;
@@ -115,7 +123,7 @@ interface ProjectedTool {
   rawToolId: string;
   name: string;
   input: Record<string, unknown>;
-  result?: { content: string; isError: boolean };
+  result?: ProjectedToolResult;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -370,15 +378,41 @@ function assistantMessage(
   };
 }
 
+function utf8ByteLength(value: string): number {
+  return Buffer.byteLength(value, "utf8");
+}
+
+function projectedResult(
+  content: unknown,
+  isError: boolean,
+  toolName: string,
+  context: CodexNativeSubagentInspectorProjectionContext,
+  preview?: ToolResultPreview,
+): ProjectedToolResult {
+  const sanitizedContent = sanitizedToolOutput(toolName, content, context);
+  const sanitizedSize = utf8ByteLength(sanitizedContent);
+  return {
+    content: sanitizedContent,
+    isError,
+    totalSize:
+      preview && Number.isFinite(preview.total_size) && preview.total_size >= 0
+        ? Math.max(sanitizedSize, Math.min(Number.MAX_SAFE_INTEGER, Math.trunc(preview.total_size)))
+        : sanitizedSize,
+    isTruncated: preview?.is_truncated === true || sanitizedContent.endsWith("\n…[truncated]"),
+    ...(preview?.duration_seconds !== undefined &&
+    Number.isFinite(preview.duration_seconds) &&
+    preview.duration_seconds >= 0
+      ? { durationSeconds: preview.duration_seconds }
+      : {}),
+  };
+}
+
 function previewResult(
   preview: ToolResultPreview,
   toolName: string,
   context: CodexNativeSubagentInspectorProjectionContext,
-): { content: string; isError: boolean } {
-  return {
-    content: sanitizedToolOutput(toolName, preview.content, context),
-    isError: preview.is_error === true,
-  };
+): ProjectedToolResult {
+  return projectedResult(preview.content, preview.is_error === true, toolName, context, preview);
 }
 
 /**
@@ -441,10 +475,7 @@ export function projectCodexNativeSubagentInspectorMessages(
           const rawToolId = block.tool_use_id;
           const existing = tools.get(rawToolId);
           const name = existing?.name ?? "Tool";
-          const result = {
-            content: sanitizedToolOutput(name, block.content, effectiveContext),
-            isError: block.is_error === true,
-          };
+          const result = projectedResult(block.content, block.is_error === true, name, effectiveContext);
           tools.set(rawToolId, {
             index: existing?.index ?? index,
             timestamp: existing?.timestamp ?? timestamp,
@@ -533,7 +564,15 @@ export function projectCodexNativeSubagentInspectorMessages(
     const safeToolId = stablePublicId(childId, "tool", tool.rawToolId);
     const blocks: ContentBlock[] = [{ type: "tool_use", id: safeToolId, name: tool.name, input: tool.input }];
     if (result?.content) {
-      blocks.push({ type: "tool_result", tool_use_id: safeToolId, content: result.content, is_error: result.isError });
+      blocks.push({
+        type: "tool_result",
+        tool_use_id: safeToolId,
+        content: result.content,
+        is_error: result.isError,
+        total_size: result.totalSize,
+        is_truncated: result.isTruncated,
+        ...(result.durationSeconds !== undefined ? { duration_seconds: result.durationSeconds } : {}),
+      });
     }
     entries.push({
       index: tool.index,
