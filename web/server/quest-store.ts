@@ -21,10 +21,12 @@ import {
   type QuestStoreMigrationReport,
 } from "./quest-types.js";
 import {
+  commitShaField,
   getActiveSessionId,
   getPreviousOwnerSessionIds,
   escapeRegExp,
   formatQuestIdList,
+  normalizeCommitShas,
   normalizeQuestOwnership,
 } from "./quest-store-helpers.js";
 import {
@@ -1336,6 +1338,67 @@ export async function patchQuestForOwner(
     assertQuestMutationOwner(current, normalizedOwner, "edit");
     const updated = applyQuestPatch(current, questId, patch);
     if (patch.lastModifiedBy) updated.lastModifiedBy = patch.lastModifiedBy;
+    await writeQuest(updated);
+    return updated;
+  });
+}
+
+/**
+ * Atomically append structured code-commit evidence while a quest is still in progress.
+ * This narrow API is reserved for the exact active owner at the guarded Work -> Memory boundary.
+ */
+export async function appendQuestCodeCommitEvidenceForOwner(
+  questId: string,
+  owner: QuestOwnerRef,
+  commitShas: unknown[],
+): Promise<QuestmasterTask | null> {
+  const normalizedOwner = normalizeQuestOwnerRef(owner);
+  if (!normalizedOwner) throw new Error("A valid quest owner is required");
+  const normalizedCommitShas = normalizeCommitShas(commitShas);
+  if (normalizedCommitShas.length === 0) {
+    throw new Error("At least one code commit SHA is required");
+  }
+
+  const appendEvidence = (current: QuestmasterTask): QuestmasterTask => {
+    if (current.status !== "in_progress") {
+      throw new Error("Code commit evidence can only be attached to an in-progress quest");
+    }
+    const activeOwner = getQuestOwner(current);
+    if (!activeOwner || !sameQuestOwner(activeOwner, normalizedOwner)) {
+      throw new Error("Only the exact active quest owner may attach in-progress code commit evidence");
+    }
+    const commitFields = commitShaField("commitShas", current.commitShas, normalizedCommitShas);
+    const nextCommitShas = commitFields.commitShas ?? [];
+    const currentCommitShas = current.commitShas ?? [];
+    if (
+      nextCommitShas.length === currentCommitShas.length &&
+      nextCommitShas.every((sha, index) => sha === currentCommitShas[index])
+    ) {
+      return current;
+    }
+    return {
+      ...current,
+      ...commitFields,
+      updatedAt: Date.now(),
+    } as QuestmasterTask;
+  };
+
+  const liveStore = await readLiveQuestStore();
+  if (liveStore) {
+    return mutateLiveQuestStore(async (store) => {
+      const current = stripDerivedQuestRelationships(getLiveQuestById(store, questId));
+      if (!current) return { store, result: null, write: false };
+      const updated = appendEvidence(current);
+      if (updated === current) return { store, result: current, write: false };
+      return { store: upsertLiveQuest(store, updated), result: normalizeLiveQuest(updated) };
+    });
+  }
+
+  return withCreateLock(async () => {
+    const current = stripDerivedQuestRelationships(await getQuest(questId));
+    if (!current) return null;
+    const updated = appendEvidence(current);
+    if (updated === current) return current;
     await writeQuest(updated);
     return updated;
   });

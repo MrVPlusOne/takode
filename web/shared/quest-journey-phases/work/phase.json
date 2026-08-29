@@ -4,7 +4,7 @@
   "color": { "name": "work", "accent": "#4ade80" },
   "boardState": "WORKING",
   "assigneeRole": "worker",
-  "contract": "Complete the authorized quest work end-to-end inside the approved envelope: investigate, design, implement, validate, self-review, run approved operations, sync/push when authorized, iterate, and maintain one current Work note before moving to final Memory.",
-  "nextLeaderAction": "review the Work note for blockers or checkpoint needs; once the guarded transition reaches Memory, promptly report the accepted outcome to the user, then send final Memory to the same worker without waiting for closure",
+  "contract": "Complete the authorized quest work end-to-end inside the approved envelope: investigate, design, implement, validate, self-review, run approved operations, sync/push when authorized, iterate, maintain one current Work note, and attach synchronized target code commits or explicit zero-code evidence through the guarded transition before moving to final Memory.",
+  "nextLeaderAction": "review the Work note and transition evidence for blockers or checkpoint needs; once Memory is reached with tracked Work commits already attached as structured metadata, promptly report the accepted outcome, then send final Memory to the same worker without waiting for closure",
   "aliases": ["working"]
 }

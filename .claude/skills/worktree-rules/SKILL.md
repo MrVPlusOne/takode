@@ -143,27 +143,38 @@ Do NOT report the sync as complete until ALL of the following are true:
 - [ ] Required post-sync verification has been run after the reset and passed
 - [ ] Remote-backed targets have been pushed to the remote, or worktree targets are explicitly reported as local-only target ports
 
-## Quest Status Rule
+## Quest Work-to-Memory Rule
 
-If you are working on a quest from this worktree session, do **NOT** transition it to `needs_verification` until the sync workflow above is fully complete, the selected target contains the changes, and any required push for a remote-backed target has completed. If sync is still pending, leave the quest `in_progress`.
+If you are working on a Quest Journey from this worktree session, do **not** enter Memory until the sync workflow above is fully complete, the selected target contains the changes, and any required push for a remote-backed target has completed. If sync is still pending, leave the quest in Work.
 
-If you are also the agent performing the verification handoff, attach the ordered synced SHAs when you submit:
+The worker-owned Work -> Memory transition is also the structured code-evidence boundary. For tracked changes, attach the ordered synchronized **target SHAs** in the transition itself:
+
 ```bash
-quest complete q-N --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md
+takode board work-to-memory q-N --work-note <feedback-index> --commits "sha1,sha2"
 ```
-Sync/push is not final quest closure. For every non-cancelled quest, final Memory owns final User review check settlement, structured final debrief metadata, durable-state closure, and the memory statement after accepted tracked changes are synced. Work should still preserve the context Memory will need: user-facing result, important verification, synced commits when relevant, and residual risks.
 
-Every sync handoff must report the ordered synced SHAs explicitly so final Memory can attach them. Put them on a dedicated `Synced SHAs: sha1,sha2` line so final Memory or the leader can copy them directly into `quest complete`. Include a concise accepted-state summary, `Final debrief draft:`, or `Debrief TLDR draft:` when Work has context final Memory will need; the TLDR draft should preserve self-contained quest-journey understanding, not routine sync mechanics or raw hashes already present in the dedicated line. Do **not** rely on `/port-changes` logs being parsed after the fact.
+For a quest that produced genuinely zero git-tracked changes, use the explicit zero-code mode instead:
 
-Every port handoff must also identify the target used, for example `Port target used: <BASE_REPO> <BASE_BRANCH>` or `Port target used: <PORT_TARGET_WORKTREE> <BASE_BRANCH>`. This matters when the worker was spawned from a worktree-backed leader because the correct target is the leader's branch/worktree target rather than the repository's default branch.
+```bash
+takode board work-to-memory q-N --work-note <feedback-index> --no-code
+```
+
+Supply exactly one mode. Documentation, skill, prompt, template, and other tracked text edits are commit-producing Work and must use `--commit` / `--commits`, not `--no-code`. Use merged/cherry-picked selected-target SHAs rather than worktree-only pre-port SHAs. On rework, pass the current Work occurrence's new synchronized target SHAs even when older commits are already attached; old metadata does not replace fresh transition evidence.
+
+The guarded transition persists code commit metadata before the board enters `MEMORY`, so commit counts and diff controls are available immediately while final Memory runs. Final Memory must not be the first phase to attach accepted Work code SHAs. If code evidence is missing or only present in prose, route back to Work. Memory may later attach only separate file-based memory-repository commits with `--memory-commit` / `--memory-commits`.
+
+Sync/push is not final quest closure. Final Memory still owns final User review check settlement, structured final debrief metadata, durable-state closure, quest metadata reconciliation, and the memory statement after accepted tracked changes and their code metadata are settled.
+
+Every sync handoff must report the ordered target SHAs explicitly on a dedicated `Synced SHAs: sha1,sha2` line and identify the target used, for example `Port target used: <BASE_REPO> <BASE_BRANCH>` or `Port target used: <PORT_TARGET_WORKTREE> <BASE_BRANCH>`. The Work note and compact chat handoff preserve audit and routing context, while the transition carries the authoritative structured code metadata. Do **not** rely on `/port-changes` logs being parsed after the fact.
+
+Include a concise accepted-state summary, `Final debrief draft:`, or `Debrief TLDR draft:` when Work has context final Memory will need. The TLDR draft should preserve self-contained quest-journey understanding, not routine sync mechanics or raw hashes already present in structured metadata and the dedicated line.
+
+Do not put sync status, synced SHAs, or automated verification results into `quest complete --items`. User review checks are only for things the user still needs to inspect or do after completion; sync details and automated verification belong in the Work note and final debrief metadata. Empty User review checks are normal when no user action remains.
+
+For Quest Journey work, add or refresh the current Work phase documentation before reporting back: ordered synced SHAs, verification, sync anomalies, remaining sync risks, accepted-state context final Memory will need, and memory-specific evidence only when material. Prefer `quest feedback add q-N --text-file ... --tldr-file ... --kind phase-summary` with current-phase inference; use explicit `--phase work` or occurrence flags if inference is unavailable. Structured commit metadata should carry routine sync information, so do not add a second long sync-summary or commit-by-commit timeline unless the syncing itself was exceptional and materially worth calling out.
 
 Do not add routine `memory update not needed` statements during Work-owned sync. Include memory-specific evidence only when material: a completed memory write explicitly assigned to Work, a deferral for final Memory or a curator, relevant memory files/decisions inspected, or accepted facts final Memory needs for durable-memory triage.
 
 If Work is explicitly assigned memory writing, memory record frontmatter `source` should use the quest ID (`q-N`) as primary provenance for quest-backed updates and should not routinely add `commit:*` or `session:*` sources. Use `session:<id>` only when no corresponding quest exists or the session itself is the durable source of truth, and preserve exceptional `commit:*` or `session:*` sources for non-quest updates where that provenance is genuinely authoritative.
 
-Documentation, skill, prompt, template, and other text-only tracked-file edits still count as commit-producing work. If they produced commits, they must be synced and attached to the quest with `quest complete ... --commit/--commits` during final Memory; zero-tracked-change quests still end in `memory`.
-
-Do not put sync status, synced SHAs, or automated verification results into `quest complete --items`. User review checks are only for things the user still needs to inspect or do after completion; sync details and automated verification belong in the Work note and final debrief metadata. Empty User review checks are normal when no user action remains.
-
-For Quest Journey work, add or refresh the current Work phase documentation before reporting back: ordered synced SHAs, verification, sync anomalies, remaining sync risks, accepted-state context final Memory will need, and memory-specific evidence only when material. Prefer `quest feedback add q-N --text-file ... --tldr-file ... --kind phase-summary` with current-phase inference; use explicit `--phase work` or occurrence flags if inference is unavailable. Structured commit metadata should carry routine sync information, so do not add a second long sync-summary or commit-by-commit timeline unless the syncing itself was exceptional and materially worth calling out. Final Memory should attach those SHAs with `quest complete ... --commits ...`, not leave them only in feedback comments.
 Keep routine commit hashes, branch names, command lists, and verification mechanics out of debrief TLDR drafts unless the exact detail is central to understanding the quest outcome. If structured commit metadata or the dedicated `Synced SHAs:` line already carries the exact identifiers, summarize the accepted state without repeating the hashes.

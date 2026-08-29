@@ -81,7 +81,17 @@ function applyBoardUpdated(message: BoardUpdatedMessage) {
   store.setSessionBoardRowStatuses(LEADER_ID, message.rowSessionStatuses ?? {});
 }
 
-function StoreQuestThreadBanner({ commitShas = ["abc1234", "def5678"] }: { commitShas?: string[] }) {
+function setQuestCommitShas(commitShas: string[], updatedAt = 3) {
+  useStore.getState().upsertQuestTitlePreview({
+    questId: QUEST_ID,
+    title: BOARD_ROW.title,
+    version: 1,
+    updatedAt,
+    commitShas,
+  });
+}
+
+function StoreQuestThreadBanner() {
   const boardRow = useStore((state) => state.sessionBoards.get(LEADER_ID)?.[0]);
   const rowStatus = useStore((state) => state.sessionBoardRowStatuses.get(LEADER_ID)?.[QUEST_ID]);
   if (!boardRow) return null;
@@ -90,7 +100,8 @@ function StoreQuestThreadBanner({ commitShas = ["abc1234", "def5678"] }: { commi
     questId: QUEST_ID,
     title: boardRow.title ?? QUEST_ID,
     boardStatus: boardRow.status,
-    commitShas,
+    // Simulate the stale row snapshot that previously masked fresher store evidence.
+    commitShas: [],
     section: "active",
     boardRow,
     rowStatus,
@@ -135,6 +146,7 @@ describe("QuestThreadBanner commit affordance", () => {
   // banner proves subscription updates, rather than prop-only rerenders.
   it("applies producer-shaped add, replacement, and removal projections without losing worker or commit state", () => {
     applyBoardUpdated(boardUpdatedMessage(null));
+    setQuestCommitShas(["abc1234", "def5678"]);
     render(<StoreQuestThreadBanner />);
 
     const banner = screen.getByTestId("quest-thread-banner");
@@ -192,6 +204,7 @@ describe("QuestThreadBanner commit affordance", () => {
         status: "idle",
       }),
     );
+    setQuestCommitShas(["abc1234", "def5678"]);
     render(<StoreQuestThreadBanner />);
 
     const commitButton = screen.getByTestId("quest-thread-commit-button");
@@ -204,13 +217,26 @@ describe("QuestThreadBanner commit affordance", () => {
 
   it("preserves the zero-commit affordance when no reviewer is assigned", () => {
     applyBoardUpdated(boardUpdatedMessage(null));
-    render(<StoreQuestThreadBanner commitShas={[]} />);
+    setQuestCommitShas([]);
+    render(<StoreQuestThreadBanner />);
 
     expect(screen.queryByLabelText(/^Reviewer #/)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Worker #1321 Clear Mesa")).toBeInTheDocument();
     expect(screen.getByTestId("quest-thread-commit-button")).toHaveAccessibleName(
       "Open q-968 recorded commit diffs, 0 commits",
     );
+  });
+
+  it("updates a mounted leader banner from the exact quest projection", () => {
+    applyBoardUpdated(boardUpdatedMessage(null));
+    setQuestCommitShas([]);
+    render(<StoreQuestThreadBanner />);
+
+    expect(screen.getByTestId("quest-thread-commit-button")).toHaveTextContent("0 commits");
+
+    act(() => setQuestCommitShas(["abc1234", "def5678"], 4));
+
+    expect(screen.getByTestId("quest-thread-commit-button")).toHaveTextContent("2 commits");
   });
 
   it("suppresses stale queued wait metadata when the quest row is already done", () => {

@@ -170,6 +170,11 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(work.assigneeBrief).toContain("Do not call Work complete or hand off to Memory");
     expect(work.assigneeBrief).toContain("return the compact Work handoff and stop the Work turn");
     expect(work.assigneeBrief).toContain("Do not begin final Memory in the same turn");
+    expect(work.assigneeBrief).toContain("Supply exactly one fresh code-evidence mode");
+    expect(work.assigneeBrief).toContain("synchronized selected-target SHAs");
+    expect(work.assigneeBrief).toContain("`--no-code` only when the accepted Work produced zero git-tracked changes");
+    expect(work.assigneeBrief).toContain("before the row enters `MEMORY`");
+    expect(work.assigneeBrief).toContain("final Memory must not be the first phase to attach");
     expect(work.leaderBrief).toContain("separate quest with its own Alignment -> Work -> Memory flow");
     expect(work.leaderBrief).toContain("evidence alone does not authorize the broader scope");
     expect(work.leaderBrief).toContain("Normal non-transforming safeguards remain mandatory");
@@ -191,7 +196,18 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(work.leaderBrief).toContain("promptly report the main accepted answer, finding, or outcome");
     expect(work.leaderBrief).toContain("do not describe the still-open quest as technically complete");
     expect(work.leaderBrief).toContain("The user-facing thread may be Ready");
-    expect(work.nextLeaderAction).toContain("promptly report the accepted outcome to the user");
+    expect(work.leaderBrief).toContain("Every transition must supply exactly one fresh evidence mode");
+    expect(work.leaderBrief).toContain("old quest commit list does not replace fresh transition evidence");
+    expect(work.leaderBrief).toContain("must not patch tracked implementation files or first-attach Work code SHAs");
+    expect(work.assigneeBrief).toContain('--skip-optional-checkpoint "<reason>"');
+    expect(work.assigneeBrief).toContain(
+      "Do not use generic `board advance` when that skip would land directly in Memory",
+    );
+    expect(work.leaderBrief).toContain("approved optional suffix `[work, user-checkpoint, memory]`");
+    expect(work.leaderBrief).toContain("Required checkpoints and optional checkpoints that are actually taken");
+    expect(work.contract).toContain("attach synchronized target code commits or explicit zero-code evidence");
+    expect(work.nextLeaderAction).toContain("tracked Work commits already attached as structured metadata");
+    expect(work.nextLeaderAction).toContain("promptly report the accepted outcome");
     expect(work.leaderBrief).not.toContain("Give the worker the exact approved scope");
     expect(checkpoint.leaderBrief).toContain("return the current quest to its assigned worker in `WORKING`");
     expect(checkpoint.leaderBrief).toContain(
@@ -206,11 +222,9 @@ describe("Quest Journey v2 phase directory loading", () => {
       "update the description and TLDR when they no longer cover the full approved design-and-build scope",
     );
     expect(checkpoint.leaderBrief).toContain("Do not defer this correction to final Memory");
-    expect(checkpoint.nextLeaderAction).toContain("for continuation or closure");
-    expect(checkpoint.nextLeaderAction).toContain(
-      "reconcile a stale title, description, and TLDR before same-quest implementation resumes",
-    );
-    expect(checkpoint.nextLeaderAction).toContain("only when the answer requires it");
+    expect(checkpoint.nextLeaderAction).toContain("before checkpoint entry verify or revise");
+    expect(checkpoint.nextLeaderAction).toContain("advance or resume the assigned worker into that later Work");
+    expect(checkpoint.nextLeaderAction).toContain("never route a taken checkpoint directly to Memory");
     expect(checkpoint.leaderBrief).toContain("`leader-decision-communication` skill");
     expect(checkpoint.leaderBrief).toContain("supporting technical evidence in the phase note");
     expect(checkpoint.leaderBrief).toContain("visible decision section before calling `takode notify`");
@@ -222,6 +236,11 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(checkpoint.leaderBrief).toContain("Same-quest routing continues implementation");
     expect(checkpoint.leaderBrief).toContain("design-only or successor routing closes the current accepted scope");
     expect(checkpoint.assigneeBrief).toContain("before current-quest closure");
+    expect(checkpoint.assigneeBrief).toContain("must resume into a later Work occurrence before Memory");
+    expect(checkpoint.assigneeBrief).toContain('work-to-memory ... --skip-optional-checkpoint "<reason>"');
+    expect(checkpoint.leaderBrief).toContain("revise the remaining Journey to `[user-checkpoint, work, memory]`");
+    expect(checkpoint.leaderBrief).toContain("Generic `board advance --skip-optional-checkpoint` must not be used");
+    expect(checkpoint.contract).toContain("continue into a later Work occurrence before Memory");
     expect(checkpoint.leaderBrief).not.toContain("For Execute or other externally consequential phases");
     expect(checkpoint.assigneeBrief).not.toContain("gates Execute or another externally consequential phase");
     expect(memory.assigneeBrief).toContain("exactly one memory statement");
@@ -231,10 +250,19 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(memory.leaderBrief).toContain("report it now from the current Work note");
     expect(memory.leaderBrief).toContain("ordinary read-only follow-up questions during Memory");
     expect(memory.leaderBrief).toContain("without reopening the quest");
-    expect(memory.nextLeaderAction).toContain("report the accepted Work outcome immediately");
+    expect(memory.nextLeaderAction).toContain("report the accepted outcome if it is not already visible");
     expect(memory.leaderBrief).toContain("normal same-worker Memory owner");
     expect(memory.leaderBrief).toContain("route the assigned Work worker back to Work");
-    expect(memory.assigneeBrief).toContain("route the assigned Work worker back to Work");
+    expect(memory.assigneeBrief).toContain("route the assigned worker back to Work");
+    expect(memory.assigneeBrief).toContain("do not repair the gap by adding `--commit` / `--commits`");
+    expect(memory.assigneeBrief).toContain("`--memory-commit` / `--memory-commits`");
+    expect(memory.assigneeBrief).toContain("guarded Work -> Memory transition");
+    expect(memory.assigneeBrief).toContain(
+      "fresh git-state validation rather than an inspectable persisted no-code marker",
+    );
+    expect(memory.leaderBrief).toContain("do not ask Memory or the leader to first-attach them");
+    expect(memory.contract).toContain("must not edit tracked project files or first-attach Work code SHAs");
+    expect(memory.nextLeaderAction).toContain("structured quest metadata or route back to Work");
     expect(memory.leaderBrief).not.toContain("route back to Implement/Code Review/Port");
     expect(memory.assigneeBrief).not.toContain("Implement/Code Review/Port or a follow-up quest");
     expect(lifecycle).toContain("keep them in one quest and the same Work occurrence");
@@ -257,6 +285,18 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(lifecycle).toContain("When the accepted outcome still includes implementation");
     expect(lifecycle).toContain("design-only or investigation quests may enter Memory");
     expect(lifecycle).toContain("worker returns the compact Work handoff and stops the Work turn");
+    expect(lifecycle).toContain('--commits "sha1,sha2"');
+    expect(lifecycle).toContain("--work-note <feedback-index> --no-code");
+    expect(lifecycle).toContain("commit count and diff controls are available as soon as Memory begins");
+    expect(lifecycle).toContain("older quest commits do not prove the current occurrence");
+    expect(lifecycle).toContain("Memory must not first-attach accepted Work code SHAs");
+    expect(lifecycle).toContain(
+      "A planned checkpoint is optional only when its approved phase note states a concrete skip condition",
+    );
+    expect(lifecycle).toContain("Generic `board advance --skip-optional-checkpoint` remains blocked");
+    expect(lifecycle).toContain("must be followed by a later Work occurrence before Memory");
+    expect(lifecycle).toContain("Repeated plans may also use `board advance --skip-optional-checkpoint`");
+    expect(lifecycle).toContain('--skip-optional-checkpoint "Work confirmed the approved skip condition."');
     expect(lifecycle).toContain("without waiting for Memory closure");
     expect(lifecycle).toContain("Ordinary read-only follow-up questions during Memory");
     expect(lifecycle).toContain("do not reopen the quest");

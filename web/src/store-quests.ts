@@ -22,6 +22,7 @@ type QuestStoreSlice = Pick<
   | "setQuests"
   | "upsertQuestDetail"
   | "removeQuestDetail"
+  | "upsertQuestTitlePreview"
   | "hydrateQuestTitles"
   | "replaceQuest"
   | "refreshQuests"
@@ -90,23 +91,58 @@ function questTitlePreviewFromTask(quest: QuestmasterTask): QuestTitlePreview {
     questId: quest.questId,
     title: quest.title,
     version: quest.version,
-    ...(quest.updatedAt !== undefined ? { updatedAt: quest.updatedAt } : {}),
+    updatedAt: Math.max(quest.createdAt, quest.updatedAt ?? 0, quest.statusChangedAt ?? 0),
+    ...(Array.isArray(quest.commitShas) ? { commitShas: quest.commitShas } : {}),
   };
 }
 
-function shouldReplaceQuestTitlePreview(
+function compareQuestTitlePreviewFreshness(left: QuestTitlePreview, right: QuestTitlePreview): number {
+  if (left.version !== right.version) return left.version - right.version;
+  return (left.updatedAt ?? 0) - (right.updatedAt ?? 0);
+}
+
+function stringArraysEqual(left: readonly string[] | undefined, right: readonly string[] | undefined): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function mergeQuestTitlePreview(
   current: QuestTitlePreview | null | undefined,
   incoming: QuestTitlePreview,
-): boolean {
-  if (!current) return true;
-  if (incoming.version !== current.version) return incoming.version > current.version;
-  return (incoming.updatedAt ?? 0) >= (current.updatedAt ?? 0);
+): QuestTitlePreview {
+  if (!current) return incoming;
+
+  // Commit evidence is append-only. Some list/detail producers omit it, and
+  // freshness races must neither shrink nor hide a longer exact projection.
+  const commitShas =
+    incoming.commitShas === undefined || (current.commitShas?.length ?? 0) > incoming.commitShas.length
+      ? current.commitShas
+      : incoming.commitShas;
+  if (compareQuestTitlePreviewFreshness(incoming, current) < 0) {
+    if (stringArraysEqual(current.commitShas, commitShas)) return current;
+    return { ...current, ...(commitShas ? { commitShas } : {}) };
+  }
+  if (
+    current.questId === incoming.questId &&
+    current.title === incoming.title &&
+    current.version === incoming.version &&
+    current.updatedAt === incoming.updatedAt &&
+    stringArraysEqual(current.commitShas, commitShas)
+  ) {
+    return current;
+  }
+  return {
+    ...incoming,
+    ...(commitShas ? { commitShas } : {}),
+  };
 }
 
 function withQuestTitlePreviews(
   previews: Map<string, QuestTitlePreview | null>,
   incoming: ReadonlyArray<QuestTitlePreview>,
   requestedQuestIds: ReadonlyArray<string> = [],
+  requestBaselines?: ReadonlyMap<string, QuestTitlePreview | null | undefined>,
 ): Map<string, QuestTitlePreview | null> {
   let next: Map<string, QuestTitlePreview | null> | null = null;
   const target = () => (next ??= new Map(previews));
@@ -116,23 +152,20 @@ function withQuestTitlePreviews(
     const key = preview.questId.trim().toLowerCase();
     if (!key) continue;
     found.add(key);
-    if (!shouldReplaceQuestTitlePreview(previews.get(key), preview)) continue;
-    const current = previews.get(key);
-    if (
-      current &&
-      current.questId === preview.questId &&
-      current.title === preview.title &&
-      current.version === preview.version &&
-      current.updatedAt === preview.updatedAt
-    ) {
-      continue;
-    }
-    target().set(key, preview);
+    const current = (next ?? previews).get(key);
+    const merged = mergeQuestTitlePreview(current, preview);
+    if (merged === current) continue;
+    target().set(key, merged);
   }
 
   for (const questId of requestedQuestIds) {
     const key = questId.trim().toLowerCase();
-    if (!key || found.has(key) || previews.get(key) === null) continue;
+    if (!key || found.has(key)) continue;
+    const current = (next ?? previews).get(key);
+    if (current === null) continue;
+    // Do not let an older in-flight missing response tombstone an exact live
+    // update that arrived after the request began.
+    if (requestBaselines?.has(key) && current !== requestBaselines.get(key)) continue;
     target().set(key, null);
   }
 
@@ -247,6 +280,11 @@ export function createQuestStoreSlice(set: StoreSet, getState: () => AppState): 
         };
       });
     },
+    upsertQuestTitlePreview: (preview) => {
+      set((state) => ({
+        questTitlePreviews: withQuestTitlePreviews(state.questTitlePreviews, [preview]),
+      }));
+    },
     hydrateQuestTitles: async (questIds, opts) => {
       const normalizedIds = [...new Set(questIds.map((questId) => questId.trim().toLowerCase()))].filter((questId) =>
         /^q-\d+$/.test(questId),
@@ -288,6 +326,9 @@ export function createQuestStoreSlice(set: StoreSet, getState: () => AppState): 
 
       for (let index = 0; index < idsToFetch.length; index += QUEST_TITLE_HYDRATION_BATCH_SIZE) {
         const batch = idsToFetch.slice(index, index + QUEST_TITLE_HYDRATION_BATCH_SIZE);
+        const requestBaselines = new Map(
+          batch.map((questId) => [questId, getState().questTitlePreviews.get(questId)] as const),
+        );
         let request: Promise<void>;
         request = api
           .getQuestTitles(batch)
@@ -297,6 +338,7 @@ export function createQuestStoreSlice(set: StoreSet, getState: () => AppState): 
                 current.questTitlePreviews,
                 response.quests,
                 response.missingQuestIds,
+                requestBaselines,
               ),
             }));
           })

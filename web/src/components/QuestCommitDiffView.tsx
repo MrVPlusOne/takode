@@ -42,15 +42,66 @@ function findQuestById(quests: QuestmasterTask[], questId: string): QuestmasterT
   return quests.find((quest) => quest.questId.toLowerCase() === normalizedQuestId);
 }
 
+interface QuestCommitCandidate {
+  commitShas: readonly string[];
+  version: number;
+  updatedAt: number;
+  sourceRank: number;
+}
+
+function questCommitCandidate(
+  quest: QuestmasterTask | null | undefined,
+  sourceRank: number,
+): QuestCommitCandidate | null {
+  if (!Array.isArray(quest?.commitShas)) return null;
+  return {
+    commitShas: quest.commitShas,
+    version: quest.version,
+    updatedAt: Math.max(quest.createdAt, quest.updatedAt ?? 0, quest.statusChangedAt ?? 0),
+    sourceRank,
+  };
+}
+
+function shouldReplaceQuestCommitCandidate(
+  current: QuestCommitCandidate | null,
+  incoming: QuestCommitCandidate | null,
+): incoming is QuestCommitCandidate {
+  if (!incoming) return false;
+  if (!current) return true;
+  // Structured code evidence is append-only, so a shorter stale projection
+  // cannot hide commits even when it arrives with misleading freshness.
+  if (incoming.commitShas.length !== current.commitShas.length) {
+    return incoming.commitShas.length > current.commitShas.length;
+  }
+  if (incoming.version !== current.version) return incoming.version > current.version;
+  if (incoming.updatedAt !== current.updatedAt) return incoming.updatedAt > current.updatedAt;
+  return incoming.sourceRank > current.sourceRank;
+}
+
 function getQuestCommitShasFromState(
   state: ReturnType<typeof useStore.getState> | null,
   questId: string | null | undefined,
 ): readonly string[] | null {
   if (!questId) return EMPTY_CODE_COMMIT_SHAS;
-  const quest =
-    state?.questDetails?.get(questId.toLowerCase()) ??
-    (state?.quests ? findQuestById(state.quests, questId) : undefined);
-  return Array.isArray(quest?.commitShas) ? quest.commitShas : null;
+  const key = questId.toLowerCase();
+  const candidates: Array<QuestCommitCandidate | null> = [
+    questCommitCandidate(state?.quests ? findQuestById(state.quests, questId) : undefined, 1),
+    questCommitCandidate(state?.questDetails?.get(key), 2),
+  ];
+  const preview = state?.questTitlePreviews?.get(key);
+  if (preview && Array.isArray(preview.commitShas)) {
+    candidates.push({
+      commitShas: preview.commitShas,
+      version: preview.version,
+      updatedAt: preview.updatedAt ?? 0,
+      sourceRank: 3,
+    });
+  }
+  const selected = candidates.reduce<QuestCommitCandidate | null>(
+    (current, candidate) => (shouldReplaceQuestCommitCandidate(current, candidate) ? candidate : current),
+    null,
+  );
+  return selected ? selected.commitShas : null;
 }
 
 function fetchQuestCommitEvidence(questId: string): Promise<QuestmasterTask | null> {
@@ -81,9 +132,12 @@ function fetchQuestCommitEvidence(questId: string): Promise<QuestmasterTask | nu
 
 export function useQuestCodeCommitShas(
   questId: string | null | undefined,
-  initialCommitShas?: readonly string[],
-): { commitShas: readonly string[]; loading: boolean } {
-  const storeCommitShas = useStore((state) => initialCommitShas ?? getQuestCommitShasFromState(state, questId));
+  fallbackCommitShas?: readonly string[],
+): {
+  commitShas: readonly string[];
+  loading: boolean;
+} {
+  const storeCommitShas = useStore((state) => getQuestCommitShasFromState(state, questId));
   const [resolvedMissingQuestId, setResolvedMissingQuestId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -102,8 +156,12 @@ export function useQuestCodeCommitShas(
     };
   }, [questId, resolvedMissingQuestId, storeCommitShas]);
 
-  const loading = !!questId && storeCommitShas === null && resolvedMissingQuestId !== questId.toLowerCase();
-  return { commitShas: storeCommitShas ?? EMPTY_CODE_COMMIT_SHAS, loading };
+  const loading =
+    !!questId &&
+    storeCommitShas === null &&
+    fallbackCommitShas === undefined &&
+    resolvedMissingQuestId !== questId.toLowerCase();
+  return { commitShas: storeCommitShas ?? fallbackCommitShas ?? EMPTY_CODE_COMMIT_SHAS, loading };
 }
 
 export interface QuestCommitDiffState {

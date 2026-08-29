@@ -388,9 +388,25 @@ describe("Quest Journey board phase timing", () => {
     });
 
     vi.setSystemTime(new Date(181_000));
-    const memory = advanceBoardRow(session, "q-1016", QUEST_JOURNEY_STATES, deps);
+    const blocked = advanceBoardRow(session, "q-1016", QUEST_JOURNEY_STATES, deps);
+    expect(blocked).toEqual(
+      expect.objectContaining({ error: expect.stringContaining("work-to-memory"), previousState: "WORKING" }),
+    );
 
-    expect(memory).toEqual(expect.objectContaining({ removed: false, previousState: "WORKING", newState: "MEMORY" }));
+    // Simulate the dedicated route after it has persisted Work commit evidence.
+    upsertBoardRow(
+      session,
+      {
+        questId: "q-1016",
+        status: "MEMORY",
+        journey: {
+          phaseIds: ["alignment", "work", "memory"],
+          activePhaseIndex: 2,
+          currentPhaseId: "memory",
+        },
+      },
+      deps,
+    );
     expect(getBoard(session)[0]?.journey?.phaseTimings).toEqual({
       "0": { startedAt: 1_000, endedAt: 61_000 },
       "1": { startedAt: 61_000, endedAt: 181_000 },
@@ -500,7 +516,41 @@ describe("Quest Journey board phase timing", () => {
     });
   });
 
-  it("records the satisfied skip condition when skipping an optional User Checkpoint", () => {
+  it("keeps optional checkpoint skipping from Work to a later Work occurrence", () => {
+    const session = createSession();
+    const deps = createDeps();
+
+    upsertBoardRow(
+      session,
+      {
+        questId: "q-1042",
+        status: "WORKING",
+        journey: {
+          phaseIds: ["work", "user-checkpoint", "work", "memory"],
+          activePhaseIndex: 0,
+          phaseNotes: {
+            "1": "Optional: skip if Work confirms there is no user-visible tradeoff.",
+          },
+        },
+      },
+      deps,
+    );
+
+    const advanced = advanceBoardRow(session, "q-1042", QUEST_JOURNEY_STATES, deps, {
+      skipOptionalUserCheckpointReason: "Work found no user-visible tradeoff.",
+    });
+
+    expect(advanced).toEqual(
+      expect.objectContaining({ removed: false, previousState: "WORKING", newState: "WORKING" }),
+    );
+    expect(getBoard(session)[0]?.journey).toMatchObject({
+      activePhaseIndex: 2,
+      currentPhaseId: "work",
+      phaseSkipReasons: { "1": "Work found no user-visible tradeoff." },
+    });
+  });
+
+  it("does not let optional-checkpoint skipping bypass the guarded Work transition", () => {
     const session = createSession();
     const deps = createDeps();
 
@@ -524,14 +574,14 @@ describe("Quest Journey board phase timing", () => {
       skipOptionalUserCheckpointReason: "Work found no user-visible tradeoff.",
     });
 
-    expect(advanced).toEqual(expect.objectContaining({ removed: false, previousState: "WORKING", newState: "MEMORY" }));
+    expect(advanced).toEqual(
+      expect.objectContaining({ error: expect.stringContaining("work-to-memory"), previousState: "WORKING" }),
+    );
     expect(getBoard(session)[0]?.journey).toMatchObject({
-      activePhaseIndex: 2,
-      currentPhaseId: "memory",
-      phaseSkipReasons: {
-        "1": "Work found no user-visible tradeoff.",
-      },
+      activePhaseIndex: 0,
+      currentPhaseId: "work",
     });
+    expect(getBoard(session)[0]?.journey?.phaseSkipReasons).toBeUndefined();
   });
 
   it("rebases the current open timing when a revision inserts a phase before the current phase", () => {

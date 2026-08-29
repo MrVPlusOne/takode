@@ -596,6 +596,15 @@ describe("buildOrchestratorSystemPrompt", () => {
     expect(prompt).toContain("confirm");
     expect(prompt).toContain("quest");
     expect(prompt).toContain("included immediately after this kickoff message");
+    expect(prompt).toContain("takode board advance <quest-id>` only for non-Work boundaries");
+    expect(prompt).toContain(
+      'takode board work-to-memory <quest-id> --work-note <feedback-index> --commits "sha1,sha2"',
+    );
+    expect(prompt).toContain("mutually exclusive `--no-code` mode for genuine zero-git-tracked-change Work");
+    expect(prompt).toContain(
+      "direct approved optional checkpoint before Memory adds `--skip-optional-checkpoint <reason>`",
+    );
+    expect(prompt).toContain("required or taken checkpoints must resume into later Work first");
     expect(prompt).toContain("via tool calls");
     expect(prompt).toContain("wait for the user's instructions");
     expect(prompt).toContain("ask the user in a marked leader response");

@@ -119,6 +119,7 @@ export interface QuestThreadBannerRow {
   rowStatus?: BoardRowSessionStatus;
   leaderSessionId?: string | null;
   leaderSessionNum?: number | null;
+  /** Legacy row snapshot; commit UI resolves from the fresher exact quest projection. */
   commitShas?: string[];
   section?: "active" | "done";
 }

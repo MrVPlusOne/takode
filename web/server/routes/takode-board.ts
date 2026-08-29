@@ -1,7 +1,6 @@
 import type { Hono } from "hono";
 import * as questStore from "../quest-store.js";
 import {
-  DEFAULT_QUEST_JOURNEY_PHASE_IDS,
   canonicalizeQuestJourneyPhaseId,
   FREE_WORKER_WAIT_FOR_TOKEN,
   getQuestJourneyCurrentPhaseIndex,
@@ -10,6 +9,7 @@ import {
   getQuestJourneyPhaseIndices,
   getInvalidQuestJourneyPhaseIds,
   getQuestJourneyProposalSignature,
+  isLegacyQuestJourneyPhaseId,
   isQuestJourneyOptionalUserCheckpoint,
   isValidQuestId,
   isValidWaitForRef,
@@ -42,6 +42,8 @@ import {
 import { QUEST_JOURNEY_STATES, type BoardRow } from "../session-types.js";
 import type { RouteContext } from "./context.js";
 import type { QuestmasterTask } from "../quest-types.js";
+import { normalizeCommitShas } from "../quest-store-helpers.js";
+import { broadcastQuestUpdate } from "./quest-helpers.js";
 import { getQuestDisplayOwner, getTakodeQuestOwnerSessionId } from "../../shared/quest-owner.js";
 
 interface PhaseNoteEdit {
@@ -64,31 +66,142 @@ function isDirectCodexOwnedQuest(quest: QuestmasterTask): boolean {
   return getQuestDisplayOwner(quest)?.kind === "codex";
 }
 
+function hasUnaddressedHumanFeedback(quest: QuestmasterTask): boolean {
+  return (quest.feedback ?? []).some((entry) => entry.author === "human" && entry.addressed !== true);
+}
+
+interface ActiveWorkPhaseContext {
+  currentJourney: QuestJourneyPlanState;
+  phaseIds: QuestJourneyPhaseId[];
+  currentPhaseIndex: number;
+  journeyRunId: string;
+  phaseOccurrenceId: string;
+}
+
+function resolveActiveWorkPhaseContext(
+  leaderSessionId: string,
+  row: BoardRow,
+  quest: QuestmasterTask,
+): ActiveWorkPhaseContext | { error: string } {
+  const currentJourney = normalizeQuestJourneyPlan(row.journey, row.status);
+  const phaseIds = [...currentJourney.phaseIds];
+  const currentPhaseIndex = getQuestJourneyCurrentPhaseIndex({ ...currentJourney, phaseIds }, row.status);
+  if (currentPhaseIndex === undefined || phaseIds[currentPhaseIndex] !== "work") {
+    return { error: "Work -> Memory requires an unambiguous current Work phase occurrence." };
+  }
+  const journeyRunId = `board-${leaderSessionId.slice(0, 8)}-${row.createdAt}`;
+  const snapshottedOccurrenceId = quest.journeyRuns
+    ?.find((run) => run.runId === journeyRunId)
+    ?.phaseOccurrences.find((occurrence) => occurrence.phaseIndex === currentPhaseIndex)?.occurrenceId;
+  return {
+    currentJourney,
+    phaseIds,
+    currentPhaseIndex,
+    journeyRunId,
+    phaseOccurrenceId: snapshottedOccurrenceId ?? `${journeyRunId}:p${currentPhaseIndex + 1}`,
+  };
+}
+
+interface WorkToMemoryTarget {
+  memoryIndex: number;
+  phaseSkipReasons?: Record<string, string>;
+}
+
+function resolveWorkToMemoryTarget(
+  context: ActiveWorkPhaseContext,
+  skipOptionalUserCheckpointReason: string | undefined,
+): WorkToMemoryTarget | { error: string } {
+  const { currentJourney, phaseIds, currentPhaseIndex } = context;
+  const memoryIndex = phaseIds.findIndex((phaseId, index) => index > currentPhaseIndex && phaseId === "memory");
+  if (memoryIndex < 0) {
+    return { error: "The active v2 Journey has no Memory phase after the current Work occurrence." };
+  }
+
+  const interveningIndices = phaseIds
+    .map((phaseId, index) => ({ phaseId, index }))
+    .filter(({ index }) => index > currentPhaseIndex && index < memoryIndex);
+  if (interveningIndices.length === 0) {
+    if (skipOptionalUserCheckpointReason) {
+      return { error: "No optional User Checkpoint lies between the current Work occurrence and Memory." };
+    }
+    return { memoryIndex };
+  }
+
+  if (interveningIndices.length === 1 && interveningIndices[0]?.phaseId === "user-checkpoint") {
+    const checkpointIndex = interveningIndices[0].index;
+    if (!skipOptionalUserCheckpointReason) {
+      return {
+        error:
+          "A User Checkpoint lies before Memory. Optional checkpoints require a skip reason; required or taken checkpoints require a later Work occurrence before Memory.",
+      };
+    }
+    if (!isQuestJourneyOptionalUserCheckpoint(phaseIds, currentJourney.phaseNotes, checkpointIndex)) {
+      return {
+        error:
+          "This User Checkpoint is required and cannot be skipped. Revise the Journey to insert a later Work occurrence after the checkpoint before entering Memory.",
+      };
+    }
+    return {
+      memoryIndex,
+      phaseSkipReasons: {
+        ...(currentJourney.phaseSkipReasons ?? {}),
+        [String(checkpointIndex)]: skipOptionalUserCheckpointReason,
+      },
+    };
+  }
+
+  return {
+    error:
+      `Cannot enter Memory because planned phase occurrence(s) remain after the current Work occurrence: ` +
+      `${interveningIndices.map(({ phaseId }) => phaseId).join(", ")}. Advance or settle those occurrences first.`,
+  };
+}
+
 function resolveCurrentWorkFeedback(args: {
   quest: QuestmasterTask;
   authorSessionId: string;
+  activeScope: Pick<ActiveWorkPhaseContext, "journeyRunId" | "phaseOccurrenceId">;
   requestedIndex?: number;
 }): { index: number } | { error: string } {
   const feedback = args.quest.feedback ?? [];
+  const hasCurrentRunSnapshot = (args.quest.journeyRuns ?? []).some(
+    (run) => run.runId === args.activeScope.journeyRunId,
+  );
   const candidateEntries = feedback
     .map((entry, index) => ({ entry, index }))
     .filter(({ entry, index }) => {
       if (args.requestedIndex !== undefined && index !== args.requestedIndex) return false;
-      return (
+      const isEligibleWorkNote =
         entry.author === "agent" &&
         entry.authorSessionId === args.authorSessionId &&
         entry.phaseId === "work" &&
         (entry.kind === "phase_summary" || entry.kind === undefined) &&
-        entry.text.trim().length >= 80
+        entry.text.trim().length >= 80;
+      if (!isEligibleWorkNote) return false;
+
+      const matchesActiveScope =
+        entry.journeyRunId === args.activeScope.journeyRunId &&
+        entry.phaseOccurrenceId === args.activeScope.phaseOccurrenceId;
+      if (matchesActiveScope) return true;
+      if (hasCurrentRunSnapshot) return false;
+
+      // Compatibility for phase notes created before board-backed run snapshots existed.
+      return (
+        entry.journeyRunId === undefined &&
+        entry.phaseOccurrenceId === undefined &&
+        entry.phaseIndex === undefined &&
+        entry.phasePosition === undefined &&
+        entry.phaseOccurrence === undefined
       );
     });
   const latest = candidateEntries.at(-1);
   if (latest) return { index: latest.index };
   if (args.requestedIndex !== undefined) {
-    return { error: `Feedback #${args.requestedIndex} is not a current Work phase note by this worker.` };
+    return { error: `Feedback #${args.requestedIndex} is not the current Work phase note by this worker.` };
   }
   return {
-    error: "A current Work phase note by the assigned worker is required before Work can transition to Memory.",
+    error:
+      "A Work phase note for the active Journey run and phase occurrence is required before Work can transition to Memory.",
   };
 }
 
@@ -251,7 +364,7 @@ function validateExplicitUserCheckpointSkips(
       return "Cannot skip a mandatory User Checkpoint. User Checkpoints are mandatory by default unless the approved phase note makes that checkpoint optional with a concrete skip condition.";
     }
     if (!phaseSkipReasons?.[String(index)]?.trim()) {
-      return "Cannot skip an optional User Checkpoint without recording that its approved skip condition is satisfied. Use `takode board advance --skip-optional-checkpoint <reason>` from the preceding phase.";
+      return "Cannot skip an optional User Checkpoint without recording that its approved skip condition is satisfied. Use `takode board advance --skip-optional-checkpoint <reason>` when another Work occurrence follows, or `takode board work-to-memory ... --skip-optional-checkpoint <reason>` when Memory follows directly.";
     }
   }
   return undefined;
@@ -341,6 +454,40 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     if (body.workFeedbackIndex !== undefined && workFeedbackIndex === undefined) {
       return c.json({ error: "workFeedbackIndex must be an integer when provided." }, 400);
     }
+    const skipOptionalUserCheckpointReason =
+      typeof body.skipOptionalUserCheckpointReason === "string"
+        ? body.skipOptionalUserCheckpointReason.trim()
+        : undefined;
+    if (
+      body.skipOptionalUserCheckpointReason !== undefined &&
+      (!skipOptionalUserCheckpointReason || typeof body.skipOptionalUserCheckpointReason !== "string")
+    ) {
+      return c.json({ error: "skipOptionalUserCheckpointReason must be a non-empty string when provided." }, 400);
+    }
+
+    const hasCommitMode = Object.prototype.hasOwnProperty.call(body, "commitShas");
+    if (body.noCode !== undefined && body.noCode !== true) {
+      return c.json({ error: "noCode must be true when provided." }, 400);
+    }
+    const hasNoCodeMode = body.noCode === true;
+    if (hasCommitMode === hasNoCodeMode) {
+      return c.json({ error: "Work -> Memory requires exactly one code evidence mode: commitShas or noCode." }, 400);
+    }
+
+    let commitShas: string[] | undefined;
+    if (hasCommitMode) {
+      if (!Array.isArray(body.commitShas) || body.commitShas.length === 0) {
+        return c.json({ error: "commitShas must be a non-empty array when provided." }, 400);
+      }
+      try {
+        commitShas = normalizeCommitShas(body.commitShas);
+      } catch (error) {
+        return c.json({ error: error instanceof Error ? error.message : "Invalid commitShas." }, 400);
+      }
+      if (commitShas.length === 0) {
+        return c.json({ error: "commitShas must contain at least one unique commit SHA." }, 400);
+      }
+    }
 
     const quest = await questStore.getQuest(questId).catch(() => null);
     if (!quest) return c.json({ error: `Quest not found: ${questId}` }, 404);
@@ -349,6 +496,9 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
         { error: "Only the assigned worker that has claimed this in-progress quest may transition Work to Memory." },
         403,
       );
+    }
+    if (hasUnaddressedHumanFeedback(quest)) {
+      return c.json({ error: "Cannot transition Work to Memory while human feedback remains unaddressed." }, 409);
     }
 
     const matches = findAssignedBoardRowsForWorker({
@@ -370,9 +520,82 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       );
     }
 
-    const [{ leaderSessionId, row }] = matches;
-    const normalizedStatus = (row.status ?? "").trim().toUpperCase();
+    const initialMatch = matches[0]!;
+    const normalizedStatus = (initialMatch.row.status ?? "").trim().toUpperCase();
     if (normalizedStatus !== "WORKING") {
+      return c.json(
+        {
+          error: `Work -> Memory requires board state WORKING; current state is ${initialMatch.row.status ?? "unknown"}.`,
+        },
+        409,
+      );
+    }
+    if ((initialMatch.row.waitForInput ?? []).length > 0) {
+      return c.json({ error: "Cannot transition to Memory while a User Checkpoint is unresolved." }, 409);
+    }
+
+    const initialWorkContext = resolveActiveWorkPhaseContext(initialMatch.leaderSessionId, initialMatch.row, quest);
+    if ("error" in initialWorkContext) return c.json({ error: initialWorkContext.error }, 409);
+    const initialWorkNote = resolveCurrentWorkFeedback({
+      quest,
+      authorSessionId: auth.callerId,
+      activeScope: initialWorkContext,
+      ...(workFeedbackIndex !== undefined ? { requestedIndex: workFeedbackIndex } : {}),
+    });
+    if ("error" in initialWorkNote) return c.json({ error: initialWorkNote.error }, 409);
+    const initialTarget = resolveWorkToMemoryTarget(initialWorkContext, skipOptionalUserCheckpointReason);
+    if ("error" in initialTarget) return c.json({ error: initialTarget.error }, 409);
+
+    if (commitShas) {
+      try {
+        const updated = await questStore.appendQuestCodeCommitEvidenceForOwner(
+          questId,
+          { kind: "takode", sessionId: auth.callerId },
+          commitShas,
+        );
+        if (!updated) return c.json({ error: `Quest not found: ${questId}` }, 404);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Cannot attach code commit evidence.";
+        if (
+          message.includes("in-progress quest") ||
+          message.includes("exact active quest owner") ||
+          message.includes("code commit SHA")
+        ) {
+          return c.json({ error: message }, 409);
+        }
+        console.warn(`[routes] Failed to attach Work commit evidence for ${questId}:`, error);
+        return c.json({ error: `Cannot attach code commit evidence for ${questId}; try again.` }, 503);
+      }
+    }
+
+    // Quest-store persistence above is asynchronous. Always re-read the durable
+    // quest before touching the board so a concurrent status or owner change fails closed.
+    const evidenceQuest = await questStore.getQuest(questId).catch(() => null);
+    if (!evidenceQuest) return c.json({ error: `Quest not found: ${questId}` }, 404);
+    if (evidenceQuest.status !== "in_progress" || getTakodeQuestOwnerSessionId(evidenceQuest) !== auth.callerId) {
+      return c.json({ error: "Quest ownership changed while preparing Work -> Memory; retry after refreshing." }, 409);
+    }
+    if (hasUnaddressedHumanFeedback(evidenceQuest)) {
+      return c.json({ error: "Cannot transition Work to Memory while human feedback remains unaddressed." }, 409);
+    }
+    if (commitShas) {
+      const storedCommitShas = new Set((evidenceQuest.commitShas ?? []).map((sha) => sha.toLowerCase()));
+      if (commitShas.some((sha) => !storedCommitShas.has(sha))) {
+        return c.json({ error: "Persisted Work commit evidence changed before Memory entry; refresh and retry." }, 409);
+      }
+    }
+    const refreshedMatches = findAssignedBoardRowsForWorker({
+      wsBridge,
+      launcher,
+      workerSessionId: auth.callerId,
+      questId,
+    });
+    if (refreshedMatches.length !== 1 || refreshedMatches[0]!.leaderSessionId !== initialMatch.leaderSessionId) {
+      return c.json({ error: "The assigned Work board row changed while recording evidence; refresh and retry." }, 409);
+    }
+    const [{ leaderSessionId, row }] = refreshedMatches;
+    const refreshedStatus = (row.status ?? "").trim().toUpperCase();
+    if (refreshedStatus !== "WORKING") {
       return c.json(
         { error: `Work -> Memory requires board state WORKING; current state is ${row.status ?? "unknown"}.` },
         409,
@@ -382,22 +605,25 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       return c.json({ error: "Cannot transition to Memory while a User Checkpoint is unresolved." }, 409);
     }
 
+    const leaderSession = wsBridge.getSession(leaderSessionId);
+    if (!leaderSession) return c.json({ error: "Leader board session is unavailable." }, 409);
+    const activeWorkContext = resolveActiveWorkPhaseContext(leaderSessionId, row, evidenceQuest);
+    if ("error" in activeWorkContext) return c.json({ error: activeWorkContext.error }, 409);
     const workNote = resolveCurrentWorkFeedback({
-      quest,
+      quest: evidenceQuest,
       authorSessionId: auth.callerId,
+      activeScope: activeWorkContext,
       ...(workFeedbackIndex !== undefined ? { requestedIndex: workFeedbackIndex } : {}),
     });
     if ("error" in workNote) return c.json({ error: workNote.error }, 409);
 
-    const leaderSession = wsBridge.getSession(leaderSessionId);
-    if (!leaderSession) return c.json({ error: "Leader board session is unavailable." }, 409);
-    const currentJourney = normalizeQuestJourneyPlan(row.journey, row.status);
-    const phaseIds =
-      currentJourney.phaseIds.includes("memory") && currentJourney.phaseIds.includes("work")
-        ? currentJourney.phaseIds
-        : [...DEFAULT_QUEST_JOURNEY_PHASE_IDS];
-    const memoryIndex = phaseIds.indexOf("memory");
-    if (memoryIndex < 0) return c.json({ error: "The active v2 Journey does not contain Memory." }, 409);
+    const target = resolveWorkToMemoryTarget(activeWorkContext, skipOptionalUserCheckpointReason);
+    if ("error" in target) return c.json({ error: target.error }, 409);
+    const { currentJourney, phaseIds } = activeWorkContext;
+
+    // Publish the freshly re-read structured evidence before the board advertises Memory,
+    // including historical commit truth carried through an explicit no-code Work occurrence.
+    broadcastQuestUpdate(wsBridge, evidenceQuest);
 
     const board = upsertBoardRowController(
       leaderSession,
@@ -410,8 +636,9 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
           ...currentJourney,
           mode: "active",
           phaseIds,
-          activePhaseIndex: memoryIndex,
+          activePhaseIndex: target.memoryIndex,
           currentPhaseId: "memory",
+          ...(target.phaseSkipReasons ? { phaseSkipReasons: target.phaseSkipReasons } : {}),
         },
       },
       workBoardStateDeps,
@@ -1003,6 +1230,21 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
             ? defaultActiveStatus
             : (existingRow?.status?.trim() ?? defaultActiveStatus))));
     const mergedStatusUpper = (mergedStatus || "").trim().toUpperCase();
+    const existingStatusUpper = (existingRow?.status ?? "").trim().toUpperCase();
+    const targetsActiveV2Journey =
+      targetMode === "active" &&
+      (!existingRow ||
+        existingPhaseIds.length === 0 ||
+        existingPhaseIds.every((phaseId) => !isLegacyQuestJourneyPhaseId(phaseId)));
+    if (targetsActiveV2Journey && mergedStatusUpper === "MEMORY" && existingStatusUpper !== "MEMORY") {
+      return c.json(
+        {
+          error:
+            "Active v2 Work -> Memory must use `takode board work-to-memory` with explicit synchronized commit or no-code evidence.",
+        },
+        409,
+      );
+    }
     const mergedWaitFor =
       targetMode === "proposed" ? undefined : waitFor !== undefined ? waitFor : existingRow?.waitFor;
     const mergedWaitForInput = waitForInput !== undefined ? waitForInput : existingRow?.waitForInput;

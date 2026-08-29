@@ -286,17 +286,23 @@ describe("ensureQuestmasterIntegration", () => {
 
     const skill = writtenFile("/home/tester/.agents/skills/quest/SKILL.md");
     const memoryCompletion = writtenFile("/home/tester/.agents/skills/quest/memory-completion.md");
-    expect(skill).toContain("Worktree sessions must not run `quest complete`");
+    expect(skill).toContain("Worktree sessions must not enter Memory until changes are synced");
     expect(skill).toContain("Work owns implementation, self-review, approved execution, validation, sync/push duties");
     expect(skill).toContain("changes are synced to the selected target and pushed when required");
+    expect(skill).toContain('--skip-optional-checkpoint "<reason>"');
+    expect(skill).toContain("Required checkpoints and optional checkpoints that are actually taken");
+    expect(skill).toContain("Repeated plans may use generic advance to resume or skip into later Work");
     expect(memoryCompletion).toContain(
-      'quest complete q-N --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md',
+      'takode board work-to-memory q-N --work-note <feedback-index> --commits "sha1,sha2"',
     );
     expect(skill).toContain("[--memory-commit <sha>] [--memory-commits");
-    expect(memoryCompletion).toContain("file-based memory repo commits");
+    expect(memoryCompletion).toContain("file-based memory-repository commits during final Memory");
     expect(memoryCompletion).toContain("Keep code commit metadata separate from memory commit metadata");
     expect(memoryCompletion).toContain("Synced SHAs: sha1,sha2");
-    expect(memoryCompletion).toContain("Final Memory or the leader attaches those SHAs");
+    expect(memoryCompletion).toContain(
+      "Final Memory verifies that tracked Work SHAs are already structured quest metadata",
+    );
+    expect(memoryCompletion).toContain("do not first-attach them with completion-time `--commit` / `--commits`");
     expect(memoryCompletion).toContain("Final debrief draft:");
     expect(memoryCompletion).toContain("Debrief TLDR draft:");
     expect(skill).toContain("route final Memory");
@@ -310,7 +316,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(memoryCompletion).toContain("Metadata reconciliation is a final-scope accuracy check");
     expect(memoryCompletion).toContain("not permission to rewrite active scope or unfinished quests");
     expect(memoryCompletion).toContain("do not invent a separate Port phase");
-    expect(memoryCompletion).toContain("Do not leave commit info only in comments");
+    expect(memoryCompletion).toContain("Do not leave code commit info only in comments");
     expect(memoryCompletion).toContain("one substantive quest-level prose summary");
     expect(memoryCompletion).toContain("what changed, why it matters, and what verification passed");
     expect(skill).toContain("Use value-based compression instead of hard length caps");
@@ -338,7 +344,7 @@ describe("ensureQuestmasterIntegration", () => {
       "Re-running the same summary-style feedback (`Summary:` or `Refreshed summary:`)",
     );
     expect(memoryCompletion).toContain("Only add a second port-specific comment");
-    expect(memoryCompletion).toContain("pass `quest complete ... --no-code`");
+    expect(memoryCompletion).toContain("`quest complete ... --no-code` remains only a local reminder switch");
     expect(memoryCompletion).toContain("only a local reminder switch");
     expect(memoryCompletion).toContain(
       "Do not add placeholder sync notes, synced SHA lines, or automated-check results as checks",

@@ -20,7 +20,7 @@ vi.mock("./DiffViewer.js", () => ({
 }));
 
 import { useStore } from "../store.js";
-import { QuestCodeCommitDiffPanel } from "./QuestCommitDiffView.js";
+import { QuestCodeCommitDiffPanel, useQuestCodeCommitShas } from "./QuestCommitDiffView.js";
 
 function questFixture(overrides: Record<string, unknown> = {}) {
   return {
@@ -34,6 +34,11 @@ function questFixture(overrides: Record<string, unknown> = {}) {
     statusChangedAt: 2,
     ...overrides,
   };
+}
+
+function CommitCount({ questId }: { questId: string }) {
+  const { commitShas, loading } = useQuestCodeCommitShas(questId);
+  return <span data-testid="commit-count">{loading ? "loading" : commitShas.length}</span>;
 }
 
 function deferred<T>() {
@@ -90,6 +95,43 @@ describe("QuestCodeCommitDiffPanel", () => {
     await waitFor(() => expect(mockGetQuest).toHaveBeenCalledWith("q-42"));
     expect(await screen.findByText("No recorded commits yet")).toBeInTheDocument();
     expect(mockGetQuestCommit).not.toHaveBeenCalled();
+  });
+
+  it("keeps a live exact projection ahead of stale list and in-flight detail responses", async () => {
+    const pendingDetail = deferred<ReturnType<typeof questFixture>>();
+    useStore.setState({
+      quests: [questFixture({ version: 5, updatedAt: 40, commitShas: undefined }) as never],
+    });
+    mockGetQuest.mockReturnValueOnce(pendingDetail.promise);
+
+    render(<CommitCount questId="q-42" />);
+    expect(screen.getByTestId("commit-count")).toHaveTextContent("loading");
+    await waitFor(() => expect(mockGetQuest).toHaveBeenCalledWith("q-42"));
+
+    act(() => {
+      useStore.getState().upsertQuestTitlePreview({
+        questId: "q-42",
+        title: "Recorded commits",
+        version: 5,
+        updatedAt: 50,
+        commitShas: ["abc1234def5678", "def5678abc1234"],
+      });
+    });
+    expect(screen.getByTestId("commit-count")).toHaveTextContent("2");
+
+    await act(async () => {
+      pendingDetail.resolve(questFixture({ version: 5, updatedAt: 45, commitShas: [] }));
+      await pendingDetail.promise;
+    });
+    act(() => {
+      useStore.getState().setQuests([questFixture({ version: 5, updatedAt: 42, commitShas: [] }) as never]);
+    });
+
+    expect(screen.getByTestId("commit-count")).toHaveTextContent("2");
+    expect(useStore.getState().questTitlePreviews.get("q-42")?.commitShas).toEqual([
+      "abc1234def5678",
+      "def5678abc1234",
+    ]);
   });
 
   it("starts the selected commit diff before lazy metadata and skips duplicate active metadata", async () => {

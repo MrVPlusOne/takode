@@ -9,6 +9,7 @@ import {
   parseIntegerFlag,
   readOptionTextFile,
 } from "./takode-core.js";
+import { parseCommitShas } from "./quest-commit-flags.js";
 // ─── Board ─────────────────────────────────────────────────────────────────
 
 import {
@@ -47,7 +48,7 @@ Subcommands:
   note <quest-id>         Add or clear a per-phase Journey note
   work-to-memory <quest-id>
                           Worker-owned transition from Work to Memory
-  advance <quest-id>      Move a quest to the next Journey state
+  advance <quest-id>      Move through non-Work Journey boundaries
   rm <quest-id> [...]     Remove quests from the active board
 
 Examples:
@@ -61,12 +62,13 @@ Examples:
   takode board propose q-12 --phases alignment,work,memory --summary "Approve the goal, constraints, and scheduling for this proposed Journey." --preset v2-work --wait-for-input 3
   takode board promote q-12 --worker 5
   takode board note q-12 3 --text "Inspect only the follow-up diff"
-  takode board work-to-memory q-12 --work-note 4
+  takode board work-to-memory q-12 --work-note 4 --commits "abc1234,def5678"
+  takode board work-to-memory q-13 --work-note 5 --no-code
   takode board set q-12 --status QUEUED --wait-for ${FREE_WORKER_WAIT_FOR_TOKEN}
   takode board set q-12 --status USER_CHECKPOINTING --wait-for-input 3,4
   takode board set q-12 --clear-wait-for-input
   takode board set q-12 --worker 5 --wait-for q-7,#9
-  takode board advance q-12 --skip-optional-checkpoint "Explore found no user-visible tradeoffs"
+  takode board advance q-12 --skip-optional-checkpoint "Alignment found no user-visible tradeoff"
   takode board advance q-12
   takode board rm q-12
 `;
@@ -126,14 +128,14 @@ Add or clear a lightweight per-phase Journey note. Phase positions are 1-based i
 
 export const BOARD_ADVANCE_HELP = `Usage: takode board advance <quest-id> [--skip-optional-checkpoint <reason>] [--full|--verbose] [--json]
 
-Advance a quest to the next Quest Journey state. Advancing from the final planned phase removes the row, even when that Journey never included \`port\`.
+Advance a quest through non-Work Quest Journey boundaries. Advancing from the final planned phase removes the row, even when that Journey never included \`port\`. This command does not perform Work -> Memory; use \`takode board work-to-memory\` with structured commit or zero-code evidence.
 
-Use --skip-optional-checkpoint only when the next phase is a User Checkpoint with an approved optional phase note and the concrete skip condition has been satisfied. The reason is recorded on the board row.
+Use --skip-optional-checkpoint only when the next phase is a User Checkpoint with an approved optional phase note, the concrete skip condition has been satisfied, and the resulting transition is not Work -> Memory. The reason is recorded on the board row.
 `;
 
-export const BOARD_WORK_TO_MEMORY_HELP = `Usage: takode board work-to-memory <quest-id> [--work-note <feedback-index>] [--full|--verbose] [--json]
+export const BOARD_WORK_TO_MEMORY_HELP = `Usage: takode board work-to-memory <quest-id> [--work-note <feedback-index>] (--commit <sha> | --commits <sha1,sha2> | --no-code) [--skip-optional-checkpoint <reason>] [--full|--verbose] [--json]
 
-Authenticated worker-owned transition from Work to Memory. The caller must be the assigned worker, must have claimed the quest, must have a current Work phase note, and the board row must have no unresolved User Checkpoint.
+Authenticated worker-owned transition from Work to Memory. The caller must be the assigned worker, must have claimed the quest, must have a current Work phase note, and the board row must have no unresolved User Checkpoint. Provide synchronized target-repository code SHAs with --commit/--commits, or use --no-code only when this Work occurrence made no tracked project changes. When one planned optional User Checkpoint sits directly between the current Work occurrence and Memory, use --skip-optional-checkpoint only after its approved optional condition is satisfied. Required or taken checkpoints must continue into a later Work occurrence before the guarded transition.
 `;
 
 export const BOARD_RM_HELP = `Usage: takode board rm <quest-id> [<quest-id> ...] [--full|--verbose] [--json]
@@ -1191,9 +1193,34 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     const flags = parseFlags(args.slice(2));
     const workFeedbackIndex = parseIntegerFlag(flags, "work-note", "Work feedback index");
     if (workFeedbackIndex !== undefined && workFeedbackIndex < 0) err("--work-note must be a non-negative integer.");
+    if (flags.commit === true) err("--commit requires a commit SHA.");
+    if (flags.commits === true) err("--commits requires a comma-separated commit SHA list.");
+    const noCode = flags["no-code"] === true;
+    if (typeof flags["no-code"] === "string") err("--no-code does not take a value.");
+    let commitShas: string[];
+    try {
+      commitShas = parseCommitShas([
+        ...(typeof flags.commit === "string" ? [flags.commit] : []),
+        ...(typeof flags.commits === "string" ? flags.commits.split(",").map((value) => value.trim()) : []),
+      ]);
+    } catch (error) {
+      err(error instanceof Error ? error.message : String(error));
+    }
+    if (noCode === commitShas.length > 0) {
+      err(
+        "Use exactly one Work evidence mode: --commit/--commits for synchronized target SHAs, or --no-code for genuine zero-tracked-change Work.",
+      );
+    }
+    if (flags["skip-optional-checkpoint"] === true) {
+      err("--skip-optional-checkpoint requires a reason explaining why the approved skip condition is satisfied.");
+    }
+    const skipOptionalUserCheckpointReason =
+      typeof flags["skip-optional-checkpoint"] === "string" ? flags["skip-optional-checkpoint"].trim() : undefined;
     const result = (await apiPost(base, "/takode/board/work-to-memory", {
       questId,
       ...(workFeedbackIndex !== undefined ? { workFeedbackIndex } : {}),
+      ...(commitShas.length > 0 ? { commitShas } : { noCode: true }),
+      ...(skipOptionalUserCheckpointReason ? { skipOptionalUserCheckpointReason } : {}),
     })) as {
       ok: true;
       questId: string;
@@ -1206,7 +1233,11 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       queueWarnings?: BoardQueueWarning[];
       workerSlotUsage?: { used: number; limit: number };
     };
-    const operation = `${result.questId}: ${result.previousState ?? "WORKING"} -> ${result.newState} (Work note #${result.workFeedbackIndex})`;
+    const evidence =
+      commitShas.length > 0
+        ? `${commitShas.length} code commit${commitShas.length === 1 ? "" : "s"}`
+        : "no code changes";
+    const operation = `${result.questId}: ${result.previousState ?? "WORKING"} -> ${result.newState} (Work note #${result.workFeedbackIndex}, ${evidence})`;
     outputBoardMutation(result.board, flags.json === true, {
       affectedQuestIds: [result.questId],
       operation,

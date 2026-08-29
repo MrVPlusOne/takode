@@ -201,6 +201,42 @@ describe("handleMessage: session_update", () => {
     await vi.waitFor(() => expect(getQuestTitlesMock).toHaveBeenCalledWith(["q-1932"]));
   });
 
+  it("applies an exact quest preview synchronously before bounded refresh completes", () => {
+    wsModule.connectSession("s1");
+    fireMessage({
+      type: "session_init",
+      session: {
+        ...makeSession("s1"),
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-1932"],
+          closedThreadTombstones: [],
+          updatedAt: 2,
+        },
+      },
+    });
+
+    fireMessage({
+      type: "quest_list_updated",
+      quest: {
+        questId: "q-1932",
+        title: "Commit evidence is immediately inspectable",
+        version: 5,
+        updatedAt: 50,
+        commitShas: ["abc1234", "def5678"],
+      },
+    });
+
+    expect(useStore.getState().questTitlePreviews.get("q-1932")).toEqual({
+      questId: "q-1932",
+      title: "Commit evidence is immediately inspectable",
+      version: 5,
+      updatedAt: 50,
+      commitShas: ["abc1234", "def5678"],
+    });
+  });
+
   it("replaces board participant projections across reviewer lifecycle updates", () => {
     // The WebSocket handler must replace the authoritative row status on each
     // coalesced lifecycle projection while retaining the active board worker.

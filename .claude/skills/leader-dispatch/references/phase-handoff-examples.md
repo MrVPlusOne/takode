@@ -59,6 +59,8 @@ Read this phase brief first:
 Return a self-contained user-facing packet with findings, named options, tradeoffs, recommendation, exact requested answer, and any shortcut labels explained in visible text. Add or refresh the checkpoint note, then stop.
 
 Decision needed: <what is outside the approved Work envelope>.
+
+Before checkpoint entry, ensure the remaining suffix includes a later Work occurrence before Memory. A direct optional skip whose condition is already satisfied should stay in Work and use guarded `work-to-memory --skip-optional-checkpoint <reason>` instead of creating this packet.
 ```
 
 ## Memory
@@ -71,7 +73,9 @@ Read this phase brief first:
 
 Use the accepted Work note and current artifacts. Perform catalog/direct-file memory triage, settle final debrief metadata, quest metadata, User review checks, cleanup/follow-ups, exactly one memory statement, and quest completion. Do not edit project-tracked implementation files; missing tracked work returns to Work.
 
-Leader-specific deltas: <synced SHAs, debrief draft, memory files/terms, external artifacts, cleanup needs, or known residual risk>.
+Leader-specific deltas: <debrief draft, memory files/terms, external artifacts, cleanup needs, or known residual risk>.
+
+Do not put synchronized Work SHAs in this Memory delta merely for attachment. The guarded Work -> Memory transition must already have recorded them as structured code commit metadata; missing code evidence routes back to Work.
 ```
 
 ## Separate Review Quest

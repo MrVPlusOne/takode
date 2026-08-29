@@ -61,6 +61,7 @@ import {
 import { convertLegacyParentedCodexThinkingMessage } from "./utils/codex-reasoning-detail.js";
 import { TODO_STATE_UPDATED_EVENT } from "./todo-events.js";
 import { indexCodexSubagentToolResults } from "./utils/codex-subagent-tool-results.js";
+import { handleQuestListUpdated, handleSessionQuestClaimed } from "./ws-quest-handlers.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1760,22 +1761,7 @@ function handleParsedMessage(
     }
 
     case "quest_list_updated": {
-      store.invalidateQuestAutocompleteCandidates();
-      void store.refreshQuestAutocompleteCandidates({ force: true, background: true });
-      void store.refreshQuestSummary({ force: true });
-
-      // Retained leader tabs intentionally outlive board/default quest-list rows.
-      // Refresh only their minimal title projections, keeping the previous
-      // canonical title visible until the bounded server response arrives.
-      const openQuestIds = new Set<string>();
-      for (const session of [...store.sessions.values(), ...store.sdkSessions]) {
-        if (session.isOrchestrator !== true) continue;
-        for (const threadKey of session.leaderOpenThreadTabs?.orderedOpenThreadKeys ?? []) {
-          const questId = threadKey.trim().toLowerCase();
-          if (/^q-\d+$/.test(questId)) openQuestIds.add(questId);
-        }
-      }
-      if (openQuestIds.size > 0) void store.hydrateQuestTitles([...openQuestIds], { force: true });
+      handleQuestListUpdated(data);
       break;
     }
 
@@ -1792,99 +1778,7 @@ function handleParsedMessage(
     }
 
     case "session_quest_claimed": {
-      console.log(`[ws] session_quest_claimed for ${sessionId}:`, data.quest);
-      const prevStatus = store.sessions.get(sessionId)?.claimedQuestStatus;
-      const prevQuestId = store.sessions.get(sessionId)?.claimedQuestId;
-      const prevTitle = store.sessions.get(sessionId)?.claimedQuestTitle;
-      store.updateSession(sessionId, {
-        claimedQuestId: data.quest?.id ?? undefined,
-        claimedQuestTitle: data.quest?.title ?? undefined,
-        claimedQuestStatus: data.quest?.status ?? undefined,
-        claimedQuestVerificationInboxUnread: data.quest?.verificationInboxUnread,
-        claimedQuestLeaderSessionId: data.quest?.leaderSessionId,
-      });
-      const isOrchestrator =
-        store.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.isOrchestrator === true ||
-        store.sessions.get(sessionId)?.isOrchestrator === true;
-      if (
-        data.quest?.id &&
-        data.quest?.title &&
-        questOwnsSessionName(data.quest?.status, data.quest?.verificationInboxUnread) &&
-        !isOrchestrator
-      ) {
-        // Override session name with quest title and mark as quest-named
-        // through review handoff so the checkbox prefix stays stable until
-        // the quest claim is actually cleared.
-        store.setSessionName(sessionId, data.quest.title);
-        store.markRecentlyRenamed(sessionId);
-        store.markQuestNamed(sessionId);
-      } else {
-        store.clearQuestNamed(sessionId);
-      }
-      // Insert a chat feed message for quest lifecycle events
-      if (data.quest?.id) {
-        const questId = data.quest.id;
-        const isStatusChange = prevQuestId === questId && prevStatus && prevStatus !== data.quest.status;
-        const isTitleOnly = prevQuestId === questId && !isStatusChange && prevTitle !== data.quest.title;
-        // Title-only retitle: update existing quest chips instead of creating duplicates
-        if (isTitleOnly) {
-          store.updateQuestTitleInMessages(sessionId, questId, data.quest.title);
-          break;
-        }
-        const isSubmitted =
-          isStatusChange &&
-          (data.quest.status === "needs_verification" ||
-            (data.quest.status === "done" && data.quest.verificationInboxUnread !== undefined));
-        const variant = isSubmitted ? ("quest_submitted" as const) : ("quest_claimed" as const);
-        const label = isSubmitted ? "Quest submitted" : "Quest claimed";
-        // Only insert chat message for new claims or submission — skip redundant status updates
-        if (!isStatusChange || isSubmitted) {
-          api
-            .getQuest(questId)
-            .then((quest) => {
-              const questMeta: ChatMessage["metadata"] = {
-                quest: {
-                  questId: quest.questId,
-                  title: quest.title,
-                  description: "description" in quest ? quest.description : undefined,
-                  tldr: quest.tldr,
-                  status: quest.status,
-                  tags: quest.tags,
-                  images: quest.images,
-                  verificationItems: "verificationItems" in quest ? quest.verificationItems : undefined,
-                  leaderSessionId: quest.leaderSessionId,
-                },
-              };
-              useStore.getState().appendMessage(sessionId, {
-                id: `${variant}-${questId}-${Date.now()}`,
-                role: "system",
-                content: `${label}: ${quest.title}`,
-                timestamp: Date.now(),
-                variant,
-                metadata: questMeta,
-                ephemeral: true,
-              });
-            })
-            .catch(() => {
-              useStore.getState().appendMessage(sessionId, {
-                id: `${variant}-${questId}-${Date.now()}`,
-                role: "system",
-                content: `${label}: ${data.quest!.title}`,
-                timestamp: Date.now(),
-                variant,
-                ephemeral: true,
-                metadata: {
-                  quest: {
-                    questId: questId,
-                    title: data.quest!.title,
-                    status: data.quest!.status ?? (isSubmitted ? "done" : "in_progress"),
-                    leaderSessionId: data.quest!.leaderSessionId,
-                  },
-                },
-              });
-            });
-        }
-      }
+      handleSessionQuestClaimed(sessionId, data);
       break;
     }
 

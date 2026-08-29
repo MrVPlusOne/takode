@@ -404,6 +404,19 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("The Work leader brief remains the complete owner of recovery behavior");
     expect(guardrails).toContain("That brief owns the complete recovery rule");
     expect(guardrails).toContain("Report accepted Work before Memory closure");
+    expect(guardrails).toContain("--work-note <feedback-index> --commit <sha>");
+    expect(guardrails).toContain("Genuine zero-git-tracked-change Work uses the mutually exclusive `--no-code` mode");
+    expect(guardrails).toContain("older quest commits do not replace it");
+    expect(guardrails).toContain("The transition attaches code metadata before entering Memory");
+    expect(guardrails).toContain("direct approved optional checkpoint immediately before Memory");
+    expect(guardrails).toContain("`--skip-optional-checkpoint <reason>`");
+    expect(guardrails).toContain("Required or taken checkpoints must be followed by later Work before Memory");
+    expect(guardrails).toContain(
+      "generic advance may resume repeated plans into later Work but may not skip directly into Memory",
+    );
+    expect(guardrails).toContain("route back to Work instead of first-attaching them during Memory");
+    expect(guardrails).toContain("Memory may attach only separate file-based memory-repository commits");
+    expect(guardrails).toContain("`--memory-commit` / `--memory-commits`");
     expect(guardrails).toContain("the worker stops the Work turn");
     expect(guardrails).toContain("Ordinary read-only follow-ups during Memory use accepted evidence without reopening");
     expect(guardrails).not.toContain("genuinely optional or deferred work");

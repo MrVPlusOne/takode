@@ -144,7 +144,16 @@ For valuable nontrivial phase outcomes, a worker or reviewer may run `takode wor
 
 Keep final chat handoffs much shorter than the phase note. Treat the Questmaster phase feedback as the source of truth for detailed results, recommended next action, blockers, evidence, findings, and handoff facts. In chat, name the phase feedback index and include only the concise outcome or verdict plus urgent blockers, safety facts, or deltas the leader must see immediately. Narrow exceptions still belong in chat when they are the handoff itself: User Checkpoint packets for the leader to publish, Work's selected target plus ordered `Synced SHAs:` and target sync status, final Memory's required memory statement and completion status, urgent blockers or safety facts, and concise verdicts needed for routing.
 
-After a successful Work -> Memory transition, stop the Work turn so the leader can report the accepted outcome immediately. Final Memory resumes under the Memory phase brief and remains mandatory before the quest is technically complete.
+After a successful Work -> Memory transition, stop the Work turn so the leader can report the accepted outcome immediately. The transition must already have attached synchronized selected-target code SHAs as structured quest metadata, or accepted explicit `--no-code` evidence for genuine zero-git-tracked-change Work. Final Memory resumes under the Memory phase brief, may add only separate memory-repository commit metadata, and remains mandatory before the quest is technically complete; missing Work code evidence routes back to Work.
+
+```bash
+# Tracked changes: use selected-target SHAs.
+takode board work-to-memory q-N --work-note <feedback-index> --commits "sha1,sha2"
+# Genuine zero-git-tracked-change Work only:
+takode board work-to-memory q-N --work-note <feedback-index> --no-code
+```
+
+If one approved optional User Checkpoint sits directly before Memory and Work proves its concrete skip condition, add `--skip-optional-checkpoint "<reason>"` to that guarded command; the reason is recorded. Generic `board advance --skip-optional-checkpoint` must not land directly in Memory. Required checkpoints and optional checkpoints that are actually taken must continue into a later Work occurrence before Memory; revise the suffix before checkpoint entry if necessary. Repeated plans may use generic advance to resume or skip into later Work, which applies the decision and owns the eventual guarded transition.
 
 Prefer current-phase inference:
 
@@ -157,7 +166,7 @@ Use `--kind phase-finding` for exploration findings, `--kind review` for review 
 Write phase documentation for the phase that just ran:
 - Alignment: concise leader-verification packet with concrete understanding, key constraints, real ambiguities/questions, blockers/surprises, and Journey-revision evidence. Treat Alignment as a minimal understanding and authorization handshake, not implementation investigation. Avoid broad implementation plans, exhaustive evidence inventories, routine file lists, long command/test details, and repeated quest history unless needed for a blocker or misunderstanding risk.
 - Work: delivered behavior, artifact, or finding; key design choices; verification categories; self-review/rework evidence; sync/push/external state when relevant; checkpoint decisions; residual risks; and exact Memory handoff facts. Keep one current detailed Work note rather than a timeline of every iteration. Include a concise plain-language outcome for the human reader while keeping detailed agent evidence separate.
-- User Checkpoint: findings, named options, key tradeoffs, recommendation, required user answer, actual user decision when known, and how the same Work occurrence should resume.
+- User Checkpoint: findings, named options, key tradeoffs, recommendation, required user answer, actual user decision when known, and how a taken checkpoint resumes into a later Work occurrence before Memory. Approved optional direct skips stay in preceding Work and record their reason through guarded `work-to-memory --skip-optional-checkpoint`.
 - Memory: final debrief metadata status or drafts, quest metadata reconciliation, quest hygiene changes, memory files inspected, memory update or deferral, external durable-state records, cleanup, follow-up routing, completion status, and residual risks.
 - Historical v1 notes: old phase IDs such as Explore, Implement, Code Review, Execute, Outcome Review, Port, and Bookkeeping may appear in completed Quest Detail history. Treat them as historical context, not active phases for new work.
 
@@ -339,8 +348,8 @@ printf '%s\n' 'Sync summary: commit abc123 ...' 'Treat `foo $(bar)` as literal t
 | `--items-file <path>` | Read User review checks from a file, or use `-` to read from stdin. Supports one item per line or a JSON array of strings / `{ "text": "..." }` objects. Omit this when no user action remains. |
 | `--no-code` | Local CLI reminder switch for zero-code / artifact-only handoffs; it suppresses port-noise reminders but does not persist quest metadata |
 | `--session <sid>` | Complete on behalf of a specific worker session. Leader sessions should use this when submitting a worker-owned quest for verification. |
-| `--commit <sha>` | Attach one code repo commit SHA (repeatable). Use this for synced code/docs/template commits, not memory repo commits. |
-| `--commits "s1,s2"` | Attach multiple code repo commit SHAs in order. Keep these separate from memory repo commits. |
+| `--commit <sha>` | Attach one code repo commit SHA (repeatable). In nominal active-v2 flow Work already used this on `takode board work-to-memory`; completion-time use is compatibility or audited recovery, not final Memory's first attachment. |
+| `--commits "s1,s2"` | Attach multiple code repo commit SHAs in order. Keep these separate from memory repo commits; nominal active-v2 Work attaches them before Memory. |
 | `--memory-commit <sha>` | Attach one memory repo commit SHA (repeatable). Use this for file-based memory commits, not code repo commits. |
 | `--memory-commits "s1,s2"` | Attach multiple memory repo commit SHAs in order. Keep these separate from code repo commits. |
 | `--debrief "..."` | Final user-facing outcome debrief |
@@ -351,7 +360,7 @@ printf '%s\n' 'Sync summary: commit abc123 ...' 'Treat `foo $(bar)` as literal t
 | `--reason <text>` | Required with `--force`; explain why the owning leader is intentionally recovering the quest |
 | `--json` | Output JSON |
 
-Every completed non-cancelled quest must have both final debrief metadata and debrief TLDR metadata. A completion handoff that cannot provide both is incomplete: the owner should draft them before `quest complete` / `quest done`, ask the leader to supply them, or route final Memory to reconstruct them from accepted evidence. User review checks are optional; an empty list is normal when no user action remains.
+Every completed non-cancelled quest must have both final debrief metadata and debrief TLDR metadata. A completion handoff that cannot provide both is incomplete: the owner should draft them before `quest complete` / `quest done`, ask the leader to supply them, or route final Memory to reconstruct them from accepted evidence. User review checks are optional; an empty list is normal when no user action remains. In nominal active-v2 Memory, omit completion-time code `--commit` / `--commits`: Work already attached those SHAs through the guarded transition. Memory may supply only separate `--memory-commit` / `--memory-commits`; missing Work code evidence returns to Work.
 
 Owning-leader completion recovery is a future escape hatch, not the nominal path. Before `quest complete --force --reason ...`, leaders should inspect Work and Memory phase notes, feedback and User Checkpoints, review checks, final debrief metadata, code and memory commit metadata, and selected target sync state. Prefer ordinary worker completion or `quest reassign` when substantive Work or Memory remains. The server records an explicit recovery audit event with caller, reason, prior quest/board/worker state, supplied debrief and commit metadata, and bypassed or unavailable checks, and emits a compact warning.
 
@@ -541,7 +550,7 @@ When the user asks you to work on a quest — whether via the Companion "Assign"
    - Prefer the two-axis taxonomy over long-tail precedent. Use new tags only for rare, justified durable categories not covered by the default sets.
 4. **Work**: Implement the changes. Use TodoWrite for sub-step tracking if needed. If a reviewer or human review requires additional code changes, keep the same quest in Work, checkpoint the current worktree state when useful, and make the fixes in a separate follow-up commit so any separate review quest can inspect a clean incremental diff. Reviewers do not commit, and purely read-only follow-up review discussion does not reopen Work. **If there is human feedback**, inspect it with `quest feedback list q-N --author human --unaddressed`, address each entry, explain what you did in an agent feedback entry, then mark it with `quest address q-N <index>`. Prefer one consolidated feedback entry when the same update can both summarize the work and explain how human feedback was addressed, for example `quest feedback q-N --text "Summary: fixed the layout issue and addressed feedback #0 by adding flex-wrap"` for short replies, or `quest feedback q-N --text-file -` / `--text-file <path>` when your response includes copied logs or shell-like text. Add separate feedback entries only when the updates are materially different or separation makes the quest easier to read. Run `quest feedback list q-N --author human --unaddressed` to confirm no unaddressed entries remain.
 5. **Self-check**: Before submitting, verify everything you can yourself. For tracked code/test changes, the current full automated gate is `cd web && bun --no-install run typecheck`, `cd web && bun --no-install run test`, and `cd web && bun --no-install run format:check`. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, document the exception explicitly in your summary or handoff before submitting. Do not turn self-verifiable agent evidence into User review checks. **Verify all human feedback entries are marked addressed** by running `quest feedback list q-N --author human --unaddressed` and checking that it returns no entries.
-6. **Submit or hand off completion**: In Quest Journey v2, Work owns implementation, self-review, approved execution, validation, sync/push duties when authorized, and iterative rework inside the approved envelope. Work then uses the worker-owned Work -> Memory transition when its guard conditions are satisfied. Final Memory is mandatory for non-cancelled quests and normally completes the quest after accepted evidence is synced when applicable, final debrief metadata is ready, User review checks are settled, and memory/metadata closure is complete. Do not invent final User review checks; complete with no `--items` when no user action remains. Worktree sessions must not run `quest complete` until changes are synced to the selected target and pushed when required. Read `memory-completion.md` for the detailed completion, final Memory, debrief, commit metadata, and User review check mechanics.
+6. **Submit or hand off completion**: In Quest Journey v2, Work owns implementation, self-review, approved execution, validation, sync/push duties when authorized, iterative rework, and structured code commit evidence inside the approved envelope. Work then uses the worker-owned Work -> Memory transition with exactly one fresh evidence mode: synchronized selected-target SHAs through `--commit` / `--commits`, or `--no-code` only for genuine zero-git-tracked-change Work. A direct approved optional checkpoint before Memory may be skipped only by adding `--skip-optional-checkpoint <reason>` to that guarded command; required or taken checkpoints must first resume into later Work. Final Memory is mandatory for non-cancelled quests and normally completes the quest after Work-owned evidence is already attached, final debrief metadata is ready, User review checks are settled, and memory/metadata closure is complete. Do not invent final User review checks; complete with no `--items` when no user action remains. Worktree sessions must not enter Memory until changes are synced to the selected target and pushed when required. Read `memory-completion.md` for the detailed completion, final Memory, debrief, commit metadata, and User review check mechanics.
 
 ## Tags
 
@@ -586,14 +595,14 @@ Quests can have attached images at `~/.companion/questmaster/images/`.
 
 ## On-demand Memory and completion details
 
-Read `memory-completion.md` when you are finalizing a quest, running final Memory, deciding User review checks, attaching code or memory commits, reviewing done-quest hygiene, or using Stream Memory CLI. The main invariants are:
+Read `memory-completion.md` when you are finalizing a quest, running final Memory, deciding User review checks, verifying Work-attached code commits, attaching separate memory commits, reviewing done-quest hygiene, or using Stream Memory CLI. The main invariants are:
 
 - Final Memory is mandatory for every non-cancelled Quest Journey. It owns final User review check settlement, durable-state closure, final debrief metadata, quest metadata reconciliation, memory consistency checks, cleanup, and follow-up routing.
 - Every completed non-cancelled quest must include a final debrief and debrief TLDR. Completion without both is incomplete.
 - User review checks are optional human-owned checks only. Use them only for things the user still needs to inspect or do; empty User review checks are normal.
-- Code commits and memory commits are distinct. Attach code/docs/template commits with `--commit` / `--commits`; attach file-based memory commits with `--memory-commit` / `--memory-commits`.
+- Code commits and memory commits are distinct. Work attaches synchronized selected-target code/docs/template commits through `takode board work-to-memory --commit/--commits`; final Memory may attach file-based memory commits with `quest complete --memory-commit/--memory-commits` but must not first-attach Work code SHAs.
 - Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work when they create tracked changes. Do not use `--no-code` for these quests.
-- Worktree changes must be ported/synced to the main repo checkout before completion. Use the main-repo synced SHAs as structured completion metadata.
+- Worktree changes must be ported/synced to the selected target before Memory. Use the selected-target SHAs as structured Work-transition metadata; old stored commits do not replace fresh evidence for rework.
 
 ## Writing style
 
@@ -607,7 +616,7 @@ idea → refined → in_progress → done
                       └──────────┘  (rework from reviewed feedback)
 ```
 
-Use `quest complete` for final completion to `done` with review metadata when Memory closes the quest. In Quest Journey v2, Work transitions to Memory after its guard conditions are satisfied; final Memory normally completes the quest after accepted evidence, debrief metadata, and User review checks are settled. Do not use `quest transition --status done` as a shortcut for completion handoff.
+Use `quest complete` for final completion to `done` with review metadata when Memory closes the quest. In Quest Journey v2, Work transitions to Memory only after the request supplies synchronized selected-target code SHAs or explicit zero-code evidence; final Memory normally completes the quest after that Work-owned evidence is already structured metadata and debrief, memory, and User review checks are settled. Do not use `quest transition --status done` as a shortcut for completion handoff or first-attach Work code SHAs during Memory.
 
 **Title rule for refined and later:** Whenever a quest is `refined`, `in_progress`, or `done`, the title must be **less than 10 words**. If not, shorten it first with `quest edit` before other updates.
 
@@ -628,13 +637,13 @@ Use `quest complete` for final completion to `done` with review metadata when Me
 
 ### in_progress → done with review metadata
 - Confirm the accepted substantive result is complete, including implementation when the approved scope requires it, and run the required self-checks before handoff. For tracked code/test changes, the current full automated gate is `cd web && bun --no-install run typecheck`, `cd web && bun --no-install run test`, and `cd web && bun --no-install run format:check`.
-- Worktree sessions must finish the sync-to-main workflow before `quest complete`; the human verifies from the main repo, not the worktree.
-- Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work when they produce tracked changes.
-- Final Memory is mandatory for every non-cancelled Quest Journey and owns final User review check settlement, durable-state closure, final debrief metadata, quest metadata reconciliation, memory consistency checks, cleanup, and follow-up routing.
+- Worktree sessions must finish the selected-target sync workflow and attach target SHAs through the guarded Work -> Memory transition before final `quest complete`; the human verifies from the selected target, not the pre-port worker commit.
+- Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work when they produce tracked changes. Genuine zero-tracked-change Work uses the transition's explicit `--no-code` mode instead.
+- Final Memory is mandatory for every non-cancelled Quest Journey and owns final User review check settlement, durable-state closure, final debrief metadata, quest metadata reconciliation, memory consistency checks, separate memory-repository commit metadata, cleanup, and follow-up routing. It must route missing Work code evidence back to Work rather than first-attaching it.
 - Every completed non-cancelled quest must include final debrief metadata and debrief TLDR metadata. Use `--debrief-file` and `--debrief-tldr-file` on `quest complete`, `quest done`, or `quest transition --status done` as appropriate.
 - User review checks are optional human-owned checks only. Complete with no `--items` when no user action remains; do not add implementation details, tests, Work sync/push status, Memory closure, or automated verification results as checks.
-- Keep code commit metadata separate from memory commit metadata: use `--commit` / `--commits` for code/docs/template commits and `--memory-commit` / `--memory-commits` for file-based memory commits.
-- Do not leave commit info only in comments; structured commit metadata is required for completion handoff.
+- Keep code commit metadata separate from memory commit metadata: Work uses `takode board work-to-memory --commit/--commits` for synchronized code/docs/template commits; final Memory uses `quest complete --memory-commit/--memory-commits` only for file-based memory commits.
+- Do not leave code commit info only in comments; structured code metadata is required before Memory begins.
 - Read `memory-completion.md` for detailed pre-submission, final Memory, review inbox, User review check, reviewer hygiene, Stream Memory CLI, and debrief TLDR guidance.
 
 ### Done → in_progress (rework)

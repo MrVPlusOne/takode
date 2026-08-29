@@ -4,7 +4,7 @@
   "color": { "name": "amber", "accent": "#fbbf24" },
   "boardState": "USER_CHECKPOINTING",
   "assigneeRole": "worker",
-  "contract": "Present findings, options, tradeoffs, and a recommendation for a required mid-Journey user decision before the Journey continues; do not treat this as a terminal phase, final User review check, or generic TBD bucket.",
-  "nextLeaderAction": "read the user-checkpoint leader brief, publish the decision prompt, notify the user, wait for the answer, record and apply the approved continuation, reconcile a stale title, description, and TLDR before same-quest implementation resumes, clear the wait, and return the current quest to its assigned worker in Work for continuation or closure; revise the remaining Journey only when the answer requires it",
+  "contract": "Present findings, options, tradeoffs, and a recommendation for a taken mid-Journey user decision, then continue into a later Work occurrence before Memory; approved optional checkpoints may instead be skipped from preceding Work only through the guarded transition with a recorded reason.",
+  "nextLeaderAction": "before checkpoint entry verify or revise the remaining suffix to include later Work, publish and notify the decision, wait, record the approved continuation, reconcile stale quest metadata when needed, clear the wait, and advance or resume the assigned worker into that later Work; never route a taken checkpoint directly to Memory",
   "aliases": ["user-decision", "decision-checkpoint", "user-approval"]
 }

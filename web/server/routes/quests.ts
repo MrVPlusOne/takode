@@ -12,6 +12,7 @@ import type {
   QuestmasterTask,
 } from "../quest-types.js";
 import { hasQuestReviewMetadata } from "../quest-types.js";
+import { normalizeCommitShas } from "../quest-store-helpers.js";
 import {
   buildQuestListPreview,
   getQuestListPageAsync,
@@ -24,7 +25,7 @@ import {
   setSessionClaimedQuest as setSessionClaimedQuestController,
   updateQuestTaskEntries as updateQuestTaskEntriesController,
 } from "../bridge/session-registry-controller.js";
-import { broadcastQuestUpdate } from "./quest-helpers.js";
+import { broadcastQuestUpdate, buildQuestTitlePreview } from "./quest-helpers.js";
 import type { OptionalAuthResult, RouteContext } from "./context.js";
 import { isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
 import { isLegacyQuestJourneyPhaseId, normalizeKnownQuestJourneyPhaseIds } from "../../shared/quest-journey.js";
@@ -192,10 +193,6 @@ function normalizeRequestedQuestTitleIds(values: string[] | undefined): { ids: s
   }
 
   return { ids, exceededLimit: false };
-}
-
-function questTitleUpdatedAt(quest: QuestmasterTask): number {
-  return quest.updatedAt ?? quest.statusChangedAt ?? quest.createdAt;
 }
 
 function withoutSidecarQuestFields<T extends { createdBy?: unknown; lastModifiedBy?: unknown; ownerKind?: unknown }>(
@@ -379,10 +376,9 @@ function hasServerAuthorizedLocalCompletionTarget(
   );
 }
 
-function validateV2CompletionGitState(
+export function validateV2CompletionGitState(
   state: Partial<SessionState> | undefined,
-  commitShas: string[] | undefined,
-  memoryCommitShas: string[] | undefined,
+  storedCodeCommitShas: string[] | undefined,
   options: { localOnly?: boolean } = {},
 ): string | undefined {
   if (!state) return "Cannot verify worker git state for v2 Memory completion.";
@@ -405,9 +401,35 @@ function validateV2CompletionGitState(
   if (state.diff_stats_skipped_reason)
     return `Worker tracked-change state is uncertain: ${state.diff_stats_skipped_reason}`;
   const changedLines = (state.total_lines_added ?? 0) + (state.total_lines_removed ?? 0);
-  const hasStructuredEvidence = (commitShas?.length ?? 0) > 0 || (memoryCommitShas?.length ?? 0) > 0;
-  if (changedLines > 0 && !hasStructuredEvidence) {
-    return "Worker has tracked changes but completion did not include code or memory commit metadata.";
+  if (changedLines > 0 && (storedCodeCommitShas?.length ?? 0) === 0) {
+    return "Worker has tracked project changes but Work -> Memory did not record code commit metadata.";
+  }
+  return undefined;
+}
+
+function validateV2CompletionCodeCommitSubmission(
+  currentQuest: QuestmasterTask,
+  submittedCommitShas: unknown,
+): { error: string; status: 400 | 409 } | undefined {
+  if (submittedCommitShas === undefined) return undefined;
+  if (!Array.isArray(submittedCommitShas)) {
+    return { error: "commitShas must be an array when provided.", status: 400 };
+  }
+
+  let normalizedSubmitted: string[];
+  try {
+    normalizedSubmitted = normalizeCommitShas(submittedCommitShas);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Invalid commitShas.", status: 400 };
+  }
+  const stored = new Set((currentQuest.commitShas ?? []).map((sha) => sha.toLowerCase()));
+  const newlyIntroduced = normalizedSubmitted.filter((sha) => !stored.has(sha));
+  if (newlyIntroduced.length > 0) {
+    return {
+      error:
+        "v2 final Memory cannot attach new code commit SHAs; record synchronized target commits during Work -> Memory.",
+      status: 409,
+    };
   }
   return undefined;
 }
@@ -546,6 +568,13 @@ export function createQuestRoutes(ctx: RouteContext) {
         { status: 409, headers: { "content-type": "application/json" } },
       );
     }
+    const codeCommitSubmissionError = validateV2CompletionCodeCommitSubmission(currentQuest, body.commitShas);
+    if (codeCommitSubmissionError) {
+      return new Response(JSON.stringify({ error: codeCommitSubmissionError.error }), {
+        status: codeCommitSubmissionError.status,
+        headers: { "content-type": "application/json" },
+      });
+    }
 
     const refreshGit = async (sessionId: string): Promise<boolean> => {
       const session = wsBridge.getSession(sessionId);
@@ -593,12 +622,10 @@ export function createQuestRoutes(ctx: RouteContext) {
         { status: 409, headers: { "content-type": "application/json" } },
       );
     }
-    const commitShas = Array.isArray(body.commitShas) ? body.commitShas : undefined;
-    const memoryCommitShas = Array.isArray(body.memoryCommitShas) ? body.memoryCommitShas : undefined;
     const localOnly =
       body.v2CompletionSync === "local-clean" &&
       hasServerAuthorizedLocalCompletionTarget(workerState, launcher.getSession(workerSessionId));
-    const gitStateError = validateV2CompletionGitState(workerState, commitShas, memoryCommitShas, { localOnly });
+    const gitStateError = validateV2CompletionGitState(workerState, currentQuest.commitShas, { localOnly });
     if (gitStateError) {
       return new Response(JSON.stringify({ error: gitStateError }), {
         status: 409,
@@ -946,12 +973,7 @@ export function createQuestRoutes(ctx: RouteContext) {
         missingQuestIds.push(questId);
         continue;
       }
-      quests.push({
-        questId: quest.questId,
-        title: quest.title,
-        version: quest.version,
-        updatedAt: questTitleUpdatedAt(quest),
-      });
+      quests.push(buildQuestTitlePreview(quest));
     }
 
     return cacheValidatedJson(c, { quests, missingQuestIds });

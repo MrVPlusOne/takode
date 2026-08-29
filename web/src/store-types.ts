@@ -140,7 +140,7 @@ export interface AppState {
   expandedHerdNodes: Set<string>;
   questDetails: Map<string, QuestmasterTask>;
   questDetailEtags: Map<string, string>;
-  /** Minimal server-authored title records for retained/open quest tabs. Null means the requested quest was absent. */
+  /** Minimal server-authored exact quest records for retained/open tabs. Null means the requested quest was absent. */
   questTitlePreviews: Map<string, QuestTitlePreview | null>;
   quests: QuestmasterTask[];
   questAutocompleteCandidates: QuestAutocompleteCandidate[];
@@ -154,6 +154,7 @@ export interface AppState {
   setQuests: (quests: QuestmasterTask[]) => void;
   upsertQuestDetail: (updated: QuestmasterTask, opts?: { etag?: string | null }) => void;
   removeQuestDetail: (questId: string) => void;
+  upsertQuestTitlePreview: (preview: QuestTitlePreview) => void;
   hydrateQuestTitles: (questIds: string[], opts?: { force?: boolean }) => Promise<void>;
   replaceQuest: (updated: QuestmasterTask) => void;
   refreshQuests: (opts?: { background?: boolean; force?: boolean }) => Promise<void>;

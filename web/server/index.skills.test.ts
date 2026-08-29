@@ -366,7 +366,9 @@ describe("index startup skill registration", () => {
     expect(questDesign).toContain("apply the exception and active-successor rules");
 
     expect(leaderDispatch).toContain("Leaders own user intent and corrections");
-    expect(leaderDispatch).toContain("workers own technical Work and the routine guarded Work -> Memory transition");
+    expect(leaderDispatch).toContain(
+      "workers own technical Work and the guarded Work -> Memory transition with synchronized selected-target SHAs or explicit zero-code evidence",
+    );
     expect(leaderDispatch).toContain("records and applies the user-approved continuation");
     expect(leaderDispatch).toContain("revises the title when it still reads as design-only");
     expect(leaderDispatch).toContain(
@@ -566,10 +568,10 @@ describe("index startup skill registration", () => {
     expect(source).toContain("Do not silently narrow the gate to focused tests");
     expect(source).toContain("do not push");
     expect(source).toContain("open an immediate fix quest");
-    expect(source).toContain("--debrief-file /tmp/final-debrief.md");
-    expect(source).toContain("--debrief-tldr-file /tmp/final-debrief-tldr.md");
+    expect(source).toContain('takode board work-to-memory q-N --work-note <feedback-index> --commits "sha1,sha2"');
+    expect(source).toContain("takode board work-to-memory q-N --work-note <feedback-index> --no-code");
     expect(source).toContain("Sync/push is not final quest closure");
-    expect(source).toContain("final Memory owns final User review check settlement");
+    expect(source).toContain("Final Memory still owns final User review check settlement");
     expect(source).toContain("structured final debrief metadata");
     expect(source).toContain("Final debrief draft:");
     expect(source).toContain("Debrief TLDR draft:");

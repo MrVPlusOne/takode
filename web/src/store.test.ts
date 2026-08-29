@@ -898,6 +898,77 @@ describe("Questmaster refresh", () => {
     expect(mockGetQuestTitles).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps an exact commit projection when an older hydration later reports the quest missing", async () => {
+    let resolveOlder:
+      | ((value: { quests: import("./types.js").QuestTitlePreview[]; missingQuestIds: string[] }) => void)
+      | undefined;
+    mockGetQuestTitles.mockImplementationOnce(
+      () =>
+        new Promise<{ quests: import("./types.js").QuestTitlePreview[]; missingQuestIds: string[] }>((resolve) => {
+          resolveOlder = resolve;
+        }),
+    );
+
+    const hydration = useStore.getState().hydrateQuestTitles(["q-1932"], { force: true });
+    useStore.getState().upsertQuestTitlePreview({
+      questId: "q-1932",
+      title: "Commit evidence is live",
+      version: 5,
+      updatedAt: 50,
+      commitShas: ["abc1234"],
+    });
+    resolveOlder?.({ quests: [], missingQuestIds: ["q-1932"] });
+    await hydration;
+
+    expect(useStore.getState().questTitlePreviews.get("q-1932")).toEqual({
+      questId: "q-1932",
+      title: "Commit evidence is live",
+      version: 5,
+      updatedAt: 50,
+      commitShas: ["abc1234"],
+    });
+  });
+
+  it("preserves exact commit evidence across newer title-only and older detail projections", () => {
+    useStore.getState().upsertQuestTitlePreview({
+      questId: "q-1932",
+      title: "Initial exact projection",
+      version: 5,
+      updatedAt: 50,
+      commitShas: ["abc1234", "def5678"],
+    });
+    useStore.getState().upsertQuestTitlePreview({
+      questId: "q-1932",
+      title: "Newer title without bulky evidence",
+      version: 6,
+      updatedAt: 60,
+    });
+    useStore.getState().upsertQuestDetail(
+      makeQuest({
+        questId: "q-1932",
+        title: "Older detail response",
+        version: 5,
+        updatedAt: 55,
+        commitShas: [],
+      }),
+    );
+    useStore.getState().upsertQuestTitlePreview({
+      questId: "q-1932",
+      title: "Delayed exact projection",
+      version: 5,
+      updatedAt: 58,
+      commitShas: ["abc1234", "def5678", "fedcba9"],
+    });
+
+    expect(useStore.getState().questTitlePreviews.get("q-1932")).toEqual({
+      questId: "q-1932",
+      title: "Newer title without bulky evidence",
+      version: 6,
+      updatedAt: 60,
+      commitShas: ["abc1234", "def5678", "fedcba9"],
+    });
+  });
+
   it("deduplicates concurrent title hydration and chunks bounded requests", async () => {
     let resolveFirst: ((value: { quests: never[]; missingQuestIds: string[] }) => void) | undefined;
     mockGetQuestTitles

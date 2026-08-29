@@ -59,20 +59,23 @@ describe("quest skill ownership docs", () => {
     expect(docs).not.toContain("Verification items must be human-checkable acceptance items only");
   });
 
-  it("documents memory commit metadata as separate from code commit metadata", () => {
+  it("documents Work-owned code metadata separately from Memory-owned commit metadata", () => {
     const docs = readTemplate("quest-skill-docs.md");
     const memoryCompletion = readTemplate("quest-memory-completion.md");
 
     expect(docs).toContain("[--memory-commit <sha>] [--memory-commits");
-    expect(docs).toContain(
-      "| `--commit <sha>` | Attach one code repo commit SHA (repeatable). Use this for synced code/docs/template commits, not memory repo commits. |",
-    );
+    expect(docs).toContain("nominal active-v2 flow Work already used this on `takode board work-to-memory`");
     expect(docs).toContain(
       "| `--memory-commit <sha>` | Attach one memory repo commit SHA (repeatable). Use this for file-based memory commits, not code repo commits. |",
     );
     expect(docs).toContain("Keep these separate from code repo commits.");
-    expect(memoryCompletion).toContain("Keep code commit metadata separate from memory commit metadata");
-    expect(memoryCompletion).toContain("file-based memory repo commits");
+    expect(memoryCompletion).toContain("Work owns code-repository evidence");
+    expect(memoryCompletion).toContain(
+      "Final Memory verifies that tracked Work SHAs are already structured quest metadata",
+    );
+    expect(memoryCompletion).toContain("do not first-attach them with completion-time `--commit` / `--commits`");
+    expect(memoryCompletion).toContain("file-based memory-repository commits during final Memory");
+    expect(memoryCompletion).not.toContain("Final Memory or the leader attaches those SHAs");
   });
 
   it("documents quest show progressive reveal before expensive full detail", () => {
@@ -97,7 +100,11 @@ describe("quest skill ownership docs", () => {
     expect(docs).toContain("final Memory's required memory statement");
     expect(docs).toContain("After a successful Work -> Memory transition, stop the Work turn");
     expect(docs).toContain("the leader can report the accepted outcome immediately");
-    expect(docs).toContain("Final Memory resumes under the Memory phase brief and remains mandatory");
+    expect(docs).toContain("Final Memory resumes under the Memory phase brief");
+    expect(docs).toContain("may add only separate memory-repository commit metadata");
+    expect(docs).toContain("missing Work code evidence routes back to Work");
+    expect(docs).toContain('takode board work-to-memory q-N --work-note <feedback-index> --commits "sha1,sha2"');
+    expect(docs).toContain("takode board work-to-memory q-N --work-note <feedback-index> --no-code");
   });
 
   it("documents the generic two-axis tag taxonomy with mocked non-examples", () => {

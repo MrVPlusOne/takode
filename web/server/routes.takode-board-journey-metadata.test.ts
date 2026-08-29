@@ -20,6 +20,8 @@ let session: TestSession;
 let sessions: Map<string, TestSession>;
 let authCallerId = "leader-1";
 let authCaller: Record<string, unknown> = { sessionId: "leader-1", isOrchestrator: true };
+let broadcastGlobal: ReturnType<typeof vi.fn>;
+let broadcastBoard: ReturnType<typeof vi.fn>;
 
 function createSession(id = "leader-1"): TestSession {
   return {
@@ -40,8 +42,11 @@ function getBoardRows(sessionId: string): BoardRow[] {
 
 function createRouteApp(): Hono {
   const api = new Hono();
+  broadcastGlobal = vi.fn();
+  broadcastBoard = vi.fn();
   const wsBridge = {
     getSession: vi.fn((sessionId: string) => sessions.get(sessionId) ?? null),
+    broadcastGlobal,
     completeDoneBoardRowsForQuest: vi.fn(() => []),
     findAssignedBoardRowsForWorker: vi.fn((workerSessionId: string, questId: string) =>
       [...sessions.values()].flatMap((leader) => {
@@ -78,7 +83,7 @@ function createRouteApp(): Hono {
     workBoardStateDeps: {
       getBoardDispatchableSignature: vi.fn(() => null),
       markNotificationDone: vi.fn(() => true),
-      broadcastBoard: vi.fn(),
+      broadcastBoard,
       broadcastAttentionRecords: vi.fn(),
       persistSession: vi.fn(),
       notifyReview: vi.fn(),
@@ -115,6 +120,7 @@ describe("Takode board Journey metadata route", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.spyOn(questStore, "getQuest").mockResolvedValue(null);
+    vi.spyOn(questStore, "appendQuestCodeCommitEvidenceForOwner").mockResolvedValue(null);
     setupTakodeSessions();
   });
 
@@ -243,7 +249,7 @@ describe("Takode board Journey metadata route", () => {
     expect(session.board.get("q-9")?.waitForInput).toBeUndefined();
   });
 
-  it("allows the authenticated assigned and claimed worker to move Work to Memory", async () => {
+  it("persists code commits and invalidates quest previews before moving Work to Memory", async () => {
     session.board.set("q-9", {
       questId: "q-9",
       title: "Quest",
@@ -260,7 +266,7 @@ describe("Takode board Journey metadata route", () => {
     });
     authCallerId = "worker-1";
     authCaller = { sessionId: "worker-1", isOrchestrator: false };
-    vi.mocked(questStore.getQuest).mockResolvedValueOnce({
+    const claimedQuest = {
       id: "q-9",
       questId: "q-9",
       title: "Quest",
@@ -276,11 +282,29 @@ describe("Takode board Journey metadata route", () => {
           ts: 10,
         },
       ],
-    } as any);
+    } as any;
+    vi.mocked(questStore.getQuest)
+      .mockResolvedValueOnce(claimedQuest)
+      .mockResolvedValueOnce({ ...claimedQuest, commitShas: ["abc1234", "deadbeef"] });
+    vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockImplementationOnce(async () => {
+      expect(session.board.get("q-9")?.status).toBe("WORKING");
+      return { ...claimedQuest, commitShas: ["abc1234", "deadbeef"] };
+    });
 
-    const res = await postWorkerMemory({ questId: "q-9", workFeedbackIndex: 0 });
+    const res = await postWorkerMemory({
+      questId: "q-9",
+      workFeedbackIndex: 0,
+      commitShas: ["ABC1234", "abc1234", "deadbeef"],
+    });
 
     expect(res.status).toBe(200);
+    expect(questStore.appendQuestCodeCommitEvidenceForOwner).toHaveBeenCalledWith(
+      "q-9",
+      { kind: "takode", sessionId: "worker-1" },
+      ["abc1234", "deadbeef"],
+    );
+    expect(broadcastGlobal).toHaveBeenCalledWith(expect.objectContaining({ type: "quest_list_updated" }));
+    expect(broadcastGlobal.mock.invocationCallOrder[0]).toBeLessThan(broadcastBoard.mock.invocationCallOrder[0]);
     expect(session.board.get("q-9")?.status).toBe("MEMORY");
     expect(session.board.get("q-9")?.journey).toMatchObject({
       activePhaseIndex: 2,
@@ -293,6 +317,86 @@ describe("Takode board Journey metadata route", () => {
       newState: "MEMORY",
       workFeedbackIndex: 0,
     });
+  });
+
+  it("rejects an older-run Work note until the active run occurrence has its own note", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 20,
+      updatedAt: 21,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    const currentRun = {
+      runId: "board-leader-1-20",
+      source: "board",
+      status: "active",
+      createdAt: 20,
+      updatedAt: 21,
+      phaseIds: ["alignment", "work", "memory"],
+      phaseOccurrences: [
+        {
+          occurrenceId: "preserved-current-work-occurrence",
+          phaseId: "work",
+          phaseIndex: 1,
+          phasePosition: 2,
+          phaseOccurrence: 1,
+          status: "active",
+        },
+      ],
+    };
+    const oldOnlyQuest = {
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      journeyRuns: [currentRun],
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          kind: "phase_summary",
+          phaseId: "work",
+          journeyRunId: "board-leader-1-10",
+          phaseOccurrenceId: "board-leader-1-10:p2",
+          text: "Prior-run Work note with enough detail to prove that stale phase evidence must not authorize Memory.",
+          ts: 10,
+        },
+      ],
+    } as any;
+    vi.mocked(questStore.getQuest).mockResolvedValueOnce(oldOnlyQuest);
+
+    const stale = await postWorkerMemory({ questId: "q-9", noCode: true });
+
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ error: expect.stringContaining("active Journey run") });
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
+
+    const currentQuest = {
+      ...oldOnlyQuest,
+      feedback: [
+        ...oldOnlyQuest.feedback,
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          kind: "phase_summary",
+          phaseId: "work",
+          journeyRunId: "board-leader-1-20",
+          phaseOccurrenceId: "preserved-current-work-occurrence",
+          text: "Current-run Work note with enough detail to authorize the exact active occurrence handoff to Memory.",
+          ts: 22,
+        },
+      ],
+    } as any;
+    vi.mocked(questStore.getQuest).mockResolvedValue(currentQuest);
+
+    const current = await postWorkerMemory({ questId: "q-9", noCode: true });
+
+    expect(current.status).toBe(200);
+    expect(session.board.get("q-9")?.status).toBe("MEMORY");
   });
 
   it("does not treat a same-ID direct Codex owner as the assigned Takode worker", async () => {
@@ -320,11 +424,613 @@ describe("Takode board Journey metadata route", () => {
       createdAt: 1,
     });
 
-    const res = await postWorkerMemory({ questId: "q-9" });
+    const res = await postWorkerMemory({ questId: "q-9", noCode: true });
 
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ error: expect.stringContaining("assigned worker") });
     expect(session.board.get("q-9")?.status).toBe("WORKING");
+  });
+
+  it.each([
+    ["missing evidence", { questId: "q-9" }],
+    ["both evidence modes", { questId: "q-9", commitShas: ["abc1234"], noCode: true }],
+    ["empty commit list", { questId: "q-9", commitShas: [] }],
+    ["invalid commit", { questId: "q-9", commitShas: ["not-a-sha"] }],
+  ])("rejects Work to Memory with %s", async (_label, body) => {
+    const res = await postWorkerMemory(body);
+
+    expect(res.status).toBe(400);
+    expect(session.board.has("q-9")).toBe(false);
+    expect(questStore.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+  });
+
+  it("allows explicit zero-code Work to enter Memory without attaching commits", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    const claimedQuest = {
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "work",
+          kind: "phase_summary",
+          text: "Zero-code Work note with enough detail to establish the accepted outcome and Memory handoff.",
+          ts: 1,
+        },
+      ],
+    } as any;
+    vi.mocked(questStore.getQuest).mockResolvedValue(claimedQuest);
+
+    const res = await postWorkerMemory({ questId: "q-9", noCode: true });
+
+    expect(res.status).toBe(200);
+    expect(questStore.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+    expect(broadcastGlobal).toHaveBeenCalledWith(expect.objectContaining({ type: "quest_list_updated" }));
+    expect(broadcastGlobal.mock.invocationCallOrder[0]).toBeLessThan(broadcastBoard.mock.invocationCallOrder[0]);
+    expect(session.board.get("q-9")?.status).toBe("MEMORY");
+  });
+
+  it("blocks unaddressed human feedback before commit persistence", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    vi.mocked(questStore.getQuest).mockResolvedValueOnce({
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "work",
+          text: "Current Work evidence with enough detail, but it cannot supersede unresolved human feedback.",
+          ts: 1,
+        },
+        { author: "human", text: "Please correct the remaining issue.", addressed: false, ts: 2 },
+      ],
+    } as any);
+
+    const res = await postWorkerMemory({ questId: "q-9", commitShas: ["abc1234"] });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("human feedback") });
+    expect(questStore.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+    expect(broadcastGlobal).not.toHaveBeenCalled();
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
+  });
+
+  it("leaves the board in Work when commit persistence fails", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    vi.mocked(questStore.getQuest).mockResolvedValue({
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "work",
+          text: "Current Work evidence with enough detail to permit a guarded handoff when persistence succeeds.",
+          ts: 1,
+        },
+      ],
+    } as any);
+    vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockRejectedValueOnce(new Error("disk unavailable"));
+
+    const res = await postWorkerMemory({ questId: "q-9", commitShas: ["abc1234"] });
+
+    expect(res.status).toBe(503);
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
+    expect(broadcastGlobal).not.toHaveBeenCalled();
+  });
+
+  it("re-reads quest ownership after commit persistence before entering Memory", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    const claimedQuest = {
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "work",
+          text: "Current Work evidence with enough detail to permit a guarded handoff while ownership remains stable.",
+          ts: 1,
+        },
+      ],
+    } as any;
+    vi.mocked(questStore.getQuest)
+      .mockResolvedValueOnce(claimedQuest)
+      .mockResolvedValueOnce({ ...claimedQuest, sessionId: "worker-2", commitShas: ["abc1234"] });
+    vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockResolvedValueOnce({
+      ...claimedQuest,
+      commitShas: ["abc1234"],
+    });
+
+    const res = await postWorkerMemory({ questId: "q-9", commitShas: ["abc1234"] });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("ownership changed") });
+    expect(broadcastGlobal).not.toHaveBeenCalled();
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
+  });
+
+  it("rechecks human feedback after commit persistence before entering Memory", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    const claimedQuest = {
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "work",
+          text: "Current Work evidence with enough detail while no human feedback is pending at initial validation.",
+          ts: 1,
+        },
+      ],
+    } as any;
+    vi.mocked(questStore.getQuest)
+      .mockResolvedValueOnce(claimedQuest)
+      .mockResolvedValueOnce({
+        ...claimedQuest,
+        commitShas: ["abc1234"],
+        feedback: [
+          ...claimedQuest.feedback,
+          { author: "human", text: "New feedback arrived during the handoff.", addressed: false, ts: 2 },
+        ],
+      });
+    vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockResolvedValueOnce({
+      ...claimedQuest,
+      commitShas: ["abc1234"],
+    });
+
+    const res = await postWorkerMemory({ questId: "q-9", commitShas: ["abc1234"] });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("human feedback") });
+    expect(questStore.appendQuestCodeCommitEvidenceForOwner).toHaveBeenCalledOnce();
+    expect(broadcastGlobal).not.toHaveBeenCalled();
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
+  });
+
+  it("revalidates the board after commit persistence before entering Memory", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    const claimedQuest = {
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "work",
+          text: "Current Work evidence with enough detail to permit a guarded handoff when state remains stable.",
+          ts: 1,
+        },
+      ],
+    } as any;
+    vi.mocked(questStore.getQuest)
+      .mockResolvedValueOnce(claimedQuest)
+      .mockResolvedValueOnce({ ...claimedQuest, commitShas: ["abc1234"] });
+    vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockImplementationOnce(async () => {
+      session.board.get("q-9")!.waitForInput = ["n-7"];
+      return { ...claimedQuest, commitShas: ["abc1234"] };
+    });
+
+    const res = await postWorkerMemory({ questId: "q-9", commitShas: ["abc1234"] });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("User Checkpoint") });
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
+  });
+
+  it("allows a direct optional checkpoint skip into Memory and records the reason", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: {
+        phaseIds: ["alignment", "work", "user-checkpoint", "memory"],
+        activePhaseIndex: 1,
+        currentPhaseId: "work",
+        phaseNotes: { "2": "Optional: skip if Work confirms there is no user-visible tradeoff." },
+      },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    vi.mocked(questStore.getQuest).mockResolvedValue({
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "work",
+          text: "Current Work evidence confirms the optional checkpoint skip condition and supports Memory handoff.",
+          ts: 3,
+        },
+      ],
+    } as any);
+
+    const res = await postWorkerMemory({
+      questId: "q-9",
+      noCode: true,
+      skipOptionalUserCheckpointReason: "Work confirmed there is no user-visible tradeoff.",
+    });
+
+    expect(res.status).toBe(200);
+    expect(session.board.get("q-9")?.status).toBe("MEMORY");
+    expect(session.board.get("q-9")?.journey).toMatchObject({
+      activePhaseIndex: 3,
+      currentPhaseId: "memory",
+      phaseSkipReasons: { "2": "Work confirmed there is no user-visible tradeoff." },
+    });
+  });
+
+  it.each([
+    [
+      "missing optional skip proof",
+      { "2": "Optional: skip if Work confirms there is no user-visible tradeoff." },
+      {},
+      "skip reason",
+    ],
+    ["attempted required checkpoint skip", undefined, { skipOptionalUserCheckpointReason: "Skip it." }, "required"],
+    ["taken required checkpoint without later Work", undefined, {}, "later Work occurrence"],
+  ])("rejects %s before appending commit evidence", async (_label, phaseNotes, extra, errorText) => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: {
+        phaseIds: ["alignment", "work", "user-checkpoint", "memory"],
+        activePhaseIndex: 1,
+        currentPhaseId: "work",
+        ...(phaseNotes ? { phaseNotes } : {}),
+      },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    vi.mocked(questStore.getQuest).mockResolvedValueOnce({
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "work",
+          text: "Current Work evidence is detailed enough, but checkpoint proof must still be validated first.",
+          ts: 3,
+        },
+      ],
+    } as any);
+
+    const res = await postWorkerMemory({ questId: "q-9", commitShas: ["abc1234"], ...extra });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining(errorText) });
+    expect(questStore.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+    expect(broadcastGlobal).not.toHaveBeenCalled();
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
+  });
+
+  it("rejects an empty optional checkpoint skip reason before quest mutation", async () => {
+    const res = await postWorkerMemory({
+      questId: "q-9",
+      noCode: true,
+      skipOptionalUserCheckpointReason: "   ",
+    });
+
+    expect(res.status).toBe(400);
+    expect(questStore.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+  });
+
+  it("resumes a taken checkpoint into later Work before the ordinary Memory transition", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "USER_CHECKPOINTING",
+      journey: {
+        phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+        activePhaseIndex: 1,
+        currentPhaseId: "work",
+      },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+
+    const resumed = await app.request("/sessions/leader-1/board/q-9/advance", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(resumed.status).toBe(200);
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
+    expect(session.board.get("q-9")?.journey?.activePhaseIndex).toBe(3);
+
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    vi.mocked(questStore.getQuest).mockResolvedValue({
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "work",
+          text: "Post-checkpoint Work evidence records the resolved decision and the final accepted implementation state.",
+          ts: 4,
+        },
+      ],
+    } as any);
+
+    const memory = await postWorkerMemory({ questId: "q-9", noCode: true });
+
+    expect(memory.status).toBe(200);
+    expect(session.board.get("q-9")?.status).toBe("MEMORY");
+    expect(session.board.get("q-9")?.journey?.activePhaseIndex).toBe(4);
+  });
+
+  it("rejects an explicit active plan with no later Memory before appending commits", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: {
+        phaseIds: ["alignment", "work", "user-checkpoint", "work"],
+        activePhaseIndex: 1,
+        currentPhaseId: "work",
+      },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    vi.mocked(questStore.getQuest).mockResolvedValueOnce({
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "work",
+          text: "Current Work evidence is complete, but the explicit Journey still has no later Memory occurrence.",
+          ts: 3,
+        },
+      ],
+    } as any);
+
+    const res = await postWorkerMemory({ questId: "q-9", commitShas: ["abc1234"] });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("no Memory phase") });
+    expect(questStore.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+    expect(broadcastGlobal).not.toHaveBeenCalled();
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
+  });
+
+  it("does not let an early Work occurrence skip checkpoint or repeated Work phases", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: {
+        phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+        activePhaseIndex: 1,
+        currentPhaseId: "work",
+      },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    const claimedQuest = {
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "work",
+          text: "Current Work evidence with enough detail to test a guarded multi-occurrence Journey handoff.",
+          ts: 1,
+        },
+      ],
+    } as any;
+    vi.mocked(questStore.getQuest).mockResolvedValue(claimedQuest);
+
+    const res = await postWorkerMemory({ questId: "q-9", noCode: true });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("planned phase occurrence") });
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
+    expect(session.board.get("q-9")?.journey?.activePhaseIndex).toBe(1);
+  });
+
+  it("targets the next later Memory occurrence from a repeated final Work", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: {
+        phaseIds: ["alignment", "work", "memory", "work", "memory"],
+        activePhaseIndex: 3,
+        currentPhaseId: "work",
+      },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    vi.mocked(questStore.getQuest).mockResolvedValue({
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "work",
+          text: "Final repeated Work evidence with enough detail to target the next later Memory occurrence.",
+          ts: 1,
+        },
+      ],
+    } as any);
+
+    const res = await postWorkerMemory({ questId: "q-9", noCode: true });
+
+    expect(res.status).toBe(200);
+    expect(session.board.get("q-9")?.status).toBe("MEMORY");
+    expect(session.board.get("q-9")?.journey?.activePhaseIndex).toBe(4);
+    expect(session.board.get("q-9")?.journey?.currentPhaseId).toBe("memory");
+  });
+
+  it("blocks generic set from jumping an active Planning row directly to Memory", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "PLANNING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 0, currentPhaseId: "alignment" },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+
+    const res = await postBoard({ questId: "q-9", status: "MEMORY", activePhaseIndex: 2 });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("work-to-memory") });
+    expect(session.board.get("q-9")?.status).toBe("PLANNING");
+  });
+
+  it.each([
+    ["with an explicit phase plan", { phases: ["alignment", "work", "memory"], activePhaseIndex: 2 }],
+    ["without an explicit phase plan", {}],
+  ])("blocks direct creation of an active Memory row %s", async (_label, extra) => {
+    const res = await postBoard({ questId: "q-10", status: "MEMORY", ...extra });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("work-to-memory") });
+    expect(session.board.has("q-10")).toBe(false);
+  });
+
+  it("blocks generic set and advance from bypassing the guarded Work transition", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+
+    const set = await postBoard({ questId: "q-9", status: "MEMORY", activePhaseIndex: 2 });
+    expect(set.status).toBe(409);
+    expect(await set.json()).toMatchObject({ error: expect.stringContaining("work-to-memory") });
+
+    const advance = await app.request("/sessions/leader-1/board/q-9/advance", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(advance.status).toBe(409);
+    expect(await advance.json()).toMatchObject({ error: expect.stringContaining("work-to-memory") });
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
+
+    const pausedRow = session.board.get("q-9")!;
+    pausedRow.status = "USER_CHECKPOINTING";
+    pausedRow.journey = {
+      phaseIds: ["alignment", "work", "memory"],
+      activePhaseIndex: 1,
+      currentPhaseId: "work",
+    };
+
+    const pausedSet = await postBoard({ questId: "q-9", status: "MEMORY", activePhaseIndex: 2 });
+    expect(pausedSet.status).toBe(409);
+    expect(await pausedSet.json()).toMatchObject({ error: expect.stringContaining("work-to-memory") });
+
+    const pausedAdvance = await app.request("/sessions/leader-1/board/q-9/advance", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(pausedAdvance.status).toBe(409);
+    expect(await pausedAdvance.json()).toMatchObject({ error: expect.stringContaining("phase position") });
+    expect(session.board.get("q-9")?.status).toBe("USER_CHECKPOINTING");
+    expect(session.board.get("q-9")?.journey?.currentPhaseId).toBe("work");
   });
 
   it("rejects Work to Memory when checkpoint wait or Work note proof is missing", async () => {
@@ -347,12 +1053,12 @@ describe("Takode board Journey metadata route", () => {
       feedback: [],
     } as any);
 
-    const checkpoint = await postWorkerMemory({ questId: "q-9" });
+    const checkpoint = await postWorkerMemory({ questId: "q-9", noCode: true });
     expect(checkpoint.status).toBe(409);
     expect(await checkpoint.json()).toMatchObject({ error: expect.stringContaining("User Checkpoint") });
 
     session.board.get("q-9")!.waitForInput = undefined;
-    const missingNote = await postWorkerMemory({ questId: "q-9" });
+    const missingNote = await postWorkerMemory({ questId: "q-9", noCode: true });
     expect(missingNote.status).toBe(409);
     expect(await missingNote.json()).toMatchObject({ error: expect.stringContaining("Work phase note") });
   });

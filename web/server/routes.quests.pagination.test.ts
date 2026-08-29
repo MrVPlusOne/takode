@@ -226,11 +226,12 @@ describe("GET /api/quests/_autocomplete", () => {
 });
 
 describe("GET /api/quests/_titles", () => {
-  it("returns only requested canonical title records in normalized first-seen order", async () => {
-    // Retained leader tabs can outlive board/list membership, so hydration is by exact open ids and reports stale ids.
+  it("returns only requested canonical exact records in normalized first-seen order", async () => {
+    // Retained leader tabs can outlive board/list membership, so hydration is by exact open ids with commit evidence and stale-id reporting.
     const q1 = {
       ...makeQuest({ questId: "q-1", title: "First canonical title", updatedAt: 20, description: "large body" }),
       version: 3,
+      commitShas: ["abc1234"],
     } as QuestmasterTask;
     const q2 = {
       ...makeQuest({ questId: "q-2", title: "Second canonical title", createdAt: 2 }),
@@ -245,9 +246,9 @@ describe("GET /api/quests/_titles", () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({
       quests: [
-        { questId: "q-2", title: "Second canonical title", version: 4, updatedAt: 15 },
-        { questId: "q-1", title: "First canonical title", version: 3, updatedAt: 20 },
-        { questId: "q-3", title: "Third canonical title", version: 1, updatedAt: 3 },
+        { questId: "q-2", title: "Second canonical title", version: 4, updatedAt: 15, commitShas: [] },
+        { questId: "q-1", title: "First canonical title", version: 3, updatedAt: 20, commitShas: ["abc1234"] },
+        { questId: "q-3", title: "Third canonical title", version: 1, updatedAt: 3, commitShas: [] },
       ],
       missingQuestIds: ["q-404"],
     });

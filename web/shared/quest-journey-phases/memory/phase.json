@@ -4,7 +4,7 @@
   "color": { "name": "memory", "accent": "#8b5cf6" },
   "boardState": "MEMORY",
   "assigneeRole": "worker",
-  "contract": "Finish non-project-tracked durable-state closure for a substantively accepted quest: final User review checks, final debrief metadata, quest metadata reconciliation, quest-note hygiene, memory consistency checks, memory writes or deferrals, stale-memory checks, cleanup, external durable-state records, and follow-up routing. Memory must not edit tracked project files.",
-  "nextLeaderAction": "report the accepted Work outcome immediately if it is not already visible, read the memory leader brief, assign the final Memory owner, allow eligible dependents to proceed, and complete the quest only after mandatory durable closure is settled",
+  "contract": "Finish non-project-tracked durable-state closure for a substantively accepted quest whose Work-owned code evidence was settled before Memory: final User review checks, final debrief metadata, quest metadata reconciliation, quest-note hygiene, memory consistency checks, separate memory-repository commits or deferrals, stale-memory checks, cleanup, external durable-state records, and follow-up routing. Memory must not edit tracked project files or first-attach Work code SHAs.",
+  "nextLeaderAction": "verify tracked Work commits are already structured quest metadata or route back to Work, report the accepted outcome if it is not already visible, assign final Memory, allow eligible dependents to proceed, and complete only after mandatory durable closure is settled",
   "aliases": ["final-memory", "memory-closure", "durable-closure"]
 }

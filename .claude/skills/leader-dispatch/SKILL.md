@@ -34,7 +34,7 @@ Keep the top-level checklist open for routine dispatch. Load references only whe
 - **Use the three-path dispatch rubric.** Direct create/dispatch is allowed only for clear, low-risk, reversible repo-local work. Pre-dispatch approval is mandatory for risky, ambiguous, externally consequential, shared-resource, security/privacy, product/policy, or user-visible tradeoff work. Use a planned User Checkpoint when early Work is safe but a later decision or externally consequential operation needs user confirmation.
 - **Write authorized Journey state to the board before or with dispatch.** Do not rely on chat transcript prose as the durable Journey record.
 - **Verify promised durable actions before Ready.** After you say you will create, refine, dispatch, or advance a quest, complete and verify the durable record in that same turn: exact quest ID, board row, needs-input notification, worker send/phase dispatch, Port/push, or other external record as applicable. If the durable action is not complete, mark the thread Waiting or incomplete with what remains instead of Ready.
-- **Verify delivery evidence before testability claims.** Apply the delivery-evidence checklist in `takode-orchestration/quest-journey.md` before saying a feature is implemented, available, or ready to test. A selected design, design-only Memory record, probe run, or generic tool output is not delivery evidence; if the checklist is not satisfied, say the feature is not delivered before attempting a test.
+- **Verify delivery evidence before testability claims.** Apply the delivery-evidence checklist in `takode-orchestration/quest-journey.md` before saying a feature is implemented, available, or ready to test. A selected design, design-only Memory record, probe run, or generic tool output is not delivery evidence; if the checklist is not satisfied, say the feature is not delivered before attempting a test. Tracked Work must attach synchronized selected-target SHAs during the guarded Work -> Memory transition; final Memory does not first-attach them.
 - **Keep setup context targeted.** Avoid broad mixed context dumps as the final step before quest setup or dispatch. Prefer compact targeted checks and perform the durable action once the user request is clear.
 - **Initial dispatch authorizes Alignment only.** The first worker message sends the Alignment brief and asks for a read-in; it does not authorize Work or Memory yet.
 - **Fresh worker by default.** Reuse only when there is a real context advantage. A disconnected or idle worker is not automatically a good reuse target.
@@ -104,7 +104,7 @@ Even on direct dispatch:
 - Quests remain the unit of work; create/refine the quest with enough worker context.
 - Initial new-worker dispatch remains Alignment-only.
 - Write the Journey to the board before or with dispatch.
-- Work owns implementation, self-review, validation, sync/push duties when authorized, and phase documentation; final Memory still applies.
+- Work owns implementation, self-review, validation, sync/push duties when authorized, phase documentation, and transition-time structured code evidence; final Memory still applies and may attach only separate memory-repository commits.
 - Add a compact rationale only when the direct choice is non-obvious, for example: `direct dispatch: low-risk reversible docs/tests change; no external side effects`.
 
 Pre-dispatch approval is mandatory when any of these apply:
@@ -215,7 +215,7 @@ If prior memory may matter, use visible memory reads. Either inspect the relevan
 
 ## Phase Handoffs
 
-After Alignment, the leader decides whether the compact verification packet matches the user's intent and authorizes entry into Work. Leaders own user intent and corrections, approved scope/Journey, checkpoint state, and genuine Journey revisions; workers own technical Work and the routine guarded Work -> Memory transition. Escalate to the user only for significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another real blocker.
+After Alignment, the leader decides whether the compact verification packet matches the user's intent and authorizes entry into Work. Leaders own user intent and corrections, approved scope/Journey, checkpoint state, and genuine Journey revisions; workers own technical Work and the guarded Work -> Memory transition with synchronized selected-target SHAs or explicit zero-code evidence. Escalate to the user only for significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another real blocker.
 
 Do not convert the worker-authored Alignment note into a Work prompt. The worker already has the quest, source pointers, phase briefs, project guidance, and its own findings. After a clean Alignment, the default Work authorization is short: identify the Work phase brief and write `Leader-only deltas: none`. When real deltas exist, list only information that originates outside the worker's available context or changes user intent, authorization, dependencies, scheduling, safety, or external state.
 
@@ -228,12 +228,12 @@ Every phase instruction must be phase-explicit:
 - Read the exact current phase leader brief yourself.
 - Include `Read this phase brief first:` and the exact assignee brief path from `takode phases`.
 - Authorize only the current v2 phase or checkpoint pause.
-- Provide only deltas the assignee cannot infer from the phase brief, quest record, current artifacts, or its own context: accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, exact prior messages, files or memory decisions already inspected, explicit memory-writing assignment, later user decisions, cross-quest dependencies, external-state changes, scheduling constraints, or authority boundaries.
+- Provide only deltas the assignee cannot infer from the phase brief, quest record, current artifacts, or its own context: accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, exact prior messages, files or memory decisions already inspected, explicit memory-writing assignment, later user decisions, cross-quest dependencies, external-state changes, scheduling constraints, or authority boundaries. Do not pass synchronized Work SHAs as a Memory delta merely so Memory can attach them; the guarded transition must already have done so.
 - Require phase documentation before reporting back.
 - Tell the assignee to keep the final chat handoff compact: point to the phase feedback index and include only the concise outcome/verdict plus urgent blockers, safety facts, or narrow phase-required exceptions.
 - Tell Alignment assignees to stop after the compact read-in.
 
-After Alignment approval, Work is intentionally broader: the assigned worker may investigate, implement, self-review, run approved operations, sync/push when authorized, iterate, maintain the Work note, and use the worker-owned Work -> Memory transition when its guard conditions are satisfied. Do not reintroduce embedded v1 review/Port/Execute handoffs. Independent review, when needed, is a separate quest.
+After Alignment approval, Work is intentionally broader: the assigned worker may investigate, implement, self-review, run approved operations, sync/push when authorized, iterate, maintain the Work note, and use the worker-owned Work -> Memory transition when its guard conditions are satisfied. That transition requires exactly one fresh evidence mode: synchronized selected-target SHAs with `--commit` / `--commits`, or `--no-code` only for genuine zero-git-tracked-change Work. A direct approved optional `[work,user-checkpoint,memory]` suffix may add `--skip-optional-checkpoint <reason>` only after Work proves its concrete condition. Required or taken checkpoints must resume into later Work before Memory; revise the suffix before entering the checkpoint when necessary. Do not reintroduce embedded v1 review/Port/Execute handoffs. Independent review, when needed, is a separate quest.
 
 For recovery of an active Work occurrence, follow the canonical Work leader brief at `~/.companion/quest-journey-phases/work/leader.md`; it owns the complete rule, and recovery instructions must not narrow already-authorized Work.
 
@@ -246,7 +246,9 @@ takode board show
 takode board set <quest-id> --worker <session> --phases alignment,work,memory
 takode board promote <quest-id> --worker <session>
 takode board advance <quest-id>
-takode board work-to-memory <quest-id> --work-note <feedback-index>
+takode board work-to-memory <quest-id> --work-note <feedback-index> --commits "sha1,sha2"
+# Or, only when Work produced zero git-tracked changes:
+takode board work-to-memory <quest-id> --work-note <feedback-index> --no-code
 takode board detail <quest-id>
 ```
 

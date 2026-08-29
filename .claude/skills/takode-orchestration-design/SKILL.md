@@ -30,15 +30,14 @@ Use the same source model for read-only implementation follow-ups. When the user
 Reusable guidance:
 - Code reviewers should inspect the quest record, define relevant review aspects, cover landing risk, and judge phase documentation quality.
 - Workers should communicate at meaningful quest milestones and keep concise user-facing outcome summaries separate from detailed phase evidence.
-- Execute assignees should follow approved scope, monitor and stop conditions, resource leases, cleanup, artifact retention, and phase documentation requirements.
-- Port assignees should use the approved port workflow, report synced SHAs, run post-port verification, and preserve accepted-state context for final Memory.
+- Work assignees should follow approved scope, monitor and stop conditions, resource leases, cleanup, artifact retention, and phase documentation requirements; when tracked changes exist, they also own selected-target sync, post-sync verification, and guarded transition-time SHA attachment before Memory.
 - Memory-focused phase instructions can standardize catalog-first reading, direct file inspection, and `memory catalog diff` as a freshness check when relevant.
 
 Leader-specific deltas:
 - The exact accepted commit range or artifact set to review.
 - A known stale live server, blocked resource lease, safety warning, or nonstandard validation plan.
 - The memory files or prior decisions the leader already inspected and found relevant.
-- Whether the assignee should complete the quest, draft final debrief metadata, route final Memory, or use compatibility Bookkeeping for targeted intermediate durable state.
+- Whether the assignee should complete the quest, draft final debrief metadata, route final Memory, or handle an unusual compatibility-only durable-state exception.
 - A later user correction, cross-quest dependency, external-state change, scheduling constraint, or authority boundary that the worker cannot read from the quest, sources, phase briefs, or its own findings.
 
 ## Source-Of-Truth Check

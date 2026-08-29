@@ -35,6 +35,7 @@ import type {
 import type { LeaderProjectionSnapshot } from "./leader-projection-types.js";
 import type { SessionLifecycleBrowserMessage } from "./session-lifecycle-message.js";
 import type { SessionDefaultsSettings } from "../shared/session-defaults.js";
+import type { QuestTitlePreview } from "./quest-types.js";
 import type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState } from "./window-protocol-types.js";
 export type {
   CodexAutoPauseRecoveryLink,
@@ -1141,7 +1142,7 @@ export type BrowserIncomingMessageBase =
     }
   | { type: "session_stuck" }
   | { type: "session_unstuck" }
-  | { type: "quest_list_updated" }
+  | { type: "quest_list_updated"; quest?: QuestTitlePreview }
   | { type: "todo_state_updated"; revision: number; updatedAt: number }
   | { type: "settings_updated"; sessionDefaults: SessionDefaultsSettings }
   | {

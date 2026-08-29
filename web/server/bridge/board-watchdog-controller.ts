@@ -959,9 +959,30 @@ export function advanceBoardRow(
         ? row.journey.currentPhaseId
         : undefined;
   const normalizedStatus = typeof row.status === "string" ? row.status.trim().toUpperCase() : "";
+  let traversedCheckpointIndex: number | undefined;
+  if (normalizedStatus === "USER_CHECKPOINTING" && (row.waitForInput ?? []).length > 0) {
+    return {
+      error: "Cannot advance while the User Checkpoint is unresolved.",
+      previousState,
+    };
+  }
+  if (normalizedStatus === "USER_CHECKPOINTING" && rawCurrentPhaseId === "work") {
+    const pausedWorkIndex = rawCurrentPhaseIndex ?? normalizedJourney.activePhaseIndex;
+    if (pausedWorkIndex === undefined || plannedPhaseIds[pausedWorkIndex + 1] !== "user-checkpoint") {
+      return {
+        error:
+          "Cannot resume this User Checkpoint because its Work phase occurrence is ambiguous. Reconcile the Journey phase position first.",
+        previousState,
+      };
+    }
+    traversedCheckpointIndex = pausedWorkIndex + 1;
+  }
   if (
     (normalizedStatus === "QUEUED" && (rawCurrentPhaseId || rawCurrentPhaseIndex !== undefined)) ||
-    (statusPhaseId && rawCurrentPhaseId && statusPhaseId !== rawCurrentPhaseId)
+    (traversedCheckpointIndex === undefined &&
+      statusPhaseId &&
+      rawCurrentPhaseId &&
+      statusPhaseId !== rawCurrentPhaseId)
   ) {
     const phaseLabel = rawCurrentPhaseId ?? "none";
     const statusLabel = normalizedStatus || row.status || "none";
@@ -970,7 +991,10 @@ export function advanceBoardRow(
       previousState,
     };
   }
-  const currentPhaseId = statusPhaseId ?? rawCurrentPhaseId ?? normalizedJourney.currentPhaseId;
+  const currentPhaseId =
+    traversedCheckpointIndex !== undefined
+      ? "user-checkpoint"
+      : (statusPhaseId ?? rawCurrentPhaseId ?? normalizedJourney.currentPhaseId);
   const currentPhaseMatches = currentPhaseId ? getQuestJourneyPhaseIndices(plannedPhaseIds, currentPhaseId) : [];
   if (
     rawCurrentPhaseIndex === undefined &&
@@ -984,6 +1008,7 @@ export function advanceBoardRow(
     };
   }
   const currentPhaseIdx =
+    traversedCheckpointIndex ??
     rawCurrentPhaseIndex ??
     normalizedJourney.activePhaseIndex ??
     (currentPhaseMatches.length === 1 ? currentPhaseMatches[0] : -1);
@@ -1010,6 +1035,21 @@ export function advanceBoardRow(
     if ("error" in advanceDecision) return { error: advanceDecision.error, previousState };
     const nextPhaseIndex = advanceDecision.nextPhaseIndex;
     const nextPhaseId = plannedPhaseIds[nextPhaseIndex] ?? plannedPhaseIds[0];
+    if (["WORKING", "USER_CHECKPOINTING"].includes(normalizedStatus) && nextPhaseId === "memory") {
+      return {
+        error:
+          normalizedStatus === "USER_CHECKPOINTING"
+            ? "A required or taken User Checkpoint must be followed by a later Work occurrence before Memory. Revise the Journey to insert Work after the checkpoint, then resume."
+            : "Active v2 Work -> Memory must use `takode board work-to-memory` with explicit synchronized commit or no-code evidence.",
+        previousState,
+      };
+    }
+    if (traversedCheckpointIndex !== undefined && nextPhaseId !== "work") {
+      return {
+        error: "A resolved User Checkpoint must resume into a later Work occurrence before any other phase.",
+        previousState,
+      };
+    }
     const nextPhase = getQuestJourneyPhase(nextPhaseId);
     if (nextPhase) {
       const now = Date.now();

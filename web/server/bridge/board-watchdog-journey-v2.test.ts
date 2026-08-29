@@ -47,21 +47,31 @@ function expectSuccess(result: ReturnType<typeof advance>) {
 }
 
 describe("board watchdog v2 Journey progression", () => {
-  it("walks through all built-in v2 Quest Journey phases", () => {
+  it("requires the guarded worker transition at the built-in Work boundary", () => {
     const session = makeSession();
     upsert(session, { questId: "q-1", status: "QUEUED" });
 
-    const expectedTransitions = [
-      ["QUEUED", "PLANNING"],
-      ["PLANNING", "WORKING"],
-      ["WORKING", "MEMORY"],
-    ];
+    expect(advance(session, "q-1")).toMatchObject({
+      previousState: "QUEUED",
+      newState: "PLANNING",
+      removed: false,
+    });
+    expect(advance(session, "q-1")).toMatchObject({
+      previousState: "PLANNING",
+      newState: "WORKING",
+      removed: false,
+    });
+    expect(advance(session, "q-1")).toMatchObject({
+      error: expect.stringContaining("work-to-memory"),
+      previousState: "WORKING",
+    });
 
-    for (const [from, to] of expectedTransitions) {
-      const result = advance(session, "q-1");
-      expect(result).toMatchObject({ previousState: from, newState: to, removed: false });
-    }
-
+    // The dedicated route records code evidence first, then performs this low-level upsert.
+    upsert(session, {
+      questId: "q-1",
+      status: "MEMORY",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 2, currentPhaseId: "memory" },
+    });
     expect(advance(session, "q-1")).toMatchObject({
       removed: true,
       previousState: "MEMORY",
@@ -108,15 +118,22 @@ describe("board watchdog v2 Journey progression", () => {
       }),
     );
 
-    const memory = expectSuccess(advance(session, "q-1"));
-    expect(memory?.newState).toBe("MEMORY");
-    expect(memory?.board[0].journey).toEqual(
+    expect(advance(session, "q-1")).toMatchObject({
+      error: expect.stringContaining("work-to-memory"),
+      previousState: "WORKING",
+    });
+
+    upsert(session, {
+      questId: "q-1",
+      status: "MEMORY",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 2, currentPhaseId: "memory" },
+    });
+    expect(session.board.get("q-1")?.journey).toEqual(
       expect.objectContaining({
         currentPhaseId: "memory",
-        nextLeaderAction: expect.stringContaining("memory leader brief"),
+        nextLeaderAction: expect.stringContaining("final Memory"),
       }),
     );
-
     expect(advance(session, "q-1")).toMatchObject({ removed: true, previousState: "MEMORY" });
   });
 
@@ -142,13 +159,70 @@ describe("board watchdog v2 Journey progression", () => {
     });
   });
 
-  it("advances from Work to final Memory in the default Journey", () => {
+  it("holds an unresolved User Checkpoint, then resumes into its later Work occurrence", () => {
+    const session = makeSession();
+
+    upsert(session, {
+      questId: "q-1",
+      status: "USER_CHECKPOINTING",
+      waitForInput: ["n-1"],
+      journey: {
+        phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+        activePhaseIndex: 1,
+        currentPhaseId: "work",
+      },
+    });
+
+    expect(advance(session, "q-1")).toMatchObject({
+      error: expect.stringContaining("unresolved"),
+      previousState: "USER_CHECKPOINTING",
+    });
+
+    upsert(session, { questId: "q-1", waitForInput: [] });
+    expect(advance(session, "q-1")).toMatchObject({
+      removed: false,
+      previousState: "USER_CHECKPOINTING",
+      newState: "WORKING",
+    });
+    expect(session.board.get("q-1")?.journey).toMatchObject({
+      activePhaseIndex: 3,
+      currentPhaseId: "work",
+    });
+    expect(advance(session, "q-1")).toMatchObject({
+      error: expect.stringContaining("work-to-memory"),
+      previousState: "WORKING",
+    });
+  });
+
+  it("requires a later Work occurrence after a taken checkpoint before Memory", () => {
+    const session = makeSession();
+
+    upsert(session, {
+      questId: "q-1",
+      status: "USER_CHECKPOINTING",
+      journey: {
+        phaseIds: ["alignment", "work", "user-checkpoint", "memory"],
+        activePhaseIndex: 1,
+        currentPhaseId: "work",
+      },
+    });
+
+    expect(advance(session, "q-1")).toMatchObject({
+      error: expect.stringContaining("later Work occurrence"),
+      previousState: "USER_CHECKPOINTING",
+    });
+    expect(session.board.get("q-1")?.status).toBe("USER_CHECKPOINTING");
+  });
+
+  it("blocks generic advance from Work to final Memory", () => {
     const session = makeSession();
 
     upsert(session, { questId: "q-1", status: "WORKING" });
 
-    const result = expectSuccess(advance(session, "q-1"));
-    expect(result).toMatchObject({ removed: false, newState: "MEMORY" });
-    expect(result?.board[0].journey?.currentPhaseId).toBe("memory");
+    expect(advance(session, "q-1")).toMatchObject({
+      error: expect.stringContaining("work-to-memory"),
+      previousState: "WORKING",
+    });
+    expect(session.board.get("q-1")?.status).toBe("WORKING");
   });
 });

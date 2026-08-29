@@ -180,6 +180,7 @@ import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
+import { validateV2CompletionGitState } from "./routes/quests.js";
 import { _resetModelCache } from "./routes/system.js";
 import { trafficStats } from "./traffic-stats.js";
 import { _resetServerLoggerForTest, createLogger, initServerLogger } from "./server-logger.js";
@@ -1252,18 +1253,19 @@ describe("POST /api/quests/:questId/complete", () => {
     });
   }
 
-  it("allows the assigned worker to complete an active v2 Memory row with final evidence", async () => {
+  it("uses Work-recorded code commits for active v2 Memory completion without resubmission", async () => {
     const auth = installV2MemoryFixture({
       workerState: { total_lines_added: 12, total_lines_removed: 1 },
+      quest: { commitShas: ["abc1234"] },
     });
 
-    const res = await postV2Complete({ commitShas: ["abc1234"] }, auth);
+    const res = await postV2Complete({}, auth);
 
     expect(res.status).toBe(200);
     expect(bridge.getSessionGitStateDeps).toHaveBeenCalled();
     expect(bridge.refreshWorktreeGitStateForSnapshot).not.toHaveBeenCalled();
     expect(questStore.completeQuest).toHaveBeenCalledWith("q-1", [], {
-      commitShas: ["abc1234"],
+      commitShas: undefined,
       memoryCommitShas: undefined,
       debrief: "Completed the accepted work and final Memory closure.",
       debriefTldr: "Accepted work is complete with final Memory closure.",
@@ -1271,11 +1273,57 @@ describe("POST /api/quests/:questId/complete", () => {
     expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1");
   });
 
+  it("allows final Memory to repeat code SHAs that Work already recorded", async () => {
+    const auth = installV2MemoryFixture({
+      workerState: { total_lines_added: 12 },
+      quest: { commitShas: ["abc1234"] },
+    });
+
+    const res = await postV2Complete({ commitShas: ["ABC1234", "abc1234"] }, auth);
+
+    expect(res.status).toBe(200);
+    expect(questStore.completeQuest).toHaveBeenCalledWith(
+      "q-1",
+      [],
+      expect.objectContaining({ commitShas: ["ABC1234", "abc1234"] }),
+    );
+  });
+
+  it("rejects final Memory attempts to introduce a new code commit SHA", async () => {
+    const auth = installV2MemoryFixture({ quest: { commitShas: ["abc1234"] } });
+
+    const res = await postV2Complete({ commitShas: ["deadbeef"] }, auth);
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("Work -> Memory") });
+    expect(questStore.completeQuest).not.toHaveBeenCalled();
+  });
+
+  it("does not let memory-repository SHAs substitute for missing Work code evidence", () => {
+    // Memory SHAs are intentionally absent from this validator's contract: only
+    // code commits already stored on the quest can cover tracked project changes.
+    expect(
+      validateV2CompletionGitState(
+        {
+          cwd: "/repo",
+          diff_base_branch: "origin/feature",
+          git_ahead: 0,
+          git_behind: 0,
+          total_lines_added: 12,
+          total_lines_removed: 0,
+          git_status_refresh_error: null,
+          diff_stats_skipped_reason: null,
+        },
+        undefined,
+      ),
+    ).toContain("Work -> Memory");
+  });
+
   it("fails closed when the authoritative git refresh path is unavailable", async () => {
-    const auth = installV2MemoryFixture();
+    const auth = installV2MemoryFixture({ quest: { commitShas: ["abc1234"] } });
     bridge.getSessionGitStateDeps.mockReturnValueOnce(undefined);
 
-    const res = await postV2Complete({ commitShas: ["abc1234"] }, auth);
+    const res = await postV2Complete({}, auth);
 
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({
@@ -1402,7 +1450,7 @@ describe("POST /api/quests/:questId/complete", () => {
   });
 
   it("rejects dirty tracked git status even when commit metadata is present", async () => {
-    const auth = installV2MemoryFixture();
+    const auth = installV2MemoryFixture({ quest: { commitShas: ["abc1234"] } });
     mockExecSync.mockImplementation((cmd?: string) =>
       cmd?.includes("status --porcelain --untracked-files=no") ? " M web/server/file.ts\n" : "",
     );
@@ -1415,7 +1463,10 @@ describe("POST /api/quests/:questId/complete", () => {
   });
 
   it("rejects remote-backed worktree completion when the caller self-selects local-clean", async () => {
-    const auth = installV2MemoryFixture({ workerState: { git_ahead: 2 } });
+    const auth = installV2MemoryFixture({
+      workerState: { git_ahead: 2 },
+      quest: { commitShas: ["abc1234"] },
+    });
 
     const res = await postV2Complete({ commitShas: ["abc1234"], v2CompletionSync: "local-clean" }, auth);
 
@@ -1427,6 +1478,7 @@ describe("POST /api/quests/:questId/complete", () => {
   it("rejects remote-backed non-worktree completion when the caller self-selects local-clean", async () => {
     const auth = installV2MemoryFixture({
       workerState: { is_worktree: false, git_ahead: 2, git_behind: 1 },
+      quest: { commitShas: ["abc1234"] },
     });
 
     const res = await postV2Complete({ commitShas: ["abc1234"], v2CompletionSync: "local-clean" }, auth);
@@ -1454,6 +1506,7 @@ describe("POST /api/quests/:questId/complete", () => {
         diff_base_branch: "",
         total_lines_added: 4,
       },
+      quest: { commitShas: ["abc1234"] },
     });
 
     const res = await postV2Complete({ commitShas: ["abc1234"], v2CompletionSync: "local-clean" }, auth);

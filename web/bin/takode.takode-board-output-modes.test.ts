@@ -126,7 +126,7 @@ describe("takode board output modes", () => {
 
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("#558 idle / #560 running");
-      expect(result.stdout).toContain("review the Work note for blockers or checkpoint needs");
+      expect(result.stdout).toContain("review the Work note and transition evidence for blockers or checkpoint needs");
       expect(result.stdout).not.toContain("revised:");
       expect(result.stdout).not.toContain("Need another Work pass before Memory");
     } finally {

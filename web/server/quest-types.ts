@@ -368,13 +368,15 @@ export interface QuestAutocompleteCandidate {
   title: string;
 }
 
-/** Minimal canonical title metadata for bounded by-id browser hydration. */
+/** Minimal canonical metadata for bounded by-id browser hydration and live quest updates. */
 export interface QuestTitlePreview {
   questId: string;
   title: string;
   version: number;
-  /** Canonical record freshness. Older persisted quests may omit this outside the title projection. */
+  /** Canonical record freshness. Older persisted quests may omit this outside the exact projection. */
   updatedAt?: number;
+  /** Ordered synchronized code commits. Omitted only by legacy or title-only producers. */
+  commitShas?: string[];
 }
 
 export interface QuestTitlePreviewResponse {

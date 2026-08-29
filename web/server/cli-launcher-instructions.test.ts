@@ -346,6 +346,19 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Work owns the old middle phases");
     expect(result).toContain("worker-owned Work -> Memory");
     expect(result).toContain("Report accepted Work before Memory closure");
+    expect(result).toContain("--work-note <feedback-index> --commit <sha>");
+    expect(result).toContain("Genuine zero-git-tracked-change Work uses the mutually exclusive `--no-code` mode");
+    expect(result).toContain("older quest commits do not replace it");
+    expect(result).toContain("The transition attaches code metadata before entering Memory");
+    expect(result).toContain("direct approved optional checkpoint immediately before Memory");
+    expect(result).toContain("`--skip-optional-checkpoint <reason>`");
+    expect(result).toContain("Required or taken checkpoints must be followed by later Work before Memory");
+    expect(result).toContain(
+      "generic advance may resume repeated plans into later Work but may not skip directly into Memory",
+    );
+    expect(result).toContain("route back to Work instead of first-attaching them during Memory");
+    expect(result).toContain("Memory may attach only separate file-based memory-repository commits");
+    expect(result).toContain("`--memory-commit` / `--memory-commits`");
     expect(result).toContain("the worker stops the Work turn");
     expect(result).toContain("Promptly tell the user the main accepted answer, finding, or outcome");
     expect(result).toContain("a user-facing thread may be Ready once the accepted result is reported");

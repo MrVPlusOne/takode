@@ -61,6 +61,8 @@ If evidence was not durably recorded before the failure, recover the smallest us
 
 Normal phase notes are not file-based memory. Final Memory owns durable-state closure for non-cancelled quests.
 
+Before final Memory dispatch, verify tracked Work commits are already attached as structured quest metadata by the guarded Work -> Memory transition. Missing code evidence returns to Work; do not send synchronized Work SHAs as a Memory delta so Memory can first-attach them. File-based memory-repository commits remain separate and may be added during Memory.
+
 Include memory deltas in a handoff only when the actor cannot infer them:
 
 - files or memory decisions already inspected
